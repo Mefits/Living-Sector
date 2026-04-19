@@ -1,0 +1,47 @@
+[workspace]
+members = ["crates/sim_core", "crates/sim_server"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["David Clausen"]
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime (sim_server only)
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# Database (sim_server only)
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "json", "migrate", "macros"] }
+
+# Concurrency
+dashmap = "6"
+flume = "0.11"
+rayon = "1"
+arc-swap = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+rand = "0.8"
+ordered-float = "4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

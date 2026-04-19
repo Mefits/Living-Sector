@@ -1,0 +1,15 @@
+[package]
+name = "sim_core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rayon = { workspace = true }
+rand = { workspace = true }
+ordered-float = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# nothing special needed — all tests are pure
