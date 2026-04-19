@@ -41,9 +41,11 @@ npm-debug.log
 *.db
 *.db-*
 
-# Runtime-bound port sidecar written next to the DB on every boot.
+# Runtime-bound sidecars written next to the DB on every boot.
 /priv/port.txt
 port.txt
+/priv/beam.pid
+beam.pid
 
 # OS files
 .DS_Store

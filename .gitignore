@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editor / IDE
+*.swp
+*~
+.vscode/settings.json
+.vscode/*.code-workspace
+.idea/
+
+# Claude Code harness — local settings are machine-specific
+**/.claude/settings.local.json
+**/.claude/projects/
+
+# Any top-level scratch files / one-off archives
+*.tar.gz
+/backup/
+
+# Rust (simulator-rust/ — remove these lines if you want to track that project)
+simulator-rust/target/
