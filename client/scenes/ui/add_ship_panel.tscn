@@ -1,0 +1,112 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/add_ship_panel.gd" id="1"]
+
+[node name="AddShipPanel" type="PanelContainer"]
+script = ExtResource("1")
+custom_minimum_size = Vector2(360, 0)
+
+[node name="VBox" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="TopRow" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="VBox/TopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Add Ship"
+theme_override_font_sizes/font_size = 16
+
+[node name="CloseButton" type="Button" parent="VBox/TopRow"]
+layout_mode = 2
+text = "X"
+flat = true
+
+[node name="HSeparator" type="HSeparator" parent="VBox"]
+layout_mode = 2
+
+[node name="Fields" type="VBoxContainer" parent="VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="NameRow" type="HBoxContainer" parent="VBox/Fields"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="VBox/Fields/NameRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(110, 0)
+text = "Name"
+
+[node name="NameEdit" type="LineEdit" parent="VBox/Fields/NameRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "e.g. Artemis-7"
+
+[node name="FactionRow" type="HBoxContainer" parent="VBox/Fields"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="VBox/Fields/FactionRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(110, 0)
+text = "Faction"
+
+[node name="FactionOpt" type="OptionButton" parent="VBox/Fields/FactionRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ClassRow" type="HBoxContainer" parent="VBox/Fields"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="VBox/Fields/ClassRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(110, 0)
+text = "Class"
+
+[node name="ClassOpt" type="OptionButton" parent="VBox/Fields/ClassRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LocationRow" type="HBoxContainer" parent="VBox/Fields"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="VBox/Fields/LocationRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(110, 0)
+text = "Docked at"
+
+[node name="LocationOpt" type="OptionButton" parent="VBox/Fields/LocationRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CreditsRow" type="HBoxContainer" parent="VBox/Fields"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="VBox/Fields/CreditsRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(110, 0)
+text = "Credits"
+
+[node name="CreditsSpin" type="SpinBox" parent="VBox/Fields/CreditsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.0
+max_value = 999999.0
+step = 100.0
+value = 5000.0
+
+[node name="HSeparator2" type="HSeparator" parent="VBox"]
+layout_mode = 2
+
+[node name="Footer" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+alignment = 2
+
+[node name="CancelButton" type="Button" parent="VBox/Footer"]
+layout_mode = 2
+text = "Cancel"
+
+[node name="CreateButton" type="Button" parent="VBox/Footer"]
+layout_mode = 2
+text = "Create"

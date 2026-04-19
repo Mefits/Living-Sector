@@ -1,0 +1,12 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+tmp/
+.DS_Store
+
+# Local dev-mode toggles read by ServerManager (see dev.env.example)
+dev.env
+
+simulator/
+build/

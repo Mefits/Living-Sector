@@ -1,0 +1,135 @@
+[gd_scene load_steps=3 format=3 uid="uid://c4hud"]
+
+[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="2"]
+
+[node name="HUD" type="CanvasLayer"]
+script = ExtResource("1")
+
+[node name="TopLeft" type="HBoxContainer" parent="."]
+anchors_preset = 0
+offset_right = 500.0
+offset_bottom = 30.0
+theme_override_constants/separation = 20
+
+[node name="TickLabel" type="Label" parent="TopLeft"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Tick: 0"
+
+[node name="SpeedLabel" type="Label" parent="TopLeft"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Speed: 1x"
+
+[node name="ShipCountLabel" type="Label" parent="TopLeft"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Ships: 0"
+
+[node name="FPSLabel" type="Label" parent="TopLeft"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "FPS: 0"
+
+[node name="TopRight" type="HBoxContainer" parent="."]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -400.0
+offset_bottom = 36.0
+grow_horizontal = 0
+theme_override_constants/separation = 8
+
+[node name="PauseButton" type="Button" parent="TopRight"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Pause"
+
+[node name="Speed1xButton" type="Button" parent="TopRight"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "1x"
+
+[node name="Speed2xButton" type="Button" parent="TopRight"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "2x"
+
+[node name="Speed5xButton" type="Button" parent="TopRight"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "5x"
+
+[node name="Speed10xButton" type="Button" parent="TopRight"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "10x"
+
+[node name="Sep" type="VSeparator" parent="TopRight"]
+layout_mode = 2
+
+[node name="ObserverButton" type="Button" parent="TopRight"]
+unique_name_in_owner = true
+layout_mode = 2
+text = ">> Observer"
+
+[node name="Sep2" type="VSeparator" parent="TopRight"]
+layout_mode = 2
+
+[node name="ShipListButton" type="Button" parent="TopRight"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Ships"
+
+[node name="MarketButton" type="Button" parent="TopRight"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Market"
+
+[node name="VSep3" type="VSeparator" parent="TopRight"]
+layout_mode = 2
+
+[node name="SaveButton" type="Button" parent="TopRight"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Save"
+
+[node name="SaveAsButton" type="Button" parent="TopRight"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Save As…"
+
+[node name="BottomLeft" type="MarginContainer" parent="."]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_top = -30.0
+offset_right = 200.0
+grow_vertical = 0
+
+[node name="StatusLabel" type="Label" parent="BottomLeft"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Disconnected"
+
+[node name="MinimapAnchor" type="Control" parent="."]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -190.0
+offset_top = -190.0
+grow_horizontal = 0
+grow_vertical = 0
+
+[node name="Minimap" type="Control" parent="MinimapAnchor"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("2")

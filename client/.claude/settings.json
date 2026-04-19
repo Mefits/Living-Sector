@@ -1,0 +1,51 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/dclausen/code/spaceproject/simulator/**)",
+      "Read(//Users/dclausen/code/spaceproject/**)",
+      "Bash(curl -s http://localhost:4000/api/report)",
+      "Bash(curl -s http://localhost:4000/api/health)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(git clone:*)",
+      "mcp__godot__get_project_info",
+      "mcp__godot__run_project",
+      "mcp__godot__get_debug_output",
+      "mcp__godot__stop_project",
+      "Read(//Applications/**)",
+      "Bash(ls /Users/dclausen/code/spaceproject/client/tmp/spacestations/*.obj)",
+      "Bash(ls /Users/dclausen/code/spaceproject/client/tmp/spacestations/*.png)",
+      "Bash(grep \"embedded_image_handling\" assets/ships/*.gltf.import)",
+      "Bash(ls assets/planets/*Atlas*)",
+      "Bash(rm -f assets/planets/Planet_*_Atlas.png assets/planets/Planet_*_Atlas.png.import)",
+      "Bash(rm -f /Users/dclausen/code/spaceproject/client/.godot/imported/Planet_*)",
+      "WebFetch(domain:foxssake.github.io)",
+      "WebFetch(domain:netfox.docs.foxssake.io)",
+      "Read(//Users/dclausen/code/**)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:4000/api/report)",
+      "Bash(pip3 install:*)",
+      "Bash(PYTHONPATH=/Users/dclausen/Library/Python/3.13/lib/python/site-packages python3 /tmp/phx_ping.py)",
+      "Bash(curl -sSL -o chakra-petch.ttf \"https://github.com/google/fonts/raw/main/ofl/chakrapetch/ChakraPetch-Medium.ttf\")",
+      "Bash(curl -sSL -o exo2.ttf \"https://github.com/google/fonts/raw/main/ofl/exo2/static/Exo2-Regular.ttf\")",
+      "Bash(curl -sSL -o exo2.ttf \"https://cdn.jsdelivr.net/npm/@fontsource/exo-2/files/exo-2-latin-400-normal.ttf\")",
+      "Bash(curl -sSL -o exo2.ttf \"https://cdn.jsdelivr.net/npm/@fontsource/exo-2@latest/files/exo-2-latin-400-normal.woff2\")",
+      "Bash(curl -sSL -o exo2.ttf \"https://media.githubusercontent.com/media/google/fonts/main/ofl/exo2/static/Exo2-Regular.ttf\")",
+      "Bash(curl -v -o exo2.ttf \"https://github.com/google/fonts/raw/main/ofl/exo2/static/Exo2-Regular.ttf\")",
+      "Bash(curl -sSL -o exo2.ttf \"https://raw.githubusercontent.com/fontsource/font-files/main/fonts/google/exo-2/files/exo-2-latin-400-normal.woff2\")",
+      "Bash(curl -sL \"https://api.fontsource.org/v1/fonts/exo-2\")",
+      "Bash(curl -sSL -o exo2.ttf \"https://cdn.jsdelivr.net/fontsource/fonts/exo-2@latest/latin-400-normal.ttf\")",
+      "Bash(curl -sSL -o kenney-scifi.zip \"https://kenney.nl/media/pages/assets/ui-pack-sci-fi/a1da70b67f-1677693842/kenney_ui-pack-sci-fi.zip\")",
+      "Bash(curl -sSL \"https://kenney.nl/assets/ui-pack-sci-fi\")",
+      "Bash(curl -sSL -o kenney-scifi.zip \"https://kenney.nl/media/pages/assets/ui-pack-sci-fi/d83f166279-1724181109/kenney_ui-pack-space-expansion.zip\")",
+      "Bash(unzip -q kenney-scifi.zip -d kenney-extract/)",
+      "Read(//private/**)",
+      "Bash(awk 'NR>=46 && NR<=55' /Users/dclausen/code/spaceproject/client/scripts/autoload/game_state.gd)",
+      "Bash(find /Users/dclausen/code/spaceproject -type f \\\\\\( -name \"*.md\" -o -name \"*.txt\" \\\\\\) -exec grep -l \"health\" {} \\\\;)",
+      "Read(//Volumes/**)",
+      "Bash(chmod +x /Users/dclausen/code/spaceproject/client/scripts/post_export.sh)"
+    ],
+    "additionalDirectories": [
+      "/Users/dclausen/code/spaceproject/client/.godot/imported",
+      "/Users/dclausen/code/spaceproject/client/assets/ships"
+    ]
+  }
+}

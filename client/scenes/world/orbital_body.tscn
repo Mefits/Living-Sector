@@ -1,0 +1,17 @@
+[gd_scene load_steps=2 format=3 uid="uid://c4orbital_body"]
+
+[ext_resource type="Script" path="res://scripts/world/orbital_body.gd" id="1"]
+
+[node name="OrbitalBody" type="Node3D"]
+script = ExtResource("1")
+
+[node name="Label3D" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+pixel_size = 0.02
+font_size = 32
+text = "Body"
+billboard = 1
+render_priority = 10
+outline_size = 8
+modulate = Color(1, 1, 1, 1)
+outline_modulate = Color(0, 0, 0, 0.8)
