@@ -21,6 +21,7 @@ dashmap = { workspace = true }
 flume = { workspace = true }
 rayon = { workspace = true }
 arc-swap = { workspace = true }
+hecs = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }

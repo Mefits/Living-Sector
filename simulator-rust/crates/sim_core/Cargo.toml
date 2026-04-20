@@ -10,6 +10,7 @@ rayon = { workspace = true }
 rand = { workspace = true }
 ordered-float = { workspace = true }
 thiserror = { workspace = true }
+hecs = { workspace = true }
 
 [dev-dependencies]
 # nothing special needed — all tests are pure

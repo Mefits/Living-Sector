@@ -39,12 +39,19 @@ simulator-rust/
 
 ## Architecture Principles
 
-- `sim_core` owns ALL agent state — no locks during tick. Tick loop has exclusive access.
-- Rayon `par_iter_mut()` over agent slices for CPU parallelism within each tick phase.
+- **hecs ECS** for entity/component storage — archetype-based, cache-friendly at 100k+ scale.
+  Each agent type is spawned with a bundle of small components (ship = 9 components: Identity,
+  Position, Transit, Cargo, Fuel, Economy, AI, Memory, Lifecycle). Ticks query only the
+  components they need — position updates don't pull cargo into cache.
+- **Unified command buffer** for cross-phase effects. Phases read world state, write
+  `SimCommand`s to a buffer, and never mutate mid-phase. Next phase drains and applies. Gives
+  deterministic replay, no parallel-write conflicts, clean debug audit trail.
+- `sim_core` owns all agent state (the `hecs::World` inside `AgentStore`). Tick loop has
+  exclusive access — no locks during tick.
+- Rayon `par_iter_mut()` for CPU parallelism within each tick phase (where hecs allows).
 - `DashMap` snapshot caches for concurrent reads from HTTP/WS handlers.
 - Tokio only for I/O: WebSocket connections, SQLite writes, HTTP.
 - No per-agent Tokio tasks — agent logic is CPU work, not async I/O.
-- Ship→Market communication goes through a per-tick output buffer, drained at phase boundary.
 - SQLite pool size = 1 (WAL mode; one writer, dedup before flushing).
 - Bundled SQLite (`libsqlite3-sys` `bundled` feature) — no DLL on Windows.
 
@@ -61,6 +68,7 @@ simulator-rust/
 | flume 0.11 | Channels engine→WS, engine→DB |
 | tracing | Structured logging |
 | arc-swap | Hot-swappable world registry |
+| hecs 0.10 | ECS entity/component storage |
 
 ## Tick Phase Ordering (125ms per tick, 8 tps)
 
@@ -123,14 +131,16 @@ are unchanged — the seeder maps them to the new schema on first boot.
 - [x] World data JSON files copied
 - **35 tests passing**
 
-### Phase 2 — State Structs + DB + Spawner (next)
-Files: `sim_core/src/agents/`, `sim_core/src/simulation/spawner.rs`, `sim_server/src/db/`
-- [ ] Agent state structs (ShipState, MarketState, FacilityState, PopState, FactionState, BodyState)
-- [ ] SQLite migrations (new schema)
-- [ ] Seeder: JSON world files → SQLite
-- [ ] Spawner: reads DB → populates AgentStore
-- [ ] Engine skeleton: tick counter increments, logs agent counts
-**Done when**: binary starts, logs "loaded 223 ships from DB", tick advances at 8 tps
+### Phase 2 — State Structs + DB + Spawner ✅ (completed)
+Files: `sim_core/src/agents/`, `sim_core/src/simulation/`, `sim_server/src/db/`
+- [x] Agent components (ship: 9; market: 5; facility: 4; pop: 4; body: 3; faction: 1)
+- [x] `SimCommand` + `CommandBuffer` for deterministic cross-phase effects
+- [x] SQLite schema (typed columns, minimal JSON for cargo/price-maps)
+- [x] Seeder: JSON world files → SQLite (idempotent upserts)
+- [x] Spawner: SQLite → hecs::World + string-id lookup HashMaps
+- [x] Engine tick loop: orbital body advancement, tick counter
+- [x] Smoke scripts: `scripts/verify.sh`, `scripts/smoke.sh`, `scripts/check-api.sh`
+- **Verified**: binary loads 223 ships + 56 facilities + 23 markets + 19 pops + 6 factions + 23 bodies, logs `sim:ready`, tick advances at 8 tps.
 
 ### Phase 3 — Market Logic
 Files: `sim_core/src/agents/market.rs`, `sim_core/src/economy/contracts.rs`
@@ -176,6 +186,7 @@ Files: `sim_core/src/agents/facility.rs`, `population.rs`, `faction.rs`
 | Date | Session | Work Done |
 |---|---|---|
 | 2026-04-19 | 1 | Architecture designed, workspace scaffolded, Phase 1 complete (35 tests) |
+| 2026-04-20 | 2 | Pivoted to hecs ECS + command buffer pattern; Phase 2 complete (38 tests, binary boots and ticks with full world) |
 
 ## Cross-Compilation (Windows)
 

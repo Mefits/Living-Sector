@@ -27,6 +27,9 @@ flume = "0.11"
 rayon = "1"
 arc-swap = "1"
 
+# ECS (entity-component storage, archetype-based, cache-friendly at scale)
+hecs = "0.10"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
