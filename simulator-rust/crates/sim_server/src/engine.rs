@@ -6,7 +6,9 @@ use crate::{
 use sim_core::{
     agents::{
         celestial_body::BodyOrbit,
+        facility,
         market::{self, MarketIdentity, MarketPricing},
+        population,
         ship::{self, ShipPosition},
     },
     simulation::{
@@ -97,6 +99,8 @@ pub async fn run_tick_loop(
         tick_bodies(&mut store, tick_scale);
         ship::tick_ships(&mut store.world, &registry, &mut commands, tick, tick_scale, tick_mult);
         apply_supply_commands(&mut store, &mut commands);
+        facility::tick_facilities(&mut store.world, tick, tick_mult);
+        population::tick_populations(&mut store.world, tick, tick_mult);
         market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
         commands.clear();
 

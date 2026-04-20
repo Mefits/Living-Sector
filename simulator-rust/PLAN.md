@@ -192,12 +192,19 @@ Queued for next session (Godot-side):
 - Godot reads `sim:ready` from stdout before connecting
 - Test end-to-end connectivity with live game client
 
-### Phase 6 — Facility + Population + Faction
-Files: `sim_core/src/agents/facility.rs`, `population.rs`, `faction.rs`
-- [ ] Facility tick (recipes, mining, crew missions, docking)
-- [ ] Population tick (food, sentiment, labor, contracts)
-- [ ] Faction tick (reputation, treasury)
-**Done when**: full supply chain loop runs end-to-end
+### Phase 6 — Facility + Population ✅ (MVP; faction tick deferred)
+Files: `sim_core/src/economy/recipes.rs`, `sim_core/src/agents/facility.rs`, `sim_core/src/agents/population.rs`
+- [x] 10 production recipes: refinery (smelt_metals, process_ice, crack_fuel, refine_polymers), factory (components/electronics/tools/medical/luxury), farm (food)
+- [x] `recipes::execute` — limiting-factor scaling, rounds to viable output, caps at `max_batches`
+- [x] `facility::tick_facilities` — runs recipes against local market supply; mining_rigs extract from body resources
+- [x] `population::tick_populations` — consumes food/fuel from local market, produces labor commodity, updates food_satisfaction and sentiment
+- [x] Engine wired: bodies → ships → supply-apply → facilities → populations → markets
+- **Verified**: 40s smoke (WORLD_SPEED=4) shows avg ship credits rising 9427→13866 (+47%), max 20k→40k (doubled), 101 ships carrying cargo, ore price at earth hitting ceiling (ships respond by hauling). Full mining→refining→consumption chain active.
+- 60 tests (+4 for recipe execution)
+
+Deferred:
+- Faction tick (reputation decay, treasury flow from faction-owned facilities) — small code, not critical for economy demo
+- Contract board (pop-posted delivery contracts) — needs Phase 4.5 BT integration
 
 ### Phase 7 — Hardening + Windows
 - [ ] Cross-compile to Windows (x86_64-pc-windows-gnu)
@@ -215,6 +222,7 @@ Files: `sim_core/src/agents/facility.rs`, `population.rs`, `faction.rs`
 | 2026-04-20 | 3 | Phase 3 complete: price engine, 8-phase market tick, prices move naturally under supply/demand; 47 tests |
 | 2026-04-20 | 4 | Phase 4 MVP: ships observe markets, pick trade_run goals, travel & trade; avg credits +25% in 40s smoke; 56 tests |
 | 2026-04-20 | 5 | Phase 5 server: axum HTTP + WebSocket, snapshot cache, all CRUD endpoints verified; Godot client update deferred to next session |
+| 2026-04-20 | 6 | Phase 6: facility recipes (mining, smelting, manufacturing), population consumption/production, full economic loop — ship credits +47% in 40s smoke |
 
 ## Cross-Compilation (Windows)
 
