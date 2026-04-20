@@ -24,9 +24,7 @@ NetworkManager="*res://scripts/autoload/network_manager.gd"
 [debug]
 
 file_logging/enable_file_logging=true
-file_logging/enable_file_logging.pc=true
 file_logging/log_path="user://logs/client.log"
-file_logging/max_log_files=5
 
 [display]
 

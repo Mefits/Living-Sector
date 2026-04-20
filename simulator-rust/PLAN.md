@@ -216,6 +216,16 @@ Deferred:
 - [ ] Ship lifecycle (broke strikes, hoard detection, recycling) — counters tracked, decommission logic deferred
 - [ ] DB persistence worker — sim re-seeds from JSON on each boot today; needed for player saves
 
+### Phase 10 — Godot network_manager.gd update ✅
+Files: `client/scripts/autoload/network_manager.gd`, `client/scripts/autoload/server_manager.gd`, `simulator-rust/README.md`
+- [x] New `network_manager.gd` speaking the plain-JSON Rust protocol (port 8080, `/ws`). Old Phoenix Channels version preserved as `network_manager_phoenix.gd.bak`.
+- [x] Message handlers: server_hello, positions (filters entities where type=="ship"), ship_states, market_states, agent_state, sim_control_ack
+- [x] Client messages: hello, get_agent, get_snapshot, move_observer, sim_control
+- [x] ServerManager: `DEFAULT_PORT = 8080` now targets Rust sim. `SPACESIM_TARGET_ELIXIR=1` env var routes to 4000 for legacy use.
+- [x] Reconnect logic + debug logging preserved from Phoenix version
+- [x] README documents the new dev loop (run Rust sim in terminal 1, Godot picks it up via `SPACESIM_USE_EXISTING_SERVER=1` in `dev.env`)
+- **Not yet validated end-to-end on live Godot** — the GDScript is correct relative to the server's protocol.rs, but hand-testing from Godot is your call.
+
 ### Phase 9 — DB persistence worker ✅
 Files: `sim_server/src/db/persistence.rs`, `sim_server/src/engine.rs`, `sim_server/src/main.rs`
 - [x] `PersistenceWorker` runs as a separate tokio task, consumes `DbWrite` via mpsc channel, batches + dedups (same `(kind, db_id)` → latest wins), flushes on 5-second interval in a single transaction
@@ -277,6 +287,7 @@ Files: `sim_core/src/ai/behavior_tree.rs`, `sim_core/src/agents/ship.rs`
 | 2026-04-20 | 8c | Phase 8c: faction tick (5% facility tax), TransferCredits applied (market→facility); Terran treasury +58% in 60s |
 | 2026-04-20 | 8d | Phase 8d: ShipCrew aggregate (morale/fatigue), rest_crew goal & Rest action, efficiency driven by morale |
 | 2026-04-20 | 9 | Phase 9: DB persistence worker (mpsc + dedup + batch flush), tick counter resume on restart |
+| 2026-04-20 | 10 | Phase 10: Godot network_manager.gd rewritten for plain-JSON Rust protocol, port 8080 default, Phoenix version backed up |
 
 ## Cross-Compilation (Windows)
 

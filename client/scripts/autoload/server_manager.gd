@@ -17,7 +17,13 @@ extends Node
 signal server_died(reason: String)
 
 const DEFAULT_HOST := "localhost"
-const DEFAULT_PORT := 4000
+# Port 8080 is the Rust simulator's default (simulator-rust/). The old
+# Elixir sim used 4000; set SPACESIM_TARGET_ELIXIR=1 to restore that for
+# legacy use. With `SPACESIM_USE_EXISTING_SERVER=1` the client skips
+# spawning and talks to whichever simulator is already listening on this
+# port.
+const DEFAULT_PORT := 8080
+const ELIXIR_PORT := 4000
 const READY_POLL_INTERVAL := 0.15
 # Cold-boot of the packaged BEAM can be slow — migrations, seeding from
 # JSON, spawning ~350 agents — especially under macOS QoS clamp on a
@@ -39,6 +45,8 @@ var _using_existing_server: bool = false
 
 var _host: String = DEFAULT_HOST
 var _port: int = DEFAULT_PORT
+# Swap to the Elixir port when env asks for the legacy simulator.
+var _target_elixir: bool = false
 var _pid: int = -1
 # Absolute path to the .db the sim should open. Defaults to
 # user_data_dir/sim.db; load-save flow swaps this in before spawn.
@@ -62,6 +70,13 @@ var _crash_timer: float = 0.0
 
 
 func _ready() -> void:
+  # Env override for targeting the legacy Elixir simulator (port 4000).
+  if _env_truthy("SPACESIM_TARGET_ELIXIR") or _dev_env_truthy("SPACESIM_TARGET_ELIXIR"):
+    _target_elixir = true
+    _port = ELIXIR_PORT
+    print("[ServerManager] SPACESIM_TARGET_ELIXIR=1 — using Elixir port %d" % _port)
+  else:
+    print("[ServerManager] targeting Rust simulator on port %d" % _port)
   _ready_http = HTTPRequest.new()
   # 5s — localhost round-trip is sub-ms in steady state, but the very
   # first request after a process spawn sometimes takes a bit longer

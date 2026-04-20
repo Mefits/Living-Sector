@@ -1,53 +1,49 @@
 extends Node
 
-## Manages HTTP requests to the simulator REST API and a native WebSocket
-## connection speaking the Phoenix Channels v2 protocol directly.
+## Network layer for the Rust simulator (`spaceproject/simulator-rust/`).
 ##
-## Phoenix v2 message format: [join_ref, ref, topic, event, payload]
-##   phx_join:     [ref, ref, topic, "phx_join", {}]
-##   heartbeat:    [null, ref, "phoenix", "heartbeat", {}]
-##   broadcast:    [null, null, topic, event, payload]
-##   client push:  [join_ref, ref, topic, event, payload]
+## Protocol: plain JSON over WebSocket (no Phoenix channel envelope).
+## See `crates/sim_server/src/ws/protocol.rs` for the message types.
+##
+## Server → client (pushed):
+##   {"type": "server_hello",  "tick", "running", "agent_count", "interval_ms"}
+##   {"type": "positions",     "tick", "interval_ms", "entities": [{id, x, y, type}]}
+##   {"type": "ship_states",   "tick", "ships": [...]}
+##   {"type": "market_states", "tick", "markets": [...]}
+##   {"type": "agent_state",   "id", "data"}
+##   {"type": "sim_control_ack", "action", "tick", "running"}
+##
+## Client → server:
+##   {"type": "hello", "client_id": "..."}
+##   {"type": "get_agent", "id": "ship-artemis-7"}
+##   {"type": "get_snapshot", "agent_type": "ships"}
+##   {"type": "move_observer", "id", "x", "y", "radius"}
+##   {"type": "sim_control", "action": "pause" | "resume" | "set_speed" | "get_tick", ...}
+##
+## Previous version (Phoenix Channels v2 against the Elixir simulator) is
+## preserved as `network_manager_phoenix.gd.bak` for reference.
 
 signal connected
 signal disconnected
 
-# Host and port come from ServerManager, which resolves at connect-time
-# whether we're using an external dev server or a spawned BEAM.
-# These constants stay as safe fallbacks in case the autoload is missing.
-const DEFAULT_BASE_URL := "http://localhost:4000"
-const DEFAULT_WS_URL := "ws://localhost:4000/simulation/websocket?vsn=2.0.0"
-const REFRESH_INTERVAL := 30.0  # HTTP report re-fetch cadence
-const HEARTBEAT_INTERVAL := 25.0  # Server times out at 60s; send well before
+const DEFAULT_BASE_URL := "http://localhost:8080"
+const DEFAULT_WS_URL := "ws://localhost:8080/ws"
+const REFRESH_INTERVAL := 30.0
 const RECONNECT_DELAY := 2.0
 
-# Debug flags — flip these to see what's happening on the wire.
-# DEBUG_WS: lifecycle (connect, join, disconnect, errors)
-# DEBUG_WS_TRAFFIC: every inbound/outbound message. NOISY — positions fire
-# every ~125ms, so only enable when hunting a specific bug.
+# Debug flags — DEBUG_WS_TRAFFIC is noisy (~8 messages/sec from positions
+# broadcast alone); enable only when diagnosing a specific message.
 const DEBUG_WS := true
 const DEBUG_WS_TRAFFIC := false
 
-# WebSocket buffer sizes. Default inbound is 64 KB which is too small —
-# the server's ship_states / positions broadcasts can easily exceed that,
-# causing a 1009 "Message too big" close. 4 MB gives plenty of headroom
-# even with hundreds of ships per payload.
+# Inbound can peak at ~200 KB (ship_states with 223 ships every 8 ticks).
+# 4 MB gives headroom for larger fleets or burst reconnects.
 const WS_INBOUND_BUFFER := 4 * 1024 * 1024
 const WS_OUTBOUND_BUFFER := 1 * 1024 * 1024
 const WS_MAX_QUEUED_PACKETS := 4096
-# Cap how many inbound packets we process in a single frame so a backlog
-# after a long alt-tab becomes a brief catch-up rather than a multi-second
-# freeze. Normal peak is ~15 packets/frame at 60 fps, so 150 leaves plenty
-# of headroom; a full 4096 backlog drains over ~27 frames instead of one.
+# Cap per-frame packet drain so a backlog after alt-tab is a brief
+# catch-up, not a multi-second freeze. Normal peak ~15/frame at 60 fps.
 const MAX_PACKETS_PER_FRAME := 150
-
-const TOPICS := [
-	"simulation:tick",
-	"simulation:positions",
-	"simulation:ship_states",
-	"simulation:ship_events",
-	"simulation:markets",
-]
 
 var _http: HTTPRequest
 var _refresh_http: HTTPRequest
@@ -57,28 +53,15 @@ var _refresh_timer: float = 0.0
 # WebSocket state
 var _ws: WebSocketPeer
 var _ws_state: int = WebSocketPeer.STATE_CLOSED
-var _ref_counter: int = 0
-var _heartbeat_timer: float = 0.0
 var _reconnect_timer: float = -1.0
-# topic -> join_ref string (so outbound pushes use the right join_ref)
-var _join_refs: Dictionary = {}
-# topics that have received a successful phx_reply join
-var _joined_topics: Dictionary = {}
 
-# Cadence tracking for simulation:positions broadcasts. EMA smooths a
-# single dropped/delayed frame; pushed into GameState.observed_interval_ms
-# so interpolation can trust wall-clock timing over the server-reported
-# tick_interval_ms (which can drift when sim speed changes).
+# Cadence tracking for positions broadcasts (EMA smooth).
 var _last_positions_ms: int = -1
 var _last_positions_tick: int = -1
 
 
 func _ready() -> void:
 	_http = HTTPRequest.new()
-	# 30s for the initial /api/report: it's a big payload and the server
-	# occasionally stalls on the inner GenServer.call to Metrics. Without
-	# a timeout an HTTPRequest can hang indefinitely if the server never
-	# closes the connection.
 	_http.timeout = 30.0
 	_http.request_completed.connect(_on_http_completed)
 	add_child(_http)
@@ -89,11 +72,9 @@ func _ready() -> void:
 	add_child(_refresh_http)
 
 
-# -------------------- HTTP (unchanged from before) --------------------
+# -------------------- URL resolution --------------------
 
 func _base_url() -> String:
-	# ServerManager is an autoload — reliable. Fallback kept for safety
-	# in case someone loads this autoload without ServerManager present.
 	if ServerManager != null:
 		return "http://%s:%d" % [ServerManager.host(), ServerManager.port()]
 	return DEFAULT_BASE_URL
@@ -101,12 +82,11 @@ func _base_url() -> String:
 
 func _ws_url() -> String:
 	if ServerManager != null:
-		return (
-			"ws://%s:%d/simulation/websocket?vsn=2.0.0"
-			% [ServerManager.host(), ServerManager.port()]
-		)
+		return "ws://%s:%d/ws" % [ServerManager.host(), ServerManager.port()]
 	return DEFAULT_WS_URL
 
+
+# -------------------- HTTP --------------------
 
 func fetch_report(callback: Callable) -> void:
 	_pending_callback = callback
@@ -119,10 +99,8 @@ func fetch_report(callback: Callable) -> void:
 
 func post_sim_control(action: String, params: Dictionary = {}) -> void:
 	var url: String
-	var body: String = ""
-	var headers: PackedStringArray = PackedStringArray(
-		["Content-Type: application/json"]
-	)
+	var body := ""
+	var headers := PackedStringArray(["Content-Type: application/json"])
 
 	match action:
 		"pause":
@@ -138,9 +116,7 @@ func post_sim_control(action: String, params: Dictionary = {}) -> void:
 
 	var req := HTTPRequest.new()
 	add_child(req)
-	req.request_completed.connect(
-		func(_r, _c, _h, _b): req.queue_free()
-	)
+	req.request_completed.connect(func(_r, _c, _h, _b): req.queue_free())
 	req.request(url, headers, HTTPClient.METHOD_POST, body)
 
 
@@ -154,7 +130,6 @@ func _on_http_completed(
 			% [result, response_code, body.size()]
 		)
 		if body.size() > 0 and body.size() < 4096:
-			# Small bodies are likely error JSON from the server — log it.
 			push_error("[Network] body: %s" % body.get_string_from_utf8())
 		return
 	print("[Network] fetch_report got %d bytes" % body.size())
@@ -185,33 +160,29 @@ func _on_refresh_completed(
 	if json == null:
 		push_warning("[Network] 30s refresh: JSON parse failed")
 		return
-	GameState.refresh_world_data(json)
+	if GameState.has_method("refresh_world_data"):
+		GameState.refresh_world_data(json)
 
 
 func disconnect_ws() -> void:
-	# Cleanly tear down the WebSocket and cancel pending reconnects.
-	# Called when we're about to return to the main menu so we don't
-	# keep retrying against a dead server.
 	if _ws != null:
 		_ws.close(1000, "client disconnect")
 	_reconnect_timer = -1.0
-	_joined_topics.clear()
-	_join_refs.clear()
 
 
-# -------------------- Admin / god-mode HTTP --------------------
+# -------------------- Admin (not yet wired in Rust server) --------------------
 #
-# Callback signature: (response_code: int, body_text: String) -> void
-# Each call spawns a one-shot HTTPRequest that queue_frees on completion.
+# The Rust simulator's HTTP API currently only exposes read + sim-control
+# endpoints. Admin / god-mode endpoints (ship spawn, facility spawn,
+# save-as, market supply delta) will be added in a later phase. For now
+# these callbacks fire with response_code=404.
 
 func admin_create_ship(data: Dictionary, cb: Callable) -> void:
 	_admin_request(HTTPClient.METHOD_POST, "/api/admin/ships", data, cb)
 
 
 func admin_destroy_ship(ship_id: String, cb: Callable) -> void:
-	_admin_request(
-		HTTPClient.METHOD_DELETE, "/api/admin/ships/" + ship_id, null, cb
-	)
+	_admin_request(HTTPClient.METHOD_DELETE, "/api/admin/ships/" + ship_id, null, cb)
 
 
 func admin_create_facility(data: Dictionary, cb: Callable) -> void:
@@ -240,8 +211,6 @@ func admin_save_as(save_name: String, cb: Callable) -> void:
 func admin_market_supply_delta(
 	facility_location: String, commodity: String, delta: int, cb: Callable
 ) -> void:
-	# Server uses the location slug (e.g. "earth-station") not the
-	# facility_id ("facility-earth-station") in this path.
 	var path := "/api/admin/markets/" + facility_location + "/supply"
 	var body := {"commodity": commodity, "delta": delta}
 	_admin_request(HTTPClient.METHOD_POST, path, body, cb)
@@ -268,16 +237,13 @@ func _admin_request(
 
 func connect_websocket() -> void:
 	_ws = WebSocketPeer.new()
-	# IMPORTANT: buffer sizes must be set BEFORE connect_to_url
 	_ws.inbound_buffer_size = WS_INBOUND_BUFFER
 	_ws.outbound_buffer_size = WS_OUTBOUND_BUFFER
 	_ws.max_queued_packets = WS_MAX_QUEUED_PACKETS
 	var url := _ws_url()
-	var err: int = _ws.connect_to_url(url)
+	var err := _ws.connect_to_url(url)
 	if err != OK:
-		push_error(
-			"[Network] WebSocket connect_to_url failed: %d" % err
-		)
+		push_error("[Network] WebSocket connect_to_url failed: %d" % err)
 		_reconnect_timer = RECONNECT_DELAY
 		return
 	if DEBUG_WS:
@@ -285,22 +251,37 @@ func connect_websocket() -> void:
 
 
 func send_move_observer(id: String, x: float, y: float) -> void:
-	var topic := "simulation:tick"
 	if _ws_state != WebSocketPeer.STATE_OPEN:
 		return
-	if not _joined_topics.has(topic):
+	var msg := {
+		"type": "move_observer",
+		"id": id,
+		"x": x,
+		"y": y,
+		"radius": 20.0,
+	}
+	_ws.send_text(JSON.stringify(msg))
+
+
+func send_get_agent(id: String) -> void:
+	if _ws_state != WebSocketPeer.STATE_OPEN:
 		return
-	var join_ref: String = _join_refs.get(topic, "")
-	var ref := _next_ref()
-	var msg := [
-		join_ref, ref, topic, "move_observer",
-		{"id": id, "x": x, "y": y}
-	]
+	_ws.send_text(JSON.stringify({"type": "get_agent", "id": id}))
+
+
+func send_sim_control(action: String, extra: Dictionary = {}) -> void:
+	if _ws_state != WebSocketPeer.STATE_OPEN:
+		# Fallback to HTTP
+		post_sim_control(action, extra)
+		return
+	var msg := {"type": "sim_control", "action": action}
+	for k in extra.keys():
+		msg[k] = extra[k]
 	_ws.send_text(JSON.stringify(msg))
 
 
 func _process(delta: float) -> void:
-	# HTTP report refresh
+	# HTTP report refresh cadence
 	_refresh_timer += delta
 	if _refresh_timer >= REFRESH_INTERVAL:
 		_refresh_timer = 0.0
@@ -318,7 +299,7 @@ func _process(delta: float) -> void:
 		return
 
 	_ws.poll()
-	var new_state: int = _ws.get_ready_state()
+	var new_state := _ws.get_ready_state()
 
 	if new_state != _ws_state:
 		if DEBUG_WS:
@@ -335,17 +316,13 @@ func _process(delta: float) -> void:
 				_on_ws_closed()
 
 	if _ws_state == WebSocketPeer.STATE_OPEN:
-		_heartbeat_timer += delta
-		if _heartbeat_timer >= HEARTBEAT_INTERVAL:
-			_heartbeat_timer = 0.0
-			_send_heartbeat()
-		var drained: int = 0
+		var drained := 0
 		while _ws.get_available_packet_count() > 0:
 			if drained >= MAX_PACKETS_PER_FRAME:
 				if DEBUG_WS:
 					push_warning(
-						"[Network] Packet backlog: %d still queued, deferring to next frame"
-						% _ws.get_available_packet_count()
+						"[Network] Packet backlog: %d still queued, "
+						+ "deferring" % _ws.get_available_packet_count()
 					)
 				break
 			_handle_ws_packet(_ws.get_packet())
@@ -354,74 +331,127 @@ func _process(delta: float) -> void:
 
 func _on_ws_open() -> void:
 	print("[Network] WebSocket connected")
-	_heartbeat_timer = 0.0
-	_join_refs.clear()
-	_joined_topics.clear()
-	for topic in TOPICS:
-		_join_topic(topic)
-	# Factions are loaded from /api/report before connect_websocket, so
-	# they're already in GameState by the time we get here. Subscribe to
-	# each one for subsidy_posted notifications.
-	for faction_slug in GameState.factions.keys():
-		_join_topic("simulation:faction:%s" % str(faction_slug))
+	# Send an initial hello so the server can log us (optional, not required)
+	_ws.send_text(JSON.stringify({
+		"type": "hello",
+		"client_id": "godot-main"
+	}))
 	connected.emit()
 
 
 func _on_ws_closed() -> void:
-	var code: int = _ws.get_close_code()
-	var reason: String = _ws.get_close_reason()
-	print(
-		"[Network] WebSocket disconnected (code=%d reason=%s)" % [
-			code, reason
-		]
-	)
-	_join_refs.clear()
-	_joined_topics.clear()
+	var code := _ws.get_close_code()
+	var reason := _ws.get_close_reason()
+	print("[Network] WebSocket disconnected (code=%d reason=%s)" % [code, reason])
 	disconnected.emit()
 	_reconnect_timer = RECONNECT_DELAY
 
 
-func _next_ref() -> String:
-	_ref_counter += 1
-	return str(_ref_counter)
-
-
-func _join_topic(topic: String) -> void:
-	var ref := _next_ref()
-	_join_refs[topic] = ref
-	var msg := [ref, ref, topic, "phx_join", {}]
-	var text := JSON.stringify(msg)
-	if DEBUG_WS:
-		print("[Network] -> phx_join %s" % topic)
-	if DEBUG_WS_TRAFFIC:
-		print("[Network] OUT: %s" % text)
-	_ws.send_text(text)
-
-
-func _send_heartbeat() -> void:
-	var ref := _next_ref()
-	var msg: Array = [null, ref, "phoenix", "heartbeat", {}]
-	var text := JSON.stringify(msg)
-	if DEBUG_WS_TRAFFIC:
-		print("[Network] OUT: %s" % text)
-	_ws.send_text(text)
-
-
 func _handle_ws_packet(pkt: PackedByteArray) -> void:
-	var text: String = pkt.get_string_from_utf8()
+	var text := pkt.get_string_from_utf8()
 	if DEBUG_WS_TRAFFIC:
-		print("[Network] IN:  %s" % text)
+		print("[Network] IN: %s" % text)
 	var parsed = JSON.parse_string(text)
-	if not (parsed is Array) or parsed.size() < 5:
+	if not (parsed is Dictionary):
 		if DEBUG_WS:
-			push_warning(
-				"[Network] Unexpected packet shape: %s" % text
-			)
+			push_warning("[Network] non-object WS message: %s" % text)
 		return
-	var topic: String = str(parsed[2])
-	var event: String = str(parsed[3])
-	var payload = parsed[4]
-	_dispatch(topic, event, payload)
+	var msg_type := str(parsed.get("type", ""))
+	match msg_type:
+		"server_hello":
+			_handle_server_hello(parsed)
+		"positions":
+			_handle_positions(parsed)
+		"ship_states":
+			_handle_ship_states(parsed)
+		"market_states":
+			_handle_market_states(parsed)
+		"agent_state":
+			_handle_agent_state(parsed)
+		"sim_control_ack":
+			_handle_sim_control_ack(parsed)
+		_:
+			if DEBUG_WS:
+				push_warning("[Network] unknown message type: %s" % msg_type)
+
+
+func _handle_server_hello(msg: Dictionary) -> void:
+	var tick := int(msg.get("tick", 0))
+	var running: bool = bool(msg.get("running", true))
+	var interval := int(msg.get("interval_ms", 125))
+	var count := int(msg.get("agent_count", 0))
+	print(
+		"[Network] server_hello: tick=%d running=%s interval=%dms agents=%d"
+		% [tick, running, interval, count]
+	)
+	if GameState.has_method("update_tick"):
+		GameState.update_tick(tick)
+	if "tick_interval_ms" in GameState:
+		GameState.tick_interval_ms = interval
+
+
+func _handle_positions(msg: Dictionary) -> void:
+	var new_tick := int(msg.get("tick", 0))
+	# Observed wall-clock cadence (EMA).
+	var now_ms := Time.get_ticks_msec()
+	if _last_positions_ms > 0:
+		var gap := now_ms - _last_positions_ms
+		if gap > 0 and "observed_interval_ms" in GameState:
+			if GameState.observed_interval_ms > 0:
+				GameState.observed_interval_ms = int(
+					0.7 * GameState.observed_interval_ms + 0.3 * gap
+				)
+			else:
+				GameState.observed_interval_ms = gap
+	_last_positions_ms = now_ms
+
+	if _last_positions_tick > 0 and "ticks_per_broadcast" in GameState:
+		var tick_delta := new_tick - _last_positions_tick
+		if tick_delta > 0:
+			GameState.ticks_per_broadcast = tick_delta
+	_last_positions_tick = new_tick
+
+	if GameState.has_method("update_tick"):
+		GameState.update_tick(new_tick)
+	var interval = msg.get("interval_ms")
+	if interval != null and "tick_interval_ms" in GameState:
+		GameState.tick_interval_ms = int(interval)
+
+	# Rust protocol uses "entities" with a "type" field (ship/body). Filter
+	# ships for GameState.update_positions which expects ship-shaped dicts.
+	var entities = msg.get("entities", [])
+	if entities is Array and GameState.has_method("update_positions"):
+		var ships: Array = []
+		for e in entities:
+			if e is Dictionary and str(e.get("type", "")) == "ship":
+				ships.append(e)
+		GameState.update_positions(ships)
+
+
+func _handle_ship_states(msg: Dictionary) -> void:
+	var ships = msg.get("ships", [])
+	if ships is Array and GameState.has_method("update_ship_states"):
+		GameState.update_ship_states(ships)
+
+
+func _handle_market_states(msg: Dictionary) -> void:
+	var markets = msg.get("markets", [])
+	if markets is Array and GameState.has_method("update_markets"):
+		GameState.update_markets(markets)
+
+
+func _handle_agent_state(msg: Dictionary) -> void:
+	# Reply to get_agent / get_snapshot. Apps that want to handle this
+	# should look at GameState or hook via a signal.
+	if DEBUG_WS:
+		print("[Network] agent_state for %s" % str(msg.get("id", "")))
+
+
+func _handle_sim_control_ack(msg: Dictionary) -> void:
+	print(
+		"[Network] sim_control_ack: action=%s tick=%d running=%s"
+		% [msg.get("action", "?"), int(msg.get("tick", 0)), msg.get("running", true)]
+	)
 
 
 func _state_name(s: int) -> String:
@@ -431,84 +461,3 @@ func _state_name(s: int) -> String:
 		WebSocketPeer.STATE_CLOSING: return "CLOSING"
 		WebSocketPeer.STATE_CLOSED: return "CLOSED"
 		_: return "UNKNOWN(%d)" % s
-
-
-func _dispatch(topic: String, event: String, payload) -> void:
-	# Join / heartbeat replies
-	if event == "phx_reply":
-		if payload is Dictionary:
-			var status: String = str(payload.get("status", ""))
-			if status == "ok" and topic != "phoenix":
-				if not _joined_topics.has(topic):
-					_joined_topics[topic] = true
-					print("[Network] Joined %s" % topic)
-			elif status == "error":
-				push_warning(
-					"[Network] Reply error on %s: %s" % [
-						topic, str(payload.get("response", ""))
-					]
-				)
-		return
-
-	if event == "phx_error" or event == "phx_close":
-		push_warning(
-			"[Network] Channel %s got %s — %s" % [topic, event, str(payload)]
-		)
-		_joined_topics.erase(topic)
-		return
-
-	if not (payload is Dictionary):
-		return
-
-	match topic:
-		"simulation:tick":
-			if event == "tick":
-				GameState.update_tick(int(payload.get("tick", 0)))
-		"simulation:positions":
-			if event == "positions":
-				var new_tick: int = int(payload.get("tick", 0))
-				# Observed wall-clock gap between broadcasts (EMA).
-				var now_ms: int = Time.get_ticks_msec()
-				if _last_positions_ms > 0:
-					var gap: int = now_ms - _last_positions_ms
-					if gap > 0:
-						if GameState.observed_interval_ms > 0:
-							GameState.observed_interval_ms = int(
-								0.7 * GameState.observed_interval_ms
-								+ 0.3 * gap
-							)
-						else:
-							GameState.observed_interval_ms = gap
-				_last_positions_ms = now_ms
-				# Ticks elapsed per broadcast — diagnostic signal for
-				# whether the server is batching or broadcasting per-tick.
-				if _last_positions_tick > 0:
-					var tick_delta: int = new_tick - _last_positions_tick
-					if tick_delta > 0:
-						GameState.ticks_per_broadcast = tick_delta
-				_last_positions_tick = new_tick
-
-				GameState.update_tick(new_tick)
-				var interval = payload.get("interval_ms")
-				if interval != null:
-					GameState.tick_interval_ms = int(interval)
-				var ships_array = payload.get("ships", [])
-				if ships_array is Array:
-					GameState.update_positions(ships_array)
-		"simulation:ship_states":
-			if event == "ship_states" or event == "states":
-				var ships_array = payload.get("ships", [])
-				if ships_array is Array:
-					GameState.update_ship_states(ships_array)
-		"simulation:ship_events":
-			GameState.handle_ship_event(event, payload)
-		"simulation:markets":
-			if event == "market_states" or event == "markets":
-				var markets_array = payload.get("markets", [])
-				if markets_array is Array:
-					GameState.update_markets(markets_array)
-		_:
-			# Dynamic per-faction topic (simulation:faction:<slug>)
-			if topic.begins_with("simulation:faction:"):
-				if event == "subsidy_posted":
-					GameState.handle_subsidy_posted(payload)

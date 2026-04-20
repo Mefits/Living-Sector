@@ -58,13 +58,35 @@ curl -X POST localhost:8080/api/sim/resume
 | Celestial bodies | 23 | Planets, moons, belts across Sol / Alpha Centauri / Tau Ceti |
 | Travel routes | 68 | Bidirectional pairs |
 
-## Godot client integration (pending)
+## Godot client integration
 
-The WS server is ready. The Godot client's `network_manager.gd` needs updating
-to speak the new plain-JSON protocol (see
-[`crates/sim_server/src/ws/protocol.rs`](crates/sim_server/src/ws/protocol.rs))
-instead of the old Phoenix channel envelope. Simulator prints
-`sim:ready ws=ws://...` to stdout so Godot can wait before connecting.
+The Godot `client/` has been updated to speak the new plain-JSON WebSocket
+protocol (see
+[`crates/sim_server/src/ws/protocol.rs`](crates/sim_server/src/ws/protocol.rs)).
+The previous Phoenix-Channels version is preserved as
+`client/scripts/autoload/network_manager_phoenix.gd.bak`.
+
+### Dev loop: Godot + Rust sim
+
+```bash
+# Terminal 1 — run the Rust simulator
+cd simulator-rust
+WORLD_SPEED=4.0 cargo run --bin simulator
+
+# Terminal 2 — launch Godot from the editor or:
+cd ../client
+# dev.env already has SPACESIM_USE_EXISTING_SERVER=1, so Godot won't
+# try to spawn a BEAM and will connect to localhost:8080 directly.
+godot project.godot
+```
+
+### Fallback to legacy Elixir
+
+If you want to run Godot against the old Elixir simulator, set
+`SPACESIM_TARGET_ELIXIR=1` in `client/dev.env` (or your shell). ServerManager
+will route to port 4000 and the Phoenix Channels path. Note: the updated
+network_manager.gd no longer speaks that protocol — for pure Elixir mode,
+swap `network_manager.gd` with the `.bak` file.
 
 ## Adding content
 
