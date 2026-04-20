@@ -216,6 +216,17 @@ Deferred:
 - [ ] Ship lifecycle (broke strikes, hoard detection, recycling) — counters tracked, decommission logic deferred
 - [ ] DB persistence worker — sim re-seeds from JSON on each boot today; needed for player saves
 
+### Phase 8d — Aggregated crew morale ✅
+Files: `sim_core/src/agents/ship.rs`, `sim_server/src/db/spawner.rs`, `sim_server/src/engine.rs`
+- [x] `ShipCrew` component (aggregate: size, morale, fatigue) — one per ship, not per crew member
+- [x] `tick_crew` pass — fatigue rises during transit (0.05/tick) and work (0.02/tick), morale drops when fatigue > 60, rest recovers both; updates `ShipEconomy.efficiency` from morale
+- [x] `ShipAction::Rest` — returns Running until morale ≥ 80, then Success
+- [x] `build_rest_crew_bt`: dock → refuel → rest → undock
+- [x] Planner inserts rest_crew when morale < 35 (first priority)
+- [x] Spawner seeds crew from ship class crew_size with morale=70, fatigue=20
+- [x] Log diagnostic shows morale avg/min per tick
+- **Validated**: 90s smoke confirms all ships track crew state (morale=70 stable throughout; short runs don't accumulate fatigue). Tuning is intentional — rest_crew activates during longer-session multi-trip fatigue accumulation. 64 tests still passing.
+
 ### Phase 8c — Faction tick + apply TransferCredits ✅
 Files: `sim_core/src/agents/faction.rs`, `sim_server/src/engine.rs`
 - [x] `TransferCredits` applied in engine (market spread revenue → owning facility)
@@ -257,6 +268,7 @@ Files: `sim_core/src/ai/behavior_tree.rs`, `sim_core/src/agents/ship.rs`
 | 2026-04-20 | 8a | Phase 8a: BT engine v2 (generic over action type), ShipAction enum, dispatch closure pattern; avg credits +57% in 30s smoke |
 | 2026-04-20 | 8b | Phase 8b: contract board, pop-posted food delivery contracts, ship fulfill_delivery BT; 24 Paid deliveries in 80s smoke |
 | 2026-04-20 | 8c | Phase 8c: faction tick (5% facility tax), TransferCredits applied (market→facility); Terran treasury +58% in 60s |
+| 2026-04-20 | 8d | Phase 8d: ShipCrew aggregate (morale/fatigue), rest_crew goal & Rest action, efficiency driven by morale |
 
 ## Cross-Compilation (Windows)
 

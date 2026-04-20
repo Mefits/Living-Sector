@@ -374,7 +374,7 @@ fn log_factions(store: &AgentStore, tick: u64) {
 }
 
 fn log_sample_ships(store: &AgentStore, tick: u64) {
-    use sim_core::agents::ship::{ShipAI, ShipCargo, ShipEconomy, ShipMemory};
+    use sim_core::agents::ship::{ShipAI, ShipCargo, ShipCrew, ShipEconomy, ShipMemory};
     let mut by_goal: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     let mut total_credits: i64 = 0;
     let mut ships_with_cargo: u32 = 0;
@@ -382,9 +382,11 @@ fn log_sample_ships(store: &AgentStore, tick: u64) {
     let mut max_credits: i64 = 0;
     let mut min_credits: i64 = i64::MAX;
     let mut total_visited: u32 = 0;
-    for (_e, (ai, econ, cargo, mem)) in store
+    let mut total_morale: u32 = 0;
+    let mut min_morale: u8 = 100;
+    for (_e, (ai, econ, cargo, mem, crew)) in store
         .world
-        .query::<(&ShipAI, &ShipEconomy, &ShipCargo, &ShipMemory)>()
+        .query::<(&ShipAI, &ShipEconomy, &ShipCargo, &ShipMemory, &ShipCrew)>()
         .iter()
     {
         *by_goal.entry(ai.current_goal.clone()).or_insert(0) += 1;
@@ -395,15 +397,18 @@ fn log_sample_ships(store: &AgentStore, tick: u64) {
             ships_with_cargo += 1;
         }
         total_visited += mem.visited.len() as u32;
+        total_morale += crew.morale as u32;
+        min_morale = min_morale.min(crew.morale);
         ship_count += 1;
     }
     if ship_count > 0 {
         let avg = total_credits / ship_count as i64;
         let avg_visited = total_visited as f32 / ship_count as f32;
+        let avg_morale = total_morale as f32 / ship_count as f32;
         info!(
             tick,
-            "ships: {:?} | credits avg/min/max={}/{}/{} | with_cargo={} | avg_visited_locs={:.1}",
-            by_goal, avg, min_credits, max_credits, ships_with_cargo, avg_visited,
+            "ships: {:?} | credits avg/min/max={}/{}/{} | with_cargo={} | avg_visited={:.1} | morale avg/min={:.0}/{}",
+            by_goal, avg, min_credits, max_credits, ships_with_cargo, avg_visited, avg_morale, min_morale,
         );
     }
 }

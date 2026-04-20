@@ -144,6 +144,9 @@ pub enum ShipAction {
     DeliverCargo { contract_id: String },
     /// Do nothing — always succeeds.
     Idle,
+    /// Shore leave: dwell at current location until crew morale recovers.
+    /// Returns Running until morale > CREW_REST_TARGET, then Success.
+    Rest,
 }
 
 /// Learned memory — price knowledge, visited locations.
@@ -161,6 +164,32 @@ pub struct ShipLifecycle {
     pub hoard_strikes: u8,
     pub idle_ticks: u32,
     pub dirty: bool,
+}
+
+/// Aggregated crew stats — one per ship, not per crew member.
+///
+/// Rather than spawning ~1000 individual crew entities (4× the agent count),
+/// we track aggregate morale and fatigue on the ship. Individual crew
+/// variation exists only at spawn time (in the DB); the runtime collapses
+/// them to an aggregate that drives ship efficiency.
+///
+/// - `morale`: 0–100. Low morale → low efficiency → slower/less profitable trades.
+/// - `fatigue`: 0–100. Rises during transit and docked-trading work,
+///   falls while on shore leave. Above the `CREW_FATIGUE_DRAIN_THRESHOLD`,
+///   morale starts dropping.
+#[derive(Debug, Clone)]
+pub struct ShipCrew {
+    pub size: u32,
+    pub morale: u8,
+    pub fatigue: u8,
+    pub dirty: bool,
+}
+
+impl ShipCrew {
+    /// Efficiency multiplier derived from morale: 0.5 at 0 morale, 1.0 at 100.
+    pub fn efficiency(&self) -> f32 {
+        0.5 + (self.morale as f32) / 200.0
+    }
 }
 
 /// Serializable snapshot for HTTP/WS clients — built by querying components.
@@ -247,6 +276,24 @@ const FUEL_CRITICAL_FRACTION: f32 = 0.25;
 const MIN_TRADE_MARGIN: f32 = 0.10; // 10% minimum margin
 const TRADE_QTY_DEFAULT: u32 = 50;
 
+// --- Crew morale constants ---
+/// Morale below this threshold triggers the `rest_crew` goal.
+pub const CREW_REST_TRIGGER: u8 = 35;
+/// Target morale for Rest to succeed.
+pub const CREW_REST_TARGET: u8 = 80;
+/// Fatigue above this starts dropping morale.
+pub const CREW_FATIGUE_DRAIN_THRESHOLD: u8 = 60;
+/// Per-tick fatigue gain while in transit.
+pub const FATIGUE_GAIN_TRANSIT: f32 = 0.05;
+/// Per-tick fatigue gain while working (at-location, not in Rest).
+pub const FATIGUE_GAIN_WORK: f32 = 0.02;
+/// Per-tick morale drop when fatigued (fatigue > threshold).
+pub const MORALE_DROP_PER_TICK: f32 = 0.04;
+/// Per-tick morale gain during Rest.
+pub const MORALE_GAIN_REST: f32 = 0.5;
+/// Per-tick fatigue recovery during Rest.
+pub const FATIGUE_RECOVER_REST: f32 = 0.8;
+
 /// Tick all ships in 3 passes to keep hecs borrows clean.
 pub fn tick_ships(
     world: &mut hecs::World,
@@ -259,7 +306,50 @@ pub fn tick_ships(
 ) {
     advance_transits(world, registry, tick, tick_scale);
     observe_prices(world, tick);
+    tick_crew(world);
     decide_and_act(world, registry, contracts, commands, tick, tick_multiplier);
+}
+
+/// Crew tick — updates morale/fatigue based on current ship state.
+/// Runs every tick. Rest-goal recovery happens here too: if the ship's
+/// AI is on the rest_crew goal and the ship is at a location (not in
+/// transit), morale recovers and fatigue falls.
+fn tick_crew(world: &mut hecs::World) {
+    for (_e, (ai, transit, position, crew, economy)) in world
+        .query_mut::<(
+            &ShipAI,
+            &ShipTransit,
+            &ShipPosition,
+            &mut ShipCrew,
+            &mut ShipEconomy,
+        )>()
+    {
+        let resting =
+            ai.current_goal == "rest_crew" && transit.transit.is_none() && position.location_name.is_some();
+
+        let mut fatigue = crew.fatigue as f32;
+        let mut morale = crew.morale as f32;
+
+        if resting {
+            fatigue = (fatigue - FATIGUE_RECOVER_REST).max(0.0);
+            morale = (morale + MORALE_GAIN_REST).min(100.0);
+        } else if transit.transit.is_some() {
+            fatigue = (fatigue + FATIGUE_GAIN_TRANSIT).min(100.0);
+            if fatigue > CREW_FATIGUE_DRAIN_THRESHOLD as f32 {
+                morale = (morale - MORALE_DROP_PER_TICK).max(0.0);
+            }
+        } else {
+            fatigue = (fatigue + FATIGUE_GAIN_WORK).min(100.0);
+            if fatigue > CREW_FATIGUE_DRAIN_THRESHOLD as f32 {
+                morale = (morale - MORALE_DROP_PER_TICK * 0.5).max(0.0);
+            }
+        }
+
+        crew.fatigue = fatigue as u8;
+        crew.morale = morale as u8;
+        economy.efficiency = crew.efficiency();
+        crew.dirty = true;
+    }
 }
 
 /// Pass 1: advance transit clocks, interpolate position, consume fuel.
@@ -394,6 +484,12 @@ fn decide_and_act(
             Err(_) => continue,
         };
 
+        // Snapshot crew state before the main mut borrow (needed for the planner).
+        let crew_snapshot: Option<ShipCrew> = world
+            .get::<&ShipCrew>(entity)
+            .ok()
+            .map(|c| (*c).clone());
+
         let mut q = match world.query_one::<(
             &mut ShipPosition,
             &mut ShipTransit,
@@ -419,7 +515,16 @@ fn decide_and_act(
 
         let needs_plan = ai.current_bt.is_none();
         if needs_plan {
-            let (goal, bt) = plan_goal(position, cargo, fuel, economy, memory, contracts, &ship_id);
+            let (goal, bt) = plan_goal(
+                position,
+                cargo,
+                fuel,
+                economy,
+                memory,
+                crew_snapshot.as_ref(),
+                contracts,
+                &ship_id,
+            );
             ai.current_goal = goal.into();
             ai.current_bt = bt;
         }
@@ -429,11 +534,13 @@ fn decide_and_act(
             let mut bb = Blackboard::new();
             let status = {
                 let ship_id_ref = &ship_id;
+                let crew_ref = crew_snapshot.as_ref();
                 let mut dispatch = |action: &ShipAction, bb: &mut Blackboard| -> BtStatus {
                     execute_ship_action(
                         action,
                         entity,
                         ship_id_ref,
+                        crew_ref,
                         position,
                         transit,
                         cargo,
@@ -466,17 +573,20 @@ fn decide_and_act(
 /// Planner: pick a goal + build its BT.
 ///
 /// Rule order:
-/// 1. Fuel critical → refuel BT
-/// 2. Cargo onboard → sell_cargo BT (unload before replanning)
-/// 3. Posted contract matching the ship's capacity and price memory → fulfill_delivery BT
-/// 4. Known profitable trade route → trade_run BT
-/// 5. Else → idle
+/// 1. Crew morale critical → rest_crew BT (shore leave)
+/// 2. Fuel critical → refuel BT
+/// 3. Cargo onboard → sell_cargo BT (unload before replanning)
+/// 4. Posted contract matching the ship's capacity and price memory → fulfill_delivery BT
+/// 5. Known profitable trade route → trade_run BT
+/// 6. Else → idle
+#[allow(clippy::too_many_arguments)]
 fn plan_goal(
     position: &ShipPosition,
     cargo: &ShipCargo,
     fuel: &ShipFuel,
     economy: &ShipEconomy,
     memory: &ShipMemory,
+    crew: Option<&ShipCrew>,
     contracts: &crate::economy::contracts::ContractBoard,
     ship_id: &str,
 ) -> (&'static str, Option<BtNode<ShipAction>>) {
@@ -485,24 +595,31 @@ fn plan_goal(
         None => return ("idle", Some(BtNode::action(ShipAction::Idle))),
     };
 
-    // 1. Fuel critical
+    // 1. Crew morale critical
+    if let Some(c) = crew {
+        if c.morale < CREW_REST_TRIGGER {
+            return ("rest_crew", Some(build_rest_crew_bt()));
+        }
+    }
+
+    // 2. Fuel critical
     if fuel.fraction() < FUEL_CRITICAL_FRACTION {
         return ("refuel", Some(build_refuel_bt()));
     }
 
-    // 2. Cargo onboard — sell
+    // 3. Cargo onboard — sell
     if cargo.used() > 0 {
         return ("sell_cargo", Some(build_sell_cargo_bt()));
     }
 
-    // 3. Contract?
+    // 4. Contract?
     if let Some(bt) =
         try_plan_contract(&at_loc, cargo, economy, memory, contracts, ship_id)
     {
         return ("fulfill_delivery", Some(bt));
     }
 
-    // 4. Speculative trade route
+    // 5. Speculative trade route
     if let Some((commodity, buy_loc, sell_loc, _margin)) = best_trade_route(memory) {
         let bt = build_trade_run_bt(&at_loc, &buy_loc, &sell_loc, commodity);
         return ("trade_run", Some(bt));
@@ -589,6 +706,15 @@ fn build_sell_cargo_bt() -> BtNode<ShipAction> {
     ])
 }
 
+fn build_rest_crew_bt() -> BtNode<ShipAction> {
+    BtNode::sequence(vec![
+        BtNode::action(ShipAction::Dock),
+        BtNode::action(ShipAction::Refuel),
+        BtNode::action(ShipAction::Rest),
+        BtNode::action(ShipAction::Undock),
+    ])
+}
+
 /// Build a trade_run BT. Start at `current`, visit `buy_loc`, buy `commodity`,
 /// travel to `sell_loc`, sell, end at sell_loc.
 ///
@@ -654,6 +780,7 @@ fn execute_ship_action(
     action: &ShipAction,
     entity: hecs::Entity,
     ship_id: &str,
+    crew: Option<&ShipCrew>,
     position: &mut ShipPosition,
     transit: &mut ShipTransit,
     cargo: &mut ShipCargo,
@@ -668,6 +795,19 @@ fn execute_ship_action(
 ) -> BtStatus {
     match action {
         ShipAction::Idle => BtStatus::Success,
+
+        ShipAction::Rest => {
+            // Returns Running until morale has recovered. Morale actually
+            // rises via `tick_crew` in the main tick_ships pipeline (it
+            // detects current_goal == "rest_crew" and boosts recovery).
+            // The snapshot is up-to-date within this tick since tick_crew
+            // runs before decide_and_act.
+            match crew {
+                Some(c) if c.morale >= CREW_REST_TARGET => BtStatus::Success,
+                Some(_) => BtStatus::Running,
+                None => BtStatus::Success, // no crew component → nothing to rest
+            }
+        }
 
         ShipAction::Dock => {
             if position.location_name.is_some() {

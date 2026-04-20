@@ -9,8 +9,8 @@ use sim_core::{
         market::{MarketFlow, MarketHistory, MarketIdentity, MarketOrders, MarketPricing},
         population::{PopDemographics, PopEconomy, PopIdentity, PopSentiment},
         ship::{
-            ShipAI, ShipCargo, ShipEconomy, ShipFuel, ShipIdentity, ShipLifecycle, ShipMemory,
-            ShipPosition, ShipTransit, Transit,
+            ShipAI, ShipCargo, ShipCrew, ShipEconomy, ShipFuel, ShipIdentity, ShipLifecycle,
+            ShipMemory, ShipPosition, ShipTransit, Transit,
         },
     },
     ai::personality::Personality,
@@ -568,7 +568,7 @@ async fn load_ships(
                 db_id,
                 id: id.clone(),
                 name,
-                class,
+                class: class.clone(),
                 faction_id,
             },
             ShipPosition {
@@ -616,6 +616,19 @@ async fn load_ships(
                 dirty: false,
             },
         ));
+        // Crew from class
+        let crew_size = sim_core::simulation::config::ship_class(&class)
+            .map(|c| c.crew_size)
+            .unwrap_or(5);
+        store.world.insert_one(
+            entity,
+            ShipCrew {
+                size: crew_size,
+                morale: 70,
+                fatigue: 20,
+                dirty: false,
+            },
+        ).ok();
         store.index_ship(id, entity);
     }
     Ok(())
