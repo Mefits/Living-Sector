@@ -178,26 +178,7 @@ impl SnapshotCache {
     }
 }
 
-/// Radial distance of a facility from its body's center in universe units.
-/// Matches the 0.15 value the Elixir simulator used — small enough that
-/// facilities cluster visually around the planet, large enough to be
-/// distinguishable at gameplay camera zoom.
-const FACILITY_ORBIT_RADIUS: f32 = 0.15;
-
-/// Deterministic facility position around the body center.
-///
-/// The facility's id is hashed to a stable angle (0..360°) via
-/// `DefaultHasher`, then placed at `(body + radius × (cos, sin))`. Same
-/// facility always lands at the same relative position; different
-/// facilities at the same body spread out around it rather than stacking.
-fn facility_offset_position(body_center: (f32, f32), facility_id: &str) -> (f32, f32) {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    facility_id.hash(&mut h);
-    let angle_deg = (h.finish() % 360) as f32;
-    let angle = angle_deg.to_radians();
-    (
-        body_center.0 + FACILITY_ORBIT_RADIUS * angle.cos(),
-        body_center.1 + FACILITY_ORBIT_RADIUS * angle.sin(),
-    )
-}
+// Facility offset logic moved to sim_core so sim_core::agents::ship can use
+// the same function for transit endpoints (ships aim at the station's
+// actual offset, not the body center).
+use sim_core::agents::facility::facility_offset_position;

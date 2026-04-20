@@ -393,6 +393,8 @@ fn tick_crew(world: &mut hecs::World) {
 
 /// Pass 1: advance transit clocks, interpolate position, consume fuel.
 fn advance_transits(world: &mut hecs::World, registry: &WorldRegistry, tick: u64, tick_scale: f32) {
+    use crate::agents::facility::{facility_offset_position, FacilityIdentity, FacilityLocation};
+
     // Snapshot body positions for location→position lookups.
     let body_positions: std::collections::HashMap<i64, (f32, f32)> = world
         .query::<(
@@ -403,9 +405,30 @@ fn advance_transits(world: &mut hecs::World, registry: &WorldRegistry, tick: u64
         .map(|(_e, (id, orbit))| (id.db_id, orbit.universe_position()))
         .collect();
 
+    // Pick one "primary" facility id per location (first by hecs iteration
+    // order — stable within a run). Ships aim at this facility's offset
+    // position so they visually arrive at the station, not at the planet
+    // center. The snapshot layer uses the same `facility_offset_position`
+    // function so the ship and the station agree on where the station is.
+    let mut primary_facility_by_location: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for (_e, (fac_id, fac_loc)) in world.query::<(&FacilityIdentity, &FacilityLocation)>().iter() {
+        primary_facility_by_location
+            .entry(fac_loc.location_name.clone())
+            .or_insert_with(|| fac_id.id.clone());
+    }
+
     let location_to_pos = |loc: &str| -> Option<(f32, f32)> {
         let info = registry.locations.get(loc)?;
-        body_positions.get(&info.celestial_body_id).copied()
+        let body_pos = body_positions.get(&info.celestial_body_id).copied()?;
+        // If there's a facility at this location, target its offset position
+        // (where the client renders the station). Otherwise fall back to
+        // body center (locations with no facility still need a position).
+        if let Some(fac_id) = primary_facility_by_location.get(loc) {
+            Some(facility_offset_position(body_pos, fac_id))
+        } else {
+            Some(body_pos)
+        }
     };
 
     for (_e, (position, transit, fuel, memory, lifecycle)) in world

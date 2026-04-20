@@ -87,6 +87,36 @@ pub struct FacilitySnapshot {
     pub position: super::Position,
 }
 
+/// Radial offset (universe units) each facility sits from its body center.
+/// Matches the Elixir sim's 0.15 value. Small enough that facilities visually
+/// cluster around the planet, large enough to be distinct at gameplay zoom.
+pub const FACILITY_ORBIT_RADIUS: f32 = 0.15;
+
+/// Deterministic facility position around a body center.
+///
+/// Angle comes from a stable hash of the facility's agent id, so the same
+/// facility always lands at the same spot relative to its body. Multiple
+/// facilities at the same body spread out around it instead of stacking.
+///
+/// Shared by:
+/// - `sim_server::snapshot::update_facilities` (for the published position)
+/// - `sim_core::agents::ship::advance_transits` (so ships aim at the same spot)
+///
+/// The two callers MUST use this same function so ship transit endpoints
+/// match where the client renders facilities — otherwise ships visually
+/// overshoot/undershoot the station by ~0.15 units.
+pub fn facility_offset_position(body_center: (f32, f32), facility_id: &str) -> (f32, f32) {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    facility_id.hash(&mut h);
+    let angle_deg = (h.finish() % 360) as f32;
+    let angle = angle_deg.to_radians();
+    (
+        body_center.0 + FACILITY_ORBIT_RADIUS * angle.cos(),
+        body_center.1 + FACILITY_ORBIT_RADIUS * angle.sin(),
+    )
+}
+
 impl FacilitySnapshot {
     pub fn build(
         identity: &FacilityIdentity,
