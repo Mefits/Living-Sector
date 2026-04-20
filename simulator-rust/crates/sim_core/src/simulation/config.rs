@@ -9,7 +9,10 @@ pub struct TickConfig {
 impl TickConfig {
     pub const DEFAULT: TickConfig = TickConfig {
         ticks_per_second: 8,
-        world_speed: 0.25,
+        // 1.0 = real-time gameplay. Earth↔Mars ≈ 60 s. Set WORLD_SPEED env
+        // var to override at startup (e.g. `WORLD_SPEED=4` for smoke tests)
+        // or POST /api/sim/speed {world_speed: X} at runtime.
+        world_speed: 1.0,
     };
 
     /// Milliseconds between ticks.
@@ -128,14 +131,14 @@ mod tests {
     #[test]
     fn tick_scale_default() {
         let scale = TickConfig::DEFAULT.tick_scale();
-        // 0.25 / 8 = 0.03125
-        assert!((scale - 0.03125).abs() < 1e-6);
+        // 1.0 / 8 = 0.125
+        assert!((scale - 0.125).abs() < 1e-6);
     }
 
     #[test]
     fn tick_multiplier_default() {
-        // 8 / 0.25 = 32
-        assert_eq!(TickConfig::DEFAULT.tick_multiplier(), 32);
+        // 8 / 1.0 = 8
+        assert_eq!(TickConfig::DEFAULT.tick_multiplier(), 8);
     }
 
     #[test]

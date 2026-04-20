@@ -107,7 +107,9 @@ func post_sim_control(action: String, params: Dictionary = {}) -> void:
 			url = _base_url() + "/api/sim/pause"
 		"resume":
 			url = _base_url() + "/api/sim/resume"
-		"set_speed":
+		"set_world_speed", "set_ticks_per_second":
+			# Unified POST /api/sim/speed endpoint — takes any subset of
+			# {world_speed, ticks_per_second, interval_ms}.
 			url = _base_url() + "/api/sim/speed"
 			body = JSON.stringify(params)
 		_:

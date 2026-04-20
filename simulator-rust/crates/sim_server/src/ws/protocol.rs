@@ -76,8 +76,6 @@ pub enum ClientMsg {
 pub enum SimControl {
     Pause,
     Resume,
-    /// Legacy: interval_ms → tps mapping. Does NOT change world_speed.
-    SetSpeed { interval_ms: u64 },
     /// Change tick resolution (client smoothness) independently of speed.
     SetTicksPerSecond { tps: u32 },
     /// Change game-time multiplier (gameplay pace) independently of resolution.

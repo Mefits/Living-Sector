@@ -37,10 +37,14 @@ func _ready() -> void:
 	)
 
 	pause_button.pressed.connect(_on_pause_pressed)
-	speed_1x_button.pressed.connect(func(): _set_speed(250))
-	speed_2x_button.pressed.connect(func(): _set_speed(125))
-	speed_5x_button.pressed.connect(func(): _set_speed(50))
-	speed_10x_button.pressed.connect(func(): _set_speed(25))
+	# Speed buttons tune `world_speed` (gameplay pace) — NOT tick
+	# resolution. `1×` is literal real-time; `10×` is Earth↔Mars in
+	# ~6s (demo-speed). Tick resolution stays at whatever the sim was
+	# configured with (client smoothness is independent).
+	speed_1x_button.pressed.connect(func(): _set_world_speed(1.0))
+	speed_2x_button.pressed.connect(func(): _set_world_speed(2.0))
+	speed_5x_button.pressed.connect(func(): _set_world_speed(5.0))
+	speed_10x_button.pressed.connect(func(): _set_world_speed(10.0))
 	observer_button.pressed.connect(_on_observer_pressed)
 	ship_list_button.pressed.connect(
 		func(): ship_list_toggled.emit()
@@ -92,11 +96,12 @@ func set_observer_active(active: bool) -> void:
 	observer_toggled.emit(_observer_active)
 
 
-func _set_speed(interval_ms: int) -> void:
+func _set_world_speed(world_speed: float) -> void:
+	## Tune game-time pace. Does NOT change tick resolution (smoothness).
+	## Route via HTTP — world-speed changes land on the next tick.
 	NetworkManager.post_sim_control(
-		"set_speed", {"interval_ms": interval_ms}
+		"set_world_speed", {"world_speed": world_speed}
 	)
-	GameState.tick_interval_ms = interval_ms
 	_update_speed_label()
 
 

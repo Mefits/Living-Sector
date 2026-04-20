@@ -31,9 +31,6 @@ pub enum ControlCommand {
     /// Change game-time multiplier. Does NOT touch ticks_per_second.
     /// Accepts 0.0..=16.0; 0.0 is equivalent to pause.
     SetWorldSpeed { world_speed: f32 },
-    /// Legacy: sets ticks_per_second from `1000 / interval_ms`. Kept for
-    /// compat with older clients — new code should use SetTicksPerSecond.
-    SetSpeed { interval_ms: u64 },
     /// Spatial-LOD observer (reserved).
     MoveObserver { id: String, x: f32, y: f32, radius: f32 },
 }

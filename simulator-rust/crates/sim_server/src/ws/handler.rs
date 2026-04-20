@@ -138,13 +138,6 @@ async fn handle_client_msg(
             let _ = state.control_tx.send(ControlCommand::Resume).await;
             send_ack(state, sender, "resume").await;
         }
-        ClientMsg::SimControl(SimControl::SetSpeed { interval_ms }) => {
-            let _ = state
-                .control_tx
-                .send(ControlCommand::SetSpeed { interval_ms })
-                .await;
-            send_ack(state, sender, "set_speed").await;
-        }
         ClientMsg::SimControl(SimControl::SetTicksPerSecond { tps }) => {
             let _ = state
                 .control_tx

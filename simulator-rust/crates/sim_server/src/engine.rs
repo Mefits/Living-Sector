@@ -127,22 +127,6 @@ pub async fn run_tick_loop(
                         );
                     }
                 }
-                ControlCommand::SetSpeed { interval_ms: ms } => {
-                    // Legacy path: maps interval → tps via 1000/ms. Does the
-                    // same thing as SetTicksPerSecond without touching world_speed.
-                    if (10..=5_000).contains(&ms) {
-                        let tps = ((1000 / ms.max(1)) as u32).clamp(1, 60);
-                        tick_config.ticks_per_second = tps;
-                        timer_interval = tick_config.tick_interval_ms();
-                        interval_ms.store(timer_interval, Ordering::Relaxed);
-                        ticks_per_second.store(tps, Ordering::Relaxed);
-                        tick_scale = tick_config.tick_scale();
-                        tick_mult = tick_config.tick_multiplier();
-                        timer = interval(Duration::from_millis(timer_interval));
-                        timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
-                        info!("Engine: (legacy) interval={}ms → tps={}", ms, tps);
-                    }
-                }
                 ControlCommand::MoveObserver { .. } => {
                     // Spatial LOD deferred — acknowledge but no-op for now.
                 }
