@@ -3,6 +3,12 @@
 Porting the Elixir/Phoenix space simulator to Rust for native Windows/Linux performance.
 Godot is the sole client. No web dashboard. Single binary, no dependencies.
 
+> **Status (2026-04-20): Phases 1–10 complete.** Full economic loop, contracts,
+> factions, crew morale, DB persistence, Godot client updated. See
+> [README.md](./README.md) for the current dev loop and
+> [CLAUDE.md](./CLAUDE.md) for architectural conventions. The rest of this
+> file is the design plan + per-session history.
+
 ## Why Rust
 
 The Elixir BEAM is outstanding on macOS/Linux but BEAM processes under Windows' thread
@@ -48,7 +54,9 @@ simulator-rust/
   deterministic replay, no parallel-write conflicts, clean debug audit trail.
 - `sim_core` owns all agent state (the `hecs::World` inside `AgentStore`). Tick loop has
   exclusive access — no locks during tick.
-- Rayon `par_iter_mut()` for CPU parallelism within each tick phase (where hecs allows).
+- Rayon `par_iter_mut()` is a future option for per-phase parallelism — dependency
+  is present but not yet called. Current single-threaded tick cost (~5 ms at
+  800 agents) leaves plenty of headroom; see `CLAUDE.md` for when to pull this lever.
 - `DashMap` snapshot caches for concurrent reads from HTTP/WS handlers.
 - Tokio only for I/O: WebSocket connections, SQLite writes, HTTP.
 - No per-agent Tokio tasks — agent logic is CPU work, not async I/O.
@@ -70,18 +78,26 @@ simulator-rust/
 | arc-swap | Hot-swappable world registry |
 | hecs 0.10 | ECS entity/component storage |
 
-## Tick Phase Ordering (125ms per tick, 8 tps)
+## Tick Phase Ordering (125 ms per tick at default WORLD_SPEED=0.25)
 
-1. Commands — drain pause/resume/speed/observer channel
-2. Bodies — advance orbital angles
-3. Ships (rayon) — crew, utility scoring, BT step, position; outputs pending_orders
-4. Apply effects — drain pending_orders into market queues
-5. Markets (rayon) — produce → consume → match → price update → snapshot
-6. Facilities (rayon) — recipes, crew missions, docking
-7. Populations (rayon, every Nth tick) — food, sentiment, contracts
-8. Spatial LOD (every Nth tick) — recalculate chunk divisors
-9. Snapshot write — each agent → DashMap SnapshotCache
-10. Dirty marking — build DbWrites → send to persistence channel
+**As actually implemented** (rayon not yet used — single-threaded at 800 agents
+costs ~5 ms / tick, 96% under budget):
+
+1. Drain control channel — pause/resume/speed/observer from HTTP/WS
+2. Bodies — orbital angles advance
+3. Ships — 3 passes: advance transits → observe local prices → plan + BT tick
+4. Apply ship commands — supply deltas at markets, contract Accept/Deliver
+5. Facilities — run production recipes against local market supply; mine from bodies (every 5 base-ticks)
+6. Populations — consume/produce, update sentiment, post food contracts (every 25 base-ticks)
+7. Markets — 8 sub-phases (produce/consume/emergency/surplus/match/demand/shortage/prices)
+8. Apply market commands — spread revenue → owning facility
+9. Factions — tax owned facility credits → treasury (every 50 base-ticks)
+10. Snapshot write — SnapshotCache populated from all entities
+11. Broadcast — positions (every tick), ship_states (every 8), market_states (every 16)
+12. Emit DbWrites — dirty entities → persistence mpsc channel
+
+Rayon parallelism is architected-for but not yet called. See "Things NOT done"
+in CLAUDE.md.
 
 ## WebSocket Protocol (Godot ↔ Simulator)
 
