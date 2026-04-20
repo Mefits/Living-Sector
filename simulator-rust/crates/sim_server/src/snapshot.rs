@@ -122,10 +122,16 @@ impl SnapshotCache {
             )>()
             .iter()
         {
-            let pos = body_pos
+            let body_center = body_pos
                 .get(&identity.body_id)
                 .copied()
                 .unwrap_or((0.0, 0.0));
+            // Offset from body center so co-located facilities don't stack
+            // on top of the planet or each other. Angle comes from a stable
+            // hash of the facility id so the same facility always lands at
+            // the same spot around its body. Matches the Elixir sim's
+            // `:erlang.phash2(id, 360)` offset pattern at radius 0.15.
+            let pos = facility_offset_position(body_center, &identity.id);
             let snap = FacilitySnapshot::build(
                 identity,
                 location,
@@ -170,4 +176,28 @@ impl SnapshotCache {
                 .insert(data.id.clone(), FactionSnapshot::build(data));
         }
     }
+}
+
+/// Radial distance of a facility from its body's center in universe units.
+/// Matches the 0.15 value the Elixir simulator used — small enough that
+/// facilities cluster visually around the planet, large enough to be
+/// distinguishable at gameplay camera zoom.
+const FACILITY_ORBIT_RADIUS: f32 = 0.15;
+
+/// Deterministic facility position around the body center.
+///
+/// The facility's id is hashed to a stable angle (0..360°) via
+/// `DefaultHasher`, then placed at `(body + radius × (cos, sin))`. Same
+/// facility always lands at the same relative position; different
+/// facilities at the same body spread out around it rather than stacking.
+fn facility_offset_position(body_center: (f32, f32), facility_id: &str) -> (f32, f32) {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    facility_id.hash(&mut h);
+    let angle_deg = (h.finish() % 360) as f32;
+    let angle = angle_deg.to_radians();
+    (
+        body_center.0 + FACILITY_ORBIT_RADIUS * angle.cos(),
+        body_center.1 + FACILITY_ORBIT_RADIUS * angle.sin(),
+    )
 }
