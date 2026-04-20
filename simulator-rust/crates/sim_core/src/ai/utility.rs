@@ -1,3 +1,18 @@
+//! Utility-based action scoring (strategic layer of the hybrid AI).
+//!
+//! Given an agent's personality weights and a set of considerations (each a
+//! 0.0–1.0 value tagged with a personality axis), every candidate action
+//! gets a composite score. Highest wins.
+//!
+//! `score_action` sums `consideration_value × personality_weight` across all
+//! factors listed for that action, adding positive factors and subtracting
+//! negative ones. `best_action` picks the top-scored action, and also applies
+//! any `prefer_goals` bonus from the personality.
+//!
+//! This layer picks WHICH goal an agent should pursue. Once picked, the
+//! tactical layer (behavior trees in `ai::behavior_tree`, or the simple state
+//! machine in `agents::ship::decide_and_act` for Phase 4 MVP) executes it.
+
 use crate::ai::personality::{Axis, Personality};
 
 /// A single consideration: a value 0.0–1.0 paired with the personality axis it targets.

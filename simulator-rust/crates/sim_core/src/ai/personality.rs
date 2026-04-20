@@ -1,3 +1,15 @@
+//! Personality profiles that weight agent decision-making.
+//!
+//! Every ship and crew member carries a `Personality` — six 0.0–1.0 axes
+//! (profit, safety, morale, exploration, loyalty, aggression) plus a
+//! `prefer_goals` map for archetype bonuses.
+//!
+//! The utility scoring layer (see `ai::utility`) multiplies each consideration's
+//! value by the matching axis weight, then adds any `prefer_goals` bonus, to
+//! rank actions. Archetype functions (`cautious_trader`, `aggressive_trader`,
+//! etc.) produce baseline personalities; `with_variation` perturbs each axis
+//! by ±0.1 for individual variation at spawn time.
+
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

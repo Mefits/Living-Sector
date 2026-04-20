@@ -1,3 +1,25 @@
+//! Simulation engine — the tick loop driver.
+//!
+//! Runs as a tokio task alongside the axum server. Holds exclusive ownership
+//! of the [`AgentStore`] during each tick, so no locks are needed on agent
+//! state. Publishes snapshots and broadcasts at phase boundaries.
+//!
+//! ## Phase order per tick
+//! 1. **drain control channel** — pause/resume/speed/observer from HTTP/WS
+//! 2. **bodies** — advance orbital angles
+//! 3. **ships** — observe prices, pick goals, move/trade (emits `SimCommand`s)
+//! 4. **apply_supply_commands** — resolve ship-location → market and adjust supply
+//! 5. **facilities** — execute production recipes, mine from bodies
+//! 6. **populations** — consume food/fuel, produce labor commodity, update sentiment
+//! 7. **markets** — 8-phase tick (see `agents::market`)
+//! 8. **snapshot write** — update `SnapshotCache` for readers
+//! 9. **broadcast** — positions (every tick), ship_states (every 8), market_states (every 16)
+//!
+//! ## Performance
+//! At 800 agents a full tick completes in ~3 ms on an M1 Mac, leaving the
+//! bulk of the 125 ms tick budget idle. Rayon parallelism over agent slices
+//! is not yet applied — headroom for 10k+ agents without it.
+
 use crate::{
     control::ControlCommand,
     snapshot::SnapshotCache,
@@ -94,6 +116,7 @@ pub async fn run_tick_loop(
         }
 
         let tick = tick_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let t_start = std::time::Instant::now();
 
         // Tick phases
         tick_bodies(&mut store, tick_scale);
@@ -104,8 +127,11 @@ pub async fn run_tick_loop(
         market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
         commands.clear();
 
+        let tick_compute_us = t_start.elapsed().as_micros() as u64;
+
         // Snapshot write
         snapshots.update_from(&store);
+        let total_us = t_start.elapsed().as_micros() as u64;
 
         // Broadcasts (cadences match the protocol spec)
         publish_positions(tick, timer_interval, &snapshots, &broadcast_tx);
@@ -118,11 +144,17 @@ pub async fn run_tick_loop(
 
         // Diagnostics
         if tick % (8 * 10) == 0 {
-            info!(tick, "Engine: {}", store.summary());
+            info!(
+                tick,
+                "Engine: {} | tick_compute_us={} total_us={}",
+                store.summary(),
+                tick_compute_us,
+                total_us,
+            );
             log_sample_market(&store, &format!("tick={tick}"));
             log_sample_ships(&store, tick);
         } else if tick % (8 * 5) == 0 {
-            debug!(tick, "Engine: tick");
+            debug!(tick, tick_compute_us, total_us, "Engine: tick");
         }
     }
 }

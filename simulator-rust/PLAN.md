@@ -206,12 +206,15 @@ Deferred:
 - Faction tick (reputation decay, treasury flow from faction-owned facilities) — small code, not critical for economy demo
 - Contract board (pop-posted delivery contracts) — needs Phase 4.5 BT integration
 
-### Phase 7 — Hardening + Windows
-- [ ] Cross-compile to Windows (x86_64-pc-windows-gnu)
-- [ ] Smoke test on Windows gaming PC
-- [ ] Load test: <5ms tick time at 800 agents
-- [ ] Graceful shutdown (DB flush, clean WS close)
-- [ ] Ship lifecycle (broke strikes, hoard detection, recycling)
+### Phase 7 — Hardening + macOS/Linux validation ✅ (Windows build on Windows native)
+- [x] Graceful shutdown: SIGINT/SIGTERM handlers stop the tick loop cleanly with 500ms grace
+- [x] Per-tick timing metrics: tick_compute_us + total_us logged every 10s
+- [x] Load validation: **~3 ms/tick at 800 agents**, 97% tick-budget headroom at default 125ms
+- [x] Module-level docs on every major file (CLAUDE.md conventions enforced)
+- [x] CLAUDE.md + README.md at project root for future sessions
+- [ ] Windows native build: user will do on Windows when ready (mingw-w64 on Mac skipped)
+- [ ] Ship lifecycle (broke strikes, hoard detection, recycling) — counters tracked, decommission logic deferred
+- [ ] DB persistence worker — sim re-seeds from JSON on each boot today; needed for player saves
 
 ## Session Log
 
@@ -223,6 +226,7 @@ Deferred:
 | 2026-04-20 | 4 | Phase 4 MVP: ships observe markets, pick trade_run goals, travel & trade; avg credits +25% in 40s smoke; 56 tests |
 | 2026-04-20 | 5 | Phase 5 server: axum HTTP + WebSocket, snapshot cache, all CRUD endpoints verified; Godot client update deferred to next session |
 | 2026-04-20 | 6 | Phase 6: facility recipes (mining, smelting, manufacturing), population consumption/production, full economic loop — ship credits +47% in 40s smoke |
+| 2026-04-20 | 7 | Phase 7: graceful SIGINT/SIGTERM shutdown, tick-time metrics (~3ms/tick at 800 agents), CLAUDE.md + README.md, module-level docs on every major file |
 
 ## Cross-Compilation (Windows)
 

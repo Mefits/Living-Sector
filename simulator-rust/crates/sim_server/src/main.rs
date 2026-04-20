@@ -1,3 +1,22 @@
+//! `simulator` binary — boots the sim, runs the tick loop, serves HTTP + WS.
+//!
+//! ## Startup sequence
+//! 1. Initialize tracing with `RUST_LOG` filter (stderr)
+//! 2. Open SQLite pool (WAL, single writer) and run migrations
+//! 3. Seed DB from `priv/data/*.json` if empty (idempotent upserts)
+//! 4. Load `WorldRegistry` and `AgentStore` from DB
+//! 5. Spawn `engine::run_tick_loop` and `axum::serve` as sibling tokio tasks
+//! 6. Print `sim:ready ws=... http=...` to stdout so Godot can connect
+//! 7. Wait for SIGINT/SIGTERM; on signal, flip the running flag and let the
+//!    tick loop settle before exiting
+//!
+//! ## Env vars
+//! - `RUST_LOG` — tracing filter (default: `simulator=info,sim_core=info`)
+//! - `WORLD_SPEED` — game-time multiplier (default 0.25; `4.0` for demos)
+//! - `BIND_ADDR` — HTTP/WS bind (default `127.0.0.1:8080`)
+//! - `DATABASE_PATH` — SQLite path (default next to binary)
+//! - `DATA_DIR` — world JSON root (default auto-resolves to dev or release path)
+
 mod app_state;
 mod control;
 mod db;
@@ -135,12 +154,46 @@ async fn main() -> Result<()> {
 
     println!("sim:ready ws=ws://{addr}/ws http=http://{addr}/api tick=0");
 
-    // Wait for either task to exit (normally runs forever)
+    // Graceful shutdown: wait for SIGINT / SIGTERM, stop the tick loop,
+    // let the current tick complete, then exit cleanly.
     tokio::select! {
         r = server_handle => { info!("HTTP server ended: {:?}", r); }
         r = tick_handle => { info!("Tick loop ended: {:?}", r); }
+        _ = shutdown_signal() => {
+            info!("Shutdown signal received — stopping tick loop");
+            running.store(false, std::sync::atomic::Ordering::Relaxed);
+            // Give the tick loop up to 1s to notice + stop cleanly
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            info!("Final tick: {}", tick_counter.load(std::sync::atomic::Ordering::Relaxed));
+            info!("Shutdown complete.");
+        }
     }
     Ok(())
+}
+
+/// Wait for SIGINT (Ctrl-C) on Unix/Windows, or SIGTERM on Unix.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl-C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        use tokio::signal::unix::{signal, SignalKind};
+        signal(SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }
 
 fn build_router(state: AppState) -> Router {

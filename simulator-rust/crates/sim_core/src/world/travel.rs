@@ -1,3 +1,10 @@
+//! Travel time calculations and transit-progress interpolation.
+//!
+//! Travel time in ticks depends on distance, ship speed_modifier, and the
+//! world-speed-scaled tick_multiplier. At default config (world_speed=0.25,
+//! 8 tps), distance 60 units ≈ 1920 ticks ≈ 4 minutes of wall-clock time.
+//! Set `WORLD_SPEED=4.0` in the env for faster smoke tests.
+
 use crate::simulation::config::TickConfig;
 
 /// Travel time in ticks between two locations given distance and ship speed.
