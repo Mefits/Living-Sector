@@ -68,6 +68,9 @@ pub struct FacilitySnapshot {
     pub docked_ship_count: usize,
     pub docking_capacity: u32,
     pub services: Vec<String>,
+    /// Universe-space position, inherited from the facility's body.
+    /// Caller fills in via the body-position cache at snapshot time.
+    pub position: super::Position,
 }
 
 impl FacilitySnapshot {
@@ -76,6 +79,7 @@ impl FacilitySnapshot {
         location: &FacilityLocation,
         ops: &FacilityOperations,
         storage: &FacilityStorage,
+        position: super::Position,
     ) -> Self {
         Self {
             id: identity.id.clone(),
@@ -89,6 +93,7 @@ impl FacilitySnapshot {
             docked_ship_count: storage.docked_ships.len(),
             docking_capacity: ops.docking_capacity,
             services: ops.services.clone(),
+            position,
         }
     }
 }

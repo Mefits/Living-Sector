@@ -193,6 +193,9 @@ impl ShipCrew {
 }
 
 /// Serializable snapshot for HTTP/WS clients — built by querying components.
+///
+/// NOTE: `position` uses the `{x, y}` dict shape (via `Position` wrapper)
+/// rather than a `(f32, f32)` tuple — Godot expects the dict form.
 #[derive(Debug, Clone, Serialize)]
 pub struct ShipSnapshot {
     pub id: String,
@@ -209,7 +212,7 @@ pub struct ShipSnapshot {
     pub credits: i64,
     pub current_goal: String,
     pub bt_action: Option<String>,
-    pub position: (f32, f32),
+    pub position: super::Position,
 }
 
 impl ShipSnapshot {
@@ -242,7 +245,7 @@ impl ShipSnapshot {
             credits: economy.credits,
             current_goal: ai.current_goal.clone(),
             bt_action: ai.current_bt.as_ref().and_then(|bt| bt.current_action()),
-            position: position.position,
+            position: super::Position::from(position.position),
         }
     }
 }

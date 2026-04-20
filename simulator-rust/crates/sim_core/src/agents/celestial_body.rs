@@ -61,8 +61,8 @@ pub struct BodySnapshot {
     pub body_id: String,
     pub name: String,
     pub body_type: String,
-    pub position: (f32, f32),
-    pub universe_position: (f32, f32),
+    pub position: super::Position,
+    pub universe_position: super::Position,
     pub current_angle: f32,
 }
 
@@ -72,8 +72,8 @@ impl BodySnapshot {
             body_id: identity.body_id.clone(),
             name: identity.name.clone(),
             body_type: identity.body_type.clone(),
-            position: orbit.position(),
-            universe_position: orbit.universe_position(),
+            position: super::Position::from(orbit.position()),
+            universe_position: super::Position::from(orbit.universe_position()),
             current_angle: orbit.current_angle,
         }
     }

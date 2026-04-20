@@ -86,6 +86,19 @@ impl SnapshotCache {
     }
 
     fn update_facilities(&self, store: &AgentStore) {
+        // Build body_id → universe_position map first so each facility can
+        // inherit its body's position without a second world query.
+        use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
+        let mut body_pos: std::collections::HashMap<String, (f32, f32)> =
+            std::collections::HashMap::new();
+        for (_e, (id, orbit)) in store
+            .world
+            .query::<(&BodyIdentity, &BodyOrbit)>()
+            .iter()
+        {
+            body_pos.insert(id.body_id.clone(), orbit.universe_position());
+        }
+
         for (_e, (identity, location, ops, storage)) in store
             .world
             .query::<(
@@ -96,7 +109,20 @@ impl SnapshotCache {
             )>()
             .iter()
         {
-            let snap = FacilitySnapshot::build(identity, location, ops, storage);
+            let pos = body_pos
+                .get(&identity.body_id)
+                .copied()
+                .unwrap_or((0.0, 0.0));
+            let snap = FacilitySnapshot::build(
+                identity,
+                location,
+                ops,
+                storage,
+                sim_core::agents::Position::from(pos),
+            );
+            // Also publish the facility's position in the flat cache so
+            // Godot's positions broadcast includes it with kind "facility".
+            self.positions.insert(identity.id.clone(), pos);
             self.facilities.insert(identity.id.clone(), snap);
         }
     }
@@ -120,7 +146,7 @@ impl SnapshotCache {
         {
             let snap = BodySnapshot::build(identity, orbit);
             self.positions
-                .insert(identity.body_id.clone(), snap.universe_position);
+                .insert(identity.body_id.clone(), (snap.universe_position.x, snap.universe_position.y));
             self.bodies.insert(identity.body_id.clone(), snap);
         }
     }

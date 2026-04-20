@@ -110,6 +110,7 @@ async fn main() -> Result<()> {
 
     let app_state = AppState {
         snapshots: snapshots.clone(),
+        registry: registry.clone(),
         tick: tick_counter.clone(),
         running: running.clone(),
         interval_ms: interval_ms.clone(),

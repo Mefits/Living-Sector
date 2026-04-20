@@ -1,6 +1,7 @@
 //! Shared application state for axum handlers.
 
 use crate::{control::ControlCommand, snapshot::SnapshotCache, ws::protocol::ServerMsg};
+use sim_core::world::registry::WorldRegistry;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64},
     Arc,
@@ -10,6 +11,7 @@ use tokio::sync::{broadcast, mpsc};
 #[derive(Clone)]
 pub struct AppState {
     pub snapshots: Arc<SnapshotCache>,
+    pub registry: Arc<WorldRegistry>,
     pub tick: Arc<AtomicU64>,
     pub running: Arc<AtomicBool>,
     pub interval_ms: Arc<AtomicU64>,

@@ -417,15 +417,13 @@ func _handle_positions(msg: Dictionary) -> void:
 	if interval != null and "tick_interval_ms" in GameState:
 		GameState.tick_interval_ms = int(interval)
 
-	# Rust protocol uses "entities" with a "type" field (ship/body). Filter
-	# ships for GameState.update_positions which expects ship-shaped dicts.
+	# Rust protocol uses "entities" with a "type" field (ship/body/facility).
+	# GameState.update_positions routes by id prefix (ship-*, facility-*),
+	# so pass every entity through — bodies have bare ids ("earth") which
+	# fall through the prefix checks naturally.
 	var entities = msg.get("entities", [])
 	if entities is Array and GameState.has_method("update_positions"):
-		var ships: Array = []
-		for e in entities:
-			if e is Dictionary and str(e.get("type", "")) == "ship":
-				ships.append(e)
-		GameState.update_positions(ships)
+		GameState.update_positions(entities)
 
 
 func _handle_ship_states(msg: Dictionary) -> void:

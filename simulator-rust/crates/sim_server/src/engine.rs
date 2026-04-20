@@ -401,7 +401,11 @@ fn publish_positions(
             let (x, y) = *e.value();
             let kind = if id.starts_with("ship-") {
                 "ship"
+            } else if id.starts_with("facility-") {
+                "facility"
             } else {
+                // Body ids in the JSON world data are bare ("earth", "mars",
+                // etc.) — default everything non-ship/non-facility to "body".
                 "body"
             };
             PositionEntry { id, x, y, kind }
