@@ -280,6 +280,19 @@ func send_sim_control(action: String, extra: Dictionary = {}) -> void:
 	_ws.send_text(JSON.stringify(msg))
 
 
+func set_world_speed(world_speed: float) -> void:
+	## Tune game-time pace. 1.0 = real-time. 0.25 = 4× slower (default).
+	## 4.0 = demo-fast. 0.0 is equivalent to pause but preserves the value.
+	## Does NOT change tick resolution (client smoothness).
+	send_sim_control("set_world_speed", {"world_speed": world_speed})
+
+
+func set_ticks_per_second(tps: int) -> void:
+	## Tune client smoothness. 8 = default, 16 = smoother, 2 = chunky/cheap.
+	## Does NOT change game-time pace (world_speed stays put).
+	send_sim_control("set_ticks_per_second", {"tps": tps})
+
+
 func _process(delta: float) -> void:
 	# HTTP report refresh cadence
 	_refresh_timer += delta

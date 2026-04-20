@@ -36,7 +36,7 @@ use engine::{RunningFlag, TickCounter};
 use sim_core::simulation::config::TickConfig;
 use snapshot::SnapshotCache;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64},
+    atomic::{AtomicBool, AtomicU32, AtomicU64},
     Arc,
 };
 use tokio::sync::{broadcast, mpsc};
@@ -102,6 +102,8 @@ async fn main() -> Result<()> {
     let tick_counter: TickCounter = Arc::new(AtomicU64::new(0));
     let running: RunningFlag = Arc::new(AtomicBool::new(true));
     let interval_ms = Arc::new(AtomicU64::new(config.tick_interval_ms()));
+    let ticks_per_second = Arc::new(AtomicU32::new(config.ticks_per_second));
+    let world_speed_bits = Arc::new(AtomicU32::new(config.world_speed.to_bits()));
     let agent_count = Arc::new(AtomicU64::new(agent_count_initial));
 
     let (broadcast_tx, _) = broadcast::channel(64);
@@ -114,6 +116,8 @@ async fn main() -> Result<()> {
         tick: tick_counter.clone(),
         running: running.clone(),
         interval_ms: interval_ms.clone(),
+        ticks_per_second: ticks_per_second.clone(),
+        world_speed_bits: world_speed_bits.clone(),
         agent_count: agent_count.clone(),
         broadcast_tx: broadcast_tx.clone(),
         control_tx: control_tx.clone(),
@@ -158,6 +162,8 @@ async fn main() -> Result<()> {
         let tick_counter = tick_counter.clone();
         let running = running.clone();
         let interval_ms = interval_ms.clone();
+        let ticks_per_second = ticks_per_second.clone();
+        let world_speed_bits = world_speed_bits.clone();
         let broadcast_tx = broadcast_tx.clone();
         tokio::spawn(async move {
             engine::run_tick_loop(
@@ -168,6 +174,8 @@ async fn main() -> Result<()> {
                 running,
                 snapshots,
                 interval_ms,
+                ticks_per_second,
+                world_speed_bits,
                 broadcast_tx,
                 control_rx,
                 persist_tx,

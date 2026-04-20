@@ -17,6 +17,9 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
         "running": state.running.load(Ordering::Relaxed),
         "agent_count": state.agent_count.load(Ordering::Relaxed),
         "interval_ms": state.interval_ms.load(Ordering::Relaxed),
+        "ticks_per_second": state.ticks_per_second.load(Ordering::Relaxed),
+        "world_speed": state.world_speed(),
+        "tick_scale": state.tick_scale(),
     }))
 }
 
@@ -47,13 +50,20 @@ pub async fn report(State(state): State<AppState>) -> impl IntoResponse {
     // body→system mapping that we already have in the world registry.
     let systems = build_systems_with_bodies(&state);
 
+    let tps = state.ticks_per_second.load(Ordering::Relaxed);
+    let ws = state.world_speed();
+    let interval = state.interval_ms.load(Ordering::Relaxed);
+    let tick_scale = state.tick_scale();
+
     Json(json!({
         "tick": state.tick.load(Ordering::Relaxed),
         "running": state.running.load(Ordering::Relaxed),
-        "interval_ms": state.interval_ms.load(Ordering::Relaxed),
+        "interval_ms": interval,
         "config": {
-            "tick_interval_ms": state.interval_ms.load(Ordering::Relaxed),
-            "tick_scale": 0.03125_f32,  // world_speed / tps at defaults
+            "ticks_per_second": tps,
+            "world_speed": ws,
+            "tick_scale": tick_scale,
+            "tick_interval_ms": interval,
         },
         "systems": systems,
         "ships": ships,
@@ -213,20 +223,54 @@ pub async fn sim_resume(State(state): State<AppState>) -> impl IntoResponse {
     Json(json!({ "status": "running", "tick": state.tick.load(Ordering::Relaxed) }))
 }
 
-#[derive(serde::Deserialize)]
+/// `POST /api/sim/speed` accepts any combination of:
+/// - `world_speed: f32` — game-time multiplier (0.0..=16.0)
+/// - `ticks_per_second: u32` — tick resolution (1..=60)
+/// - `interval_ms: u64` — legacy alias for ticks_per_second (1000/ms)
+/// Supplying multiple fields applies them independently.
+#[derive(serde::Deserialize, Default)]
 pub struct SpeedBody {
-    pub interval_ms: u64,
+    pub world_speed: Option<f32>,
+    pub ticks_per_second: Option<u32>,
+    pub interval_ms: Option<u64>,
 }
 
 pub async fn sim_speed(
     State(state): State<AppState>,
     Json(body): Json<SpeedBody>,
 ) -> impl IntoResponse {
-    let _ = state
-        .control_tx
-        .send(ControlCommand::SetSpeed {
-            interval_ms: body.interval_ms,
-        })
-        .await;
-    Json(json!({ "interval_ms": body.interval_ms }))
+    if let Some(ws) = body.world_speed {
+        let _ = state
+            .control_tx
+            .send(ControlCommand::SetWorldSpeed { world_speed: ws })
+            .await;
+    }
+    if let Some(tps) = body.ticks_per_second {
+        let _ = state
+            .control_tx
+            .send(ControlCommand::SetTicksPerSecond { tps })
+            .await;
+    }
+    if let Some(ms) = body.interval_ms {
+        // Legacy path — SetSpeed maps interval→tps without touching world_speed.
+        let _ = state
+            .control_tx
+            .send(ControlCommand::SetSpeed { interval_ms: ms })
+            .await;
+    }
+    // The tick loop applies commands on its next iteration (~1 tick).
+    // Return what the caller sent so they know which knobs were changed.
+    Json(json!({
+        "applied": {
+            "world_speed": body.world_speed,
+            "ticks_per_second": body.ticks_per_second,
+            "interval_ms": body.interval_ms,
+        },
+        "current": {
+            "world_speed": state.world_speed(),
+            "ticks_per_second": state.ticks_per_second.load(Ordering::Relaxed),
+            "tick_scale": state.tick_scale(),
+            "interval_ms": state.interval_ms.load(Ordering::Relaxed),
+        }
+    }))
 }

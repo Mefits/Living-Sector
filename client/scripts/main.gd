@@ -80,14 +80,7 @@ var _heartbeat_timer: float = 0.0
 
 
 func _ready() -> void:
-  # Stopgap while the sim moves Metrics behind ETS: /api/report calls
-  # Simulator.Metrics.snapshot() with a 5 s GenServer.call timeout, and
-  # the sampling work inside Metrics (~350 agents, synchronous) can
-  # blow past that on a GUI-child BEAM clamped to E-cores. Waiting 20 s
-  # lets the first :sample cycle finish before our call lands on the
-  # mailbox. Remove once Metrics reads a cached snapshot from ETS.
-  print("[Main] Waiting 20s before first report fetch (Metrics warmup)...")
-  await get_tree().create_timer(20.0).timeout
+  await get_tree().create_timer(3.0).timeout
   print("[Main] Fetching world snapshot...")
   NetworkManager.fetch_report(_on_report_loaded)
 

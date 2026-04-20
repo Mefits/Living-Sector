@@ -145,6 +145,20 @@ async fn handle_client_msg(
                 .await;
             send_ack(state, sender, "set_speed").await;
         }
+        ClientMsg::SimControl(SimControl::SetTicksPerSecond { tps }) => {
+            let _ = state
+                .control_tx
+                .send(ControlCommand::SetTicksPerSecond { tps })
+                .await;
+            send_ack(state, sender, "set_ticks_per_second").await;
+        }
+        ClientMsg::SimControl(SimControl::SetWorldSpeed { world_speed }) => {
+            let _ = state
+                .control_tx
+                .send(ControlCommand::SetWorldSpeed { world_speed })
+                .await;
+            send_ack(state, sender, "set_world_speed").await;
+        }
         ClientMsg::SimControl(SimControl::GetTick) => {
             let ack = ServerMsg::SimControlAck {
                 action: "get_tick".into(),
