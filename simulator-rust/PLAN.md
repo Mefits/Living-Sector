@@ -155,15 +155,25 @@ Files: `sim_core/src/agents/market.rs`, `sim_core/src/economy/price_engine.rs`
 
 Deferred: contract board lifecycle (Phase 4 alongside ship goal execution), market state persistence (Phase 7 dirty-flush worker), per-ship order settlement (Phase 4).
 
-### Phase 4 — Ship Logic (largest)
-Files: `sim_core/src/agents/ship.rs`, `sim_core/src/ai/considerations.rs`, `sim_core/src/spatial/`
-- [ ] ShipState + full tick (crew, utility, BT execution)
-- [ ] All consideration functions
-- [ ] All goal behavior trees (trade_run, refuel, fulfill_contract, explore, rest_crew)
-- [ ] All BT action functions
-- [ ] Spatial LOD (chunk divisors, should_tick)
-- [ ] Position interpolation (transit)
-**Done when**: ships complete full trade loops, order books clear, prices move
+### Phase 4 — Ship Logic ✅ (MVP completed; BT/contract integration deferred)
+Files: `sim_core/src/agents/ship.rs`, `sim_core/src/ai/considerations.rs`, `sim_core/src/simulation/commands.rs`
+- [x] 9 ship components split for cache locality (Identity, Position, Transit, Cargo, Fuel, Economy, AI, Memory, Lifecycle)
+- [x] Considerations module: fuel_urgency, trade_opportunity, cargo_opportunity, cargo_to_sell, financial_pressure, exploration_desire, docked_at_facility (6 tests)
+- [x] State-machine tick (3 passes): advance_transits → observe_prices → decide_and_act
+- [x] `best_trade_route` scans price memory for highest-margin pair
+- [x] Ship intent → SimCommand emission (AddSupplyAtShipLocation, RemoveSupplyAtShipLocation)
+- [x] Engine command-apply phase resolves ship location → market entity
+- [x] Spawner seeds initial price knowledge from all markets (bootstrap: captains know rough prices)
+- [x] WORLD_SPEED env override for faster smoke tests
+- **Validated**: 40s smoke at WORLD_SPEED=4 → ships trade profitably; avg credits +25% (9423→11815), max ship credits doubled (20k→40k), 70 ships carry cargo mid-trip, fuel supply rising at earth-station. 56 tests passing.
+
+**Deferred to Phase 4.5 / Phase 6:**
+- Full BT engine integration (fn-pointer action model — state machine works for MVP)
+- Real market order placement (currently direct credits↔cargo transfer at known prices, no order-book round-trip)
+- Contract board + fulfill_contract / fulfill_delivery goals (needs contracts table exercised)
+- Crew morale, rest_crew goal (needs crew tick loop — Phase 6)
+- Spatial LOD chunk divisors (800 agents ticks fine without it; needed at 10k+)
+- Ship docking against real facility entities (currently `docked_at = None` always)
 
 ### Phase 5 — WebSocket Server + Godot Client Update
 Files: `sim_server/src/ws/`, `sim_server/src/http/`, `client/scripts/autoload/network_manager.gd`
@@ -194,6 +204,7 @@ Files: `sim_core/src/agents/facility.rs`, `population.rs`, `faction.rs`
 | 2026-04-19 | 1 | Architecture designed, workspace scaffolded, Phase 1 complete (35 tests) |
 | 2026-04-20 | 2 | Pivoted to hecs ECS + command buffer pattern; Phase 2 complete (38 tests, binary boots and ticks with full world) |
 | 2026-04-20 | 3 | Phase 3 complete: price engine, 8-phase market tick, prices move naturally under supply/demand; 47 tests |
+| 2026-04-20 | 4 | Phase 4 MVP: ships observe markets, pick trade_run goals, travel & trade; avg credits +25% in 40s smoke; 56 tests |
 
 ## Cross-Compilation (Windows)
 

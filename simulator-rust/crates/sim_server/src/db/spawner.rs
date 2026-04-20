@@ -86,8 +86,43 @@ pub async fn load_agents(
     load_populations(pool, &mut store).await?;
     load_ships(pool, registry, tick_config, &mut store).await?;
 
+    seed_ship_price_knowledge(&mut store);
+
     info!("Spawner: {}", store.summary());
     Ok(store)
+}
+
+/// Bootstrap every ship's `price_knowledge` with a snapshot of every market's
+/// current prices. Models "captains know the rough price patterns around the
+/// sector even before visiting" — without this ships have no basis for
+/// picking a trade_run goal until they've visited multiple markets.
+fn seed_ship_price_knowledge(store: &mut AgentStore) {
+    use sim_core::agents::market::{MarketIdentity, MarketPricing};
+    use sim_core::agents::ship::ShipMemory;
+    use sim_core::economy::commodities::PriceMemory;
+
+    // Collect a location → commodity → price snapshot.
+    let mut snapshot: HashMap<String, HashMap<sim_core::economy::commodities::Commodity, f32>> =
+        HashMap::new();
+    for (_e, (id, pricing)) in store
+        .world
+        .query::<(&MarketIdentity, &MarketPricing)>()
+        .iter()
+    {
+        snapshot.insert(id.facility_location.clone(), pricing.prices.clone());
+    }
+
+    for (_e, memory) in store.world.query_mut::<&mut ShipMemory>() {
+        if !memory.price_knowledge.is_empty() {
+            continue;
+        }
+        for (loc, prices) in &snapshot {
+            let entry = memory.price_knowledge.entry(loc.clone()).or_default();
+            for (&commodity, &price) in prices {
+                entry.insert(commodity, PriceMemory { price, tick: 0 });
+            }
+        }
+    }
 }
 
 async fn load_bodies(

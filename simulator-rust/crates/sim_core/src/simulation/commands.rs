@@ -49,6 +49,21 @@ pub enum SimCommand {
     },
 
     // --- Supply adjustments (facility recipes, population production) ---
+    /// Add supply at the market whose location matches the ship's current location.
+    /// `market` field is a placeholder — the apply phase resolves the real market
+    /// by looking up the ship's location at apply time. Emitted from ship sells.
+    AddSupplyAtShipLocation {
+        ship: Entity,
+        commodity: Commodity,
+        quantity: f32,
+    },
+    /// Symmetric to AddSupplyAtShipLocation — ship buys remove supply locally.
+    RemoveSupplyAtShipLocation {
+        ship: Entity,
+        commodity: Commodity,
+        quantity: f32,
+    },
+    /// Direct supply adjustment at a specific market entity (facility recipes).
     AddSupply {
         market: Entity,
         commodity: Commodity,

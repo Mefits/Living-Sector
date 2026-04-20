@@ -47,7 +47,16 @@ async fn main() -> Result<()> {
     }
 
     // --- Load world ---
-    let config = TickConfig::DEFAULT;
+    let config = {
+        let mut c = TickConfig::DEFAULT;
+        if let Ok(ws) = std::env::var("WORLD_SPEED") {
+            if let Ok(v) = ws.parse::<f32>() {
+                c.world_speed = v;
+                info!("WORLD_SPEED override: {v}");
+            }
+        }
+        c
+    };
     let registry = db::spawner::load_registry(&pool).await?;
     let store = db::spawner::load_agents(&pool, &registry, &config).await?;
     let registry = Arc::new(registry);

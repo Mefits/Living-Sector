@@ -2,8 +2,13 @@ use sim_core::{
     agents::{
         celestial_body::BodyOrbit,
         market::{self, MarketIdentity, MarketPricing},
+        ship::{self, ShipPosition},
     },
-    simulation::{commands::CommandBuffer, config::TickConfig, spawner::AgentStore},
+    simulation::{
+        commands::{CommandBuffer, SimCommand},
+        config::TickConfig,
+        spawner::AgentStore,
+    },
     world::registry::WorldRegistry,
 };
 use std::sync::{
@@ -16,20 +21,19 @@ use tracing::{debug, info};
 pub type TickCounter = Arc<AtomicU64>;
 pub type RunningFlag = Arc<AtomicBool>;
 
-/// The engine tick loop.
+/// Simulation tick loop.
 ///
-/// Phase order (subset so far — expands in Phase 4+):
-///   1. drain command buffer (pause/resume/etc from WS handlers)
-///   2. bodies: advance orbital angles
-///   3. [ships — Phase 4]
-///   4. apply cross-agent effects from command buffer
-///   5. markets: 8-phase tick (produce→consume→orders→match→demand→shortage→prices)
-///   6. [facilities — Phase 6]
-///   7. [populations — Phase 6]
-///   8. [snapshot write — Phase 5]
+/// Phase order per tick:
+///   1. drain commands from WS handlers (pause/observer/speed)
+///   2. advance orbital bodies
+///   3. ships: transit, observe, decide, act → emit commands
+///   4. apply ship-emitted commands (AddSupplyAtShipLocation etc.)
+///   5. markets: 8-phase tick → emit commands (TransferCredits)
+///   6. apply market-emitted commands
+///   7. [facilities / populations → Phase 6]
 pub async fn run_tick_loop(
     mut store: AgentStore,
-    _registry: Arc<WorldRegistry>,
+    registry: Arc<WorldRegistry>,
     tick_config: TickConfig,
     tick_counter: TickCounter,
     running: RunningFlag,
@@ -60,29 +64,34 @@ pub async fn run_tick_loop(
 
         let tick = tick_counter.fetch_add(1, Ordering::Relaxed) + 1;
 
-        // Phase 0: drain commands queued from WS handlers (pause/resume/observer).
-        // TODO Phase 5: actually process these commands.
+        // Phase 0: drain any WS-originating commands (reserved)
         commands.clear();
 
-        // Phase 1: orbital bodies
+        // Phase 1: bodies
         tick_bodies(&mut store, tick_scale);
 
-        // Phase 2: ships — coming in Phase 4
+        // Phase 2: ships (may emit supply commands)
+        ship::tick_ships(&mut store.world, &registry, &mut commands, tick, tick_scale, tick_mult);
 
-        // Phase 3: apply cross-agent effects from ship phase — Phase 4
+        // Phase 3: apply supply commands to markets
+        apply_supply_commands(&mut store, &mut commands);
 
-        // Phase 4: markets (uses command buffer for spread-revenue transfers)
+        // Phase 4: markets (may emit credit-transfer commands)
         market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
 
-        // Phase 5+: facilities, populations — Phase 6
+        // Phase 5: apply remaining commands (credit transfers etc.)
+        // For Phase 4 MVP we don't apply transfer commands yet — facilities
+        // aren't tracked as credit-holders until Phase 6.
+        commands.clear();
 
         // Diagnostics
         if tick % (8 * 5) == 0 {
-            debug!(tick, commands = commands.len(), "Engine: tick");
+            debug!(tick, "Engine: tick");
         }
         if tick % (8 * 10) == 0 {
-            info!(tick, "Engine: {} | commands/tick={}", store.summary(), commands.len());
+            info!(tick, "Engine: {}", store.summary());
             log_sample_market(&store, &format!("tick={tick}"));
+            log_sample_ships(&store, tick);
         }
     }
 }
@@ -93,11 +102,57 @@ fn tick_bodies(store: &mut AgentStore, tick_scale: f32) {
     }
 }
 
-/// Logs one market's price for a few key commodities at a specific moment —
-/// useful in smoke tests to confirm prices move over time.
+/// Apply commands that need a lookup from ship-location → market-entity.
+/// These are emitted by `ship::tick_ships` during buy/sell actions.
+fn apply_supply_commands(store: &mut AgentStore, commands: &mut CommandBuffer) {
+    // Take the commands out so we can iterate without holding a borrow on `commands`.
+    let drained: Vec<SimCommand> = commands.drain().collect();
+    let mut leftover: Vec<SimCommand> = Vec::with_capacity(drained.len());
+
+    for cmd in drained {
+        match cmd {
+            SimCommand::AddSupplyAtShipLocation { ship, commodity, quantity }
+            | SimCommand::RemoveSupplyAtShipLocation { ship, commodity, quantity } => {
+                let sign = matches!(&cmd, SimCommand::AddSupplyAtShipLocation { .. });
+                let location = store
+                    .world
+                    .get::<&ShipPosition>(ship)
+                    .ok()
+                    .and_then(|p| p.location_name.clone());
+                if let Some(loc) = location {
+                    if let Some(&market_entity) = store.market_at_location.get(&loc) {
+                        if let Ok(mut pricing) = store.world.get::<&mut MarketPricing>(market_entity) {
+                            let entry = pricing.supply.entry(commodity).or_insert(0.0);
+                            if sign {
+                                *entry += quantity;
+                            } else {
+                                *entry = (*entry - quantity).max(0.0);
+                            }
+                        }
+                    }
+                }
+            }
+            SimCommand::AddSupply { market, commodity, quantity } => {
+                if let Ok(mut pricing) = store.world.get::<&mut MarketPricing>(market) {
+                    *pricing.supply.entry(commodity).or_insert(0.0) += quantity;
+                }
+            }
+            SimCommand::RemoveSupply { market, commodity, quantity } => {
+                if let Ok(mut pricing) = store.world.get::<&mut MarketPricing>(market) {
+                    let entry = pricing.supply.entry(commodity).or_insert(0.0);
+                    *entry = (*entry - quantity).max(0.0);
+                }
+            }
+            other => leftover.push(other),
+        }
+    }
+
+    commands.commands.extend(leftover);
+}
+
+/// Log one market's price for a few key commodities.
 fn log_sample_market(store: &AgentStore, label: &str) {
     use sim_core::economy::commodities::Commodity::*;
-    // Pick Earth Station market if present, else the first market
     let target = store
         .market_at_location
         .get("earth-station")
@@ -116,5 +171,46 @@ fn log_sample_market(store: &AgentStore, label: &str) {
                 );
             }
         }
+    }
+}
+
+/// Log summary of ship states (counts by goal, credits distribution, visited locations).
+fn log_sample_ships(store: &AgentStore, tick: u64) {
+    use sim_core::agents::ship::{ShipAI, ShipCargo, ShipEconomy, ShipMemory};
+    let mut by_goal: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut total_credits: i64 = 0;
+    let mut ships_with_cargo: u32 = 0;
+    let mut ship_count: u32 = 0;
+    let mut max_credits: i64 = 0;
+    let mut min_credits: i64 = i64::MAX;
+    let mut total_visited: u32 = 0;
+    for (_e, (ai, econ, cargo, mem)) in store
+        .world
+        .query::<(&ShipAI, &ShipEconomy, &ShipCargo, &ShipMemory)>()
+        .iter()
+    {
+        *by_goal.entry(ai.current_goal.clone()).or_insert(0) += 1;
+        total_credits += econ.credits;
+        max_credits = max_credits.max(econ.credits);
+        min_credits = min_credits.min(econ.credits);
+        if cargo.used() > 0 {
+            ships_with_cargo += 1;
+        }
+        total_visited += mem.visited.len() as u32;
+        ship_count += 1;
+    }
+    if ship_count > 0 {
+        let avg = total_credits / ship_count as i64;
+        let avg_visited = total_visited as f32 / ship_count as f32;
+        info!(
+            tick,
+            "ships: {:?} | credits avg/min/max={}/{}/{} | with_cargo={} | avg_visited_locs={:.1}",
+            by_goal,
+            avg,
+            min_credits,
+            max_credits,
+            ships_with_cargo,
+            avg_visited,
+        );
     }
 }
