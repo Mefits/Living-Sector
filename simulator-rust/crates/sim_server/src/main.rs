@@ -1,27 +1,34 @@
+mod app_state;
+mod control;
 mod db;
 mod engine;
 mod http;
+mod snapshot;
 mod ws;
 
 use anyhow::Result;
+use app_state::AppState;
+use axum::{
+    routing::{get, post},
+    Router,
+};
+use control::ControlCommand;
 use engine::{RunningFlag, TickCounter};
 use sim_core::simulation::config::TickConfig;
+use snapshot::SnapshotCache;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64},
     Arc,
 };
+use tokio::sync::{broadcast, mpsc};
 use tracing::info;
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::{fmt, EnvFilter};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // --- Logging ---
-    // Write to stderr with an explicit filter. We don't use try_from_default_env
-    // because falling back silently when RUST_LOG is malformed confuses debugging.
-    // The [[bin]] name is "simulator", so events from sim_server's modules
-    // appear under target "simulator::<mod>", not "sim_server::<mod>".
+    // Logging
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("simulator=info,sim_core=info"));
+        .unwrap_or_else(|_| EnvFilter::new("simulator=info,sim_core=info,tower_http=warn"));
     fmt()
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
@@ -30,14 +37,13 @@ async fn main() -> Result<()> {
 
     info!("Simulator starting...");
 
-    // --- Database ---
+    // Database
     let db_path = resolve_db_path();
     info!("DB: {db_path}");
     let pool = db::pool::create_pool(&db_path).await?;
     db::pool::run_migrations(&pool).await?;
     info!("Migrations: done");
 
-    // --- Seed if empty ---
     if !db::seeder::is_seeded(&pool).await? {
         let data_dir = resolve_data_dir();
         info!("Seeding from {}", data_dir.display());
@@ -46,7 +52,7 @@ async fn main() -> Result<()> {
         info!("DB already seeded — skipping");
     }
 
-    // --- Load world ---
+    // Config
     let config = {
         let mut c = TickConfig::DEFAULT;
         if let Ok(ws) = std::env::var("WORLD_SPEED") {
@@ -57,52 +63,133 @@ async fn main() -> Result<()> {
         }
         c
     };
+
+    // Load world
     let registry = db::spawner::load_registry(&pool).await?;
     let store = db::spawner::load_agents(&pool, &registry, &config).await?;
     let registry = Arc::new(registry);
 
     let summary = store.summary();
     info!("World loaded: {summary}");
+    let agent_count_initial = (summary.ships
+        + summary.markets
+        + summary.facilities
+        + summary.populations
+        + summary.factions
+        + summary.bodies) as u64;
 
-    // --- Engine ---
+    // Shared state
+    let snapshots = SnapshotCache::new();
     let tick_counter: TickCounter = Arc::new(AtomicU64::new(0));
     let running: RunningFlag = Arc::new(AtomicBool::new(true));
+    let interval_ms = Arc::new(AtomicU64::new(config.tick_interval_ms()));
+    let agent_count = Arc::new(AtomicU64::new(agent_count_initial));
 
-    // Signal Godot (or any parent process watching stdout)
-    println!("sim:ready ws=ws://127.0.0.1:8080/ws tick=0");
+    let (broadcast_tx, _) = broadcast::channel(64);
+    let (control_tx, control_rx) = mpsc::channel::<ControlCommand>(64);
 
-    engine::run_tick_loop(store, registry, config, tick_counter, running).await;
+    let app_state = AppState {
+        snapshots: snapshots.clone(),
+        tick: tick_counter.clone(),
+        running: running.clone(),
+        interval_ms: interval_ms.clone(),
+        agent_count: agent_count.clone(),
+        broadcast_tx: broadcast_tx.clone(),
+        control_tx: control_tx.clone(),
+    };
 
+    // HTTP + WS server
+    let addr: std::net::SocketAddr = std::env::var("BIND_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:8080".into())
+        .parse()?;
+    let app = build_router(app_state.clone());
+
+    let server_handle = tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind(addr).await.expect("bind failed");
+        info!("HTTP+WS listening on http://{addr}");
+        axum::serve(listener, app).await.expect("server error");
+    });
+
+    // Tick loop in its own task
+    let tick_handle = {
+        let snapshots = snapshots.clone();
+        let tick_counter = tick_counter.clone();
+        let running = running.clone();
+        let interval_ms = interval_ms.clone();
+        let broadcast_tx = broadcast_tx.clone();
+        tokio::spawn(async move {
+            engine::run_tick_loop(
+                store,
+                registry,
+                config,
+                tick_counter,
+                running,
+                snapshots,
+                interval_ms,
+                broadcast_tx,
+                control_rx,
+            )
+            .await;
+        })
+    };
+
+    println!("sim:ready ws=ws://{addr}/ws http=http://{addr}/api tick=0");
+
+    // Wait for either task to exit (normally runs forever)
+    tokio::select! {
+        r = server_handle => { info!("HTTP server ended: {:?}", r); }
+        r = tick_handle => { info!("Tick loop ended: {:?}", r); }
+    }
     Ok(())
 }
 
+fn build_router(state: AppState) -> Router {
+    use http::api;
+    use tower_http::cors::{Any, CorsLayer};
+
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    Router::new()
+        .route("/ws", get(ws::handler::ws_upgrade))
+        .route("/api/health", get(api::health))
+        .route("/api/report", get(api::report))
+        .route("/api/ships", get(api::ships))
+        .route("/api/markets", get(api::markets))
+        .route("/api/facilities", get(api::facilities))
+        .route("/api/populations", get(api::populations))
+        .route("/api/factions", get(api::factions))
+        .route("/api/positions", get(api::positions))
+        .route("/api/agent/{id}", get(api::agent_by_id))
+        .route("/api/sim/pause", post(api::sim_pause))
+        .route("/api/sim/resume", post(api::sim_resume))
+        .route("/api/sim/speed", post(api::sim_speed))
+        .with_state(state)
+        .layer(cors)
+}
+
 fn resolve_db_path() -> String {
-    // Env override → fallback to sibling of binary → fallback to ./sim.db
     std::env::var("DATABASE_PATH").unwrap_or_else(|_| {
-        let exe = std::env::current_exe().ok();
-        exe.and_then(|p| p.parent().map(|d| d.join("sim.db")))
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("sim.db")))
             .and_then(|p| p.to_str().map(|s| s.to_string()))
             .unwrap_or_else(|| "sim.db".to_string())
     })
 }
 
 fn resolve_data_dir() -> std::path::PathBuf {
-    // Env override → sibling priv/data → cargo workspace priv/data
     if let Ok(path) = std::env::var("DATA_DIR") {
         return std::path::PathBuf::from(path);
     }
-    // Try next to the binary (release layout)
     if let Ok(exe) = std::env::current_exe() {
-        let candidate = exe
-            .parent()
-            .unwrap_or(&exe)
-            .join("priv")
-            .join("data");
+        let candidate = exe.parent().unwrap_or(&exe).join("priv").join("data");
         if candidate.exists() {
             return candidate;
         }
     }
-    // Dev layout: cargo workspace root's priv/data
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")

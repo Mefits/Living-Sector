@@ -175,13 +175,22 @@ Files: `sim_core/src/agents/ship.rs`, `sim_core/src/ai/considerations.rs`, `sim_
 - Spatial LOD chunk divisors (800 agents ticks fine without it; needed at 10k+)
 - Ship docking against real facility entities (currently `docked_at = None` always)
 
-### Phase 5 — WebSocket Server + Godot Client Update
-Files: `sim_server/src/ws/`, `sim_server/src/http/`, `client/scripts/autoload/network_manager.gd`
-- [ ] axum WS handler + broadcast channel
-- [ ] Full JSON protocol (all message types)
-- [ ] HTTP API endpoints
-- [ ] Update Godot NetworkManager to new protocol
-**Done when**: Godot connects, live positions + ship states stream correctly
+### Phase 5 — WebSocket Server + HTTP API ✅ (server side complete; Godot client update queued)
+Files: `sim_server/src/snapshot.rs`, `sim_server/src/ws/`, `sim_server/src/http/`, `sim_server/src/app_state.rs`, `sim_server/src/control.rs`
+- [x] SnapshotCache (DashMap) — tick loop writes, handlers read lock-free
+- [x] axum 0.8 HTTP server on 127.0.0.1:8080 (BIND_ADDR env override)
+- [x] HTTP: /api/health, /api/report, /api/ships, /api/markets, /api/facilities, /api/populations, /api/factions, /api/positions, /api/agent/:id
+- [x] HTTP sim control: POST /api/sim/{pause,resume,speed}
+- [x] WebSocket /ws with broadcast channel + per-client select loop
+- [x] ServerMsg enum: server_hello, positions (every tick), ship_states (every 8 ticks), market_states (every 16 ticks), agent_state, sim_control_ack
+- [x] ClientMsg: hello, get_agent, get_snapshot, move_observer, sim_control
+- [x] Control channel (mpsc): HTTP/WS handlers → tick loop (pause/resume/speed/observer)
+- **Verified** via scripts/ws-test.sh: all endpoints return correct JSON; pause/resume affects the running tick loop; market data rich and accurate.
+
+Queued for next session (Godot-side):
+- Update `client/scripts/autoload/network_manager.gd` to new plain-JSON protocol (drop Phoenix channel envelope)
+- Godot reads `sim:ready` from stdout before connecting
+- Test end-to-end connectivity with live game client
 
 ### Phase 6 — Facility + Population + Faction
 Files: `sim_core/src/agents/facility.rs`, `population.rs`, `faction.rs`
@@ -205,6 +214,7 @@ Files: `sim_core/src/agents/facility.rs`, `population.rs`, `faction.rs`
 | 2026-04-20 | 2 | Pivoted to hecs ECS + command buffer pattern; Phase 2 complete (38 tests, binary boots and ticks with full world) |
 | 2026-04-20 | 3 | Phase 3 complete: price engine, 8-phase market tick, prices move naturally under supply/demand; 47 tests |
 | 2026-04-20 | 4 | Phase 4 MVP: ships observe markets, pick trade_run goals, travel & trade; avg credits +25% in 40s smoke; 56 tests |
+| 2026-04-20 | 5 | Phase 5 server: axum HTTP + WebSocket, snapshot cache, all CRUD endpoints verified; Godot client update deferred to next session |
 
 ## Cross-Compilation (Windows)
 

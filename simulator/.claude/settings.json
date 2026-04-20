@@ -118,7 +118,11 @@
       "Bash(./scripts/check-api.sh *)",
       "Bash(mktemp *)",
       "Bash(chmod +x scripts/*)",
-      "Bash(chmod +x ./scripts/*)"
+      "Bash(chmod +x ./scripts/*)",
+      "Bash(scripts/ws-test.sh)",
+      "Bash(scripts/ws-test.sh *)",
+      "Bash(./scripts/ws-test.sh)",
+      "Bash(./scripts/ws-test.sh *)"
     ],
     "additionalDirectories": [
       "/Users/dclausen/code/spaceproject/simulator/.claude",

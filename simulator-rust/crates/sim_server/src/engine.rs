@@ -1,3 +1,8 @@
+use crate::{
+    control::ControlCommand,
+    snapshot::SnapshotCache,
+    ws::protocol::{PositionEntry, ServerMsg},
+};
 use sim_core::{
     agents::{
         celestial_body::BodyOrbit,
@@ -15,83 +20,105 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
+use tokio::sync::{broadcast, mpsc};
 use tokio::time::{interval, Duration, MissedTickBehavior};
 use tracing::{debug, info};
 
 pub type TickCounter = Arc<AtomicU64>;
 pub type RunningFlag = Arc<AtomicBool>;
 
-/// Simulation tick loop.
-///
-/// Phase order per tick:
-///   1. drain commands from WS handlers (pause/observer/speed)
-///   2. advance orbital bodies
-///   3. ships: transit, observe, decide, act → emit commands
-///   4. apply ship-emitted commands (AddSupplyAtShipLocation etc.)
-///   5. markets: 8-phase tick → emit commands (TransferCredits)
-///   6. apply market-emitted commands
-///   7. [facilities / populations → Phase 6]
+#[allow(clippy::too_many_arguments)]
 pub async fn run_tick_loop(
     mut store: AgentStore,
     registry: Arc<WorldRegistry>,
-    tick_config: TickConfig,
+    mut tick_config: TickConfig,
     tick_counter: TickCounter,
     running: RunningFlag,
+    snapshots: Arc<SnapshotCache>,
+    interval_ms: Arc<AtomicU64>,
+    broadcast_tx: broadcast::Sender<Arc<ServerMsg>>,
+    mut control_rx: mpsc::Receiver<ControlCommand>,
 ) {
-    let mut timer = interval(Duration::from_millis(tick_config.tick_interval_ms()));
+    let mut timer_interval = tick_config.tick_interval_ms();
+    interval_ms.store(timer_interval, Ordering::Relaxed);
+    let mut timer = interval(Duration::from_millis(timer_interval));
     timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     let mut commands = CommandBuffer::new();
-    let tick_scale = tick_config.tick_scale();
-    let tick_mult = tick_config.tick_multiplier();
+    let mut tick_scale = tick_config.tick_scale();
+    let mut tick_mult = tick_config.tick_multiplier();
 
     info!(
         "Engine: tick loop started at {}ms/tick ({} tps, world_speed={}, mult={})",
-        tick_config.tick_interval_ms(),
-        tick_config.ticks_per_second,
-        tick_config.world_speed,
-        tick_mult,
+        timer_interval, tick_config.ticks_per_second, tick_config.world_speed, tick_mult,
     );
     log_sample_market(&store, "initial");
 
     loop {
         timer.tick().await;
 
+        // Drain control commands (non-blocking)
+        while let Ok(cmd) = control_rx.try_recv() {
+            match cmd {
+                ControlCommand::Pause => {
+                    running.store(false, Ordering::Relaxed);
+                    info!("Engine: paused via control channel");
+                }
+                ControlCommand::Resume => {
+                    running.store(true, Ordering::Relaxed);
+                    info!("Engine: resumed via control channel");
+                }
+                ControlCommand::SetSpeed { interval_ms: ms } => {
+                    if (10..=5_000).contains(&ms) {
+                        timer_interval = ms;
+                        interval_ms.store(ms, Ordering::Relaxed);
+                        tick_config.ticks_per_second = (1000 / ms.max(1)) as u32;
+                        tick_scale = tick_config.tick_scale();
+                        tick_mult = tick_config.tick_multiplier();
+                        timer = interval(Duration::from_millis(timer_interval));
+                        timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                        info!("Engine: speed changed to {}ms/tick", ms);
+                    }
+                }
+                ControlCommand::MoveObserver { .. } => {
+                    // Spatial LOD deferred — acknowledge but no-op for now.
+                }
+            }
+        }
+
         if !running.load(Ordering::Relaxed) {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
             continue;
         }
 
         let tick = tick_counter.fetch_add(1, Ordering::Relaxed) + 1;
 
-        // Phase 0: drain any WS-originating commands (reserved)
-        commands.clear();
-
-        // Phase 1: bodies
+        // Tick phases
         tick_bodies(&mut store, tick_scale);
-
-        // Phase 2: ships (may emit supply commands)
         ship::tick_ships(&mut store.world, &registry, &mut commands, tick, tick_scale, tick_mult);
-
-        // Phase 3: apply supply commands to markets
         apply_supply_commands(&mut store, &mut commands);
-
-        // Phase 4: markets (may emit credit-transfer commands)
         market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
-
-        // Phase 5: apply remaining commands (credit transfers etc.)
-        // For Phase 4 MVP we don't apply transfer commands yet — facilities
-        // aren't tracked as credit-holders until Phase 6.
         commands.clear();
+
+        // Snapshot write
+        snapshots.update_from(&store);
+
+        // Broadcasts (cadences match the protocol spec)
+        publish_positions(tick, timer_interval, &snapshots, &broadcast_tx);
+        if tick % 8 == 0 {
+            publish_ship_states(tick, &snapshots, &broadcast_tx);
+        }
+        if tick % 16 == 0 {
+            publish_market_states(tick, &snapshots, &broadcast_tx);
+        }
 
         // Diagnostics
-        if tick % (8 * 5) == 0 {
-            debug!(tick, "Engine: tick");
-        }
         if tick % (8 * 10) == 0 {
             info!(tick, "Engine: {}", store.summary());
             log_sample_market(&store, &format!("tick={tick}"));
             log_sample_ships(&store, tick);
+        } else if tick % (8 * 5) == 0 {
+            debug!(tick, "Engine: tick");
         }
     }
 }
@@ -102,10 +129,7 @@ fn tick_bodies(store: &mut AgentStore, tick_scale: f32) {
     }
 }
 
-/// Apply commands that need a lookup from ship-location → market-entity.
-/// These are emitted by `ship::tick_ships` during buy/sell actions.
 fn apply_supply_commands(store: &mut AgentStore, commands: &mut CommandBuffer) {
-    // Take the commands out so we can iterate without holding a borrow on `commands`.
     let drained: Vec<SimCommand> = commands.drain().collect();
     let mut leftover: Vec<SimCommand> = Vec::with_capacity(drained.len());
 
@@ -113,7 +137,7 @@ fn apply_supply_commands(store: &mut AgentStore, commands: &mut CommandBuffer) {
         match cmd {
             SimCommand::AddSupplyAtShipLocation { ship, commodity, quantity }
             | SimCommand::RemoveSupplyAtShipLocation { ship, commodity, quantity } => {
-                let sign = matches!(&cmd, SimCommand::AddSupplyAtShipLocation { .. });
+                let adding = matches!(&cmd, SimCommand::AddSupplyAtShipLocation { .. });
                 let location = store
                     .world
                     .get::<&ShipPosition>(ship)
@@ -123,7 +147,7 @@ fn apply_supply_commands(store: &mut AgentStore, commands: &mut CommandBuffer) {
                     if let Some(&market_entity) = store.market_at_location.get(&loc) {
                         if let Ok(mut pricing) = store.world.get::<&mut MarketPricing>(market_entity) {
                             let entry = pricing.supply.entry(commodity).or_insert(0.0);
-                            if sign {
+                            if adding {
                                 *entry += quantity;
                             } else {
                                 *entry = (*entry - quantity).max(0.0);
@@ -150,7 +174,58 @@ fn apply_supply_commands(store: &mut AgentStore, commands: &mut CommandBuffer) {
     commands.commands.extend(leftover);
 }
 
-/// Log one market's price for a few key commodities.
+fn publish_positions(
+    tick: u64,
+    interval_ms: u64,
+    snapshots: &SnapshotCache,
+    tx: &broadcast::Sender<Arc<ServerMsg>>,
+) {
+    let entities: Vec<PositionEntry> = snapshots
+        .positions
+        .iter()
+        .map(|e| {
+            let id = e.key().clone();
+            let (x, y) = *e.value();
+            let kind = if id.starts_with("ship-") {
+                "ship"
+            } else {
+                "body"
+            };
+            PositionEntry { id, x, y, kind }
+        })
+        .collect();
+    let msg = ServerMsg::Positions { tick, interval_ms, entities };
+    let _ = tx.send(Arc::new(msg));
+}
+
+fn publish_ship_states(
+    tick: u64,
+    snapshots: &SnapshotCache,
+    tx: &broadcast::Sender<Arc<ServerMsg>>,
+) {
+    let ships: Vec<serde_json::Value> = snapshots
+        .ships
+        .iter()
+        .filter_map(|e| serde_json::to_value(e.value()).ok())
+        .collect();
+    let msg = ServerMsg::ShipStates { tick, ships };
+    let _ = tx.send(Arc::new(msg));
+}
+
+fn publish_market_states(
+    tick: u64,
+    snapshots: &SnapshotCache,
+    tx: &broadcast::Sender<Arc<ServerMsg>>,
+) {
+    let markets: Vec<serde_json::Value> = snapshots
+        .markets
+        .iter()
+        .filter_map(|e| serde_json::to_value(e.value()).ok())
+        .collect();
+    let msg = ServerMsg::MarketStates { tick, markets };
+    let _ = tx.send(Arc::new(msg));
+}
+
 fn log_sample_market(store: &AgentStore, label: &str) {
     use sim_core::economy::commodities::Commodity::*;
     let target = store
@@ -174,7 +249,6 @@ fn log_sample_market(store: &AgentStore, label: &str) {
     }
 }
 
-/// Log summary of ship states (counts by goal, credits distribution, visited locations).
 fn log_sample_ships(store: &AgentStore, tick: u64) {
     use sim_core::agents::ship::{ShipAI, ShipCargo, ShipEconomy, ShipMemory};
     let mut by_goal: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
@@ -205,12 +279,7 @@ fn log_sample_ships(store: &AgentStore, tick: u64) {
         info!(
             tick,
             "ships: {:?} | credits avg/min/max={}/{}/{} | with_cargo={} | avg_visited_locs={:.1}",
-            by_goal,
-            avg,
-            min_credits,
-            max_credits,
-            ships_with_cargo,
-            avg_visited,
+            by_goal, avg, min_credits, max_credits, ships_with_cargo, avg_visited,
         );
     }
 }
