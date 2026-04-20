@@ -106,6 +106,7 @@ async fn main() -> Result<()> {
 
     let (broadcast_tx, _) = broadcast::channel(64);
     let (control_tx, control_rx) = mpsc::channel::<ControlCommand>(64);
+    let (persist_tx, persist_rx) = mpsc::channel::<db::persistence::DbWrite>(4096);
 
     let app_state = AppState {
         snapshots: snapshots.clone(),
@@ -129,6 +130,27 @@ async fn main() -> Result<()> {
         axum::serve(listener, app).await.expect("server error");
     });
 
+    // Resume tick counter from DB if available
+    let resumed_tick = db::persistence::load_tick_counter(&pool).await;
+    if resumed_tick > 0 {
+        info!("Resuming from persisted tick={resumed_tick}");
+        tick_counter.store(resumed_tick, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    // Persistence worker
+    let persist_handle = {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            db::persistence::PersistenceWorker::new(
+                pool,
+                persist_rx,
+                std::time::Duration::from_secs(5),
+            )
+            .run()
+            .await;
+        })
+    };
+
     // Tick loop in its own task
     let tick_handle = {
         let snapshots = snapshots.clone();
@@ -147,6 +169,7 @@ async fn main() -> Result<()> {
                 interval_ms,
                 broadcast_tx,
                 control_rx,
+                persist_tx,
             )
             .await;
         })
@@ -159,11 +182,12 @@ async fn main() -> Result<()> {
     tokio::select! {
         r = server_handle => { info!("HTTP server ended: {:?}", r); }
         r = tick_handle => { info!("Tick loop ended: {:?}", r); }
+        r = persist_handle => { info!("Persistence worker ended: {:?}", r); }
         _ = shutdown_signal() => {
             info!("Shutdown signal received — stopping tick loop");
             running.store(false, std::sync::atomic::Ordering::Relaxed);
-            // Give the tick loop up to 1s to notice + stop cleanly
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            // Give the tick loop + persistence worker up to 1s for final flush
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
             info!("Final tick: {}", tick_counter.load(std::sync::atomic::Ordering::Relaxed));
             info!("Shutdown complete.");
         }

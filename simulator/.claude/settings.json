@@ -122,7 +122,11 @@
       "Bash(scripts/ws-test.sh)",
       "Bash(scripts/ws-test.sh *)",
       "Bash(./scripts/ws-test.sh)",
-      "Bash(./scripts/ws-test.sh *)"
+      "Bash(./scripts/ws-test.sh *)",
+      "Bash(scripts/persist-test.sh)",
+      "Bash(scripts/persist-test.sh *)",
+      "Bash(./scripts/persist-test.sh)",
+      "Bash(./scripts/persist-test.sh *)"
     ],
     "additionalDirectories": [
       "/Users/dclausen/code/spaceproject/simulator/.claude",

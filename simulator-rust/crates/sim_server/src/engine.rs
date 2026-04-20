@@ -22,6 +22,7 @@
 
 use crate::{
     control::ControlCommand,
+    db::persistence::DbWrite,
     snapshot::SnapshotCache,
     ws::protocol::{PositionEntry, ServerMsg},
 };
@@ -63,6 +64,7 @@ pub async fn run_tick_loop(
     interval_ms: Arc<AtomicU64>,
     broadcast_tx: broadcast::Sender<Arc<ServerMsg>>,
     mut control_rx: mpsc::Receiver<ControlCommand>,
+    persist_tx: mpsc::Sender<DbWrite>,
 ) {
     let mut timer_interval = tick_config.tick_interval_ms();
     interval_ms.store(timer_interval, Ordering::Relaxed);
@@ -145,6 +147,9 @@ pub async fn run_tick_loop(
         snapshots.update_from(&store);
         let total_us = t_start.elapsed().as_micros() as u64;
 
+        // Emit dirty-state writes for the persistence worker (cheap: try_send + mark clean)
+        emit_persist_writes(&mut store, tick, &persist_tx);
+
         // Broadcasts (cadences match the protocol spec)
         publish_positions(tick, timer_interval, &snapshots, &broadcast_tx);
         if tick % 8 == 0 {
@@ -170,6 +175,113 @@ pub async fn run_tick_loop(
         } else if tick % (8 * 5) == 0 {
             debug!(tick, tick_compute_us, total_us, "Engine: tick");
         }
+    }
+}
+
+/// Walk the world, emit a `DbWrite` for each dirty-flagged agent, clear the
+/// flag in place. Uses `try_send` so a temporarily-full persistence channel
+/// never blocks the tick loop; the write will simply be skipped this round
+/// and picked up on the next dirty mark.
+fn emit_persist_writes(
+    store: &mut AgentStore,
+    tick: u64,
+    tx: &mpsc::Sender<DbWrite>,
+) {
+    use sim_core::agents::{
+        faction::FactionData,
+        market::{MarketHistory, MarketIdentity, MarketPricing},
+        ship::{
+            ShipCargo, ShipEconomy, ShipFuel, ShipIdentity, ShipLifecycle, ShipPosition,
+        },
+    };
+
+    // Ships
+    for (_e, (identity, pos, cargo, fuel, econ, life)) in store
+        .world
+        .query::<(
+            &ShipIdentity,
+            &ShipPosition,
+            &ShipCargo,
+            &ShipFuel,
+            &ShipEconomy,
+            &mut ShipLifecycle,
+        )>()
+        .iter()
+    {
+        if !life.dirty {
+            continue;
+        }
+        let cargo_json: serde_json::Map<String, serde_json::Value> = cargo
+            .cargo
+            .iter()
+            .map(|(c, &q)| (c.as_str().to_string(), serde_json::Value::from(q)))
+            .collect();
+        let write = DbWrite::Ship {
+            db_id: identity.db_id,
+            credits: econ.credits,
+            fuel: fuel.fuel,
+            position_x: pos.position.0,
+            position_y: pos.position.1,
+            cargo_json: serde_json::Value::Object(cargo_json).to_string(),
+            current_goal: String::new(), // ShipAI field; we don't have it in this query
+            active_contract_id: econ.active_contract_id.clone(),
+            broke_strikes: life.broke_strikes,
+            hoard_strikes: life.hoard_strikes,
+            idle_ticks: life.idle_ticks,
+        };
+        let _ = tx.try_send(write);
+        life.dirty = false;
+    }
+
+    // Markets
+    for (_e, (identity, pricing, hist)) in store
+        .world
+        .query::<(&MarketIdentity, &MarketPricing, &mut MarketHistory)>()
+        .iter()
+    {
+        if !hist.dirty {
+            continue;
+        }
+        let to_json = |m: &std::collections::HashMap<sim_core::economy::commodities::Commodity, f32>| {
+            let map: serde_json::Map<String, serde_json::Value> = m
+                .iter()
+                .map(|(c, v)| (c.as_str().to_string(), serde_json::Value::from(*v)))
+                .collect();
+            serde_json::Value::Object(map).to_string()
+        };
+        let shortage_json = {
+            let map: serde_json::Map<String, serde_json::Value> = hist
+                .shortage_ticks
+                .iter()
+                .map(|(c, v)| (c.as_str().to_string(), serde_json::Value::from(*v)))
+                .collect();
+            serde_json::Value::Object(map).to_string()
+        };
+        let _ = tx.try_send(DbWrite::Market {
+            db_id: identity.db_id,
+            prices_json: to_json(&pricing.prices),
+            supply_json: to_json(&pricing.supply),
+            demand_json: to_json(&pricing.demand),
+            shortage_ticks_json: shortage_json,
+        });
+        hist.dirty = false;
+    }
+
+    // Factions
+    for (_e, data) in store.world.query::<&mut FactionData>().iter() {
+        if !data.dirty {
+            continue;
+        }
+        let _ = tx.try_send(DbWrite::Faction {
+            id: data.id.clone(),
+            treasury: data.treasury,
+        });
+        data.dirty = false;
+    }
+
+    // Tick counter every 8 ticks (≈1s)
+    if tick.is_multiple_of(8) {
+        let _ = tx.try_send(DbWrite::Tick { tick });
     }
 }
 

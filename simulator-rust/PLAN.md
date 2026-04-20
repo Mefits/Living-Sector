@@ -216,7 +216,14 @@ Deferred:
 - [ ] Ship lifecycle (broke strikes, hoard detection, recycling) — counters tracked, decommission logic deferred
 - [ ] DB persistence worker — sim re-seeds from JSON on each boot today; needed for player saves
 
-### Phase 8d — Aggregated crew morale ✅
+### Phase 9 — DB persistence worker ✅
+Files: `sim_server/src/db/persistence.rs`, `sim_server/src/engine.rs`, `sim_server/src/main.rs`
+- [x] `PersistenceWorker` runs as a separate tokio task, consumes `DbWrite` via mpsc channel, batches + dedups (same `(kind, db_id)` → latest wins), flushes on 5-second interval in a single transaction
+- [x] Engine emits writes for dirty entities at end of each tick using `try_send` (never blocks the tick loop)
+- [x] `DbWrite` variants: Ship (credits/fuel/position/cargo/goal/contract/strikes/idle), Market (prices/supply/demand/shortage_ticks), Faction (treasury), Tick (counter every 8 ticks)
+- [x] `load_tick_counter` on startup — sim resumes from persisted tick, not 0
+- [x] Graceful shutdown: `ctrl_c`/SIGTERM flips running flag, 1000ms grace for final flush
+- **Validated via `scripts/persist-test.sh`**: 15s run persists tick=120, 223 ships / 23 markets / 5 factions updated. Restart resumes at tick 120 and continues ticking.
 Files: `sim_core/src/agents/ship.rs`, `sim_server/src/db/spawner.rs`, `sim_server/src/engine.rs`
 - [x] `ShipCrew` component (aggregate: size, morale, fatigue) — one per ship, not per crew member
 - [x] `tick_crew` pass — fatigue rises during transit (0.05/tick) and work (0.02/tick), morale drops when fatigue > 60, rest recovers both; updates `ShipEconomy.efficiency` from morale
@@ -269,6 +276,7 @@ Files: `sim_core/src/ai/behavior_tree.rs`, `sim_core/src/agents/ship.rs`
 | 2026-04-20 | 8b | Phase 8b: contract board, pop-posted food delivery contracts, ship fulfill_delivery BT; 24 Paid deliveries in 80s smoke |
 | 2026-04-20 | 8c | Phase 8c: faction tick (5% facility tax), TransferCredits applied (market→facility); Terran treasury +58% in 60s |
 | 2026-04-20 | 8d | Phase 8d: ShipCrew aggregate (morale/fatigue), rest_crew goal & Rest action, efficiency driven by morale |
+| 2026-04-20 | 9 | Phase 9: DB persistence worker (mpsc + dedup + batch flush), tick counter resume on restart |
 
 ## Cross-Compilation (Windows)
 
