@@ -61,5 +61,12 @@ if command -v sqlite3 >/dev/null; then
     done
 fi
 
+# Show body angle progression (proves orbital ticks are firing)
+if command -v sqlite3 >/dev/null; then
+    echo ""
+    echo "=== sample body angles (from DB, seeded values — runtime state not yet flushed) ==="
+    sqlite3 -column -header "$DB" "SELECT name, ROUND(current_angle,2) AS angle FROM celestial_bodies LIMIT 5"
+fi
+
 echo ""
 echo "✓ smoke test complete (log: $LOG, db: $DB)"

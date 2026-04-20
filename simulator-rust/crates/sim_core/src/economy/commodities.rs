@@ -87,7 +87,9 @@ impl Commodity {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse a commodity from its string name. Prefer `Commodity::parse` over the
+    /// `FromStr::from_str` trait method for readability at call sites.
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "ore" => Some(Commodity::Ore),
             "ice" => Some(Commodity::Ice),
@@ -104,6 +106,13 @@ impl Commodity {
             "luxury" => Some(Commodity::Luxury),
             _ => None,
         }
+    }
+}
+
+impl std::str::FromStr for Commodity {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Commodity::parse(s).ok_or(())
     }
 }
 
@@ -150,7 +159,7 @@ mod tests {
     fn round_trip_str() {
         for c in Commodity::ALL {
             let s = c.as_str();
-            assert_eq!(Commodity::from_str(s), Some(*c), "round-trip failed for {}", s);
+            assert_eq!(Commodity::parse(s), Some(*c), "round-trip failed for {}", s);
         }
     }
 

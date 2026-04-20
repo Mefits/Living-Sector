@@ -1,18 +1,18 @@
-/// Behavior tree engine for tactical agent execution.
-///
-/// Once the utility layer selects a goal (e.g., `trade_run`), a behavior tree
-/// handles step-by-step execution. The tree resumes where it left off across
-/// ticks via the `Sequence` node's saved index.
-///
-/// Node types:
-/// - `Sequence`  — run children in order; fail on first failure; resume on `Running`
-/// - `Selector`  — try children in order; succeed on first success; always restart
-/// - `Condition` — evaluate a predicate; returns Success or Failure
-/// - `Action`    — execute a side-effecting step; returns Success, Failure, or Running
-///
-/// The `Blackboard` is a `HashMap<&'static str, BbValue>` for scratch data that
-/// lives only for the current BT run. The agent's persistent state is passed via
-/// the `context` field on the blackboard (filled in by the agent layer, Phase 4).
+//! Behavior tree engine for tactical agent execution.
+//!
+//! Once the utility layer selects a goal (e.g., `trade_run`), a behavior tree
+//! handles step-by-step execution. The tree resumes where it left off across
+//! ticks via the `Sequence` node's saved index.
+//!
+//! Node types:
+//! - `Sequence`  — run children in order; fail on first failure; resume on `Running`
+//! - `Selector`  — try children in order; succeed on first success; always restart
+//! - `Condition` — evaluate a predicate; returns Success or Failure
+//! - `Action`    — execute a side-effecting step; returns Success, Failure, or Running
+//!
+//! The `Blackboard` is a `HashMap<&'static str, BbValue>` for scratch data that
+//! lives only for the current BT run. The agent's persistent state is passed via
+//! the `context` field on the blackboard (filled in by the agent layer, Phase 4).
 
 use std::collections::HashMap;
 

@@ -82,7 +82,7 @@ pub async fn load_agents(
     load_bodies(pool, registry, &mut store).await?;
     load_factions(pool, &mut store).await?;
     load_facilities(pool, &mut store).await?;
-    load_markets(pool, &mut store).await?;
+    load_markets(pool, tick_config, &mut store).await?;
     load_populations(pool, &mut store).await?;
     load_ships(pool, registry, tick_config, &mut store).await?;
 
@@ -268,7 +268,7 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
     Ok(())
 }
 
-async fn load_markets(pool: &SqlitePool, store: &mut AgentStore) -> Result<()> {
+async fn load_markets(pool: &SqlitePool, _config: &TickConfig, store: &mut AgentStore) -> Result<()> {
     let rows = sqlx::query(
         "SELECT id, facility_id, facility_location, price_elasticity, spread,
                 prices, supply, demand, production, consumption,
@@ -315,13 +315,23 @@ async fn load_markets(pool: &SqlitePool, store: &mut AgentStore) -> Result<()> {
                 production: parse_commodity_f32_map(&production_json),
                 consumption: parse_commodity_f32_map(&consumption_json),
                 consumption_window: Default::default(),
+                seed_demand: parse_commodity_f32_map(&demand_json),
             },
-            MarketOrders::default(),
+            MarketOrders {
+                pending_buys: vec![],
+                pending_sells: vec![],
+                reserved: Default::default(),
+                next_order_id: 0,
+                next_reserve_id: 0,
+                // base expiry is 50 ticks × tick_multiplier (32) = 1600 ticks.
+                order_expiry_ticks: 50 * _config.tick_multiplier() as u64,
+            },
             MarketHistory {
                 price_history: Default::default(),
                 trade_volume: parse_commodity_f32_map(&volume_json),
                 shortage_ticks: parse_commodity_u32_map(&shortage_json),
                 last_tick: 0,
+                spawned_at_tick: None,
                 dirty: false,
             },
         ));
@@ -368,7 +378,7 @@ async fn load_populations(pool: &SqlitePool, store: &mut AgentStore) -> Result<(
             .ok_or_else(|| anyhow::anyhow!("population {db_id} references missing facility db_id={facility_db_id}"))?;
 
         let id = format!("pop-{}", label.to_lowercase().replace(' ', "-"));
-        let production_commodity = prod_commodity.as_deref().and_then(Commodity::from_str);
+        let production_commodity = prod_commodity.as_deref().and_then(Commodity::parse);
 
         let entity = store.world.spawn((
             PopIdentity {
@@ -594,7 +604,7 @@ fn parse_commodity_f32_map(json: &str) -> HashMap<Commodity, f32> {
     v.as_object()
         .map(|m| {
             m.iter()
-                .filter_map(|(k, v)| Some((Commodity::from_str(k)?, v.as_f64()? as f32)))
+                .filter_map(|(k, v)| Some((Commodity::parse(k)?, v.as_f64()? as f32)))
                 .collect()
         })
         .unwrap_or_default()
@@ -605,7 +615,7 @@ fn parse_commodity_u32_map(json: &str) -> HashMap<Commodity, u32> {
     v.as_object()
         .map(|m| {
             m.iter()
-                .filter_map(|(k, v)| Some((Commodity::from_str(k)?, v.as_u64()? as u32)))
+                .filter_map(|(k, v)| Some((Commodity::parse(k)?, v.as_u64()? as u32)))
                 .collect()
         })
         .unwrap_or_default()
@@ -616,7 +626,7 @@ fn parse_commodity_u64_map(json: &str) -> HashMap<Commodity, u64> {
     v.as_object()
         .map(|m| {
             m.iter()
-                .filter_map(|(k, v)| Some((Commodity::from_str(k)?, v.as_u64()?)))
+                .filter_map(|(k, v)| Some((Commodity::parse(k)?, v.as_u64()?)))
                 .collect()
         })
         .unwrap_or_default()
@@ -627,7 +637,7 @@ fn parse_cargo(json: &str) -> Cargo {
     v.as_object()
         .map(|m| {
             m.iter()
-                .filter_map(|(k, v)| Some((Commodity::from_str(k)?, v.as_u64()? as u32)))
+                .filter_map(|(k, v)| Some((Commodity::parse(k)?, v.as_u64()? as u32)))
                 .collect()
         })
         .unwrap_or_default()

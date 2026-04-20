@@ -425,7 +425,7 @@ async fn seed_world(pool: &SqlitePool, path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-fn str_field<'a>(v: &'a Value, key: &str) -> Result<String> {
+fn str_field(v: &Value, key: &str) -> Result<String> {
     v.get(key)
         .and_then(|x| x.as_str())
         .map(|s| s.to_string())

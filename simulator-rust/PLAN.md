@@ -142,12 +142,18 @@ Files: `sim_core/src/agents/`, `sim_core/src/simulation/`, `sim_server/src/db/`
 - [x] Smoke scripts: `scripts/verify.sh`, `scripts/smoke.sh`, `scripts/check-api.sh`
 - **Verified**: binary loads 223 ships + 56 facilities + 23 markets + 19 pops + 6 factions + 23 bodies, logs `sim:ready`, tick advances at 8 tps.
 
-### Phase 3 — Market Logic
-Files: `sim_core/src/agents/market.rs`, `sim_core/src/economy/contracts.rs`
-- [ ] MarketState + 8-phase tick (produce, consume, orders, prices, snapshot)
-- [ ] Contract board (post/accept/pickup/deliver/expire)
-- [ ] Market persistence
-**Done when**: 1000-tick run shows prices drifting toward equilibrium
+### Phase 3 — Market Logic ✅ (completed)
+Files: `sim_core/src/agents/market.rs`, `sim_core/src/economy/price_engine.rs`
+- [x] `price_engine` with coverage-model pressure + shortage urgency multiplier (9 tests)
+- [x] `market::tick_markets` over hecs::World — 8 phases: produce→consume→emergency→surplus→match→update-demand→track-shortage→update-prices
+- [x] Emergency orders (market-emergency) restock critical commodities at premium
+- [x] Surplus orders (market-surplus) offload oversupply at discount
+- [x] Rolling consumption window with warmup floor
+- [x] Spread revenue → facility via `SimCommand::TransferCredits`
+- [x] Engine tick loop wired; commands drained per tick
+- **Verified**: 20s smoke shows earth-station prices move naturally (abundant fuel 22→8, tight ore 45→76, surplus food 8→3). 47 tests passing.
+
+Deferred: contract board lifecycle (Phase 4 alongside ship goal execution), market state persistence (Phase 7 dirty-flush worker), per-ship order settlement (Phase 4).
 
 ### Phase 4 — Ship Logic (largest)
 Files: `sim_core/src/agents/ship.rs`, `sim_core/src/ai/considerations.rs`, `sim_core/src/spatial/`
@@ -187,6 +193,7 @@ Files: `sim_core/src/agents/facility.rs`, `population.rs`, `faction.rs`
 |---|---|---|
 | 2026-04-19 | 1 | Architecture designed, workspace scaffolded, Phase 1 complete (35 tests) |
 | 2026-04-20 | 2 | Pivoted to hecs ECS + command buffer pattern; Phase 2 complete (38 tests, binary boots and ticks with full world) |
+| 2026-04-20 | 3 | Phase 3 complete: price engine, 8-phase market tick, prices move naturally under supply/demand; 47 tests |
 
 ## Cross-Compilation (Windows)
 

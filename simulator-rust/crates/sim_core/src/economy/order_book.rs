@@ -53,12 +53,7 @@ pub fn match_orders(
     let mut current_buy: Option<Order> = buy_iter.next();
     let mut current_sell: Option<Order> = sell_iter.next();
 
-    loop {
-        let (buy, sell) = match (&mut current_buy, &mut current_sell) {
-            (Some(b), Some(s)) => (b, s),
-            _ => break,
-        };
-
+    while let (Some(buy), Some(sell)) = (current_buy.as_mut(), current_sell.as_mut()) {
         if buy.price < sell.price {
             // Best buy can't meet cheapest sell — no more matches possible
             break;
