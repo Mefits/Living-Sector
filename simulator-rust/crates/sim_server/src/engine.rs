@@ -29,6 +29,7 @@ use sim_core::{
     agents::{
         celestial_body::BodyOrbit,
         facility,
+        faction,
         market::{self, MarketIdentity, MarketPricing},
         population,
         ship::{self, ShipPosition},
@@ -133,6 +134,9 @@ pub async fn run_tick_loop(
         facility::tick_facilities(&mut store.world, tick, tick_mult);
         population::tick_populations(&mut store.world, &mut store.contracts, tick, tick_mult);
         market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
+        // Market emits TransferCredits (spread revenue) — apply before clearing
+        apply_ship_commands(&mut store, &mut commands);
+        faction::tick_factions(&mut store.world, tick, tick_mult);
         commands.clear();
 
         let tick_compute_us = t_start.elapsed().as_micros() as u64;
@@ -162,6 +166,7 @@ pub async fn run_tick_loop(
             log_sample_market(&store, &format!("tick={tick}"));
             log_sample_ships(&store, tick);
             log_contract_board(&store, tick);
+            log_factions(&store, tick);
         } else if tick % (8 * 5) == 0 {
             debug!(tick, tick_compute_us, total_us, "Engine: tick");
         }
@@ -212,6 +217,16 @@ fn apply_ship_commands(store: &mut AgentStore, commands: &mut CommandBuffer) {
                 if let Ok(mut pricing) = store.world.get::<&mut MarketPricing>(market) {
                     let entry = pricing.supply.entry(commodity).or_insert(0.0);
                     *entry = (*entry - quantity).max(0.0);
+                }
+            }
+
+            // --- Market spread revenue → facility ---
+            SimCommand::TransferCredits { to, amount, .. } => {
+                use sim_core::agents::facility::FacilityOperations;
+                if amount > 0 {
+                    if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(to) {
+                        ops.credits += amount;
+                    }
                 }
             }
 
@@ -340,6 +355,22 @@ fn log_contract_board(store: &AgentStore, tick: u64) {
     if !counts.is_empty() {
         info!(tick, "contracts: {:?} total={}", counts, store.contracts.len());
     }
+}
+
+fn log_factions(store: &AgentStore, tick: u64) {
+    use sim_core::agents::faction::FactionData;
+    let mut totals: Vec<(String, i64)> = store
+        .world
+        .query::<&FactionData>()
+        .iter()
+        .map(|(_, d)| (d.id.clone(), d.treasury))
+        .collect();
+    totals.sort_by(|a, b| b.1.cmp(&a.1));
+    let summary: Vec<String> = totals
+        .iter()
+        .map(|(id, t)| format!("{id}={t}"))
+        .collect();
+    info!(tick, "factions: {}", summary.join(", "));
 }
 
 fn log_sample_ships(store: &AgentStore, tick: u64) {

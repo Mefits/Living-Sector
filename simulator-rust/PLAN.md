@@ -216,6 +216,14 @@ Deferred:
 - [ ] Ship lifecycle (broke strikes, hoard detection, recycling) — counters tracked, decommission logic deferred
 - [ ] DB persistence worker — sim re-seeds from JSON on each boot today; needed for player saves
 
+### Phase 8c — Faction tick + apply TransferCredits ✅
+Files: `sim_core/src/agents/faction.rs`, `sim_server/src/engine.rs`
+- [x] `TransferCredits` applied in engine (market spread revenue → owning facility)
+- [x] `faction::tick_factions` runs every 50 base-ticks: 5% corporate tax on each owned facility's credits → faction treasury
+- [x] Two-pass flow (deduct from facilities, aggregate, deposit into factions)
+- [x] Diagnostic `log_factions` — treasury totals per faction
+- **Verified**: 60s smoke shows Terran treasury growing 55000 → 86940 (+58%), smaller factions tracking proportionally to their facility count. Doughtys treasury flat at 8000 (own ~0 facilities). 64 tests passing.
+
 ### Phase 8b — Contract board + fulfill_delivery ✅
 Files: `sim_core/src/economy/contracts.rs`, `sim_core/src/agents/population.rs`, `sim_core/src/agents/ship.rs`, `sim_core/src/simulation/commands.rs`, `sim_server/src/engine.rs`
 - [x] `ContractBoard` with lifecycle (Posted → Accepted → Paid → Expired), status + destination indexes, `posted_with_destination` lookup, `expire(tick)` housekeeping
@@ -248,6 +256,7 @@ Files: `sim_core/src/ai/behavior_tree.rs`, `sim_core/src/agents/ship.rs`
 | 2026-04-20 | 7 | Phase 7: graceful SIGINT/SIGTERM shutdown, tick-time metrics (~3ms/tick at 800 agents), CLAUDE.md + README.md, module-level docs on every major file |
 | 2026-04-20 | 8a | Phase 8a: BT engine v2 (generic over action type), ShipAction enum, dispatch closure pattern; avg credits +57% in 30s smoke |
 | 2026-04-20 | 8b | Phase 8b: contract board, pop-posted food delivery contracts, ship fulfill_delivery BT; 24 Paid deliveries in 80s smoke |
+| 2026-04-20 | 8c | Phase 8c: faction tick (5% facility tax), TransferCredits applied (market→facility); Terran treasury +58% in 60s |
 
 ## Cross-Compilation (Windows)
 
