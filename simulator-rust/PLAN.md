@@ -216,6 +216,15 @@ Deferred:
 - [ ] Ship lifecycle (broke strikes, hoard detection, recycling) — counters tracked, decommission logic deferred
 - [ ] DB persistence worker — sim re-seeds from JSON on each boot today; needed for player saves
 
+### Phase 8a — BT engine v2 + ship rewiring ✅
+Files: `sim_core/src/ai/behavior_tree.rs`, `sim_core/src/agents/ship.rs`
+- [x] `BtNode<A>` generic over action type (fixes fn-pointer-can't-capture problem). Tick takes a caller-supplied dispatch closure that matches on the action variant.
+- [x] `ShipAction` enum with parameterized variants: Travel/Dock/Undock/Refuel/Buy/Sell/SellAll/AcceptContract/PickupCargo/DeliverCargo/Idle
+- [x] `plan_goal` picks goal + BT; `build_refuel_bt`, `build_sell_cargo_bt`, `build_trade_run_bt` generate sequences
+- [x] `execute_ship_action` dispatch closure integrates with ship components (Transit returns Running across ticks until arrival)
+- [x] Removed old state machine (`sell_cargo_locally`, `buy_cargo_locally`, `begin_travel` — their logic now lives inside action variants)
+- **Validated**: 30s smoke shows avg credits 9425 → 14784 (+57%, vs Phase 4's +47%), 164 ships carrying cargo, 61 tests passing. BT chains plans across ticks, no re-plan cost per tick.
+
 ## Session Log
 
 | Date | Session | Work Done |
@@ -227,6 +236,7 @@ Deferred:
 | 2026-04-20 | 5 | Phase 5 server: axum HTTP + WebSocket, snapshot cache, all CRUD endpoints verified; Godot client update deferred to next session |
 | 2026-04-20 | 6 | Phase 6: facility recipes (mining, smelting, manufacturing), population consumption/production, full economic loop — ship credits +47% in 40s smoke |
 | 2026-04-20 | 7 | Phase 7: graceful SIGINT/SIGTERM shutdown, tick-time metrics (~3ms/tick at 800 agents), CLAUDE.md + README.md, module-level docs on every major file |
+| 2026-04-20 | 8a | Phase 8a: BT engine v2 (generic over action type), ShipAction enum, dispatch closure pattern; avg credits +57% in 30s smoke |
 
 ## Cross-Compilation (Windows)
 

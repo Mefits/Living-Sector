@@ -20,7 +20,10 @@
 //! ```
 
 use crate::{
-    ai::{behavior_tree::BtNode, personality::Personality},
+    ai::{
+        behavior_tree::{Blackboard, BtNode, BtStatus},
+        personality::Personality,
+    },
     economy::commodities::{Cargo, Commodity, PriceKnowledge},
 };
 use hecs::Entity;
@@ -105,12 +108,42 @@ pub struct ShipEconomy {
     pub faction_reputation: HashMap<String, u8>,
 }
 
-/// AI: personality + current goal + BT state.
+/// AI: personality + current goal + BT state (parameterized over ShipAction).
 #[derive(Debug, Clone)]
 pub struct ShipAI {
     pub personality: Personality,
     pub current_goal: String,
-    pub current_bt: Option<BtNode>,
+    pub current_bt: Option<BtNode<ShipAction>>,
+}
+
+/// Ship-specific BT leaf actions. Each variant carries the parameters it
+/// needs — the dispatch closure in `ship::decide_and_act` reads them and
+/// executes against the ship's components.
+#[derive(Debug, Clone)]
+pub enum ShipAction {
+    /// Begin transit to a named location. Returns Running until arrival.
+    Travel { destination: String },
+    /// Mark the ship as docked at its current location.
+    Dock,
+    /// Undock (clear docked_at).
+    Undock,
+    /// Refill fuel to capacity (MVP: free refill at any location).
+    Refuel,
+    /// Buy up to `qty` units of `commodity` at the ship's current location.
+    /// Returns Failure if no local price or ship can't afford any.
+    Buy { commodity: Commodity, qty: u32 },
+    /// Sell `qty` of `commodity` at the current location. `qty = 0` means "all".
+    Sell { commodity: Commodity, qty: u32 },
+    /// Sell every commodity in the hold.
+    SellAll,
+    /// Accept a delivery contract by id (Phase 8b).
+    AcceptContract { contract_id: String },
+    /// Pick up the cargo reserved for an accepted contract (Phase 8b).
+    PickupCargo { contract_id: String },
+    /// Deliver contract cargo and collect payment (Phase 8b).
+    DeliverCargo { contract_id: String },
+    /// Do nothing — always succeeds.
+    Idle,
 }
 
 /// Learned memory — price knowledge, visited locations.
@@ -179,7 +212,7 @@ impl ShipSnapshot {
             fuel_capacity: fuel.fuel_capacity,
             credits: economy.credits,
             current_goal: ai.current_goal.clone(),
-            bt_action: ai.current_bt.as_ref().and_then(|bt| bt.current_action()).map(String::from),
+            bt_action: ai.current_bt.as_ref().and_then(|bt| bt.current_action()),
             position: position.position,
         }
     }
@@ -341,15 +374,21 @@ fn decide_and_act(
     tick: u64,
     tick_multiplier: u32,
 ) {
-    // Reconstruct config from tick_multiplier so runtime WORLD_SPEED override
-    // affects travel-time calculations consistently.
     let config = crate::simulation::config::TickConfig {
         ticks_per_second: 8,
         world_speed: if tick_multiplier == 0 { 0.25 } else { 8.0 / tick_multiplier as f32 },
     };
 
-    for (entity, (position, transit, cargo, fuel, economy, ai, memory, lifecycle)) in world
-        .query_mut::<(
+    // Collect entities first so each ship's closure can own a mutable borrow
+    // in turn (nested par-style borrows don't work on hecs::World mut queries).
+    let entities: Vec<hecs::Entity> = world
+        .query::<&ShipIdentity>()
+        .iter()
+        .map(|(e, _)| e)
+        .collect();
+
+    for entity in entities {
+        let mut q = match world.query_one::<(
             &mut ShipPosition,
             &mut ShipTransit,
             &mut ShipCargo,
@@ -358,136 +397,326 @@ fn decide_and_act(
             &mut ShipAI,
             &mut ShipMemory,
             &mut ShipLifecycle,
-        )>()
-    {
-        // Skip ships in transit
+        )>(entity) {
+            Ok(q) => q,
+            Err(_) => continue,
+        };
+        let (position, transit, cargo, fuel, economy, ai, memory, lifecycle) = match q.get() {
+            Some(t) => t,
+            None => continue,
+        };
+
+        // Ship in transit: no decisions to make, just update status string
         if transit.transit.is_some() {
             ai.current_goal = "in_transit".into();
             continue;
         }
 
-        let at_location = match position.location_name.clone() {
-            Some(l) => l,
-            None => {
-                ai.current_goal = "idle".into();
-                continue;
-            }
-        };
-
-        // Rule 1: low fuel → refuel (MVP: free refill)
-        if fuel.fraction() < FUEL_CRITICAL_FRACTION {
-            fuel.fuel = fuel.fuel_capacity;
-            ai.current_goal = "refuel".into();
-            lifecycle.dirty = true;
-            continue;
+        // --- Planner: build a BT if we don't have one ---
+        // The planner is a small decision rule — BT execution is what
+        // spreads the plan across ticks (a `travel` step, for example,
+        // returns `Running` every tick until arrival).
+        let needs_plan = ai.current_bt.is_none();
+        if needs_plan {
+            let (goal, bt) = plan_goal(position, cargo, fuel, economy, memory);
+            ai.current_goal = goal.into();
+            ai.current_bt = bt;
         }
 
-        // Rule 2: have cargo to sell at current location
-        if cargo.used() > 0 {
-            sell_cargo_locally(entity, &at_location, cargo, economy, memory, commands);
-            ai.current_goal = "sell_cargo".into();
-            lifecycle.dirty = true;
-            // Fall through to potentially start a new trade run
-        }
-
-        // Rule 3: empty cargo + profitable route
-        if cargo.used() == 0 {
-            if let Some((commodity, buy_loc, sell_loc, _margin)) = best_trade_route(memory) {
-                if buy_loc == at_location {
-                    buy_cargo_locally(
+        // --- Execute one BT step ---
+        if let Some(mut bt) = ai.current_bt.take() {
+            let mut bb = Blackboard::new();
+            let status = {
+                let mut dispatch = |action: &ShipAction, bb: &mut Blackboard| -> BtStatus {
+                    execute_ship_action(
+                        action,
                         entity,
-                        &at_location,
-                        commodity,
+                        position,
+                        transit,
                         cargo,
+                        fuel,
                         economy,
                         memory,
-                        tick,
+                        registry,
                         commands,
-                    );
-                    begin_travel(&at_location, &sell_loc, registry, position, transit, fuel, tick, &config);
-                    ai.current_goal = "trade_run".into();
-                    lifecycle.dirty = true;
-                    continue;
-                } else {
-                    begin_travel(&at_location, &buy_loc, registry, position, transit, fuel, tick, &config);
-                    ai.current_goal = "trade_run_travel".into();
-                    lifecycle.dirty = true;
-                    continue;
+                        tick,
+                        &config,
+                        bb,
+                    )
+                };
+                bt.tick(&mut bb, &mut dispatch)
+            };
+
+            match status {
+                BtStatus::Running => ai.current_bt = Some(bt),
+                BtStatus::Success | BtStatus::Failure => {
+                    // Plan done — clear. Next tick replans.
+                    ai.current_bt = None;
                 }
             }
         }
 
-        ai.current_goal = "idle".into();
+        lifecycle.dirty = true;
     }
 }
 
-/// Sell all cargo at the ship's current location using known local prices.
-fn sell_cargo_locally(
+/// Planner: pick a goal + build its BT. Small decision rule.
+///
+/// Rule order:
+/// 1. Fuel critical → refuel BT (dock → refuel → undock)
+/// 2. Cargo onboard → sell_cargo BT (dock → sell_all → undock)
+/// 3. Empty cargo + known profitable route → trade_run BT (travel → dock →
+///    refuel → buy → undock → travel → dock → sell → undock)
+/// 4. No cargo, no route → idle
+fn plan_goal(
+    position: &ShipPosition,
+    cargo: &ShipCargo,
+    fuel: &ShipFuel,
+    _economy: &ShipEconomy,
+    memory: &ShipMemory,
+) -> (&'static str, Option<BtNode<ShipAction>>) {
+    let at_loc = match &position.location_name {
+        Some(l) => l.clone(),
+        None => return ("idle", Some(BtNode::action(ShipAction::Idle))),
+    };
+
+    // 1. Fuel critical
+    if fuel.fraction() < FUEL_CRITICAL_FRACTION {
+        return ("refuel", Some(build_refuel_bt()));
+    }
+
+    // 2. Cargo onboard — sell it
+    if cargo.used() > 0 {
+        return ("sell_cargo", Some(build_sell_cargo_bt()));
+    }
+
+    // 3. Profitable trade route
+    if let Some((commodity, buy_loc, sell_loc, _margin)) = best_trade_route(memory) {
+        let bt = build_trade_run_bt(&at_loc, &buy_loc, &sell_loc, commodity);
+        return ("trade_run", Some(bt));
+    }
+
+    ("idle", Some(BtNode::action(ShipAction::Idle)))
+}
+
+// --- BT builders ---
+
+fn build_refuel_bt() -> BtNode<ShipAction> {
+    BtNode::sequence(vec![
+        BtNode::action(ShipAction::Dock),
+        BtNode::action(ShipAction::Refuel),
+        BtNode::action(ShipAction::Undock),
+    ])
+}
+
+fn build_sell_cargo_bt() -> BtNode<ShipAction> {
+    BtNode::sequence(vec![
+        BtNode::action(ShipAction::Dock),
+        BtNode::action(ShipAction::SellAll),
+        BtNode::action(ShipAction::Undock),
+    ])
+}
+
+/// Build a trade_run BT. Start at `current`, visit `buy_loc`, buy `commodity`,
+/// travel to `sell_loc`, sell, end at sell_loc.
+///
+/// If `current == buy_loc`, skip the initial travel leg.
+fn build_trade_run_bt(
+    current: &str,
+    buy_loc: &str,
+    sell_loc: &str,
+    commodity: Commodity,
+) -> BtNode<ShipAction> {
+    let mut steps = Vec::with_capacity(10);
+    if current != buy_loc {
+        // Leg 1: travel to buy location
+        steps.push(BtNode::action(ShipAction::Travel { destination: buy_loc.to_string() }));
+    }
+    // Buy
+    steps.push(BtNode::action(ShipAction::Dock));
+    steps.push(BtNode::action(ShipAction::Refuel));
+    steps.push(BtNode::action(ShipAction::Buy { commodity, qty: TRADE_QTY_DEFAULT }));
+    steps.push(BtNode::action(ShipAction::Undock));
+    // Leg 2: travel to sell location
+    steps.push(BtNode::action(ShipAction::Travel { destination: sell_loc.to_string() }));
+    // Sell
+    steps.push(BtNode::action(ShipAction::Dock));
+    steps.push(BtNode::action(ShipAction::SellAll));
+    steps.push(BtNode::action(ShipAction::Undock));
+    BtNode::sequence(steps)
+}
+
+// --- Action executor (the dispatch closure's body) ---
+
+#[allow(clippy::too_many_arguments)]
+fn execute_ship_action(
+    action: &ShipAction,
     entity: hecs::Entity,
-    at_location: &str,
+    position: &mut ShipPosition,
+    transit: &mut ShipTransit,
     cargo: &mut ShipCargo,
+    fuel: &mut ShipFuel,
     economy: &mut ShipEconomy,
     memory: &ShipMemory,
+    registry: &WorldRegistry,
     commands: &mut CommandBuffer,
-) {
-    let prices = match memory.price_knowledge.get(at_location) {
-        Some(p) => p,
-        None => return,
-    };
-    let to_sell: Vec<_> = cargo
-        .cargo
-        .iter()
-        .filter(|(_, &qty)| qty > 0)
-        .map(|(&c, &qty)| (c, qty))
-        .collect();
-    for (commodity, qty) in to_sell {
-        if let Some(pm) = prices.get(&commodity) {
-            let total = (pm.price * qty as f32) as i64;
-            economy.credits += total;
-            cargo.cargo.remove(&commodity);
-            cargo.cargo_age.remove(&commodity);
+    tick: u64,
+    config: &crate::simulation::config::TickConfig,
+    _bb: &mut Blackboard,
+) -> BtStatus {
+    match action {
+        ShipAction::Idle => BtStatus::Success,
+
+        ShipAction::Dock => {
+            if position.location_name.is_some() {
+                // Docked_at facility resolution deferred — we mark "at-location"
+                // by virtue of not being in transit. Real facility docking comes
+                // with capacity checks in Phase 8b+.
+                BtStatus::Success
+            } else {
+                BtStatus::Failure
+            }
+        }
+
+        ShipAction::Undock => {
+            position.docked_at = None;
+            BtStatus::Success
+        }
+
+        ShipAction::Refuel => {
+            fuel.fuel = fuel.fuel_capacity;
+            BtStatus::Success
+        }
+
+        ShipAction::Travel { destination } => {
+            // If we're already at the destination, step succeeds immediately
+            if position.location_name.as_deref() == Some(destination.as_str()) {
+                return BtStatus::Success;
+            }
+            // If already in transit, return Running until arrival
+            if let Some(t) = &transit.transit {
+                if tick >= t.arrival_tick {
+                    // Arrival handled by advance_transits; this is the step completion
+                    return BtStatus::Success;
+                }
+                return BtStatus::Running;
+            }
+            // Start the transit
+            let from = match &position.location_name {
+                Some(l) => l.clone(),
+                None => return BtStatus::Failure,
+            };
+            let distance = registry
+                .travel_distance(&from, destination)
+                .or_else(|| registry.travel_distance(destination, &from))
+                .unwrap_or(60);
+            let arrival = travel::arrival_tick(tick, distance, fuel.speed_modifier, config);
+            transit.transit = Some(Transit {
+                from,
+                to: destination.clone(),
+                departure_tick: tick,
+                arrival_tick: arrival,
+            });
+            position.location_name = None;
+            position.docked_at = None;
+            BtStatus::Running
+        }
+
+        ShipAction::Buy { commodity, qty } => {
+            let at = match &position.location_name {
+                Some(l) => l.clone(),
+                None => return BtStatus::Failure,
+            };
+            let price = match memory.price_knowledge.get(&at).and_then(|m| m.get(commodity)) {
+                Some(pm) => pm.price,
+                None => return BtStatus::Failure,
+            };
+            let want = affordable_quantity(economy.credits, price, cargo.free()).min(*qty);
+            if want == 0 {
+                return BtStatus::Failure;
+            }
+            let cost = (price * want as f32) as i64;
+            economy.credits -= cost;
+            *cargo.cargo.entry(*commodity).or_insert(0) += want;
+            cargo.cargo_age.insert(*commodity, tick);
+            commands.push(SimCommand::RemoveSupplyAtShipLocation {
+                ship: entity,
+                commodity: *commodity,
+                quantity: want as f32,
+            });
+            BtStatus::Success
+        }
+
+        ShipAction::Sell { commodity, qty } => {
+            let at = match &position.location_name {
+                Some(l) => l.clone(),
+                None => return BtStatus::Failure,
+            };
+            let price = match memory.price_knowledge.get(&at).and_then(|m| m.get(commodity)) {
+                Some(pm) => pm.price,
+                None => return BtStatus::Failure,
+            };
+            let have = cargo.cargo.get(commodity).copied().unwrap_or(0);
+            let amount = if *qty == 0 { have } else { (*qty).min(have) };
+            if amount == 0 {
+                return BtStatus::Failure;
+            }
+            let revenue = (price * amount as f32) as i64;
+            economy.credits += revenue;
+            let new_remaining = have - amount;
+            if new_remaining == 0 {
+                cargo.cargo.remove(commodity);
+                cargo.cargo_age.remove(commodity);
+            } else {
+                cargo.cargo.insert(*commodity, new_remaining);
+            }
             commands.push(SimCommand::AddSupplyAtShipLocation {
                 ship: entity,
-                commodity,
-                quantity: qty as f32,
+                commodity: *commodity,
+                quantity: amount as f32,
             });
+            BtStatus::Success
         }
-    }
-}
 
-/// Buy as much as ship can afford/carry at current local price.
-#[allow(clippy::too_many_arguments)]
-fn buy_cargo_locally(
-    entity: hecs::Entity,
-    at_location: &str,
-    commodity: Commodity,
-    cargo: &mut ShipCargo,
-    economy: &mut ShipEconomy,
-    memory: &ShipMemory,
-    tick: u64,
-    commands: &mut CommandBuffer,
-) {
-    let price = match memory
-        .price_knowledge
-        .get(at_location)
-        .and_then(|m| m.get(&commodity))
-    {
-        Some(pm) => pm.price,
-        None => return,
-    };
-    let qty = affordable_quantity(economy.credits, price, cargo.free()).min(TRADE_QTY_DEFAULT);
-    if qty == 0 {
-        return;
+        ShipAction::SellAll => {
+            let at = match &position.location_name {
+                Some(l) => l.clone(),
+                None => return BtStatus::Failure,
+            };
+            let prices = match memory.price_knowledge.get(&at) {
+                Some(p) => p.clone(),
+                None => return BtStatus::Failure,
+            };
+            let to_sell: Vec<_> = cargo
+                .cargo
+                .iter()
+                .filter(|(_, &q)| q > 0)
+                .map(|(&c, &q)| (c, q))
+                .collect();
+            if to_sell.is_empty() {
+                return BtStatus::Success;
+            }
+            for (commodity, qty) in to_sell {
+                if let Some(pm) = prices.get(&commodity) {
+                    let revenue = (pm.price * qty as f32) as i64;
+                    economy.credits += revenue;
+                    cargo.cargo.remove(&commodity);
+                    cargo.cargo_age.remove(&commodity);
+                    commands.push(SimCommand::AddSupplyAtShipLocation {
+                        ship: entity,
+                        commodity,
+                        quantity: qty as f32,
+                    });
+                }
+            }
+            BtStatus::Success
+        }
+
+        // Phase 8b: contract actions — stubbed out for now
+        ShipAction::AcceptContract { .. }
+        | ShipAction::PickupCargo { .. }
+        | ShipAction::DeliverCargo { .. } => BtStatus::Success,
     }
-    let cost = (price * qty as f32) as i64;
-    economy.credits -= cost;
-    *cargo.cargo.entry(commodity).or_insert(0) += qty;
-    cargo.cargo_age.insert(commodity, tick);
-    commands.push(SimCommand::RemoveSupplyAtShipLocation {
-        ship: entity,
-        commodity,
-        quantity: qty as f32,
-    });
 }
 
 fn affordable_quantity(credits: i64, price: f32, capacity: u32) -> u32 {
@@ -498,34 +727,6 @@ fn affordable_quantity(credits: i64, price: f32, capacity: u32) -> u32 {
     by_credits.min(capacity)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn begin_travel(
-    from: &str,
-    dest: &str,
-    registry: &WorldRegistry,
-    position: &mut ShipPosition,
-    transit: &mut ShipTransit,
-    fuel: &ShipFuel,
-    tick: u64,
-    config: &crate::simulation::config::TickConfig,
-) {
-    if from == dest {
-        return;
-    }
-    let distance = registry
-        .travel_distance(from, dest)
-        .or_else(|| registry.travel_distance(dest, from))
-        .unwrap_or(60);
-    let arrival = travel::arrival_tick(tick, distance, fuel.speed_modifier, config);
-    transit.transit = Some(Transit {
-        from: from.to_string(),
-        to: dest.to_string(),
-        departure_tick: tick,
-        arrival_tick: arrival,
-    });
-    position.location_name = None;
-    position.docked_at = None;
-}
 
 #[cfg(test)]
 mod tick_tests {
