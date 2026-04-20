@@ -194,14 +194,18 @@ impl ShipCrew {
 
 /// Serializable snapshot for HTTP/WS clients — built by querying components.
 ///
-/// NOTE: `position` uses the `{x, y}` dict shape (via `Position` wrapper)
-/// rather than a `(f32, f32)` tuple — Godot expects the dict form.
+/// Field names match what the Godot client reads. Position uses the `{x, y}`
+/// dict shape (via `Position` wrapper); `location` is the string name of the
+/// ship's current location (None = in transit).
 #[derive(Debug, Clone, Serialize)]
 pub struct ShipSnapshot {
     pub id: String,
     pub name: String,
     pub class: String,
     pub faction_id: String,
+    /// Current location string (e.g. "earth-station"). `None` while in transit.
+    /// Godot's `ship.gd` reads this as `data["location"]` for docked checks.
+    #[serde(rename = "location")]
     pub location_name: Option<String>,
     pub docked: bool,
     pub transit: Option<Transit>,
@@ -211,11 +215,30 @@ pub struct ShipSnapshot {
     pub fuel_capacity: f32,
     pub credits: i64,
     pub current_goal: String,
+    /// Current BT action name (Debug-formatted enum variant). Godot UI
+    /// panels display this under `current_bt`.
+    #[serde(rename = "current_bt")]
     pub bt_action: Option<String>,
     pub position: super::Position,
+    // Lifecycle counters — shown in the ship list UI
+    pub broke_strikes: u8,
+    pub hoard_strikes: u8,
+    pub idle_ticks: u32,
+    /// Aggregate crew stats (size/morale/fatigue), for the details panel.
+    pub crew: ShipCrewSnapshot,
+}
+
+/// Crew section of `ShipSnapshot`. Small-enough to inline; Godot displays
+/// it on the ship details panel.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct ShipCrewSnapshot {
+    pub size: u32,
+    pub morale: u8,
+    pub fatigue: u8,
 }
 
 impl ShipSnapshot {
+    #[allow(clippy::too_many_arguments)]
     pub fn build(
         identity: &ShipIdentity,
         position: &ShipPosition,
@@ -224,12 +247,21 @@ impl ShipSnapshot {
         fuel: &ShipFuel,
         economy: &ShipEconomy,
         ai: &ShipAI,
+        lifecycle: &ShipLifecycle,
+        crew: Option<&ShipCrew>,
     ) -> Self {
         let cargo_map: HashMap<String, u32> = cargo
             .cargo
             .iter()
             .map(|(c, &qty)| (c.as_str().to_string(), qty))
             .collect();
+        let crew_snap = crew
+            .map(|c| ShipCrewSnapshot {
+                size: c.size,
+                morale: c.morale,
+                fatigue: c.fatigue,
+            })
+            .unwrap_or_default();
         Self {
             id: identity.id.clone(),
             name: identity.name.clone(),
@@ -246,6 +278,10 @@ impl ShipSnapshot {
             current_goal: ai.current_goal.clone(),
             bt_action: ai.current_bt.as_ref().and_then(|bt| bt.current_action()),
             position: super::Position::from(position.position),
+            broke_strikes: lifecycle.broke_strikes,
+            hoard_strikes: lifecycle.hoard_strikes,
+            idle_ticks: lifecycle.idle_ticks,
+            crew: crew_snap,
         }
     }
 }

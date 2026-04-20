@@ -18,8 +18,8 @@ use sim_core::{
             PopDemographics, PopEconomy, PopIdentity, PopSentiment, PopSnapshot,
         },
         ship::{
-            ShipAI, ShipCargo, ShipEconomy, ShipFuel, ShipIdentity, ShipPosition,
-            ShipSnapshot, ShipTransit,
+            ShipAI, ShipCargo, ShipCrew, ShipEconomy, ShipFuel, ShipIdentity, ShipLifecycle,
+            ShipPosition, ShipSnapshot, ShipTransit,
         },
     },
     simulation::spawner::AgentStore,
@@ -55,7 +55,7 @@ impl SnapshotCache {
     }
 
     fn update_ships(&self, store: &AgentStore) {
-        for (_e, (identity, position, transit, cargo, fuel, economy, ai)) in store
+        for (e, (identity, position, transit, cargo, fuel, economy, ai, lifecycle)) in store
             .world
             .query::<(
                 &ShipIdentity,
@@ -65,10 +65,23 @@ impl SnapshotCache {
                 &ShipFuel,
                 &ShipEconomy,
                 &ShipAI,
+                &ShipLifecycle,
             )>()
             .iter()
         {
-            let snap = ShipSnapshot::build(identity, position, transit, cargo, fuel, economy, ai);
+            // ShipCrew is optional since we only added it in Phase 8d.
+            let crew = store.world.get::<&ShipCrew>(e).ok();
+            let snap = ShipSnapshot::build(
+                identity,
+                position,
+                transit,
+                cargo,
+                fuel,
+                economy,
+                ai,
+                lifecycle,
+                crew.as_deref(),
+            );
             self.positions.insert(identity.id.clone(), position.position);
             self.ships.insert(identity.id.clone(), snap);
         }

@@ -64,6 +64,10 @@ pub struct BodySnapshot {
     pub position: super::Position,
     pub universe_position: super::Position,
     pub current_angle: f32,
+    /// Orbital radius in AU-like units. Godot uses this to draw orbit rings.
+    pub orbit_radius: f32,
+    /// Orbital period (days at 1x world speed). Godot uses this to animate orbit.
+    pub orbit_period: u32,
 }
 
 impl BodySnapshot {
@@ -75,6 +79,8 @@ impl BodySnapshot {
             position: super::Position::from(orbit.position()),
             universe_position: super::Position::from(orbit.universe_position()),
             current_angle: orbit.current_angle,
+            orbit_radius: orbit.orbit_radius,
+            orbit_period: orbit.orbit_period,
         }
     }
 }

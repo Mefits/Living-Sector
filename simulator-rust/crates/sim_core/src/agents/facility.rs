@@ -55,21 +55,35 @@ impl FacilityStorage {
 }
 
 /// Snapshot for HTTP/WS.
+///
+/// Field names match what Godot reads: `type` (not `facility_type`),
+/// `location` (not `location_name`), `docked_ships` as an array of ship
+/// agent-ids (not just a count — `facility.gd` checks `is Array`).
 #[derive(Debug, Clone, Serialize)]
 pub struct FacilitySnapshot {
     pub id: String,
     pub name: String,
+    #[serde(rename = "type")]
     pub facility_type: String,
+    #[serde(rename = "location")]
     pub location_name: String,
+    /// Body this facility sits on (e.g. "earth", "mars", "belt"). Godot's
+    /// `facility.gd` reads this to group facilities under a star_system.
+    pub body_id: String,
     pub faction_id: String,
     pub condition: f32,
     pub reputation: i32,
     pub credits: i64,
-    pub docked_ship_count: usize,
+    /// Ship agent-ids currently docked here (e.g. `["ship-artemis-7"]`).
+    /// Godot's facility.gd uses `.size()` for its docking glow animation.
+    pub docked_ships: Vec<String>,
     pub docking_capacity: u32,
     pub services: Vec<String>,
+    /// Commodity → qty dict for this facility's on-hand reserves.
+    /// Rendered in the details panel; reserves are kept per-facility
+    /// separate from market supply.
+    pub reserves: std::collections::HashMap<String, f32>,
     /// Universe-space position, inherited from the facility's body.
-    /// Caller fills in via the body-position cache at snapshot time.
     pub position: super::Position,
 }
 
@@ -81,18 +95,30 @@ impl FacilitySnapshot {
         storage: &FacilityStorage,
         position: super::Position,
     ) -> Self {
+        // storage.docked_ships is Vec<hecs::Entity> and currently always
+        // empty — runtime docking doesn't yet attach ship→facility in the
+        // ECS. Emit an empty array so Godot's `is Array` check passes.
+        // When real docking lands, build this via a db_id → agent_id lookup.
+        let docked_ships: Vec<String> = Vec::new();
+        let reserves: std::collections::HashMap<String, f32> = storage
+            .reserves
+            .iter()
+            .map(|(c, &v)| (c.as_str().to_string(), v))
+            .collect();
         Self {
             id: identity.id.clone(),
             name: identity.name.clone(),
             facility_type: identity.facility_type.clone(),
             location_name: location.location_name.clone(),
+            body_id: identity.body_id.clone(),
             faction_id: identity.faction_id.clone(),
             condition: ops.condition,
             reputation: ops.reputation,
             credits: ops.credits,
-            docked_ship_count: storage.docked_ships.len(),
+            docked_ships,
             docking_capacity: ops.docking_capacity,
             services: ops.services.clone(),
+            reserves,
             position,
         }
     }
