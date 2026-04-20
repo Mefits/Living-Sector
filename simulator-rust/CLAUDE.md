@@ -91,13 +91,14 @@ Godot ⇄ WebSocket/HTTP (axum) ─┐
 | Faster game-time for demos | `WORLD_SPEED=4.0 scripts/smoke.sh 30` |
 | Trace sqlx queries | `RUST_LOG=trace scripts/smoke.sh` |
 
-Default `WORLD_SPEED=1.0` (real-time). Earth-Mars ≈ 1 min. Good for
+Default `WORLD_SPEED=0.25` (chill play). Earth-Mars ≈ 4 min. Good for
 interactive Godot play. For smoke tests / validation use `WORLD_SPEED=4`
 or higher to see economic convergence in tens of seconds.
 
 World speed is runtime-adjustable via `POST /api/sim/speed
-{world_speed: N}` or the HUD 1×/2×/5×/10× buttons. Tick resolution
-(client smoothness) is a separate knob: `{ticks_per_second: 16}`.
+{world_speed: N}` or the HUD 1×/2×/5×/10× buttons (0.25 / 0.5 / 1.25 / 2.5).
+Tick resolution (client smoothness) is a separate knob:
+`{ticks_per_second: 16}`.
 
 ## Conventions
 

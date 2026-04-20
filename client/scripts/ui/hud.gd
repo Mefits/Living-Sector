@@ -38,13 +38,13 @@ func _ready() -> void:
 
 	pause_button.pressed.connect(_on_pause_pressed)
 	# Speed buttons tune `world_speed` (gameplay pace) — NOT tick
-	# resolution. `1×` is literal real-time; `10×` is Earth↔Mars in
-	# ~6s (demo-speed). Tick resolution stays at whatever the sim was
-	# configured with (client smoothness is independent).
-	speed_1x_button.pressed.connect(func(): _set_world_speed(1.0))
-	speed_2x_button.pressed.connect(func(): _set_world_speed(2.0))
-	speed_5x_button.pressed.connect(func(): _set_world_speed(5.0))
-	speed_10x_button.pressed.connect(func(): _set_world_speed(10.0))
+	# resolution. `1×` = default chill play speed (0.25 world_speed,
+	# Earth↔Mars ≈ 4 min). `10×` = 2.5 world_speed (≈ 25 s). Tick
+	# resolution stays put so client smoothness is independent.
+	speed_1x_button.pressed.connect(func(): _set_world_speed(0.25))
+	speed_2x_button.pressed.connect(func(): _set_world_speed(0.5))
+	speed_5x_button.pressed.connect(func(): _set_world_speed(1.25))
+	speed_10x_button.pressed.connect(func(): _set_world_speed(2.5))
 	observer_button.pressed.connect(_on_observer_pressed)
 	ship_list_button.pressed.connect(
 		func(): ship_list_toggled.emit()

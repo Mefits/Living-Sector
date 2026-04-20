@@ -35,7 +35,7 @@ curl -X POST localhost:8080/api/sim/resume
 | Var | Default | Effect |
 |---|---|---|
 | `RUST_LOG` | `simulator=info,sim_core=info` | Tracing filter (use `trace` for sqlx query logs) |
-| `WORLD_SPEED` | `1.0` | Game-time multiplier at startup. `1.0` = real-time (Earth↔Mars ≈ 1 min). `4.0`+ for smoke tests. Adjustable at runtime via `POST /api/sim/speed {world_speed: N}`. |
+| `WORLD_SPEED` | `0.25` | Game-time multiplier at startup. `0.25` = chill play pace (Earth↔Mars ≈ 4 min). `4.0`+ for smoke tests. Adjustable at runtime via `POST /api/sim/speed {world_speed: N}`. |
 | `BIND_ADDR` | `127.0.0.1:8080` | HTTP/WS bind address |
 | `DATABASE_PATH` | `./sim.db` next to binary | SQLite path. Use `mktemp` for ephemeral tests. |
 | `DATA_DIR` | auto-resolved | World JSON root (dev: `../../priv/data`; release: `./priv/data`) |
