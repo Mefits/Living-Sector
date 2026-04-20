@@ -216,6 +216,16 @@ Deferred:
 - [ ] Ship lifecycle (broke strikes, hoard detection, recycling) — counters tracked, decommission logic deferred
 - [ ] DB persistence worker — sim re-seeds from JSON on each boot today; needed for player saves
 
+### Phase 8b — Contract board + fulfill_delivery ✅
+Files: `sim_core/src/economy/contracts.rs`, `sim_core/src/agents/population.rs`, `sim_core/src/agents/ship.rs`, `sim_core/src/simulation/commands.rs`, `sim_server/src/engine.rs`
+- [x] `ContractBoard` with lifecycle (Posted → Accepted → Paid → Expired), status + destination indexes, `posted_with_destination` lookup, `expire(tick)` housekeeping
+- [x] `AgentStore.contracts` field
+- [x] Populations post food delivery contracts when `food_satisfaction < 40` on a 25-base-tick interval; source is the location with the richest food supply; payment = base_price × 1.8 × qty
+- [x] Ship planner checks contracts before speculative trade_run; `try_plan_contract` filters by capacity, source price, affordability, and profit > 0
+- [x] `build_fulfill_delivery_bt` — accept → travel to source → buy → travel to destination → deliver
+- [x] `SimCommand::{AcceptContract, DeliverContract}` with engine apply phase that pays the ship, reduces cargo, adds supply at destination market, marks Paid
+- **Validated**: 80s smoke (WORLD_SPEED=6) produced 45 contracts posted, 24 Paid, 9 Expired. First delivery at tick 240. 61 tests still passing.
+
 ### Phase 8a — BT engine v2 + ship rewiring ✅
 Files: `sim_core/src/ai/behavior_tree.rs`, `sim_core/src/agents/ship.rs`
 - [x] `BtNode<A>` generic over action type (fixes fn-pointer-can't-capture problem). Tick takes a caller-supplied dispatch closure that matches on the action variant.
@@ -237,6 +247,7 @@ Files: `sim_core/src/ai/behavior_tree.rs`, `sim_core/src/agents/ship.rs`
 | 2026-04-20 | 6 | Phase 6: facility recipes (mining, smelting, manufacturing), population consumption/production, full economic loop — ship credits +47% in 40s smoke |
 | 2026-04-20 | 7 | Phase 7: graceful SIGINT/SIGTERM shutdown, tick-time metrics (~3ms/tick at 800 agents), CLAUDE.md + README.md, module-level docs on every major file |
 | 2026-04-20 | 8a | Phase 8a: BT engine v2 (generic over action type), ShipAction enum, dispatch closure pattern; avg credits +57% in 30s smoke |
+| 2026-04-20 | 8b | Phase 8b: contract board, pop-posted food delivery contracts, ship fulfill_delivery BT; 24 Paid deliveries in 80s smoke |
 
 ## Cross-Compilation (Windows)
 

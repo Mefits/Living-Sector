@@ -120,10 +120,18 @@ pub async fn run_tick_loop(
 
         // Tick phases
         tick_bodies(&mut store, tick_scale);
-        ship::tick_ships(&mut store.world, &registry, &mut commands, tick, tick_scale, tick_mult);
-        apply_supply_commands(&mut store, &mut commands);
+        ship::tick_ships(
+            &mut store.world,
+            &registry,
+            &store.contracts,
+            &mut commands,
+            tick,
+            tick_scale,
+            tick_mult,
+        );
+        apply_ship_commands(&mut store, &mut commands);
         facility::tick_facilities(&mut store.world, tick, tick_mult);
-        population::tick_populations(&mut store.world, tick, tick_mult);
+        population::tick_populations(&mut store.world, &mut store.contracts, tick, tick_mult);
         market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
         commands.clear();
 
@@ -153,6 +161,7 @@ pub async fn run_tick_loop(
             );
             log_sample_market(&store, &format!("tick={tick}"));
             log_sample_ships(&store, tick);
+            log_contract_board(&store, tick);
         } else if tick % (8 * 5) == 0 {
             debug!(tick, tick_compute_us, total_us, "Engine: tick");
         }
@@ -165,7 +174,9 @@ fn tick_bodies(store: &mut AgentStore, tick_scale: f32) {
     }
 }
 
-fn apply_supply_commands(store: &mut AgentStore, commands: &mut CommandBuffer) {
+fn apply_ship_commands(store: &mut AgentStore, commands: &mut CommandBuffer) {
+    use sim_core::agents::ship::{ShipCargo, ShipEconomy};
+
     let drained: Vec<SimCommand> = commands.drain().collect();
     let mut leftover: Vec<SimCommand> = Vec::with_capacity(drained.len());
 
@@ -203,6 +214,45 @@ fn apply_supply_commands(store: &mut AgentStore, commands: &mut CommandBuffer) {
                     *entry = (*entry - quantity).max(0.0);
                 }
             }
+
+            // --- Contracts ---
+            SimCommand::AcceptContract { contract_id, ship_id, .. } => {
+                // Best-effort: silently drop if the contract was already taken.
+                let tick_now = 0; // Apply phase doesn't know the tick; board records accepted_at separately.
+                store.contracts.accept(&contract_id, ship_id, tick_now);
+            }
+            SimCommand::DeliverContract { ship, contract_id } => {
+                let delivered = store.contracts.mark_delivered(&contract_id);
+                if let Some(c) = delivered {
+                    // Pay the ship
+                    if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
+                        econ.credits += c.payment;
+                    }
+                    // Reduce ship cargo
+                    if let Ok(mut cargo) = store.world.get::<&mut ShipCargo>(ship) {
+                        let have = cargo.cargo.get(&c.commodity).copied().unwrap_or(0);
+                        let leftover = have.saturating_sub(c.quantity);
+                        if leftover == 0 {
+                            cargo.cargo.remove(&c.commodity);
+                            cargo.cargo_age.remove(&c.commodity);
+                        } else {
+                            cargo.cargo.insert(c.commodity, leftover);
+                        }
+                    }
+                    // Add supply at destination market
+                    if let Some(&market_entity) =
+                        store.market_at_location.get(&c.destination_location)
+                    {
+                        if let Ok(mut pricing) =
+                            store.world.get::<&mut MarketPricing>(market_entity)
+                        {
+                            *pricing.supply.entry(c.commodity).or_insert(0.0) +=
+                                c.quantity as f32;
+                        }
+                    }
+                }
+            }
+
             other => leftover.push(other),
         }
     }
@@ -282,6 +332,13 @@ fn log_sample_market(store: &AgentStore, label: &str) {
                 );
             }
         }
+    }
+}
+
+fn log_contract_board(store: &AgentStore, tick: u64) {
+    let counts = store.contracts.counts_by_status();
+    if !counts.is_empty() {
+        info!(tick, "contracts: {:?} total={}", counts, store.contracts.len());
     }
 }
 

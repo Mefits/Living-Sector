@@ -37,8 +37,22 @@ pub enum SimCommand {
 
     // --- Contracts ---
     PostContract { contract_id: String },
-    AcceptContract { ship: Entity, contract_id: String },
-    DeliverContract { ship: Entity, contract_id: String },
+    /// Ship wants to accept a posted contract. Apply phase sets board status +
+    /// fulfiller_id; fails silently if the contract was already taken.
+    AcceptContract {
+        ship: Entity,
+        ship_id: String,
+        contract_id: String,
+    },
+    /// Ship delivered contract cargo at destination. Apply phase:
+    /// - marks contract Paid
+    /// - credits ship the payment
+    /// - decrements ship cargo by contract quantity
+    /// - increases destination market supply by contract quantity
+    DeliverContract {
+        ship: Entity,
+        contract_id: String,
+    },
     ExpireContract { contract_id: String },
 
     // --- Economy transfers ---

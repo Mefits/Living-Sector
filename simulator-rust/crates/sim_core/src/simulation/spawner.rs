@@ -7,12 +7,16 @@
 //! The tick loop owns AgentStore and writes directly. HTTP/WS handlers read
 //! from the separate SnapshotCache (DashMap), not this.
 
+use crate::economy::contracts::ContractBoard;
 use hecs::{Entity, World};
 use std::collections::HashMap;
 
 pub struct AgentStore {
     /// The ECS world holding all entity components.
     pub world: World,
+
+    /// Contract board — directed demand signals between populations/facilities and ships.
+    pub contracts: ContractBoard,
 
     // --- String id lookups ---
     pub ship_by_id: HashMap<String, Entity>,
@@ -39,6 +43,7 @@ impl AgentStore {
     pub fn new() -> Self {
         Self {
             world: World::new(),
+            contracts: ContractBoard::new(),
             ship_by_id: HashMap::new(),
             market_by_id: HashMap::new(),
             facility_by_id: HashMap::new(),

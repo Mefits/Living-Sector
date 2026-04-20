@@ -251,6 +251,7 @@ const TRADE_QTY_DEFAULT: u32 = 50;
 pub fn tick_ships(
     world: &mut hecs::World,
     registry: &WorldRegistry,
+    contracts: &crate::economy::contracts::ContractBoard,
     commands: &mut CommandBuffer,
     tick: u64,
     tick_scale: f32,
@@ -258,7 +259,7 @@ pub fn tick_ships(
 ) {
     advance_transits(world, registry, tick, tick_scale);
     observe_prices(world, tick);
-    decide_and_act(world, registry, commands, tick, tick_multiplier);
+    decide_and_act(world, registry, contracts, commands, tick, tick_multiplier);
 }
 
 /// Pass 1: advance transit clocks, interpolate position, consume fuel.
@@ -370,6 +371,7 @@ pub fn best_trade_route(memory: &ShipMemory) -> Option<(Commodity, String, Strin
 fn decide_and_act(
     world: &mut hecs::World,
     registry: &WorldRegistry,
+    contracts: &crate::economy::contracts::ContractBoard,
     commands: &mut CommandBuffer,
     tick: u64,
     tick_multiplier: u32,
@@ -379,8 +381,6 @@ fn decide_and_act(
         world_speed: if tick_multiplier == 0 { 0.25 } else { 8.0 / tick_multiplier as f32 },
     };
 
-    // Collect entities first so each ship's closure can own a mutable borrow
-    // in turn (nested par-style borrows don't work on hecs::World mut queries).
     let entities: Vec<hecs::Entity> = world
         .query::<&ShipIdentity>()
         .iter()
@@ -388,6 +388,12 @@ fn decide_and_act(
         .collect();
 
     for entity in entities {
+        // Fetch ship's string id (used for contract acceptance)
+        let ship_id: String = match world.get::<&ShipIdentity>(entity) {
+            Ok(id) => id.id.clone(),
+            Err(_) => continue,
+        };
+
         let mut q = match world.query_one::<(
             &mut ShipPosition,
             &mut ShipTransit,
@@ -406,19 +412,14 @@ fn decide_and_act(
             None => continue,
         };
 
-        // Ship in transit: no decisions to make, just update status string
         if transit.transit.is_some() {
             ai.current_goal = "in_transit".into();
             continue;
         }
 
-        // --- Planner: build a BT if we don't have one ---
-        // The planner is a small decision rule — BT execution is what
-        // spreads the plan across ticks (a `travel` step, for example,
-        // returns `Running` every tick until arrival).
         let needs_plan = ai.current_bt.is_none();
         if needs_plan {
-            let (goal, bt) = plan_goal(position, cargo, fuel, economy, memory);
+            let (goal, bt) = plan_goal(position, cargo, fuel, economy, memory, contracts, &ship_id);
             ai.current_goal = goal.into();
             ai.current_bt = bt;
         }
@@ -427,10 +428,12 @@ fn decide_and_act(
         if let Some(mut bt) = ai.current_bt.take() {
             let mut bb = Blackboard::new();
             let status = {
+                let ship_id_ref = &ship_id;
                 let mut dispatch = |action: &ShipAction, bb: &mut Blackboard| -> BtStatus {
                     execute_ship_action(
                         action,
                         entity,
+                        ship_id_ref,
                         position,
                         transit,
                         cargo,
@@ -460,20 +463,22 @@ fn decide_and_act(
     }
 }
 
-/// Planner: pick a goal + build its BT. Small decision rule.
+/// Planner: pick a goal + build its BT.
 ///
 /// Rule order:
-/// 1. Fuel critical → refuel BT (dock → refuel → undock)
-/// 2. Cargo onboard → sell_cargo BT (dock → sell_all → undock)
-/// 3. Empty cargo + known profitable route → trade_run BT (travel → dock →
-///    refuel → buy → undock → travel → dock → sell → undock)
-/// 4. No cargo, no route → idle
+/// 1. Fuel critical → refuel BT
+/// 2. Cargo onboard → sell_cargo BT (unload before replanning)
+/// 3. Posted contract matching the ship's capacity and price memory → fulfill_delivery BT
+/// 4. Known profitable trade route → trade_run BT
+/// 5. Else → idle
 fn plan_goal(
     position: &ShipPosition,
     cargo: &ShipCargo,
     fuel: &ShipFuel,
-    _economy: &ShipEconomy,
+    economy: &ShipEconomy,
     memory: &ShipMemory,
+    contracts: &crate::economy::contracts::ContractBoard,
+    ship_id: &str,
 ) -> (&'static str, Option<BtNode<ShipAction>>) {
     let at_loc = match &position.location_name {
         Some(l) => l.clone(),
@@ -485,18 +490,85 @@ fn plan_goal(
         return ("refuel", Some(build_refuel_bt()));
     }
 
-    // 2. Cargo onboard — sell it
+    // 2. Cargo onboard — sell
     if cargo.used() > 0 {
         return ("sell_cargo", Some(build_sell_cargo_bt()));
     }
 
-    // 3. Profitable trade route
+    // 3. Contract?
+    if let Some(bt) =
+        try_plan_contract(&at_loc, cargo, economy, memory, contracts, ship_id)
+    {
+        return ("fulfill_delivery", Some(bt));
+    }
+
+    // 4. Speculative trade route
     if let Some((commodity, buy_loc, sell_loc, _margin)) = best_trade_route(memory) {
         let bt = build_trade_run_bt(&at_loc, &buy_loc, &sell_loc, commodity);
         return ("trade_run", Some(bt));
     }
 
     ("idle", Some(BtNode::action(ShipAction::Idle)))
+}
+
+/// Try to find a profitable fulfill_delivery plan given the ship's capacity,
+/// credits, and price memory. Returns a BT if a viable contract is found.
+///
+/// Viability test: ship has enough credits to buy `quantity` of `commodity`
+/// at `source_location` using memory-price, contract payment > cost.
+fn try_plan_contract(
+    at_loc: &str,
+    cargo: &ShipCargo,
+    economy: &ShipEconomy,
+    memory: &ShipMemory,
+    contracts: &crate::economy::contracts::ContractBoard,
+    _ship_id: &str,
+) -> Option<BtNode<ShipAction>> {
+    let mut best: Option<(String, String, Commodity, u32, i64, i64)> = None; // id, src, commodity, qty, payment, cost
+    for c in contracts.posted() {
+        if c.quantity > cargo.capacity {
+            continue; // can't fit it
+        }
+        // Need a price quote at source
+        let src_price = memory
+            .price_knowledge
+            .get(&c.source_location)
+            .and_then(|m| m.get(&c.commodity))
+            .map(|p| p.price);
+        let src_price = match src_price {
+            Some(p) => p,
+            None => continue,
+        };
+        let cost = (src_price * c.quantity as f32) as i64;
+        if cost >= c.payment {
+            continue; // not profitable
+        }
+        if economy.credits < cost {
+            continue; // can't afford
+        }
+        let profit = c.payment - cost;
+        let is_better = best
+            .as_ref()
+            .is_none_or(|(_, _, _, _, pay, prev_cost)| profit > (pay - prev_cost));
+        if is_better {
+            best = Some((
+                c.id.clone(),
+                c.source_location.clone(),
+                c.commodity,
+                c.quantity,
+                c.payment,
+                cost,
+            ));
+        }
+    }
+    let (contract_id, source, commodity, qty, _payment, _cost) = best?;
+
+    // Build the BT. Find the destination from the contract.
+    let destination = contracts
+        .get(&contract_id)
+        .map(|c| c.destination_location.clone())?;
+
+    Some(build_fulfill_delivery_bt(at_loc, &source, &destination, commodity, qty, contract_id))
 }
 
 // --- BT builders ---
@@ -529,19 +601,48 @@ fn build_trade_run_bt(
 ) -> BtNode<ShipAction> {
     let mut steps = Vec::with_capacity(10);
     if current != buy_loc {
-        // Leg 1: travel to buy location
         steps.push(BtNode::action(ShipAction::Travel { destination: buy_loc.to_string() }));
     }
-    // Buy
     steps.push(BtNode::action(ShipAction::Dock));
     steps.push(BtNode::action(ShipAction::Refuel));
     steps.push(BtNode::action(ShipAction::Buy { commodity, qty: TRADE_QTY_DEFAULT }));
     steps.push(BtNode::action(ShipAction::Undock));
-    // Leg 2: travel to sell location
     steps.push(BtNode::action(ShipAction::Travel { destination: sell_loc.to_string() }));
-    // Sell
     steps.push(BtNode::action(ShipAction::Dock));
     steps.push(BtNode::action(ShipAction::SellAll));
+    steps.push(BtNode::action(ShipAction::Undock));
+    BtNode::sequence(steps)
+}
+
+/// Build a fulfill_delivery BT:
+///   accept → travel to source → dock → refuel → buy → undock →
+///   travel to destination → dock → deliver → undock
+fn build_fulfill_delivery_bt(
+    current: &str,
+    source: &str,
+    destination: &str,
+    commodity: Commodity,
+    quantity: u32,
+    contract_id: String,
+) -> BtNode<ShipAction> {
+    let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(12);
+    steps.push(BtNode::action(ShipAction::AcceptContract {
+        contract_id: contract_id.clone(),
+    }));
+    if current != source {
+        steps.push(BtNode::action(ShipAction::Travel {
+            destination: source.to_string(),
+        }));
+    }
+    steps.push(BtNode::action(ShipAction::Dock));
+    steps.push(BtNode::action(ShipAction::Refuel));
+    steps.push(BtNode::action(ShipAction::Buy { commodity, qty: quantity }));
+    steps.push(BtNode::action(ShipAction::Undock));
+    steps.push(BtNode::action(ShipAction::Travel {
+        destination: destination.to_string(),
+    }));
+    steps.push(BtNode::action(ShipAction::Dock));
+    steps.push(BtNode::action(ShipAction::DeliverCargo { contract_id }));
     steps.push(BtNode::action(ShipAction::Undock));
     BtNode::sequence(steps)
 }
@@ -552,6 +653,7 @@ fn build_trade_run_bt(
 fn execute_ship_action(
     action: &ShipAction,
     entity: hecs::Entity,
+    ship_id: &str,
     position: &mut ShipPosition,
     transit: &mut ShipTransit,
     cargo: &mut ShipCargo,
@@ -712,10 +814,38 @@ fn execute_ship_action(
             BtStatus::Success
         }
 
-        // Phase 8b: contract actions — stubbed out for now
-        ShipAction::AcceptContract { .. }
-        | ShipAction::PickupCargo { .. }
-        | ShipAction::DeliverCargo { .. } => BtStatus::Success,
+        ShipAction::AcceptContract { contract_id } => {
+            // Set the ship's active contract (own state) and emit a command
+            // that the engine's apply phase will use to mutate the board.
+            economy.active_contract_id = Some(contract_id.clone());
+            commands.push(SimCommand::AcceptContract {
+                ship: entity,
+                ship_id: ship_id.to_string(),
+                contract_id: contract_id.clone(),
+            });
+            BtStatus::Success
+        }
+
+        ShipAction::PickupCargo { .. } => {
+            // Phase 8b doesn't use this variant (pickup is implicit via Buy).
+            // Kept for future "pre-reserved cargo" contracts in Phase 8c.
+            BtStatus::Success
+        }
+
+        ShipAction::DeliverCargo { contract_id } => {
+            // Ship must be at a location (destination) and must have cargo.
+            // The engine apply phase will: pay the ship, reduce cargo, add
+            // supply at the destination market, and mark the contract Paid.
+            if position.location_name.is_none() {
+                return BtStatus::Failure;
+            }
+            commands.push(SimCommand::DeliverContract {
+                ship: entity,
+                contract_id: contract_id.clone(),
+            });
+            economy.active_contract_id = None;
+            BtStatus::Success
+        }
     }
 }
 
