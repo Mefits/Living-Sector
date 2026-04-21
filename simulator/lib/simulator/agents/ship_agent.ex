@@ -817,18 +817,48 @@ defmodule Simulator.Agents.ShipAgent do
   end
 
   defp facility_position_for_location(location) do
-    # Find a facility at this location and use its (offset) position
-    case Simulator.Agents.Agent.whereis("facility-#{location}") do
-      {:ok, _pid} ->
-        Simulator.Spatial.ChunkManager.get_position("facility-#{location}")
-
-      :error ->
+    # Compute from live body orbital math — do NOT read the
+    # ChunkManager cache. The facility's cached position only updates
+    # when its handle_tick runs, which is gated by should_tick?. When
+    # a destination facility is out of observer range, that cache
+    # goes stale while body orbits continue — causing in-transit
+    # ships to interpolate toward a lagged target and visibly miss
+    # the dock on arrival.
+    #
+    # Body positions come from SystemAgent which advances orbits
+    # every tick regardless of observer chunking, so this source is
+    # always fresh.
+    case Simulator.World.Registry.body_id_for_location(location) do
+      nil ->
         nil
+
+      body_id ->
+        body_pos = Map.get(get_all_body_positions(), body_id)
+
+        if body_pos do
+          facility_offset(location, body_pos)
+        else
+          nil
+        end
     end
   end
 
+  # Mirrors FacilityAgent.report_position's offset math so ships
+  # approach and dock at the same spot the facility renders at —
+  # deterministic phash-based angle, fixed radius.
+  defp facility_offset(location, {bx, by}) do
+    facility_id = "facility-#{location}"
+    angle = :erlang.phash2(facility_id, 360) * (:math.pi() / 180.0)
+    radius = 0.15
+    {bx + radius * :math.cos(angle), by + radius * :math.sin(angle)}
+  end
+
   defp compute_transit_position(state, tick) do
-    # Use facility positions for transit endpoints so ships leave from the dock
+    # Use facility positions for transit endpoints so ships leave
+    # from the dock — and now read them from live orbital math (see
+    # facility_position_for_location), so both endpoints update as
+    # their home bodies orbit, not just when the facilities happen
+    # to tick.
     from_pos = facility_position_for_location(state.transit.from)
     to_pos = facility_position_for_location(state.transit.to)
 
