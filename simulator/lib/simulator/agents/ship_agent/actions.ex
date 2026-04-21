@@ -122,6 +122,20 @@ defmodule Simulator.Agents.ShipAgent.Actions do
               speed = max(state.efficiency, 0.1) * Map.get(state, :speed_modifier, 1.0)
               adjusted_ticks = max(round(ticks / speed), 1)
 
+              # Diagnostic: surface transit math so we can catch inflated
+              # travel times (e.g. SystemAgent giving a large orbital
+              # distance or efficiency collapsing). Info-level so it's
+              # silent in prod unless the user sets LOG_LEVEL=info.
+              require Logger
+
+              Logger.info(
+                "Ship #{state.id} transit #{state.location} → #{destination}: " <>
+                  "base=#{base_ticks} tps=#{Config.ticks_per_second()} " <>
+                  "ticks=#{ticks} eff=#{Float.round(state.efficiency, 3)} " <>
+                  "sm=#{Map.get(state, :speed_modifier, 1.0)} " <>
+                  "speed=#{Float.round(speed, 3)} adjusted=#{adjusted_ticks}"
+              )
+
               transit = %{
                 from: state.location,
                 to: destination,
