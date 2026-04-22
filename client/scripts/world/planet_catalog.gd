@@ -47,6 +47,11 @@ const BIOME_DEFAULTS := {
   },
   "lifeless": {
     "preset": ProceduralPlanet.Preset.BARREN,
+    # Lifeless = no atmosphere → no clouds. Explicit so overrides that
+    # forget to clear clouds still produce a clean silhouette.
+    "cloud_enabled": false,
+    # No polar ice caps on airless rocks.
+    "pole_threshold": 2.0,
   },
   "asteroid": {
     "preset": ProceduralPlanet.Preset.ROCKY,
@@ -124,9 +129,9 @@ const PLANET_OVERRIDES := {
     "color_low": Color(0.52, 0.28, 0.18),
     "color_mid": Color(0.78, 0.40, 0.22),
     "color_high": Color(0.92, 0.66, 0.45),
-    "pole_color": Color(0.98, 0.98, 1.0),
-    "pole_threshold": 0.82,
-    "pole_softness": 0.10,
+    # No snow caps — Mars should read as a rust-red ball. Threshold > 1
+    # drops the pole mask entirely; pole_color becomes irrelevant.
+    "pole_threshold": 2.0,
     "noise_frequency": 2.8,
     "noise_warp": 0.5,
     "cloud_enabled": true,
@@ -139,7 +144,11 @@ const PLANET_OVERRIDES := {
     "color_low": Color(0.26, 0.26, 0.28),
     "color_mid": Color(0.52, 0.50, 0.52),
     "color_high": Color(0.78, 0.76, 0.78),
-    "pole_threshold": 0.96,
+    # No atmosphere → no clouds, no polar caps. Both are redundant with
+    # the lifeless biome default now but set explicitly so Luna can't
+    # inherit atmosphere from a future preset change.
+    "cloud_enabled": false,
+    "pole_threshold": 2.0,
     "noise_frequency": 4.2,
     "noise_octaves": 5,
   },

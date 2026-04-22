@@ -10,7 +10,11 @@ extends Camera3D
 ## with priority-based cameras instead of growing this script further.
 
 @export var zoom_level: float = 80.0
-@export var zoom_min: float = 10.0
+# Let the camera pull right up to ships. 10.0 was safe but couldn't frame
+# a single courier at its rendered size (~0.05 world units). 2.0 lets
+# you clearly see individual ship silhouettes; below that you can clip
+# inside planet geometry.
+@export var zoom_min: float = 2.0
 @export var zoom_max: float = 300.0
 @export var zoom_speed: float = 8.0
 @export var pan_speed_base: float = 50.0

@@ -38,16 +38,12 @@ var _target_heading: float = 0.0
 var _speed: float = 0.0
 var _is_moving := false
 
-const CLASS_MODELS := {
-	"freighter": "res://assets/ships/Challenger.gltf",
-	"hauler": "res://assets/ships/Dispatcher.gltf",
-	"courier": "res://assets/ships/Spitfire.gltf",
-	"tanker": "res://assets/ships/Imperial.gltf",
-	"miner": "res://assets/ships/Executioner.gltf",
-}
-
-const DEFAULT_MODEL := "res://assets/ships/Challenger.gltf"
-const MODEL_SCALE := Vector3(0.03, 0.03, 0.03)
+# World-space size multiplier applied to every ProceduralShip. A
+# medium-tier freighter (hull ≈ 3 raw units × SIZE_MEDIUM 1.0 × this) lands
+# at ~0.075 world units — comfortably smaller than Earth at 0.32 — and a
+# massive-tier hauler lands around ~0.25 world units. Tune here if ships
+# start reading too small or too large against the planets.
+const SHIP_RENDER_SCALE := 0.025
 
 # Engine burn particle settings
 const PARTICLE_BASE_LIFETIME := 0.6
@@ -66,13 +62,46 @@ func setup(data: Dictionary) -> void:
 	_prev_pos = _next_pos
 	position = _next_pos
 
-	# Load ship model
-	var model_path: String = CLASS_MODELS.get(ship_class, DEFAULT_MODEL)
-	var scene: PackedScene = load(model_path)
-	if scene:
-		_model = scene.instantiate()
-		_model.scale = MODEL_SCALE
-		add_child(_model)
+	# Build a ProceduralShip from the server's class/size/faction. Wrapped
+	# in a pivot so (a) the heading math on `self` stays clean and
+	# (b) the pivot applies the world-render scale without fighting the
+	# ProceduralShip's own SIZE_SCALES → internal scale chain. Pivot is
+	# rotated 180° around Y because ProceduralShip's forward is -Z while
+	# the atan2-driven heading here assumes +Z forward.
+	var proc_class := ProceduralShip.class_from_name(ship_class)
+	var size_str: String = str(data.get("size", ""))
+	var proc_size: int
+	if size_str != "":
+		proc_size = ProceduralShip.size_from_name(size_str)
+	else:
+		# Dictionary.get() returns Variant; int() it so strict typing on
+		# proc_size sticks and the subsequent setter doesn't complain.
+		proc_size = int(ProceduralShip.CLASS_DEFAULT_SIZE.get(
+			proc_class, ProceduralShip.ShipSize.MEDIUM
+		))
+	var faction: String = str(data.get("faction_id", ""))
+	# Stable seed per ship so re-spawn / reconnect keeps the same ship
+	# silhouette. Mask the sign bit because hash() can return negatives
+	# and ProceduralShip stores seed as a positive int.
+	var ship_seed_int: int = int(hash(ship_id)) & 0x7FFFFFFF
+
+	var pivot := Node3D.new()
+	pivot.name = "ShipPivot"
+	pivot.rotation = Vector3(0, PI, 0)
+	pivot.scale = Vector3.ONE * SHIP_RENDER_SCALE
+	add_child(pivot)
+
+	var proc_ship := ProceduralShip.new()
+	proc_ship.name = "ProceduralShip"
+	# Set properties BEFORE add_child so _ready's initial _rebuild runs
+	# with the final class/size — avoids one extra throwaway rebuild when
+	# each setter would otherwise trigger it in sequence.
+	proc_ship.ship_class = proc_class
+	proc_ship.ship_size = proc_size
+	proc_ship.faction_id = faction
+	proc_ship.ship_seed = ship_seed_int
+	pivot.add_child(proc_ship)
+	_model = pivot
 
 	# Ship name label
 	_label = $Label3D

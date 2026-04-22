@@ -101,7 +101,6 @@ var _heartbeat_timer: float = 0.0
 
 
 func _ready() -> void:
-  await get_tree().create_timer(3.0).timeout
   print("[Main] Fetching world snapshot...")
   NetworkManager.fetch_report(_on_report_loaded)
 

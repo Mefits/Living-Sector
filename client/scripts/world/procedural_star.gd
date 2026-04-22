@@ -1,15 +1,22 @@
 class_name ProceduralStar
 extends Node3D
 
-## A system's sun. Three layers:
+## A system's sun. Four layers:
 ##   1. Core sphere — unshaded, high-emission, animated plasma shader.
-##      Emission > 1.0 pushes it past the bloom threshold so it blooms
-##      against the black sky.
-##   2. Halo shell — additive, fresnel-on-limb shader. Bigger sphere
-##      that draws the soft ring glow around the star's silhouette.
-##   3. OmniLight3D — actual scene light so planets get lit.
+##      Emission >> 1.0 pushes it past the bloom threshold so it blows
+##      out to near-white in the bloom, which reads as "shining".
+##   2. Inner glow billboard — additive radial gradient, tight + bright.
+##   3. Outer corona billboard — additive radial gradient, wide + soft.
+##   4. OmniLight3D — actual scene light so planets get lit.
 ##
-## Star colour drives all three layers so changing one uniform (or
+## The glows are camera-facing QuadMesh billboards rather than a 3D
+## halo shell: sphere shells show visible polygon banding on their
+## fresnel gradient at low subdivisions, whereas a billboard's radial
+## gradient is smooth from any angle. Additive blend so they only
+## brighten what's behind them; default depth-test so planets in front
+## of the star properly occlude the halo.
+##
+## Star colour drives all four layers so changing one uniform (or
 ## passing a new tint at setup) flows through.
 
 const CORE_SHADER := "res://shaders/procedural_star.gdshader"
@@ -17,24 +24,27 @@ const HALO_SHADER := "res://shaders/procedural_star_halo.gdshader"
 
 const CORE_RADIAL_SEGMENTS := 32
 const CORE_RINGS := 16
-const HALO_RADIUS_MULT := 2.6   # halo shell vs core radius
+# Billboard glow sizes (diameter multipliers of the core radius). Inner
+# is a tight hot disc; outer is a wide soft corona. Stacking two layers
+# additively gives a smooth bright-center → faint-edge falloff with no
+# polygon banding, which is what killed the old 3D-shell halo.
+const INNER_GLOW_MULT := 3.2
+const OUTER_GLOW_MULT := 7.0
 const LIGHT_RANGE_MULT := 25.0  # omni light reach vs core radius
 
 var core_radius: float = 0.6
 var tint: Color = Color(1.0, 0.95, 0.6)
 
 var _core_mesh: MeshInstance3D
-var _halo_mesh: MeshInstance3D
 var _light: OmniLight3D
 var _core_mat: ShaderMaterial
-var _halo_mat: ShaderMaterial
 
 
 func setup(radius: float, color: Color, seed_int: int = 0) -> void:
   core_radius = radius
   tint = color
   _build_core()
-  _build_halo()
+  _build_glow()
   _build_light()
   _apply_seed(seed_int)
 
@@ -56,11 +66,18 @@ func _build_core() -> void:
   _core_mat.set_shader_parameter(&"star_color_core", core_col)
   _core_mat.set_shader_parameter(&"star_color_mid", tint)
   _core_mat.set_shader_parameter(&"star_color_edge", edge_col)
-  _core_mat.set_shader_parameter(&"emission_strength", 4.5)
-  _core_mat.set_shader_parameter(&"noise_frequency", 2.5)
-  _core_mat.set_shader_parameter(&"noise_octaves", 4)
-  _core_mat.set_shader_parameter(&"flow_speed", 0.35)
-  _core_mat.set_shader_parameter(&"limb_darkening", 0.30)
+  # Push emission hard past bloom threshold — we want the core to blow
+  # out to near-white in glow, which is what reads as "shining" vs the
+  # old "flat yellow ball" look.
+  _core_mat.set_shader_parameter(&"emission_strength", 7.0)
+  _core_mat.set_shader_parameter(&"noise_frequency", 3.5)
+  _core_mat.set_shader_parameter(&"noise_octaves", 5)
+  _core_mat.set_shader_parameter(&"flow_speed", 0.45)
+  # Near-zero limb darkening. The old 0.30 value bled too much dimness
+  # into the edges, which combined with the banded halo made the star
+  # read as "solid disc in fog". Keep a tiny bit so we still sell the
+  # sphere shape.
+  _core_mat.set_shader_parameter(&"limb_darkening", 0.08)
 
   _core_mesh = MeshInstance3D.new()
   _core_mesh.name = "Core"
@@ -69,26 +86,46 @@ func _build_core() -> void:
   add_child(_core_mesh)
 
 
-func _build_halo() -> void:
-  var sphere := SphereMesh.new()
-  var r := core_radius * HALO_RADIUS_MULT
-  sphere.radius = r
-  sphere.height = r * 2.0
-  sphere.radial_segments = 32
-  sphere.rings = 16
+func _build_glow() -> void:
+  # Inner glow: hot near-white, tight + bright. Steep falloff keeps it
+  # from bleeding too far past the star silhouette.
+  var inner_col := tint.lerp(Color(1, 1, 0.95), 0.35)
+  _spawn_glow_quad(
+    "InnerGlow",
+    core_radius * INNER_GLOW_MULT,
+    inner_col,
+    3.0,   # intensity
+    2.8,   # falloff — tight
+  )
+  # Outer corona: full tint, wide, soft. Low intensity so it lingers as
+  # a dim aura stretching well past the bright disc.
+  _spawn_glow_quad(
+    "OuterGlow",
+    core_radius * OUTER_GLOW_MULT,
+    tint,
+    1.1,   # intensity
+    3.6,   # falloff — spreads further
+  )
 
-  _halo_mat = ShaderMaterial.new()
-  _halo_mat.shader = load(HALO_SHADER)
-  _halo_mat.set_shader_parameter(&"halo_color", tint)
-  _halo_mat.set_shader_parameter(&"halo_intensity", 2.2)
-  _halo_mat.set_shader_parameter(&"halo_power", 2.2)
-  _halo_mat.set_shader_parameter(&"halo_floor", 0.04)
 
-  _halo_mesh = MeshInstance3D.new()
-  _halo_mesh.name = "Halo"
-  _halo_mesh.mesh = sphere
-  _halo_mesh.material_override = _halo_mat
-  add_child(_halo_mesh)
+func _spawn_glow_quad(
+  quad_name: String, radius: float, color: Color,
+  intensity: float, falloff: float
+) -> void:
+  var quad := QuadMesh.new()
+  quad.size = Vector2(radius * 2.0, radius * 2.0)
+
+  var mat := ShaderMaterial.new()
+  mat.shader = load(HALO_SHADER)
+  mat.set_shader_parameter(&"glow_color", color)
+  mat.set_shader_parameter(&"glow_intensity", intensity)
+  mat.set_shader_parameter(&"glow_falloff", falloff)
+
+  var mi := MeshInstance3D.new()
+  mi.name = quad_name
+  mi.mesh = quad
+  mi.material_override = mat
+  add_child(mi)
 
 
 func _build_light() -> void:

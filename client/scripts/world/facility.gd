@@ -27,9 +27,14 @@ const TYPE_MODELS := {
 }
 
 const DEFAULT_MODEL := "res://assets/stations/station01.glb"
-const MODEL_SCALE := Vector3(0.05, 0.05, 0.05)
-# Bigger scale for gates so they're visible at system-level zoom.
-const GATE_MODEL_SCALE := Vector3(0.12, 0.12, 0.12)
+# Facilities should read as small structures orbiting a planet, not
+# landmarks you could spot from another system. Planets render at
+# ~0.2–0.6 world units (BASE_SCALE × body_radius); a regular station at
+# 0.012 keeps it comfortably smaller than the planet it orbits.
+const MODEL_SCALE := Vector3(0.012, 0.012, 0.012)
+# Gates stay a touch bigger — they're navigation waypoints players need
+# to find at mid-zoom — but not the ship-swallowing monoliths they were.
+const GATE_MODEL_SCALE := Vector3(0.035, 0.035, 0.035)
 
 var _system_offset: Vector2
 var _prev_pos: Vector3
@@ -69,8 +74,9 @@ func setup(data: Dictionary, world_pos: Vector3, index: int = 0) -> void:
 	if is_gate:
 		_create_gate_ring()
 
-	# Stagger labels above model, below planet labels
-	var y_offset := 0.35 + (index % 4) * 0.15
+	# Stagger labels above model, below planet labels. Pulled in closer
+	# to match the new facility size — the old 0.35 left labels floating.
+	var y_offset := 0.14 + (index % 4) * 0.06
 	label.position = Vector3(0, y_offset, 0)
 
 	# Activity glow — pulses when ships are docked (gates glow stronger
@@ -124,8 +130,11 @@ func _process(delta: float) -> void:
 ## at a distance.
 func _create_gate_ring() -> void:
 	var torus := TorusMesh.new()
-	torus.inner_radius = 0.45
-	torus.outer_radius = 0.60
+	# Ring lives in world units (not scaled with the gate model). Sized
+	# to sit just outside the new gate silhouette rather than engulfing
+	# the surrounding planet.
+	torus.inner_radius = 0.14
+	torus.outer_radius = 0.19
 	torus.rings = 32
 	torus.ring_segments = 12
 
