@@ -1,6 +1,9 @@
 extends Node3D
 
-## Renders an orbital body using a planet 3D model.
+## Renders an orbital body. Primary path: procedural planet built from the
+## biome + body-id catalog (`planet_catalog.gd`). Fallback: GLTF model if
+## the body has no biome or the biome is unknown — kept so unexpected
+## server data still renders something.
 ##
 ## Position is server-driven: `universe.gd` routes the per-tick `positions`
 ## broadcast into `update_position(x, y)` and we lerp toward it exactly
@@ -14,11 +17,6 @@ extends Node3D
 ## briefly during scene build, before the first server position arrives.
 
 var body_id: String
-var _ring: MeshInstance3D
-
-# Bodies that get an animated ring
-const RINGED_BODIES := ["saturn", "mars"]
-const RING_COLOR := Color(0.8, 0.75, 0.6, 0.4)
 
 # System-space offset cached at setup time. Server positions arrive in
 # absolute universe coordinates; this body lives inside a star_system
@@ -40,32 +38,6 @@ var _has_orbit := false
 var _visual_radius: float = 0.5
 
 @onready var label: Label3D = $Label3D
-
-const BODY_MODELS := {
-  "earth": "res://assets/planets/Planet_1.gltf",
-  "mars": "res://assets/planets/Planet_11.gltf",
-  "venus": "res://assets/planets/Planet_2.gltf",
-  "jupiter": "res://assets/planets/Planet_6.gltf",
-  "saturn": "res://assets/planets/Planet_7.gltf",
-  "luna": "res://assets/planets/Planet_3.gltf",
-  "mercury": "res://assets/planets/Planet_4.gltf",
-  "proxima": "res://assets/planets/Planet_8.gltf",
-  "haven": "res://assets/planets/Planet_9.gltf",
-  "asteroid-belt": "res://assets/planets/Planet_5.gltf",
-  "near-earth asteroid": "res://assets/planets/Planet_5.gltf",
-  "trojan cluster": "res://assets/planets/Planet_5.gltf",
-  "hilda group": "res://assets/planets/Planet_5.gltf",
-  "kuiper object": "res://assets/planets/Planet_4.gltf",
-  "ac belt": "res://assets/planets/Planet_5.gltf",
-  "outer rocks": "res://assets/planets/Planet_5.gltf",
-  "slag field": "res://assets/planets/Planet_11.gltf",
-  "deep ice": "res://assets/planets/Planet_9.gltf",
-  "forge": "res://assets/planets/Planet_11.gltf",
-  "anvil": "res://assets/planets/Planet_3.gltf",
-  "crucible": "res://assets/planets/Planet_2.gltf",
-  "frostheim": "res://assets/planets/Planet_9.gltf",
-  "refuge": "res://assets/planets/Planet_1.gltf",
-}
 
 const DEFAULT_MODEL := "res://assets/planets/Planet_3.gltf"
 const BASE_SCALE := 0.4
@@ -101,21 +73,69 @@ func setup(
     _initial_tick = GameState.tick
     _has_orbit = _orbit_period > 0.0
 
-  # Load planet model
-  var model_path: String = BODY_MODELS.get(id, DEFAULT_MODEL)
-  var scene: PackedScene = load(model_path)
-  if scene:
-    var model := scene.instantiate()
-    var s := BASE_SCALE * radius
-    model.scale = Vector3(s, s, s)
-    model.rotation_degrees.x = -90.0
-    add_child(model)
+  # Build the body visual. Three paths:
+  #   1. body.type in {asteroid, belt} → ProceduralAsteroid (deformed rock)
+  #   2. biome or body_id match in planet catalog → ProceduralPlanet
+  #   3. fallback → legacy GLTF model, so unknown server bodies still render
+  var biome: String = str(orbit_data.get("biome", ""))
+  var body_type: String = str(orbit_data.get("type", ""))
+  var s := BASE_SCALE * radius
 
-  label.position = Vector3(0, radius * BASE_SCALE + 1.0, 0)
+  if body_type == "asteroid" or body_type == "belt":
+    var ast_cfg := PlanetCatalog.build_asteroid_config(id, biome)
+    var field_seed := hash(id + "_field")
 
-  # Animated ring for gas giants
-  if id in RINGED_BODIES:
-    _create_ring(radius)
+    if body_type == "asteroid":
+      # Lead rock + shell of smaller satellites around it.
+      var ast := ProceduralAsteroid.new()
+      ast.name = "Asteroid"
+      ast.scale = Vector3(s, s, s)
+      add_child(ast)
+      PlanetCatalog.apply_to_asteroid(ast, id, ast_cfg)
+
+      var field := AsteroidField.new()
+      field.name = "AsteroidField"
+      add_child(field)
+      field.setup(ast_cfg, field_seed, {
+        "count": 14,
+        # Positions in world units, scaled off the lead's rendered radius.
+        "spread_world": s * 6.0,
+        "inner_world": s * 1.8,    # clear of the lead silhouette
+        "size_min_world": s * 0.12,
+        "size_max_world": s * 0.30,
+        "layout": "shell",
+      })
+    else:
+      # Belt: no dominant lead, just a disc of similar-sized rocks.
+      var field := AsteroidField.new()
+      field.name = "AsteroidField"
+      add_child(field)
+      field.setup(ast_cfg, field_seed, {
+        "count": 55,
+        "spread_world": s * 22.0,
+        "inner_world": 0.0,
+        "size_min_world": s * 0.35,
+        "size_max_world": s * 0.75,
+        "layout": "disc",
+        "disc_thickness_world": s * 1.2,
+      })
+  else:
+    var cfg: Dictionary = PlanetCatalog.build_config(id, biome)
+    if not cfg.is_empty():
+      var planet := ProceduralPlanet.new()
+      planet.name = "Planet"
+      planet.scale = Vector3(s, s, s)
+      add_child(planet)  # _ready runs here → shader + ring slots ready
+      PlanetCatalog.apply_to(planet, id, cfg)
+    else:
+      var scene: PackedScene = load(DEFAULT_MODEL)
+      if scene:
+        var model := scene.instantiate()
+        model.scale = Vector3(s, s, s)
+        model.rotation_degrees.x = -90.0
+        add_child(model)
+
+  label.position = Vector3(0, s + 1.0, 0)
 
   GameState.zoom_changed.connect(_on_zoom_changed)
   _on_zoom_changed(GameState.zoom_tier, GameState.zoom_raw)
@@ -134,10 +154,6 @@ func update_position(abs_x: float, abs_y: float) -> void:
 
 
 func _process(_delta: float) -> void:
-  # Slowly rotate ring
-  if _ring:
-    _ring.rotation_degrees.y += _delta * 5.0
-
   if _received_server_pos:
     # Server-driven path (primary). Lerp between the last two broadcast
     # positions over the wall-clock gap. `get_effective_interval_seconds`
@@ -164,29 +180,6 @@ func _process(_delta: float) -> void:
   var local_x := _orbit_radius * cos(angle_rad)
   var local_y := _orbit_radius * sin(angle_rad)
   position = GameState.server_to_world(local_x, local_y)
-
-
-func _create_ring(radius: float) -> void:
-  var torus := TorusMesh.new()
-  var ring_radius := radius * BASE_SCALE * 1.8
-  torus.inner_radius = ring_radius * 0.85
-  torus.outer_radius = ring_radius * 1.15
-  torus.rings = 32
-  torus.ring_segments = 16
-
-  _ring = MeshInstance3D.new()
-  _ring.mesh = torus
-  _ring.rotation_degrees.x = -80.0  # Slight tilt
-
-  var mat := StandardMaterial3D.new()
-  mat.albedo_color = RING_COLOR
-  mat.emission_enabled = true
-  mat.emission = Color(RING_COLOR, 1.0) * 0.3
-  mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-  mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-  _ring.material_override = mat
-
-  add_child(_ring)
 
 
 func _on_zoom_changed(tier: GameState.ZoomTier, _raw: float) -> void:

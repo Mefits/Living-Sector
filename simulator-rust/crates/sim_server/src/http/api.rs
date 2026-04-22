@@ -195,6 +195,7 @@ fn build_systems_with_bodies(state: &AppState) -> Vec<serde_json::Value> {
                     "current_angle": snap.current_angle,
                     "orbit_radius": snap.orbit_radius,
                     "orbit_period": snap.orbit_period,
+                    "biome": snap.biome,
                 }));
             }
         }

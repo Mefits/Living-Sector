@@ -139,10 +139,13 @@ pub struct BodySnapshot {
     pub orbit_radius: f32,
     /// Orbital period (days at 1x world speed). Godot uses this to animate orbit.
     pub orbit_period: u32,
+    /// Biome string ("terrestrial", "molten", etc.). Godot's planet catalog
+    /// picks procedural palettes from this.
+    pub biome: String,
 }
 
 impl BodySnapshot {
-    pub fn build(identity: &BodyIdentity, orbit: &BodyOrbit) -> Self {
+    pub fn build(identity: &BodyIdentity, orbit: &BodyOrbit, biome: &BodyBiome) -> Self {
         Self {
             body_id: identity.body_id.clone(),
             name: identity.name.clone(),
@@ -152,6 +155,7 @@ impl BodySnapshot {
             current_angle: orbit.current_angle,
             orbit_radius: orbit.orbit_radius,
             orbit_period: orbit.orbit_period,
+            biome: biome.biome.clone(),
         }
     }
 }

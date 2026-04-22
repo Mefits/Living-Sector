@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://ptu30b64rcf2"]
+
+[ext_resource type="Script" uid="uid://cj7soemcjsfbn" path="res://scripts/tools/asteroid_playground.gd" id="1"]
+
+[node name="AsteroidPlayground" type="Node3D" unique_id=247229194]
+script = ExtResource("1")

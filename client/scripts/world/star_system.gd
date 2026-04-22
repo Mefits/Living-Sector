@@ -152,30 +152,13 @@ func create_facility(data: Dictionary) -> Node:
 
 
 func _create_star(sys_id: String) -> void:
-	var star := MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = STAR_RADIUS
-	sphere.height = STAR_RADIUS * 2.0
-	star.mesh = sphere
-
 	var col: Color = STAR_COLORS.get(sys_id, Color(1.0, 0.95, 0.7))
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = col
-	mat.emission_enabled = true
-	mat.emission = col
-	mat.emission_energy_multiplier = 3.0
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	star.material_override = mat
-
+	var star := ProceduralStar.new()
+	star.name = "Star"
 	add_child(star)
-
-	# Point light for the star glow
-	var light := OmniLight3D.new()
-	light.light_color = col
-	light.light_energy = 2.0
-	light.omni_range = 15.0
-	light.omni_attenuation = 1.5
-	add_child(light)
+	# Deterministic per-system seed keeps the plasma pattern stable across
+	# runs — Sol flickers the same every time.
+	star.setup(STAR_RADIUS, col, hash(sys_id))
 
 
 func _on_zoom_changed(tier: GameState.ZoomTier, _raw: float) -> void:

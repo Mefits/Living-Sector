@@ -7,7 +7,7 @@
 use dashmap::DashMap;
 use sim_core::{
     agents::{
-        celestial_body::{BodyIdentity, BodyOrbit, BodySnapshot},
+        celestial_body::{BodyBiome, BodyIdentity, BodyOrbit, BodySnapshot},
         facility::{
             FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations,
             FacilitySnapshot, FacilityStorage, GateLink,
@@ -230,12 +230,12 @@ impl SnapshotCache {
     }
 
     fn update_bodies(&self, store: &AgentStore) {
-        for (_e, (identity, orbit)) in store
+        for (_e, (identity, orbit, biome)) in store
             .world
-            .query::<(&BodyIdentity, &BodyOrbit)>()
+            .query::<(&BodyIdentity, &BodyOrbit, &BodyBiome)>()
             .iter()
         {
-            let snap = BodySnapshot::build(identity, orbit);
+            let snap = BodySnapshot::build(identity, orbit, biome);
             self.positions
                 .insert(identity.body_id.clone(), (snap.universe_position.x, snap.universe_position.y));
             self.bodies.insert(identity.body_id.clone(), snap);
