@@ -275,25 +275,52 @@ func refresh_world_data(data: Dictionary) -> void:
 			lod_d20 = int(lod.get("d20", 0))
 			lod_d50 = int(lod.get("d50", 0))
 
-	# Merge ship metadata (never touch position — WS handles that)
+	# Merge ship metadata (never touch position — WS handles that).
+	# Track the set of ids the report included so we can drop anything
+	# local-only afterward — critical for admin-destroyed agents where
+	# the client had removed the entry, then a stale /api/report could
+	# have resurrected it.
+	var report_ship_ids: Dictionary = {}
 	for ship in data.get("ships", []):
 		var id: String = ship.get("id", "")
+		if id == "":
+			continue
+		report_ship_ids[id] = true
 		if ships.has(id):
 			for key in ship:
 				if key != "position":
 					ships[id][key] = ship[key]
 		else:
 			ships[id] = ship
+	# Prune: any ship we have locally that's NOT in the report is
+	# genuinely gone server-side. Fire the removal path so 3D nodes
+	# queue_free and the selection clears.
+	var stale_ship_ids: Array = []
+	for sid in ships:
+		if not report_ship_ids.has(sid):
+			stale_ship_ids.append(sid)
+	for sid in stale_ship_ids:
+		remove_ship_local(sid)
 
-	# Merge facility metadata
+	# Merge facility metadata (same prune pattern as ships).
+	var report_fac_ids: Dictionary = {}
 	for facility in data.get("facilities", []):
 		var id: String = facility.get("id", "")
+		if id == "":
+			continue
+		report_fac_ids[id] = true
 		if facilities.has(id):
 			for key in facility:
 				if key != "position":
 					facilities[id][key] = facility[key]
 		else:
 			facilities[id] = facility
+	var stale_fac_ids: Array = []
+	for fid in facilities:
+		if not report_fac_ids.has(fid):
+			stale_fac_ids.append(fid)
+	for fid in stale_fac_ids:
+		remove_facility_local(fid)
 
 	for market in data.get("markets", []):
 		markets[market["id"]] = market
@@ -331,16 +358,28 @@ func update_positions(positions_array: Array) -> void:
 
 
 func update_ship_states(states_array: Array) -> void:
-	## Partial delta update from the ship_states WS event.
-	## Only overwrites keys actually present in each entry — fields not
-	## included are preserved. `position` is always skipped (WS positions
-	## channel owns that). Server field "goal" is normalized to our
-	## internal "current_goal" so UI code stays consistent.
+	## FULL ship snapshot from the ship_states WS event (~every 1s).
+	## Per-entry fields are merged into the existing dict (missing
+	## fields on an entry preserve prior values — the server sometimes
+	## omits fields that didn't change), but the ARRAY itself is full:
+	## any ship we have locally that's NOT in the broadcast has been
+	## removed server-side, so prune it. `position` is always skipped
+	## (WS positions channel owns that). Server field "goal" is
+	## normalized to our internal "current_goal" so UI code stays
+	## consistent.
+	var seen: Dictionary = {}
 	for entry in states_array:
 		if not (entry is Dictionary):
 			continue
 		var id: String = entry.get("id", "")
-		if id == "" or not ships.has(id):
+		if id == "":
+			continue
+		seen[id] = true
+		if not ships.has(id):
+			# New ship (admin spawn from another client, reconnect) —
+			# copy wholesale so future partial updates land somewhere.
+			ships[id] = entry.duplicate()
+			ship_added.emit(id)
 			continue
 		for key in entry:
 			if key == "id" or key == "position":
@@ -354,6 +393,13 @@ func update_ship_states(states_array: Array) -> void:
 			elif key == "bt":
 				target_key = "current_bt"
 			ships[id][target_key] = entry[key]
+	# Prune any ship that's local-only — server has removed it.
+	var stale: Array = []
+	for sid in ships:
+		if not seen.has(sid):
+			stale.append(sid)
+	for sid in stale:
+		remove_ship_local(sid)
 
 
 func update_markets(markets_array: Array) -> void:
@@ -374,12 +420,19 @@ func update_facilities(facilities_array: Array) -> void:
 	## Every field except `position` is overwritten — positions come from
 	## the per-tick positions broadcast and we never want a 2-second-stale
 	## position clobbering the live one.
+	##
+	## This is a FULL snapshot — any facility we have locally that's not
+	## in the broadcast was destroyed server-side, so prune it. Without
+	## this, admin-destroyed facilities linger in the UI until a Godot
+	## restart even when the server has correctly dropped them.
+	var seen: Dictionary = {}
 	for entry in facilities_array:
 		if not (entry is Dictionary):
 			continue
 		var id: String = str(entry.get("id", ""))
 		if id == "":
 			continue
+		seen[id] = true
 		if facilities.has(id):
 			for key in entry:
 				if key == "position":
@@ -388,6 +441,12 @@ func update_facilities(facilities_array: Array) -> void:
 		else:
 			# New-to-us facility (admin spawn, reconnect). Copy wholesale.
 			facilities[id] = entry
+	var stale: Array = []
+	for fid in facilities:
+		if not seen.has(fid):
+			stale.append(fid)
+	for fid in stale:
+		remove_facility_local(fid)
 	facility_states_updated.emit()
 
 
