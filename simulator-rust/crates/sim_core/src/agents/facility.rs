@@ -127,6 +127,78 @@ impl FacilityStorage {
     }
 }
 
+/// Facility subsystem fitting (Phase 18e). Parallel of `ShipFitting`
+/// but with 2 slots: Production (recipe output multiplier) +
+/// Automation (max-batches bonus). Present on every non-gate
+/// facility; derived stats are baked on mutation.
+///
+/// Gates skip it because they don't run recipes — the loader and
+/// admin spawn paths filter by facility type.
+#[derive(Debug, Clone)]
+pub struct FacilityFitting {
+    pub slots: [Option<&'static str>; crate::facility_modules::NUM_FACILITY_SLOTS],
+    pub derived: crate::facility_modules::FacilityDerivedStats,
+    /// Set whenever slots change — makes the persistence flush
+    /// know to include this facility's row.
+    pub dirty: bool,
+}
+
+impl Default for FacilityFitting {
+    fn default() -> Self {
+        Self::new_default()
+    }
+}
+
+impl FacilityFitting {
+    pub fn new_default() -> Self {
+        let slots = crate::facility_modules::default_fitting();
+        let derived = crate::facility_modules::combine_effects(&slots);
+        Self {
+            slots,
+            derived,
+            dirty: false,
+        }
+    }
+
+    pub fn from_slugs(
+        raw: &[Option<String>; crate::facility_modules::NUM_FACILITY_SLOTS],
+    ) -> Self {
+        let mut slots: [Option<&'static str>; crate::facility_modules::NUM_FACILITY_SLOTS] =
+            [None; crate::facility_modules::NUM_FACILITY_SLOTS];
+        for slot in crate::facility_modules::FACILITY_SLOTS.iter().copied() {
+            let i = slot.index();
+            slots[i] = match &raw[i] {
+                Some(s) => crate::facility_modules::intern_slug(s)
+                    .or(Some(crate::facility_modules::default_for_slot(slot))),
+                None => None,
+            };
+        }
+        let derived = crate::facility_modules::combine_effects(&slots);
+        Self {
+            slots,
+            derived,
+            dirty: false,
+        }
+    }
+
+    pub fn set(
+        &mut self,
+        slot: crate::facility_modules::FacilitySlot,
+        slug: Option<&'static str>,
+    ) {
+        self.slots[slot.index()] = slug;
+        self.derived = crate::facility_modules::combine_effects(&self.slots);
+        self.dirty = true;
+    }
+
+    pub fn slot_slug(
+        &self,
+        slot: crate::facility_modules::FacilitySlot,
+    ) -> Option<&'static str> {
+        self.slots[slot.index()]
+    }
+}
+
 /// Shipyard module inventory (Phase 18c). One per shipyard facility.
 /// `stock[slug]` is how many installable units the shipyard currently
 /// has on hand. Ticks increment it via the production recipe; refits
@@ -217,6 +289,44 @@ pub struct FacilitySnapshot {
     /// Godot's details panel shows this under "Shipyard stock".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub module_stock: Option<HashMap<String, u32>>,
+    /// Installed facility subsystems (Phase 18e). Present on every
+    /// non-gate facility; carries the two slots (Production +
+    /// Automation) + their derived rollup so Godot can render it
+    /// the same way ship subsystems are rendered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fitting: Option<FacilityFittingSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct FacilityFittingSnapshot {
+    /// slot_name → module_slug (None → slot is empty).
+    pub modules: HashMap<String, Option<String>>,
+    pub stats: FacilityDerivedStatsSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct FacilityDerivedStatsSnapshot {
+    pub recipe_output_mult: f32,
+    pub max_batches_bonus: u32,
+}
+
+impl From<&FacilityFitting> for FacilityFittingSnapshot {
+    fn from(fit: &FacilityFitting) -> Self {
+        let mut modules: HashMap<String, Option<String>> = HashMap::new();
+        for slot in crate::facility_modules::FACILITY_SLOTS.iter().copied() {
+            modules.insert(
+                slot.as_str().to_string(),
+                fit.slot_slug(slot).map(|s| s.to_string()),
+            );
+        }
+        Self {
+            modules,
+            stats: FacilityDerivedStatsSnapshot {
+                recipe_output_mult: fit.derived.recipe_output_mult,
+                max_batches_bonus: fit.derived.max_batches_bonus,
+            },
+        }
+    }
 }
 
 /// Wire-facing shape of `GateLink`. Kept flat so Godot can consume
@@ -321,6 +431,7 @@ impl FacilitySnapshot {
         lifecycle: Option<&FacilityLifecycle>,
         gate: Option<&GateLink>,
         module_stock: Option<&ModuleStock>,
+        fitting: Option<&FacilityFitting>,
         position: super::Position,
         docked_ship_ids: Vec<String>,
     ) -> Self {
@@ -347,6 +458,7 @@ impl FacilitySnapshot {
             throughput_cap: g.throughput_cap,
         });
         let module_stock = module_stock.map(|m| m.stock.clone());
+        let fitting_snap = fitting.map(FacilityFittingSnapshot::from);
         Self {
             id: identity.id.clone(),
             name: identity.name.clone(),
@@ -367,6 +479,7 @@ impl FacilitySnapshot {
             abandoned,
             gate_link,
             module_stock,
+            fitting: fitting_snap,
         }
     }
 }
@@ -810,7 +923,19 @@ fn tick_recipes_and_mining(world: &mut hecs::World, tick: u64, tick_multiplier: 
                 Some(&e) => e,
                 None => continue,
             };
-            let max_batches = level_scaled_max_batches(fac.level);
+            // Phase 18e: fold the facility's FacilityFitting into the
+            // recipe run. recipe_output_mult rides through `efficiency`
+            // on `recipes::execute`; max_batches_bonus adds flat
+            // capacity on top of the level-scaled base. Facilities
+            // without a fitting (shouldn't happen post-Phase-18e spawn
+            // but defend against hand-rolled DB rows) fall back to
+            // neutral stats.
+            let (output_mult, batches_bonus) = world
+                .get::<&FacilityFitting>(fac.entity)
+                .ok()
+                .map(|f| (f.derived.recipe_output_mult, f.derived.max_batches_bonus))
+                .unwrap_or((1.0, 0));
+            let max_batches = level_scaled_max_batches(fac.level).saturating_add(batches_bonus);
             // Count recipes that actually produced output — XP only grows
             // when real work happens. Elixir increments XP by the number
             // of recipes that ran successfully each cycle.
@@ -820,7 +945,7 @@ fn tick_recipes_and_mining(world: &mut hecs::World, tick: u64, tick_multiplier: 
                     let produced = recipes::execute(
                         recipe,
                         &mut pricing.supply,
-                        1.0,
+                        output_mult,
                         max_batches,
                     );
                     if !produced.is_empty() {
@@ -852,12 +977,19 @@ fn tick_recipes_and_mining(world: &mut hecs::World, tick: u64, tick_multiplier: 
                     Ok(r) => r.resources.iter().map(|(&c, &v)| (c, v)).collect(),
                     Err(_) => continue,
                 };
+            // Mining rigs honour the Production slot too — a tier-3
+            // production module boosts extracted yield 1.3×.
+            let yield_mult = world
+                .get::<&FacilityFitting>(fac.entity)
+                .ok()
+                .map(|f| f.derived.recipe_output_mult)
+                .unwrap_or(1.0);
             if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
                 for (commodity, richness) in body_resources {
                     if richness <= 0.0 {
                         continue;
                     }
-                    let extracted = MINING_YIELD_PER_CYCLE * richness;
+                    let extracted = MINING_YIELD_PER_CYCLE * richness * yield_mult;
                     *pricing.supply.entry(commodity).or_insert(0.0) += extracted;
                 }
             }

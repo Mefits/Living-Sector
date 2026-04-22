@@ -463,6 +463,82 @@ pub async fn market_supply_delta(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AdminRefitFacilityReq {
+    /// Slot name: `production` or `automation`.
+    pub slot: String,
+    /// Module slug from the facility catalog (e.g. `production_t2`).
+    /// `null` or missing clears the slot.
+    #[serde(default)]
+    pub slug: Option<String>,
+}
+
+/// POST /api/admin/facilities/:id/refit — swap one subsystem slot on
+/// a facility. Admin override only today; no economy interaction.
+pub async fn refit_facility(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<AdminRefitFacilityReq>,
+) -> (StatusCode, Json<Value>) {
+    let slot = match body.slot.as_str() {
+        "production" => sim_core::facility_modules::FacilitySlot::Production,
+        "automation" => sim_core::facility_modules::FacilitySlot::Automation,
+        other => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("unknown slot: {other}")})),
+            );
+        }
+    };
+    if let Some(s) = body.slug.as_deref() {
+        match sim_core::facility_modules::get(s) {
+            Some(def) if def.slot == slot => {}
+            Some(def) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": format!(
+                            "slug {s} belongs to slot {}, not {}",
+                            def.slot.as_str(),
+                            slot.as_str(),
+                        ),
+                    })),
+                );
+            }
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("unknown facility module slug: {s}")})),
+                );
+            }
+        }
+    }
+    if state
+        .control_tx
+        .send(crate::control::ControlCommand::AdminRefitFacility {
+            id: id.clone(),
+            slot,
+            slug: body.slug.clone(),
+        })
+        .await
+        .is_err()
+    {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "control channel closed"})),
+        );
+    }
+    (
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "status": "scheduled",
+            "id": id,
+            "slot": slot.as_str(),
+            "slug": body.slug,
+        })),
+    )
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AdminGrantXpReq {
     pub amount: u32,
 }

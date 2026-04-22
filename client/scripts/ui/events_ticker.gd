@@ -179,6 +179,15 @@ func _body_for_kind(kind: String, ev: Dictionary) -> String:
 				via,
 				cost_str,
 			]
+		"facility_refitted":
+			var f_from = ev.get("from", null)
+			var f_to = ev.get("to", null)
+			return "%s %s: %s → %s" % [
+				str(ev.get("id", "?")),
+				str(ev.get("slot", "?")),
+				"—" if f_from == null else str(f_from),
+				"—" if f_to == null else str(f_to),
+			]
 		_:
 			# Unknown kind — stringify the fields we have.
 			var parts: PackedStringArray = PackedStringArray()

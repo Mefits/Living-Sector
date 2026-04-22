@@ -383,6 +383,30 @@ func _refresh_facility() -> void:
       if qty > 0:
         lines.append("  %s: %d" % [commodity, qty])
 
+  # Facility subsystems (Phase 18e) — Production + Automation slots
+  # + derived rollup. Absent on gates; present (neutral by default)
+  # on every other facility.
+  var fac_fitting = data.get("fitting")
+  if fac_fitting is Dictionary:
+    lines.append("")
+    lines.append("[b]Subsystems[/b]")
+    var fac_modules = fac_fitting.get("modules", {})
+    if fac_modules is Dictionary:
+      for slot_name in ["production", "automation"]:
+        var slug3 = fac_modules.get(slot_name)
+        var label3 = str(slot_name).capitalize()
+        if slug3 == null:
+          lines.append("  %s: —" % label3)
+        else:
+          lines.append("  %s: %s" % [label3, str(slug3)])
+    var fac_stats = fac_fitting.get("stats")
+    if fac_stats is Dictionary:
+      var out_pct = (float(fac_stats.get("recipe_output_mult", 1.0)) - 1.0) * 100.0
+      var batch_bonus: int = int(fac_stats.get("max_batches_bonus", 0))
+      lines.append(
+        "  Output %+.0f%%  Batches +%d" % [out_pct, batch_bonus]
+      )
+
   # Shipyard module stock (Phase 18c). Absent on non-shipyards.
   # Sorted so the slot ordering matches the ship details panel.
   var module_stock = data.get("module_stock")

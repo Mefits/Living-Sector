@@ -88,6 +88,16 @@ pub enum ControlCommand {
     /// retrofit points as usual. Used for smoke tests and for manual
     /// god-mode nudges when a ship needs a retrofit push.
     AdminGrantShipXp { id: String, amount: u32 },
+    /// Admin (Phase 18e): swap a facility-side subsystem module
+    /// (Production or Automation slot). Pure admin override today —
+    /// no economy interaction. Engine validates slot + slug + facility
+    /// existence, then rebakes the derived stats so the next recipe
+    /// tick reads the new multiplier.
+    AdminRefitFacility {
+        id: String,
+        slot: sim_core::facility_modules::FacilitySlot,
+        slug: Option<String>,
+    },
     /// Admin: swap a subsystem module in one slot on a ship. `slug = None`
     /// clears the slot. Engine validates the slug is in the catalog and
     /// matches the slot, then recomputes derived stats + rebakes

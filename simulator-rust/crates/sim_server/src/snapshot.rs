@@ -189,6 +189,10 @@ impl SnapshotCache {
                 .world
                 .get::<&sim_core::agents::facility::ModuleStock>(e)
                 .ok();
+            let fitting = store
+                .world
+                .get::<&sim_core::agents::facility::FacilityFitting>(e)
+                .ok();
             let snap = FacilitySnapshot::build(
                 identity,
                 location,
@@ -197,6 +201,7 @@ impl SnapshotCache {
                 lifecycle.as_deref(),
                 gate.as_deref(),
                 module_stock.as_deref(),
+                fitting.as_deref(),
                 sim_core::agents::Position::from(pos),
                 docked_ship_ids,
             );

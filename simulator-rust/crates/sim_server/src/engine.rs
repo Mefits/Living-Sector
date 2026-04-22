@@ -190,6 +190,9 @@ pub async fn run_tick_loop(
                 ControlCommand::AdminGrantShipXp { id, amount } => {
                     admin_grant_ship_xp(&mut store, &id, amount, &mut events);
                 }
+                ControlCommand::AdminRefitFacility { id, slot, slug } => {
+                    admin_refit_facility(&mut store, &id, slot, slug.as_deref(), &mut events);
+                }
                 ControlCommand::AdminRefitShip { id, slot, slug, via_shipyard } => {
                     admin_refit_ship(
                         &mut store,
@@ -366,6 +369,22 @@ pub(crate) fn ship_progression_to_json(p: &sim_core::agents::ship::ShipProgressi
     .to_string()
 }
 
+/// Serialise a `FacilityFitting` to the slot-name → slug-or-null JSON
+/// shape stored in the `facilities.fitting` column.
+pub(crate) fn facility_fitting_to_json(
+    fitting: &sim_core::agents::facility::FacilityFitting,
+) -> String {
+    let mut obj = serde_json::Map::new();
+    for slot in sim_core::facility_modules::FACILITY_SLOTS.iter().copied() {
+        let v = match fitting.slot_slug(slot) {
+            Some(s) => serde_json::Value::String(s.to_string()),
+            None => serde_json::Value::Null,
+        };
+        obj.insert(slot.as_str().to_string(), v);
+    }
+    serde_json::Value::Object(obj).to_string()
+}
+
 /// Walk the world, emit a `DbWrite` for each dirty-flagged agent, clear the
 /// flag in place. Uses `try_send` so a temporarily-full persistence channel
 /// never blocks the tick loop; the write will simply be skipped this round
@@ -521,22 +540,34 @@ fn emit_persist_writes(
 
     if flush_facility {
         use sim_core::agents::facility::{
-            FacilityIdentity, FacilityOperations, FacilityStorage, ModuleStock,
+            FacilityFitting, FacilityIdentity, FacilityOperations, FacilityStorage, ModuleStock,
         };
-        // Collect which facilities to flush up front so we can read the
-        // optional ModuleStock component afterwards without juggling
-        // borrows. A facility is dirty when either FacilityOperations or
-        // its ModuleStock has changed since the last flush.
+        // Collect which facilities to flush up front so we can read
+        // optional components afterwards without juggling borrows.
+        // A facility is dirty when FacilityOperations, ModuleStock,
+        // or FacilityFitting has changed since the last flush.
         let mut dirty: Vec<hecs::Entity> = Vec::new();
         for (e, ops) in store.world.query::<&FacilityOperations>().iter() {
             if ops.dirty {
                 dirty.push(e);
                 continue;
             }
-            if let Ok(stock) = store.world.get::<&ModuleStock>(e) {
-                if stock.dirty {
-                    dirty.push(e);
-                }
+            let stock_dirty = store
+                .world
+                .get::<&ModuleStock>(e)
+                .map(|s| s.dirty)
+                .unwrap_or(false);
+            if stock_dirty {
+                dirty.push(e);
+                continue;
+            }
+            let fit_dirty = store
+                .world
+                .get::<&FacilityFitting>(e)
+                .map(|f| f.dirty)
+                .unwrap_or(false);
+            if fit_dirty {
+                dirty.push(e);
             }
         }
 
@@ -574,18 +605,26 @@ fn emit_persist_writes(
                 }
                 Err(_) => "{}".to_string(),
             };
+            let fitting_json = match store.world.get::<&FacilityFitting>(entity) {
+                Ok(f) => facility_fitting_to_json(&f),
+                Err(_) => "{}".to_string(),
+            };
             let _ = tx.try_send(DbWrite::Facility {
                 db_id,
                 credits,
                 condition,
                 reserves_json,
                 module_stock_json,
+                fitting_json,
             });
             if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(entity) {
                 ops.dirty = false;
             }
             if let Ok(mut stock) = store.world.get::<&mut ModuleStock>(entity) {
                 stock.dirty = false;
+            }
+            if let Ok(mut fit) = store.world.get::<&mut FacilityFitting>(entity) {
+                fit.dirty = false;
             }
         }
     }
@@ -1379,6 +1418,16 @@ fn admin_spawn_facility(
             .insert_one(entity, sim_core::agents::facility::ModuleStock::default())
             .ok();
     }
+    // Phase 18e: all non-gate facilities get a default FacilityFitting.
+    if payload.facility_type != "gate" {
+        store
+            .world
+            .insert_one(
+                entity,
+                sim_core::agents::facility::FacilityFitting::new_default(),
+            )
+            .ok();
+    }
     store.index_facility(
         payload.agent_id.clone(),
         payload.location_name.clone(),
@@ -1645,6 +1694,46 @@ fn commit_shipyard_refit(
         ops.credits = ops.credits.saturating_add(cost);
         ops.dirty = true;
     }
+}
+
+/// Admin (Phase 18e): swap the module in one slot of a facility's
+/// fitting. Validates slug is in the facility catalog + matches the
+/// slot, then updates `FacilityFitting` in place — the next recipe
+/// tick reads the new derived stats automatically.
+fn admin_refit_facility(
+    store: &mut AgentStore,
+    id: &str,
+    slot: sim_core::facility_modules::FacilitySlot,
+    slug: Option<&str>,
+    events: &mut Vec<serde_json::Value>,
+) {
+    use sim_core::agents::facility::FacilityFitting;
+
+    let Some(&entity) = store.facility_by_id.get(id) else {
+        return;
+    };
+    let interned: Option<&'static str> = match slug {
+        None => None,
+        Some(s) => match sim_core::facility_modules::get(s) {
+            Some(def) if def.slot == slot => Some(def.slug),
+            _ => return,
+        },
+    };
+    let prev_slug: Option<String> = {
+        let Ok(mut fit) = store.world.get::<&mut FacilityFitting>(entity) else {
+            return;
+        };
+        let prev = fit.slot_slug(slot).map(|s| s.to_string());
+        fit.set(slot, interned);
+        prev
+    };
+    events.push(serde_json::json!({
+        "kind": "facility_refitted",
+        "id": id,
+        "slot": slot.as_str(),
+        "from": prev_slug,
+        "to": interned,
+    }));
 }
 
 /// Admin: swap the module in one slot of a ship's fitting. Looks up the

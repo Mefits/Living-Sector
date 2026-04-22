@@ -248,7 +248,7 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
     let rows = sqlx::query(
         "SELECT id, name, facility_type, location_id, location_name, body_id, faction_id,
                 docking_capacity, services, condition, reputation, credits, reserves, docked_ships,
-                gate_paired_id, module_stock
+                gate_paired_id, module_stock, fitting
          FROM facilities",
     )
     .fetch_all(pool)
@@ -315,6 +315,15 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
             sim_core::agents::facility::FacilityLifecycle::new(),
             sim_core::simulation::lod::AgentLod::new(),
         ));
+        // Attach FacilityFitting (Phase 18e) to every non-gate
+        // facility. Gates don't run recipes, so the fitting has no
+        // effect on them — skipping keeps the component set tight.
+        if !is_gate {
+            let fitting_json: String = r.try_get("fitting").unwrap_or_default();
+            let fitting = parse_facility_fitting(&fitting_json);
+            store.world.insert_one(entity, fitting).ok();
+        }
+
         // Attach ModuleStock to shipyards (Phase 18c). Non-shipyards
         // get nothing — the tick phase keys on facility_type before
         // querying, and the snapshot layer serializes None.
@@ -827,6 +836,41 @@ fn parse_commodity_u64_map(json: &str) -> HashMap<Commodity, u64> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Parse a `facilities.fitting` JSON blob (slot_name → slug | null)
+/// into a [`FacilityFitting`]. Empty / missing / malformed input
+/// falls back to the tier-1 default — matches the migration default
+/// so pre-Phase-18e rows round-trip cleanly into a neutral fitting.
+fn parse_facility_fitting(json: &str) -> sim_core::agents::facility::FacilityFitting {
+    use sim_core::facility_modules::{FACILITY_SLOTS, NUM_FACILITY_SLOTS};
+    let v: serde_json::Value = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(_) => return sim_core::agents::facility::FacilityFitting::new_default(),
+    };
+    let Some(obj) = v.as_object() else {
+        return sim_core::agents::facility::FacilityFitting::new_default();
+    };
+    if obj.is_empty() {
+        return sim_core::agents::facility::FacilityFitting::new_default();
+    }
+    let mut raw: [Option<String>; NUM_FACILITY_SLOTS] = Default::default();
+    for slot in FACILITY_SLOTS.iter().copied() {
+        raw[slot.index()] = obj
+            .get(slot.as_str())
+            .and_then(|v| {
+                if v.is_null() {
+                    None
+                } else {
+                    v.as_str().map(|s| s.to_string())
+                }
+            });
+        if raw[slot.index()].is_none() && !obj.contains_key(slot.as_str()) {
+            raw[slot.index()] =
+                Some(sim_core::facility_modules::default_for_slot(slot).to_string());
+        }
+    }
+    sim_core::agents::facility::FacilityFitting::from_slugs(&raw)
 }
 
 /// Read the `facility_type` of the just-spawned facility entity and

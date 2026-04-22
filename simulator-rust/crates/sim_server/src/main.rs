@@ -299,6 +299,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/admin/ships/{id}/grant-xp", post(admin::grant_ship_xp))
         .route("/api/admin/facilities", post(admin::create_facility))
         .route("/api/admin/facilities/{id}", delete(admin::destroy_facility))
+        .route("/api/admin/facilities/{id}/refit", post(admin::refit_facility))
         .route(
             "/api/admin/markets/{location}/supply",
             post(admin::market_supply_delta),
