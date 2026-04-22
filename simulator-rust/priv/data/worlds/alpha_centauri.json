@@ -176,6 +176,28 @@
       }
     },
     {
+      "id": "facility-haven-shipyard",
+      "name": "Frontier Shipworks",
+      "faction_id": "frontier-ventures",
+      "location": "haven-station",
+      "body": "haven",
+      "type": "shipyard",
+      "docking_capacity": 3,
+      "services": [
+        "refuel",
+        "repair",
+        "market",
+        "shipyard"
+      ],
+      "reserves": {
+        "metals": 400,
+        "electronics": 250,
+        "components": 200,
+        "tools": 150,
+        "polymers": 150
+      }
+    },
+    {
       "id": "facility-proxima-outpost",
       "name": "Proxima Outpost",
       "faction_id": "frontier-ventures",

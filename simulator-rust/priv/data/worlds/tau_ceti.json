@@ -207,6 +207,28 @@
       }
     },
     {
+      "id": "facility-anvil-shipyard",
+      "name": "Crucible Foundry Yards",
+      "faction_id": "crucible-mining",
+      "location": "anvil-depot",
+      "body": "anvil",
+      "type": "shipyard",
+      "docking_capacity": 3,
+      "services": [
+        "refuel",
+        "repair",
+        "market",
+        "shipyard"
+      ],
+      "reserves": {
+        "metals": 700,
+        "electronics": 300,
+        "components": 250,
+        "tools": 250,
+        "polymers": 150
+      }
+    },
+    {
       "id": "facility-anvil-mine",
       "name": "Anvil Deep Mine",
       "faction_id": "crucible-mining",
