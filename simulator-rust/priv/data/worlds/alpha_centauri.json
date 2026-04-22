@@ -105,6 +105,36 @@
       "from": "refuge-station",
       "to": "outer-rocks-station",
       "distance": 40
+    },
+    {
+      "from": "haven-station",
+      "to": "ac-sol-gate",
+      "distance": 50
+    },
+    {
+      "from": "refuge-station",
+      "to": "ac-sol-gate",
+      "distance": 70
+    },
+    {
+      "from": "proxima-outpost",
+      "to": "ac-sol-gate",
+      "distance": 60
+    },
+    {
+      "from": "haven-station",
+      "to": "ac-tc-gate",
+      "distance": 55
+    },
+    {
+      "from": "ac-belt-station",
+      "to": "ac-tc-gate",
+      "distance": 45
+    },
+    {
+      "from": "refuge-station",
+      "to": "ac-tc-gate",
+      "distance": 65
     }
   ],
   "facilities": [
@@ -301,6 +331,40 @@
         "ice": 800,
         "fuel": 300
       }
+    },
+    {
+      "id": "facility-ac-sol-gate",
+      "name": "Proxima Approach",
+      "faction_id": "frontier-ventures",
+      "location": "ac-sol-gate",
+      "body": "outer-rocks",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": [
+        "refuel",
+        "gate"
+      ],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-sol-ac-gate-heliopause-gateway"
+    },
+    {
+      "id": "facility-ac-tc-gate",
+      "name": "Refuge Bridge",
+      "faction_id": "frontier-ventures",
+      "location": "ac-tc-gate",
+      "body": "refuge",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": [
+        "refuel",
+        "gate"
+      ],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-tc-ac-gate-anvil-junction"
     }
   ],
   "markets": [

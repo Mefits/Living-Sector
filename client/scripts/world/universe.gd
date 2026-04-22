@@ -7,6 +7,12 @@ var _ship_scene: PackedScene = preload("res://scenes/world/ship.tscn")
 
 var _ship_nodes: Dictionary = {}
 var _facility_nodes: Dictionary = {}
+# Body ids have no prefix (they're bare like "earth", "mars"). We key this
+# on the body_id the simulator uses so `_on_positions_updated` can route
+# every entry in the broadcast — `ship-*` → _ship_nodes, `facility-*` →
+# _facility_nodes, otherwise try _body_nodes. This keeps planets and their
+# anchored facilities visually locked together.
+var _body_nodes: Dictionary = {}
 
 
 func get_ship_node(id: String) -> Node3D:
@@ -15,6 +21,10 @@ func get_ship_node(id: String) -> Node3D:
 
 func get_facility_node(id: String) -> Node3D:
 	return _facility_nodes.get(id)
+
+
+func get_body_node(id: String) -> Node3D:
+	return _body_nodes.get(id)
 
 
 func build_world() -> void:
@@ -31,6 +41,14 @@ func build_world() -> void:
 		# Collect facility node references for position updates
 		for facility_node in system_node.get_node("Facilities").get_children():
 			_facility_nodes[facility_node.facility_id] = facility_node
+
+		# Collect body (planet/moon) node references the same way so the
+		# per-tick positions broadcast drives them instead of client-side
+		# orbit prediction. Without this, bodies drifted independently of
+		# their facilities after any world_speed change.
+		for body_node in system_node.get_node("Bodies").get_children():
+			if "body_id" in body_node:
+				_body_nodes[body_node.body_id] = body_node
 
 	# Create ships as flat children of universe (absolute positions)
 	for ship_data in GameState.ships.values():
@@ -167,3 +185,8 @@ func _on_positions_updated(positions_array: Array) -> void:
 		elif id.begins_with("facility-"):
 			if _facility_nodes.has(id):
 				_facility_nodes[id].update_position(x, y)
+		elif _body_nodes.has(id):
+			# Bodies have bare ids (no prefix) — route to the body node so
+			# planets track the same authoritative position stream their
+			# facilities do. Fixes the post-speed-change orbital drift.
+			_body_nodes[id].update_position(x, y)

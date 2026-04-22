@@ -62,7 +62,7 @@ func open_for(facility_id: String) -> void:
 
 func _find_market_for(location: String) -> Dictionary:
 	for m in GameState.markets.values():
-		if str(m.get("facility_id", "")) == location:
+		if str(m.get("facility_location", m.get("facility_id", ""))) == location:
 			return m
 	return {}
 

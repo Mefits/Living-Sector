@@ -3,11 +3,21 @@
 Porting the Elixir/Phoenix space simulator to Rust for native Windows/Linux performance.
 Godot is the sole client. No web dashboard. Single binary, no dependencies.
 
-> **Status (2026-04-20): Phases 1–10 complete.** Full economic loop, contracts,
-> factions, crew morale, DB persistence, Godot client updated. See
-> [README.md](./README.md) for the current dev loop and
-> [CLAUDE.md](./CLAUDE.md) for architectural conventions. The rest of this
-> file is the design plan + per-session history.
+> **Status (2026-04-20): Phases 1–15 complete, 95 tests.** Full economic
+> loop, 6 contract kinds (Delivery / Courier / Passenger / Subsidy /
+> Supply / CrewMission), crew `current_task` + skills + hunger, facility
+> autonomy (degradation / self-repair / restock / contract posting /
+> leveling / abandonment), population urgency bids + passenger growth,
+> faction tax + subsidy with age-opening rep gate, body biome + regen,
+> full DB persistence (ships/markets/factions every tick; facilities/pops
+> every 16; bodies every 40), admin CRUD + runtime spawn, event stream,
+> observer-driven spatial LOD for ships, and Godot-side inspector panels
+> (events ticker / contract board / faction ledger / pop browser / perf
+> overlay). See [README.md](./README.md) for the dev loop,
+> [CLAUDE.md](./CLAUDE.md) for architectural conventions, and
+> [SESSION-HANDOFF.md](./SESSION-HANDOFF.md) for the fresh-session
+> orientation. The rest of this file is the design plan + per-session
+> history.
 
 ## Why Rust
 
@@ -287,6 +297,61 @@ Files: `sim_core/src/ai/behavior_tree.rs`, `sim_core/src/agents/ship.rs`
 - [x] Removed old state machine (`sell_cargo_locally`, `buy_cargo_locally`, `begin_travel` — their logic now lives inside action variants)
 - **Validated**: 30s smoke shows avg credits 9425 → 14784 (+57%, vs Phase 4's +47%), 164 ships carrying cargo, 61 tests passing. BT chains plans across ticks, no re-plan cost per tick.
 
+### Phase 11 — Feature parity sweep (Elixir → Rust) ✅
+Files: `sim_core/src/agents/{ship,facility,population,faction,celestial_body}.rs`, `sim_core/src/economy/contracts.rs`, `sim_server/src/engine.rs`, `sim_server/src/ws/protocol.rs`, `sim_server/src/http/admin.rs`, `client/scripts/ui/hud.gd`
+
+Elixir-parity sweep driven by a live-testing audit. 7 sub-phases:
+
+- **11a**: Critical fixes (faction tax 0.05 → 0.005 with a 1000-cr buffer, HUD speed label reading `world_speed` instead of `tick_interval_ms`), ship dock-dwell (multi-tick `Refuel` draining facility reserves; `SellAll` one-commodity-per-tick; `Dock` / `Undock` emit `RequestDock` / `ReleaseDock` commands), facility docking fee (`base × occupancy × (2 − condition)`), `facility_states` broadcast.
+- **11b**: Crew tasks — `CrewTask` enum (Idle / Piloting / Engineering / Trading / Eating / Resting / OnMission), `ShipCrew` gains `hunger` + `health` + `wages_credits`, hunger consumes food from cargo, wages deducted every 50 base-ticks (unpaid → morale drop). `ShipCrewSkills` component (nav/eng/trade/combat, cap 100) with `grant` XP on Buy + Deliver.
+- **11c**: Facility autonomy — `FacilityLifecycle` (level/xp/abandonment counter), condition degrades per tick, self-repair consumes Tools when condition<0.8, reserves restocked from local market, delivery + courier contracts posted when chronically short, abandonment after 200 ticks of broke + no-tools + low-condition.
+- **11d**: Population richness — urgency-scaled food bid payment (1× → 3× at sat=0), water-buy when satisfaction<30, labor production, sentiment inertia `0.9^tick_scale`, `population_states` broadcast.
+- **11e**: Body biome (`BodyBiome.food_multiplier` 0.1–1.5 by biome slug), `BodyResources` regen toward `max_resources`, faction subsidy posting (scan member-market `shortage_ticks`, 1.25× → 3.0× multiplier ramp, max 3 active), `faction_states` broadcast.
+- **11f**: Contract kind expansion (`ContractType::{Delivery, Courier, Passenger, Subsidy, Supply, CrewMission}`), passenger flow end-to-end (Pop posts → ship picks up → deliver increments destination population), reputation (`ShipEconomy.faction_reputation`, +1 per tagged delivery), events broadcast channel with `ship_spawned / docked / decommissioned`, `contract_delivered`, `passengers_arrived`, `market_supply_adjusted`, etc.
+- **11g**: Admin HTTP endpoints — POST `/api/admin/ships`, POST `/api/admin/facilities`, DELETE both, POST `/api/admin/markets/:loc/supply`, POST `/api/admin/save`, POST `/api/admin/save-as`.
+
+**Validated**: 79 tests passing (was 64). Live smoke showed 5/6 factions actively posting subsidies, 8 ships docked across 3 stations mid-run, fuel reserves draining as ships refueled, faction treasuries visibly moving.
+
+### Phase 12 — Hardening the periphery ✅
+Files: `sim_core/src/economy/missions.rs` (new), `sim_core/src/economy/contracts.rs`, `sim_server/src/db/persistence.rs`, `sim_server/src/engine.rs`, `sim_server/src/http/admin.rs`
+
+- **12a**: Runtime admin spawn. `POST /api/admin/ships` INSERTs a ship row, dispatches `ControlCommand::AdminSpawnShip`, engine spawns the full hecs bundle on next tick, returns 201 with `{id, db_id}`. Same pattern for facilities. Replaces the Phase 11g 501 stubs.
+- **12b**: Facility / population / body persistence. `DbWrite::{Facility, Population, Body}` variants. Flushes gated to every 16 ticks (fac/pop) and 40 ticks (bodies) to avoid channel flood. Body orbit angles + resource state now survive restarts.
+- **12c**: Crew missions. `economy/missions.rs` ports Elixir's 9-template catalog (security_detail, vip_escort, customs_assist, heavy_maintenance, salvage_operation, production_assist, equipment_calibration, harvest_help, safety_audit). Facilities post `CrewMission` contracts (25% prob, 1 active max). Ship BT: `Travel → Dock → Refuel → Rest → Deliver → Undock`. Apply phase grants skill XP per the template's `required_skill` / `skill_gain`.
+- **12d**: Contract reputation gating. `Contract.min_reputation` defaults: Subsidy=70 (faction-only), CrewMission=50 (allied), others=0 (public). Age-open decays 10 rep / 100 ticks → public after ~1000 ticks. `ContractBoard::posted_for_ship(&rep)` filters. Ship planner uses the filtered list.
+
+**Validated**: 87 tests. Live smoke: admin spawn round-trip works end-to-end (ship+facility appear in API + persist across restart). Restart test shows facility condition drifting from 1.0 → 0.976, body angles loading from DB (not seed), admin-spawned entities surviving shutdown.
+
+### Phase 13 — Godot inspector panels ✅
+Files: `sim_server/src/ws/protocol.rs`, `sim_server/src/engine.rs`, `sim_server/src/app_state.rs`, `sim_server/src/http/api.rs`, `client/scripts/autoload/network_manager.gd`, `client/scripts/autoload/game_state.gd`, `client/scripts/ui/{events_ticker,contract_board,faction_ledger,population_browser,perf_overlay}.gd` (new), `client/scenes/ui/*` (new), `client/scripts/ui/hud.gd`, `client/scripts/main.gd`, `client/scripts/ui/details_panel.gd`
+
+- **13a**: Godot consumes broadcasts that were already being emitted but ignored. `network_manager._handle_{population_states, faction_states, contract_states, events}`. `GameState.event_log` ring (cap 400) + `events_for_agent(id)` filter + signals.
+- **13b**: Rust surfaces the gaps — `contract_states` broadcast (every 32 ticks), `GET /api/contracts`, rolling p50/p99 tick perf in `/api/health.perf`, `POST /api/sim/step {ticks}` for step-debug (works while paused).
+- **13c**: Four new panels. Events ticker (RichTextLabel, filterable, click → focus camera). Contract board (9-col sortable table, 6 kind filters + 6 status filters). Faction ledger (treasury, active subsidies, member counts). Population browser (count / sentiment / food_sat sortable with colour-coded cells).
+- **13d**: Perf overlay (p50/p99 numbers + FPS + observed interval + 60-sample sparkline with 125ms budget line; 1s self-poll of `/api/health`). Details panel got a "Recent activity" section pulling from `events_for_agent`. HUD got ▸1 / ▸8 step-debug buttons.
+
+**Validated**: 87 tests. Live probe confirmed `/api/contracts` + `/api/health.perf` + step endpoint all work; pause → step 8 → tick advances exactly 8.
+
+### Phase 14 — Market panel fix ✅
+Files: `client/scripts/ui/market_overlay.gd`, `client/scripts/ui/facility_reserves_panel.gd`, `client/scripts/ui/details_panel.gd`
+
+User reported "market panel doesn't work at all". Root cause: market_overlay read `market.facility_id`, but Rust's `MarketSnapshot` emits `facility_location` (renamed during schema cleanup). Patched both readers. A separate parse-error cascade in `details_panel.gd` (my earlier `replace_all` edit swept indent inside a match arm) was silently preventing the scene from loading cleanly — fixed the indent. Panel now renders 23 rows (one per market location).
+
+### Phase 15 — Observer-driven spatial LOD ✅
+Files: `sim_core/src/simulation/lod.rs` (new), `sim_server/src/engine.rs`, `sim_server/src/app_state.rs`, `sim_server/src/http/api.rs`, `client/scripts/main.gd`, `client/scripts/ui/perf_overlay.gd`
+
+Distant agents keep ticking (no Minecraft-style freeze), just at lower cadence with rate-scaled state changes so total fuel burn + crew wear match wall-clock.
+
+- **15a**: Observer tracking. `ControlCommand::MoveObserver` flows into `AppState.observers: Arc<RwLock<Vec<Observer>>>`. `GET /api/observers` for debug.
+- **15b**: `AgentLod { divisor: u8, next_tick: u64 }`. Tier table 1 / 2 / 5 / 10 / 20 / 50 by distance to nearest observer. `try_fire(tick)` returns `Option<skipped_ticks>`; `set_divisor(d, tick)` preserves cursor phase. 8 unit tests.
+- **15c**: `tick_lod_recompute` runs every 50 base-ticks. Positions: ships live, facilities via body-center+offset, pops via their facility's body. Returns `LodStats` for HUD.
+- **15d**: Ship gating. `tick_ships` builds an `active: HashMap<Entity, skipped_ticks>` once up front; 4 inner phases (`advance_transits`, `observe_prices`, `tick_crew`, `decide_and_act`) filter on it. `fuel_consumption`, hunger, fatigue, idle-drift all multiply by `effective_scale = tick_scale × skipped_ticks`.
+- **15e**: Facility + pop LOD deferred — they carry `AgentLod` for stats but don't gate yet. Noted as Phase 16 candidate.
+- **15f**: Godot sends a `"camera"` observer every 50 ms with radius scaling off zoom (`GameState.zoom_raw / SCALE_FACTOR × 1.5`, min 5).
+- **15g**: LOD distribution in `/api/health.perf.lod`. Perf overlay adds an "LOD tiers" row (`d1:215 d2:3 d10:5 d50:0`) and polls `/api/health` once per second while open.
+
+**Validated**: 95 tests. Live smoke: sim runs with 298 agents (223 ships + 56 facilities + 19 pops) all carrying LOD components. With no observer connected everyone sits at d=1 (correct fallback). Perf at 800 agents held at p50 ≈ 500 µs / p99 ≈ 2 ms — well under the 125 ms budget.
+
 ## Session Log
 
 | Date | Session | Work Done |
@@ -304,6 +369,12 @@ Files: `sim_core/src/ai/behavior_tree.rs`, `sim_core/src/agents/ship.rs`
 | 2026-04-20 | 8d | Phase 8d: ShipCrew aggregate (morale/fatigue), rest_crew goal & Rest action, efficiency driven by morale |
 | 2026-04-20 | 9 | Phase 9: DB persistence worker (mpsc + dedup + batch flush), tick counter resume on restart |
 | 2026-04-20 | 10 | Phase 10: Godot network_manager.gd rewritten for plain-JSON Rust protocol, port 8080 default, Phoenix version backed up |
+| 2026-04-20 | 11 | Phase 11 (a–g): Elixir-parity sweep. Crew tasks/skills/hunger, facility autonomy (degrade/self-repair/restock/post/level/abandon), pop urgency + passenger, faction subsidy, body biome+regen, 6 contract kinds, events broadcast, admin HTTP endpoints. 79 tests. |
+| 2026-04-20 | 12 | Phase 12 (a–d): Runtime admin spawn (replaces 501 stubs), facility/pop/body persistence, mission catalog (9 templates) + crew-mission BT flow, contract rep gating with age-open. 87 tests. |
+| 2026-04-20 | 13 | Phase 13 (a–g): Godot inspector panels — events ticker, contract board, faction ledger, pop browser, perf overlay. Rust contract_states broadcast, perf metrics on /api/health, step-debug endpoint. Activity trail on details panel. |
+| 2026-04-20 | 14 | Phase 14: Market panel debug — field rename `facility_id` → `facility_location`, details_panel.gd parse-error fix. Panel now renders 23 rows. |
+| 2026-04-20 | 15 | Phase 15 (a–g): Spatial LOD for ships. Tier table 1/2/5/10/20/50, `AgentLod` component, `tick_lod_recompute` every 50 ticks, rate-scaled fuel+crew via `skipped_ticks`, Godot sends camera-observer, LOD distribution in perf HUD. 95 tests. |
+| 2026-04-20 | 16 | Session handoff: updated CLAUDE.md / PLAN.md / README.md / client/CLAUDE.md for Phase 11–15 state, created SESSION-HANDOFF.md. |
 
 ## Cross-Compilation (Windows)
 

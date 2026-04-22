@@ -20,7 +20,73 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
         "ticks_per_second": state.ticks_per_second.load(Ordering::Relaxed),
         "world_speed": state.world_speed(),
         "tick_scale": state.tick_scale(),
+        // Rolling perf window (updated every 8 ticks by the engine).
+        "perf": {
+            "tick_compute_p50_us": state.tick_compute_p50_us.load(Ordering::Relaxed),
+            "tick_compute_p99_us": state.tick_compute_p99_us.load(Ordering::Relaxed),
+            // Spatial-LOD tier distribution (updated every 50 base-ticks by
+            // the LOD recompute phase). Counts agents that carry an
+            // AgentLod — ships always, facilities/populations carry the
+            // component but their phases don't gate yet.
+            "lod": {
+                "d1": state.lod_d1.load(Ordering::Relaxed),
+                "d2": state.lod_d2.load(Ordering::Relaxed),
+                "d5": state.lod_d5.load(Ordering::Relaxed),
+                "d10": state.lod_d10.load(Ordering::Relaxed),
+                "d20": state.lod_d20.load(Ordering::Relaxed),
+                "d50": state.lod_d50.load(Ordering::Relaxed),
+            },
+        },
     }))
+}
+
+/// POST /api/sim/step — advance the tick loop by N forced ticks even if
+/// paused. Useful for slow-motion debugging. Body: `{ticks: u32}`.
+#[derive(serde::Deserialize)]
+pub struct StepBody {
+    #[serde(default = "default_step_ticks")]
+    pub ticks: u32,
+}
+
+fn default_step_ticks() -> u32 {
+    1
+}
+
+pub async fn sim_step(
+    State(state): State<AppState>,
+    Json(body): Json<StepBody>,
+) -> impl IntoResponse {
+    if body.ticks == 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "ticks must be >= 1"})),
+        );
+    }
+    if body.ticks > 1000 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "ticks must be <= 1000"})),
+        );
+    }
+    if state
+        .control_tx
+        .send(ControlCommand::Step { ticks: body.ticks })
+        .await
+        .is_err()
+    {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "control channel closed"})),
+        );
+    }
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "scheduled",
+            "ticks": body.ticks,
+            "tick": state.tick.load(Ordering::Relaxed),
+        })),
+    )
 }
 
 pub async fn report(State(state): State<AppState>) -> impl IntoResponse {
@@ -64,6 +130,18 @@ pub async fn report(State(state): State<AppState>) -> impl IntoResponse {
             "world_speed": ws,
             "tick_scale": tick_scale,
             "tick_interval_ms": interval,
+        },
+        "perf": {
+            "tick_compute_p50_us": state.tick_compute_p50_us.load(Ordering::Relaxed),
+            "tick_compute_p99_us": state.tick_compute_p99_us.load(Ordering::Relaxed),
+            "lod": {
+                "d1": state.lod_d1.load(Ordering::Relaxed),
+                "d2": state.lod_d2.load(Ordering::Relaxed),
+                "d5": state.lod_d5.load(Ordering::Relaxed),
+                "d10": state.lod_d10.load(Ordering::Relaxed),
+                "d20": state.lod_d20.load(Ordering::Relaxed),
+                "d50": state.lod_d50.load(Ordering::Relaxed),
+            },
         },
         "systems": systems,
         "ships": ships,
@@ -174,6 +252,45 @@ pub async fn factions(State(state): State<AppState>) -> impl IntoResponse {
     Json(json!({ "data": data }))
 }
 
+pub async fn contracts(State(state): State<AppState>) -> impl IntoResponse {
+    let data: Vec<serde_json::Value> = state
+        .snapshots
+        .contracts
+        .iter()
+        .map(|e| e.value().clone())
+        .collect();
+    Json(json!({
+        "tick": state.tick.load(Ordering::Relaxed),
+        "data": data,
+    }))
+}
+
+/// `GET /api/observers` — current attention volumes driving the LOD phase.
+/// Useful for Godot's debug HUD ("which viewports is the sim tracking?")
+/// and for test scripts to check that MoveObserver is landing.
+pub async fn observers(State(state): State<AppState>) -> impl IntoResponse {
+    let data: Vec<serde_json::Value> = state
+        .observers
+        .read()
+        .map(|o| {
+            o.iter()
+                .map(|ob| {
+                    json!({
+                        "id": ob.id,
+                        "x": ob.x,
+                        "y": ob.y,
+                        "radius": ob.radius,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Json(json!({
+        "tick": state.tick.load(Ordering::Relaxed),
+        "data": data,
+    }))
+}
+
 pub async fn positions(State(state): State<AppState>) -> impl IntoResponse {
     let data: Vec<_> = state
         .snapshots
@@ -226,8 +343,9 @@ pub async fn sim_resume(State(state): State<AppState>) -> impl IntoResponse {
 /// `POST /api/sim/speed` accepts either or both of:
 /// - `world_speed: f32` — game-time multiplier (0.0..=16.0)
 /// - `ticks_per_second: u32` — tick resolution (1..=60)
-/// Supplying both applies them independently — the two knobs don't
-/// touch each other.
+///
+/// Supplying both applies them independently — the two knobs don't touch
+/// each other.
 #[derive(serde::Deserialize, Default)]
 pub struct SpeedBody {
     pub world_speed: Option<f32>,

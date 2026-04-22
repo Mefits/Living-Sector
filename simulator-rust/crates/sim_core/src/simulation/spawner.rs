@@ -31,6 +31,10 @@ pub struct AgentStore {
     pub market_at_location: HashMap<String, Entity>,
     /// location_name → all facility entities at that location.
     pub facilities_at_location: HashMap<String, Vec<Entity>>,
+    /// gate location → paired gate's location. Mirror-paired; both
+    /// entries are present when seed data is correct. Built by
+    /// `rebuild_gate_pairs()` after gate facilities are registered.
+    pub gate_pairs: HashMap<String, String>,
 }
 
 impl Default for AgentStore {
@@ -52,7 +56,52 @@ impl AgentStore {
             faction_by_id: HashMap::new(),
             market_at_location: HashMap::new(),
             facilities_at_location: HashMap::new(),
+            gate_pairs: HashMap::new(),
         }
+    }
+
+    /// Rebuild the gate-pairs lookup from live `GateLink` components.
+    /// Call after all gate facilities have been spawned (post-loader)
+    /// and after any admin spawn that added/removed a gate.
+    pub fn rebuild_gate_pairs(&mut self) {
+        use crate::agents::facility::{FacilityIdentity, GateLink};
+        let mut pairs = HashMap::new();
+        // location → (facility_agent_id, paired_agent_id)
+        let mut by_fac_id: HashMap<String, String> = HashMap::new();
+        // Collect gate (facility_id, paired_facility_id) tuples.
+        let gates: Vec<(String, String, String)> = self
+            .world
+            .query::<(&FacilityIdentity, &GateLink)>()
+            .iter()
+            .map(|(_e, (id, link))| {
+                (
+                    id.id.clone(),
+                    link.paired_gate_id.clone(),
+                    // location lookup via facility_by_id + facilities_at_location
+                    String::new(),
+                )
+            })
+            .collect();
+        // Build facility_id → location.
+        let fac_id_to_loc: HashMap<String, String> = self
+            .world
+            .query::<(&FacilityIdentity, &crate::agents::facility::FacilityLocation)>()
+            .iter()
+            .map(|(_e, (id, loc))| (id.id.clone(), loc.location_name.clone()))
+            .collect();
+        for (gate_id, paired_id, _) in gates {
+            by_fac_id.insert(gate_id, paired_id);
+        }
+        for (gate_id, paired_id) in by_fac_id {
+            let (Some(here), Some(there)) = (
+                fac_id_to_loc.get(&gate_id),
+                fac_id_to_loc.get(&paired_id),
+            ) else {
+                continue;
+            };
+            pairs.insert(here.clone(), there.clone());
+        }
+        self.gate_pairs = pairs;
     }
 
     /// Register a ship after spawning it.

@@ -21,6 +21,10 @@ pub struct FactionData {
     pub treasury: i64,
     pub personality: Personality,
     pub colors: FactionColors,
+    /// Count of subsidy contracts currently on the board under this
+    /// faction's name. Updated by `tick_factions` each cycle from the
+    /// live board state.
+    pub active_subsidies: u32,
     pub dirty: bool,
 }
 
@@ -32,6 +36,11 @@ pub struct FactionSnapshot {
     pub home_system: String,
     pub treasury: i64,
     pub colors: FactionColors,
+    /// Active subsidy contracts this faction has on the board. Godot
+    /// renders this in the faction ledger panel. Incremented when
+    /// `tick_factions` posts a new subsidy, decremented as subsidies
+    /// flow to Paid/Expired.
+    pub active_subsidies: u32,
 }
 
 impl FactionSnapshot {
@@ -43,6 +52,7 @@ impl FactionSnapshot {
             home_system: data.home_system.clone(),
             treasury: data.treasury,
             colors: data.colors.clone(),
+            active_subsidies: data.active_subsidies,
         }
     }
 }
@@ -52,34 +62,176 @@ impl FactionSnapshot {
 // ============================================================================
 //
 // Every N base-ticks, each faction collects a tax from its owned facilities
-// and adds it to its treasury. Simple proportional skim (default 5%).
+// and adds it to its treasury. The rate and interval match Elixir's
+// FactionAgent: 0.5% of each facility's taxable balance every 200 base-ticks.
+// "Taxable" excludes a 1000-credit operating buffer so we never push a
+// facility toward bankruptcy just by taxing it.
 //
-// Reputation decay and faction-posted contracts are future work (Phase 8c+).
+// Reputation decay and faction-posted subsidy contracts land in Phase 11e/f.
 
-use crate::agents::facility::{FacilityIdentity, FacilityOperations};
+use crate::agents::facility::{FacilityIdentity, FacilityLocation, FacilityOperations};
+use crate::agents::market::{MarketHistory, MarketIdentity};
+use crate::economy::commodities::Commodity;
+use crate::economy::contracts::ContractBoard;
 
-/// Base-tick interval for faction accounting.
-pub const FACTION_INTERVAL_BASE: u64 = 50;
-/// Fraction of each facility's credits moved to the faction each cycle.
-pub const FACTION_TAX_RATE: f64 = 0.05;
+/// Base-tick interval for faction accounting. Matches Elixir's
+/// `@tax_interval 200 * tick_multiplier()` in `faction_agent.ex`.
+pub const FACTION_INTERVAL_BASE: u64 = 200;
+/// Fraction of each facility's taxable credits moved to the faction each
+/// cycle. Matches Elixir `@tax_rate 0.005` (0.5%).
+pub const FACTION_TAX_RATE: f64 = 0.005;
+/// Minimum credit buffer each facility keeps before tax applies. Matches
+/// Elixir's `minimum_buffer = 1_000` in `facility_agent.ex:collect_tax`.
+pub const FACILITY_TAX_BUFFER: i64 = 1_000;
 
-pub fn tick_factions(world: &mut hecs::World, tick: u64, tick_multiplier: u32) {
-    let interval = FACTION_INTERVAL_BASE * tick_multiplier as u64;
-    if interval == 0 || tick % interval != 0 {
+// --- Subsidy posting (Phase 11e) ---
+/// Base-tick interval for subsidy scans. Matches Elixir's
+/// `@subsidy_check_interval 30 * tick_multiplier()`.
+pub const SUBSIDY_CHECK_INTERVAL_BASE: u64 = 30;
+/// A commodity starts qualifying as "chronic" once its shortage_ticks
+/// exceeds this threshold. Elixir: `@subsidy_trigger_ticks 30`.
+pub const SUBSIDY_TRIGGER_TICKS: u32 = 30;
+/// Require at least this many member markets in shortage before posting.
+/// Elixir: `@min_facilities_short 2`.
+pub const MIN_FACILITIES_SHORT: usize = 2;
+/// Per-faction cap on posted subsidies. Elixir: `@max_active_subsidies 3`.
+pub const MAX_ACTIVE_SUBSIDIES_PER_FACTION: u32 = 3;
+/// Base subsidy payment before the dynamic multiplier. Elixir: `2_000`.
+pub const SUBSIDY_BASE_PAYMENT: i64 = 2_000;
+/// Subsidy order size. Elixir: `@subsidy_quantity 200`.
+pub const SUBSIDY_QUANTITY: u32 = 200;
+/// Multiplier floor / ceiling for dynamic subsidy payouts. Elixir ramps
+/// from 1.25× at freshly-triggered to 3.0× at the hardest shortages.
+pub const SUBSIDY_MIN_MULTIPLIER: f32 = 1.25;
+pub const SUBSIDY_MAX_MULTIPLIER: f32 = 3.0;
+/// Subsidy contract lifespan (base ticks). Matches Elixir's `500 × mult`.
+pub const SUBSIDY_LIFESPAN_BASE: u64 = 500;
+
+pub fn tick_factions(
+    world: &mut hecs::World,
+    contracts: &mut ContractBoard,
+    tick: u64,
+    tick_multiplier: u32,
+) {
+    // --- Tax collection ---
+    let tax_interval = FACTION_INTERVAL_BASE * tick_multiplier as u64;
+    if tax_interval > 0 && tick % tax_interval == 0 {
+        run_tax_cycle(world);
+        // Right after taxing, bail out any member facility that's fallen
+        // below the survival floor. Without this, once a facility's
+        // credits hit 0 it can never post a contract, never get restocked,
+        // and spirals into abandonment taking its recipe output with it —
+        // which is the supply-chain collapse we saw at tick 13k.
+        run_bailout_cycle(world);
+    }
+
+    // --- Subsidy posting ---
+    let subsidy_interval = SUBSIDY_CHECK_INTERVAL_BASE * tick_multiplier as u64;
+    if subsidy_interval > 0 && tick % subsidy_interval == 0 {
+        run_subsidy_cycle(world, contracts, tick, tick_multiplier);
+    }
+
+    // Keep snapshot `active_subsidies` in sync — recalc from the board so
+    // it drops as subsidies Paid/Expire too.
+    refresh_active_subsidy_counts(world, contracts);
+}
+
+/// Credits floor below which a facility is considered "in distress" and
+/// its faction will wire enough money to get it back to posting-viable.
+/// Sized to roughly one delivery contract so the bailout only fires
+/// when the facility truly can't post.
+pub const FACILITY_BAILOUT_FLOOR: i64 = 3_000;
+/// Bailout top-up target. Moderate — enough to post one contract plus
+/// a small buffer. Keeping this small means faction treasuries last
+/// longer across the bailout budget; scaling up the target just drains
+/// factions faster without the economy catching up.
+pub const FACILITY_BAILOUT_TARGET: i64 = 6_000;
+
+/// For each faction-owned facility whose credits dropped below
+/// `FACILITY_BAILOUT_FLOOR`, transfer from faction treasury up to
+/// `FACILITY_BAILOUT_TARGET`. Faction won't spend below a 2000-credit
+/// treasury floor of its own — if a faction is itself broke, let the
+/// facility fail.
+fn run_bailout_cycle(world: &mut hecs::World) {
+    // Pass 1: collect deficits per faction.
+    #[derive(Clone)]
+    struct Need {
+        entity: hecs::Entity,
+        faction_id: String,
+        deficit: i64,
+    }
+    let needs: Vec<Need> = world
+        .query::<(&FacilityIdentity, &FacilityOperations)>()
+        .iter()
+        .filter_map(|(e, (id, ops))| {
+            if id.faction_id.is_empty() || ops.credits >= FACILITY_BAILOUT_FLOOR {
+                return None;
+            }
+            Some(Need {
+                entity: e,
+                faction_id: id.faction_id.clone(),
+                deficit: FACILITY_BAILOUT_TARGET - ops.credits,
+            })
+        })
+        .collect();
+    if needs.is_empty() {
         return;
     }
 
-    // Pass 1: collect taxes to remit per faction, deducting from facilities.
+    // Pass 2: faction treasury by id.
+    let mut treasury: std::collections::HashMap<String, i64> = world
+        .query::<&FactionData>()
+        .iter()
+        .map(|(_, d)| (d.id.clone(), d.treasury))
+        .collect();
+
+    // Pass 3: disburse — walk needs, subtract from treasury where the
+    // faction can afford (keeping its own floor), and remember which
+    // facilities got paid.
+    const FACTION_TREASURY_FLOOR: i64 = 2_000;
+    let mut paid: Vec<(hecs::Entity, String, i64)> = Vec::new();
+    for need in needs {
+        let t = treasury.entry(need.faction_id.clone()).or_insert(0);
+        let affordable = (*t - FACTION_TREASURY_FLOOR).max(0);
+        if affordable <= 0 {
+            continue;
+        }
+        let amount = need.deficit.min(affordable);
+        if amount <= 0 {
+            continue;
+        }
+        *t -= amount;
+        paid.push((need.entity, need.faction_id, amount));
+    }
+
+    // Apply: credit facility, debit faction treasury.
+    for (entity, fac_id, amount) in paid {
+        if let Ok(mut ops) = world.get::<&mut FacilityOperations>(entity) {
+            ops.credits += amount;
+            ops.dirty = true;
+        }
+        for (_, data) in world.query_mut::<&mut FactionData>() {
+            if data.id == fac_id {
+                data.treasury -= amount;
+                data.dirty = true;
+                break;
+            }
+        }
+    }
+}
+
+fn run_tax_cycle(world: &mut hecs::World) {
     let mut owed_by_faction: std::collections::HashMap<String, i64> =
         std::collections::HashMap::new();
     for (_e, (identity, ops)) in world
         .query::<(&FacilityIdentity, &mut FacilityOperations)>()
         .iter()
     {
-        if identity.faction_id.is_empty() || ops.credits <= 0 {
+        if identity.faction_id.is_empty() || ops.credits <= FACILITY_TAX_BUFFER {
             continue;
         }
-        let tax = ((ops.credits as f64) * FACTION_TAX_RATE) as i64;
+        let taxable = ops.credits - FACILITY_TAX_BUFFER;
+        let tax = ((taxable as f64) * FACTION_TAX_RATE) as i64;
         if tax > 0 {
             ops.credits -= tax;
             *owed_by_faction.entry(identity.faction_id.clone()).or_insert(0) += tax;
@@ -90,10 +242,244 @@ pub fn tick_factions(world: &mut hecs::World, tick: u64, tick_multiplier: u32) {
         return;
     }
 
-    // Pass 2: deposit into faction treasuries.
     for (_e, data) in world.query_mut::<&mut FactionData>() {
         if let Some(&amount) = owed_by_faction.get(&data.id) {
             data.treasury += amount;
+            data.dirty = true;
+        }
+    }
+}
+
+/// Scan each faction's member markets for chronic shortages and post
+/// subsidy contracts (high-paying delivery contracts) to pull in supply.
+/// Matches Elixir's `maybe_post_subsidy_contract` flow.
+fn run_subsidy_cycle(
+    world: &mut hecs::World,
+    contracts: &mut ContractBoard,
+    tick: u64,
+    tick_multiplier: u32,
+) {
+    // Build faction_id → list of (location, shortage_ticks per commodity).
+    // We look at each facility the faction owns, find the market at that
+    // location, and aggregate its shortage_ticks map.
+    #[derive(Clone, Default)]
+    struct FactionShortage {
+        /// commodity → (facility_count_short, max_shortage_ticks, location_of_max)
+        by_commodity: std::collections::HashMap<Commodity, (usize, u32, String)>,
+        member_locations: Vec<String>,
+    }
+    let mut shortage_by_faction: std::collections::HashMap<String, FactionShortage> =
+        std::collections::HashMap::new();
+
+    // location → (commodity → shortage_ticks) index.
+    let market_shortage_by_loc: std::collections::HashMap<
+        String,
+        std::collections::HashMap<Commodity, u32>,
+    > = world
+        .query::<(&MarketIdentity, &MarketHistory)>()
+        .iter()
+        .map(|(_e, (id, hist))| (id.facility_location.clone(), hist.shortage_ticks.clone()))
+        .collect();
+
+    for (_e, (fac_id, fac_loc)) in world
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .iter()
+    {
+        if fac_id.faction_id.is_empty() {
+            continue;
+        }
+        let loc = &fac_loc.location_name;
+        let entry = shortage_by_faction
+            .entry(fac_id.faction_id.clone())
+            .or_default();
+        if !entry.member_locations.contains(loc) {
+            entry.member_locations.push(loc.clone());
+        }
+        if let Some(short_map) = market_shortage_by_loc.get(loc) {
+            for (&commodity, &shortage) in short_map {
+                if shortage < SUBSIDY_TRIGGER_TICKS {
+                    continue;
+                }
+                let slot = entry.by_commodity.entry(commodity).or_default();
+                slot.0 += 1;
+                if shortage > slot.1 {
+                    slot.1 = shortage;
+                    slot.2 = loc.clone();
+                }
+            }
+        }
+    }
+
+    // For each faction, find active subsidy count and pick a commodity+dest
+    // to post. Post one per faction per cycle (keeps the board steady).
+    #[derive(Clone)]
+    struct SubsidyPlan {
+        faction_id: String,
+        commodity: Commodity,
+        destination: String,
+        source: String,
+        payment: i64,
+    }
+
+    // Source = highest-supply location OUTSIDE the faction's own member set.
+    // If none, fall back to any highest-supply location.
+    let supply_by_loc: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> = world
+        .query::<(&MarketIdentity, &crate::agents::market::MarketPricing)>()
+        .iter()
+        .map(|(_e, (id, pricing))| (id.facility_location.clone(), pricing.supply.clone()))
+        .collect();
+
+    let faction_ids: Vec<String> = shortage_by_faction.keys().cloned().collect();
+    let mut plans: Vec<SubsidyPlan> = Vec::new();
+
+    for faction_id in faction_ids {
+        let info = shortage_by_faction.get(&faction_id).cloned().unwrap_or_default();
+        // Count this faction's current board presence.
+        let current_active = contracts
+            .iter()
+            .filter(|c| c.requestor_id == faction_id)
+            .filter(|c| {
+                matches!(
+                    c.status,
+                    crate::economy::contracts::ContractStatus::Posted
+                        | crate::economy::contracts::ContractStatus::Accepted
+                        | crate::economy::contracts::ContractStatus::PickedUp
+                )
+            })
+            .count() as u32;
+        if current_active >= MAX_ACTIVE_SUBSIDIES_PER_FACTION {
+            continue;
+        }
+
+        // Pick the (commodity, destination) with the most chronic shortage
+        // that meets MIN_FACILITIES_SHORT.
+        let pick = info
+            .by_commodity
+            .iter()
+            .filter(|(_, (cnt, _, _))| *cnt >= MIN_FACILITIES_SHORT)
+            .max_by_key(|(_, (_, max_short, _))| *max_short)
+            .map(|(c, (_, max_short, dest))| (*c, *max_short, dest.clone()));
+        let Some((commodity, max_shortage, destination)) = pick else {
+            continue;
+        };
+
+        // Already subsidising this exact destination+commodity? Skip.
+        let already = contracts.iter().any(|c| {
+            c.requestor_id == faction_id
+                && c.commodity == commodity
+                && c.destination_location == destination
+                && matches!(
+                    c.status,
+                    crate::economy::contracts::ContractStatus::Posted
+                        | crate::economy::contracts::ContractStatus::Accepted
+                        | crate::economy::contracts::ContractStatus::PickedUp
+                )
+        });
+        if already {
+            continue;
+        }
+
+        // Source selection: highest supply, preferring non-member locations.
+        let source_pref = supply_by_loc
+            .iter()
+            .filter(|(loc, supply)| {
+                !info.member_locations.contains(loc)
+                    && supply.get(&commodity).copied().unwrap_or(0.0) > 100.0
+            })
+            .max_by(|(_, a), (_, b)| {
+                let av = a.get(&commodity).copied().unwrap_or(0.0);
+                let bv = b.get(&commodity).copied().unwrap_or(0.0);
+                av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(loc, _)| loc.clone());
+        let source = source_pref
+            .or_else(|| {
+                supply_by_loc
+                    .iter()
+                    .max_by(|(_, a), (_, b)| {
+                        let av = a.get(&commodity).copied().unwrap_or(0.0);
+                        let bv = b.get(&commodity).copied().unwrap_or(0.0);
+                        av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(loc, _)| loc.clone())
+            });
+        let Some(source) = source else { continue };
+        if source == destination {
+            continue;
+        }
+
+        // Dynamic multiplier: 1.25× freshly-triggered → 3.0× hardest shortage.
+        // `(max_shortage - trigger) / 100` linearly ramps over 100 ticks past
+        // the onset point.
+        let over = (max_shortage.saturating_sub(SUBSIDY_TRIGGER_TICKS)) as f32;
+        let ramp = (over / 100.0).min(SUBSIDY_MAX_MULTIPLIER - SUBSIDY_MIN_MULTIPLIER);
+        let multiplier = SUBSIDY_MIN_MULTIPLIER + ramp;
+        let payment = ((SUBSIDY_BASE_PAYMENT as f32) * multiplier) as i64;
+
+        plans.push(SubsidyPlan {
+            faction_id,
+            commodity,
+            destination,
+            source,
+            payment,
+        });
+    }
+
+    // Apply plans: debit treasury, post contract.
+    let lifespan = SUBSIDY_LIFESPAN_BASE * tick_multiplier as u64;
+    for plan in plans {
+        // Check + debit treasury.
+        let afford = {
+            let mut q = world
+                .query::<&mut FactionData>()
+                .iter()
+                .find(|(_, d)| d.id == plan.faction_id)
+                .map(|(e, _)| e);
+            q = q.filter(|e| {
+                world
+                    .get::<&FactionData>(*e)
+                    .map(|d| d.treasury >= plan.payment)
+                    .unwrap_or(false)
+            });
+            q
+        };
+        let Some(entity) = afford else { continue };
+        if let Ok(mut data) = world.get::<&mut FactionData>(entity) {
+            data.treasury -= plan.payment;
+            data.active_subsidies = data.active_subsidies.saturating_add(1);
+            data.dirty = true;
+        }
+        contracts.post_subsidy(
+            plan.faction_id,
+            plan.commodity,
+            SUBSIDY_QUANTITY,
+            plan.source,
+            plan.destination,
+            plan.payment,
+            tick,
+            lifespan,
+        );
+    }
+}
+
+/// Recount each faction's active-subsidy count from the live contract board.
+/// Runs after subsidy posting so the count reflects any deliveries that
+/// closed (Paid) or timed out (Expired) since last cycle.
+fn refresh_active_subsidy_counts(world: &mut hecs::World, contracts: &ContractBoard) {
+    use crate::economy::contracts::ContractStatus;
+    let mut counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for c in contracts.iter() {
+        if matches!(
+            c.status,
+            ContractStatus::Posted | ContractStatus::Accepted | ContractStatus::PickedUp
+        ) {
+            *counts.entry(c.requestor_id.clone()).or_insert(0) += 1;
+        }
+    }
+    for (_e, data) in world.query_mut::<&mut FactionData>() {
+        let n = counts.get(&data.id).copied().unwrap_or(0);
+        if data.active_subsidies != n {
+            data.active_subsidies = n;
             data.dirty = true;
         }
     }

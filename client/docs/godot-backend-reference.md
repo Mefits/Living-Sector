@@ -1,3 +1,10 @@
+> **⚠ Legacy / reference only.** This document describes the Elixir /
+> Phoenix backend that the Rust sim has replaced. Canonical protocol
+> reference is now
+> `../../simulator-rust/crates/sim_server/src/ws/protocol.rs` and the
+> client's live cheat-sheet is `../CLAUDE.md`. Kept for historical /
+> design context.
+
 ## New stuff
 
 | `do_crew_mission` | Longer themed mission posted by a facility — security detail, maintenance, harvest help, etc. Grows a crew skill on completion. |

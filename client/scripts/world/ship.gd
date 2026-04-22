@@ -15,6 +15,20 @@ var _label: Label3D
 var _trail: MeshInstance3D
 var _trail_mesh: ImmediateMesh
 
+# Gate-warp streak: separate mesh so the warp segment can render with
+# its own colour / blending and fade out on its own timeline without
+# interfering with the regular flight trail.
+var _warp: MeshInstance3D
+var _warp_mesh: ImmediateMesh
+var _warp_from: Vector3
+var _warp_to: Vector3
+var _warp_elapsed: float = 0.0
+var _warp_active: bool = false
+const WARP_LIFETIME := 1.6        # seconds to fully fade
+const WARP_SEGMENTS := 24         # sub-divisions so the streak can curve + pulse
+const WARP_COLOR_CORE := Color(0.55, 0.35, 1.0, 1.0)   # violet core
+const WARP_COLOR_EDGE := Color(0.35, 0.75, 1.0, 1.0)   # cyan edges
+
 # GPS-style heading from position history
 const HEADING_WINDOW := 20  # ticks for heading calculation
 const TRAIL_LENGTH := 60    # ticks of trail (~7.5 sec at 8 tps)
@@ -84,6 +98,7 @@ func setup(data: Dictionary) -> void:
 	_on_zoom_changed(GameState.zoom_tier, GameState.zoom_raw)
 
 	_setup_trail()
+	_setup_warp()
 	_setup_particles()
 
 
@@ -102,6 +117,77 @@ func _setup_trail() -> void:
 	# We add it to the parent in _ready or after being added to tree
 	_trail.top_level = true
 	add_child(_trail)
+
+
+func _setup_warp() -> void:
+	_warp_mesh = ImmediateMesh.new()
+	_warp = MeshInstance3D.new()
+	_warp.mesh = _warp_mesh
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.vertex_color_use_as_albedo = true
+	# Additive blending makes the streak read as "light" instead of a
+	# painted line — key to it looking like an FTL jump rather than a
+	# trail.
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.no_depth_test = true
+	mat.render_priority = -1
+	_warp.material_override = mat
+	_warp.top_level = true
+	add_child(_warp)
+
+
+## Kick off a warp-streak render between two world positions. Called when
+## a gate jump is detected (position discontinuity in `update_position`).
+func _begin_warp(from_pos: Vector3, to_pos: Vector3) -> void:
+	_warp_from = from_pos
+	_warp_to = to_pos
+	_warp_elapsed = 0.0
+	_warp_active = true
+
+
+## Redraws the warp streak each frame while it's active. Two overlapping
+## line strips — a bright violet core plus a thicker cyan halo — with a
+## sinusoidal pulse along the length so it reads as "energy" rather than
+## a static line. Whole thing fades out over `WARP_LIFETIME`.
+func _update_warp(delta: float) -> void:
+	_warp_mesh.clear_surfaces()
+	if not _warp_active:
+		return
+	_warp_elapsed += delta
+	if _warp_elapsed >= WARP_LIFETIME:
+		_warp_active = false
+		return
+	var life_t := _warp_elapsed / WARP_LIFETIME  # 0 → 1
+	# Ease-out fade: bright for most of it, fast falloff at end.
+	var fade := 1.0 - pow(life_t, 2.5)
+	var dir := _warp_to - _warp_from
+	# Draw two passes — halo first (cyan, wider effect via additive), then
+	# core (violet). Both use the same vertex trail but different colours
+	# and alphas so additive blending stacks into white-hot midline.
+	for pass_i in range(2):
+		var base_col: Color = WARP_COLOR_EDGE if pass_i == 0 else WARP_COLOR_CORE
+		var pass_alpha: float = (0.55 if pass_i == 0 else 0.9) * fade
+		_warp_mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+		for i in range(WARP_SEGMENTS + 1):
+			var t: float = float(i) / float(WARP_SEGMENTS)
+			var p: Vector3 = _warp_from + dir * t
+			# Subtle brightness pulse along the streak so it doesn't look
+			# dead-flat. Fastest at the middle, calm at the ends.
+			var pulse: float = 1.0 + 0.35 * sin(t * PI * 4.0 - life_t * 8.0)
+			# Ends of the streak fade slightly faster than the middle so
+			# the jump looks "launched" rather than a hard-cut stripe.
+			var end_fade: float = sin(t * PI)
+			var col := Color(
+				base_col.r * pulse,
+				base_col.g * pulse,
+				base_col.b * pulse,
+				pass_alpha * end_fade,
+			)
+			_warp_mesh.surface_set_color(col)
+			_warp_mesh.surface_add_vertex(Vector3(p.x, 0.04, p.z))
+		_warp_mesh.surface_end()
 
 
 func _update_trail() -> void:
@@ -168,10 +254,28 @@ func _setup_particles() -> void:
 	add_child(_particles)
 
 
+## Position jump big enough to be a gate teleport — clear the trail/history
+## so we don't draw a phantom line across the universe between the pre-jump
+## and post-jump positions. Tuned larger than any realistic single-tick
+## velocity step but smaller than inter-system distances.
+const TELEPORT_JUMP_THRESHOLD := 3.0
+
 func update_position(x: float, y: float) -> void:
 	_prev_pos = _next_pos
 	_next_pos = GameState.server_to_world(x, y)
 	_lerp_t = 0.0
+
+	# Detect discontinuity (gate jump) — if the ship teleported, wipe the
+	# regular trail so prior positions from the other side of the
+	# universe don't connect to where the ship is now, and kick off a
+	# warp-streak render between the two endpoints (violet/cyan, fades
+	# over ~1.5s) so the player sees that a jump happened instead of the
+	# ship silently reappearing somewhere else.
+	if _prev_pos.distance_to(_next_pos) > TELEPORT_JUMP_THRESHOLD:
+		_begin_warp(_prev_pos, _next_pos)
+		_pos_history.clear()
+		_trail_history.clear()
+		_prev_pos = _next_pos  # skip the lerp through the void
 
 	# Add to position history ring buffers
 	_pos_history.append(_next_pos)
@@ -219,6 +323,10 @@ func _process(delta: float) -> void:
 		_lerp_t = minf(_lerp_t + delta / interval, 1.0)
 		var t := _lerp_t * _lerp_t * (3.0 - 2.0 * _lerp_t)
 		position = _prev_pos.lerp(_next_pos, t)
+
+	# Warp streak fade — advances on wall-clock, independent of sim speed.
+	if _warp_active:
+		_update_warp(delta)
 
 	# Smooth rotation toward window-derived heading
 	if _is_moving:

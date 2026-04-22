@@ -1,8 +1,17 @@
 extends Node3D
 
 ## Renders an orbital body using a planet 3D model.
-## Predicts orbital position client-side using orbit_radius,
-## orbit_period, and current_angle from the initial snapshot.
+##
+## Position is server-driven: `universe.gd` routes the per-tick `positions`
+## broadcast into `update_position(x, y)` and we lerp toward it exactly
+## like `facility.gd` does. This keeps bodies and their orbiting facilities
+## in lockstep — facilities are anchored to body positions server-side, so
+## consuming the same stream here prevents the drift/jump we saw when the
+## client predicted orbits independently while server positions advanced
+## at a different rate after a world_speed change.
+##
+## Orbital params (radius/period/angle) are kept only as a *fallback* used
+## briefly during scene build, before the first server position arrives.
 
 var body_id: String
 var _ring: MeshInstance3D
@@ -11,7 +20,18 @@ var _ring: MeshInstance3D
 const RINGED_BODIES := ["saturn", "mars"]
 const RING_COLOR := Color(0.8, 0.75, 0.6, 0.4)
 
-# Orbital prediction
+# System-space offset cached at setup time. Server positions arrive in
+# absolute universe coordinates; this body lives inside a star_system
+# Node3D already translated to `_system_offset`, so we convert on arrival.
+var _system_offset: Vector2 = Vector2.ZERO
+
+# Server-driven position state (primary path).
+var _prev_pos: Vector3
+var _next_pos: Vector3
+var _lerp_t: float = 1.0
+var _received_server_pos: bool = false
+
+# Orbital prediction fallback — only used before first server position.
 var _orbit_radius: float = 0.0
 var _orbit_period: float = 0.0
 var _initial_angle: float = 0.0
@@ -58,10 +78,22 @@ func setup(
 ) -> void:
   body_id = id
   position = world_pos
+  _prev_pos = world_pos
+  _next_pos = world_pos
   label.text = display_name
   _visual_radius = radius
 
-  # Store orbital params for prediction
+  # Cache the owning system's offset so `update_position` can convert the
+  # absolute universe coordinates the server sends into local system space
+  # cheaply (no tree walk per tick).
+  for sys in GameState.systems.values():
+    for body in sys.get("bodies", []):
+      if str(body.get("id", "")) == body_id:
+        _system_offset = GameState.get_system_offset(sys["id"])
+        break
+
+  # Store orbital params for fallback prediction (used only until the first
+  # server `positions` broadcast lands — usually < 1 tick).
   if orbit_data.has("orbit_radius") and orbit_data.has("orbit_period"):
     _orbit_radius = float(orbit_data["orbit_radius"])
     _orbit_period = float(orbit_data["orbit_period"])
@@ -89,23 +121,46 @@ func setup(
   _on_zoom_changed(GameState.zoom_tier, GameState.zoom_raw)
 
 
+func update_position(abs_x: float, abs_y: float) -> void:
+  ## Called by `universe.gd::_on_positions_updated` each tick. `abs_x` and
+  ## `abs_y` are absolute universe coordinates; we subtract the cached
+  ## system offset to get local coords inside the star_system Node3D.
+  var rel_x := abs_x - _system_offset.x
+  var rel_y := abs_y - _system_offset.y
+  _prev_pos = _next_pos
+  _next_pos = GameState.server_to_world(rel_x, rel_y)
+  _lerp_t = 0.0
+  _received_server_pos = true
+
+
 func _process(_delta: float) -> void:
   # Slowly rotate ring
   if _ring:
     _ring.rotation_degrees.y += _delta * 5.0
 
-  if not _has_orbit:
+  if _received_server_pos:
+    # Server-driven path (primary). Lerp between the last two broadcast
+    # positions over the wall-clock gap. `get_effective_interval_seconds`
+    # uses the observed cadence so we don't jitter if the server's
+    # reported interval briefly disagrees with reality.
+    if _lerp_t < 1.0:
+      var interval := GameState.get_effective_interval_seconds()
+      _lerp_t = minf(_lerp_t + _delta / interval, 1.0)
+      var t := _lerp_t * _lerp_t * (3.0 - 2.0 * _lerp_t)
+      position = _prev_pos.lerp(_next_pos, t)
     return
 
-  # Predict position based on current tick
+  # Pre-first-broadcast fallback: use the seed orbit math so we don't
+  # snap from origin when the scene first builds. Dropped the moment the
+  # first server position arrives.
+  if not _has_orbit:
+    return
   var ticks_elapsed: int = GameState.tick - _initial_tick
   var delta_per_tick := 360.0 / _orbit_period * GameState.tick_scale
   var angle_deg := fmod(
     _initial_angle + delta_per_tick * ticks_elapsed, 360.0
   )
   var angle_rad := deg_to_rad(angle_deg)
-
-  # Local position relative to system center (in universe units, then scaled)
   var local_x := _orbit_radius * cos(angle_rad)
   var local_y := _orbit_radius * sin(angle_rad)
   position = GameState.server_to_world(local_x, local_y)

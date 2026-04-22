@@ -35,11 +35,57 @@ use crate::economy::commodities::Commodity;
 use serde::Serialize;
 use std::collections::HashMap;
 
+/// Reputation threshold used when a faction wants to restrict a contract
+/// to members only. Any ship needs rep ≥ this with the posting faction.
+pub const REP_GATE_FACTION_ONLY: u8 = 70;
+/// Threshold for "allied" — crew missions default here.
+pub const REP_GATE_ALLIED: u8 = 50;
+/// Every this many ticks unaccepted, the contract's `min_reputation`
+/// drops by `REP_AGE_OPEN_STEP` (floored at 0). So a fresh subsidy pays
+/// faction-members only, and after ~1000 ticks it's public.
+pub const REP_AGE_OPEN_INTERVAL_TICKS: u64 = 100;
+pub const REP_AGE_OPEN_STEP: u8 = 10;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContractType {
-    /// Deliver commodity from source to destination.
+    /// Deliver commodity from source to destination (requires purchase).
     Delivery,
+    /// Zero-deposit delivery — ship doesn't need to buy the cargo first,
+    /// the posting facility/pop supplies it. Used for courier runs to
+    /// help broke ships climb back out.
+    Courier,
+    /// Transport passengers from source to destination. `quantity` = head
+    /// count; `commodity` is unused (serialized as Food as a placeholder
+    /// so existing clients don't choke). On delivery, population at the
+    /// destination increases by `quantity` instead of market supply.
+    Passenger,
+    /// Faction-posted subsidy delivery — high pay, sourced from chronic
+    /// shortages in member markets. Board-side identical to Delivery but
+    /// Godot UI tags them so the player sees faction intervention.
+    Subsidy,
+    /// Buy contract — posted by a facility that will pay a ship to source
+    /// and deliver a specific commodity. Used by facility restock when
+    /// the local market is dry. (Phase 11g admin hook uses this too.)
+    Supply,
+    /// Crew-mission contract — facility-posted short-duration job for a
+    /// ship's crew. `quantity` is duration-ticks; `commodity` unused;
+    /// completion grants skill XP. Not yet wired end-to-end.
+    CrewMission,
+}
+
+impl ContractType {
+    /// Short "slug" used for Godot filter chips.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ContractType::Delivery => "delivery",
+            ContractType::Courier => "courier",
+            ContractType::Passenger => "passenger",
+            ContractType::Subsidy => "subsidy",
+            ContractType::Supply => "supply",
+            ContractType::CrewMission => "crew_mission",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -60,6 +106,11 @@ pub struct Contract {
     pub status: ContractStatus,
     /// Who posted (e.g. "pop-earth-workers" or "facility-..."). Serialization only.
     pub requestor_id: String,
+    /// Faction the requestor belongs to. When a ship delivers this
+    /// contract, its rep with this faction goes up. Set by the posting
+    /// agent from its own `faction_id`; left empty for unowned posts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub faction_id: Option<String>,
     /// Ship id once accepted; None while Posted.
     pub fulfiller_id: Option<String>,
     pub commodity: Commodity,
@@ -70,6 +121,25 @@ pub struct Contract {
     pub posted_at_tick: u64,
     pub accepted_at_tick: Option<u64>,
     pub expires_at_tick: u64,
+    /// For `ContractType::CrewMission` — the mission template category
+    /// slug (e.g. "security_detail"). `missions::get(category)` resolves
+    /// this back to the required skill + XP on completion. None for
+    /// other kinds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission_category: Option<String>,
+    /// Minimum reputation (0..=100) a ship must have with `faction_id` to
+    /// accept this contract. Starts at the post time's value and decays
+    /// toward 0 as the contract ages, so subsidised runs age open from
+    /// faction-only → allied → public over `REPUTATION_AGE_OPEN_TICKS`.
+    /// Contracts with no faction tag always default to 0.
+    #[serde(default)]
+    pub min_reputation: u8,
+    /// The post-time `min_reputation` captured once so `age_open_reputation`
+    /// can decay relative to it (rather than from `REP_GATE_FACTION_ONLY`
+    /// unconditionally, which would skip the first 2 decay intervals for
+    /// `CrewMission` contracts that start at `REP_GATE_ALLIED`).
+    #[serde(default)]
+    pub initial_min_reputation: u8,
 }
 
 /// In-memory contract board. Lives in `AgentStore`.
@@ -121,13 +191,206 @@ impl ContractBoard {
         posted_at_tick: u64,
         lifespan_ticks: u64,
     ) -> String {
+        self.post_kind(
+            ContractType::Delivery,
+            requestor_id,
+            commodity,
+            quantity,
+            source_location,
+            destination_location,
+            payment,
+            posted_at_tick,
+            lifespan_ticks,
+        )
+    }
+
+    /// Post a subsidy contract (a faction-funded delivery). Kept as a
+    /// distinct kind so Godot can tag them separately in the ledger.
+    /// `faction_id` is stored both as the requestor and as the rep-gate
+    /// faction the contract unlocks against.
+    #[allow(clippy::too_many_arguments)]
+    pub fn post_subsidy(
+        &mut self,
+        faction_id: String,
+        commodity: Commodity,
+        quantity: u32,
+        source_location: String,
+        destination_location: String,
+        payment: i64,
+        posted_at_tick: u64,
+        lifespan_ticks: u64,
+    ) -> String {
+        let faction_clone = faction_id.clone();
+        self.post_kind_with_faction(
+            ContractType::Subsidy,
+            faction_id,
+            Some(faction_clone),
+            commodity,
+            quantity,
+            source_location,
+            destination_location,
+            payment,
+            posted_at_tick,
+            lifespan_ticks,
+        )
+    }
+
+    /// Post a passenger-transport contract. `quantity` is head count;
+    /// `commodity` is a placeholder (Food) that no handler actually
+    /// consumes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn post_passenger(
+        &mut self,
+        requestor_id: String,
+        head_count: u32,
+        source_location: String,
+        destination_location: String,
+        payment: i64,
+        posted_at_tick: u64,
+        lifespan_ticks: u64,
+    ) -> String {
+        self.post_kind(
+            ContractType::Passenger,
+            requestor_id,
+            Commodity::Food, // placeholder; apply phase branches on kind
+            head_count,
+            source_location,
+            destination_location,
+            payment,
+            posted_at_tick,
+            lifespan_ticks,
+        )
+    }
+
+    /// Post a crew-mission contract. `quantity` is repurposed as the
+    /// mission category index hash — actual category/skill lookup uses
+    /// `missions::get(&c.requestor_id)` where `requestor_id` carries the
+    /// category slug (we overload the field because there's no room for
+    /// an extra column without breaking the snapshot schema).
+    ///
+    /// Apply phase on `DeliverContract` with `ContractType::CrewMission`
+    /// reads `quantity` as duration-ticks, pays `payment`, and grants
+    /// skill XP to the ship's crew based on the mission's `required_skill`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn post_crew_mission(
+        &mut self,
+        requestor_id: String,
+        mission_category: String,
+        duration_ticks: u32,
+        source_and_destination: String,
+        payment: i64,
+        faction_id: Option<String>,
+        posted_at_tick: u64,
+        lifespan_ticks: u64,
+    ) -> String {
+        // For crew missions the contract destination == source (the station
+        // posting it). We stash the mission category in the `commodity`
+        // placeholder slot by not serializing it separately; instead we
+        // write the category into a dedicated field via post_kind_with_faction.
+        let id = self.post_kind_with_faction(
+            ContractType::CrewMission,
+            requestor_id,
+            faction_id,
+            Commodity::Tools, // placeholder; apply phase doesn't touch supply
+            duration_ticks,
+            source_and_destination.clone(),
+            source_and_destination,
+            payment,
+            posted_at_tick,
+            lifespan_ticks,
+        );
+        if let Some(c) = self.contracts.get_mut(&id) {
+            c.mission_category = Some(mission_category);
+        }
+        id
+    }
+
+    /// Post a courier contract — zero-deposit variant for broke ships.
+    #[allow(clippy::too_many_arguments)]
+    pub fn post_courier(
+        &mut self,
+        requestor_id: String,
+        commodity: Commodity,
+        quantity: u32,
+        source_location: String,
+        destination_location: String,
+        payment: i64,
+        posted_at_tick: u64,
+        lifespan_ticks: u64,
+    ) -> String {
+        self.post_kind(
+            ContractType::Courier,
+            requestor_id,
+            commodity,
+            quantity,
+            source_location,
+            destination_location,
+            payment,
+            posted_at_tick,
+            lifespan_ticks,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn post_kind(
+        &mut self,
+        contract_type: ContractType,
+        requestor_id: String,
+        commodity: Commodity,
+        quantity: u32,
+        source_location: String,
+        destination_location: String,
+        payment: i64,
+        posted_at_tick: u64,
+        lifespan_ticks: u64,
+    ) -> String {
+        self.post_kind_with_faction(
+            contract_type,
+            requestor_id,
+            None,
+            commodity,
+            quantity,
+            source_location,
+            destination_location,
+            payment,
+            posted_at_tick,
+            lifespan_ticks,
+        )
+    }
+
+    /// Variant that tags the contract with the posting agent's faction.
+    /// The apply phase uses this to route reputation bumps on delivery.
+    #[allow(clippy::too_many_arguments)]
+    pub fn post_kind_with_faction(
+        &mut self,
+        contract_type: ContractType,
+        requestor_id: String,
+        faction_id: Option<String>,
+        commodity: Commodity,
+        quantity: u32,
+        source_location: String,
+        destination_location: String,
+        payment: i64,
+        posted_at_tick: u64,
+        lifespan_ticks: u64,
+    ) -> String {
         self.next_id += 1;
         let id = format!("contract-{}", self.next_id);
+        // Initial min_reputation depends on kind:
+        //   - Subsidy / CrewMission: faction-only at post (high bar)
+        //   - Delivery / Courier / Passenger / Supply: public from the jump
+        // Subsidies "age open" — see `age_open_reputation` below.
+        let min_reputation: u8 = match contract_type {
+            ContractType::Subsidy => REP_GATE_FACTION_ONLY,
+            ContractType::CrewMission => REP_GATE_ALLIED,
+            _ => 0,
+        };
         let contract = Contract {
             id: id.clone(),
-            contract_type: ContractType::Delivery,
+            contract_type,
             status: ContractStatus::Posted,
             requestor_id,
+            faction_id,
             fulfiller_id: None,
             commodity,
             quantity,
@@ -137,6 +400,9 @@ impl ContractBoard {
             posted_at_tick,
             accepted_at_tick: None,
             expires_at_tick: posted_at_tick + lifespan_ticks,
+            mission_category: None,
+            min_reputation,
+            initial_min_reputation: min_reputation,
         };
         self.contracts.insert(id.clone(), contract);
         self.by_status
@@ -169,6 +435,66 @@ impl ContractBoard {
             .get(&ContractStatus::Posted)
             .map(|ids| ids.iter().filter_map(|i| self.contracts.get(i)).collect())
             .unwrap_or_default()
+    }
+
+    /// Return posted contracts the given ship can accept given its
+    /// per-faction reputation. Ships without a matching rep entry are
+    /// treated as rep-0 with that faction (strangers). Contracts with no
+    /// faction tag are always eligible.
+    pub fn posted_for_ship(
+        &self,
+        ship_reputation: &HashMap<String, u8>,
+    ) -> Vec<&Contract> {
+        self.posted()
+            .into_iter()
+            .filter(|c| {
+                match c.faction_id.as_deref() {
+                    None => true,
+                    Some(fac) => {
+                        let rep = ship_reputation.get(fac).copied().unwrap_or(0);
+                        rep >= c.min_reputation
+                    }
+                }
+            })
+            .collect()
+    }
+
+    /// Age-open pass — decay `min_reputation` on long-posted contracts so
+    /// subsidised runs and crew missions that no high-rep ship picked up
+    /// eventually become public. Call this on the same cadence as
+    /// `expire` (once per tick in the pop tick). Cheap: scans Posted
+    /// list only.
+    ///
+    /// Decay is measured from the contract's ORIGINAL `min_reputation`
+    /// (captured once in `initial_min_reputation`), not the faction-only
+    /// constant — without this, CrewMissions (which start at REP_GATE_ALLIED
+    /// = 50) wouldn't decay at all for the first 2 intervals because
+    /// `70 - 2*10 = 50` isn't strictly less than 50.
+    pub fn age_open_reputation(&mut self, tick: u64) {
+        let ids: Vec<String> = self
+            .by_status
+            .get(&ContractStatus::Posted)
+            .cloned()
+            .unwrap_or_default();
+        for id in ids {
+            if let Some(c) = self.contracts.get_mut(&id) {
+                if c.min_reputation == 0 {
+                    continue;
+                }
+                let age = tick.saturating_sub(c.posted_at_tick);
+                if age == 0 {
+                    continue;
+                }
+                let steps = age / REP_AGE_OPEN_INTERVAL_TICKS;
+                let expected = c
+                    .initial_min_reputation
+                    .saturating_sub((steps as u8).saturating_mul(REP_AGE_OPEN_STEP));
+                // We only ratchet down — never raise back above post-time value.
+                if expected < c.min_reputation {
+                    c.min_reputation = expected;
+                }
+            }
+        }
     }
 
     /// Mark a contract Accepted.
@@ -317,5 +643,72 @@ mod tests {
         );
         assert!(board.accept(&id, "ship-1".into(), 1));
         assert!(!board.accept(&id, "ship-2".into(), 2));
+    }
+
+    #[test]
+    fn subsidy_starts_faction_only_and_ages_open() {
+        let mut board = ContractBoard::new();
+        let _ = board.post_subsidy(
+            "terran-authority".into(),
+            Commodity::Food,
+            200,
+            "belt".into(),
+            "earth".into(),
+            5000,
+            0,
+            10_000,
+        );
+        let fresh = board.posted().into_iter().next().unwrap();
+        assert_eq!(fresh.min_reputation, REP_GATE_FACTION_ONLY);
+
+        // Ship with 0 rep gets filtered out.
+        let no_rep: HashMap<String, u8> = HashMap::new();
+        assert!(board.posted_for_ship(&no_rep).is_empty());
+
+        // Ship with 70+ rep can accept right away.
+        let mut member_rep: HashMap<String, u8> = HashMap::new();
+        member_rep.insert("terran-authority".into(), 75);
+        assert_eq!(board.posted_for_ship(&member_rep).len(), 1);
+
+        // Wait 1000 ticks — rep gate drops to 70 - 10×10 = 0; public.
+        board.age_open_reputation(1000);
+        let aged = board.posted().into_iter().next().unwrap();
+        assert_eq!(aged.min_reputation, 0);
+        assert_eq!(board.posted_for_ship(&no_rep).len(), 1);
+    }
+
+    #[test]
+    fn crew_mission_defaults_to_allied_gate() {
+        let mut board = ContractBoard::new();
+        let _ = board.post_crew_mission(
+            "facility-earth-station".into(),
+            "security_detail".into(),
+            30,
+            "earth-station".into(),
+            1500,
+            Some("terran-authority".into()),
+            0,
+            5_000,
+        );
+        let c = board.posted().into_iter().next().unwrap();
+        assert_eq!(c.min_reputation, REP_GATE_ALLIED);
+        assert_eq!(c.mission_category.as_deref(), Some("security_detail"));
+    }
+
+    #[test]
+    fn posted_for_ship_passes_unfactioned_contracts() {
+        let mut board = ContractBoard::new();
+        let _ = board.post_delivery(
+            "pop-x".into(),
+            Commodity::Fuel,
+            50,
+            "a".into(),
+            "b".into(),
+            500,
+            0,
+            1000,
+        );
+        let empty_rep: HashMap<String, u8> = HashMap::new();
+        assert_eq!(board.posted_for_ship(&empty_rep).len(), 1);
     }
 }

@@ -35,6 +35,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         running: state.running.load(Ordering::Relaxed),
         agent_count: state.agent_count.load(Ordering::Relaxed) as usize,
         interval_ms: state.interval_ms.load(Ordering::Relaxed),
+        world_speed: state.world_speed(),
     };
     if let Ok(text) = serde_json::to_string(&hello) {
         let _ = sender.send(Message::Text(text.into())).await;
@@ -157,6 +158,8 @@ async fn handle_client_msg(
                 action: "get_tick".into(),
                 tick: state.tick.load(Ordering::Relaxed),
                 running: state.running.load(Ordering::Relaxed),
+                world_speed: state.world_speed(),
+                interval_ms: state.interval_ms.load(Ordering::Relaxed),
             };
             if let Ok(text) = serde_json::to_string(&ack) {
                 let _ = sender.send(Message::Text(text.into())).await;
@@ -174,6 +177,8 @@ async fn send_ack(
         action: action.into(),
         tick: state.tick.load(Ordering::Relaxed),
         running: state.running.load(Ordering::Relaxed),
+        world_speed: state.world_speed(),
+        interval_ms: state.interval_ms.load(Ordering::Relaxed),
     };
     if let Ok(text) = serde_json::to_string(&ack) {
         let _ = sender.send(Message::Text(text.into())).await;

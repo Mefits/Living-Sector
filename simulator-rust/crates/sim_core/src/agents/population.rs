@@ -101,21 +101,48 @@ pub const CONSUMPTION_INTERVAL_BASE: u64 = 5;
 pub const PRODUCTION_INTERVAL_BASE: u64 = 5;
 /// Pops check whether to post a delivery contract every N base-ticks.
 pub const CONTRACT_POST_INTERVAL_BASE: u64 = 25;
+/// Passenger-contract posting cadence (base ticks). Matches Elixir's 60×mult.
+pub const PASSENGER_CONTRACT_INTERVAL_BASE: u64 = 60;
 /// Food satisfaction decays by this per unsatisfied cycle (clamped 0-100).
 pub const FOOD_SAT_DROP_ON_SHORTAGE: i32 = 5;
 pub const FOOD_SAT_RECOVER_ON_MET: i32 = 2;
 
 /// Food satisfaction below this triggers a delivery contract post.
 pub const CONTRACT_FOOD_THRESHOLD: i32 = 40;
+/// Food satisfaction below this triggers emergency water purchase too —
+/// dehydration compounds the food shortage in Elixir's pop model.
+pub const EMERGENCY_WATER_THRESHOLD: i32 = 30;
+/// Extra water consumed per cycle during an emergency. Rate × pop size ÷ 1000.
+pub const EMERGENCY_WATER_RATE: f32 = 0.5;
 /// Contracts expire after this many base-ticks unposted.
 pub const CONTRACT_LIFESPAN_BASE: u64 = 200;
 /// Pay multiplier over base price for delivery contracts.
 pub const CONTRACT_PREMIUM: f32 = 1.8;
+/// Max urgency multiplier on top of CONTRACT_PREMIUM. Matches Elixir:
+/// pay = base × premium × (1 + (1 - sat/100) × 2). At sat=0 the pop pays 3×.
+pub const CONTRACT_URGENCY_PEAK: f32 = 2.0;
+
+/// Sentiment inertia factor. Each consumption cycle the stored
+/// `overall_sentiment` is blended with the freshly-computed target using
+/// `old × factor + target × (1 - factor)`. At tick_scale=1.0 the factor
+/// is `0.9`; we exponentiate so behavior scales with world_speed (faster
+/// speed = quicker convergence toward the food-driven target).
+pub const SENTIMENT_INERTIA_BASE: f32 = 0.9;
+
+/// Passenger contract preconditions. Matches Elixir thresholds.
+pub const PASSENGER_MIN_POPULATION: i64 = 5_000;
+pub const PASSENGER_MIN_SENTIMENT: i32 = 50;
+/// Passenger contract batch size (people per ship-load).
+pub const PASSENGER_BATCH_SIZE: u32 = 50;
+/// Payment per passenger on a passenger-transport contract. Treated as
+/// credits the destination pays the ship on arrival.
+pub const PASSENGER_PAYMENT_PER_HEAD: i64 = 80;
 
 pub fn tick_populations(
     world: &mut hecs::World,
     contracts: &mut crate::economy::contracts::ContractBoard,
     tick: u64,
+    tick_scale: f32,
     tick_multiplier: u32,
 ) {
     let mult = tick_multiplier as u64;
@@ -125,6 +152,7 @@ pub fn tick_populations(
     if tick % consumption_interval != 0 && tick % production_interval != 0 {
         return;
     }
+    let _ = tick_scale; // reserved for sentiment inertia scaling below
 
     // Index markets by location
     let market_at_location: std::collections::HashMap<String, hecs::Entity> = world
@@ -140,20 +168,25 @@ pub fn tick_populations(
         .map(|(e, _)| e)
         .collect();
 
+    // Sentiment inertia exponent: slower world_speed = slower drift.
+    let inertia_factor = SENTIMENT_INERTIA_BASE.powf(tick_scale.max(0.01));
+
     for entity in pop_entities {
-        let (location, consumption, production_commodity, production_amount) = {
+        let (location, consumption, production_commodity, production_amount, pop_size, current_food_sat) = {
             let mut q = match world
-                .query_one::<(&PopIdentity, &PopEconomy)>(entity)
+                .query_one::<(&PopIdentity, &PopEconomy, &PopDemographics, &PopSentiment)>(entity)
             {
                 Ok(q) => q,
                 Err(_) => continue,
             };
             match q.get() {
-                Some((id, econ)) => (
+                Some((id, econ, demo, sent)) => (
                     id.facility_location.clone(),
                     econ.consumption.clone(),
                     econ.production_commodity,
                     econ.production_amount,
+                    demo.population_count,
+                    sent.food_satisfaction,
                 ),
                 None => continue,
             }
@@ -180,6 +213,25 @@ pub fn tick_populations(
                         *entry = (*entry - consumed).max(0.0);
                     }
                 }
+
+                // Emergency water consumption — when food satisfaction is
+                // critical (< 30) pops drink deeper into local reserves.
+                // Models Elixir's water-buy branch that fires below the
+                // same threshold.
+                if current_food_sat < EMERGENCY_WATER_THRESHOLD && pop_size > 0 {
+                    let extra =
+                        EMERGENCY_WATER_RATE * (pop_size as f32 / 1000.0).max(1.0);
+                    let avail = pricing
+                        .supply
+                        .get(&Commodity::Water)
+                        .copied()
+                        .unwrap_or(0.0);
+                    let taken = extra.min(avail);
+                    if taken > 0.0 {
+                        let entry = pricing.supply.entry(Commodity::Water).or_insert(0.0);
+                        *entry = (*entry - taken).max(0.0);
+                    }
+                }
             }
         }
 
@@ -194,7 +246,8 @@ pub fn tick_populations(
             }
         }
 
-        // Update sentiment based on food supply
+        // Update sentiment based on food supply — apply inertia so the
+        // overall_sentiment value doesn't swing ±50 on a single frame.
         if tick % consumption_interval == 0 {
             if let Ok(mut sentiment) = world.get::<&mut PopSentiment>(entity) {
                 if any_shortage {
@@ -204,27 +257,108 @@ pub fn tick_populations(
                     sentiment.food_satisfaction =
                         (sentiment.food_satisfaction + FOOD_SAT_RECOVER_ON_MET).min(100);
                 }
-                sentiment.overall_sentiment = (sentiment.food_satisfaction * 6
+                let target = (sentiment.food_satisfaction * 6
                     + sentiment.safety_satisfaction * 2
                     + sentiment.entertainment_satisfaction * 2)
                     / 10;
+                // Weighted blend `old * factor + target * (1 - factor)` in
+                // integer arithmetic — multiply before dividing to avoid
+                // losing precision.
+                let old = sentiment.overall_sentiment as f32;
+                let blended = old * inertia_factor + target as f32 * (1.0 - inertia_factor);
+                sentiment.overall_sentiment = blended.round() as i32;
                 sentiment.unrest = (100 - sentiment.overall_sentiment).clamp(0, 100);
                 sentiment.dirty = true;
             }
         }
     }
 
-    // Separate pass for contract posting — populations stressed on food
-    // post delivery contracts. We do this after the consumption pass so
-    // food_satisfaction is up-to-date, and we read the board state that's
-    // already been updated above.
+    // Contract posting — delivery contracts for food shortages.
     let contract_interval = CONTRACT_POST_INTERVAL_BASE * mult;
     if tick % contract_interval == 0 {
         post_food_contracts(world, contracts, tick, mult);
     }
 
-    // Expire old unfilled contracts
+    // Passenger-transport contract posting — happy + populous pops ship
+    // batches of passengers to peer locations. Uses the dedicated
+    // `ContractType::Passenger` kind so the apply phase (in engine) bumps
+    // destination population instead of market supply.
+    let passenger_interval = PASSENGER_CONTRACT_INTERVAL_BASE * mult;
+    if tick % passenger_interval == 0 {
+        post_passenger_contracts(world, contracts, tick, mult);
+    }
+
+    // Expire old unfilled contracts + decay reputation gates so
+    // faction-posted subsidies age open to the public.
     contracts.expire(tick);
+    contracts.age_open_reputation(tick);
+}
+
+fn post_passenger_contracts(
+    world: &mut hecs::World,
+    contracts: &mut crate::economy::contracts::ContractBoard,
+    tick: u64,
+    tick_multiplier: u64,
+) {
+    struct Candidate {
+        pop_id: String,
+        origin: String,
+    }
+    let candidates: Vec<Candidate> = world
+        .query::<(&PopIdentity, &PopSentiment, &PopDemographics)>()
+        .iter()
+        .filter(|(_, (_, sent, demo))| {
+            sent.overall_sentiment >= PASSENGER_MIN_SENTIMENT
+                && demo.population_count >= PASSENGER_MIN_POPULATION
+        })
+        .map(|(_, (id, _, _))| Candidate {
+            pop_id: id.id.clone(),
+            origin: id.facility_location.clone(),
+        })
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+
+    let all_destinations: Vec<String> = world
+        .query::<&PopIdentity>()
+        .iter()
+        .map(|(_, id)| id.facility_location.clone())
+        .collect();
+
+    for cand in candidates {
+        let Some(destination) = all_destinations
+            .iter()
+            .find(|d| **d != cand.origin)
+            .cloned()
+        else {
+            continue;
+        };
+        // One passenger contract per origin at a time — the board's
+        // destination index makes this cheap.
+        let has_active = contracts
+            .iter()
+            .any(|c| c.requestor_id == cand.pop_id && c.contract_type == crate::economy::contracts::ContractType::Passenger
+                && matches!(
+                    c.status,
+                    crate::economy::contracts::ContractStatus::Posted
+                        | crate::economy::contracts::ContractStatus::Accepted
+                        | crate::economy::contracts::ContractStatus::PickedUp
+                ));
+        if has_active {
+            continue;
+        }
+        let payment = PASSENGER_PAYMENT_PER_HEAD * PASSENGER_BATCH_SIZE as i64;
+        contracts.post_passenger(
+            cand.pop_id,
+            PASSENGER_BATCH_SIZE,
+            cand.origin,
+            destination,
+            payment,
+            tick,
+            CONTRACT_LIFESPAN_BASE * tick_multiplier,
+        );
+    }
 }
 
 /// For each food-stressed population, post a delivery contract from the
@@ -295,9 +429,16 @@ fn post_food_contracts(
         // Scale order size to population (more people → bigger need),
         // capped at a reasonable ship-load.
         let quantity = (dec.population_count / 1000).clamp(20, 300) as u32;
-        // Payment scales with commodity base price × premium × quantity.
-        let payment =
-            (Commodity::Food.base_price() * CONTRACT_PREMIUM * quantity as f32) as i64;
+        // Payment scales with commodity base price × premium × urgency × qty.
+        // Urgency multiplier: pop at satisfaction=0 pays up to (1 + 2) = 3×,
+        // pop at satisfaction=threshold pays 1×. Matches Elixir's
+        // `1.0 + (1.0 - satisfaction/100) × 2`.
+        let sat_ratio = (dec.satisfaction as f32 / 100.0).clamp(0.0, 1.0);
+        let urgency = 1.0 + (1.0 - sat_ratio) * CONTRACT_URGENCY_PEAK;
+        let payment = (Commodity::Food.base_price()
+            * CONTRACT_PREMIUM
+            * urgency
+            * quantity as f32) as i64;
 
         contracts.post_delivery(
             dec.pop_id,
@@ -311,3 +452,4 @@ fn post_food_contracts(
         );
     }
 }
+

@@ -6,6 +6,11 @@ extends PanelContainer
 ## the server. Sampling runs even when the panel is closed so the graph
 ## isn't empty on reopen.
 
+## DEBUG: flip on to print refresh-phase diagnostics (market → facility
+## match rates, row-creation counts). Left in so future mismatches are a
+## one-line flip away.
+const DEBUG := false
+
 @onready var close_button: Button = $VBox/TopRow/CloseButton
 @onready var header_row: HBoxContainer = $VBox/HeaderRow
 @onready var rows_container: VBoxContainer = $VBox/ScrollContainer/Rows
@@ -38,10 +43,18 @@ func _ready() -> void:
 	close_button.pressed.connect(func(): visible = false)
 	_build_header()
 	GameState.tick_updated.connect(_on_tick)
+	if DEBUG:
+		print("[Market] _ready — close_button=%s header_row=%s rows_container=%s" % [
+			close_button != null, header_row != null, rows_container != null,
+		])
 
 
 func toggle() -> void:
 	visible = not visible
+	if DEBUG:
+		print("[Market] toggle — visible=%s GameState.markets=%d facilities=%d" % [
+			visible, GameState.markets.size(), GameState.facilities.size(),
+		])
 	if visible:
 		_refresh()
 
@@ -56,7 +69,7 @@ func _on_tick(_tick: int) -> void:
 
 func _capture_samples() -> void:
 	for market in GameState.markets.values():
-		var fac_loc: String = str(market.get("facility_id", ""))
+		var fac_loc: String = str(market.get("facility_location", market.get("facility_id", "")))
 		if fac_loc == "":
 			continue
 		var prices = market.get("prices", {})
@@ -103,19 +116,42 @@ func _build_header() -> void:
 
 func _refresh() -> void:
 	var markets_by_fac: Dictionary = {}
+	var sample_market_keys: Array = []
 	for market in GameState.markets.values():
-		var fac_loc: String = str(market.get("facility_id", ""))
+		var fac_loc: String = str(market.get("facility_location", market.get("facility_id", "")))
 		markets_by_fac[fac_loc] = market
+		if DEBUG and sample_market_keys.size() < 3:
+			sample_market_keys.append({
+				"id": market.get("id"),
+				"facility_location": market.get("facility_location"),
+				"has_prices": market.has("prices"),
+				"has_supply": market.has("supply"),
+				"price_keys": (market.get("prices", {}) as Dictionary).keys() if market.get("prices") is Dictionary else [],
+			})
+	if DEBUG:
+		print("[Market] _refresh — markets_by_fac keys sample: %s" % [markets_by_fac.keys().slice(0, 5)])
+		print("[Market] _refresh — market sample shapes: %s" % [sample_market_keys])
 
 	var sorted_facs: Array = []
+	var sample_fac_keys: Array = []
+	var unmatched_facs: Array = []
 	for fac in GameState.facilities.values():
 		var fac_loc: String = str(fac.get("location", ""))
+		if DEBUG and sample_fac_keys.size() < 3:
+			sample_fac_keys.append({"id": fac.get("id"), "location": fac_loc, "name": fac.get("name")})
 		if markets_by_fac.has(fac_loc):
 			sorted_facs.append(fac)
+		elif DEBUG and unmatched_facs.size() < 5:
+			unmatched_facs.append({"id": fac.get("id"), "location": fac_loc})
 	sorted_facs.sort_custom(
 		func(a: Dictionary, b: Dictionary) -> bool:
 			return str(a.get("name", "")) < str(b.get("name", ""))
 	)
+	if DEBUG:
+		print("[Market] _refresh — facility sample: %s" % [sample_fac_keys])
+		print("[Market] _refresh — matched=%d unmatched=%d (first unmatched: %s)" % [
+			sorted_facs.size(), GameState.facilities.size() - sorted_facs.size(), unmatched_facs,
+		])
 
 	# Price range per commodity for color coding current value
 	var min_prices: Dictionary = {}
@@ -139,6 +175,7 @@ func _refresh() -> void:
 			if pf > max_prices[commodity]:
 				max_prices[commodity] = pf
 
+	var rows_created: int = 0
 	for fac in sorted_facs:
 		var fac_loc: String = str(fac.get("location", ""))
 		var fac_name: String = str(fac.get("name", fac_loc))
@@ -149,6 +186,7 @@ func _refresh() -> void:
 
 		if not _rows.has(fac_loc):
 			_create_row(fac_loc, fac_name)
+			rows_created += 1
 
 		for commodity in KEY_COMMODITIES:
 			var cell: MarketCell = _cells[fac_loc][commodity]
@@ -174,6 +212,18 @@ func _refresh() -> void:
 				var t: float = (pf - mn) / (mx - mn)
 				color = Color.GREEN.lerp(Color.RED, t)
 			cell.update(text, color, samples, sh)
+
+	if DEBUG:
+		print("[Market] _refresh — rows_created=%d total_rows=%d rows_container_children=%d" % [
+			rows_created, _rows.size(),
+			rows_container.get_child_count() if rows_container else -1,
+		])
+		if _rows.size() > 0:
+			var first_key = _rows.keys()[0]
+			var first_row: Node = _rows[first_key]
+			print("[Market] _refresh — first row '%s' has %d children, visible=%s" % [
+				first_key, first_row.get_child_count(), first_row.visible,
+			])
 
 
 func _create_row(fac_loc: String, fac_name: String) -> void:

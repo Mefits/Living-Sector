@@ -133,6 +133,36 @@
       "from": "crucible-mine",
       "to": "deep-ice-station",
       "distance": 60
+    },
+    {
+      "from": "anvil-depot",
+      "to": "tc-ac-gate",
+      "distance": 40
+    },
+    {
+      "from": "forge-smelter",
+      "to": "tc-ac-gate",
+      "distance": 55
+    },
+    {
+      "from": "crucible-mine",
+      "to": "tc-ac-gate",
+      "distance": 65
+    },
+    {
+      "from": "frostheim-station",
+      "to": "tc-sol-gate",
+      "distance": 30
+    },
+    {
+      "from": "crucible-mine",
+      "to": "tc-sol-gate",
+      "distance": 70
+    },
+    {
+      "from": "anvil-depot",
+      "to": "tc-sol-gate",
+      "distance": 60
     }
   ],
   "facilities": [
@@ -380,6 +410,40 @@
         "polymers": 200,
         "components": 100
       }
+    },
+    {
+      "id": "facility-tc-sol-gate",
+      "name": "Frontier Portal",
+      "faction_id": "crucible-mining",
+      "location": "tc-sol-gate",
+      "body": "frostheim",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": [
+        "refuel",
+        "gate"
+      ],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-sol-tc-gate-outer-rim-gate"
+    },
+    {
+      "id": "facility-tc-ac-gate",
+      "name": "Anvil Junction",
+      "faction_id": "crucible-mining",
+      "location": "tc-ac-gate",
+      "body": "anvil",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": [
+        "refuel",
+        "gate"
+      ],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-ac-tc-gate-refuge-bridge"
     }
   ],
   "markets": [

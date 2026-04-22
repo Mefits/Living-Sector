@@ -43,6 +43,22 @@ var _add_facility_panel_scene: PackedScene = preload(
 var _facility_reserves_panel_scene: PackedScene = preload(
 	"res://scenes/ui/facility_reserves_panel.tscn"
 )
+# Phase 13 debug panels
+var _events_ticker_scene: PackedScene = preload(
+	"res://scenes/ui/events_ticker.tscn"
+)
+var _contract_board_scene: PackedScene = preload(
+	"res://scenes/ui/contract_board.tscn"
+)
+var _faction_ledger_scene: PackedScene = preload(
+	"res://scenes/ui/faction_ledger.tscn"
+)
+var _population_browser_scene: PackedScene = preload(
+	"res://scenes/ui/population_browser.tscn"
+)
+var _perf_overlay_scene: PackedScene = preload(
+	"res://scenes/ui/perf_overlay.tscn"
+)
 var _destroy_hover_script: GDScript = preload(
 	"res://scripts/ui/destroy_hover_indicator.gd"
 )
@@ -56,6 +72,11 @@ var _god_toolbar: Control
 var _add_ship_panel: Control
 var _add_facility_panel: Control
 var _facility_reserves_panel: Control
+var _events_ticker: Control
+var _contract_board: Control
+var _faction_ledger: Control
+var _population_browser: Control
+var _perf_overlay: Control
 var _destroy_hover: Control
 var _toast: VBoxContainer
 var _selection_ring: MeshInstance3D
@@ -168,6 +189,70 @@ func _on_report_loaded(data: Dictionary) -> void:
   _market_overlay.offset_top = 0.0
   _market_overlay.offset_bottom = 0.0
   hud.market_toggled.connect(func(): _market_overlay.toggle())
+
+  # --- Phase 13 inspector panels ---
+  # Contract board (near-fullscreen, like market overlay)
+  _contract_board = _contract_board_scene.instantiate()
+  hud.add_child(_contract_board)
+  _contract_board.anchor_left = 0.05
+  _contract_board.anchor_right = 0.95
+  _contract_board.anchor_top = 0.08
+  _contract_board.anchor_bottom = 0.92
+  hud.contracts_toggled.connect(func(): _contract_board.toggle())
+  _contract_board.contract_selected.connect(_on_contract_selected)
+
+  # Faction ledger (right side, above ship list)
+  _faction_ledger = _faction_ledger_scene.instantiate()
+  hud.add_child(_faction_ledger)
+  _faction_ledger.anchor_left = 1.0
+  _faction_ledger.anchor_right = 1.0
+  _faction_ledger.anchor_top = 0.0
+  _faction_ledger.offset_left = -580.0
+  _faction_ledger.offset_top = 40.0
+  _faction_ledger.offset_right = -10.0
+  _faction_ledger.offset_bottom = 360.0
+  hud.factions_toggled.connect(func(): _faction_ledger.toggle())
+
+  # Population browser (right side, mid)
+  _population_browser = _population_browser_scene.instantiate()
+  hud.add_child(_population_browser)
+  _population_browser.anchor_left = 1.0
+  _population_browser.anchor_right = 1.0
+  _population_browser.anchor_top = 0.0
+  _population_browser.offset_left = -640.0
+  _population_browser.offset_top = 40.0
+  _population_browser.offset_right = -10.0
+  _population_browser.offset_bottom = 440.0
+  hud.pops_toggled.connect(func(): _population_browser.toggle())
+
+  # Events ticker (bottom-right, narrow)
+  _events_ticker = _events_ticker_scene.instantiate()
+  hud.add_child(_events_ticker)
+  _events_ticker.anchor_left = 1.0
+  _events_ticker.anchor_right = 1.0
+  _events_ticker.anchor_top = 1.0
+  _events_ticker.anchor_bottom = 1.0
+  _events_ticker.offset_left = -540.0
+  _events_ticker.offset_top = -440.0
+  _events_ticker.offset_right = -10.0
+  _events_ticker.offset_bottom = -210.0
+  hud.events_toggled.connect(func(): _events_ticker.toggle())
+  _events_ticker.focus_requested.connect(_on_focus_requested)
+
+  # Perf overlay (top-right-ish, below speed buttons)
+  _perf_overlay = _perf_overlay_scene.instantiate()
+  hud.add_child(_perf_overlay)
+  _perf_overlay.anchor_left = 1.0
+  _perf_overlay.anchor_right = 1.0
+  _perf_overlay.anchor_top = 0.0
+  _perf_overlay.offset_left = -320.0
+  _perf_overlay.offset_top = 50.0
+  _perf_overlay.offset_right = -10.0
+  _perf_overlay.offset_bottom = 170.0
+  hud.perf_toggled.connect(func(): _perf_overlay.toggle())
+
+  # Step-debug wiring
+  hud.step_requested.connect(_on_step_requested)
 
   # God-mode toolbar (bottom-left)
   _god_toolbar = _god_toolbar_scene.instantiate()
@@ -294,10 +379,25 @@ func _process(delta: float) -> void:
   if _send_timer > 0.0:
     _send_timer -= delta
     if _send_timer <= 0.0:
-      var upos: Vector2 = _observer.get_universe_position()
-      NetworkManager.send_move_observer(
-        _observer.observer_id, upos.x, upos.y
+      # Always send a "camera" observer so the Rust spatial-LOD pass
+      # knows where the viewport is. Explicit Observer-mode still sends
+      # its own entry on top, but this one covers the common case of
+      # the user panning around without activating an observer. Radius
+      # scales with zoom — zoomed out = bigger attention volume.
+      var cam_universe_x: float = camera.position.x / GameState.SCALE_FACTOR
+      var cam_universe_y: float = camera.position.z / GameState.SCALE_FACTOR
+      var cam_radius: float = maxf(
+        5.0, GameState.zoom_raw / GameState.SCALE_FACTOR * 1.5
       )
+      NetworkManager.send_move_observer(
+        "camera", cam_universe_x, cam_universe_y, cam_radius
+      )
+      if _observer_active and _observer:
+        var upos: Vector2 = _observer.get_universe_position()
+        NetworkManager.send_move_observer(
+          _observer.observer_id, upos.x, upos.y
+        )
+      _send_timer = SEND_INTERVAL
 
   # Keep camera following the selected entity (ships move)
   if _selected_node and not _observer_active:
@@ -582,6 +682,35 @@ func _find_entity_node(id: String, type: String) -> Node3D:
 
 func _on_ship_list_selected(ship_id: String) -> void:
   _select_entity(ship_id, "ship", "")
+
+
+func _on_contract_selected(contract_id: String) -> void:
+  ## From the contracts panel — if the contract has a fulfiller_id,
+  ## select that ship. Otherwise no-op; the contract data itself is
+  ## visible in-row.
+  var contract = GameState.contracts.get(contract_id)
+  if contract is Dictionary:
+    var fulfiller = contract.get("fulfiller_id")
+    if fulfiller != null and str(fulfiller) != "":
+      _select_entity(str(fulfiller), "ship", "")
+
+
+func _on_focus_requested(agent_id: String) -> void:
+  ## From the events ticker — click an event and we try to pick the
+  ## right entity type from the id prefix.
+  if agent_id.begins_with("ship-"):
+    _select_entity(agent_id, "ship", "")
+  elif agent_id.begins_with("facility-"):
+    _select_entity(agent_id, "facility", "")
+  elif agent_id.begins_with("contract-"):
+    _on_contract_selected(agent_id)
+  else:
+    # Probably a location slug → jump camera there.
+    _on_location_selected(agent_id)
+
+
+func _on_step_requested(ticks: int) -> void:
+  NetworkManager.post_sim_control("step", {"ticks": ticks})
 
 
 func _on_location_selected(location: String) -> void:

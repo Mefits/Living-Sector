@@ -105,6 +105,16 @@ async fn main() -> Result<()> {
     let ticks_per_second = Arc::new(AtomicU32::new(config.ticks_per_second));
     let world_speed_bits = Arc::new(AtomicU32::new(config.world_speed.to_bits()));
     let agent_count = Arc::new(AtomicU64::new(agent_count_initial));
+    let tick_compute_p50_us = Arc::new(AtomicU64::new(0));
+    let tick_compute_p99_us = Arc::new(AtomicU64::new(0));
+    let observers: Arc<std::sync::RwLock<Vec<app_state::Observer>>> =
+        Arc::new(std::sync::RwLock::new(Vec::new()));
+    let lod_d1 = Arc::new(AtomicU64::new(0));
+    let lod_d2 = Arc::new(AtomicU64::new(0));
+    let lod_d5 = Arc::new(AtomicU64::new(0));
+    let lod_d10 = Arc::new(AtomicU64::new(0));
+    let lod_d20 = Arc::new(AtomicU64::new(0));
+    let lod_d50 = Arc::new(AtomicU64::new(0));
 
     let (broadcast_tx, _) = broadcast::channel(64);
     let (control_tx, control_rx) = mpsc::channel::<ControlCommand>(64);
@@ -121,6 +131,17 @@ async fn main() -> Result<()> {
         agent_count: agent_count.clone(),
         broadcast_tx: broadcast_tx.clone(),
         control_tx: control_tx.clone(),
+        db_path: Some(db_path.clone()),
+        db_pool: Arc::new(pool.clone()),
+        tick_compute_p50_us: tick_compute_p50_us.clone(),
+        tick_compute_p99_us: tick_compute_p99_us.clone(),
+        observers: observers.clone(),
+        lod_d1: lod_d1.clone(),
+        lod_d2: lod_d2.clone(),
+        lod_d5: lod_d5.clone(),
+        lod_d10: lod_d10.clone(),
+        lod_d20: lod_d20.clone(),
+        lod_d50: lod_d50.clone(),
     };
 
     // HTTP + WS server
@@ -164,6 +185,17 @@ async fn main() -> Result<()> {
         let interval_ms = interval_ms.clone();
         let ticks_per_second = ticks_per_second.clone();
         let world_speed_bits = world_speed_bits.clone();
+        let tick_compute_p50_us = tick_compute_p50_us.clone();
+        let tick_compute_p99_us = tick_compute_p99_us.clone();
+        let observers = observers.clone();
+        let lod_counters = (
+            lod_d1.clone(),
+            lod_d2.clone(),
+            lod_d5.clone(),
+            lod_d10.clone(),
+            lod_d20.clone(),
+            lod_d50.clone(),
+        );
         let broadcast_tx = broadcast_tx.clone();
         tokio::spawn(async move {
             engine::run_tick_loop(
@@ -176,6 +208,10 @@ async fn main() -> Result<()> {
                 interval_ms,
                 ticks_per_second,
                 world_speed_bits,
+                tick_compute_p50_us,
+                tick_compute_p99_us,
+                observers,
+                lod_counters,
                 broadcast_tx,
                 control_rx,
                 persist_tx,
@@ -230,7 +266,8 @@ async fn shutdown_signal() {
 }
 
 fn build_router(state: AppState) -> Router {
-    use http::api;
+    use axum::routing::delete;
+    use http::{admin, api};
     use tower_http::cors::{Any, CorsLayer};
 
     let cors = CorsLayer::new()
@@ -248,10 +285,24 @@ fn build_router(state: AppState) -> Router {
         .route("/api/populations", get(api::populations))
         .route("/api/factions", get(api::factions))
         .route("/api/positions", get(api::positions))
+        .route("/api/contracts", get(api::contracts))
+        .route("/api/observers", get(api::observers))
         .route("/api/agent/{id}", get(api::agent_by_id))
         .route("/api/sim/pause", post(api::sim_pause))
         .route("/api/sim/resume", post(api::sim_resume))
         .route("/api/sim/speed", post(api::sim_speed))
+        .route("/api/sim/step", post(api::sim_step))
+        // Phase 11g: admin (god-mode) endpoints.
+        .route("/api/admin/ships", post(admin::create_ship))
+        .route("/api/admin/ships/{id}", delete(admin::destroy_ship))
+        .route("/api/admin/facilities", post(admin::create_facility))
+        .route("/api/admin/facilities/{id}", delete(admin::destroy_facility))
+        .route(
+            "/api/admin/markets/{location}/supply",
+            post(admin::market_supply_delta),
+        )
+        .route("/api/admin/save", post(admin::save))
+        .route("/api/admin/save-as", post(admin::save_as))
         .with_state(state)
         .layer(cors)
 }

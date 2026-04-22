@@ -12,6 +12,19 @@ signal ship_removed(id: String)
 signal ship_added(id: String)
 signal facility_removed(id: String)
 signal facility_added(id: String)
+# Emitted after a facility_states WS broadcast is merged. Facility nodes
+# that render dock glow / reserves listen for this to redraw. Fires ~every
+# 2 s (tick % 16) at default pace.
+signal facility_states_updated
+# Emitted after population_states merge. Pop browser listens.
+signal populations_updated
+# Emitted after faction_states merge. Faction ledger listens.
+signal factions_updated
+# Emitted after contract_states merge. Contract board listens.
+signal contracts_updated
+# Fired once per incoming event (ship_docked, contract_delivered etc.)
+# so toasts + tickers can react without polling.
+signal event_received(event: Dictionary, tick: int)
 
 # World data keyed by id
 var ships: Dictionary = {}
@@ -22,12 +35,38 @@ var systems: Dictionary = {}
 var metrics: Dictionary = {}
 # factions keyed by short faction_id slug (e.g. "terran-authority")
 var factions: Dictionary = {}
+# Contract snapshot keyed by contract id. Refreshed every ~4s from the
+# contract_states broadcast. Same payload shape as /api/contracts.
+var contracts: Dictionary = {}
+# Rolling event ring buffer. Each entry = {tick, event: Dictionary}.
+# Capped at EVENT_BUFFER_SIZE most-recent events for the events ticker +
+# per-agent inspect trail to read without allocating.
+var event_log: Array = []
+const EVENT_BUFFER_SIZE := 400
+# Rolling perf sample from /api/health (p50 / p99 compute_us). Updated by
+# network_manager on /api/report refresh.
+var tick_compute_p50_us: int = 0
+var tick_compute_p99_us: int = 0
+# Spatial-LOD tier distribution (agent counts per divisor). Populated
+# from the same perf block. Perf HUD reads this to show "215 @ d=1,
+# 8 @ d=50" at a glance.
+var lod_d1: int = 0
+var lod_d2: int = 0
+var lod_d5: int = 0
+var lod_d10: int = 0
+var lod_d20: int = 0
+var lod_d50: int = 0
 
 # Simulation state
 var tick: int = 0
 var running: bool = false
 var tick_interval_ms: int = 125
 var tick_scale: float = 0.03125  # world_speed / ticks_per_second
+# Game-time multiplier (gameplay pace). Independent of tick_interval_ms
+# (which is resolution/smoothness). HUD speed buttons route here via
+# POST /api/sim/speed {world_speed: N}. Server echoes the current value
+# back on server_hello + sim_control_ack.
+var world_speed: float = 0.25
 # Rolling EMA of wall-clock gap between simulation:positions broadcasts.
 # NetworkManager maintains this; interpolation reads it instead of the
 # server-reported tick_interval_ms so ships visually scale with sim speed
@@ -167,6 +206,7 @@ func load_world_snapshot(data: Dictionary) -> void:
 	if config.size() > 0:
 		tick_interval_ms = int(config.get("tick_interval_ms", 125))
 		tick_scale = float(config.get("tick_scale", 0.03125))
+		world_speed = float(config.get("world_speed", world_speed))
 
 	# Index systems by id and extract offsets
 	systems.clear()
@@ -219,6 +259,21 @@ func refresh_world_data(data: Dictionary) -> void:
 	if config.size() > 0:
 		tick_interval_ms = int(config.get("tick_interval_ms", tick_interval_ms))
 		tick_scale = float(config.get("tick_scale", tick_scale))
+		world_speed = float(config.get("world_speed", world_speed))
+	# /api/health-style perf block lands here via /api/report metadata
+	# when the server is new enough to expose it. Safe fall-throughs.
+	var perf: Dictionary = data.get("perf", {})
+	if perf.size() > 0:
+		tick_compute_p50_us = int(perf.get("tick_compute_p50_us", tick_compute_p50_us))
+		tick_compute_p99_us = int(perf.get("tick_compute_p99_us", tick_compute_p99_us))
+		var lod: Dictionary = perf.get("lod", {})
+		if lod.size() > 0:
+			lod_d1 = int(lod.get("d1", 0))
+			lod_d2 = int(lod.get("d2", 0))
+			lod_d5 = int(lod.get("d5", 0))
+			lod_d10 = int(lod.get("d10", 0))
+			lod_d20 = int(lod.get("d20", 0))
+			lod_d50 = int(lod.get("d50", 0))
 
 	# Merge ship metadata (never touch position — WS handles that)
 	for ship in data.get("ships", []):
@@ -312,6 +367,113 @@ func update_markets(markets_array: Array) -> void:
 		if id == "":
 			continue
 		markets[id] = entry
+
+
+func update_facilities(facilities_array: Array) -> void:
+	## Full facility snapshot from the facility_states WS channel.
+	## Every field except `position` is overwritten — positions come from
+	## the per-tick positions broadcast and we never want a 2-second-stale
+	## position clobbering the live one.
+	for entry in facilities_array:
+		if not (entry is Dictionary):
+			continue
+		var id: String = str(entry.get("id", ""))
+		if id == "":
+			continue
+		if facilities.has(id):
+			for key in entry:
+				if key == "position":
+					continue
+				facilities[id][key] = entry[key]
+		else:
+			# New-to-us facility (admin spawn, reconnect). Copy wholesale.
+			facilities[id] = entry
+	facility_states_updated.emit()
+
+
+func update_populations_full(populations_array: Array) -> void:
+	## Full population snapshot from the population_states WS channel.
+	## Pop browser panel reacts via `populations_updated`.
+	for entry in populations_array:
+		if not (entry is Dictionary):
+			continue
+		var id: String = str(entry.get("id", ""))
+		if id == "":
+			continue
+		populations[id] = entry
+	populations_updated.emit()
+
+
+func update_factions_full(factions_array: Array) -> void:
+	## Full faction snapshot with treasury + active_subsidies. Merge into
+	## the existing `factions` dict keyed by short slug.
+	for entry in factions_array:
+		if not (entry is Dictionary):
+			continue
+		var slug: String = str(entry.get(
+			"faction_id", entry.get("id", "")
+		))
+		if slug == "":
+			continue
+		# Normalize keying: the report.endpoint uses "id", the broadcast
+		# uses short slug — strip the "faction-" prefix if present.
+		if slug.begins_with("faction-"):
+			slug = slug.substr(8)
+		factions[slug] = entry
+	factions_updated.emit()
+
+
+func update_contracts(contracts_array: Array) -> void:
+	## Replace the contract snapshot wholesale. The server already drops
+	## Paid/Expired entries from the broadcast, so we mirror by clearing
+	## stale keys that weren't in this batch.
+	var seen: Dictionary = {}
+	for entry in contracts_array:
+		if not (entry is Dictionary):
+			continue
+		var id: String = str(entry.get("id", ""))
+		if id == "":
+			continue
+		contracts[id] = entry
+		seen[id] = true
+	for id in contracts.keys():
+		if not seen.has(id):
+			contracts.erase(id)
+	contracts_updated.emit()
+
+
+func append_events(tick: int, events_array: Array) -> void:
+	## Push new events onto the ring buffer, capped at EVENT_BUFFER_SIZE.
+	## Fires `event_received(event, tick)` per entry so toasts / tickers
+	## update live without polling.
+	for ev in events_array:
+		if not (ev is Dictionary):
+			continue
+		event_log.append({"tick": tick, "event": ev})
+		event_received.emit(ev, tick)
+	if event_log.size() > EVENT_BUFFER_SIZE:
+		event_log = event_log.slice(event_log.size() - EVENT_BUFFER_SIZE)
+
+
+func events_for_agent(agent_id: String, limit: int = 50) -> Array:
+	## Filter the event ring for events mentioning `agent_id` (by id or
+	## ship-specific fields). Used by the inspect trail in details_panel.
+	var out: Array = []
+	var i := event_log.size() - 1
+	while i >= 0 and out.size() < limit:
+		var entry: Dictionary = event_log[i]
+		var ev: Dictionary = entry.get("event", {})
+		var matches := false
+		if str(ev.get("id", "")) == agent_id:
+			matches = true
+		elif str(ev.get("contract_id", "")) == agent_id:
+			matches = true
+		elif str(ev.get("location", "")) == agent_id:
+			matches = true
+		if matches:
+			out.append(entry)
+		i -= 1
+	return out
 
 
 func add_ship_local(ship_data: Dictionary) -> void:

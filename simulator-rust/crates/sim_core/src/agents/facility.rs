@@ -40,6 +40,79 @@ impl FacilityOperations {
     }
 }
 
+/// Lifecycle counters — level/XP, abandonment tracking, repair cooldown.
+/// Kept separate from `FacilityOperations` so the hot recipe-tick path
+/// doesn't load these rarely-changing fields into cache.
+///
+/// Matches Elixir `FacilityAgent` state fields:
+///   `level`, `xp`, `abandoned`, `abandon_counter`.
+#[derive(Debug, Clone)]
+pub struct FacilityLifecycle {
+    /// 1..=FACILITY_LEVEL_CAP. Higher level → more recipe batches per cycle.
+    pub level: u8,
+    /// Earned each recipe execution; spent to cross `level × 100` threshold.
+    pub xp: u32,
+    /// Ticks where {condition<0.1, tools==0, credits<100} all hold. Resets
+    /// to 0 if any condition becomes false; flips `abandoned` at
+    /// `FACILITY_ABANDON_THRESHOLD_TICKS`.
+    pub abandon_counter: u32,
+    /// When true, `tick_facilities` skips this facility entirely. Renders
+    /// as grey/dim on Godot (services list gets cleared in the snapshot).
+    pub abandoned: bool,
+    pub dirty: bool,
+}
+
+/// Jump-gate pair info. Attached only to facilities whose
+/// `facility_type == "gate"`. Links this gate to its counterpart in
+/// another system and carries the pricing + throughput knobs.
+///
+/// **Fee model**: `flat_fee + per_cargo_unit × ship.cargo.used()`. Small
+/// ships with light cargo pay close to the flat fee; loaded haulers pay
+/// more. A ship that can't afford the fee fails its plan and has to
+/// pick a shorter route — the point being that gate travel isn't
+/// automatically worth it for every contract.
+///
+/// **Throughput** is the number of ships the gate can jump per tick.
+/// A queue (Phase 18+) will back up when saturated; MVP drops the cap
+/// so a popular trade lane has traffic delays. Today the field is
+/// stored but the queue logic is deferred.
+#[derive(Debug, Clone)]
+pub struct GateLink {
+    /// Agent-id of the paired gate on the other side. Mirror-paired —
+    /// both entries point at each other.
+    pub paired_gate_id: String,
+    /// Flat fee in credits every ship pays to transit.
+    pub fee_flat: i64,
+    /// Additional credits per unit of cargo currently on board.
+    pub fee_per_cargo_unit: i64,
+    /// Max simultaneous jumpers per tick. Queue when exceeded.
+    /// Deferred — not yet enforced; seed conservative defaults.
+    pub throughput_cap: u32,
+}
+
+impl FacilityLifecycle {
+    pub fn new() -> Self {
+        Self {
+            level: 1,
+            xp: 0,
+            abandon_counter: 0,
+            abandoned: false,
+            dirty: false,
+        }
+    }
+
+    /// XP required to ding to `level + 1`. Matches Elixir `level * 100`.
+    pub fn next_level_threshold(&self) -> u32 {
+        self.level as u32 * 100
+    }
+}
+
+impl Default for FacilityLifecycle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Storage: resource reserves + currently docked ships + pending deliveries.
 #[derive(Debug, Clone, Default)]
 pub struct FacilityStorage {
@@ -85,12 +158,86 @@ pub struct FacilitySnapshot {
     pub reserves: std::collections::HashMap<String, f32>,
     /// Universe-space position, inherited from the facility's body.
     pub position: super::Position,
+    /// Facility level (1..=10). Higher levels run more recipe batches
+    /// per cycle. Progression is XP-driven.
+    pub level: u8,
+    pub xp: u32,
+    /// True when the facility has been broke + without tools + barely
+    /// maintained for `FACILITY_ABANDON_THRESHOLD_TICKS`. Godot greys out
+    /// abandoned stations and disables their services.
+    pub abandoned: bool,
+    /// Present only for gate facilities. Godot renders gates with a
+    /// distinct model and can draw the paired-gate arc for navigation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gate_link: Option<GateLinkSnapshot>,
+}
+
+/// Wire-facing shape of `GateLink`. Kept flat so Godot can consume
+/// without reimplementing the component type.
+#[derive(Debug, Clone, Serialize)]
+pub struct GateLinkSnapshot {
+    pub paired_gate_id: String,
+    pub fee_flat: i64,
+    pub fee_per_cargo_unit: i64,
+    pub throughput_cap: u32,
 }
 
 /// Radial offset (universe units) each facility sits from its body center.
 /// Matches the Elixir sim's 0.15 value. Small enough that facilities visually
 /// cluster around the planet, large enough to be distinct at gameplay zoom.
 pub const FACILITY_ORBIT_RADIUS: f32 = 0.15;
+
+/// Base docking fee charged when a ship docks. The final fee is scaled by
+/// occupancy (busier station = higher fee) and inversely by condition
+/// (run-down station = discount). Matches Elixir's `base_fee = 50`.
+pub const DOCKING_FEE_BASE: i64 = 50;
+
+/// Default flat gate transit fee. Every ship pays this on a jump.
+pub const DEFAULT_GATE_FEE_FLAT: i64 = 200;
+/// Default per-cargo-unit gate fee. Loaded haulers pay more; couriers
+/// near-empty pay almost just the flat fee. This is the knob that
+/// pressures small ships toward shorter multi-hop runs vs cross-system.
+pub const DEFAULT_GATE_FEE_PER_CARGO: i64 = 2;
+/// Default gate throughput (ships per tick). MVP: not enforced yet.
+pub const DEFAULT_GATE_THROUGHPUT: u32 = 3;
+
+/// Compute the transit fee a ship pays this gate based on cargo load.
+pub fn gate_transit_fee(link: &GateLink, cargo_used: u32) -> i64 {
+    link.fee_flat + link.fee_per_cargo_unit * cargo_used as i64
+}
+
+/// Fuel units transferred per refuel tick. Each Refuel action call drains
+/// this much from the facility's reserves and adds it to the ship's tank.
+/// At fuel_capacity=100 a full tank takes ~50 ticks (~6 s @ default tps=8)
+/// — slow enough that you can watch the fuel gauge tick up while the
+/// ship sits at the pad, which is the point.
+pub const REFUEL_UNITS_PER_TICK: f32 = 2.0;
+
+/// Price in credits per unit of fuel charged by a facility. Matches the
+/// Elixir station-fuel base price. Ships pay this to refuel from a
+/// facility's reserves.
+pub const REFUEL_PRICE_PER_UNIT: i64 = 2;
+
+/// Compute the docking fee the facility charges a ship.
+///
+/// Formula mirrors Elixir's `facility_agent.ex:request_dock`:
+///     fee = base × occupancy_multiplier × (2 - condition)
+/// where `occupancy_multiplier = 1 + docked_count / capacity` (full station
+/// doubles the fee) and a condition of 1.0 yields a 1× multiplier while
+/// 0.0 (ruin) doubles the fee.
+pub fn docking_fee(
+    base: i64,
+    docked_count: u32,
+    capacity: u32,
+    condition: f32,
+) -> i64 {
+    if capacity == 0 {
+        return base;
+    }
+    let occupancy_mult = 1.0 + (docked_count as f32) / (capacity as f32);
+    let condition_mult = (2.0 - condition.clamp(0.0, 1.0)).max(0.5);
+    ((base as f32) * occupancy_mult * condition_mult).round() as i64
+}
 
 /// Deterministic facility position around a body center.
 ///
@@ -118,23 +265,39 @@ pub fn facility_offset_position(body_center: (f32, f32), facility_id: &str) -> (
 }
 
 impl FacilitySnapshot {
+    #[allow(clippy::too_many_arguments)]
     pub fn build(
         identity: &FacilityIdentity,
         location: &FacilityLocation,
         ops: &FacilityOperations,
         storage: &FacilityStorage,
+        lifecycle: Option<&FacilityLifecycle>,
+        gate: Option<&GateLink>,
         position: super::Position,
+        docked_ship_ids: Vec<String>,
     ) -> Self {
-        // storage.docked_ships is Vec<hecs::Entity> and currently always
-        // empty — runtime docking doesn't yet attach ship→facility in the
-        // ECS. Emit an empty array so Godot's `is Array` check passes.
-        // When real docking lands, build this via a db_id → agent_id lookup.
-        let docked_ships: Vec<String> = Vec::new();
         let reserves: std::collections::HashMap<String, f32> = storage
             .reserves
             .iter()
             .map(|(c, &v)| (c.as_str().to_string(), v))
             .collect();
+        let (level, xp, abandoned) = lifecycle
+            .map(|l| (l.level, l.xp, l.abandoned))
+            .unwrap_or((1, 0, false));
+        // Abandoned stations quietly drop services so Godot stops showing
+        // them as destinations; the data is still readable to ships/UI
+        // that want to display "decommissioned".
+        let services = if abandoned {
+            Vec::new()
+        } else {
+            ops.services.clone()
+        };
+        let gate_link = gate.map(|g| GateLinkSnapshot {
+            paired_gate_id: g.paired_gate_id.clone(),
+            fee_flat: g.fee_flat,
+            fee_per_cargo_unit: g.fee_per_cargo_unit,
+            throughput_cap: g.throughput_cap,
+        });
         Self {
             id: identity.id.clone(),
             name: identity.name.clone(),
@@ -145,11 +308,15 @@ impl FacilitySnapshot {
             condition: ops.condition,
             reputation: ops.reputation,
             credits: ops.credits,
-            docked_ships,
+            docked_ships: docked_ship_ids,
             docking_capacity: ops.docking_capacity,
-            services: ops.services.clone(),
+            services,
             reserves,
             position,
+            level,
+            xp,
+            abandoned,
+            gate_link,
         }
     }
 }
@@ -185,64 +352,425 @@ pub const RECIPE_MAX_BATCHES: u32 = 20;
 /// Units of commodity added to market supply per cycle.
 pub const MINING_YIELD_PER_CYCLE: f32 = 80.0;
 
-pub fn tick_facilities(world: &mut hecs::World, tick: u64, tick_multiplier: u32) {
+// --- Phase 11c: condition / restock / contracts / leveling / abandonment ---
+
+/// Per-tick condition loss. Matches Elixir `0.0002 * tick_scale`.
+pub const CONDITION_DEGRADE_PER_TICK: f32 = 0.0002;
+/// Condition below this invites self-repair if tools available.
+pub const CONDITION_REPAIR_THRESHOLD: f32 = 0.8;
+/// Condition bump per tool consumed during self-repair.
+pub const CONDITION_REPAIR_PER_TOOL: f32 = 0.01;
+/// Interval (base-ticks) at which self-repair runs. Every 20×mult ticks.
+pub const REPAIR_INTERVAL_BASE: u64 = 20;
+
+/// Reserve floor below which the restock phase tries to top up.
+pub const RESERVE_RESTOCK_THRESHOLD: f32 = 100.0;
+/// Reserve ceiling the restock phase targets (caps restock quantity).
+pub const RESERVE_RESTOCK_TARGET: f32 = 500.0;
+/// Interval (base-ticks) between restock passes.
+pub const RESTOCK_INTERVAL_BASE: u64 = 20;
+/// Commodities a facility tries to keep in reserve. Elixir stores fuel /
+/// food / tools / water as the crew-essentials set.
+pub const RESTOCK_COMMODITIES: &[Commodity] = &[
+    Commodity::Fuel,
+    Commodity::Food,
+    Commodity::Tools,
+    Commodity::Water,
+];
+
+/// Recipe input commodities a facility posts *market-supply* delivery
+/// contracts for (distinct from `RESTOCK_COMMODITIES`, which are for the
+/// facility's own reserves). Keyed by `facility_type`. When the local
+/// market has been chronically short on one of these — meaning the
+/// facility's recipes are starving — the facility posts a delivery
+/// contract to pull supply in from elsewhere. Without this, mining
+/// outputs pile up at the source but never reach the refiners/factories
+/// that need them, and the upper-tier supply chain collapses.
+///
+/// Mining rigs aren't listed — they produce, not consume.
+pub fn recipe_input_commodities(facility_type: &str) -> &'static [Commodity] {
+    use Commodity::*;
+    match facility_type {
+        "refinery" => &[Ore, Gas, Fuel],
+        "factory" => &[Metals, Polymers, Ice],
+        "farm" => &[Water, Fuel],
+        _ => &[],
+    }
+}
+
+/// Interval (base-ticks) between contract-posting passes. Every 50×mult.
+pub const CONTRACT_POST_INTERVAL_BASE: u64 = 50;
+/// Max delivery contracts a facility can have posted at once. Bumped from
+/// 2 → 4 when we added recipe-input contracts on top of crew-essential
+/// contracts — otherwise refineries hit the cap posting ore and can't
+/// post fuel/food contracts too.
+pub const MAX_ACTIVE_DELIVERIES_PER_FACILITY: usize = 4;
+/// Contract lifespan (base ticks) before Expired. Matches Elixir's 500×mult.
+pub const FACILITY_DELIVERY_LIFESPAN_BASE: u64 = 500;
+/// Reserve quantity requested per delivery contract. 50 (down from 100):
+/// smaller contracts mean cheaper payments, so facilities can post more
+/// contracts per cycle without bankrupting themselves. Also fits couriers
+/// (cargo_capacity=50).
+pub const DELIVERY_CONTRACT_QTY: u32 = 50;
+/// Base payment-per-unit floor. The real payment for a contract is
+/// `max(QTY × BASE, src_price × QTY × delivery_multiplier)` — the flat
+/// floor only wins when source prices are unusually cheap. Tuned to 40
+/// so a commodity at the price floor (1.0) still produces a reasonable
+/// 2k-cr contract.
+pub const DELIVERY_CONTRACT_BASE_PAYMENT_PER_UNIT: i64 = 40;
+/// How much shortage a market needs to show before the facility's
+/// recipe-input contract fires. Lower than the crew-essentials threshold
+/// because refinery starvation cascades into the tier-2/tier-3 supply
+/// chain quickly; we want to react before the chain breaks.
+pub const RECIPE_INPUT_SHORTAGE_THRESHOLD: u32 = 15;
+
+/// Facility XP threshold multiplier (level × 100) — see `next_level_threshold`.
+pub const FACILITY_LEVEL_CAP: u8 = 10;
+/// XP granted per recipe batch executed. Elixir: +recipe_count per tick.
+pub const FACILITY_XP_PER_RECIPE: u32 = 1;
+
+/// Interval (base-ticks) for crew-mission posting attempts. Matches
+/// Elixir's `maybe_post_crew_missions` cadence (one shot per facility
+/// tick pass, gated by a probability check).
+pub const CREW_MISSION_POST_INTERVAL_BASE: u64 = 100;
+/// Fraction of facilities that post a crew mission per cycle. Keeps the
+/// board from being flooded with short-burst mission fodder.
+pub const CREW_MISSION_POST_PROBABILITY: f32 = 0.25;
+/// Max active crew missions per facility. Elixir uses 1.
+pub const CREW_MISSION_MAX_ACTIVE_PER_FACILITY: usize = 1;
+
+/// Interval (base-ticks) for abandonment-check bumps.
+pub const ABANDON_CHECK_INTERVAL_BASE: u64 = 10;
+/// Ticks of triple-failure (low condition + no tools + low credits) before
+/// the facility flips to `abandoned = true`. Matches Elixir's `200`.
+pub const FACILITY_ABANDON_THRESHOLD_TICKS: u32 = 200;
+
+pub fn tick_facilities(
+    world: &mut hecs::World,
+    contracts: &mut crate::economy::contracts::ContractBoard,
+    tick: u64,
+    tick_scale: f32,
+    tick_multiplier: u32,
+) {
     let mult = tick_multiplier as u64;
     let recipe_interval = RECIPE_INTERVAL_BASE * mult;
     let mining_interval = MINING_INTERVAL_BASE * mult;
+    let repair_interval = REPAIR_INTERVAL_BASE * mult;
+    let restock_interval = RESTOCK_INTERVAL_BASE * mult;
+    let contract_interval = CONTRACT_POST_INTERVAL_BASE * mult;
+    let abandon_interval = ABANDON_CHECK_INTERVAL_BASE * mult;
 
-    if tick % recipe_interval != 0 && tick % mining_interval != 0 {
-        return;
+    // Phase 1: condition degrade (every tick; cheap — one field write).
+    tick_degrade_condition(world, tick_scale);
+
+    // Phase 2: self-repair (every 20×mult ticks).
+    if repair_interval > 0 && tick % repair_interval == 0 {
+        tick_self_repair(world);
     }
 
-    // Build location → market_entity index once (needed to route recipe I/O)
+    // Phase 3: abandonment check (every 10×mult ticks).
+    if abandon_interval > 0 && tick % abandon_interval == 0 {
+        tick_abandonment(world);
+    }
+
+    // Phase 4: restock reserves from local market (every 20×mult ticks).
+    if restock_interval > 0 && tick % restock_interval == 0 {
+        tick_restock(world);
+    }
+
+    // Phase 5: recipes + mining + XP (every 5×mult ticks).
+    if tick % recipe_interval == 0 || tick % mining_interval == 0 {
+        tick_recipes_and_mining(world, tick, tick_multiplier);
+    }
+
+    // Phase 6: post delivery + courier contracts (every 50×mult ticks).
+    if contract_interval > 0 && tick % contract_interval == 0 {
+        tick_post_contracts(world, contracts, tick, tick_multiplier);
+    }
+
+    // Phase 7: post crew missions (every 100×mult ticks, probabilistic).
+    let crew_mission_interval = CREW_MISSION_POST_INTERVAL_BASE * mult;
+    if crew_mission_interval > 0 && tick % crew_mission_interval == 0 {
+        tick_post_crew_missions(world, contracts, tick, tick_multiplier);
+    }
+}
+
+/// Phase 1: condition drifts down every tick. Abandoned facilities are
+/// already dead and skip this.
+fn tick_degrade_condition(world: &mut hecs::World, tick_scale: f32) {
+    let delta = CONDITION_DEGRADE_PER_TICK * tick_scale;
+    for (_e, (ops, life)) in world
+        .query_mut::<(&mut FacilityOperations, &FacilityLifecycle)>()
+    {
+        if life.abandoned {
+            continue;
+        }
+        ops.condition = (ops.condition - delta).max(0.0);
+    }
+}
+
+/// Phase 2: consume one Tool to bump condition. Only if condition is
+/// already below REPAIR_THRESHOLD and reserves[Tools] > 0. Matches Elixir
+/// `facility_agent.ex:maybe_self_repair`.
+fn tick_self_repair(world: &mut hecs::World) {
+    for (_e, (ops, storage, life)) in world
+        .query_mut::<(
+            &mut FacilityOperations,
+            &mut FacilityStorage,
+            &mut FacilityLifecycle,
+        )>()
+    {
+        if life.abandoned || ops.condition >= CONDITION_REPAIR_THRESHOLD {
+            continue;
+        }
+        let tools = storage.reserves.get(&Commodity::Tools).copied().unwrap_or(0.0);
+        if tools < 1.0 {
+            continue;
+        }
+        *storage.reserves.entry(Commodity::Tools).or_insert(0.0) = (tools - 1.0).max(0.0);
+        ops.condition = (ops.condition + CONDITION_REPAIR_PER_TOOL).min(1.0);
+        ops.dirty = true;
+        life.dirty = true;
+    }
+}
+
+/// Phase 3: advance abandonment countdown. A facility is "dying" if
+/// condition < 0.1 AND no tools AND credits < 100. Hold the dying state
+/// for ABANDON_THRESHOLD_TICKS and it flips to `abandoned`. Any recovery
+/// (tools restock, credits returning, repair) resets the counter.
+fn tick_abandonment(world: &mut hecs::World) {
+    for (_e, (ops, storage, life)) in world
+        .query_mut::<(
+            &FacilityOperations,
+            &FacilityStorage,
+            &mut FacilityLifecycle,
+        )>()
+    {
+        if life.abandoned {
+            continue;
+        }
+        let tools = storage.reserves.get(&Commodity::Tools).copied().unwrap_or(0.0);
+        let dying = ops.condition < 0.1 && tools < 1.0 && ops.credits < 100;
+        if dying {
+            life.abandon_counter = life.abandon_counter.saturating_add(1);
+            if life.abandon_counter >= FACILITY_ABANDON_THRESHOLD_TICKS {
+                life.abandoned = true;
+            }
+            life.dirty = true;
+        } else if life.abandon_counter > 0 {
+            life.abandon_counter = 0;
+            life.dirty = true;
+        }
+    }
+}
+
+/// Phase 4: restock reserves from the local market. For each target
+/// commodity below RESERVE_RESTOCK_THRESHOLD, buy up to
+/// (RESTOCK_TARGET - current) at market price, capped by facility credits.
+/// Deducts market supply, pays the facility's credits out, adds to reserves.
+/// This is in-process (facility + market in same world), so we can do it
+/// directly rather than via SimCommand.
+fn tick_restock(world: &mut hecs::World) {
+    // Collect facility entities + their locations first to avoid borrow
+    // conflicts while reading both facility and market components.
+    let facility_entries: Vec<(hecs::Entity, String)> = world
+        .query::<(&FacilityLocation, &FacilityLifecycle)>()
+        .iter()
+        .filter_map(|(e, (loc, life))| {
+            if life.abandoned {
+                None
+            } else {
+                Some((e, loc.location_name.clone()))
+            }
+        })
+        .collect();
+
+    // Build location → market_entity map once.
     let market_at_location: std::collections::HashMap<String, hecs::Entity> = world
         .query::<&MarketIdentity>()
         .iter()
         .map(|(e, id)| (id.facility_location.clone(), e))
         .collect();
 
-    // Build body_id_str → body_entity index for mining rigs
+    for (fac_entity, loc) in facility_entries {
+        let market_entity = match market_at_location.get(&loc) {
+            Some(&e) => e,
+            None => continue,
+        };
+
+        // Snapshot the market's prices + supply (read).
+        let prices: std::collections::HashMap<Commodity, (f32, f32)> = match world
+            .get::<&MarketPricing>(market_entity)
+        {
+            Ok(p) => RESTOCK_COMMODITIES
+                .iter()
+                .filter_map(|&c| {
+                    let price = p.prices.get(&c).copied().unwrap_or(0.0);
+                    let supply = p.supply.get(&c).copied().unwrap_or(0.0);
+                    if price > 0.0 {
+                        Some((c, (price, supply)))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+            Err(_) => continue,
+        };
+        if prices.is_empty() {
+            continue;
+        }
+
+        // Compute each commodity's purchase for this facility.
+        #[derive(Clone)]
+        struct Buy {
+            commodity: Commodity,
+            qty: f32,
+            cost: i64,
+        }
+        let purchases: Vec<Buy> = {
+            let mut out: Vec<Buy> = Vec::new();
+            let storage = match world.get::<&FacilityStorage>(fac_entity) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let ops = match world.get::<&FacilityOperations>(fac_entity) {
+                Ok(o) => o,
+                Err(_) => continue,
+            };
+            let mut remaining = ops.credits;
+            for (commodity, (price, market_supply)) in prices.iter() {
+                let current = storage.reserves.get(commodity).copied().unwrap_or(0.0);
+                if current >= RESERVE_RESTOCK_THRESHOLD {
+                    continue;
+                }
+                let need = RESERVE_RESTOCK_TARGET - current;
+                let max_affordable = (remaining as f32 / price).max(0.0);
+                let available = market_supply.max(0.0);
+                let qty = need.min(max_affordable).min(available).floor();
+                if qty < 1.0 {
+                    continue;
+                }
+                let cost = (price * qty).round() as i64;
+                if cost <= 0 || cost > remaining {
+                    continue;
+                }
+                remaining -= cost;
+                out.push(Buy {
+                    commodity: *commodity,
+                    qty,
+                    cost,
+                });
+            }
+            out
+        };
+        if purchases.is_empty() {
+            continue;
+        }
+
+        // Apply: debit facility credits, increment reserves, debit market supply.
+        let total_cost: i64 = purchases.iter().map(|b| b.cost).sum();
+        if let Ok(mut ops) = world.get::<&mut FacilityOperations>(fac_entity) {
+            if ops.credits < total_cost {
+                continue;
+            }
+            ops.credits -= total_cost;
+            ops.dirty = true;
+        }
+        if let Ok(mut storage) = world.get::<&mut FacilityStorage>(fac_entity) {
+            for buy in &purchases {
+                *storage.reserves.entry(buy.commodity).or_insert(0.0) += buy.qty;
+            }
+        }
+        if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
+            for buy in &purchases {
+                let s = pricing.supply.entry(buy.commodity).or_insert(0.0);
+                *s = (*s - buy.qty).max(0.0);
+            }
+        }
+    }
+}
+
+/// Phase 5: recipes + mining + XP. Runs every 5×mult ticks. Skips
+/// abandoned facilities. Each recipe batch executed grants XP; crossing
+/// the level × 100 threshold increments level (capped at
+/// `FACILITY_LEVEL_CAP`) and boosts `max_batches` future runs via the
+/// `level_scaled_max_batches` helper.
+fn tick_recipes_and_mining(world: &mut hecs::World, tick: u64, tick_multiplier: u32) {
+    let mult = tick_multiplier as u64;
+    let recipe_interval = RECIPE_INTERVAL_BASE * mult;
+    let mining_interval = MINING_INTERVAL_BASE * mult;
+
+    // Location → market_entity and body_id → body_entity indexes.
+    let market_at_location: std::collections::HashMap<String, hecs::Entity> = world
+        .query::<&MarketIdentity>()
+        .iter()
+        .map(|(e, id)| (id.facility_location.clone(), e))
+        .collect();
     let body_by_string_id: std::collections::HashMap<String, hecs::Entity> = world
         .query::<&BodyIdentity>()
         .iter()
         .map(|(e, id)| (id.body_id.clone(), e))
         .collect();
 
-    // Collect facility info upfront to avoid nested mutable borrows.
+    // Facility snapshot — include entity so we can update XP in place.
     #[derive(Clone)]
     struct FacilityInfo {
+        entity: hecs::Entity,
         facility_type: String,
         location_name: String,
         body_id: String,
+        level: u8,
+        abandoned: bool,
     }
     let facilities: Vec<FacilityInfo> = world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .query::<(&FacilityIdentity, &FacilityLocation, &FacilityLifecycle)>()
         .iter()
-        .map(|(_e, (id, loc))| FacilityInfo {
+        .map(|(e, (id, loc, life))| FacilityInfo {
+            entity: e,
             facility_type: id.facility_type.clone(),
             location_name: loc.location_name.clone(),
             body_id: id.body_id.clone(),
+            level: life.level,
+            abandoned: life.abandoned,
         })
         .collect();
 
     if tick % recipe_interval == 0 {
         for fac in &facilities {
+            if fac.abandoned {
+                continue;
+            }
             let market_entity = match market_at_location.get(&fac.location_name) {
                 Some(&e) => e,
                 None => continue,
             };
-            // Execute every recipe for this facility type against the market supply
+            let max_batches = level_scaled_max_batches(fac.level);
+            // Count recipes that actually produced output — XP only grows
+            // when real work happens. Elixir increments XP by the number
+            // of recipes that ran successfully each cycle.
+            let mut recipes_run: u32 = 0;
             if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
                 for recipe in recipes::for_facility_type(&fac.facility_type) {
-                    let _ = recipes::execute(recipe, &mut pricing.supply, 1.0, RECIPE_MAX_BATCHES);
+                    let produced = recipes::execute(
+                        recipe,
+                        &mut pricing.supply,
+                        1.0,
+                        max_batches,
+                    );
+                    if !produced.is_empty() {
+                        recipes_run += 1;
+                    }
                 }
+            }
+            if recipes_run > 0 {
+                grant_facility_xp(world, fac.entity, recipes_run);
             }
         }
     }
 
     if tick % mining_interval == 0 {
         for fac in &facilities {
-            if fac.facility_type != "mining_rig" {
+            if fac.abandoned || fac.facility_type != "mining_rig" {
                 continue;
             }
             let market_entity = match market_at_location.get(&fac.location_name) {
@@ -253,11 +781,11 @@ pub fn tick_facilities(world: &mut hecs::World, tick: u64, tick_multiplier: u32)
                 Some(&e) => e,
                 None => continue,
             };
-            // Take a snapshot of body resources to avoid the simultaneous borrow
-            let body_resources: Vec<(Commodity, f32)> = match world.get::<&BodyResources>(body_entity) {
-                Ok(r) => r.resources.iter().map(|(&c, &v)| (c, v)).collect(),
-                Err(_) => continue,
-            };
+            let body_resources: Vec<(Commodity, f32)> =
+                match world.get::<&BodyResources>(body_entity) {
+                    Ok(r) => r.resources.iter().map(|(&c, &v)| (c, v)).collect(),
+                    Err(_) => continue,
+                };
             if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
                 for (commodity, richness) in body_resources {
                     if richness <= 0.0 {
@@ -268,5 +796,461 @@ pub fn tick_facilities(world: &mut hecs::World, tick: u64, tick_multiplier: u32)
                 }
             }
         }
+    }
+}
+
+/// Scale `RECIPE_MAX_BATCHES` by facility level. Level 1 → base; level 10 →
+/// 2.9× base. Prevents a maxed-out factory from drowning the market in
+/// one tick.
+pub fn level_scaled_max_batches(level: u8) -> u32 {
+    let lvl = level.clamp(1, FACILITY_LEVEL_CAP) as f32;
+    ((RECIPE_MAX_BATCHES as f32) * (1.0 + (lvl - 1.0) * 0.2)).round() as u32
+}
+
+/// Grant XP to a facility; level up when `xp >= next_level_threshold`.
+pub fn grant_facility_xp(world: &mut hecs::World, entity: hecs::Entity, batches: u32) {
+    if let Ok(mut life) = world.get::<&mut FacilityLifecycle>(entity) {
+        if life.abandoned {
+            return;
+        }
+        life.xp = life.xp.saturating_add(batches * FACILITY_XP_PER_RECIPE);
+        while life.xp >= life.next_level_threshold() && life.level < FACILITY_LEVEL_CAP {
+            life.xp -= life.next_level_threshold();
+            life.level += 1;
+            life.dirty = true;
+        }
+        life.dirty = true;
+    }
+}
+
+/// Phase 6: post delivery contracts when a commodity has been short for
+/// long enough. Each facility posts at most `MAX_ACTIVE_DELIVERIES_PER_FACILITY`
+/// contracts at a time. Source is left open (the ship planner looks at
+/// price memory to pick where to buy). Payment scales with quantity.
+fn tick_post_contracts(
+    world: &mut hecs::World,
+    contracts: &mut crate::economy::contracts::ContractBoard,
+    tick: u64,
+    tick_multiplier: u32,
+) {
+    use crate::agents::market::MarketHistory;
+    let lifespan = FACILITY_DELIVERY_LIFESPAN_BASE * tick_multiplier as u64;
+
+    // Snapshot facility + market data to decide postings, then call the
+    // mutable ContractBoard at the end.
+    #[derive(Clone)]
+    struct Plan {
+        requestor_id: String,
+        commodity: Commodity,
+        destination: String,
+        source: String,
+        payment: i64,
+    }
+
+    // location → market_history for shortage lookup. Elixir's
+    // shortage_ticks is a tick counter; we use u32 to match `MarketHistory`.
+    let shortage_by_location: std::collections::HashMap<String, std::collections::HashMap<Commodity, u32>> =
+        world
+            .query::<(&MarketIdentity, &MarketHistory)>()
+            .iter()
+            .map(|(_e, (id, hist))| (id.facility_location.clone(), hist.shortage_ticks.clone()))
+            .collect();
+    let supply_by_location: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> =
+        world
+            .query::<(&MarketIdentity, &MarketPricing)>()
+            .iter()
+            .map(|(_e, (id, pricing))| (id.facility_location.clone(), pricing.supply.clone()))
+            .collect();
+    let price_by_location: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> =
+        world
+            .query::<(&MarketIdentity, &MarketPricing)>()
+            .iter()
+            .map(|(_e, (id, pricing))| (id.facility_location.clone(), pricing.prices.clone()))
+            .collect();
+
+    // Pick a fallback source location per commodity: the location with the
+    // highest current supply for that commodity.
+    let source_for_commodity = |commodity: Commodity| -> Option<String> {
+        supply_by_location
+            .iter()
+            .map(|(loc, sup)| (loc, sup.get(&commodity).copied().unwrap_or(0.0)))
+            .filter(|(_, s)| *s > 50.0)
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(loc, _)| loc.clone())
+    };
+
+    // Compute the payment the facility offers for a delivery contract.
+    // Must be high enough that a ship's `buy_cost` at the CURRENT source
+    // market price, plus gate fees, leaves a meaningful profit — otherwise
+    // the ship planner's `cost >= payment` check rejects every contract
+    // and nothing ever gets accepted. We take the MAX of:
+    //   1. The flat base payment (`QTY × BASE_PAYMENT_PER_UNIT`).
+    //   2. `src_price × QTY × delivery_multiplier` — covers the market
+    //      cost of buying at source plus a 30% delivery premium.
+    // Cap at what the facility can pay (else we'd post contracts we
+    // can't honor).
+    let compute_delivery_payment = |commodity: Commodity,
+                                    source: &str,
+                                    fac_credits: i64|
+     -> i64 {
+        let flat = (DELIVERY_CONTRACT_QTY as i64) * DELIVERY_CONTRACT_BASE_PAYMENT_PER_UNIT;
+        let src_price = price_by_location
+            .get(source)
+            .and_then(|m| m.get(&commodity))
+            .copied()
+            .unwrap_or(0.0);
+        let market_based =
+            (src_price * DELIVERY_CONTRACT_QTY as f32 * 1.3).round() as i64;
+        flat.max(market_based).min(fac_credits)
+    };
+
+    let mut plans: Vec<Plan> = Vec::new();
+    for (_e, (id, loc, life, storage, ops)) in world
+        .query::<(
+            &FacilityIdentity,
+            &FacilityLocation,
+            &FacilityLifecycle,
+            &FacilityStorage,
+            &FacilityOperations,
+        )>()
+        .iter()
+    {
+        if life.abandoned {
+            continue;
+        }
+        // Skip if facility already has too many active deliveries.
+        let active = contracts
+            .iter()
+            .filter(|c| c.requestor_id == id.id)
+            .filter(|c| {
+                matches!(
+                    c.status,
+                    crate::economy::contracts::ContractStatus::Posted
+                        | crate::economy::contracts::ContractStatus::Accepted
+                        | crate::economy::contracts::ContractStatus::PickedUp
+                )
+            })
+            .count();
+        if active >= MAX_ACTIVE_DELIVERIES_PER_FACILITY {
+            continue;
+        }
+
+        // Look at each tracked-reserve commodity. A facility posts a
+        // delivery contract when BOTH its own reserve is critically low
+        // AND the local market has been short for sustained ticks.
+        let market_shortage = shortage_by_location
+            .get(&loc.location_name)
+            .cloned()
+            .unwrap_or_default();
+
+        let can_afford = ops.credits
+            >= (DELIVERY_CONTRACT_QTY as i64) * DELIVERY_CONTRACT_BASE_PAYMENT_PER_UNIT;
+
+        // --- Crew-essentials contracts (fuel/food/tools/water) ---
+        // Fires when the facility's OWN RESERVES are low AND the local
+        // market is chronically short, so docking ships can't refuel
+        // either. Note: we DON'T early-exit after this cycle so a
+        // refinery can post both a fuel-restock contract AND a recipe-
+        // input contract in the same cycle (up to
+        // `MAX_ACTIVE_DELIVERIES_PER_FACILITY`).
+        if can_afford {
+            for &commodity in RESTOCK_COMMODITIES {
+                let reserve = storage.reserves.get(&commodity).copied().unwrap_or(0.0);
+                if reserve >= RESERVE_RESTOCK_THRESHOLD {
+                    continue;
+                }
+                let shortage: u32 = market_shortage.get(&commodity).copied().unwrap_or(0);
+                if shortage < 30 {
+                    continue;
+                }
+                let Some(source) = source_for_commodity(commodity) else {
+                    continue;
+                };
+                if source == loc.location_name {
+                    continue;
+                }
+                let payment = compute_delivery_payment(commodity, &source, ops.credits);
+                if payment <= 0 {
+                    continue;
+                }
+                plans.push(Plan {
+                    requestor_id: id.id.clone(),
+                    commodity,
+                    destination: loc.location_name.clone(),
+                    source,
+                    payment,
+                });
+                break;
+            }
+        }
+
+        // --- Recipe-input contracts (ore/gas/metals/polymers/...) ---
+        // For producer facility types (refinery/factory/farm), post
+        // contracts pulling RAW MATERIALS into the LOCAL MARKET so the
+        // recipe tick actually has supply to consume. This is the fix for
+        // the "ore piles up at the mine but refineries starve" failure
+        // mode. No reserve check — recipes eat directly from market
+        // supply — only a market-supply + shortage check.
+        if can_afford {
+            let local_supply = supply_by_location
+                .get(&loc.location_name)
+                .cloned()
+                .unwrap_or_default();
+            for &commodity in recipe_input_commodities(&id.facility_type) {
+                let on_market = local_supply.get(&commodity).copied().unwrap_or(0.0);
+                // "Short" is market supply well below a recipe-batch's
+                // worth, so buying only restores a few cycles of input.
+                if on_market >= 100.0 {
+                    continue;
+                }
+                let shortage: u32 = market_shortage.get(&commodity).copied().unwrap_or(0);
+                if shortage < RECIPE_INPUT_SHORTAGE_THRESHOLD {
+                    continue;
+                }
+                let Some(source) = source_for_commodity(commodity) else {
+                    continue;
+                };
+                if source == loc.location_name {
+                    continue;
+                }
+                let payment = compute_delivery_payment(commodity, &source, ops.credits);
+                if payment <= 0 {
+                    continue;
+                }
+                plans.push(Plan {
+                    requestor_id: id.id.clone(),
+                    commodity,
+                    destination: loc.location_name.clone(),
+                    source,
+                    payment,
+                });
+                break;
+            }
+        }
+    }
+
+    // Apply the plans by posting to the board + debiting facility credits.
+    // Iterate plans, resolve requestor facility entity, deduct payment.
+    for plan in plans {
+        // Find facility by requestor_id (= FacilityIdentity.id).
+        let fac_entity = world
+            .query::<&FacilityIdentity>()
+            .iter()
+            .find(|(_, id)| id.id == plan.requestor_id)
+            .map(|(e, _)| e);
+        let Some(fac_entity) = fac_entity else { continue };
+        if let Ok(mut ops) = world.get::<&mut FacilityOperations>(fac_entity) {
+            if ops.credits < plan.payment {
+                continue;
+            }
+            ops.credits -= plan.payment;
+            ops.dirty = true;
+        }
+        contracts.post_delivery(
+            plan.requestor_id,
+            plan.commodity,
+            DELIVERY_CONTRACT_QTY,
+            plan.source,
+            plan.destination,
+            plan.payment,
+            tick,
+            lifespan,
+        );
+    }
+}
+
+/// Phase 7: post crew missions. Each eligible facility has a 25% chance
+/// per cycle to post a new mission (if it has <MAX_ACTIVE active and
+/// enough treasury). Mission templates come from `economy::missions`;
+/// the picked template's `duration_ticks` becomes the contract's
+/// quantity field, and the category slug rides along in
+/// `Contract.mission_category` so the apply phase can look it back up.
+fn tick_post_crew_missions(
+    world: &mut hecs::World,
+    contracts: &mut crate::economy::contracts::ContractBoard,
+    tick: u64,
+    tick_multiplier: u32,
+) {
+    use crate::economy::missions;
+
+    #[derive(Clone)]
+    struct Candidate {
+        fac_id: String,
+        faction_id: String,
+        facility_type: String,
+        location: String,
+        credits: i64,
+    }
+    // Deterministic "coin flip" using (facility_id + tick) hash so the
+    // behavior stays reproducible in tests. Matches sim_core's no-rand
+    // convention for tick logic.
+    fn hash_flip(key: &str, tick: u64, prob: f32) -> bool {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut h);
+        tick.hash(&mut h);
+        let roll = (h.finish() % 1000) as f32 / 1000.0;
+        roll < prob
+    }
+
+    let candidates: Vec<Candidate> = world
+        .query::<(
+            &FacilityIdentity,
+            &FacilityLocation,
+            &FacilityLifecycle,
+            &FacilityOperations,
+        )>()
+        .iter()
+        .filter(|(_, (_, _, life, _))| !life.abandoned)
+        .filter_map(|(_, (id, loc, _, ops))| {
+            missions::for_facility_type(&id.facility_type).next()?;
+            Some(Candidate {
+                fac_id: id.id.clone(),
+                faction_id: id.faction_id.clone(),
+                facility_type: id.facility_type.clone(),
+                location: loc.location_name.clone(),
+                credits: ops.credits,
+            })
+        })
+        .collect();
+
+    let lifespan = 200 * tick_multiplier as u64; // short-lived gigs
+
+    for cand in candidates {
+        // Active mission cap.
+        let active = contracts
+            .iter()
+            .filter(|c| {
+                c.requestor_id == cand.fac_id
+                    && c.contract_type == crate::economy::contracts::ContractType::CrewMission
+                    && matches!(
+                        c.status,
+                        crate::economy::contracts::ContractStatus::Posted
+                            | crate::economy::contracts::ContractStatus::Accepted
+                            | crate::economy::contracts::ContractStatus::PickedUp
+                    )
+            })
+            .count();
+        if active >= CREW_MISSION_MAX_ACTIVE_PER_FACILITY {
+            continue;
+        }
+        if !hash_flip(&cand.fac_id, tick, CREW_MISSION_POST_PROBABILITY) {
+            continue;
+        }
+        // Pick a mission template — rotate through the facility's options
+        // using tick as a selector so we don't always post the same one.
+        let templates: Vec<&'static missions::Mission> =
+            missions::for_facility_type(&cand.facility_type).collect();
+        if templates.is_empty() {
+            continue;
+        }
+        let idx = (tick as usize) % templates.len();
+        let template = templates[idx];
+        if cand.credits < template.base_payment {
+            continue; // can't afford the payout
+        }
+
+        // Debit credits and post the mission.
+        if let Some(e) = world
+            .query::<&FacilityIdentity>()
+            .iter()
+            .find(|(_, id)| id.id == cand.fac_id)
+            .map(|(e, _)| e)
+        {
+            if let Ok(mut ops) = world.get::<&mut FacilityOperations>(e) {
+                if ops.credits < template.base_payment {
+                    continue;
+                }
+                ops.credits -= template.base_payment;
+                ops.dirty = true;
+            }
+        }
+
+        contracts.post_crew_mission(
+            cand.fac_id,
+            template.category.to_string(),
+            template.duration_ticks as u32,
+            cand.location,
+            template.base_payment,
+            if cand.faction_id.is_empty() {
+                None
+            } else {
+                Some(cand.faction_id)
+            },
+            tick,
+            lifespan,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn docking_fee_scales_with_occupancy() {
+        // Empty station, perfect condition → base fee.
+        assert_eq!(docking_fee(50, 0, 4, 1.0), 50);
+        // Half full → 1.5× base.
+        assert_eq!(docking_fee(50, 2, 4, 1.0), 75);
+        // Full station cannot be reached here (caller guards with at_capacity
+        // before calling), but we check the math doesn't explode anyway.
+        assert_eq!(docking_fee(50, 4, 4, 1.0), 100);
+    }
+
+    #[test]
+    fn docking_fee_scales_with_condition() {
+        // Ruined station (condition=0) doubles the fee on top of occupancy.
+        // 50 × 1.0 × 2.0 = 100
+        assert_eq!(docking_fee(50, 0, 4, 0.0), 100);
+        // Half-condition station: 50 × 1.0 × 1.5 = 75
+        assert_eq!(docking_fee(50, 0, 4, 0.5), 75);
+    }
+
+    #[test]
+    fn docking_fee_guards_zero_capacity() {
+        assert_eq!(docking_fee(50, 0, 0, 1.0), 50);
+    }
+
+    #[test]
+    fn lifecycle_levelup_threshold_scales() {
+        let mut life = FacilityLifecycle::new();
+        assert_eq!(life.next_level_threshold(), 100);
+        life.level = 2;
+        assert_eq!(life.next_level_threshold(), 200);
+        life.level = 10;
+        assert_eq!(life.next_level_threshold(), 1000);
+    }
+
+    #[test]
+    fn level_scaled_batches_grows_with_level() {
+        assert_eq!(level_scaled_max_batches(1), RECIPE_MAX_BATCHES);
+        // Level 10 → RECIPE_MAX_BATCHES × 2.8 (rounded).
+        let top = level_scaled_max_batches(10);
+        assert!(top > RECIPE_MAX_BATCHES);
+        assert!(top < RECIPE_MAX_BATCHES * 4);
+    }
+
+    #[test]
+    fn grant_xp_levels_up_and_resets_xp() {
+        use hecs::World;
+        let mut world = World::new();
+        let e = world.spawn((FacilityLifecycle::new(),));
+        // 150 XP → level to 2 (spend 100), leftover 50.
+        grant_facility_xp(&mut world, e, 150);
+        let life = world.get::<&FacilityLifecycle>(e).unwrap();
+        assert_eq!(life.level, 2);
+        assert_eq!(life.xp, 50);
+    }
+
+    #[test]
+    fn grant_xp_caps_at_facility_level_cap() {
+        use hecs::World;
+        let mut world = World::new();
+        let e = world.spawn((FacilityLifecycle::new(),));
+        // Dump 1M XP — should hit FACILITY_LEVEL_CAP and stop leveling.
+        grant_facility_xp(&mut world, e, 1_000_000);
+        let life = world.get::<&FacilityLifecycle>(e).unwrap();
+        assert_eq!(life.level, FACILITY_LEVEL_CAP);
     }
 }

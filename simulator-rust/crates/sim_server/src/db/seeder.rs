@@ -192,8 +192,9 @@ async fn seed_world(pool: &SqlitePool, path: &std::path::Path) -> Result<()> {
             sqlx::query(
                 "INSERT INTO facilities
                    (name, facility_type, location_id, location_name, body_id, faction_id,
-                    docking_capacity, services, condition, reputation, credits, reserves)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    docking_capacity, services, condition, reputation, credits, reserves,
+                    gate_paired_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             )
             .bind(&fac_name)
             .bind(fac.get("type").and_then(|v| v.as_str()).unwrap_or("station"))
@@ -205,8 +206,15 @@ async fn seed_world(pool: &SqlitePool, path: &std::path::Path) -> Result<()> {
             .bind(services.to_string())
             .bind(1.0_f32)
             .bind(50_i32)
-            .bind(10_000_i64)
+            // Facility seed credits: enough runway for ~4 delivery
+            // contracts (~24k) + docking fees + restocks before the
+            // first tax cycle brings in faction support. At 10k,
+            // facilities were burning out before the supply chain had
+            // a chance to stabilize, which killed contract acceptance
+            // outright — no facility could afford to keep posting.
+            .bind(30_000_i64)
             .bind(reserves.to_string())
+            .bind(fac.get("gate_paired_id").and_then(|v| v.as_str()))
             .execute(pool)
             .await?;
         }

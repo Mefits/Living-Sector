@@ -12,29 +12,48 @@ the session log.
 
 ## Status
 
-Phases 1–10 complete. The sim has full economy behavior:
-populations post food contracts when stressed, ships fulfill them, facilities
-run production recipes, factions collect tax revenue, crew get tired and take
-shore leave, and state persists across restarts. See the **Systems wired** table
-below for what's actually running.
+Phases 1–15 complete. Phase 14 was a single market-panel fix. Phase 15
+adds spatial LOD for ships: distant agents still tick, just at a lower
+cadence with rate-scaled fuel burn / crew wear, driven by observer
+attention volumes (Godot camera sends `MoveObserver` with radius
+scaling off zoom). Earlier: The sim has full Elixir-parity behavior:
+populations post food + passenger contracts under stress, ships fulfill them
+(docking with a fee, multi-tick unloading and refueling from facility
+reserves, shore-leave for morale), facilities run production recipes,
+degrade and self-repair, level up from XP, buy their own reserves from the
+local market, and abandon when chronically broke. Factions collect tax and
+spend it on subsidy contracts when member markets are chronically short.
+Crew have a `current_task` (piloting / engineering / trading / eating /
+resting), hunger consumes food from cargo, unpaid wages drop morale, and
+earned XP raises skills. Bodies regen resources and expose biome food
+multipliers. State persists across restarts. See the **Systems wired** table.
 
 ## Architecture
 
 ```
 Godot ⇄ WebSocket/HTTP (axum) ─┐
                                 ├── sim_server (tokio, sqlx, axum)
-                                │     ├── engine: tick loop driver + command apply
+                                │     ├── engine: tick loop driver + command apply +
+                                │     │           LOD recompute + admin-spawn dispatch
                                 │     ├── ws/handler: per-client select loop
-                                │     ├── http/api: inspection + sim control endpoints
+                                │     ├── ws/protocol: ServerMsg / ClientMsg enums (wire truth)
+                                │     ├── http/api: inspection + sim control + perf + observers
+                                │     ├── http/admin: runtime ship/facility CRUD, supply delta, save-as
                                 │     ├── snapshot: DashMap lock-free read cache
+                                │     │             (ships, markets, facilities, pops, factions, contracts)
                                 │     └── db: pool + seeder + ECS loader + persistence worker
+                                │           (ships, markets, factions every tick;
+                                │            facilities + pops every 16; bodies every 40)
                                 │
                                 └── sim_core (pure, no async)
                                       ├── agents/*: components + tick fns (hecs::World)
                                       │   ship, market, facility, population, celestial_body, faction
                                       ├── ai/*: BT<A> generic engine, utility scoring, considerations, personality
-                                      ├── economy/*: commodities, order_book, price_engine, recipes, contracts
-                                      ├── simulation/*: config, spawner (AgentStore), commands (SimCommand)
+                                      ├── economy/*: commodities, order_book, price_engine,
+                                      │              recipes, contracts, missions (9 crew templates)
+                                      ├── simulation/*: config, spawner (AgentStore),
+                                      │                 commands (SimCommand),
+                                      │                 lod (AgentLod tier table)
                                       └── world/*: registry, travel, body
 ```
 
@@ -68,17 +87,33 @@ Godot ⇄ WebSocket/HTTP (axum) ─┐
 
 | System | Where | Behavior |
 |---|---|---|
-| Ship BT planner | `agents/ship::plan_goal` | Picks goal + builds `BtNode<ShipAction>`: rest_crew → refuel → sell_cargo → fulfill_delivery → trade_run → idle |
-| Ship BT execution | `agents/ship::execute_ship_action` | Dispatch closure for ShipAction variants (Travel/Dock/Refuel/Buy/Sell/SellAll/AcceptContract/DeliverCargo/Rest/Idle) |
+| Ship BT planner | `agents/ship::plan_goal` | Picks goal + builds `BtNode<ShipAction>`: rest_crew → refuel → sell_cargo → fulfill_delivery / passenger / courier → trade_run → idle |
+| Ship BT execution | `agents/ship::execute_ship_action` | Dispatch closure for ShipAction variants. Dock emits `RequestDock`; Refuel is multi-tick (drains facility fuel reserves); SellAll unloads one commodity per tick |
+| Dock dwell | `engine::apply_request_dock` / `apply_facility_refuel` | Docking fee = base × occupancy × (2 − condition). Refuel: 5 units/tick × 2 cr/unit from `FacilityStorage.reserves[Fuel]` |
 | Market tick | `agents/market::tick_markets` | 8 phases: produce → consume → emergency orders → surplus orders → match → update-demand → track-shortage → update-prices |
 | Price engine | `economy/price_engine` | Coverage model (supply as buffer, not ratio) + shortage urgency multiplier |
-| Facility recipes | `agents/facility::tick_facilities` | 10 recipes, limiting-factor scaling, runs against local market supply every 5 base-ticks |
+| Facility recipes | `agents/facility::tick_recipes_and_mining` | 10 recipes, limiting-factor scaling, `max_batches` scales with facility level. XP grants per recipe executed |
 | Mining | same | `mining_rig` facilities extract commodities from their body's resources |
-| Population | `agents/population::tick_populations` | Consume food/fuel from local market, produce labor commodity, update sentiment, **post food-delivery contracts when satisfaction < 40** |
-| Contracts | `economy/contracts::ContractBoard` | Posted → Accepted → Paid lifecycle, `posted_with_destination` lookup, expiry sweep |
-| Factions | `agents/faction::tick_factions` | Every 50 base-ticks, 5% tax on each owned facility's credits → faction treasury |
-| Crew morale | `agents/ship::tick_crew` | Fatigue rises in transit (0.05/tick); morale drops when fatigue > 60; rest recovers both; efficiency = 0.5 + morale/200 |
-| Persistence | `db/persistence::PersistenceWorker` | mpsc buffer + dedup + 5s batch flush; ships / markets / factions / tick counter. Load tick counter on startup → sim resumes. |
+| Facility condition | `agents/facility::tick_degrade_condition` | Condition drops 0.0002/tick × tick_scale; self-repair uses 1 Tool for +0.01 condition when <0.8 |
+| Facility restock | `agents/facility::tick_restock` | Buys fuel/food/tools/water from local market when reserves < 100, targets 500 |
+| Facility autonomy | `agents/facility::tick_post_contracts` | Posts delivery contract when reserves low AND local market short 30+ ticks |
+| Facility abandonment | `agents/facility::tick_abandonment` | 200-tick countdown when condition<0.1 + no tools + credits<100. Abandoned → tick phases skip, services cleared in snapshot |
+| Facility leveling | `agents/facility::grant_facility_xp` | Level 1–10, threshold = level×100. Higher level scales recipe max_batches |
+| Population | `agents/population::tick_populations` | Consume food/fuel, produce labor, sentiment inertia (0.9^tick_scale), urgency-scaled food bid (1×→3× at sat=0), emergency water <30, post passenger contracts when pop≥5000 + sentiment≥50 |
+| Contracts | `economy/contracts::ContractBoard` | 6 kinds: Delivery / Courier / Passenger / Subsidy / Supply / CrewMission. Posted → Accepted → Paid lifecycle, `faction_id` tag for rep routing, expiry sweep |
+| Factions — tax | `agents/faction::run_tax_cycle` | Every 200 base-ticks, 0.5% tax on facility credits above 1000-credit buffer |
+| Factions — subsidy | `agents/faction::run_subsidy_cycle` | Every 30 base-ticks, posts subsidy contracts for chronic member-market shortages. Multiplier 1.25×–3.0× ramps with shortage age. Max 3 active per faction |
+| Crew | `agents/ship::tick_crew` | Hunger / fatigue / morale f32; `current_task` derived (Piloting/Engineering/Trading/Eating/Resting/Idle); eats food from cargo when hungry; wages paid every 50 base-ticks or morale drops |
+| Crew skills | `agents/ship::ShipCrewSkills` | nav/eng/trade/combat u8 capped 100; grants +1 on Buy, +1 nav/trade on Deliver, cumulative toward a skill XP ceiling |
+| Reputation | `ShipEconomy.faction_reputation` | +1 per contract delivered to tagged faction (0–100) |
+| Body regen | `agents/celestial_body::tick_bodies_regen` | Mined resources regrow toward `max_resources` at 0.0005 × tick_scale per regen-cycle |
+| Body biome | `BodyBiome.food_multiplier` | Maps biome name → 0.1..=1.5 food-availability multiplier; consumed by growth logic |
+| Persistence | `db/persistence::PersistenceWorker` | mpsc buffer + dedup + 5s batch flush. Ships every tick, markets every tick, factions on change, facilities/populations every 16 ticks, bodies every 40 ticks, tick counter every 8. Load tick counter on startup → sim resumes from the right tick. |
+| Crew missions | `economy/missions` + `facility::tick_post_crew_missions` | 9 mission templates (port of Elixir `mission_catalog.ex`). Facility posts CrewMission kind (25% chance / cycle, 1 active max). Ship BT: `Dock → Refuel → Rest → Deliver → Undock`. Completion grants skill XP via `ShipCrewSkills::grant` |
+| Contract rep gating | `ContractBoard::posted_for_ship` | Subsidy contracts start `min_reputation = 70` (faction-only), CrewMission starts 50 (allied), others 0 (public). Age-open decays 10 rep per 100 ticks → public after ~1000 ticks. Ship planner filters by `faction_reputation[fac] >= min_reputation` |
+| Admin endpoints | `http::admin` | Full CRUD: **POST spawn** ships + facilities (INSERT + dispatch to engine), DELETE by id, market supply delta, save / save-as (VACUUM INTO) |
+| Events broadcast | `engine` events Vec + `ws::protocol::Events` | ship_spawned, ship_docked, ship_decommissioned, facility_spawned, facility_removed, facility_abandoned, contract_delivered, crew_mission_completed, passengers_arrived, market_supply_adjusted — per-tick drain |
+| Spatial LOD | `simulation::lod::AgentLod` + `engine::recompute_lod` | Observer-driven tiers 1/2/5/10/20/50. Ship tick phases gate on `active` map; fuel burn + crew hunger/fatigue scale by `skipped_ticks` so total state change over wall-clock matches. Recompute every 50 base-ticks. Markets never LOD'd. |
 
 ## Common tasks
 
@@ -188,20 +223,25 @@ Plain JSON over WebSocket on port 8080. See
 `crates/sim_server/src/ws/protocol.rs` — that's the canonical reference.
 
 **Server → Godot** (pushed):
-- `server_hello` — on connect, reports current tick + running state
-- `positions` — every tick (125 ms @ default speed). Carries `entities`
-  with `type: "ship" | "body"` — Godot client filters ships.
-- `ship_states` — every 8 ticks (~1 s). Full ship snapshots.
-- `market_states` — every 16 ticks (~2 s). Prices/supply/demand/shortage_ticks.
+- `server_hello` — on connect, reports tick + running + `world_speed` + interval
+- `positions` — every tick (125 ms). Entities include `type: "ship" | "body" | "facility"`
+- `ship_states` — every 8 ticks (~1 s). Full ship snapshots (now include `crew.current_task`, `crew.skills`, `crew.hunger`)
+- `market_states` — every 16 ticks (~2 s)
+- `facility_states` — every 16 ticks. Carries `docked_ships`, reserves, `level`, `xp`, `abandoned`
+- `population_states` — every 16 ticks. Pop count, sentiment, food satisfaction
+- `faction_states` — every 32 ticks. Treasury + active subsidy count
+- `contract_states` — every 32 ticks. Full contract board (6 kinds, status, min_reputation, faction_id, mission_category).
+- `events` — every tick when non-empty. Mixed event stream (`ship_docked`, `contract_delivered`, `passengers_arrived`, `market_supply_adjusted`, `ship_spawned`, `facility_spawned`, `crew_mission_completed`, etc.)
 - `agent_state` — reply to `get_agent` / `get_snapshot`
-- `sim_control_ack` — reply to pause/resume/speed
+- `sim_control_ack` — reply to pause/resume/speed (echoes current `world_speed` + interval)
 
 **Godot → Server**:
 - `hello`, `get_agent`, `get_snapshot`, `move_observer`, `sim_control`
 
 HTTP (same port, `/api/*`):
-- Read: `/api/health`, `/api/report`, `/api/{ships,markets,facilities,populations,factions,positions}`, `/api/agent/:id`
-- Control: `POST /api/sim/{pause,resume,speed}` (speed takes `{interval_ms}`)
+- Read: `/api/health` (+ `perf.tick_compute_p50_us` / `p99_us`), `/api/report`, `/api/{ships,markets,facilities,populations,factions,positions,contracts,observers}`, `/api/agent/:id`
+- Control: `POST /api/sim/{pause,resume,speed,step}` — step takes `{ticks: u32}` and forces N ticks through even when paused
+- Admin: `POST /api/admin/ships {class, faction_id, location, name?, credits?}`, `DELETE /api/admin/ships/:id`, `POST /api/admin/facilities {name, facility_type, body_id, faction_id, location?, docking_capacity?, credits?}`, `DELETE /api/admin/facilities/:id`, `POST /api/admin/markets/:loc/supply {deltas: {commodity: delta}}`, `POST /api/admin/save`, `POST /api/admin/save-as {name}`.
 
 ## Binary invocation (Godot subprocess scenario)
 
@@ -215,25 +255,55 @@ For dev runs: `client/dev.env` has `SPACESIM_USE_EXISTING_SERVER=1` so the
 Godot editor expects the Rust sim to already be running on port 8080. Just
 `cargo run --bin simulator` in one terminal and open Godot in another.
 
+## Godot inspector panels (client/scripts/ui/)
+
+13 toggle-able panels, reachable from HUD buttons along the top:
+
+| Panel | Script | Opens with | Role |
+|---|---|---|---|
+| Ship list | `ship_list.gd` | Ships button | Sortable table, click row → camera follows ship |
+| Market overlay | `market_overlay.gd` | Market button | One row per market location, commodity cells + sparklines |
+| Contract board | `contract_board.gd` | Contracts button | All 6 kinds filterable, sortable by age/payment |
+| Faction ledger | `faction_ledger.gd` | Factions button | Treasury, active subsidies, ship/fac counts |
+| Population browser | `population_browser.gd` | Pops button | Count / sentiment / food_sat sortable |
+| Events ticker | `events_ticker.gd` | Events button | Rolling stream with kind filter, click → focus |
+| Perf overlay | `perf_overlay.gd` | Perf button | p50/p99 tick µs, FPS, observed interval, LOD tier breakdown, 60-sample sparkline |
+| Details panel | `details_panel.gd` | Click any ship/facility/body | Live state + "Recent activity" trail pulled from events ring |
+| Minimap | `minimap.gd` | Always on | 3 systems + camera viewport indicator |
+| God toolbar | `god_toolbar.gd` | Always on | Destroy toggle, +Ship, +Facility |
+| Add ship panel | `add_ship_panel.gd` | God toolbar | Class / faction / location / credits → POST `/api/admin/ships` |
+| Add facility panel | `add_facility_panel.gd` | God toolbar | Name / type / body / faction → POST `/api/admin/facilities` |
+| Facility reserves editor | `facility_reserves_panel.gd` | Context menu → Edit Supply | Delta supply per commodity → POST `/api/admin/markets/:loc/supply` |
+
+Plus the always-on HUD: tick / FPS / speed / ship count / observer /
+save / save-as / step-debug (▸1, ▸8) buttons.
+
+Theme palette in `client/scripts/ui/theme_palette.gd` — `PRIMARY` cyan
+for info, `SUCCESS` green for good, `WARN` amber for caution, `DANGER`
+red for crisis. Every panel should pull colours from there.
+
 ## Things intentionally left out (not critical; see `PLAN.md` for rationale)
 
-- **Admin HTTP endpoints** (god-mode ship/facility spawn, save-as, market
-  supply delta). Godot client calls these; they 404 gracefully. Port when
-  someone needs them.
-- **Rayon parallelism** — dependency is in, never called. Architecture is
-  designed for it. Skip until 10k+ agents.
-- **Facility / population persistence** — only ships, markets, factions,
-  and tick counter flush today. Non-persisted agents fall back to seed
-  state on restart; sim re-converges within seconds.
-- **Contract reputation gating** — all contracts are open to all ships.
-  A faction-reputation filter would add texture.
-- **Faction spending** — treasuries grow from tax but factions never spend.
-  Could post their own contracts or subsidize facilities.
-- **Per-crew-member simulation** — crew is aggregated on the ship. 800
-  ships × avg 4 crew = 3200 individual entities we're NOT spawning, which
-  was an explicit call. Individual variation is in the SQLite `crew_members`
-  table for future richer missions.
-- **Spatial LOD chunk divisors** — the Elixir sim throttled distant agents
-  to tick less often. We haven't needed it; 800 agents tick in ~5 ms.
-- **Windows native build** — cross-compile setup exists; user will
-  validate on their Windows box.
+- **Facility + population LOD rate-scaling** — Phase 15 wired ship LOD
+  (where 75% of tick cost lives). Facilities + pops carry `AgentLod` so
+  the perf HUD sees them, but their per-tick phases don't gate on it
+  yet. Phase 16 candidate if a 10k-agent push shows them as a
+  bottleneck. Recipe `max_batches` and sentiment-inertia math would
+  need careful scaling.
+- **Command trace / replay** — design idea: server keeps a ring buffer
+  of every `SimCommand` per tick, `/api/debug/ship/:id/trace` returns
+  the recent causal chain for that agent ("why did ship X go broke?"
+  → see exactly which dock fees / buy costs / unpaid wages fired).
+  Architecture already supports it — commands are plain data. Not
+  built until we hit a specific "I wish I could rewind this" bug.
+- **Rayon parallelism** — dependency is in, never called. Architecture
+  is designed for it (no cross-ship writes within a phase). Skip until
+  10k+ agents. Current 800-agent tick is ~0.5–2 ms.
+- **Windows native build validation** — cross-compile setup exists
+  (`rustup target add x86_64-pc-windows-gnu` + bundled SQLite so no
+  DLL). User will test on their Windows box.
+- **Per-crew-member simulation** — crew is aggregated on the ship.
+  800 ships × avg 4 crew = 3200 individual entities we're NOT spawning,
+  which was an explicit call. Individual variation is in the SQLite
+  `crew_members` table for future richer missions. Skills + tasks live
+  at aggregate level via `ShipCrew` + `ShipCrewSkills`.

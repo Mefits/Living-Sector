@@ -35,6 +35,55 @@ pub enum SimCommand {
     },
     ArriveAtLocation { ship: Entity, location: String },
 
+    // --- Dock-dwell interactions (Phase 11a) ---
+    /// Ship requests to dock at its current location's primary facility.
+    /// Apply phase finds the facility, checks capacity, deducts the docking
+    /// fee (base × occupancy × condition), appends the ship entity to the
+    /// facility's `docked_ships`, and sets `position.docked_at` on the ship.
+    /// If the facility is full or charges more than the ship can pay, the
+    /// request is silently dropped — the ship's BT continues (subsequent
+    /// refuel/unload will fail softly if the facility can't service them).
+    RequestDock {
+        ship: Entity,
+        facility_location: String,
+    },
+    /// Ship leaves dock. Apply phase removes the ship from the facility's
+    /// `docked_ships` list. Used in apply phase only; the ship clears its
+    /// own `docked_at` in-place before emitting this.
+    ReleaseDock {
+        ship: Entity,
+        facility_location: String,
+    },
+    /// Ship is pulling fuel from a facility's reserves. Apply phase
+    /// decrements `reserves[Fuel]` (min 0) and credits the facility's
+    /// `credits` by `payment`. The ship already adjusted its own fuel and
+    /// credits when emitting — this command is the cross-entity half.
+    FacilityRefuel {
+        ship: Entity,
+        facility_location: String,
+        amount: f32,
+        payment: i64,
+    },
+    /// Grant crew XP to a specific skill after a successful trade, delivery,
+    /// or completed crew mission. Apply phase bumps `ShipCrewSkills.<skill>`
+    /// by `amount`, capped at 100. Unknown skills are a no-op.
+    GrantCrewXp {
+        ship: Entity,
+        skill: &'static str,
+        amount: u8,
+    },
+    /// Ship is jumping through a gate. Apply phase looks up the source
+    /// gate at the ship's current location, charges the fee
+    /// (`flat + per_cargo × cargo_used`) to the ship + credits the gate
+    /// facility, and teleports the ship to `dest_gate_location`. Fails
+    /// silently if the ship lacks credits or if no gate is found — the
+    /// ship's `GateJump` BT action catches it and returns Failure.
+    RequestGateJump {
+        ship: Entity,
+        src_gate_location: String,
+        dest_gate_location: String,
+    },
+
     // --- Contracts ---
     PostContract { contract_id: String },
     /// Ship wants to accept a posted contract. Apply phase sets board status +

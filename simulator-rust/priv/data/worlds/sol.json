@@ -224,21 +224,6 @@
       "distance": 150
     },
     {
-      "from": "earth-station",
-      "to": "haven-station",
-      "distance": 200
-    },
-    {
-      "from": "earth-station",
-      "to": "anvil-depot",
-      "distance": 230
-    },
-    {
-      "from": "haven-station",
-      "to": "anvil-depot",
-      "distance": 150
-    },
-    {
       "from": "jupiter-station",
       "to": "trojan-outpost",
       "distance": 30
@@ -262,6 +247,36 @@
       "from": "trojan-outpost",
       "to": "hilda-outpost",
       "distance": 50
+    },
+    {
+      "from": "earth-station",
+      "to": "sol-ac-gate",
+      "distance": 90
+    },
+    {
+      "from": "saturn-station",
+      "to": "sol-ac-gate",
+      "distance": 60
+    },
+    {
+      "from": "jupiter-station",
+      "to": "sol-ac-gate",
+      "distance": 70
+    },
+    {
+      "from": "earth-station",
+      "to": "sol-tc-gate",
+      "distance": 80
+    },
+    {
+      "from": "jupiter-station",
+      "to": "sol-tc-gate",
+      "distance": 50
+    },
+    {
+      "from": "mars-station",
+      "to": "sol-tc-gate",
+      "distance": 70
     }
   ],
   "facilities": [
@@ -800,6 +815,40 @@
         "polymers": 200,
         "components": 100
       }
+    },
+    {
+      "id": "facility-sol-ac-gate",
+      "name": "Heliopause Gateway",
+      "faction_id": "terran-authority",
+      "location": "sol-ac-gate",
+      "body": "belt",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": [
+        "refuel",
+        "gate"
+      ],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-ac-sol-gate-proxima-approach"
+    },
+    {
+      "id": "facility-sol-tc-gate",
+      "name": "Outer Rim Gate",
+      "faction_id": "terran-authority",
+      "location": "sol-tc-gate",
+      "body": "hilda-group",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": [
+        "refuel",
+        "gate"
+      ],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-tc-sol-gate-frontier-portal"
     }
   ],
   "markets": [

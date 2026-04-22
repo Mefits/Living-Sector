@@ -4,17 +4,25 @@ A space-economy simulation engine written in Rust. Replaces the Elixir/Phoenix
 version for native Windows/Linux performance. Ships today at 800 agents with
 room to scale to 100k+. Godot is the sole client.
 
-> **Status**: Phases 1–10 complete. Full feature parity with the Elixir sim
-> for the core economy loop (mining → refining → manufacturing → consumption,
-> plus population-posted contracts and faction treasuries). State persists
-> across restarts. Godot WebSocket client updated. See [`PLAN.md`](./PLAN.md)
-> for the session log.
+> **Status**: Phases 1–15 complete. Phase 13 brought Godot-side inspector
+> panels (events ticker, contract board, faction ledger, population browser,
+> perf overlay), broadcast handlers for population/faction/contract/events
+> streams, step-debug (`/api/sim/step`), rolling perf metrics on `/api/health`,
+> and an inspect-trail on the details panel. Prior: Feature parity with the Elixir sim across
+> the full agent catalog — ship dock-dwell, crew task/skills/hunger, facility
+> autonomy (degradation/self-repair/restock/contract posting/leveling/abandonment),
+> population urgency bids + passenger transport, faction tax + subsidy, body
+> biome + resource regen, 6 contract kinds, **rep-gated + age-opening
+> subsidies**, **9 crew-mission templates**, event stream, full admin HTTP
+> endpoints (**including runtime ship/facility spawn**), and **facility /
+> population / body persistence** on top of ships/markets/factions/tick.
+> See `~/.claude/plans/welcome-to-the-space-wobbly-wirth.md` for the audit.
 
 ## Quick start
 
 ```bash
 # from simulator-rust/
-scripts/verify.sh          # cargo check + test + clippy  (64 tests)
+scripts/verify.sh          # cargo check + test + clippy  (95 tests)
 scripts/smoke.sh 10        # build, boot sim for 10s, print log + DB counts
 scripts/ws-test.sh 6       # boot + exercise every HTTP endpoint
 scripts/persist-test.sh    # boot, kill, reboot — verify tick resumes
@@ -56,31 +64,42 @@ curl -X POST localhost:8080/api/sim/resume
 
 ### Tick phase order (125 ms)
 
-1. Drain control channel (pause/resume/speed from HTTP/WS)
+1. Drain control channel (pause/resume/speed/step + admin spawn/remove + observer updates)
 2. Celestial bodies — orbital angles advance
-3. Ships — observe prices, decide goal, execute one BT step, emit commands
-4. Apply ship commands (supply deltas at markets)
-5. Facilities — run recipes, mine from bodies
-6. Populations — consume/produce, post food contracts when stressed
-7. Markets — 8 sub-phases (produce/consume/orders/match/prices)
-8. Apply market commands (spread revenue → facility)
-9. Faction tick (every 50 base ticks) — 5% tax on owned facility credits
-10. SnapshotCache update + broadcast (positions every tick, ships every 8, markets every 16)
-11. Emit dirty-entity DbWrites → persistence worker
+3. Body resource regen (every 5 ticks × mult) — mined resources grow back toward seed caps
+4. LOD recompute (every 50 ticks × mult) — per-agent `AgentLod.divisor` from nearest observer
+5. Ships — LOD-gated 4 passes: advance transits → observe prices → tick crew → decide + BT step (rate-scaled by skipped_ticks)
+6. Apply ship commands (supply deltas at markets; dock fees; facility refuel drains; events)
+7. Facilities — condition degrade every tick; self-repair / abandonment / restock / recipes / contract posting on their own intervals
+8. Populations — consume/produce, urgency bids, post food + passenger contracts, sentiment inertia
+9. Markets — 8 sub-phases (produce/consume/emergency/surplus/match/demand/shortage/prices)
+10. Apply market commands (spread revenue → facility)
+11. Factions — tax (every 200 ticks × mult, 0.5% above 1000-credit buffer) + subsidy posting (every 30 ticks × mult)
+12. SnapshotCache update (ships/markets/facilities/pops/factions/contracts/positions)
+13. Broadcast: `positions` every tick, `ship_states` every 8, `market_states`/`facility_states`/`population_states` every 16, `faction_states`/`contract_states` every 32, `events` every tick when non-empty
+14. Emit dirty-entity DbWrites → persistence worker (ships every tick; facilities/pops every 16; bodies every 40; tick counter every 8)
 
-Tick cost at 800 agents: ~3–5 ms on M1 Mac. 125 ms budget → 96%+ headroom.
+Tick cost at 800 agents: p50 ≈ 0.5 ms, p99 ≈ 2 ms on M1 Mac. 125 ms budget → 99%+ headroom.
 
 ## What the simulator does
 
 | System | Behavior |
 |---|---|
 | **Trade** | Ships scan known prices, pick the highest-margin route, travel buy→sell; cargo leaves/arrives at market supply |
-| **Contracts** | Populations post food-delivery contracts when satisfaction <40; ships fulfill them (accept → buy at source → deliver at destination → collect payment) |
-| **Recipes** | Refineries smelt ore+fuel→metals, process ice→water+fuel etc.; factories build components/electronics/tools/medical/luxury; farms grow food |
-| **Mining** | `mining_rig` facilities extract commodities from their body's resources into the local market |
-| **Populations** | Consume food/fuel from local market, produce labor commodity, track food_satisfaction → overall_sentiment |
-| **Crew** | Per-ship aggregate morale + fatigue. Fatigue rises in transit/work; morale drops when over-fatigued; drives `ShipEconomy.efficiency`. Ships below 35 morale take shore leave. |
-| **Factions** | 5% tax on every owned facility's credits flows into faction treasury every 50 base-ticks |
+| **Dock dwell** | Ships request docking (fee scales with occupancy × condition), refuel draws from facility reserves over ~20 ticks, unload one commodity per tick. Crews take shore leave when morale <35 and dwell until 100. |
+| **Contracts** | 6 kinds: Delivery / Courier / Passenger / Subsidy / Supply / CrewMission. Populations post food-delivery when satisfaction <40 (with urgency-scaled payment), and passenger contracts when happy + populous. Facilities post delivery + courier when chronically short. Factions post subsidy contracts for member-market shortages. |
+| **Recipes** | Refineries smelt ore+fuel→metals, process ice→water+fuel etc.; factories build components/electronics/tools/medical/luxury; farms grow food. Higher facility level = more batches per cycle. |
+| **Mining** | `mining_rig` facilities extract commodities from their body's resources; those resources regen each 5-tick cycle toward their seeded ceilings. |
+| **Facilities** | Condition drifts down every tick; self-repair costs tools; reserves are restocked from local market when low; posted contracts pull supply from afar; XP accumulates per recipe → level 1–10. After 200 ticks of broke + no-tools + low-condition, facilities flip `abandoned` and go dormant. |
+| **Populations** | Consume food/fuel (with emergency water buffer under satisfaction<30), produce labor commodity, sentiment inertia (0.9^tick_scale smoothing), grow on delivered passengers. |
+| **Crew** | Aggregate `current_task` (piloting / engineering / trading / eating / resting) displayed per-ship. Hunger rises, eating consumes food from cargo. Skills (nav / eng / trade / combat) earn XP on trades + deliveries, capped 100. Unpaid wages drop morale. |
+| **Factions** | 0.5% tax on facility credits above a 1000-credit buffer every 200 base-ticks → treasury. Subsidy contracts posted when ≥2 member facilities chronically short (1.25× → 3.0× payment ramp); max 3 active per faction. |
+| **Bodies** | Orbit advances each tick. `BodyBiome` exposes a food-availability multiplier (0.1–1.5) read by pop growth. `BodyResources` regen toward `max_resources` every 5 ticks. |
+| **Reputation** | Contracts tagged with posting faction; ships earn +1 rep per delivery to that faction (0–100). |
+| **Events** | Per-tick broadcast of notable moments: `ship_docked`, `contract_delivered`, `passengers_arrived`, `market_supply_adjusted`, etc. Godot's HUD subscribes for toasts. |
+| **Admin endpoints** | Godot god-mode: POST spawn ships + facilities (INSERT + hand off to engine → 201 with new id), DELETE by id, adjust market supply, save / save-as DB snapshots (VACUUM INTO). |
+| **Spatial LOD** | Ships throttle based on distance to the camera observer. Tier table 1 / 2 / 5 / 10 / 20 / 50 — distant ships still tick, just less often, with state changes rate-scaled by `skipped_ticks`. Godot sends `move_observer` from the camera every 50 ms; radius scales with zoom. |
+| **Inspector panels** | Godot-side debug UI: events ticker, contract board, faction ledger, population browser, perf overlay (p50/p99 tick time + LOD tier breakdown + FPS sparkline). All toggle from HUD buttons. |
 | **Persistence** | Every 5s, dirty ship/market/faction state + tick counter flushes to SQLite. Sim resumes from persisted tick on restart. |
 
 ## Agents (at current seed)
@@ -143,22 +162,17 @@ to load changes.
 
 ## Not yet implemented
 
-- **Admin HTTP endpoints** — god-mode ship/facility CRUD, save-as, market
-  supply delta. The Elixir sim had these; the Godot client still tries to
-  call them (404s gracefully). One evening per endpoint class to port.
 - **Windows native build** — cross-compile is set up (`rustup target add
   x86_64-pc-windows-gnu`) but we haven't validated on a Windows box. The
   binary is single-file with bundled SQLite; should Just Work.
 - **Rayon parallelism** — dependency is in, never called. Unnecessary until
   10k+ agents. Architecture is designed for it (no shared mutable state
   between ships in a phase).
-- **Facility / population persistence** — only ships, markets, factions,
-  and the tick counter flush today. Other agents fall back to seed state
-  on restart. Sim re-converges within seconds.
-- **Per-faction contract posting** — factions just collect tax; they don't
-  spend yet. Would give us faction-driven economic pressure.
-- **Contract reputation gating** — contracts are open to all ships; a
-  faction-reputation filter would add texture.
+- **Spatial LOD for facilities + populations** — Phase 15 wired ships
+  (the lion's share of the tick cost); facilities + pops carry an
+  `AgentLod` for the debug views but their per-tick phases don't gate
+  on it yet. ~75 agents, interval-driven phases, minor gain — Phase 16
+  candidate if a 10k-agent push exposes them as a bottleneck.
 
 ## License
 

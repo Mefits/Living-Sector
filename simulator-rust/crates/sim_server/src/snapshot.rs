@@ -9,8 +9,8 @@ use sim_core::{
     agents::{
         celestial_body::{BodyIdentity, BodyOrbit, BodySnapshot},
         facility::{
-            FacilityIdentity, FacilityLocation, FacilityOperations, FacilitySnapshot,
-            FacilityStorage,
+            FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations,
+            FacilitySnapshot, FacilityStorage, GateLink,
         },
         faction::{FactionData, FactionSnapshot},
         market::{MarketHistory, MarketIdentity, MarketPricing, MarketSnapshot},
@@ -18,8 +18,8 @@ use sim_core::{
             PopDemographics, PopEconomy, PopIdentity, PopSentiment, PopSnapshot,
         },
         ship::{
-            ShipAI, ShipCargo, ShipCrew, ShipEconomy, ShipFuel, ShipIdentity, ShipLifecycle,
-            ShipPosition, ShipSnapshot, ShipTransit,
+            ShipAI, ShipCargo, ShipCrew, ShipCrewSkills, ShipEconomy, ShipFuel, ShipIdentity,
+            ShipLifecycle, ShipPosition, ShipSnapshot, ShipTransit,
         },
     },
     simulation::spawner::AgentStore,
@@ -34,6 +34,10 @@ pub struct SnapshotCache {
     pub populations: DashMap<String, PopSnapshot>,
     pub bodies: DashMap<String, BodySnapshot>,
     pub factions: DashMap<String, FactionSnapshot>,
+    /// Serialized contract board snapshot. Keyed by contract id. Refreshed
+    /// at the end of each tick in `update_from`. Stored as `Value` so the
+    /// snapshot layer doesn't depend on `ContractBoard`'s internal types.
+    pub contracts: DashMap<String, serde_json::Value>,
     /// agent_id → (x, y). Ships + bodies mix here since Godot renders them the same way.
     pub positions: DashMap<String, (f32, f32)>,
 }
@@ -52,6 +56,21 @@ impl SnapshotCache {
         self.update_populations(store);
         self.update_bodies(store);
         self.update_factions(store);
+        self.update_contracts(store);
+    }
+
+    fn update_contracts(&self, store: &AgentStore) {
+        // Clear stale entries — contracts that transitioned to Paid /
+        // Expired are still in the board but we keep them around for
+        // history. If the board removes them entirely, drop here.
+        let mut live: std::collections::HashSet<String> = Default::default();
+        for c in store.contracts.iter() {
+            live.insert(c.id.clone());
+            if let Ok(v) = serde_json::to_value(c) {
+                self.contracts.insert(c.id.clone(), v);
+            }
+        }
+        self.contracts.retain(|k, _| live.contains(k));
     }
 
     fn update_ships(&self, store: &AgentStore) {
@@ -70,7 +89,9 @@ impl SnapshotCache {
             .iter()
         {
             // ShipCrew is optional since we only added it in Phase 8d.
+            // ShipCrewSkills came in Phase 11b; also optional on older saves.
             let crew = store.world.get::<&ShipCrew>(e).ok();
+            let skills = store.world.get::<&ShipCrewSkills>(e).ok();
             let snap = ShipSnapshot::build(
                 identity,
                 position,
@@ -81,6 +102,7 @@ impl SnapshotCache {
                 ai,
                 lifecycle,
                 crew.as_deref(),
+                skills.as_deref(),
             );
             self.positions.insert(identity.id.clone(), position.position);
             self.ships.insert(identity.id.clone(), snap);
@@ -112,7 +134,16 @@ impl SnapshotCache {
             body_pos.insert(id.body_id.clone(), orbit.universe_position());
         }
 
-        for (_e, (identity, location, ops, storage)) in store
+        // Build ship_entity → ship_id map so FacilityStorage.docked_ships
+        // (Vec<Entity>) can be resolved to the string-id shape Godot reads.
+        let ship_id_by_entity: std::collections::HashMap<hecs::Entity, String> = store
+            .world
+            .query::<&ShipIdentity>()
+            .iter()
+            .map(|(e, id)| (e, id.id.clone()))
+            .collect();
+
+        for (e, (identity, location, ops, storage)) in store
             .world
             .query::<(
                 &FacilityIdentity,
@@ -132,12 +163,22 @@ impl SnapshotCache {
             // the same spot around its body. Matches the Elixir sim's
             // `:erlang.phash2(id, 360)` offset pattern at radius 0.15.
             let pos = facility_offset_position(body_center, &identity.id);
+            let docked_ship_ids: Vec<String> = storage
+                .docked_ships
+                .iter()
+                .filter_map(|e| ship_id_by_entity.get(e).cloned())
+                .collect();
+            let lifecycle = store.world.get::<&FacilityLifecycle>(e).ok();
+            let gate = store.world.get::<&GateLink>(e).ok();
             let snap = FacilitySnapshot::build(
                 identity,
                 location,
                 ops,
                 storage,
+                lifecycle.as_deref(),
+                gate.as_deref(),
                 sim_core::agents::Position::from(pos),
+                docked_ship_ids,
             );
             // Also publish the facility's position in the flat cache so
             // Godot's positions broadcast includes it with kind "facility".

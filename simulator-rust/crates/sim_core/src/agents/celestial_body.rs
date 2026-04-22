@@ -48,11 +48,82 @@ impl BodyOrbit {
     }
 }
 
-/// Resource richness — set at spawn, decreases via mining.
+/// Resource richness — set at spawn, decreases via mining, regens toward
+/// `max_resources` each biome-tick.
 #[derive(Debug, Clone, Default)]
 pub struct BodyResources {
-    /// Commodity → richness (0.0–1.0).
+    /// Commodity → current richness (0.0–1.0).
     pub resources: HashMap<Commodity, f32>,
+    /// Commodity → seed richness (used as the regen ceiling). Populated at
+    /// spawn from the same JSON that seeds `resources`.
+    pub max_resources: HashMap<Commodity, f32>,
+}
+
+/// Biome classification and food-availability modifier. Populations at
+/// this body read `food_multiplier` to scale their growth rate. Matches
+/// Elixir's `body_agent.ex` biome → food_availability_multiplier table.
+#[derive(Debug, Clone)]
+pub struct BodyBiome {
+    pub biome: String,
+    /// 0.5–1.5 multiplier applied to pop growth rate. Temperate/terrestrial
+    /// biomes peak; lifeless/molten/asteroid biomes bottom out. 1.0 is the
+    /// neutral default for unknown biomes.
+    pub food_multiplier: f32,
+}
+
+impl BodyBiome {
+    /// Map a biome name (as stored in the world JSON) to a food
+    /// availability multiplier. Matches Elixir's table.
+    pub fn food_multiplier_for(biome: &str) -> f32 {
+        match biome {
+            "terrestrial" | "temperate" | "earthlike" => 1.5,
+            "ocean" | "aquatic" => 1.3,
+            "forest" | "jungle" => 1.4,
+            "tundra" | "arctic" => 0.7,
+            "desert" | "arid" => 0.5,
+            "volcanic" | "molten" => 0.3,
+            "lifeless" | "barren" | "rock" | "moon" => 0.2,
+            "asteroid" | "belt" => 0.1,
+            "ice" | "frozen" => 0.6,
+            _ => 1.0,
+        }
+    }
+
+    pub fn new(biome: impl Into<String>) -> Self {
+        let biome = biome.into();
+        let food_multiplier = Self::food_multiplier_for(&biome);
+        Self { biome, food_multiplier }
+    }
+}
+
+/// Per-tick resource regen fraction. Each regen-cycle adds `rate × max`
+/// to current, capped at max. Matches Elixir's `0.0005 × tick_scale`.
+pub const BODY_RESOURCE_REGEN_RATE: f32 = 0.0005;
+/// Regen-cycle interval (base ticks). Matches `body_agent.ex` `5 × mult`.
+pub const BODY_REGEN_INTERVAL_BASE: u64 = 5;
+
+/// Tick phase for bodies. Advances orbits (done in engine), regenerates
+/// resources toward `max_resources`. Food biome multipliers are read by
+/// `tick_populations` directly from `BodyBiome` — no broadcast needed.
+pub fn tick_bodies_regen(
+    world: &mut hecs::World,
+    tick: u64,
+    tick_scale: f32,
+    tick_multiplier: u32,
+) {
+    let interval = BODY_REGEN_INTERVAL_BASE * tick_multiplier as u64;
+    if interval == 0 || tick % interval != 0 {
+        return;
+    }
+    let rate = BODY_RESOURCE_REGEN_RATE * tick_scale * interval as f32;
+    for (_e, resources) in world.query_mut::<&mut BodyResources>() {
+        for (commodity, current) in resources.resources.iter_mut() {
+            if let Some(&max) = resources.max_resources.get(commodity) {
+                let bumped = *current + rate * max;
+                *current = bumped.min(max);
+            }
+        }
+    }
 }
 
 /// Snapshot for HTTP/WS.
@@ -82,5 +153,43 @@ impl BodySnapshot {
             orbit_radius: orbit.orbit_radius,
             orbit_period: orbit.orbit_period,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn biome_food_multiplier_lookup() {
+        assert_eq!(BodyBiome::food_multiplier_for("terrestrial"), 1.5);
+        assert_eq!(BodyBiome::food_multiplier_for("molten"), 0.3);
+        assert_eq!(BodyBiome::food_multiplier_for("asteroid"), 0.1);
+        // Unknown biome neutral default.
+        assert_eq!(BodyBiome::food_multiplier_for("xenomorph"), 1.0);
+    }
+
+    #[test]
+    fn body_resources_regen_toward_max() {
+        use hecs::World;
+        let mut world = World::new();
+        let mut resources = HashMap::new();
+        resources.insert(Commodity::Ore, 0.3);
+        let mut max_resources = HashMap::new();
+        max_resources.insert(Commodity::Ore, 1.0);
+        let _e = world.spawn((BodyResources {
+            resources,
+            max_resources,
+        },));
+        // Interval-aligned tick: regen kicks in.
+        tick_bodies_regen(&mut world, BODY_REGEN_INTERVAL_BASE, 1.0, 1);
+        let post = world
+            .query::<&BodyResources>()
+            .iter()
+            .map(|(_, r)| r.resources.get(&Commodity::Ore).copied().unwrap_or(0.0))
+            .next()
+            .unwrap();
+        assert!(post > 0.3, "expected regen, got {}", post);
+        assert!(post <= 1.0);
     }
 }

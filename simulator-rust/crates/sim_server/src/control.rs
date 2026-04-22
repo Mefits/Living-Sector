@@ -16,10 +16,42 @@
 //! without speeding up the game, or bump world_speed to 4.0 for a smoke
 //! test without making the client's packet rate jittery.
 
-use serde::{Deserialize, Serialize};
+use sim_core::economy::commodities::Commodity;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case")]
+/// Payload for admin-driven ship creation. HTTP handler populates this
+/// from the request body + a freshly-inserted DB row; engine consumes it
+/// in the next drain of the control channel and spawns the hecs entity.
+#[derive(Debug, Clone)]
+pub struct AdminSpawnShipPayload {
+    pub db_id: i64,
+    pub agent_id: String,
+    pub name: String,
+    pub class: String,
+    pub location_name: String,
+    pub faction_id: String,
+    pub universe_offset: (f32, f32),
+    pub position: (f32, f32),
+    pub credits: i64,
+}
+
+/// Payload for admin-driven facility creation.
+#[derive(Debug, Clone)]
+pub struct AdminSpawnFacilityPayload {
+    pub db_id: i64,
+    pub agent_id: String,
+    pub name: String,
+    pub facility_type: String,
+    pub body_id: String,
+    pub faction_id: String,
+    pub location_name: String,
+    pub location_id: i64,
+    pub docking_capacity: u32,
+    pub condition: f32,
+    pub reputation: i32,
+    pub credits: i64,
+}
+
+#[derive(Debug, Clone)]
 pub enum ControlCommand {
     /// Freeze the tick loop. Preserves current world_speed / tps.
     Pause,
@@ -31,6 +63,25 @@ pub enum ControlCommand {
     /// Change game-time multiplier. Does NOT touch ticks_per_second.
     /// Accepts 0.0..=16.0; 0.0 is equivalent to pause.
     SetWorldSpeed { world_speed: f32 },
-    /// Spatial-LOD observer (reserved).
+    /// Spatial-LOD observer (reserved — Phase 13+ will consume these).
+    #[allow(dead_code)]
     MoveObserver { id: String, x: f32, y: f32, radius: f32 },
+    /// Step the tick loop forward `ticks` iterations while paused. When
+    /// `ticks` reaches 0 the sim pauses again. `0` is a no-op.
+    Step { ticks: u32 },
+    /// Admin: spawn a new ship from a pre-inserted DB row.
+    AdminSpawnShip(AdminSpawnShipPayload),
+    /// Admin: remove a ship by agent id.
+    AdminRemoveShip { id: String },
+    /// Admin: spawn a new facility from a pre-inserted DB row.
+    AdminSpawnFacility(AdminSpawnFacilityPayload),
+    /// Admin: remove a facility by agent id.
+    AdminRemoveFacility { id: String },
+    /// Admin: add/subtract a market's supply for one or more commodities.
+    /// The engine resolves `location` to a market entity and applies each
+    /// delta to that market's `supply` map (floored at 0).
+    AdminMarketSupplyDelta {
+        location: String,
+        deltas: Vec<(Commodity, f32)>,
+    },
 }

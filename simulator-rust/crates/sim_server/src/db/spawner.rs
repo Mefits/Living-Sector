@@ -88,6 +88,9 @@ pub async fn load_agents(
 
     seed_ship_price_knowledge(&mut store);
 
+    // Build the gate location-pair lookup used by the pathfinder. Done
+    // once at load time; admin spawn/remove of gates triggers a rebuild.
+    store.rebuild_gate_pairs();
     info!("Spawner: {}", store.summary());
     Ok(store)
 }
@@ -147,6 +150,7 @@ async fn load_bodies(
         let orbit_period: i64 = r.get("orbit_period");
         let current_angle: f64 = r.get("current_angle");
         let resources_json: String = r.get("resources");
+        let biome: String = r.try_get("biome").unwrap_or_default();
         let system_id: i64 = r.get("star_system_id");
 
         let system_name = registry
@@ -162,6 +166,9 @@ async fn load_bodies(
             .unwrap_or((0.0, 0.0));
 
         let resources = parse_commodity_f32_map(&resources_json);
+        // Seed max_resources = starting resources. Mining decrements
+        // `resources`; the regen phase ramps back toward these caps.
+        let max_resources = resources.clone();
 
         let entity = store.world.spawn((
             BodyIdentity {
@@ -179,7 +186,11 @@ async fn load_bodies(
                 universe_offset,
                 dirty: false,
             },
-            BodyResources { resources },
+            BodyResources {
+                resources,
+                max_resources,
+            },
+            sim_core::agents::celestial_body::BodyBiome::new(biome),
         ));
         store.index_body(body_id, entity);
     }
@@ -225,6 +236,7 @@ async fn load_factions(pool: &SqlitePool, store: &mut AgentStore) -> Result<()> 
             treasury,
             personality,
             colors: FactionColors { primary, secondary },
+            active_subsidies: 0,
             dirty: false,
         },));
         store.index_faction(id, entity);
@@ -235,7 +247,8 @@ async fn load_factions(pool: &SqlitePool, store: &mut AgentStore) -> Result<()> 
 async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()> {
     let rows = sqlx::query(
         "SELECT id, name, facility_type, location_id, location_name, body_id, faction_id,
-                docking_capacity, services, condition, reputation, credits, reserves, docked_ships
+                docking_capacity, services, condition, reputation, credits, reserves, docked_ships,
+                gate_paired_id
          FROM facilities",
     )
     .fetch_all(pool)
@@ -255,6 +268,7 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
         let reputation: i64 = r.get("reputation");
         let credits: i64 = r.get("credits");
         let reserves_json: String = r.get("reserves");
+        let gate_paired_id: Option<String> = r.try_get("gate_paired_id").ok();
 
         // Include facility name-slug so multi-facility locations (earth-station
         // has a station + a farm) get distinct agent ids.
@@ -271,6 +285,7 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
         // active docking relationships are repopulated by ship tick phases.
         let _ = r.try_get::<String, _>("docked_ships").unwrap_or_default();
 
+        let is_gate = facility_type == "gate";
         let entity = store.world.spawn((
             FacilityIdentity {
                 db_id,
@@ -297,7 +312,32 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
                 docked_ships: vec![],
                 pending_deliveries: vec![],
             },
+            sim_core::agents::facility::FacilityLifecycle::new(),
+            sim_core::simulation::lod::AgentLod::new(),
         ));
+        // Attach GateLink for gate facilities. Pairing is symmetric but
+        // we validate only existence here; the pathfinder will resolve
+        // the paired entity at lookup time.
+        if is_gate {
+            if let Some(paired) = gate_paired_id.filter(|s| !s.is_empty()) {
+                use sim_core::agents::facility::{
+                    GateLink, DEFAULT_GATE_FEE_FLAT, DEFAULT_GATE_FEE_PER_CARGO,
+                    DEFAULT_GATE_THROUGHPUT,
+                };
+                store
+                    .world
+                    .insert_one(
+                        entity,
+                        GateLink {
+                            paired_gate_id: paired,
+                            fee_flat: DEFAULT_GATE_FEE_FLAT,
+                            fee_per_cargo_unit: DEFAULT_GATE_FEE_PER_CARGO,
+                            throughput_cap: DEFAULT_GATE_THROUGHPUT,
+                        },
+                    )
+                    .ok();
+            }
+        }
         store.index_facility(id, location_name, entity);
     }
     Ok(())
@@ -446,6 +486,7 @@ async fn load_populations(pool: &SqlitePool, store: &mut AgentStore) -> Result<(
                 entertainment_satisfaction: ent_sat as i32,
                 dirty: false,
             },
+            sim_core::simulation::lod::AgentLod::new(),
         ));
         store.index_population(id, entity);
     }
@@ -552,6 +593,11 @@ async fn load_ships(
                 to,
                 departure_tick: dep as u64,
                 arrival_tick: arr as u64,
+                // Legacy rows don't carry distance fields — advance_transits
+                // reseeds them from the route registry on first tick.
+                departure_position: None,
+                distance_total: 0.0,
+                distance_travelled: 0.0,
             }),
             _ => None,
         };
@@ -562,6 +608,19 @@ async fn load_ships(
 
         // Resolve docked-at facility entity from DB id, if any
         let docked_at_entity = docked_at.and_then(|fid| facility_entity_by_db_id(store, fid));
+
+        // Seed ships don't have persisted `position_x/y` — they come out of
+        // the DB as (0,0), which puts every ship at the universe origin
+        // regardless of system. Resolve an initial position from the
+        // ship's `location_name` via the body that location orbits. Falls
+        // back to (0,0) only if the location or body can't be found.
+        let (init_px, init_py) = if px.abs() < f64::EPSILON && py.abs() < f64::EPSILON {
+            resolve_location_world_pos(store, registry, &location_name)
+                .map(|(x, y)| (x as f64, y as f64))
+                .unwrap_or((px, py))
+        } else {
+            (px, py)
+        };
 
         let entity = store.world.spawn((
             ShipIdentity {
@@ -580,7 +639,7 @@ async fn load_ships(
                 docked_at: docked_at_entity,
                 system_id,
                 universe_offset: (ox as f32, oy as f32),
-                position: (px as f32, py as f32),
+                position: (init_px as f32, init_py as f32),
             },
             ShipTransit { transit },
             ShipCargo {
@@ -599,6 +658,7 @@ async fn load_ships(
                 efficiency: efficiency as f32,
                 active_contract_id,
                 faction_reputation,
+                dock_dwell_start_tick: None,
             },
             ShipAI {
                 personality,
@@ -616,18 +676,33 @@ async fn load_ships(
                 dirty: false,
             },
         ));
-        // Crew from class
-        let crew_size = sim_core::simulation::config::ship_class(&class)
-            .map(|c| c.crew_size)
-            .unwrap_or(5);
+        // Crew from class. Seed from Elixir CrewComplement defaults:
+        // morale=70, fatigue=10, hunger=10, health=100, idle task, no wages yet.
+        let ship_class = sim_core::simulation::config::ship_class(&class);
+        let crew_size = ship_class.map(|c| c.crew_size).unwrap_or(5);
+        let crew_roles = ship_class.map(|c| c.crew_roles).unwrap_or(&[]);
         store.world.insert_one(
             entity,
             ShipCrew {
                 size: crew_size,
-                morale: 70,
-                fatigue: 20,
+                hunger: 10.0,
+                morale: 70.0,
+                fatigue: 10.0,
+                health: 100.0,
+                wages_credits: 0,
+                current_task: sim_core::agents::ship::CrewTask::Idle,
                 dirty: false,
             },
+        ).ok();
+        store.world.insert_one(
+            entity,
+            sim_core::agents::ship::ShipCrewSkills::for_roles(crew_roles),
+        ).ok();
+        // Attach LOD cursor — defaults to divisor 1 so new ships run at
+        // full cadence until the next `tick_lod_recompute` pass.
+        store.world.insert_one(
+            entity,
+            sim_core::simulation::lod::AgentLod::new(),
         ).ok();
         store.index_ship(id, entity);
     }
@@ -635,6 +710,44 @@ async fn load_ships(
 }
 
 // --- Helpers ---
+
+/// Compute the world-space position of a named location by finding the
+/// body it orbits and applying the facility offset if a facility sits
+/// at that location. Returns `None` if the location is unknown or its
+/// body isn't in the ECS yet (bodies must be loaded before ships — which
+/// they are, per `load_agents`'s ordering).
+fn resolve_location_world_pos(
+    store: &AgentStore,
+    registry: &WorldRegistry,
+    location_name: &str,
+) -> Option<(f32, f32)> {
+    use sim_core::agents::{
+        celestial_body::{BodyIdentity, BodyOrbit},
+        facility::{facility_offset_position, FacilityIdentity, FacilityLocation},
+    };
+    let loc_info = registry.locations.get(location_name)?;
+    let body_db_id = loc_info.celestial_body_id;
+    // Find the body by db_id and compute its universe position.
+    let body_pos = store
+        .world
+        .query::<(&BodyIdentity, &BodyOrbit)>()
+        .iter()
+        .find(|(_, (id, _))| id.db_id == body_db_id)
+        .map(|(_, (_, orbit))| orbit.universe_position())?;
+    // If there's a facility at this location, use its offset so the ship
+    // starts at the dock rather than the body center.
+    let fac_id = store
+        .world
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .iter()
+        .find(|(_, (_, loc))| loc.location_name == location_name)
+        .map(|(_, (id, _))| id.id.clone());
+    Some(if let Some(id) = fac_id {
+        facility_offset_position(body_pos, &id)
+    } else {
+        body_pos
+    })
+}
 
 fn facility_entity_by_db_id(store: &AgentStore, db_id: i64) -> Option<hecs::Entity> {
     // Look up by iterating the world; we only do this during initial spawn so cost is O(N_facilities)

@@ -112,6 +112,10 @@ func post_sim_control(action: String, params: Dictionary = {}) -> void:
 			# {world_speed, ticks_per_second, interval_ms}.
 			url = _base_url() + "/api/sim/speed"
 			body = JSON.stringify(params)
+		"step":
+			# Advance N forced ticks while paused. Body: {ticks: u32}.
+			url = _base_url() + "/api/sim/step"
+			body = JSON.stringify(params)
 		_:
 			push_warning("Unknown sim control action: " + action)
 			return
@@ -252,7 +256,9 @@ func connect_websocket() -> void:
 		print("[Network] WebSocket connecting to %s..." % url)
 
 
-func send_move_observer(id: String, x: float, y: float) -> void:
+func send_move_observer(
+	id: String, x: float, y: float, radius: float = 20.0
+) -> void:
 	if _ws_state != WebSocketPeer.STATE_OPEN:
 		return
 	var msg := {
@@ -260,7 +266,7 @@ func send_move_observer(id: String, x: float, y: float) -> void:
 		"id": id,
 		"x": x,
 		"y": y,
-		"radius": 20.0,
+		"radius": radius,
 	}
 	_ws.send_text(JSON.stringify(msg))
 
@@ -381,6 +387,16 @@ func _handle_ws_packet(pkt: PackedByteArray) -> void:
 			_handle_ship_states(parsed)
 		"market_states":
 			_handle_market_states(parsed)
+		"facility_states":
+			_handle_facility_states(parsed)
+		"population_states":
+			_handle_population_states(parsed)
+		"faction_states":
+			_handle_faction_states(parsed)
+		"contract_states":
+			_handle_contract_states(parsed)
+		"events":
+			_handle_events(parsed)
 		"agent_state":
 			_handle_agent_state(parsed)
 		"sim_control_ack":
@@ -395,14 +411,17 @@ func _handle_server_hello(msg: Dictionary) -> void:
 	var running: bool = bool(msg.get("running", true))
 	var interval := int(msg.get("interval_ms", 125))
 	var count := int(msg.get("agent_count", 0))
+	var ws := float(msg.get("world_speed", GameState.world_speed))
 	print(
-		"[Network] server_hello: tick=%d running=%s interval=%dms agents=%d"
-		% [tick, running, interval, count]
+		"[Network] server_hello: tick=%d running=%s interval=%dms agents=%d ws=%.2fx"
+		% [tick, running, interval, count, ws]
 	)
 	if GameState.has_method("update_tick"):
 		GameState.update_tick(tick)
 	if "tick_interval_ms" in GameState:
 		GameState.tick_interval_ms = interval
+	if "world_speed" in GameState:
+		GameState.world_speed = ws
 
 
 func _handle_positions(msg: Dictionary) -> void:
@@ -453,6 +472,51 @@ func _handle_market_states(msg: Dictionary) -> void:
 		GameState.update_markets(markets)
 
 
+func _handle_facility_states(msg: Dictionary) -> void:
+	## Full facility snapshots from the facility_states WS channel.
+	## Server sends every ~2s (tick % 16). Payload includes condition,
+	## credits, docked_ships list, reserves, services. Godot uses
+	## docked_ships.size() for its docking-glow pulse animation and
+	## reserves for the details-panel tank display.
+	var facilities = msg.get("facilities", [])
+	if facilities is Array and GameState.has_method("update_facilities"):
+		GameState.update_facilities(facilities)
+
+
+func _handle_population_states(msg: Dictionary) -> void:
+	## Population snapshots, every ~2s (tick % 16). Drives the population
+	## browser + details panel sentiment/count fields.
+	var populations = msg.get("populations", [])
+	if populations is Array and GameState.has_method("update_populations_full"):
+		GameState.update_populations_full(populations)
+
+
+func _handle_faction_states(msg: Dictionary) -> void:
+	## Faction snapshots, every ~4s (tick % 32). Carries treasury +
+	## active_subsidies. Faction ledger panel renders this.
+	var factions = msg.get("factions", [])
+	if factions is Array and GameState.has_method("update_factions_full"):
+		GameState.update_factions_full(factions)
+
+
+func _handle_contract_states(msg: Dictionary) -> void:
+	## Full contract board, every ~4s (tick % 32). Contract board panel
+	## reads this — filter by kind/status/faction, sort by age/payment.
+	var contracts = msg.get("contracts", [])
+	if contracts is Array and GameState.has_method("update_contracts"):
+		GameState.update_contracts(contracts)
+
+
+func _handle_events(msg: Dictionary) -> void:
+	## Episodic events stream. Arrives each tick when non-empty.
+	## GameState appends into a ring buffer (last 200) and fires
+	## `event_received` per event so panels / toasts can react.
+	var tick: int = int(msg.get("tick", GameState.tick))
+	var events = msg.get("events", [])
+	if events is Array and GameState.has_method("append_events"):
+		GameState.append_events(tick, events)
+
+
 func _handle_agent_state(msg: Dictionary) -> void:
 	# Reply to get_agent / get_snapshot. Apps that want to handle this
 	# should look at GameState or hook via a signal.
@@ -461,9 +525,20 @@ func _handle_agent_state(msg: Dictionary) -> void:
 
 
 func _handle_sim_control_ack(msg: Dictionary) -> void:
+	# Server echoes current world_speed + interval_ms on every ack so the
+	# HUD label can refresh right after pause/resume/speed changes.
+	if msg.has("world_speed") and "world_speed" in GameState:
+		GameState.world_speed = float(msg["world_speed"])
+	if msg.has("interval_ms") and "tick_interval_ms" in GameState:
+		GameState.tick_interval_ms = int(msg["interval_ms"])
 	print(
-		"[Network] sim_control_ack: action=%s tick=%d running=%s"
-		% [msg.get("action", "?"), int(msg.get("tick", 0)), msg.get("running", true)]
+		"[Network] sim_control_ack: action=%s tick=%d running=%s ws=%.2fx"
+		% [
+			msg.get("action", "?"),
+			int(msg.get("tick", 0)),
+			msg.get("running", true),
+			float(msg.get("world_speed", GameState.world_speed)),
+		]
 	)
 
 

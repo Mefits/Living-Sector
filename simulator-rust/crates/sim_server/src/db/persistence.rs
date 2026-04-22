@@ -48,6 +48,28 @@ pub enum DbWrite {
         id: String,
         treasury: i64,
     },
+    /// Facility runtime state. Condition + reserves drift every tick;
+    /// credits move on docking fees + restock + spread revenue + tax.
+    Facility {
+        db_id: i64,
+        credits: i64,
+        condition: f32,
+        reserves_json: String,
+    },
+    /// Population demographics + sentiment.
+    Population {
+        db_id: i64,
+        population_count: i64,
+        overall_sentiment: i32,
+        food_satisfaction: i32,
+        total_wealth: i64,
+    },
+    /// Celestial body orbital angle + resource state.
+    Body {
+        db_id: i64,
+        current_angle: f32,
+        resources_json: String,
+    },
     /// Current tick counter for restart resume.
     Tick {
         tick: u64,
@@ -61,6 +83,9 @@ impl DbWrite {
             DbWrite::Ship { db_id, .. } => ("ship", db_id.to_string()),
             DbWrite::Market { db_id, .. } => ("market", db_id.to_string()),
             DbWrite::Faction { id, .. } => ("faction", id.clone()),
+            DbWrite::Facility { db_id, .. } => ("facility", db_id.to_string()),
+            DbWrite::Population { db_id, .. } => ("population", db_id.to_string()),
+            DbWrite::Body { db_id, .. } => ("body", db_id.to_string()),
             DbWrite::Tick { .. } => ("tick", String::new()),
         }
     }
@@ -199,6 +224,67 @@ impl PersistenceWorker {
                     )
                     .bind(treasury)
                     .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+
+                DbWrite::Facility {
+                    db_id,
+                    credits,
+                    condition,
+                    reserves_json,
+                } => {
+                    sqlx::query(
+                        "UPDATE facilities SET
+                           credits=?1, condition=?2, reserves=?3,
+                           updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
+                         WHERE id=?4",
+                    )
+                    .bind(credits)
+                    .bind(condition as f64)
+                    .bind(reserves_json)
+                    .bind(db_id)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+
+                DbWrite::Population {
+                    db_id,
+                    population_count,
+                    overall_sentiment,
+                    food_satisfaction,
+                    total_wealth,
+                } => {
+                    sqlx::query(
+                        "UPDATE populations SET
+                           population_count=?1, overall_sentiment=?2,
+                           food_satisfaction=?3, total_wealth=?4,
+                           updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
+                         WHERE id=?5",
+                    )
+                    .bind(population_count)
+                    .bind(overall_sentiment as i64)
+                    .bind(food_satisfaction as i64)
+                    .bind(total_wealth)
+                    .bind(db_id)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+
+                DbWrite::Body {
+                    db_id,
+                    current_angle,
+                    resources_json,
+                } => {
+                    sqlx::query(
+                        "UPDATE celestial_bodies SET
+                           current_angle=?1, resources=?2,
+                           updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
+                         WHERE id=?3",
+                    )
+                    .bind(current_angle as f64)
+                    .bind(resources_json)
+                    .bind(db_id)
                     .execute(&mut *tx)
                     .await?;
                 }

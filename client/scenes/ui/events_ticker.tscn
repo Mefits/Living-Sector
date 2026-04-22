@@ -1,0 +1,39 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/events_ticker.gd" id="1"]
+
+[node name="EventsTicker" type="PanelContainer"]
+script = ExtResource("1")
+custom_minimum_size = Vector2(520, 420)
+
+[node name="VBox" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="TopRow" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="VBox/TopRow"]
+layout_mode = 2
+text = "Events"
+
+[node name="KindFilter" type="OptionButton" parent="VBox/TopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CountLabel" type="Label" parent="VBox/TopRow"]
+layout_mode = 2
+text = "0 / 0"
+
+[node name="CloseButton" type="Button" parent="VBox/TopRow"]
+layout_mode = 2
+text = "X"
+flat = true
+
+[node name="Feed" type="RichTextLabel" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+bbcode_enabled = true
+scroll_active = true
+selection_enabled = true
