@@ -6,80 +6,49 @@ anything else as you need it.
 
 ## Where we are
 
-**Phases 1–17 shipped + an economic/physics stabilization pass.** 100
-tests passing. Sim runs 806 agents (223 ships + 62 facilities including
-6 gates + 23 markets + 19 pops + 6 factions + 23 bodies) at p50 ≈ 3–8
-ms / p99 ≈ 8–17 ms per tick. Full economic loop, per-faction rep-gated
+**Phases 1–18L shipped + a dock-capacity seed bump on top.** 155 tests
+passing. Sim runs 227 agents (seed + 5 Phase-18h veterans) at p50 ≈ 1
+ms / p99 ≈ 3 ms per tick. Full economic loop, per-faction rep-gated
 contracts, observer-driven spatial LOD for ships, facility autonomy
-with abandonment, admin CRUD including runtime spawn, SQLite
+with abandonment, admin CRUD including runtime spawn + refit, SQLite
 persistence that round-trips ships / markets / factions / facilities /
-populations / bodies / tick counter across restart. Godot client has
-13 toggle-able inspector panels.
+populations / bodies / tick counter / **ship fitting / ship
+progression / facility fitting / shipyard module stock** across
+restart. Three systems (Sol / Alpha Centauri / Tau Ceti) connected by
+6 inter-system gates; three shipyards (earth-station, haven-station,
+anvil-depot) actually produce installable modules. Godot client has
+the inspector panels plus size/tier labels + Subsystems / Progression /
+Module Stock sections in the details panel.
 
-**Since the initial "Phases 1–17 complete" handoff the following
-landed** (in one long session):
+## Phase 18 arc (the recent work)
 
-- **Velocity-based transit.** Ships move `speed_mod × tick_scale ×
-  SHIP_BASE_VELOCITY` world-units per tick toward the live destination
-  position. No more precomputed `arrival_tick + straight-line lerp`.
-  World-speed changes mid-flight rescale immediately. Ships are no
-  longer on rails — when combat / evasion / flee logic lands, they'll
-  just swap the waypoint. `Transit` carries `departure_position` so
-  the source body can orbit away without dragging the ship along.
-- **DockDwell + Loading/Unloading crew tasks.** Visible station
-  activity (2s arrive + 2s depart at every dock sequence), with crew
-  task set from the action (Buy → Loading, SellAll/DeliverCargo →
-  Unloading). `primary_task` rewritten so docked ships don't show
-  "Piloting" anymore.
-- **Ship seed position fix.** Ships used to spawn at universe origin
-  (0, 0) regardless of their location's system. Now resolved from the
-  location's body + facility offset at load.
-- **Godot warp streak.** On gate teleport, trail clears and a short
-  violet-core/cyan-halo streak draws across the discontinuity, fading
-  over ~1.6s. Kills the "phantom line across the galaxy" artifact.
-- **Recipe-input contracts.** Refineries / factories / farms post
-  delivery contracts for ore/gas/metals/polymers/ice/water when the
-  local market is short, so ships pull raw materials to producers.
-  Payment uses `max(flat_base, src_price × qty × 1.3)` so contracts
-  stay profitable even with volatile source prices.
-- **Faction bailout.** After every tax cycle, factions wire 6k to any
-  member facility below 3k credits, down to a 2k treasury floor.
-  Rescues bankrupted infrastructure before it abandons.
-- **Crew balance pass (THE fix that unlocked contract acceptance).**
-  Hunger rate 2.0 → 1.0. Fatigue rate 1.0 → 0.4. Docked recovery −5
-  on hunger, −5 on fatigue, +6 morale per check. Hunger/fatigue
-  morale penalties only fire OFF-STATION. `CREW_REST_TRIGGER` 35 →
-  15. Was: 0 contracts ever accepted. Now: ~70 accepted and ~80 paid
-  per ~12k-tick fresh sim.
-- **Pop emergency food contracts.** When `food_satisfaction < 20`,
-  pop posts a higher-qty, 6× premium, half-lifespan food contract so
-  starving populations outbid subsidies on the board.
-- **Price-engine damping.** Wider stable zone (coverage 10–200 = no
-  pressure), softer shortage ramp, urgency cap 4.0 → 2.5, per-tick
-  rate limit 5%. Keeps prices from slamming into ceiling/floor in
-  one tick while the supply chain catches up.
-- **sim-review skill** at
-  `simulator-rust/.claude/skills/sim-review/SKILL.md` — `/sim-review`
-  runs a regression-plus-health sweep of the live sim.
+A long sweep on **subsystems + economy self-regulation**. The shape
+to keep in your head:
 
-**Sim currently runs clean.** Economy is contract-driven (most ships
-on `fulfill_delivery`, <5% on `trade_run`), starvation trending down,
-prices still bimodal at extremes but with a meaningful mid-range band
-(~33% of commodity/market cells). Next session owner was going to pick
-up agent stats/systems work — **see briefing at the bottom of this
-file, that plan is still current.**
+| Phase | Commit | What it does |
+|---|---|---|
+| 18a | `cea98a4` | Ship subsystem scaffold: `modules/` catalog (5 slots × 3 tiers), `ShipFitting` component, tier-1 defaults seeded on every ship. Gameplay-neutral at tier 1. |
+| 18b | `400291c` | Refit mechanics. `POST /api/admin/ships/:id/refit`. Migration 003 persists `ships.fitting` JSON. |
+| 18c | `7498330` | Shipyards + module economy. New `facility_type = "shipyard"`, `ModuleStock` component, 10 production recipes, refit-via-shipyard charges credits + consumes stock. Migration 004. |
+| 18d | `97846d2` | Agent-driven retrofit. `ShipProgression { level, xp, retrofit_points }`, XP on delivery, banks 1 retrofit point per level-up, planner preempts `trade_run` with `seek_retrofit` when stocked + credited + reachable shipyard exists. Migration 005. |
+| 18e | `63e637f` | Facility subsystems (Production + Automation), `facility_modules/` catalog, wired into `tick_recipes_and_mining`. Migration 006. |
+| 18f | `bd32a66` | Ship size tiers (Tiny..Massive), cross-system contract gate via sensor range, comms payment bump. Migration 007. |
+| 18g | `942e7f5` | Size-driven speed penalty (Tiny 1.15× → Massive 0.70×). Bigger = slower. |
+| 18h | `aefab38` | Beef up seed JSONs: 5 veteran ships with levels + tier-2 fittings, 3 pre-stocked shipyards, advanced factories. |
+| 18i | `b2faeee` | Personality-weighted `plan_goal`. `score_goal(profit, goal, personality)` picks between contract vs trade_run by archetype `prefer_goals`. `Personality::for_class` maps class→archetype. |
+| 18j | `2ba4976` | Contract payment age-escalation. Stale Posted contracts accrue +5% / 50 ticks, cap +100%. Lifespan trimmed 500→300 for faster churn. |
+| 18k | `ee5bf48` | Break the morale-0 death spiral: multi-facility dock fallback (haven-station's 5 facilities all get used), Rest action timeout + non-docked `Resting` recovery bump. |
+| 18L | `14bc93c` | Dock-queue awareness. `Dock` is multi-tick with context-dependent wait budget (has-contract 150 / default 60 / low-morale 30 base ticks). Congestion-aware `rest_crew` picks the least-saturated same-system station. |
+| chore | `69a6635` | Seed dock capacity bumps: AC 44→70, TC 59→87. `PLAN.md` retired in favour of this handoff. |
 
-## What just shipped (most recent first)
-
-- **Phase 17** — Inter-system jump gates. 6 gates (one per system-pair direction) seeded with `facility_type = "gate"` + a `GateLink` component (paired-id, flat fee 200cr, per-cargo 2cr, throughput cap 3 ships/tick — queue deferred). Removed direct cross-system `travel_routes` from world JSON. Added Dijkstra pathfinder (`world/pathfinder.rs`) over locations + gate-pair edges. Ship BT builders now call `route_actions(from, to)` which expands any destination into a `Travel → GateJump → Travel` chain as needed. `ShipAction::GateJump` emits a `RequestGateJump` command; apply phase checks the fee, credits the gate, teleports the ship to the paired gate's position. Contract planner rejects contracts where `buy_cost + gate_fees >= payment`. Godot renders gates with the heaviest station model at 2.4× scale + a cyan emissive torus ring + a soft idle pulse so they read as portals from a distance. **Live-verified**: 42 ships at/heading-to a gate in a 40s smoke, fees flowing into gate treasuries.
-- **Phase 15g** — LOD tier distribution surfaced on `/api/health.perf.lod` and rendered in the perf HUD (`d1:215 d2:3 d10:5 d50:0`). Perf overlay polls `/api/health` once per second while open.
-- **Phase 15a–f** — Observer-driven spatial LOD for ships. `AgentLod { divisor, next_tick }` component, tier table 1/2/5/10/20/50 by distance to nearest observer, `try_fire(tick) → Option<skipped_ticks>` cursor. Ships' fuel burn + crew hunger/fatigue scale by `skipped_ticks` so total state change over wall-clock is preserved. Godot sends a `"camera"` observer every 50 ms with radius scaling off zoom. **Facilities + pops carry `AgentLod` for stats but don't gate yet** — Phase 16 candidate.
-- **Phase 14** — Market panel fix. Two bugs: (1) Godot read `market.facility_id` but Rust emits `facility_location`; (2) a `replace_all` Edit from my earlier session left an indent mismatch in `details_panel.gd` that parse-errored and cascaded through scene loading. Both fixed.
-- **Phase 13a–g** — Godot inspector panels. Events ticker (filterable stream, click → focus camera), contract board (6-kind/6-status filter, sortable), faction ledger (treasury + active subsidies + ship/fac counts), population browser (count/sentiment/food_sat with colour coding), perf overlay (p50/p99 µs + FPS + 60-sample sparkline + LOD tiers). Rust side: `contract_states` broadcast, `/api/health.perf`, `POST /api/sim/step {ticks}` for stepping while paused. Details panel gets "Recent activity" from the events ring.
-- **Phase 12a–d** — Runtime admin ship/facility spawn (replaces Phase 11g's 501 stubs); facility/pop/body persistence; crew mission catalog (9 Elixir templates ported to `economy/missions.rs`) with full ship BT flow + skill XP; contract rep gating (Subsidy=70, CrewMission=50, Delivery=0) with age-open decay 10 rep / 100 ticks.
-- **Phase 11a–g** — Elixir-parity sweep. Crew `current_task` + skills + hunger, facility autonomy (degrade / self-repair / restock / post contracts / level / abandon), pop urgency bids + passenger contracts, faction subsidy (1.25× → 3.0× multiplier on chronic shortages), body biome + regen, 6 contract kinds, events broadcast, admin HTTP endpoints.
-
-Earlier phases (1–10) are the pure-logic + server + persistence + Godot-protocol foundation. See [`PLAN.md`](./PLAN.md) for full detail.
+**Fleet signal at tick 1833 of an 18L smoke** (before the capacity
+bump): 227 ships, 48 docked, 144 in transit, **35 stuck** (down from
+130 at 18j), 65 morale-pinned-at-zero (down from 158). Goals
+diversified: trade_run 78% / rest_crew 12% / delivery+passenger+
+contract+retrofit the rest. Contract throughput 12 paid + 12
+accepted + 250 expired. **After the capacity bump** (very early
+sample at tick 827), stuck dropped further to 18 and docked rose to
+31. A longer-burn review is a good next-session starting point.
 
 ## How to run it, today
 
@@ -97,82 +66,100 @@ Or for a quick headless check:
 
 ```bash
 cd simulator-rust
-scripts/verify.sh --strict   # cargo check + test + clippy
+scripts/verify.sh --strict   # cargo check + test + clippy; 155 tests
 scripts/smoke.sh 15          # boot 15 s with temp DB, print log tail
 scripts/persist-test.sh      # confirm restart resumes from persisted tick
 ```
 
-Default `WORLD_SPEED=0.25` is the "chill play" pace (Earth↔Mars ≈ 4 min).
-`4.0` is the smoke-test default — economy converges in tens of seconds.
+Default `WORLD_SPEED=0.25` is "chill play" pace (Earth↔Mars ≈ 4 min).
+`4.0` is the smoke-test default — economy converges in tens of
+seconds.
 
 ## Verification one-liners
 
 ```bash
-# Full economy + regression sweep against a live sim
-# (calls out stuck contracts, pinned prices, stranded ships, etc.)
-#   /sim-review
-# Implemented at simulator-rust/.claude/skills/sim-review/SKILL.md
+# Full economy + regression sweep against a live sim (calls out
+# stuck contracts, pinned prices, stranded ships, etc.)
+#   /sim-review    (skill at simulator-rust/.claude/skills/sim-review)
 
 # Direct API pokes
 curl -s localhost:8080/api/health | jq '.perf'
 curl -s localhost:8080/api/contracts | jq '.data | length'
-curl -s localhost:8080/api/observers | jq .
 
-# Admin spawn smoke-test (Phase 12a):
+# Phase-18 specific:
+curl -s localhost:8080/api/ships | jq '.data[0].fitting'          # subsystems
+curl -s localhost:8080/api/ships | jq '.data[0].progression'      # level/XP/RP
+curl -s localhost:8080/api/ships | jq '[.data[].size] | group_by(.) | map({size:.[0], count:length})'
+curl -s localhost:8080/api/facilities | jq '.data | map(select(.type == "shipyard")) | map({id, module_stock, credits})'
+
+# Spawn + retrofit smoke:
 curl -sS -X POST -H 'Content-Type: application/json' \
-  -d '{"class":"freighter","faction_id":"terran-authority","location":"earth-station","credits":10000}' \
-  localhost:8080/api/admin/ships | jq .
-
-# Step-debug (Phase 13b):
-curl -s -X POST localhost:8080/api/sim/pause
-curl -s -X POST -H 'Content-Type: application/json' -d '{"ticks":8}' \
-  localhost:8080/api/sim/step
+  -d '{"class":"freighter","faction_id":"terran-authority","location":"earth-station","credits":50000}' \
+  localhost:8080/api/admin/ships
+curl -sS -X POST -H 'Content-Type: application/json' \
+  -d '{"amount":100}' \
+  "localhost:8080/api/admin/ships/ship-admin-NN/grant-xp"
+curl -sS -X POST -H 'Content-Type: application/json' \
+  -d '{"slot":"engine","slug":"engine_t2","via_shipyard":true}' \
+  "localhost:8080/api/admin/ships/ship-admin-NN/refit"
 ```
 
-## Open candidates (none urgent)
+## Open candidates (triage to taste)
 
-- **Stats + systems pass** (agent attributes / combat / upgrades /
-  mission richness). This is the next session's planned direction —
-  see the dedicated briefing at the bottom of this file.
-- **Economy follow-up tuning.** After the economic stabilization pass
-  prices still show ~45% of cells pinned at the ceiling or floor and
-  ~5 populations still run below 30 food-satisfaction. Not broken,
-  just "not fully converged at 12k ticks." Let it run longer before
-  tuning further — the damping is new and wants settling time. If
-  after a long-burn test equilibrium is still bad, candidates are
-  (a) bump farm production, (b) shorten emergency-food contract
-  lifespan further, (c) widen `coverage_to_pressure` stable zone.
-- **`SIM_DEBUG_CONTRACTS=1` env flag is removed.** If you need to
-  diagnose why ships aren't accepting contracts again, add an opt-in
-  log at the rejection branches of `ship::try_plan_contract`. The
-  pattern worked well: 1 line at each `continue`, totalled via
-  `grep -c` on the log file.
-- **Phase 16 — facility + population LOD rate scaling.** They carry
-  `AgentLod` for the stats readout but their per-tick phases don't
-  gate on it. ~75 agents vs 223 ships, so small gain; recipe
-  `max_batches` + sentiment inertia would need careful scaling.
-- **Command trace / replay.** Server-side ring of every `SimCommand`
-  per tick, `/api/debug/ship/:id/trace?ticks=100` filters by agent.
-  Architecture supports it — commands are plain data. Build when a
-  specific "I wish I could rewind this" bug shows up.
-- **Windows native build validation.** Cross-compile is scaffolded
-  (`x86_64-pc-windows-gnu` + bundled SQLite). Waiting on a Windows box.
-- **Rayon parallelism.** Dependency is in, never called. Architecture
-  has no cross-ship writes within a phase. Skip until 10k+ agents.
-- **Spatial-LOD chunk ring overlay on minimap.** Visual "here's where
-  the sim is giving you full fidelity vs throttling."
+1. **Longer-burn health check with capacity-bump** — run the sim
+   for 5–10 minutes, confirm stuck-count trends toward zero, trade_run
+   monoculture keeps breaking up. Then either celebrate or the next
+   bottleneck surfaces.
+2. **Price-engine upstream** — the 18j review flagged ~45% of price
+   cells at ceiling with supply=0 scattered across ore/metals/components/
+   polymers/tools/food. 18L's queue-awareness + the capacity bump
+   might fix this indirectly (ships can finally dock + execute
+   contracts → commodities move), but if not, the damping / coverage
+   math might need a look. `economy/price_engine.rs`.
+3. **Wire the `mine` goal** for real. Miners have the archetype but
+   the mining BT doesn't exist — they fall back to trade/contracts
+   like everyone else. Would be a natural extension of the agent
+   BT work.
+4. **Dock capacity in Sol** — Sol is at 146 slots / ~24% utilisation,
+   looks fine, but worth watching as Sol gets busier with the
+   retrofit / shipyard flows pulling ships in.
+5. **Per-crew individual simulation** — still aggregated on the ship
+   (`ShipCrew` + `ShipCrewSkills`). The `crew_members` table in
+   SQLite is waiting for this whenever mission richness demands it.
+6. **Facility + population LOD rate scaling** — components
+   (`AgentLod`) attached but the tick phases don't gate yet. Not
+   critical until ship count climbs past ~2k.
+7. **Autonomous facility retrofit** — facilities have
+   `FacilityLifecycle.level/xp` but no retrofit-point banking +
+   spend-credits-on-modules behaviour yet. Mirror of the 18d ship
+   retrofit arc.
+8. **Windows native build validation** — cross-compile scaffolded
+   (`rustup target add x86_64-pc-windows-gnu` + bundled SQLite).
+   Waiting on a Windows box.
+9. **Rayon parallelism** — dep is in, never called. Skip until 10k+
+   agents.
 
 ## Watch-outs / gotchas
 
-- **Market snapshots key on `facility_location`, not `facility_id`** —
-  Phase 14 bug. If Godot UI code ever grabs `m.facility_id`, it's stale.
-- **"No observer" ≠ "LOD'd out"**. No observer → everything runs at
-  divisor 1 (full fidelity). Tested in `simulation::lod`.
-- **Editing a `.gd` file can cascade.** Godot's scene loader fails
-  hard on a parse error in one script and silently wedges unrelated
-  panels. After editing GDScript, reload the project in the editor
-  (Ctrl+Shift+T or restart) to see the real errors. `market_overlay`
-  has a `DEBUG` flag you can flip on.
+- **Monitor timeouts**: default 300s is probably too long for
+  wait-on-tick loops. Use ~120 000 ms when you re-arm — user called
+  this out mid-session.
+- **`bash` sessions lose cwd** when you background a process. If you
+  `cd` + `&` then the next Bash call, the backgrounded process still
+  has the cwd but the SHELL call does not. Safer: `cd X && cargo run
+  ... > log 2>&1 &` on one line, then `disown`.
+- **Seeder writes empty `{}` defaults** for `fitting` / `progression` /
+  `module_stock`. The loader's `parse_*` helpers handle this: empty
+  JSON → class/size defaults. New in 18h: seed JSONs may also pass
+  explicit values — the seeder stores them, loader parses them. Don't
+  drop the fallbacks; they're how existing DB rows migrate forward.
+- **`Dock` is multi-tick now** (18L). Returning `Running` is expected.
+  Don't assume a single tick resolves a dock request.
+- **`ShipEconomy` has ephemeral state**: `dock_dwell_start_tick`,
+  `rest_start_tick`, `dock_attempt_start_tick`. Not persisted. Cleared
+  by the action that set them on Success/Failure. If you add a
+  similar "how long have I been doing X" timer, follow the same
+  pattern.
 - **The tick loop owns `hecs::World` exclusively.** HTTP / WS handlers
   read from `SnapshotCache` (DashMap), never touch the live world.
   Cross-entity state changes MUST go through `SimCommand` so they
@@ -189,189 +176,63 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{"ticks":8}' \
 - **Recipe inputs come from market.supply, not facility reserves.** A
   refinery's `reserves[Ore]=2000` doesn't feed its recipe; the recipe
   eats from the market at that location. Ships SellAll at earth adds
-  to earth market supply, which is what refineries consume. If you
-  see reserves with stock but recipes idle, that's the reason.
+  to earth market supply, which is what refineries consume.
 - **`posted_for_ship` requires ship credits ≥ `buy_cost + gate_fees`.**
   If ships look broke + contracts look rich but acceptance is zero,
   the issue is usually `try_plan_contract` rejecting at the cost
   check. `compute_delivery_payment` scales with live source-market
   price specifically to prevent that.
+- **Cross-system contract gate (18f)**: ships with
+  `sensor_range_au < 2.0` never see contracts whose source+dest span
+  different systems. Size≥5 ships spawn with tier-2 sensors (range
+  2.0) by default; size-4 rolls 50% deterministically; smaller
+  ships need a sensor retrofit. If you're debugging "why won't
+  this ship take this contract?", check the fitting first.
 - **Trail teleport detection in `ship.gd` uses a 3-unit threshold.**
   If someone shortens cross-system offsets further, the warp streak
   might not trigger on genuine gate jumps. Raise the threshold or
   check against a different signal (e.g. a `gate_jump` event).
+- **Editing a `.gd` file can cascade.** Godot's scene loader fails
+  hard on a parse error in one script and silently wedges unrelated
+  panels. After editing GDScript, reload the project in the editor
+  (Ctrl+Shift+T or restart).
 
 ## Critical files to read first
 
-1. **`crates/sim_server/src/engine.rs`** — the tick loop. Phase order,
-   LOD recompute, admin spawn dispatch, event drain. One file to
-   read to understand how everything hangs together.
-2. **`crates/sim_core/src/agents/ship.rs`** — most complex agent.
-   LOD gate (`active` map), BT execution, ShipAction enum. Shows the
-   canonical "pass tick_scale, rate-scale per-ship, emit SimCommands"
-   pattern.
-3. **`crates/sim_server/src/ws/protocol.rs`** — wire format truth.
-   Every client/server message type lives here.
-4. **`crates/sim_core/src/simulation/lod.rs`** — LOD math + tests.
-   Small, self-contained, well-tested.
-5. **`crates/sim_core/src/simulation/commands.rs`** — `SimCommand`
-   enum. Every cross-entity effect goes through here. Read the
-   variants to understand what the sim is even capable of.
-6. **`client/scripts/autoload/network_manager.gd`** — Godot WS entry.
-   Every message handler, every HTTP call.
-7. **`client/CLAUDE.md`** — the client's own orientation doc, kept
-   in sync with this one.
+1. **`crates/sim_server/src/engine.rs`** — tick loop, command drain,
+   LOD recompute, admin-spawn dispatch, event emit, persistence
+   writes. One file to read to understand how everything hangs
+   together. Grown a lot with the 18-series but still navigable.
+2. **`crates/sim_core/src/agents/ship.rs`** — the biggest single
+   file. Components + tick phases + BT actions + planner +
+   personality scoring + retrofit opportunity finder + congestion-
+   aware rest. Skim top-to-bottom at least once.
+3. **`crates/sim_core/src/modules/mod.rs`** — ship subsystem catalog
+   (18a). Small, self-contained, shows the `ModuleDef` + `Slot` +
+   `combine_effects` pattern that `facility_modules/` mirrors.
+4. **`crates/sim_core/src/economy/contracts.rs`** — `Contract` +
+   `ContractBoard`, rep gating, age-open decay, and the new 18j
+   payment age-escalation. Also the best demonstration of the
+   seed-default shape for snake-case enum serialization.
+5. **`crates/sim_server/src/ws/protocol.rs`** — wire format truth.
+6. **`crates/sim_core/src/simulation/commands.rs`** — every cross-
+   entity effect goes through here. Read the variants to know what
+   the sim is capable of. Most recent additions: `RequestRefit`.
+7. **`crates/sim_server/migrations/`** — seven migrations now. New
+   columns: `ships.fitting` (003), `facilities.module_stock` (004),
+   `ships.progression` (005), `facilities.fitting` (006),
+   `ships.size` (007).
+8. **`client/scripts/ui/details_panel.gd`** — how the Godot panel
+   renders all the new Phase-18 fields (Progression, Subsystems,
+   Module Stock, size tier next to class label).
+9. **`client/CLAUDE.md`** — client-side orientation, still accurate
+   except the "Rust sim is Phases 1–15" line.
 
 ## Next session's first move
 
-Read this doc + `CLAUDE.md`, then ask the user which open candidate
-they want (or if they're mid-bug from their Godot testing). Don't
-assume the audit plan in `~/.claude/plans/welcome-to-the-space-wobbly-wirth.md`
-is still current — it's historical.
-
----
-
-# 📋 Stats + systems work — briefing for next Claude
-
-The user is handing off to a fresh session to build out **"stats"
-and "systems" for agents, starting with ships → facilities →
-crews.** What follows is context so you don't have to reverse-engineer
-the current design. **Ask the user for their specific goals first**
-— this is a sketch of what I think they might want based on our
-conversation, not a committed scope.
-
-## What "stats" probably means
-
-The economic simulator today has these per-agent numbers:
-
-- **Ship**: credits, fuel, cargo (13 commodities × qty), faction_reputation map, efficiency, broke_strikes, hoard_strikes, idle_ticks, `dock_dwell_start_tick` (ephemeral). Plus aggregate crew: morale, fatigue, hunger, health, wages, `current_task` (Piloting/Engineering/Trading/Loading/Unloading/Eating/Resting/OnMission/Idle), 4 skills (nav/eng/trade/combat), size.
-- **Facility**: condition, reputation, credits, docking_capacity, reserves (13 commodities), level, xp, abandon_counter, abandoned flag. Plus gate link when applicable.
-- **Crew** (aggregate on ship, not individual entities): the ship's `ShipCrew` fields above. The `CrewTask` enum got `Loading` and `Unloading` in the post-Phase-17 work, giving docking visibility — this pattern (set task from action, tick_crew leaves it alone unless `Eating`/`Resting`/`Idle`) is reusable for combat/repair/rescue tasks.
-
-"Stats" in a sim-game context usually means **attributes that modify
-behavior / outcomes** — think class-based RPG stats: attack, defense,
-speed, charisma, etc. Today we have a few of those (skills on crew,
-condition on facility) but they're each ad-hoc.
-
-**What the user might want** (ask to confirm):
-
-1. **Explicit stat blocks per agent type**, not scattered fields.
-   E.g. `ShipStats { hull, shields, speed, maneuverability, sensor_range }`,
-   `FacilityStats { manufacturing_efficiency, repair_rate, security, ... }`,
-   `CrewStats { leadership, technical, combat, negotiation, ... }`. Each
-   agent rolls up its crew's stats to modify its own.
-2. **Derived outcomes** — stats should visibly affect what the agent
-   can do. A high-combat crew wins a pirate encounter, a high-tech
-   facility repairs faster, a sensor-heavy ship spots contracts
-   others miss.
-3. **Progression** — stats grow over time via activity (already have
-   crew skill XP on Buy/Deliver; extend to ships + facilities).
-4. **UI surfacing** — Godot details panel needs a "stats" section.
-
-## What "systems" probably means
-
-This is vaguer. "Systems" in Minecraft / EVE / factorio-speak usually
-means *named mechanics the player has to learn* — e.g. "the piracy
-system", "the contract system", "the reputation system".
-
-**Likely work** given where we are:
-
-1. **Pirate / combat system** — ships get attacked in certain
-   sectors, can lose cargo, crew injury. Hooks into faction-security
-   stats.
-2. **Crew growth / promotion / turnover** — right now `ShipCrew` is
-   static-sized. Could add hiring / firing / poaching, crew members
-   get promoted when skilled enough.
-3. **Ship upgrades / equipment slots** — engines, cargo-bay extensions,
-   hull plating. Another stat multiplier layer.
-4. **Facility upgrades** — bigger docking bays, better refineries,
-   security drones.
-5. **Mission types beyond the current 9 crew templates** — rescue,
-   escort, bounty, scouting. Each exercises different stats.
-
-## Architectural considerations for whoever builds this
-
-These are hard-won constraints from phases 1–17. Don't fight them.
-
-- **sim_core stays pure.** No tokio, no sqlx, no axum. Stats logic
-  belongs in `sim_core/src/agents/*` or `sim_core/src/stats/*`
-  (if you create a new module). Pure functions are trivially testable.
-- **New component > new field on existing component.** hecs archetype
-  storage means adding a field to e.g. `ShipCrew` re-allocates every
-  ship's storage. A new `ShipStats` component is cleaner and lets
-  ticks query only what they need. Same pattern as the
-  `FacilityLifecycle` / `GateLink` split.
-- **Cross-entity mutations go through `SimCommand`.** When stats
-  modify the outcome of a cross-entity action (ship attacks ship,
-  facility grants reputation), the outcome still goes through the
-  command bus. Don't mutate another entity mid-tick.
-- **Persistence is opt-in per field.** `DbWrite` variants in
-  `sim_server/src/db/persistence.rs` explicitly list which fields
-  flush. When you add a stat field, decide whether it's dynamic
-  (flush) or static-at-spawn (don't — read from seed on each boot).
-- **Snapshot vs component.** Internal stats live as components; the
-  wire shape is the `*Snapshot` struct in the same file. Godot only
-  sees what's in the snapshot. Don't expose internal-only fields.
-- **Events.** Notable stat changes (level up, skill cap, crew
-  promotion, pirate defeat) should emit an event via the existing
-  events broadcast — that's what the Events ticker panel feeds on.
-- **LOD awareness.** Ship-tick gating in `tick_ships` already filters
-  by `active: ShipLodGate`. Any new stat-driven per-tick logic
-  should respect that same gate to preserve the spatial LOD savings.
-  If rates scale with `skipped_ticks`, do the multiplication
-  consistently (see `advance_transits` fuel burn for the canonical
-  pattern).
-- **Reuse existing scaffolding.**
-  - `ShipCrewSkills` already has skill XP + cap + `grant()`. Extend
-    it rather than create a parallel system.
-  - `FacilityLifecycle.level / xp` already supports progression.
-    Extend its `grant_facility_xp` semantics for other activities.
-  - `economy/missions.rs` is the catalog pattern — if you add ship
-    upgrade types / crew roles / pirate encounter templates, follow
-    that same "static catalog + lookup by slug" shape.
-  - `economy/reputation.rs` exists (small today) — it's the natural
-    home for cross-faction stat math.
-
-## Questions to ask the user before building
-
-1. **What's the playable verb?** Are ships combat-capable (so stats
-   matter in encounters), or are stats purely economic modifiers?
-2. **Individual crew vs aggregate?** Today crew is aggregated per ship.
-   Moving to individuals would 4× the entity count (~3200 crew members).
-   Worth the cost? Or keep aggregate + add a named-captain layer on top?
-3. **Are stats rolls or modifiers?** "Attack = 15 + d20" (random) vs
-   "this ship's trade skill gives +10% margin" (deterministic). Big
-   architectural impact — rolls need a seeded RNG in sim_core.
-4. **What surfaces do the stats drive?** Just the details panel?
-   Combat outcomes? Contract eligibility? Employment market?
-5. **How much retro-fit?** Do existing agents need new stats
-   backfilled (migration + seed file edits), or only newly-spawned
-   ones?
-
-## Files to read first
-
-1. `crates/sim_core/src/agents/ship.rs` — `ShipCrew` + `ShipCrewSkills`
-   + `CrewTask` — the current crew-stats model.
-2. `crates/sim_core/src/agents/facility.rs` — `FacilityOperations` +
-   `FacilityLifecycle` + `GateLink` — the component-split pattern.
-3. `crates/sim_core/src/economy/missions.rs` — static-catalog pattern
-   that new "template" types should follow.
-4. `crates/sim_core/src/simulation/commands.rs` — every cross-entity
-   outcome goes through here. Adding stat-driven outcomes means adding
-   variants here.
-5. `crates/sim_server/src/ws/protocol.rs` — wire format. New stats
-   visible to Godot need `*Snapshot` fields and usually their own
-   broadcast cadence.
-6. `client/scripts/ui/details_panel.gd` — where per-agent stats get
-   rendered. The "Recent activity" section it has today is a useful
-   precedent for how to fold new display sections in.
-
-## Constraints to preserve
-
-- `verify.sh --strict` should stay green. Add tests.
-- No new heavy dependencies (no `bevy_ecs`, `actix`, `hyper` replacement).
-  Stick to the existing stack.
-- Don't break persistence round-trip. If you add a new persisted
-  field, update `DbWrite` + the spawner's load path in the same PR.
-- Don't regress tick budget. Watch p99 — stay under 5 ms at 800
-  agents. Use LOD gating for anything rate-bearing.
+Read this doc, then `CLAUDE.md`. If the user is mid-task, pick up
+where they are. If not, a long-burn `/sim-review` is the natural
+starting point: does the capacity bump + 18L queue-awareness finally
+take the stuck-ship count to zero and loosen the trade_run
+monoculture further? From there the economy opens up for the next
+lever (price engine, `mine` goal, autonomous facility retrofit).

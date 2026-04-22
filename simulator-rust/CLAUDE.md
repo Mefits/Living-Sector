@@ -6,27 +6,34 @@ Context for Claude Code (claude.ai/code) when working in the `simulator-rust/` p
 
 Rust port of an Elixir/Phoenix space-economy simulator. Drives a Godot client.
 Replaces the Elixir original because BEAM's process scheduler performs poorly
-on Windows gaming PCs. Ships at 800 agents today, designed to scale to 100k+.
-Single native binary, no runtime dependencies. See [`PLAN.md`](./PLAN.md) for
-the session log.
+on Windows gaming PCs. Ships at ~227 agents today, designed to scale to 100k+.
+Single native binary, no runtime dependencies. See [`SESSION-HANDOFF.md`](./SESSION-HANDOFF.md)
+for a fresh-session orientation and recent activity.
 
 ## Status
 
-Phases 1–15 complete. Phase 14 was a single market-panel fix. Phase 15
-adds spatial LOD for ships: distant agents still tick, just at a lower
-cadence with rate-scaled fuel burn / crew wear, driven by observer
-attention volumes (Godot camera sends `MoveObserver` with radius
-scaling off zoom). Earlier: The sim has full Elixir-parity behavior:
-populations post food + passenger contracts under stress, ships fulfill them
-(docking with a fee, multi-tick unloading and refueling from facility
-reserves, shore-leave for morale), facilities run production recipes,
-degrade and self-repair, level up from XP, buy their own reserves from the
-local market, and abandon when chronically broke. Factions collect tax and
-spend it on subsidy contracts when member markets are chronically short.
-Crew have a `current_task` (piloting / engineering / trading / eating /
-resting), hunger consumes food from cargo, unpaid wages drop morale, and
-earned XP raises skills. Bodies regen resources and expose biome food
-multipliers. State persists across restarts. See the **Systems wired** table.
+Phases 1–18L complete. Phase 18 is a long arc on **subsystems +
+economy self-regulation**: ships got a 5-slot fitting (engine / cargo
+bay / sensors / reactor / comms) via 18a, refit mechanics via 18b,
+shipyards as module producers via 18c, agent-driven retrofit behaviour
+via 18d, ship size tiers (Tiny..Massive) + cross-system contract gate
+via 18f, size-driven speed penalty via 18g, facility subsystems
+(production/automation) via 18e, personality-weighted plan_goal via
+18i, contract payment age-escalation via 18j, a morale-zero death
+spiral fix via 18k (multi-facility dock fallback, Rest timeout,
+non-docked recovery bump), and dock-queue awareness + congestion-aware
+rest planning via 18L. 155 tests passing, strict verify clean,
+runtime p50 ≈ 1 ms / p99 ≈ 3 ms at 227 agents.
+
+Earlier (Phases 1–17): spatial LOD for ships (observer-driven tick
+gating), inter-system jump gates, full Elixir-parity behaviour:
+populations post food + passenger contracts under stress, ships fulfill
+them (docking with a fee, multi-tick unloading + refuel, shore-leave
+for morale), facilities run recipes, degrade + self-repair, level up,
+abandon when chronically broke. Factions tax + subsidise. Crew have
+current_task + skills + hunger + morale. Bodies regen resources + biome
+multipliers. State persists across restarts. See the **Systems wired**
+table below.
 
 ## Architecture
 
@@ -50,9 +57,12 @@ Godot ⇄ WebSocket/HTTP (axum) ─┐
                                       │   ship, market, facility, population, celestial_body, faction
                                       ├── ai/*: BT<A> generic engine, utility scoring, considerations, personality
                                       ├── economy/*: commodities, order_book, price_engine,
-                                      │              recipes, contracts, missions (9 crew templates)
-                                      ├── simulation/*: config, spawner (AgentStore),
-                                      │                 commands (SimCommand),
+                                      │              recipes, contracts, missions,
+                                      │              module_production (Phase 18c)
+                                      ├── modules/*: ship subsystem catalog (Phase 18a)
+                                      ├── facility_modules/*: facility subsystem catalog (Phase 18e)
+                                      ├── simulation/*: config (ShipClass, ShipSize),
+                                      │                 spawner (AgentStore), commands (SimCommand),
                                       │                 lod (AgentLod tier table)
                                       └── world/*: registry, travel, body
 ```
@@ -114,6 +124,21 @@ Godot ⇄ WebSocket/HTTP (axum) ─┐
 | Admin endpoints | `http::admin` | Full CRUD: **POST spawn** ships + facilities (INSERT + dispatch to engine), DELETE by id, market supply delta, save / save-as (VACUUM INTO) |
 | Events broadcast | `engine` events Vec + `ws::protocol::Events` | ship_spawned, ship_docked, ship_decommissioned, facility_spawned, facility_removed, facility_abandoned, contract_delivered, crew_mission_completed, passengers_arrived, market_supply_adjusted — per-tick drain |
 | Spatial LOD | `simulation::lod::AgentLod` + `engine::recompute_lod` | Observer-driven tiers 1/2/5/10/20/50. Ship tick phases gate on `active` map; fuel burn + crew hunger/fatigue scale by `skipped_ticks` so total state change over wall-clock matches. Recompute every 50 base-ticks. Markets never LOD'd. |
+| Ship subsystems (18a) | `modules::CATALOG` + `ShipFitting` | 5 slots × 3 tiers (engine/cargo/sensors/reactor/comms). Tier-1 neutral. `ShipFitting::new_for_size` seeds size-aware defaults (size≥5 gets tier-2 sensors always; size=4 rolls 50% deterministic on ship id hash). Derived multipliers bake into `ShipCargo.capacity` + `ShipFuel.speed_modifier` at spawn/refit. |
+| Ship refit (18b) | `http::admin::refit_ship` + `engine::admin_refit_ship` | `POST /api/admin/ships/:id/refit {slot, slug}` (admin override, no cost). Migration 003 persists `ships.fitting` as JSON; loader hydrates with fallback to tier-1 default. |
+| Shipyards + module production (18c) | `economy::module_production` + `facility::tick_produce_modules` + `ModuleStock` | `facility_type = "shipyard"` mints modules from local market supply on a 15×mult cadence. 10 recipes (every non-tier-1 slug). Stock target 2/slug. Migration 004 persists `facilities.module_stock`. Admin refit with `via_shipyard: true` debits ship / credits yard / decrements stock. |
+| Agent retrofit (18d) | `ShipProgression` + `find_retrofit_opportunity` + `SimCommand::RequestRefit` | Ships earn XP on delivery (15 xp each), level at `level × 100` threshold (cap 10), bank 1 retrofit point per level. Planner emits `seek_retrofit` when points>0 + credits>reserve + reachable shipyard with matching upgrade. BT: `DockAtShipyard → Dwell → Refit → Undock`. One point spent per install. Migration 005 persists progression. |
+| Ship size (18f) | `simulation::config::ShipSize` + `ShipIdentity.size` | 6 tiers Tiny..Massive, orthogonal to class. Drives default sensor tier + sets up future speed/cargo differentiation. Class→default_size (courier=Small, freighter=Medium, tanker=Large, hauler=Huge, miner=Small). Migration 007. |
+| Cross-system contract gate (18f) | `try_plan_contract` | Contracts spanning systems hidden from ships whose `sensor_range_au < 2.0`. Tier-1 sensors = intra-system only. Natural niche separation: big hulls with tier-2 default sensors see interstellar contracts day one. |
+| Comms payment bump (18f) | engine `SimCommand::DeliverContract` apply | Delivered payment multiplied by `1.0 + ship.fitting.derived.comms_bonus`. Tier-2 comms = +5%, tier-3 = +10%. |
+| Size speed penalty (18g) | `ShipSize::speed_multiplier` | Applied on top of `ShipClass.speed_modifier` + fitting at spawn. Tiny 1.15× → Massive 0.70×. Bigger = slower; amortises over larger cargo on long runs. |
+| Facility subsystems (18e) | `facility_modules::FACILITY_CATALOG` + `FacilityFitting` | 2 slots × 3 tiers (production / automation). Production multiplies recipe output 1.0/1.15/1.30×; automation adds 0/1/2 flat batches to `level_scaled_max_batches`. Migration 006 persists. `POST /api/admin/facilities/:id/refit` (admin override only). |
+| Personality planner (18i) | `plan_goal` + `score_goal` | Elective goal band (contract vs trade_run) scored by `ln(profit) × (1.0 + personality.prefer_goals[goal])`. Archetype `prefer_goals` entries (cautious_trader likes fulfill_delivery, aggressive_trader likes trade_run, courier likes passenger) now actually tilt the pick. Class→personality default via `Personality::for_class`. |
+| Contract payment escalation (18j) | `ContractBoard::age_escalate_payment` | Posted contracts accrue +5% payment / 50 ticks, capped at +100%. Idempotent — recomputes from `initial_payment` each call. Hooked into population tick alongside `expire` + `age_open_reputation`. `FACILITY_DELIVERY_LIFESPAN_BASE` trimmed 500→300 so stale contracts churn + re-post at a fresh premium. |
+| Rest timeout + non-docked recovery (18k) | `ShipAction::Rest` + `tick_crew` | `rest_start_tick: Option<u64>` on `ShipEconomy`. Rest succeeds on morale ≥ target OR after `MAX_REST_TICKS_BASE × mult = 300×` ticks. Non-docked `Resting` morale recovery bumped from 0.5× to 1.0× docked-baseline. Breaks the pin-at-zero death spiral when ships can't actually dock. |
+| Multi-facility dock fallback (18k) | `apply_request_dock_typed` via `dockable_candidates_ordered` | When the primary (highest-cap) facility at a location is full, fall through to secondary / tertiary candidates. Haven-station's 5 facilities × 19 slots all get used now instead of 111 ships piling on the 8-slot station. |
+| Dock queue awareness (18L) | `ShipAction::Dock` + `dock_attempt_start_tick` | Multi-tick: emit `RequestDock`, return Running until `docked_at` is set OR the context-dependent budget elapses. Has-contract = 150 base ticks (patient). Low morale + no contract = 30. Default = 60. On timeout, Failure → BT unwinds → planner replans. |
+| Congestion-aware rest (18L) | `plan_goal` rest_crew branch + `pick_rest_destination` | `decide_and_act` builds per-tick `dock_congestion: HashMap<loc, (cap, docked)>` snapshot. When a ship's current location is saturated, `rest_crew` routes to the least-saturated same-system station instead of stampeding the current dock. |
 
 ## Common tasks
 
@@ -211,7 +236,7 @@ this is why `A` exists instead of plain `fn` pointers.
 - **Don't serialize whole agent state to JSON per tick.** Snapshot types
   are trimmed for a reason — they're what Godot actually renders.
 - **Don't bring in Actix, bevy_ecs (vs hecs), or other heavy frameworks**
-  without a clear justification in PLAN.md.
+  without a clear justification documented in the commit message.
 - **Don't call `query_mut` while holding a `query_one` result** on
   another entity — hecs only allows one mutable iterator at a time.
 - **Don't write directly to a component across entities** mid-phase. Use
@@ -231,7 +256,7 @@ Plain JSON over WebSocket on port 8080. See
 - `population_states` — every 16 ticks. Pop count, sentiment, food satisfaction
 - `faction_states` — every 32 ticks. Treasury + active subsidy count
 - `contract_states` — every 32 ticks. Full contract board (6 kinds, status, min_reputation, faction_id, mission_category).
-- `events` — every tick when non-empty. Mixed event stream (`ship_docked`, `contract_delivered`, `passengers_arrived`, `market_supply_adjusted`, `ship_spawned`, `facility_spawned`, `crew_mission_completed`, etc.)
+- `events` — every tick when non-empty. Mixed event stream (`ship_docked`, `contract_delivered`, `passengers_arrived`, `market_supply_adjusted`, `ship_spawned`, `facility_spawned`, `crew_mission_completed`, `ship_leveled_up` (18d), `ship_refitted` (18b/d), `facility_refitted` (18e), etc.)
 - `agent_state` — reply to `get_agent` / `get_snapshot`
 - `sim_control_ack` — reply to pause/resume/speed (echoes current `world_speed` + interval)
 
@@ -241,7 +266,7 @@ Plain JSON over WebSocket on port 8080. See
 HTTP (same port, `/api/*`):
 - Read: `/api/health` (+ `perf.tick_compute_p50_us` / `p99_us`), `/api/report`, `/api/{ships,markets,facilities,populations,factions,positions,contracts,observers}`, `/api/agent/:id`
 - Control: `POST /api/sim/{pause,resume,speed,step}` — step takes `{ticks: u32}` and forces N ticks through even when paused
-- Admin: `POST /api/admin/ships {class, faction_id, location, name?, credits?}`, `DELETE /api/admin/ships/:id`, `POST /api/admin/facilities {name, facility_type, body_id, faction_id, location?, docking_capacity?, credits?}`, `DELETE /api/admin/facilities/:id`, `POST /api/admin/markets/:loc/supply {deltas: {commodity: delta}}`, `POST /api/admin/save`, `POST /api/admin/save-as {name}`.
+- Admin: `POST /api/admin/ships {class, faction_id, location, name?, credits?}`, `DELETE /api/admin/ships/:id`, `POST /api/admin/ships/:id/refit {slot, slug, via_shipyard?}` (18b/c), `POST /api/admin/ships/:id/grant-xp {amount}` (18d debug), `POST /api/admin/facilities {name, facility_type, body_id, faction_id, location?, docking_capacity?, credits?}`, `DELETE /api/admin/facilities/:id`, `POST /api/admin/facilities/:id/refit {slot, slug}` (18e), `POST /api/admin/markets/:loc/supply {deltas: {commodity: delta}}`, `POST /api/admin/save`, `POST /api/admin/save-as {name}`.
 
 ## Binary invocation (Godot subprocess scenario)
 
@@ -282,7 +307,7 @@ Theme palette in `client/scripts/ui/theme_palette.gd` — `PRIMARY` cyan
 for info, `SUCCESS` green for good, `WARN` amber for caution, `DANGER`
 red for crisis. Every panel should pull colours from there.
 
-## Things intentionally left out (not critical; see `PLAN.md` for rationale)
+## Things intentionally left out (not critical)
 
 - **Facility + population LOD rate-scaling** — Phase 15 wired ship LOD
   (where 75% of tick cost lives). Facilities + pops carry `AgentLod` so
