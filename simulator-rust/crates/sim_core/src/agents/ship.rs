@@ -139,6 +139,13 @@ pub struct ShipEconomy {
     /// Tick at which the ship entered its current `DockDwell` step.
     /// Ephemeral — not persisted. `None` while not dwelling.
     pub dock_dwell_start_tick: Option<u64>,
+    /// Tick at which the ship entered its current `Rest` action.
+    /// Ephemeral — not persisted. `None` while not resting. Used by
+    /// the Rest action to time out after `MAX_REST_TICKS_BASE × mult`
+    /// ticks so a crew that can't actually dock (e.g. facility
+    /// full) doesn't stay on the Rest BT indefinitely with morale
+    /// pinned at 0.
+    pub rest_start_tick: Option<u64>,
 }
 
 /// AI: personality + current goal + BT state (parameterized over ShipAction).
@@ -961,6 +968,18 @@ pub const CREW_SHORE_LEAVE_TARGET: f32 = 100.0;
 /// Morale floor the legacy `Rest` action uses to return Success. Keeps
 /// short-rest semantics separate from shore leave.
 pub const CREW_REST_TARGET: f32 = 80.0;
+
+/// Phase 18k: cap on how long a ship will stay in the `Rest` BT action
+/// before giving up and returning `Success` regardless of morale. Guards
+/// against a facility-full-dock → "speculative" Dock → Rest-forever
+/// death spiral where a crew that couldn't actually dock can't get
+/// the docked-state recovery boost and stays pinned at morale=0.
+///
+/// 300 base ticks = ~38 s at default `WORLD_SPEED=0.25` (mult=32) or
+/// ~9 s at `WORLD_SPEED=4` (mult=2). Long enough for a legitimate
+/// shore-leave to complete, short enough that a stuck ship unwinds
+/// its BT within a visible window.
+pub const MAX_REST_TICKS_BASE: u64 = 300;
 /// Legacy alias for planner-side rest trigger kept for existing call sites.
 /// Morale threshold below which the planner switches the ship into
 /// rest_crew mode, overriding every other goal (including accepting a
@@ -1174,7 +1193,15 @@ fn tick_crew(
             } else if ctx.docked {
                 CREW_MORALE_RECOVERY_DOCKED
             } else if crew.current_task == CrewTask::Resting {
-                CREW_MORALE_RECOVERY_DOCKED * 0.5
+                // Phase 18k: bump the non-docked Resting recovery from
+                // 0.5× docked-baseline to the full docked-baseline so
+                // a crew caught on the Rest BT without having actually
+                // docked (capacity-full station, broke ship, etc) can
+                // still outpace hunger/fatigue penalties. Combined
+                // with the Rest-action timeout this breaks the
+                // morale-pinned-at-zero death spiral that stalled
+                // ~50% of the fleet in Phase 18j smokes.
+                CREW_MORALE_RECOVERY_DOCKED
             } else {
                 0.0
             };
@@ -2400,7 +2427,28 @@ fn execute_ship_action(
             // CREW_REST_TARGET. `tick_crew` handles the actual recovery
             // via CrewTask::Resting (triggered automatically when fatigue
             // is high).
-            if crew.morale >= CREW_REST_TARGET {
+            //
+            // Phase 18k: also caps the rest at MAX_REST_TICKS so a ship
+            // whose `Dock` was silently dropped by the apply phase
+            // (facility at capacity) doesn't stay pinned on Rest forever
+            // with morale=0 — it gives up after the budget elapses so
+            // the BT unwinds and the planner can re-plan (likely at
+            // a different location if this one's congested).
+            //
+            // `rest_start_tick` on ShipEconomy tracks the start; cleared
+            // here on success so the next Rest action starts fresh.
+            let mult = config.tick_multiplier().max(1) as u64;
+            let budget = MAX_REST_TICKS_BASE * mult;
+            let start = match economy.rest_start_tick {
+                Some(t) => t,
+                None => {
+                    economy.rest_start_tick = Some(tick);
+                    tick
+                }
+            };
+            let elapsed = tick.saturating_sub(start);
+            if crew.morale >= CREW_REST_TARGET || elapsed >= budget {
+                economy.rest_start_tick = None;
                 BtStatus::Success
             } else {
                 BtStatus::Running

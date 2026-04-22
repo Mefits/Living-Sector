@@ -165,6 +165,7 @@ mod tests {
             active_contract_id: None,
             faction_reputation: HashMap::new(),
             dock_dwell_start_tick: None,
+                rest_start_tick: None,
         });
         assert!((c.value - 1.0).abs() < 0.01);
     }
@@ -177,6 +178,7 @@ mod tests {
             active_contract_id: None,
             faction_reputation: HashMap::new(),
             dock_dwell_start_tick: None,
+                rest_start_tick: None,
         });
         assert!(c.value < 0.01);
     }

@@ -728,6 +728,7 @@ async fn load_ships(
                 active_contract_id,
                 faction_reputation,
                 dock_dwell_start_tick: None,
+                rest_start_tick: None,
             },
             ShipAI {
                 personality,

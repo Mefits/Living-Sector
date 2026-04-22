@@ -1118,9 +1118,28 @@ fn primary_dock_at_location_typed(
     location: &str,
     facility_type: Option<&str>,
 ) -> Option<hecs::Entity> {
+    dockable_candidates_ordered(store, location, facility_type)
+        .into_iter()
+        .next()
+}
+
+/// Return every dockable facility at `location` (docking_capacity > 0,
+/// matching `facility_type` if set), sorted by capacity descending.
+/// Phase 18k: lets `apply_request_dock_typed` fall through from the
+/// primary to secondary/tertiary facilities when the biggest one is
+/// full — haven-station has 5 facilities totalling 16 slots; pre-18k
+/// only the 8-slot primary got used, so 111 ships piled up on it and
+/// the remaining 8 slots sat idle.
+fn dockable_candidates_ordered(
+    store: &AgentStore,
+    location: &str,
+    facility_type: Option<&str>,
+) -> Vec<hecs::Entity> {
     use sim_core::agents::facility::{FacilityIdentity, FacilityOperations};
-    let candidates = store.facilities_at_location.get(location)?;
-    let mut best: Option<(hecs::Entity, u32)> = None;
+    let Some(candidates) = store.facilities_at_location.get(location) else {
+        return Vec::new();
+    };
+    let mut scored: Vec<(hecs::Entity, u32)> = Vec::new();
     for &e in candidates {
         if let Some(want) = facility_type {
             let ok = store
@@ -1140,11 +1159,10 @@ fn primary_dock_at_location_typed(
         if cap == 0 {
             continue;
         }
-        if best.is_none_or(|(_, best_cap)| cap > best_cap) {
-            best = Some((e, cap));
-        }
+        scored.push((e, cap));
     }
-    best.map(|(e, _)| e)
+    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    scored.into_iter().map(|(e, _)| e).collect()
 }
 
 /// Apply `RequestDock`: runs the same occupancy/condition fee formula as
@@ -1164,57 +1182,69 @@ fn apply_request_dock_typed(
         ship::{ShipEconomy, ShipPosition},
     };
 
-    // If a type preference is set and no facility of that type exists
-    // at `location`, reject entirely (don't fall back to a different
-    // type — the caller asked for a specific facility kind).
-    let facility = match preferred_facility_type {
-        Some(t) => match primary_dock_at_location_typed(store, location, Some(t)) {
-            Some(e) => e,
-            None => return false,
-        },
-        None => match primary_dock_at_location(store, location) {
-            Some(e) => e,
-            None => return false,
-        },
-    };
-    // Read current occupancy + condition to compute fee.
-    let (fee, at_capacity) = {
-        let ops = match store.world.get::<&FacilityOperations>(facility) {
-            Ok(o) => o,
-            Err(_) => return false,
-        };
-        let storage = match store.world.get::<&FacilityStorage>(facility) {
-            Ok(s) => s,
-            Err(_) => return false,
-        };
-        let docked = storage.docked_ships.len() as u32;
-        if docked >= ops.docking_capacity {
-            (0, true)
-        } else {
-            (
-                docking_fee(
-                    DOCKING_FEE_BASE,
-                    docked,
-                    ops.docking_capacity,
-                    ops.condition,
-                ),
-                false,
-            )
-        }
-    };
-    if at_capacity {
+    // Phase 18k: iterate dockable facilities in descending-capacity
+    // order so the ship falls through to secondary/tertiary
+    // facilities when the primary is full. Previously only the
+    // single biggest facility was tried, causing ships to stampede
+    // the main station while smaller factories/farms/refineries
+    // with free slots sat unused.
+    let candidates = dockable_candidates_ordered(store, location, preferred_facility_type);
+    if candidates.is_empty() {
         return false;
     }
 
-    // Can the ship afford it?
-    let ship_ok = store
-        .world
-        .get::<&ShipEconomy>(ship)
-        .map(|e| e.credits >= fee)
-        .unwrap_or(false);
-    if !ship_ok {
-        return false;
+    // Walk candidates. For each one:
+    //   1. Check at_capacity (skip if full).
+    //   2. Compute docking fee.
+    //   3. Check ship_ok (skip if broke — fee rises with occupancy,
+    //      so a smaller facility with free slots may still accept).
+    //   4. Commit the dock on the first one that passes.
+    let mut facility: Option<hecs::Entity> = None;
+    let mut fee: i64 = 0;
+    for e in candidates {
+        let (f, at_capacity) = {
+            let ops = match store.world.get::<&FacilityOperations>(e) {
+                Ok(o) => o,
+                Err(_) => continue,
+            };
+            let storage = match store.world.get::<&FacilityStorage>(e) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let docked = storage.docked_ships.len() as u32;
+            if docked >= ops.docking_capacity {
+                (0i64, true)
+            } else {
+                (
+                    docking_fee(
+                        DOCKING_FEE_BASE,
+                        docked,
+                        ops.docking_capacity,
+                        ops.condition,
+                    ),
+                    false,
+                )
+            }
+        };
+        if at_capacity {
+            continue;
+        }
+        let ship_ok = store
+            .world
+            .get::<&ShipEconomy>(ship)
+            .map(|econ| econ.credits >= f)
+            .unwrap_or(false);
+        if !ship_ok {
+            continue;
+        }
+        facility = Some(e);
+        fee = f;
+        break;
     }
+    let facility = match facility {
+        Some(e) => e,
+        None => return false,
+    };
 
     // Deduct from ship, credit facility, register the dock.
     if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
@@ -1337,6 +1367,7 @@ fn admin_spawn_ship(
             active_contract_id: None,
             faction_reputation: std::collections::HashMap::new(),
             dock_dwell_start_tick: None,
+                rest_start_tick: None,
         },
         ShipAI {
             // Phase 18i: admin-spawned ships take a class-appropriate
@@ -2294,6 +2325,7 @@ mod tests {
                 active_contract_id: None,
                 faction_reputation: std::collections::HashMap::new(),
                 dock_dwell_start_tick: None,
+                rest_start_tick: None,
             },
             ShipAI {
                 personality: Personality::balanced_trader(),
