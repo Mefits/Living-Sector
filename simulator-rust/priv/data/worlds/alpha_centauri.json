@@ -145,7 +145,7 @@
       "location": "haven-station",
       "body": "haven",
       "type": "station",
-      "docking_capacity": 8,
+      "docking_capacity": 12,
       "services": [
         "refuel",
         "repair",
@@ -166,7 +166,7 @@
       "location": "haven-station",
       "body": "haven",
       "type": "farm",
-      "docking_capacity": 2,
+      "docking_capacity": 3,
       "services": [
         "market"
       ],
@@ -182,7 +182,7 @@
       "location": "haven-station",
       "body": "haven",
       "type": "shipyard",
-      "docking_capacity": 3,
+      "docking_capacity": 4,
       "services": [
         "refuel",
         "repair",
@@ -214,7 +214,7 @@
       "location": "proxima-outpost",
       "body": "proxima",
       "type": "mining_rig",
-      "docking_capacity": 5,
+      "docking_capacity": 8,
       "services": [
         "refuel",
         "market"
@@ -232,7 +232,7 @@
       "location": "proxima-outpost",
       "body": "proxima",
       "type": "refinery",
-      "docking_capacity": 3,
+      "docking_capacity": 5,
       "services": [
         "market"
       ],
@@ -249,7 +249,7 @@
       "location": "refuge-station",
       "body": "refuge",
       "type": "mining_rig",
-      "docking_capacity": 4,
+      "docking_capacity": 7,
       "services": [
         "refuel",
         "market"
@@ -268,7 +268,7 @@
       "location": "ac-belt-station",
       "body": "ac-belt",
       "type": "mining_rig",
-      "docking_capacity": 4,
+      "docking_capacity": 6,
       "services": [
         "refuel",
         "market"
@@ -286,7 +286,7 @@
       "location": "outer-rocks-station",
       "body": "outer-rocks",
       "type": "mining_rig",
-      "docking_capacity": 3,
+      "docking_capacity": 5,
       "services": [
         "refuel",
         "market"
@@ -304,7 +304,7 @@
       "location": "refuge-station",
       "body": "refuge",
       "type": "refinery",
-      "docking_capacity": 3,
+      "docking_capacity": 5,
       "services": [
         "market"
       ],
@@ -320,7 +320,7 @@
       "location": "haven-station",
       "body": "haven",
       "type": "factory",
-      "docking_capacity": 3,
+      "docking_capacity": 5,
       "services": [
         "market"
       ],
@@ -337,7 +337,7 @@
       "location": "proxima-outpost",
       "body": "proxima",
       "type": "factory",
-      "docking_capacity": 3,
+      "docking_capacity": 5,
       "services": [
         "market"
       ],
@@ -354,7 +354,7 @@
       "location": "haven-station",
       "body": "haven",
       "type": "refinery",
-      "docking_capacity": 3,
+      "docking_capacity": 5,
       "services": [
         "market"
       ],
