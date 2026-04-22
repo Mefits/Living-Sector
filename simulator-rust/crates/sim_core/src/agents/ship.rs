@@ -1452,6 +1452,62 @@ fn observe_prices(world: &mut hecs::World, tick: u64, active: &ShipLodGate) {
 }
 
 /// Find the best profitable trade route from memory.
+/// Result of a successful trade-run plan — parallel shape to
+/// [`ContractCandidate`] so `plan_goal` can score the two options
+/// against each other via the ship's personality. Phase 18i.
+pub struct TradeRunCandidate {
+    pub profit: i64,
+    pub bt: BtNode<ShipAction>,
+}
+
+/// Try to build a trade_run BT + estimate its profit. Returns `None`
+/// when no margin-positive route exists in the ship's price memory.
+fn try_plan_trade_run(
+    at_loc: &str,
+    memory: &ShipMemory,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<TradeRunCandidate> {
+    let (commodity, buy_loc, sell_loc, _margin) = best_trade_route(memory)?;
+    let buy_price = memory
+        .price_knowledge
+        .get(&buy_loc)
+        .and_then(|m| m.get(&commodity))
+        .map(|p| p.price)
+        .unwrap_or(1.0);
+    let sell_price = memory
+        .price_knowledge
+        .get(&sell_loc)
+        .and_then(|m| m.get(&commodity))
+        .map(|p| p.price)
+        .unwrap_or(0.0);
+    let profit = ((sell_price - buy_price) * TRADE_QTY_DEFAULT as f32).round() as i64;
+    let bt = build_trade_run_bt(at_loc, &buy_loc, &sell_loc, commodity, registry, gate_pairs);
+    Some(TradeRunCandidate { profit, bt })
+}
+
+/// Personality-aware goal score (Phase 18i). Log-scales profit so a
+/// 100k-credit subsidy doesn't automatically swamp a 1500-credit
+/// courier run, then multiplies by `1.0 + prefer_goals[goal]` so
+/// archetype bonuses tilt the choice. Profits ≤ 0 yield a score of
+/// 0 — the candidate exists but isn't attractive.
+fn score_goal(
+    profit: i64,
+    goal_name: &str,
+    personality: &crate::ai::personality::Personality,
+) -> f32 {
+    if profit <= 0 {
+        return 0.0;
+    }
+    let log_profit = (profit as f32).max(1.0).ln();
+    let bonus = personality
+        .prefer_goals
+        .get(goal_name)
+        .copied()
+        .unwrap_or(0.0);
+    log_profit * (1.0 + bonus)
+}
+
 pub fn best_trade_route(memory: &ShipMemory) -> Option<(Commodity, String, String, f32)> {
     let mut best: Option<(Commodity, String, String, f32)> = None;
     let locs: Vec<_> = memory.price_knowledge.iter().collect();
@@ -1638,6 +1694,7 @@ fn decide_and_act(
                 retrofit_plan.as_ref(),
                 sensor_range_au,
                 &location_to_system,
+                &ai.personality,
             );
             ai.current_goal = goal.into();
             ai.current_bt = bt;
@@ -1708,6 +1765,7 @@ fn plan_goal(
     retrofit: Option<&RetrofitPlan>,
     sensor_range_au: f32,
     location_to_system: &StdHashMap<String, String>,
+    personality: &crate::ai::personality::Personality,
 ) -> (&'static str, Option<BtNode<ShipAction>>) {
     let at_loc = match &position.location_name {
         Some(l) => l.clone(),
@@ -1739,8 +1797,13 @@ fn plan_goal(
         return ("seek_retrofit", Some(bt));
     }
 
-    // 5. Contract?
-    if let Some(bt) = try_plan_contract(
+    // 5/6. Elective band: score contract vs trade_run candidates
+    // against the ship's personality (Phase 18i). Archetype
+    // `prefer_goals` entries (cautious_trader likes
+    // fulfill_delivery, aggressive_trader likes trade_run, etc.)
+    // tilt the pick so the fleet fans out instead of every ship
+    // running the same waterfall.
+    let contract_cand = try_plan_contract(
         &at_loc,
         cargo,
         economy,
@@ -1751,25 +1814,47 @@ fn plan_goal(
         gate_pairs,
         sensor_range_au,
         location_to_system,
-    ) {
-        return ("fulfill_delivery", Some(bt));
-    }
+    );
+    let trade_cand = try_plan_trade_run(&at_loc, memory, registry, gate_pairs);
 
-    // 6. Speculative trade route
-    if let Some((commodity, buy_loc, sell_loc, _margin)) = best_trade_route(memory) {
-        let bt = build_trade_run_bt(
-            &at_loc, &buy_loc, &sell_loc, commodity, registry, gate_pairs,
-        );
-        return ("trade_run", Some(bt));
-    }
+    let contract_score = contract_cand
+        .as_ref()
+        .map(|c| score_goal(c.profit, c.goal_name, personality))
+        .unwrap_or(0.0);
+    let trade_score = trade_cand
+        .as_ref()
+        .map(|c| score_goal(c.profit, "trade_run", personality))
+        .unwrap_or(0.0);
 
-    ("idle", Some(BtNode::action(ShipAction::Idle)))
+    match (contract_cand, trade_cand) {
+        (Some(c), Some(t)) => {
+            if contract_score >= trade_score {
+                (c.goal_name, Some(c.bt))
+            } else {
+                ("trade_run", Some(t.bt))
+            }
+        }
+        (Some(c), None) => (c.goal_name, Some(c.bt)),
+        (None, Some(t)) => ("trade_run", Some(t.bt)),
+        (None, None) => ("idle", Some(BtNode::action(ShipAction::Idle))),
+    }
 }
 
 /// Try to find a profitable fulfill plan from the board. Handles both
 /// delivery contracts (ship must pre-buy the commodity at source, must
 /// profit after cost) and passenger / courier contracts (no buy step —
 /// the ship just shuttles between source and destination).
+/// Result of a successful contract plan: the personality-facing goal
+/// name (matches archetype `prefer_goals` keys), the profit the planner
+/// thinks the ship can collect after cost, and the BT to execute.
+/// Phase 18i: returned instead of just a BT so `plan_goal` can score it
+/// against competing goals (trade_run) via the ship's personality.
+pub struct ContractCandidate {
+    pub goal_name: &'static str,
+    pub profit: i64,
+    pub bt: BtNode<ShipAction>,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn try_plan_contract(
     at_loc: &str,
@@ -1782,7 +1867,7 @@ fn try_plan_contract(
     gate_pairs: &StdHashMap<String, String>,
     sensor_range_au: f32,
     location_to_system: &StdHashMap<String, String>,
-) -> Option<BtNode<ShipAction>> {
+) -> Option<ContractCandidate> {
     use crate::economy::contracts::ContractType;
 
     // Phase 18f: cross-system contracts are invisible to ships with
@@ -1889,36 +1974,77 @@ fn try_plan_contract(
         }
     }
     let cand = best?;
+    let profit = cand.payment - cand.cost;
 
-    // Build the BT. Passenger/courier variants skip the Buy step;
-    // CrewMission is a dwell-at-station job (Dock → Rest N ticks → Deliver).
-    match cand.kind {
-        ContractType::CrewMission => Some(build_fulfill_crew_mission_bt(
-            at_loc,
-            &cand.source,
-            cand.id,
-            registry,
-            gate_pairs,
-        )),
-        ContractType::Passenger | ContractType::Courier => Some(build_fulfill_passenger_bt(
-            at_loc,
-            &cand.source,
-            &cand.destination,
-            cand.id,
-            registry,
-            gate_pairs,
-        )),
-        _ => Some(build_fulfill_delivery_bt(
-            at_loc,
-            &cand.source,
-            &cand.destination,
-            cand.commodity,
-            cand.qty,
-            cand.id,
-            registry,
-            gate_pairs,
-        )),
-    }
+    // Kind-specific goal name — matches the personality archetype
+    // `prefer_goals` keys (e.g. `courier` archetype weights
+    // `fulfill_passenger_transport`, `reliable_trucker` weights
+    // `fulfill_delivery`, etc). Phase 18i.
+    let (goal_name, bt) = match cand.kind {
+        ContractType::CrewMission => (
+            "do_crew_mission",
+            build_fulfill_crew_mission_bt(
+                at_loc,
+                &cand.source,
+                cand.id,
+                registry,
+                gate_pairs,
+            ),
+        ),
+        ContractType::Passenger => (
+            "fulfill_passenger_transport",
+            build_fulfill_passenger_bt(
+                at_loc,
+                &cand.source,
+                &cand.destination,
+                cand.id,
+                registry,
+                gate_pairs,
+            ),
+        ),
+        ContractType::Courier => (
+            "fulfill_courier",
+            build_fulfill_passenger_bt(
+                at_loc,
+                &cand.source,
+                &cand.destination,
+                cand.id,
+                registry,
+                gate_pairs,
+            ),
+        ),
+        ContractType::Subsidy => (
+            "fulfill_contract",
+            build_fulfill_delivery_bt(
+                at_loc,
+                &cand.source,
+                &cand.destination,
+                cand.commodity,
+                cand.qty,
+                cand.id,
+                registry,
+                gate_pairs,
+            ),
+        ),
+        _ => (
+            "fulfill_delivery",
+            build_fulfill_delivery_bt(
+                at_loc,
+                &cand.source,
+                &cand.destination,
+                cand.commodity,
+                cand.qty,
+                cand.id,
+                registry,
+                gate_pairs,
+            ),
+        ),
+    };
+    Some(ContractCandidate {
+        goal_name,
+        profit,
+        bt,
+    })
 }
 
 /// Build a crew-mission BT. Travel to the station, dock, refuel, rest
@@ -2731,6 +2857,62 @@ mod tick_tests {
         assert_eq!(route.0, Commodity::Ore);
         assert_eq!(route.1, "belt");
         assert_eq!(route.2, "earth");
+    }
+
+    #[test]
+    fn score_goal_positive_profit_scales_with_personality_bonus() {
+        let p = crate::ai::personality::Personality::cautious_trader();
+        // cautious_trader likes fulfill_delivery (+0.3) and
+        // fulfill_contract (+0.3), flat on trade_run.
+        let contract = score_goal(1600, "fulfill_delivery", &p);
+        let trade = score_goal(1600, "trade_run", &p);
+        assert!(
+            contract > trade,
+            "cautious_trader should favor fulfill_delivery over trade_run (got {contract} vs {trade})",
+        );
+    }
+
+    #[test]
+    fn score_goal_aggressive_trader_picks_trade_over_contract() {
+        let p = crate::ai::personality::Personality::aggressive_trader();
+        // aggressive_trader has prefer_goals[trade_run] = 0.3.
+        let contract = score_goal(1600, "fulfill_delivery", &p);
+        let trade = score_goal(1600, "trade_run", &p);
+        assert!(
+            trade > contract,
+            "aggressive_trader should pick trade_run over equal-profit contract",
+        );
+    }
+
+    #[test]
+    fn score_goal_courier_picks_passenger_over_trade() {
+        let p = crate::ai::personality::Personality::courier();
+        let passenger = score_goal(1200, "fulfill_passenger_transport", &p);
+        let trade = score_goal(1200, "trade_run", &p);
+        assert!(passenger > trade, "courier should favor passenger work");
+    }
+
+    #[test]
+    fn score_goal_zero_when_no_profit() {
+        let p = crate::ai::personality::Personality::balanced_trader();
+        assert_eq!(score_goal(0, "fulfill_delivery", &p), 0.0);
+        assert_eq!(score_goal(-500, "trade_run", &p), 0.0);
+    }
+
+    #[test]
+    fn score_goal_log_scales_so_small_bonus_can_flip_picks() {
+        // Huge trade-run profit (50000) vs modest contract (2000)
+        // — without bonus trade wins. With a strong contract bonus
+        // (>0.7), contract might still lose because log-scale
+        // compresses. This test documents the expected behaviour.
+        let p_flat = crate::ai::personality::Personality::balanced_trader();
+        assert!(score_goal(50000, "trade_run", &p_flat) > score_goal(2000, "fulfill_delivery", &p_flat));
+        // With a modest contract preference it still doesn't win
+        // a 25× profit gap (as designed — log-scaling prevents
+        // personality from completely overriding profit).
+        let mut p_biased = crate::ai::personality::Personality::balanced_trader();
+        p_biased.prefer_goals.insert("fulfill_delivery".into(), 0.3);
+        assert!(score_goal(50000, "trade_run", &p_biased) > score_goal(2000, "fulfill_delivery", &p_biased));
     }
 
     #[test]

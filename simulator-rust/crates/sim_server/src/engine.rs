@@ -1339,9 +1339,12 @@ fn admin_spawn_ship(
             dock_dwell_start_tick: None,
         },
         ShipAI {
-            // Admin-spawned ships get the balanced archetype as a reasonable
-            // default — the admin UI will add a personality picker later.
-            personality: Personality::balanced_trader(),
+            // Phase 18i: admin-spawned ships take a class-appropriate
+            // archetype — couriers get the courier archetype,
+            // haulers get opportunistic_trucker, etc. The admin UI
+            // will add a personality picker later; until then, class
+            // is the best proxy for role-bias.
+            personality: Personality::for_class(&payload.class),
             current_goal: "idle".to_string(),
             current_bt: None,
         },

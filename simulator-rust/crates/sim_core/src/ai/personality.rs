@@ -162,10 +162,48 @@ impl Personality {
             aggression: 0.0,
             prefer_goals: [
                 ("fulfill_passenger_transport".into(), 0.35),
+                ("fulfill_courier".into(), 0.30),
                 ("fulfill_delivery".into(), 0.25),
                 ("station_job".into(), 0.15),
             ]
             .into(),
+        }
+    }
+
+    /// Industrial archetype — miners prefer station work (mining
+    /// isn't its own goal yet; when it lands it'll pick up the
+    /// "mine" bonus here). Leans toward ore/metals delivery
+    /// contracts since that's their natural cargo.
+    pub fn miner() -> Self {
+        Self {
+            profit: 0.5,
+            safety: 0.6,
+            morale: 0.4,
+            exploration: 0.3,
+            loyalty: 0.6,
+            aggression: 0.0,
+            prefer_goals: [
+                ("mine".into(), 0.4),
+                ("fulfill_delivery".into(), 0.2),
+                ("station_job".into(), 0.15),
+            ]
+            .into(),
+        }
+    }
+
+    /// Class-appropriate default personality for a ship class.
+    /// Used by admin_spawn_ship and the seeder fallback so new
+    /// ships start with a role-biased archetype instead of a flat
+    /// balanced_trader. Existing seeded ships keep whatever
+    /// `random_ship` gave them — their persisted personality wins.
+    pub fn for_class(class: &str) -> Self {
+        match class {
+            "courier" => Self::courier(),
+            "freighter" => Self::reliable_trucker(),
+            "hauler" => Self::opportunistic_trucker(),
+            "tanker" => Self::reliable_trucker(),
+            "miner" => Self::miner(),
+            _ => Self::balanced_trader(),
         }
     }
 

@@ -583,10 +583,14 @@ async fn load_ships(
                 .replace(|c: char| !c.is_alphanumeric() && c != '-', "")
         );
 
+        // Phase 18i: on missing/malformed personality JSON, fall
+        // back to a class-appropriate archetype with per-ship
+        // variation — avoids funneling everyone into the same
+        // balanced_trader and preserves randomness inside a class.
         let personality = serde_json::from_str::<Personality>(&personality_json)
             .unwrap_or_else(|_| {
                 let mut rng = rand::thread_rng();
-                Personality::random_ship(&mut rng)
+                Personality::for_class(&class).with_variation(&mut rng)
             });
 
         let faction_reputation: HashMap<String, u8> = {
