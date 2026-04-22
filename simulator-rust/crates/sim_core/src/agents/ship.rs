@@ -46,7 +46,7 @@ pub struct Transit {
     pub to: String,
     pub departure_tick: u64,
     /// Display-only estimate. Recomputed each tick from remaining distance
-    /// + current world_speed. Persist it for snapshot stability but don't
+    /// and current world_speed. Persist it for snapshot stability but don't
     /// gate arrival on it.
     pub arrival_tick: u64,
     /// Universe-space position captured at departure. Interpolation uses this
@@ -343,6 +343,123 @@ impl ShipCrewSkills {
     }
 }
 
+/// Subsystem / module fitting. Stored per-ship, mutated when the ship
+/// refits (Phase 18b+). The cached `derived` rollup is recomputed on
+/// every write via `recompute()` and consumed at read sites that want
+/// a post-fitting view of the ship (transit speed, cargo capacity,
+/// sensor range). Base values for cargo capacity and fuel `speed_modifier`
+/// still live on `ShipCargo` / `ShipFuel` — they get *baked* with the
+/// fitting's multipliers at spawn / refit time, so tick-loop code reads
+/// the same field it always did.
+#[derive(Debug, Clone)]
+pub struct ShipFitting {
+    /// Chosen module in each slot. Indexed by [`crate::modules::Slot::index`];
+    /// array length is [`crate::modules::NUM_SLOTS`].
+    pub slots: [Option<&'static str>; crate::modules::NUM_SLOTS],
+    /// Cached rollup of all fitted modules' effects. Always kept in sync
+    /// with `slots` via `recompute()`.
+    pub derived: crate::modules::DerivedStats,
+}
+
+impl Default for ShipFitting {
+    fn default() -> Self {
+        Self::new_default()
+    }
+}
+
+impl ShipFitting {
+    /// Tier-1-default fitting — every slot filled with the baseline
+    /// neutral module. Gameplay-identical to a pre-Phase-18 ship.
+    pub fn new_default() -> Self {
+        let slots = crate::modules::default_fitting();
+        let derived = crate::modules::combine_effects(&slots);
+        Self { slots, derived }
+    }
+
+    /// Build a fitting from runtime slug strings (e.g. off a DB row).
+    /// Unknown slugs fall back to the tier-1 default for that slot.
+    pub fn from_slugs(raw: &[Option<String>; crate::modules::NUM_SLOTS]) -> Self {
+        let mut slots: [Option<&'static str>; crate::modules::NUM_SLOTS] =
+            [None; crate::modules::NUM_SLOTS];
+        for slot in crate::modules::SLOTS.iter().copied() {
+            let i = slot.index();
+            slots[i] = match &raw[i] {
+                Some(s) => crate::modules::intern_slug(s)
+                    .or(Some(crate::modules::default_for_slot(slot))),
+                None => None,
+            };
+        }
+        let derived = crate::modules::combine_effects(&slots);
+        Self { slots, derived }
+    }
+
+    /// Replace the module in one slot, recomputing the derived rollup.
+    pub fn set(&mut self, slot: crate::modules::Slot, slug: Option<&'static str>) {
+        self.slots[slot.index()] = slug;
+        self.recompute();
+    }
+
+    /// Recompute `derived` from the current `slots`. Callers that reach
+    /// into `slots` directly (e.g. bulk-populate from a save) must call
+    /// this before the next tick reads `derived`.
+    pub fn recompute(&mut self) {
+        self.derived = crate::modules::combine_effects(&self.slots);
+    }
+
+    /// Return the slug in `slot`, if any.
+    pub fn slot_slug(&self, slot: crate::modules::Slot) -> Option<&'static str> {
+        self.slots[slot.index()]
+    }
+}
+
+/// Wire shape for the `fitting` section of `ShipSnapshot`. Godot's
+/// details panel reads `modules` for the slot-by-slot display and
+/// `stats` for the tooltip line ("+15% speed, −5% fuel"). Slugs are
+/// stable catalog keys; use them for `/api/admin/ships/:id/refit`
+/// round-trips in Phase 18b.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct ShipFittingSnapshot {
+    /// slot_name → module_slug (None → slot is empty).
+    pub modules: HashMap<String, Option<String>>,
+    pub stats: ShipDerivedStatsSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct ShipDerivedStatsSnapshot {
+    pub speed_mult: f32,
+    pub cargo_capacity_mult: f32,
+    pub fuel_efficiency_mult: f32,
+    pub sensor_range_au: f32,
+    pub comms_bonus: f32,
+    pub power_use: u16,
+    pub power_cap: u16,
+}
+
+impl From<&ShipFitting> for ShipFittingSnapshot {
+    fn from(fit: &ShipFitting) -> Self {
+        let mut modules: HashMap<String, Option<String>> = HashMap::new();
+        for slot in crate::modules::SLOTS.iter().copied() {
+            modules.insert(
+                slot.as_str().to_string(),
+                fit.slot_slug(slot).map(|s| s.to_string()),
+            );
+        }
+        let d = fit.derived;
+        Self {
+            modules,
+            stats: ShipDerivedStatsSnapshot {
+                speed_mult: d.speed_mult,
+                cargo_capacity_mult: d.cargo_capacity_mult,
+                fuel_efficiency_mult: d.fuel_efficiency_mult,
+                sensor_range_au: d.sensor_range_au,
+                comms_bonus: d.comms_bonus,
+                power_use: d.power_use,
+                power_cap: d.power_cap,
+            },
+        }
+    }
+}
+
 /// Serializable snapshot for HTTP/WS clients — built by querying components.
 ///
 /// Field names match what the Godot client reads. Position uses the `{x, y}`
@@ -381,6 +498,12 @@ pub struct ShipSnapshot {
     pub idle_ticks: u32,
     /// Aggregate crew stats (size/morale/fatigue), for the details panel.
     pub crew: ShipCrewSnapshot,
+    /// Fitted subsystems + derived rollup (speed/cargo/sensors/power).
+    /// Present on every ship; `None` only if the component somehow
+    /// didn't attach (legacy save pre-Phase-18a — we default-fit on
+    /// load now, so this is effectively always Some in practice).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fitting: Option<ShipFittingSnapshot>,
 }
 
 /// Crew section of `ShipSnapshot`. Small-enough to inline; Godot displays
@@ -424,6 +547,7 @@ impl ShipSnapshot {
         lifecycle: &ShipLifecycle,
         crew: Option<&ShipCrew>,
         skills: Option<&ShipCrewSkills>,
+        fitting: Option<&ShipFitting>,
     ) -> Self {
         let cargo_map: HashMap<String, u32> = cargo
             .cargo
@@ -468,6 +592,7 @@ impl ShipSnapshot {
             hoard_strikes: lifecycle.hoard_strikes,
             idle_ticks: lifecycle.idle_ticks,
             crew: crew_snap,
+            fitting: fitting.map(ShipFittingSnapshot::from),
         }
     }
 }

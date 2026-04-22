@@ -18,8 +18,8 @@ use sim_core::{
             PopDemographics, PopEconomy, PopIdentity, PopSentiment, PopSnapshot,
         },
         ship::{
-            ShipAI, ShipCargo, ShipCrew, ShipCrewSkills, ShipEconomy, ShipFuel, ShipIdentity,
-            ShipLifecycle, ShipPosition, ShipSnapshot, ShipTransit,
+            ShipAI, ShipCargo, ShipCrew, ShipCrewSkills, ShipEconomy, ShipFitting, ShipFuel,
+            ShipIdentity, ShipLifecycle, ShipPosition, ShipSnapshot, ShipTransit,
         },
     },
     simulation::spawner::AgentStore,
@@ -91,8 +91,10 @@ impl SnapshotCache {
         {
             // ShipCrew is optional since we only added it in Phase 8d.
             // ShipCrewSkills came in Phase 11b; also optional on older saves.
+            // ShipFitting came in Phase 18a; also optional on older saves.
             let crew = store.world.get::<&ShipCrew>(e).ok();
             let skills = store.world.get::<&ShipCrewSkills>(e).ok();
+            let fitting = store.world.get::<&ShipFitting>(e).ok();
             let snap = ShipSnapshot::build(
                 identity,
                 position,
@@ -104,6 +106,7 @@ impl SnapshotCache {
                 lifecycle,
                 crew.as_deref(),
                 skills.as_deref(),
+                fitting.as_deref(),
             );
             self.positions.insert(identity.id.clone(), position.position);
             self.ships.insert(identity.id.clone(), snap);

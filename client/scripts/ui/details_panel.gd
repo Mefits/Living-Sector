@@ -282,6 +282,34 @@ func _refresh_ship() -> void:
         parts.append("%s %d" % [str(k), int(skills[k])])
       lines.append("  Skills: " + " · ".join(parts))
 
+  # Subsystems (Phase 18a) — fitted modules per slot + derived rollup
+  var fitting = data.get("fitting")
+  if fitting is Dictionary:
+    lines.append("")
+    lines.append("[b]Subsystems[/b]")
+    var modules = fitting.get("modules", {})
+    if modules is Dictionary:
+      var slot_order: Array = ["engine", "cargo_bay", "sensors", "reactor", "comms"]
+      for slot_name in slot_order:
+        var slug = modules.get(slot_name)
+        var label = str(slot_name).capitalize().replace("_", " ")
+        if slug == null:
+          lines.append("  %s: —" % label)
+        else:
+          lines.append("  %s: %s" % [label, str(slug)])
+    var stats = fitting.get("stats")
+    if stats is Dictionary:
+      var speed_pct = (float(stats.get("speed_mult", 1.0)) - 1.0) * 100.0
+      var cargo_pct = (float(stats.get("cargo_capacity_mult", 1.0)) - 1.0) * 100.0
+      var fuel_pct = (1.0 - float(stats.get("fuel_efficiency_mult", 1.0))) * 100.0
+      lines.append(
+        "  Speed %+.0f%%  Cargo %+.0f%%  Fuel %+.0f%%" % [speed_pct, cargo_pct, fuel_pct]
+      )
+      var p_use: int = int(stats.get("power_use", 0))
+      var p_cap: int = int(stats.get("power_cap", 0))
+      var power_tag := " OK" if p_use <= p_cap else " OVER"
+      lines.append("  Power: %d / %d%s" % [p_use, p_cap, power_tag])
+
   _append_activity_trail(lines)
   info_label.text = "\n".join(lines)
 

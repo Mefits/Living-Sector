@@ -587,6 +587,17 @@ async fn load_ships(
         let cargo: Cargo = parse_cargo(&cargo_json);
         let cargo_age: HashMap<Commodity, u64> = parse_commodity_u64_map(&cargo_age_json);
 
+        // Phase 18a: every ship gets a tier-1-default subsystem fitting
+        // at load. Derived multipliers are baked into the stored
+        // cargo capacity + speed modifier so tick logic continues
+        // reading them unchanged. Tier 1 is neutral by design, so
+        // this is a no-op for existing seeds — it just scaffolds the
+        // per-ship `ShipFitting` component for Phase 18b refit.
+        let fitting = sim_core::agents::ship::ShipFitting::new_default();
+        let fitted_cargo_capacity =
+            ((cargo_capacity as f32) * fitting.derived.cargo_capacity_mult).round() as u32;
+        let fitted_speed_modifier = (speed_modifier as f32) * fitting.derived.speed_mult;
+
         let transit = match (transit_from, transit_to, transit_dep, transit_arr) {
             (Some(from), Some(to), Some(dep), Some(arr)) => Some(Transit {
                 from,
@@ -644,14 +655,14 @@ async fn load_ships(
             ShipTransit { transit },
             ShipCargo {
                 cargo,
-                capacity: cargo_capacity as u32,
+                capacity: fitted_cargo_capacity,
                 cargo_age,
             },
             ShipFuel {
                 fuel: fuel as f32,
                 fuel_capacity: fuel_capacity as f32,
                 fuel_consumption_rate: fuel_consumption_rate as f32,
-                speed_modifier: speed_modifier as f32,
+                speed_modifier: fitted_speed_modifier,
             },
             ShipEconomy {
                 credits,
@@ -698,6 +709,7 @@ async fn load_ships(
             entity,
             sim_core::agents::ship::ShipCrewSkills::for_roles(crew_roles),
         ).ok();
+        store.world.insert_one(entity, fitting).ok();
         // Attach LOD cursor — defaults to divisor 1 so new ships run at
         // full cadence until the next `tick_lod_recompute` pass.
         store.world.insert_one(

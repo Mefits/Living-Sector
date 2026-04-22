@@ -997,6 +997,13 @@ fn admin_spawn_ship(
         })
         .unwrap_or((500, 100.0, 0.05, 1.0, 5, &[] as &[&str]));
 
+    // Phase 18a: admin-spawned ships also get the tier-1 default fitting
+    // (gameplay-neutral). A later refit endpoint (Phase 18b) will let
+    // callers pass a custom loadout at spawn.
+    let fitting = sim_core::agents::ship::ShipFitting::new_default();
+    let cargo_cap = ((cargo_cap as f32) * fitting.derived.cargo_capacity_mult).round() as u32;
+    let speed_mod = speed_mod * fitting.derived.speed_mult;
+
     let entity = store.world.spawn((
         ShipIdentity {
             db_id: payload.db_id,
@@ -1063,6 +1070,7 @@ fn admin_spawn_ship(
                 dirty: false,
             },
             ShipCrewSkills::for_roles(crew_roles),
+            fitting,
             sim_core::simulation::lod::AgentLod::new(),
         ),
     )
