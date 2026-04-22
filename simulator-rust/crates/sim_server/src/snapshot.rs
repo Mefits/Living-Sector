@@ -183,6 +183,10 @@ impl SnapshotCache {
                 .collect();
             let lifecycle = store.world.get::<&FacilityLifecycle>(e).ok();
             let gate = store.world.get::<&GateLink>(e).ok();
+            let module_stock = store
+                .world
+                .get::<&sim_core::agents::facility::ModuleStock>(e)
+                .ok();
             let snap = FacilitySnapshot::build(
                 identity,
                 location,
@@ -190,6 +194,7 @@ impl SnapshotCache {
                 storage,
                 lifecycle.as_deref(),
                 gate.as_deref(),
+                module_stock.as_deref(),
                 sim_core::agents::Position::from(pos),
                 docked_ship_ids,
             );

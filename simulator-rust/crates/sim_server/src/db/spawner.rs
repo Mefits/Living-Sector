@@ -248,7 +248,7 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
     let rows = sqlx::query(
         "SELECT id, name, facility_type, location_id, location_name, body_id, faction_id,
                 docking_capacity, services, condition, reputation, credits, reserves, docked_ships,
-                gate_paired_id
+                gate_paired_id, module_stock
          FROM facilities",
     )
     .fetch_all(pool)
@@ -315,6 +315,25 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
             sim_core::agents::facility::FacilityLifecycle::new(),
             sim_core::simulation::lod::AgentLod::new(),
         ));
+        // Attach ModuleStock to shipyards (Phase 18c). Non-shipyards
+        // get nothing — the tick phase keys on facility_type before
+        // querying, and the snapshot layer serializes None.
+        if facility_entity_is_shipyard_like(&store.world, entity) {
+            let module_stock_json: String =
+                r.try_get("module_stock").unwrap_or_default();
+            let stock = parse_module_stock(&module_stock_json);
+            store
+                .world
+                .insert_one(
+                    entity,
+                    sim_core::agents::facility::ModuleStock {
+                        stock,
+                        dirty: false,
+                    },
+                )
+                .ok();
+        }
+
         // Attach GateLink for gate facilities. Pairing is symmetric but
         // we validate only existence here; the pathfinder will resolve
         // the paired entity at lookup time.
@@ -802,6 +821,42 @@ fn parse_commodity_u64_map(json: &str) -> HashMap<Commodity, u64> {
         .map(|m| {
             m.iter()
                 .filter_map(|(k, v)| Some((Commodity::parse(k)?, v.as_u64()?)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Read the `facility_type` of the just-spawned facility entity and
+/// check whether it's a shipyard. Queried off the live world instead
+/// of passed explicitly so `load_facilities` doesn't need to hold an
+/// extra variable mid-loop.
+fn facility_entity_is_shipyard_like(world: &hecs::World, entity: hecs::Entity) -> bool {
+    use sim_core::agents::facility::FacilityIdentity;
+    match world.get::<&FacilityIdentity>(entity) {
+        Ok(id) => id.facility_type == "shipyard",
+        Err(_) => false,
+    }
+}
+
+/// Parse a `facilities.module_stock` JSON blob (slug → integer) into
+/// an in-memory map. Unknown slugs are dropped — same pattern as
+/// `parse_ship_fitting`: a stale row can't bring a non-existent module
+/// back from the dead.
+fn parse_module_stock(json: &str) -> HashMap<String, u32> {
+    let v: serde_json::Value = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(_) => return HashMap::new(),
+    };
+    v.as_object()
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, val)| {
+                    // Only retain slugs still in the catalog. A sim
+                    // that renamed `engine_t2` would otherwise keep
+                    // ghost stock forever.
+                    sim_core::modules::get(k)?;
+                    Some((k.clone(), val.as_u64()? as u32))
+                })
                 .collect()
         })
         .unwrap_or_default()

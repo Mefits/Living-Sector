@@ -471,6 +471,14 @@ pub struct AdminRefitShipReq {
     /// clears the slot.
     #[serde(default)]
     pub slug: Option<String>,
+    /// When true, the refit routes through the shipyard economy: ship
+    /// must be docked at a shipyard with the target slug in stock,
+    /// pays [`crate::control::ControlCommand::AdminRefitShip`]'s cost
+    /// (debit ship, credit shipyard, decrement stock). When false
+    /// (default) the swap is a pure admin override — no economy
+    /// interaction. Phase 18c.
+    #[serde(default)]
+    pub via_shipyard: bool,
 }
 
 /// POST /api/admin/ships/:id/refit — swap one subsystem slot on a ship.
@@ -523,12 +531,41 @@ pub async fn refit_ship(
         }
     }
 
+    // When via_shipyard is set, the target slug must be something the
+    // economy can actually produce (no tier-1 defaults; those are free
+    // and can't be bought). Reject at the HTTP layer so callers get a
+    // clean 400 instead of a silent no-op.
+    if body.via_shipyard {
+        match body.slug.as_deref() {
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "via_shipyard refit requires a slug (can't purchase an empty slot)",
+                    })),
+                );
+            }
+            Some(s) if sim_core::economy::module_production::get(s).is_none() => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": format!(
+                            "module {s} is not produced by shipyards (tier-1 default or unknown)",
+                        ),
+                    })),
+                );
+            }
+            _ => {}
+        }
+    }
+
     if state
         .control_tx
         .send(crate::control::ControlCommand::AdminRefitShip {
             id: id.clone(),
             slot,
             slug: body.slug.clone(),
+            via_shipyard: body.via_shipyard,
         })
         .await
         .is_err()
@@ -546,6 +583,7 @@ pub async fn refit_ship(
             "id": id,
             "slot": slot.as_str(),
             "slug": body.slug,
+            "via_shipyard": body.via_shipyard,
         })),
     )
 }

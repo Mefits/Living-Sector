@@ -89,9 +89,19 @@ pub enum ControlCommand {
     /// matches the slot, then recomputes derived stats + rebakes
     /// `ShipCargo.capacity` / `ShipFuel.speed_modifier` from the class
     /// base × new multipliers. Marks the ship dirty for persistence.
+    ///
+    /// When `via_shipyard` is true, the engine additionally requires
+    /// the ship to be docked at a `facility_type = "shipyard"` with
+    /// the target slug in stock and the ship to carry enough credits
+    /// to cover [`sim_core::economy::module_production::ModuleRecipe::base_cost_credits`];
+    /// the apply path debits the ship, credits the shipyard, and
+    /// decrements the shipyard's `ModuleStock` by one. On any
+    /// validation failure the apply silently aborts with no refit —
+    /// the HTTP layer validates as much as it can before enqueueing.
     AdminRefitShip {
         id: String,
         slot: sim_core::modules::Slot,
         slug: Option<String>,
+        via_shipyard: bool,
     },
 }

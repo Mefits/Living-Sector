@@ -355,6 +355,28 @@
       }
     },
     {
+      "id": "facility-earth-shipyard",
+      "name": "Terra Shipyards",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "shipyard",
+      "docking_capacity": 4,
+      "services": [
+        "refuel",
+        "repair",
+        "market",
+        "shipyard"
+      ],
+      "reserves": {
+        "metals": 600,
+        "electronics": 400,
+        "components": 300,
+        "tools": 200,
+        "polymers": 200
+      }
+    },
+    {
       "id": "facility-luna-base",
       "name": "Luna Industrial",
       "faction_id": "terran-authority",

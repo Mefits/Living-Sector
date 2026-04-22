@@ -54,11 +54,14 @@ pub enum DbWrite {
     },
     /// Facility runtime state. Condition + reserves drift every tick;
     /// credits move on docking fees + restock + spread revenue + tax.
+    /// `module_stock_json` is only meaningful for shipyards; other
+    /// facilities emit an empty `{}` which is already the column default.
     Facility {
         db_id: i64,
         credits: i64,
         condition: f32,
         reserves_json: String,
+        module_stock_json: String,
     },
     /// Population demographics + sentiment.
     Population {
@@ -251,16 +254,19 @@ impl PersistenceWorker {
                     credits,
                     condition,
                     reserves_json,
+                    module_stock_json,
                 } => {
                     sqlx::query(
                         "UPDATE facilities SET
                            credits=?1, condition=?2, reserves=?3,
+                           module_stock=?4,
                            updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
-                         WHERE id=?4",
+                         WHERE id=?5",
                     )
                     .bind(credits)
                     .bind(condition as f64)
                     .bind(reserves_json)
+                    .bind(module_stock_json)
                     .bind(db_id)
                     .execute(&mut *tx)
                     .await?;

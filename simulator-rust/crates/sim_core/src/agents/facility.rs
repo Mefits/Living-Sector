@@ -127,6 +127,48 @@ impl FacilityStorage {
     }
 }
 
+/// Shipyard module inventory (Phase 18c). One per shipyard facility.
+/// `stock[slug]` is how many installable units the shipyard currently
+/// has on hand. Ticks increment it via the production recipe; refits
+/// decrement it when a ship installs a module.
+///
+/// Absent on every non-shipyard facility — the facility tick keys on
+/// `facility_type == "shipyard"` before querying for it, and the refit
+/// apply phase treats a missing component the same as empty stock.
+#[derive(Debug, Clone, Default)]
+pub struct ModuleStock {
+    /// Module slug (from [`crate::modules::CATALOG`]) → units on hand.
+    pub stock: HashMap<String, u32>,
+    /// Set whenever stock changes so the persistence sweep knows to
+    /// flush. Clear on flush, same pattern as FacilityLifecycle.dirty.
+    pub dirty: bool,
+}
+
+impl ModuleStock {
+    pub fn count(&self, slug: &str) -> u32 {
+        self.stock.get(slug).copied().unwrap_or(0)
+    }
+
+    pub fn add(&mut self, slug: &str, qty: u32) {
+        let entry = self.stock.entry(slug.to_string()).or_insert(0);
+        *entry = entry.saturating_add(qty);
+        self.dirty = true;
+    }
+
+    /// Remove one unit of `slug`. Returns true on success, false when
+    /// stock was already empty.
+    pub fn take_one(&mut self, slug: &str) -> bool {
+        match self.stock.get_mut(slug) {
+            Some(v) if *v > 0 => {
+                *v -= 1;
+                self.dirty = true;
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
 /// Snapshot for HTTP/WS.
 ///
 /// Field names match what Godot reads: `type` (not `facility_type`),
@@ -170,6 +212,11 @@ pub struct FacilitySnapshot {
     /// distinct model and can draw the paired-gate arc for navigation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gate_link: Option<GateLinkSnapshot>,
+    /// Module inventory for shipyards (Phase 18c). Absent on every
+    /// non-shipyard; when present, maps module slug → units available.
+    /// Godot's details panel shows this under "Shipyard stock".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module_stock: Option<HashMap<String, u32>>,
 }
 
 /// Wire-facing shape of `GateLink`. Kept flat so Godot can consume
@@ -273,6 +320,7 @@ impl FacilitySnapshot {
         storage: &FacilityStorage,
         lifecycle: Option<&FacilityLifecycle>,
         gate: Option<&GateLink>,
+        module_stock: Option<&ModuleStock>,
         position: super::Position,
         docked_ship_ids: Vec<String>,
     ) -> Self {
@@ -298,6 +346,7 @@ impl FacilitySnapshot {
             fee_per_cargo_unit: g.fee_per_cargo_unit,
             throughput_cap: g.throughput_cap,
         });
+        let module_stock = module_stock.map(|m| m.stock.clone());
         Self {
             id: identity.id.clone(),
             name: identity.name.clone(),
@@ -317,6 +366,7 @@ impl FacilitySnapshot {
             xp,
             abandoned,
             gate_link,
+            module_stock,
         }
     }
 }
@@ -441,6 +491,13 @@ pub const CREW_MISSION_MAX_ACTIVE_PER_FACILITY: usize = 1;
 
 /// Interval (base-ticks) for abandonment-check bumps.
 pub const ABANDON_CHECK_INTERVAL_BASE: u64 = 10;
+
+/// Interval (base-ticks) between shipyard module-production passes.
+/// Chosen so that at `WORLD_SPEED=4` (mult=2) a shipyard can top up a
+/// module slot inside a 30s smoke, and at default 0.25 (mult=32)
+/// produces modules at a slower, harder-to-stack cadence — aligns
+/// with the "retrofit is rare" design intent.
+pub const MODULE_PRODUCTION_INTERVAL_BASE: u64 = 15;
 /// Ticks of triple-failure (low condition + no tools + low credits) before
 /// the facility flips to `abandoned = true`. Matches Elixir's `200`.
 pub const FACILITY_ABANDON_THRESHOLD_TICKS: u32 = 200;
@@ -486,6 +543,15 @@ pub fn tick_facilities(
     // Phase 6: post delivery + courier contracts (every 50×mult ticks).
     if contract_interval > 0 && tick % contract_interval == 0 {
         tick_post_contracts(world, contracts, tick, tick_multiplier);
+    }
+
+    // Phase 6b (Phase 18c): shipyards mint modules from local market
+    // supply into their `ModuleStock`. Runs on its own interval —
+    // decoupled from recipe_interval so module cadence is a separate
+    // tuning knob.
+    let module_production_interval = MODULE_PRODUCTION_INTERVAL_BASE * mult;
+    if module_production_interval > 0 && tick % module_production_interval == 0 {
+        tick_produce_modules(world);
     }
 
     // Phase 7: post crew missions (every 100×mult ticks, probabilistic).
@@ -820,6 +886,105 @@ pub fn grant_facility_xp(world: &mut hecs::World, entity: hecs::Entity, batches:
             life.dirty = true;
         }
         life.dirty = true;
+    }
+}
+
+/// Phase 6b (Phase 18c): shipyards mint modules from their local
+/// market's supply.
+///
+/// Each shipyard iterates [`crate::economy::module_production::MODULE_RECIPES`],
+/// skipping slugs already at `SHIPYARD_STOCK_TARGET`, and tries to
+/// produce one unit of the first under-stock recipe whose inputs are
+/// fully covered by the market supply. On success, inputs are consumed
+/// from the market and stock is incremented. Stopping after one module
+/// per tick keeps a single shipyard from hoovering the local
+/// electronics/metals/components supply in a single phase — slower
+/// cadence, more elastic market prices, retrofit stays a scarce event.
+fn tick_produce_modules(world: &mut hecs::World) {
+    use crate::economy::module_production::{
+        consume_inputs, inputs_available, MODULE_RECIPES, SHIPYARD_STOCK_TARGET,
+    };
+
+    // Build a location → market_entity index once per call — same pattern
+    // as tick_recipes_and_mining. Shipyards pull from their local
+    // market's supply, NOT their own reserves, matching refinery/factory
+    // behavior.
+    let market_at_location: std::collections::HashMap<String, hecs::Entity> = world
+        .query::<&MarketIdentity>()
+        .iter()
+        .map(|(e, id)| (id.facility_location.clone(), e))
+        .collect();
+
+    // Collect the shipyard (entity, location, abandoned) tuple so we can
+    // mutate components without the query's borrow hanging around.
+    struct ShipyardRef {
+        entity: hecs::Entity,
+        location: String,
+    }
+    let shipyards: Vec<ShipyardRef> = world
+        .query::<(&FacilityIdentity, &FacilityLocation, &FacilityLifecycle)>()
+        .iter()
+        .filter_map(|(e, (id, loc, life))| {
+            if life.abandoned || id.facility_type != "shipyard" {
+                return None;
+            }
+            Some(ShipyardRef {
+                entity: e,
+                location: loc.location_name.clone(),
+            })
+        })
+        .collect();
+
+    for yard in shipyards {
+        let market_entity = match market_at_location.get(&yard.location) {
+            Some(&e) => e,
+            None => continue,
+        };
+
+        // Ensure the shipyard actually has a ModuleStock component.
+        // We'd expect one on every shipyard (seeder/admin-spawn attach
+        // it), but defend against hand-rolled DB rows that didn't.
+        if world.get::<&ModuleStock>(yard.entity).is_err() {
+            world.insert_one(yard.entity, ModuleStock::default()).ok();
+        }
+
+        // Find the first under-stock recipe whose inputs are covered.
+        // Walk recipes in catalog order so production distribution is
+        // deterministic run-over-run.
+        let chosen_slug: Option<&'static str> = {
+            let pricing = match world.get::<&MarketPricing>(market_entity) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let stock = match world.get::<&ModuleStock>(yard.entity) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            MODULE_RECIPES.iter().find_map(|recipe| {
+                if stock.count(recipe.slug) >= SHIPYARD_STOCK_TARGET {
+                    return None;
+                }
+                if inputs_available(recipe, &pricing.supply) {
+                    Some(recipe.slug)
+                } else {
+                    None
+                }
+            })
+        };
+
+        let Some(slug) = chosen_slug else { continue };
+        let recipe = match crate::economy::module_production::get(slug) {
+            Some(r) => r,
+            None => continue,
+        };
+
+        // Consume inputs from the market and bump stock.
+        if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
+            consume_inputs(recipe, &mut pricing.supply);
+        }
+        if let Ok(mut stock) = world.get::<&mut ModuleStock>(yard.entity) {
+            stock.add(slug, 1);
+        }
     }
 }
 
@@ -1252,5 +1417,181 @@ mod tests {
         grant_facility_xp(&mut world, e, 1_000_000);
         let life = world.get::<&FacilityLifecycle>(e).unwrap();
         assert_eq!(life.level, FACILITY_LEVEL_CAP);
+    }
+
+    #[test]
+    fn module_stock_add_and_take() {
+        let mut s = ModuleStock::default();
+        assert_eq!(s.count("engine_t2"), 0);
+        assert!(!s.take_one("engine_t2"));
+
+        s.add("engine_t2", 2);
+        assert_eq!(s.count("engine_t2"), 2);
+        assert!(s.dirty);
+
+        s.dirty = false; // simulate post-flush
+        assert!(s.take_one("engine_t2"));
+        assert_eq!(s.count("engine_t2"), 1);
+        assert!(s.dirty, "take_one should re-dirty the component");
+    }
+
+    #[test]
+    fn tick_produce_modules_mints_one_from_market_supply() {
+        use crate::agents::facility::tick_produce_modules;
+        use crate::agents::market::{MarketFlow, MarketHistory, MarketIdentity, MarketOrders, MarketPricing};
+        use crate::economy::commodities::Commodity;
+        use hecs::World;
+
+        let mut world = World::new();
+
+        // Spawn a market with plenty of supply for engine_t2 + cargo_bay_t2
+        // (enough for tier-2 engines: 3 metals + 2 electronics + 1 tool).
+        let market_entity = world.spawn((
+            MarketIdentity {
+                db_id: 1,
+                id: "market-earth-station".into(),
+                facility: hecs::Entity::from_bits(1).unwrap_or(hecs::Entity::DANGLING),
+                facility_location: "earth-station".into(),
+            },
+            {
+                let mut p = MarketPricing {
+                    price_elasticity: 0.02,
+                    spread: 0.10,
+                    prices: Default::default(),
+                    supply: Default::default(),
+                    demand: Default::default(),
+                };
+                p.supply.insert(Commodity::Metals, 20.0);
+                p.supply.insert(Commodity::Electronics, 20.0);
+                p.supply.insert(Commodity::Tools, 5.0);
+                p.supply.insert(Commodity::Polymers, 10.0);
+                p
+            },
+            MarketFlow {
+                production: Default::default(),
+                consumption: Default::default(),
+                consumption_window: Default::default(),
+                seed_demand: Default::default(),
+            },
+            MarketOrders {
+                pending_buys: vec![],
+                pending_sells: vec![],
+                reserved: Default::default(),
+                next_order_id: 0,
+                next_reserve_id: 0,
+                order_expiry_ticks: 100,
+            },
+            MarketHistory {
+                price_history: Default::default(),
+                trade_volume: Default::default(),
+                shortage_ticks: Default::default(),
+                last_tick: 0,
+                spawned_at_tick: None,
+                dirty: false,
+            },
+        ));
+        let _ = market_entity;
+
+        // Spawn a shipyard at the same location with an empty module stock.
+        let shipyard_entity = world.spawn((
+            FacilityIdentity {
+                db_id: 2,
+                id: "facility-earth-shipyard".into(),
+                name: "Terra Shipyards".into(),
+                facility_type: "shipyard".into(),
+                faction_id: "terran-authority".into(),
+                body_id: "earth".into(),
+            },
+            FacilityLocation {
+                location_id: 1,
+                location_name: "earth-station".into(),
+            },
+            FacilityLifecycle::new(),
+            ModuleStock::default(),
+        ));
+
+        // Run the production phase — it should pick engine_t2 (first
+        // under-stocked recipe whose inputs are covered) and mint 1.
+        tick_produce_modules(&mut world);
+
+        let stock = world.get::<&ModuleStock>(shipyard_entity).unwrap();
+        assert_eq!(
+            stock.count("engine_t2"),
+            1,
+            "shipyard should mint one engine_t2 on the first pass",
+        );
+        let pricing = world.get::<&MarketPricing>(market_entity).unwrap();
+        // 20 − 3 metals consumed by engine_t2 recipe.
+        assert!((pricing.supply[&Commodity::Metals] - 17.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn tick_produce_modules_skips_when_inputs_missing() {
+        use crate::agents::facility::tick_produce_modules;
+        use crate::agents::market::{MarketFlow, MarketHistory, MarketIdentity, MarketOrders, MarketPricing};
+        use hecs::World;
+
+        let mut world = World::new();
+        // Market has no supply at all.
+        world.spawn((
+            MarketIdentity {
+                db_id: 1,
+                id: "market-empty".into(),
+                facility: hecs::Entity::DANGLING,
+                facility_location: "empty".into(),
+            },
+            MarketPricing {
+                price_elasticity: 0.02,
+                spread: 0.10,
+                prices: Default::default(),
+                supply: Default::default(),
+                demand: Default::default(),
+            },
+            MarketFlow {
+                production: Default::default(),
+                consumption: Default::default(),
+                consumption_window: Default::default(),
+                seed_demand: Default::default(),
+            },
+            MarketOrders {
+                pending_buys: vec![],
+                pending_sells: vec![],
+                reserved: Default::default(),
+                next_order_id: 0,
+                next_reserve_id: 0,
+                order_expiry_ticks: 100,
+            },
+            MarketHistory {
+                price_history: Default::default(),
+                trade_volume: Default::default(),
+                shortage_ticks: Default::default(),
+                last_tick: 0,
+                spawned_at_tick: None,
+                dirty: false,
+            },
+        ));
+        let yard = world.spawn((
+            FacilityIdentity {
+                db_id: 2,
+                id: "facility-empty-yard".into(),
+                name: "Empty Yard".into(),
+                facility_type: "shipyard".into(),
+                faction_id: "x".into(),
+                body_id: "none".into(),
+            },
+            FacilityLocation {
+                location_id: 1,
+                location_name: "empty".into(),
+            },
+            FacilityLifecycle::new(),
+            ModuleStock::default(),
+        ));
+
+        tick_produce_modules(&mut world);
+        let stock = world.get::<&ModuleStock>(yard).unwrap();
+        assert!(
+            stock.stock.is_empty(),
+            "shipyard should mint nothing when the market can't cover any recipe",
+        );
     }
 }

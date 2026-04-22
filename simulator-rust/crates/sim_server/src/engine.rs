@@ -187,8 +187,15 @@ pub async fn run_tick_loop(
                 ControlCommand::AdminMarketSupplyDelta { location, deltas } => {
                     admin_market_supply_delta(&mut store, &location, &deltas, &mut events);
                 }
-                ControlCommand::AdminRefitShip { id, slot, slug } => {
-                    admin_refit_ship(&mut store, &id, slot, slug.as_deref(), &mut events);
+                ControlCommand::AdminRefitShip { id, slot, slug, via_shipyard } => {
+                    admin_refit_ship(
+                        &mut store,
+                        &id,
+                        slot,
+                        slug.as_deref(),
+                        via_shipyard,
+                        &mut events,
+                    );
                 }
             }
         }
@@ -480,27 +487,73 @@ fn emit_persist_writes(
     let flush_body = tick.is_multiple_of(40);
 
     if flush_facility {
-        use sim_core::agents::facility::{FacilityIdentity, FacilityOperations, FacilityStorage};
-        for (_e, (fid, ops, storage)) in store
-            .world
-            .query::<(&FacilityIdentity, &mut FacilityOperations, &FacilityStorage)>()
-            .iter()
-        {
-            if !ops.dirty {
+        use sim_core::agents::facility::{
+            FacilityIdentity, FacilityOperations, FacilityStorage, ModuleStock,
+        };
+        // Collect which facilities to flush up front so we can read the
+        // optional ModuleStock component afterwards without juggling
+        // borrows. A facility is dirty when either FacilityOperations or
+        // its ModuleStock has changed since the last flush.
+        let mut dirty: Vec<hecs::Entity> = Vec::new();
+        for (e, ops) in store.world.query::<&FacilityOperations>().iter() {
+            if ops.dirty {
+                dirty.push(e);
                 continue;
             }
-            let reserves_json: serde_json::Map<String, serde_json::Value> = storage
-                .reserves
-                .iter()
-                .map(|(c, &v)| (c.as_str().to_string(), serde_json::Value::from(v)))
-                .collect();
+            if let Ok(stock) = store.world.get::<&ModuleStock>(e) {
+                if stock.dirty {
+                    dirty.push(e);
+                }
+            }
+        }
+
+        for entity in dirty {
+            let (db_id, credits, condition, reserves_json) = {
+                let Ok(fid) = store.world.get::<&FacilityIdentity>(entity) else {
+                    continue;
+                };
+                let Ok(ops) = store.world.get::<&FacilityOperations>(entity) else {
+                    continue;
+                };
+                let Ok(storage) = store.world.get::<&FacilityStorage>(entity) else {
+                    continue;
+                };
+                let reserves_json: serde_json::Map<String, serde_json::Value> = storage
+                    .reserves
+                    .iter()
+                    .map(|(c, &v)| (c.as_str().to_string(), serde_json::Value::from(v)))
+                    .collect();
+                (
+                    fid.db_id,
+                    ops.credits,
+                    ops.condition,
+                    serde_json::Value::Object(reserves_json).to_string(),
+                )
+            };
+            let module_stock_json = match store.world.get::<&ModuleStock>(entity) {
+                Ok(stock) => {
+                    let obj: serde_json::Map<String, serde_json::Value> = stock
+                        .stock
+                        .iter()
+                        .map(|(k, &v)| (k.clone(), serde_json::Value::from(v)))
+                        .collect();
+                    serde_json::Value::Object(obj).to_string()
+                }
+                Err(_) => "{}".to_string(),
+            };
             let _ = tx.try_send(DbWrite::Facility {
-                db_id: fid.db_id,
-                credits: ops.credits,
-                condition: ops.condition,
-                reserves_json: serde_json::Value::Object(reserves_json).to_string(),
+                db_id,
+                credits,
+                condition,
+                reserves_json,
+                module_stock_json,
             });
-            ops.dirty = false;
+            if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(entity) {
+                ops.dirty = false;
+            }
+            if let Ok(mut stock) = store.world.get::<&mut ModuleStock>(entity) {
+                stock.dirty = false;
+            }
         }
     }
 
@@ -1171,6 +1224,14 @@ fn admin_spawn_facility(
         FacilityLifecycle::new(),
         sim_core::simulation::lod::AgentLod::new(),
     ));
+    // Phase 18c: shipyards carry a ModuleStock. Attached separately so
+    // non-shipyards don't pay the component cost.
+    if payload.facility_type == "shipyard" {
+        store
+            .world
+            .insert_one(entity, sim_core::agents::facility::ModuleStock::default())
+            .ok();
+    }
     store.index_facility(
         payload.agent_id.clone(),
         payload.location_name.clone(),
@@ -1268,14 +1329,23 @@ async fn admin_remove_facility(
 /// Silently no-ops on unknown ship, unknown slug, or slot mismatch —
 /// HTTP layer validates and returns 4xx before we even get here, so
 /// this is defence-in-depth against stale control messages.
+///
+/// When `via_shipyard` is true, additionally requires the ship to be
+/// docked at a shipyard with `slug` in stock, and debits the ship +
+/// credits the shipyard + decrements the stock. Both paths emit a
+/// `ship_refitted` event with the economic context attached.
 fn admin_refit_ship(
     store: &mut AgentStore,
     id: &str,
     slot: sim_core::modules::Slot,
     slug: Option<&str>,
+    via_shipyard: bool,
     events: &mut Vec<serde_json::Value>,
 ) {
-    use sim_core::agents::ship::{ShipCargo, ShipFitting, ShipFuel, ShipIdentity, ShipLifecycle};
+    use sim_core::agents::facility::{FacilityIdentity, FacilityOperations, ModuleStock};
+    use sim_core::agents::ship::{
+        ShipCargo, ShipEconomy, ShipFitting, ShipFuel, ShipIdentity, ShipLifecycle, ShipPosition,
+    };
 
     let Some(&entity) = store.ship_by_id.get(id) else {
         return;
@@ -1303,6 +1373,62 @@ fn admin_refit_ship(
         None => return,
     };
 
+    // Shipyard path: verify docked, stocked, credited; record the
+    // shipyard entity so we can apply the economic side-effects
+    // after the fitting swap.
+    let mut shipyard_context: Option<(hecs::Entity, String, i64)> = None;
+    if via_shipyard {
+        let Some(slug_s) = interned else { return };
+        let recipe = match sim_core::economy::module_production::get(slug_s) {
+            Some(r) => r,
+            None => return,
+        };
+        let cost = recipe.base_cost_credits;
+
+        // Ship must be docked.
+        let docked_at = match store.world.get::<&ShipPosition>(entity) {
+            Ok(pos) => pos.docked_at,
+            Err(_) => return,
+        };
+        let Some(facility_entity) = docked_at else {
+            return;
+        };
+
+        // Facility must be a shipyard, not abandoned, with the slug in stock.
+        let fid = match store.world.get::<&FacilityIdentity>(facility_entity) {
+            Ok(id) => id.id.clone(),
+            Err(_) => return,
+        };
+        let fac_type_ok = store
+            .world
+            .get::<&FacilityIdentity>(facility_entity)
+            .map(|id| id.facility_type == "shipyard")
+            .unwrap_or(false);
+        if !fac_type_ok {
+            return;
+        }
+        let in_stock = store
+            .world
+            .get::<&ModuleStock>(facility_entity)
+            .map(|s| s.count(slug_s) > 0)
+            .unwrap_or(false);
+        if !in_stock {
+            return;
+        }
+
+        // Ship must have enough credits.
+        let has_credits = store
+            .world
+            .get::<&ShipEconomy>(entity)
+            .map(|e| e.credits >= cost)
+            .unwrap_or(false);
+        if !has_credits {
+            return;
+        }
+
+        shipyard_context = Some((facility_entity, fid, cost));
+    }
+
     let prev_slug: Option<String>;
     let new_derived;
     {
@@ -1326,12 +1452,42 @@ fn admin_refit_ship(
         life.dirty = true;
     }
 
+    // Apply shipyard economic effects last — after the fitting swap so
+    // a panic between "validated" and "applied" can't leave the
+    // shipyard out of stock without the refit landing.
+    if let Some((facility_entity, fid_str, cost)) = shipyard_context.as_ref() {
+        if let Ok(mut stock) = store.world.get::<&mut ModuleStock>(*facility_entity) {
+            if let Some(slug_s) = interned {
+                stock.take_one(slug_s);
+            }
+        }
+        if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(entity) {
+            econ.credits = econ.credits.saturating_sub(*cost);
+        }
+        if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(*facility_entity) {
+            ops.credits = ops.credits.saturating_add(*cost);
+            ops.dirty = true;
+        }
+        events.push(serde_json::json!({
+            "kind": "ship_refitted",
+            "id": id,
+            "slot": slot.as_str(),
+            "from": prev_slug,
+            "to": interned,
+            "via": "shipyard",
+            "shipyard_id": fid_str,
+            "cost": cost,
+        }));
+        return;
+    }
+
     events.push(serde_json::json!({
         "kind": "ship_refitted",
         "id": id,
         "slot": slot.as_str(),
         "from": prev_slug,
         "to": interned,
+        "via": "admin",
     }));
 }
 
@@ -1701,5 +1857,218 @@ fn log_sample_ships(store: &AgentStore, tick: u64) {
             "ships: {:?} | tasks: {:?} | credits avg/min/max={}/{}/{} | with_cargo={} | avg_visited={:.1} | morale avg/min={:.0}/{:.0}",
             by_goal, by_task, avg, min_credits, max_credits, ships_with_cargo, avg_visited, avg_morale, min_morale,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::admin_refit_ship;
+    use sim_core::{
+        agents::{
+            facility::{
+                FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations,
+                FacilityStorage, ModuleStock,
+            },
+            ship::{
+                ShipAI, ShipCargo, ShipEconomy, ShipFitting, ShipFuel, ShipIdentity,
+                ShipLifecycle, ShipMemory, ShipPosition, ShipTransit,
+            },
+        },
+        ai::personality::Personality,
+        modules::Slot,
+        simulation::spawner::AgentStore,
+    };
+
+    fn make_shipyard(store: &mut AgentStore, stock_slug: &str, stock_qty: u32) -> hecs::Entity {
+        let entity = store.world.spawn((
+            FacilityIdentity {
+                db_id: 100,
+                id: "facility-test-shipyard".into(),
+                name: "Test Shipyard".into(),
+                facility_type: "shipyard".into(),
+                faction_id: "test".into(),
+                body_id: "earth".into(),
+            },
+            FacilityLocation {
+                location_id: 1,
+                location_name: "earth-station".into(),
+            },
+            FacilityOperations {
+                docking_capacity: 4,
+                services: vec!["shipyard".into()],
+                condition: 1.0,
+                reputation: 50,
+                credits: 0,
+                dirty: false,
+            },
+            FacilityStorage::default(),
+            FacilityLifecycle::new(),
+            {
+                let mut s = ModuleStock::default();
+                s.add(stock_slug, stock_qty);
+                s.dirty = false; // fresh
+                s
+            },
+        ));
+        store
+            .facility_by_id
+            .insert("facility-test-shipyard".into(), entity);
+        entity
+    }
+
+    fn make_ship(
+        store: &mut AgentStore,
+        docked_at: Option<hecs::Entity>,
+        credits: i64,
+    ) -> hecs::Entity {
+        let entity = store.world.spawn((
+            ShipIdentity {
+                db_id: 1,
+                id: "ship-test".into(),
+                name: "Test Ship".into(),
+                class: "freighter".into(),
+                faction_id: "test".into(),
+            },
+            ShipPosition {
+                location_name: Some("earth-station".into()),
+                docked_at,
+                system_id: "sol".into(),
+                universe_offset: (0.0, 0.0),
+                position: (1.0, 0.0),
+            },
+            ShipTransit { transit: None },
+            ShipCargo {
+                cargo: std::collections::HashMap::new(),
+                capacity: 500,
+                cargo_age: std::collections::HashMap::new(),
+            },
+            ShipFuel {
+                fuel: 100.0,
+                fuel_capacity: 100.0,
+                fuel_consumption_rate: 0.05,
+                speed_modifier: 1.0,
+            },
+            ShipEconomy {
+                credits,
+                efficiency: 1.0,
+                active_contract_id: None,
+                faction_reputation: std::collections::HashMap::new(),
+                dock_dwell_start_tick: None,
+            },
+            ShipAI {
+                personality: Personality::balanced_trader(),
+                current_goal: "idle".into(),
+                current_bt: None,
+            },
+        ));
+        store.world.insert(
+            entity,
+            (
+                ShipMemory {
+                    price_knowledge: Default::default(),
+                    visited: vec![],
+                },
+                ShipLifecycle {
+                    broke_strikes: 0,
+                    hoard_strikes: 0,
+                    idle_ticks: 0,
+                    dirty: false,
+                },
+                ShipFitting::new_default(),
+            ),
+        )
+        .ok();
+        store.ship_by_id.insert("ship-test".into(), entity);
+        entity
+    }
+
+    #[test]
+    fn shipyard_refit_happy_path_consumes_stock_and_credits() {
+        let mut store = AgentStore::new();
+        let yard = make_shipyard(&mut store, "engine_t2", 2);
+        let ship = make_ship(&mut store, Some(yard), 50_000);
+        let mut events: Vec<serde_json::Value> = Vec::new();
+
+        admin_refit_ship(&mut store, "ship-test", Slot::Engine, Some("engine_t2"), true, &mut events);
+
+        // Fitting now carries the new slug + rebaked speed_modifier.
+        let fit = store.world.get::<&ShipFitting>(ship).unwrap();
+        assert_eq!(fit.slot_slug(Slot::Engine), Some("engine_t2"));
+        let fuel = store.world.get::<&ShipFuel>(ship).unwrap();
+        assert!((fuel.speed_modifier - 1.15).abs() < 1e-5);
+
+        // Shipyard stock decremented by 1; shipyard credits +8000.
+        let stock = store.world.get::<&ModuleStock>(yard).unwrap();
+        assert_eq!(stock.count("engine_t2"), 1);
+        let ops = store.world.get::<&FacilityOperations>(yard).unwrap();
+        assert_eq!(ops.credits, 8000);
+
+        // Ship paid the cost.
+        let econ = store.world.get::<&ShipEconomy>(ship).unwrap();
+        assert_eq!(econ.credits, 50_000 - 8_000);
+
+        // Refit event carries the shipyard context.
+        let ev = events.iter().find(|v| v["kind"] == "ship_refitted").unwrap();
+        assert_eq!(ev["via"], "shipyard");
+        assert_eq!(ev["cost"], 8000);
+    }
+
+    #[test]
+    fn shipyard_refit_rejects_when_not_docked() {
+        let mut store = AgentStore::new();
+        make_shipyard(&mut store, "cargo_bay_t2", 3);
+        let ship = make_ship(&mut store, None, 50_000); // docked_at = None
+        let mut events = Vec::new();
+
+        admin_refit_ship(&mut store, "ship-test", Slot::CargoBay, Some("cargo_bay_t2"), true, &mut events);
+
+        // No refit happened — slot is still the tier-1 default.
+        let fit = store.world.get::<&ShipFitting>(ship).unwrap();
+        assert_eq!(fit.slot_slug(Slot::CargoBay), Some("cargo_bay_t1"));
+        let econ = store.world.get::<&ShipEconomy>(ship).unwrap();
+        assert_eq!(econ.credits, 50_000, "credits shouldn't move on rejected refit");
+    }
+
+    #[test]
+    fn shipyard_refit_rejects_when_stock_empty() {
+        let mut store = AgentStore::new();
+        let yard = make_shipyard(&mut store, "engine_t2", 0);
+        let _ship = make_ship(&mut store, Some(yard), 50_000);
+        let mut events = Vec::new();
+
+        admin_refit_ship(&mut store, "ship-test", Slot::Engine, Some("engine_t2"), true, &mut events);
+
+        let ops = store.world.get::<&FacilityOperations>(yard).unwrap();
+        assert_eq!(ops.credits, 0, "empty stock should not be saleable");
+    }
+
+    #[test]
+    fn shipyard_refit_rejects_when_ship_broke() {
+        let mut store = AgentStore::new();
+        let yard = make_shipyard(&mut store, "reactor_t3", 1);
+        let ship = make_ship(&mut store, Some(yard), 100); // well below 28k cost
+        let mut events = Vec::new();
+
+        admin_refit_ship(&mut store, "ship-test", Slot::Reactor, Some("reactor_t3"), true, &mut events);
+
+        let fit = store.world.get::<&ShipFitting>(ship).unwrap();
+        assert_eq!(fit.slot_slug(Slot::Reactor), Some("reactor_t1"));
+        let stock = store.world.get::<&ModuleStock>(yard).unwrap();
+        assert_eq!(stock.count("reactor_t3"), 1, "stock should not decrement");
+    }
+
+    #[test]
+    fn admin_override_refit_bypasses_shipyard_checks() {
+        // via_shipyard=false: pure admin swap, no cost, no dock requirement.
+        let mut store = AgentStore::new();
+        let ship = make_ship(&mut store, None, 0); // broke + not docked
+        let mut events = Vec::new();
+
+        admin_refit_ship(&mut store, "ship-test", Slot::Engine, Some("engine_t3"), false, &mut events);
+
+        let fit = store.world.get::<&ShipFitting>(ship).unwrap();
+        assert_eq!(fit.slot_slug(Slot::Engine), Some("engine_t3"));
+        let econ = store.world.get::<&ShipEconomy>(ship).unwrap();
+        assert_eq!(econ.credits, 0, "admin override does not charge");
     }
 }
