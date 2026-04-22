@@ -46,6 +46,20 @@ pub const REP_GATE_ALLIED: u8 = 50;
 pub const REP_AGE_OPEN_INTERVAL_TICKS: u64 = 100;
 pub const REP_AGE_OPEN_STEP: u8 = 10;
 
+/// Phase 18j: every this many ticks a contract sits Posted unaccepted,
+/// its payment climbs by `PAYMENT_AGE_ESCALATE_STEP_PCT` percent of
+/// its original posted payment. Simulates a desperate requestor
+/// sweetening the offer until a ship bites — feeds back into the
+/// planner's contract scoring so stale-but-lucrative listings
+/// eventually out-compete trade_run for ships that see them.
+pub const PAYMENT_AGE_ESCALATE_INTERVAL_TICKS: u64 = 50;
+/// Percent of `initial_payment` added per escalation step. 5% every
+/// 50 ticks = roughly doubles the urgency over a full lifespan.
+pub const PAYMENT_AGE_ESCALATE_STEP_PCT: i64 = 5;
+/// Cap on total escalation (percent of initial). Prevents runaway
+/// multipliers on bugs that leave a contract posted forever.
+pub const PAYMENT_AGE_ESCALATE_CAP_PCT: i64 = 100;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContractType {
@@ -118,6 +132,13 @@ pub struct Contract {
     pub source_location: String,
     pub destination_location: String,
     pub payment: i64,
+    /// Payment at post time. Captured once so
+    /// [`ContractBoard::age_escalate_payment`] can bump `payment`
+    /// by a percentage of the original rather than compounding off
+    /// an already-escalated value. Defaults to `payment` on pre-18j
+    /// saves.
+    #[serde(default)]
+    pub initial_payment: i64,
     pub posted_at_tick: u64,
     pub accepted_at_tick: Option<u64>,
     pub expires_at_tick: u64,
@@ -397,6 +418,7 @@ impl ContractBoard {
             source_location: source_location.clone(),
             destination_location: destination_location.clone(),
             payment,
+            initial_payment: payment,
             posted_at_tick,
             accepted_at_tick: None,
             expires_at_tick: posted_at_tick + lifespan_ticks,
@@ -492,6 +514,38 @@ impl ContractBoard {
                 // We only ratchet down — never raise back above post-time value.
                 if expected < c.min_reputation {
                     c.min_reputation = expected;
+                }
+            }
+        }
+    }
+
+    /// Phase 18j — escalate payment on long-posted unaccepted contracts.
+    /// For every `PAYMENT_AGE_ESCALATE_INTERVAL_TICKS` a contract has
+    /// sat in `Posted` state, its `payment` rises by
+    /// `PAYMENT_AGE_ESCALATE_STEP_PCT`% of its `initial_payment`,
+    /// capped at `PAYMENT_AGE_ESCALATE_CAP_PCT`%. Idempotent — we
+    /// always recompute `payment` from the initial + current age,
+    /// never compound the current value. Call on the same cadence
+    /// as `age_open_reputation` + `expire`.
+    pub fn age_escalate_payment(&mut self, tick: u64) {
+        let ids: Vec<String> = self
+            .by_status
+            .get(&ContractStatus::Posted)
+            .cloned()
+            .unwrap_or_default();
+        for id in ids {
+            if let Some(c) = self.contracts.get_mut(&id) {
+                if c.initial_payment <= 0 {
+                    continue;
+                }
+                let age = tick.saturating_sub(c.posted_at_tick);
+                let steps = age / PAYMENT_AGE_ESCALATE_INTERVAL_TICKS;
+                let pct = (steps as i64 * PAYMENT_AGE_ESCALATE_STEP_PCT)
+                    .min(PAYMENT_AGE_ESCALATE_CAP_PCT);
+                // payment = initial × (1 + pct/100). Monotonic non-decreasing.
+                let bumped = c.initial_payment + (c.initial_payment * pct / 100);
+                if bumped > c.payment {
+                    c.payment = bumped;
                 }
             }
         }
@@ -710,5 +764,82 @@ mod tests {
         );
         let empty_rep: HashMap<String, u8> = HashMap::new();
         assert_eq!(board.posted_for_ship(&empty_rep).len(), 1);
+    }
+
+    #[test]
+    fn age_escalate_payment_bumps_stale_contracts() {
+        let mut board = ContractBoard::new();
+        let _ = board.post_delivery(
+            "pop-x".into(),
+            Commodity::Food,
+            50,
+            "source".into(),
+            "dest".into(),
+            1000, // initial payment
+            0,    // posted at tick 0
+            10_000,
+        );
+        let fresh = board.posted().into_iter().next().unwrap();
+        assert_eq!(fresh.payment, 1000);
+        assert_eq!(fresh.initial_payment, 1000);
+
+        // After 50 ticks (1 escalation step): +5% → 1050.
+        board.age_escalate_payment(50);
+        let t50 = board.posted().into_iter().next().unwrap();
+        assert_eq!(t50.payment, 1050);
+
+        // After 500 ticks (10 steps): +50% → 1500.
+        board.age_escalate_payment(500);
+        let t500 = board.posted().into_iter().next().unwrap();
+        assert_eq!(t500.payment, 1500);
+
+        // After 5000 ticks: capped at PAYMENT_AGE_ESCALATE_CAP_PCT = 100%,
+        // so payment = initial × 2 = 2000, not runaway.
+        board.age_escalate_payment(5000);
+        let tcap = board.posted().into_iter().next().unwrap();
+        assert_eq!(tcap.payment, 2000);
+    }
+
+    #[test]
+    fn age_escalate_payment_is_idempotent() {
+        let mut board = ContractBoard::new();
+        let _ = board.post_delivery(
+            "pop-x".into(),
+            Commodity::Food,
+            50,
+            "source".into(),
+            "dest".into(),
+            1000,
+            0,
+            10_000,
+        );
+        // Running the escalator multiple times at the same tick
+        // must not compound. Re-derives payment from initial × pct.
+        board.age_escalate_payment(500);
+        board.age_escalate_payment(500);
+        board.age_escalate_payment(500);
+        let c = board.posted().into_iter().next().unwrap();
+        assert_eq!(c.payment, 1500);
+    }
+
+    #[test]
+    fn age_escalate_payment_skips_non_posted_contracts() {
+        let mut board = ContractBoard::new();
+        let id = board.post_delivery(
+            "pop-x".into(),
+            Commodity::Food,
+            50,
+            "source".into(),
+            "dest".into(),
+            1000,
+            0,
+            10_000,
+        );
+        board.accept(&id, "ship-test".into(), 10);
+        // Once accepted, escalation shouldn't touch payment —
+        // the ship already committed at the accepted rate.
+        board.age_escalate_payment(500);
+        let c = board.get(&id).unwrap();
+        assert_eq!(c.payment, 1000);
     }
 }

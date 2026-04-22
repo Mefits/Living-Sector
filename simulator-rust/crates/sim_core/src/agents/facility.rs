@@ -569,7 +569,13 @@ pub const CONTRACT_POST_INTERVAL_BASE: u64 = 50;
 /// post fuel/food contracts too.
 pub const MAX_ACTIVE_DELIVERIES_PER_FACILITY: usize = 4;
 /// Contract lifespan (base ticks) before Expired. Matches Elixir's 500×mult.
-pub const FACILITY_DELIVERY_LIFESPAN_BASE: u64 = 500;
+/// Phase 18j: trimmed from 500 → 300 so unaccepted contracts churn
+/// out the board faster and get re-posted at a fresh age-escalated
+/// premium. Shorter churn + payment escalation together push the
+/// fleet toward actually fulfilling supply-chain deliveries
+/// instead of letting prices pin at ceiling while contracts
+/// expire unclaimed.
+pub const FACILITY_DELIVERY_LIFESPAN_BASE: u64 = 300;
 /// Reserve quantity requested per delivery contract. 50 (down from 100):
 /// smaller contracts mean cheaper payments, so facilities can post more
 /// contracts per cycle without bankrupting themselves. Also fits couriers

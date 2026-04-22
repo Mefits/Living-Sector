@@ -300,9 +300,12 @@ pub fn tick_populations(
     }
 
     // Expire old unfilled contracts + decay reputation gates so
-    // faction-posted subsidies age open to the public.
+    // faction-posted subsidies age open to the public + escalate
+    // payment on long-posted contracts (Phase 18j) so desperate
+    // requestors get picked up instead of expiring.
     contracts.expire(tick);
     contracts.age_open_reputation(tick);
+    contracts.age_escalate_payment(tick);
 }
 
 fn post_passenger_contracts(
