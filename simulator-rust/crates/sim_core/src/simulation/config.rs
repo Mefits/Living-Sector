@@ -31,6 +31,79 @@ impl TickConfig {
     }
 }
 
+/// Ship scale tier (Phase 18f). Orthogonal to `ShipClass` — a
+/// size-3 miner and a size-3 tanker are both "Medium" hulls while
+/// serving different economic roles. Phase 18f treats size as a
+/// tag that drives default sensor tier (and downstream cross-system
+/// visibility); a follow-up phase moves cargo/fuel/speed off class
+/// and onto a size-driven table so size-2 tankers physically differ
+/// from size-5 tankers.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ShipSize {
+    Tiny,
+    Small,
+    Medium,
+    Large,
+    Huge,
+    Massive,
+}
+
+impl ShipSize {
+    /// 1..=6 scale tier (wire-friendly form).
+    pub fn tier(self) -> u8 {
+        match self {
+            ShipSize::Tiny => 1,
+            ShipSize::Small => 2,
+            ShipSize::Medium => 3,
+            ShipSize::Large => 4,
+            ShipSize::Huge => 5,
+            ShipSize::Massive => 6,
+        }
+    }
+
+    /// Canonical string key (matches the serde snake_case name).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ShipSize::Tiny => "tiny",
+            ShipSize::Small => "small",
+            ShipSize::Medium => "medium",
+            ShipSize::Large => "large",
+            ShipSize::Huge => "huge",
+            ShipSize::Massive => "massive",
+        }
+    }
+
+    /// Parse a wire-form snake-case string. Returns `None` for
+    /// unknown values so callers can fall back to a default.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "tiny" => Some(ShipSize::Tiny),
+            "small" => Some(ShipSize::Small),
+            "medium" => Some(ShipSize::Medium),
+            "large" => Some(ShipSize::Large),
+            "huge" => Some(ShipSize::Huge),
+            "massive" => Some(ShipSize::Massive),
+            _ => None,
+        }
+    }
+
+    /// Parse a numeric tier 1..=6 back into a `ShipSize`.
+    pub fn from_tier(tier: u8) -> Option<Self> {
+        match tier {
+            1 => Some(ShipSize::Tiny),
+            2 => Some(ShipSize::Small),
+            3 => Some(ShipSize::Medium),
+            4 => Some(ShipSize::Large),
+            5 => Some(ShipSize::Huge),
+            6 => Some(ShipSize::Massive),
+            _ => None,
+        }
+    }
+}
+
 /// Ship class definitions with base stats.
 #[derive(Debug, Clone)]
 pub struct ShipClass {
@@ -43,6 +116,9 @@ pub struct ShipClass {
     pub speed_modifier: f32,
     pub crew_size: u32,
     pub crew_roles: &'static [&'static str],
+    /// Default scale tier for this class when no explicit size is
+    /// set in seed data. Migration-time backfill uses this too.
+    pub default_size: ShipSize,
 }
 
 pub const SHIP_CLASSES: &[ShipClass] = &[
@@ -55,6 +131,7 @@ pub const SHIP_CLASSES: &[ShipClass] = &[
         speed_modifier: 1.5,
         crew_size: 2,
         crew_roles: &["pilot", "general"],
+        default_size: ShipSize::Small,
     },
     ShipClass {
         name: "freighter",
@@ -65,6 +142,7 @@ pub const SHIP_CLASSES: &[ShipClass] = &[
         speed_modifier: 1.0,
         crew_size: 5,
         crew_roles: &["pilot", "engineer", "trader", "medic", "general"],
+        default_size: ShipSize::Medium,
     },
     ShipClass {
         name: "hauler",
@@ -77,6 +155,7 @@ pub const SHIP_CLASSES: &[ShipClass] = &[
         crew_roles: &[
             "pilot", "pilot", "engineer", "engineer", "trader", "medic", "general", "general",
         ],
+        default_size: ShipSize::Huge,
     },
     ShipClass {
         name: "tanker",
@@ -87,6 +166,7 @@ pub const SHIP_CLASSES: &[ShipClass] = &[
         speed_modifier: 0.7,
         crew_size: 6,
         crew_roles: &["pilot", "engineer", "engineer", "trader", "medic", "general"],
+        default_size: ShipSize::Large,
     },
     ShipClass {
         name: "miner",
@@ -97,6 +177,7 @@ pub const SHIP_CLASSES: &[ShipClass] = &[
         speed_modifier: 0.8,
         crew_size: 3,
         crew_roles: &["pilot", "engineer", "general"],
+        default_size: ShipSize::Small,
     },
 ];
 

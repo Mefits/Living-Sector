@@ -114,8 +114,16 @@ func _refresh_ship() -> void:
     return
 
   title_label.text = data.get("name", _selected_id)
+  # Phase 18f: show size tier alongside the class label so operators
+  # can tell a "size-5 tanker" apart from a "size-3 tanker" at a glance.
+  var size_str: String = str(data.get("size", "")).capitalize()
+  var tier_int: int = int(data.get("size_tier", 0))
+  var class_label := str(data.get("class", "unknown")).capitalize()
+  var class_line := class_label
+  if size_str != "":
+    class_line = "%s  |  %s (T%d)" % [class_label, size_str, tier_int]
   type_label.text = "%s  |  %s" % [
-    str(data.get("class", "unknown")).capitalize(),
+    class_line,
     GameState.faction_name(data.get("faction_id"))
   ]
 

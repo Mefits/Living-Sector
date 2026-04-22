@@ -910,8 +910,21 @@ fn apply_ship_commands(
                     // Pay the ship and bump faction reputation if the
                     // contract was tagged with one. +1 per successful
                     // delivery, capped at 100.
+                    //
+                    // Phase 18f: comms_bonus on the ship's fitting
+                    // multiplies payment. A tier-3 comms suite adds
+                    // 10% — reads the stat at apply time rather than
+                    // baking it in to avoid stale-fitting edge cases
+                    // after a refit mid-flight.
+                    let comms_bonus = store
+                        .world
+                        .get::<&sim_core::agents::ship::ShipFitting>(ship)
+                        .map(|f| f.derived.comms_bonus)
+                        .unwrap_or(0.0);
+                    let effective_payment: i64 = ((c.payment as f32) * (1.0 + comms_bonus))
+                        .round() as i64;
                     if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
-                        econ.credits += c.payment;
+                        econ.credits += effective_payment;
                         if let Some(faction) = c.faction_id.as_ref() {
                             let rep = econ
                                 .faction_reputation
@@ -1276,10 +1289,15 @@ fn admin_spawn_ship(
         })
         .unwrap_or((500, 100.0, 0.05, 1.0, 5, &[] as &[&str]));
 
-    // Phase 18a: admin-spawned ships also get the tier-1 default fitting
-    // (gameplay-neutral). A later refit endpoint (Phase 18b) will let
-    // callers pass a custom loadout at spawn.
-    let fitting = sim_core::agents::ship::ShipFitting::new_default();
+    // Phase 18a/f: admin-spawned ships use the size-aware default
+    // fitting. The class's default_size drives sensor tier — a
+    // hauler spawns with tier-2 sensors and can bid on cross-system
+    // contracts day one; a courier starts with tier-1 and is
+    // restricted to intra-system work until it retrofits.
+    let size = class_cfg
+        .map(|c| c.default_size)
+        .unwrap_or(sim_core::simulation::config::ShipSize::Medium);
+    let fitting = sim_core::agents::ship::ShipFitting::new_for_size(size, &payload.agent_id);
     let cargo_cap = ((cargo_cap as f32) * fitting.derived.cargo_capacity_mult).round() as u32;
     let speed_mod = speed_mod * fitting.derived.speed_mult;
 
@@ -1290,6 +1308,7 @@ fn admin_spawn_ship(
             name: payload.name.clone(),
             class: payload.class.clone(),
             faction_id: payload.faction_id.clone(),
+            size,
         },
         ShipPosition {
             location_name: Some(payload.location_name.clone()),
@@ -2243,6 +2262,7 @@ mod tests {
                 name: "Test Ship".into(),
                 class: "freighter".into(),
                 faction_id: "test".into(),
+                size: sim_core::simulation::config::ShipSize::Medium,
             },
             ShipPosition {
                 location_name: Some("earth-station".into()),

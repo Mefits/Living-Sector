@@ -131,8 +131,8 @@ pub async fn create_ship(
            (name, class, location_id, location_name, system_id,
             universe_offset_x, universe_offset_y, position_x, position_y,
             cargo_capacity, fuel, fuel_capacity, fuel_consumption_rate,
-            speed_modifier, credits, faction_id, faction_reputation)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+            speed_modifier, credits, faction_id, faction_reputation, size)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
     )
     .bind(&name)
     .bind(&body.class)
@@ -151,6 +151,7 @@ pub async fn create_ship(
     .bind(credits)
     .bind(&body.faction_id)
     .bind("{}")
+    .bind(class_cfg.default_size.as_str())
     .execute(&*state.db_pool)
     .await;
     let db_id = match insert_result {

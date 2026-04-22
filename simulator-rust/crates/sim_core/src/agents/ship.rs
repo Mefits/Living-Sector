@@ -74,6 +74,10 @@ pub struct ShipIdentity {
     pub name: String,
     pub class: String,
     pub faction_id: String,
+    /// Scale tier (Phase 18f). Orthogonal to `class` — drives
+    /// default sensor tier at spawn + cross-system contract
+    /// visibility via the sensor-range check in `try_plan_contract`.
+    pub size: crate::simulation::config::ShipSize,
 }
 
 /// Spatial state — changes every tick while in transit.
@@ -474,6 +478,45 @@ impl ShipFitting {
         Self { slots, derived }
     }
 
+    /// Size-aware default fitting (Phase 18f). Large-and-above hulls
+    /// start with better sensors as part of their baseline so the
+    /// intended cross-system traders (tankers, haulers, anything
+    /// Huge/Massive) can see interstellar contracts day one.
+    ///
+    /// - Size ≥ 5 (Huge / Massive): always `sensors_t2`.
+    /// - Size = 4 (Large): deterministic 50% roll by ship-id hash
+    ///   — so the same ship always rolls the same way on reload.
+    /// - Size ≤ 3: `sensors_t1` (pre-18f baseline).
+    ///
+    /// Other slots (engine / cargo_bay / reactor / comms) stay at
+    /// tier 1 — upgrades come from retrofit, not default loadout.
+    pub fn new_for_size(
+        size: crate::simulation::config::ShipSize,
+        ship_id: &str,
+    ) -> Self {
+        let mut slots = crate::modules::default_fitting();
+        let wants_tier2_sensors = match size.tier() {
+            t if t >= 5 => true,
+            4 => {
+                // Deterministic per-ship coin flip. A simple FNV-1a
+                // variant keeps us off the rand crate dep for a
+                // one-shot decision.
+                let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+                for b in ship_id.bytes() {
+                    h ^= b as u64;
+                    h = h.wrapping_mul(0x100_0000_01b3);
+                }
+                h % 2 == 0
+            }
+            _ => false,
+        };
+        if wants_tier2_sensors {
+            slots[crate::modules::Slot::Sensors.index()] = Some("sensors_t2");
+        }
+        let derived = crate::modules::combine_effects(&slots);
+        Self { slots, derived }
+    }
+
     /// Build a fitting from runtime slug strings (e.g. off a DB row).
     /// Unknown slugs fall back to the tier-1 default for that slot.
     pub fn from_slugs(raw: &[Option<String>; crate::modules::NUM_SLOTS]) -> Self {
@@ -569,6 +612,10 @@ pub struct ShipSnapshot {
     pub name: String,
     pub class: String,
     pub faction_id: String,
+    /// Scale tier (Phase 18f). Snake-case name (e.g. `"large"`).
+    /// Godot renders this alongside class in the details panel.
+    pub size: &'static str,
+    pub size_tier: u8,
     /// Current location string (e.g. "earth-station"). `None` while in transit.
     /// Godot's `ship.gd` reads this as `data["location"]` for docked checks.
     #[serde(rename = "location")]
@@ -701,6 +748,8 @@ impl ShipSnapshot {
             name: identity.name.clone(),
             class: identity.class.clone(),
             faction_id: identity.faction_id.clone(),
+            size: identity.size.as_str(),
+            size_tier: identity.size.tier(),
             location_name: position.location_name.clone(),
             docked: position.docked_at.is_some(),
             transit: transit.transit.clone(),
@@ -859,6 +908,15 @@ fn route_actions(
 const FUEL_CRITICAL_FRACTION: f32 = 0.25;
 const MIN_TRADE_MARGIN: f32 = 0.10; // 10% minimum margin
 const TRADE_QTY_DEFAULT: u32 = 50;
+
+/// Sensor range (universe-units) required to see cross-system
+/// contracts in the planner. 2.0 matches the tier-2 `sensors_t2`
+/// baseline — tier-1 tiny sensors (1.0 au) can't pick up
+/// interstellar traffic, so small ships that haven't upgraded
+/// sensors are effectively restricted to intra-system trade. Size
+/// ≥ 5 hulls (Huge / Massive) ship with tier-2 sensors as their
+/// default loadout; size-4 (Large) ships roll 50% tier-2 at spawn.
+pub const CROSS_SYSTEM_SENSOR_RANGE_AU: f32 = 2.0;
 
 // --- Crew constants (match Elixir CrewComplement rates) ---
 
@@ -1434,6 +1492,26 @@ fn decide_and_act(
         world_speed: if tick_multiplier == 0 { 0.25 } else { 8.0 / tick_multiplier as f32 },
     };
 
+    // Phase 18f: one location → system name index, used by
+    // - shipyard inventory tagging (retrofit proximity)
+    // - cross-system contract gating in try_plan_contract
+    let location_to_system: std::collections::HashMap<String, String> = {
+        use crate::agents::celestial_body::BodyIdentity;
+        let body_db_to_system: std::collections::HashMap<i64, String> = world
+            .query::<&BodyIdentity>()
+            .iter()
+            .map(|(_, id)| (id.db_id, id.system_name.clone()))
+            .collect();
+        registry
+            .locations
+            .iter()
+            .filter_map(|(name, info)| {
+                let sys = body_db_to_system.get(&info.celestial_body_id)?;
+                Some((name.clone(), sys.clone()))
+            })
+            .collect()
+    };
+
     // Phase 18d: snapshot shipyard inventories once per call so per-ship
     // retrofit planning doesn't re-query hecs. Each entry is (location,
     // system_id, slug → qty). Skipping abandoned shipyards matches the
@@ -1442,22 +1520,16 @@ fn decide_and_act(
     // yards so Tau Ceti ships don't fly across gates for a tier-2
     // engine when their local Anvil yard has one in stock.
     let shipyard_inventory: ShipyardInventorySnapshot = {
-        use crate::agents::celestial_body::BodyIdentity;
         use crate::agents::facility::{
             FacilityIdentity, FacilityLifecycle, FacilityLocation, ModuleStock,
         };
-        let body_to_system: std::collections::HashMap<String, String> = world
-            .query::<&BodyIdentity>()
-            .iter()
-            .map(|(_, id)| (id.body_id.clone(), id.system_name.clone()))
-            .collect();
         world
             .query::<(&FacilityIdentity, &FacilityLocation, &FacilityLifecycle, &ModuleStock)>()
             .iter()
             .filter(|(_, (id, _, life, _))| id.facility_type == "shipyard" && !life.abandoned)
-            .map(|(_, (id, loc, _, stock))| {
-                let system = body_to_system
-                    .get(&id.body_id)
+            .map(|(_, (_, loc, _, stock))| {
+                let system = location_to_system
+                    .get(&loc.location_name)
                     .cloned()
                     .unwrap_or_default();
                 (loc.location_name.clone(), system, stock.stock.clone())
@@ -1513,6 +1585,16 @@ fn decide_and_act(
             )
         })();
 
+        // Phase 18f: sensor range determines whether the contract
+        // planner can see cross-system contracts. Read before the
+        // main mut borrow so plan_goal doesn't need mutable access
+        // to the fitting. Default to 0.0 for pre-18f ships (they'll
+        // be treated as myopic and skip cross-system contracts).
+        let sensor_range_au: f32 = world
+            .get::<&ShipFitting>(entity)
+            .map(|f| f.derived.sensor_range_au)
+            .unwrap_or(0.0);
+
         let mut q = match world.query_one::<(
             &mut ShipPosition,
             &mut ShipTransit,
@@ -1554,6 +1636,8 @@ fn decide_and_act(
                 registry,
                 gate_pairs,
                 retrofit_plan.as_ref(),
+                sensor_range_au,
+                &location_to_system,
             );
             ai.current_goal = goal.into();
             ai.current_bt = bt;
@@ -1622,6 +1706,8 @@ fn plan_goal(
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
     retrofit: Option<&RetrofitPlan>,
+    sensor_range_au: f32,
+    location_to_system: &StdHashMap<String, String>,
 ) -> (&'static str, Option<BtNode<ShipAction>>) {
     let at_loc = match &position.location_name {
         Some(l) => l.clone(),
@@ -1663,6 +1749,8 @@ fn plan_goal(
         ship_id,
         registry,
         gate_pairs,
+        sensor_range_au,
+        location_to_system,
     ) {
         return ("fulfill_delivery", Some(bt));
     }
@@ -1692,8 +1780,19 @@ fn try_plan_contract(
     _ship_id: &str,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
+    sensor_range_au: f32,
+    location_to_system: &StdHashMap<String, String>,
 ) -> Option<BtNode<ShipAction>> {
     use crate::economy::contracts::ContractType;
+
+    // Phase 18f: cross-system contracts are invisible to ships with
+    // short-range sensors. A contract counts as cross-system when its
+    // source + destination resolve to different star systems; ships
+    // below the threshold skip those, simulating "the comms relay
+    // just isn't picking up interstellar job boards." Larger hulls
+    // (size ≥ 5) ship with tier-2 sensors by default and see them
+    // day one; small ships need a sensor retrofit.
+    let ship_system = location_to_system.get(at_loc);
 
     #[derive(Clone)]
     struct Candidate {
@@ -1709,6 +1808,24 @@ fn try_plan_contract(
     let mut best: Option<Candidate> = None;
 
     for c in contracts.posted_for_ship(&economy.faction_reputation) {
+        // Phase 18f: sensor-range gate for cross-system contracts.
+        // If the contract's source and destination span different
+        // systems (or leave the ship's system) and the ship's
+        // sensor range is below the cross-system threshold, skip.
+        if sensor_range_au < CROSS_SYSTEM_SENSOR_RANGE_AU {
+            let src_sys = location_to_system.get(&c.source_location);
+            let dst_sys = location_to_system.get(&c.destination_location);
+            let is_cross_system = match (ship_system, src_sys, dst_sys) {
+                (Some(ship), Some(src), Some(dst)) => ship != src || src != dst,
+                // Missing system data for any of the three means we
+                // can't prove same-system — fall back to "visible"
+                // rather than blocking everything during startup.
+                _ => false,
+            };
+            if is_cross_system {
+                continue;
+            }
+        }
         // Passenger / courier / crew-mission contracts don't occupy cargo
         // slots — treat them as "hop-around" jobs in the planner.
         let is_passenger = c.contract_type == ContractType::Passenger;
@@ -2811,6 +2928,61 @@ mod tick_tests {
         let plan =
             find_retrofit_opportunity(&fit, &inventory, 50_000, "anvil-depot", "Tau Ceti").unwrap();
         assert_eq!(plan.shipyard_location, "anvil-depot");
+    }
+
+    #[test]
+    fn new_for_size_tiny_small_medium_gets_tier1_sensors() {
+        use crate::modules::{get, Slot};
+        use crate::simulation::config::ShipSize;
+        for sz in [ShipSize::Tiny, ShipSize::Small, ShipSize::Medium] {
+            let fit = ShipFitting::new_for_size(sz, "ship-test");
+            let slug = fit.slot_slug(Slot::Sensors).unwrap();
+            assert_eq!(get(slug).unwrap().tier, 1, "size {:?}", sz);
+        }
+    }
+
+    #[test]
+    fn new_for_size_huge_and_massive_always_get_tier2_sensors() {
+        use crate::modules::{get, Slot};
+        use crate::simulation::config::ShipSize;
+        for sz in [ShipSize::Huge, ShipSize::Massive] {
+            // Any ship id should yield tier-2 sensors.
+            for id in ["ship-a", "ship-zzz", "whatever"] {
+                let fit = ShipFitting::new_for_size(sz, id);
+                let slug = fit.slot_slug(Slot::Sensors).unwrap();
+                assert_eq!(
+                    get(slug).unwrap().tier,
+                    2,
+                    "{:?} ship {} should have tier-2 sensors",
+                    sz,
+                    id,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn new_for_size_large_rolls_deterministically_and_mixes() {
+        use crate::modules::{get, Slot};
+        use crate::simulation::config::ShipSize;
+        let mut tier1 = 0;
+        let mut tier2 = 0;
+        for i in 0..40 {
+            let id = format!("ship-fleet-{:03}", i);
+            let fit = ShipFitting::new_for_size(ShipSize::Large, &id);
+            let tier = get(fit.slot_slug(Slot::Sensors).unwrap())
+                .unwrap()
+                .tier;
+            match tier {
+                1 => tier1 += 1,
+                2 => tier2 += 1,
+                _ => panic!("unexpected tier"),
+            }
+            // Same id → same result every call (deterministic roll).
+            let again = ShipFitting::new_for_size(ShipSize::Large, &id);
+            assert_eq!(fit.slot_slug(Slot::Sensors), again.slot_slug(Slot::Sensors));
+        }
+        assert!(tier1 > 0 && tier2 > 0, "large roll should mix across 40 ships (got t1={} t2={})", tier1, tier2);
     }
 
     #[test]

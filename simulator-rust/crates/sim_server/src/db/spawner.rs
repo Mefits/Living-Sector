@@ -535,7 +535,7 @@ async fn load_ships(
                 cargo, cargo_age,
                 docked_at, transit_from, transit_to, transit_departure_tick, transit_arrival_tick,
                 current_goal, broke_strikes, hoard_strikes, idle_ticks,
-                active_contract_id, price_knowledge, visited, fitting, progression
+                active_contract_id, price_knowledge, visited, fitting, progression, size
          FROM ships",
     )
     .fetch_all(pool)
@@ -622,8 +622,23 @@ async fn load_ships(
         // populated object. Either way the derived multipliers get
         // baked into the loaded cargo capacity + speed modifier so
         // tick-loop code reads the same fields it always did.
+        // Phase 18f: resolve size. Empty → fall back to class default.
+        let size_str: String = r.try_get("size").unwrap_or_default();
+        let class_default_size = sim_core::simulation::config::ship_class(&class)
+            .map(|c| c.default_size)
+            .unwrap_or(sim_core::simulation::config::ShipSize::Medium);
+        let ship_size = sim_core::simulation::config::ShipSize::parse(&size_str)
+            .unwrap_or(class_default_size);
+
+        // Phase 18f: size-aware default fitting. Tier-1 column means
+        // "use the class/size default" — size ≥ 5 gets tier-2 sensors
+        // at spawn, size 4 deterministically rolls 50%.
         let fitting_json: String = r.try_get("fitting").unwrap_or_default();
-        let fitting = parse_ship_fitting(&fitting_json);
+        let fitting = if fitting_json.trim().is_empty() || fitting_json == "{}" {
+            sim_core::agents::ship::ShipFitting::new_for_size(ship_size, &id)
+        } else {
+            parse_ship_fitting(&fitting_json)
+        };
         let progression_json: String = r.try_get("progression").unwrap_or_default();
         let progression = parse_ship_progression(&progression_json);
         let fitted_cargo_capacity =
@@ -672,6 +687,7 @@ async fn load_ships(
                 name,
                 class: class.clone(),
                 faction_id,
+                size: ship_size,
             },
             ShipPosition {
                 location_name: if location_name.is_empty() {
