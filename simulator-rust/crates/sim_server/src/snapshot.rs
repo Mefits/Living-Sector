@@ -74,6 +74,7 @@ impl SnapshotCache {
     }
 
     fn update_ships(&self, store: &AgentStore) {
+        let mut live: std::collections::HashSet<String> = Default::default();
         for (e, (identity, position, transit, cargo, fuel, economy, ai, lifecycle)) in store
             .world
             .query::<(
@@ -106,7 +107,15 @@ impl SnapshotCache {
             );
             self.positions.insert(identity.id.clone(), position.position);
             self.ships.insert(identity.id.clone(), snap);
+            live.insert(identity.id.clone());
         }
+        // Purge snapshots for ships that no longer exist in the world
+        // (admin-destroyed or recycled). Without this, /api/ships keeps
+        // returning the despawned ship until next restart.
+        self.ships.retain(|k, _| live.contains(k));
+        // Positions DashMap mixes ships + bodies, so only prune entries
+        // with the `ship-` prefix to avoid wiping body positions.
+        self.positions.retain(|k, _| !k.starts_with("ship-") || live.contains(k));
     }
 
     fn update_markets(&self, store: &AgentStore) {
@@ -143,6 +152,7 @@ impl SnapshotCache {
             .map(|(e, id)| (e, id.id.clone()))
             .collect();
 
+        let mut live: std::collections::HashSet<String> = Default::default();
         for (e, (identity, location, ops, storage)) in store
             .world
             .query::<(
@@ -184,7 +194,13 @@ impl SnapshotCache {
             // Godot's positions broadcast includes it with kind "facility".
             self.positions.insert(identity.id.clone(), pos);
             self.facilities.insert(identity.id.clone(), snap);
+            live.insert(identity.id.clone());
         }
+        // Purge snapshots for facilities that no longer exist (admin
+        // destroy, abandonment cleanup). Positions cache entries for
+        // facility ids are purged here too.
+        self.facilities.retain(|k, _| live.contains(k));
+        self.positions.retain(|k, _| !k.starts_with("facility-") || live.contains(k));
     }
 
     fn update_populations(&self, store: &AgentStore) {

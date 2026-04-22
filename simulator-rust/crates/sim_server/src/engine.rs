@@ -176,13 +176,13 @@ pub async fn run_tick_loop(
                     admin_spawn_ship(&mut store, &registry, payload, &mut events);
                 }
                 ControlCommand::AdminRemoveShip { id } => {
-                    admin_remove_ship(&mut store, &id, &mut events);
+                    admin_remove_ship(&mut store, &id, &mut events, &persist_tx).await;
                 }
                 ControlCommand::AdminSpawnFacility(payload) => {
                     admin_spawn_facility(&mut store, payload, &mut events);
                 }
                 ControlCommand::AdminRemoveFacility { id } => {
-                    admin_remove_facility(&mut store, &id, &mut events);
+                    admin_remove_facility(&mut store, &id, &mut events, &persist_tx).await;
                 }
                 ControlCommand::AdminMarketSupplyDelta { location, deltas } => {
                     admin_market_supply_delta(&mut store, &location, &deltas, &mut events);
@@ -1141,21 +1141,33 @@ fn admin_spawn_facility(
 
 /// Admin: remove a ship by its agent id. Despawns the hecs entity and
 /// clears it from any facility `docked_ships` list it was sitting in.
-fn admin_remove_ship(
+async fn admin_remove_ship(
     store: &mut AgentStore,
     id: &str,
     events: &mut Vec<serde_json::Value>,
+    persist_tx: &mpsc::Sender<DbWrite>,
 ) {
-    use sim_core::agents::facility::FacilityStorage;
+    use sim_core::agents::{facility::FacilityStorage, ship::ShipIdentity};
     let Some(&entity) = store.ship_by_id.get(id) else {
         return;
     };
+    // Pull db_id BEFORE despawn so we can schedule the row delete.
+    let db_id = store
+        .world
+        .get::<&ShipIdentity>(entity)
+        .ok()
+        .map(|i| i.db_id);
     // Pop from any facility's docked list first.
     for (_e, storage) in store.world.query_mut::<&mut FacilityStorage>() {
         storage.docked_ships.retain(|&e| e != entity);
     }
     let _ = store.world.despawn(entity);
     store.ship_by_id.remove(id);
+    // Snapshot cache is purged by `update_from` on the next tick (diffs
+    // live entity ids against the cache and removes missing keys).
+    if let Some(db_id) = db_id {
+        let _ = persist_tx.send(DbWrite::DeleteShip { db_id }).await;
+    }
     events.push(serde_json::json!({
         "kind": "ship_decommissioned",
         "id": id,
@@ -1166,20 +1178,30 @@ fn admin_remove_ship(
 /// Admin: remove a facility by agent id. The body's facility index list
 /// is cleaned up too, otherwise future restock/contract scans would
 /// crash.
-fn admin_remove_facility(
+async fn admin_remove_facility(
     store: &mut AgentStore,
     id: &str,
     events: &mut Vec<serde_json::Value>,
+    persist_tx: &mpsc::Sender<DbWrite>,
 ) {
+    use sim_core::agents::facility::FacilityIdentity;
     let Some(&entity) = store.facility_by_id.get(id) else {
         return;
     };
+    let db_id = store
+        .world
+        .get::<&FacilityIdentity>(entity)
+        .ok()
+        .map(|i| i.db_id);
     // Remove from facilities_at_location map.
     for entries in store.facilities_at_location.values_mut() {
         entries.retain(|&e| e != entity);
     }
     let _ = store.world.despawn(entity);
     store.facility_by_id.remove(id);
+    if let Some(db_id) = db_id {
+        let _ = persist_tx.send(DbWrite::DeleteFacility { db_id }).await;
+    }
     events.push(serde_json::json!({
         "kind": "facility_removed",
         "id": id,

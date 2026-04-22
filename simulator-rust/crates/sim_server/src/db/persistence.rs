@@ -74,6 +74,12 @@ pub enum DbWrite {
     Tick {
         tick: u64,
     },
+    /// Delete a ship row by db_id — fires when the admin destroys a
+    /// ship. Without this, the ECS entity despawns but the DB row
+    /// remains, so restart resurrects the ship.
+    DeleteShip { db_id: i64 },
+    /// Symmetric to DeleteShip, for facilities.
+    DeleteFacility { db_id: i64 },
 }
 
 impl DbWrite {
@@ -87,6 +93,11 @@ impl DbWrite {
             DbWrite::Population { db_id, .. } => ("population", db_id.to_string()),
             DbWrite::Body { db_id, .. } => ("body", db_id.to_string()),
             DbWrite::Tick { .. } => ("tick", String::new()),
+            // Delete keys use a distinct namespace so a subsequent
+            // upsert in the same flush doesn't overwrite the delete
+            // and resurrect the row.
+            DbWrite::DeleteShip { db_id } => ("ship_delete", db_id.to_string()),
+            DbWrite::DeleteFacility { db_id } => ("facility_delete", db_id.to_string()),
         }
     }
 }
@@ -301,6 +312,20 @@ impl PersistenceWorker {
                     .bind(value)
                     .execute(&mut *tx)
                     .await?;
+                }
+
+                DbWrite::DeleteShip { db_id } => {
+                    sqlx::query("DELETE FROM ships WHERE id = ?1")
+                        .bind(db_id)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+
+                DbWrite::DeleteFacility { db_id } => {
+                    sqlx::query("DELETE FROM facilities WHERE id = ?1")
+                        .bind(db_id)
+                        .execute(&mut *tx)
+                        .await?;
                 }
             }
         }
