@@ -146,6 +146,13 @@ pub struct ShipEconomy {
     /// full) doesn't stay on the Rest BT indefinitely with morale
     /// pinned at 0.
     pub rest_start_tick: Option<u64>,
+    /// Tick at which the ship first requested the current `Dock`.
+    /// Ephemeral — not persisted. `None` while not attempting to
+    /// dock. Used by the Dock action to give up after a context-
+    /// dependent wait budget (shorter for ships with no contract
+    /// or low morale — "docks are jammed, we can't afford to
+    /// wait — head to another station").
+    pub dock_attempt_start_tick: Option<u64>,
 }
 
 /// AI: personality + current goal + BT state (parameterized over ShipAction).
@@ -980,6 +987,22 @@ pub const CREW_REST_TARGET: f32 = 80.0;
 /// shore-leave to complete, short enough that a stuck ship unwinds
 /// its BT within a visible window.
 pub const MAX_REST_TICKS_BASE: u64 = 300;
+
+/// Phase 18L: how long a ship will sit in the `Dock` action waiting
+/// for the apply phase to actually put it in a slot before deciding
+/// "docks are jammed — let's try elsewhere." Expressed in BASE ticks
+/// (scaled by `tick_multiplier` at wait-check time). The effective
+/// budget depends on ship context:
+///  - Has an active contract (a ship with a job to finish is willing
+///    to wait longer for the 'right' dock): `DOCK_WAIT_WITH_CONTRACT`.
+///  - Low-morale shore-leave candidate (needs relief urgently, can't
+///    afford to sit in line): `DOCK_WAIT_LOW_MORALE`.
+///  - Everything else (default — mid-patience): `DOCK_WAIT_DEFAULT`.
+pub const DOCK_WAIT_WITH_CONTRACT: u64 = 150;
+pub const DOCK_WAIT_DEFAULT: u64 = 60;
+pub const DOCK_WAIT_LOW_MORALE: u64 = 30;
+/// Morale threshold below which a ship gets the impatient wait budget.
+pub const DOCK_WAIT_LOW_MORALE_THRESHOLD: f32 = 40.0;
 /// Legacy alias for planner-side rest trigger kept for existing call sites.
 /// Morale threshold below which the planner switches the ship into
 /// rest_crew mode, overriding every other goal (including accepting a
@@ -1595,6 +1618,39 @@ fn decide_and_act(
             .collect()
     };
 
+    // Phase 18L: per-location dock congestion snapshot.
+    // `(total_capacity, total_docked_count)` summed across every
+    // non-gate facility at the location. Used by the congestion-
+    // aware rest planner so ships with low morale don't route to
+    // a fully-saturated station when a nearby one has space.
+    //
+    // Read-only; built once per call. Gates are excluded (they're
+    // not meant to host resting crews).
+    let dock_congestion: std::collections::HashMap<String, (u32, u32)> = {
+        use crate::agents::facility::{
+            FacilityIdentity, FacilityLocation, FacilityOperations, FacilityStorage,
+        };
+        let mut out: std::collections::HashMap<String, (u32, u32)> =
+            std::collections::HashMap::new();
+        for (_e, (id, loc, ops, storage)) in world
+            .query::<(
+                &FacilityIdentity,
+                &FacilityLocation,
+                &FacilityOperations,
+                &FacilityStorage,
+            )>()
+            .iter()
+        {
+            if id.facility_type == "gate" || ops.docking_capacity == 0 {
+                continue;
+            }
+            let entry = out.entry(loc.location_name.clone()).or_insert((0, 0));
+            entry.0 = entry.0.saturating_add(ops.docking_capacity);
+            entry.1 = entry.1.saturating_add(storage.docked_ships.len() as u32);
+        }
+        out
+    };
+
     // Phase 18d: snapshot shipyard inventories once per call so per-ship
     // retrofit planning doesn't re-query hecs. Each entry is (location,
     // system_id, slug → qty). Skipping abandoned shipyards matches the
@@ -1722,6 +1778,7 @@ fn decide_and_act(
                 sensor_range_au,
                 &location_to_system,
                 &ai.personality,
+                &dock_congestion,
             );
             ai.current_goal = goal.into();
             ai.current_bt = bt;
@@ -1793,6 +1850,7 @@ fn plan_goal(
     sensor_range_au: f32,
     location_to_system: &StdHashMap<String, String>,
     personality: &crate::ai::personality::Personality,
+    dock_congestion: &StdHashMap<String, (u32, u32)>,
 ) -> (&'static str, Option<BtNode<ShipAction>>) {
     let at_loc = match &position.location_name {
         Some(l) => l.clone(),
@@ -1802,7 +1860,15 @@ fn plan_goal(
     // 1. Crew morale critical
     if let Some(c) = crew {
         if c.morale < CREW_REST_TRIGGER {
-            return ("rest_crew", Some(build_rest_crew_bt()));
+            // Phase 18L: congestion-aware rest. If the ship's
+            // current location is saturated (no free dock slots
+            // across any facility there), route to the least-
+            // congested station in the same system instead of
+            // trying to dock where everyone else is piled up.
+            // Same-system only — ships don't cross gates just to
+            // rest.
+            let target = pick_rest_destination(&at_loc, dock_congestion, location_to_system);
+            return ("rest_crew", Some(build_rest_crew_bt_to(&at_loc, &target, registry, gate_pairs)));
         }
     }
 
@@ -2166,6 +2232,7 @@ fn build_sell_cargo_bt() -> BtNode<ShipAction> {
     ])
 }
 
+#[allow(dead_code)]
 fn build_rest_crew_bt() -> BtNode<ShipAction> {
     BtNode::sequence(vec![
         BtNode::action(ShipAction::Dock),
@@ -2175,6 +2242,77 @@ fn build_rest_crew_bt() -> BtNode<ShipAction> {
         BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }),
         BtNode::action(ShipAction::Undock),
     ])
+}
+
+/// Phase 18L: congestion-aware rest-crew BT. Routes to `target`
+/// (which may differ from `current` when the current location is
+/// saturated), then dock + refuel + rest + undock. If target ==
+/// current, the route leg is empty — identical behavior to the
+/// pre-18L flat sequence.
+fn build_rest_crew_bt_to(
+    current: &str,
+    target: &str,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(8);
+    for a in route_actions(current, target, registry, gate_pairs) {
+        steps.push(BtNode::action(a));
+    }
+    steps.push(BtNode::action(ShipAction::Dock));
+    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }));
+    steps.push(BtNode::action(ShipAction::Refuel));
+    steps.push(BtNode::action(ShipAction::Rest));
+    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
+    steps.push(BtNode::action(ShipAction::Undock));
+    BtNode::sequence(steps)
+}
+
+/// Phase 18L: pick the best rest destination given current location
+/// and a per-location congestion snapshot. Prefers the current
+/// location if it has any free dock slot; otherwise picks the
+/// least-congested station in the same system. Falls back to
+/// current if no better option exists (ship will still try, hit
+/// the Dock wait budget, unwind, and retry — better than nothing).
+///
+/// Congestion scored as `docked / capacity` (saturation ratio).
+/// Same-system constraint so ships don't pathfind across gates
+/// just for shore leave — that's for a later phase if needed.
+pub fn pick_rest_destination(
+    current: &str,
+    congestion: &StdHashMap<String, (u32, u32)>,
+    location_to_system: &StdHashMap<String, String>,
+) -> String {
+    let current_load = congestion.get(current);
+    let has_free_here = match current_load {
+        Some(&(cap, docked)) => cap > 0 && docked < cap,
+        None => false,
+    };
+    if has_free_here {
+        return current.to_string();
+    }
+    let ship_sys = location_to_system.get(current);
+    // Find the least-saturated location in the same system.
+    let mut best: Option<(String, f32)> = None;
+    for (loc, &(cap, docked)) in congestion.iter() {
+        if cap == 0 {
+            continue;
+        }
+        if docked >= cap {
+            continue; // still saturated
+        }
+        // Same-system only.
+        let loc_sys = location_to_system.get(loc);
+        if ship_sys.is_some() && ship_sys != loc_sys {
+            continue;
+        }
+        let saturation = docked as f32 / cap as f32;
+        let better = best.as_ref().is_none_or(|(_, s)| saturation < *s);
+        if better {
+            best = Some((loc.clone(), saturation));
+        }
+    }
+    best.map(|(loc, _)| loc).unwrap_or_else(|| current.to_string())
 }
 
 /// Build a trade_run BT. Start at `current`, visit `buy_loc`, buy `commodity`,
@@ -2456,23 +2594,53 @@ fn execute_ship_action(
         }
 
         ShipAction::Dock => {
-            // Emit a RequestDock command. The apply phase looks up the
-            // primary facility at this location, checks capacity, deducts
-            // the docking fee, and appends this ship entity to the
-            // facility's `docked_ships` list. We return Success
-            // immediately — if the facility rejects the dock (full or
-            // fee too high), the refuel/sell actions that follow will
-            // simply fail softly and the ship moves on.
+            // Phase 18L: multi-tick with context-dependent wait budget.
+            //  - If we're already docked, clear the attempt marker +
+            //    Success. Happens on the tick after apply accepted us.
+            //  - If we aren't docked yet, emit a RequestDock command and
+            //    return Running. `dock_attempt_start_tick` on
+            //    ShipEconomy tracks when we first started trying.
+            //  - If the wait budget elapsed without a dock, give up →
+            //    Failure. BT unwinds, planner replans; if the planner
+            //    picks rest_crew again, the congestion-aware rest
+            //    builder will try to route to a less-busy station.
+            if position.docked_at.is_some() {
+                economy.dock_attempt_start_tick = None;
+                return BtStatus::Success;
+            }
             let loc = match &position.location_name {
                 Some(l) => l.clone(),
-                None => return BtStatus::Failure,
+                None => {
+                    economy.dock_attempt_start_tick = None;
+                    return BtStatus::Failure;
+                }
             };
+            let start = match economy.dock_attempt_start_tick {
+                Some(t) => t,
+                None => {
+                    economy.dock_attempt_start_tick = Some(tick);
+                    tick
+                }
+            };
+            let morale = crew.morale;
+            let wait_base = if economy.active_contract_id.is_some() {
+                DOCK_WAIT_WITH_CONTRACT
+            } else if morale < DOCK_WAIT_LOW_MORALE_THRESHOLD {
+                DOCK_WAIT_LOW_MORALE
+            } else {
+                DOCK_WAIT_DEFAULT
+            };
+            let budget = wait_base * config.tick_multiplier().max(1) as u64;
+            if tick.saturating_sub(start) >= budget {
+                economy.dock_attempt_start_tick = None;
+                return BtStatus::Failure;
+            }
             commands.push(SimCommand::RequestDock {
                 ship: entity,
                 facility_location: loc,
                 preferred_facility_type: None,
             });
-            BtStatus::Success
+            BtStatus::Running
         }
 
         ShipAction::DockAtShipyard => {
@@ -2481,16 +2649,45 @@ fn execute_ship_action(
             // the retrofit BT doesn't accidentally dock at the
             // highest-capacity station (which in sol is the trade
             // station, not the shipyard).
+            //
+            // Phase 18L: multi-tick, same wait-budget shape as Dock.
+            // Retrofit ships are explicitly "no active contract"
+            // (they wouldn't be retrofitting mid-job), so the
+            // default/low-morale budget applies.
+            if position.docked_at.is_some() {
+                economy.dock_attempt_start_tick = None;
+                return BtStatus::Success;
+            }
             let loc = match &position.location_name {
                 Some(l) => l.clone(),
-                None => return BtStatus::Failure,
+                None => {
+                    economy.dock_attempt_start_tick = None;
+                    return BtStatus::Failure;
+                }
             };
+            let start = match economy.dock_attempt_start_tick {
+                Some(t) => t,
+                None => {
+                    economy.dock_attempt_start_tick = Some(tick);
+                    tick
+                }
+            };
+            let wait_base = if crew.morale < DOCK_WAIT_LOW_MORALE_THRESHOLD {
+                DOCK_WAIT_LOW_MORALE
+            } else {
+                DOCK_WAIT_DEFAULT
+            };
+            let budget = wait_base * config.tick_multiplier().max(1) as u64;
+            if tick.saturating_sub(start) >= budget {
+                economy.dock_attempt_start_tick = None;
+                return BtStatus::Failure;
+            }
             commands.push(SimCommand::RequestDock {
                 ship: entity,
                 facility_location: loc,
                 preferred_facility_type: Some("shipyard"),
             });
-            BtStatus::Success
+            BtStatus::Running
         }
 
         ShipAction::Undock => {
@@ -2905,6 +3102,67 @@ mod tick_tests {
         assert_eq!(route.0, Commodity::Ore);
         assert_eq!(route.1, "belt");
         assert_eq!(route.2, "earth");
+    }
+
+    #[test]
+    fn pick_rest_destination_prefers_current_when_free() {
+        let mut cong: StdHashMap<String, (u32, u32)> = StdHashMap::new();
+        cong.insert("earth-station".into(), (23, 5)); // 21% full
+        cong.insert("mars-station".into(), (10, 1));
+        let mut sys: StdHashMap<String, String> = StdHashMap::new();
+        sys.insert("earth-station".into(), "Sol".into());
+        sys.insert("mars-station".into(), "Sol".into());
+        // Current has free slots → stay.
+        assert_eq!(
+            pick_rest_destination("earth-station", &cong, &sys),
+            "earth-station",
+        );
+    }
+
+    #[test]
+    fn pick_rest_destination_routes_away_from_saturated() {
+        let mut cong: StdHashMap<String, (u32, u32)> = StdHashMap::new();
+        cong.insert("haven-station".into(), (19, 19)); // 100% full
+        cong.insert("proxima-outpost".into(), (8, 2)); // 25%
+        cong.insert("refuge-station".into(), (6, 1));  // 17%
+        let mut sys: StdHashMap<String, String> = StdHashMap::new();
+        sys.insert("haven-station".into(), "Alpha Centauri".into());
+        sys.insert("proxima-outpost".into(), "Alpha Centauri".into());
+        sys.insert("refuge-station".into(), "Alpha Centauri".into());
+        // Current saturated → pick least-saturated same-system option.
+        assert_eq!(
+            pick_rest_destination("haven-station", &cong, &sys),
+            "refuge-station",
+        );
+    }
+
+    #[test]
+    fn pick_rest_destination_stays_in_same_system() {
+        let mut cong: StdHashMap<String, (u32, u32)> = StdHashMap::new();
+        cong.insert("haven-station".into(), (19, 19)); // AC saturated
+        cong.insert("earth-station".into(), (23, 0));  // Sol wide open
+        let mut sys: StdHashMap<String, String> = StdHashMap::new();
+        sys.insert("haven-station".into(), "Alpha Centauri".into());
+        sys.insert("earth-station".into(), "Sol".into());
+        // Even though earth has tons of space, it's cross-system.
+        // Fall back to current saturated location.
+        assert_eq!(
+            pick_rest_destination("haven-station", &cong, &sys),
+            "haven-station",
+        );
+    }
+
+    #[test]
+    fn pick_rest_destination_falls_back_when_all_full() {
+        let mut cong: StdHashMap<String, (u32, u32)> = StdHashMap::new();
+        cong.insert("a".into(), (10, 10));
+        cong.insert("b".into(), (5, 5));
+        let mut sys: StdHashMap<String, String> = StdHashMap::new();
+        sys.insert("a".into(), "Sol".into());
+        sys.insert("b".into(), "Sol".into());
+        // All saturated → stick with current. Ship will still try,
+        // hit the Dock wait budget, and replan — better than None.
+        assert_eq!(pick_rest_destination("a", &cong, &sys), "a");
     }
 
     #[test]

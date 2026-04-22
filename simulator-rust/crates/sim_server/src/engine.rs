@@ -1368,6 +1368,7 @@ fn admin_spawn_ship(
             faction_reputation: std::collections::HashMap::new(),
             dock_dwell_start_tick: None,
                 rest_start_tick: None,
+                dock_attempt_start_tick: None,
         },
         ShipAI {
             // Phase 18i: admin-spawned ships take a class-appropriate
@@ -2326,6 +2327,7 @@ mod tests {
                 faction_reputation: std::collections::HashMap::new(),
                 dock_dwell_start_tick: None,
                 rest_start_tick: None,
+                dock_attempt_start_tick: None,
             },
             ShipAI {
                 personality: Personality::balanced_trader(),

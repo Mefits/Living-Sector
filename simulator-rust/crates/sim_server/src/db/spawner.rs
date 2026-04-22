@@ -729,6 +729,7 @@ async fn load_ships(
                 faction_reputation,
                 dock_dwell_start_tick: None,
                 rest_start_tick: None,
+                dock_attempt_start_tick: None,
             },
             ShipAI {
                 personality,
