@@ -612,16 +612,28 @@ const TRADE_QTY_DEFAULT: u32 = 50;
 // --- Crew constants (match Elixir CrewComplement rates) ---
 
 /// Base per-tick hunger gain (before tick_scale). Elixir `@hunger_rate 2`.
-pub const CREW_HUNGER_RATE_BASE: f32 = 2.0;
-/// Base per-tick fatigue gain while active (not resting/idle).
-pub const CREW_FATIGUE_RATE_ACTIVE_BASE: f32 = 1.0;
+/// Scaled down from 2.0 → 1.0 alongside fatigue: at the old rates, a
+/// crew hit the morale-penalty hunger threshold (60) halfway through
+/// a typical inter-system trip, which then cascaded into rest_crew
+/// lockouts on the next replan.
+pub const CREW_HUNGER_RATE_BASE: f32 = 1.0;
+/// Base per-tick fatigue gain while active. Dropped 1.0 → 0.4: at 1.0,
+/// a pilot on a 300-tick voyage arrives past the fatigue-morale penalty
+/// threshold (70) with no recovery window between legs, and the planner
+/// sends them straight to shore leave — contracts never get considered.
+/// 0.4 gives roughly 3× longer voyages before burnout trips.
+pub const CREW_FATIGUE_RATE_ACTIVE_BASE: f32 = 0.4;
 /// Base per-tick fatigue recovery while resting (negative = recovery).
 pub const CREW_FATIGUE_RATE_REST_BASE: f32 = -5.0;
 /// Base per-tick morale decay toward 50.
 pub const CREW_MORALE_DECAY_BASE: f32 = 0.5;
 /// Base morale recovery bump applied docked/resting (per check interval).
-pub const CREW_MORALE_RECOVERY_DOCKED: f32 = 3.0;
-pub const CREW_MORALE_RECOVERY_RESTING: f32 = 5.0;
+/// Morale recovery applied each morale-check interval when docked but
+/// not actively resting (i.e. during refuel/load/unload). Bumped 3 → 6
+/// so a ship that arrives drained climbs back to sustainable morale
+/// during a normal trade visit, no shore leave required.
+pub const CREW_MORALE_RECOVERY_DOCKED: f32 = 6.0;
+pub const CREW_MORALE_RECOVERY_RESTING: f32 = 8.0;
 
 /// Hunger threshold that triggers Eating task + morale penalty zone.
 pub const CREW_HUNGER_EAT_THRESHOLD: f32 = 55.0;
@@ -801,14 +813,18 @@ fn tick_crew(
         };
 
         // --- 1. Decay ---
-        // While docked, the station provides food and lodging for the
-        // crew — hunger falls and fatigue recovers even without an
-        // explicit Rest/Eat task. Without this, ships on long trade
-        // routes starve their crews between ports, morale drops below
-        // 35, and the planner permanently picks `rest_crew` over the
-        // contract board — contracts never get accepted.
+        // While docked, the station provides food service and off-shift
+        // rotation for the crew. Recovery rates are deliberately much
+        // higher than in-transit drain (5× hunger, ~12× fatigue) so a
+        // short visit clears most of the deficit — otherwise a ship
+        // that's spent 200 ticks in transit can only recover a tiny
+        // fraction during a brief dock dwell, cascades into morale
+        // crisis, and the planner locks it into `rest_crew` for the
+        // next N replans instead of accepting contracts.
+        const CREW_HUNGER_DOCKED_RECOVERY: f32 = 5.0;
+        const CREW_FATIGUE_DOCKED_RECOVERY: f32 = 5.0;
         let hunger_delta = if ctx.docked {
-            -CREW_HUNGER_RATE_BASE * effective_scale
+            -CREW_HUNGER_DOCKED_RECOVERY * effective_scale
         } else {
             CREW_HUNGER_RATE_BASE * effective_scale
         };
@@ -816,14 +832,21 @@ fn tick_crew(
         let fatigue_delta = match crew.current_task {
             CrewTask::Resting => CREW_FATIGUE_RATE_REST_BASE * effective_scale,
             CrewTask::Idle if !ctx.in_transit => -1.0 * effective_scale,
-            _ if ctx.docked => -2.0 * effective_scale, // docked recovery
+            _ if ctx.docked => -CREW_FATIGUE_DOCKED_RECOVERY * effective_scale,
             _ => CREW_FATIGUE_RATE_ACTIVE_BASE * effective_scale,
         };
         crew.fatigue = (crew.fatigue + fatigue_delta).clamp(0.0, 100.0);
 
         // --- 2. Morale check (every 5×mult ticks) ---
         if morale_check_interval > 0 && tick % morale_check_interval == 0 {
-            let penalty: f32 = if crew.hunger > CREW_HUNGER_MORALE_PENALTY {
+            // Hunger / fatigue penalties only apply OFF-STATION. A docked
+            // ship's crew can eat and rotate shifts, so the signal to
+            // the morale system is "they're coping"; the penalties would
+            // otherwise keep firing even while the crew is actively
+            // recovering, which stalls climb-out of rest_crew.
+            let penalty: f32 = if ctx.docked {
+                if crew.health < 50.0 { -2.0 } else { 0.0 }
+            } else if crew.hunger > CREW_HUNGER_MORALE_PENALTY {
                 -3.0
             } else if crew.fatigue > CREW_FATIGUE_MORALE_PENALTY {
                 -2.0
@@ -832,12 +855,17 @@ fn tick_crew(
             } else {
                 0.0
             };
-            // Docked + Resting gives the biggest bump; docked-alone and
-            // in-transit-but-Resting both give the medium recovery.
+            // Docked + Resting gives the biggest bump. Plain docked also
+            // gives meaningful recovery (up from 3) so a ship that
+            // arrives drained can climb morale quickly during its
+            // DockDwell + Refuel window without needing a full shore
+            // leave.
             let recovery: f32 = if ctx.docked && crew.current_task == CrewTask::Resting {
                 CREW_MORALE_RECOVERY_RESTING
-            } else if ctx.docked || crew.current_task == CrewTask::Resting {
+            } else if ctx.docked {
                 CREW_MORALE_RECOVERY_DOCKED
+            } else if crew.current_task == CrewTask::Resting {
+                CREW_MORALE_RECOVERY_DOCKED * 0.5
             } else {
                 0.0
             };
