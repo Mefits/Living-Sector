@@ -463,6 +463,43 @@ pub async fn market_supply_delta(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AdminGrantXpReq {
+    pub amount: u32,
+}
+
+/// POST /api/admin/ships/:id/grant-xp — grant Phase-18d ship XP
+/// directly. Cascades level-ups and banks retrofit points. For smoke
+/// tests and god-mode nudges.
+pub async fn grant_ship_xp(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<AdminGrantXpReq>,
+) -> (StatusCode, Json<Value>) {
+    if state
+        .control_tx
+        .send(crate::control::ControlCommand::AdminGrantShipXp {
+            id: id.clone(),
+            amount: body.amount,
+        })
+        .await
+        .is_err()
+    {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "control channel closed"})),
+        );
+    }
+    (
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "status": "scheduled",
+            "id": id,
+            "amount": body.amount,
+        })),
+    )
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AdminRefitShipReq {
     /// Slot name as it appears on the wire: `engine`, `cargo_bay`,
     /// `sensors`, `reactor`, `comms`.

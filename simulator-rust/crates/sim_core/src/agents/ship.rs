@@ -152,8 +152,14 @@ pub struct ShipAI {
 pub enum ShipAction {
     /// Begin transit to a named location. Returns Running until arrival.
     Travel { destination: String },
-    /// Mark the ship as docked at its current location.
+    /// Mark the ship as docked at its current location. Picks the
+    /// highest-capacity dockable facility (stations tend to win).
     Dock,
+    /// Variant of `Dock` that prefers a shipyard at the current
+    /// location. Used by the Phase-18d retrofit BT so the ship
+    /// doesn't park at the trade station when a shipyard shares the
+    /// same location slug.
+    DockAtShipyard,
     /// Undock (clear docked_at).
     Undock,
     /// Refill fuel to capacity (MVP: free refill at any location).
@@ -192,6 +198,19 @@ pub enum ShipAction {
     GateJump {
         src_gate: String,
         dest_gate: String,
+    },
+    /// Agent-driven subsystem install (Phase 18d). Emits
+    /// `SimCommand::RequestRefit` and returns `Success` — the apply
+    /// phase does the economic swap (debit ship, credit shipyard,
+    /// decrement stock, spend retrofit point). The BT baked `slot` +
+    /// `slug` in at plan time from the shipyard inventory snapshot.
+    /// Ship must already be docked at a shipyard carrying `slug` with
+    /// enough credits — the retrofit planner guarantees this at plan
+    /// time; apply verifies again in case state drifted while the
+    /// ship flew there.
+    Refit {
+        slot: crate::modules::Slot,
+        slug: &'static str,
     },
 }
 
@@ -339,6 +358,85 @@ impl ShipCrewSkills {
             "trading" => self.trading = self.trading.saturating_add(amount).min(Self::CAP),
             "combat" => self.combat = self.combat.saturating_add(amount).min(Self::CAP),
             _ => {}
+        }
+    }
+}
+
+/// Ship-level progression (Phase 18d).
+///
+/// Mirrors `FacilityLifecycle.level/xp`: the ship earns XP from
+/// meaningful accomplishments (contract deliveries today, maybe more
+/// sources later) and levels up when XP crosses `level × 100`. Each
+/// level-up banks one `retrofit_point` — the agent-side gate for
+/// autonomous refits. A ship never buys a module it hasn't earned,
+/// which matches the "retrofit is rare" design intent: a seed-fleet
+/// level-1 ship needs ~5 deliveries of XP to level up once, and it
+/// still needs credits + a reachable shipyard with stock before any
+/// swap happens.
+#[derive(Debug, Clone)]
+pub struct ShipProgression {
+    pub level: u8,
+    pub xp: u32,
+    /// Unspent retrofit points. One is banked per level-up; one is
+    /// consumed by a successful `SimCommand::RequestRefit` apply.
+    pub retrofit_points: u8,
+    pub dirty: bool,
+}
+
+/// Ship XP cap — same shape as the facility level cap.
+pub const SHIP_LEVEL_CAP: u8 = 10;
+/// XP granted per successful contract delivery. Tuning knob — slower
+/// = rarer retrofits. 15 gets roughly one retrofit point per 7
+/// deliveries (threshold is level × 100 ⇒ first ding at 100 XP).
+pub const SHIP_XP_PER_DELIVERY: u32 = 15;
+
+impl Default for ShipProgression {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ShipProgression {
+    pub fn new() -> Self {
+        Self {
+            level: 1,
+            xp: 0,
+            retrofit_points: 0,
+            dirty: false,
+        }
+    }
+
+    pub fn next_level_threshold(&self) -> u32 {
+        self.level as u32 * 100
+    }
+
+    /// Grant `amount` XP, cascading level-ups. Each level earned banks
+    /// one retrofit point. Returns the number of levels gained this
+    /// call (for events / tests).
+    pub fn grant_xp(&mut self, amount: u32) -> u8 {
+        if amount == 0 {
+            return 0;
+        }
+        self.xp = self.xp.saturating_add(amount);
+        let mut gained = 0u8;
+        while self.level < SHIP_LEVEL_CAP && self.xp >= self.next_level_threshold() {
+            self.xp -= self.next_level_threshold();
+            self.level += 1;
+            self.retrofit_points = self.retrofit_points.saturating_add(1);
+            gained += 1;
+        }
+        self.dirty = true;
+        gained
+    }
+
+    /// Attempt to spend one retrofit point. Returns true on success.
+    pub fn spend_retrofit_point(&mut self) -> bool {
+        if self.retrofit_points > 0 {
+            self.retrofit_points -= 1;
+            self.dirty = true;
+            true
+        } else {
+            false
         }
     }
 }
@@ -504,6 +602,32 @@ pub struct ShipSnapshot {
     /// load now, so this is effectively always Some in practice).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fitting: Option<ShipFittingSnapshot>,
+    /// Level / XP / banked retrofit points (Phase 18d). Drives the
+    /// agent-side retrofit gate. None on pre-18d saves; new spawns
+    /// always attach a fresh level-1 progression.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progression: Option<ShipProgressionSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct ShipProgressionSnapshot {
+    pub level: u8,
+    pub xp: u32,
+    pub retrofit_points: u8,
+    /// XP needed to ding to `level + 1`. Godot uses it to render a
+    /// progress bar without reimplementing the threshold formula.
+    pub next_level_threshold: u32,
+}
+
+impl From<&ShipProgression> for ShipProgressionSnapshot {
+    fn from(p: &ShipProgression) -> Self {
+        Self {
+            level: p.level,
+            xp: p.xp,
+            retrofit_points: p.retrofit_points,
+            next_level_threshold: p.next_level_threshold(),
+        }
+    }
 }
 
 /// Crew section of `ShipSnapshot`. Small-enough to inline; Godot displays
@@ -548,6 +672,7 @@ impl ShipSnapshot {
         crew: Option<&ShipCrew>,
         skills: Option<&ShipCrewSkills>,
         fitting: Option<&ShipFitting>,
+        progression: Option<&ShipProgression>,
     ) -> Self {
         let cargo_map: HashMap<String, u32> = cargo
             .cargo
@@ -593,6 +718,7 @@ impl ShipSnapshot {
             idle_ticks: lifecycle.idle_ticks,
             crew: crew_snap,
             fitting: fitting.map(ShipFittingSnapshot::from),
+            progression: progression.map(ShipProgressionSnapshot::from),
         }
     }
 }
@@ -1308,6 +1434,22 @@ fn decide_and_act(
         world_speed: if tick_multiplier == 0 { 0.25 } else { 8.0 / tick_multiplier as f32 },
     };
 
+    // Phase 18d: snapshot shipyard inventories once per call so per-ship
+    // retrofit planning doesn't re-query hecs. Each entry is (location,
+    // slug → qty). Skipping abandoned shipyards matches the existing
+    // "abandoned facilities don't service ships" pattern.
+    let shipyard_inventory: ShipyardInventorySnapshot = {
+        use crate::agents::facility::{
+            FacilityIdentity, FacilityLifecycle, FacilityLocation, ModuleStock,
+        };
+        world
+            .query::<(&FacilityIdentity, &FacilityLocation, &FacilityLifecycle, &ModuleStock)>()
+            .iter()
+            .filter(|(_, (id, _, life, _))| id.facility_type == "shipyard" && !life.abandoned)
+            .map(|(_, (_, loc, _, stock))| (loc.location_name.clone(), stock.stock.clone()))
+            .collect()
+    };
+
     let entities: Vec<hecs::Entity> = world
         .query::<&ShipIdentity>()
         .iter()
@@ -1332,6 +1474,20 @@ fn decide_and_act(
             .get::<&ShipCrew>(entity)
             .ok()
             .map(|c| (*c).clone());
+
+        // Phase 18d: compute a retrofit opportunity before the main mut
+        // borrow. Requires a banked retrofit point AND the usual
+        // fitting + credits + stock gates. None if any check fails —
+        // the ship will plan normally.
+        let retrofit_plan: Option<RetrofitPlan> = (|| {
+            let prog = world.get::<&ShipProgression>(entity).ok()?;
+            if prog.retrofit_points == 0 {
+                return None;
+            }
+            let fitting = world.get::<&ShipFitting>(entity).ok()?;
+            let economy = world.get::<&ShipEconomy>(entity).ok()?;
+            find_retrofit_opportunity(&fitting, &shipyard_inventory, economy.credits)
+        })();
 
         let mut q = match world.query_one::<(
             &mut ShipPosition,
@@ -1373,6 +1529,7 @@ fn decide_and_act(
                 &ship_id,
                 registry,
                 gate_pairs,
+                retrofit_plan.as_ref(),
             );
             ai.current_goal = goal.into();
             ai.current_bt = bt;
@@ -1424,9 +1581,10 @@ fn decide_and_act(
 /// 1. Crew morale critical → rest_crew BT (shore leave)
 /// 2. Fuel critical → refuel BT
 /// 3. Cargo onboard → sell_cargo BT (unload before replanning)
-/// 4. Posted contract matching the ship's capacity and price memory → fulfill_delivery BT
-/// 5. Known profitable trade route → trade_run BT
-/// 6. Else → idle
+/// 4. Banked retrofit point + credits + reachable shipyard → seek_retrofit BT (Phase 18d)
+/// 5. Posted contract matching the ship's capacity and price memory → fulfill_delivery BT
+/// 6. Known profitable trade route → trade_run BT
+/// 7. Else → idle
 #[allow(clippy::too_many_arguments)]
 fn plan_goal(
     position: &ShipPosition,
@@ -1439,6 +1597,7 @@ fn plan_goal(
     ship_id: &str,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
+    retrofit: Option<&RetrofitPlan>,
 ) -> (&'static str, Option<BtNode<ShipAction>>) {
     let at_loc = match &position.location_name {
         Some(l) => l.clone(),
@@ -1462,7 +1621,15 @@ fn plan_goal(
         return ("sell_cargo", Some(build_sell_cargo_bt()));
     }
 
-    // 4. Contract?
+    // 4. Retrofit opportunity (Phase 18d). The caller already checked
+    // retrofit_points > 0 + credits + stock + fitting-tier when
+    // producing the plan; we just need to route there.
+    if let Some(plan) = retrofit {
+        let bt = build_retrofit_bt(&at_loc, plan, registry, gate_pairs);
+        return ("seek_retrofit", Some(bt));
+    }
+
+    // 5. Contract?
     if let Some(bt) = try_plan_contract(
         &at_loc,
         cargo,
@@ -1476,7 +1643,7 @@ fn plan_goal(
         return ("fulfill_delivery", Some(bt));
     }
 
-    // 5. Speculative trade route
+    // 6. Speculative trade route
     if let Some((commodity, buy_loc, sell_loc, _margin)) = best_trade_route(memory) {
         let bt = build_trade_run_bt(
             &at_loc, &buy_loc, &sell_loc, commodity, registry, gate_pairs,
@@ -1720,6 +1887,116 @@ fn build_rest_crew_bt() -> BtNode<ShipAction> {
 /// travel to `sell_loc`, sell, end at sell_loc.
 ///
 /// If `current == buy_loc`, skip the initial travel leg.
+/// Proposed retrofit the planner has already costed and located. Built
+/// by [`find_retrofit_opportunity`] from a ship's fitting + a per-tick
+/// snapshot of shipyard inventories. The planner turns this into a
+/// `build_retrofit_bt` goal when the ship qualifies (has points +
+/// credits + isn't in a higher-priority state).
+#[derive(Debug, Clone)]
+pub struct RetrofitPlan {
+    pub shipyard_location: String,
+    pub slot: crate::modules::Slot,
+    pub slug: &'static str,
+    pub cost: i64,
+}
+
+/// Snapshot of every shipyard's available inventory, built once per
+/// `decide_and_act` call so each ship's planner can consult it without
+/// re-querying hecs. `Vec` keeps order deterministic run-over-run.
+pub type ShipyardInventorySnapshot = Vec<(String, std::collections::HashMap<String, u32>)>;
+
+/// Credits floor a ship keeps in reserve before considering an
+/// autonomous retrofit. Refits are meant to be rare; no ship burns
+/// its last coins on a cargo-bay upgrade. Keep well above the
+/// cheapest tier-2 module (5500 cr) so the ship still has operating
+/// credits after a purchase.
+pub const RETROFIT_CREDIT_RESERVE: i64 = 12_000;
+
+/// Given a ship's current fitting and the global shipyard inventory
+/// snapshot, pick at most one concrete retrofit target: which slot to
+/// upgrade, to which slug, and where. Returns `None` if no eligible
+/// swap exists — every slot already at tier 3, or no shipyard carries
+/// a matching upgrade in stock.
+///
+/// Selection policy (MVP):
+///  - Walk slots in canonical order (engine, cargo, sensors, reactor, comms).
+///  - Target `current_tier + 1` (skip if already at 3).
+///  - Pick the first shipyard offering that slug in stock.
+///
+/// Smarter policies (nearest / cheapest / class-aware) can replace
+/// this once autonomous retrofit is exercised in real smoke runs.
+pub fn find_retrofit_opportunity(
+    fitting: &ShipFitting,
+    inventory: &ShipyardInventorySnapshot,
+    ship_credits: i64,
+) -> Option<RetrofitPlan> {
+    if ship_credits < RETROFIT_CREDIT_RESERVE {
+        return None;
+    }
+    for slot in crate::modules::SLOTS.iter().copied() {
+        // Determine current tier in this slot (1 when empty — nothing
+        // to upgrade toward past 3).
+        let current_tier = fitting
+            .slot_slug(slot)
+            .and_then(crate::modules::get)
+            .map(|d| d.tier)
+            .unwrap_or(1);
+        if current_tier >= 3 {
+            continue;
+        }
+        let target_tier = current_tier + 1;
+        // Canonical slug for {slot}_t{target_tier} — matches how the
+        // catalog names entries. A richer catalog (same slot, multiple
+        // same-tier variants) would need a lookup; keep it simple.
+        let slug_owned = format!("{}_t{}", slot.as_str(), target_tier);
+        let Some(def) = crate::modules::get(&slug_owned) else {
+            continue;
+        };
+        let Some(recipe) = crate::economy::module_production::get(def.slug) else {
+            continue;
+        };
+        // Need to afford the purchase AND stay above reserve afterwards.
+        if ship_credits - recipe.base_cost_credits < RETROFIT_CREDIT_RESERVE {
+            continue;
+        }
+        // Find a shipyard carrying this slug.
+        let Some((loc, _)) = inventory
+            .iter()
+            .find(|(_, stock)| stock.get(def.slug).copied().unwrap_or(0) > 0)
+        else {
+            continue;
+        };
+        return Some(RetrofitPlan {
+            shipyard_location: loc.clone(),
+            slot,
+            slug: def.slug,
+            cost: recipe.base_cost_credits,
+        });
+    }
+    None
+}
+
+fn build_retrofit_bt(
+    current: &str,
+    plan: &RetrofitPlan,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(10);
+    for a in route_actions(current, &plan.shipyard_location, registry, gate_pairs) {
+        steps.push(BtNode::action(a));
+    }
+    steps.push(BtNode::action(ShipAction::DockAtShipyard));
+    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }));
+    steps.push(BtNode::action(ShipAction::Refit {
+        slot: plan.slot,
+        slug: plan.slug,
+    }));
+    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
+    steps.push(BtNode::action(ShipAction::Undock));
+    BtNode::sequence(steps)
+}
+
 fn build_trade_run_bt(
     current: &str,
     buy_loc: &str,
@@ -1859,6 +2136,25 @@ fn execute_ship_action(
             commands.push(SimCommand::RequestDock {
                 ship: entity,
                 facility_location: loc,
+                preferred_facility_type: None,
+            });
+            BtStatus::Success
+        }
+
+        ShipAction::DockAtShipyard => {
+            // Same as Dock, but the apply phase will prefer a
+            // facility_type = "shipyard" at the current location so
+            // the retrofit BT doesn't accidentally dock at the
+            // highest-capacity station (which in sol is the trade
+            // station, not the shipyard).
+            let loc = match &position.location_name {
+                Some(l) => l.clone(),
+                None => return BtStatus::Failure,
+            };
+            commands.push(SimCommand::RequestDock {
+                ship: entity,
+                facility_location: loc,
+                preferred_facility_type: Some("shipyard"),
             });
             BtStatus::Success
         }
@@ -2075,6 +2371,23 @@ fn execute_ship_action(
         ShipAction::PickupCargo { .. } => {
             // Phase 8b doesn't use this variant (pickup is implicit via Buy).
             // Kept for future "pre-reserved cargo" contracts in Phase 8c.
+            BtStatus::Success
+        }
+
+        ShipAction::Refit { slot, slug } => {
+            // Ship must be docked — the plan put us at the shipyard.
+            // If we aren't docked (rare: interrupt between Dock and
+            // Refit), fail the action and let the BT unwind. Apply
+            // also re-validates shipyard + stock + credits +
+            // retrofit point availability.
+            if position.docked_at.is_none() {
+                return BtStatus::Failure;
+            }
+            commands.push(SimCommand::RequestRefit {
+                ship: entity,
+                slot: *slot,
+                slug,
+            });
             BtStatus::Success
         }
 
@@ -2320,6 +2633,121 @@ mod tick_tests {
         // speed, 1.20 cargo mult.
         assert!((fit.derived.speed_mult - 1.15).abs() < 1e-6);
         assert!((fit.derived.cargo_capacity_mult - 1.20).abs() < 1e-6);
+    }
+
+    #[test]
+    fn progression_levels_up_and_banks_point() {
+        let mut p = ShipProgression::new();
+        assert_eq!(p.level, 1);
+        assert_eq!(p.retrofit_points, 0);
+
+        // First threshold is 100 xp. 99 shouldn't level.
+        assert_eq!(p.grant_xp(99), 0);
+        assert_eq!(p.level, 1);
+        assert_eq!(p.xp, 99);
+
+        // 50 more → crosses 100, banks one point, leaves 49 xp.
+        assert_eq!(p.grant_xp(50), 1);
+        assert_eq!(p.level, 2);
+        assert_eq!(p.retrofit_points, 1);
+        assert_eq!(p.xp, 49);
+        assert!(p.dirty);
+    }
+
+    #[test]
+    fn progression_xp_cascades_multiple_levels() {
+        let mut p = ShipProgression::new();
+        // 600 xp from level 1: 100 → lvl2, 200 → lvl3, 300 → lvl4, no leftover.
+        let gained = p.grant_xp(600);
+        assert_eq!(gained, 3);
+        assert_eq!(p.level, 4);
+        assert_eq!(p.retrofit_points, 3);
+        assert_eq!(p.xp, 0);
+    }
+
+    #[test]
+    fn progression_stops_at_level_cap() {
+        let mut p = ShipProgression::new();
+        p.grant_xp(u32::MAX);
+        assert_eq!(p.level, SHIP_LEVEL_CAP);
+        // Points banked exactly equal levels gained past 1.
+        assert_eq!(p.retrofit_points, SHIP_LEVEL_CAP - 1);
+    }
+
+    #[test]
+    fn progression_spend_retrofit_point() {
+        let mut p = ShipProgression::new();
+        assert!(!p.spend_retrofit_point());
+        p.retrofit_points = 2;
+        assert!(p.spend_retrofit_point());
+        assert_eq!(p.retrofit_points, 1);
+        assert!(p.spend_retrofit_point());
+        assert_eq!(p.retrofit_points, 0);
+        assert!(!p.spend_retrofit_point());
+    }
+
+    #[test]
+    fn find_retrofit_opportunity_picks_first_upgradable_slot() {
+        use crate::modules::Slot;
+
+        let fit = ShipFitting::new_default();
+        let mut stock: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        stock.insert("engine_t2".into(), 2);
+        let inventory = vec![("earth-station".to_string(), stock)];
+
+        let plan = find_retrofit_opportunity(&fit, &inventory, 50_000).unwrap();
+        assert_eq!(plan.slot, Slot::Engine);
+        assert_eq!(plan.slug, "engine_t2");
+        assert_eq!(plan.shipyard_location, "earth-station");
+    }
+
+    #[test]
+    fn find_retrofit_opportunity_rejects_below_credit_reserve() {
+        let fit = ShipFitting::new_default();
+        let mut stock: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        stock.insert("engine_t2".into(), 2);
+        let inventory = vec![("earth-station".to_string(), stock)];
+
+        // 12k reserve - can't afford 8k engine_t2 AND keep reserve intact.
+        assert!(find_retrofit_opportunity(&fit, &inventory, 15_000).is_none());
+        // Plenty of credits → clear to fly.
+        assert!(find_retrofit_opportunity(&fit, &inventory, 50_000).is_some());
+    }
+
+    #[test]
+    fn find_retrofit_opportunity_skips_slot_when_no_stock_and_tries_next() {
+        use crate::modules::Slot;
+
+        // Tier-2 engine is stocked NOWHERE, but cargo_bay_t2 is.
+        let fit = ShipFitting::new_default();
+        let mut stock: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        stock.insert("cargo_bay_t2".into(), 1);
+        let inventory = vec![("mars-station".to_string(), stock)];
+
+        let plan = find_retrofit_opportunity(&fit, &inventory, 50_000).unwrap();
+        assert_eq!(plan.slot, Slot::CargoBay);
+        assert_eq!(plan.slug, "cargo_bay_t2");
+    }
+
+    #[test]
+    fn find_retrofit_opportunity_none_when_fully_tiered() {
+        // Manually build an all-tier-3 fit — nothing to upgrade.
+        use crate::modules::{Slot, NUM_SLOTS};
+        let raw: [Option<String>; NUM_SLOTS] = [
+            Some("engine_t3".into()),
+            Some("cargo_bay_t3".into()),
+            Some("sensors_t3".into()),
+            Some("reactor_t3".into()),
+            Some("comms_t3".into()),
+        ];
+        let fit = ShipFitting::from_slugs(&raw);
+        let _ = Slot::Engine; // keep import tidy
+
+        let mut stock: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        stock.insert("engine_t3".into(), 5);
+        let inventory = vec![("anywhere".into(), stock)];
+
+        assert!(find_retrofit_opportunity(&fit, &inventory, 100_000).is_none());
     }
 
     #[test]

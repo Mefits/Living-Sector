@@ -84,6 +84,10 @@ pub enum ControlCommand {
         location: String,
         deltas: Vec<(Commodity, f32)>,
     },
+    /// Admin (Phase 18d): grant ship XP directly — levels up + banks
+    /// retrofit points as usual. Used for smoke tests and for manual
+    /// god-mode nudges when a ship needs a retrofit push.
+    AdminGrantShipXp { id: String, amount: u32 },
     /// Admin: swap a subsystem module in one slot on a ship. `slug = None`
     /// clears the slot. Engine validates the slug is in the catalog and
     /// matches the slot, then recomputes derived stats + rebakes

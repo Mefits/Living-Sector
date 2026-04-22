@@ -19,7 +19,7 @@ use sim_core::{
         },
         ship::{
             ShipAI, ShipCargo, ShipCrew, ShipCrewSkills, ShipEconomy, ShipFitting, ShipFuel,
-            ShipIdentity, ShipLifecycle, ShipPosition, ShipSnapshot, ShipTransit,
+            ShipIdentity, ShipLifecycle, ShipPosition, ShipProgression, ShipSnapshot, ShipTransit,
         },
     },
     simulation::spawner::AgentStore,
@@ -95,6 +95,7 @@ impl SnapshotCache {
             let crew = store.world.get::<&ShipCrew>(e).ok();
             let skills = store.world.get::<&ShipCrewSkills>(e).ok();
             let fitting = store.world.get::<&ShipFitting>(e).ok();
+            let progression = store.world.get::<&ShipProgression>(e).ok();
             let snap = ShipSnapshot::build(
                 identity,
                 position,
@@ -107,6 +108,7 @@ impl SnapshotCache {
                 crew.as_deref(),
                 skills.as_deref(),
                 fitting.as_deref(),
+                progression.as_deref(),
             );
             self.positions.insert(identity.id.clone(), position.position);
             self.ships.insert(identity.id.clone(), snap);

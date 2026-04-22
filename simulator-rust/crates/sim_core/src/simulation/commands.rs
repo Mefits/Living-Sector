@@ -46,6 +46,12 @@ pub enum SimCommand {
     RequestDock {
         ship: Entity,
         facility_location: String,
+        /// Optional facility-type hint. When set (e.g. `"shipyard"` for
+        /// agent-driven retrofit), the apply phase picks the largest
+        /// facility of that type at `facility_location`. Falls back to
+        /// the usual primary facility when `None` (every existing
+        /// call site) or when no facility of that type is present.
+        preferred_facility_type: Option<&'static str>,
     },
     /// Ship leaves dock. Apply phase removes the ship from the facility's
     /// `docked_ships` list. Used in apply phase only; the ship clears its
@@ -140,6 +146,19 @@ pub enum SimCommand {
 
     // --- Ship lifecycle ---
     DecommissionShip { ship: Entity, reason: &'static str },
+
+    // --- Subsystem refit (Phase 18d, agent-driven) ---
+    /// Ship requests a subsystem swap at its currently-docked shipyard.
+    /// Apply phase re-verifies docked+stock+credits+retrofit-point,
+    /// then performs the same mutations as an admin via_shipyard
+    /// refit PLUS decrements the ship's retrofit_points by one.
+    /// Silently no-ops on any validation failure — the BT is expected
+    /// to replan on the next tick after a failed refit.
+    RequestRefit {
+        ship: Entity,
+        slot: crate::modules::Slot,
+        slug: &'static str,
+    },
 }
 
 /// Per-tick command buffer. Cleared at the end of each tick after all commands

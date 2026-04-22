@@ -40,6 +40,9 @@ pub enum DbWrite {
         /// emitted so the stored row stays in sync after any refit,
         /// without requiring a separate DbWrite variant.
         fitting_json: String,
+        /// JSON object `{level, xp, retrofit_points}` for ship progression.
+        /// Flushed whenever any field on the ship changes.
+        progression_json: String,
     },
     Market {
         db_id: i64,
@@ -189,15 +192,16 @@ impl PersistenceWorker {
                     hoard_strikes,
                     idle_ticks,
                     fitting_json,
+                    progression_json,
                 } => {
                     sqlx::query(
                         "UPDATE ships SET
                            credits=?1, fuel=?2, position_x=?3, position_y=?4,
                            cargo=?5, current_goal=?6, active_contract_id=?7,
                            broke_strikes=?8, hoard_strikes=?9, idle_ticks=?10,
-                           fitting=?11,
+                           fitting=?11, progression=?12,
                            updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
-                         WHERE id=?12",
+                         WHERE id=?13",
                     )
                     .bind(credits)
                     .bind(fuel)
@@ -210,6 +214,7 @@ impl PersistenceWorker {
                     .bind(hoard_strikes as i64)
                     .bind(idle_ticks as i64)
                     .bind(fitting_json)
+                    .bind(progression_json)
                     .bind(db_id)
                     .execute(&mut *tx)
                     .await?;

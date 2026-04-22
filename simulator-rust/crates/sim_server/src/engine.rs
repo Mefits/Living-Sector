@@ -187,6 +187,9 @@ pub async fn run_tick_loop(
                 ControlCommand::AdminMarketSupplyDelta { location, deltas } => {
                     admin_market_supply_delta(&mut store, &location, &deltas, &mut events);
                 }
+                ControlCommand::AdminGrantShipXp { id, amount } => {
+                    admin_grant_ship_xp(&mut store, &id, amount, &mut events);
+                }
                 ControlCommand::AdminRefitShip { id, slot, slug, via_shipyard } => {
                     admin_refit_ship(
                         &mut store,
@@ -352,6 +355,17 @@ pub(crate) fn ship_fitting_to_json(fitting: &sim_core::agents::ship::ShipFitting
     serde_json::Value::Object(obj).to_string()
 }
 
+/// Serialise a `ShipProgression` to the `{level, xp, retrofit_points}`
+/// JSON shape stored in the `ships.progression` column.
+pub(crate) fn ship_progression_to_json(p: &sim_core::agents::ship::ShipProgression) -> String {
+    serde_json::json!({
+        "level": p.level,
+        "xp": p.xp,
+        "retrofit_points": p.retrofit_points,
+    })
+    .to_string()
+}
+
 /// Walk the world, emit a `DbWrite` for each dirty-flagged agent, clear the
 /// flag in place. Uses `try_send` so a temporarily-full persistence channel
 /// never blocks the tick loop; the write will simply be skipped this round
@@ -366,7 +380,7 @@ fn emit_persist_writes(
         market::{MarketHistory, MarketIdentity, MarketPricing},
         ship::{
             ShipCargo, ShipEconomy, ShipFitting, ShipFuel, ShipIdentity, ShipLifecycle,
-            ShipPosition,
+            ShipPosition, ShipProgression,
         },
     };
 
@@ -391,7 +405,16 @@ fn emit_persist_writes(
         )>()
         .iter()
     {
-        if !life.dirty {
+        // A ship flushes when lifecycle OR progression (Phase 18d)
+        // dirties. Fitting is mutated through the refit apply, which
+        // also marks lifecycle dirty, so we don't track it separately
+        // here.
+        let prog_dirty = store
+            .world
+            .get::<&ShipProgression>(e)
+            .map(|p| p.dirty)
+            .unwrap_or(false);
+        if !life.dirty && !prog_dirty {
             continue;
         }
         let cargo_json: serde_json::Map<String, serde_json::Value> = cargo
@@ -405,6 +428,12 @@ fn emit_persist_writes(
             .ok()
             .map(|f| ship_fitting_to_json(&f))
             .unwrap_or_else(|| ship_fitting_to_json(&ShipFitting::new_default()));
+        let progression_json = store
+            .world
+            .get::<&ShipProgression>(e)
+            .ok()
+            .map(|p| ship_progression_to_json(&p))
+            .unwrap_or_else(|| ship_progression_to_json(&ShipProgression::new()));
         let write = DbWrite::Ship {
             db_id: identity.db_id,
             credits: econ.credits,
@@ -418,6 +447,7 @@ fn emit_persist_writes(
             hoard_strikes: life.hoard_strikes,
             idle_ticks: life.idle_ticks,
             fitting_json,
+            progression_json,
         };
         ship_writes.push(write);
         dirty_ships.push(e);
@@ -428,6 +458,9 @@ fn emit_persist_writes(
     for e in dirty_ships {
         if let Ok(mut life) = store.world.get::<&mut ShipLifecycle>(e) {
             life.dirty = false;
+        }
+        if let Ok(mut prog) = store.world.get::<&mut ShipProgression>(e) {
+            prog.dirty = false;
         }
     }
 
@@ -773,13 +806,23 @@ fn apply_ship_commands(
             }
 
             // --- Dock-dwell interactions (Phase 11a) ---
-            SimCommand::RequestDock { ship, facility_location } => {
-                let docked = apply_request_dock(store, ship, &facility_location);
+            SimCommand::RequestDock {
+                ship,
+                facility_location,
+                preferred_facility_type,
+            } => {
+                let docked = apply_request_dock_typed(
+                    store,
+                    ship,
+                    &facility_location,
+                    preferred_facility_type,
+                );
                 if docked {
                     events.push(serde_json::json!({
                         "kind": "ship_docked",
                         "ship_entity": format!("{:?}", ship),
                         "location": facility_location,
+                        "preferred_type": preferred_facility_type,
                     }));
                 }
             }
@@ -836,6 +879,32 @@ fn apply_ship_commands(
                                 .entry(faction.clone())
                                 .or_insert(0);
                             *rep = rep.saturating_add(1).min(100);
+                        }
+                    }
+                    // Phase 18d: grant ship-level XP on every delivery.
+                    // Cascades level-ups + banks retrofit points when a
+                    // threshold crosses. Kept independent of crew skill
+                    // XP; ships and crews progress on separate tracks.
+                    {
+                        use sim_core::agents::ship::{
+                            ShipIdentity, ShipProgression, SHIP_XP_PER_DELIVERY,
+                        };
+                        let ship_agent_id = store
+                            .world
+                            .get::<&ShipIdentity>(ship)
+                            .map(|i| i.id.clone())
+                            .unwrap_or_default();
+                        if let Ok(mut prog) = store.world.get::<&mut ShipProgression>(ship) {
+                            let gained = prog.grant_xp(SHIP_XP_PER_DELIVERY);
+                            if gained > 0 {
+                                events.push(serde_json::json!({
+                                    "kind": "ship_leveled_up",
+                                    "id": ship_agent_id,
+                                    "new_level": prog.level,
+                                    "retrofit_points": prog.retrofit_points,
+                                    "levels_gained": gained,
+                                }));
+                            }
                         }
                     }
 
@@ -925,6 +994,51 @@ fn apply_ship_commands(
                 }
             }
 
+            // Phase 18d: agent-driven refit via shipyard. Validates
+            // stock + credits + docked-at-shipyard, does the fitting
+            // swap, commits the economic side, and consumes one
+            // retrofit point on success. Silently drops on any
+            // rejection — the BT will replan next tick.
+            SimCommand::RequestRefit { ship, slot, slug } => {
+                use sim_core::agents::ship::{ShipIdentity, ShipProgression};
+
+                let has_point = store
+                    .world
+                    .get::<&ShipProgression>(ship)
+                    .map(|p| p.retrofit_points > 0)
+                    .unwrap_or(false);
+                if !has_point {
+                    continue;
+                }
+                let Ok((fac_entity, fac_id, cost)) = try_shipyard_refit(store, ship, slot, slug)
+                else {
+                    continue;
+                };
+                let prev_slug = match apply_fitting_swap(store, ship, slot, Some(slug)) {
+                    RefitAttempt::Applied { prev_slug } => prev_slug,
+                    _ => continue,
+                };
+                commit_shipyard_refit(store, ship, fac_entity, slug, cost);
+                if let Ok(mut prog) = store.world.get::<&mut ShipProgression>(ship) {
+                    prog.spend_retrofit_point();
+                }
+                let ship_id = store
+                    .world
+                    .get::<&ShipIdentity>(ship)
+                    .map(|i| i.id.clone())
+                    .unwrap_or_default();
+                events.push(serde_json::json!({
+                    "kind": "ship_refitted",
+                    "id": ship_id,
+                    "slot": slot.as_str(),
+                    "from": prev_slug,
+                    "to": slug,
+                    "via": "agent_shipyard",
+                    "shipyard_id": fac_id,
+                    "cost": cost,
+                }));
+            }
+
             other => leftover.push(other),
         }
     }
@@ -939,10 +1053,33 @@ fn apply_ship_commands(
 /// Returns None if no dockable facility exists at the location, in which
 /// case dock/refuel commands silently no-op.
 fn primary_dock_at_location(store: &AgentStore, location: &str) -> Option<hecs::Entity> {
-    use sim_core::agents::facility::FacilityOperations;
+    primary_dock_at_location_typed(store, location, None)
+}
+
+/// Pick the largest dockable facility at `location`, optionally
+/// restricted to a `facility_type` (e.g. `"shipyard"`). Returns `None`
+/// if no candidate matches; callers (e.g. agent retrofit BT) should
+/// treat that as a silent dock rejection — the BT fails cleanly and
+/// replans next tick.
+fn primary_dock_at_location_typed(
+    store: &AgentStore,
+    location: &str,
+    facility_type: Option<&str>,
+) -> Option<hecs::Entity> {
+    use sim_core::agents::facility::{FacilityIdentity, FacilityOperations};
     let candidates = store.facilities_at_location.get(location)?;
     let mut best: Option<(hecs::Entity, u32)> = None;
     for &e in candidates {
+        if let Some(want) = facility_type {
+            let ok = store
+                .world
+                .get::<&FacilityIdentity>(e)
+                .map(|id| id.facility_type == want)
+                .unwrap_or(false);
+            if !ok {
+                continue;
+            }
+        }
         let cap = store
             .world
             .get::<&FacilityOperations>(e)
@@ -964,21 +1101,30 @@ fn primary_dock_at_location(store: &AgentStore, location: &str) -> Option<hecs::
 /// `FacilityStorage.docked_ships`, and sets `ShipPosition.docked_at`.
 /// Returns `true` if the dock succeeded (ship now docked), `false` if
 /// it was rejected (no facility, capacity full, or ship broke).
-fn apply_request_dock(
+fn apply_request_dock_typed(
     store: &mut AgentStore,
     ship: hecs::Entity,
     location: &str,
+    preferred_facility_type: Option<&'static str>,
 ) -> bool {
     use sim_core::agents::{
         facility::{docking_fee, FacilityOperations, FacilityStorage, DOCKING_FEE_BASE},
         ship::{ShipEconomy, ShipPosition},
     };
 
-    let facility = match primary_dock_at_location(store, location) {
-        Some(e) => e,
-        None => return false,
+    // If a type preference is set and no facility of that type exists
+    // at `location`, reject entirely (don't fall back to a different
+    // type — the caller asked for a specific facility kind).
+    let facility = match preferred_facility_type {
+        Some(t) => match primary_dock_at_location_typed(store, location, Some(t)) {
+            Some(e) => e,
+            None => return false,
+        },
+        None => match primary_dock_at_location(store, location) {
+            Some(e) => e,
+            None => return false,
+        },
     };
-
     // Read current occupancy + condition to compute fee.
     let (fee, at_capacity) = {
         let ops = match store.world.get::<&FacilityOperations>(facility) {
@@ -1165,6 +1311,7 @@ fn admin_spawn_ship(
             },
             ShipCrewSkills::for_roles(crew_roles),
             fitting,
+            sim_core::agents::ship::ShipProgression::new(),
             sim_core::simulation::lod::AgentLod::new(),
         ),
     )
@@ -1322,6 +1469,184 @@ async fn admin_remove_facility(
 /// Admin: apply a supply delta to the market at `location`. Positive
 /// values top up, negative drain (floored at 0). No-ops if the location
 /// has no market.
+/// Admin: grant XP to a specific ship. Cascades level-ups + retrofit
+/// point banking. No-op on unknown ship.
+fn admin_grant_ship_xp(
+    store: &mut AgentStore,
+    id: &str,
+    amount: u32,
+    events: &mut Vec<serde_json::Value>,
+) {
+    use sim_core::agents::ship::ShipProgression;
+    let Some(&entity) = store.ship_by_id.get(id) else {
+        return;
+    };
+    let Ok(mut prog) = store.world.get::<&mut ShipProgression>(entity) else {
+        return;
+    };
+    let gained = prog.grant_xp(amount);
+    if gained > 0 {
+        events.push(serde_json::json!({
+            "kind": "ship_leveled_up",
+            "id": id,
+            "new_level": prog.level,
+            "retrofit_points": prog.retrofit_points,
+            "levels_gained": gained,
+            "reason": "admin_grant",
+        }));
+    }
+}
+
+/// Outcome of applying a subsystem refit. `RefitAttempt::Applied`
+/// carries the prior slug (for event telemetry); the rejection
+/// variants name the specific validation that failed so the engine
+/// can decide whether to emit an event, log, or silently drop.
+#[allow(dead_code)]
+#[derive(Debug)]
+enum RefitAttempt {
+    Applied { prev_slug: Option<String> },
+    NoShip,
+    NoClass,
+    InvalidSlug,
+    NotDocked,
+    NotShipyard,
+    NoStock,
+    InsufficientCredits,
+}
+
+/// Perform the fitting swap + rebake (cargo capacity, speed modifier).
+/// Pure local — no shipyard economy interaction. Shared by admin
+/// override refits and the admin/agent shipyard paths.
+fn apply_fitting_swap(
+    store: &mut AgentStore,
+    ship: hecs::Entity,
+    slot: sim_core::modules::Slot,
+    slug: Option<&'static str>,
+) -> RefitAttempt {
+    use sim_core::agents::ship::{ShipCargo, ShipFitting, ShipFuel, ShipIdentity, ShipLifecycle};
+
+    let class_name = match store.world.get::<&ShipIdentity>(ship) {
+        Ok(id) => id.class.clone(),
+        Err(_) => return RefitAttempt::NoShip,
+    };
+    let class_cfg = sim_core::simulation::config::ship_class(&class_name);
+    let (base_cargo, base_speed) = match class_cfg {
+        Some(c) => (c.cargo_capacity, c.speed_modifier),
+        None => return RefitAttempt::NoClass,
+    };
+
+    let (prev_slug, new_derived) = {
+        let mut fitting = match store.world.get::<&mut ShipFitting>(ship) {
+            Ok(f) => f,
+            Err(_) => return RefitAttempt::NoShip,
+        };
+        let prev = fitting.slot_slug(slot).map(|s| s.to_string());
+        fitting.set(slot, slug);
+        (prev, fitting.derived)
+    };
+
+    if let Ok(mut cargo) = store.world.get::<&mut ShipCargo>(ship) {
+        cargo.capacity = ((base_cargo as f32) * new_derived.cargo_capacity_mult).round() as u32;
+    }
+    if let Ok(mut fuel) = store.world.get::<&mut ShipFuel>(ship) {
+        fuel.speed_modifier = base_speed * new_derived.speed_mult;
+    }
+    if let Ok(mut life) = store.world.get::<&mut ShipLifecycle>(ship) {
+        life.dirty = true;
+    }
+
+    RefitAttempt::Applied { prev_slug }
+}
+
+/// Validate that a shipyard refit is allowed right now and do the
+/// economic side (debit ship, credit yard, decrement stock). Returns
+/// `Applied` when the fitting swap should proceed + the caller's
+/// extra work (event emit, retrofit-point consumption) should fire.
+/// Never mutates the fitting itself — caller does that via
+/// [`apply_fitting_swap`] after validation passes.
+fn try_shipyard_refit(
+    store: &mut AgentStore,
+    ship: hecs::Entity,
+    slot: sim_core::modules::Slot,
+    slug: &'static str,
+) -> Result<(hecs::Entity, String, i64), RefitAttempt> {
+    use sim_core::agents::facility::{FacilityIdentity, ModuleStock};
+    use sim_core::agents::ship::{ShipEconomy, ShipPosition};
+
+    // Slug must match slot (defence-in-depth; HTTP layer validated).
+    match sim_core::modules::get(slug) {
+        Some(def) if def.slot == slot => {}
+        _ => return Err(RefitAttempt::InvalidSlug),
+    }
+    let recipe = match sim_core::economy::module_production::get(slug) {
+        Some(r) => r,
+        None => return Err(RefitAttempt::InvalidSlug),
+    };
+    let cost = recipe.base_cost_credits;
+
+    let docked_at = match store.world.get::<&ShipPosition>(ship) {
+        Ok(pos) => pos.docked_at,
+        Err(_) => return Err(RefitAttempt::NoShip),
+    };
+    let Some(facility_entity) = docked_at else {
+        return Err(RefitAttempt::NotDocked);
+    };
+
+    let (fid_str, is_yard) = match store.world.get::<&FacilityIdentity>(facility_entity) {
+        Ok(id) => (id.id.clone(), id.facility_type == "shipyard"),
+        Err(_) => return Err(RefitAttempt::NotShipyard),
+    };
+    if !is_yard {
+        return Err(RefitAttempt::NotShipyard);
+    }
+
+    let in_stock = store
+        .world
+        .get::<&ModuleStock>(facility_entity)
+        .map(|s| s.count(slug) > 0)
+        .unwrap_or(false);
+    if !in_stock {
+        return Err(RefitAttempt::NoStock);
+    }
+
+    let has_credits = store
+        .world
+        .get::<&ShipEconomy>(ship)
+        .map(|e| e.credits >= cost)
+        .unwrap_or(false);
+    if !has_credits {
+        return Err(RefitAttempt::InsufficientCredits);
+    }
+
+    Ok((facility_entity, fid_str, cost))
+}
+
+/// Commit the shipyard economic side-effects once validation + swap
+/// have succeeded. Split from `try_shipyard_refit` so the caller can
+/// order {validate → swap → commit} and guarantee atomicity at the
+/// tick-phase boundary.
+fn commit_shipyard_refit(
+    store: &mut AgentStore,
+    ship: hecs::Entity,
+    facility_entity: hecs::Entity,
+    slug: &'static str,
+    cost: i64,
+) {
+    use sim_core::agents::facility::{FacilityOperations, ModuleStock};
+    use sim_core::agents::ship::ShipEconomy;
+
+    if let Ok(mut stock) = store.world.get::<&mut ModuleStock>(facility_entity) {
+        stock.take_one(slug);
+    }
+    if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
+        econ.credits = econ.credits.saturating_sub(cost);
+    }
+    if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(facility_entity) {
+        ops.credits = ops.credits.saturating_add(cost);
+        ops.dirty = true;
+    }
+}
+
 /// Admin: swap the module in one slot of a ship's fitting. Looks up the
 /// ship, validates the new slug (catalog presence + slot match),
 /// updates `ShipFitting`, and rebakes `ShipCargo.capacity` + `ShipFuel
@@ -1342,132 +1667,30 @@ fn admin_refit_ship(
     via_shipyard: bool,
     events: &mut Vec<serde_json::Value>,
 ) {
-    use sim_core::agents::facility::{FacilityIdentity, FacilityOperations, ModuleStock};
-    use sim_core::agents::ship::{
-        ShipCargo, ShipEconomy, ShipFitting, ShipFuel, ShipIdentity, ShipLifecycle, ShipPosition,
-    };
-
     let Some(&entity) = store.ship_by_id.get(id) else {
         return;
     };
 
-    // Validate the new slug: must exist in the catalog and match the
-    // target slot. `None` (empty slot) is always valid.
+    // Intern the slug so it lives in `&'static` memory — required by
+    // `ShipFitting::set`. `None` (clear slot) is also valid.
     let interned: Option<&'static str> = match slug {
         None => None,
         Some(s) => match sim_core::modules::get(s) {
             Some(def) if def.slot == slot => Some(def.slug),
-            _ => return, // HTTP layer already filtered — bail silently.
+            _ => return,
         },
     };
 
-    // Pull the ship's class so we can rebake effective values from base
-    // × new derived.
-    let class_name = match store.world.get::<&ShipIdentity>(entity) {
-        Ok(id_ref) => id_ref.class.clone(),
-        Err(_) => return,
-    };
-    let class_cfg = sim_core::simulation::config::ship_class(&class_name);
-    let (base_cargo, base_speed) = match class_cfg {
-        Some(c) => (c.cargo_capacity, c.speed_modifier),
-        None => return,
-    };
-
-    // Shipyard path: verify docked, stocked, credited; record the
-    // shipyard entity so we can apply the economic side-effects
-    // after the fitting swap.
-    let mut shipyard_context: Option<(hecs::Entity, String, i64)> = None;
     if via_shipyard {
         let Some(slug_s) = interned else { return };
-        let recipe = match sim_core::economy::module_production::get(slug_s) {
-            Some(r) => r,
-            None => return,
-        };
-        let cost = recipe.base_cost_credits;
-
-        // Ship must be docked.
-        let docked_at = match store.world.get::<&ShipPosition>(entity) {
-            Ok(pos) => pos.docked_at,
-            Err(_) => return,
-        };
-        let Some(facility_entity) = docked_at else {
+        let Ok((fac_entity, fac_id, cost)) = try_shipyard_refit(store, entity, slot, slug_s) else {
             return;
         };
-
-        // Facility must be a shipyard, not abandoned, with the slug in stock.
-        let fid = match store.world.get::<&FacilityIdentity>(facility_entity) {
-            Ok(id) => id.id.clone(),
-            Err(_) => return,
+        let prev_slug = match apply_fitting_swap(store, entity, slot, interned) {
+            RefitAttempt::Applied { prev_slug } => prev_slug,
+            _ => return,
         };
-        let fac_type_ok = store
-            .world
-            .get::<&FacilityIdentity>(facility_entity)
-            .map(|id| id.facility_type == "shipyard")
-            .unwrap_or(false);
-        if !fac_type_ok {
-            return;
-        }
-        let in_stock = store
-            .world
-            .get::<&ModuleStock>(facility_entity)
-            .map(|s| s.count(slug_s) > 0)
-            .unwrap_or(false);
-        if !in_stock {
-            return;
-        }
-
-        // Ship must have enough credits.
-        let has_credits = store
-            .world
-            .get::<&ShipEconomy>(entity)
-            .map(|e| e.credits >= cost)
-            .unwrap_or(false);
-        if !has_credits {
-            return;
-        }
-
-        shipyard_context = Some((facility_entity, fid, cost));
-    }
-
-    let prev_slug: Option<String>;
-    let new_derived;
-    {
-        let Ok(mut fitting) = store.world.get::<&mut ShipFitting>(entity) else {
-            return;
-        };
-        prev_slug = fitting.slot_slug(slot).map(|s| s.to_string());
-        fitting.set(slot, interned);
-        new_derived = fitting.derived;
-    }
-
-    // Rebake effective cargo capacity + speed modifier so tick-loop
-    // reads see the refit immediately.
-    if let Ok(mut cargo) = store.world.get::<&mut ShipCargo>(entity) {
-        cargo.capacity = ((base_cargo as f32) * new_derived.cargo_capacity_mult).round() as u32;
-    }
-    if let Ok(mut fuel) = store.world.get::<&mut ShipFuel>(entity) {
-        fuel.speed_modifier = base_speed * new_derived.speed_mult;
-    }
-    if let Ok(mut life) = store.world.get::<&mut ShipLifecycle>(entity) {
-        life.dirty = true;
-    }
-
-    // Apply shipyard economic effects last — after the fitting swap so
-    // a panic between "validated" and "applied" can't leave the
-    // shipyard out of stock without the refit landing.
-    if let Some((facility_entity, fid_str, cost)) = shipyard_context.as_ref() {
-        if let Ok(mut stock) = store.world.get::<&mut ModuleStock>(*facility_entity) {
-            if let Some(slug_s) = interned {
-                stock.take_one(slug_s);
-            }
-        }
-        if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(entity) {
-            econ.credits = econ.credits.saturating_sub(*cost);
-        }
-        if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(*facility_entity) {
-            ops.credits = ops.credits.saturating_add(*cost);
-            ops.dirty = true;
-        }
+        commit_shipyard_refit(store, entity, fac_entity, slug_s, cost);
         events.push(serde_json::json!({
             "kind": "ship_refitted",
             "id": id,
@@ -1475,20 +1698,23 @@ fn admin_refit_ship(
             "from": prev_slug,
             "to": interned,
             "via": "shipyard",
-            "shipyard_id": fid_str,
+            "shipyard_id": fac_id,
             "cost": cost,
         }));
-        return;
+    } else {
+        let prev_slug = match apply_fitting_swap(store, entity, slot, interned) {
+            RefitAttempt::Applied { prev_slug } => prev_slug,
+            _ => return,
+        };
+        events.push(serde_json::json!({
+            "kind": "ship_refitted",
+            "id": id,
+            "slot": slot.as_str(),
+            "from": prev_slug,
+            "to": interned,
+            "via": "admin",
+        }));
     }
-
-    events.push(serde_json::json!({
-        "kind": "ship_refitted",
-        "id": id,
-        "slot": slot.as_str(),
-        "from": prev_slug,
-        "to": interned,
-        "via": "admin",
-    }));
 }
 
 fn admin_market_supply_delta(
@@ -1975,6 +2201,7 @@ mod tests {
                     dirty: false,
                 },
                 ShipFitting::new_default(),
+                sim_core::agents::ship::ShipProgression::new(),
             ),
         )
         .ok();

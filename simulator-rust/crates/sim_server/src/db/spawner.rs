@@ -526,7 +526,7 @@ async fn load_ships(
                 cargo, cargo_age,
                 docked_at, transit_from, transit_to, transit_departure_tick, transit_arrival_tick,
                 current_goal, broke_strikes, hoard_strikes, idle_ticks,
-                active_contract_id, price_knowledge, visited, fitting
+                active_contract_id, price_knowledge, visited, fitting, progression
          FROM ships",
     )
     .fetch_all(pool)
@@ -615,6 +615,8 @@ async fn load_ships(
         // tick-loop code reads the same fields it always did.
         let fitting_json: String = r.try_get("fitting").unwrap_or_default();
         let fitting = parse_ship_fitting(&fitting_json);
+        let progression_json: String = r.try_get("progression").unwrap_or_default();
+        let progression = parse_ship_progression(&progression_json);
         let fitted_cargo_capacity =
             ((cargo_capacity as f32) * fitting.derived.cargo_capacity_mult).round() as u32;
         let fitted_speed_modifier = (speed_modifier as f32) * fitting.derived.speed_mult;
@@ -731,6 +733,7 @@ async fn load_ships(
             sim_core::agents::ship::ShipCrewSkills::for_roles(crew_roles),
         ).ok();
         store.world.insert_one(entity, fitting).ok();
+        store.world.insert_one(entity, progression).ok();
         // Attach LOD cursor — defaults to divisor 1 so new ships run at
         // full cadence until the next `tick_lod_recompute` pass.
         store.world.insert_one(
@@ -860,6 +863,29 @@ fn parse_module_stock(json: &str) -> HashMap<String, u32> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Parse a `ships.progression` JSON blob into a [`ShipProgression`].
+/// Empty / missing / malformed input falls back to a fresh level-1
+/// ship — matches the migration default so pre-18d rows round-trip
+/// into identical runtime state.
+fn parse_ship_progression(json: &str) -> sim_core::agents::ship::ShipProgression {
+    let v: serde_json::Value = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(_) => return sim_core::agents::ship::ShipProgression::new(),
+    };
+    let level = v.get("level").and_then(|x| x.as_u64()).unwrap_or(1) as u8;
+    let xp = v.get("xp").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+    let retrofit_points = v
+        .get("retrofit_points")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as u8;
+    sim_core::agents::ship::ShipProgression {
+        level: level.max(1),
+        xp,
+        retrofit_points,
+        dirty: false,
+    }
 }
 
 /// Parse a `ships.fitting` JSON blob (slot_name → slug | null) into a
