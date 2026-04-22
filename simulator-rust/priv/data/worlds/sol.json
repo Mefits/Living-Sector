@@ -374,6 +374,19 @@
         "components": 300,
         "tools": 200,
         "polymers": 200
+      },
+      "fitting": {
+        "production": "production_t2",
+        "automation": "automation_t1"
+      },
+      "module_stock": {
+        "engine_t2": 2,
+        "cargo_bay_t2": 2,
+        "sensors_t2": 1,
+        "reactor_t2": 1,
+        "comms_t2": 1,
+        "engine_t3": 1,
+        "cargo_bay_t3": 1
       }
     },
     {
@@ -393,6 +406,10 @@
         "polymers": 1000,
         "components": 500,
         "fuel": 2000
+      },
+      "fitting": {
+        "production": "production_t2",
+        "automation": "automation_t2"
       }
     },
     {
@@ -1336,8 +1353,20 @@
       "name": "Artemis-7",
       "location": "earth-station",
       "class": "freighter",
-      "credits": 10000,
-      "faction_id": "terran-authority"
+      "credits": 18000,
+      "faction_id": "terran-authority",
+      "fitting": {
+        "engine": "engine_t2",
+        "cargo_bay": "cargo_bay_t1",
+        "sensors": "sensors_t2",
+        "reactor": "reactor_t1",
+        "comms": "comms_t1"
+      },
+      "progression": {
+        "level": 3,
+        "xp": 40,
+        "retrofit_points": 2
+      }
     },
     {
       "name": "Sol Trader",
@@ -1359,6 +1388,26 @@
       "class": "courier",
       "credits": 5000,
       "faction_id": "terran-authority"
+    },
+    {
+      "name": "Sol Leviathan",
+      "location": "earth-station",
+      "class": "hauler",
+      "credits": 25000,
+      "faction_id": "terran-authority",
+      "size": "massive",
+      "fitting": {
+        "engine": "engine_t2",
+        "cargo_bay": "cargo_bay_t3",
+        "sensors": "sensors_t3",
+        "reactor": "reactor_t2",
+        "comms": "comms_t2"
+      },
+      "progression": {
+        "level": 4,
+        "xp": 0,
+        "retrofit_points": 0
+      }
     },
     {
       "name": "Terra Bulk",

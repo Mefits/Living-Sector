@@ -226,6 +226,16 @@
         "components": 250,
         "tools": 250,
         "polymers": 150
+      },
+      "fitting": {
+        "production": "production_t2",
+        "automation": "automation_t1"
+      },
+      "module_stock": {
+        "engine_t2": 1,
+        "reactor_t2": 2,
+        "cargo_bay_t2": 1,
+        "engine_t3": 1
       }
     },
     {
@@ -679,6 +689,39 @@
       "class": "hauler",
       "credits": 15000,
       "faction_id": "crucible-mining"
+    },
+    {
+      "name": "TC Bulwark",
+      "location": "anvil-depot",
+      "class": "tanker",
+      "credits": 22000,
+      "faction_id": "crucible-mining",
+      "size": "huge",
+      "fitting": {
+        "engine": "engine_t2",
+        "cargo_bay": "cargo_bay_t2",
+        "sensors": "sensors_t2",
+        "reactor": "reactor_t2",
+        "comms": "comms_t1"
+      },
+      "progression": {
+        "level": 3,
+        "xp": 80,
+        "retrofit_points": 1
+      }
+    },
+    {
+      "name": "TC Skiff",
+      "location": "forge-smelter",
+      "class": "courier",
+      "credits": 4000,
+      "faction_id": "crucible-mining",
+      "size": "tiny",
+      "progression": {
+        "level": 2,
+        "xp": 20,
+        "retrofit_points": 1
+      }
     },
     {
       "name": "Anvil Runner",

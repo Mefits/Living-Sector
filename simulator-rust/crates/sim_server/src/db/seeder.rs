@@ -189,12 +189,31 @@ async fn seed_world(pool: &SqlitePool, path: &std::path::Path) -> Result<()> {
                 .cloned()
                 .unwrap_or(Value::Object(Default::default()));
 
+            // Phase 18h: accept optional `fitting` + `module_stock`
+            // on the facility JSON. Missing → tier-1 default /
+            // empty stock (today's behavior). Lets world seeds ship
+            // with "advanced" refineries (production_t2) or
+            // pre-stocked shipyards so the economy starts with
+            // capacity instead of spinning up over minutes.
+            let fitting_json = fac
+                .get("fitting")
+                .filter(|v| v.is_object())
+                .cloned()
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "{}".to_string());
+            let module_stock_json = fac
+                .get("module_stock")
+                .filter(|v| v.is_object())
+                .cloned()
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "{}".to_string());
+
             sqlx::query(
                 "INSERT INTO facilities
                    (name, facility_type, location_id, location_name, body_id, faction_id,
                     docking_capacity, services, condition, reputation, credits, reserves,
-                    gate_paired_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                    gate_paired_id, fitting, module_stock)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             )
             .bind(&fac_name)
             .bind(fac.get("type").and_then(|v| v.as_str()).unwrap_or("station"))
@@ -215,6 +234,8 @@ async fn seed_world(pool: &SqlitePool, path: &std::path::Path) -> Result<()> {
             .bind(30_000_i64)
             .bind(reserves.to_string())
             .bind(fac.get("gate_paired_id").and_then(|v| v.as_str()))
+            .bind(fitting_json)
+            .bind(module_stock_json)
             .execute(pool)
             .await?;
         }
@@ -330,10 +351,49 @@ async fn seed_world(pool: &SqlitePool, path: &std::path::Path) -> Result<()> {
         let credits = ship.get("credits").and_then(|v| v.as_i64()).unwrap_or(5000);
 
         // Look up class stats from sim_core config
-        let (cargo_cap, fuel_cap, fuel_rate, speed) =
-            sim_core::simulation::config::ship_class(class)
-                .map(|c| (c.cargo_capacity, c.fuel_capacity, c.fuel_consumption_base, c.speed_modifier))
-                .unwrap_or((500, 100.0, 0.05, 1.0));
+        let class_cfg = sim_core::simulation::config::ship_class(class);
+        let (cargo_cap, fuel_cap, fuel_rate, speed) = class_cfg
+            .map(|c| (c.cargo_capacity, c.fuel_capacity, c.fuel_consumption_base, c.speed_modifier))
+            .unwrap_or((500, 100.0, 0.05, 1.0));
+
+        // Phase 18h: accept optional `size` override. Falls back to
+        // the class's default_size when unset. Stored as snake_case
+        // string (tiny/small/.../massive) so the loader's
+        // `ShipSize::parse` reads it back.
+        let size_str = ship
+            .get("size")
+            .and_then(|v| v.as_str())
+            .and_then(sim_core::simulation::config::ShipSize::parse)
+            .map(|s| s.as_str())
+            .unwrap_or_else(|| {
+                class_cfg
+                    .map(|c| c.default_size.as_str())
+                    .unwrap_or("medium")
+            });
+
+        // Phase 18h: accept optional `fitting` override — map of
+        // slot_name → slug. Missing slots fall back to the class's
+        // size-aware default at load time. Passed through as a JSON
+        // string so the ships.fitting column stores exactly what the
+        // loader would've written itself after a refit.
+        let fitting_json = ship
+            .get("fitting")
+            .filter(|v| v.is_object())
+            .cloned()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "{}".to_string());
+
+        // Phase 18h: accept optional `progression` override — lets a
+        // "veteran" ship spawn at level > 1 with banked retrofit
+        // points so it can head for a shipyard day one.
+        let progression_json = ship
+            .get("progression")
+            .filter(|v| v.is_object())
+            .cloned()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| {
+                r#"{"level":1,"xp":0,"retrofit_points":0}"#.to_string()
+            });
 
         // Default reputation: 70 for own faction, 30 for others
         let faction_ids: Vec<String> =
@@ -353,8 +413,9 @@ async fn seed_world(pool: &SqlitePool, path: &std::path::Path) -> Result<()> {
                (name, class, location_id, location_name, system_id,
                 universe_offset_x, universe_offset_y,
                 cargo_capacity, fuel, fuel_capacity, fuel_consumption_rate,
-                speed_modifier, credits, faction_id, faction_reputation)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                speed_modifier, credits, faction_id, faction_reputation,
+                size, fitting, progression)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
         )
         .bind(&name)
         .bind(class)
@@ -371,6 +432,9 @@ async fn seed_world(pool: &SqlitePool, path: &std::path::Path) -> Result<()> {
         .bind(credits)
         .bind(faction_id)
         .bind(Value::Object(rep_map).to_string())
+        .bind(size_str)
+        .bind(fitting_json)
+        .bind(progression_json)
         .execute(pool)
         .await?;
     }

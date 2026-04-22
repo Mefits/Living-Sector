@@ -195,6 +195,16 @@
         "components": 200,
         "tools": 150,
         "polymers": 150
+      },
+      "fitting": {
+        "production": "production_t1",
+        "automation": "automation_t2"
+      },
+      "module_stock": {
+        "engine_t2": 1,
+        "cargo_bay_t2": 1,
+        "sensors_t2": 2,
+        "comms_t2": 1
       }
     },
     {
@@ -577,6 +587,26 @@
       "class": "freighter",
       "credits": 8000,
       "faction_id": "frontier-ventures"
+    },
+    {
+      "name": "AC Voyager",
+      "location": "haven-station",
+      "class": "hauler",
+      "credits": 20000,
+      "faction_id": "frontier-ventures",
+      "size": "massive",
+      "fitting": {
+        "engine": "engine_t3",
+        "cargo_bay": "cargo_bay_t2",
+        "sensors": "sensors_t2",
+        "reactor": "reactor_t2",
+        "comms": "comms_t2"
+      },
+      "progression": {
+        "level": 5,
+        "xp": 100,
+        "retrofit_points": 1
+      }
     },
     {
       "name": "Proxima Hauler",
