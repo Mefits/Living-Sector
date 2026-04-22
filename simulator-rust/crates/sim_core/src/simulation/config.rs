@@ -102,6 +102,26 @@ impl ShipSize {
             _ => None,
         }
     }
+
+    /// Speed multiplier applied on top of a ship's class `speed_modifier`
+    /// at spawn. Creates the "bigger is slower" economic pressure —
+    /// a size-6 Massive hauler moves at 70% of what its class alone
+    /// would suggest, amortized over a much bigger payload when it
+    /// does deliver. Size-3 Medium is the neutral reference point.
+    ///
+    /// These are intentionally modest (±15% at the extremes) so the
+    /// existing economy doesn't thrash. Tune once a long-burn smoke
+    /// shows whether bigger ships are over- or under-earning.
+    pub fn speed_multiplier(self) -> f32 {
+        match self {
+            ShipSize::Tiny => 1.15,
+            ShipSize::Small => 1.05,
+            ShipSize::Medium => 1.00,
+            ShipSize::Large => 0.90,
+            ShipSize::Huge => 0.80,
+            ShipSize::Massive => 0.70,
+        }
+    }
 }
 
 /// Ship class definitions with base stats.
@@ -241,5 +261,56 @@ mod tests {
     fn ship_class_lookup() {
         assert!(ship_class("freighter").is_some());
         assert!(ship_class("unknown").is_none());
+    }
+
+    #[test]
+    fn ship_size_parse_roundtrip() {
+        for tier in 1..=6u8 {
+            let s = ShipSize::from_tier(tier).unwrap();
+            assert_eq!(s.tier(), tier);
+            let round = ShipSize::parse(s.as_str()).unwrap();
+            assert_eq!(round, s);
+        }
+        assert!(ShipSize::from_tier(0).is_none());
+        assert!(ShipSize::from_tier(7).is_none());
+        assert!(ShipSize::parse("giant").is_none());
+    }
+
+    #[test]
+    fn size_speed_multiplier_monotone_decreasing() {
+        let mults = [
+            ShipSize::Tiny.speed_multiplier(),
+            ShipSize::Small.speed_multiplier(),
+            ShipSize::Medium.speed_multiplier(),
+            ShipSize::Large.speed_multiplier(),
+            ShipSize::Huge.speed_multiplier(),
+            ShipSize::Massive.speed_multiplier(),
+        ];
+        // Bigger = slower.
+        for pair in mults.windows(2) {
+            assert!(
+                pair[0] > pair[1],
+                "speed_multiplier should decrease: {:?}",
+                mults,
+            );
+        }
+        // Medium is the neutral reference point.
+        assert!((ShipSize::Medium.speed_multiplier() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn class_default_sizes_line_up_with_intuition() {
+        // Sanity check: the class→size mapping matches the economic
+        // story — small roles stay small, big roles stay big.
+        let courier = ship_class("courier").unwrap();
+        let freighter = ship_class("freighter").unwrap();
+        let hauler = ship_class("hauler").unwrap();
+        let tanker = ship_class("tanker").unwrap();
+        let miner = ship_class("miner").unwrap();
+        assert!(courier.default_size.tier() <= ShipSize::Medium.tier());
+        assert!(miner.default_size.tier() <= ShipSize::Medium.tier());
+        assert!(freighter.default_size.tier() <= ShipSize::Large.tier());
+        assert!(tanker.default_size.tier() >= ShipSize::Large.tier());
+        assert!(hauler.default_size.tier() >= ShipSize::Huge.tier());
     }
 }

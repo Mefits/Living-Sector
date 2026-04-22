@@ -639,11 +639,17 @@ async fn load_ships(
         } else {
             parse_ship_fitting(&fitting_json)
         };
+        // Phase 18g: size-derived speed penalty. Compounds
+        // multiplicatively with class speed_mod + fitting speed_mult
+        // so a size-5 freighter with tier-2 engines is distinct from
+        // a size-3 freighter with tier-1 engines.
+        let size_speed_mod = ship_size.speed_multiplier();
         let progression_json: String = r.try_get("progression").unwrap_or_default();
         let progression = parse_ship_progression(&progression_json);
         let fitted_cargo_capacity =
             ((cargo_capacity as f32) * fitting.derived.cargo_capacity_mult).round() as u32;
-        let fitted_speed_modifier = (speed_modifier as f32) * fitting.derived.speed_mult;
+        let fitted_speed_modifier =
+            (speed_modifier as f32) * fitting.derived.speed_mult * size_speed_mod;
 
         let transit = match (transit_from, transit_to, transit_dep, transit_arr) {
             (Some(from), Some(to), Some(dep), Some(arr)) => Some(Transit {

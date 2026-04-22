@@ -1299,7 +1299,9 @@ fn admin_spawn_ship(
         .unwrap_or(sim_core::simulation::config::ShipSize::Medium);
     let fitting = sim_core::agents::ship::ShipFitting::new_for_size(size, &payload.agent_id);
     let cargo_cap = ((cargo_cap as f32) * fitting.derived.cargo_capacity_mult).round() as u32;
-    let speed_mod = speed_mod * fitting.derived.speed_mult;
+    // Phase 18g: size-driven speed penalty, compounded with class +
+    // fitting modifiers.
+    let speed_mod = speed_mod * fitting.derived.speed_mult * size.speed_multiplier();
 
     let entity = store.world.spawn((
         ShipIdentity {
