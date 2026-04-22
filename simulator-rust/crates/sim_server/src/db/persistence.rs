@@ -36,6 +36,10 @@ pub enum DbWrite {
         broke_strikes: u8,
         hoard_strikes: u8,
         idle_ticks: u32,
+        /// JSON object mapping slot name → module slug (or null). Always
+        /// emitted so the stored row stays in sync after any refit,
+        /// without requiring a separate DbWrite variant.
+        fitting_json: String,
     },
     Market {
         db_id: i64,
@@ -181,14 +185,16 @@ impl PersistenceWorker {
                     broke_strikes,
                     hoard_strikes,
                     idle_ticks,
+                    fitting_json,
                 } => {
                     sqlx::query(
                         "UPDATE ships SET
                            credits=?1, fuel=?2, position_x=?3, position_y=?4,
                            cargo=?5, current_goal=?6, active_contract_id=?7,
                            broke_strikes=?8, hoard_strikes=?9, idle_ticks=?10,
+                           fitting=?11,
                            updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
-                         WHERE id=?11",
+                         WHERE id=?12",
                     )
                     .bind(credits)
                     .bind(fuel)
@@ -200,6 +206,7 @@ impl PersistenceWorker {
                     .bind(broke_strikes as i64)
                     .bind(hoard_strikes as i64)
                     .bind(idle_ticks as i64)
+                    .bind(fitting_json)
                     .bind(db_id)
                     .execute(&mut *tx)
                     .await?;

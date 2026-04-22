@@ -187,6 +187,9 @@ pub async fn run_tick_loop(
                 ControlCommand::AdminMarketSupplyDelta { location, deltas } => {
                     admin_market_supply_delta(&mut store, &location, &deltas, &mut events);
                 }
+                ControlCommand::AdminRefitShip { id, slot, slug } => {
+                    admin_refit_ship(&mut store, &id, slot, slug.as_deref(), &mut events);
+                }
             }
         }
 
@@ -328,6 +331,20 @@ pub async fn run_tick_loop(
     }
 }
 
+/// Serialise a `ShipFitting` to the slot-name → slug-or-null JSON shape
+/// stored in the `ships.fitting` column. Parser: [`ship_fitting_from_json`].
+pub(crate) fn ship_fitting_to_json(fitting: &sim_core::agents::ship::ShipFitting) -> String {
+    let mut obj = serde_json::Map::new();
+    for slot in sim_core::modules::SLOTS.iter().copied() {
+        let v = match fitting.slot_slug(slot) {
+            Some(s) => serde_json::Value::String(s.to_string()),
+            None => serde_json::Value::Null,
+        };
+        obj.insert(slot.as_str().to_string(), v);
+    }
+    serde_json::Value::Object(obj).to_string()
+}
+
 /// Walk the world, emit a `DbWrite` for each dirty-flagged agent, clear the
 /// flag in place. Uses `try_send` so a temporarily-full persistence channel
 /// never blocks the tick loop; the write will simply be skipped this round
@@ -341,12 +358,21 @@ fn emit_persist_writes(
         faction::FactionData,
         market::{MarketHistory, MarketIdentity, MarketPricing},
         ship::{
-            ShipCargo, ShipEconomy, ShipFuel, ShipIdentity, ShipLifecycle, ShipPosition,
+            ShipCargo, ShipEconomy, ShipFitting, ShipFuel, ShipIdentity, ShipLifecycle,
+            ShipPosition,
         },
     };
 
     // Ships
-    for (_e, (identity, pos, cargo, fuel, econ, life)) in store
+    //
+    // ShipFitting arrived in Phase 18a; persistence of it in 18b. We read
+    // it separately via get() because it's optional on legacy saves and
+    // hecs requires any `&` column in the main query to be present on
+    // every archetype. Fall back to the tier-1 default when absent so we
+    // always emit a well-formed `fitting_json`.
+    let mut ship_writes: Vec<DbWrite> = Vec::new();
+    let mut dirty_ships: Vec<hecs::Entity> = Vec::new();
+    for (e, (identity, pos, cargo, fuel, econ, life)) in store
         .world
         .query::<(
             &ShipIdentity,
@@ -354,7 +380,7 @@ fn emit_persist_writes(
             &ShipCargo,
             &ShipFuel,
             &ShipEconomy,
-            &mut ShipLifecycle,
+            &ShipLifecycle,
         )>()
         .iter()
     {
@@ -366,6 +392,12 @@ fn emit_persist_writes(
             .iter()
             .map(|(c, &q)| (c.as_str().to_string(), serde_json::Value::from(q)))
             .collect();
+        let fitting_json = store
+            .world
+            .get::<&ShipFitting>(e)
+            .ok()
+            .map(|f| ship_fitting_to_json(&f))
+            .unwrap_or_else(|| ship_fitting_to_json(&ShipFitting::new_default()));
         let write = DbWrite::Ship {
             db_id: identity.db_id,
             credits: econ.credits,
@@ -378,9 +410,18 @@ fn emit_persist_writes(
             broke_strikes: life.broke_strikes,
             hoard_strikes: life.hoard_strikes,
             idle_ticks: life.idle_ticks,
+            fitting_json,
         };
+        ship_writes.push(write);
+        dirty_ships.push(e);
+    }
+    for write in ship_writes {
         let _ = tx.try_send(write);
-        life.dirty = false;
+    }
+    for e in dirty_ships {
+        if let Ok(mut life) = store.world.get::<&mut ShipLifecycle>(e) {
+            life.dirty = false;
+        }
     }
 
     // Markets
@@ -1220,6 +1261,80 @@ async fn admin_remove_facility(
 /// Admin: apply a supply delta to the market at `location`. Positive
 /// values top up, negative drain (floored at 0). No-ops if the location
 /// has no market.
+/// Admin: swap the module in one slot of a ship's fitting. Looks up the
+/// ship, validates the new slug (catalog presence + slot match),
+/// updates `ShipFitting`, and rebakes `ShipCargo.capacity` + `ShipFuel
+/// .speed_modifier` from the class base × the new derived multipliers.
+/// Silently no-ops on unknown ship, unknown slug, or slot mismatch —
+/// HTTP layer validates and returns 4xx before we even get here, so
+/// this is defence-in-depth against stale control messages.
+fn admin_refit_ship(
+    store: &mut AgentStore,
+    id: &str,
+    slot: sim_core::modules::Slot,
+    slug: Option<&str>,
+    events: &mut Vec<serde_json::Value>,
+) {
+    use sim_core::agents::ship::{ShipCargo, ShipFitting, ShipFuel, ShipIdentity, ShipLifecycle};
+
+    let Some(&entity) = store.ship_by_id.get(id) else {
+        return;
+    };
+
+    // Validate the new slug: must exist in the catalog and match the
+    // target slot. `None` (empty slot) is always valid.
+    let interned: Option<&'static str> = match slug {
+        None => None,
+        Some(s) => match sim_core::modules::get(s) {
+            Some(def) if def.slot == slot => Some(def.slug),
+            _ => return, // HTTP layer already filtered — bail silently.
+        },
+    };
+
+    // Pull the ship's class so we can rebake effective values from base
+    // × new derived.
+    let class_name = match store.world.get::<&ShipIdentity>(entity) {
+        Ok(id_ref) => id_ref.class.clone(),
+        Err(_) => return,
+    };
+    let class_cfg = sim_core::simulation::config::ship_class(&class_name);
+    let (base_cargo, base_speed) = match class_cfg {
+        Some(c) => (c.cargo_capacity, c.speed_modifier),
+        None => return,
+    };
+
+    let prev_slug: Option<String>;
+    let new_derived;
+    {
+        let Ok(mut fitting) = store.world.get::<&mut ShipFitting>(entity) else {
+            return;
+        };
+        prev_slug = fitting.slot_slug(slot).map(|s| s.to_string());
+        fitting.set(slot, interned);
+        new_derived = fitting.derived;
+    }
+
+    // Rebake effective cargo capacity + speed modifier so tick-loop
+    // reads see the refit immediately.
+    if let Ok(mut cargo) = store.world.get::<&mut ShipCargo>(entity) {
+        cargo.capacity = ((base_cargo as f32) * new_derived.cargo_capacity_mult).round() as u32;
+    }
+    if let Ok(mut fuel) = store.world.get::<&mut ShipFuel>(entity) {
+        fuel.speed_modifier = base_speed * new_derived.speed_mult;
+    }
+    if let Ok(mut life) = store.world.get::<&mut ShipLifecycle>(entity) {
+        life.dirty = true;
+    }
+
+    events.push(serde_json::json!({
+        "kind": "ship_refitted",
+        "id": id,
+        "slot": slot.as_str(),
+        "from": prev_slug,
+        "to": interned,
+    }));
+}
+
 fn admin_market_supply_delta(
     store: &mut AgentStore,
     location: &str,

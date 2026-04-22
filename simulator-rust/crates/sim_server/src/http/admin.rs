@@ -462,6 +462,94 @@ pub async fn market_supply_delta(
     )
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AdminRefitShipReq {
+    /// Slot name as it appears on the wire: `engine`, `cargo_bay`,
+    /// `sensors`, `reactor`, `comms`.
+    pub slot: String,
+    /// Module slug from the catalog (e.g. `engine_t2`). `null` or missing
+    /// clears the slot.
+    #[serde(default)]
+    pub slug: Option<String>,
+}
+
+/// POST /api/admin/ships/:id/refit — swap one subsystem slot on a ship.
+///
+/// Validates slot name, slug presence in the catalog, and slot match
+/// before enqueueing the engine-side swap. Returns 202 so callers know
+/// the change will land on the next engine drain (sub-tick latency).
+pub async fn refit_ship(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<AdminRefitShipReq>,
+) -> (StatusCode, Json<Value>) {
+    // --- Resolve slot name --------------------------------------------
+    let slot = match body.slot.as_str() {
+        "engine" => sim_core::modules::Slot::Engine,
+        "cargo_bay" => sim_core::modules::Slot::CargoBay,
+        "sensors" => sim_core::modules::Slot::Sensors,
+        "reactor" => sim_core::modules::Slot::Reactor,
+        "comms" => sim_core::modules::Slot::Comms,
+        other => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("unknown slot: {other}")})),
+            );
+        }
+    };
+
+    // --- Validate slug (if provided) ----------------------------------
+    if let Some(s) = body.slug.as_deref() {
+        match sim_core::modules::get(s) {
+            Some(def) if def.slot == slot => {}
+            Some(def) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": format!(
+                            "slug {s} belongs to slot {}, not {}",
+                            def.slot.as_str(),
+                            slot.as_str(),
+                        ),
+                    })),
+                );
+            }
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("unknown module slug: {s}")})),
+                );
+            }
+        }
+    }
+
+    if state
+        .control_tx
+        .send(crate::control::ControlCommand::AdminRefitShip {
+            id: id.clone(),
+            slot,
+            slug: body.slug.clone(),
+        })
+        .await
+        .is_err()
+    {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "control channel closed"})),
+        );
+    }
+
+    (
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "status": "scheduled",
+            "id": id,
+            "slot": slot.as_str(),
+            "slug": body.slug,
+        })),
+    )
+}
+
 /// POST /api/admin/save — returns the current tick to acknowledge.
 /// The persistence worker flushes every 5s automatically; this endpoint
 /// is a UI hook that says "yes I heard you." A future pass can wire a

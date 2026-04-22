@@ -295,6 +295,7 @@ fn build_router(state: AppState) -> Router {
         // Phase 11g: admin (god-mode) endpoints.
         .route("/api/admin/ships", post(admin::create_ship))
         .route("/api/admin/ships/{id}", delete(admin::destroy_ship))
+        .route("/api/admin/ships/{id}/refit", post(admin::refit_ship))
         .route("/api/admin/facilities", post(admin::create_facility))
         .route("/api/admin/facilities/{id}", delete(admin::destroy_facility))
         .route(

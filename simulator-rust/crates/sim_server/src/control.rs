@@ -84,4 +84,14 @@ pub enum ControlCommand {
         location: String,
         deltas: Vec<(Commodity, f32)>,
     },
+    /// Admin: swap a subsystem module in one slot on a ship. `slug = None`
+    /// clears the slot. Engine validates the slug is in the catalog and
+    /// matches the slot, then recomputes derived stats + rebakes
+    /// `ShipCargo.capacity` / `ShipFuel.speed_modifier` from the class
+    /// base × new multipliers. Marks the ship dirty for persistence.
+    AdminRefitShip {
+        id: String,
+        slot: sim_core::modules::Slot,
+        slug: Option<String>,
+    },
 }

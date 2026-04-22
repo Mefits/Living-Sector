@@ -2274,4 +2274,67 @@ mod tick_tests {
         memory.price_knowledge.insert("b".into(), b);
         assert!(best_trade_route(&memory).is_none());
     }
+
+    #[test]
+    fn fitting_set_swaps_slug_and_recomputes() {
+        use crate::modules::Slot;
+
+        let mut fit = ShipFitting::new_default();
+        assert_eq!(fit.slot_slug(Slot::Engine), Some("engine_t1"));
+        assert!((fit.derived.speed_mult - 1.0).abs() < 1e-6);
+
+        fit.set(Slot::Engine, Some("engine_t3"));
+        assert_eq!(fit.slot_slug(Slot::Engine), Some("engine_t3"));
+        assert!((fit.derived.speed_mult - 1.30).abs() < 1e-6);
+        assert!((fit.derived.fuel_efficiency_mult - 0.90).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fitting_clear_slot_drops_to_neutral_mult() {
+        use crate::modules::Slot;
+
+        let mut fit = ShipFitting::new_default();
+        fit.set(Slot::Engine, Some("engine_t3"));
+        assert!(fit.derived.speed_mult > 1.0);
+        // Clearing the slot removes the boost without penalising the
+        // ship at the catalog layer — gameplay can layer a penalty on
+        // top if it wants.
+        fit.set(Slot::Engine, None);
+        assert!((fit.derived.speed_mult - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fitting_from_slugs_round_trips_valid_slugs() {
+        use crate::modules::{Slot, NUM_SLOTS};
+        let raw: [Option<String>; NUM_SLOTS] = [
+            Some("engine_t2".into()),
+            Some("cargo_bay_t2".into()),
+            Some("sensors_t1".into()),
+            Some("reactor_t1".into()),
+            Some("comms_t1".into()),
+        ];
+        let fit = ShipFitting::from_slugs(&raw);
+        assert_eq!(fit.slot_slug(Slot::Engine), Some("engine_t2"));
+        assert_eq!(fit.slot_slug(Slot::CargoBay), Some("cargo_bay_t2"));
+        // Derived reflects the two tier-2 upgrades: 1.15 × 1.0 = 1.15
+        // speed, 1.20 cargo mult.
+        assert!((fit.derived.speed_mult - 1.15).abs() < 1e-6);
+        assert!((fit.derived.cargo_capacity_mult - 1.20).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fitting_from_slugs_falls_back_to_default_on_unknown() {
+        use crate::modules::{Slot, NUM_SLOTS};
+        let raw: [Option<String>; NUM_SLOTS] = [
+            Some("engine_mystery_xyz".into()), // unknown slug
+            Some("cargo_bay_t1".into()),
+            Some("sensors_t1".into()),
+            Some("reactor_t1".into()),
+            Some("comms_t1".into()),
+        ];
+        let fit = ShipFitting::from_slugs(&raw);
+        // Unknown slug falls back to the tier-1 default — rehydration
+        // from a stale DB row never yields an empty engine.
+        assert_eq!(fit.slot_slug(Slot::Engine), Some("engine_t1"));
+    }
 }

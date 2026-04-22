@@ -507,7 +507,7 @@ async fn load_ships(
                 cargo, cargo_age,
                 docked_at, transit_from, transit_to, transit_departure_tick, transit_arrival_tick,
                 current_goal, broke_strikes, hoard_strikes, idle_ticks,
-                active_contract_id, price_knowledge, visited
+                active_contract_id, price_knowledge, visited, fitting
          FROM ships",
     )
     .fetch_all(pool)
@@ -587,13 +587,15 @@ async fn load_ships(
         let cargo: Cargo = parse_cargo(&cargo_json);
         let cargo_age: HashMap<Commodity, u64> = parse_commodity_u64_map(&cargo_age_json);
 
-        // Phase 18a: every ship gets a tier-1-default subsystem fitting
-        // at load. Derived multipliers are baked into the stored
-        // cargo capacity + speed modifier so tick logic continues
-        // reading them unchanged. Tier 1 is neutral by design, so
-        // this is a no-op for existing seeds — it just scaffolds the
-        // per-ship `ShipFitting` component for Phase 18b refit.
-        let fitting = sim_core::agents::ship::ShipFitting::new_default();
+        // Phase 18a/b: resolve the ship's subsystem fitting.
+        // New rows + migration-defaulted rows carry `fitting = '{}'`,
+        // which parses as "no slot set" → falls back to the tier-1
+        // default per slot. Rows persisted after a refit carry a
+        // populated object. Either way the derived multipliers get
+        // baked into the loaded cargo capacity + speed modifier so
+        // tick-loop code reads the same fields it always did.
+        let fitting_json: String = r.try_get("fitting").unwrap_or_default();
+        let fitting = parse_ship_fitting(&fitting_json);
         let fitted_cargo_capacity =
             ((cargo_capacity as f32) * fitting.derived.cargo_capacity_mult).round() as u32;
         let fitted_speed_modifier = (speed_modifier as f32) * fitting.derived.speed_mult;
@@ -803,6 +805,44 @@ fn parse_commodity_u64_map(json: &str) -> HashMap<Commodity, u64> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Parse a `ships.fitting` JSON blob (slot_name → slug | null) into a
+/// `ShipFitting`. Empty / missing / malformed input falls back to the
+/// tier-1 default — a pre-Phase-18b row stored as `'{}'` round-trips
+/// cleanly into a baseline-neutral fitting.
+fn parse_ship_fitting(json: &str) -> sim_core::agents::ship::ShipFitting {
+    use sim_core::modules::{NUM_SLOTS, SLOTS};
+    let v: serde_json::Value = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(_) => return sim_core::agents::ship::ShipFitting::new_default(),
+    };
+    let Some(obj) = v.as_object() else {
+        return sim_core::agents::ship::ShipFitting::new_default();
+    };
+    // Treat empty object as "use defaults" for every slot — matches the
+    // migration default.
+    if obj.is_empty() {
+        return sim_core::agents::ship::ShipFitting::new_default();
+    }
+    let mut raw: [Option<String>; NUM_SLOTS] = Default::default();
+    for slot in SLOTS.iter().copied() {
+        raw[slot.index()] = obj
+            .get(slot.as_str())
+            .and_then(|v| {
+                if v.is_null() {
+                    None
+                } else {
+                    v.as_str().map(|s| s.to_string())
+                }
+            });
+        // If the key was *missing entirely* (not null), fall back to
+        // the default so partial migrations still yield a viable fit.
+        if raw[slot.index()].is_none() && !obj.contains_key(slot.as_str()) {
+            raw[slot.index()] = Some(sim_core::modules::default_for_slot(slot).to_string());
+        }
+    }
+    sim_core::agents::ship::ShipFitting::from_slugs(&raw)
 }
 
 fn parse_cargo(json: &str) -> Cargo {
