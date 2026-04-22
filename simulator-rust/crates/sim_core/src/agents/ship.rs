@@ -1436,17 +1436,32 @@ fn decide_and_act(
 
     // Phase 18d: snapshot shipyard inventories once per call so per-ship
     // retrofit planning doesn't re-query hecs. Each entry is (location,
-    // slug → qty). Skipping abandoned shipyards matches the existing
-    // "abandoned facilities don't service ships" pattern.
+    // system_id, slug → qty). Skipping abandoned shipyards matches the
+    // existing "abandoned facilities don't service ships" pattern. The
+    // system tag lets `find_retrofit_opportunity` prefer same-system
+    // yards so Tau Ceti ships don't fly across gates for a tier-2
+    // engine when their local Anvil yard has one in stock.
     let shipyard_inventory: ShipyardInventorySnapshot = {
+        use crate::agents::celestial_body::BodyIdentity;
         use crate::agents::facility::{
             FacilityIdentity, FacilityLifecycle, FacilityLocation, ModuleStock,
         };
+        let body_to_system: std::collections::HashMap<String, String> = world
+            .query::<&BodyIdentity>()
+            .iter()
+            .map(|(_, id)| (id.body_id.clone(), id.system_name.clone()))
+            .collect();
         world
             .query::<(&FacilityIdentity, &FacilityLocation, &FacilityLifecycle, &ModuleStock)>()
             .iter()
             .filter(|(_, (id, _, life, _))| id.facility_type == "shipyard" && !life.abandoned)
-            .map(|(_, (_, loc, _, stock))| (loc.location_name.clone(), stock.stock.clone()))
+            .map(|(_, (id, loc, _, stock))| {
+                let system = body_to_system
+                    .get(&id.body_id)
+                    .cloned()
+                    .unwrap_or_default();
+                (loc.location_name.clone(), system, stock.stock.clone())
+            })
             .collect()
     };
 
@@ -1486,7 +1501,16 @@ fn decide_and_act(
             }
             let fitting = world.get::<&ShipFitting>(entity).ok()?;
             let economy = world.get::<&ShipEconomy>(entity).ok()?;
-            find_retrofit_opportunity(&fitting, &shipyard_inventory, economy.credits)
+            let position = world.get::<&ShipPosition>(entity).ok()?;
+            let ship_location = position.location_name.clone().unwrap_or_default();
+            let ship_system = position.system_id.clone();
+            find_retrofit_opportunity(
+                &fitting,
+                &shipyard_inventory,
+                economy.credits,
+                &ship_location,
+                &ship_system,
+            )
         })();
 
         let mut q = match world.query_one::<(
@@ -1903,7 +1927,12 @@ pub struct RetrofitPlan {
 /// Snapshot of every shipyard's available inventory, built once per
 /// `decide_and_act` call so each ship's planner can consult it without
 /// re-querying hecs. `Vec` keeps order deterministic run-over-run.
-pub type ShipyardInventorySnapshot = Vec<(String, std::collections::HashMap<String, u32>)>;
+///
+/// Each entry is `(location_name, system_id, stock)` — system is
+/// derived from the yard's body via `BodyIdentity.system_name` and
+/// powers the "same-system first" retrofit preference.
+pub type ShipyardInventorySnapshot =
+    Vec<(String, String, std::collections::HashMap<String, u32>)>;
 
 /// Credits floor a ship keeps in reserve before considering an
 /// autonomous retrofit. Refits are meant to be rare; no ship burns
@@ -1918,17 +1947,19 @@ pub const RETROFIT_CREDIT_RESERVE: i64 = 12_000;
 /// swap exists — every slot already at tier 3, or no shipyard carries
 /// a matching upgrade in stock.
 ///
-/// Selection policy (MVP):
+/// Selection policy:
 ///  - Walk slots in canonical order (engine, cargo, sensors, reactor, comms).
 ///  - Target `current_tier + 1` (skip if already at 3).
-///  - Pick the first shipyard offering that slug in stock.
-///
-/// Smarter policies (nearest / cheapest / class-aware) can replace
-/// this once autonomous retrofit is exercised in real smoke runs.
+///  - Among yards carrying the target slug, prefer (in order): same
+///    location (no travel), same system (no gate hop), any other.
+///    Keeps Tau Ceti ships from flying to Earth for a routine refit
+///    when their home yard has stock.
 pub fn find_retrofit_opportunity(
     fitting: &ShipFitting,
     inventory: &ShipyardInventorySnapshot,
     ship_credits: i64,
+    ship_location: &str,
+    ship_system: &str,
 ) -> Option<RetrofitPlan> {
     if ship_credits < RETROFIT_CREDIT_RESERVE {
         return None;
@@ -1959,10 +1990,22 @@ pub fn find_retrofit_opportunity(
         if ship_credits - recipe.base_cost_credits < RETROFIT_CREDIT_RESERVE {
             continue;
         }
-        // Find a shipyard carrying this slug.
-        let Some((loc, _)) = inventory
+        // Rank yards carrying this slug by proximity: same location
+        // first, then same system, then anywhere else. `min_by_key`
+        // picks the lowest score; ties broken by Vec iteration order
+        // (deterministic per run).
+        let Some((loc, _, _)) = inventory
             .iter()
-            .find(|(_, stock)| stock.get(def.slug).copied().unwrap_or(0) > 0)
+            .filter(|(_, _, stock)| stock.get(def.slug).copied().unwrap_or(0) > 0)
+            .min_by_key(|(loc, system, _)| {
+                if loc == ship_location {
+                    0u8
+                } else if !ship_system.is_empty() && system == ship_system {
+                    1
+                } else {
+                    2
+                }
+            })
         else {
             continue;
         };
@@ -2686,16 +2729,23 @@ mod tick_tests {
         assert!(!p.spend_retrofit_point());
     }
 
+    fn yard(
+        loc: &str,
+        system: &str,
+        slug: &str,
+        qty: u32,
+    ) -> (String, String, std::collections::HashMap<String, u32>) {
+        let mut s: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        s.insert(slug.into(), qty);
+        (loc.into(), system.into(), s)
+    }
+
     #[test]
     fn find_retrofit_opportunity_picks_first_upgradable_slot() {
         use crate::modules::Slot;
-
         let fit = ShipFitting::new_default();
-        let mut stock: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
-        stock.insert("engine_t2".into(), 2);
-        let inventory = vec![("earth-station".to_string(), stock)];
-
-        let plan = find_retrofit_opportunity(&fit, &inventory, 50_000).unwrap();
+        let inventory = vec![yard("earth-station", "Sol", "engine_t2", 2)];
+        let plan = find_retrofit_opportunity(&fit, &inventory, 50_000, "luna-base", "Sol").unwrap();
         assert_eq!(plan.slot, Slot::Engine);
         assert_eq!(plan.slug, "engine_t2");
         assert_eq!(plan.shipyard_location, "earth-station");
@@ -2704,35 +2754,25 @@ mod tick_tests {
     #[test]
     fn find_retrofit_opportunity_rejects_below_credit_reserve() {
         let fit = ShipFitting::new_default();
-        let mut stock: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
-        stock.insert("engine_t2".into(), 2);
-        let inventory = vec![("earth-station".to_string(), stock)];
-
+        let inventory = vec![yard("earth-station", "Sol", "engine_t2", 2)];
         // 12k reserve - can't afford 8k engine_t2 AND keep reserve intact.
-        assert!(find_retrofit_opportunity(&fit, &inventory, 15_000).is_none());
-        // Plenty of credits → clear to fly.
-        assert!(find_retrofit_opportunity(&fit, &inventory, 50_000).is_some());
+        assert!(find_retrofit_opportunity(&fit, &inventory, 15_000, "", "").is_none());
+        assert!(find_retrofit_opportunity(&fit, &inventory, 50_000, "", "").is_some());
     }
 
     #[test]
     fn find_retrofit_opportunity_skips_slot_when_no_stock_and_tries_next() {
         use crate::modules::Slot;
-
-        // Tier-2 engine is stocked NOWHERE, but cargo_bay_t2 is.
         let fit = ShipFitting::new_default();
-        let mut stock: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
-        stock.insert("cargo_bay_t2".into(), 1);
-        let inventory = vec![("mars-station".to_string(), stock)];
-
-        let plan = find_retrofit_opportunity(&fit, &inventory, 50_000).unwrap();
+        let inventory = vec![yard("mars-station", "Sol", "cargo_bay_t2", 1)];
+        let plan =
+            find_retrofit_opportunity(&fit, &inventory, 50_000, "mars-station", "Sol").unwrap();
         assert_eq!(plan.slot, Slot::CargoBay);
-        assert_eq!(plan.slug, "cargo_bay_t2");
     }
 
     #[test]
     fn find_retrofit_opportunity_none_when_fully_tiered() {
-        // Manually build an all-tier-3 fit — nothing to upgrade.
-        use crate::modules::{Slot, NUM_SLOTS};
+        use crate::modules::NUM_SLOTS;
         let raw: [Option<String>; NUM_SLOTS] = [
             Some("engine_t3".into()),
             Some("cargo_bay_t3".into()),
@@ -2741,13 +2781,47 @@ mod tick_tests {
             Some("comms_t3".into()),
         ];
         let fit = ShipFitting::from_slugs(&raw);
-        let _ = Slot::Engine; // keep import tidy
+        let inventory = vec![yard("anywhere", "Sol", "engine_t3", 5)];
+        assert!(find_retrofit_opportunity(&fit, &inventory, 100_000, "", "").is_none());
+    }
 
-        let mut stock: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
-        stock.insert("engine_t3".into(), 5);
-        let inventory = vec![("anywhere".into(), stock)];
+    #[test]
+    fn find_retrofit_opportunity_prefers_same_location() {
+        let fit = ShipFitting::new_default();
+        // Same slug in two yards; ship is at earth-station, so
+        // earth-station should win over haven-station.
+        let inventory = vec![
+            yard("haven-station", "Alpha Centauri", "engine_t2", 3),
+            yard("earth-station", "Sol", "engine_t2", 1),
+        ];
+        let plan =
+            find_retrofit_opportunity(&fit, &inventory, 50_000, "earth-station", "Sol").unwrap();
+        assert_eq!(plan.shipyard_location, "earth-station");
+    }
 
-        assert!(find_retrofit_opportunity(&fit, &inventory, 100_000).is_none());
+    #[test]
+    fn find_retrofit_opportunity_prefers_same_system_when_not_at_a_yard() {
+        let fit = ShipFitting::new_default();
+        // Ship is at anvil-depot (Tau Ceti). Same-system Anvil yard
+        // vs cross-gate Earth yard — Anvil should win.
+        let inventory = vec![
+            yard("earth-station", "Sol", "engine_t2", 5),
+            yard("anvil-depot", "Tau Ceti", "engine_t2", 1),
+        ];
+        let plan =
+            find_retrofit_opportunity(&fit, &inventory, 50_000, "anvil-depot", "Tau Ceti").unwrap();
+        assert_eq!(plan.shipyard_location, "anvil-depot");
+    }
+
+    #[test]
+    fn find_retrofit_opportunity_falls_back_when_no_local_match() {
+        let fit = ShipFitting::new_default();
+        // Ship in Sol, engine_t2 only stocked in Tau Ceti — still
+        // picks it (cross-system retrofit beats no retrofit).
+        let inventory = vec![yard("anvil-depot", "Tau Ceti", "engine_t2", 1)];
+        let plan =
+            find_retrofit_opportunity(&fit, &inventory, 50_000, "earth-station", "Sol").unwrap();
+        assert_eq!(plan.shipyard_location, "anvil-depot");
     }
 
     #[test]
