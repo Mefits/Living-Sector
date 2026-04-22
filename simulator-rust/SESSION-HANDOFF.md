@@ -6,24 +6,68 @@ anything else as you need it.
 
 ## Where we are
 
-**Phases 1–17 shipped.** 100 tests passing, strict clippy clean. Sim
-runs 806 agents (223 ships + 62 facilities including 6 gates + 23
-markets + 19 pops + 6 factions + 23 bodies) at p50 ≈ 0.5 ms / p99 ≈
-2 ms per tick on an M1 Mac. Full economic loop, per-faction rep-gated
+**Phases 1–17 shipped + an economic/physics stabilization pass.** 100
+tests passing. Sim runs 806 agents (223 ships + 62 facilities including
+6 gates + 23 markets + 19 pops + 6 factions + 23 bodies) at p50 ≈ 3–8
+ms / p99 ≈ 8–17 ms per tick. Full economic loop, per-faction rep-gated
 contracts, observer-driven spatial LOD for ships, facility autonomy
 with abandonment, admin CRUD including runtime spawn, SQLite
 persistence that round-trips ships / markets / factions / facilities /
 populations / bodies / tick counter across restart. Godot client has
-13 toggle-able inspector panels. Phase 17 added inter-system jump
-gates: no direct cross-system routes, all cross-system travel routes
-through a gate, each jump pays a fee (flat + per-cargo). Transit lines
-now converge into gate highways instead of scattering across the
-galaxy.
+13 toggle-able inspector panels.
 
-The user said **"things seem to be running well"** — no bugs
-blocking. Feature work is paused. **Next session owner is taking
-this over for agent stats/systems work (ships → facilities → crews).
-See the dedicated section at the bottom of this file.**
+**Since the initial "Phases 1–17 complete" handoff the following
+landed** (in one long session):
+
+- **Velocity-based transit.** Ships move `speed_mod × tick_scale ×
+  SHIP_BASE_VELOCITY` world-units per tick toward the live destination
+  position. No more precomputed `arrival_tick + straight-line lerp`.
+  World-speed changes mid-flight rescale immediately. Ships are no
+  longer on rails — when combat / evasion / flee logic lands, they'll
+  just swap the waypoint. `Transit` carries `departure_position` so
+  the source body can orbit away without dragging the ship along.
+- **DockDwell + Loading/Unloading crew tasks.** Visible station
+  activity (2s arrive + 2s depart at every dock sequence), with crew
+  task set from the action (Buy → Loading, SellAll/DeliverCargo →
+  Unloading). `primary_task` rewritten so docked ships don't show
+  "Piloting" anymore.
+- **Ship seed position fix.** Ships used to spawn at universe origin
+  (0, 0) regardless of their location's system. Now resolved from the
+  location's body + facility offset at load.
+- **Godot warp streak.** On gate teleport, trail clears and a short
+  violet-core/cyan-halo streak draws across the discontinuity, fading
+  over ~1.6s. Kills the "phantom line across the galaxy" artifact.
+- **Recipe-input contracts.** Refineries / factories / farms post
+  delivery contracts for ore/gas/metals/polymers/ice/water when the
+  local market is short, so ships pull raw materials to producers.
+  Payment uses `max(flat_base, src_price × qty × 1.3)` so contracts
+  stay profitable even with volatile source prices.
+- **Faction bailout.** After every tax cycle, factions wire 6k to any
+  member facility below 3k credits, down to a 2k treasury floor.
+  Rescues bankrupted infrastructure before it abandons.
+- **Crew balance pass (THE fix that unlocked contract acceptance).**
+  Hunger rate 2.0 → 1.0. Fatigue rate 1.0 → 0.4. Docked recovery −5
+  on hunger, −5 on fatigue, +6 morale per check. Hunger/fatigue
+  morale penalties only fire OFF-STATION. `CREW_REST_TRIGGER` 35 →
+  15. Was: 0 contracts ever accepted. Now: ~70 accepted and ~80 paid
+  per ~12k-tick fresh sim.
+- **Pop emergency food contracts.** When `food_satisfaction < 20`,
+  pop posts a higher-qty, 6× premium, half-lifespan food contract so
+  starving populations outbid subsidies on the board.
+- **Price-engine damping.** Wider stable zone (coverage 10–200 = no
+  pressure), softer shortage ramp, urgency cap 4.0 → 2.5, per-tick
+  rate limit 5%. Keeps prices from slamming into ceiling/floor in
+  one tick while the supply chain catches up.
+- **sim-review skill** at
+  `simulator-rust/.claude/skills/sim-review/SKILL.md` — `/sim-review`
+  runs a regression-plus-health sweep of the live sim.
+
+**Sim currently runs clean.** Economy is contract-driven (most ships
+on `fulfill_delivery`, <5% on `trade_run`), starvation trending down,
+prices still bimodal at extremes but with a meaningful mid-range band
+(~33% of commodity/market cells). Next session owner was going to pick
+up agent stats/systems work — **see briefing at the bottom of this
+file, that plan is still current.**
 
 ## What just shipped (most recent first)
 
@@ -64,7 +108,12 @@ Default `WORLD_SPEED=0.25` is the "chill play" pace (Earth↔Mars ≈ 4 min).
 ## Verification one-liners
 
 ```bash
-# Against a running sim on :8080 (or :8091 for test runs)
+# Full economy + regression sweep against a live sim
+# (calls out stuck contracts, pinned prices, stranded ships, etc.)
+#   /sim-review
+# Implemented at simulator-rust/.claude/skills/sim-review/SKILL.md
+
+# Direct API pokes
 curl -s localhost:8080/api/health | jq '.perf'
 curl -s localhost:8080/api/contracts | jq '.data | length'
 curl -s localhost:8080/api/observers | jq .
@@ -82,6 +131,22 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{"ticks":8}' \
 
 ## Open candidates (none urgent)
 
+- **Stats + systems pass** (agent attributes / combat / upgrades /
+  mission richness). This is the next session's planned direction —
+  see the dedicated briefing at the bottom of this file.
+- **Economy follow-up tuning.** After the economic stabilization pass
+  prices still show ~45% of cells pinned at the ceiling or floor and
+  ~5 populations still run below 30 food-satisfaction. Not broken,
+  just "not fully converged at 12k ticks." Let it run longer before
+  tuning further — the damping is new and wants settling time. If
+  after a long-burn test equilibrium is still bad, candidates are
+  (a) bump farm production, (b) shorten emergency-food contract
+  lifespan further, (c) widen `coverage_to_pressure` stable zone.
+- **`SIM_DEBUG_CONTRACTS=1` env flag is removed.** If you need to
+  diagnose why ships aren't accepting contracts again, add an opt-in
+  log at the rejection branches of `ship::try_plan_contract`. The
+  pattern worked well: 1 line at each `continue`, totalled via
+  `grep -c` on the log file.
 - **Phase 16 — facility + population LOD rate scaling.** They carry
   `AgentLod` for the stats readout but their per-tick phases don't
   gate on it. ~75 agents vs 223 ships, so small gain; recipe
@@ -116,6 +181,25 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{"ticks":8}' \
   hasn't fired for 10 real ticks and fires now, it burns 10× fuel in
   that one tick. If you add a new per-tick ship rate, multiply by
   `effective_scale = tick_scale × skipped_ticks`, not raw `tick_scale`.
+- **Ships don't replan every tick.** `plan_goal` only fires when a
+  ship's BT completes (`ai.current_bt.is_none()`). A trade_run BT is
+  10+ actions long, so between replans a ship ignores newly-posted
+  contracts. This is why economic rebalancing takes ~10+ game-minutes
+  to settle, not seconds.
+- **Recipe inputs come from market.supply, not facility reserves.** A
+  refinery's `reserves[Ore]=2000` doesn't feed its recipe; the recipe
+  eats from the market at that location. Ships SellAll at earth adds
+  to earth market supply, which is what refineries consume. If you
+  see reserves with stock but recipes idle, that's the reason.
+- **`posted_for_ship` requires ship credits ≥ `buy_cost + gate_fees`.**
+  If ships look broke + contracts look rich but acceptance is zero,
+  the issue is usually `try_plan_contract` rejecting at the cost
+  check. `compute_delivery_payment` scales with live source-market
+  price specifically to prevent that.
+- **Trail teleport detection in `ship.gd` uses a 3-unit threshold.**
+  If someone shortens cross-system offsets further, the warp streak
+  might not trigger on genuine gate jumps. Raise the threshold or
+  check against a different signal (e.g. a `gate_jump` event).
 
 ## Critical files to read first
 
@@ -160,9 +244,9 @@ conversation, not a committed scope.
 
 The economic simulator today has these per-agent numbers:
 
-- **Ship**: credits, fuel, cargo (13 commodities × qty), faction_reputation map, efficiency, broke_strikes, hoard_strikes, idle_ticks. Plus aggregate crew: morale, fatigue, hunger, health, wages, current_task, 4 skills (nav/eng/trade/combat), size.
+- **Ship**: credits, fuel, cargo (13 commodities × qty), faction_reputation map, efficiency, broke_strikes, hoard_strikes, idle_ticks, `dock_dwell_start_tick` (ephemeral). Plus aggregate crew: morale, fatigue, hunger, health, wages, `current_task` (Piloting/Engineering/Trading/Loading/Unloading/Eating/Resting/OnMission/Idle), 4 skills (nav/eng/trade/combat), size.
 - **Facility**: condition, reputation, credits, docking_capacity, reserves (13 commodities), level, xp, abandon_counter, abandoned flag. Plus gate link when applicable.
-- **Crew** (aggregate on ship, not individual entities): the ship's `ShipCrew` fields above.
+- **Crew** (aggregate on ship, not individual entities): the ship's `ShipCrew` fields above. The `CrewTask` enum got `Loading` and `Unloading` in the post-Phase-17 work, giving docking visibility — this pattern (set task from action, tick_crew leaves it alone unless `Eating`/`Resting`/`Idle`) is reusable for combat/repair/rescue tasks.
 
 "Stats" in a sim-game context usually means **attributes that modify
 behavior / outcomes** — think class-based RPG stats: attack, defense,

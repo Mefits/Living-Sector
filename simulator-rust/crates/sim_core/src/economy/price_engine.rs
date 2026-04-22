@@ -9,8 +9,19 @@
 
 pub const ABSOLUTE_PRICE_CEILING: f32 = 500.0;
 pub const URGENCY_ONSET_TICKS: u32 = 20;
-pub const URGENCY_RAMP_TICKS: u32 = 30;
-pub const URGENCY_MAX_MULTIPLIER: f32 = 4.0;
+pub const URGENCY_RAMP_TICKS: u32 = 50;
+/// Capped lower than the original 4.0 so urgent shortages don't sprint
+/// prices to the ceiling in a dozen ticks; supply-chain response has
+/// more time to catch up before the market saturates and every planner
+/// converges on "this commodity is king, buy everything".
+pub const URGENCY_MAX_MULTIPLIER: f32 = 2.5;
+
+/// Hard cap on per-tick price change as a fraction. Without this, a
+/// commodity with elasticity 0.05 × urgency 2.5 = 0.125 can leap 12.5%
+/// per tick, and at 8 tps that's a 100× price swing in one in-game
+/// minute. Rate-limits move prices realistically regardless of the
+/// seed `price_elasticity`.
+pub const MAX_PRICE_CHANGE_PER_TICK: f32 = 0.05;
 
 /// Urgency multiplier applied to upward pressure when a commodity has been
 /// in shortage for `shortage_ticks` consecutive ticks.
@@ -24,19 +35,25 @@ pub fn urgency_multiplier(shortage_ticks: u32) -> f32 {
 
 /// Map coverage (ticks of supply at current demand) → pressure (-1.0 to +1.0).
 /// Positive = price wants to go up, negative = wants to go down.
+///
+/// Softer curve than the original: the stable zone is wider (no
+/// pressure from coverage 10–200) and the climb out of shortage is
+/// gentler, so a single tick of bad coverage doesn't spike the price.
+/// Keeps the extreme signal (coverage < 0.5 = max upward pressure)
+/// because truly empty markets genuinely are urgent.
 fn coverage_to_pressure(coverage: f32) -> f32 {
-    if coverage < 1.0 {
+    if coverage < 0.5 {
         1.0
-    } else if coverage < 5.0 {
-        0.5 + (5.0 - coverage) / 8.0
-    } else if coverage < 20.0 {
-        (20.0 - coverage) / 30.0
-    } else if coverage < 100.0 {
+    } else if coverage < 2.0 {
+        0.6 + (2.0 - coverage) / 4.0 * 0.4
+    } else if coverage < 10.0 {
+        (10.0 - coverage) / 20.0
+    } else if coverage < 200.0 {
         0.0
-    } else if coverage < 500.0 {
-        -0.3
-    } else if coverage < 5000.0 {
-        -0.6
+    } else if coverage < 1000.0 {
+        -0.2
+    } else if coverage < 10000.0 {
+        -0.5
     } else {
         -1.0
     }
@@ -61,9 +78,10 @@ pub fn recalculate(
     } else {
         elasticity
     };
-    let clamped_pressure = pressure * effective_elasticity;
+    let raw_change = pressure * effective_elasticity;
+    let change = raw_change.clamp(-MAX_PRICE_CHANGE_PER_TICK, MAX_PRICE_CHANGE_PER_TICK);
 
-    let new_price = current_price * (1.0 + clamped_pressure);
+    let new_price = current_price * (1.0 + change);
     let rounded = (new_price * 100.0).round() / 100.0;
     rounded.clamp(1.0, ABSOLUTE_PRICE_CEILING)
 }

@@ -1391,15 +1391,6 @@ fn try_plan_contract(
         kind: ContractType,
     }
     let mut best: Option<Candidate> = None;
-    let debugging = std::env::var("SIM_DEBUG_CONTRACTS").is_ok();
-    if debugging {
-        let posted_total = contracts.posted().len();
-        let count = contracts.posted_for_ship(&economy.faction_reputation).len();
-        eprintln!(
-            "[contract-debug] ship={} cr={} cap={} at={} posted_total={} visible={}",
-            _ship_id, economy.credits, cargo.capacity, at_loc, posted_total, count
-        );
-    }
 
     for c in contracts.posted_for_ship(&economy.faction_reputation) {
         // Passenger / courier / crew-mission contracts don't occupy cargo
@@ -1408,12 +1399,6 @@ fn try_plan_contract(
         let is_courier = c.contract_type == ContractType::Courier;
         let is_mission = c.contract_type == ContractType::CrewMission;
         if !is_passenger && !is_mission && c.quantity > cargo.capacity {
-            if debugging {
-                eprintln!(
-                    "[contract-debug]   skip {}: qty {} > cap {}",
-                    c.id, c.quantity, cargo.capacity
-                );
-            }
             continue;
         }
 
@@ -1431,15 +1416,7 @@ fn try_plan_contract(
                 .map(|p| p.price);
             match src_price {
                 Some(p) => (p * c.quantity as f32) as i64,
-                None => {
-                    if debugging {
-                        eprintln!(
-                            "[contract-debug]   skip {}: no price memory for {:?} at {}",
-                            c.id, c.commodity, c.source_location
-                        );
-                    }
-                    continue;
-                }
+                None => continue,
             }
         };
         // Rough upper-bound estimate of gate fees along the full route
@@ -1456,29 +1433,10 @@ fn try_plan_contract(
         );
         let cost: i64 = buy_cost + gate_fees;
         if cost >= c.payment {
-            if debugging {
-                eprintln!(
-                    "[contract-debug]   skip {}: cost {} >= pay {} (buy={} gate={})",
-                    c.id, cost, c.payment, buy_cost, gate_fees
-                );
-            }
             continue;
         }
         if economy.credits < cost {
-            if debugging {
-                eprintln!(
-                    "[contract-debug]   skip {}: credits {} < cost {}",
-                    c.id, economy.credits, cost
-                );
-            }
             continue;
-        }
-        if debugging {
-            eprintln!(
-                "[contract-debug]   ok {}: {:?} qty={} {} -> {} cost={} pay={} profit={}",
-                c.id, c.contract_type, c.quantity, c.source_location,
-                c.destination_location, cost, c.payment, c.payment - cost
-            );
         }
         let profit = c.payment - cost;
         let better = best

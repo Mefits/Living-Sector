@@ -112,6 +112,17 @@ pub const CONTRACT_FOOD_THRESHOLD: i32 = 40;
 /// Food satisfaction below this triggers emergency water purchase too —
 /// dehydration compounds the food shortage in Elixir's pop model.
 pub const EMERGENCY_WATER_THRESHOLD: i32 = 30;
+/// Below this satisfaction, the pop is actually starving (people dying,
+/// not just hungry). Contracts go into emergency mode — higher payment
+/// multiplier, bigger quantity, shorter lifespan — so the ship planner
+/// treats them as the most attractive contracts on the board instead
+/// of letting them rot behind better-paying subsidies.
+pub const EMERGENCY_FOOD_THRESHOLD: i32 = 20;
+/// Payment multiplier for `EMERGENCY_FOOD_THRESHOLD` contracts.
+/// Effective pay = base × EMERGENCY_FOOD_PREMIUM × qty — outpaces
+/// subsidy rates so ships with uncommitted capacity route to the
+/// starving pop first.
+pub const EMERGENCY_FOOD_PREMIUM: f32 = 6.0;
 /// Extra water consumed per cycle during an emergency. Rate × pop size ÷ 1000.
 pub const EMERGENCY_WATER_RATE: f32 = 0.5;
 /// Contracts expire after this many base-ticks unposted.
@@ -426,19 +437,30 @@ fn post_food_contracts(
             None => continue, // nowhere to ship food from
         };
 
-        // Scale order size to population (more people → bigger need),
-        // capped at a reasonable ship-load.
-        let quantity = (dec.population_count / 1000).clamp(20, 300) as u32;
-        // Payment scales with commodity base price × premium × urgency × qty.
-        // Urgency multiplier: pop at satisfaction=0 pays up to (1 + 2) = 3×,
-        // pop at satisfaction=threshold pays 1×. Matches Elixir's
-        // `1.0 + (1.0 - satisfaction/100) × 2`.
-        let sat_ratio = (dec.satisfaction as f32 / 100.0).clamp(0.0, 1.0);
-        let urgency = 1.0 + (1.0 - sat_ratio) * CONTRACT_URGENCY_PEAK;
-        let payment = (Commodity::Food.base_price()
-            * CONTRACT_PREMIUM
-            * urgency
-            * quantity as f32) as i64;
+        // Starving pops post an EMERGENCY contract: larger order, much
+        // higher payment, shorter lifespan. Below the normal threshold
+        // but above the emergency one, we post the regular "pop is
+        // peckish" contract.
+        let is_emergency = dec.satisfaction < EMERGENCY_FOOD_THRESHOLD;
+        let quantity: u32 = if is_emergency {
+            (dec.population_count / 500).clamp(50, 500) as u32
+        } else {
+            (dec.population_count / 1000).clamp(20, 300) as u32
+        };
+        let payment = if is_emergency {
+            (Commodity::Food.base_price() * EMERGENCY_FOOD_PREMIUM * quantity as f32) as i64
+        } else {
+            let sat_ratio = (dec.satisfaction as f32 / 100.0).clamp(0.0, 1.0);
+            let urgency = 1.0 + (1.0 - sat_ratio) * CONTRACT_URGENCY_PEAK;
+            (Commodity::Food.base_price() * CONTRACT_PREMIUM * urgency * quantity as f32) as i64
+        };
+        let lifespan = if is_emergency {
+            // Half the normal lifespan — the pop either gets fed fast or
+            // it's reposting with fresh urgency.
+            (CONTRACT_LIFESPAN_BASE / 2).max(50) * tick_multiplier
+        } else {
+            CONTRACT_LIFESPAN_BASE * tick_multiplier
+        };
 
         contracts.post_delivery(
             dec.pop_id,
@@ -448,7 +470,7 @@ fn post_food_contracts(
             dec.destination,
             payment,
             tick,
-            CONTRACT_LIFESPAN_BASE * tick_multiplier,
+            lifespan,
         );
     }
 }
