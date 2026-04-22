@@ -21,6 +21,9 @@ const TYPE_MODELS := {
 	# distinguishing feature is the cyan emissive ring built procedurally
 	# below — it's what makes them visually "portal-y" in-game.
 	"gate": "res://assets/stations/station06_base.glb",
+	# Shipyards use the heavy industrial look (same as factories) — they
+	# mint subsystem modules, so "big mechanical thing" fits.
+	"shipyard": "res://assets/stations/station06_base.glb",
 }
 
 const DEFAULT_MODEL := "res://assets/stations/station01.glb"

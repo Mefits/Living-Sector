@@ -156,6 +156,29 @@ func _body_for_kind(kind: String, ev: Dictionary) -> String:
 				str(ev.get("location", "?")),
 				int((ev.get("deltas", []) as Array).size()),
 			]
+		"ship_leveled_up":
+			return "%s → lvl %d (+%d retrofit pts)" % [
+				str(ev.get("id", "?")),
+				int(ev.get("new_level", 0)),
+				int(ev.get("levels_gained", 0)),
+			]
+		"ship_refitted":
+			var from = ev.get("from", null)
+			var to = ev.get("to", null)
+			var from_s := "—" if from == null else str(from)
+			var to_s := "—" if to == null else str(to)
+			var via := str(ev.get("via", "admin"))
+			var cost_str := ""
+			if ev.has("cost"):
+				cost_str = " (%d cr)" % int(ev.get("cost", 0))
+			return "%s %s: %s → %s [%s%s]" % [
+				str(ev.get("id", "?")),
+				str(ev.get("slot", "?")),
+				from_s,
+				to_s,
+				via,
+				cost_str,
+			]
 		_:
 			# Unknown kind — stringify the fields we have.
 			var parts: PackedStringArray = PackedStringArray()

@@ -141,6 +141,7 @@ const GOAL_LABELS := {
 	"sell_cargo": "Liquidate Cargo",
 	"station_job": "Station Job",
 	"do_crew_mission": "Crew Mission",
+	"seek_retrofit": "Seek Retrofit",
 	"idle": "Idle",
 }
 

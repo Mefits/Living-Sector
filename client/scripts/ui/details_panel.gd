@@ -282,6 +282,29 @@ func _refresh_ship() -> void:
         parts.append("%s %d" % [str(k), int(skills[k])])
       lines.append("  Skills: " + " · ".join(parts))
 
+  # Progression (Phase 18d) — ship-level XP + banked retrofit points.
+  # Retrofit points drive autonomous refits: when a ship has >=1 point
+  # and the credit reserve is clear, its planner routes to a stocked
+  # shipyard and spends one to install a tier-up module.
+  var prog = data.get("progression")
+  if prog is Dictionary:
+    lines.append("")
+    lines.append("[b]Progression[/b]")
+    var lvl: int = int(prog.get("level", 1))
+    var xp: int = int(prog.get("xp", 0))
+    var nxt: int = int(prog.get("next_level_threshold", 0))
+    var rp: int = int(prog.get("retrofit_points", 0))
+    var pct: int = 0
+    if nxt > 0:
+      pct = int(clampf(float(xp) / float(nxt), 0.0, 1.0) * 100.0)
+    lines.append("  Level %d  (%d / %d XP  %d%%)" % [lvl, xp, nxt, pct])
+    if rp > 0:
+      lines.append(
+        "  [color=#7fe7c9]Retrofit points: %d[/color]  [i](ready to install)[/i]" % rp
+      )
+    else:
+      lines.append("  Retrofit points: 0")
+
   # Subsystems (Phase 18a) — fitted modules per slot + derived rollup
   var fitting = data.get("fitting")
   if fitting is Dictionary:
@@ -359,6 +382,26 @@ func _refresh_facility() -> void:
       var qty: int = int(reserves[commodity])
       if qty > 0:
         lines.append("  %s: %d" % [commodity, qty])
+
+  # Shipyard module stock (Phase 18c). Absent on non-shipyards.
+  # Sorted so the slot ordering matches the ship details panel.
+  var module_stock = data.get("module_stock")
+  if module_stock is Dictionary and module_stock.size() > 0:
+    lines.append("")
+    lines.append("[b]Module Stock[/b]  [i](installable subsystems)[/i]")
+    var keys: Array = module_stock.keys()
+    keys.sort()
+    for slug in keys:
+      var qty2: int = int(module_stock[slug])
+      if qty2 > 0:
+        lines.append("  %s × %d" % [str(slug), qty2])
+  elif str(data.get("type", "")) == "shipyard":
+    # Shipyard exists but stock empty — useful to see so players
+    # know production is lagging.
+    lines.append("")
+    lines.append(
+      "[b]Module Stock[/b]  [i](empty — awaiting production)[/i]"
+    )
 
   # Market — only if this facility has one (matched by location)
   var fac_loc: String = str(data.get("location", ""))

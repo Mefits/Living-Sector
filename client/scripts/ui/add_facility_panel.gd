@@ -8,7 +8,7 @@ signal create_requested(data: Dictionary)
 # Facility types — from the backend reference doc.
 const FACILITY_TYPES := [
 	"station", "outpost", "mining_rig", "refinery",
-	"factory", "farm", "hub",
+	"factory", "farm", "hub", "shipyard",
 ]
 
 @onready var name_edit: LineEdit = $VBox/Fields/NameRow/NameEdit
