@@ -1326,7 +1326,9 @@ fn advance_transits(
     tick_multiplier: u32,
     active: &ShipLodGate,
 ) {
-    use crate::agents::facility::{facility_offset_position, FacilityIdentity, FacilityLocation};
+    use crate::agents::facility::{
+        facility_offset_position, FacilityIdentity, FacilityLocation, FacilityOperations,
+    };
 
     // Snapshot body positions for location→position lookups.
     let body_positions: std::collections::HashMap<i64, (f32, f32)> = world
@@ -1338,17 +1340,35 @@ fn advance_transits(
         .map(|(_e, (id, orbit))| (id.db_id, orbit.universe_position()))
         .collect();
 
-    // Pick one "primary" facility id per location (first by hecs iteration
-    // order — stable within a run). Ships aim at this facility's offset
-    // position so they visually arrive at the station, not at the planet
-    // center. The snapshot layer uses the same `facility_offset_position`
-    // function so the ship and the station agree on where the station is.
-    let mut primary_facility_by_location: std::collections::HashMap<String, String> =
+    // Pick one "primary" facility id per location — the highest-capacity
+    // dockable facility there. Ships aim at this facility's offset
+    // position so they visually arrive at the station they'll actually
+    // try to dock at (matches the server-side `primary_dock_at_location`
+    // heuristic). The snapshot layer uses the same
+    // `facility_offset_position` function so ship and station agree on
+    // where the "dock" is.
+    //
+    // Pre-18M this picked by hecs iteration order, which at co-located
+    // clusters (earth-station has 5 facilities) would sometimes land
+    // on the farm or the refinery — ships visibly drifted to
+    // "Terra Hydroponics" even when the contract destination was the
+    // main station.
+    let mut primary_facility_by_location: std::collections::HashMap<String, (String, u32)> =
         std::collections::HashMap::new();
-    for (_e, (fac_id, fac_loc)) in world.query::<(&FacilityIdentity, &FacilityLocation)>().iter() {
-        primary_facility_by_location
+    for (_e, (fac_id, fac_loc, ops)) in world
+        .query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>()
+        .iter()
+    {
+        let cap = ops.docking_capacity;
+        if cap == 0 {
+            continue;
+        }
+        let entry = primary_facility_by_location
             .entry(fac_loc.location_name.clone())
-            .or_insert_with(|| fac_id.id.clone());
+            .or_insert_with(|| (fac_id.id.clone(), cap));
+        if cap > entry.1 {
+            *entry = (fac_id.id.clone(), cap);
+        }
     }
 
     let location_to_pos = |loc: &str| -> Option<(f32, f32)> {
@@ -1357,7 +1377,7 @@ fn advance_transits(
         // If there's a facility at this location, target its offset position
         // (where the client renders the station). Otherwise fall back to
         // body center (locations with no facility still need a position).
-        if let Some(fac_id) = primary_facility_by_location.get(loc) {
+        if let Some((fac_id, _)) = primary_facility_by_location.get(loc) {
             Some(facility_offset_position(body_pos, fac_id))
         } else {
             Some(body_pos)

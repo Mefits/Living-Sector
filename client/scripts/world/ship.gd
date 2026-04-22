@@ -128,7 +128,15 @@ func setup(data: Dictionary) -> void:
 
 	_setup_trail()
 	_setup_warp()
-	_setup_particles()
+	# Thruster particles scale with the ship's size tier so a tiny
+	# courier doesn't emit exhaust the size of the ship itself and a
+	# massive hauler gets visibly bigger burn plumes. We take the same
+	# multiplier ProceduralShip uses for geometry so particles stay
+	# proportional to what you see.
+	var size_mult: float = float(
+		ProceduralShip.SIZE_SCALES.get(proc_size, 1.0)
+	)
+	_setup_particles(size_mult)
 
 
 func _setup_trail() -> void:
@@ -243,21 +251,35 @@ func _update_trail() -> void:
 	_trail_mesh.surface_end()
 
 
-func _setup_particles() -> void:
+func _setup_particles(size_mult: float = 1.0) -> void:
 	_particles = GPUParticles3D.new()
 	_particles.emitting = false
 	_particles.amount = 16
 	_particles.lifetime = PARTICLE_BASE_LIFETIME
-	_particles.visibility_aabb = AABB(Vector3(-2, -2, -2), Vector3(4, 4, 4))
+	# Emitter is at the ship's origin in world space. GPUParticles3D uses
+	# `local_coords=false` by default, which means once a particle spawns
+	# it moves through world space independent of the emitter node's
+	# transform — so setting `_particles.scale` does NOT shrink individual
+	# particle meshes. We scale the material's velocity/size ranges and
+	# the draw_pass quad directly instead, which DOES propagate.
+	_particles.visibility_aabb = AABB(
+		Vector3(-2, -2, -2) * size_mult,
+		Vector3(4, 4, 4) * size_mult,
+	)
 
 	var mat := ParticleProcessMaterial.new()
 	mat.direction = Vector3(0, 0, -1)
 	mat.spread = 12.0
-	mat.initial_velocity_min = 0.5
-	mat.initial_velocity_max = 1.5
+	# Velocity scales with size so trail length ends up roughly constant
+	# in "ship lengths" regardless of tier — tiny ships get short plumes,
+	# massive ships get long ones.
+	mat.initial_velocity_min = 0.5 * size_mult
+	mat.initial_velocity_max = 1.5 * size_mult
 	mat.gravity = Vector3.ZERO
-	mat.scale_min = 0.3
-	mat.scale_max = 0.6
+	# Per-particle scale range — this is what controls the rendered size
+	# of each exhaust billboard.
+	mat.scale_min = 0.3 * size_mult
+	mat.scale_max = 0.6 * size_mult
 	mat.color = Color(0.8, 0.5, 0.2, 0.9)
 
 	var color_ramp := GradientTexture1D.new()
@@ -269,6 +291,10 @@ func _setup_particles() -> void:
 
 	_particles.process_material = mat
 
+	# Base mesh size stays fixed — mat.scale_min/max already applies the
+	# per-particle multiplier, and we scaled that by size_mult above.
+	# Scaling both would compound into size_mult², which was visibly too
+	# aggressive on the low end.
 	var quad := QuadMesh.new()
 	quad.size = Vector2(0.04, 0.04)
 	_particles.draw_pass_1 = quad
@@ -290,7 +316,17 @@ func _setup_particles() -> void:
 const TELEPORT_JUMP_THRESHOLD := 3.0
 
 func update_position(x: float, y: float) -> void:
-	_prev_pos = _next_pos
+	# If the previous lerp was still in flight when this broadcast
+	# arrived, capture the current on-screen (smoothstep-shaped)
+	# position and use it as the new _prev_pos. Otherwise the next
+	# lerp starts from the prior BROADCAST target — which is ahead
+	# of where the ship actually is — and the first frame snaps
+	# forward to that target, producing the intermittent "scoot".
+	if _lerp_t < 1.0:
+		var t := _lerp_t * _lerp_t * (3.0 - 2.0 * _lerp_t)
+		_prev_pos = _prev_pos.lerp(_next_pos, t)
+	else:
+		_prev_pos = _next_pos
 	_next_pos = GameState.server_to_world(x, y)
 	_lerp_t = 0.0
 

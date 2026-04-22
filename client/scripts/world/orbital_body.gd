@@ -145,9 +145,19 @@ func update_position(abs_x: float, abs_y: float) -> void:
   ## Called by `universe.gd::_on_positions_updated` each tick. `abs_x` and
   ## `abs_y` are absolute universe coordinates; we subtract the cached
   ## system offset to get local coords inside the star_system Node3D.
+  ##
+  ## Mid-lerp capture: if the previous interpolation was still in flight,
+  ## use the current visual (smoothstep-shaped) position as the new
+  ## _prev_pos so motion stays continuous. Same pattern as ship.gd /
+  ## facility.gd — discarding the current visual position would cause a
+  ## forward snap to the prior broadcast target on every new broadcast.
   var rel_x := abs_x - _system_offset.x
   var rel_y := abs_y - _system_offset.y
-  _prev_pos = _next_pos
+  if _lerp_t < 1.0:
+    var t := _lerp_t * _lerp_t * (3.0 - 2.0 * _lerp_t)
+    _prev_pos = _prev_pos.lerp(_next_pos, t)
+  else:
+    _prev_pos = _next_pos
   _next_pos = GameState.server_to_world(rel_x, rel_y)
   _lerp_t = 0.0
   _received_server_pos = true

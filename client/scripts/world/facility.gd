@@ -95,14 +95,26 @@ func setup(data: Dictionary, world_pos: Vector3, index: int = 0) -> void:
 func update_position(abs_x: float, abs_y: float) -> void:
 	var rel_x := abs_x - _system_offset.x
 	var rel_y := abs_y - _system_offset.y
-	_prev_pos = _next_pos
+	# Mid-lerp capture: if the previous interpolation was still in
+	# flight, use the current visual position as the new _prev_pos so
+	# the next lerp continues smoothly instead of snapping to the
+	# prior broadcast target. Same pattern as ship.gd / orbital_body.gd.
+	if _lerp_t < 1.0:
+		var t := _lerp_t * _lerp_t * (3.0 - 2.0 * _lerp_t)
+		_prev_pos = _prev_pos.lerp(_next_pos, t)
+	else:
+		_prev_pos = _next_pos
 	_next_pos = GameState.server_to_world(rel_x, rel_y)
 	_lerp_t = 0.0
 
 
 func _process(delta: float) -> void:
 	if _lerp_t < 1.0:
-		var interval := GameState.get_tick_interval_seconds()
+		# Pace against the observed broadcast cadence (EMA of actual
+		# wall-clock gaps) rather than the server-reported interval,
+		# matching ship.gd + orbital_body.gd. Survives mid-run
+		# world_speed changes cleanly.
+		var interval := GameState.get_effective_interval_seconds()
 		_lerp_t = minf(_lerp_t + delta / interval, 1.0)
 		var t := _lerp_t * _lerp_t * (3.0 - 2.0 * _lerp_t)
 		position = _prev_pos.lerp(_next_pos, t)
