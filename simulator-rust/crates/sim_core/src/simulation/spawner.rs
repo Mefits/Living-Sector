@@ -11,12 +11,44 @@ use crate::economy::contracts::ContractBoard;
 use hecs::{Entity, World};
 use std::collections::HashMap;
 
+/// Pending INSERT-then-backfill request for a facility that was just
+/// materialised from a construction site. The ECS entity is already
+/// spawned with `FacilityIdentity.db_id = 0`; the engine drains this
+/// queue asynchronously after each apply phase, runs the real INSERT,
+/// and updates the entity's db_id with the returned row id.
+///
+/// Pure data (strings + numbers) so `sim_core` stays free of sqlx.
+#[derive(Debug, Clone)]
+pub struct PendingMaterialization {
+    pub entity: Entity,
+    pub agent_id: String,
+    /// Source construction-site agent id. The engine drains this
+    /// queue and schedules a `ConstructionSiteDelete` for this id
+    /// so the completed site doesn't resurrect on restart.
+    pub source_site_id: String,
+    pub name: String,
+    pub facility_type: String,
+    pub faction_id: String,
+    pub body_id: String,
+    pub location_id: i64,
+    pub location_name: String,
+    pub docking_capacity: u32,
+    pub credits: i64,
+    pub reputation: i32,
+    pub condition: f32,
+}
+
 pub struct AgentStore {
     /// The ECS world holding all entity components.
     pub world: World,
 
     /// Contract board — directed demand signals between populations/facilities and ships.
     pub contracts: ContractBoard,
+
+    /// Construction-site materialisations awaiting DB INSERT. Pushed
+    /// by the sync `apply_construction_delivery` path; drained by the
+    /// async tick loop immediately after the apply phase.
+    pub pending_materializations: Vec<PendingMaterialization>,
 
     // --- String id lookups ---
     pub ship_by_id: HashMap<String, Entity>,
@@ -48,6 +80,7 @@ impl AgentStore {
         Self {
             world: World::new(),
             contracts: ContractBoard::new(),
+            pending_materializations: Vec::new(),
             ship_by_id: HashMap::new(),
             market_by_id: HashMap::new(),
             facility_by_id: HashMap::new(),

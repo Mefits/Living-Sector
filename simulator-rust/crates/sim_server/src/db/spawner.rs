@@ -86,6 +86,7 @@ pub async fn load_agents(
     load_populations(pool, &mut store).await?;
     load_ships(pool, registry, tick_config, &mut store).await?;
     load_contracts(pool, &mut store).await?;
+    load_construction_sites(pool, &mut store).await?;
 
     // Build the gate location-pair lookup used by the pathfinder
     // BEFORE seeding ship price knowledge — tier-3 ships need to know
@@ -1279,6 +1280,68 @@ async fn load_contracts(pool: &SqlitePool, store: &mut AgentStore) -> Result<()>
 
     if loaded > 0 {
         info!("Spawner: loaded {} contracts from DB", loaded);
+    }
+    Ok(())
+}
+
+/// Phase 19c-d: rebuild any live construction sites from the DB.
+/// Incomplete sites (progress < 1.0 and not `completed`) spawn back
+/// into the ECS; finished sites on disk are rare (a race between
+/// completion-emit and restart) and are skipped so the subsequent
+/// materialisation isn't attempted twice.
+async fn load_construction_sites(pool: &SqlitePool, store: &mut AgentStore) -> Result<()> {
+    use sim_core::agents::construction::ConstructionSite;
+    use sim_core::economy::commodities::Commodity;
+
+    let rows = sqlx::query(
+        "SELECT agent_id, name, facility_type, faction_id, body_id,
+                location_name, commodity,
+                progress_delivered, progress_required,
+                position_x, position_y,
+                spawned_at_tick, completed
+           FROM construction_sites",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut loaded = 0_usize;
+    for r in rows {
+        let completed: i64 = r.get("completed");
+        if completed != 0 {
+            continue;
+        }
+        let commodity_str: String = r.get("commodity");
+        let Some(commodity) = Commodity::from_str(&commodity_str) else {
+            tracing::warn!(
+                commodity = %commodity_str,
+                "skipping construction site with unknown commodity"
+            );
+            continue;
+        };
+        let site = ConstructionSite {
+            id: r.get("agent_id"),
+            name: r.get("name"),
+            facility_type: r.get("facility_type"),
+            faction_id: r.get("faction_id"),
+            body_id: r.get("body_id"),
+            location_name: r.get("location_name"),
+            commodity,
+            progress_delivered: r.get::<i64, _>("progress_delivered") as u32,
+            progress_required: r.get::<i64, _>("progress_required") as u32,
+            position: (
+                r.get::<f64, _>("position_x") as f32,
+                r.get::<f64, _>("position_y") as f32,
+            ),
+            spawned_at_tick: r.get::<i64, _>("spawned_at_tick") as u64,
+            completed: false,
+            dirty: false,
+        };
+        store.world.spawn((site,));
+        loaded += 1;
+    }
+
+    if loaded > 0 {
+        info!("Spawner: loaded {} construction sites from DB", loaded);
     }
     Ok(())
 }

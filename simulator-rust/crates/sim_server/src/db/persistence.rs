@@ -102,6 +102,15 @@ pub enum DbWrite {
     /// decommissioned. Retained after the ships table row is
     /// deleted so the client can render a post-mortem trail.
     RetireShip { row: RetirementRow },
+    /// Phase 19c-d: construction-site upsert. Sites persist across
+    /// restarts so a half-built site + its in-flight contract don't
+    /// vanish on reboot. INSERT OR REPLACE keyed on `agent_id` —
+    /// volume is low (≤ one site per faction-commodity-location) so
+    /// upsert overhead is negligible vs. an UPDATE+INSERT split.
+    ConstructionSiteUpsert { row: ConstructionSiteRow },
+    /// Drop a site row by agent_id — fires when the site materialises
+    /// into a real facility (or an admin deletes it).
+    ConstructionSiteDelete { agent_id: String },
     /// Full snapshot of the contract board. Emitted every 16 ticks
     /// (same cadence as facility / population flushes). Applied as
     /// DELETE + bulk INSERT in one transaction so removals (paid /
@@ -135,6 +144,25 @@ pub struct RetirementRow {
     pub hoard_strikes: i32,
     pub retired_at_tick: i64,
     pub reason: String,
+}
+
+/// Flat construction-site row pushed by the engine flush sweep.
+/// Mirrors the `construction_sites` table schema verbatim.
+#[derive(Debug, Clone)]
+pub struct ConstructionSiteRow {
+    pub agent_id: String,
+    pub name: String,
+    pub facility_type: String,
+    pub faction_id: String,
+    pub body_id: String,
+    pub location_name: String,
+    pub commodity: String,
+    pub progress_delivered: i64,
+    pub progress_required: i64,
+    pub position_x: f32,
+    pub position_y: f32,
+    pub spawned_at_tick: i64,
+    pub completed: bool,
 }
 
 /// Flat contract row pushed from the engine to the persistence
@@ -178,6 +206,10 @@ impl DbWrite {
             DbWrite::DeleteShip { db_id } => ("ship_delete", db_id.to_string()),
             DbWrite::DeleteFacility { db_id } => ("facility_delete", db_id.to_string()),
             DbWrite::ContractBoardSnapshot { .. } => ("contract_board", String::new()),
+            DbWrite::ConstructionSiteUpsert { row } => ("site", row.agent_id.clone()),
+            DbWrite::ConstructionSiteDelete { agent_id } => {
+                ("site_delete", agent_id.clone())
+            }
             // Retirements are append-only — every emit becomes its
             // own INSERT. Dedup-key includes the agent_id + tick so
             // multiple retirements in a single sweep don't collapse.
@@ -445,6 +477,53 @@ impl PersistenceWorker {
                 DbWrite::DeleteFacility { db_id } => {
                     sqlx::query("DELETE FROM facilities WHERE id = ?1")
                         .bind(db_id)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+
+                DbWrite::ConstructionSiteUpsert { row } => {
+                    sqlx::query(
+                        "INSERT INTO construction_sites (
+                             agent_id, name, facility_type, faction_id,
+                             body_id, location_name, commodity,
+                             progress_delivered, progress_required,
+                             position_x, position_y,
+                             spawned_at_tick, completed
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                         ON CONFLICT(agent_id) DO UPDATE SET
+                             name=excluded.name,
+                             facility_type=excluded.facility_type,
+                             faction_id=excluded.faction_id,
+                             body_id=excluded.body_id,
+                             location_name=excluded.location_name,
+                             commodity=excluded.commodity,
+                             progress_delivered=excluded.progress_delivered,
+                             progress_required=excluded.progress_required,
+                             position_x=excluded.position_x,
+                             position_y=excluded.position_y,
+                             completed=excluded.completed,
+                             updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+                    )
+                    .bind(&row.agent_id)
+                    .bind(&row.name)
+                    .bind(&row.facility_type)
+                    .bind(&row.faction_id)
+                    .bind(&row.body_id)
+                    .bind(&row.location_name)
+                    .bind(&row.commodity)
+                    .bind(row.progress_delivered)
+                    .bind(row.progress_required)
+                    .bind(row.position_x as f64)
+                    .bind(row.position_y as f64)
+                    .bind(row.spawned_at_tick)
+                    .bind(row.completed as i64)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+
+                DbWrite::ConstructionSiteDelete { agent_id } => {
+                    sqlx::query("DELETE FROM construction_sites WHERE agent_id = ?1")
+                        .bind(&agent_id)
                         .execute(&mut *tx)
                         .await?;
                 }

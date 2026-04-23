@@ -232,6 +232,7 @@ async fn main() -> Result<()> {
                 broadcast_tx,
                 control_rx,
                 persist_tx,
+                pool.clone(),
             )
             .await;
         })

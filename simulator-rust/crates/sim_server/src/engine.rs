@@ -82,6 +82,7 @@ pub async fn run_tick_loop(
     broadcast_tx: broadcast::Sender<Arc<ServerMsg>>,
     mut control_rx: mpsc::Receiver<ControlCommand>,
     persist_tx: mpsc::Sender<DbWrite>,
+    pool: sqlx::SqlitePool,
 ) {
     let mut timer_interval = tick_config.tick_interval_ms();
     interval_ms.store(timer_interval, Ordering::Relaxed);
@@ -268,6 +269,7 @@ pub async fn run_tick_loop(
             tick_mult,
         );
         apply_ship_commands(&mut store, &mut commands, &mut events);
+        drain_pending_materializations(&mut store, &pool, &persist_tx, &mut events).await;
         facility::tick_facilities(
             &mut store.world,
             &mut store.contracts,
@@ -287,6 +289,7 @@ pub async fn run_tick_loop(
         market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
         // Market emits TransferCredits (spread revenue) — apply before clearing
         apply_ship_commands(&mut store, &mut commands, &mut events);
+        drain_pending_materializations(&mut store, &pool, &persist_tx, &mut events).await;
         faction::tick_factions(&mut store.world, &mut store.contracts, &mut events, tick, tick_mult);
         commands.clear();
 
@@ -715,6 +718,48 @@ fn emit_persist_writes(
             }
             if let Ok(mut crew) = store.world.get::<&mut FacilityCrew>(entity) {
                 crew.dirty = false;
+            }
+        }
+    }
+
+    // Phase 19c-d: flush dirty construction sites on the same cadence
+    // as facilities. Volume is low (one site per commodity-location)
+    // so we push every dirty row directly — no further dedup needed.
+    if flush_facility {
+        use sim_core::agents::construction::ConstructionSite;
+        let dirty: Vec<hecs::Entity> = store
+            .world
+            .query::<&ConstructionSite>()
+            .iter()
+            .filter(|(_, s)| s.dirty)
+            .map(|(e, _)| e)
+            .collect();
+        for entity in dirty {
+            let row_opt = {
+                let Ok(site) = store.world.get::<&ConstructionSite>(entity) else {
+                    continue;
+                };
+                Some(crate::db::persistence::ConstructionSiteRow {
+                    agent_id: site.id.clone(),
+                    name: site.name.clone(),
+                    facility_type: site.facility_type.clone(),
+                    faction_id: site.faction_id.clone(),
+                    body_id: site.body_id.clone(),
+                    location_name: site.location_name.clone(),
+                    commodity: site.commodity.as_str().to_string(),
+                    progress_delivered: site.progress_delivered as i64,
+                    progress_required: site.progress_required as i64,
+                    position_x: site.position.0,
+                    position_y: site.position.1,
+                    spawned_at_tick: site.spawned_at_tick as i64,
+                    completed: site.completed,
+                })
+            };
+            if let Some(row) = row_opt {
+                let _ = tx.try_send(DbWrite::ConstructionSiteUpsert { row });
+            }
+            if let Ok(mut site) = store.world.get::<&mut ConstructionSite>(entity) {
+                site.dirty = false;
             }
         }
     }
@@ -2603,8 +2648,11 @@ fn apply_construction_delivery(
 
     if completed_now {
         // Despawn the site, materialise a real facility at the same
-        // position via the shared admin-spawn plumbing (bypassing DB
-        // — this facility lives in RAM only until 19c-persist lands).
+        // position via the shared admin-spawn plumbing. DB INSERT for
+        // the new facility is queued via `pending_materializations`
+        // and drained asynchronously right after the apply phase; the
+        // site row itself is deleted here so restart doesn't resurrect
+        // a completed site.
         let _ = store.world.despawn(site_entity);
         materialize_facility(
             store,
@@ -2620,14 +2668,78 @@ fn apply_construction_delivery(
     }
 }
 
+/// Drain `store.pending_materializations`: INSERT each queued facility
+/// row into SQLite, stash the returned id back on the in-memory
+/// `FacilityIdentity.db_id`, and queue a `ConstructionSiteDelete` so
+/// the source site row is cleaned up in the same persistence sweep.
+async fn drain_pending_materializations(
+    store: &mut AgentStore,
+    pool: &sqlx::SqlitePool,
+    persist_tx: &mpsc::Sender<DbWrite>,
+    events: &mut Vec<serde_json::Value>,
+) {
+    use sim_core::agents::facility::FacilityIdentity;
+    let pending: Vec<sim_core::simulation::spawner::PendingMaterialization> =
+        std::mem::take(&mut store.pending_materializations);
+    if pending.is_empty() {
+        return;
+    }
+    for req in pending {
+        let insert = sqlx::query(
+            "INSERT INTO facilities (
+                 name, facility_type, location_id, location_name, body_id, faction_id,
+                 docking_capacity, services, condition, reputation, credits,
+                 reserves, docked_ships
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        )
+        .bind(&req.name)
+        .bind(&req.facility_type)
+        .bind(req.location_id)
+        .bind(&req.location_name)
+        .bind(&req.body_id)
+        .bind(&req.faction_id)
+        .bind(req.docking_capacity as i64)
+        .bind("[\"market\"]")
+        .bind(req.condition as f64)
+        .bind(req.reputation as i64)
+        .bind(req.credits)
+        .bind("{}")
+        .bind("[]")
+        .execute(pool)
+        .await;
+        match insert {
+            Ok(r) => {
+                let db_id = r.last_insert_rowid();
+                if let Ok(mut fid) = store.world.get::<&mut FacilityIdentity>(req.entity) {
+                    fid.db_id = db_id;
+                }
+            }
+            Err(e) => {
+                events.push(serde_json::json!({
+                    "kind": "materialization_failed",
+                    "agent_id": req.agent_id,
+                    "error": format!("{e}"),
+                }));
+                continue;
+            }
+        }
+        // Clean up the source construction-site row so restart
+        // doesn't resurrect the completed site.
+        let _ = persist_tx
+            .send(DbWrite::ConstructionSiteDelete {
+                agent_id: req.source_site_id.clone(),
+            })
+            .await;
+    }
+}
+
 /// Spawn a fully-functional facility entity at the given position —
-/// same component set as `admin_spawn_facility` produces, but
-/// generated from scratch (no DB row yet). Used by
-/// `apply_construction_delivery` when a construction site finishes.
-///
-/// MVP caveat: `db_id` is set to 0 so the persistence worker's
-/// UPDATE statements no-op cleanly. A follow-up commit will INSERT
-/// the row and backfill the id.
+/// same component set as `admin_spawn_facility` produces. The ECS
+/// entity is created immediately with `FacilityIdentity.db_id = 0`
+/// and a [`PendingMaterialization`] is queued on the store. The
+/// engine's async tick loop drains the queue right after the apply
+/// phase, runs the INSERT against the pool, and backfills the real
+/// db_id so subsequent per-tick Facility flushes land on a real row.
 #[allow(clippy::too_many_arguments)]
 fn materialize_facility(
     store: &mut AgentStore,
@@ -2713,6 +2825,28 @@ fn materialize_facility(
         .entry(location_name.to_string())
         .or_default()
         .push(entity);
+
+    // Queue the DB INSERT. The async tick loop drains
+    // `pending_materializations` right after apply_ship_commands,
+    // awaits the INSERT, and backfills the returned row id into
+    // `FacilityIdentity.db_id`.
+    store
+        .pending_materializations
+        .push(sim_core::simulation::spawner::PendingMaterialization {
+            entity,
+            agent_id: agent_id.clone(),
+            source_site_id: source_site_id.to_string(),
+            name: clean_name.clone(),
+            facility_type: facility_type.to_string(),
+            faction_id: faction_id.to_string(),
+            body_id: body_id.to_string(),
+            location_id,
+            location_name: location_name.to_string(),
+            docking_capacity: 4,
+            credits: 20_000,
+            reputation: 50,
+            condition: 1.0,
+        });
 
     events.push(serde_json::json!({
         "kind": "construction_completed",
