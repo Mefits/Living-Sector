@@ -207,7 +207,7 @@ func _refresh_ship() -> void:
       var commodity: String = str(contract.get("commodity", ""))
       var qty: int = int(contract.get("quantity", 0))
       var pay: int = int(contract.get("payment", 0))
-      var status: String = str(contract.get("status", ""))
+      var contract_status: String = str(contract.get("status", ""))
       lines.append("")
       lines.append("[b]Job: %s[/b]" % contract_type)
       if src != "" and dst != "":
@@ -219,8 +219,8 @@ func _refresh_ship() -> void:
       var footer: PackedStringArray = PackedStringArray()
       if pay > 0:
         footer.append("%d cr" % pay)
-      if status != "":
-        footer.append(status)
+      if contract_status != "":
+        footer.append(contract_status)
       if footer.size() > 0:
         lines.append("  " + " · ".join(footer))
       # Crew missions get extra display because they carry skill/duration.

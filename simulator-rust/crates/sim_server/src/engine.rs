@@ -1523,6 +1523,16 @@ fn apply_request_dock_typed(
         return false;
     }
 
+    // Sweep stale entries from each candidate's queue before checking
+    // heads. A ship that left this location (started a new transit,
+    // got admin-destroyed, etc.) can otherwise wedge the queue head
+    // forever — everyone behind it starves. We rebuild each queue by
+    // retaining only entries whose ShipPosition still points at this
+    // facility's location string.
+    for &e in &candidates {
+        prune_stale_dock_queue(store, e, location);
+    }
+
     // Case 1: ship already queued at one of these candidates?
     for &e in &candidates {
         let queued_at_head = store
@@ -1655,6 +1665,43 @@ fn apply_request_dock_typed(
         }
     }
     false
+}
+
+/// Remove stale entries from a facility's `dock_queue`. A queue entry
+/// is "stale" if the ship entity no longer exists OR the ship's
+/// current location_name doesn't match this facility's location — i.e.
+/// the ship left without emitting anything that told us to drop it
+/// from the queue (started a Travel, got admin-destroyed, etc.).
+/// Without this sweep a single vanished ship can wedge the queue head
+/// forever and every ship behind it starves.
+fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, location: &str) {
+    use sim_core::agents::{
+        facility::FacilityStorage,
+        ship::ShipPosition,
+    };
+    let queue_snapshot: Vec<hecs::Entity> = match store.world.get::<&FacilityStorage>(facility) {
+        Ok(s) => s.dock_queue.clone(),
+        Err(_) => return,
+    };
+    if queue_snapshot.is_empty() {
+        return;
+    }
+    let mut keep: Vec<hecs::Entity> = Vec::with_capacity(queue_snapshot.len());
+    for e in queue_snapshot {
+        let still_here = store
+            .world
+            .get::<&ShipPosition>(e)
+            .map(|p| p.location_name.as_deref() == Some(location))
+            .unwrap_or(false);
+        if still_here {
+            keep.push(e);
+        }
+    }
+    if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
+        if storage.dock_queue.len() != keep.len() {
+            storage.dock_queue = keep;
+        }
+    }
 }
 
 /// Shared dock-commit helper: debits fee, credits facility, pushes the

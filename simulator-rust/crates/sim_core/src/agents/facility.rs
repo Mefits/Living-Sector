@@ -851,6 +851,17 @@ pub fn tick_facilities(
     // Phase 1: condition degrade (every tick; cheap — one field write).
     tick_degrade_condition(world, tick_scale);
 
+    // Phase 1a: dock-queue sweep. Purges entries whose ship has left
+    // (location_name != this facility's location) or has been
+    // despawned. Runs every 10×mult ticks — frequent enough to keep
+    // queues responsive but cheap (one query + a short per-facility
+    // retain). Without this, a ship that departs without docking
+    // leaves a zombie at the head and every ship behind it starves.
+    let queue_sweep_interval = 10 * mult;
+    if queue_sweep_interval > 0 && tick % queue_sweep_interval == 0 {
+        tick_dock_queue_sweep(world);
+    }
+
     // Phase 1b (Phase 19a): crew complement — food draw, hunger,
     // morale. Runs on its own 5×mult cadence so the morale curve
     // is smooth without hammering the tick loop every frame.
@@ -935,6 +946,46 @@ fn tick_degrade_condition(world: &mut hecs::World, tick_scale: f32) {
 /// The crew's `efficiency()` is read by `tick_recipes_and_mining`
 /// on its own interval and multiplies into recipe output + mining
 /// yield.
+/// Dock-queue sweep — runs on a slow cadence inside `tick_facilities`.
+/// Each facility's queue is trimmed to entries whose ship is still
+/// at this facility's location. Ships that started a Travel action
+/// (location_name → None) get dropped; despawned entities get dropped
+/// (the `ShipPosition` query fails). Head-of-line starvation is what
+/// this prevents: without this sweep, a single departed ship wedges
+/// everyone behind it.
+fn tick_dock_queue_sweep(world: &mut hecs::World) {
+    use crate::agents::ship::ShipPosition;
+    // Collect facility (entity, location_string) up front so we can
+    // check ship positions without double-borrowing the world.
+    let facilities: Vec<(hecs::Entity, String)> = world
+        .query::<(&FacilityLocation, &FacilityStorage)>()
+        .iter()
+        .filter(|(_, (_, s))| !s.dock_queue.is_empty())
+        .map(|(e, (loc, _))| (e, loc.location_name.clone()))
+        .collect();
+    for (entity, loc_name) in facilities {
+        let queue_snapshot = match world.get::<&FacilityStorage>(entity) {
+            Ok(s) => s.dock_queue.clone(),
+            Err(_) => continue,
+        };
+        let mut keep: Vec<Entity> = Vec::with_capacity(queue_snapshot.len());
+        for e in queue_snapshot {
+            let still_here = world
+                .get::<&ShipPosition>(e)
+                .map(|p| p.location_name.as_deref() == Some(loc_name.as_str()))
+                .unwrap_or(false);
+            if still_here {
+                keep.push(e);
+            }
+        }
+        if let Ok(mut storage) = world.get::<&mut FacilityStorage>(entity) {
+            if storage.dock_queue.len() != keep.len() {
+                storage.dock_queue = keep;
+            }
+        }
+    }
+}
+
 fn tick_facility_crew(
     world: &mut hecs::World,
     events: &mut Vec<serde_json::Value>,
