@@ -250,6 +250,56 @@ pub async fn populations(State(state): State<AppState>) -> impl IntoResponse {
     Json(json!({ "data": data }))
 }
 
+/// Phase 19g: ship retirement ledger. Every ship that's been
+/// decommissioned — whether admin-killed or (future) auto-recycled
+/// after strike-out — has a row here. Sorted newest-first, capped
+/// at 200 to keep the payload bounded.
+pub async fn retirements(State(state): State<AppState>) -> impl IntoResponse {
+    use sqlx::Row;
+    let rows = sqlx::query(
+        "SELECT agent_id, name, class, faction_id, final_location,
+                final_credits, final_crew_morale, final_fuel_pct,
+                broke_strikes, hoard_strikes, retired_at_tick,
+                reason, retired_at
+         FROM retired_ships
+         ORDER BY retired_at_tick DESC, id DESC
+         LIMIT 200",
+    )
+    .fetch_all(&*state.db_pool)
+    .await;
+
+    let data = match rows {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "agent_id": r.get::<String, _>("agent_id"),
+                    "name": r.get::<String, _>("name"),
+                    "class": r.get::<String, _>("class"),
+                    "faction_id": r.get::<String, _>("faction_id"),
+                    "final_location": r.get::<String, _>("final_location"),
+                    "final_credits": r.get::<i64, _>("final_credits"),
+                    "final_crew_morale": r.get::<i64, _>("final_crew_morale"),
+                    "final_fuel_pct": r.get::<i64, _>("final_fuel_pct"),
+                    "broke_strikes": r.get::<i64, _>("broke_strikes"),
+                    "hoard_strikes": r.get::<i64, _>("hoard_strikes"),
+                    "retired_at_tick": r.get::<i64, _>("retired_at_tick"),
+                    "reason": r.get::<String, _>("reason"),
+                    "retired_at": r.get::<String, _>("retired_at"),
+                })
+            })
+            .collect::<Vec<_>>(),
+        Err(e) => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("{e}")})),
+            )
+                .into_response();
+        }
+    };
+    Json(json!({ "data": data })).into_response()
+}
+
 /// Phase 19c: in-flight construction sites the demand analyzer has
 /// started. Godot polls this on boot (and gets live updates via
 /// positions + tick events) to render scaffolds for each one.

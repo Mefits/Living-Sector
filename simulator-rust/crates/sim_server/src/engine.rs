@@ -176,7 +176,15 @@ pub async fn run_tick_loop(
                     admin_spawn_ship(&mut store, &registry, payload, &mut events);
                 }
                 ControlCommand::AdminRemoveShip { id } => {
-                    admin_remove_ship(&mut store, &id, &mut events, &persist_tx).await;
+                    let tick_now = tick_counter.load(Ordering::Relaxed);
+                    admin_remove_ship(
+                        &mut store,
+                        &id,
+                        tick_now,
+                        &mut events,
+                        &persist_tx,
+                    )
+                    .await;
                 }
                 ControlCommand::AdminSpawnFacility(payload) => {
                     admin_spawn_facility(&mut store, payload, &mut events);
@@ -1795,14 +1803,58 @@ fn admin_spawn_facility(
 async fn admin_remove_ship(
     store: &mut AgentStore,
     id: &str,
+    tick_now: u64,
     events: &mut Vec<serde_json::Value>,
     persist_tx: &mpsc::Sender<DbWrite>,
 ) {
-    use sim_core::agents::{facility::FacilityStorage, ship::ShipIdentity};
+    use sim_core::agents::{
+        facility::FacilityStorage,
+        ship::{ShipCrew, ShipEconomy, ShipFuel, ShipIdentity, ShipLifecycle, ShipPosition},
+    };
     let Some(&entity) = store.ship_by_id.get(id) else {
         return;
     };
-    // Pull db_id BEFORE despawn so we can schedule the row delete.
+    // Capture retirement snapshot BEFORE despawn so the ledger has a
+    // full last-known state. Phase 19g — kept even after the ships
+    // row is deleted so the player can scroll back through
+    // decommissioned ships in the details panel.
+    let retirement_row = {
+        let identity = store.world.get::<&ShipIdentity>(entity).ok();
+        let position = store.world.get::<&ShipPosition>(entity).ok();
+        let econ = store.world.get::<&ShipEconomy>(entity).ok();
+        let crew = store.world.get::<&ShipCrew>(entity).ok();
+        let fuel = store.world.get::<&ShipFuel>(entity).ok();
+        let life = store.world.get::<&ShipLifecycle>(entity).ok();
+        identity.map(|id_ref| crate::db::persistence::RetirementRow {
+            agent_id: id_ref.id.clone(),
+            name: id_ref.name.clone(),
+            class: id_ref.class.clone(),
+            faction_id: id_ref.faction_id.clone(),
+            final_location: position
+                .as_ref()
+                .and_then(|p| p.location_name.clone())
+                .unwrap_or_default(),
+            final_credits: econ.as_ref().map(|e| e.credits).unwrap_or(0),
+            final_crew_morale: crew
+                .as_ref()
+                .map(|c| c.morale.round().clamp(0.0, 100.0) as i32)
+                .unwrap_or(0),
+            final_fuel_pct: fuel
+                .as_ref()
+                .map(|f| {
+                    if f.fuel_capacity <= 0.0 {
+                        0
+                    } else {
+                        ((f.fuel / f.fuel_capacity) * 100.0).round() as i32
+                    }
+                })
+                .unwrap_or(0),
+            broke_strikes: life.as_ref().map(|l| l.broke_strikes as i32).unwrap_or(0),
+            hoard_strikes: life.as_ref().map(|l| l.hoard_strikes as i32).unwrap_or(0),
+            retired_at_tick: tick_now as i64,
+            reason: "admin".to_string(),
+        })
+    };
     let db_id = store
         .world
         .get::<&ShipIdentity>(entity)
@@ -1818,6 +1870,9 @@ async fn admin_remove_ship(
     // live entity ids against the cache and removes missing keys).
     if let Some(db_id) = db_id {
         let _ = persist_tx.send(DbWrite::DeleteShip { db_id }).await;
+    }
+    if let Some(row) = retirement_row {
+        let _ = persist_tx.send(DbWrite::RetireShip { row }).await;
     }
     events.push(serde_json::json!({
         "kind": "ship_decommissioned",

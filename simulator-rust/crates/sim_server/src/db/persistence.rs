@@ -98,6 +98,10 @@ pub enum DbWrite {
     DeleteShip { db_id: i64 },
     /// Symmetric to DeleteShip, for facilities.
     DeleteFacility { db_id: i64 },
+    /// Phase 19g: append a retirement row when a ship gets
+    /// decommissioned. Retained after the ships table row is
+    /// deleted so the client can render a post-mortem trail.
+    RetireShip { row: RetirementRow },
     /// Full snapshot of the contract board. Emitted every 16 ticks
     /// (same cadence as facility / population flushes). Applied as
     /// DELETE + bulk INSERT in one transaction so removals (paid /
@@ -112,6 +116,25 @@ pub enum DbWrite {
     ContractBoardSnapshot {
         rows: Vec<ContractRow>,
     },
+}
+
+/// Phase 19g: final snapshot captured when a ship is decommissioned.
+/// Pushed through the persistence channel so the INSERT happens on
+/// the worker thread, not blocking the tick loop.
+#[derive(Debug, Clone)]
+pub struct RetirementRow {
+    pub agent_id: String,
+    pub name: String,
+    pub class: String,
+    pub faction_id: String,
+    pub final_location: String,
+    pub final_credits: i64,
+    pub final_crew_morale: i32,
+    pub final_fuel_pct: i32,
+    pub broke_strikes: i32,
+    pub hoard_strikes: i32,
+    pub retired_at_tick: i64,
+    pub reason: String,
 }
 
 /// Flat contract row pushed from the engine to the persistence
@@ -155,6 +178,12 @@ impl DbWrite {
             DbWrite::DeleteShip { db_id } => ("ship_delete", db_id.to_string()),
             DbWrite::DeleteFacility { db_id } => ("facility_delete", db_id.to_string()),
             DbWrite::ContractBoardSnapshot { .. } => ("contract_board", String::new()),
+            // Retirements are append-only — every emit becomes its
+            // own INSERT. Dedup-key includes the agent_id + tick so
+            // multiple retirements in a single sweep don't collapse.
+            DbWrite::RetireShip { row } => {
+                ("retire", format!("{}-{}", row.agent_id, row.retired_at_tick))
+            }
         }
     }
 }
@@ -395,6 +424,32 @@ impl PersistenceWorker {
                         .bind(db_id)
                         .execute(&mut *tx)
                         .await?;
+                }
+
+                DbWrite::RetireShip { row } => {
+                    sqlx::query(
+                        "INSERT INTO retired_ships (
+                             agent_id, name, class, faction_id,
+                             final_location, final_credits,
+                             final_crew_morale, final_fuel_pct,
+                             broke_strikes, hoard_strikes,
+                             retired_at_tick, reason
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    )
+                    .bind(&row.agent_id)
+                    .bind(&row.name)
+                    .bind(&row.class)
+                    .bind(&row.faction_id)
+                    .bind(&row.final_location)
+                    .bind(row.final_credits)
+                    .bind(row.final_crew_morale as i64)
+                    .bind(row.final_fuel_pct as i64)
+                    .bind(row.broke_strikes as i64)
+                    .bind(row.hoard_strikes as i64)
+                    .bind(row.retired_at_tick)
+                    .bind(&row.reason)
+                    .execute(&mut *tx)
+                    .await?;
                 }
 
                 DbWrite::ContractBoardSnapshot { rows } => {
