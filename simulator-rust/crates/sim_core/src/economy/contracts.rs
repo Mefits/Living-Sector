@@ -242,6 +242,17 @@ pub struct SweepResult {
     pub expired: Vec<ExpiredSummary>,
 }
 
+/// Result of [`ContractBoard::drop_ship_holdings`] — split so the
+/// caller can emit different events for "handed back to the board"
+/// vs "cargo was aboard, cancelled permanently."
+#[derive(Debug, Default, Clone)]
+pub struct DropShipResult {
+    /// Accepted contracts flipped back to Posted.
+    pub released: Vec<String>,
+    /// PickedUp contracts marked Expired — cargo was on the ship.
+    pub cancelled: Vec<String>,
+}
+
 /// In-memory contract board. Lives in `AgentStore`.
 #[derive(Debug, Default)]
 pub struct ContractBoard {
@@ -907,6 +918,126 @@ impl ContractBoard {
     /// [`DEFAULT_EXPIRE_LIFESPAN`] for the re-posted lifespan.
     pub fn expire(&mut self, tick: u64) -> u32 {
         self.sweep_expiring_counts(tick, DEFAULT_EXPIRE_LIFESPAN).1
+    }
+
+    /// Admin cleanup: release every Accepted contract held by a specific
+    /// fulfiller back to Posted, and mark any PickedUp ones Expired
+    /// (cargo was aboard the ship — if the ship is gone, the cargo is
+    /// too, so the contract can't be salvaged). Returns the cancelled
+    /// + released contract ids so the caller can emit events.
+    ///
+    /// Designed for the admin-destroy-ship path: without this, a
+    /// deleted ship leaves its Accepted contract permanently
+    /// unfulfillable — the contract's fulfiller_id points at a
+    /// despawned entity and `release()`'s fulfiller guard rejects
+    /// every other ship.
+    pub fn drop_ship_holdings(&mut self, ship_id: &str) -> DropShipResult {
+        let mut out = DropShipResult::default();
+        let ids: Vec<String> = self
+            .contracts
+            .iter()
+            .filter_map(|(id, c)| {
+                if c.fulfiller_id.as_deref() == Some(ship_id) {
+                    Some(id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in ids {
+            let (status, dest) = match self.contracts.get(&id) {
+                Some(c) => (c.status, c.destination_location.clone()),
+                None => continue,
+            };
+            match status {
+                ContractStatus::Accepted => {
+                    // Hand back to the board — another ship can pick up.
+                    if let Some(c) = self.contracts.get_mut(&id) {
+                        c.status = ContractStatus::Posted;
+                        c.fulfiller_id = None;
+                        c.accepted_at_tick = None;
+                    }
+                    self.reindex_status(&id, ContractStatus::Accepted, ContractStatus::Posted);
+                    let entry = self.posted_by_destination.entry(dest).or_default();
+                    if !entry.contains(&id) {
+                        entry.push(id.clone());
+                    }
+                    out.released.push(id);
+                }
+                ContractStatus::PickedUp => {
+                    // Cargo is gone with the ship — can't re-post.
+                    if let Some(c) = self.contracts.get_mut(&id) {
+                        c.status = ContractStatus::Expired;
+                    }
+                    self.reindex_status(&id, ContractStatus::PickedUp, ContractStatus::Expired);
+                    out.cancelled.push(id);
+                }
+                _ => {
+                    // Paid / Expired / Posted-with-stale-fulfiller: no action.
+                    // (Posted shouldn't happen — Posted has no fulfiller — but defensive.)
+                }
+            }
+        }
+        out
+    }
+
+    /// Admin cleanup: mark every non-finalised contract connected to a
+    /// facility as Expired. A "connection" means the facility is the
+    /// requestor, the source_location, or the destination_location.
+    /// The caller is responsible for deciding whether any of those
+    /// apply — for source/destination, usually only call if the
+    /// deleted facility was the last one at its location (otherwise
+    /// remaining facilities can still service the contract).
+    ///
+    /// Paid + Expired contracts are skipped — their lifecycle is done,
+    /// purging history would hide it from the audit trail.
+    pub fn cancel_for_facility(
+        &mut self,
+        requestor_id: Option<&str>,
+        source_location: Option<&str>,
+        destination_location: Option<&str>,
+    ) -> Vec<String> {
+        let mut cancelled: Vec<String> = Vec::new();
+        let ids: Vec<String> = self
+            .contracts
+            .iter()
+            .filter_map(|(id, c)| {
+                if matches!(c.status, ContractStatus::Paid | ContractStatus::Expired) {
+                    return None;
+                }
+                let hit_requestor = requestor_id
+                    .map(|r| c.requestor_id == r)
+                    .unwrap_or(false);
+                let hit_source = source_location
+                    .map(|s| c.source_location == s)
+                    .unwrap_or(false);
+                let hit_dest = destination_location
+                    .map(|d| c.destination_location == d)
+                    .unwrap_or(false);
+                if hit_requestor || hit_source || hit_dest {
+                    Some(id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in ids {
+            let (old_status, dest) = match self.contracts.get(&id) {
+                Some(c) => (c.status, c.destination_location.clone()),
+                None => continue,
+            };
+            if let Some(c) = self.contracts.get_mut(&id) {
+                c.status = ContractStatus::Expired;
+            }
+            self.reindex_status(&id, old_status, ContractStatus::Expired);
+            if old_status == ContractStatus::Posted {
+                if let Some(list) = self.posted_by_destination.get_mut(&dest) {
+                    list.retain(|i| i != &id);
+                }
+            }
+            cancelled.push(id);
+        }
+        cancelled
     }
 
     fn reindex_status(&mut self, id: &str, from: ContractStatus, to: ContractStatus) {

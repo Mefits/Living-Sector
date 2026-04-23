@@ -1865,6 +1865,29 @@ async fn admin_remove_ship(
     for (_e, storage) in store.world.query_mut::<&mut FacilityStorage>() {
         storage.docked_ships.retain(|&e| e != entity);
     }
+    // Release every contract the ship was fulfilling so the board
+    // doesn't leave Accepted contracts pinned to a despawned ship
+    // (nothing else can pick them up — `release()` guards on
+    // fulfiller_id, so the contract would sit forever). Accepted →
+    // back to Posted; PickedUp → Expired (cargo was aboard the ship,
+    // so the contract can't be salvaged).
+    let drop = store.contracts.drop_ship_holdings(id);
+    for cid in &drop.released {
+        events.push(serde_json::json!({
+            "kind": "contract_released",
+            "id": cid,
+            "reason": "ship_destroyed",
+            "ship_id": id,
+        }));
+    }
+    for cid in &drop.cancelled {
+        events.push(serde_json::json!({
+            "kind": "contract_expired",
+            "id": cid,
+            "reason": "ship_destroyed_with_cargo",
+            "ship_id": id,
+        }));
+    }
     let _ = store.world.despawn(entity);
     store.ship_by_id.remove(id);
     // Snapshot cache is purged by `update_from` on the next tick (diffs
@@ -1891,19 +1914,113 @@ async fn admin_remove_facility(
     events: &mut Vec<serde_json::Value>,
     persist_tx: &mpsc::Sender<DbWrite>,
 ) {
-    use sim_core::agents::facility::FacilityIdentity;
+    use sim_core::agents::facility::{FacilityIdentity, FacilityLocation, GateLink};
+    use sim_core::agents::ship::ShipPosition;
     let Some(&entity) = store.facility_by_id.get(id) else {
         return;
     };
+    // Snapshot everything we need BEFORE mutating anything, so we can
+    // cascade cleanup without re-querying a half-deleted world.
     let db_id = store
         .world
         .get::<&FacilityIdentity>(entity)
         .ok()
         .map(|i| i.db_id);
-    // Remove from facilities_at_location map.
+    let location_name = store
+        .world
+        .get::<&FacilityLocation>(entity)
+        .ok()
+        .map(|l| l.location_name.clone());
+    let paired_gate_id = store
+        .world
+        .get::<&GateLink>(entity)
+        .ok()
+        .map(|g| g.paired_gate_id.clone());
+
+    // 1. Kick every ship docked at this facility. Without this, the
+    //    ship's `docked_at` entity handle points at a despawned
+    //    entity and any future tick that reads it hits an invalid
+    //    component fetch. Setting `docked_at = None` forces the ship
+    //    to replan — it's still at `location_name`, so if another
+    //    facility exists there it'll pick one via the usual dock
+    //    fallback path (18k); if not, the ship undocks into space
+    //    and moves on.
+    let kicked: Vec<String> = {
+        let mut out = Vec::new();
+        for (_e, (identity, pos)) in store
+            .world
+            .query_mut::<(&sim_core::agents::ship::ShipIdentity, &mut ShipPosition)>()
+        {
+            if pos.docked_at == Some(entity) {
+                pos.docked_at = None;
+                out.push(identity.id.clone());
+            }
+        }
+        out
+    };
+    for ship_id in &kicked {
+        events.push(serde_json::json!({
+            "kind": "ship_undocked",
+            "id": ship_id,
+            "reason": "facility_destroyed",
+            "facility_id": id,
+        }));
+    }
+
+    // 2. Remove from facilities_at_location map, then check whether
+    //    any other facility still serves this location. That decides
+    //    whether contracts targeting this location are rescuable by
+    //    another facility or have to be cancelled outright.
     for entries in store.facilities_at_location.values_mut() {
         entries.retain(|&e| e != entity);
     }
+    let location_still_served = location_name
+        .as_ref()
+        .and_then(|loc| store.facilities_at_location.get(loc))
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+
+    // 3. Cancel contracts that can't survive this facility going
+    //    away: always cancel where this facility is the requestor;
+    //    also cancel by source / destination location if this was
+    //    the LAST facility there (otherwise remaining facilities can
+    //    still service the run).
+    let (src_filter, dst_filter) = if location_still_served {
+        (None, None)
+    } else {
+        (location_name.as_deref(), location_name.as_deref())
+    };
+    let cancelled = store
+        .contracts
+        .cancel_for_facility(Some(id), src_filter, dst_filter);
+    for cid in &cancelled {
+        events.push(serde_json::json!({
+            "kind": "contract_expired",
+            "id": cid,
+            "reason": "facility_destroyed",
+            "facility_id": id,
+        }));
+    }
+
+    // 4. Gate delete: null out the paired gate's back-reference so a
+    //    ship trying to jump the other way gets a clean "no pair"
+    //    failure instead of reaching a despawned entity. Keep the
+    //    GateLink component but clear the id — the paired gate is
+    //    still a valid facility; it just has nowhere to point.
+    if let Some(paired_id) = paired_gate_id {
+        if let Some(&paired_entity) = store.facility_by_id.get(&paired_id) {
+            if let Ok(mut link) = store.world.get::<&mut GateLink>(paired_entity) {
+                link.paired_gate_id.clear();
+            }
+            events.push(serde_json::json!({
+                "kind": "gate_unpaired",
+                "id": paired_id,
+                "reason": "paired_gate_destroyed",
+                "removed_pair": id,
+            }));
+        }
+    }
+
     let _ = store.world.despawn(entity);
     store.facility_by_id.remove(id);
     if let Some(db_id) = db_id {
@@ -1913,6 +2030,8 @@ async fn admin_remove_facility(
         "kind": "facility_removed",
         "id": id,
         "reason": "admin",
+        "kicked_ships": kicked.len(),
+        "cancelled_contracts": cancelled.len(),
     }));
 }
 
