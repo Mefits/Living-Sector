@@ -44,13 +44,16 @@ APP_NAME  := Space Simulator Client
 APP_PATH  := $(BUILD_DIR)/$(APP_NAME).app
 EXE_PATH  := $(BUILD_DIR)/$(APP_NAME).exe
 DMG_PATH  := $(BUILD_DIR)/$(APP_NAME).dmg
+ZIP_PATH  := $(BUILD_DIR)/$(APP_NAME).zip
 
 .PHONY: help \
         sim sim-debug sim-win clean-sim \
         dev \
         export-mac export-win \
         post-export-mac post-export-win \
+        sign-mac \
         build-mac build-win \
+        bundle-mac \
         dmg clean
 
 help:
@@ -65,8 +68,10 @@ help:
 	@echo "  export-win       Export Windows .exe to $(EXE_PATH)"
 	@echo "  post-export-mac  Copy ./$(SIMULATOR_BIN) into the exported .app"
 	@echo "  post-export-win  Copy ./$(SIMULATOR_BIN).exe alongside the exported .exe"
-	@echo "  build-mac        sim + export-mac + post-export-mac"
+	@echo "  sign-mac         Deep ad-hoc codesign the .app (covers bundled sim)"
+	@echo "  build-mac        sim + export-mac + post-export-mac + sign-mac"
 	@echo "  build-win        sim-win + export-win + post-export-win"
+	@echo "  bundle-mac       build-mac + zip with ditto for sharing"
 	@echo "  dmg              build-mac + DMG at $(DMG_PATH)"
 	@echo "  clean            Wipe $(BUILD_DIR)"
 
@@ -131,6 +136,23 @@ export-win:
 post-export-mac:
 	@./scripts/post_export.sh "$(APP_PATH)" "$(SIMULATOR_DST)"
 
+# Deep ad-hoc sign so Gatekeeper can verify the .app + the embedded
+# simulator binary as a single signed bundle. `--sign -` is ad-hoc
+# (no Developer ID needed, no notarization); `--deep` recurses into
+# Contents/Resources/simulator which is crucial — otherwise macOS
+# treats the bundled sim as an unsigned stray binary and blocks it
+# separately from the outer .app. `--force` replaces any existing
+# ad-hoc signature from a prior run.
+sign-mac:
+	@if [ ! -d "$(APP_PATH)" ]; then \
+		echo "error: no .app at $(APP_PATH); run export-mac + post-export-mac first" >&2; \
+		exit 1; \
+	fi
+	@echo "==> codesign (ad-hoc, deep) $(APP_PATH)"
+	@codesign --force --deep --sign - "$(APP_PATH)"
+	@echo "==> verify:"
+	@codesign --verify --deep --strict --verbose=2 "$(APP_PATH)" || true
+
 post-export-win:
 	@if [ ! -f "$(EXE_PATH)" ]; then \
 		echo "error: no .exe at $(EXE_PATH); run export-win first" >&2; \
@@ -145,7 +167,7 @@ post-export-win:
 	echo "==> $(SIMULATOR_DST_WIN) -> $$dst"; \
 	cp "$(SIMULATOR_DST_WIN)" "$$dst"
 
-build-mac: sim export-mac post-export-mac
+build-mac: sim export-mac post-export-mac sign-mac
 	@echo "==> build-mac complete: $(APP_PATH)"
 
 build-win: sim-win export-win post-export-win
@@ -161,6 +183,17 @@ dmg: build-mac
 		-srcfolder "$(APP_PATH)" \
 		-ov -format UDZO \
 		"$(DMG_PATH)"
+
+# `ditto -c -k` produces a PKZip archive preserving macOS extended
+# attributes (quarantine, code-sign metadata, symlinks). Finder's
+# "Compress" uses Archive Utility which mangles those — the .app
+# arrives broken on the other side. `--keepParent` so the archive
+# unzips to a `.app` folder directly instead of loose `Contents/`.
+bundle-mac: build-mac
+	@rm -f "$(ZIP_PATH)"
+	@echo "==> $(ZIP_PATH)"
+	@ditto -c -k --keepParent "$(APP_PATH)" "$(ZIP_PATH)"
+	@echo "==> $$(du -h "$(ZIP_PATH)" | cut -f1) ready to share"
 
 clean:
 	@rm -rf $(BUILD_DIR)
