@@ -59,6 +59,10 @@ pub struct PopSnapshot {
     pub unrest: i32,
     pub total_wealth: i64,
     pub food_satisfaction: i32,
+    /// Phase 19d: exposed so diagnostics + the UI can see this
+    /// pop climbing toward a migration event. 0.0–2.0 scale,
+    /// triggers at [`MIGRATION_PRESSURE_TRIGGER`].
+    pub migration_pressure: f32,
 }
 
 impl PopSnapshot {
@@ -79,6 +83,7 @@ impl PopSnapshot {
             unrest: sentiment.unrest,
             total_wealth: economy.total_wealth,
             food_satisfaction: sentiment.food_satisfaction,
+            migration_pressure: demographics.migration_pressure,
         }
     }
 }
@@ -127,6 +132,43 @@ pub const EMERGENCY_FOOD_PREMIUM: f32 = 6.0;
 pub const EMERGENCY_WATER_RATE: f32 = 0.5;
 /// Contracts expire after this many base-ticks unposted.
 pub const CONTRACT_LIFESPAN_BASE: u64 = 200;
+
+// --- Phase 19d: population migration ---
+
+/// Pops with `overall_sentiment` at or below this value accumulate
+/// migration pressure. Above, pressure decays (happy populations
+/// stay put). 30 matches Elixir's threshold.
+pub const MIGRATION_SENTIMENT_FLOOR: i32 = 30;
+
+/// Pressure added per consumption-tick when sentiment is under the
+/// floor. Scaled by tick_scale so fast-forward gameplay doesn't
+/// stack pressure artificially.
+pub const MIGRATION_PRESSURE_RISE: f32 = 0.01;
+
+/// Pressure shed per consumption-tick when sentiment is OK. Half
+/// the rise rate so "briefly sad" pops don't trigger spurious
+/// migrations.
+pub const MIGRATION_PRESSURE_DECAY: f32 = 0.005;
+
+/// When `migration_pressure` >= this value, the next migration
+/// check fires a transfer and resets the pressure. 1.0 = roughly
+/// 100 ticks of sustained low sentiment at tick_scale=1.0.
+pub const MIGRATION_PRESSURE_TRIGGER: f32 = 1.0;
+
+/// How often the migration transfer pass runs (base-ticks). Much
+/// less frequent than the pressure accumulation — the idea is
+/// "slowly leak population, not evacuate in one tick."
+pub const MIGRATION_CHECK_INTERVAL_BASE: u64 = 200;
+
+/// How many people transfer on one migration event. Clamped against
+/// source pop size so small settlements don't collapse in a single
+/// fire. Matches a loose "a few percent per trigger" pace.
+pub const MIGRATION_HEAD_COUNT: i64 = 100;
+
+/// Destination population must be at least this count higher than
+/// the source — stops pop ping-pong between two equally-sentimental
+/// neighbors.
+pub const MIGRATION_MIN_DESTINATION_SENTIMENT: i32 = 50;
 /// Pay multiplier over base price for delivery contracts.
 pub const CONTRACT_PREMIUM: f32 = 1.8;
 /// Max urgency multiplier on top of CONTRACT_PREMIUM. Matches Elixir:
@@ -283,6 +325,32 @@ pub fn tick_populations(
                 sentiment.dirty = true;
             }
         }
+
+        // Phase 19d: accumulate migration pressure when sentiment is
+        // in the "we want out of here" band. Rises slowly — the real
+        // check + transfer happens on the migration cadence below.
+        if tick % consumption_interval == 0 {
+            let cur_sentiment = world
+                .get::<&PopSentiment>(entity)
+                .map(|s| s.overall_sentiment)
+                .unwrap_or(50);
+            if let Ok(mut demo) = world.get::<&mut PopDemographics>(entity) {
+                let delta = if cur_sentiment < MIGRATION_SENTIMENT_FLOOR {
+                    MIGRATION_PRESSURE_RISE * tick_scale
+                } else {
+                    -MIGRATION_PRESSURE_DECAY * tick_scale
+                };
+                demo.migration_pressure = (demo.migration_pressure + delta).clamp(0.0, 2.0);
+            }
+        }
+    }
+
+    // Migration transfer pass (Phase 19d). Runs on its own interval
+    // so pops don't migrate every single tick they're unhappy — a
+    // slow outflow keeps the numbers readable.
+    let migration_interval = MIGRATION_CHECK_INTERVAL_BASE * mult;
+    if tick % migration_interval == 0 {
+        run_population_migration(world, events);
     }
 
     // Contract posting — delivery contracts for food shortages.
@@ -334,6 +402,96 @@ pub fn tick_populations(
     }
     contracts.age_open_reputation(tick);
     contracts.age_escalate_payment(tick);
+}
+
+/// Phase 19d: transfer population from a chronically-unhappy pop
+/// (migration_pressure ≥ trigger) to a happier destination. One
+/// transfer per call — the unhappiest source pop "wins" the move
+/// each cycle, and picks the destination with the highest
+/// sentiment across all other pops.
+///
+/// Resets the source's pressure to 0 on transfer so it has to
+/// re-accumulate a full cycle of discontent before migrating again.
+/// Emits `population_migrated` for the ticker.
+fn run_population_migration(
+    world: &mut hecs::World,
+    events: &mut Vec<serde_json::Value>,
+) {
+    // Collect (entity, id, pop, sentiment, pressure) for every pop.
+    #[derive(Clone)]
+    struct PopRef {
+        entity: hecs::Entity,
+        id: String,
+        label: String,
+        location: String,
+        population: i64,
+        sentiment: i32,
+        pressure: f32,
+    }
+    let mut pops: Vec<PopRef> = Vec::new();
+    for (e, (identity, demo, sentiment)) in world
+        .query::<(&PopIdentity, &PopDemographics, &PopSentiment)>()
+        .iter()
+    {
+        pops.push(PopRef {
+            entity: e,
+            id: identity.id.clone(),
+            label: identity.label.clone(),
+            location: identity.facility_location.clone(),
+            population: demo.population_count,
+            sentiment: sentiment.overall_sentiment,
+            pressure: demo.migration_pressure,
+        });
+    }
+
+    // Pick the unhappiest pop with pressure over trigger as the
+    // source. Skip pops too small to lose headcount meaningfully.
+    let source = pops
+        .iter()
+        .filter(|p| p.pressure >= MIGRATION_PRESSURE_TRIGGER)
+        .filter(|p| p.population > MIGRATION_HEAD_COUNT * 3)
+        .max_by(|a, b| a.pressure.partial_cmp(&b.pressure).unwrap_or(std::cmp::Ordering::Equal))
+        .cloned();
+    let Some(source) = source else { return };
+
+    // Destination: different pop, at a different location, sentiment
+    // at least `MIGRATION_MIN_DESTINATION_SENTIMENT`. Pick the
+    // happiest to route the flow toward a real improvement.
+    let destination = pops
+        .iter()
+        .filter(|p| p.entity != source.entity)
+        .filter(|p| p.location != source.location)
+        .filter(|p| p.sentiment >= MIGRATION_MIN_DESTINATION_SENTIMENT)
+        .max_by_key(|p| p.sentiment)
+        .cloned();
+    let Some(destination) = destination else { return };
+
+    // Transfer: clamp against source pop so we don't underflow.
+    let moved = MIGRATION_HEAD_COUNT.min(source.population.saturating_sub(100));
+    if moved <= 0 {
+        return;
+    }
+
+    if let Ok(mut demo) = world.get::<&mut PopDemographics>(source.entity) {
+        demo.population_count = demo.population_count.saturating_sub(moved);
+        demo.migration_pressure = 0.0;
+    }
+    if let Ok(mut demo) = world.get::<&mut PopDemographics>(destination.entity) {
+        demo.population_count = demo.population_count.saturating_add(moved);
+    }
+
+    events.push(serde_json::json!({
+        "kind": "population_migrated",
+        "source_id": source.id,
+        "source_label": source.label,
+        "source_location": source.location,
+        "destination_id": destination.id,
+        "destination_label": destination.label,
+        "destination_location": destination.location,
+        "count": moved,
+        "source_sentiment": source.sentiment,
+        "destination_sentiment": destination.sentiment,
+    }));
 }
 
 fn post_passenger_contracts(

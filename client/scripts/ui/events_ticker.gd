@@ -226,6 +226,32 @@ func _body_for_kind(kind: String, ev: Dictionary) -> String:
 				str(ev.get("faction_id", "?")),
 				int(ev.get("rep_penalty", 0)),
 			]
+		"population_migrated":
+			return "%d people %s (s=%d) → %s (s=%d)" % [
+				int(ev.get("count", 0)),
+				str(ev.get("source_label", ev.get("source_location", "?"))),
+				int(ev.get("source_sentiment", 0)),
+				str(ev.get("destination_label", ev.get("destination_location", "?"))),
+				int(ev.get("destination_sentiment", 0)),
+			]
+		"construction_site_started":
+			return "%s at %s — %s ×%d" % [
+				str(ev.get("name", "site")),
+				str(ev.get("location", "?")),
+				str(ev.get("commodity", "?")),
+				int(ev.get("required", 0)),
+			]
+		"construction_progress":
+			return "%s — %d%%" % [
+				str(ev.get("site_id", "?")),
+				int(float(ev.get("progress", 0.0)) * 100.0),
+			]
+		"construction_completed":
+			return "%s materialised as %s at %s" % [
+				str(ev.get("site_id", "?")),
+				str(ev.get("facility_type", "?")),
+				str(ev.get("location", "?")),
+			]
 		"facility_crew_starving":
 			return "%s (%s) — crew %d morale %.0f" % [
 				str(ev.get("facility_id", "?")),
