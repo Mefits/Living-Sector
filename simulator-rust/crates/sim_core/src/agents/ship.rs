@@ -1940,8 +1940,13 @@ fn decide_and_act(
         //   2. A speculative-accept race: the ship set its id locally
         //      but another ship won the AcceptContract apply, so the
         //      contract's fulfiller_id isn't us.
-        // Either way, clearing here lets plan_goal consider new work
-        // instead of treating the ship as busy forever.
+        //
+        // We ALSO tear down the current BT when we strip the id — the
+        // BT's Travel / Dock / Deliver steps were built for a contract
+        // we no longer hold, so running them out wastes fuel on a
+        // phantom destination and ends with a no-op Deliver. Clearing
+        // `current_bt` forces plan_goal to rebuild from the ship's
+        // actual current state next time it fires.
         if let Some(cid) = economy.active_contract_id.clone() {
             let stale = match contracts.get(&cid) {
                 None => true,
@@ -1957,6 +1962,7 @@ fn decide_and_act(
             };
             if stale {
                 economy.active_contract_id = None;
+                ai.current_bt = None;
             }
         }
 
