@@ -111,7 +111,7 @@ sim-win:
 	cp "$$built" "$(SIMULATOR_DST_WIN)"
 
 clean-sim:
-	@rm -f $(SIMULATOR_DST) $(SIMULATOR_DST_WIN)
+	@rm -rf $(SIMULATOR_DST) $(SIMULATOR_DST_WIN)
 
 # ------- Run / export -------
 
