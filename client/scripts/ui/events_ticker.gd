@@ -188,6 +188,53 @@ func _body_for_kind(kind: String, ev: Dictionary) -> String:
 				"—" if f_from == null else str(f_from),
 				"—" if f_to == null else str(f_to),
 			]
+		"ship_gate_jumped":
+			return "%s %s → %s (fee %d)" % [
+				str(ev.get("id", "?")),
+				str(ev.get("src_gate", "?")),
+				str(ev.get("dest_gate", "?")),
+				int(ev.get("fee", 0)),
+			]
+		"contract_accepted":
+			return "%s %s %s → %s pay=%d" % [
+				str(ev.get("ship_id", "?")),
+				str(ev.get("contract_type", "")),
+				str(ev.get("commodity", "")),
+				str(ev.get("destination", "?")),
+				int(ev.get("payment", 0)),
+			]
+		"contract_renewed":
+			# Payment bumps + rep gate drops as deliveries age open.
+			# renewal_count maxes at 3 — after that they really expire.
+			return "%s @ %s pay=%d min_rep=%d (renewal %d)" % [
+				str(ev.get("commodity", "")),
+				str(ev.get("destination", "?")),
+				int(ev.get("payment", 0)),
+				int(ev.get("min_reputation", 0)),
+				int(ev.get("renewal_count", 0)),
+			]
+		"contract_expired":
+			return "%s %s → %s expired pay=%d" % [
+				str(ev.get("contract_type", "")),
+				str(ev.get("commodity", "")),
+				str(ev.get("destination", "?")),
+				int(ev.get("final_payment", 0)),
+			]
+		"facility_crew_starving":
+			return "%s (%s) — crew %d morale %.0f" % [
+				str(ev.get("facility_id", "?")),
+				str(ev.get("facility_type", "?")),
+				int(ev.get("crew_count", 0)),
+				float(ev.get("morale", 0.0)),
+			]
+		"facility_abandoned":
+			return "%s (%s) at %s — cond=%.2f creds=%d" % [
+				str(ev.get("facility_id", "?")),
+				str(ev.get("facility_type", "?")),
+				str(ev.get("location", "?")),
+				float(ev.get("condition", 0.0)),
+				int(ev.get("credits", 0)),
+			]
 		_:
 			# Unknown kind — stringify the fields we have.
 			var parts: PackedStringArray = PackedStringArray()

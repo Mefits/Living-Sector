@@ -818,6 +818,7 @@ pub const FACILITY_ABANDON_THRESHOLD_TICKS: u32 = 200;
 pub fn tick_facilities(
     world: &mut hecs::World,
     contracts: &mut crate::economy::contracts::ContractBoard,
+    events: &mut Vec<serde_json::Value>,
     tick: u64,
     tick_scale: f32,
     tick_multiplier: u32,
@@ -838,7 +839,7 @@ pub fn tick_facilities(
     // is smooth without hammering the tick loop every frame.
     let crew_interval = FACILITY_CREW_TICK_INTERVAL_BASE * mult;
     if crew_interval > 0 && tick % crew_interval == 0 {
-        tick_facility_crew(world, tick_scale, tick_multiplier);
+        tick_facility_crew(world, events, tick_scale, tick_multiplier);
     }
 
     // Phase 2: self-repair (every 20×mult ticks).
@@ -848,7 +849,7 @@ pub fn tick_facilities(
 
     // Phase 3: abandonment check (every 10×mult ticks).
     if abandon_interval > 0 && tick % abandon_interval == 0 {
-        tick_abandonment(world);
+        tick_abandonment(world, events);
     }
 
     // Phase 4: restock reserves from local market (every 20×mult ticks).
@@ -919,13 +920,18 @@ fn tick_degrade_condition(world: &mut hecs::World, tick_scale: f32) {
 /// yield.
 fn tick_facility_crew(
     world: &mut hecs::World,
+    events: &mut Vec<serde_json::Value>,
     tick_scale: f32,
     tick_multiplier: u32,
 ) {
     let interval = (FACILITY_CREW_TICK_INTERVAL_BASE * tick_multiplier as u64) as f32;
     let hunger_delta = CREW_HUNGER_RATE_PER_TICK * interval * tick_scale;
 
-    for (_e, (crew, storage, life)) in world.query_mut::<(
+    // Need the identity/location for starving events — collect here
+    // rather than querying again later so we don't fight hecs borrows.
+    for (_e, (identity, loc, crew, storage, life)) in world.query_mut::<(
+        &FacilityIdentity,
+        &FacilityLocation,
         &mut FacilityCrew,
         &mut FacilityStorage,
         &FacilityLifecycle,
@@ -979,6 +985,21 @@ fn tick_facility_crew(
         }
         crew.morale = crew.morale.clamp(0.0, 100.0);
 
+        // Emit a one-shot `facility_crew_starving` event only when
+        // morale CROSSES the starving threshold going down. Tracking
+        // the prior value avoids spamming the ticker every crew-tick
+        // while morale hovers in the danger zone.
+        if before_morale > CREW_STARVING_MORALE && crew.morale <= CREW_STARVING_MORALE {
+            events.push(serde_json::json!({
+                "kind": "facility_crew_starving",
+                "facility_id": identity.id,
+                "location": loc.location_name,
+                "facility_type": identity.facility_type,
+                "crew_count": crew.crew_count,
+                "morale": crew.morale,
+            }));
+        }
+
         let changed = (crew.morale - before_morale).abs() > f32::EPSILON
             || crew.hunger > 0.0
             || crew.food_debt > 0.0;
@@ -1017,9 +1038,14 @@ fn tick_self_repair(world: &mut hecs::World) {
 /// condition < 0.1 AND no tools AND credits < 100. Hold the dying state
 /// for ABANDON_THRESHOLD_TICKS and it flips to `abandoned`. Any recovery
 /// (tools restock, credits returning, repair) resets the counter.
-fn tick_abandonment(world: &mut hecs::World) {
-    for (_e, (ops, storage, life)) in world
+fn tick_abandonment(
+    world: &mut hecs::World,
+    events: &mut Vec<serde_json::Value>,
+) {
+    for (_e, (identity, loc, ops, storage, life)) in world
         .query_mut::<(
+            &FacilityIdentity,
+            &FacilityLocation,
             &FacilityOperations,
             &FacilityStorage,
             &mut FacilityLifecycle,
@@ -1031,11 +1057,23 @@ fn tick_abandonment(world: &mut hecs::World) {
         let tools = storage.reserves.get(&Commodity::Tools).copied().unwrap_or(0.0);
         let dying = ops.condition < 0.1 && tools < 1.0 && ops.credits < 100;
         if dying {
+            let was_below = life.abandon_counter;
             life.abandon_counter = life.abandon_counter.saturating_add(1);
-            if life.abandon_counter >= FACILITY_ABANDON_THRESHOLD_TICKS {
+            if life.abandon_counter >= FACILITY_ABANDON_THRESHOLD_TICKS && !life.abandoned {
                 life.abandoned = true;
+                // One-shot event on the exact tick that flips abandoned
+                // true — threshold crossing, not every tick below.
+                events.push(serde_json::json!({
+                    "kind": "facility_abandoned",
+                    "facility_id": identity.id,
+                    "facility_type": identity.facility_type,
+                    "location": loc.location_name,
+                    "condition": ops.condition,
+                    "credits": ops.credits,
+                }));
             }
             life.dirty = true;
+            let _ = was_below;
         } else if life.abandon_counter > 0 {
             life.abandon_counter = 0;
             life.dirty = true;

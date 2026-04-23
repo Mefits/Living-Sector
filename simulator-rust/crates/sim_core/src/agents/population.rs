@@ -152,6 +152,7 @@ pub const PASSENGER_PAYMENT_PER_HEAD: i64 = 80;
 pub fn tick_populations(
     world: &mut hecs::World,
     contracts: &mut crate::economy::contracts::ContractBoard,
+    events: &mut Vec<serde_json::Value>,
     tick: u64,
     tick_scale: f32,
     tick_multiplier: u32,
@@ -304,10 +305,33 @@ pub fn tick_populations(
     // payment on long-posted contracts (Phase 18j) so desperate
     // requestors get picked up instead of expiring. Phase 19b:
     // delivery contracts get up to 3 auto-renewals with escalating
-    // payment + relaxed rep gate before permanently expiring.
+    // payment + relaxed rep gate before permanently expiring. Each
+    // renewal / expiry emits a ticker event so players can see the
+    // economy dynamics without opening a details panel.
     let delivery_lifespan =
         crate::agents::facility::FACILITY_DELIVERY_LIFESPAN_BASE * mult;
-    contracts.sweep_expiring(tick, delivery_lifespan);
+    let sweep = contracts.sweep_expiring(tick, delivery_lifespan);
+    for r in &sweep.renewed {
+        events.push(serde_json::json!({
+            "kind": "contract_renewed",
+            "contract_id": r.id,
+            "commodity": r.commodity.as_str(),
+            "destination": r.destination,
+            "payment": r.new_payment,
+            "min_reputation": r.new_min_rep,
+            "renewal_count": r.renewal_count,
+        }));
+    }
+    for e in &sweep.expired {
+        events.push(serde_json::json!({
+            "kind": "contract_expired",
+            "contract_id": e.id,
+            "contract_type": e.contract_type.as_str(),
+            "commodity": e.commodity.as_str(),
+            "destination": e.destination,
+            "final_payment": e.final_payment,
+        }));
+    }
     contracts.age_open_reputation(tick);
     contracts.age_escalate_payment(tick);
 }

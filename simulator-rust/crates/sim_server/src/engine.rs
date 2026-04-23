@@ -263,6 +263,7 @@ pub async fn run_tick_loop(
         facility::tick_facilities(
             &mut store.world,
             &mut store.contracts,
+            &mut events,
             tick,
             tick_scale,
             tick_mult,
@@ -270,6 +271,7 @@ pub async fn run_tick_loop(
         population::tick_populations(
             &mut store.world,
             &mut store.contracts,
+            &mut events,
             tick,
             tick_scale,
             tick_mult,
@@ -421,10 +423,13 @@ pub fn run_contract_pump(store: &mut AgentStore, passes: u32) {
         );
         // tick_populations bails internally unless `tick` lands on a
         // CONSUMPTION or PRODUCTION interval; 0 % N == 0 for any N,
-        // so this always fires.
+        // so this always fires. Boot-time pump has no client to ship
+        // events to, so we feed a throwaway buffer.
+        let mut pump_events: Vec<serde_json::Value> = Vec::new();
         sim_core::agents::population::tick_populations(
             &mut store.world,
             &mut store.contracts,
+            &mut pump_events,
             0,
             1.0,
             1,
@@ -1014,7 +1019,26 @@ fn apply_ship_commands(
             SimCommand::AcceptContract { contract_id, ship_id, .. } => {
                 // Best-effort: silently drop if the contract was already taken.
                 let tick_now = 0; // Apply phase doesn't know the tick; board records accepted_at separately.
-                store.contracts.accept(&contract_id, ship_id, tick_now);
+                let accepted = store.contracts.accept(&contract_id, ship_id.clone(), tick_now);
+                if accepted {
+                    // Ticker event so players can watch the contract
+                    // board churn in real time. Losing speculative
+                    // accepts return false from `accept()` and don't
+                    // emit (those ships will self-clean via the
+                    // sanity-check pass on next tick).
+                    if let Some(c) = store.contracts.get(&contract_id) {
+                        events.push(serde_json::json!({
+                            "kind": "contract_accepted",
+                            "contract_id": contract_id,
+                            "contract_type": c.contract_type.as_str(),
+                            "ship_id": ship_id,
+                            "commodity": c.commodity.as_str(),
+                            "source": c.source_location,
+                            "destination": c.destination_location,
+                            "payment": c.payment,
+                        }));
+                    }
+                }
             }
             SimCommand::ReleaseContract { ship_id, contract_id } => {
                 // Move Accepted → Posted so another ship can try. The

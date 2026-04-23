@@ -195,6 +195,43 @@ pub struct Contract {
     pub renewal_count: u8,
 }
 
+/// Per-contract detail for a renewal that just fired. Returned from
+/// [`ContractBoard::sweep_expiring`] so the engine can emit a
+/// `contract_renewed` event to the ticker without re-looking-up the
+/// contract by id.
+#[derive(Debug, Clone)]
+pub struct RenewalSummary {
+    pub id: String,
+    pub commodity: Commodity,
+    pub destination: String,
+    pub new_payment: i64,
+    pub new_min_rep: u8,
+    pub renewal_count: u8,
+}
+
+/// Per-contract detail for a contract that actually expired this
+/// sweep (either non-delivery kind, or delivery that hit its renewal
+/// cap). Paired with [`RenewalSummary`] in [`SweepResult`].
+#[derive(Debug, Clone)]
+pub struct ExpiredSummary {
+    pub id: String,
+    pub commodity: Commodity,
+    pub destination: String,
+    pub contract_type: ContractType,
+    /// Payment at time of expiry, which for renewed deliveries may be
+    /// well above the initial post-time value.
+    pub final_payment: i64,
+}
+
+/// Result of [`ContractBoard::sweep_expiring`]. Two parallel lists so
+/// the caller can emit distinct `contract_renewed` /
+/// `contract_expired` event streams.
+#[derive(Debug, Default, Clone)]
+pub struct SweepResult {
+    pub renewed: Vec<RenewalSummary>,
+    pub expired: Vec<ExpiredSummary>,
+}
+
 /// In-memory contract board. Lives in `AgentStore`.
 #[derive(Debug, Default)]
 pub struct ContractBoard {
@@ -702,15 +739,15 @@ impl ContractBoard {
 
     /// Sweep Posted contracts past their `expires_at_tick`. Phase 19b:
     /// delivery contracts get up to [`CONTRACT_MAX_RENEWALS`] auto-
-    /// renewals before permanently expiring — each renewal bumps the
-    /// payment by [`CONTRACT_RENEWAL_PAYMENT_BUMP`] and drops the rep
-    /// gate by [`CONTRACT_RENEWAL_REP_DROP`]. Courier / Subsidy /
-    /// CrewMission / Passenger / Supply expire directly as before —
-    /// they carry their own aging mechanics (e.g. passengers depend on
-    /// live population sentiment, which re-posts organically).
+    /// renewals before permanently expiring. Courier / Subsidy /
+    /// CrewMission / Passenger / Supply expire directly — they carry
+    /// their own aging mechanics (e.g. passengers depend on live
+    /// population sentiment, which re-posts organically).
     ///
-    /// Returns the (renewed, expired) counts for telemetry.
-    pub fn sweep_expiring(&mut self, tick: u64, lifespan_ticks: u64) -> (u32, u32) {
+    /// Returns a [`SweepResult`] with per-contract details so callers
+    /// can emit events / telemetry. The counts version is still
+    /// available via [`sweep_expiring_counts`] if you only need those.
+    pub fn sweep_expiring(&mut self, tick: u64, lifespan_ticks: u64) -> SweepResult {
         let mut due: Vec<String> = Vec::new();
         if let Some(ids) = self.by_status.get(&ContractStatus::Posted) {
             for id in ids {
@@ -722,8 +759,7 @@ impl ContractBoard {
             }
         }
 
-        let mut renewed = 0_u32;
-        let mut expired = 0_u32;
+        let mut result = SweepResult::default();
         for id in due {
             let should_renew = match self.contracts.get(&id) {
                 Some(c) => {
@@ -733,36 +769,67 @@ impl ContractBoard {
                 None => false,
             };
             if should_renew {
-                if let Some(c) = self.contracts.get_mut(&id) {
-                    let bump = CONTRACT_RENEWAL_PAYMENT_BUMP;
-                    c.payment = ((c.payment as f32) * (1.0 + bump)).round() as i64;
-                    c.min_reputation =
-                        c.min_reputation.saturating_sub(CONTRACT_RENEWAL_REP_DROP);
-                    c.expires_at_tick = tick + lifespan_ticks;
-                    c.renewal_count = c.renewal_count.saturating_add(1);
-                    // Stays in Posted — no reindex needed. The
-                    // by-destination index still has it.
-                }
-                renewed += 1;
+                let (commodity, destination, new_payment, new_min_rep, new_count) =
+                    if let Some(c) = self.contracts.get_mut(&id) {
+                        let bump = CONTRACT_RENEWAL_PAYMENT_BUMP;
+                        c.payment = ((c.payment as f32) * (1.0 + bump)).round() as i64;
+                        c.min_reputation = c
+                            .min_reputation
+                            .saturating_sub(CONTRACT_RENEWAL_REP_DROP);
+                        c.expires_at_tick = tick + lifespan_ticks;
+                        c.renewal_count = c.renewal_count.saturating_add(1);
+                        (
+                            c.commodity,
+                            c.destination_location.clone(),
+                            c.payment,
+                            c.min_reputation,
+                            c.renewal_count,
+                        )
+                    } else {
+                        continue;
+                    };
+                result.renewed.push(RenewalSummary {
+                    id: id.clone(),
+                    commodity,
+                    destination,
+                    new_payment,
+                    new_min_rep,
+                    renewal_count: new_count,
+                });
+                // Stays in Posted — no reindex needed.
             } else if let Some(c) = self.contracts.get_mut(&id) {
+                let summary = ExpiredSummary {
+                    id: id.clone(),
+                    commodity: c.commodity,
+                    destination: c.destination_location.clone(),
+                    contract_type: c.contract_type,
+                    final_payment: c.payment,
+                };
                 c.status = ContractStatus::Expired;
                 let dest = c.destination_location.clone();
                 self.reindex_status(&id, ContractStatus::Posted, ContractStatus::Expired);
                 if let Some(list) = self.posted_by_destination.get_mut(&dest) {
                     list.retain(|i| i != &id);
                 }
-                expired += 1;
+                result.expired.push(summary);
             }
         }
-        (renewed, expired)
+        result
+    }
+
+    /// Count-only variant for tests / callers that don't need the
+    /// per-contract details. Wraps [`sweep_expiring`] and discards
+    /// everything except the lengths.
+    pub fn sweep_expiring_counts(&mut self, tick: u64, lifespan_ticks: u64) -> (u32, u32) {
+        let r = self.sweep_expiring(tick, lifespan_ticks);
+        (r.renewed.len() as u32, r.expired.len() as u32)
     }
 
     /// Legacy shim for callers that still want a single "N contracts
     /// expired" count and don't need the renewal split. Uses
     /// [`DEFAULT_EXPIRE_LIFESPAN`] for the re-posted lifespan.
     pub fn expire(&mut self, tick: u64) -> u32 {
-        let (_renewed, expired) = self.sweep_expiring(tick, DEFAULT_EXPIRE_LIFESPAN);
-        expired
+        self.sweep_expiring_counts(tick, DEFAULT_EXPIRE_LIFESPAN).1
     }
 
     fn reindex_status(&mut self, id: &str, from: ContractStatus, to: ContractStatus) {
@@ -831,26 +898,26 @@ mod tests {
         assert_eq!(board.posted().len(), 1);
 
         // 1st expire → renewed. Payment +25%, still Posted.
-        let (renewed, expired) = board.sweep_expiring(20, 10);
-        assert_eq!((renewed, expired), (1, 0));
+        let r = board.sweep_expiring(20, 10);
+        assert_eq!((r.renewed.len(), r.expired.len()), (1, 0));
         let c = board.get(&id).unwrap();
         assert_eq!(c.status, ContractStatus::Posted);
         assert_eq!(c.payment, 125); // 100 * 1.25
         assert_eq!(c.renewal_count, 1);
 
         // 2nd and 3rd expire → renewed. Payment compounds.
-        let (renewed, _) = board.sweep_expiring(40, 10);
-        assert_eq!(renewed, 1);
-        let (renewed, _) = board.sweep_expiring(60, 10);
-        assert_eq!(renewed, 1);
+        let r = board.sweep_expiring(40, 10);
+        assert_eq!(r.renewed.len(), 1);
+        let r = board.sweep_expiring(60, 10);
+        assert_eq!(r.renewed.len(), 1);
         let c = board.get(&id).unwrap();
         assert_eq!(c.renewal_count, CONTRACT_MAX_RENEWALS);
         // 100 -> 125 -> 156 -> 195 (round() each step)
         assert!(c.payment > 150 && c.payment < 200);
 
         // 4th expire → actually expires (renewal_count hit cap).
-        let (renewed, expired) = board.sweep_expiring(80, 10);
-        assert_eq!((renewed, expired), (0, 1));
+        let r = board.sweep_expiring(80, 10);
+        assert_eq!((r.renewed.len(), r.expired.len()), (0, 1));
         assert_eq!(board.get(&id).unwrap().status, ContractStatus::Expired);
         assert_eq!(board.posted().len(), 0);
     }
