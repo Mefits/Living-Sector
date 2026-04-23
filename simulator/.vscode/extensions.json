@@ -1,9 +1,0 @@
-{
-  "recommendations": [
-    "JakeBecker.elixir-ls",
-    "phoenixframework.phoenix",
-    "pantajoe.vscode-elixir-credo",
-    "bradlc.vscode-tailwindcss",
-    "jakebecker.elixir-test"
-  ]
-}
