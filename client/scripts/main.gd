@@ -205,6 +205,7 @@ func _on_report_loaded(data: Dictionary) -> void:
   _market_overlay.offset_top = 0.0
   _market_overlay.offset_bottom = 0.0
   hud.market_toggled.connect(func(): _market_overlay.toggle())
+  _market_overlay.location_selected.connect(_on_location_selected)
 
   # --- Phase 13 inspector panels ---
   # Contract board (near-fullscreen, like market overlay)
@@ -240,6 +241,7 @@ func _on_report_loaded(data: Dictionary) -> void:
   _population_browser.offset_right = -10.0
   _population_browser.offset_bottom = 440.0
   hud.pops_toggled.connect(func(): _population_browser.toggle())
+  _population_browser.location_selected.connect(_on_location_selected)
 
   # Events ticker (bottom-right, narrow)
   _events_ticker = _events_ticker_scene.instantiate()

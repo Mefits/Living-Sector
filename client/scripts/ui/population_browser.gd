@@ -5,6 +5,10 @@ extends PanelContainer
 ## the pop on the details panel (via `population_selected`).
 
 signal population_selected(pop_id: String)
+## Fires when a row is clicked — the pop's parent facility location
+## slug, so main.gd can camera-jump to the planet/station the pop
+## lives on. Same contract as ship_list.location_selected.
+signal location_selected(location: String)
 
 @onready var tree: Tree = $VBox/Tree
 @onready var count_label: Label = $VBox/TopRow/CountLabel
@@ -71,6 +75,12 @@ func _on_row_activated() -> void:
 	var pid: String = sel.get_metadata(0)
 	if pid != "":
 		population_selected.emit(pid)
+	# Column-0 metadata also carries the facility_location (set in
+	# _refresh) so we can camera-jump on the same click. No extra
+	# selection gesture — selecting a pop row IS the navigate.
+	var loc: String = str(sel.get_metadata(1))
+	if loc != "":
+		location_selected.emit(loc)
 
 
 func _refresh() -> void:
@@ -85,6 +95,10 @@ func _refresh() -> void:
 	for p in rows:
 		var row := tree.create_item(root)
 		row.set_metadata(0, str(p.get("id", "")))
+		# Stash the parent facility's location slug on the row so
+		# _on_row_activated can emit `location_selected` without a
+		# second lookup. Server fills this as `facility_location`.
+		row.set_metadata(1, str(p.get("facility_location", "")))
 		row.set_text(0, str(p.get("label", p.get("id", "?"))))
 		row.set_text(1, str(p.get("demographic", "-")))
 		row.set_text(2, _format_count(int(p.get("population_count", 0))))

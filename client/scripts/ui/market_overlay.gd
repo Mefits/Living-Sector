@@ -11,6 +11,12 @@ extends PanelContainer
 ## one-line flip away.
 const DEBUG := false
 
+## Fires when the user clicks a facility name in the left column.
+## Main wires this to the same camera-jump path the Ship-list and
+## Events-ticker panels use (`_on_location_selected` → focus_on the
+## matching facility's world position).
+signal location_selected(location: String)
+
 @onready var close_button: Button = $VBox/TopRow/CloseButton
 @onready var header_row: HBoxContainer = $VBox/HeaderRow
 @onready var rows_container: VBoxContainer = $VBox/ScrollContainer/Rows
@@ -228,11 +234,20 @@ func _refresh() -> void:
 
 func _create_row(fac_loc: String, fac_name: String) -> void:
 	var row := HBoxContainer.new()
-	var name_label := Label.new()
-	name_label.text = fac_name
-	name_label.custom_minimum_size = Vector2(FAC_COL_WIDTH, ROW_HEIGHT)
-	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(name_label)
+	# Flat button instead of a plain Label so the facility name is
+	# clickable without introducing any visible button chrome. Pressed
+	# emits `location_selected` which main.gd routes to the same
+	# camera-jump used by ship_list + events_ticker.
+	var name_btn := Button.new()
+	name_btn.text = fac_name
+	name_btn.flat = true
+	name_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	name_btn.custom_minimum_size = Vector2(FAC_COL_WIDTH, ROW_HEIGHT)
+	name_btn.tooltip_text = "Jump camera to %s" % fac_name
+	name_btn.pressed.connect(
+		func() -> void: location_selected.emit(fac_loc)
+	)
+	row.add_child(name_btn)
 
 	_cells[fac_loc] = {}
 	for commodity in KEY_COMMODITIES:
