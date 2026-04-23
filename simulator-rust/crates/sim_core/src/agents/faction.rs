@@ -78,26 +78,41 @@ use crate::economy::contracts::ContractBoard;
 /// `@tax_interval 200 * tick_multiplier()` in `faction_agent.ex`.
 pub const FACTION_INTERVAL_BASE: u64 = 200;
 /// Fraction of each facility's taxable credits moved to the faction each
-/// cycle. Matches Elixir `@tax_rate 0.005` (0.5%).
-pub const FACTION_TAX_RATE: f64 = 0.005;
+/// cycle. Elixir used 0.5% — Rust bumps this to 2.5% because the demand
+/// analyzer (19c) adds a construction-post sink the Elixir sim never
+/// had, and the subsidy + bailout cadence at the old rate left every
+/// faction permanently pinned at the $2k bailout floor within 2000
+/// ticks. Paired with a less-frequent subsidy scan below.
+pub const FACTION_TAX_RATE: f64 = 0.025;
 /// Minimum credit buffer each facility keeps before tax applies. Matches
 /// Elixir's `minimum_buffer = 1_000` in `facility_agent.ex:collect_tax`.
 pub const FACILITY_TAX_BUFFER: i64 = 1_000;
 
 // --- Subsidy posting (Phase 11e) ---
-/// Base-tick interval for subsidy scans. Matches Elixir's
-/// `@subsidy_check_interval 30 * tick_multiplier()`.
-pub const SUBSIDY_CHECK_INTERVAL_BASE: u64 = 30;
+/// Base-tick interval for subsidy scans. Elixir used 30; Rust uses 60
+/// so a given shortage only gets one subsidy posted per 60-base-tick
+/// window instead of piling up 3 subsidies on the same starved market
+/// within a few ticks of each other (each one costing a faction
+/// several thousand credits).
+pub const SUBSIDY_CHECK_INTERVAL_BASE: u64 = 60;
 /// A commodity starts qualifying as "chronic" once its shortage_ticks
 /// exceeds this threshold. Elixir: `@subsidy_trigger_ticks 30`.
 pub const SUBSIDY_TRIGGER_TICKS: u32 = 30;
 /// Require at least this many member markets in shortage before posting.
 /// Elixir: `@min_facilities_short 2`.
 pub const MIN_FACILITIES_SHORT: usize = 2;
-/// Per-faction cap on posted subsidies. Elixir: `@max_active_subsidies 3`.
-pub const MAX_ACTIVE_SUBSIDIES_PER_FACTION: u32 = 3;
-/// Base subsidy payment before the dynamic multiplier. Elixir: `2_000`.
-pub const SUBSIDY_BASE_PAYMENT: i64 = 2_000;
+/// Per-faction cap on posted subsidies. Elixir used 3; trimmed to 2
+/// here so a faction's ongoing subsidy outlay is capped at ~10k
+/// regardless of how many member markets are short. The demand
+/// analyzer picks up chronic shortages the subsidy can't touch.
+pub const MAX_ACTIVE_SUBSIDIES_PER_FACTION: u32 = 2;
+/// Base subsidy payment before the dynamic multiplier. Elixir used
+/// 2000; Rust trimmed to 800 as part of the Phase 19-tail treasury
+/// rebalance. With the dynamic multiplier still scaling 1.25×–3.0×,
+/// subsidies now cost 1000–2400 each — enough to be meaningful for a
+/// courier ship but cheap enough that two concurrent subsidies don't
+/// drain a faction from 30k → 2k inside a thousand ticks.
+pub const SUBSIDY_BASE_PAYMENT: i64 = 800;
 /// Subsidy order size. Elixir: `@subsidy_quantity 200`.
 pub const SUBSIDY_QUANTITY: u32 = 200;
 /// Multiplier floor / ceiling for dynamic subsidy payouts. Elixir ramps
@@ -116,18 +131,24 @@ pub const CONSTRUCTION_TRIGGER_TICKS: u32 = 600;
 
 /// How often the demand analyzer runs (every N base-ticks). Rare —
 /// spawning facilities is a consequential act. Cadence lives on the
-/// faction tick alongside subsidy.
-pub const CONSTRUCTION_CHECK_INTERVAL_BASE: u64 = 100;
+/// faction tick alongside subsidy. Raised from 100 → 300 so a faction
+/// that just posted a construction contract has time to recover
+/// treasury before the next scan potentially posts another.
+pub const CONSTRUCTION_CHECK_INTERVAL_BASE: u64 = 300;
 
 /// Max active construction contracts a faction can have posted at
 /// any time. One keeps the board focused; beyond that a struggling
 /// sector would flood the ticker with the same plea.
 pub const MAX_ACTIVE_CONSTRUCTIONS_PER_FACTION: u32 = 1;
 
-/// Base payment for a construction contract. Much higher than
-/// subsidy because the mission is bigger: you're literally ferrying
-/// 200 units of a chronically-short commodity into a dying market.
-pub const CONSTRUCTION_BASE_PAYMENT: i64 = 15_000;
+/// Base payment for a construction contract. Higher than subsidy
+/// because the mission is bigger: you're literally ferrying 200 units
+/// of a chronically-short commodity into a dying market. Trimmed from
+/// 15k → 10k as part of the Phase 19-tail treasury rebalance — the
+/// old value paired with the 18k min-treasury caused a single
+/// construction post to drop a faction from ~25k to ~10k, and the
+/// subsidy+bailout cadence finished the job within 1000 ticks.
+pub const CONSTRUCTION_BASE_PAYMENT: i64 = 10_000;
 
 /// Construction delivery headcount. Larger than subsidy so the
 /// arriving shipment materially reshapes the destination market.
@@ -138,8 +159,11 @@ pub const CONSTRUCTION_QUANTITY: u32 = 200;
 pub const CONSTRUCTION_LIFESPAN_BASE: u64 = 800;
 
 /// Faction must hold at least this much treasury to self-fund a
-/// construction payout. Avoids bankrupting broke factions.
-pub const CONSTRUCTION_MIN_TREASURY: i64 = 18_000;
+/// construction payout. Sized to ~3× [`CONSTRUCTION_BASE_PAYMENT`]
+/// so a single post still leaves the faction with a healthy cushion
+/// for bailouts + subsidies — previously 18k, which paired with the
+/// old 15k payment left factions one cycle from the $2k floor.
+pub const CONSTRUCTION_MIN_TREASURY: i64 = 30_000;
 
 pub fn tick_factions(
     world: &mut hecs::World,
@@ -182,16 +206,31 @@ pub fn tick_factions(
     refresh_active_subsidy_counts(world, contracts);
 }
 
+/// Faction treasury floor observed by bailouts. Bailouts won't drain
+/// a faction below this while topping up distressed facilities.
+/// Preserves capital for subsidy + construction posts later.
+pub const FACTION_WORKING_CAPITAL_FLOOR: i64 = 10_000;
+
+/// Faction treasury floor observed by subsidy posts. Lower than the
+/// bailout floor so subsidies can still fire in the steady-state
+/// "treasury at 10k, tax trickling in" regime — otherwise a faction
+/// that settles at the bailout floor never posts another subsidy,
+/// and the mechanism goes dormant.
+pub const FACTION_SUBSIDY_FLOOR: i64 = 5_000;
+
 /// Credits floor below which a facility is considered "in distress" and
 /// its faction will wire enough money to get it back to posting-viable.
-/// Sized to roughly one delivery contract so the bailout only fires
-/// when the facility truly can't post.
-pub const FACILITY_BAILOUT_FLOOR: i64 = 3_000;
-/// Bailout top-up target. Moderate — enough to post one contract plus
-/// a small buffer. Keeping this small means faction treasuries last
-/// longer across the bailout budget; scaling up the target just drains
-/// factions faster without the economy catching up.
-pub const FACILITY_BAILOUT_TARGET: i64 = 6_000;
+/// Trimmed from 3k → 500 because the old value triggered bailouts on
+/// ~65/93 facilities fleet-wide each cycle — one bailout round cost
+/// ~$370k across all factions vs. ~$5-10k of tax income, which pinned
+/// every treasury at the floor permanently. At 500 credits the bailout
+/// only catches facilities within a restock-cycle of abandonment.
+pub const FACILITY_BAILOUT_FLOOR: i64 = 500;
+/// Bailout top-up target. Sized to just enough runway to post one
+/// small delivery contract and survive until its next tax cycle — not
+/// "comfortable" credits. Paired with the lower floor above so a
+/// bailout is an emergency airbag, not a monthly allowance.
+pub const FACILITY_BAILOUT_TARGET: i64 = 2_000;
 
 /// For each faction-owned facility whose credits dropped below
 /// `FACILITY_BAILOUT_FLOOR`, transfer from faction treasury up to
@@ -234,7 +273,9 @@ fn run_bailout_cycle(world: &mut hecs::World) {
     // Pass 3: disburse — walk needs, subtract from treasury where the
     // faction can afford (keeping its own floor), and remember which
     // facilities got paid.
-    const FACTION_TREASURY_FLOOR: i64 = 2_000;
+    // Bailouts honour the shared working-capital floor — same rule
+    // that subsidy + construction posts observe.
+    const FACTION_TREASURY_FLOOR: i64 = FACTION_WORKING_CAPITAL_FLOOR;
     let mut paid: Vec<(hecs::Entity, String, i64)> = Vec::new();
     for need in needs {
         let t = treasury.entry(need.faction_id.clone()).or_insert(0);
@@ -481,10 +522,15 @@ fn run_subsidy_cycle(
                 .iter()
                 .find(|(_, d)| d.id == plan.faction_id)
                 .map(|(e, _)| e);
+            // Keep a working-capital floor so subsidies can't drain
+            // a faction to zero — mirrors the same floor bailouts
+            // observe. Without this guard a busy faction could
+            // post 2 subsidies at a multiplier spike and go broke
+            // before the next tax cycle replenishes.
             q = q.filter(|e| {
                 world
                     .get::<&FactionData>(*e)
-                    .map(|d| d.treasury >= plan.payment)
+                    .map(|d| d.treasury.saturating_sub(FACTION_SUBSIDY_FLOOR) >= plan.payment)
                     .unwrap_or(false)
             });
             q
