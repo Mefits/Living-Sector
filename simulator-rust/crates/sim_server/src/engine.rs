@@ -594,7 +594,9 @@ fn emit_persist_writes(
         // Collect which facilities to flush up front so we can read
         // optional components afterwards without juggling borrows.
         // A facility is dirty when FacilityOperations, ModuleStock,
-        // or FacilityFitting has changed since the last flush.
+        // FacilityFitting, or FacilityCrew has changed since the
+        // last flush.
+        use sim_core::agents::facility::FacilityCrew;
         let mut dirty: Vec<hecs::Entity> = Vec::new();
         for (e, ops) in store.world.query::<&FacilityOperations>().iter() {
             if ops.dirty {
@@ -616,6 +618,15 @@ fn emit_persist_writes(
                 .map(|f| f.dirty)
                 .unwrap_or(false);
             if fit_dirty {
+                dirty.push(e);
+                continue;
+            }
+            let crew_dirty = store
+                .world
+                .get::<&FacilityCrew>(e)
+                .map(|c| c.dirty)
+                .unwrap_or(false);
+            if crew_dirty {
                 dirty.push(e);
             }
         }
@@ -658,6 +669,13 @@ fn emit_persist_writes(
                 Ok(f) => facility_fitting_to_json(&f),
                 Err(_) => "{}".to_string(),
             };
+            let crew_state_json = match store.world.get::<&FacilityCrew>(entity) {
+                Ok(c) => {
+                    let snap = sim_core::agents::facility::FacilityCrewSnapshot::from(&*c);
+                    serde_json::to_string(&snap).unwrap_or_else(|_| "{}".to_string())
+                }
+                Err(_) => "{}".to_string(),
+            };
             let _ = tx.try_send(DbWrite::Facility {
                 db_id,
                 credits,
@@ -665,6 +683,7 @@ fn emit_persist_writes(
                 reserves_json,
                 module_stock_json,
                 fitting_json,
+                crew_state_json,
             });
             if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(entity) {
                 ops.dirty = false;
@@ -674,6 +693,9 @@ fn emit_persist_writes(
             }
             if let Ok(mut fit) = store.world.get::<&mut FacilityFitting>(entity) {
                 fit.dirty = false;
+            }
+            if let Ok(mut crew) = store.world.get::<&mut FacilityCrew>(entity) {
+                crew.dirty = false;
             }
         }
     }
@@ -1576,6 +1598,18 @@ fn admin_spawn_facility(
             )
             .ok();
     }
+    // Phase 19a: every facility (gates included) gets a crew complement
+    // sized by type. Admin-spawned facilities pick the default the same
+    // way seed-loaded ones do.
+    store
+        .world
+        .insert_one(
+            entity,
+            sim_core::agents::facility::FacilityCrew::new_for_type(
+                &payload.facility_type,
+            ),
+        )
+        .ok();
     store.index_facility(
         payload.agent_id.clone(),
         payload.location_name.clone(),

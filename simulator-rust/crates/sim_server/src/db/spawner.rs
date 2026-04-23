@@ -381,7 +381,7 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
     let rows = sqlx::query(
         "SELECT id, name, facility_type, location_id, location_name, body_id, faction_id,
                 docking_capacity, services, condition, reputation, credits, reserves, docked_ships,
-                gate_paired_id, module_stock, fitting
+                gate_paired_id, module_stock, fitting, crew_state
          FROM facilities",
     )
     .fetch_all(pool)
@@ -451,11 +451,27 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
         // Attach FacilityFitting (Phase 18e) to every non-gate
         // facility. Gates don't run recipes, so the fitting has no
         // effect on them — skipping keeps the component set tight.
+        let fac_type_for_crew = {
+            // Pull the type out before it's moved into identity.
+            let id_ref = store
+                .world
+                .get::<&FacilityIdentity>(entity)
+                .expect("just-spawned facility has identity");
+            id_ref.facility_type.clone()
+        };
         if !is_gate {
             let fitting_json: String = r.try_get("fitting").unwrap_or_default();
             let fitting = parse_facility_fitting(&fitting_json);
             store.world.insert_one(entity, fitting).ok();
         }
+
+        // Phase 19a: attach FacilityCrew to every facility. Gate
+        // types get a zero-crew default (automated infrastructure);
+        // every staffed type gets a count sized by its role.
+        // Hydrates from the crew_state JSON if set, else type default.
+        let crew_json: String = r.try_get("crew_state").unwrap_or_default();
+        let crew = parse_facility_crew(&crew_json, &fac_type_for_crew);
+        store.world.insert_one(entity, crew).ok();
 
         // Attach ModuleStock to shipyards (Phase 18c). Non-shipyards
         // get nothing — the tick phase keys on facility_type before
@@ -1032,6 +1048,22 @@ fn parse_facility_fitting(json: &str) -> sim_core::agents::facility::FacilityFit
         }
     }
     sim_core::agents::facility::FacilityFitting::from_slugs(&raw)
+}
+
+/// Parse a `facilities.crew_state` JSON blob into a FacilityCrew.
+/// Empty object (the migration default) or malformed JSON falls back
+/// to the per-facility-type default — existing rows pre-migration-009
+/// thus pick up a fresh crew complement without manual seeding.
+fn parse_facility_crew(
+    json: &str,
+    facility_type: &str,
+) -> sim_core::agents::facility::FacilityCrew {
+    use sim_core::agents::facility::{FacilityCrew, FacilityCrewSnapshot};
+    let snap: Option<FacilityCrewSnapshot> = serde_json::from_str(json).ok();
+    match snap {
+        Some(s) if s.crew_count > 0 => s.into(),
+        _ => FacilityCrew::new_for_type(facility_type),
+    }
 }
 
 /// Read the `facility_type` of the just-spawned facility entity and

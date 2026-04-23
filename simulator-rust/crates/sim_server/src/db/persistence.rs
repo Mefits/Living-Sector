@@ -69,6 +69,10 @@ pub enum DbWrite {
         /// Always emitted on any facility flush so tier-2/3 swaps land
         /// in the DB the same sweep they mutate RAM.
         fitting_json: String,
+        /// JSON mirror of `FacilityCrew` (Phase 19a). Empty `{}`
+        /// encodes "use type default on next load"; a populated
+        /// object round-trips crew_count / morale / hunger / food_debt.
+        crew_state_json: String,
     },
     /// Population demographics + sentiment.
     Population {
@@ -304,19 +308,21 @@ impl PersistenceWorker {
                     reserves_json,
                     module_stock_json,
                     fitting_json,
+                    crew_state_json,
                 } => {
                     sqlx::query(
                         "UPDATE facilities SET
                            credits=?1, condition=?2, reserves=?3,
-                           module_stock=?4, fitting=?5,
+                           module_stock=?4, fitting=?5, crew_state=?6,
                            updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
-                         WHERE id=?6",
+                         WHERE id=?7",
                     )
                     .bind(credits)
                     .bind(condition as f64)
                     .bind(reserves_json)
                     .bind(module_stock_json)
                     .bind(fitting_json)
+                    .bind(crew_state_json)
                     .bind(db_id)
                     .execute(&mut *tx)
                     .await?;

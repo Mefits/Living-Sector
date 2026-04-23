@@ -199,6 +199,144 @@ impl FacilityFitting {
     }
 }
 
+/// Facility crew complement (Phase 19a).
+///
+/// Aggregate crew — a single struct on the facility entity, not
+/// per-crew-member entities. That was tried in the Elixir port and
+/// made crew 60% of all agents; the aggregate pattern mirrors
+/// [`crate::agents::ship::ShipCrew`] and stays cheap.
+///
+/// Models the station's operations staff: engineers, techs, dock
+/// handlers. Fed crew keep production running at full efficiency;
+/// starving crew slow recipes down. The lever is `efficiency()`,
+/// which is multiplied into the recipe output path alongside
+/// condition + facility level.
+///
+/// ## Food draw
+///
+/// Each tick, the facility consumes `crew_count × FOOD_PER_CREW_TICK`
+/// food from `FacilityStorage.reserves[Food]`. Empty reserves mean
+/// no food gets consumed but hunger continues to climb — morale
+/// degrades and efficiency drops. Tuned small (0.02/crew/tick) so
+/// that at fleet scale (~90 facilities × ~10 avg crew) the fleet-
+/// wide draw stays well under population food consumption.
+///
+/// ## Morale / hunger / efficiency
+///
+/// - `hunger` rises each tick; eating resets it
+/// - `morale` drifts toward target based on hunger satisfaction
+/// - `efficiency() = 0.5 + 0.5 × (morale/100)` — full morale = 1.0×
+///   production, zero morale = 0.5× production. Never zero; a
+///   skeleton crew keeps the lights on.
+#[derive(Debug, Clone)]
+pub struct FacilityCrew {
+    /// Number of crew members. Seeded from facility type at spawn.
+    /// Doesn't change during play yet (no hiring / firing mechanic);
+    /// if we add one later, events adjust this in-place.
+    pub crew_count: u16,
+    /// 0..=100. Starts at 80 (cheerful open), decays when hungry.
+    pub morale: f32,
+    /// 0..=100. Rises per tick; `consume_meal` resets it when food
+    /// is available. Above `HUNGER_MORALE_HIT_THRESHOLD` (60) the
+    /// crew starts losing morale.
+    pub hunger: f32,
+    /// Accumulated food "credit" — we consume food from reserves
+    /// per tick but per-tick draw is fractional (0.02 × crew_count),
+    /// so we batch: hold fractional draw in this accumulator, debit
+    /// reserves when it crosses 1.0. Keeps the reserves math on
+    /// integer units even though the rate is < 1/tick.
+    pub food_debt: f32,
+    /// Set whenever any field changes — persistence flush reads it.
+    pub dirty: bool,
+}
+
+impl FacilityCrew {
+    /// Default crew count by facility type. Tuned so the fleet-wide
+    /// food draw lands near our 20/tick target. Values aim for the
+    /// "small but meaningful" range (4..=20) — a station's crew
+    /// shouldn't rival a population in headcount.
+    ///
+    /// Unknown types get a conservative 6 so new facility types
+    /// don't accidentally starve markets.
+    pub fn default_count_for_type(facility_type: &str) -> u16 {
+        match facility_type {
+            "station" => 20,
+            "shipyard" => 16,
+            "refinery" => 12,
+            "factory" => 12,
+            "farm" => 6,
+            "mining_rig" => 8,
+            "outpost" => 6,
+            // Gates are automated — no crew, no food draw. They sit
+            // at locations without markets, so a staffed crew would
+            // never be able to restock food. Easier to model them as
+            // pure infrastructure than to invent a supply path just
+            // for gate feeding.
+            "gate" => 0,
+            _ => 6,
+        }
+    }
+
+    pub fn new_for_type(facility_type: &str) -> Self {
+        Self {
+            crew_count: Self::default_count_for_type(facility_type),
+            morale: CREW_MORALE_START,
+            hunger: 0.0,
+            food_debt: 0.0,
+            dirty: false,
+        }
+    }
+
+    /// Production efficiency multiplier derived from morale. Range
+    /// `[0.5, 1.0]`. Zero-crew facilities return 0.5 — a skeleton
+    /// crew keeps things limping along rather than halting outright.
+    pub fn efficiency(&self) -> f32 {
+        if self.crew_count == 0 {
+            return 0.5;
+        }
+        0.5 + 0.5 * (self.morale / 100.0)
+    }
+}
+
+impl Default for FacilityCrew {
+    fn default() -> Self {
+        Self::new_for_type("station")
+    }
+}
+
+/// Serialized form for DB + WS.
+#[derive(Debug, Clone, Serialize, serde::Deserialize, Default)]
+pub struct FacilityCrewSnapshot {
+    pub crew_count: u16,
+    pub morale: f32,
+    pub hunger: f32,
+    #[serde(default)]
+    pub food_debt: f32,
+}
+
+impl From<&FacilityCrew> for FacilityCrewSnapshot {
+    fn from(c: &FacilityCrew) -> Self {
+        Self {
+            crew_count: c.crew_count,
+            morale: c.morale,
+            hunger: c.hunger,
+            food_debt: c.food_debt,
+        }
+    }
+}
+
+impl From<FacilityCrewSnapshot> for FacilityCrew {
+    fn from(s: FacilityCrewSnapshot) -> Self {
+        Self {
+            crew_count: s.crew_count,
+            morale: s.morale,
+            hunger: s.hunger,
+            food_debt: s.food_debt,
+            dirty: false,
+        }
+    }
+}
+
 /// Shipyard module inventory (Phase 18c). One per shipyard facility.
 /// `stock[slug]` is how many installable units the shipyard currently
 /// has on hand. Ticks increment it via the production recipe; refits
@@ -295,6 +433,11 @@ pub struct FacilitySnapshot {
     /// the same way ship subsystems are rendered.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fitting: Option<FacilityFittingSnapshot>,
+    /// Crew complement (Phase 19a). Count + morale + hunger. Godot
+    /// reads this in the facility details panel so players can see
+    /// "station understaffed / hungry" at a glance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crew: Option<FacilityCrewSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -423,6 +566,7 @@ pub fn facility_offset_position(body_center: (f32, f32), facility_id: &str) -> (
 
 impl FacilitySnapshot {
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn build(
         identity: &FacilityIdentity,
         location: &FacilityLocation,
@@ -432,6 +576,7 @@ impl FacilitySnapshot {
         gate: Option<&GateLink>,
         module_stock: Option<&ModuleStock>,
         fitting: Option<&FacilityFitting>,
+        crew: Option<&FacilityCrew>,
         position: super::Position,
         docked_ship_ids: Vec<String>,
     ) -> Self {
@@ -459,6 +604,7 @@ impl FacilitySnapshot {
         });
         let module_stock = module_stock.map(|m| m.stock.clone());
         let fitting_snap = fitting.map(FacilityFittingSnapshot::from);
+        let crew_snap = crew.map(FacilityCrewSnapshot::from);
         Self {
             id: identity.id.clone(),
             name: identity.name.clone(),
@@ -480,6 +626,7 @@ impl FacilitySnapshot {
             gate_link,
             module_stock,
             fitting: fitting_snap,
+            crew: crew_snap,
         }
     }
 }
@@ -525,6 +672,53 @@ pub const CONDITION_REPAIR_THRESHOLD: f32 = 0.8;
 pub const CONDITION_REPAIR_PER_TOOL: f32 = 0.01;
 /// Interval (base-ticks) at which self-repair runs. Every 20×mult ticks.
 pub const REPAIR_INTERVAL_BASE: u64 = 20;
+
+// --- Phase 19a: facility crew complement ---
+
+/// Morale the crew spawns with. High enough that well-stocked
+/// facilities start at full production efficiency; low enough that a
+/// brief food outage at tick 0 causes a visible drop rather than
+/// clamping at 100 for hours.
+pub const CREW_MORALE_START: f32 = 80.0;
+
+/// Fractional food units drawn from reserves per crew per base-tick.
+/// Intentionally tiny — at ~90 facilities × ~10 crew average, this
+/// nets to roughly 18 food/tick fleet-wide, vs ~300/tick from
+/// populations. Facility crew is < 10% of total food demand.
+pub const FOOD_PER_CREW_TICK: f32 = 0.02;
+
+/// Hunger rise per base-tick (per crew). Crew hits the morale-hit
+/// threshold (60) after ~200 ticks unfed at tick_scale=1, so a
+/// facility can coast briefly through a food shortage without
+/// immediately tanking production.
+pub const CREW_HUNGER_RATE_PER_TICK: f32 = 0.3;
+
+/// Hunger above this causes morale to slip each tick. Below it,
+/// crew is content and morale drifts back toward full.
+pub const HUNGER_MORALE_HIT_THRESHOLD: f32 = 60.0;
+
+/// How fast morale moves each tick toward its target (either a
+/// hunger-driven sag or a fed-crew recovery). Matches the pace of
+/// ship-crew morale math loosely — recovery should be slower than
+/// decay so "starving → fed" doesn't instantly snap production back.
+pub const CREW_MORALE_HUNGRY_DECAY: f32 = 0.8;
+pub const CREW_MORALE_RECOVERY: f32 = 0.3;
+
+/// Morale at or below this emits the `facility_crew_starving` event.
+/// Used only for UI signaling; the gameplay drag happens through
+/// `efficiency()` continuously.
+pub const CREW_STARVING_MORALE: f32 = 30.0;
+
+/// Hunger reduction per meal successfully eaten. Crew eats one
+/// "meal" whenever `food_debt` accumulates to ≥ 1 and there's food
+/// in reserves. Meal size aligns with FOOD_PER_CREW_TICK so a fed
+/// facility runs at hunger ≈ 0.
+pub const CREW_MEAL_HUNGER_DECREASE: f32 = 20.0;
+
+/// Interval (base-ticks) between crew morale checks + food draws.
+/// Ties into the existing facility-tick cadence — cheap enough to
+/// run every 5 base-ticks so the morale curve is smooth.
+pub const FACILITY_CREW_TICK_INTERVAL_BASE: u64 = 5;
 
 /// Reserve floor below which the restock phase tries to top up.
 pub const RESERVE_RESTOCK_THRESHOLD: f32 = 100.0;
@@ -639,6 +833,14 @@ pub fn tick_facilities(
     // Phase 1: condition degrade (every tick; cheap — one field write).
     tick_degrade_condition(world, tick_scale);
 
+    // Phase 1b (Phase 19a): crew complement — food draw, hunger,
+    // morale. Runs on its own 5×mult cadence so the morale curve
+    // is smooth without hammering the tick loop every frame.
+    let crew_interval = FACILITY_CREW_TICK_INTERVAL_BASE * mult;
+    if crew_interval > 0 && tick % crew_interval == 0 {
+        tick_facility_crew(world, tick_scale, tick_multiplier);
+    }
+
     // Phase 2: self-repair (every 20×mult ticks).
     if repair_interval > 0 && tick % repair_interval == 0 {
         tick_self_repair(world);
@@ -691,6 +893,98 @@ fn tick_degrade_condition(world: &mut hecs::World, tick_scale: f32) {
             continue;
         }
         ops.condition = (ops.condition - delta).max(0.0);
+    }
+}
+
+/// Phase 19a: crew complement tick — food consumption, hunger,
+/// morale. Runs every `FACILITY_CREW_TICK_INTERVAL_BASE × mult`
+/// ticks. Abandoned facilities skip (no one's home).
+///
+/// ## Flow per facility
+///
+/// 1. **Hunger** climbs by `CREW_HUNGER_RATE_PER_TICK × interval ×
+///    tick_scale` (higher world-speed = hunger rises faster).
+/// 2. **Food debt** accumulates at `crew_count × FOOD_PER_CREW_TICK
+///    × interval`. Integer food units are deducted from reserves
+///    whenever debt ≥ 1.0; successful deductions trim `hunger` via
+///    `CREW_MEAL_HUNGER_DECREASE / crew_count` so larger crews eat
+///    proportionally more to feel full.
+/// 3. **Morale** drifts toward its target: well-fed crews
+///    (`hunger < HUNGER_MORALE_HIT_THRESHOLD`) recover toward 100;
+///    hungry crews lose morale. Both movements use the interval so
+///    cadence is tick-scale-independent.
+///
+/// The crew's `efficiency()` is read by `tick_recipes_and_mining`
+/// on its own interval and multiplies into recipe output + mining
+/// yield.
+fn tick_facility_crew(
+    world: &mut hecs::World,
+    tick_scale: f32,
+    tick_multiplier: u32,
+) {
+    let interval = (FACILITY_CREW_TICK_INTERVAL_BASE * tick_multiplier as u64) as f32;
+    let hunger_delta = CREW_HUNGER_RATE_PER_TICK * interval * tick_scale;
+
+    for (_e, (crew, storage, life)) in world.query_mut::<(
+        &mut FacilityCrew,
+        &mut FacilityStorage,
+        &FacilityLifecycle,
+    )>() {
+        if life.abandoned || crew.crew_count == 0 {
+            continue;
+        }
+        let before_morale = crew.morale;
+
+        // Hunger rises uniformly per tick.
+        crew.hunger = (crew.hunger + hunger_delta).clamp(0.0, 100.0);
+
+        // Accumulate fractional food draw. Crew eats whole food units
+        // from reserves only when the debt crosses 1.0, so the integer
+        // reserves math stays clean even at 0.02/crew/tick.
+        crew.food_debt += crew.crew_count as f32 * FOOD_PER_CREW_TICK * interval;
+        while crew.food_debt >= 1.0 {
+            let food = storage.reserves.entry(Commodity::Food).or_insert(0.0);
+            if *food >= 1.0 {
+                *food -= 1.0;
+                crew.food_debt -= 1.0;
+                // Per-meal hunger relief — scaled down for large crews
+                // so 20 crew eating 20 food/tick doesn't all-clear
+                // hunger from one meal. In practice debt-driven meals
+                // at steady state keep hunger pinned near 0.
+                let relief = CREW_MEAL_HUNGER_DECREASE / (crew.crew_count as f32).max(1.0);
+                crew.hunger = (crew.hunger - relief).max(0.0);
+            } else {
+                // No food in reserves — leave debt accumulated so
+                // the next tick with food will catch up.
+                break;
+            }
+        }
+
+        // Morale — hungry crews decay, fed crews recover.
+        let morale_target = if crew.hunger > HUNGER_MORALE_HIT_THRESHOLD {
+            0.0
+        } else {
+            100.0
+        };
+        let rate = if morale_target < crew.morale {
+            CREW_MORALE_HUNGRY_DECAY
+        } else {
+            CREW_MORALE_RECOVERY
+        };
+        let step = rate * interval;
+        if morale_target < crew.morale {
+            crew.morale = (crew.morale - step).max(morale_target);
+        } else if morale_target > crew.morale {
+            crew.morale = (crew.morale + step).min(morale_target);
+        }
+        crew.morale = crew.morale.clamp(0.0, 100.0);
+
+        let changed = (crew.morale - before_morale).abs() > f32::EPSILON
+            || crew.hunger > 0.0
+            || crew.food_debt > 0.0;
+        if changed {
+            crew.dirty = true;
+        }
     }
 }
 
@@ -936,11 +1230,19 @@ fn tick_recipes_and_mining(world: &mut hecs::World, tick: u64, tick_multiplier: 
             // without a fitting (shouldn't happen post-Phase-18e spawn
             // but defend against hand-rolled DB rows) fall back to
             // neutral stats.
-            let (output_mult, batches_bonus) = world
+            let (output_mult_fitting, batches_bonus) = world
                 .get::<&FacilityFitting>(fac.entity)
                 .ok()
                 .map(|f| (f.derived.recipe_output_mult, f.derived.max_batches_bonus))
                 .unwrap_or((1.0, 0));
+            // Phase 19a: crew efficiency multiplies into the output
+            // mult alongside fitting. Starving crew → half production.
+            let crew_efficiency = world
+                .get::<&FacilityCrew>(fac.entity)
+                .ok()
+                .map(|c| c.efficiency())
+                .unwrap_or(1.0);
+            let output_mult = output_mult_fitting * crew_efficiency;
             let max_batches = level_scaled_max_batches(fac.level).saturating_add(batches_bonus);
             // Count recipes that actually produced output — XP only grows
             // when real work happens. Elixir increments XP by the number
@@ -984,12 +1286,20 @@ fn tick_recipes_and_mining(world: &mut hecs::World, tick: u64, tick_multiplier: 
                     Err(_) => continue,
                 };
             // Mining rigs honour the Production slot too — a tier-3
-            // production module boosts extracted yield 1.3×.
-            let yield_mult = world
+            // production module boosts extracted yield 1.3×. Phase 19a
+            // also folds crew efficiency in: a starved mining crew
+            // extracts half as much per cycle.
+            let yield_fitting = world
                 .get::<&FacilityFitting>(fac.entity)
                 .ok()
                 .map(|f| f.derived.recipe_output_mult)
                 .unwrap_or(1.0);
+            let crew_efficiency = world
+                .get::<&FacilityCrew>(fac.entity)
+                .ok()
+                .map(|c| c.efficiency())
+                .unwrap_or(1.0);
+            let yield_mult = yield_fitting * crew_efficiency;
             if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
                 for (commodity, richness) in body_resources {
                     if richness <= 0.0 {

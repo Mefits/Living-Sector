@@ -381,6 +381,26 @@ func _refresh_facility() -> void:
       "Docked: %d/%d ships" % [docked.size(), dock_cap]
     )
 
+  # Crew (Phase 19a). Count + morale + hunger; morale drives the
+  # efficiency multiplier on recipe output. Gates are modeled as
+  # automated infrastructure (crew_count=0) — for those we surface
+  # "automated" instead of a morale readout that would never
+  # change meaningfully.
+  var crew = data.get("crew")
+  if crew is Dictionary:
+    var crew_count: int = int(crew.get("crew_count", 0))
+    if crew_count == 0:
+      lines.append("Crew: automated")
+    else:
+      var morale: float = float(crew.get("morale", 0.0))
+      var hunger: float = float(crew.get("hunger", 0.0))
+      var efficiency_pct: float = (0.5 + 0.5 * (morale / 100.0)) * 100.0
+      lines.append(
+        "Crew: %d  Morale: %.0f  Hunger: %.0f  (%.0f%% efficiency)" % [
+          crew_count, morale, hunger, efficiency_pct
+        ]
+      )
+
   # Reserves
   var reserves = data.get("reserves", {})
   if reserves is Dictionary and reserves.size() > 0:
