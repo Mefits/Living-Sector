@@ -1504,20 +1504,59 @@ fn apply_request_dock_typed(
 }
 
 /// Apply `ReleaseDock`: remove the ship from the facility's docked_ships
-/// list. The ship's `docked_at` has already been cleared in-place by the
+/// list AND anchor the ship's position to the facility it's leaving.
+///
+/// The second part is the fix for the "ship teleports across the screen
+/// when it undocks" bug. Ships don't publish a position while docked
+/// (Godot hides them at that point), so on undock we need to place
+/// them at the station's current coordinates — otherwise they
+/// re-appear at whatever stale position the server last broadcast and
+/// slide to the travel target from there. Mirroring the station's
+/// position here gives Godot a clean "leaves the station" visual.
+///
+/// The ship's `docked_at` has already been cleared in-place by the
 /// Undock action.
 fn apply_release_dock(
     store: &mut AgentStore,
     ship: hecs::Entity,
     location: &str,
 ) {
-    use sim_core::agents::facility::FacilityStorage;
+    use sim_core::agents::{
+        celestial_body::{BodyIdentity, BodyOrbit},
+        facility::{facility_offset_position, FacilityIdentity, FacilityStorage},
+        ship::ShipPosition,
+    };
     let facility = match primary_dock_at_location(store, location) {
         Some(e) => e,
         None => return,
     };
     if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
         storage.docked_ships.retain(|&e| e != ship);
+    }
+
+    // Resolve the facility's world position: body center + the same
+    // stable offset facility_offset_position() uses. Computing it here
+    // avoids a dependency on the snapshot-side facility position,
+    // which isn't written until after the tick's apply phase.
+    let facility_pos = {
+        let id = match store.world.get::<&FacilityIdentity>(facility) {
+            Ok(id) => id.clone(),
+            Err(_) => return,
+        };
+        let body_center = store
+            .world
+            .query::<(&BodyIdentity, &BodyOrbit)>()
+            .iter()
+            .find(|(_, (bid, _))| bid.body_id == id.body_id)
+            .map(|(_, (_, orbit))| orbit.universe_position());
+        let Some(body_center) = body_center else {
+            return;
+        };
+        facility_offset_position(body_center, &id.id)
+    };
+
+    if let Ok(mut pos) = store.world.get::<&mut ShipPosition>(ship) {
+        pos.position = facility_pos;
     }
 }
 
