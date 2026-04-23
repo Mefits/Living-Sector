@@ -1501,25 +1501,50 @@ fn apply_request_dock_typed(
 
     // Phase 18k: iterate dockable facilities in descending-capacity
     // order so the ship falls through to secondary/tertiary
-    // facilities when the primary is full. Previously only the
-    // single biggest facility was tried, causing ships to stampede
-    // the main station while smaller factories/farms/refineries
-    // with free slots sat unused.
+    // facilities when the primary is full.
+    //
+    // Phase 19-tail: FIFO dock queue. If a ship is already queued at
+    // some facility at this location, it must wait its turn — a
+    // fresh arrival can't queue-jump just because its RequestDock
+    // landed the same tick a slot opened. Three cases:
+    //
+    //   1. Ship already queued at facility F:
+    //      - If F has capacity AND ship is at head → admit, pop queue.
+    //      - Else → noop (stay queued).
+    //
+    //   2. Ship not queued anywhere:
+    //      - If any candidate facility has `docked + queue_len < cap`
+    //        → admit immediately (fast path, no queue contention).
+    //      - Else → append to the least-queued candidate's queue.
+    //
+    //   3. No candidates at location → reject (same as before).
     let candidates = dockable_candidates_ordered(store, location, preferred_facility_type);
     if candidates.is_empty() {
         return false;
     }
 
-    // Walk candidates. For each one:
-    //   1. Check at_capacity (skip if full).
-    //   2. Compute docking fee.
-    //   3. Check ship_ok (skip if broke — fee rises with occupancy,
-    //      so a smaller facility with free slots may still accept).
-    //   4. Commit the dock on the first one that passes.
-    let mut facility: Option<hecs::Entity> = None;
-    let mut fee: i64 = 0;
-    for e in candidates {
-        let (f, at_capacity) = {
+    // Case 1: ship already queued at one of these candidates?
+    for &e in &candidates {
+        let queued_at_head = store
+            .world
+            .get::<&FacilityStorage>(e)
+            .map(|s| s.dock_queue.first() == Some(&ship))
+            .unwrap_or(false);
+        let in_queue = store
+            .world
+            .get::<&FacilityStorage>(e)
+            .map(|s| s.dock_queue.contains(&ship))
+            .unwrap_or(false);
+        if !in_queue {
+            continue;
+        }
+        if !queued_at_head {
+            // Still waiting behind someone else. No admit this tick.
+            return false;
+        }
+        // We're at the head of this facility's queue. Admit if a slot
+        // is available AND we can afford the fee.
+        let (fee, has_space) = {
             let ops = match store.world.get::<&FacilityOperations>(e) {
                 Ok(o) => o,
                 Err(_) => continue,
@@ -1530,7 +1555,7 @@ fn apply_request_dock_typed(
             };
             let docked = storage.docked_ships.len() as u32;
             if docked >= ops.docking_capacity {
-                (0i64, true)
+                (0, false)
             } else {
                 (
                     docking_fee(
@@ -1539,31 +1564,112 @@ fn apply_request_dock_typed(
                         ops.docking_capacity,
                         ops.condition,
                     ),
-                    false,
+                    true,
                 )
             }
         };
-        if at_capacity {
+        if !has_space {
+            return false;
+        }
+        let ship_ok = store
+            .world
+            .get::<&ShipEconomy>(ship)
+            .map(|econ| econ.credits >= fee)
+            .unwrap_or(false);
+        if !ship_ok {
+            return false;
+        }
+        commit_dock(store, ship, e, fee);
+        if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(e) {
+            storage.dock_queue.retain(|&q| q != ship);
+        }
+        return true;
+    }
+
+    // Case 2a: not queued anywhere — try for an immediate slot.
+    // `docked + queue_len < cap` captures "a ship can fit without
+    // stepping on queue order" — if the queue is non-empty those
+    // slots are implicitly reserved for the waiting ships.
+    for &e in &candidates {
+        let (fee, can_admit) = {
+            let ops = match store.world.get::<&FacilityOperations>(e) {
+                Ok(o) => o,
+                Err(_) => continue,
+            };
+            let storage = match store.world.get::<&FacilityStorage>(e) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let docked = storage.docked_ships.len() as u32;
+            let queued = storage.dock_queue.len() as u32;
+            if docked + queued >= ops.docking_capacity {
+                (0, false)
+            } else {
+                (
+                    docking_fee(
+                        DOCKING_FEE_BASE,
+                        docked,
+                        ops.docking_capacity,
+                        ops.condition,
+                    ),
+                    true,
+                )
+            }
+        };
+        if !can_admit {
             continue;
         }
         let ship_ok = store
             .world
             .get::<&ShipEconomy>(ship)
-            .map(|econ| econ.credits >= f)
+            .map(|econ| econ.credits >= fee)
             .unwrap_or(false);
         if !ship_ok {
             continue;
         }
-        facility = Some(e);
-        fee = f;
-        break;
+        commit_dock(store, ship, e, fee);
+        return true;
     }
-    let facility = match facility {
-        Some(e) => e,
-        None => return false,
-    };
 
-    // Deduct from ship, credit facility, register the dock.
+    // Case 2b: all facilities are full or have queues that eat the
+    // remaining capacity. Append to the shortest queue — balances
+    // load across secondaries and minimises the waiting ship's wait.
+    let mut shortest: Option<(hecs::Entity, usize)> = None;
+    for &e in &candidates {
+        let qlen = store
+            .world
+            .get::<&FacilityStorage>(e)
+            .map(|s| s.dock_queue.len())
+            .unwrap_or(usize::MAX);
+        match shortest {
+            None => shortest = Some((e, qlen)),
+            Some((_, best)) if qlen < best => shortest = Some((e, qlen)),
+            _ => {}
+        }
+    }
+    if let Some((e, _)) = shortest {
+        if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(e) {
+            if !storage.dock_queue.contains(&ship) {
+                storage.dock_queue.push(ship);
+            }
+        }
+    }
+    false
+}
+
+/// Shared dock-commit helper: debits fee, credits facility, pushes the
+/// ship onto `docked_ships`, sets `ShipPosition.docked_at`. Caller is
+/// responsible for any queue cleanup.
+fn commit_dock(
+    store: &mut AgentStore,
+    ship: hecs::Entity,
+    facility: hecs::Entity,
+    fee: i64,
+) {
+    use sim_core::agents::{
+        facility::{FacilityOperations, FacilityStorage},
+        ship::{ShipEconomy, ShipPosition},
+    };
     if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
         econ.credits -= fee;
     }
@@ -1579,7 +1685,6 @@ fn apply_request_dock_typed(
     if let Ok(mut pos) = store.world.get::<&mut ShipPosition>(ship) {
         pos.docked_at = Some(facility);
     }
-    true
 }
 
 /// Apply `ReleaseDock`: remove the ship from the facility's docked_ships
@@ -1819,6 +1924,7 @@ fn admin_spawn_facility(
             reserves: std::collections::HashMap::new(),
             docked_ships: vec![],
             pending_deliveries: vec![],
+            dock_queue: vec![],
         },
         FacilityLifecycle::new(),
         sim_core::simulation::lod::AgentLod::new(),
@@ -1932,9 +2038,12 @@ async fn admin_remove_ship(
         .get::<&ShipIdentity>(entity)
         .ok()
         .map(|i| i.db_id);
-    // Pop from any facility's docked list first.
+    // Pop from any facility's docked list AND dock queue first —
+    // otherwise a despawned entity sits in a queue forever blocking
+    // the head.
     for (_e, storage) in store.world.query_mut::<&mut FacilityStorage>() {
         storage.docked_ships.retain(|&e| e != entity);
+        storage.dock_queue.retain(|&e| e != entity);
     }
     // Release every contract the ship was fulfilling so the board
     // doesn't leave Accepted contracts pinned to a despawned ship
@@ -3122,6 +3231,7 @@ fn materialize_facility(
             reserves: HashMap::new(),
             docked_ships: vec![],
             pending_deliveries: vec![],
+            dock_queue: vec![],
         },
         FacilityLifecycle::new(),
         sim_core::simulation::lod::AgentLod::new(),

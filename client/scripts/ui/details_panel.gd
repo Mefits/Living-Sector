@@ -150,6 +150,15 @@ func _refresh_ship() -> void:
   else:
     lines.append("In space")
 
+  # Status line — disambiguates "docked" from "waiting in queue" from
+  # "approaching" since the BT action name alone ("Dock At Shipyard")
+  # doesn't tell you whether capacity has been granted yet. Reads
+  # docked_ships / dock_queue from the facility snapshots that
+  # GameState already caches.
+  var status := _ship_status_line(data)
+  if status != "":
+    lines.append("Status: %s" % status)
+
   var goal = data.get("current_goal")
   if goal != null and str(goal) != "null":
     lines.append("Goal: %s" % GameState.goal_label(goal))
@@ -343,6 +352,47 @@ func _refresh_ship() -> void:
 
   _append_activity_trail(lines)
   info_label.text = "\n".join(lines)
+
+
+## Derive a one-line "Status: …" string for a ship. Disambiguates:
+##   - Docked                    — dock granted, ship is at the station
+##   - In queue (N of M)         — waiting for a slot (FIFO dock queue)
+##   - Approaching (Dock At …)   — heading into a dock, not yet queued
+##   - In transit                — between locations
+##   - Idle / Exploring / …      — falls through to current_goal label
+##
+## Queue position is found by scanning facility snapshots at the ship's
+## location — the Rust sim surfaces `dock_queue: [ship_id, …]` per
+## facility, so 0 = head of line.
+func _ship_status_line(ship: Dictionary) -> String:
+  var docked: bool = bool(ship.get("docked", false))
+  if docked:
+    return "Docked"
+  var transit = ship.get("transit")
+  if transit is Dictionary:
+    return "In transit"
+  var loc = ship.get("location")
+  if loc == null or str(loc) == "" or str(loc) == "null":
+    return ""
+  var ship_id: String = str(ship.get("id", ""))
+  # Look up facilities at this location and find one that lists this
+  # ship in its dock_queue.
+  for fac_id in GameState.facilities:
+    var fac: Dictionary = GameState.facilities.get(fac_id, {})
+    if str(fac.get("location", "")) != str(loc):
+      continue
+    var queue: Array = fac.get("dock_queue", [])
+    if queue.is_empty():
+      continue
+    var idx := queue.find(ship_id)
+    if idx >= 0:
+      return "In queue (%d of %d) at %s" % [idx + 1, queue.size(), fac_id]
+  # At a location but neither docked nor queued — usually mid-approach
+  # (BT emitted RequestDock but the ship is still arriving).
+  var bt = ship.get("current_bt")
+  if bt != null and str(bt).begins_with("Dock"):
+    return "Approaching dock"
+  return ""
 
 
 func _refresh_facility() -> void:

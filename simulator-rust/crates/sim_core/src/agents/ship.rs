@@ -1545,16 +1545,24 @@ fn advance_transits(
 
                 transit.transit = Some(t);
             }
-        } else if position.docked_at.is_some() {
-            // Docked ships: keep the position pinned to the station's
-            // current world coordinates. Godot hides docked ships in
-            // the normal render, but click-to-follow still reads
-            // `position` — without this anchor, following a docked
-            // ship snaps the camera to the ship's last in-space
-            // position (often the approach point several ticks before
-            // docking). Pinning every tick keeps the selection
-            // hand-off clean and the (future) "zoom to ship" UX
-            // correct regardless of dock dwell duration.
+        } else if position.location_name.is_some() {
+            // Pin the ship to its location's current world coordinates.
+            //
+            // Covers two cases:
+            //   1. Docked (`docked_at = Some`). Godot hides docked
+            //      ships in the normal render, but click-to-follow
+            //      still reads `position` — without this anchor,
+            //      following a docked ship snaps the camera to the
+            //      ship's last in-space position (often the approach
+            //      point several ticks before docking).
+            //   2. Waiting to dock (`docked_at = None` but location
+            //      set after transit completion). Previously the ship
+            //      arrived at the station's tick-N coordinates and
+            //      stayed there while the station continued orbiting
+            //      — the player saw "At: haven-station" in the details
+            //      panel but the station had drifted out of frame.
+            //      Pinning here keeps waiting ships parked alongside
+            //      their station.
             if let Some(loc) = position.location_name.clone() {
                 if let Some(p) = location_to_pos(&loc) {
                     position.position = p;

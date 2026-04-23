@@ -205,6 +205,11 @@ impl SnapshotCache {
                 .iter()
                 .filter_map(|e| ship_id_by_entity.get(e).cloned())
                 .collect();
+            let dock_queue_ids: Vec<String> = storage
+                .dock_queue
+                .iter()
+                .filter_map(|e| ship_id_by_entity.get(e).cloned())
+                .collect();
             let lifecycle = store.world.get::<&FacilityLifecycle>(e).ok();
             let gate = store.world.get::<&GateLink>(e).ok();
             let module_stock = store
@@ -231,6 +236,7 @@ impl SnapshotCache {
                 crew.as_deref(),
                 sim_core::agents::Position::from(pos),
                 docked_ship_ids,
+                dock_queue_ids,
             );
             // Also publish the facility's position in the flat cache so
             // Godot's positions broadcast includes it with kind "facility".

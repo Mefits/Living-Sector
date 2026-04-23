@@ -119,6 +119,14 @@ pub struct FacilityStorage {
     pub reserves: HashMap<Commodity, f32>,
     pub docked_ships: Vec<Entity>,
     pub pending_deliveries: Vec<String>, // contract ids
+    /// FIFO dock queue. A ship whose `RequestDock` apply would have
+    /// been rejected for capacity now gets pushed here; subsequent
+    /// `RequestDock` emits from that ship admit it once it reaches
+    /// the head AND a slot frees up. Without this, a waiting ship
+    /// could get jumped by a later arrival — ship #1 sits outside
+    /// while ships #2..N fire RequestDock the same tick a slot
+    /// opens and any of them wins the race.
+    pub dock_queue: Vec<Entity>,
 }
 
 impl FacilityStorage {
@@ -402,6 +410,13 @@ pub struct FacilitySnapshot {
     /// Ship agent-ids currently docked here (e.g. `["ship-artemis-7"]`).
     /// Godot's facility.gd uses `.size()` for its docking glow animation.
     pub docked_ships: Vec<String>,
+    /// Ship agent-ids waiting in the FIFO dock queue (position 0 =
+    /// front of line). Populated by `apply_request_dock` when a ship
+    /// tries to dock at a full facility. Godot's details panel
+    /// reads this to render queue length + position for a selected
+    /// ship.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dock_queue: Vec<String>,
     pub docking_capacity: u32,
     pub services: Vec<String>,
     /// Commodity → qty dict for this facility's on-hand reserves.
@@ -579,6 +594,7 @@ impl FacilitySnapshot {
         crew: Option<&FacilityCrew>,
         position: super::Position,
         docked_ship_ids: Vec<String>,
+        dock_queue_ids: Vec<String>,
     ) -> Self {
         let reserves: std::collections::HashMap<String, f32> = storage
             .reserves
@@ -616,6 +632,7 @@ impl FacilitySnapshot {
             reputation: ops.reputation,
             credits: ops.credits,
             docked_ships: docked_ship_ids,
+            dock_queue: dock_queue_ids,
             docking_capacity: ops.docking_capacity,
             services,
             reserves,

@@ -445,6 +445,7 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
                 reserves,
                 docked_ships: vec![],
                 pending_deliveries: vec![],
+                dock_queue: vec![],
             },
             sim_core::agents::facility::FacilityLifecycle::new(),
             sim_core::simulation::lod::AgentLod::new(),
