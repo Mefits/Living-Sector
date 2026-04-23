@@ -248,6 +248,26 @@ func start(on_ready: Callable, save_name: String = "") -> void:
   _spawn_and_begin_poll()
 
 
+func switch_to(save_name: String, on_ready: Callable) -> void:
+  ## Auto-switch after save-as. Stops the current sim (SIGTERM + grace
+  ## + SIGKILL fallback), then spawns a fresh one pointed at the new
+  ## save file. Used by the pause-menu / HUD save-as flow so the user
+  ## keeps playing on the save they just named, not the original.
+  ##
+  ## No-op against an external (dev) server — the shell session owns
+  ## that process and we have no authority to restart it; caller must
+  ## surface the situation to the user. Invokes `on_ready(FAILED, msg)`
+  ## in that case rather than silently succeeding.
+  if _using_existing_server:
+    if on_ready.is_valid():
+      on_ready.call(
+        FAILED, "can't switch saves against an external sim"
+      )
+    return
+  stop()  # blocks until the pid is gone (grace or SIGKILL)
+  start(on_ready, save_name)
+
+
 func _should_use_existing_server() -> bool:
   # Env var wins if set, so CI / explicit shell launches stay
   # authoritative. Otherwise fall back to res://dev.env (a gitignored

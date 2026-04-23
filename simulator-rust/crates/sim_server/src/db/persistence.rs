@@ -17,7 +17,7 @@ use anyhow::Result;
 use serde_json::json;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
 
 /// A single persist request. The engine emits these per-tick; the worker
@@ -191,6 +191,10 @@ impl DbWrite {
 pub struct PersistenceWorker {
     pool: SqlitePool,
     rx: mpsc::Receiver<DbWrite>,
+    /// On-demand flush requests. Admin `save-as` sends one of these
+    /// before `VACUUM INTO` so the snapshot is guaranteed-current
+    /// rather than up to `sweep_interval` stale.
+    flush_rx: mpsc::Receiver<oneshot::Sender<()>>,
     sweep_interval: std::time::Duration,
 }
 
@@ -198,9 +202,10 @@ impl PersistenceWorker {
     pub fn new(
         pool: SqlitePool,
         rx: mpsc::Receiver<DbWrite>,
+        flush_rx: mpsc::Receiver<oneshot::Sender<()>>,
         sweep_interval: std::time::Duration,
     ) -> Self {
-        Self { pool, rx, sweep_interval }
+        Self { pool, rx, flush_rx, sweep_interval }
     }
 
     pub async fn run(mut self) {
@@ -232,6 +237,24 @@ impl PersistenceWorker {
                             return;
                         }
                     }
+                }
+
+                req = self.flush_rx.recv() => {
+                    let Some(ack) = req else { continue; };
+                    let taken = std::mem::take(&mut buffer);
+                    let count = taken.len();
+                    let started = std::time::Instant::now();
+                    match Self::flush(&self.pool, taken.into_values().collect()).await {
+                        Ok(()) => debug!(
+                            "PersistenceWorker: on-demand flushed {} writes in {:?}",
+                            count, started.elapsed()
+                        ),
+                        Err(e) => warn!("PersistenceWorker on-demand flush failed: {e}"),
+                    }
+                    // Send after the tx commits (or fails). The caller
+                    // only cares that we're done; if flush errored
+                    // they'll hit the VACUUM failure right after.
+                    let _ = ack.send(());
                 }
 
                 _ = sweep.tick() => {

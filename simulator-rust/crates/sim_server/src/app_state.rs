@@ -7,7 +7,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU32, AtomicU64},
     Arc, RwLock,
 };
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 /// Camera-attached attention volume. The Godot client sends MoveObserver
 /// over the control channel every time the viewport shifts; the LOD
@@ -39,6 +39,11 @@ pub struct AppState {
     pub agent_count: Arc<AtomicU64>,
     pub broadcast_tx: broadcast::Sender<Arc<ServerMsg>>,
     pub control_tx: mpsc::Sender<ControlCommand>,
+    /// Request an on-demand flush from the persistence worker. Admin
+    /// save-as sends a oneshot down this channel and awaits the reply
+    /// so the VACUUM INTO snapshot is guaranteed-current rather than
+    /// up to `sweep_interval` stale.
+    pub persist_flush_tx: mpsc::Sender<oneshot::Sender<()>>,
     /// Path to the active SQLite file, populated at startup. Admin's
     /// save-as endpoint uses `VACUUM INTO` next to this path.
     pub db_path: Option<String>,

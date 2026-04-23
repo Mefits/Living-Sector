@@ -62,6 +62,7 @@ var _perf_overlay_scene: PackedScene = preload(
 var _destroy_hover_script: GDScript = preload(
 	"res://scripts/ui/destroy_hover_indicator.gd"
 )
+const PauseMenuScript := preload("res://scripts/ui/pause_menu.gd")
 
 var _observer: Node3D
 var _details_panel: Control
@@ -82,6 +83,10 @@ var _toast: VBoxContainer
 var _selection_ring: MeshInstance3D
 var _selected_node: Node3D  # The 3D node we're following
 var _observer_active := false
+# Pause menu: lazy-instantiated on first ESC so the scene tree stays
+# light if the player never opens it. Held over its lifetime once
+# built so subsequent ESC presses reuse the same node.
+var _pause_menu: PanelContainer = null
 # God-mode: when true, left-clicks on ships/facilities in the viewport
 # trigger the stub destroy instead of normal selection. Cursor becomes
 # the forbidden-circle. ESC or re-pressing the toolbar button exits.
@@ -477,11 +482,61 @@ func _unhandled_input(event: InputEvent) -> void:
       get_viewport().set_input_as_handled()
       return
 
+  # ESC toggles the pause menu otherwise.
+  if event is InputEventKey \
+      and event.pressed \
+      and not event.echo \
+      and event.keycode == KEY_ESCAPE:
+    _toggle_pause_menu()
+    get_viewport().set_input_as_handled()
+    return
+
   if event is InputEventMouseButton and event.pressed:
     if event.button_index == MOUSE_BUTTON_LEFT:
       _handle_click(event.position)
     elif event.button_index == MOUSE_BUTTON_RIGHT:
       _handle_right_click(event.position)
+
+
+# -------------------- Pause menu --------------------
+
+func _toggle_pause_menu() -> void:
+  if _pause_menu == null:
+    _pause_menu = PauseMenuScript.new()
+    # Centre the panel like save picker / options panel do.
+    _pause_menu.anchor_left = 0.5
+    _pause_menu.anchor_right = 0.5
+    _pause_menu.anchor_top = 0.5
+    _pause_menu.anchor_bottom = 0.5
+    _pause_menu.grow_horizontal = Control.GROW_DIRECTION_BOTH
+    _pause_menu.grow_vertical = Control.GROW_DIRECTION_BOTH
+    # Add to the HUD CanvasLayer (already @onready-referenced) so the
+    # pause menu sits on top of the 3D viewport.
+    hud.add_child(_pause_menu)
+    _pause_menu.resume_requested.connect(_resume_from_pause)
+
+  if _pause_menu.visible:
+    _resume_from_pause()
+  else:
+    _enter_pause()
+
+
+func _enter_pause() -> void:
+  # Freeze Godot nodes (ships, particles, camera interp). Pause menu
+  # itself runs with PROCESS_MODE_ALWAYS so its buttons keep working.
+  get_tree().paused = true
+  # Also pause the Rust sim's tick loop — otherwise the world keeps
+  # advancing server-side and the moment the player unpauses, they
+  # see a large jump-cut as the backlogged state lands.
+  NetworkManager.send_sim_control("pause")
+  _pause_menu.show_menu()
+
+
+func _resume_from_pause() -> void:
+  if _pause_menu:
+    _pause_menu.hide_menu()
+  get_tree().paused = false
+  NetworkManager.send_sim_control("resume")
 
 
 class EntityHit:

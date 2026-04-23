@@ -128,6 +128,8 @@ async fn main() -> Result<()> {
     let (broadcast_tx, _) = broadcast::channel(64);
     let (control_tx, control_rx) = mpsc::channel::<ControlCommand>(64);
     let (persist_tx, persist_rx) = mpsc::channel::<db::persistence::DbWrite>(4096);
+    let (persist_flush_tx, persist_flush_rx) =
+        mpsc::channel::<tokio::sync::oneshot::Sender<()>>(8);
 
     let app_state = AppState {
         snapshots: snapshots.clone(),
@@ -140,6 +142,7 @@ async fn main() -> Result<()> {
         agent_count: agent_count.clone(),
         broadcast_tx: broadcast_tx.clone(),
         control_tx: control_tx.clone(),
+        persist_flush_tx: persist_flush_tx.clone(),
         db_path: Some(db_path.clone()),
         db_pool: Arc::new(pool.clone()),
         tick_compute_p50_us: tick_compute_p50_us.clone(),
@@ -179,6 +182,7 @@ async fn main() -> Result<()> {
             db::persistence::PersistenceWorker::new(
                 pool,
                 persist_rx,
+                persist_flush_rx,
                 std::time::Duration::from_secs(5),
             )
             .run()

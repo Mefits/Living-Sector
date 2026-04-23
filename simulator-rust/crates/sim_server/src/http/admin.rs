@@ -753,6 +753,44 @@ pub async fn save_as(
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let target = parent.join(format!("{sanitized}.db"));
     let target_str = target.to_string_lossy().to_string();
+    // Refuse to clobber an existing save — gives a clean error instead
+    // of a FS-level VACUUM failure, and avoids trashing a user file.
+    if target.exists() {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": format!("save '{sanitized}' already exists"),
+                "path": target_str,
+            })),
+        );
+    }
+
+    // Drain the persistence worker's pending buffer before VACUUM so
+    // the snapshot is guaranteed-current (otherwise it's up to ~5s
+    // stale — enough to miss a ship the user just spawned).
+    let (ack_tx, ack_rx) = tokio::sync::oneshot::channel::<()>();
+    if state.persist_flush_tx.send(ack_tx).await.is_err() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "persistence worker unavailable"})),
+        );
+    }
+    match tokio::time::timeout(std::time::Duration::from_secs(2), ack_rx).await {
+        Ok(Ok(())) => {}
+        Ok(Err(_)) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error": "persistence worker dropped flush ack"})),
+            );
+        }
+        Err(_) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error": "persistence flush timed out"})),
+            );
+        }
+    }
+
     // Use VACUUM INTO so SQLite takes care of page locking + integrity.
     let query = format!("VACUUM INTO '{target_str}'");
     match sqlx::query(&query).execute(&*state.db_pool).await {

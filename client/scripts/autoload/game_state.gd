@@ -147,7 +147,6 @@ const GOAL_LABELS := {
 	"fulfill_passenger_transport": "Passenger Transport",
 	"refuel": "Refuel",
 	"rest_crew": "Rest Crew",
-	"explore": "Explore",
 	"sell_cargo": "Liquidate Cargo",
 	"station_job": "Station Job",
 	"do_crew_mission": "Crew Mission",

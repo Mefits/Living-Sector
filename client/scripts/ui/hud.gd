@@ -210,22 +210,20 @@ func _on_save_as_confirmed() -> void:
 			"save-as: name required", ThemePalette.WARN
 		)
 		return
-	NetworkManager.admin_save_as(name_val, _on_save_as_response)
+	SaveAsSwitch.perform(
+		name_val,
+		func(level: String, msg: String) -> void:
+			GameState.show_toast(msg, _color_for_level(level)),
+		func() -> void:
+			# New sim is up on the fresh DB; reload the main scene
+			# so bootstrap runs against the new backend.
+			get_tree().change_scene_to_file("res://scenes/main.tscn")
+	)
 
 
-func _on_save_as_response(code: int, body: String) -> void:
-	if code == 201:
-		var parsed = JSON.parse_string(body)
-		var saved_name := ""
-		if parsed is Dictionary:
-			saved_name = str(parsed.get("name", ""))
-		GameState.show_toast(
-			"saved as: %s" % saved_name, ThemePalette.SUCCESS
-		)
-		return
-	# 400 / 404 etc — surface server's error string.
-	var err_msg := "save-as failed (%d)" % code
-	var parsed_err = JSON.parse_string(body)
-	if parsed_err is Dictionary and parsed_err.has("error"):
-		err_msg = "save-as: %s" % parsed_err["error"]
-	GameState.show_toast(err_msg, ThemePalette.DANGER)
+func _color_for_level(level: String) -> Color:
+	match level:
+		"success": return ThemePalette.SUCCESS
+		"warn": return ThemePalette.WARN
+		"danger": return ThemePalette.DANGER
+		_: return ThemePalette.TEXT
