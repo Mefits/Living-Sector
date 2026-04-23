@@ -132,7 +132,18 @@ post-export-mac:
 	@./scripts/post_export.sh "$(APP_PATH)" "$(SIMULATOR_DST)"
 
 post-export-win:
-	@./scripts/post_export_win.sh "$(EXE_PATH)" "$(SIMULATOR_DST_WIN)"
+	@if [ ! -f "$(EXE_PATH)" ]; then \
+		echo "error: no .exe at $(EXE_PATH); run export-win first" >&2; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(SIMULATOR_DST_WIN)" ]; then \
+		echo "error: sim binary not at $(SIMULATOR_DST_WIN); run sim-win first" >&2; \
+		exit 1; \
+	fi
+	@exe_dir=$$(dirname "$(EXE_PATH)"); \
+	dst="$$exe_dir/$(SIMULATOR_BIN).exe"; \
+	echo "==> $(SIMULATOR_DST_WIN) -> $$dst"; \
+	cp "$(SIMULATOR_DST_WIN)" "$$dst"
 
 build-mac: sim export-mac post-export-mac
 	@echo "==> build-mac complete: $(APP_PATH)"

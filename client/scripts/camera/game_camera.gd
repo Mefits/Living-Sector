@@ -87,7 +87,11 @@ func _process(delta: float) -> void:
       position += move.normalized() * pan_speed * delta
 
 
-func _input(event: InputEvent) -> void:
+func _unhandled_input(event: InputEvent) -> void:
+  # _unhandled_input runs AFTER GUI event handling: a ScrollContainer /
+  # ItemList inside a panel will consume the wheel event first, and this
+  # camera only gets it when the cursor is over the 3D viewport. Using
+  # _input here would steal wheel scrolling from every open panel.
   # ESC exits POV.
   if pov_target and event is InputEventKey:
     if event.pressed and event.keycode == KEY_ESCAPE:

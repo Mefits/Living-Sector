@@ -43,6 +43,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU32, AtomicU64},
     Arc,
 };
+use std::io::Write;
 use tokio::sync::{broadcast, mpsc};
 use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -228,7 +229,14 @@ async fn main() -> Result<()> {
         })
     };
 
-    println!("sim:ready ws=ws://{addr}/ws http=http://{addr}/api tick=0");
+    // Not `println!`: when Godot spawns the sim via `OS.create_process`
+    // on Windows, the child inherits Godot's (GUI-app, console-less) stdio
+    // handles. `println!` panics on write failure and would kill the sim
+    // before it can bind. `writeln!` returns a Result we can discard.
+    let _ = writeln!(
+        std::io::stdout(),
+        "sim:ready ws=ws://{addr}/ws http=http://{addr}/api tick=0"
+    );
 
     // Arm the parent-process watcher when the client tells us who the
     // parent is. Emits a notification if the parent disappears so the
@@ -336,7 +344,9 @@ fn parent_alive(pid: i32) -> bool {
     }
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32);
-        if handle.is_null() {
+        // windows-sys 0.52: HANDLE is `isize`, NULL == 0. Docs: OpenProcess
+        // returns NULL on failure (pid reaped, slot freed, access denied).
+        if handle == 0 {
             // Can't open → probably exited (ERROR_INVALID_PARAMETER on a
             // reaped pid is the usual outcome). Treat as gone.
             return false;

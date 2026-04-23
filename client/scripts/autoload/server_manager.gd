@@ -28,7 +28,12 @@ extends Node
 
 signal server_died(reason: String)
 
-const DEFAULT_HOST := "localhost"
+# Was "localhost". On Windows, `localhost` resolves to `::1, 127.0.0.1` and
+# Godot's HTTPRequest picks the first address (IPv6) without happy-eyeballs
+# fallback. The sim binds `127.0.0.1` (see BIND_ADDR in _spawn_and_begin_poll),
+# so IPv6 probes SYN into a black hole and time out. Pinning to the same
+# family the sim binds to makes the probe actually reach it.
+const DEFAULT_HOST := "127.0.0.1"
 # Port 8080 is the Rust simulator's default (simulator-rust/). The
 # legacy Elixir sim used 4000; set SPACESIM_TARGET_ELIXIR=1 combined
 # with SPACESIM_USE_EXISTING_SERVER=1 to connect to an externally-

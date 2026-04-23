@@ -500,18 +500,6 @@ func _refresh_facility() -> void:
           )
         lines.append(line)
 
-  # Crew
-  var crew = data.get("crew")
-  if crew is Dictionary:
-    lines.append("")
-    lines.append("[b]Crew[/b] (size %d)" % int(crew.get("size", 0)))
-    lines.append(
-      "  Morale: %d  Health: %d" % [
-        int(crew.get("morale", 0)),
-        int(crew.get("health", 0))
-      ]
-    )
-
   _append_activity_trail(lines)
   info_label.text = "\n".join(lines)
 

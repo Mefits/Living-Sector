@@ -249,7 +249,7 @@ func _delete_save(save_name: String) -> bool:
     return false
   # Best-effort sidecar cleanup. Both files may not exist on a
   # cleanly-shutdown sim; ignore OK-or-NOT-FOUND outcomes.
-  for suffix in ["-wal", "-shm"]:
+  for suffix: String in ["-wal", "-shm"]:
     var sidecar := path + suffix
     if FileAccess.file_exists(sidecar):
       DirAccess.remove_absolute(sidecar)
