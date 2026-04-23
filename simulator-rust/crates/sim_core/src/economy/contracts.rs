@@ -847,23 +847,41 @@ impl ContractBoard {
 
         let mut result = SweepResult::default();
         for id in due {
-            let should_renew = match self.contracts.get(&id) {
-                Some(c) => {
-                    matches!(
-                        c.contract_type,
-                        ContractType::Delivery | ContractType::Construction
-                    ) && c.renewal_count < CONTRACT_MAX_RENEWALS
-                }
-                None => false,
+            // Per-kind renewal policy:
+            //   Delivery / Construction: up to CONTRACT_MAX_RENEWALS
+            //     renewals, each bumping payment + dropping rep by a
+            //     fixed step.
+            //   Subsidy: one renewal, and it slams rep to 0 — the
+            //     faction tried to keep it in-house first; if no
+            //     loyal ship picked up, they open it to anyone who's
+            //     willing to cross a gate (Phase 19-tail "desperate
+            //     bounty" behaviour).
+            //   Everything else (Courier / Passenger / CrewMission /
+            //     Supply): not renewed.
+            let (should_renew, is_subsidy_retry) = match self.contracts.get(&id) {
+                Some(c) => match c.contract_type {
+                    ContractType::Delivery | ContractType::Construction => {
+                        (c.renewal_count < CONTRACT_MAX_RENEWALS, false)
+                    }
+                    ContractType::Subsidy => (c.renewal_count < 1, true),
+                    _ => (false, false),
+                },
+                None => (false, false),
             };
             if should_renew {
                 let (commodity, destination, new_payment, new_min_rep, new_count) =
                     if let Some(c) = self.contracts.get_mut(&id) {
                         let bump = CONTRACT_RENEWAL_PAYMENT_BUMP;
                         c.payment = ((c.payment as f32) * (1.0 + bump)).round() as i64;
-                        c.min_reputation = c
-                            .min_reputation
-                            .saturating_sub(CONTRACT_RENEWAL_REP_DROP);
+                        // Subsidies: one renewal drops rep straight to 0
+                        // so anyone can accept. Others: fixed step.
+                        if is_subsidy_retry {
+                            c.min_reputation = 0;
+                        } else {
+                            c.min_reputation = c
+                                .min_reputation
+                                .saturating_sub(CONTRACT_RENEWAL_REP_DROP);
+                        }
                         c.expires_at_tick = tick + lifespan_ticks;
                         c.renewal_count = c.renewal_count.saturating_add(1);
                         (
