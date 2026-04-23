@@ -252,16 +252,16 @@ func _update_trail() -> void:
 
 
 func _setup_particles(size_mult: float = 1.0) -> void:
+	# After chasing scale_min/max + scale_curve + quad.size around and
+	# getting plumes visibly bigger than the ship, switching to a single
+	# unambiguous knob: unit-size quad, final particle size controlled
+	# purely by scale_min/max, no scale_curve. 0.003 / 0.008 at Medium
+	# lands particles at ~0.003–0.008 world units — small specks that
+	# still read as an exhaust trail against the ship silhouette.
 	_particles = GPUParticles3D.new()
 	_particles.emitting = false
-	_particles.amount = 16
+	_particles.amount = 8
 	_particles.lifetime = PARTICLE_BASE_LIFETIME
-	# Emitter is at the ship's origin in world space. GPUParticles3D uses
-	# `local_coords=false` by default, which means once a particle spawns
-	# it moves through world space independent of the emitter node's
-	# transform — so setting `_particles.scale` does NOT shrink individual
-	# particle meshes. We scale the material's velocity/size ranges and
-	# the draw_pass quad directly instead, which DOES propagate.
 	_particles.visibility_aabb = AABB(
 		Vector3(-2, -2, -2) * size_mult,
 		Vector3(4, 4, 4) * size_mult,
@@ -270,40 +270,42 @@ func _setup_particles(size_mult: float = 1.0) -> void:
 	var mat := ParticleProcessMaterial.new()
 	mat.direction = Vector3(0, 0, -1)
 	mat.spread = 12.0
-	# Velocity scales with size so trail length ends up roughly constant
-	# in "ship lengths" regardless of tier — tiny ships get short plumes,
-	# massive ships get long ones.
-	mat.initial_velocity_min = 0.5 * size_mult
-	mat.initial_velocity_max = 1.5 * size_mult
+	mat.initial_velocity_min = 0.4 * size_mult
+	mat.initial_velocity_max = 1.2 * size_mult
 	mat.gravity = Vector3.ZERO
-	# Per-particle scale range — this is what controls the rendered size
-	# of each exhaust billboard.
-	mat.scale_min = 0.3 * size_mult
-	mat.scale_max = 0.6 * size_mult
-	mat.color = Color(0.8, 0.5, 0.2, 0.9)
+	mat.scale_min = 0.003 * size_mult
+	mat.scale_max = 0.008 * size_mult
+	mat.color = Color(1.0, 0.55, 0.15, 0.8)
 
+	# Fade the color / alpha over lifetime so particles don't just pop
+	# out of existence. Keep RGB components below 1 so the bloom pass
+	# doesn't treat each particle as a light source.
 	var color_ramp := GradientTexture1D.new()
 	var gradient := Gradient.new()
-	gradient.set_color(0, Color(0.9, 0.6, 0.2, 1.0))
-	gradient.set_color(1, Color(0.3, 0.1, 0.05, 0.0))
+	gradient.set_color(0, Color(0.95, 0.55, 0.18, 0.85))
+	gradient.set_color(1, Color(0.25, 0.08, 0.03, 0.0))
 	color_ramp.gradient = gradient
 	mat.color_ramp = color_ramp
 
 	_particles.process_material = mat
 
-	# Base mesh size stays fixed — mat.scale_min/max already applies the
-	# per-particle multiplier, and we scaled that by size_mult above.
-	# Scaling both would compound into size_mult², which was visibly too
-	# aggressive on the low end.
+	# Unit quad. The mesh's own size stays at the default (1, 1) so
+	# scale_min/max is directly interpretable as the final world-unit
+	# size of each particle — easier to reason about than two knobs
+	# multiplying.
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.04, 0.04)
 	_particles.draw_pass_1 = quad
 
 	var draw_mat := StandardMaterial3D.new()
 	draw_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	draw_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	draw_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	draw_mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	draw_mat.vertex_color_use_as_albedo = true
+	# `particles_anim_*` setters aren't needed (no sprite frames) but
+	# billboard_keep_scale=true ensures the per-particle scale from
+	# scale_min/max is respected when billboarding. Without it some
+	# Godot configs fall back to a fixed billboard size.
+	draw_mat.billboard_keep_scale = true
 	quad.material = draw_mat
 
 	add_child(_particles)

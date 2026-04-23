@@ -597,6 +597,12 @@ func _select_entity(
   id: String, type: String, sys_id: String
 ) -> void:
   GameState.selected_entity_id = id
+  # Selection chime — gentle click so the player gets audible feedback
+  # that their click registered. Skipped when the same entity is
+  # re-selected to avoid double-taps spamming the sound.
+  var audio: Node = get_node_or_null(^"/root/ProceduralAudio")
+  if audio and audio.has_method(&"play_select"):
+    audio.call(&"play_select")
   # Show details panel
   match type:
     "ship":
@@ -857,42 +863,55 @@ func _on_add_facility_pressed() -> void:
 
 
 func _god_destroy_entity(id: String, type: String) -> void:
-  # Bind id+type into the callback so on success we can tear the entity
-  # down locally ourselves. We can't rely on the server's event
-  # broadcast — we've seen the delete succeed server-side without a
-  # matching ship_decommissioned arriving — so this is the
-  # belt-and-suspenders cleanup.
+  ## Optimistic destroy: spawn explosion + local cleanup IMMEDIATELY on
+  ## click, then fire the DELETE request asynchronously. Previously we
+  ## waited for the server's 204, but the WebSocket
+  ## `ship_decommissioned` event races ahead of the HTTP response and
+  ## removes the entity node before our callback can read its position
+  ## — which is why the old flow produced a silent pop with no VFX.
+  ##
+  ## Error handling: if the server rejects the DELETE, we toast the
+  ## error. The entity stays erased client-side — it'll reappear on
+  ## the next /api/report refresh (every 30 s) if the server thinks
+  ## it's still alive.
+  _spawn_destroy_explosion(id, type)
   if type == "ship":
+    GameState.remove_ship_local(id)
     NetworkManager.admin_destroy_ship(
       id,
       func(code: int, body: String):
-        _on_destroy_response("ship", id, code, body)
+        if code != 204:
+          _toast_admin_error("destroy ship", code, body)
     )
   elif type == "facility":
+    GameState.remove_facility_local(id)
     NetworkManager.admin_destroy_facility(
       id,
       func(code: int, body: String):
-        _on_destroy_response("facility", id, code, body)
+        if code != 204:
+          _toast_admin_error("destroy facility", code, body)
     )
+  GameState.show_toast("destroyed %s" % id, ThemePalette.DANGER)
 
 
-func _on_destroy_response(
-  type: String, id: String, code: int, body: String
-) -> void:
-  if code == 204:
-    # Eagerly clean up client-side. Idempotent with any
-    # ship_decommissioned / facility_destroyed broadcast that may also
-    # arrive — second call through those paths is a no-op since we've
-    # already erased.
-    if type == "ship":
-      GameState.remove_ship_local(id)
-    else:
-      GameState.remove_facility_local(id)
-    GameState.show_toast(
-      "destroyed %s" % id, ThemePalette.DANGER
-    )
-  else:
-    _toast_admin_error("destroy", code, body)
+func _spawn_destroy_explosion(id: String, type: String) -> void:
+  ## Place a ProceduralExplosion at the entity's current world position.
+  ## Parented to Universe (not the entity) so the effect survives the
+  ## entity's queue_free that follows a few lines later in the caller.
+  var node: Node3D = _find_entity_node(id, type)
+  if not node:
+    return
+  var entity_pos: Vector3 = node.global_position
+  # Size hint: ships are rendered at SHIP_RENDER_SCALE × SIZE_SCALES tier
+  # (≈ 0.0125–0.16 world units); facilities at ~0.012–0.035. Rough
+  # defaults are close enough — the explosion clamps its own size range.
+  var size_hint: float = 0.06 if type == "ship" else 0.04
+  var boom := ProceduralExplosion.new()
+  # Parent to the Universe root so the explosion sits in world space,
+  # independent of the entity's local system/orbit frame.
+  universe.add_child(boom)
+  boom.global_position = entity_pos
+  boom.play(size_hint)
 
 
 func _on_create_ship_requested(data: Dictionary) -> void:
