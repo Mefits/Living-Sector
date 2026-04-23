@@ -1587,6 +1587,15 @@ fn apply_request_dock_typed(
             .map(|econ| econ.credits >= fee)
             .unwrap_or(false);
         if !ship_ok {
+            // Broke head of line — evict so everyone behind can
+            // proceed. The ship's Dock action sees Failure (we
+            // returned `false` on a head-level reject) and its BT
+            // replans, usually into a sell_cargo or refuel-elsewhere
+            // flow that can recover credits. Without this eviction
+            // the broke head stalls the queue forever.
+            if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(e) {
+                storage.dock_queue.retain(|&q| q != ship);
+            }
             return false;
         }
         commit_dock(store, ship, e, fee);
