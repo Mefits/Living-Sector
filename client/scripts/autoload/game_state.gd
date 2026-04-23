@@ -153,6 +153,8 @@ const GOAL_LABELS := {
 	"do_crew_mission": "Crew Mission",
 	"seek_retrofit": "Seek Retrofit",
 	"fulfill_construction": "Construction",
+	"explore": "Exploring",
+	"idle_seek_station": "Heading to Station",
 	"idle": "Idle",
 }
 

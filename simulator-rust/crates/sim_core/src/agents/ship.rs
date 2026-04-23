@@ -238,7 +238,35 @@ pub enum ShipAction {
 pub struct ShipMemory {
     pub price_knowledge: PriceKnowledge,
     pub visited: Vec<String>,
+    /// Phase 19h: ring buffer of recently-visited star systems. Used by
+    /// the explore goal to pick a target the ship hasn't been to
+    /// lately — prevents gate yo-yo (A → B → A → B) when the
+    /// exploration heuristic keeps picking the same neighbor. Capped
+    /// at [`RECENT_SYSTEMS_CAP`]; oldest entries evict when it overflows.
+    pub recent_systems: std::collections::VecDeque<String>,
 }
+
+/// Max length of `ShipMemory.recent_systems`. 5 gives a ship enough
+/// memory to avoid immediate back-tracking across a 6-system network
+/// while still rotating through every system over a long run.
+pub const RECENT_SYSTEMS_CAP: usize = 5;
+
+/// How many ticks of idle-at-location before a ship escalates from
+/// plain `idle` into `explore`. Scales roughly with world_speed — at
+/// tick_scale=0.25, ~240 base ticks is a minute of real time of
+/// sitting still. Below the threshold, the ship chills.
+pub const IDLE_EXPLORE_TICKS: u32 = 240;
+
+/// Ticks a ship dwells at an explored destination before re-planning
+/// ("check the board"). Ensures they see a cycle of local contract
+/// postings before they leave. 5 seconds at TPS=8 = 40 base ticks.
+pub const EXPLORE_CHECK_BOARD_SECONDS: u8 = 5;
+
+/// Minimum credits + fuel-budget (as fraction of capacity) a ship
+/// must have to plan an explore. Covers a gate fee + a bit of return
+/// headroom so we don't strand broke ships in strange systems.
+pub const EXPLORE_MIN_CREDITS: i64 = 2_500;
+pub const EXPLORE_MIN_FUEL_FRACTION: f32 = 0.40;
 
 /// Lifecycle counters and dirty flag for persistence.
 #[derive(Debug, Clone)]
@@ -1754,6 +1782,26 @@ fn score_goal(
     log_profit * (1.0 + bonus)
 }
 
+/// Phase 19h: median of every remembered price for `commodity`
+/// across the ship's `price_knowledge`. Used by `try_plan_contract`
+/// as a "reasonable guess" when the ship has never observed the
+/// contract's source location directly. Returns None when the ship
+/// has no memory of this commodity anywhere — then the planner
+/// falls back to skipping the contract.
+pub fn median_known_price(memory: &ShipMemory, commodity: Commodity) -> Option<f32> {
+    let mut prices: Vec<f32> = memory
+        .price_knowledge
+        .values()
+        .filter_map(|m| m.get(&commodity).map(|p| p.price))
+        .collect();
+    if prices.is_empty() {
+        return None;
+    }
+    prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mid = prices.len() / 2;
+    Some(prices[mid])
+}
+
 pub fn best_trade_route(memory: &ShipMemory) -> Option<(Commodity, String, String, f32)> {
     let mut best: Option<(Commodity, String, String, f32)> = None;
     let locs: Vec<_> = memory.price_knowledge.iter().collect();
@@ -1958,22 +2006,27 @@ fn decide_and_act(
         }
 
         // Sanity-clean stale active_contract_id before planning.
-        // Covers two cases:
+        // Covers three cases:
         //   1. The contract finalised (Paid / Expired) but the Deliver
         //      action never ran (BT ended before reaching it).
         //   2. A speculative-accept race: the ship set its id locally
         //      but another ship won the AcceptContract apply, so the
         //      contract's fulfiller_id isn't us.
+        //   3. **Phase 19h**: ghost contract — status=Accepted, we're
+        //      the fulfiller, but `current_bt = None` (BT finished
+        //      early via Success without reaching Deliver). Without
+        //      this branch the ship sits idle holding a contract
+        //      nobody else can take. Release + clear so a re-planner
+        //      picks it up fresh next cycle.
         //
-        // We ALSO tear down the current BT when we strip the id — the
-        // BT's Travel / Dock / Deliver steps were built for a contract
-        // we no longer hold, so running them out wastes fuel on a
-        // phantom destination and ends with a no-op Deliver. Clearing
-        // `current_bt` forces plan_goal to rebuild from the ship's
-        // actual current state next time it fires.
+        // In cases 1 + 2 we just clear locally (the contract is either
+        // gone or not ours to release). Case 3 emits a
+        // `ReleaseContract` so the board moves Accepted → Posted and
+        // another ship can accept it.
         if let Some(cid) = economy.active_contract_id.clone() {
-            let stale = match contracts.get(&cid) {
-                None => true,
+            enum StaleKind { Drop, Release, Keep }
+            let kind = match contracts.get(&cid) {
+                None => StaleKind::Drop,
                 Some(c) => {
                     use crate::economy::contracts::ContractStatus;
                     let finalized = matches!(
@@ -1981,12 +2034,32 @@ fn decide_and_act(
                         ContractStatus::Paid | ContractStatus::Expired
                     );
                     let not_ours = c.fulfiller_id.as_deref() != Some(ship_id.as_str());
-                    finalized || not_ours
+                    let ghost = matches!(c.status, ContractStatus::Accepted)
+                        && !not_ours
+                        && ai.current_bt.is_none();
+                    if finalized || not_ours {
+                        StaleKind::Drop
+                    } else if ghost {
+                        StaleKind::Release
+                    } else {
+                        StaleKind::Keep
+                    }
                 }
             };
-            if stale {
-                economy.active_contract_id = None;
-                ai.current_bt = None;
+            match kind {
+                StaleKind::Drop => {
+                    economy.active_contract_id = None;
+                    ai.current_bt = None;
+                }
+                StaleKind::Release => {
+                    economy.active_contract_id = None;
+                    ai.current_bt = None;
+                    commands.push(SimCommand::ReleaseContract {
+                        ship_id: ship_id.clone(),
+                        contract_id: cid,
+                    });
+                }
+                StaleKind::Keep => {}
             }
         }
 
@@ -2008,9 +2081,21 @@ fn decide_and_act(
                 &location_to_system,
                 &ai.personality,
                 &dock_congestion,
+                lifecycle.idle_ticks,
             );
             ai.current_goal = goal.into();
             ai.current_bt = bt;
+        }
+
+        // Phase 19h: track how long the ship has been in an idle-ish
+        // state so the explore escalation fires at the right time.
+        // Any goal starting with "idle" counts; anything else resets.
+        // Using starts_with lets future variants ("idle_seek_station")
+        // share the counter without manual enumeration.
+        if ai.current_goal.starts_with("idle") {
+            lifecycle.idle_ticks = lifecycle.idle_ticks.saturating_add(1);
+        } else {
+            lifecycle.idle_ticks = 0;
         }
 
         // --- Execute one BT step ---
@@ -2081,6 +2166,7 @@ fn decide_and_act(
 /// 6. Known profitable trade route → trade_run BT
 /// 7. Else → idle
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn plan_goal(
     position: &ShipPosition,
     cargo: &ShipCargo,
@@ -2097,6 +2183,7 @@ fn plan_goal(
     location_to_system: &StdHashMap<String, String>,
     personality: &crate::ai::personality::Personality,
     dock_congestion: &StdHashMap<String, (u32, u32)>,
+    idle_ticks: u32,
 ) -> (&'static str, Option<BtNode<ShipAction>>) {
     let at_loc = match &position.location_name {
         Some(l) => l.clone(),
@@ -2175,8 +2262,197 @@ fn plan_goal(
         }
         (Some(c), None) => (c.goal_name, Some(c.bt)),
         (None, Some(t)) => ("trade_run", Some(t.bt)),
-        (None, None) => ("idle", Some(BtNode::action(ShipAction::Idle))),
+        (None, None) => smart_idle_fallback(
+            &at_loc,
+            position,
+            economy,
+            fuel,
+            memory,
+            registry,
+            gate_pairs,
+            location_to_system,
+            personality,
+            idle_ticks,
+        ),
     }
+}
+
+/// Phase 19h: smart idle branch. When the contract / trade_run
+/// planners both struck out, we pick from a ladder:
+///
+///   1. **Ship has been idling at a station a while + fuel + credits
+///      OK + personality leans adventurous**: pick a neighbour system
+///      not in `recent_systems`, build an explore BT that travels to
+///      the outbound gate, jumps, travels to a station in the new
+///      system, docks, dwells ~5s to catch a posting cycle, undocks.
+///      Goal = `"explore"`.
+///   2. **At a location without any dockable facility** (weird spawn
+///      or gate-only locations): travel to the nearest same-system
+///      dockable station. Goal = `"idle_seek_station"`. Gives the
+///      ship a chance to observe prices + refuel while resting.
+///   3. **Otherwise**: plain Idle — the ship stays where it is. Some
+///      captains just want quiet.
+fn smart_idle_fallback(
+    at_loc: &str,
+    position: &ShipPosition,
+    economy: &ShipEconomy,
+    fuel: &ShipFuel,
+    memory: &ShipMemory,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+    location_to_system: &StdHashMap<String, String>,
+    personality: &crate::ai::personality::Personality,
+    idle_ticks: u32,
+) -> (&'static str, Option<BtNode<ShipAction>>) {
+    let fuel_ok = fuel.fraction() >= EXPLORE_MIN_FUEL_FRACTION;
+    let credits_ok = economy.credits >= EXPLORE_MIN_CREDITS;
+
+    // Personality tilts the idle-duration trigger. High `exploration`
+    // → leaves sooner; high `safety` → lingers longer; low credits
+    // also bias toward desperation.
+    let explore_bonus = personality.exploration - personality.safety * 0.5;
+    let desperation = if economy.credits < 5000 { 0.3 } else { 0.0 };
+    let trigger_scale = (1.0 - explore_bonus - desperation).max(0.25);
+    let effective_trigger = (IDLE_EXPLORE_TICKS as f32 * trigger_scale) as u32;
+
+    let should_explore = idle_ticks >= effective_trigger && fuel_ok && credits_ok;
+
+    if should_explore {
+        if let Some(bt) =
+            try_build_explore_bt(at_loc, memory, registry, gate_pairs, location_to_system)
+        {
+            return ("explore", Some(bt));
+        }
+    }
+
+    // Dock-less location? Travel to a same-system station.
+    if position.docked_at.is_none() && !has_dockable_here(at_loc, registry) {
+        if let Some(station) = pick_same_system_station(at_loc, registry, location_to_system) {
+            let mut steps: Vec<BtNode<ShipAction>> = Vec::new();
+            for a in route_actions(at_loc, &station, registry, gate_pairs) {
+                steps.push(BtNode::action(a));
+            }
+            steps.push(BtNode::action(ShipAction::Dock));
+            steps.push(BtNode::action(ShipAction::DockDwell {
+                seconds: EXPLORE_CHECK_BOARD_SECONDS,
+            }));
+            steps.push(BtNode::action(ShipAction::Undock));
+            return ("idle_seek_station", Some(BtNode::sequence(steps)));
+        }
+    }
+
+    // Default: stay put.
+    ("idle", Some(BtNode::action(ShipAction::Idle)))
+}
+
+/// Pick an adjacent star system not in `memory.recent_systems` and
+/// build the explore BT to reach it. Returns `None` when the ship has
+/// no outbound gate or every neighbor is already in the recent-visits
+/// set (the rare deep-exploration case — we'll re-plan next cycle).
+fn try_build_explore_bt(
+    at_loc: &str,
+    memory: &ShipMemory,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+    location_to_system: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    let current_system = location_to_system.get(at_loc)?;
+
+    // Walk this system's gates, find ones whose paired gate lands in
+    // a system not currently in the ship's recent-systems window.
+    // Fall back to any neighbour if every candidate is on the list
+    // (prevents total stall when memory has cycled through the
+    // whole connected graph).
+    let mut preferred: Vec<(String, String, String)> = Vec::new();
+    let mut any: Vec<(String, String, String)> = Vec::new();
+    for (src_gate, dst_gate) in gate_pairs {
+        let Some(src_sys) = location_to_system.get(src_gate) else {
+            continue;
+        };
+        if src_sys != current_system {
+            continue;
+        }
+        let Some(dst_sys) = location_to_system.get(dst_gate) else {
+            continue;
+        };
+        let entry = (src_gate.clone(), dst_gate.clone(), dst_sys.clone());
+        if !memory.recent_systems.iter().any(|s| s == dst_sys) {
+            preferred.push(entry.clone());
+        }
+        any.push(entry);
+    }
+    let (src_gate, dst_gate, dst_system) = if let Some(p) = preferred.first() {
+        p.clone()
+    } else {
+        any.first()?.clone()
+    };
+
+    // Landing target: a dockable station in the destination system
+    // (not the gate itself — gates aren't where contracts are). Pick
+    // the first station we find; `pick_same_system_station` handles
+    // the has-dockable check for us.
+    let landing_station = pick_same_system_station(&dst_gate, registry, location_to_system)
+        .unwrap_or_else(|| dst_gate.clone());
+
+    let mut steps: Vec<BtNode<ShipAction>> = Vec::new();
+    // Travel to the outbound gate.
+    for a in route_actions(at_loc, &src_gate, registry, gate_pairs) {
+        steps.push(BtNode::action(a));
+    }
+    // Gate jump.
+    steps.push(BtNode::action(ShipAction::GateJump {
+        src_gate,
+        dest_gate: dst_gate.clone(),
+    }));
+    // Travel to the landing station + dwell "check the board".
+    for a in route_actions(&dst_gate, &landing_station, registry, gate_pairs) {
+        steps.push(BtNode::action(a));
+    }
+    steps.push(BtNode::action(ShipAction::Dock));
+    steps.push(BtNode::action(ShipAction::DockDwell {
+        seconds: EXPLORE_CHECK_BOARD_SECONDS,
+    }));
+    steps.push(BtNode::action(ShipAction::Undock));
+
+    let _ = dst_system; // silence warnings if we later use it for events
+    Some(BtNode::sequence(steps))
+}
+
+/// Is there a dockable (non-gate, capacity > 0) facility at this
+/// location? Used by the idle-at-station logic to decide whether the
+/// ship should wander to a real port.
+fn has_dockable_here(at_loc: &str, registry: &WorldRegistry) -> bool {
+    registry
+        .locations
+        .contains_key(at_loc)
+}
+
+/// Pick any non-gate station in the same star system as `at_loc`.
+/// First-match rather than optimised — idle-seeking doesn't need the
+/// best pick, just a pick. Skips the caller's current location so
+/// the ship actually goes somewhere.
+fn pick_same_system_station(
+    at_loc: &str,
+    registry: &WorldRegistry,
+    location_to_system: &StdHashMap<String, String>,
+) -> Option<String> {
+    let current_system = location_to_system.get(at_loc)?;
+    for (name, _info) in registry.locations.iter() {
+        if name == at_loc {
+            continue;
+        }
+        if name.contains("gate") {
+            // Gates are technically locations but they don't host
+            // contracts or markets — bad "chill here" targets.
+            continue;
+        }
+        if let Some(sys) = location_to_system.get(name) {
+            if sys == current_system {
+                return Some(name.clone());
+            }
+        }
+    }
+    None
 }
 
 /// Try to find a profitable fulfill plan from the board. Handles both
@@ -2273,13 +2549,28 @@ fn try_plan_contract(
             // station for the mission's duration_ticks and collects pay.
             0
         } else {
-            let src_price = memory
+            // Prefer the ship's direct memory of the source market.
+            // Phase 19h: when memory is missing (comms-tier-limited
+            // ships rarely know far-flung markets), fall back to a
+            // median across the ship's OTHER remembered markets for
+            // this commodity — a heuristic "prices are probably
+            // similar" guess. That lets tier-1 comms ships
+            // speculatively price cross-system contracts instead of
+            // skipping every one. Buy cost is still validated on
+            // arrival at the source market, so a bad guess just
+            // means the BT might bail on Buy (Failure → release
+            // contract). No new state threading required.
+            let src_price_known = memory
                 .price_knowledge
                 .get(&c.source_location)
                 .and_then(|m| m.get(&c.commodity))
                 .map(|p| p.price);
+            let src_price = src_price_known
+                .or_else(|| median_known_price(memory, c.commodity));
             match src_price {
                 Some(p) => (p * c.quantity as f32) as i64,
+                // No memory of this commodity at ANY market → can't
+                // even guess. Skip as before.
                 None => continue,
             }
         };
@@ -3381,6 +3672,7 @@ mod tick_tests {
         let mut memory = ShipMemory {
             price_knowledge: Default::default(),
             visited: vec![],
+            recent_systems: std::collections::VecDeque::new(),
         };
         let mut a = std::collections::HashMap::new();
         a.insert(Commodity::Ore, PriceMemory { price: 10.0, tick: 1 });
@@ -3516,6 +3808,7 @@ mod tick_tests {
         let mut memory = ShipMemory {
             price_knowledge: Default::default(),
             visited: vec![],
+            recent_systems: std::collections::VecDeque::new(),
         };
         let mut a = std::collections::HashMap::new();
         a.insert(Commodity::Ore, PriceMemory { price: 100.0, tick: 1 });

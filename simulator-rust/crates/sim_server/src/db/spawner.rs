@@ -888,6 +888,7 @@ async fn load_ships(
             ShipMemory {
                 price_knowledge,
                 visited,
+                recent_systems: std::collections::VecDeque::new(),
             },
             ShipLifecycle {
                 broke_strikes: broke_strikes as u8,

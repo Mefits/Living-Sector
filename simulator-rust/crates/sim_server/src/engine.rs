@@ -1672,6 +1672,7 @@ fn admin_spawn_ship(
             ShipMemory {
                 price_knowledge: std::collections::HashMap::new(),
                 visited: vec![payload.location_name.clone()],
+                recent_systems: std::collections::VecDeque::new(),
             },
             ShipLifecycle {
                 broke_strikes: 0,
@@ -2332,6 +2333,46 @@ fn apply_gate_jump(
         }
     }
 
+    // Phase 19h: record the destination system on the ship's recent
+    // memory so the explore planner will prefer ELSEWHERE next time
+    // it picks a target — prevents gate yo-yo (A ↔ B on repeat).
+    // Runs only on real crossings (src system != dst system).
+    {
+        use sim_core::agents::ship::{ShipMemory, RECENT_SYSTEMS_CAP};
+        // Infer destination system from any facility at the paired
+        // gate location. Cheap enough to do per jump (rare event).
+        let dest_system: Option<String> = {
+            use sim_core::agents::celestial_body::BodyIdentity;
+            use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
+            let body_id = store
+                .world
+                .query::<(&FacilityIdentity, &FacilityLocation)>()
+                .iter()
+                .find(|(_, (_, loc))| loc.location_name == dest_gate_location)
+                .map(|(_, (id, _))| id.body_id.clone());
+            body_id.and_then(|b| {
+                store
+                    .world
+                    .query::<&BodyIdentity>()
+                    .iter()
+                    .find(|(_, id)| id.body_id == b)
+                    .map(|(_, id)| id.system_name.clone())
+            })
+        };
+        if let Some(dst_sys) = dest_system {
+            if let Ok(mut mem) = store.world.get::<&mut ShipMemory>(ship) {
+                // Push only on new-system entry (skip if already
+                // the most recent entry — rare but defensive).
+                if mem.recent_systems.back() != Some(&dst_sys) {
+                    mem.recent_systems.push_back(dst_sys);
+                    while mem.recent_systems.len() > RECENT_SYSTEMS_CAP {
+                        mem.recent_systems.pop_front();
+                    }
+                }
+            }
+        }
+    }
+
     let ship_id = store
         .world
         .get::<&ShipIdentity>(ship)
@@ -2880,6 +2921,7 @@ mod tests {
                 ShipMemory {
                     price_knowledge: Default::default(),
                     visited: vec![],
+                    recent_systems: std::collections::VecDeque::new(),
                 },
                 ShipLifecycle {
                     broke_strikes: 0,
