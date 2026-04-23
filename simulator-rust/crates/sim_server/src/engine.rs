@@ -1046,6 +1046,14 @@ fn apply_ship_commands(
                 // speculative-accept can't yank the winning ship's
                 // contract; if we weren't the named fulfiller, the
                 // call is a no-op, which is what we want.
+                //
+                // Phase 19e: read the contract's faction + payment
+                // BEFORE release so we can apply a breach rep penalty
+                // on the winning ship only. `release` clears
+                // fulfiller_id, so we need the snapshot up front.
+                let breach_info = store.contracts.get(&contract_id).and_then(|c| {
+                    c.faction_id.as_ref().map(|f| (f.clone(), c.payment))
+                });
                 let released = store
                     .contracts
                     .release(&contract_id, Some(&ship_id));
@@ -1055,6 +1063,33 @@ fn apply_ship_commands(
                         ship_id = %ship_id,
                         "contract released back to Posted after BT failure"
                     );
+                    // Breach penalty: shave faction rep by
+                    // `10 + payment/1000`, clamped to [1, 25]. Matches
+                    // Elixir — real stakes to accepting a contract.
+                    // Only fires when the contract had a faction tag
+                    // (most facility-owned deliveries do now that
+                    // 19e-1 landed).
+                    if let Some((faction, payment)) = breach_info {
+                        let ship_entity = store.ship_by_id.get(&ship_id).copied();
+                        if let Some(e) = ship_entity {
+                            if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(e) {
+                                let penalty: u8 = (10 + (payment / 1000))
+                                    .clamp(1, 25) as u8;
+                                let rep = econ
+                                    .faction_reputation
+                                    .entry(faction.clone())
+                                    .or_insert(0);
+                                *rep = rep.saturating_sub(penalty);
+                                events.push(serde_json::json!({
+                                    "kind": "contract_breached",
+                                    "contract_id": contract_id,
+                                    "ship_id": ship_id,
+                                    "faction_id": faction,
+                                    "rep_penalty": penalty,
+                                }));
+                            }
+                        }
+                    }
                 }
             }
             SimCommand::DeliverContract { ship, contract_id } => {
@@ -1081,11 +1116,19 @@ fn apply_ship_commands(
                     if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
                         econ.credits += effective_payment;
                         if let Some(faction) = c.faction_id.as_ref() {
+                            // Phase 19e: reputation gain scales with
+                            // payment so big contracts move rep faster
+                            // (otherwise a 1-off +1 makes faction-gated
+                            // work effectively unreachable). Matches
+                            // Elixir's `min(5 + payment/2000, 15)`.
+                            let gain: u8 = (5 + (effective_payment / 2000))
+                                .clamp(1, 15)
+                                as u8;
                             let rep = econ
                                 .faction_reputation
                                 .entry(faction.clone())
                                 .or_insert(0);
-                            *rep = rep.saturating_add(1).min(100);
+                            *rep = rep.saturating_add(gain).min(100);
                         }
                     }
                     // Phase 18d: grant ship-level XP on every delivery.

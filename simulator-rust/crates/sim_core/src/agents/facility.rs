@@ -1492,6 +1492,13 @@ pub fn tick_post_contracts(
     #[derive(Clone)]
     struct Plan {
         requestor_id: String,
+        // Phase 19e: the facility's owning faction is tagged onto the
+        // posted delivery so completing it awards +1 rep with that
+        // faction. Without this, facility deliveries were all
+        // faction-neutral and rep never grew organically (only subsidy
+        // / crew mission deliveries carried a faction, and those are
+        // rep-gated to begin with — a chicken-and-egg).
+        faction_id: Option<String>,
         commodity: Commodity,
         destination: String,
         source: String,
@@ -1626,6 +1633,14 @@ pub fn tick_post_contracts(
                 }
                 plans.push(Plan {
                     requestor_id: id.id.clone(),
+                    // Empty string = unowned ("independent"); treat as
+                    // None so the rep grant on delivery no-ops rather
+                    // than trying to +1 a bogus faction.
+                    faction_id: if id.faction_id.is_empty() {
+                        None
+                    } else {
+                        Some(id.faction_id.clone())
+                    },
                     commodity,
                     destination: loc.location_name.clone(),
                     source,
@@ -1670,6 +1685,14 @@ pub fn tick_post_contracts(
                 }
                 plans.push(Plan {
                     requestor_id: id.id.clone(),
+                    // Empty string = unowned ("independent"); treat as
+                    // None so the rep grant on delivery no-ops rather
+                    // than trying to +1 a bogus faction.
+                    faction_id: if id.faction_id.is_empty() {
+                        None
+                    } else {
+                        Some(id.faction_id.clone())
+                    },
                     commodity,
                     destination: loc.location_name.clone(),
                     source,
@@ -1697,8 +1720,9 @@ pub fn tick_post_contracts(
             ops.credits -= plan.payment;
             ops.dirty = true;
         }
-        contracts.post_delivery(
+        contracts.post_delivery_for(
             plan.requestor_id,
+            plan.faction_id,
             plan.commodity,
             DELIVERY_CONTRACT_QTY,
             plan.source,

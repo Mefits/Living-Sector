@@ -668,6 +668,14 @@ pub struct ShipSnapshot {
     /// always attach a fresh level-1 progression.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progression: Option<ShipProgressionSnapshot>,
+    /// Per-faction reputation (0..=100), grown by delivering
+    /// faction-tagged contracts and dinged by breaching them.
+    /// Omitted when empty so fresh / unowned ships stay clean in
+    /// the JSON. Phase 19e: exposed so the UI + diagnostics can see
+    /// rep actually climbing (previously only lived on ShipEconomy
+    /// and never hit the wire).
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub faction_reputation: HashMap<String, u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -782,6 +790,7 @@ impl ShipSnapshot {
             crew: crew_snap,
             fitting: fitting.map(ShipFittingSnapshot::from),
             progression: progression.map(ShipProgressionSnapshot::from),
+            faction_reputation: economy.faction_reputation.clone(),
         }
     }
 }

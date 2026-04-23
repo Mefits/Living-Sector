@@ -302,6 +302,7 @@ impl ContractBoard {
 
     /// Post a new delivery contract and return its id.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn post_delivery(
         &mut self,
         requestor_id: String,
@@ -313,9 +314,42 @@ impl ContractBoard {
         posted_at_tick: u64,
         lifespan_ticks: u64,
     ) -> String {
-        self.post_kind(
+        self.post_delivery_for(
+            requestor_id,
+            None,
+            commodity,
+            quantity,
+            source_location,
+            destination_location,
+            payment,
+            posted_at_tick,
+            lifespan_ticks,
+        )
+    }
+
+    /// Post a delivery contract tagged with the requestor's faction.
+    /// Phase 19e: without this, facility-owned deliveries had
+    /// `faction_id=None` so ships never accrued reputation for
+    /// completing them — subsidies and crew missions (which gate on
+    /// rep) stayed perpetually unreachable. Pass `Some("terran-
+    /// authority")` etc. to grant +1 rep on delivery.
+    #[allow(clippy::too_many_arguments)]
+    pub fn post_delivery_for(
+        &mut self,
+        requestor_id: String,
+        faction_id: Option<String>,
+        commodity: Commodity,
+        quantity: u32,
+        source_location: String,
+        destination_location: String,
+        payment: i64,
+        posted_at_tick: u64,
+        lifespan_ticks: u64,
+    ) -> String {
+        self.post_kind_with_faction(
             ContractType::Delivery,
             requestor_id,
+            faction_id,
             commodity,
             quantity,
             source_location,

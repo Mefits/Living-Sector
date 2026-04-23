@@ -220,6 +220,12 @@ func _body_for_kind(kind: String, ev: Dictionary) -> String:
 				str(ev.get("destination", "?")),
 				int(ev.get("final_payment", 0)),
 			]
+		"contract_breached":
+			return "%s broke %s contract − %d rep" % [
+				str(ev.get("ship_id", "?")),
+				str(ev.get("faction_id", "?")),
+				int(ev.get("rep_penalty", 0)),
+			]
 		"facility_crew_starving":
 			return "%s (%s) — crew %d morale %.0f" % [
 				str(ev.get("facility_id", "?")),
