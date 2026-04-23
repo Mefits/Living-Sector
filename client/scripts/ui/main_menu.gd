@@ -6,8 +6,10 @@ extends Control
 ## Load Game opens an inline save picker that lists .db files in the
 ## sim's saves directory (via DirAccess — no server needed since we
 ## may not have one running yet). Picking a save calls
-## ServerManager.start(..., database_path) so the spawned BEAM opens
-## that file instead of the default sim.db.
+## ServerManager.start(..., save_name) so the spawned Rust sim opens
+## that file instead of the default sim.db. Each row also offers a
+## delete action that wipes the `.db` (plus any WAL sidecars) after
+## a confirmation prompt.
 
 @onready var start_button: Button = $CenterContainer/VBox/StartButton
 @onready var load_button: Button = $CenterContainer/VBox/LoadButton
@@ -22,6 +24,13 @@ extends Control
 @onready var loading_label: Label = $LoadingOverlay/CenterBox/VBox/LoadingLabel
 
 var _overlay_tween: Tween
+
+## Shared ConfirmationDialog for the delete flow. Lazily created on
+## first use so the scene tree stays light when nobody's deleting.
+## The `confirmed` signal is hooked once and rebound per-row via a
+## pending-save-name member so we don't fan out to many dialogs.
+var _delete_confirm: ConfirmationDialog = null
+var _pending_delete_name: String = ""
 
 
 func _ready() -> void:
@@ -155,6 +164,16 @@ func _add_save_row(entry: Dictionary, is_active: bool) -> void:
   btn.pressed.connect(_on_load_save.bind(entry.name))
   row.add_child(btn)
 
+  # Delete button. Tinted red to signal "destructive" without needing
+  # a custom theme — `modulate` colours the whole button including
+  # its label, which is enough to make the intent read at a glance.
+  # Confirmation dialog gates the actual file removal.
+  var del := Button.new()
+  del.text = "Delete"
+  del.modulate = Color(1.0, 0.55, 0.55, 1.0)
+  del.pressed.connect(_on_delete_pressed.bind(entry.name))
+  row.add_child(del)
+
   rows_box.add_child(row)
 
 
@@ -163,6 +182,79 @@ func _on_load_save(save_name: String) -> void:
   _disable_buttons()
   _show_loading("Loading save…")
   ServerManager.start(_on_start_result, save_name)
+
+
+# -------------------- Delete --------------------
+
+func _on_delete_pressed(save_name: String) -> void:
+  ## First click on a row's Delete button: stash which save we're
+  ## about to remove and pop the confirmation dialog. The dialog's
+  ## `confirmed` handler consults `_pending_delete_name` so we
+  ## don't multiplex a dialog per row.
+  _pending_delete_name = save_name
+  _ensure_delete_dialog()
+  # Dialog text rebuilt each time so the current save name shows.
+  # ConfirmationDialog.dialog_text accepts plain text; line breaks
+  # inside get respected at render time.
+  _delete_confirm.dialog_text = (
+    "Delete save \"%s\"?\nThis permanently removes the "
+    + "database file and cannot be undone."
+  ) % save_name
+  _delete_confirm.popup_centered()
+
+
+func _ensure_delete_dialog() -> void:
+  if _delete_confirm != null:
+    return
+  _delete_confirm = ConfirmationDialog.new()
+  _delete_confirm.title = "Delete save"
+  _delete_confirm.ok_button_text = "Delete"
+  _delete_confirm.cancel_button_text = "Cancel"
+  _delete_confirm.confirmed.connect(_on_delete_confirmed)
+  # Parent to the save picker so focus returns there when dismissed.
+  save_picker.add_child(_delete_confirm)
+
+
+func _on_delete_confirmed() -> void:
+  # Avoid a `name` local that would shadow Node.name — use
+  # `target_name` explicitly.
+  var target_name := _pending_delete_name
+  _pending_delete_name = ""
+  if target_name == "":
+    return
+  var removed := _delete_save(target_name)
+  if removed:
+    status_label.text = "Deleted save: %s" % target_name
+  else:
+    status_label.text = "Failed to delete save: %s" % target_name
+  # Rebuild the list regardless — whatever state we're in, the UI
+  # should reflect what's now on disk.
+  _populate_saves()
+
+
+func _delete_save(save_name: String) -> bool:
+  ## Remove the `.db` plus its SQLite sidecars (WAL mode leaves
+  ## `-wal` and `-shm` files behind if the sim was killed mid-write).
+  ## Returns true if the main `.db` file was removed; sidecar
+  ## removals are best-effort.
+  var path := ServerManager.database_path_for_name(save_name)
+  if path == "" or not FileAccess.file_exists(path):
+    push_warning("[MainMenu] delete: no file at %s" % path)
+    return false
+  var err := DirAccess.remove_absolute(path)
+  if err != OK:
+    push_error(
+      "[MainMenu] delete failed: %s (err=%d)" % [path, err]
+    )
+    return false
+  # Best-effort sidecar cleanup. Both files may not exist on a
+  # cleanly-shutdown sim; ignore OK-or-NOT-FOUND outcomes.
+  for suffix in ["-wal", "-shm"]:
+    var sidecar := path + suffix
+    if FileAccess.file_exists(sidecar):
+      DirAccess.remove_absolute(sidecar)
+  print("[MainMenu] deleted save: %s" % path)
+  return true
 
 
 # -------------------- Loading overlay --------------------
