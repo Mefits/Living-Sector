@@ -1311,7 +1311,7 @@ async fn load_construction_sites(pool: &SqlitePool, store: &mut AgentStore) -> R
             continue;
         }
         let commodity_str: String = r.get("commodity");
-        let Some(commodity) = Commodity::from_str(&commodity_str) else {
+        let Some(commodity) = Commodity::parse(&commodity_str) else {
             tracing::warn!(
                 commodity = %commodity_str,
                 "skipping construction site with unknown commodity"
