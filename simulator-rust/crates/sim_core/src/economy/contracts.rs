@@ -46,6 +46,30 @@ pub const REP_GATE_ALLIED: u8 = 50;
 pub const REP_AGE_OPEN_INTERVAL_TICKS: u64 = 100;
 pub const REP_AGE_OPEN_STEP: u8 = 10;
 
+/// Phase 19b: max times a delivery contract can auto-renew before
+/// it's allowed to expire permanently. After 3 renewals the payment
+/// is +75% over initial and rep gate has dropped by 45 — if no ship
+/// wants it at that point, the demand is structurally unreachable
+/// (no compatible hull, wrong system, etc.) and we stop re-posting.
+pub const CONTRACT_MAX_RENEWALS: u8 = 3;
+
+/// Payment premium per renewal cycle. 0.25 = +25% per cycle: a 2×
+/// renewal has +50% payment, a 3× renewal has +75%. Bumps are applied
+/// off the most recently posted `payment` so they compound with
+/// `age_escalate_payment` if both fire on the same contract.
+pub const CONTRACT_RENEWAL_PAYMENT_BUMP: f32 = 0.25;
+
+/// Rep-gate drop per renewal cycle. Subtracted from the CURRENT
+/// `min_reputation`, floored at 0. A delivery that starts public
+/// (min_rep=0) is already at the floor; a subsidy at 70 drops to 55
+/// → 40 → 25 across its renewals.
+pub const CONTRACT_RENEWAL_REP_DROP: u8 = 15;
+
+/// Fallback lifespan used by the single-arg `expire()` shim. Ticks
+/// counted in mult=1 base ticks — real callers prefer
+/// [`sweep_expiring`] with the per-world-speed lifespan.
+pub const DEFAULT_EXPIRE_LIFESPAN: u64 = 300;
+
 /// Phase 18j: every this many ticks a contract sits Posted unaccepted,
 /// its payment climbs by `PAYMENT_AGE_ESCALATE_STEP_PCT` percent of
 /// its original posted payment. Simulates a desperate requestor
@@ -161,6 +185,14 @@ pub struct Contract {
     /// `CrewMission` contracts that start at `REP_GATE_ALLIED`).
     #[serde(default)]
     pub initial_min_reputation: u8,
+    /// Phase 19b: how many times `expire()` has auto-renewed this
+    /// contract at escalating price + relaxed rep gate. Caps at
+    /// [`CONTRACT_MAX_RENEWALS`] — after that, the contract actually
+    /// expires. Not persisted (in-memory only) since it resets cleanly
+    /// on restart and the renew math is idempotent from any starting
+    /// payment.
+    #[serde(default)]
+    pub renewal_count: u8,
 }
 
 /// In-memory contract board. Lives in `AgentStore`.
@@ -457,6 +489,7 @@ impl ContractBoard {
             mission_category: None,
             min_reputation,
             initial_min_reputation: min_reputation,
+            renewal_count: 0,
         };
         self.contracts.insert(id.clone(), contract);
         self.by_status
@@ -667,31 +700,69 @@ impl ContractBoard {
         Some(cloned)
     }
 
-    /// Remove expired Posted contracts. Returns the count removed.
-    pub fn expire(&mut self, tick: u64) -> u32 {
-        let mut expired_ids: Vec<String> = Vec::new();
+    /// Sweep Posted contracts past their `expires_at_tick`. Phase 19b:
+    /// delivery contracts get up to [`CONTRACT_MAX_RENEWALS`] auto-
+    /// renewals before permanently expiring — each renewal bumps the
+    /// payment by [`CONTRACT_RENEWAL_PAYMENT_BUMP`] and drops the rep
+    /// gate by [`CONTRACT_RENEWAL_REP_DROP`]. Courier / Subsidy /
+    /// CrewMission / Passenger / Supply expire directly as before —
+    /// they carry their own aging mechanics (e.g. passengers depend on
+    /// live population sentiment, which re-posts organically).
+    ///
+    /// Returns the (renewed, expired) counts for telemetry.
+    pub fn sweep_expiring(&mut self, tick: u64, lifespan_ticks: u64) -> (u32, u32) {
+        let mut due: Vec<String> = Vec::new();
         if let Some(ids) = self.by_status.get(&ContractStatus::Posted) {
             for id in ids {
                 if let Some(c) = self.contracts.get(id) {
                     if tick >= c.expires_at_tick {
-                        expired_ids.push(id.clone());
+                        due.push(id.clone());
                     }
                 }
             }
         }
-        let n = expired_ids.len() as u32;
-        for id in expired_ids {
-            if let Some(c) = self.contracts.get_mut(&id) {
+
+        let mut renewed = 0_u32;
+        let mut expired = 0_u32;
+        for id in due {
+            let should_renew = match self.contracts.get(&id) {
+                Some(c) => {
+                    c.contract_type == ContractType::Delivery
+                        && c.renewal_count < CONTRACT_MAX_RENEWALS
+                }
+                None => false,
+            };
+            if should_renew {
+                if let Some(c) = self.contracts.get_mut(&id) {
+                    let bump = CONTRACT_RENEWAL_PAYMENT_BUMP;
+                    c.payment = ((c.payment as f32) * (1.0 + bump)).round() as i64;
+                    c.min_reputation =
+                        c.min_reputation.saturating_sub(CONTRACT_RENEWAL_REP_DROP);
+                    c.expires_at_tick = tick + lifespan_ticks;
+                    c.renewal_count = c.renewal_count.saturating_add(1);
+                    // Stays in Posted — no reindex needed. The
+                    // by-destination index still has it.
+                }
+                renewed += 1;
+            } else if let Some(c) = self.contracts.get_mut(&id) {
                 c.status = ContractStatus::Expired;
                 let dest = c.destination_location.clone();
                 self.reindex_status(&id, ContractStatus::Posted, ContractStatus::Expired);
-                // Remove from destination index
                 if let Some(list) = self.posted_by_destination.get_mut(&dest) {
                     list.retain(|i| i != &id);
                 }
+                expired += 1;
             }
         }
-        n
+        (renewed, expired)
+    }
+
+    /// Legacy shim for callers that still want a single "N contracts
+    /// expired" count and don't need the renewal split. Uses
+    /// [`DEFAULT_EXPIRE_LIFESPAN`] for the re-posted lifespan.
+    pub fn expire(&mut self, tick: u64) -> u32 {
+        let (_renewed, expired) = self.sweep_expiring(tick, DEFAULT_EXPIRE_LIFESPAN);
+        expired
     }
 
     fn reindex_status(&mut self, id: &str, from: ContractStatus, to: ContractStatus) {
@@ -741,15 +812,61 @@ mod tests {
     }
 
     #[test]
-    fn expire_removes_stale_posted_contracts() {
+    fn expire_renews_delivery_contracts_before_expiring() {
+        // Phase 19b: delivery contracts get up to CONTRACT_MAX_RENEWALS
+        // auto-renewals (escalating payment + relaxed rep gate) before
+        // actually expiring. First 3 calls re-post; 4th moves to
+        // Expired.
         let mut board = ContractBoard::new();
-        let _ = board.post_delivery(
+        let id = board.post_delivery(
             "pop-a".into(),
             Commodity::Food,
             10,
             "a".into(),
             "b".into(),
             100,
+            0,
+            10,
+        );
+        assert_eq!(board.posted().len(), 1);
+
+        // 1st expire → renewed. Payment +25%, still Posted.
+        let (renewed, expired) = board.sweep_expiring(20, 10);
+        assert_eq!((renewed, expired), (1, 0));
+        let c = board.get(&id).unwrap();
+        assert_eq!(c.status, ContractStatus::Posted);
+        assert_eq!(c.payment, 125); // 100 * 1.25
+        assert_eq!(c.renewal_count, 1);
+
+        // 2nd and 3rd expire → renewed. Payment compounds.
+        let (renewed, _) = board.sweep_expiring(40, 10);
+        assert_eq!(renewed, 1);
+        let (renewed, _) = board.sweep_expiring(60, 10);
+        assert_eq!(renewed, 1);
+        let c = board.get(&id).unwrap();
+        assert_eq!(c.renewal_count, CONTRACT_MAX_RENEWALS);
+        // 100 -> 125 -> 156 -> 195 (round() each step)
+        assert!(c.payment > 150 && c.payment < 200);
+
+        // 4th expire → actually expires (renewal_count hit cap).
+        let (renewed, expired) = board.sweep_expiring(80, 10);
+        assert_eq!((renewed, expired), (0, 1));
+        assert_eq!(board.get(&id).unwrap().status, ContractStatus::Expired);
+        assert_eq!(board.posted().len(), 0);
+    }
+
+    #[test]
+    fn expire_shim_still_returns_expired_count() {
+        // Non-delivery contracts expire immediately — the legacy
+        // `expire()` shim still returns just the expired count and
+        // matches pre-19b behavior for Subsidy / Passenger / etc.
+        let mut board = ContractBoard::new();
+        let _ = board.post_passenger(
+            "pop-a".into(),
+            5,
+            "a".into(),
+            "b".into(),
+            200,
             0,
             10,
         );

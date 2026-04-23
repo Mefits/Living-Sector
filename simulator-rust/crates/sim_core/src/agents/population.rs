@@ -302,8 +302,12 @@ pub fn tick_populations(
     // Expire old unfilled contracts + decay reputation gates so
     // faction-posted subsidies age open to the public + escalate
     // payment on long-posted contracts (Phase 18j) so desperate
-    // requestors get picked up instead of expiring.
-    contracts.expire(tick);
+    // requestors get picked up instead of expiring. Phase 19b:
+    // delivery contracts get up to 3 auto-renewals with escalating
+    // payment + relaxed rep gate before permanently expiring.
+    let delivery_lifespan =
+        crate::agents::facility::FACILITY_DELIVERY_LIFESPAN_BASE * mult;
+    contracts.sweep_expiring(tick, delivery_lifespan);
     contracts.age_open_reputation(tick);
     contracts.age_escalate_payment(tick);
 }

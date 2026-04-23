@@ -1265,6 +1265,11 @@ async fn load_contracts(pool: &SqlitePool, store: &mut AgentStore) -> Result<()>
                 .flatten(),
             min_reputation: min_reputation.clamp(0, 100) as u8,
             initial_min_reputation: initial_min_reputation_raw.clamp(0, 100) as u8,
+            // Not persisted — resets to 0 on restart. The next expiry
+            // will start the renewal ladder fresh, which is fine since
+            // the payment value round-tripped on disk already reflects
+            // prior escalations.
+            renewal_count: 0,
         };
         store.contracts.insert_loaded(contract);
         loaded += 1;
