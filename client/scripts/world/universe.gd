@@ -4,6 +4,9 @@ extends Node3D
 
 var _star_system_scene: PackedScene = preload("res://scenes/world/star_system.tscn")
 var _ship_scene: PackedScene = preload("res://scenes/world/ship.tscn")
+const ConstructionSiteScript := preload(
+  "res://scripts/world/construction_site.gd"
+)
 
 var _ship_nodes: Dictionary = {}
 var _facility_nodes: Dictionary = {}
@@ -13,6 +16,11 @@ var _facility_nodes: Dictionary = {}
 # _facility_nodes, otherwise try _body_nodes. This keeps planets and their
 # anchored facilities visually locked together.
 var _body_nodes: Dictionary = {}
+# Phase 19c: construction-site scaffolds spawned by the demand
+# analyzer. Keyed by the site's `id` ("site-commodity-location-tick").
+# Lazily instantiated in `_on_positions_updated` the first time a
+# site-prefixed entry appears in the broadcast.
+var _site_nodes: Dictionary = {}
 
 
 func get_ship_node(id: String) -> Node3D:
@@ -63,6 +71,8 @@ func build_world() -> void:
 	GameState.ship_added.connect(_on_ship_added)
 	GameState.facility_removed.connect(_on_facility_removed)
 	GameState.facility_added.connect(_on_facility_added)
+	GameState.construction_site_updated.connect(_on_construction_site_updated)
+	GameState.construction_site_removed.connect(_on_construction_site_removed)
 
 	print("[Universe] Built %d systems, %d ships, %d facilities" % [
 		GameState.systems.size(), _ship_nodes.size(), _facility_nodes.size()
@@ -185,8 +195,45 @@ func _on_positions_updated(positions_array: Array) -> void:
 		elif id.begins_with("facility-"):
 			if _facility_nodes.has(id):
 				_facility_nodes[id].update_position(x, y)
+		elif id.begins_with("site-"):
+			# Phase 19c: construction-site scaffold. Spawn lazily the
+			# first time we see it in the broadcast — GameState's
+			# construction_sites dict has the full metadata.
+			_ensure_site_spawned(id, x, y)
+			if _site_nodes.has(id):
+				_site_nodes[id].update_position(x, y)
 		elif _body_nodes.has(id):
 			# Bodies have bare ids (no prefix) — route to the body node so
 			# planets track the same authoritative position stream their
 			# facilities do. Fixes the post-speed-change orbital drift.
 			_body_nodes[id].update_position(x, y)
+
+
+func _ensure_site_spawned(id: String, x: float, y: float) -> void:
+	if _site_nodes.has(id):
+		return
+	var data: Dictionary = GameState.construction_sites.get(id, {})
+	if data.is_empty():
+		# Snapshot hasn't arrived yet — just skip until it does.
+		return
+	var site := Node3D.new()
+	site.set_script(ConstructionSiteScript)
+	var world_pos := GameState.server_to_world(x, y)
+	add_child(site)
+	site.setup(data, world_pos)
+	_site_nodes[id] = site
+
+
+func _on_construction_site_removed(id: String) -> void:
+	if _site_nodes.has(id):
+		var node: Node3D = _site_nodes[id]
+		_site_nodes.erase(id)
+		if is_instance_valid(node):
+			node.queue_free()
+
+
+func _on_construction_site_updated(id: String) -> void:
+	if _site_nodes.has(id):
+		var data: Dictionary = GameState.construction_sites.get(id, {})
+		if not data.is_empty():
+			_site_nodes[id].update_state(data)

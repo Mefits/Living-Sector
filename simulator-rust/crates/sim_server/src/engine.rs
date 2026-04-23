@@ -279,7 +279,7 @@ pub async fn run_tick_loop(
         market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
         // Market emits TransferCredits (spread revenue) — apply before clearing
         apply_ship_commands(&mut store, &mut commands, &mut events);
-        faction::tick_factions(&mut store.world, &mut store.contracts, tick, tick_mult);
+        faction::tick_factions(&mut store.world, &mut store.contracts, &mut events, tick, tick_mult);
         commands.clear();
 
         let tick_compute_us = t_start.elapsed().as_micros() as u64;
@@ -434,7 +434,13 @@ pub fn run_contract_pump(store: &mut AgentStore, passes: u32) {
             1.0,
             1,
         );
-        sim_core::agents::faction::tick_factions(&mut store.world, &mut store.contracts, 0, 1);
+        sim_core::agents::faction::tick_factions(
+            &mut store.world,
+            &mut store.contracts,
+            &mut pump_events,
+            0,
+            1,
+        );
     }
     tracing::info!(
         "Engine: contract pump ran {} passes — board size now {}",
@@ -1205,6 +1211,40 @@ fn apply_ship_commands(
                                 "destination": c.destination_location,
                                 "head_count": c.quantity,
                                 "payment": c.payment,
+                            }));
+                        }
+                        ContractType::Construction => {
+                            // Phase 19c-c: the delivered commodity goes
+                            // INTO the construction site, not the
+                            // destination market. Remove from the ship's
+                            // cargo hold the same way, then route
+                            // progress to the site at this
+                            // (location, commodity).
+                            if let Ok(mut cargo) = store.world.get::<&mut ShipCargo>(ship) {
+                                let have = cargo.cargo.get(&c.commodity).copied().unwrap_or(0);
+                                let leftover = have.saturating_sub(c.quantity);
+                                if leftover == 0 {
+                                    cargo.cargo.remove(&c.commodity);
+                                    cargo.cargo_age.remove(&c.commodity);
+                                } else {
+                                    cargo.cargo.insert(c.commodity, leftover);
+                                }
+                            }
+                            apply_construction_delivery(
+                                store,
+                                &c.destination_location,
+                                c.commodity,
+                                c.quantity,
+                                events,
+                            );
+                            events.push(serde_json::json!({
+                                "kind": "contract_delivered",
+                                "contract_id": c.id,
+                                "contract_type": c.contract_type.as_str(),
+                                "commodity": c.commodity.as_str(),
+                                "destination": c.destination_location,
+                                "payment": c.payment,
+                                "faction_id": c.faction_id,
                             }));
                         }
                         _ => {
@@ -2239,6 +2279,197 @@ fn apply_facility_refuel(
     }
 }
 
+/// Phase 19c-c/d: route a Construction delivery into the matching
+/// site's progress. When progress hits 1.0, the site materialises
+/// into a real facility at the same position and the site entity is
+/// despawned. Fires `construction_progress` and, on finish,
+/// `construction_completed` events.
+fn apply_construction_delivery(
+    store: &mut AgentStore,
+    destination: &str,
+    commodity: sim_core::economy::commodities::Commodity,
+    quantity: u32,
+    events: &mut Vec<serde_json::Value>,
+) {
+    use sim_core::agents::construction::{self, ConstructionSite};
+
+    let site_entity = match construction::find_site(&store.world, destination, commodity) {
+        Some(e) => e,
+        None => {
+            // No matching site — fall through to normal market drop
+            // as a graceful degradation. Shouldn't normally happen
+            // because the demand analyzer spawns the site before
+            // posting the contract.
+            if let Some(&market_entity) = store.market_at_location.get(destination) {
+                if let Ok(mut pricing) = store
+                    .world
+                    .get::<&mut sim_core::agents::market::MarketPricing>(market_entity)
+                {
+                    *pricing.supply.entry(commodity).or_insert(0.0) += quantity as f32;
+                }
+            }
+            return;
+        }
+    };
+
+    // Snapshot the fields we need before mutating.
+    let (site_id, site_name, completed_now, new_progress, facility_type, body_id,
+         faction_id, position, site_location) = {
+        if let Ok(mut site) = store.world.get::<&mut ConstructionSite>(site_entity) {
+            let absorbed = quantity.min(site.remaining());
+            site.progress_delivered = site.progress_delivered.saturating_add(absorbed);
+            site.dirty = true;
+            let progress = site.progress();
+            let finished = progress >= 1.0 && !site.completed;
+            if finished {
+                site.completed = true;
+            }
+            (
+                site.id.clone(),
+                site.name.clone(),
+                finished,
+                progress,
+                site.facility_type.clone(),
+                site.body_id.clone(),
+                site.faction_id.clone(),
+                site.position,
+                site.location_name.clone(),
+            )
+        } else {
+            return;
+        }
+    };
+
+    events.push(serde_json::json!({
+        "kind": "construction_progress",
+        "site_id": site_id,
+        "progress": new_progress,
+        "location": site_location,
+    }));
+
+    if completed_now {
+        // Despawn the site, materialise a real facility at the same
+        // position via the shared admin-spawn plumbing (bypassing DB
+        // — this facility lives in RAM only until 19c-persist lands).
+        let _ = store.world.despawn(site_entity);
+        materialize_facility(
+            store,
+            &site_id,
+            &site_name,
+            &facility_type,
+            &body_id,
+            &faction_id,
+            &site_location,
+            position,
+            events,
+        );
+    }
+}
+
+/// Spawn a fully-functional facility entity at the given position —
+/// same component set as `admin_spawn_facility` produces, but
+/// generated from scratch (no DB row yet). Used by
+/// `apply_construction_delivery` when a construction site finishes.
+///
+/// MVP caveat: `db_id` is set to 0 so the persistence worker's
+/// UPDATE statements no-op cleanly. A follow-up commit will INSERT
+/// the row and backfill the id.
+#[allow(clippy::too_many_arguments)]
+fn materialize_facility(
+    store: &mut AgentStore,
+    source_site_id: &str,
+    display_name: &str,
+    facility_type: &str,
+    body_id: &str,
+    faction_id: &str,
+    location_name: &str,
+    position: (f32, f32),
+    events: &mut Vec<serde_json::Value>,
+) {
+    use sim_core::agents::facility::{
+        FacilityCrew, FacilityFitting, FacilityIdentity, FacilityLifecycle, FacilityLocation,
+        FacilityOperations, FacilityStorage,
+    };
+    use std::collections::HashMap;
+
+    // Slug-ify the display name (strip the "under construction" tail).
+    let clean_name = display_name
+        .replace("(under construction)", "")
+        .trim()
+        .to_string();
+    let name_slug: String = clean_name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let agent_id = format!("facility-{}-{}", location_name, name_slug);
+
+    // Pull location_id from an existing facility at the same location
+    // so the new entity slots into the same row.
+    let location_id = store
+        .world
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .iter()
+        .find(|(_, (_, loc))| loc.location_name == location_name)
+        .map(|(_, (_, loc))| loc.location_id)
+        .unwrap_or(0);
+
+    let entity = store.world.spawn((
+        FacilityIdentity {
+            db_id: 0, // runtime-only for now
+            id: agent_id.clone(),
+            name: clean_name.clone(),
+            facility_type: facility_type.to_string(),
+            faction_id: faction_id.to_string(),
+            body_id: body_id.to_string(),
+        },
+        FacilityLocation {
+            location_id,
+            location_name: location_name.to_string(),
+        },
+        FacilityOperations {
+            docking_capacity: 4,
+            services: vec!["market".to_string()],
+            condition: 1.0,
+            reputation: 50,
+            credits: 20_000,
+            dirty: false,
+        },
+        FacilityStorage {
+            reserves: HashMap::new(),
+            docked_ships: vec![],
+            pending_deliveries: vec![],
+        },
+        FacilityLifecycle::new(),
+        sim_core::simulation::lod::AgentLod::new(),
+        FacilityFitting::new_default(),
+        FacilityCrew::new_for_type(facility_type),
+    ));
+
+    // Record position on the positions snapshot so Godot renders the
+    // facility at the same spot the site occupied. The per-tick
+    // positions publisher picks this up automatically.
+    store.facility_by_id.insert(agent_id.clone(), entity);
+    store
+        .facilities_at_location
+        .entry(location_name.to_string())
+        .or_default()
+        .push(entity);
+
+    events.push(serde_json::json!({
+        "kind": "construction_completed",
+        "site_id": source_site_id,
+        "facility_id": agent_id,
+        "facility_type": facility_type,
+        "location": location_name,
+        "position": { "x": position.0, "y": position.1 },
+    }));
+}
+
 fn publish_positions(
     tick: u64,
     interval_ms: u64,
@@ -2255,6 +2486,10 @@ fn publish_positions(
                 "ship"
             } else if id.starts_with("facility-") {
                 "facility"
+            } else if id.starts_with("site-") {
+                // Phase 19c: construction sites are a new rendered
+                // kind — Godot draws a scaffold placeholder here.
+                "site"
             } else {
                 // Body ids in the JSON world data are bare ("earth", "mars",
                 // etc.) — default everything non-ship/non-facility to "body".

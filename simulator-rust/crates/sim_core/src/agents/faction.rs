@@ -144,6 +144,7 @@ pub const CONSTRUCTION_MIN_TREASURY: i64 = 18_000;
 pub fn tick_factions(
     world: &mut hecs::World,
     contracts: &mut ContractBoard,
+    events: &mut Vec<serde_json::Value>,
     tick: u64,
     tick_multiplier: u32,
 ) {
@@ -173,7 +174,7 @@ pub fn tick_factions(
     let construction_interval =
         CONSTRUCTION_CHECK_INTERVAL_BASE * tick_multiplier as u64;
     if construction_interval > 0 && tick % construction_interval == 0 {
-        run_construction_cycle(world, contracts, tick, tick_multiplier);
+        run_construction_cycle(world, contracts, events, tick, tick_multiplier);
     }
 
     // Keep snapshot `active_subsidies` in sync — recalc from the board so
@@ -526,6 +527,7 @@ fn run_subsidy_cycle(
 fn run_construction_cycle(
     world: &mut hecs::World,
     contracts: &mut ContractBoard,
+    events: &mut Vec<serde_json::Value>,
     tick: u64,
     tick_multiplier: u32,
 ) {
@@ -668,7 +670,7 @@ fn run_construction_cycle(
         });
     }
 
-    // Apply plans: treasury debit + post.
+    // Apply plans: treasury debit, spawn site if missing, post contract.
     let lifespan = CONSTRUCTION_LIFESPAN_BASE * tick_multiplier as u64;
     for plan in plans {
         let afford = world
@@ -681,6 +683,19 @@ fn run_construction_cycle(
             data.treasury -= plan.payment;
             data.dirty = true;
         }
+        // Phase 19c-b: spawn a ConstructionSite at the destination
+        // before posting the contract. Multiple contracts can target
+        // the same site (three 200-unit deliveries = 600 units total
+        // = one finished facility) — the delivery apply phase routes
+        // progress accrual by (location, commodity).
+        ensure_site_spawned(
+            world,
+            events,
+            &plan.faction_id,
+            plan.commodity,
+            &plan.destination,
+            tick,
+        );
         contracts.post_construction(
             plan.faction_id.clone(),
             Some(plan.faction_id),
@@ -694,6 +709,103 @@ fn run_construction_cycle(
         );
     }
 }
+
+/// Spawn a construction-site entity at `plan.destination` if none
+/// already exists for this commodity. Picks the body by looking at
+/// any existing facility at the destination; picks the position via
+/// the same `facility_offset_position` hash so the site visually
+/// sits where the real facility will materialise.
+fn ensure_site_spawned(
+    world: &mut hecs::World,
+    events: &mut Vec<serde_json::Value>,
+    faction_id: &str,
+    commodity: Commodity,
+    destination: &str,
+    tick: u64,
+) {
+    use crate::agents::celestial_body::{BodyIdentity, BodyOrbit};
+    use crate::agents::construction::{
+        self, ConstructionSite, CONSTRUCTION_PROGRESS_REQUIRED,
+    };
+
+    if construction::site_exists_for(world, destination, commodity) {
+        return;
+    }
+
+    // Pick body from any facility at the destination. Without a body
+    // we can't place the site; skip.
+    let body_id = {
+        use crate::agents::facility::{FacilityIdentity, FacilityLocation};
+        world
+            .query::<(&FacilityIdentity, &FacilityLocation)>()
+            .iter()
+            .find(|(_, (_, loc))| loc.location_name == destination)
+            .map(|(_, (id, _))| id.body_id.clone())
+    };
+    let Some(body_id) = body_id else { return };
+
+    let body_center = world
+        .query::<(&BodyIdentity, &BodyOrbit)>()
+        .iter()
+        .find(|(_, (id, _))| id.body_id == body_id)
+        .map(|(_, (_, orbit))| orbit.universe_position());
+    let Some(body_center) = body_center else { return };
+
+    let site_id = format!("site-{}-{}-{}", commodity.as_str(), destination, tick);
+    let position =
+        crate::agents::facility::facility_offset_position(body_center, &site_id);
+    let facility_type = construction::facility_type_for_commodity(commodity);
+
+    let name = format!(
+        "{} {} Works (under construction)",
+        human_prefix(destination),
+        commodity.as_str().to_ascii_uppercase()
+    );
+
+    let site = ConstructionSite {
+        id: site_id.clone(),
+        name: name.clone(),
+        facility_type: facility_type.to_string(),
+        faction_id: faction_id.to_string(),
+        body_id,
+        location_name: destination.to_string(),
+        commodity,
+        progress_delivered: 0,
+        progress_required: CONSTRUCTION_PROGRESS_REQUIRED,
+        position,
+        spawned_at_tick: tick,
+        completed: false,
+        dirty: true,
+    };
+    world.spawn((site,));
+
+    events.push(serde_json::json!({
+        "kind": "construction_site_started",
+        "site_id": site_id,
+        "name": name,
+        "facility_type": facility_type,
+        "location": destination,
+        "commodity": commodity.as_str(),
+        "required": CONSTRUCTION_PROGRESS_REQUIRED,
+    }));
+}
+
+/// Tiny helper — turns a location slug like "kuiper-station" into
+/// "Kuiper" for the site's display name. Not perfect for multi-word
+/// slugs but good enough for the "under construction" label.
+fn human_prefix(slug: &str) -> String {
+    slug.split('-')
+        .next()
+        .map(|s| {
+            let mut c = s.chars();
+            match c.next() {
+                Some(ch) => ch.to_ascii_uppercase().to_string() + c.as_str(),
+                None => String::new(),
+            }
+        })
+        .unwrap_or_default()
+}
+
 
 /// Recount each faction's active-subsidy count from the live contract board.
 /// Runs after subsidy posting so the count reflects any deliveries that

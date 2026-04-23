@@ -8,6 +8,7 @@ use dashmap::DashMap;
 use sim_core::{
     agents::{
         celestial_body::{BodyBiome, BodyIdentity, BodyOrbit, BodySnapshot},
+        construction::{ConstructionSite, ConstructionSiteSnapshot},
         facility::{
             FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations,
             FacilitySnapshot, FacilityStorage, GateLink,
@@ -40,6 +41,10 @@ pub struct SnapshotCache {
     pub contracts: DashMap<String, serde_json::Value>,
     /// agent_id → (x, y). Ships + bodies mix here since Godot renders them the same way.
     pub positions: DashMap<String, (f32, f32)>,
+    /// Phase 19c: in-flight construction sites, keyed by site id.
+    /// Empty when the demand analyzer hasn't triggered any builds
+    /// yet. Godot consumes this to render the scaffold entities.
+    pub construction_sites: DashMap<String, ConstructionSiteSnapshot>,
 }
 
 impl SnapshotCache {
@@ -57,6 +62,23 @@ impl SnapshotCache {
         self.update_bodies(store);
         self.update_factions(store);
         self.update_contracts(store);
+        self.update_construction_sites(store);
+    }
+
+    /// Phase 19c: refresh the construction-sites cache each tick +
+    /// publish their positions so Godot's positions broadcast picks
+    /// them up alongside ships / bodies / facilities.
+    fn update_construction_sites(&self, store: &AgentStore) {
+        let mut live: std::collections::HashSet<String> = Default::default();
+        for (_e, site) in store.world.query::<&ConstructionSite>().iter() {
+            live.insert(site.id.clone());
+            self.construction_sites
+                .insert(site.id.clone(), ConstructionSiteSnapshot::from(site));
+            self.positions.insert(site.id.clone(), site.position);
+        }
+        self.construction_sites.retain(|k, _| live.contains(k));
+        self.positions
+            .retain(|k, _| !k.starts_with("site-") || live.contains(k));
     }
 
     fn update_contracts(&self, store: &AgentStore) {

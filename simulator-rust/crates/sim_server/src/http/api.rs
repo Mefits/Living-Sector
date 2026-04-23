@@ -110,6 +110,12 @@ pub async fn report(State(state): State<AppState>) -> impl IntoResponse {
         .iter()
         .map(|e| e.value().clone())
         .collect();
+    let construction_sites: Vec<_> = state
+        .snapshots
+        .construction_sites
+        .iter()
+        .map(|e| e.value().clone())
+        .collect();
 
     // Godot expects systems[].bodies[] with flat {id, name, type, x, y}
     // entries. Build that from SystemInfo + BodySnapshot + (optional)
@@ -149,6 +155,7 @@ pub async fn report(State(state): State<AppState>) -> impl IntoResponse {
         "facilities": facilities,
         "populations": populations,
         "factions": factions,
+        "construction_sites": construction_sites,
     }))
 }
 
@@ -237,6 +244,19 @@ pub async fn populations(State(state): State<AppState>) -> impl IntoResponse {
     let data: Vec<_> = state
         .snapshots
         .populations
+        .iter()
+        .map(|e| e.value().clone())
+        .collect();
+    Json(json!({ "data": data }))
+}
+
+/// Phase 19c: in-flight construction sites the demand analyzer has
+/// started. Godot polls this on boot (and gets live updates via
+/// positions + tick events) to render scaffolds for each one.
+pub async fn construction_sites(State(state): State<AppState>) -> impl IntoResponse {
+    let data: Vec<_> = state
+        .snapshots
+        .construction_sites
         .iter()
         .map(|e| e.value().clone())
         .collect();

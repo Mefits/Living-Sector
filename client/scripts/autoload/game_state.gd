@@ -12,6 +12,11 @@ signal ship_removed(id: String)
 signal ship_added(id: String)
 signal facility_removed(id: String)
 signal facility_added(id: String)
+# Phase 19c: construction site lifecycle. `updated` fires on progress
+# refresh; `removed` when the site materialises into a facility (or
+# is otherwise despawned by the sim).
+signal construction_site_updated(id: String)
+signal construction_site_removed(id: String)
 # Emitted after a facility_states WS broadcast is merged. Facility nodes
 # that render dock glow / reserves listen for this to redraw. Fires ~every
 # 2 s (tick % 16) at default pace.
@@ -29,6 +34,11 @@ signal event_received(event: Dictionary, tick: int)
 # World data keyed by id
 var ships: Dictionary = {}
 var facilities: Dictionary = {}
+# Phase 19c: in-flight construction sites keyed by `site-*` id.
+# Populated from /api/construction_sites on boot + refreshed every
+# ~2s alongside facility polls. Cleared when a site finishes
+# (materialises into a real facility).
+var construction_sites: Dictionary = {}
 var markets: Dictionary = {}
 var populations: Dictionary = {}
 var systems: Dictionary = {}
@@ -324,6 +334,13 @@ func refresh_world_data(data: Dictionary) -> void:
 	for fid in stale_fac_ids:
 		remove_facility_local(fid)
 
+	# Phase 19c: construction sites. Full snapshot + prune so sites
+	# that finished (materialised into facilities) fire the
+	# `construction_site_removed` signal to tear down their scaffold.
+	var sites_array: Array = data.get("construction_sites", [])
+	if sites_array is Array:
+		update_construction_sites(sites_array)
+
 	for market in data.get("markets", []):
 		markets[market["id"]] = market
 	for pop in data.get("populations", []):
@@ -450,6 +467,31 @@ func update_facilities(facilities_array: Array) -> void:
 	for fid in stale:
 		remove_facility_local(fid)
 	facility_states_updated.emit()
+
+
+func update_construction_sites(sites_array: Array) -> void:
+	## Phase 19c: full construction-site snapshot poll. Sites that
+	## vanish from the array have materialised into real facilities
+	## (or were admin-despawned); we emit `construction_site_removed`
+	## so universe.gd can queue_free the scaffold visual.
+	var seen: Dictionary = {}
+	for entry in sites_array:
+		if not (entry is Dictionary):
+			continue
+		var id: String = str(entry.get("id", ""))
+		if id == "":
+			continue
+		seen[id] = true
+		construction_sites[id] = entry
+		construction_site_updated.emit(id)
+	# Prune + emit removed for anything no longer in the broadcast.
+	var gone: Array = []
+	for id in construction_sites.keys():
+		if not seen.has(id):
+			gone.append(id)
+	for id in gone:
+		construction_sites.erase(id)
+		construction_site_removed.emit(id)
 
 
 func update_populations_full(populations_array: Array) -> void:

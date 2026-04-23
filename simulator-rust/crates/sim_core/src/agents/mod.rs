@@ -1,4 +1,5 @@
 pub mod celestial_body;
+pub mod construction;
 pub mod facility;
 pub mod faction;
 pub mod market;
