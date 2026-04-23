@@ -39,3 +39,18 @@ futures-util = "0.3"
 
 # Env vars from .env file
 dotenvy = "0.15"
+
+# POSIX `kill(pid, 0)` for the parent-process watcher so a crashed
+# Godot can't leave the sim orphaned. Already a transitive dep of
+# tokio; making it explicit so the use is obvious.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Windows equivalent: OpenProcess + GetExitCodeProcess. Same polling
+# contract as the POSIX side so the upstream watcher task stays
+# platform-agnostic.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+] }

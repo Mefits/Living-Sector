@@ -1,88 +1,148 @@
 # Space Simulator Client — build helpers.
 #
 # Typical flows:
-#   make sim            Build + sync the Elixir release (delegates to the
-#                       simulator's own Makefile so release steps over
-#                       there are inherited for free)
+#   make sim            Build the Rust simulator (release) and copy
+#                       the single binary into ./simulator.
+#   make sim-debug      Same, but uses a debug build (faster compile,
+#                       slower runtime). Handy when hacking on sim_core.
 #   make dev            Open the Godot editor (dev.env is honored)
-#   make export         Export the Godot macOS .app
-#   make build          sim + export + post-export (ready-to-run .app)
-#   make dmg            build + package as distributable DMG
+#   make export-mac     Export the Godot macOS .app
+#   make export-win     Export the Godot Windows .exe
+#   make build-mac      sim + export-mac + post-export-mac (ready-to-run .app)
+#   make build-win      sim-win + export-win + post-export-win
+#   make dmg            build-mac + package as distributable DMG
 #   make clean          Nuke build artifacts
 #
 # Override paths / tools at invocation, e.g.:
-#   make GODOT=/Applications/Godot.app/Contents/MacOS/Godot build
+#   make GODOT=/Applications/Godot.app/Contents/MacOS/Godot build-mac
 #   make SIMULATOR_SRC=/path/to/sim sim
 
 # ------- Paths -------
 
-SIMULATOR_SRC  ?= ../simulator
-SIMULATOR_REL  := $(SIMULATOR_SRC)/_build/prod/rel/simulator
-SIMULATOR_DST  := ./simulator
+SIMULATOR_SRC  ?= ../simulator-rust
+SIMULATOR_BIN  := simulator
+# Destination paths: the binary lives directly alongside the client
+# binary (or under Contents/Resources on macOS — post-export handles
+# that move). One file on disk, no release directory tree.
+SIMULATOR_DST        := ./$(SIMULATOR_BIN)
+SIMULATOR_DST_WIN    := ./$(SIMULATOR_BIN).exe
+
+# cargo target-triples for each platform. Override if you're using
+# a different Rust toolchain setup (e.g. `aarch64-apple-darwin`).
+CARGO_TARGET_MAC ?=
+CARGO_TARGET_WIN ?= x86_64-pc-windows-gnu
 
 # ------- Tools -------
 
 GODOT ?= godot
+CARGO ?= cargo
 
 # ------- Build output -------
 
 BUILD_DIR := ./build
 APP_NAME  := Space Simulator Client
 APP_PATH  := $(BUILD_DIR)/$(APP_NAME).app
+EXE_PATH  := $(BUILD_DIR)/$(APP_NAME).exe
 DMG_PATH  := $(BUILD_DIR)/$(APP_NAME).dmg
 
-.PHONY: help sim clean-sim dev export post-export build dmg clean
+.PHONY: help \
+        sim sim-debug sim-win clean-sim \
+        dev \
+        export-mac export-win \
+        post-export-mac post-export-win \
+        build-mac build-win \
+        dmg clean
 
 help:
 	@echo "Targets:"
-	@echo "  sim          Build release via $(SIMULATOR_SRC)/Makefile and copy"
-	@echo "               the result into ./simulator"
-	@echo "  clean-sim    Remove bundled ./simulator"
-	@echo "  dev          Launch Godot editor (dev.env is honored automatically)"
-	@echo "  export       Export macOS .app to $(APP_PATH)"
-	@echo "  post-export  Copy ./simulator into the exported .app"
-	@echo "  build        sim + export + post-export"
-	@echo "  dmg          build + DMG at $(DMG_PATH)"
-	@echo "  clean        Wipe $(BUILD_DIR)"
+	@echo "  sim              Build the Rust sim (release) via $(SIMULATOR_SRC)"
+	@echo "                   and copy the binary to $(SIMULATOR_DST)"
+	@echo "  sim-debug        As sim but a debug build (fast compile)"
+	@echo "  sim-win          Cross-compile Windows binary (target=$(CARGO_TARGET_WIN))"
+	@echo "  clean-sim        Remove bundled ./$(SIMULATOR_BIN)"
+	@echo "  dev              Launch Godot editor (dev.env is honored automatically)"
+	@echo "  export-mac       Export macOS .app to $(APP_PATH)"
+	@echo "  export-win       Export Windows .exe to $(EXE_PATH)"
+	@echo "  post-export-mac  Copy ./$(SIMULATOR_BIN) into the exported .app"
+	@echo "  post-export-win  Copy ./$(SIMULATOR_BIN).exe alongside the exported .exe"
+	@echo "  build-mac        sim + export-mac + post-export-mac"
+	@echo "  build-win        sim-win + export-win + post-export-win"
+	@echo "  dmg              build-mac + DMG at $(DMG_PATH)"
+	@echo "  clean            Wipe $(BUILD_DIR)"
 
 # ------- Simulator sync -------
+#
+# Rust sim lives at SIMULATOR_SRC. Release build drops a single binary
+# at target/release/simulator; we copy it to ./simulator so the Godot
+# export paths find it. No release directory tree anymore — the Elixir
+# sim was retired in favour of a single native binary.
 
-# Delegate the actual release build to the simulator's own Makefile
-# so any steps added there (deps.get, assets.deploy, signing, etc.)
-# are inherited automatically. Copies the resulting release in.
 sim:
-	@echo "==> make -C $(SIMULATOR_SRC) release"
-	@$(MAKE) -C $(SIMULATOR_SRC) release
-	@if [ ! -d "$(SIMULATOR_REL)" ]; then \
-		echo "error: sim release succeeded but $(SIMULATOR_REL) not found" >&2; \
+	@echo "==> $(CARGO) build --release --manifest-path $(SIMULATOR_SRC)/Cargo.toml"
+	@$(CARGO) build --release --manifest-path $(SIMULATOR_SRC)/Cargo.toml \
+		$(if $(CARGO_TARGET_MAC),--target $(CARGO_TARGET_MAC))
+	@built="$(SIMULATOR_SRC)/target/$(if $(CARGO_TARGET_MAC),$(CARGO_TARGET_MAC)/,)release/$(SIMULATOR_BIN)"; \
+	if [ ! -f "$$built" ]; then \
+		echo "error: cargo succeeded but $$built not found" >&2; \
 		exit 1; \
-	fi
-	@echo "==> $(SIMULATOR_REL) → $(SIMULATOR_DST)"
-	@rm -rf $(SIMULATOR_DST)
-	@cp -R $(SIMULATOR_REL) $(SIMULATOR_DST)
+	fi; \
+	echo "==> $$built -> $(SIMULATOR_DST)"; \
+	cp "$$built" "$(SIMULATOR_DST)"; \
+	chmod +x "$(SIMULATOR_DST)"
+
+sim-debug:
+	@echo "==> $(CARGO) build --manifest-path $(SIMULATOR_SRC)/Cargo.toml"
+	@$(CARGO) build --manifest-path $(SIMULATOR_SRC)/Cargo.toml
+	@built="$(SIMULATOR_SRC)/target/debug/$(SIMULATOR_BIN)"; \
+	echo "==> $$built -> $(SIMULATOR_DST)"; \
+	cp "$$built" "$(SIMULATOR_DST)"; \
+	chmod +x "$(SIMULATOR_DST)"
+
+sim-win:
+	@echo "==> $(CARGO) build --release --target $(CARGO_TARGET_WIN)"
+	@$(CARGO) build --release --manifest-path $(SIMULATOR_SRC)/Cargo.toml \
+		--target $(CARGO_TARGET_WIN)
+	@built="$(SIMULATOR_SRC)/target/$(CARGO_TARGET_WIN)/release/$(SIMULATOR_BIN).exe"; \
+	if [ ! -f "$$built" ]; then \
+		echo "error: cargo succeeded but $$built not found" >&2; \
+		exit 1; \
+	fi; \
+	echo "==> $$built -> $(SIMULATOR_DST_WIN)"; \
+	cp "$$built" "$(SIMULATOR_DST_WIN)"
 
 clean-sim:
-	@rm -rf $(SIMULATOR_DST)
+	@rm -f $(SIMULATOR_DST) $(SIMULATOR_DST_WIN)
 
 # ------- Run / export -------
 
 dev:
 	@$(GODOT) --editor --path .
 
-export:
+export-mac:
 	@mkdir -p $(BUILD_DIR)
-	@echo "==> export → $(APP_PATH)"
+	@echo "==> export-mac -> $(APP_PATH)"
 	@$(GODOT) --headless --export-release "macOS" "$(APP_PATH)"
 
-post-export:
+export-win:
+	@mkdir -p $(BUILD_DIR)
+	@echo "==> export-win -> $(EXE_PATH)"
+	@$(GODOT) --headless --export-release "Windows Desktop" "$(EXE_PATH)"
+
+post-export-mac:
 	@./scripts/post_export.sh "$(APP_PATH)" "$(SIMULATOR_DST)"
 
-build: sim export post-export
-	@echo "==> build complete: $(APP_PATH)"
+post-export-win:
+	@./scripts/post_export_win.sh "$(EXE_PATH)" "$(SIMULATOR_DST_WIN)"
+
+build-mac: sim export-mac post-export-mac
+	@echo "==> build-mac complete: $(APP_PATH)"
+
+build-win: sim-win export-win post-export-win
+	@echo "==> build-win complete: $(EXE_PATH)"
 
 # ------- Distribution -------
 
-dmg: build
+dmg: build-mac
 	@rm -f "$(DMG_PATH)"
 	@echo "==> $(DMG_PATH)"
 	@hdiutil create \

@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s --max-time 2 localhost:8080/api/health)",
+      "Bash(cargo build *)",
+      "Bash(scripts/verify.sh)",
+      "Bash(kill 88349)",
+      "Bash(curl -s \"localhost:8080/api/agent/facility-haven-station-haven-station\")",
+      "Bash(kill 90469)",
+      "Bash(curl -s localhost:8080/api/facilities)",
+      "Bash(kill 90926)",
+      "Bash(curl -s localhost:8080/api/health)",
+      "Bash(kill 91164)"
+    ]
+  }
+}

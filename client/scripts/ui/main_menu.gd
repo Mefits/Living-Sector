@@ -149,17 +149,20 @@ func _add_save_row(entry: Dictionary, is_active: bool) -> void:
 
   var btn := Button.new()
   btn.text = "Load"
-  btn.pressed.connect(_on_load_save.bind(entry.path))
+  # Pass the bare save name (basename minus `.db`), not the full path.
+  # ServerManager.start now only accepts names and always resolves
+  # under saves_dir — no absolute-path escape hatch.
+  btn.pressed.connect(_on_load_save.bind(entry.name))
   row.add_child(btn)
 
   rows_box.add_child(row)
 
 
-func _on_load_save(database_path: String) -> void:
+func _on_load_save(save_name: String) -> void:
   _hide_save_picker()
   _disable_buttons()
   _show_loading("Loading save…")
-  ServerManager.start(_on_start_result, database_path)
+  ServerManager.start(_on_start_result, save_name)
 
 
 # -------------------- Loading overlay --------------------

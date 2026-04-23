@@ -16,6 +16,10 @@
 //! - `BIND_ADDR` — HTTP/WS bind (default `127.0.0.1:8080`)
 //! - `DATABASE_PATH` — SQLite path (default next to binary)
 //! - `DATA_DIR` — world JSON root (default auto-resolves to dev or release path)
+//! - `SPACESIM_PARENT_PID` — when set, the sim polls this PID every 2s and
+//!   initiates a graceful shutdown if it's gone. Set by Godot's
+//!   `server_manager.gd` so the sim doesn't outlive a crashing client.
+//!   Absent when running via `cargo run` directly — watcher no-ops.
 
 mod app_state;
 mod control;
@@ -226,8 +230,15 @@ async fn main() -> Result<()> {
 
     println!("sim:ready ws=ws://{addr}/ws http=http://{addr}/api tick=0");
 
-    // Graceful shutdown: wait for SIGINT / SIGTERM, stop the tick loop,
-    // let the current tick complete, then exit cleanly.
+    // Arm the parent-process watcher when the client tells us who the
+    // parent is. Emits a notification if the parent disappears so the
+    // main select! can shut down the same way a SIGTERM would.
+    let parent_gone = std::sync::Arc::new(tokio::sync::Notify::new());
+    spawn_parent_watcher(parent_gone.clone());
+
+    // Graceful shutdown: wait for SIGINT / SIGTERM, parent-dead, or any
+    // handle to finish. Stop the tick loop, let the current tick
+    // complete, then exit cleanly.
     tokio::select! {
         r = server_handle => { info!("HTTP server ended: {:?}", r); }
         r = tick_handle => { info!("Tick loop ended: {:?}", r); }
@@ -240,8 +251,114 @@ async fn main() -> Result<()> {
             info!("Final tick: {}", tick_counter.load(std::sync::atomic::Ordering::Relaxed));
             info!("Shutdown complete.");
         }
+        _ = parent_gone.notified() => {
+            info!("Parent process exited — stopping tick loop");
+            running.store(false, std::sync::atomic::Ordering::Relaxed);
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            info!("Final tick: {}", tick_counter.load(std::sync::atomic::Ordering::Relaxed));
+            info!("Shutdown complete (parent gone).");
+        }
     }
     Ok(())
+}
+
+/// Watchdog: poll `SPACESIM_PARENT_PID` every 2s; fire the notifier
+/// when the parent is gone so main can run the same graceful-exit path
+/// as a SIGTERM.
+///
+/// Behavior matrix:
+/// - env var unset → no task spawned (plain `cargo run` unaffected)
+/// - env var set + parent alive → poll quietly forever
+/// - env var set + parent gone → one-shot notify, task exits
+///
+/// POSIX uses `kill(pid, 0)` which costs ~a syscall and distinguishes
+/// ESRCH (dead) from EPERM (alive, just not ours to signal). Windows
+/// is a no-op for now — Godot on Windows should ideally use a Job
+/// Object at spawn to auto-kill children rather than rely on polling.
+fn spawn_parent_watcher(parent_gone: std::sync::Arc<tokio::sync::Notify>) {
+    let Ok(ppid_str) = std::env::var("SPACESIM_PARENT_PID") else {
+        return;
+    };
+    let Ok(ppid) = ppid_str.parse::<i32>() else {
+        tracing::warn!(
+            value = %ppid_str,
+            "SPACESIM_PARENT_PID not a valid pid — watcher disabled"
+        );
+        return;
+    };
+    if ppid <= 0 {
+        return;
+    }
+    info!("Parent watcher armed: ppid={ppid}");
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            interval.tick().await;
+            if !parent_alive(ppid) {
+                tracing::warn!(ppid, "parent process is gone — initiating shutdown");
+                parent_gone.notify_one();
+                break;
+            }
+        }
+    });
+}
+
+/// `kill(pid, 0)` probes process existence + signaling permission.
+/// Returns true if the parent is still running (success OR EPERM —
+/// meaning the process exists but we'd lack permission to signal it,
+/// which is not a "gone" outcome).
+#[cfg(unix)]
+fn parent_alive(pid: i32) -> bool {
+    unsafe {
+        if libc::kill(pid, 0) == 0 {
+            return true;
+        }
+        // errno == EPERM → the process exists, we just can't signal it
+        // (different uid). Still counts as alive from our POV.
+        std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+}
+
+/// Windows equivalent: open the process with minimal query rights,
+/// check exit code, close handle. Treats an OpenProcess failure as
+/// "parent is gone" (most common cause: process exited, pid recycled
+/// or slot freed). Clean exit code (non-STILL_ACTIVE) also means
+/// gone.
+#[cfg(windows)]
+fn parent_alive(pid: i32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    if pid <= 0 {
+        return false;
+    }
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32);
+        if handle.is_null() {
+            // Can't open → probably exited (ERROR_INVALID_PARAMETER on a
+            // reaped pid is the usual outcome). Treat as gone.
+            return false;
+        }
+        let mut code: u32 = 0;
+        let ok = GetExitCodeProcess(handle, &mut code) != 0;
+        CloseHandle(handle);
+        // STILL_ACTIVE (259) means the process is running. Any other
+        // exit code means it already terminated and the OS is just
+        // keeping the handle around. A GetExitCodeProcess failure is
+        // treated as "assume alive" to avoid false shutdowns.
+        if ok { code == STILL_ACTIVE as u32 } else { true }
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn parent_alive(_pid: i32) -> bool {
+    // Any other platform: watcher stays armed but always reports
+    // "alive" — better than false shutdowns. POSIX covers macOS and
+    // Linux; Windows has its own branch above. Fallback is unlikely
+    // to fire in practice.
+    true
 }
 
 /// Wait for SIGINT (Ctrl-C) on Unix/Windows, or SIGTERM on Unix.
