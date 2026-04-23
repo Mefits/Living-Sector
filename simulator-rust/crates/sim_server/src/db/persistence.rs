@@ -94,6 +94,44 @@ pub enum DbWrite {
     DeleteShip { db_id: i64 },
     /// Symmetric to DeleteShip, for facilities.
     DeleteFacility { db_id: i64 },
+    /// Full snapshot of the contract board. Emitted every 16 ticks
+    /// (same cadence as facility / population flushes). Applied as
+    /// DELETE + bulk INSERT in one transaction so removals (paid /
+    /// expired) land in the same sweep that upserts still-live
+    /// contracts. `rows` is a pre-serialized list of
+    /// `(id, type, status, requestor_id, fulfiller_id, commodity,
+    ///   quantity, source_loc, dest_loc, payment, initial_payment,
+    ///   faction_id, min_reputation, initial_min_reputation,
+    ///   mission_category, posted_at_tick, accepted_at_tick,
+    ///   expires_at_tick)` tuples — built in the engine so the worker
+    ///   stays free of sim_core types.
+    ContractBoardSnapshot {
+        rows: Vec<ContractRow>,
+    },
+}
+
+/// Flat contract row pushed from the engine to the persistence
+/// worker. Mirrors the `contracts` table schema after migration 008.
+#[derive(Debug, Clone)]
+pub struct ContractRow {
+    pub id: String,
+    pub contract_type: String,
+    pub status: String,
+    pub requestor_id: String,
+    pub fulfiller_id: Option<String>,
+    pub commodity: String,
+    pub quantity: i64,
+    pub source_location: String,
+    pub destination_location: String,
+    pub payment: i64,
+    pub initial_payment: i64,
+    pub faction_id: Option<String>,
+    pub min_reputation: i64,
+    pub initial_min_reputation: i64,
+    pub mission_category: Option<String>,
+    pub posted_at_tick: i64,
+    pub accepted_at_tick: Option<i64>,
+    pub expires_at_tick: i64,
 }
 
 impl DbWrite {
@@ -112,6 +150,7 @@ impl DbWrite {
             // and resurrect the row.
             DbWrite::DeleteShip { db_id } => ("ship_delete", db_id.to_string()),
             DbWrite::DeleteFacility { db_id } => ("facility_delete", db_id.to_string()),
+            DbWrite::ContractBoardSnapshot { .. } => ("contract_board", String::new()),
         }
     }
 }
@@ -350,6 +389,61 @@ impl PersistenceWorker {
                         .bind(db_id)
                         .execute(&mut *tx)
                         .await?;
+                }
+
+                DbWrite::ContractBoardSnapshot { rows } => {
+                    // Full-board replace: cheap because the board is
+                    // small (hundreds of rows) and it keeps the DB in
+                    // lockstep with the in-memory ContractBoard
+                    // without tracking per-contract dirty bits.
+                    sqlx::query("DELETE FROM contracts")
+                        .execute(&mut *tx)
+                        .await?;
+                    for r in rows {
+                        sqlx::query(
+                            "INSERT INTO contracts (
+                                id, contract_type, status,
+                                requestor_type, requestor_id,
+                                fulfiller_type, fulfiller_id,
+                                commodity, quantity, quantity_remaining,
+                                source_location, destination_location,
+                                payment, initial_payment,
+                                faction_id, min_reputation, initial_min_reputation,
+                                mission_category,
+                                posted_at_tick, accepted_at_tick, expires_at_tick
+                            ) VALUES (
+                                ?1, ?2, ?3,
+                                'facility', ?4,
+                                CASE WHEN ?5 IS NULL THEN NULL ELSE 'ship' END, ?5,
+                                ?6, ?7, ?7,
+                                ?8, ?9,
+                                ?10, ?11,
+                                ?12, ?13, ?14,
+                                ?15,
+                                ?16, ?17, ?18
+                            )",
+                        )
+                        .bind(&r.id)
+                        .bind(&r.contract_type)
+                        .bind(&r.status)
+                        .bind(&r.requestor_id)
+                        .bind(r.fulfiller_id.as_deref())
+                        .bind(&r.commodity)
+                        .bind(r.quantity)
+                        .bind(&r.source_location)
+                        .bind(&r.destination_location)
+                        .bind(r.payment)
+                        .bind(r.initial_payment)
+                        .bind(r.faction_id.as_deref())
+                        .bind(r.min_reputation)
+                        .bind(r.initial_min_reputation)
+                        .bind(r.mission_category.as_deref())
+                        .bind(r.posted_at_tick)
+                        .bind(r.accepted_at_tick)
+                        .bind(r.expires_at_tick)
+                        .execute(&mut *tx)
+                        .await?;
+                    }
                 }
             }
         }

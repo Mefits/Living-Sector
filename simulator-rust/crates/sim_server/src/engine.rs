@@ -389,6 +389,55 @@ pub(crate) fn facility_fitting_to_json(
 /// flag in place. Uses `try_send` so a temporarily-full persistence channel
 /// never blocks the tick loop; the write will simply be skipped this round
 /// and picked up on the next dirty mark.
+/// Boot-time contract pump. Runs the posting phases of facilities,
+/// populations, and factions N times in sequence to populate the
+/// ContractBoard before the main tick loop starts. Skipped if the
+/// board already has rows (DB-load case — contracts were hydrated).
+///
+/// Without this, a fresh-seed world boots with an empty contract
+/// board and the Godot client shows "0 contracts" until a few real
+/// ticks of the economy have run — feels dead for the first minute.
+///
+/// Tick is passed as 0 so posted_at_tick lines up with the "world
+/// came online" moment. Each posting function's own throttles (one
+/// active crew mission per facility, etc.) keep the board from
+/// exploding across multiple passes.
+pub fn run_contract_pump(store: &mut AgentStore, passes: u32) {
+    if !store.contracts.is_empty() {
+        return;
+    }
+    for _ in 0..passes {
+        sim_core::agents::facility::tick_post_contracts(
+            &mut store.world,
+            &mut store.contracts,
+            0,
+            1,
+        );
+        sim_core::agents::facility::tick_post_crew_missions(
+            &mut store.world,
+            &mut store.contracts,
+            0,
+            1,
+        );
+        // tick_populations bails internally unless `tick` lands on a
+        // CONSUMPTION or PRODUCTION interval; 0 % N == 0 for any N,
+        // so this always fires.
+        sim_core::agents::population::tick_populations(
+            &mut store.world,
+            &mut store.contracts,
+            0,
+            1.0,
+            1,
+        );
+        sim_core::agents::faction::tick_factions(&mut store.world, &mut store.contracts, 0, 1);
+    }
+    tracing::info!(
+        "Engine: contract pump ran {} passes — board size now {}",
+        passes,
+        store.contracts.len()
+    );
+}
+
 fn emit_persist_writes(
     store: &mut AgentStore,
     tick: u64,
@@ -679,6 +728,49 @@ fn emit_persist_writes(
     // Tick counter every 8 ticks (≈1s)
     if tick.is_multiple_of(8) {
         let _ = tx.try_send(DbWrite::Tick { tick });
+    }
+
+    // Contract board snapshot every 16 ticks (≈2s). Full replace is
+    // cheap at our board size; keeps disk lockstep with RAM without
+    // needing per-contract dirty tracking.
+    if tick.is_multiple_of(16) {
+        let rows: Vec<crate::db::persistence::ContractRow> = store
+            .contracts
+            .iter()
+            .map(|c| crate::db::persistence::ContractRow {
+                id: c.id.clone(),
+                contract_type: c.contract_type.as_str().to_string(),
+                status: match c.status {
+                    sim_core::economy::contracts::ContractStatus::Posted => "posted",
+                    sim_core::economy::contracts::ContractStatus::Accepted => "accepted",
+                    sim_core::economy::contracts::ContractStatus::PickedUp => "picked_up",
+                    sim_core::economy::contracts::ContractStatus::Delivered => "delivered",
+                    sim_core::economy::contracts::ContractStatus::Paid => "paid",
+                    sim_core::economy::contracts::ContractStatus::Expired => "expired",
+                }
+                .to_string(),
+                requestor_id: c.requestor_id.clone(),
+                fulfiller_id: c.fulfiller_id.clone(),
+                commodity: c.commodity.as_str().to_string(),
+                quantity: c.quantity as i64,
+                source_location: c.source_location.clone(),
+                destination_location: c.destination_location.clone(),
+                payment: c.payment,
+                initial_payment: if c.initial_payment > 0 {
+                    c.initial_payment
+                } else {
+                    c.payment
+                },
+                faction_id: c.faction_id.clone(),
+                min_reputation: c.min_reputation as i64,
+                initial_min_reputation: c.initial_min_reputation as i64,
+                mission_category: c.mission_category.clone(),
+                posted_at_tick: c.posted_at_tick as i64,
+                accepted_at_tick: c.accepted_at_tick.map(|t| t as i64),
+                expires_at_tick: c.expires_at_tick as i64,
+            })
+            .collect();
+        let _ = tx.try_send(DbWrite::ContractBoardSnapshot { rows });
     }
 }
 

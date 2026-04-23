@@ -85,7 +85,11 @@ async fn main() -> Result<()> {
 
     // Load world
     let registry = db::spawner::load_registry(&pool).await?;
-    let store = db::spawner::load_agents(&pool, &registry, &config).await?;
+    let mut store = db::spawner::load_agents(&pool, &registry, &config).await?;
+    // Pump the contract board on a fresh seed so the first client to
+    // connect isn't looking at an empty ledger. No-op when the board
+    // was hydrated from DB by the loader.
+    engine::run_contract_pump(&mut store, 5);
     let registry = Arc::new(registry);
 
     let summary = store.summary();

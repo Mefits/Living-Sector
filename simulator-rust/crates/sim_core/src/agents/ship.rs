@@ -1073,7 +1073,7 @@ pub fn tick_ships(
     }
 
     advance_transits(world, registry, tick, tick_scale, tick_multiplier, &active);
-    observe_prices(world, tick, &active);
+    observe_prices(world, tick, &active, gate_pairs, registry);
     tick_crew(world, tick, tick_scale, tick_multiplier, &active);
     decide_and_act(
         world,
@@ -1490,7 +1490,37 @@ pub const SHIP_BASE_VELOCITY: f32 = 0.05;
 pub const SHIP_ARRIVAL_THRESHOLD: f32 = 0.01;
 
 /// Pass 2: observe local market prices into ship memory.
-fn observe_prices(world: &mut hecs::World, tick: u64, active: &ShipLodGate) {
+/// Comms-tier-scaled price observation.
+///
+/// When a ship is "landed" (position has a location_name — i.e. docked
+/// or in-station space, not mid-transit), its comms module determines
+/// how far the local-station data mesh reaches:
+///
+/// - **tier 1 (default)**: same celestial body — stations orbiting
+///   the same planet/moon share a comms pool.
+/// - **tier 2**: the full star system — system-wide relay network.
+/// - **tier 3+**: system + gate-adjacent neighbor systems.
+///
+/// This is the information-access axis that lets tier-1 ships still
+/// participate in contracts (prices for their immediate body) while
+/// making comms upgrades meaningfully scale visibility. Cross-system
+/// contract gating still applies separately via sensor range.
+///
+/// All observations land at `tick = current tick` — we don't model
+/// relay lag here. If we ever add staleness-based confidence in
+/// planning, PriceMemory.tick is the hook (currently unused by
+/// planners beyond "is this entry present at all").
+fn observe_prices(
+    world: &mut hecs::World,
+    tick: u64,
+    active: &ShipLodGate,
+    gate_pairs: &StdHashMap<String, String>,
+    registry: &WorldRegistry,
+) {
+    use crate::agents::celestial_body::BodyIdentity;
+    use crate::agents::facility::{FacilityIdentity, FacilityLocation};
+
+    // market prices indexed by location
     let market_prices: std::collections::HashMap<
         String,
         std::collections::HashMap<Commodity, f32>,
@@ -1503,16 +1533,138 @@ fn observe_prices(world: &mut hecs::World, tick: u64, active: &ShipLodGate) {
         .map(|(_e, (id, pricing))| (id.facility_location.clone(), pricing.prices.clone()))
         .collect();
 
-    for (e, (position, memory)) in world.query_mut::<(&ShipPosition, &mut ShipMemory)>() {
-        // LOD gate — LOD'd-out ships skip the price scan this round.
-        // Knowledge is slightly stale but not incorrect; the ship's
-        // memory will refresh on its next fire.
+    // location -> body_id (the string body id like "earth" or "frostheim")
+    let loc_to_body: std::collections::HashMap<String, String> = world
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .iter()
+        .map(|(_, (id, loc))| (loc.location_name.clone(), id.body_id.clone()))
+        .collect();
+
+    // body_id -> locations on that body
+    let mut body_to_locs: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for (loc, body) in &loc_to_body {
+        body_to_locs
+            .entry(body.clone())
+            .or_default()
+            .push(loc.clone());
+    }
+
+    // location -> system name (via body -> system via registry)
+    let body_db_to_system: std::collections::HashMap<i64, String> = world
+        .query::<&BodyIdentity>()
+        .iter()
+        .map(|(_, id)| (id.db_id, id.system_name.clone()))
+        .collect();
+    let location_to_system: std::collections::HashMap<String, String> = registry
+        .locations
+        .iter()
+        .filter_map(|(name, info)| {
+            let sys = body_db_to_system.get(&info.celestial_body_id)?;
+            Some((name.clone(), sys.clone()))
+        })
+        .collect();
+
+    // system -> locations in system
+    let mut system_to_locs: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for (loc, sys) in &location_to_system {
+        system_to_locs
+            .entry(sys.clone())
+            .or_default()
+            .push(loc.clone());
+    }
+
+    // system -> set of gate-adjacent neighbor systems
+    let mut system_neighbors: std::collections::HashMap<
+        String,
+        std::collections::HashSet<String>,
+    > = std::collections::HashMap::new();
+    for (a_loc, b_loc) in gate_pairs {
+        if let (Some(a_sys), Some(b_sys)) = (
+            location_to_system.get(a_loc),
+            location_to_system.get(b_loc),
+        ) {
+            if a_sys != b_sys {
+                system_neighbors
+                    .entry(a_sys.clone())
+                    .or_default()
+                    .insert(b_sys.clone());
+                system_neighbors
+                    .entry(b_sys.clone())
+                    .or_default()
+                    .insert(a_sys.clone());
+            }
+        }
+    }
+
+    for (e, (position, fitting, memory)) in
+        world.query_mut::<(&ShipPosition, &ShipFitting, &mut ShipMemory)>()
+    {
         if !active.contains_key(&e) {
             continue;
         }
-        if let Some(loc) = &position.location_name {
-            if let Some(prices) = market_prices.get(loc) {
-                let entry = memory.price_knowledge.entry(loc.clone()).or_default();
+        let Some(loc) = position.location_name.as_ref() else {
+            continue;
+        };
+
+        // Read the comms tier from the fitted module. Default to 1 if
+        // the slug isn't in the catalog (shouldn't happen — new_default
+        // fills every slot).
+        let comms_slug = fitting.slots[crate::modules::Slot::Comms.index()];
+        let comms_tier = comms_slug
+            .and_then(crate::modules::get)
+            .map(|m| m.tier)
+            .unwrap_or(1);
+
+        // Pick the visibility set based on tier.
+        let mut visible: std::collections::HashSet<&str> =
+            std::collections::HashSet::new();
+
+        // Always include the ship's own location (covers edge cases
+        // where loc isn't on a body, e.g. free-space placeholders).
+        visible.insert(loc.as_str());
+
+        // Tier 1: same body.
+        if let Some(body) = loc_to_body.get(loc) {
+            if let Some(locs) = body_to_locs.get(body) {
+                for l in locs {
+                    visible.insert(l.as_str());
+                }
+            }
+        }
+
+        if comms_tier >= 2 {
+            // Tier 2: whole system.
+            if let Some(sys) = location_to_system.get(loc) {
+                if let Some(locs) = system_to_locs.get(sys) {
+                    for l in locs {
+                        visible.insert(l.as_str());
+                    }
+                }
+            }
+        }
+
+        if comms_tier >= 3 {
+            // Tier 3+: neighbor systems (one gate hop). A future tier
+            // bump can walk `system_neighbors` transitively for 2-hop
+            // reach; not needed yet.
+            if let Some(sys) = location_to_system.get(loc) {
+                if let Some(neighbors) = system_neighbors.get(sys) {
+                    for n in neighbors {
+                        if let Some(locs) = system_to_locs.get(n) {
+                            for l in locs {
+                                visible.insert(l.as_str());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for v_loc in visible {
+            if let Some(prices) = market_prices.get(v_loc) {
+                let entry = memory.price_knowledge.entry(v_loc.to_string()).or_default();
                 for (&commodity, &price) in prices {
                     entry.insert(commodity, PriceMemory { price, tick });
                 }

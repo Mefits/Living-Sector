@@ -1130,7 +1130,7 @@ fn tick_produce_modules(world: &mut hecs::World) {
 /// long enough. Each facility posts at most `MAX_ACTIVE_DELIVERIES_PER_FACILITY`
 /// contracts at a time. Source is left open (the ship planner looks at
 /// price memory to pick where to buy). Payment scales with quantity.
-fn tick_post_contracts(
+pub fn tick_post_contracts(
     world: &mut hecs::World,
     contracts: &mut crate::economy::contracts::ContractBoard,
     tick: u64,
@@ -1368,7 +1368,7 @@ fn tick_post_contracts(
 /// the picked template's `duration_ticks` becomes the contract's
 /// quantity field, and the category slug rides along in
 /// `Contract.mission_category` so the apply phase can look it back up.
-fn tick_post_crew_missions(
+pub fn tick_post_crew_missions(
     world: &mut hecs::World,
     contracts: &mut crate::economy::contracts::ContractBoard,
     tick: u64,

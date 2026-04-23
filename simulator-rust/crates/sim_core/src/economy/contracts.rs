@@ -199,6 +199,38 @@ impl ContractBoard {
         self.contracts.values()
     }
 
+    /// Insert a pre-built contract read from persistence. Fills the
+    /// per-status and per-destination indices so the board looks
+    /// identical to one populated via `post_*`. Only used by the DB
+    /// loader at boot — live tick code still posts via `post_*`.
+    ///
+    /// `next_id` is bumped past any numeric suffix on the loaded id
+    /// (e.g. `"contract-137"` → `next_id >= 138`) so post-boot
+    /// posting doesn't collide with hydrated ids.
+    pub fn insert_loaded(&mut self, c: Contract) {
+        if let Some(suffix) = c.id.strip_prefix("contract-") {
+            if let Ok(n) = suffix.parse::<u64>() {
+                if n >= self.next_id {
+                    self.next_id = n + 1;
+                }
+            }
+        }
+        let id = c.id.clone();
+        let status = c.status;
+        let dest = c.destination_location.clone();
+        self.contracts.insert(id.clone(), c);
+        self.by_status
+            .entry(status)
+            .or_default()
+            .push(id.clone());
+        if status == ContractStatus::Posted {
+            self.posted_by_destination
+                .entry(dest)
+                .or_default()
+                .push(id);
+        }
+    }
+
     /// Post a new delivery contract and return its id.
     #[allow(clippy::too_many_arguments)]
     pub fn post_delivery(

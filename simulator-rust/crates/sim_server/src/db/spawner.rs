@@ -85,44 +85,177 @@ pub async fn load_agents(
     load_markets(pool, tick_config, &mut store).await?;
     load_populations(pool, &mut store).await?;
     load_ships(pool, registry, tick_config, &mut store).await?;
+    load_contracts(pool, &mut store).await?;
+
+    // Build the gate location-pair lookup used by the pathfinder
+    // BEFORE seeding ship price knowledge — tier-3 ships need to know
+    // neighbor-system adjacency to populate their starting memory.
+    // Admin spawn/remove of gates triggers a rebuild.
+    store.rebuild_gate_pairs();
 
     seed_ship_price_knowledge(&mut store);
 
-    // Build the gate location-pair lookup used by the pathfinder. Done
-    // once at load time; admin spawn/remove of gates triggers a rebuild.
-    store.rebuild_gate_pairs();
     info!("Spawner: {}", store.summary());
     Ok(store)
 }
 
-/// Bootstrap every ship's `price_knowledge` with a snapshot of every market's
-/// current prices. Models "captains know the rough price patterns around the
-/// sector even before visiting" — without this ships have no basis for
-/// picking a trade_run goal until they've visited multiple markets.
+/// Bootstrap every ship's `price_knowledge` with a snapshot scoped to
+/// what its comms tier could plausibly know from its starting location.
+///
+/// Matches the per-tick [`observe_prices`][ship-observe] radius model:
+///   - tier 1 (default): markets on the same celestial body
+///   - tier 2: every market in the same star system
+///   - tier 3+: system + gate-adjacent neighbor systems
+///
+/// Ships without a seed location fall back to seeding nothing — they'll
+/// learn at their first dock. This matters specifically so that at boot,
+/// small tier-1 couriers don't see the full 6-system price chart and get
+/// dominated by extreme-margin arbitrage pairs (e.g. $5 ore at a mine
+/// vs $45 ore at a consumer), which made the planner pick `trade_run`
+/// over every available contract in the outer systems.
+///
+/// All seeded entries carry `tick: 0` so per-tick `observe_prices` can
+/// progressively refresh them with live-tick values as the ship visits.
+///
+/// [ship-observe]: sim_core::agents::ship::observe_prices
 fn seed_ship_price_knowledge(store: &mut AgentStore) {
+    use sim_core::agents::celestial_body::BodyIdentity;
+    use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
     use sim_core::agents::market::{MarketIdentity, MarketPricing};
-    use sim_core::agents::ship::ShipMemory;
+    use sim_core::agents::ship::{ShipFitting, ShipMemory, ShipPosition};
     use sim_core::economy::commodities::PriceMemory;
+    use std::collections::HashSet;
 
-    // Collect a location → commodity → price snapshot.
-    let mut snapshot: HashMap<String, HashMap<sim_core::economy::commodities::Commodity, f32>> =
+    // location -> commodity -> price
+    let mut market_prices: HashMap<String, HashMap<sim_core::economy::commodities::Commodity, f32>> =
         HashMap::new();
     for (_e, (id, pricing)) in store
         .world
         .query::<(&MarketIdentity, &MarketPricing)>()
         .iter()
     {
-        snapshot.insert(id.facility_location.clone(), pricing.prices.clone());
+        market_prices.insert(id.facility_location.clone(), pricing.prices.clone());
     }
 
-    for (_e, memory) in store.world.query_mut::<&mut ShipMemory>() {
+    // location -> body_id
+    let loc_to_body: HashMap<String, String> = store
+        .world
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .iter()
+        .map(|(_, (id, loc))| (loc.location_name.clone(), id.body_id.clone()))
+        .collect();
+
+    // body_id -> all locations orbiting it
+    let mut body_to_locs: HashMap<String, Vec<String>> = HashMap::new();
+    for (loc, body) in &loc_to_body {
+        body_to_locs.entry(body.clone()).or_default().push(loc.clone());
+    }
+
+    // location -> system_name (via body_db_id -> system)
+    let body_db_to_system: HashMap<i64, String> = store
+        .world
+        .query::<&BodyIdentity>()
+        .iter()
+        .map(|(_, id)| (id.db_id, id.system_name.clone()))
+        .collect();
+    // celestial_body_id on WorldRegistry is the DB id; but we only have
+    // the FacilityIdentity.body_id *string*. Re-map via a body_name ->
+    // db_id pass so we can connect location -> system.
+    let body_name_to_db: HashMap<String, i64> = store
+        .world
+        .query::<&BodyIdentity>()
+        .iter()
+        .map(|(_, id)| (id.body_id.clone(), id.db_id))
+        .collect();
+    let location_to_system: HashMap<String, String> = loc_to_body
+        .iter()
+        .filter_map(|(loc, body_name)| {
+            let db = body_name_to_db.get(body_name)?;
+            let sys = body_db_to_system.get(db)?;
+            Some((loc.clone(), sys.clone()))
+        })
+        .collect();
+
+    // system -> locations-in-system
+    let mut system_to_locs: HashMap<String, Vec<String>> = HashMap::new();
+    for (loc, sys) in &location_to_system {
+        system_to_locs.entry(sys.clone()).or_default().push(loc.clone());
+    }
+
+    // system -> gate-adjacent neighbor systems
+    let mut system_neighbors: HashMap<String, HashSet<String>> = HashMap::new();
+    for (a_loc, b_loc) in &store.gate_pairs {
+        if let (Some(a_sys), Some(b_sys)) = (
+            location_to_system.get(a_loc),
+            location_to_system.get(b_loc),
+        ) {
+            if a_sys != b_sys {
+                system_neighbors
+                    .entry(a_sys.clone())
+                    .or_default()
+                    .insert(b_sys.clone());
+                system_neighbors
+                    .entry(b_sys.clone())
+                    .or_default()
+                    .insert(a_sys.clone());
+            }
+        }
+    }
+
+    for (_e, (pos, fitting, memory)) in store
+        .world
+        .query_mut::<(&ShipPosition, &ShipFitting, &mut ShipMemory)>()
+    {
         if !memory.price_knowledge.is_empty() {
             continue;
         }
-        for (loc, prices) in &snapshot {
-            let entry = memory.price_knowledge.entry(loc.clone()).or_default();
-            for (&commodity, &price) in prices {
-                entry.insert(commodity, PriceMemory { price, tick: 0 });
+        let Some(loc) = pos.location_name.as_ref() else {
+            continue;
+        };
+
+        let comms_tier = fitting.slots[sim_core::modules::Slot::Comms.index()]
+            .and_then(sim_core::modules::get)
+            .map(|m| m.tier)
+            .unwrap_or(1);
+
+        let mut visible: HashSet<&str> = HashSet::new();
+        visible.insert(loc.as_str());
+        if let Some(body) = loc_to_body.get(loc) {
+            if let Some(locs) = body_to_locs.get(body) {
+                for l in locs {
+                    visible.insert(l.as_str());
+                }
+            }
+        }
+        if comms_tier >= 2 {
+            if let Some(sys) = location_to_system.get(loc) {
+                if let Some(locs) = system_to_locs.get(sys) {
+                    for l in locs {
+                        visible.insert(l.as_str());
+                    }
+                }
+            }
+        }
+        if comms_tier >= 3 {
+            if let Some(sys) = location_to_system.get(loc) {
+                if let Some(neighbors) = system_neighbors.get(sys) {
+                    for n in neighbors {
+                        if let Some(locs) = system_to_locs.get(n) {
+                            for l in locs {
+                                visible.insert(l.as_str());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for v_loc in visible {
+            if let Some(prices) = market_prices.get(v_loc) {
+                let entry = memory.price_knowledge.entry(v_loc.to_string()).or_default();
+                for (&commodity, &price) in prices {
+                    entry.insert(commodity, PriceMemory { price, tick: 0 });
+                }
             }
         }
     }
@@ -1007,4 +1140,106 @@ fn parse_cargo(json: &str) -> Cargo {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Hydrate the contract board from SQLite on boot. Every row becomes
+/// an entry in `store.contracts`; unknown enum values are skipped
+/// with a warning rather than aborting the load. Fresh-seed runs land
+/// here with zero rows (the table was just created), so the boot-time
+/// contract pump runs afterward to populate the board.
+async fn load_contracts(pool: &SqlitePool, store: &mut AgentStore) -> Result<()> {
+    use sim_core::economy::contracts::{Contract, ContractStatus, ContractType};
+
+    let rows = sqlx::query(
+        "SELECT id, contract_type, status, requestor_id, fulfiller_id,
+                commodity, quantity, source_location, destination_location,
+                payment, initial_payment,
+                faction_id, min_reputation, initial_min_reputation,
+                mission_category,
+                posted_at_tick, accepted_at_tick, expires_at_tick
+           FROM contracts",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut loaded = 0_usize;
+    for r in rows {
+        let id: String = r.get("id");
+        let kind_str: String = r.get("contract_type");
+        let status_str: String = r.get("status");
+        let commodity_str: String = r.get("commodity");
+
+        let contract_type = match kind_str.as_str() {
+            "delivery" => ContractType::Delivery,
+            "courier" => ContractType::Courier,
+            "passenger" => ContractType::Passenger,
+            "subsidy" => ContractType::Subsidy,
+            "supply" => ContractType::Supply,
+            "crew_mission" => ContractType::CrewMission,
+            other => {
+                tracing::warn!(id = %id, kind = %other, "skipping contract with unknown type");
+                continue;
+            }
+        };
+        let status = match status_str.as_str() {
+            "posted" => ContractStatus::Posted,
+            "accepted" => ContractStatus::Accepted,
+            "picked_up" => ContractStatus::PickedUp,
+            "delivered" => ContractStatus::Delivered,
+            "paid" => ContractStatus::Paid,
+            "expired" => ContractStatus::Expired,
+            other => {
+                tracing::warn!(id = %id, status = %other, "skipping contract with unknown status");
+                continue;
+            }
+        };
+        let Some(commodity) = Commodity::parse(&commodity_str) else {
+            tracing::warn!(id = %id, commodity = %commodity_str, "skipping contract with unknown commodity");
+            continue;
+        };
+
+        let payment: i64 = r.get("payment");
+        let initial_payment_raw: i64 = r.get("initial_payment");
+        let min_reputation: i64 = r.get("min_reputation");
+        let initial_min_reputation_raw: i64 = r.get("initial_min_reputation");
+
+        let contract = Contract {
+            id: id.clone(),
+            contract_type,
+            status,
+            requestor_id: r.get("requestor_id"),
+            faction_id: r.try_get::<Option<String>, _>("faction_id").ok().flatten(),
+            fulfiller_id: r.try_get::<Option<String>, _>("fulfiller_id").ok().flatten(),
+            commodity,
+            quantity: r.get::<i64, _>("quantity") as u32,
+            source_location: r.get("source_location"),
+            destination_location: r.get("destination_location"),
+            payment,
+            initial_payment: if initial_payment_raw > 0 {
+                initial_payment_raw
+            } else {
+                payment
+            },
+            posted_at_tick: r.get::<i64, _>("posted_at_tick") as u64,
+            accepted_at_tick: r
+                .try_get::<Option<i64>, _>("accepted_at_tick")
+                .ok()
+                .flatten()
+                .map(|t| t as u64),
+            expires_at_tick: r.get::<i64, _>("expires_at_tick") as u64,
+            mission_category: r
+                .try_get::<Option<String>, _>("mission_category")
+                .ok()
+                .flatten(),
+            min_reputation: min_reputation.clamp(0, 100) as u8,
+            initial_min_reputation: initial_min_reputation_raw.clamp(0, 100) as u8,
+        };
+        store.contracts.insert_loaded(contract);
+        loaded += 1;
+    }
+
+    if loaded > 0 {
+        info!("Spawner: loaded {} contracts from DB", loaded);
+    }
+    Ok(())
 }
