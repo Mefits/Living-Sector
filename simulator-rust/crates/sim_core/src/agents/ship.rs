@@ -268,6 +268,42 @@ pub const EXPLORE_CHECK_BOARD_SECONDS: u8 = 5;
 pub const EXPLORE_MIN_CREDITS: i64 = 2_500;
 pub const EXPLORE_MIN_FUEL_FRACTION: f32 = 0.40;
 
+// --- Strike / retirement rules (Phase 19-tail "adaptive fleet") ---
+//
+// Strikes accumulate on a slow cadence so a ship has time to recover
+// before being retired. Two classes:
+//   * `broke_strike` — credits < FLOOR AND no cargo AND no active
+//     contract. Reset when credits climb above RECOVERY. Captures the
+//     ship-is-stuck-and-starving case.
+//   * `hoard_strike` — credits > CEILING AND idle for a long time.
+//     Reset on any contract completion (see `reset_hoard_strikes`).
+//     Captures the ship-is-rich-but-parked case that locks credits
+//     out of the economy.
+//
+// At MAX_STRIKES of either type the ship is decommissioned and the
+// engine queues a replacement ship spawn (see `pending_respawns`).
+
+/// How often strikes are evaluated (base ticks). Slow enough that a
+/// ship can work its way back to solvency or a delivery between
+/// checks — ~60 s at world_speed 1.
+pub const STRIKE_CHECK_INTERVAL_BASE: u64 = 500;
+
+/// Strikes of either type required to trigger retirement.
+pub const MAX_STRIKES: u8 = 3;
+
+/// Credits ceiling that earns a broke strike per check cycle.
+pub const BROKE_CREDITS_THRESHOLD: i64 = 500;
+/// Credits floor that clears accumulated broke strikes. Set higher than
+/// the strike threshold so a ship hovering at the line doesn't oscillate.
+pub const BROKE_RECOVERY_THRESHOLD: i64 = 5_000;
+
+/// Credits floor that earns a hoard strike when combined with long
+/// idle. Sized so only genuinely-stuck wealthy ships get flagged.
+pub const HOARD_CREDITS_THRESHOLD: i64 = 200_000;
+/// Minimum `idle_ticks` accumulated alongside `HOARD_CREDITS_THRESHOLD`
+/// before a hoard strike increments.
+pub const HOARD_IDLE_THRESHOLD: u32 = 500;
+
 /// Lifecycle counters and dirty flag for persistence.
 #[derive(Debug, Clone)]
 pub struct ShipLifecycle {
@@ -2096,6 +2132,44 @@ fn decide_and_act(
             lifecycle.idle_ticks = lifecycle.idle_ticks.saturating_add(1);
         } else {
             lifecycle.idle_ticks = 0;
+        }
+
+        // --- Strike accumulation (adaptive-fleet retirement, Phase 19-tail) ---
+        //
+        // Evaluated on a slow cadence so a ship that briefly dips below
+        // the credits floor doesn't take a strike on every tick. Strikes
+        // reset when the ship recovers; 3 of either kind triggers
+        // decommission via SimCommand::DecommissionShip (engine emits the
+        // retirement row + queues a replacement spawn).
+        let strike_interval = STRIKE_CHECK_INTERVAL_BASE * tick_multiplier as u64;
+        if strike_interval > 0 && tick % strike_interval == 0 {
+            // Broke strike: nothing to sell, no one paying us, no cash.
+            let cargo_empty = cargo.used() == 0;
+            let no_contract = economy.active_contract_id.is_none();
+            if economy.credits < BROKE_CREDITS_THRESHOLD && cargo_empty && no_contract {
+                lifecycle.broke_strikes = lifecycle.broke_strikes.saturating_add(1);
+            } else if economy.credits >= BROKE_RECOVERY_THRESHOLD {
+                lifecycle.broke_strikes = 0;
+            }
+            // Hoard strike: lots of credits, long idle window. Reset
+            // happens on DeliverContract apply (see engine.rs).
+            if economy.credits > HOARD_CREDITS_THRESHOLD
+                && lifecycle.idle_ticks > HOARD_IDLE_THRESHOLD
+            {
+                lifecycle.hoard_strikes = lifecycle.hoard_strikes.saturating_add(1);
+            }
+
+            if lifecycle.broke_strikes >= MAX_STRIKES {
+                commands.push(SimCommand::DecommissionShip {
+                    ship: entity,
+                    reason: "bankruptcy",
+                });
+            } else if lifecycle.hoard_strikes >= MAX_STRIKES {
+                commands.push(SimCommand::DecommissionShip {
+                    ship: entity,
+                    reason: "stagnation",
+                });
+            }
         }
 
         // --- Execute one BT step ---

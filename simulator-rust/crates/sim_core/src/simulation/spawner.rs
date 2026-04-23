@@ -11,6 +11,30 @@ use crate::economy::contracts::ContractBoard;
 use hecs::{Entity, World};
 use std::collections::HashMap;
 
+/// Adaptive-fleet retirement request. Ships hitting 3 broke/hoard
+/// strikes push an entry here; the async tick loop drains it, emits
+/// the retirement row, despawns the entity, and queues a
+/// [`PendingRespawn`] so fleet size stays roughly constant.
+#[derive(Debug, Clone)]
+pub struct PendingDecommission {
+    pub entity: Entity,
+    pub reason: &'static str,
+}
+
+/// Adaptive-fleet replacement request. Emitted after a ship retires;
+/// drained by the tick loop once `spawn_at_tick` arrives and then
+/// dispatched through the admin-spawn path with randomised faction /
+/// class / location / crew.
+#[derive(Debug, Clone)]
+pub struct PendingRespawn {
+    pub spawn_at_tick: u64,
+    /// Preference hint used by the spawner picker — usually the
+    /// retiring ship's faction, so losses show up as "faction down a
+    /// ship" pressure before the weighted pick redistributes. None
+    /// lets the picker choose purely by ship-count deficit.
+    pub prefer_faction: Option<String>,
+}
+
 /// Pending INSERT-then-backfill request for a facility that was just
 /// materialised from a construction site. The ECS entity is already
 /// spawned with `FacilityIdentity.db_id = 0`; the engine drains this
@@ -50,6 +74,18 @@ pub struct AgentStore {
     /// async tick loop immediately after the apply phase.
     pub pending_materializations: Vec<PendingMaterialization>,
 
+    /// Ships queued for decommission by the strike system. Drained
+    /// by the tick loop after apply — each entry fires
+    /// `admin_remove_ship` with the given reason and pushes a
+    /// `PendingRespawn` for a delayed replacement.
+    pub pending_decommissions: Vec<PendingDecommission>,
+
+    /// Replacement ships queued to spawn after a retirement. Each
+    /// entry carries a `spawn_at_tick`; the tick loop drains any entry
+    /// whose tick has arrived and routes through the admin-spawn path
+    /// with randomised class / location / crew.
+    pub pending_respawns: Vec<PendingRespawn>,
+
     // --- String id lookups ---
     pub ship_by_id: HashMap<String, Entity>,
     pub market_by_id: HashMap<String, Entity>,
@@ -81,6 +117,8 @@ impl AgentStore {
             world: World::new(),
             contracts: ContractBoard::new(),
             pending_materializations: Vec::new(),
+            pending_decommissions: Vec::new(),
+            pending_respawns: Vec::new(),
             ship_by_id: HashMap::new(),
             market_by_id: HashMap::new(),
             facility_by_id: HashMap::new(),
