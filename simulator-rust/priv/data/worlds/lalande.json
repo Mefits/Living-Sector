@@ -1,0 +1,385 @@
+{
+  "system": {
+    "id": "system-lalande",
+    "name": "Lalande",
+    "universe_offset": [
+      80.0,
+      -45.0
+    ]
+  },
+  "bodies": [
+    {
+      "id": "kinship",
+      "name": "Kinship",
+      "type": "planet",
+      "orbit_radius": 0.9,
+      "orbit_period": 280,
+      "current_angle": 110.0,
+      "biome": "temperate",
+      "resources": {
+        "ore": 0.4,
+        "ice": 0.3
+      }
+    },
+    {
+      "id": "lalande-belt",
+      "name": "Lalande Belt",
+      "type": "belt",
+      "orbit_radius": 1.8,
+      "orbit_period": 650,
+      "current_angle": 40.0,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.88,
+        "ice": 0.4
+      }
+    },
+    {
+      "id": "lalande-outer",
+      "name": "Lalande Outer",
+      "type": "planet",
+      "orbit_radius": 3.0,
+      "orbit_period": 1150,
+      "current_angle": 220.0,
+      "biome": "gas",
+      "resources": {
+        "gas": 0.95,
+        "ice": 0.6
+      }
+    },
+    {
+      "id": "lalande-drift",
+      "name": "Lalande Drift",
+      "type": "asteroid",
+      "orbit_radius": 2.5,
+      "orbit_period": 950,
+      "current_angle": 330.0,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.7,
+        "ice": 0.5
+      }
+    }
+  ],
+  "travel_routes": [
+    { "from": "kinship-station", "to": "kinship-farm", "distance": 22 },
+    { "from": "kinship-station", "to": "lalande-belt-mine", "distance": 80 },
+    { "from": "kinship-station", "to": "lalande-outer-harvester", "distance": 140 },
+    { "from": "kinship-station", "to": "lalande-drift-mine", "distance": 115 },
+    { "from": "kinship-farm", "to": "lalande-belt-mine", "distance": 90 },
+    { "from": "lalande-belt-mine", "to": "lalande-outer-harvester", "distance": 75 },
+    { "from": "lalande-belt-mine", "to": "lalande-drift-mine", "distance": 55 },
+    { "from": "lalande-outer-harvester", "to": "lalande-drift-mine", "distance": 50 },
+    { "from": "kinship-station", "to": "lalande-vega-gate", "distance": 60 },
+    { "from": "lalande-belt-mine", "to": "lalande-vega-gate", "distance": 65 },
+    { "from": "lalande-outer-harvester", "to": "lalande-vega-gate", "distance": 95 },
+    { "from": "kinship-station", "to": "lalande-barnard-gate", "distance": 100 },
+    { "from": "lalande-outer-harvester", "to": "lalande-barnard-gate", "distance": 55 },
+    { "from": "lalande-drift-mine", "to": "lalande-barnard-gate", "distance": 50 },
+    { "from": "lalande-vega-gate", "to": "lalande-barnard-gate", "distance": 120 }
+  ],
+  "facilities": [
+    {
+      "id": "facility-kinship-station",
+      "name": "Kinship Station",
+      "faction_id": "vega-conclave",
+      "location": "kinship-station",
+      "body": "kinship",
+      "type": "station",
+      "docking_capacity": 14,
+      "services": ["refuel", "repair", "medical", "market"],
+      "reserves": {
+        "fuel": 3000,
+        "food": 1200,
+        "water": 1200,
+        "medical": 200,
+        "metals": 500,
+        "tools": 220
+      }
+    },
+    {
+      "id": "facility-kinship-farm",
+      "name": "Kinship Gardens",
+      "faction_id": "vega-conclave",
+      "location": "kinship-farm",
+      "body": "kinship",
+      "type": "farm",
+      "docking_capacity": 3,
+      "services": ["market"],
+      "reserves": {
+        "food": 2200,
+        "water": 1800,
+        "fuel": 250
+      }
+    },
+    {
+      "id": "facility-kinship-shipyard",
+      "name": "Kinship Dry-Docks",
+      "faction_id": "vega-conclave",
+      "location": "kinship-station",
+      "body": "kinship",
+      "type": "shipyard",
+      "docking_capacity": 4,
+      "services": ["refuel", "repair", "market", "shipyard"],
+      "reserves": {
+        "metals": 600,
+        "electronics": 300,
+        "components": 250,
+        "tools": 220,
+        "polymers": 150
+      },
+      "fitting": {
+        "production": "production_t1",
+        "automation": "automation_t2"
+      },
+      "module_stock": {
+        "cargo_bay_t2": 2,
+        "engine_t2": 1,
+        "sensors_t2": 1,
+        "comms_t3": 1
+      }
+    },
+    {
+      "id": "facility-lalande-belt-mine",
+      "name": "Lalande Belt Works",
+      "faction_id": "outer-reach",
+      "location": "lalande-belt-mine",
+      "body": "lalande-belt",
+      "type": "mining_rig",
+      "docking_capacity": 7,
+      "services": ["refuel", "market"],
+      "reserves": {
+        "ore": 9000,
+        "ice": 2000,
+        "fuel": 1200,
+        "food": 250
+      }
+    },
+    {
+      "id": "facility-lalande-outer-harvester",
+      "name": "Outer Gas Harvester",
+      "faction_id": "outer-reach",
+      "location": "lalande-outer-harvester",
+      "body": "lalande-outer",
+      "type": "mining_rig",
+      "docking_capacity": 6,
+      "services": ["refuel", "market"],
+      "reserves": {
+        "gas": 7000,
+        "ice": 2500,
+        "fuel": 1000,
+        "food": 200
+      }
+    },
+    {
+      "id": "facility-lalande-drift-mine",
+      "name": "Drift Rock Rig",
+      "faction_id": "outer-reach",
+      "location": "lalande-drift-mine",
+      "body": "lalande-drift",
+      "type": "mining_rig",
+      "docking_capacity": 5,
+      "services": ["refuel", "market"],
+      "reserves": {
+        "ore": 5500,
+        "ice": 1200,
+        "fuel": 900,
+        "food": 180
+      }
+    },
+    {
+      "id": "facility-kinship-factory",
+      "name": "Kinship Assembly",
+      "faction_id": "vega-conclave",
+      "location": "kinship-station",
+      "body": "kinship",
+      "type": "factory",
+      "docking_capacity": 5,
+      "services": ["market"],
+      "reserves": {
+        "metals": 900,
+        "polymers": 500,
+        "components": 180,
+        "electronics": 100,
+        "fuel": 350
+      }
+    },
+    {
+      "id": "facility-lalande-vega-gate",
+      "name": "Vega Junction",
+      "faction_id": "vega-conclave",
+      "location": "lalande-vega-gate",
+      "body": "kinship",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": ["refuel", "gate"],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-vega-lalande-gate-lalande-portal"
+    },
+    {
+      "id": "facility-lalande-barnard-gate",
+      "name": "Barnard Transit",
+      "faction_id": "outer-reach",
+      "location": "lalande-barnard-gate",
+      "body": "lalande-outer",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": ["refuel", "gate"],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-barnard-lalande-gate-lalande-transit"
+    }
+  ],
+  "markets": [
+    {
+      "id": "market-kinship-station",
+      "facility_id": "kinship-station",
+      "prices": {
+        "ore": 15.0, "metals": 44.0, "fuel": 26.0, "food": 60.0, "water": 22.0,
+        "ice": 15.0, "gas": 14.0, "polymers": 48.0, "components": 110.0,
+        "electronics": 150.0, "tools": 100.0, "medical": 140.0, "luxury": 220.0
+      },
+      "supply": {
+        "ore": 1400, "metals": 700, "fuel": 1300, "food": 1200, "water": 1200,
+        "medical": 180, "tools": 180, "components": 70
+      },
+      "demand": {
+        "food": 18, "fuel": 14, "tools": 7, "medical": 5, "components": 5, "luxury": 4
+      },
+      "consumption": { "fuel": 1 },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-kinship-farm",
+      "facility_id": "kinship-farm",
+      "prices": {
+        "food": 42.0, "water": 14.0, "fuel": 28.0, "ore": 15.0
+      },
+      "supply": {
+        "food": 2200, "water": 1800, "fuel": 250
+      },
+      "demand": {
+        "fuel": 5, "tools": 2
+      },
+      "consumption": { "fuel": 1 },
+      "production": { "food": 1 },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-lalande-belt-mine",
+      "facility_id": "lalande-belt-mine",
+      "prices": {
+        "ore": 5.0, "ice": 15.0, "fuel": 32.0, "food": 90.0, "metals": 56.0
+      },
+      "supply": {
+        "ore": 7500, "ice": 1800, "fuel": 900, "food": 150
+      },
+      "demand": {
+        "food": 10, "fuel": 8
+      },
+      "consumption": { "fuel": 1 },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-lalande-outer-harvester",
+      "facility_id": "lalande-outer-harvester",
+      "prices": {
+        "gas": 5.0, "ice": 8.0, "fuel": 30.0, "food": 88.0, "ore": 55.0
+      },
+      "supply": {
+        "gas": 6000, "ice": 2200, "fuel": 800, "food": 150
+      },
+      "demand": {
+        "food": 8, "fuel": 7
+      },
+      "consumption": { "fuel": 1 },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-lalande-drift-mine",
+      "facility_id": "lalande-drift-mine",
+      "prices": {
+        "ore": 6.0, "ice": 18.0, "fuel": 36.0, "food": 95.0, "metals": 58.0
+      },
+      "supply": {
+        "ore": 4500, "ice": 900, "fuel": 700, "food": 100
+      },
+      "demand": {
+        "food": 6, "fuel": 6
+      },
+      "consumption": { "fuel": 1 },
+      "price_elasticity": 0.02
+    }
+  ],
+  "ships": [
+    { "name": "Kinship Herald", "location": "kinship-station", "class": "courier", "credits": 5500, "faction_id": "vega-conclave" },
+    { "name": "Kinship Trader", "location": "kinship-station", "class": "freighter", "credits": 10000, "faction_id": "vega-conclave" },
+    { "name": "Lalande Ferry", "location": "kinship-farm", "class": "freighter", "credits": 9000, "faction_id": "vega-conclave" },
+    { "name": "Gas Whale", "location": "lalande-outer-harvester", "class": "tanker", "credits": 14000, "faction_id": "outer-reach",
+      "size": "large",
+      "fitting": {
+        "engine": "engine_t1", "cargo_bay": "cargo_bay_t2",
+        "sensors": "sensors_t2", "reactor": "reactor_t2", "comms": "comms_t1"
+      },
+      "progression": { "level": 2, "xp": 25, "retrofit_points": 1 }
+    },
+    { "name": "Lalande Prospect", "location": "lalande-belt-mine", "class": "miner", "credits": 3500, "faction_id": "outer-reach" },
+    { "name": "Lalande Digger", "location": "lalande-belt-mine", "class": "miner", "credits": 3500, "faction_id": "outer-reach" },
+    { "name": "Drift Miner", "location": "lalande-drift-mine", "class": "miner", "credits": 3500, "faction_id": "outer-reach" },
+    { "name": "Outer Skipper", "location": "lalande-outer-harvester", "class": "freighter", "credits": 10000, "faction_id": "outer-reach" },
+    { "name": "Kinship Caravan", "location": "kinship-station", "class": "hauler", "credits": 15000, "faction_id": "vega-conclave" },
+    { "name": "Jade Fox", "location": "kinship-station", "class": "freighter", "credits": 9500, "faction_id": "vega-conclave" },
+    { "name": "Glass Heron", "location": "kinship-station", "class": "courier", "credits": 5000, "faction_id": "vega-conclave" },
+    { "name": "Indigo Serpent", "location": "lalande-belt-mine", "class": "freighter", "credits": 10000, "faction_id": "outer-reach" },
+    { "name": "Amber Lark", "location": "lalande-outer-harvester", "class": "tanker", "credits": 12000, "faction_id": "outer-reach" },
+    { "name": "Silver Otter", "location": "kinship-station", "class": "tanker", "credits": 13000, "faction_id": "vega-conclave" },
+    { "name": "Drift Owl", "location": "lalande-drift-mine", "class": "freighter", "credits": 10000, "faction_id": "independent" },
+    { "name": "Kinship Keeper", "location": "kinship-station", "class": "hauler", "credits": 16000, "faction_id": "vega-conclave" },
+    { "name": "Lalande Carrier", "location": "kinship-station", "class": "hauler", "credits": 14000, "faction_id": "vega-conclave" },
+    { "name": "Outer Sparrow", "location": "lalande-outer-harvester", "class": "courier", "credits": 5000, "faction_id": "outer-reach" }
+  ],
+  "populations": [
+    {
+      "id": "pop-kinship-citizens",
+      "label": "Kinship Citizens",
+      "facility_id": "kinship-station",
+      "demographic": "civilians",
+      "faction_id": "vega-conclave",
+      "population_count": 7500,
+      "food_satisfaction": 50,
+      "total_wealth": 500000,
+      "consumption": { "food": 15 },
+      "production_commodity": "components",
+      "production_amount": 12
+    },
+    {
+      "id": "pop-lalande-miners",
+      "label": "Lalande Miners",
+      "facility_id": "lalande-belt-mine",
+      "demographic": "workers",
+      "faction_id": "outer-reach",
+      "population_count": 3000,
+      "food_satisfaction": 35,
+      "total_wealth": 200000,
+      "consumption": { "food": 8 },
+      "production_commodity": "ore",
+      "production_amount": 40
+    },
+    {
+      "id": "pop-lalande-outer-crew",
+      "label": "Outer Harvester Crew",
+      "facility_id": "lalande-outer-harvester",
+      "demographic": "workers",
+      "faction_id": "outer-reach",
+      "population_count": 1800,
+      "food_satisfaction": 30,
+      "total_wealth": 140000,
+      "consumption": { "food": 5 },
+      "production_commodity": "gas",
+      "production_amount": 30
+    }
+  ]
+}

@@ -58,5 +58,25 @@
     "personality": {"profit": 0.5, "safety": 0.7, "morale": 0.9, "exploration": 0.6, "loyalty": 1.0, "aggression": 0.1},
     "colors": {"primary": "#10b981", "secondary": "#065f46"},
     "treasury": 8000
+  },
+  {
+    "id": "vega-conclave",
+    "name": "Vega Conclave",
+    "type": "coalition",
+    "description": "A loose council of colonies anchored in Vega's habitable belt. Brokers traffic between the inner worlds and the outer triad — every hop through their system pays a toll.",
+    "home_system": "system-vega",
+    "personality": {"profit": 0.7, "safety": 0.6, "morale": 0.6, "exploration": 0.7, "loyalty": 0.7, "aggression": 0.3},
+    "colors": {"primary": "#06b6d4", "secondary": "#0e7490"},
+    "treasury": 45000
+  },
+  {
+    "id": "outer-reach",
+    "name": "Outer Reach",
+    "type": "corporation",
+    "description": "Prospector consortium operating out of Barnard and Lalande. High-risk, high-margin — runs deep-ice and rare-ore extraction where the big factions won't send their own hulls.",
+    "home_system": "system-barnard",
+    "personality": {"profit": 0.9, "safety": 0.2, "morale": 0.4, "exploration": 0.9, "loyalty": 0.5, "aggression": 0.5},
+    "colors": {"primary": "#8b5cf6", "secondary": "#5b21b6"},
+    "treasury": 38000
   }
 ]

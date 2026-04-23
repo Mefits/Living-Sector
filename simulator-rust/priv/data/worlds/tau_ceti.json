@@ -163,6 +163,36 @@
       "from": "anvil-depot",
       "to": "tc-sol-gate",
       "distance": 60
+    },
+    {
+      "from": "anvil-depot",
+      "to": "tc-vega-gate",
+      "distance": 90
+    },
+    {
+      "from": "frostheim-station",
+      "to": "tc-vega-gate",
+      "distance": 60
+    },
+    {
+      "from": "deep-ice-station",
+      "to": "tc-vega-gate",
+      "distance": 50
+    },
+    {
+      "from": "crucible-mine",
+      "to": "tc-vega-gate",
+      "distance": 75
+    },
+    {
+      "from": "tc-sol-gate",
+      "to": "tc-vega-gate",
+      "distance": 130
+    },
+    {
+      "from": "tc-ac-gate",
+      "to": "tc-vega-gate",
+      "distance": 140
     }
   ],
   "facilities": [
@@ -476,6 +506,23 @@
         "fuel": 5000
       },
       "gate_paired_id": "facility-ac-tc-gate-refuge-bridge"
+    },
+    {
+      "id": "facility-tc-vega-gate",
+      "name": "Stellar Bridge",
+      "faction_id": "vega-conclave",
+      "location": "tc-vega-gate",
+      "body": "frostheim",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": [
+        "refuel",
+        "gate"
+      ],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-vega-tc-gate-tau-approach"
     }
   ],
   "markets": [

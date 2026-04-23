@@ -1,0 +1,425 @@
+{
+  "system": {
+    "id": "system-vega",
+    "name": "Vega",
+    "universe_offset": [
+      60.0,
+      -30.0
+    ]
+  },
+  "bodies": [
+    {
+      "id": "veritas",
+      "name": "Veritas",
+      "type": "planet",
+      "orbit_radius": 0.8,
+      "orbit_period": 260,
+      "current_angle": 30.0,
+      "biome": "temperate",
+      "resources": {
+        "ore": 0.4,
+        "ice": 0.3
+      }
+    },
+    {
+      "id": "orison",
+      "name": "Orison",
+      "type": "planet",
+      "orbit_radius": 1.5,
+      "orbit_period": 500,
+      "current_angle": 190.0,
+      "biome": "desert",
+      "resources": {
+        "ore": 0.7,
+        "gas": 0.2
+      }
+    },
+    {
+      "id": "vega-rim-belt",
+      "name": "Vega Rim Belt",
+      "type": "belt",
+      "orbit_radius": 2.4,
+      "orbit_period": 900,
+      "current_angle": 60.0,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.85,
+        "ice": 0.4,
+        "gas": 0.2
+      }
+    },
+    {
+      "id": "vega-ice-field",
+      "name": "Vega Ice Field",
+      "type": "asteroid",
+      "orbit_radius": 3.2,
+      "orbit_period": 1300,
+      "current_angle": 270.0,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.9,
+        "gas": 0.7
+      }
+    }
+  ],
+  "travel_routes": [
+    { "from": "veritas-station", "to": "veritas-farm", "distance": 20 },
+    { "from": "veritas-station", "to": "orison-refinery", "distance": 70 },
+    { "from": "veritas-station", "to": "orison-factory", "distance": 75 },
+    { "from": "veritas-station", "to": "vega-rim-mine", "distance": 110 },
+    { "from": "veritas-station", "to": "vega-ice-field-station", "distance": 160 },
+    { "from": "orison-refinery", "to": "orison-factory", "distance": 12 },
+    { "from": "orison-refinery", "to": "vega-rim-mine", "distance": 80 },
+    { "from": "orison-factory", "to": "vega-rim-mine", "distance": 85 },
+    { "from": "vega-rim-mine", "to": "vega-ice-field-station", "distance": 65 },
+    { "from": "veritas-station", "to": "vega-tc-gate", "distance": 55 },
+    { "from": "orison-factory", "to": "vega-tc-gate", "distance": 70 },
+    { "from": "vega-rim-mine", "to": "vega-tc-gate", "distance": 110 },
+    { "from": "veritas-station", "to": "vega-barnard-gate", "distance": 90 },
+    { "from": "orison-refinery", "to": "vega-barnard-gate", "distance": 100 },
+    { "from": "vega-rim-mine", "to": "vega-barnard-gate", "distance": 60 },
+    { "from": "veritas-station", "to": "vega-lalande-gate", "distance": 85 },
+    { "from": "orison-factory", "to": "vega-lalande-gate", "distance": 95 },
+    { "from": "vega-ice-field-station", "to": "vega-lalande-gate", "distance": 50 },
+    { "from": "vega-tc-gate", "to": "vega-barnard-gate", "distance": 130 },
+    { "from": "vega-tc-gate", "to": "vega-lalande-gate", "distance": 125 },
+    { "from": "vega-barnard-gate", "to": "vega-lalande-gate", "distance": 75 }
+  ],
+  "facilities": [
+    {
+      "id": "facility-veritas-station",
+      "name": "Veritas Station",
+      "faction_id": "vega-conclave",
+      "location": "veritas-station",
+      "body": "veritas",
+      "type": "station",
+      "docking_capacity": 16,
+      "services": ["refuel", "repair", "medical", "market"],
+      "reserves": {
+        "fuel": 3500,
+        "food": 1500,
+        "water": 1500,
+        "medical": 250,
+        "metals": 600,
+        "tools": 250
+      }
+    },
+    {
+      "id": "facility-veritas-farm",
+      "name": "Veritas Hydroponics",
+      "faction_id": "vega-conclave",
+      "location": "veritas-farm",
+      "body": "veritas",
+      "type": "farm",
+      "docking_capacity": 4,
+      "services": ["market"],
+      "reserves": {
+        "food": 2500,
+        "water": 2000,
+        "fuel": 300
+      }
+    },
+    {
+      "id": "facility-veritas-shipyard",
+      "name": "Vega Conclave Shipyard",
+      "faction_id": "vega-conclave",
+      "location": "veritas-station",
+      "body": "veritas",
+      "type": "shipyard",
+      "docking_capacity": 5,
+      "services": ["refuel", "repair", "market", "shipyard"],
+      "reserves": {
+        "metals": 800,
+        "electronics": 350,
+        "components": 300,
+        "tools": 250,
+        "polymers": 200
+      },
+      "fitting": {
+        "production": "production_t2",
+        "automation": "automation_t1"
+      },
+      "module_stock": {
+        "sensors_t2": 2,
+        "comms_t2": 2,
+        "engine_t2": 1,
+        "reactor_t2": 1
+      }
+    },
+    {
+      "id": "facility-orison-refinery",
+      "name": "Orison Refinery",
+      "faction_id": "vega-conclave",
+      "location": "orison-refinery",
+      "body": "orison",
+      "type": "refinery",
+      "docking_capacity": 6,
+      "services": ["refuel", "market"],
+      "reserves": {
+        "ore": 3500,
+        "metals": 1000,
+        "fuel": 1500,
+        "polymers": 400
+      }
+    },
+    {
+      "id": "facility-orison-factory",
+      "name": "Orison Works",
+      "faction_id": "vega-conclave",
+      "location": "orison-factory",
+      "body": "orison",
+      "type": "factory",
+      "docking_capacity": 6,
+      "services": ["market"],
+      "reserves": {
+        "metals": 1200,
+        "polymers": 600,
+        "components": 250,
+        "electronics": 150,
+        "fuel": 400
+      }
+    },
+    {
+      "id": "facility-vega-rim-mine",
+      "name": "Rim Belt Extraction",
+      "faction_id": "outer-reach",
+      "location": "vega-rim-mine",
+      "body": "vega-rim-belt",
+      "type": "mining_rig",
+      "docking_capacity": 7,
+      "services": ["refuel", "market"],
+      "reserves": {
+        "ore": 9000,
+        "ice": 2000,
+        "fuel": 1200,
+        "food": 300
+      }
+    },
+    {
+      "id": "facility-vega-ice-field-station",
+      "name": "Ice Field Outpost",
+      "faction_id": "outer-reach",
+      "location": "vega-ice-field-station",
+      "body": "vega-ice-field",
+      "type": "mining_rig",
+      "docking_capacity": 5,
+      "services": ["refuel", "market"],
+      "reserves": {
+        "ice": 6000,
+        "gas": 3500,
+        "fuel": 900,
+        "food": 200
+      }
+    },
+    {
+      "id": "facility-vega-tc-gate",
+      "name": "Tau Approach",
+      "faction_id": "vega-conclave",
+      "location": "vega-tc-gate",
+      "body": "veritas",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": ["refuel", "gate"],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-tc-vega-gate-stellar-bridge"
+    },
+    {
+      "id": "facility-vega-barnard-gate",
+      "name": "Barnard Portal",
+      "faction_id": "vega-conclave",
+      "location": "vega-barnard-gate",
+      "body": "orison",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": ["refuel", "gate"],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-barnard-vega-gate-vega-junction"
+    },
+    {
+      "id": "facility-vega-lalande-gate",
+      "name": "Lalande Portal",
+      "faction_id": "vega-conclave",
+      "location": "vega-lalande-gate",
+      "body": "vega-ice-field",
+      "type": "gate",
+      "docking_capacity": 8,
+      "services": ["refuel", "gate"],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-lalande-vega-gate-vega-junction"
+    }
+  ],
+  "markets": [
+    {
+      "id": "market-veritas-station",
+      "facility_id": "veritas-station",
+      "prices": {
+        "ore": 14.0, "metals": 42.0, "fuel": 24.0, "food": 55.0, "water": 20.0,
+        "ice": 14.0, "gas": 14.0, "polymers": 46.0, "components": 105.0,
+        "electronics": 145.0, "tools": 95.0, "medical": 135.0, "luxury": 210.0
+      },
+      "supply": {
+        "ore": 1500, "metals": 800, "fuel": 1500, "food": 1500, "water": 1500,
+        "medical": 200, "tools": 150, "components": 80, "electronics": 50
+      },
+      "demand": {
+        "food": 20, "fuel": 15, "tools": 8, "medical": 6, "components": 5, "luxury": 4
+      },
+      "consumption": { "fuel": 1 },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-veritas-farm",
+      "facility_id": "veritas-farm",
+      "prices": {
+        "food": 40.0, "water": 12.0, "fuel": 25.0, "ore": 14.0
+      },
+      "supply": {
+        "food": 2500, "water": 2000, "fuel": 300
+      },
+      "demand": {
+        "fuel": 6, "tools": 2
+      },
+      "consumption": { "fuel": 1 },
+      "production": { "food": 1 },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-orison-refinery",
+      "facility_id": "orison-refinery",
+      "prices": {
+        "ore": 9.0, "metals": 38.0, "fuel": 22.0, "food": 75.0, "polymers": 40.0,
+        "components": 110.0, "electronics": 150.0, "tools": 100.0, "water": 30.0, "ice": 14.0, "gas": 12.0
+      },
+      "supply": {
+        "ore": 3000, "metals": 1100, "fuel": 1500, "polymers": 400, "food": 150
+      },
+      "demand": {
+        "food": 12, "fuel": 12, "tools": 5, "components": 3
+      },
+      "consumption": { "fuel": 1 },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-orison-factory",
+      "facility_id": "orison-factory",
+      "prices": {
+        "metals": 34.0, "polymers": 42.0, "components": 95.0, "electronics": 135.0,
+        "fuel": 24.0, "food": 78.0, "tools": 90.0, "ore": 14.0
+      },
+      "supply": {
+        "metals": 1300, "polymers": 600, "components": 250, "electronics": 150, "fuel": 400, "food": 120
+      },
+      "demand": {
+        "food": 10, "fuel": 10, "ore": 12, "tools": 5
+      },
+      "consumption": { "fuel": 1 },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-vega-rim-mine",
+      "facility_id": "vega-rim-mine",
+      "prices": {
+        "ore": 6.0, "ice": 12.0, "fuel": 32.0, "food": 90.0, "metals": 55.0
+      },
+      "supply": {
+        "ore": 7000, "ice": 1800, "fuel": 900, "food": 100
+      },
+      "demand": {
+        "food": 10, "fuel": 8, "tools": 3
+      },
+      "consumption": { "fuel": 1 },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-vega-ice-field-station",
+      "facility_id": "vega-ice-field-station",
+      "prices": {
+        "ice": 4.0, "gas": 6.0, "fuel": 30.0, "food": 85.0, "ore": 55.0
+      },
+      "supply": {
+        "ice": 5000, "gas": 3000, "fuel": 700, "food": 150
+      },
+      "demand": {
+        "food": 6, "fuel": 6
+      },
+      "consumption": { "fuel": 1 },
+      "price_elasticity": 0.02
+    }
+  ],
+  "ships": [
+    { "name": "Vega Herald", "location": "veritas-station", "class": "courier", "credits": 6000, "faction_id": "vega-conclave" },
+    { "name": "Veritas Runner", "location": "veritas-station", "class": "freighter", "credits": 10000, "faction_id": "vega-conclave" },
+    { "name": "Conclave Keeper", "location": "veritas-station", "class": "hauler", "credits": 18000, "faction_id": "vega-conclave",
+      "size": "large",
+      "fitting": {
+        "engine": "engine_t2", "cargo_bay": "cargo_bay_t2",
+        "sensors": "sensors_t2", "reactor": "reactor_t1", "comms": "comms_t2"
+      },
+      "progression": { "level": 2, "xp": 40, "retrofit_points": 1 }
+    },
+    { "name": "Orison Cart", "location": "orison-refinery", "class": "freighter", "credits": 9000, "faction_id": "vega-conclave" },
+    { "name": "Orison Ironback", "location": "orison-factory", "class": "hauler", "credits": 14000, "faction_id": "vega-conclave" },
+    { "name": "Rim Picker", "location": "vega-rim-mine", "class": "miner", "credits": 3500, "faction_id": "outer-reach" },
+    { "name": "Rim Breaker", "location": "vega-rim-mine", "class": "miner", "credits": 3500, "faction_id": "outer-reach" },
+    { "name": "Ice Crawler", "location": "vega-ice-field-station", "class": "miner", "credits": 3500, "faction_id": "outer-reach" },
+    { "name": "Outer Prospect", "location": "vega-ice-field-station", "class": "tanker", "credits": 12000, "faction_id": "outer-reach" },
+    { "name": "Vega Swift", "location": "veritas-station", "class": "courier", "credits": 5500, "faction_id": "vega-conclave" },
+    { "name": "Vega Merchant", "location": "veritas-farm", "class": "freighter", "credits": 9500, "faction_id": "vega-conclave" },
+    { "name": "Conclave Quill", "location": "veritas-station", "class": "courier", "credits": 5000, "faction_id": "vega-conclave" },
+    { "name": "Azure Whale", "location": "veritas-station", "class": "tanker", "credits": 13000, "faction_id": "vega-conclave" },
+    { "name": "Cyan Arrow", "location": "orison-factory", "class": "freighter", "credits": 10000, "faction_id": "independent" },
+    { "name": "Teal Falcon", "location": "orison-refinery", "class": "freighter", "credits": 10000, "faction_id": "independent" },
+    { "name": "Violet Lynx", "location": "veritas-station", "class": "freighter", "credits": 11000, "faction_id": "outer-reach" },
+    { "name": "Lantern Wolf", "location": "orison-factory", "class": "hauler", "credits": 14000, "faction_id": "vega-conclave" },
+    { "name": "Echo Raven", "location": "vega-rim-mine", "class": "freighter", "credits": 10000, "faction_id": "outer-reach" },
+    { "name": "Outer Sable", "location": "vega-ice-field-station", "class": "freighter", "credits": 10000, "faction_id": "outer-reach" },
+    { "name": "Conclave Sentinel", "location": "veritas-station", "class": "tanker", "credits": 15000, "faction_id": "vega-conclave" }
+  ],
+  "populations": [
+    {
+      "id": "pop-veritas-citizens",
+      "label": "Veritas Citizens",
+      "facility_id": "veritas-station",
+      "demographic": "civilians",
+      "faction_id": "vega-conclave",
+      "population_count": 9000,
+      "food_satisfaction": 55,
+      "total_wealth": 650000,
+      "consumption": { "food": 18 },
+      "production_commodity": "components",
+      "production_amount": 10
+    },
+    {
+      "id": "pop-orison-workers",
+      "label": "Orison Workers",
+      "facility_id": "orison-refinery",
+      "demographic": "workers",
+      "faction_id": "vega-conclave",
+      "population_count": 4500,
+      "food_satisfaction": 40,
+      "total_wealth": 280000,
+      "consumption": { "food": 10 },
+      "production_commodity": "metals",
+      "production_amount": 30
+    },
+    {
+      "id": "pop-vega-prospectors",
+      "label": "Rim Prospectors",
+      "facility_id": "vega-rim-mine",
+      "demographic": "workers",
+      "faction_id": "outer-reach",
+      "population_count": 2500,
+      "food_satisfaction": 30,
+      "total_wealth": 180000,
+      "consumption": { "food": 6 },
+      "production_commodity": "ore",
+      "production_amount": 40
+    }
+  ]
+}
