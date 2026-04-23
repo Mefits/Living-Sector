@@ -2212,6 +2212,13 @@ fn try_plan_contract(
         qty: u32,
         payment: i64,
         cost: i64,
+        /// Phase 19f: effective profit used for comparison — raw
+        /// profit adjusted by a fill-ratio quality multiplier for
+        /// delivery kinds. The `profit` passed to the planner's
+        /// `score_goal` scoring still uses raw profit, so the
+        /// cross-goal (trade_run vs delivery) comparison stays
+        /// consistent with the old rules.
+        score: i64,
         kind: ContractType,
     }
     let mut best: Option<Candidate> = None;
@@ -2281,9 +2288,30 @@ fn try_plan_contract(
             continue;
         }
         let profit = c.payment - cost;
+
+        // Phase 19f: fill-ratio scoring. For delivery contracts, reward
+        // runs that make good use of the ship's cargo capacity. A
+        // hauler with capacity 2000 picking up a 50-unit delivery
+        // wastes 97.5% of the hold — sqrt(0.025) ≈ 0.16, so that
+        // delivery scores only ~16% of its raw profit in the planner
+        // comparison. Applied only to kinds that actually load cargo.
+        let fill_quality: f32 = if c.contract_type == ContractType::Delivery
+            && cargo.capacity > 0
+        {
+            let ratio = (c.quantity as f32 / cargo.capacity as f32).clamp(0.0, 1.0);
+            // sqrt curve: gentle at the top (90% fill → 0.95), steep
+            // at the bottom (5% fill → 0.22). Small contracts on big
+            // hulls are still takeable, just unattractive compared
+            // to better-fitting alternatives.
+            ratio.sqrt().max(0.1)
+        } else {
+            1.0
+        };
+        let effective_profit: i64 = ((profit as f32) * fill_quality).round() as i64;
+
         let better = best
             .as_ref()
-            .is_none_or(|b| profit > (b.payment - b.cost));
+            .is_none_or(|b| effective_profit > b.score);
         if better {
             best = Some(Candidate {
                 id: c.id.clone(),
@@ -2293,6 +2321,7 @@ fn try_plan_contract(
                 qty: c.quantity,
                 payment: c.payment,
                 cost,
+                score: effective_profit,
                 kind: c.contract_type,
             });
         }

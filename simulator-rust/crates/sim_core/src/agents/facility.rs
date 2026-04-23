@@ -1618,7 +1618,16 @@ pub fn tick_post_contracts(
                     continue;
                 }
                 let shortage: u32 = market_shortage.get(&commodity).copied().unwrap_or(0);
-                if shortage < 30 {
+                // Phase 19f: urgency override for tools when the
+                // facility is decaying. Condition < 0.8 triggers the
+                // self-repair loop (consume 1 tool → +0.01 condition),
+                // so running out of tools in that state is a death
+                // spiral. Skip the normal 30-tick shortage wait — the
+                // facility needs the tools yesterday.
+                let urgent_tools = commodity == Commodity::Tools
+                    && ops.condition < CONDITION_REPAIR_THRESHOLD
+                    && reserve < 10.0;
+                if !urgent_tools && shortage < 30 {
                     continue;
                 }
                 let Some(source) = source_for_commodity(commodity) else {
