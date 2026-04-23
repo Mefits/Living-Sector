@@ -416,6 +416,28 @@ fn run_subsidy_cycle(
         .map(|(_e, (id, pricing))| (id.facility_location.clone(), pricing.supply.clone()))
         .collect();
 
+    // location → system_id. Used to prefer a same-system source on the
+    // first post so subsidies don't default to cross-system runs that
+    // only ~25% of the fleet (tier-2+ sensors) can even see. The expire-
+    // and-retry path (single renewal, min_rep→0) opens it to the long-
+    // haulers afterward if no local ship bites.
+    let location_to_system: std::collections::HashMap<String, String> = {
+        use crate::agents::celestial_body::BodyIdentity;
+        let body_to_system: std::collections::HashMap<String, String> = world
+            .query::<&BodyIdentity>()
+            .iter()
+            .map(|(_, id)| (id.body_id.clone(), id.system_name.clone()))
+            .collect();
+        world
+            .query::<(&FacilityIdentity, &FacilityLocation)>()
+            .iter()
+            .filter_map(|(_, (id, loc))| {
+                let sys = body_to_system.get(&id.body_id)?.clone();
+                Some((loc.location_name.clone(), sys))
+            })
+            .collect()
+    };
+
     let faction_ids: Vec<String> = shortage_by_faction.keys().cloned().collect();
     let mut plans: Vec<SubsidyPlan> = Vec::new();
 
@@ -466,21 +488,43 @@ fn run_subsidy_cycle(
             continue;
         }
 
-        // Source selection: highest supply, preferring non-member locations.
-        let source_pref = supply_by_loc
-            .iter()
-            .filter(|(loc, supply)| {
+        // Source selection, 3 tiers:
+        //   1. same-system + non-member + enough supply — the ideal case;
+        //      most of the fleet (including tier-1-sensor ships) can
+        //      reach it without a gate jump.
+        //   2. any non-member location with enough supply — falls back
+        //      to cross-system when no same-system supplier exists.
+        //   3. any max-supply location — last resort, runs without
+        //      filtering on non-member.
+        // If the subsidy later expires unfulfilled, `sweep_expiring`
+        // renews it once with `min_reputation = 0`, opening it to every
+        // ship regardless of rep.
+        let dest_system = location_to_system.get(&destination).cloned();
+        let pick_max_supply = |pred: &dyn Fn(&String) -> bool| -> Option<String> {
+            supply_by_loc
+                .iter()
+                .filter(|(loc, supply)| {
+                    pred(loc) && supply.get(&commodity).copied().unwrap_or(0.0) > 100.0
+                })
+                .max_by(|(_, a), (_, b)| {
+                    let av = a.get(&commodity).copied().unwrap_or(0.0);
+                    let bv = b.get(&commodity).copied().unwrap_or(0.0);
+                    av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|(loc, _)| loc.clone())
+        };
+        let same_system_source = dest_system.as_ref().and_then(|ds| {
+            pick_max_supply(&|loc| {
                 !info.member_locations.contains(loc)
-                    && supply.get(&commodity).copied().unwrap_or(0.0) > 100.0
+                    && location_to_system.get(loc) == Some(ds)
             })
-            .max_by(|(_, a), (_, b)| {
-                let av = a.get(&commodity).copied().unwrap_or(0.0);
-                let bv = b.get(&commodity).copied().unwrap_or(0.0);
-                av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .map(|(loc, _)| loc.clone());
-        let source = source_pref
+        });
+        let any_non_member_source =
+            pick_max_supply(&|loc| !info.member_locations.contains(loc));
+        let source = same_system_source
+            .or(any_non_member_source)
             .or_else(|| {
+                // Absolute fallback: most supply anywhere, no filter.
                 supply_by_loc
                     .iter()
                     .max_by(|(_, a), (_, b)| {
