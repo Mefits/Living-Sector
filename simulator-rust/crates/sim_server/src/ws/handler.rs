@@ -36,6 +36,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         agent_count: state.agent_count.load(Ordering::Relaxed) as usize,
         interval_ms: state.interval_ms.load(Ordering::Relaxed),
         world_speed: state.world_speed(),
+        world_seed: state.world_seed,
     };
     if let Ok(text) = serde_json::to_string(&hello) {
         let _ = sender.send(Message::Text(text.into())).await;

@@ -22,6 +22,9 @@ var _selection_ring_script: GDScript = preload(
 var _starfield_script: GDScript = preload(
 	"res://scripts/world/starfield.gd"
 )
+var _nebula_field_script: GDScript = preload(
+	"res://scripts/world/nebula_field.gd"
+)
 var _context_menu_script: GDScript = preload(
 	"res://scripts/ui/context_menu.gd"
 )
@@ -127,6 +130,15 @@ func _on_report_loaded(data: Dictionary) -> void:
   starfield.setup(camera)
 
   universe.build_world()
+
+  # Cosmetic nebula backdrop — lives under the play plane. Seeded
+  # from the sim's persistent world_seed so the layout stays the
+  # same across restarts of the same save; only the client draws
+  # these, the sim neither generates nor broadcasts them.
+  var nebulas := Node3D.new()
+  nebulas.set_script(_nebula_field_script)
+  universe.add_child(nebulas)
+  nebulas.generate(_nebula_seed())
 
   # Transit lines
   var transit_lines := MeshInstance3D.new()
@@ -357,6 +369,16 @@ func _on_report_loaded(data: Dictionary) -> void:
 
   print("[Main] Connecting WebSocket...")
   NetworkManager.connect_websocket()
+
+
+func _nebula_seed() -> int:
+  # Prefer the sim's persistent world_seed (u64 → we store the low
+  # bits as int). If the sim didn't send one, fall back to hashing
+  # the active DB path so each save still gets a consistent layout
+  # without server involvement.
+  if GameState.world_seed != 0:
+    return GameState.world_seed
+  return int(ServerManager.current_database_path().hash())
 
 
 func _on_observer_toggled(active: bool) -> void:

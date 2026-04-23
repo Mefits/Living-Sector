@@ -422,6 +422,11 @@ func _handle_server_hello(msg: Dictionary) -> void:
 		GameState.tick_interval_ms = interval
 	if "world_speed" in GameState:
 		GameState.world_speed = ws
+	# Persistent world seed — only overwrite if the server sent one
+	# (pre-seed servers omit the field). Keeps the landmark layout
+	# locked to whatever the DB has, including after WS reconnects.
+	if msg.has("world_seed") and "world_seed" in GameState:
+		GameState.world_seed = int(msg["world_seed"])
 
 
 func _handle_positions(msg: Dictionary) -> void:

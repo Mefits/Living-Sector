@@ -552,3 +552,46 @@ pub async fn load_tick_counter(pool: &SqlitePool) -> u64 {
     })
     .unwrap_or(0)
 }
+
+/// Load the world seed from `simulation_state`, or mint a fresh one
+/// and persist it on first boot. Returned directly — the server sticks
+/// it into [`AppState`] and exposes it via `/api/health` so clients
+/// (Godot's nebula-cloud generator, etc.) can seed deterministically
+/// and get the same layout every restart.
+///
+/// The first-boot seed is derived from system-time nanos; subsequent
+/// boots round-trip through SQLite so the landmark look stays stable
+/// as long as the DB lives.
+pub async fn load_or_init_world_seed(pool: &SqlitePool) -> u64 {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT value FROM simulation_state WHERE key = 'world_seed'")
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    if let Some((v,)) = row {
+        if let Some(seed) = serde_json::from_str::<serde_json::Value>(&v)
+            .ok()
+            .and_then(|j| j.get("seed").and_then(|s| s.as_u64()))
+        {
+            return seed;
+        }
+    }
+    // First boot (or corrupted row) — mint + persist.
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0xC0FFEE);
+    let value = serde_json::json!({ "seed": seed }).to_string();
+    let _ = sqlx::query(
+        "INSERT INTO simulation_state (key, value)
+         VALUES ('world_seed', ?1)
+         ON CONFLICT(key) DO UPDATE SET
+           value=excluded.value,
+           updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+    )
+    .bind(value)
+    .execute(pool)
+    .await;
+    seed
+}

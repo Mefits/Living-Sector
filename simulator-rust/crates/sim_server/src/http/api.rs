@@ -20,6 +20,11 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
         "ticks_per_second": state.ticks_per_second.load(Ordering::Relaxed),
         "world_speed": state.world_speed(),
         "tick_scale": state.tick_scale(),
+        // Persistent world seed — clients use this to seed deterministic
+        // procgen (e.g. Godot nebula clouds) so visual landmarks stay
+        // put across restarts. Minted on first boot, round-tripped
+        // through `simulation_state.world_seed` thereafter.
+        "world_seed": state.world_seed,
         // Rolling perf window (updated every 8 ticks by the engine).
         "perf": {
             "tick_compute_p50_us": state.tick_compute_p50_us.load(Ordering::Relaxed),
@@ -131,6 +136,7 @@ pub async fn report(State(state): State<AppState>) -> impl IntoResponse {
         "tick": state.tick.load(Ordering::Relaxed),
         "running": state.running.load(Ordering::Relaxed),
         "interval_ms": interval,
+        "world_seed": state.world_seed,
         "config": {
             "ticks_per_second": tps,
             "world_speed": ws,

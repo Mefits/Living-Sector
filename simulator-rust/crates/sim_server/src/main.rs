@@ -131,6 +131,9 @@ async fn main() -> Result<()> {
     let (persist_flush_tx, persist_flush_rx) =
         mpsc::channel::<tokio::sync::oneshot::Sender<()>>(8);
 
+    let world_seed = db::persistence::load_or_init_world_seed(&pool).await;
+    info!("world_seed = {world_seed}");
+
     let app_state = AppState {
         snapshots: snapshots.clone(),
         registry: registry.clone(),
@@ -154,6 +157,7 @@ async fn main() -> Result<()> {
         lod_d10: lod_d10.clone(),
         lod_d20: lod_d20.clone(),
         lod_d50: lod_d50.clone(),
+        world_seed,
     };
 
     // HTTP + WS server

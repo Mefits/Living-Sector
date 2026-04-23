@@ -77,6 +77,12 @@ var tick_scale: float = 0.03125  # world_speed / ticks_per_second
 # POST /api/sim/speed {world_speed: N}. Server echoes the current value
 # back on server_hello + sim_control_ack.
 var world_speed: float = 0.25
+# Persistent u64 minted on first sim boot, round-tripped through the
+# DB. Exposed via /api/health.world_seed + /api/report.world_seed.
+# Client-side procgen (nebula backdrop, potentially others) seeds from
+# this so cosmetic landmarks stay put across restarts. 0 until the
+# first snapshot lands.
+var world_seed: int = 0
 # Rolling EMA of wall-clock gap between simulation:positions broadcasts.
 # NetworkManager maintains this; interpolation reads it instead of the
 # server-reported tick_interval_ms so ships visually scale with sim speed
@@ -213,6 +219,10 @@ func load_world_snapshot(data: Dictionary) -> void:
 	tick = data.get("tick", 0)
 	running = data.get("running", false)
 	metrics = data.get("metrics", {})
+	# world_seed lives at the top level of /api/report. Missing on older
+	# sim builds; default-0 just means client procgen will fall back to
+	# a deterministic-but-arbitrary seed (see NebulaField).
+	world_seed = int(data.get("world_seed", 0))
 
 	# Read simulation config
 	var config: Dictionary = data.get("config", {})

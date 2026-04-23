@@ -69,6 +69,12 @@ pub struct AppState {
     pub lod_d10: Arc<AtomicU64>,
     pub lod_d20: Arc<AtomicU64>,
     pub lod_d50: Arc<AtomicU64>,
+    /// Persistent world seed — u64 minted on first boot, round-tripped
+    /// through `simulation_state` thereafter. Clients use it to seed
+    /// deterministic procgen (e.g. Godot's nebula-cloud generator) so
+    /// obvious landmarks stay put across restarts. Exposed via
+    /// `/api/health.world_seed`.
+    pub world_seed: u64,
 }
 
 impl AppState {

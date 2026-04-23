@@ -19,6 +19,10 @@ pub enum ServerMsg {
         agent_count: usize,
         interval_ms: u64,
         world_speed: f32,
+        /// Persistent world seed — Godot seeds deterministic procgen
+        /// (nebula clouds, etc.) off this so visual landmarks stay put
+        /// across reconnects and server restarts.
+        world_seed: u64,
     },
     /// Positions for all renderable entities. Every tick.
     Positions {
