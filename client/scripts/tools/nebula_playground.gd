@@ -40,8 +40,8 @@ const PRESETS := {
     "noise_frequency": 1.5,
     "noise_warp": 0.85,
     "wisp_strength": 1.0,
-    "radial_falloff": 2.4,
-    "density_threshold": 0.12,
+    "radial_falloff": 5.4,
+    "density_threshold": 0.67,
     "color_mix_shift": 0.55,
     "color_mix_band": 0.22,
   },
@@ -53,8 +53,8 @@ const PRESETS := {
     "noise_frequency": 1.8,
     "noise_warp": 1.1,
     "wisp_strength": 0.7,
-    "radial_falloff": 2.8,
-    "density_threshold": 0.15,
+    "radial_falloff": 5.8,
+    "density_threshold": 0.7,
     "color_mix_shift": 0.45,
     "color_mix_band": 0.25,
   },
@@ -66,8 +66,8 @@ const PRESETS := {
     "noise_frequency": 2.4,
     "noise_warp": 0.5,
     "wisp_strength": 1.4,
-    "radial_falloff": 3.5,   # tighter shell
-    "density_threshold": 0.05,
+    "radial_falloff": 6.2,   # tighter shell
+    "density_threshold": 0.63,
     "color_mix_shift": 0.5,
     "color_mix_band": 0.18,
   },
@@ -79,8 +79,8 @@ const PRESETS := {
     "noise_frequency": 1.2,
     "noise_warp": 1.4,
     "wisp_strength": 0.6,
-    "radial_falloff": 2.0,
-    "density_threshold": 0.25,
+    "radial_falloff": 5.0,
+    "density_threshold": 0.72,
     "color_mix_shift": 0.42,
     "color_mix_band": 0.30,
   },
@@ -242,8 +242,8 @@ func _build_ui() -> void:
   _add_int(vbox, "noise_octaves", 1, 6, 1)
   _add_float(vbox, "noise_warp", 0.0, 2.0, 0.01)
   _add_float(vbox, "wisp_strength", 0.0, 2.0, 0.01)
-  _add_float(vbox, "radial_falloff", 0.3, 8.0, 0.01)
-  _add_float(vbox, "density_threshold", 0.0, 0.8, 0.01)
+  _add_float(vbox, "radial_falloff", 4.9, 8.0, 0.01)
+  _add_float(vbox, "density_threshold", 0.62, 0.8, 0.01)
 
   _add_section(vbox, "Tumble")
   _add_vec3(vbox, "tumble", -0.5, 0.5, 0.005)

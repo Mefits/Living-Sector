@@ -14,10 +14,10 @@ uniform float noise_frequency  : hint_range(0.1, 8.0) = 1.6;
 uniform int   noise_octaves    : hint_range(1, 6)    = 4;
 uniform float noise_warp       : hint_range(0.0, 2.0) = 0.75;
 uniform float wisp_strength    : hint_range(0.0, 2.0) = 0.9;
-uniform float radial_falloff   : hint_range(0.3, 8.0) = 2.5;
+uniform float radial_falloff   : hint_range(4.9, 8.0) = 5.2;
 uniform float color_mix_shift  : hint_range(0.0, 1.0) = 0.5;
 uniform float color_mix_band   : hint_range(0.05, 0.5) = 0.22;
-uniform float density_threshold : hint_range(0.0, 0.8) = 0.0;
+uniform float density_threshold : hint_range(0.62, 0.8) = 0.66;
 uniform vec3  seed_offset      = vec3(0.0);
 
 varying vec3 v_local_pos;
@@ -100,18 +100,39 @@ void fragment() {
         n = mix(n, n * wisps * 1.8, wisp_strength);
     }
 
-    // Radial falloff from local origin — unit-sphere assumption so
-    // anything past length=1.0 fades out. Exponent controls how
-    // soft vs hard the edge reads.
-    float dist = length(v_local_pos);
-    float radial = pow(max(1.0 - dist, 0.0), radial_falloff);
+    // Silhouette fade. This is a surface shader, not a ray-march, so
+    // every fragment sits at length(v_local_pos) ≈ 1.0 — a pure-radial
+    // `1.0 - dist` falloff would zero out everywhere the fragment
+    // actually runs and the sphere would render fully transparent.
+    // Instead we fade by view angle: fragments whose normal points at
+    // the camera (disc center) stay opaque; fragments at the silhouette
+    // rim fade to zero.
+    float view_face = clamp(abs(dot(NORMAL, VIEW)), 0.0, 1.0);
+    // Break up the silhouette with a second, low-frequency noise so
+    // the cloud doesn't read as a perfect disc. Positive displacement
+    // pushes the disc outward (tendrils), negative carves into it
+    // (holes). Scale chosen so mid-cloud stays solid while the rim
+    // turns into wisps.
+    float edge_carve = fbm(
+        (v_local_pos + seed_offset + vec3(37.0)) * noise_frequency * 0.7
+    );
+    float silhouette = clamp(
+        view_face + (edge_carve - 0.5) * 0.55,
+        0.0, 1.0
+    );
+    float radial = pow(silhouette, radial_falloff);
 
     // Density threshold: clip noise values below `threshold` so the
     // cloud has gaps rather than being a uniform glow. Remap what's
     // left to 0..1 so threshold doesn't crush overall brightness.
     n = max(n - density_threshold, 0.0) / max(1.0 - density_threshold, 0.0001);
 
-    float a = n * radial * density;
+    // `n * n` sharpens the alpha curve: sparse noise regions drop
+    // rapidly toward transparent rather than rendering as a dim haze,
+    // so the cloud reads as patchy tendrils and holes instead of a
+    // uniform glow. 2.0 multiplier keeps peak brightness roughly
+    // where it was before the square.
+    float a = n * n * 2.0 * radial * density;
     a = clamp(a, 0.0, 1.0);
 
     // Two-color blend driven by the noise value. `color_mix_shift`

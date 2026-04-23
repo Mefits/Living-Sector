@@ -54,15 +54,19 @@ const SHADER_PATH := "res://shaders/procedural_nebula.gdshader"
   set(v): noise_warp = v; _set_uniform(&"noise_warp", v)
 @export_range(0.0, 2.0, 0.01) var wisp_strength: float = 0.9:
   set(v): wisp_strength = v; _set_uniform(&"wisp_strength", v)
-@export_range(0.3, 8.0, 0.01) var radial_falloff: float = 2.5:
+## Minimum 4.9 keeps the silhouette genuinely wispy; anything lower
+## and the disc starts reading as a solid sphere even with carving.
+@export_range(4.9, 8.0, 0.01) var radial_falloff: float = 5.2:
   set(v): radial_falloff = v; _set_uniform(&"radial_falloff", v)
-@export_range(0.0, 0.8, 0.01) var density_threshold: float = 0.1:
+## Minimum 0.62 is where noise starts punching real holes in the
+## cloud; below that the whole volume fills in as a uniform haze.
+@export_range(0.62, 0.8, 0.01) var density_threshold: float = 0.66:
   set(v): density_threshold = v; _set_uniform(&"density_threshold", v)
 
 # ---- Rotation -------------------------------------------------------------
 # Slow tumble reads as "this cloud is real, volumetric matter"
 # rather than a static decal. Per-axis so nebulas rotate off-axis.
-@export var tumble: Vector3 = Vector3(0.0, 0.01, 0.005)
+@export var tumble: Vector3 = Vector3(0.0, 0.0015, 0.0008)
 
 var _mesh_instance: MeshInstance3D
 var _material: ShaderMaterial
@@ -99,16 +103,21 @@ func _build() -> void:
 func _apply_geometry() -> void:
   if not _mesh_instance:
     return
+  # Keep the SphereMesh a *unit* sphere and bake `radius` into the
+  # MeshInstance scale. The fragment shader treats `v_local_pos` as
+  # normalized sphere-space (radial falloff = pow(1.0 - length, k)),
+  # so if we expand the mesh itself — via SphereMesh.radius — every
+  # fragment ends up past length=1.0 and the whole cloud renders as
+  # fully-transparent alpha-0. Non-uniform `shape_scale` layers on top
+  # without warping noise because the shader never sees post-scale
+  # coordinates.
   var sphere := SphereMesh.new()
-  sphere.radius = radius
-  sphere.height = radius * 2.0
+  sphere.radius = 1.0
+  sphere.height = 2.0
   sphere.radial_segments = mesh_segments
   sphere.rings = max(int(mesh_segments * 0.6), 4)
   _mesh_instance.mesh = sphere
-  # Non-uniform scale applied on the mesh so the shader's `v_local_pos`
-  # — which drives radial falloff — stays in sphere-space. Without this
-  # shape_scale would warp the noise too.
-  _mesh_instance.scale = shape_scale
+  _mesh_instance.scale = shape_scale * radius
 
 
 func _set_uniform(name: StringName, value: Variant) -> void:
