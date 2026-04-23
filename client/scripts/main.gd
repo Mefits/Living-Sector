@@ -59,6 +59,9 @@ var _faction_ledger_scene: PackedScene = preload(
 var _population_browser_scene: PackedScene = preload(
 	"res://scenes/ui/population_browser.tscn"
 )
+var _retirements_panel_scene: PackedScene = preload(
+	"res://scenes/ui/retirements_panel.tscn"
+)
 var _perf_overlay_scene: PackedScene = preload(
 	"res://scenes/ui/perf_overlay.tscn"
 )
@@ -80,6 +83,7 @@ var _events_ticker: Control
 var _contract_board: Control
 var _faction_ledger: Control
 var _population_browser: Control
+var _retirements_panel: Control
 var _perf_overlay: Control
 var _destroy_hover: Control
 var _toast: VBoxContainer
@@ -242,6 +246,20 @@ func _on_report_loaded(data: Dictionary) -> void:
   _population_browser.offset_bottom = 440.0
   hud.pops_toggled.connect(func(): _population_browser.toggle())
   _population_browser.location_selected.connect(_on_location_selected)
+
+  # Retirement ledger — post-mortem panel. Centered like the market +
+  # contract overlays because its rows are wide; positioned via
+  # anchor = 0.5 so it re-centers on resize.
+  _retirements_panel = _retirements_panel_scene.instantiate()
+  hud.add_child(_retirements_panel)
+  _retirements_panel.anchor_left = 0.5
+  _retirements_panel.anchor_right = 0.5
+  _retirements_panel.anchor_top = 0.5
+  _retirements_panel.anchor_bottom = 0.5
+  _retirements_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+  _retirements_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+  hud.retirements_toggled.connect(func(): _retirements_panel.toggle())
+  _retirements_panel.location_selected.connect(_on_location_selected)
 
   # Events ticker (bottom-right, narrow)
   _events_ticker = _events_ticker_scene.instantiate()

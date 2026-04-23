@@ -9,6 +9,7 @@ signal market_toggled
 signal contracts_toggled
 signal factions_toggled
 signal pops_toggled
+signal retirements_toggled
 signal events_toggled
 signal perf_toggled
 signal step_requested(ticks: int)
@@ -29,16 +30,12 @@ signal step_requested(ticks: int)
 @onready var contracts_button: Button = %ContractsButton
 @onready var factions_button: Button = %FactionsButton
 @onready var pops_button: Button = %PopsButton
+@onready var retirements_button: Button = %RetirementsButton
 @onready var events_button: Button = %EventsButton
 @onready var perf_button: Button = %PerfButton
 @onready var step1_button: Button = %Step1Button
 @onready var step8_button: Button = %Step8Button
-@onready var save_button: Button = %SaveButton
-@onready var save_as_button: Button = %SaveAsButton
-
 var _observer_active := false
-var _save_as_dialog: AcceptDialog
-var _save_as_input: LineEdit
 
 
 func _ready() -> void:
@@ -74,6 +71,9 @@ func _ready() -> void:
 	pops_button.pressed.connect(
 		func(): pops_toggled.emit()
 	)
+	retirements_button.pressed.connect(
+		func(): retirements_toggled.emit()
+	)
 	events_button.pressed.connect(
 		func(): events_toggled.emit()
 	)
@@ -86,8 +86,6 @@ func _ready() -> void:
 	step8_button.pressed.connect(
 		func(): step_requested.emit(8)
 	)
-	save_button.pressed.connect(_on_save_pressed)
-	save_as_button.pressed.connect(_on_save_as_pressed)
 
 	status_label.text = "Connecting..."
 
@@ -162,68 +160,3 @@ func _update_speed_label() -> void:
 	speed_label.text = text
 
 
-# -------------------- Save / Save As --------------------
-
-func _on_save_pressed() -> void:
-	NetworkManager.admin_save(_on_save_response)
-
-
-func _on_save_response(code: int, body: String) -> void:
-	if code == 200:
-		var parsed = JSON.parse_string(body)
-		var ticks := 0
-		if parsed is Dictionary:
-			ticks = int(parsed.get("tick", 0))
-		GameState.show_toast(
-			"saved (tick %d)" % ticks, ThemePalette.SUCCESS
-		)
-	else:
-		GameState.show_toast(
-			"save failed (%d)" % code, ThemePalette.DANGER
-		)
-
-
-func _on_save_as_pressed() -> void:
-	# Lazily build the dialog so it only exists if the user invokes
-	# it. AcceptDialog has OK/Cancel built in; we add a LineEdit.
-	if _save_as_dialog == null:
-		_save_as_dialog = AcceptDialog.new()
-		_save_as_dialog.title = "Save As"
-		_save_as_dialog.ok_button_text = "Save"
-		_save_as_dialog.add_cancel_button("Cancel")
-		_save_as_input = LineEdit.new()
-		_save_as_input.placeholder_text = "save_name"
-		_save_as_input.custom_minimum_size = Vector2(280, 0)
-		_save_as_dialog.add_child(_save_as_input)
-		_save_as_dialog.register_text_enter(_save_as_input)
-		_save_as_dialog.confirmed.connect(_on_save_as_confirmed)
-		add_child(_save_as_dialog)
-	_save_as_input.text = ""
-	_save_as_dialog.popup_centered()
-	_save_as_input.grab_focus()
-
-
-func _on_save_as_confirmed() -> void:
-	var name_val: String = _save_as_input.text.strip_edges()
-	if name_val == "":
-		GameState.show_toast(
-			"save-as: name required", ThemePalette.WARN
-		)
-		return
-	SaveAsSwitch.perform(
-		name_val,
-		func(level: String, msg: String) -> void:
-			GameState.show_toast(msg, _color_for_level(level)),
-		func() -> void:
-			# New sim is up on the fresh DB; reload the main scene
-			# so bootstrap runs against the new backend.
-			get_tree().change_scene_to_file("res://scenes/main.tscn")
-	)
-
-
-func _color_for_level(level: String) -> Color:
-	match level:
-		"success": return ThemePalette.SUCCESS
-		"warn": return ThemePalette.WARN
-		"danger": return ThemePalette.DANGER
-		_: return ThemePalette.TEXT
