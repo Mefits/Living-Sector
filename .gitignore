@@ -11,7 +11,11 @@
 .vscode/*.code-workspace
 .idea/
 
-# Claude Code harness — local settings are machine-specific
+# Claude Code harness — local settings are machine-specific.
+# `settings.json` captures per-session permission grants (bare PIDs,
+# absolute user paths, etc.), so it's as local as settings.local.json.
+# `skills/` dirs stay trackable — those are shared agent definitions.
+**/.claude/settings.json
 **/.claude/settings.local.json
 **/.claude/projects/
 
