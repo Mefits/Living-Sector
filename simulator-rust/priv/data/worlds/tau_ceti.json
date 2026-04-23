@@ -203,7 +203,7 @@
       "location": "forge-smelter",
       "body": "forge",
       "type": "refinery",
-      "docking_capacity": 7,
+      "docking_capacity": 25,
       "services": [
         "refuel",
         "market"
@@ -221,7 +221,7 @@
       "location": "anvil-depot",
       "body": "anvil",
       "type": "station",
-      "docking_capacity": 14,
+      "docking_capacity": 40,
       "services": [
         "refuel",
         "repair",
@@ -243,7 +243,7 @@
       "location": "anvil-depot",
       "body": "anvil",
       "type": "shipyard",
-      "docking_capacity": 4,
+      "docking_capacity": 20,
       "services": [
         "refuel",
         "repair",
@@ -275,7 +275,7 @@
       "location": "anvil-depot",
       "body": "anvil",
       "type": "mining_rig",
-      "docking_capacity": 4,
+      "docking_capacity": 15,
       "services": [
         "market"
       ],
@@ -291,7 +291,7 @@
       "location": "anvil-depot",
       "body": "anvil",
       "type": "refinery",
-      "docking_capacity": 5,
+      "docking_capacity": 15,
       "services": [],
       "reserves": {
         "ore": 2000,
@@ -306,7 +306,7 @@
       "location": "anvil-depot",
       "body": "anvil",
       "type": "farm",
-      "docking_capacity": 2,
+      "docking_capacity": 10,
       "services": [],
       "reserves": {
         "water": 1500,
@@ -320,7 +320,7 @@
       "location": "crucible-mine",
       "body": "crucible",
       "type": "mining_rig",
-      "docking_capacity": 7,
+      "docking_capacity": 20,
       "services": [
         "refuel",
         "market"
@@ -339,7 +339,7 @@
       "location": "frostheim-station",
       "body": "frostheim",
       "type": "mining_rig",
-      "docking_capacity": 7,
+      "docking_capacity": 30,
       "services": [
         "refuel",
         "market"
@@ -358,7 +358,7 @@
       "location": "slag-mine",
       "body": "slag-field",
       "type": "mining_rig",
-      "docking_capacity": 6,
+      "docking_capacity": 20,
       "services": [
         "refuel",
         "market"
@@ -376,7 +376,7 @@
       "location": "deep-ice-station",
       "body": "deep-ice",
       "type": "mining_rig",
-      "docking_capacity": 5,
+      "docking_capacity": 15,
       "services": [
         "refuel",
         "market"
@@ -394,7 +394,7 @@
       "location": "frostheim-station",
       "body": "frostheim",
       "type": "refinery",
-      "docking_capacity": 5,
+      "docking_capacity": 15,
       "services": [
         "market"
       ],
@@ -411,7 +411,7 @@
       "location": "anvil-depot",
       "body": "anvil",
       "type": "factory",
-      "docking_capacity": 6,
+      "docking_capacity": 15,
       "services": [
         "market"
       ],
@@ -429,7 +429,7 @@
       "location": "forge-smelter",
       "body": "forge",
       "type": "factory",
-      "docking_capacity": 5,
+      "docking_capacity": 15,
       "services": [
         "market"
       ],
@@ -446,7 +446,7 @@
       "location": "frostheim-station",
       "body": "frostheim",
       "type": "factory",
-      "docking_capacity": 5,
+      "docking_capacity": 15,
       "services": [
         "market"
       ],
@@ -463,7 +463,7 @@
       "location": "crucible-mine",
       "body": "crucible",
       "type": "factory",
-      "docking_capacity": 5,
+      "docking_capacity": 15,
       "services": [
         "market"
       ],
@@ -480,7 +480,7 @@
       "location": "tc-sol-gate",
       "body": "frostheim",
       "type": "gate",
-      "docking_capacity": 8,
+      "docking_capacity": 25,
       "services": [
         "refuel",
         "gate"
@@ -497,7 +497,7 @@
       "location": "tc-ac-gate",
       "body": "anvil",
       "type": "gate",
-      "docking_capacity": 8,
+      "docking_capacity": 25,
       "services": [
         "refuel",
         "gate"
@@ -514,7 +514,7 @@
       "location": "tc-vega-gate",
       "body": "frostheim",
       "type": "gate",
-      "docking_capacity": 8,
+      "docking_capacity": 25,
       "services": [
         "refuel",
         "gate"

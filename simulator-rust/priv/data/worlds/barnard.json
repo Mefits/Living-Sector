@@ -62,21 +62,81 @@
     }
   ],
   "travel_routes": [
-    { "from": "yeoman-station", "to": "yeoman-farm", "distance": 20 },
-    { "from": "yeoman-station", "to": "barnard-belt-mine", "distance": 75 },
-    { "from": "yeoman-station", "to": "outpost-gamma-refinery", "distance": 120 },
-    { "from": "yeoman-station", "to": "barnard-deep-mine", "distance": 160 },
-    { "from": "yeoman-farm", "to": "barnard-belt-mine", "distance": 85 },
-    { "from": "barnard-belt-mine", "to": "outpost-gamma-refinery", "distance": 70 },
-    { "from": "barnard-belt-mine", "to": "barnard-deep-mine", "distance": 85 },
-    { "from": "outpost-gamma-refinery", "to": "barnard-deep-mine", "distance": 55 },
-    { "from": "yeoman-station", "to": "barnard-vega-gate", "distance": 65 },
-    { "from": "barnard-belt-mine", "to": "barnard-vega-gate", "distance": 50 },
-    { "from": "outpost-gamma-refinery", "to": "barnard-vega-gate", "distance": 100 },
-    { "from": "yeoman-station", "to": "barnard-lalande-gate", "distance": 95 },
-    { "from": "outpost-gamma-refinery", "to": "barnard-lalande-gate", "distance": 45 },
-    { "from": "barnard-deep-mine", "to": "barnard-lalande-gate", "distance": 55 },
-    { "from": "barnard-vega-gate", "to": "barnard-lalande-gate", "distance": 120 }
+    {
+      "from": "yeoman-station",
+      "to": "yeoman-farm",
+      "distance": 20
+    },
+    {
+      "from": "yeoman-station",
+      "to": "barnard-belt-mine",
+      "distance": 75
+    },
+    {
+      "from": "yeoman-station",
+      "to": "outpost-gamma-refinery",
+      "distance": 120
+    },
+    {
+      "from": "yeoman-station",
+      "to": "barnard-deep-mine",
+      "distance": 160
+    },
+    {
+      "from": "yeoman-farm",
+      "to": "barnard-belt-mine",
+      "distance": 85
+    },
+    {
+      "from": "barnard-belt-mine",
+      "to": "outpost-gamma-refinery",
+      "distance": 70
+    },
+    {
+      "from": "barnard-belt-mine",
+      "to": "barnard-deep-mine",
+      "distance": 85
+    },
+    {
+      "from": "outpost-gamma-refinery",
+      "to": "barnard-deep-mine",
+      "distance": 55
+    },
+    {
+      "from": "yeoman-station",
+      "to": "barnard-vega-gate",
+      "distance": 65
+    },
+    {
+      "from": "barnard-belt-mine",
+      "to": "barnard-vega-gate",
+      "distance": 50
+    },
+    {
+      "from": "outpost-gamma-refinery",
+      "to": "barnard-vega-gate",
+      "distance": 100
+    },
+    {
+      "from": "yeoman-station",
+      "to": "barnard-lalande-gate",
+      "distance": 95
+    },
+    {
+      "from": "outpost-gamma-refinery",
+      "to": "barnard-lalande-gate",
+      "distance": 45
+    },
+    {
+      "from": "barnard-deep-mine",
+      "to": "barnard-lalande-gate",
+      "distance": 55
+    },
+    {
+      "from": "barnard-vega-gate",
+      "to": "barnard-lalande-gate",
+      "distance": 120
+    }
   ],
   "facilities": [
     {
@@ -86,8 +146,13 @@
       "location": "yeoman-station",
       "body": "yeoman",
       "type": "station",
-      "docking_capacity": 12,
-      "services": ["refuel", "repair", "medical", "market"],
+      "docking_capacity": 20,
+      "services": [
+        "refuel",
+        "repair",
+        "medical",
+        "market"
+      ],
       "reserves": {
         "fuel": 2500,
         "food": 900,
@@ -104,8 +169,10 @@
       "location": "yeoman-farm",
       "body": "yeoman",
       "type": "farm",
-      "docking_capacity": 3,
-      "services": ["market"],
+      "docking_capacity": 10,
+      "services": [
+        "market"
+      ],
       "reserves": {
         "food": 1500,
         "water": 1000,
@@ -119,8 +186,11 @@
       "location": "barnard-belt-mine",
       "body": "barnard-belt",
       "type": "mining_rig",
-      "docking_capacity": 7,
-      "services": ["refuel", "market"],
+      "docking_capacity": 15,
+      "services": [
+        "refuel",
+        "market"
+      ],
       "reserves": {
         "ore": 10000,
         "ice": 1500,
@@ -135,8 +205,11 @@
       "location": "outpost-gamma-refinery",
       "body": "outpost-gamma",
       "type": "refinery",
-      "docking_capacity": 5,
-      "services": ["refuel", "market"],
+      "docking_capacity": 12,
+      "services": [
+        "refuel",
+        "market"
+      ],
       "reserves": {
         "ore": 2500,
         "ice": 3000,
@@ -152,8 +225,10 @@
       "location": "yeoman-station",
       "body": "yeoman",
       "type": "factory",
-      "docking_capacity": 5,
-      "services": ["market"],
+      "docking_capacity": 12,
+      "services": [
+        "market"
+      ],
       "reserves": {
         "metals": 800,
         "polymers": 400,
@@ -169,8 +244,11 @@
       "location": "barnard-deep-mine",
       "body": "barnard-deep-asteroid",
       "type": "mining_rig",
-      "docking_capacity": 5,
-      "services": ["refuel", "market"],
+      "docking_capacity": 10,
+      "services": [
+        "refuel",
+        "market"
+      ],
       "reserves": {
         "ore": 6500,
         "ice": 1000,
@@ -185,8 +263,11 @@
       "location": "barnard-vega-gate",
       "body": "yeoman",
       "type": "gate",
-      "docking_capacity": 8,
-      "services": ["refuel", "gate"],
+      "docking_capacity": 15,
+      "services": [
+        "refuel",
+        "gate"
+      ],
       "reserves": {
         "fuel": 5000
       },
@@ -199,8 +280,11 @@
       "location": "barnard-lalande-gate",
       "body": "outpost-gamma",
       "type": "gate",
-      "docking_capacity": 8,
-      "services": ["refuel", "gate"],
+      "docking_capacity": 15,
+      "services": [
+        "refuel",
+        "gate"
+      ],
       "reserves": {
         "fuel": 5000
       },
@@ -212,108 +296,284 @@
       "id": "market-yeoman-station",
       "facility_id": "yeoman-station",
       "prices": {
-        "ore": 16.0, "metals": 50.0, "fuel": 28.0, "food": 70.0, "water": 25.0,
-        "ice": 16.0, "gas": 18.0, "polymers": 50.0, "components": 115.0,
-        "electronics": 155.0, "tools": 105.0, "medical": 145.0, "luxury": 230.0
+        "ore": 16.0,
+        "metals": 50.0,
+        "fuel": 28.0,
+        "food": 70.0,
+        "water": 25.0,
+        "ice": 16.0,
+        "gas": 18.0,
+        "polymers": 50.0,
+        "components": 115.0,
+        "electronics": 155.0,
+        "tools": 105.0,
+        "medical": 145.0,
+        "luxury": 230.0
       },
       "supply": {
-        "ore": 1200, "metals": 500, "fuel": 1000, "food": 900, "water": 1000,
-        "medical": 120, "tools": 120, "components": 60
+        "ore": 1200,
+        "metals": 500,
+        "fuel": 1000,
+        "food": 900,
+        "water": 1000,
+        "medical": 120,
+        "tools": 120,
+        "components": 60
       },
       "demand": {
-        "food": 18, "fuel": 12, "tools": 8, "medical": 6, "components": 5, "luxury": 4
+        "food": 18,
+        "fuel": 12,
+        "tools": 8,
+        "medical": 6,
+        "components": 5,
+        "luxury": 4
       },
-      "consumption": { "fuel": 1 },
+      "consumption": {
+        "fuel": 1
+      },
       "price_elasticity": 0.02
     },
     {
       "id": "market-yeoman-farm",
       "facility_id": "yeoman-farm",
       "prices": {
-        "food": 45.0, "water": 15.0, "fuel": 30.0, "ore": 16.0
+        "food": 45.0,
+        "water": 15.0,
+        "fuel": 30.0,
+        "ore": 16.0
       },
       "supply": {
-        "food": 1500, "water": 1000, "fuel": 200
+        "food": 1500,
+        "water": 1000,
+        "fuel": 200
       },
       "demand": {
-        "fuel": 5, "tools": 2
+        "fuel": 5,
+        "tools": 2
       },
-      "consumption": { "fuel": 1 },
-      "production": { "food": 1 },
+      "consumption": {
+        "fuel": 1
+      },
+      "production": {
+        "food": 1
+      },
       "price_elasticity": 0.02
     },
     {
       "id": "market-barnard-belt-mine",
       "facility_id": "barnard-belt-mine",
       "prices": {
-        "ore": 5.0, "ice": 18.0, "fuel": 34.0, "food": 95.0, "metals": 58.0
+        "ore": 5.0,
+        "ice": 18.0,
+        "fuel": 34.0,
+        "food": 95.0,
+        "metals": 58.0
       },
       "supply": {
-        "ore": 8000, "ice": 1200, "fuel": 800, "food": 100
+        "ore": 8000,
+        "ice": 1200,
+        "fuel": 800,
+        "food": 100
       },
       "demand": {
-        "food": 10, "fuel": 8, "tools": 3
+        "food": 10,
+        "fuel": 8,
+        "tools": 3
       },
-      "consumption": { "fuel": 1 },
+      "consumption": {
+        "fuel": 1
+      },
       "price_elasticity": 0.02
     },
     {
       "id": "market-outpost-gamma-refinery",
       "facility_id": "outpost-gamma-refinery",
       "prices": {
-        "ore": 10.0, "ice": 5.0, "metals": 42.0, "fuel": 26.0, "polymers": 44.0,
-        "food": 85.0, "gas": 10.0, "components": 120.0
+        "ore": 10.0,
+        "ice": 5.0,
+        "metals": 42.0,
+        "fuel": 26.0,
+        "polymers": 44.0,
+        "food": 85.0,
+        "gas": 10.0,
+        "components": 120.0
       },
       "supply": {
-        "ore": 2200, "ice": 2500, "metals": 900, "fuel": 1200, "polymers": 300
+        "ore": 2200,
+        "ice": 2500,
+        "metals": 900,
+        "fuel": 1200,
+        "polymers": 300
       },
       "demand": {
-        "food": 10, "fuel": 10, "tools": 5
+        "food": 10,
+        "fuel": 10,
+        "tools": 5
       },
-      "consumption": { "fuel": 1 },
+      "consumption": {
+        "fuel": 1
+      },
       "price_elasticity": 0.02
     },
     {
       "id": "market-barnard-deep-mine",
       "facility_id": "barnard-deep-mine",
       "prices": {
-        "ore": 4.0, "ice": 20.0, "fuel": 38.0, "food": 100.0, "metals": 60.0
+        "ore": 4.0,
+        "ice": 20.0,
+        "fuel": 38.0,
+        "food": 100.0,
+        "metals": 60.0
       },
       "supply": {
-        "ore": 5000, "ice": 800, "fuel": 700, "food": 120
+        "ore": 5000,
+        "ice": 800,
+        "fuel": 700,
+        "food": 120
       },
       "demand": {
-        "food": 8, "fuel": 6
+        "food": 8,
+        "fuel": 6
       },
-      "consumption": { "fuel": 1 },
+      "consumption": {
+        "fuel": 1
+      },
       "price_elasticity": 0.02
     }
   ],
   "ships": [
-    { "name": "Barnard Hauler", "location": "yeoman-station", "class": "hauler", "credits": 16000, "faction_id": "outer-reach",
+    {
+      "name": "Barnard Hauler",
+      "location": "yeoman-station",
+      "class": "hauler",
+      "credits": 16000,
+      "faction_id": "outer-reach",
       "size": "huge",
       "fitting": {
-        "engine": "engine_t2", "cargo_bay": "cargo_bay_t2",
-        "sensors": "sensors_t2", "reactor": "reactor_t2", "comms": "comms_t1"
+        "engine": "engine_t2",
+        "cargo_bay": "cargo_bay_t2",
+        "sensors": "sensors_t2",
+        "reactor": "reactor_t2",
+        "comms": "comms_t1"
       },
-      "progression": { "level": 2, "xp": 30, "retrofit_points": 1 }
+      "progression": {
+        "level": 2,
+        "xp": 30,
+        "retrofit_points": 1
+      }
     },
-    { "name": "Yeoman Runner", "location": "yeoman-station", "class": "freighter", "credits": 10000, "faction_id": "outer-reach" },
-    { "name": "Gamma Cart", "location": "outpost-gamma-refinery", "class": "freighter", "credits": 9000, "faction_id": "outer-reach" },
-    { "name": "Reach Courier", "location": "yeoman-station", "class": "courier", "credits": 5000, "faction_id": "outer-reach" },
-    { "name": "Deep Drift Picker", "location": "barnard-deep-mine", "class": "miner", "credits": 3500, "faction_id": "outer-reach" },
-    { "name": "Belt Crusher", "location": "barnard-belt-mine", "class": "miner", "credits": 3500, "faction_id": "outer-reach" },
-    { "name": "Belt Hound", "location": "barnard-belt-mine", "class": "miner", "credits": 3500, "faction_id": "outer-reach" },
-    { "name": "Gamma Tanker", "location": "outpost-gamma-refinery", "class": "tanker", "credits": 13000, "faction_id": "outer-reach" },
-    { "name": "Reach Whaler", "location": "yeoman-station", "class": "tanker", "credits": 12000, "faction_id": "outer-reach" },
-    { "name": "Purple Hawk", "location": "yeoman-station", "class": "freighter", "credits": 10000, "faction_id": "outer-reach" },
-    { "name": "Violet Stag", "location": "outpost-gamma-refinery", "class": "freighter", "credits": 10000, "faction_id": "outer-reach" },
-    { "name": "Iron Magpie", "location": "barnard-belt-mine", "class": "freighter", "credits": 9500, "faction_id": "outer-reach" },
-    { "name": "Dusty Vulture", "location": "barnard-deep-mine", "class": "freighter", "credits": 10000, "faction_id": "independent" },
-    { "name": "Onyx Jackal", "location": "yeoman-station", "class": "tanker", "credits": 12000, "faction_id": "independent" },
-    { "name": "Barnard Sable", "location": "yeoman-station", "class": "hauler", "credits": 14000, "faction_id": "outer-reach" },
-    { "name": "Gamma Ironhide", "location": "outpost-gamma-refinery", "class": "hauler", "credits": 14000, "faction_id": "outer-reach" },
-    { "name": "Frontier Rust", "location": "yeoman-station", "class": "courier", "credits": 5000, "faction_id": "outer-reach" }
+    {
+      "name": "Yeoman Runner",
+      "location": "yeoman-station",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Gamma Cart",
+      "location": "outpost-gamma-refinery",
+      "class": "freighter",
+      "credits": 9000,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Reach Courier",
+      "location": "yeoman-station",
+      "class": "courier",
+      "credits": 5000,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Deep Drift Picker",
+      "location": "barnard-deep-mine",
+      "class": "miner",
+      "credits": 3500,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Belt Crusher",
+      "location": "barnard-belt-mine",
+      "class": "miner",
+      "credits": 3500,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Belt Hound",
+      "location": "barnard-belt-mine",
+      "class": "miner",
+      "credits": 3500,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Gamma Tanker",
+      "location": "outpost-gamma-refinery",
+      "class": "tanker",
+      "credits": 13000,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Reach Whaler",
+      "location": "yeoman-station",
+      "class": "tanker",
+      "credits": 12000,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Purple Hawk",
+      "location": "yeoman-station",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Violet Stag",
+      "location": "outpost-gamma-refinery",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Iron Magpie",
+      "location": "barnard-belt-mine",
+      "class": "freighter",
+      "credits": 9500,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Dusty Vulture",
+      "location": "barnard-deep-mine",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Onyx Jackal",
+      "location": "yeoman-station",
+      "class": "tanker",
+      "credits": 12000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Barnard Sable",
+      "location": "yeoman-station",
+      "class": "hauler",
+      "credits": 14000,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Gamma Ironhide",
+      "location": "outpost-gamma-refinery",
+      "class": "hauler",
+      "credits": 14000,
+      "faction_id": "outer-reach"
+    },
+    {
+      "name": "Frontier Rust",
+      "location": "yeoman-station",
+      "class": "courier",
+      "credits": 5000,
+      "faction_id": "outer-reach"
+    }
   ],
   "populations": [
     {
@@ -325,7 +585,9 @@
       "population_count": 4500,
       "food_satisfaction": 40,
       "total_wealth": 260000,
-      "consumption": { "food": 12 },
+      "consumption": {
+        "food": 12
+      },
       "production_commodity": "polymers",
       "production_amount": 10
     },
@@ -338,7 +600,9 @@
       "population_count": 2000,
       "food_satisfaction": 30,
       "total_wealth": 150000,
-      "consumption": { "food": 5 },
+      "consumption": {
+        "food": 5
+      },
       "production_commodity": "metals",
       "production_amount": 20
     }

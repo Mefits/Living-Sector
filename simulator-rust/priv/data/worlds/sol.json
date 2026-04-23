@@ -287,7 +287,7 @@
       "location": "mercury-station",
       "body": "mercury",
       "type": "mining_rig",
-      "docking_capacity": 4,
+      "docking_capacity": 15,
       "services": [
         "refuel",
         "market"
@@ -305,7 +305,7 @@
       "location": "venus-station",
       "body": "venus",
       "type": "mining_rig",
-      "docking_capacity": 4,
+      "docking_capacity": 15,
       "services": [
         "refuel",
         "market"
@@ -323,7 +323,7 @@
       "location": "earth-station",
       "body": "earth",
       "type": "station",
-      "docking_capacity": 15,
+      "docking_capacity": 50,
       "services": [
         "refuel",
         "repair",
@@ -345,7 +345,7 @@
       "location": "earth-station",
       "body": "earth",
       "type": "farm",
-      "docking_capacity": 3,
+      "docking_capacity": 10,
       "services": [
         "market"
       ],
@@ -361,7 +361,7 @@
       "location": "earth-station",
       "body": "earth",
       "type": "shipyard",
-      "docking_capacity": 4,
+      "docking_capacity": 20,
       "services": [
         "refuel",
         "repair",
@@ -396,7 +396,7 @@
       "location": "luna-base",
       "body": "luna",
       "type": "factory",
-      "docking_capacity": 6,
+      "docking_capacity": 25,
       "services": [
         "refuel",
         "market"
@@ -419,7 +419,7 @@
       "location": "mars-station",
       "body": "mars",
       "type": "station",
-      "docking_capacity": 10,
+      "docking_capacity": 40,
       "services": [
         "refuel",
         "repair",
@@ -439,7 +439,7 @@
       "location": "mars-station",
       "body": "mars",
       "type": "refinery",
-      "docking_capacity": 5,
+      "docking_capacity": 12,
       "services": [
         "market"
       ],
@@ -456,7 +456,7 @@
       "location": "mars-station",
       "body": "mars",
       "type": "mining_rig",
-      "docking_capacity": 3,
+      "docking_capacity": 10,
       "services": [],
       "reserves": {
         "fuel": 500
@@ -469,7 +469,7 @@
       "location": "mars-station",
       "body": "mars",
       "type": "farm",
-      "docking_capacity": 2,
+      "docking_capacity": 10,
       "services": [],
       "reserves": {
         "water": 2000,
@@ -483,7 +483,7 @@
       "location": "belt-outpost",
       "body": "belt",
       "type": "mining_rig",
-      "docking_capacity": 8,
+      "docking_capacity": 30,
       "services": [
         "refuel",
         "market"
@@ -501,7 +501,7 @@
       "location": "belt-outpost",
       "body": "belt",
       "type": "factory",
-      "docking_capacity": 4,
+      "docking_capacity": 12,
       "services": [
         "market"
       ],
@@ -518,7 +518,7 @@
       "location": "belt-outpost",
       "body": "belt",
       "type": "farm",
-      "docking_capacity": 2,
+      "docking_capacity": 10,
       "services": [],
       "reserves": {
         "water": 1500,
@@ -532,7 +532,7 @@
       "location": "jupiter-station",
       "body": "jupiter",
       "type": "refinery",
-      "docking_capacity": 6,
+      "docking_capacity": 20,
       "services": [
         "refuel",
         "market"
@@ -550,7 +550,7 @@
       "location": "jupiter-station",
       "body": "jupiter",
       "type": "station",
-      "docking_capacity": 8,
+      "docking_capacity": 35,
       "services": [
         "refuel",
         "repair",
@@ -570,7 +570,7 @@
       "location": "jupiter-station",
       "body": "jupiter",
       "type": "mining_rig",
-      "docking_capacity": 3,
+      "docking_capacity": 12,
       "services": [],
       "reserves": {
         "fuel": 500
@@ -583,7 +583,7 @@
       "location": "saturn-station",
       "body": "saturn",
       "type": "mining_rig",
-      "docking_capacity": 4,
+      "docking_capacity": 20,
       "services": [
         "refuel",
         "market"
@@ -602,7 +602,7 @@
       "location": "trojan-outpost",
       "body": "trojan-cluster",
       "type": "mining_rig",
-      "docking_capacity": 5,
+      "docking_capacity": 12,
       "services": [
         "refuel",
         "market"
@@ -620,7 +620,7 @@
       "location": "hilda-outpost",
       "body": "hilda-group",
       "type": "mining_rig",
-      "docking_capacity": 4,
+      "docking_capacity": 10,
       "services": [
         "refuel",
         "market"
@@ -637,7 +637,7 @@
       "location": "near-earth-station",
       "body": "near-earth",
       "type": "mining_rig",
-      "docking_capacity": 4,
+      "docking_capacity": 10,
       "services": [
         "refuel",
         "market"
@@ -655,7 +655,7 @@
       "location": "kuiper-station",
       "body": "kuiper",
       "type": "mining_rig",
-      "docking_capacity": 3,
+      "docking_capacity": 20,
       "services": [
         "refuel",
         "market"
@@ -673,7 +673,7 @@
       "location": "belt-outpost",
       "body": "belt",
       "type": "refinery",
-      "docking_capacity": 4,
+      "docking_capacity": 12,
       "services": [
         "market"
       ],
@@ -690,7 +690,7 @@
       "location": "saturn-station",
       "body": "saturn",
       "type": "refinery",
-      "docking_capacity": 4,
+      "docking_capacity": 12,
       "services": [
         "market"
       ],
@@ -707,7 +707,7 @@
       "location": "venus-station",
       "body": "venus",
       "type": "refinery",
-      "docking_capacity": 3,
+      "docking_capacity": 10,
       "services": [
         "market"
       ],
@@ -723,7 +723,7 @@
       "location": "earth-station",
       "body": "earth",
       "type": "factory",
-      "docking_capacity": 5,
+      "docking_capacity": 12,
       "services": [
         "market"
       ],
@@ -741,7 +741,7 @@
       "location": "mars-station",
       "body": "mars",
       "type": "factory",
-      "docking_capacity": 4,
+      "docking_capacity": 12,
       "services": [
         "market"
       ],
@@ -759,7 +759,7 @@
       "location": "jupiter-station",
       "body": "jupiter",
       "type": "factory",
-      "docking_capacity": 3,
+      "docking_capacity": 12,
       "services": [
         "market"
       ],
@@ -776,7 +776,7 @@
       "location": "earth-station",
       "body": "earth",
       "type": "refinery",
-      "docking_capacity": 4,
+      "docking_capacity": 12,
       "services": [
         "market"
       ],
@@ -794,7 +794,7 @@
       "location": "mercury-station",
       "body": "mercury",
       "type": "refinery",
-      "docking_capacity": 3,
+      "docking_capacity": 10,
       "services": [
         "market"
       ],
@@ -811,7 +811,7 @@
       "location": "venus-station",
       "body": "venus",
       "type": "factory",
-      "docking_capacity": 3,
+      "docking_capacity": 10,
       "services": [
         "market"
       ],
@@ -828,7 +828,7 @@
       "location": "saturn-station",
       "body": "saturn",
       "type": "factory",
-      "docking_capacity": 3,
+      "docking_capacity": 12,
       "services": [
         "market"
       ],
@@ -845,7 +845,7 @@
       "location": "mercury-station",
       "body": "mercury",
       "type": "factory",
-      "docking_capacity": 3,
+      "docking_capacity": 10,
       "services": [
         "market"
       ],
@@ -862,7 +862,7 @@
       "location": "sol-ac-gate",
       "body": "belt",
       "type": "gate",
-      "docking_capacity": 8,
+      "docking_capacity": 25,
       "services": [
         "refuel",
         "gate"
@@ -879,7 +879,7 @@
       "location": "sol-tc-gate",
       "body": "hilda-group",
       "type": "gate",
-      "docking_capacity": 8,
+      "docking_capacity": 25,
       "services": [
         "refuel",
         "gate"
