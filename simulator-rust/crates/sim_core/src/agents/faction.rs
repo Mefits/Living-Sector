@@ -107,6 +107,40 @@ pub const SUBSIDY_MAX_MULTIPLIER: f32 = 3.0;
 /// Subsidy contract lifespan (base ticks). Matches Elixir's `500 × mult`.
 pub const SUBSIDY_LIFESPAN_BASE: u64 = 500;
 
+/// Phase 19c: demand analyzer posts a *construction* contract when a
+/// commodity has been chronically short at a faction's member
+/// location for this many ticks. Much higher bar than the subsidy
+/// threshold — subsidy handles "we're out today", construction
+/// handles "we've been out for ages, the fix is to build a producer."
+pub const CONSTRUCTION_TRIGGER_TICKS: u32 = 600;
+
+/// How often the demand analyzer runs (every N base-ticks). Rare —
+/// spawning facilities is a consequential act. Cadence lives on the
+/// faction tick alongside subsidy.
+pub const CONSTRUCTION_CHECK_INTERVAL_BASE: u64 = 100;
+
+/// Max active construction contracts a faction can have posted at
+/// any time. One keeps the board focused; beyond that a struggling
+/// sector would flood the ticker with the same plea.
+pub const MAX_ACTIVE_CONSTRUCTIONS_PER_FACTION: u32 = 1;
+
+/// Base payment for a construction contract. Much higher than
+/// subsidy because the mission is bigger: you're literally ferrying
+/// 200 units of a chronically-short commodity into a dying market.
+pub const CONSTRUCTION_BASE_PAYMENT: i64 = 15_000;
+
+/// Construction delivery headcount. Larger than subsidy so the
+/// arriving shipment materially reshapes the destination market.
+pub const CONSTRUCTION_QUANTITY: u32 = 200;
+
+/// Construction contract lifespan (base ticks). Longer than subsidy
+/// so big hulls across systems have time to arrive.
+pub const CONSTRUCTION_LIFESPAN_BASE: u64 = 800;
+
+/// Faction must hold at least this much treasury to self-fund a
+/// construction payout. Avoids bankrupting broke factions.
+pub const CONSTRUCTION_MIN_TREASURY: i64 = 18_000;
+
 pub fn tick_factions(
     world: &mut hecs::World,
     contracts: &mut ContractBoard,
@@ -129,6 +163,17 @@ pub fn tick_factions(
     let subsidy_interval = SUBSIDY_CHECK_INTERVAL_BASE * tick_multiplier as u64;
     if subsidy_interval > 0 && tick % subsidy_interval == 0 {
         run_subsidy_cycle(world, contracts, tick, tick_multiplier);
+    }
+
+    // --- Construction demand analyzer (Phase 19c) ---
+    // Extreme shortages → spawn a producer-class delivery contract.
+    // Runs on its own interval, well-separated from subsidy cadence so
+    // a single flow of "demand signal" doesn't bunch both responses on
+    // the same tick.
+    let construction_interval =
+        CONSTRUCTION_CHECK_INTERVAL_BASE * tick_multiplier as u64;
+    if construction_interval > 0 && tick % construction_interval == 0 {
+        run_construction_cycle(world, contracts, tick, tick_multiplier);
     }
 
     // Keep snapshot `active_subsidies` in sync — recalc from the board so
@@ -453,6 +498,194 @@ fn run_subsidy_cycle(
             plan.faction_id,
             plan.commodity,
             SUBSIDY_QUANTITY,
+            plan.source,
+            plan.destination,
+            plan.payment,
+            tick,
+            lifespan,
+        );
+    }
+}
+
+/// Phase 19c: demand analyzer. Chronic-shortage detection — mirrors
+/// the subsidy cycle's structure but fires on a much higher threshold
+/// and posts a [`ContractType::Construction`] contract instead of a
+/// subsidy. The delivered commodity lands at the starved destination
+/// like a regular delivery; a follow-up commit will also spawn a
+/// producer facility there on successful Paid.
+///
+/// Constraints:
+/// - faction treasury ≥ [`CONSTRUCTION_MIN_TREASURY`] (won't bankrupt)
+/// - at least one member-location market has `shortage_ticks` ≥
+///   [`CONSTRUCTION_TRIGGER_TICKS`] (600 ticks = very long haul)
+/// - faction has < [`MAX_ACTIVE_CONSTRUCTIONS_PER_FACTION`] currently
+///   on the board
+/// - one construction per faction per cycle — the same shortage can
+///   warrant re-posting on the next interval if nothing took the
+///   contract
+fn run_construction_cycle(
+    world: &mut hecs::World,
+    contracts: &mut ContractBoard,
+    tick: u64,
+    tick_multiplier: u32,
+) {
+    // Reuse the same "faction → worst-shortage commodity/destination"
+    // shape the subsidy cycle builds, but with the higher threshold.
+    #[derive(Clone, Default)]
+    struct FactionShortage {
+        by_commodity: std::collections::HashMap<Commodity, (usize, u32, String)>,
+        member_locations: Vec<String>,
+    }
+    let mut shortage_by_faction: std::collections::HashMap<String, FactionShortage> =
+        std::collections::HashMap::new();
+
+    let market_shortage_by_loc: std::collections::HashMap<
+        String,
+        std::collections::HashMap<Commodity, u32>,
+    > = world
+        .query::<(&MarketIdentity, &MarketHistory)>()
+        .iter()
+        .map(|(_e, (id, hist))| (id.facility_location.clone(), hist.shortage_ticks.clone()))
+        .collect();
+
+    for (_e, (fac_id, fac_loc)) in world
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .iter()
+    {
+        if fac_id.faction_id.is_empty() {
+            continue;
+        }
+        let loc = &fac_loc.location_name;
+        let entry = shortage_by_faction
+            .entry(fac_id.faction_id.clone())
+            .or_default();
+        if !entry.member_locations.contains(loc) {
+            entry.member_locations.push(loc.clone());
+        }
+        if let Some(short_map) = market_shortage_by_loc.get(loc) {
+            for (&commodity, &shortage) in short_map {
+                if shortage < CONSTRUCTION_TRIGGER_TICKS {
+                    continue;
+                }
+                let slot = entry.by_commodity.entry(commodity).or_default();
+                slot.0 += 1;
+                if shortage > slot.1 {
+                    slot.1 = shortage;
+                    slot.2 = loc.clone();
+                }
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct Plan {
+        faction_id: String,
+        commodity: Commodity,
+        destination: String,
+        source: String,
+        payment: i64,
+    }
+
+    let supply_by_loc: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> = world
+        .query::<(&MarketIdentity, &crate::agents::market::MarketPricing)>()
+        .iter()
+        .map(|(_e, (id, pricing))| (id.facility_location.clone(), pricing.supply.clone()))
+        .collect();
+
+    let faction_ids: Vec<String> = shortage_by_faction.keys().cloned().collect();
+    let mut plans: Vec<Plan> = Vec::new();
+
+    for faction_id in faction_ids {
+        let info = shortage_by_faction.get(&faction_id).cloned().unwrap_or_default();
+
+        let current_active = contracts
+            .iter()
+            .filter(|c| {
+                c.requestor_id == faction_id
+                    && c.contract_type == crate::economy::contracts::ContractType::Construction
+            })
+            .filter(|c| {
+                matches!(
+                    c.status,
+                    crate::economy::contracts::ContractStatus::Posted
+                        | crate::economy::contracts::ContractStatus::Accepted
+                        | crate::economy::contracts::ContractStatus::PickedUp
+                )
+            })
+            .count() as u32;
+        if current_active >= MAX_ACTIVE_CONSTRUCTIONS_PER_FACTION {
+            continue;
+        }
+
+        let pick = info
+            .by_commodity
+            .iter()
+            .filter(|(_, (cnt, _, _))| *cnt >= 1) // any facility short
+            .max_by_key(|(_, (_, max_short, _))| *max_short)
+            .map(|(c, (_, _, dest))| (*c, dest.clone()));
+        let Some((commodity, destination)) = pick else {
+            continue;
+        };
+
+        // Already posting this exact destination+commodity? Skip.
+        let already = contracts.iter().any(|c| {
+            c.requestor_id == faction_id
+                && c.commodity == commodity
+                && c.destination_location == destination
+                && c.contract_type == crate::economy::contracts::ContractType::Construction
+                && matches!(
+                    c.status,
+                    crate::economy::contracts::ContractStatus::Posted
+                        | crate::economy::contracts::ContractStatus::Accepted
+                        | crate::economy::contracts::ContractStatus::PickedUp
+                )
+        });
+        if already {
+            continue;
+        }
+
+        // Source = highest-supply location with >= 200 units available.
+        let source = supply_by_loc
+            .iter()
+            .filter(|(_, supply)| supply.get(&commodity).copied().unwrap_or(0.0) >= 200.0)
+            .max_by(|(_, a), (_, b)| {
+                let av = a.get(&commodity).copied().unwrap_or(0.0);
+                let bv = b.get(&commodity).copied().unwrap_or(0.0);
+                av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(loc, _)| loc.clone());
+        let Some(source) = source else { continue };
+        if source == destination {
+            continue;
+        }
+
+        plans.push(Plan {
+            faction_id,
+            commodity,
+            destination,
+            source,
+            payment: CONSTRUCTION_BASE_PAYMENT,
+        });
+    }
+
+    // Apply plans: treasury debit + post.
+    let lifespan = CONSTRUCTION_LIFESPAN_BASE * tick_multiplier as u64;
+    for plan in plans {
+        let afford = world
+            .query::<&FactionData>()
+            .iter()
+            .find(|(_, d)| d.id == plan.faction_id && d.treasury >= CONSTRUCTION_MIN_TREASURY)
+            .map(|(e, _)| e);
+        let Some(entity) = afford else { continue };
+        if let Ok(mut data) = world.get::<&mut FactionData>(entity) {
+            data.treasury -= plan.payment;
+            data.dirty = true;
+        }
+        contracts.post_construction(
+            plan.faction_id.clone(),
+            Some(plan.faction_id),
+            plan.commodity,
+            CONSTRUCTION_QUANTITY,
             plan.source,
             plan.destination,
             plan.payment,

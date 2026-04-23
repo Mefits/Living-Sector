@@ -110,6 +110,15 @@ pub enum ContractType {
     /// ship's crew. `quantity` is duration-ticks; `commodity` unused;
     /// completion grants skill XP. Not yet wired end-to-end.
     CrewMission,
+    /// Phase 19c: construction delivery. Mechanically like a bigger
+    /// Delivery — ship buys a commodity at source and delivers it to
+    /// destination — but on payout the sim ALSO spawns a new facility
+    /// at the destination sized to produce that commodity. Used by the
+    /// demand analyzer to self-correct chronic shortages: "Kuiper
+    /// Station has had no polymers for 500 ticks → build a polymer
+    /// refinery there." Rep treatment + fill-ratio scoring match
+    /// Delivery; the only post-delivery difference is the spawn.
+    Construction,
 }
 
 impl ContractType {
@@ -122,6 +131,7 @@ impl ContractType {
             ContractType::Subsidy => "subsidy",
             ContractType::Supply => "supply",
             ContractType::CrewMission => "crew_mission",
+            ContractType::Construction => "construction",
         }
     }
 }
@@ -348,6 +358,37 @@ impl ContractBoard {
     ) -> String {
         self.post_kind_with_faction(
             ContractType::Delivery,
+            requestor_id,
+            faction_id,
+            commodity,
+            quantity,
+            source_location,
+            destination_location,
+            payment,
+            posted_at_tick,
+            lifespan_ticks,
+        )
+    }
+
+    /// Phase 19c: post a construction delivery. Behaves like a
+    /// Delivery on the board but is tagged so the DeliverContract
+    /// apply phase knows to spawn a new facility at `destination`
+    /// sized to produce `commodity`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn post_construction(
+        &mut self,
+        requestor_id: String,
+        faction_id: Option<String>,
+        commodity: Commodity,
+        quantity: u32,
+        source_location: String,
+        destination_location: String,
+        payment: i64,
+        posted_at_tick: u64,
+        lifespan_ticks: u64,
+    ) -> String {
+        self.post_kind_with_faction(
+            ContractType::Construction,
             requestor_id,
             faction_id,
             commodity,
@@ -797,8 +838,10 @@ impl ContractBoard {
         for id in due {
             let should_renew = match self.contracts.get(&id) {
                 Some(c) => {
-                    c.contract_type == ContractType::Delivery
-                        && c.renewal_count < CONTRACT_MAX_RENEWALS
+                    matches!(
+                        c.contract_type,
+                        ContractType::Delivery | ContractType::Construction
+                    ) && c.renewal_count < CONTRACT_MAX_RENEWALS
                 }
                 None => false,
             };

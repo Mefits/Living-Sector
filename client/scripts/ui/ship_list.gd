@@ -229,6 +229,8 @@ func _contract_kind_label(contract_id: String) -> String:
 			return "Subsidy"
 		"supply":
 			return "Supply"
+		"construction":
+			return "Construction"
 		_:
 			return kind.capitalize()
 

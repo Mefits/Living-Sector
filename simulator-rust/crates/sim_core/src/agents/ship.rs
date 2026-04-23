@@ -2295,8 +2295,10 @@ fn try_plan_contract(
         // wastes 97.5% of the hold — sqrt(0.025) ≈ 0.16, so that
         // delivery scores only ~16% of its raw profit in the planner
         // comparison. Applied only to kinds that actually load cargo.
-        let fill_quality: f32 = if c.contract_type == ContractType::Delivery
-            && cargo.capacity > 0
+        let fill_quality: f32 = if matches!(
+            c.contract_type,
+            ContractType::Delivery | ContractType::Construction
+        ) && cargo.capacity > 0
         {
             let ratio = (c.quantity as f32 / cargo.capacity as f32).clamp(0.0, 1.0);
             // sqrt curve: gentle at the top (90% fill → 0.95), steep
@@ -2368,6 +2370,19 @@ fn try_plan_contract(
         ),
         ContractType::Subsidy => (
             "fulfill_contract",
+            build_fulfill_delivery_bt(
+                at_loc,
+                &cand.source,
+                &cand.destination,
+                cand.commodity,
+                cand.qty,
+                cand.id,
+                registry,
+                gate_pairs,
+            ),
+        ),
+        ContractType::Construction => (
+            "fulfill_construction",
             build_fulfill_delivery_bt(
                 at_loc,
                 &cand.source,

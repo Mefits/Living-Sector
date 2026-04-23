@@ -1208,6 +1208,7 @@ async fn load_contracts(pool: &SqlitePool, store: &mut AgentStore) -> Result<()>
             "subsidy" => ContractType::Subsidy,
             "supply" => ContractType::Supply,
             "crew_mission" => ContractType::CrewMission,
+            "construction" => ContractType::Construction,
             other => {
                 tracing::warn!(id = %id, kind = %other, "skipping contract with unknown type");
                 continue;
