@@ -1481,6 +1481,21 @@ fn advance_transits(
 
                 transit.transit = Some(t);
             }
+        } else if position.docked_at.is_some() {
+            // Docked ships: keep the position pinned to the station's
+            // current world coordinates. Godot hides docked ships in
+            // the normal render, but click-to-follow still reads
+            // `position` — without this anchor, following a docked
+            // ship snaps the camera to the ship's last in-space
+            // position (often the approach point several ticks before
+            // docking). Pinning every tick keeps the selection
+            // hand-off clean and the (future) "zoom to ship" UX
+            // correct regardless of dock dwell duration.
+            if let Some(loc) = position.location_name.clone() {
+                if let Some(p) = location_to_pos(&loc) {
+                    position.position = p;
+                }
+            }
         }
     }
     // Placate the linter — tick_multiplier is no longer needed in the
