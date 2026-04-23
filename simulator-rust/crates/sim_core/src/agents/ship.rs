@@ -1933,6 +1933,33 @@ fn decide_and_act(
             continue;
         }
 
+        // Sanity-clean stale active_contract_id before planning.
+        // Covers two cases:
+        //   1. The contract finalised (Paid / Expired) but the Deliver
+        //      action never ran (BT ended before reaching it).
+        //   2. A speculative-accept race: the ship set its id locally
+        //      but another ship won the AcceptContract apply, so the
+        //      contract's fulfiller_id isn't us.
+        // Either way, clearing here lets plan_goal consider new work
+        // instead of treating the ship as busy forever.
+        if let Some(cid) = economy.active_contract_id.clone() {
+            let stale = match contracts.get(&cid) {
+                None => true,
+                Some(c) => {
+                    use crate::economy::contracts::ContractStatus;
+                    let finalized = matches!(
+                        c.status,
+                        ContractStatus::Paid | ContractStatus::Expired
+                    );
+                    let not_ours = c.fulfiller_id.as_deref() != Some(ship_id.as_str());
+                    finalized || not_ours
+                }
+            };
+            if stale {
+                economy.active_contract_id = None;
+            }
+        }
+
         let needs_plan = ai.current_bt.is_none();
         if needs_plan {
             let (goal, bt) = plan_goal(
@@ -1985,9 +2012,26 @@ fn decide_and_act(
 
             match status {
                 BtStatus::Running => ai.current_bt = Some(bt),
-                BtStatus::Success | BtStatus::Failure => {
+                BtStatus::Success => {
                     // Plan done — clear. Next tick replans.
                     ai.current_bt = None;
+                }
+                BtStatus::Failure => {
+                    ai.current_bt = None;
+                    // If the failing plan was a contract run, release
+                    // the contract back to the board so another ship
+                    // can pick it up (and we can re-plan freely). The
+                    // guarded `ReleaseContract` apply is a no-op if
+                    // we aren't actually the named fulfiller — which
+                    // protects against losing-speculative-accept
+                    // ships yanking contracts the winning ship is
+                    // still working.
+                    if let Some(cid) = economy.active_contract_id.take() {
+                        commands.push(SimCommand::ReleaseContract {
+                            ship_id: ship_id.clone(),
+                            contract_id: cid,
+                        });
+                    }
                 }
             }
         }

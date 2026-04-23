@@ -1016,6 +1016,23 @@ fn apply_ship_commands(
                 let tick_now = 0; // Apply phase doesn't know the tick; board records accepted_at separately.
                 store.contracts.accept(&contract_id, ship_id, tick_now);
             }
+            SimCommand::ReleaseContract { ship_id, contract_id } => {
+                // Move Accepted → Posted so another ship can try. The
+                // fulfiller_id guard inside `release` ensures a losing
+                // speculative-accept can't yank the winning ship's
+                // contract; if we weren't the named fulfiller, the
+                // call is a no-op, which is what we want.
+                let released = store
+                    .contracts
+                    .release(&contract_id, Some(&ship_id));
+                if released {
+                    tracing::debug!(
+                        contract_id = %contract_id,
+                        ship_id = %ship_id,
+                        "contract released back to Posted after BT failure"
+                    );
+                }
+            }
             SimCommand::DeliverContract { ship, contract_id } => {
                 use sim_core::agents::population::PopDemographics;
                 use sim_core::economy::contracts::ContractType;

@@ -596,6 +596,51 @@ impl ContractBoard {
         true
     }
 
+    /// Move an Accepted contract back to Posted so another ship can
+    /// pick it up. Called when a ship's BT fails before delivery
+    /// while it still holds the contract — without this the contract
+    /// sits Accepted forever (no-one else can claim it) and the ship
+    /// itself is stuck too.
+    ///
+    /// Guarded on `fulfiller_id == expected_fulfiller` so a losing
+    /// speculative-accept can't yank a contract out from under the
+    /// ship that actually won the race. Pass `None` to skip the
+    /// guard (admin / bulk cleanup).
+    ///
+    /// Returns true if the release happened. False means the contract
+    /// doesn't exist, isn't Accepted, or the fulfiller guard didn't
+    /// match.
+    pub fn release(&mut self, contract_id: &str, expected_fulfiller: Option<&str>) -> bool {
+        // Mutate + collect what we need for the indexes in a single
+        // scoped borrow, then drop `c` so `self` is free for the
+        // reindex + posted-by-destination calls below.
+        let dest = {
+            let c = match self.contracts.get_mut(contract_id) {
+                Some(c) if c.status == ContractStatus::Accepted => c,
+                _ => return false,
+            };
+            if let Some(expected) = expected_fulfiller {
+                let matches = c.fulfiller_id.as_deref() == Some(expected);
+                if !matches {
+                    return false;
+                }
+            }
+            c.status = ContractStatus::Posted;
+            c.fulfiller_id = None;
+            c.accepted_at_tick = None;
+            c.destination_location.clone()
+        };
+        self.reindex_status(contract_id, ContractStatus::Accepted, ContractStatus::Posted);
+        // Re-add to the by-destination posted index so the contract
+        // is visible to planners again.
+        let id = contract_id.to_string();
+        let entry = self.posted_by_destination.entry(dest).or_default();
+        if !entry.contains(&id) {
+            entry.push(id);
+        }
+        true
+    }
+
     pub fn mark_picked_up(&mut self, contract_id: &str) -> bool {
         let c = match self.contracts.get_mut(contract_id) {
             Some(c) if c.status == ContractStatus::Accepted => c,

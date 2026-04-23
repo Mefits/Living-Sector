@@ -109,6 +109,15 @@ pub enum SimCommand {
         contract_id: String,
     },
     ExpireContract { contract_id: String },
+    /// Ship's BT failed before delivery while it still held this
+    /// contract. Apply phase moves the contract Accepted → Posted so
+    /// another ship can pick it up. Guarded by `ship_id` to prevent
+    /// a losing speculative-accept from yanking the winning ship's
+    /// contract.
+    ReleaseContract {
+        ship_id: String,
+        contract_id: String,
+    },
 
     // --- Economy transfers ---
     TransferCredits {
