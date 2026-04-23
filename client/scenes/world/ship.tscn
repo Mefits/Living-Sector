@@ -6,9 +6,9 @@
 script = ExtResource("1")
 
 [node name="Label3D" type="Label3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
-pixel_size = 0.008
-font_size = 20
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.12, 0)
+pixel_size = 0.0035
+font_size = 18
 text = ""
 billboard = 1
 render_priority = 3

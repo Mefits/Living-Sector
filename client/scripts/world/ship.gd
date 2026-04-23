@@ -50,6 +50,16 @@ const PARTICLE_BASE_LIFETIME := 0.6
 const PARTICLE_MAX_LIFETIME := 4.0
 const SPEED_FOR_MAX_BURN := 15.0
 
+# Dock fade: scaling the pivot from full→zero (or back) over this
+# duration hides the ship smoothly when it docks at a facility. Looks
+# like a "beam-down" / tractor-beam effect which reads fine at this
+# low-poly fidelity without touching shader materials.
+const DOCK_FADE_DURATION := 0.45
+# Tracks the ship's currently-displayed dock state so we only fire a
+# tween on the transition, not every frame.
+var _dock_visible: bool = true
+var _dock_tween: Tween = null
+
 
 func setup(data: Dictionary) -> void:
 	ship_id = data.get("id", "")
@@ -116,11 +126,13 @@ func setup(data: Dictionary) -> void:
 		var star := Label3D.new()
 		star.text = "\u2605"  # ★
 		star.modulate = Color(1.0, 0.6, 0.15)
-		star.font_size = 16
-		star.pixel_size = 0.003
+		star.font_size = 14
+		star.pixel_size = 0.0018
 		star.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		star.no_depth_test = true
-		star.position = Vector3(0.0, 0.5, 0.0)
+		# Sits just above the name label (y=0.12) so both float in the
+		# same vertical column, proportional to the new ship scale.
+		star.position = Vector3(0.0, 0.18, 0.0)
 		add_child(star)
 
 	GameState.zoom_changed.connect(_on_zoom_changed)
@@ -137,6 +149,19 @@ func setup(data: Dictionary) -> void:
 		ProceduralShip.SIZE_SCALES.get(proc_size, 1.0)
 	)
 	_setup_particles(size_mult)
+
+	# If the server tells us the ship is already docked at spawn time,
+	# snap the model to its hidden state so we don't briefly flash a
+	# full-size ship that then fades out. Uses the authoritative
+	# `docked: bool` from ShipSnapshot — `location` is just the ship's
+	# current-location string (non-empty whenever the ship is at a
+	# known spot, dock or otherwise), so it was false-positive'ing
+	# every ship at startup.
+	var initial_docked: bool = bool(data.get("docked", false))
+	if initial_docked:
+		_dock_visible = false
+		_model.scale = Vector3.ZERO
+		_label.visible = false
 
 
 func _setup_trail() -> void:
@@ -400,12 +425,12 @@ func _process(delta: float) -> void:
 		var diff := wrapf(_target_heading - rotation.y, -PI, PI)
 		rotation.y += diff * minf(delta * 3.0, 1.0)
 
-	# Engine burn particles — scale with speed, off when docked
+	# Engine burn particles — scale with speed, off when docked. Use
+	# the server's `docked: bool` flag (authoritative, matches the
+	# sim's "actually in a dock slot" state). `location` alone
+	# includes ships loitering at a location without a dock slot.
 	var ship_data: Dictionary = GameState.ships.get(ship_id, {})
-	var loc: Variant = ship_data.get("location")
-	var is_docked: bool = (
-		loc != null and str(loc) != "null" and str(loc) != ""
-	)
+	var is_docked: bool = bool(ship_data.get("docked", false))
 	if _is_moving and _speed > 0.05 and not is_docked:
 		_particles.emitting = true
 		var burn_t := clampf(_speed / SPEED_FOR_MAX_BURN, 0.0, 1.0)
@@ -416,8 +441,45 @@ func _process(delta: float) -> void:
 	else:
 		_particles.emitting = false
 
+	# Dock fade — only fire on the transition edge, not every frame.
+	if is_docked and _dock_visible:
+		_start_dock_fade(true)
+	elif (not is_docked) and (not _dock_visible):
+		_start_dock_fade(false)
+
+
+func _start_dock_fade(fade_out: bool) -> void:
+	## Tween the procedural-ship pivot's scale between "hidden" (zero)
+	## and its normal SHIP_RENDER_SCALE. Also toggles label visibility
+	## in lockstep so a stale name doesn't float over an empty dock.
+	_dock_visible = not fade_out
+	if _dock_tween and _dock_tween.is_valid():
+		_dock_tween.kill()
+	_dock_tween = create_tween()
+	if fade_out:
+		_dock_tween.set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_CUBIC)
+		if _model:
+			_dock_tween.tween_property(
+				_model, "scale", Vector3.ZERO, DOCK_FADE_DURATION
+			)
+		if _label:
+			_label.visible = false
+	else:
+		_dock_tween.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+		var target := Vector3.ONE * SHIP_RENDER_SCALE
+		if _model:
+			_dock_tween.tween_property(
+				_model, "scale", target, DOCK_FADE_DURATION
+			)
+		# Let the zoom handler re-evaluate label visibility so the name
+		# only returns if we're at a close-enough zoom tier.
+		_on_zoom_changed(GameState.zoom_tier, GameState.zoom_raw)
+
 
 func _on_zoom_changed(tier: GameState.ZoomTier, _raw: float) -> void:
-	# Ship names only visible at CLOSE zoom
+	# Ship names only visible at CLOSE zoom — and only when the ship
+	# itself is visible (not currently docked / fading out).
 	if _label:
-		_label.visible = (tier == GameState.ZoomTier.CLOSE)
+		_label.visible = (
+			tier == GameState.ZoomTier.CLOSE and _dock_visible
+		)

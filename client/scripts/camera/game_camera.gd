@@ -25,7 +25,7 @@ extends Camera3D
 @export var fov_degrees: float = 40.0
 
 # POV chase-cam tuning
-@export var pov_distance: float = 4.2
+@export var pov_distance: float = 2.2
 @export var pov_distance_min: float = 1.5
 @export var pov_distance_max: float = 20.0
 @export var pov_height: float = 1.75

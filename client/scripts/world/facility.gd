@@ -17,10 +17,10 @@ const TYPE_MODELS := {
 	"refinery": "res://assets/stations/station02_base.glb",
 	"factory": "res://assets/stations/station06_base.glb",
 	"farm": "res://assets/stations/station05.glb",
-	# Gates use the heaviest model so they read as a landmark. The
-	# distinguishing feature is the cyan emissive ring built procedurally
-	# below — it's what makes them visually "portal-y" in-game.
-	"gate": "res://assets/stations/station06_base.glb",
+	# Gates get a dedicated ring-shaped model — the cyan emissive
+	# torus ring slots into the empty centre for the classic portal
+	# silhouette, instead of layering the ring over a boxy station.
+	"gate": "res://assets/stations/station02_ring.glb",
 	# Shipyards use the heavy industrial look (same as factories) — they
 	# mint subsystem modules, so "big mechanical thing" fits.
 	"shipyard": "res://assets/stations/station06_base.glb",
@@ -29,8 +29,8 @@ const TYPE_MODELS := {
 const DEFAULT_MODEL := "res://assets/stations/station01.glb"
 # Facilities should read as small structures orbiting a planet, not
 # landmarks you could spot from another system. Planets render at
-# ~0.2–0.6 world units (BASE_SCALE × body_radius); a regular station at
-# 0.012 keeps it comfortably smaller than the planet it orbits.
+# ~0.2–0.6 world units (BASE_SCALE × body_radius); a regular station
+# at 0.012 keeps it comfortably smaller than the planet it orbits.
 const MODEL_SCALE := Vector3(0.012, 0.012, 0.012)
 # Gates stay a touch bigger — they're navigation waypoints players need
 # to find at mid-zoom — but not the ship-swallowing monoliths they were.
@@ -66,6 +66,14 @@ func setup(data: Dictionary, world_pos: Vector3, index: int = 0) -> void:
 	if scene:
 		var model := scene.instantiate()
 		model.scale = GATE_MODEL_SCALE if is_gate else MODEL_SCALE
+		if is_gate:
+			# Ring model's axis-of-rotation is along X in source coords.
+			# Rotate 90° around Y so the axis ends up along Z — matches
+			# the cyan torus's orientation (rotation.x=90° on the torus
+			# leaves its hole pointing along Z). Both then sit in the
+			# XY plane, reading as an upright portal that ships fly
+			# into, rather than a horizontal ring from above.
+			model.rotation_degrees = Vector3(0, 90, 0)
 		add_child(model)
 
 	# Gates get a distinctive cyan emissive ring around them — the
@@ -75,8 +83,9 @@ func setup(data: Dictionary, world_pos: Vector3, index: int = 0) -> void:
 		_create_gate_ring()
 
 	# Stagger labels above model, below planet labels. Pulled in closer
-	# to match the new facility size — the old 0.35 left labels floating.
-	var y_offset := 0.14 + (index % 4) * 0.06
+	# again — with the smaller facility scale + smaller label font the
+	# old 0.14 + 0.06 stagger still looked floaty.
+	var y_offset := 0.08 + (index % 4) * 0.04
 	label.position = Vector3(0, y_offset, 0)
 
 	# Activity glow — pulses when ships are docked (gates glow stronger
@@ -142,11 +151,12 @@ func _process(delta: float) -> void:
 ## at a distance.
 func _create_gate_ring() -> void:
 	var torus := TorusMesh.new()
-	# Ring lives in world units (not scaled with the gate model). Sized
-	# to sit just outside the new gate silhouette rather than engulfing
-	# the surrounding planet.
-	torus.inner_radius = 0.14
-	torus.outer_radius = 0.19
+	# Gate model's outer radius at scale 0.035 is ~0.14 world units
+	# and its inner hole is ~0.04. Size the cyan torus to nest inside
+	# the hole so the portal "charges" the centre of the ring rather
+	# than wrapping around the whole silhouette.
+	torus.inner_radius = 0.03
+	torus.outer_radius = 0.055
 	torus.rings = 32
 	torus.ring_segments = 12
 
