@@ -41,7 +41,6 @@ const KNOWN_TRACKS: Array[AudioStream] = [
   preload("res://assets/music/Sci-Fi 8 Loop.ogg"),
 ]
 
-@export var music_volume_db: float = -14.0
 @export var auto_start: bool = true
 
 # Each entry is either a String path (for files found via DirAccess
@@ -53,8 +52,12 @@ var _last_idx: int = -1
 
 func _ready() -> void:
   _player = AudioStreamPlayer.new()
-  _player.volume_db = music_volume_db
-  _player.bus = "Master"
+  # Route to the Music bus — SettingsManager owns per-bus volume, so
+  # we don't set volume_db here. Bus is created by SettingsManager's
+  # _ready which runs first (it's earlier in project.godot's autoload
+  # order). If the bus somehow doesn't exist, Godot falls back to
+  # Master which is an acceptable degraded mode.
+  _player.bus = &"Music"
   _player.finished.connect(_on_track_finished)
   add_child(_player)
 
@@ -72,9 +75,12 @@ func _ready() -> void:
 # ---------------------------------------------------------------------------
 
 func set_volume(db: float) -> void:
-  music_volume_db = db
-  if _player:
-    _player.volume_db = db
+  ## Kept for API parity — routes to the Music bus directly. Prefer
+  ## SettingsManager.set_music_volume() for anything UI-driven so the
+  ## value persists to settings.cfg.
+  var idx := AudioServer.get_bus_index(&"Music")
+  if idx >= 0:
+    AudioServer.set_bus_volume_db(idx, db)
 
 
 func stop() -> void:

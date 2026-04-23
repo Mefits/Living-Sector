@@ -36,6 +36,10 @@ custom_minimum_size = Vector2(0, 44)
 text = "Load Game"
 custom_minimum_size = Vector2(0, 44)
 
+[node name="OptionsButton" type="Button" parent="CenterContainer/VBox"]
+text = "Options"
+custom_minimum_size = Vector2(0, 44)
+
 [node name="QuitButton" type="Button" parent="CenterContainer/VBox"]
 text = "Quit"
 custom_minimum_size = Vector2(0, 44)

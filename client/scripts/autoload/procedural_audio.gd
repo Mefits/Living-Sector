@@ -30,6 +30,9 @@ var _pool_ui_idx: int = 0
 
 
 func _ready() -> void:
+  # All SFX routes through the "SFX" bus so SettingsManager's slider
+  # is a single dial. Bus is created by SettingsManager before this
+  # autoload's _ready runs.
   for i in range(POOL_SIZE_3D):
     var p := AudioStreamPlayer3D.new()
     # Tuning: units are world-space. unit_size = "distance at which
@@ -40,6 +43,7 @@ func _ready() -> void:
     p.unit_size = 8.0
     p.max_distance = 200.0
     p.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+    p.bus = &"SFX"
     add_child(p)
     _pool_3d.append(p)
 
@@ -50,7 +54,10 @@ func _ready() -> void:
   # before the pitch change became audible.
   for i in range(POOL_SIZE_UI):
     var up := AudioStreamPlayer.new()
+    # Per-voice volume_db is fine as a static offset; the big "UI is
+    # too loud" knob is the SFX bus on SettingsManager.
     up.volume_db = -6.0
+    up.bus = &"SFX"
     add_child(up)
     _pool_ui.append(up)
 

@@ -20,6 +20,7 @@ config/icon="res://icon.svg"
 ServerManager="*res://scripts/autoload/server_manager.gd"
 GameState="*res://scripts/autoload/game_state.gd"
 NetworkManager="*res://scripts/autoload/network_manager.gd"
+SettingsManager="*res://scripts/autoload/settings_manager.gd"
 ProceduralAudio="*res://scripts/autoload/procedural_audio.gd"
 MusicPlayer="*res://scripts/autoload/music_player.gd"
 

@@ -11,8 +11,13 @@ extends Control
 ## delete action that wipes the `.db` (plus any WAL sidecars) after
 ## a confirmation prompt.
 
+const OptionsPanelScript := preload(
+  "res://scripts/ui/options_panel.gd"
+)
+
 @onready var start_button: Button = $CenterContainer/VBox/StartButton
 @onready var load_button: Button = $CenterContainer/VBox/LoadButton
+@onready var options_button: Button = $CenterContainer/VBox/OptionsButton
 @onready var quit_button: Button = $CenterContainer/VBox/QuitButton
 @onready var status_label: Label = $CenterContainer/VBox/StatusLabel
 @onready var menu_buttons: VBoxContainer = $CenterContainer/VBox
@@ -22,6 +27,10 @@ extends Control
 @onready var back_button: Button = $SavePicker/VBox/Footer/BackButton
 @onready var loading_overlay: ColorRect = $LoadingOverlay
 @onready var loading_label: Label = $LoadingOverlay/CenterBox/VBox/LoadingLabel
+
+# Options panel is built programmatically on first open so the scene
+# tree stays light when the player never opens it.
+var _options_panel: PanelContainer = null
 
 var _overlay_tween: Tween
 
@@ -36,6 +45,7 @@ var _pending_delete_name: String = ""
 func _ready() -> void:
   start_button.pressed.connect(_on_start_pressed)
   load_button.pressed.connect(_on_load_pressed)
+  options_button.pressed.connect(_on_options_pressed)
   quit_button.pressed.connect(_on_quit_pressed)
   back_button.pressed.connect(_hide_save_picker)
   if ServerManager.last_error != "":
@@ -69,6 +79,34 @@ func _on_start_result(status: int, message: String) -> void:
 
 func _on_quit_pressed() -> void:
   get_tree().quit()
+
+
+# -------------------- Options --------------------
+
+func _on_options_pressed() -> void:
+  _show_options_panel()
+
+
+func _show_options_panel() -> void:
+  if _options_panel == null:
+    _options_panel = OptionsPanelScript.new()
+    # Centre the panel the same way the save picker is centred.
+    _options_panel.anchor_left = 0.5
+    _options_panel.anchor_right = 0.5
+    _options_panel.anchor_top = 0.5
+    _options_panel.anchor_bottom = 0.5
+    _options_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+    _options_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+    add_child(_options_panel)
+    _options_panel.back_requested.connect(_hide_options_panel)
+  menu_buttons.visible = false
+  _options_panel.show_panel()
+
+
+func _hide_options_panel() -> void:
+  if _options_panel:
+    _options_panel.hide_panel()
+  menu_buttons.visible = true
 
 
 # -------------------- Save picker --------------------
