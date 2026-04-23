@@ -143,7 +143,12 @@ func _refresh() -> void:
 		else:
 			row.set_text(2, "in space")
 
-		row.set_text(3, GameState.goal_label(ship.get("current_goal")))
+		# Goal column: synthesize a "what's this ship actually doing?"
+		# label, and tint amber when the BT has drifted away from an
+		# accepted contract (symptom of a stuck ship).
+		row.set_text(3, _effective_goal_text(ship))
+		if _goal_looks_stuck(ship):
+			row.set_custom_color(3, ThemePalette.WARN)
 
 		var fuel: float = float(ship.get("fuel", 0))
 		var fuel_cap: float = float(ship.get("fuel_capacity", 1))
@@ -153,8 +158,9 @@ func _refresh() -> void:
 		if fuel_pct < 25:
 			row.set_custom_color(4, ThemePalette.DANGER)
 
-		# Warning column: compact strike indicator. "$" = broke, "H" = hoarding,
-		# "i" = idle streak. Count shown if > 1.
+		# Warning column: compact strike indicator. "$" = broke,
+		# "H" = hoarding, "i" = idle streak, "!c" = has accepted
+		# contract but BT went idle (stuck). Counts shown for >1.
 		var broke: int = int(ship.get("broke_strikes", 0))
 		var hoard: int = int(ship.get("hoard_strikes", 0))
 		var idle: int = int(ship.get("idle_ticks", 0))
@@ -166,12 +172,65 @@ func _refresh() -> void:
 		# Only surface idle when it's been going for a while
 		if idle >= 10:
 			warn_parts.append("i")
+		if _goal_looks_stuck(ship):
+			warn_parts.append("!c")
 		var warn_text: String = " ".join(warn_parts)
 		row.set_text(5, warn_text)
 		if broke >= 2 or hoard >= 2:
 			row.set_custom_color(5, ThemePalette.DANGER)
 		elif warn_text != "":
 			row.set_custom_color(5, ThemePalette.WARN)
+
+
+## "What's this ship actually doing?" text for the Goal cell. Ships
+## with an accepted contract show the contract kind even when the
+## BT went to None and `current_goal` reverted to `idle`. Falls
+## back to the raw goal label when there's no contract on file.
+func _effective_goal_text(ship: Dictionary) -> String:
+	var goal_key: String = str(ship.get("current_goal", ""))
+	var cid: String = str(ship.get("active_contract_id", "")).strip_edges()
+	if cid != "" and cid != "null":
+		var ckind := _contract_kind_label(cid)
+		if ckind != "":
+			return ckind
+	return GameState.goal_label(goal_key)
+
+
+## True when the ship has an accepted contract but its BT has
+## drifted back to `idle`. The planner can't pick a new contract
+## until this one is cleared (delivered or faulted), so the ship
+## effectively sits stuck. Rendered as an amber tint in the Goal
+## column.
+func _goal_looks_stuck(ship: Dictionary) -> bool:
+	var goal_key: String = str(ship.get("current_goal", ""))
+	var cid: String = str(ship.get("active_contract_id", "")).strip_edges()
+	return goal_key == "idle" and cid != "" and cid != "null"
+
+
+## Look up a contract by id in GameState.contracts and return a
+## pretty goal-style label like "Crew Mission" / "Passenger". Empty
+## string if the contract is unknown (stale snapshot, cleared on
+## delivery, etc.) — caller falls back to the raw current_goal.
+func _contract_kind_label(contract_id: String) -> String:
+	var c: Dictionary = GameState.contracts.get(contract_id, {})
+	if c.is_empty():
+		return ""
+	var kind := str(c.get("contract_type", ""))
+	match kind:
+		"crew_mission":
+			return "Crew Mission"
+		"passenger":
+			return "Passenger"
+		"delivery":
+			return "Delivery"
+		"courier":
+			return "Courier"
+		"subsidy":
+			return "Subsidy"
+		"supply":
+			return "Supply"
+		_:
+			return kind.capitalize()
 
 
 func _compare_ships(a: Dictionary, b: Dictionary) -> bool:
@@ -188,8 +247,11 @@ func _compare_ships(a: Dictionary, b: Dictionary) -> bool:
 			va = str(a.get("location", a.get("transit", {}).get("to", "")))
 			vb = str(b.get("location", b.get("transit", {}).get("to", "")))
 		"goal":
-			va = str(a.get("current_goal", ""))
-			vb = str(b.get("current_goal", ""))
+			# Sort by the same synthesized label the cell displays —
+			# otherwise a row reading "Crew Mission" would sort as
+			# "idle", which is confusing when filtering by Goal.
+			va = _effective_goal_text(a)
+			vb = _effective_goal_text(b)
 		"fuel":
 			var fa: float = float(a.get("fuel", 0))
 			var fc: float = float(a.get("fuel_capacity", 1))
