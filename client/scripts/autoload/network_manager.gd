@@ -86,6 +86,25 @@ var net_handler_us_per_sec: int = 0
 var net_queue_peak: int = 0
 var _net_queue_peak_this_sec: int = 0
 
+# -----------------------------------------------------------------------------
+# Off-thread JSON parse (2026-04-24). The telemetry above measured main
+# thread burning ~650 ms/s inside `_handle_ws_packet` at 1500 ships — FPS
+# dropped to 6. `JSON.parse_string` dominates that cost, and doesn't need
+# to run on the main thread: it only produces a Dictionary. We dispatch
+# each packet as a WorkerThreadPool task; the worker parses and enqueues
+# the result; `_apply_parsed_results()` drains the queue on the main
+# thread each frame and runs the existing `_handle_*` dispatch. GameState
+# merges and signal emits stay main-thread.
+#
+# Worker tasks complete out of order. Each parse carries a monotonic
+# `seq` so `_apply_parsed_results` can sort and dispatch in arrival
+# order — important because `positions` / `ship_states` broadcasts can
+# overtake each other.
+# -----------------------------------------------------------------------------
+var _parsed_queue: Array = []        # Array[Dictionary] — {seq, type, msg}
+var _parsed_mutex: Mutex = Mutex.new()
+var _dispatch_seq: int = 0
+
 
 func _ready() -> void:
 	_http = HTTPRequest.new()
@@ -424,6 +443,12 @@ func _process(delta: float) -> void:
 			_handle_ws_packet(_ws.get_packet())
 			drained += 1
 
+	# Drain any parsed packets the worker pool has completed and run
+	# their `_handle_*` dispatch on the main thread. Kept outside the
+	# STATE_OPEN branch so results from the tail of a disconnect still
+	# apply cleanly.
+	_apply_parsed_results()
+
 	# Telemetry window rollover — runs every frame, rolls the accumulated
 	# counters over into the public snapshots once per second.
 	_net_window_elapsed += delta
@@ -458,14 +483,23 @@ func _on_ws_closed() -> void:
 
 
 func _handle_ws_packet(pkt: PackedByteArray) -> void:
-	# Telemetry: count this packet + its wire byte size, and time the
-	# whole handler so we can see main-thread saturation in the perf
-	# overlay. `pkt.size()` is the pre-UTF8 byte count which is the
-	# right thing (what came off the wire).
-	var t_start: int = Time.get_ticks_usec()
+	# Main-thread portion of each packet: telemetry + dispatch to the
+	# worker pool. The parse + UTF8 decode run on the worker thread;
+	# `_apply_parsed_results` pulls results back on the main thread each
+	# frame and runs the existing `_handle_*` dispatch.
 	_net_packets_this_sec += 1
 	_net_bytes_this_sec += pkt.size()
+	_dispatch_seq += 1
+	WorkerThreadPool.add_task(_parse_packet_worker.bind(pkt, _dispatch_seq))
 
+
+## Worker-thread function: UTF8 decode + JSON parse the packet, then
+## push the result into the shared queue. No GameState / Node3D access
+## from here — workers write only to `_parsed_queue` under mutex.
+## Telemetry for worker-side cost isn't accumulated here; the main
+## `net_handler_us_per_sec` counter below measures the dispatch + merge
+## cost that actually blocks frames.
+func _parse_packet_worker(pkt: PackedByteArray, seq: int) -> void:
 	var text := pkt.get_string_from_utf8()
 	if DEBUG_WS_TRAFFIC:
 		print("[Network] IN: %s" % text)
@@ -473,9 +507,41 @@ func _handle_ws_packet(pkt: PackedByteArray) -> void:
 	if not (parsed is Dictionary):
 		if DEBUG_WS:
 			push_warning("[Network] non-object WS message: %s" % text)
-		_net_handler_us_this_sec += Time.get_ticks_usec() - t_start
 		return
 	var msg_type := str(parsed.get("type", ""))
+	_parsed_mutex.lock()
+	_parsed_queue.append({"seq": seq, "type": msg_type, "msg": parsed})
+	_parsed_mutex.unlock()
+
+
+## Main-thread drain: pull parsed results from the worker queue and
+## run the existing `_handle_*` dispatch in arrival order. Sorting by
+## `seq` corrects for WorkerThreadPool's out-of-order completion so a
+## `positions` broadcast can't overtake a newer `ship_states` that
+## started parsing first but finished faster.
+func _apply_parsed_results() -> void:
+	var t_start: int = Time.get_ticks_usec()
+	_parsed_mutex.lock()
+	var batch: Array = _parsed_queue
+	_parsed_queue = []
+	_parsed_mutex.unlock()
+	if batch.is_empty():
+		return
+	batch.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("seq", 0)) < int(b.get("seq", 0))
+	)
+	for entry in batch:
+		_dispatch_parsed_message(
+			str(entry.get("type", "")),
+			entry.get("msg", {})
+		)
+	_net_handler_us_this_sec += Time.get_ticks_usec() - t_start
+
+
+## Dispatch a parsed message to the existing typed handlers. Split out
+## from `_handle_ws_packet` so the match table stays in one place and
+## the worker / main split is purely about where parsing runs.
+func _dispatch_parsed_message(msg_type: String, parsed: Dictionary) -> void:
 	match msg_type:
 		"server_hello":
 			_handle_server_hello(parsed)
@@ -502,7 +568,6 @@ func _handle_ws_packet(pkt: PackedByteArray) -> void:
 		_:
 			if DEBUG_WS:
 				push_warning("[Network] unknown message type: %s" % msg_type)
-	_net_handler_us_this_sec += Time.get_ticks_usec() - t_start
 
 
 func _handle_server_hello(msg: Dictionary) -> void:
