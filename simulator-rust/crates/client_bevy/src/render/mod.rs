@@ -10,7 +10,7 @@ use sim_core::{
     agents::{
         celestial_body::{BodyIdentity, BodyOrbit},
         facility::{FacilityIdentity, FacilityLocation},
-        ship::{ShipIdentity, ShipPosition},
+        ship::{ShipIdentity, ShipPosition, ShipTransit},
     },
 };
 
@@ -36,7 +36,10 @@ impl Plugin for RenderPlugin {
         // Spawn entities after the sim has loaded (PostStartup ensures
         // `Sim::load_world` has populated the store).
         app.add_systems(PostStartup, spawn_mirror_entities)
-            .add_systems(Update, (sync_positions, highlight_selected));
+            .add_systems(
+                Update,
+                (sync_positions, highlight_selected, draw_transit_lines),
+            );
     }
 }
 
@@ -345,5 +348,31 @@ fn highlight_selected(
         if (xf.scale.x - wanted).abs() > f32::EPSILON {
             xf.scale = Vec3::splat(wanted);
         }
+    }
+}
+
+/// Draw a faint line from each in-transit ship's departure point to
+/// its current position, using Bevy Gizmos. Read-only per-frame;
+/// Gizmos are batched into a single draw call so the cost is linear
+/// in the number of ACTIVE transits (usually a modest fraction of
+/// the fleet). If perf ever complains we can throttle by only
+/// drawing lines for ships within a distance threshold of the
+/// camera, but at 1600 ships total it's cheap enough to skip that.
+fn draw_transit_lines(sim: Res<Sim>, mut gizmos: Gizmos) {
+    let world = &sim.store.world;
+    // Dim grey so the lines read as "a trail behind the ship" rather
+    // than fighting the ships for attention at zoomed-out scales.
+    let color = Color::srgba(0.55, 0.60, 0.70, 0.35);
+
+    for (_e, (transit, pos)) in world.query::<(&ShipTransit, &ShipPosition)>().iter() {
+        let Some(t) = &transit.transit else { continue };
+        let Some((dx, dy)) = t.departure_position else { continue };
+        let start = Vec3::new(dx * SCALE_FACTOR, 0.0, dy * SCALE_FACTOR);
+        let end = Vec3::new(
+            pos.position.0 * SCALE_FACTOR,
+            0.0,
+            pos.position.1 * SCALE_FACTOR,
+        );
+        gizmos.line(start, end, color);
     }
 }
