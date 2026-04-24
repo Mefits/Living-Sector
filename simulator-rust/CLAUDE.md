@@ -92,6 +92,29 @@ sub-phases.
   at local market prices (rate 10% — enough to observe drift,
   small enough not to destabilise). Smoke observed producer pops
   (Veritas) gaining + consumer pops losing as expected.
+- M — **Throttled snapshot cache rebuild.** Ships + construction
+  sites + body/facility positions refresh every tick; full
+  market/facility/population/body/contract snapshots every 4 ticks;
+  faction snapshots every 16. Debug p50 dropped from ~19ms to
+  ~18ms at 485 agents; the gap widens as n grows.
+- J — **Convoy-bundled delivery contracts.** Co-located facilities
+  posting for the same commodity merge into a single larger
+  contract (qty summed, capped at 2×MAX). Rich lead pays the
+  combined cost; delivery lands in shared market supply so
+  everyone benefits. Observed live at frostheim-station +
+  jupiter-station (qty=300 contracts where unbundled would cap
+  at 200).
+
+**Bundle 4 deferred (with rationale):**
+- P — Contract board index. Current `posted_for_ship` is already
+  O(1) per contract; bucketed indexes save ~1ms at 485 agents.
+  Revisit if perf HUD flags it.
+- O — Spatial grid. At 485 agents × 5 observers, LOD recompute
+  is ~2.5k calcs per 50-tick interval — not hot.
+- N — Rayon on ship phase. hecs's `&mut World` is thread-exclusive;
+  a real parallel path needs snapshot-then-plan-then-apply
+  refactor. ~1.5× at current scale, ~5× at 10k. Save for when
+  it's genuinely needed.
 
 **Phase 18 (subsystems + self-regulation):** ships got a 5-slot fitting
 via 18a, refit via 18b, shipyards as module producers via 18c,
