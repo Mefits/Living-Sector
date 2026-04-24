@@ -1130,7 +1130,7 @@ fn apply_ship_commands(
                     }
                 }
             }
-            SimCommand::ReleaseContract { ship_id, contract_id } => {
+            SimCommand::ReleaseContract { ship_id, contract_id, reason } => {
                 // Move Accepted → Posted so another ship can try. The
                 // fulfiller_id guard inside `release` ensures a losing
                 // speculative-accept can't yank the winning ship's
@@ -1151,7 +1151,8 @@ fn apply_ship_commands(
                     tracing::debug!(
                         contract_id = %contract_id,
                         ship_id = %ship_id,
-                        "contract released back to Posted after BT failure"
+                        reason = %reason,
+                        "contract released back to Posted"
                     );
                     // Breach penalty: shave faction rep by
                     // `10 + payment/1000`, clamped to [1, 25]. Matches
@@ -1185,6 +1186,7 @@ fn apply_ship_commands(
                                     "ship_id": ship_id,
                                     "faction_id": faction,
                                     "rep_penalty": penalty,
+                                    "reason": reason,
                                 }));
                             }
                             // Bundle A: ship's faction takes the blame
@@ -1208,6 +1210,7 @@ fn apply_ship_commands(
                                     "delta": sim_core::agents::faction_relations::BREACH_STANDING_PENALTY,
                                     "new_standing": new_standing,
                                     "cause": "breach",
+                                    "reason": reason,
                                 }));
                             }
                         }

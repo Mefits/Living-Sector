@@ -1966,6 +1966,7 @@ fn decide_and_act(
                     commands.push(SimCommand::ReleaseContract {
                         ship_id: ship_id.clone(),
                         contract_id: cid,
+                        reason: "ghost_bt",
                     });
                 }
                 StaleKind::Keep => {}
@@ -2054,6 +2055,7 @@ fn decide_and_act(
                         commands.push(SimCommand::ReleaseContract {
                             ship_id: ship_id.clone(),
                             contract_id: cid,
+                            reason: "replan",
                         });
                     }
                 }
@@ -2169,6 +2171,7 @@ fn decide_and_act(
                         commands.push(SimCommand::ReleaseContract {
                             ship_id: ship_id.clone(),
                             contract_id: cid,
+                            reason: "bt_failure",
                         });
                     }
                 }

@@ -114,9 +114,18 @@ pub enum SimCommand {
     /// another ship can pick it up. Guarded by `ship_id` to prevent
     /// a losing speculative-accept from yanking the winning ship's
     /// contract.
+    ///
+    /// `reason` attributes the release — forwarded into the
+    /// `contract_breached` + `faction_standing_changed` events so
+    /// post-hoc analysis can tell a planner-driven replan apart from
+    /// a dock-timeout BT failure. Stable short tags (see the emitter
+    /// sites for the current catalogue): `replan`, `bt_failure`,
+    /// `active_contract_missing`, `active_contract_stale`,
+    /// `decommission`, `admin_delete`, `dock_timeout`.
     ReleaseContract {
         ship_id: String,
         contract_id: String,
+        reason: &'static str,
     },
 
     // --- Economy transfers ---
@@ -277,7 +286,9 @@ impl SimCommand {
             SimCommand::AcceptContract { contract_id, .. } => contract_id.clone(),
             SimCommand::DeliverContract { contract_id, .. } => contract_id.clone(),
             SimCommand::ExpireContract { contract_id } => contract_id.clone(),
-            SimCommand::ReleaseContract { contract_id, .. } => contract_id.clone(),
+            SimCommand::ReleaseContract { contract_id, reason, .. } => {
+                format!("{contract_id} ({reason})")
+            }
             SimCommand::TransferCredits { amount, .. } => format!("{amount} cr"),
             SimCommand::AddSupplyAtShipLocation { commodity, quantity, .. }
             | SimCommand::RemoveSupplyAtShipLocation { commodity, quantity, .. }
