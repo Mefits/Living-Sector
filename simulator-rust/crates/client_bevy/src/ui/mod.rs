@@ -20,6 +20,7 @@ impl Plugin for UiPlugin {
             .init_resource::<PerfStats>()
             .init_resource::<ShipListState>()
             .init_resource::<ContractsState>()
+            .init_resource::<FactionsState>()
             .add_systems(
                 Update,
                 (
@@ -28,6 +29,7 @@ impl Plugin for UiPlugin {
                     perf_overlay,
                     ship_list,
                     contracts_panel,
+                    factions_panel,
                 )
                     .chain(),
             );
@@ -43,6 +45,7 @@ fn top_bar(
     sim: Res<Sim>,
     mut ships: ResMut<ShipListState>,
     mut contracts: ResMut<ContractsState>,
+    mut factions: ResMut<FactionsState>,
 ) {
     egui::TopBottomPanel::top("top_bar").show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
@@ -65,6 +68,15 @@ fn top_bar(
                 .clicked()
             {
                 contracts.open = !contracts.open;
+            }
+            if ui
+                .selectable_label(
+                    factions.open,
+                    format!("Factions ({})", sim.store.faction_by_id.len()),
+                )
+                .clicked()
+            {
+                factions.open = !factions.open;
             }
         });
     });
@@ -622,4 +634,234 @@ fn status_combo(ui: &mut egui::Ui, current: &mut ContractStatusFilter) {
                 ui.selectable_value(current, value, label);
             }
         });
+}
+
+// =============================================================================
+// Factions panel
+// =============================================================================
+//
+// Godot-parity faction ledger. Two sections in one window:
+//   1. Per-faction ledger: treasury + ship count + facility count +
+//      active subsidies + home system. Sortable by clicking headers.
+//   2. Pairwise relations matrix: each (a,b) shows standing + treaty.
+//      Matrix is small (≤8 factions → 28 pairs) so plain grid is fine.
+//
+// Reads `FactionData` components straight out of hecs, counts ships +
+// facilities by iterating their identity components once per frame
+// (tiny work at this scale).
+
+#[derive(Resource, Default)]
+struct FactionsState {
+    open: bool,
+    sort: FactionSort,
+    descending: bool,
+}
+
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+enum FactionSort {
+    #[default]
+    Name,
+    Treasury,
+    Ships,
+    Facilities,
+    Subsidies,
+}
+
+struct FactionRow {
+    name: String,
+    home_system: String,
+    faction_type: String,
+    treasury: i64,
+    ships: u32,
+    facilities: u32,
+    subsidies: u32,
+}
+
+fn factions_panel(
+    mut ctx: EguiContexts,
+    sim: Res<Sim>,
+    mut state: ResMut<FactionsState>,
+) {
+    use sim_core::agents::{
+        facility::FacilityIdentity,
+        faction::FactionData,
+        faction_relations::TreatyKind,
+        ship::ShipIdentity,
+    };
+    use std::collections::HashMap;
+
+    let mut open = state.open;
+    let mut sort = state.sort;
+    let mut descending = state.descending;
+
+    if !open {
+        return;
+    }
+
+    // Ship + facility counts per faction id, built once.
+    let mut ship_counts: HashMap<String, u32> = HashMap::new();
+    for (_e, id) in sim.store.world.query::<&ShipIdentity>().iter() {
+        *ship_counts.entry(id.faction_id.clone()).or_insert(0) += 1;
+    }
+    let mut fac_counts: HashMap<String, u32> = HashMap::new();
+    for (_e, id) in sim.store.world.query::<&FacilityIdentity>().iter() {
+        *fac_counts.entry(id.faction_id.clone()).or_insert(0) += 1;
+    }
+
+    let mut rows: Vec<FactionRow> = sim
+        .store
+        .world
+        .query::<&FactionData>()
+        .iter()
+        .map(|(_e, f)| FactionRow {
+            name: f.name.clone(),
+            home_system: f.home_system.clone(),
+            faction_type: f.faction_type.clone(),
+            treasury: f.treasury,
+            ships: ship_counts.get(&f.id).copied().unwrap_or(0),
+            facilities: fac_counts.get(&f.id).copied().unwrap_or(0),
+            subsidies: f.active_subsidies,
+        })
+        .collect();
+
+    rows.sort_by(|a, b| {
+        let cmp = match sort {
+            FactionSort::Name => a.name.cmp(&b.name),
+            FactionSort::Treasury => a.treasury.cmp(&b.treasury),
+            FactionSort::Ships => a.ships.cmp(&b.ships),
+            FactionSort::Facilities => a.facilities.cmp(&b.facilities),
+            FactionSort::Subsidies => a.subsidies.cmp(&b.subsidies),
+        };
+        if descending { cmp.reverse() } else { cmp }
+    });
+
+    egui::Window::new(format!("Factions · {}", rows.len()))
+        .default_width(720.0)
+        .default_height(520.0)
+        .open(&mut open)
+        .show(ctx.ctx_mut(), |ui| {
+            ui.label(egui::RichText::new("Ledger").strong());
+            egui::Grid::new("factions_ledger_grid")
+                .striped(true)
+                .num_columns(6)
+                .spacing([12.0, 3.0])
+                .show(ui, |ui| {
+                    faction_sort_header(ui, "Faction", &mut sort, &mut descending, FactionSort::Name);
+                    ui.label(egui::RichText::new("System").strong());
+                    faction_sort_header(ui, "Treasury", &mut sort, &mut descending, FactionSort::Treasury);
+                    faction_sort_header(ui, "Ships", &mut sort, &mut descending, FactionSort::Ships);
+                    faction_sort_header(ui, "Fac", &mut sort, &mut descending, FactionSort::Facilities);
+                    faction_sort_header(ui, "Subs", &mut sort, &mut descending, FactionSort::Subsidies);
+                    ui.end_row();
+
+                    for r in &rows {
+                        ui.label(format!("{} ({})", r.name, r.faction_type));
+                        ui.label(&r.home_system);
+                        let t_color = if r.treasury >= 10_000 {
+                            egui::Color32::from_rgb(120, 220, 120)
+                        } else if r.treasury >= 2_000 {
+                            egui::Color32::from_rgb(230, 200, 90)
+                        } else {
+                            egui::Color32::from_rgb(240, 100, 90)
+                        };
+                        ui.colored_label(t_color, format_credits(r.treasury));
+                        ui.label(format!("{}", r.ships));
+                        ui.label(format!("{}", r.facilities));
+                        ui.label(format!("{}", r.subsidies));
+                        ui.end_row();
+                    }
+                });
+
+            ui.separator();
+            ui.label(egui::RichText::new("Relations").strong());
+            ui.label(
+                egui::RichText::new("canonical pairs — standing ∈ [-100, 100]")
+                    .small()
+                    .color(egui::Color32::from_gray(150)),
+            );
+
+            egui::ScrollArea::vertical()
+                .id_salt("relations_scroll")
+                .max_height(240.0)
+                .show(ui, |ui| {
+                    egui::Grid::new("relations_grid")
+                        .striped(true)
+                        .num_columns(4)
+                        .spacing([10.0, 2.0])
+                        .show(ui, |ui| {
+                            for header in ["A", "B", "Standing", "Treaty"] {
+                                ui.label(egui::RichText::new(header).strong());
+                            }
+                            ui.end_row();
+
+                            let mut pairs: Vec<_> = sim.store.relations.iter().collect();
+                            pairs.sort_by(|(ka, _), (kb, _)| ka.cmp(kb));
+
+                            for ((a, b), state) in pairs {
+                                ui.label(a);
+                                ui.label(b);
+                                let s_color = if state.standing >= 25 {
+                                    egui::Color32::from_rgb(120, 220, 120)
+                                } else if state.standing <= -25 {
+                                    egui::Color32::from_rgb(240, 100, 90)
+                                } else {
+                                    egui::Color32::from_gray(200)
+                                };
+                                ui.colored_label(s_color, format!("{:+}", state.standing));
+                                let t_color = match state.treaty {
+                                    TreatyKind::Allied => egui::Color32::from_rgb(100, 200, 255),
+                                    TreatyKind::TradePact => egui::Color32::from_rgb(120, 220, 120),
+                                    TreatyKind::Neutral => egui::Color32::from_gray(200),
+                                    TreatyKind::Tense => egui::Color32::from_rgb(230, 200, 90),
+                                    TreatyKind::Hostile => egui::Color32::from_rgb(240, 140, 90),
+                                    TreatyKind::War => egui::Color32::from_rgb(240, 80, 80),
+                                };
+                                ui.colored_label(t_color, state.treaty.as_str());
+                                ui.end_row();
+                            }
+                        });
+                });
+        });
+
+    state.open = open;
+    state.sort = sort;
+    state.descending = descending;
+}
+
+fn faction_sort_header(
+    ui: &mut egui::Ui,
+    label: &str,
+    current: &mut FactionSort,
+    descending: &mut bool,
+    target: FactionSort,
+) {
+    let arrow = if *current == target {
+        if *descending { " ▼" } else { " ▲" }
+    } else {
+        ""
+    };
+    let text = egui::RichText::new(format!("{label}{arrow}")).strong();
+    if ui.button(text).clicked() {
+        if *current == target {
+            *descending = !*descending;
+        } else {
+            *current = target;
+            // Treasury / ships / facilities / subsidies default to
+            // descending so "biggest first" feels natural; name
+            // defaults to ascending (A→Z).
+            *descending = !matches!(target, FactionSort::Name);
+        }
+    }
+}
+
+fn format_credits(n: i64) -> String {
+    // Quick humanise so the ledger column isn't a wall of digits. Keeps
+    // precision under 10k since that's where the interesting drift is.
+    if n.abs() >= 1_000_000 {
+        format!("{:.2}M", n as f64 / 1_000_000.0)
+    } else if n.abs() >= 10_000 {
+        format!("{:.1}k", n as f64 / 1_000.0)
+    } else {
+        format!("{}", n)
+    }
 }
