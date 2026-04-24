@@ -174,8 +174,12 @@ impl FactionRelations {
             return 0;
         }
         let key = canonical_pair(a, b);
-        let entry = self.by_pair.entry(key).or_insert_with(|| RelationState::new(tick));
-        entry.standing = (entry.standing + delta).clamp(RelationState::STANDING_MIN, RelationState::STANDING_MAX);
+        let entry = self
+            .by_pair
+            .entry(key)
+            .or_insert_with(|| RelationState::new(tick));
+        entry.standing = (entry.standing + delta)
+            .clamp(RelationState::STANDING_MIN, RelationState::STANDING_MAX);
         entry.last_event_tick = tick;
         entry.standing
     }
@@ -188,7 +192,10 @@ impl FactionRelations {
             return;
         }
         let key = canonical_pair(a, b);
-        let entry = self.by_pair.entry(key).or_insert_with(|| RelationState::new(tick));
+        let entry = self
+            .by_pair
+            .entry(key)
+            .or_insert_with(|| RelationState::new(tick));
         if entry.treaty == treaty {
             return;
         }
@@ -205,7 +212,10 @@ impl FactionRelations {
             return;
         }
         let key = canonical_pair(a, b);
-        let entry = self.by_pair.entry(key).or_insert_with(|| RelationState::new(tick));
+        let entry = self
+            .by_pair
+            .entry(key)
+            .or_insert_with(|| RelationState::new(tick));
         let treaty_changed = entry.treaty != treaty;
         entry.standing = standing.clamp(RelationState::STANDING_MIN, RelationState::STANDING_MAX);
         entry.treaty = treaty;
@@ -266,7 +276,8 @@ pub fn trade_pact_payment_multiplier(
     ship_faction: &str,
     requestor_faction: &str,
 ) -> f32 {
-    if ship_faction.is_empty() || requestor_faction.is_empty() || ship_faction == requestor_faction {
+    if ship_faction.is_empty() || requestor_faction.is_empty() || ship_faction == requestor_faction
+    {
         return 1.0;
     }
     let Some(state) = relations.state(ship_faction, requestor_faction) else {
@@ -289,7 +300,8 @@ pub fn trade_pact_grants_visibility(
     ship_faction: &str,
     requestor_faction: &str,
 ) -> bool {
-    if ship_faction.is_empty() || requestor_faction.is_empty() || ship_faction == requestor_faction {
+    if ship_faction.is_empty() || requestor_faction.is_empty() || ship_faction == requestor_faction
+    {
         // Same-faction always visible — same as the existing
         // behaviour when posted_by_faction buckets on the ship's
         // own id.
@@ -400,7 +412,12 @@ pub fn market_sell_multiplier(
     rep_with_controller: u8,
     controller_faction: &str,
 ) -> f32 {
-    let m = market_buy_multiplier(relations, ship_faction, rep_with_controller, controller_faction);
+    let m = market_buy_multiplier(
+        relations,
+        ship_faction,
+        rep_with_controller,
+        controller_faction,
+    );
     1.0 / m
 }
 
@@ -447,7 +464,7 @@ pub const STANDING_DECAY_DEADBAND: i32 = 1;
 /// Freshness grace period — pairs whose last event landed within this
 /// many ticks skip decay this pass. Keeps a steady trade stream from
 /// racing decay; long gaps let drift back toward neutral win.
-pub const STANDING_DECAY_FRESHNESS_GRACE_BASE: u64 = 1_000;
+pub const STANDING_DECAY_FRESHNESS_GRACE_BASE: u64 = 2_000; // started at 1_000
 
 /// Standing threshold above which two factions upgrade from Neutral
 /// to TradePact (once sustained for `TRADE_PACT_SUSTAIN_BASE` ticks).
@@ -506,8 +523,7 @@ pub fn tick_relations(
     tick_multiplier: u32,
 ) -> RelationsTickEvents {
     let mut changes = Vec::new();
-    let freshness_grace =
-        STANDING_DECAY_FRESHNESS_GRACE_BASE * tick_multiplier.max(1) as u64;
+    let freshness_grace = STANDING_DECAY_FRESHNESS_GRACE_BASE * tick_multiplier.max(1) as u64;
     let trade_pact_sustain = TRADE_PACT_SUSTAIN_BASE * tick_multiplier.max(1) as u64;
     let allied_sustain = ALLIED_SUSTAIN_BASE * tick_multiplier.max(1) as u64;
 
@@ -522,7 +538,13 @@ pub fn tick_relations(
         // --- Treaty evaluation ---
         let from = state.treaty;
         let sustained_ticks = tick.saturating_sub(state.since_tick);
-        let new_treaty = next_treaty(state.treaty, state.standing, sustained_ticks, trade_pact_sustain, allied_sustain);
+        let new_treaty = next_treaty(
+            state.treaty,
+            state.standing,
+            sustained_ticks,
+            trade_pact_sustain,
+            allied_sustain,
+        );
         if new_treaty != from {
             state.treaty = new_treaty;
             state.since_tick = tick;
@@ -538,7 +560,9 @@ pub fn tick_relations(
         }
     }
 
-    RelationsTickEvents { treaty_changes: changes }
+    RelationsTickEvents {
+        treaty_changes: changes,
+    }
 }
 
 /// Compute the next treaty from current state, standing, and
@@ -557,17 +581,30 @@ fn next_treaty(
     if standing <= HOSTILE_STANDING {
         return TreatyKind::Hostile;
     }
-    if standing <= TENSE_STANDING && matches!(current, TreatyKind::Neutral | TreatyKind::TradePact | TreatyKind::Allied) {
+    if standing <= TENSE_STANDING
+        && matches!(
+            current,
+            TreatyKind::Neutral | TreatyKind::TradePact | TreatyKind::Allied
+        )
+    {
         return TreatyKind::Tense;
     }
 
     match current {
         TreatyKind::War => TreatyKind::War, // only Bundle G ends this
         TreatyKind::Hostile => {
-            if standing >= HOSTILE_RECOVER_STANDING { TreatyKind::Tense } else { TreatyKind::Hostile }
+            if standing >= HOSTILE_RECOVER_STANDING {
+                TreatyKind::Tense
+            } else {
+                TreatyKind::Hostile
+            }
         }
         TreatyKind::Tense => {
-            if standing >= TENSE_RECOVER_STANDING { TreatyKind::Neutral } else { TreatyKind::Tense }
+            if standing >= TENSE_RECOVER_STANDING {
+                TreatyKind::Neutral
+            } else {
+                TreatyKind::Tense
+            }
         }
         TreatyKind::Neutral => {
             if standing >= TRADE_PACT_STANDING && sustained >= trade_pact_sustain {
@@ -586,7 +623,11 @@ fn next_treaty(
             }
         }
         TreatyKind::Allied => {
-            if standing < ALLIED_BREAK_STANDING { TreatyKind::TradePact } else { TreatyKind::Allied }
+            if standing < ALLIED_BREAK_STANDING {
+                TreatyKind::TradePact
+            } else {
+                TreatyKind::Allied
+            }
         }
     }
 }
@@ -613,9 +654,15 @@ mod tests {
     fn bump_clamps_to_bounds() {
         let mut r = FactionRelations::new();
         r.bump_standing("a", "b", 500, 0);
-        assert_eq!(r.state("a", "b").unwrap().standing, RelationState::STANDING_MAX);
+        assert_eq!(
+            r.state("a", "b").unwrap().standing,
+            RelationState::STANDING_MAX
+        );
         r.bump_standing("a", "b", -500, 0);
-        assert_eq!(r.state("a", "b").unwrap().standing, RelationState::STANDING_MIN);
+        assert_eq!(
+            r.state("a", "b").unwrap().standing,
+            RelationState::STANDING_MIN
+        );
     }
 
     #[test]
@@ -676,7 +723,10 @@ mod tests {
         r.bump_standing("a", "b", -80, 0);
         let ev = tick_relations(&mut r, 10, 1);
         assert_eq!(r.state("a", "b").unwrap().treaty, TreatyKind::Hostile);
-        assert!(ev.treaty_changes.iter().any(|c| c.to == TreatyKind::Hostile));
+        assert!(ev
+            .treaty_changes
+            .iter()
+            .any(|c| c.to == TreatyKind::Hostile));
     }
 
     #[test]

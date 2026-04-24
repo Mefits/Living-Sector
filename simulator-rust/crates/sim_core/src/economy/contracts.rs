@@ -469,9 +469,40 @@ impl ContractBoard {
         posted_at_tick: u64,
         lifespan_ticks: u64,
     ) -> String {
-        self.post_kind(
+        self.post_passenger_for(
+            requestor_id,
+            None,
+            head_count,
+            source_location,
+            destination_location,
+            payment,
+            posted_at_tick,
+            lifespan_ticks,
+        )
+    }
+
+    /// Post a passenger contract tagged with the owning faction.
+    /// Populations call this with `Some(pop_identity.faction_id)` so
+    /// the delivery-side reputation gain and the Bundle A standing
+    /// bump route to the faction that actually commissioned the run —
+    /// without this tag, ~30% of deliveries (all pop-originated food
+    /// + passenger work) landed invisible to the diplomacy layer.
+    #[allow(clippy::too_many_arguments)]
+    pub fn post_passenger_for(
+        &mut self,
+        requestor_id: String,
+        faction_id: Option<String>,
+        head_count: u32,
+        source_location: String,
+        destination_location: String,
+        payment: i64,
+        posted_at_tick: u64,
+        lifespan_ticks: u64,
+    ) -> String {
+        self.post_kind_with_faction(
             ContractType::Passenger,
             requestor_id,
+            faction_id,
             Commodity::Food, // placeholder; apply phase branches on kind
             head_count,
             source_location,

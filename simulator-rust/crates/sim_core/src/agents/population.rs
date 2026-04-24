@@ -584,6 +584,7 @@ fn post_passenger_contracts(
     struct Candidate {
         pop_id: String,
         origin: String,
+        faction_id: String,
     }
     let candidates: Vec<Candidate> = world
         .query::<(&PopIdentity, &PopSentiment, &PopDemographics)>()
@@ -595,6 +596,7 @@ fn post_passenger_contracts(
         .map(|(_, (id, _, _))| Candidate {
             pop_id: id.id.clone(),
             origin: id.facility_location.clone(),
+            faction_id: id.faction_id.clone(),
         })
         .collect();
     if candidates.is_empty() {
@@ -630,8 +632,14 @@ fn post_passenger_contracts(
             continue;
         }
         let payment = PASSENGER_PAYMENT_PER_HEAD * PASSENGER_BATCH_SIZE as i64;
-        contracts.post_passenger(
+        let faction_tag = if cand.faction_id.is_empty() {
+            None
+        } else {
+            Some(cand.faction_id.clone())
+        };
+        contracts.post_passenger_for(
             cand.pop_id,
+            faction_tag,
             PASSENGER_BATCH_SIZE,
             cand.origin,
             destination,
@@ -671,6 +679,7 @@ fn post_food_contracts(
         destination: String,
         satisfaction: i32,
         population_count: i64,
+        faction_id: String,
     }
     let decisions: Vec<PopDecision> = world
         .query::<(&PopIdentity, &PopSentiment, &PopDemographics)>()
@@ -680,6 +689,7 @@ fn post_food_contracts(
             destination: id.facility_location.clone(),
             satisfaction: sent.food_satisfaction,
             population_count: demo.population_count,
+            faction_id: id.faction_id.clone(),
         })
         .collect();
 
@@ -732,8 +742,14 @@ fn post_food_contracts(
             CONTRACT_LIFESPAN_BASE * tick_multiplier
         };
 
-        contracts.post_delivery(
+        let faction_tag = if dec.faction_id.is_empty() {
+            None
+        } else {
+            Some(dec.faction_id.clone())
+        };
+        contracts.post_delivery_for(
             dec.pop_id,
+            faction_tag,
             Commodity::Food,
             quantity,
             source,
