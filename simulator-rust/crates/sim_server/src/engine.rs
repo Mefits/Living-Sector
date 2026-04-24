@@ -23,10 +23,10 @@
 use crate::{
     app_state::Observer,
     control::ControlCommand,
-    db::persistence::DbWrite,
     snapshot::SnapshotCache,
     ws::protocol::{PositionEntry, ServerMsg},
 };
+use sim_db::persistence::DbWrite;
 use sim_core::{
     agents::{
         celestial_body::BodyOrbit,
@@ -775,7 +775,7 @@ fn emit_persist_writes(
                 let Ok(site) = store.world.get::<&ConstructionSite>(entity) else {
                     continue;
                 };
-                Some(crate::db::persistence::ConstructionSiteRow {
+                Some(sim_db::persistence::ConstructionSiteRow {
                     agent_id: site.id.clone(),
                     name: site.name.clone(),
                     facility_type: site.facility_type.clone(),
@@ -856,10 +856,10 @@ fn emit_persist_writes(
     // cheap at our board size; keeps disk lockstep with RAM without
     // needing per-contract dirty tracking.
     if tick.is_multiple_of(16) {
-        let rows: Vec<crate::db::persistence::ContractRow> = store
+        let rows: Vec<sim_db::persistence::ContractRow> = store
             .contracts
             .iter()
-            .map(|c| crate::db::persistence::ContractRow {
+            .map(|c| sim_db::persistence::ContractRow {
                 id: c.id.clone(),
                 contract_type: c.contract_type.as_str().to_string(),
                 status: match c.status {
@@ -2254,7 +2254,7 @@ async fn admin_remove_ship(
         let crew = store.world.get::<&ShipCrew>(entity).ok();
         let fuel = store.world.get::<&ShipFuel>(entity).ok();
         let life = store.world.get::<&ShipLifecycle>(entity).ok();
-        identity.map(|id_ref| crate::db::persistence::RetirementRow {
+        identity.map(|id_ref| sim_db::persistence::RetirementRow {
             agent_id: id_ref.id.clone(),
             name: id_ref.name.clone(),
             class: id_ref.class.clone(),

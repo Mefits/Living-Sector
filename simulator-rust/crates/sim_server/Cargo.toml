@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 sim_core = { path = "../sim_core" }
+sim_db = { path = "../sim_db" }
 sim_protocol = { path = "../sim_protocol" }
 
 serde = { workspace = true }

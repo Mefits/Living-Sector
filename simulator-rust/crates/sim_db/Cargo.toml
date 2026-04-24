@@ -1,0 +1,35 @@
+[package]
+name = "sim_db"
+version.workspace = true
+edition.workspace = true
+
+# Persistence for the sim. Moved out of sim_server (2026-04-24,
+# client_bevy embedded-sim pivot) so the Bevy client can reuse
+# seeder + spawner + persistence worker without pulling in
+# sim_server's HTTP stack (axum, tower). Depends only on sim_core
+# plus the sqlx/tokio async toolchain.
+#
+# Modules:
+#   pool        — sqlx pool construction + migrations
+#   seeder      — JSON world.json → SQLite first-boot seeding
+#   spawner     — SQLite → AgentStore (hecs::World) load
+#   persistence — mpsc-driven async worker that flushes state
+#                 changes back to SQLite on a 5s cadence
+
+[dependencies]
+sim_core = { path = "../sim_core" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+hecs = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+rand = { workspace = true }
+flume = { workspace = true }
+
+# Match sqlx's transitive libsqlite3-sys version and enable bundled (static) SQLite.
+# Needed for Windows cross-compile — no system sqlite3.dll required.
+libsqlite3-sys = { version = "0.28", features = ["bundled"] }

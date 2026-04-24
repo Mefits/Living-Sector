@@ -23,7 +23,6 @@
 
 mod app_state;
 mod control;
-mod db;
 mod engine;
 mod http;
 mod snapshot;
@@ -64,14 +63,14 @@ async fn main() -> Result<()> {
     // Database
     let db_path = resolve_db_path();
     info!("DB: {db_path}");
-    let pool = db::pool::create_pool(&db_path).await?;
-    db::pool::run_migrations(&pool).await?;
+    let pool = sim_db::pool::create_pool(&db_path).await?;
+    sim_db::pool::run_migrations(&pool).await?;
     info!("Migrations: done");
 
-    if !db::seeder::is_seeded(&pool).await? {
+    if !sim_db::seeder::is_seeded(&pool).await? {
         let data_dir = resolve_data_dir();
         info!("Seeding from {}", data_dir.display());
-        db::seeder::seed_all(&pool, &data_dir).await?;
+        sim_db::seeder::seed_all(&pool, &data_dir).await?;
     } else {
         info!("DB already seeded — skipping");
     }
@@ -121,8 +120,8 @@ async fn main() -> Result<()> {
     };
 
     // Load world
-    let registry = db::spawner::load_registry(&pool).await?;
-    let mut store = db::spawner::load_agents(&pool, &registry, &config).await?;
+    let registry = sim_db::spawner::load_registry(&pool).await?;
+    let mut store = sim_db::spawner::load_agents(&pool, &registry, &config).await?;
     // Pump the contract board on a fresh seed so the first client to
     // connect isn't looking at an empty ledger. No-op when the board
     // was hydrated from DB by the loader.
@@ -159,11 +158,11 @@ async fn main() -> Result<()> {
 
     let (broadcast_tx, _) = broadcast::channel(64);
     let (control_tx, control_rx) = mpsc::channel::<ControlCommand>(64);
-    let (persist_tx, persist_rx) = mpsc::channel::<db::persistence::DbWrite>(4096);
+    let (persist_tx, persist_rx) = mpsc::channel::<sim_db::persistence::DbWrite>(4096);
     let (persist_flush_tx, persist_flush_rx) =
         mpsc::channel::<tokio::sync::oneshot::Sender<()>>(8);
 
-    let world_seed = db::persistence::load_or_init_world_seed(&pool).await;
+    let world_seed = sim_db::persistence::load_or_init_world_seed(&pool).await;
     info!("world_seed = {world_seed}");
 
     let command_trace = Arc::new(std::sync::RwLock::new(std::collections::VecDeque::with_capacity(
@@ -210,7 +209,7 @@ async fn main() -> Result<()> {
     });
 
     // Resume tick counter from DB if available
-    let resumed_tick = db::persistence::load_tick_counter(&pool).await;
+    let resumed_tick = sim_db::persistence::load_tick_counter(&pool).await;
     if resumed_tick > 0 {
         info!("Resuming from persisted tick={resumed_tick}");
         tick_counter.store(resumed_tick, std::sync::atomic::Ordering::Relaxed);
@@ -220,7 +219,7 @@ async fn main() -> Result<()> {
     let persist_handle = {
         let pool = pool.clone();
         tokio::spawn(async move {
-            db::persistence::PersistenceWorker::new(
+            sim_db::persistence::PersistenceWorker::new(
                 pool,
                 persist_rx,
                 persist_flush_rx,

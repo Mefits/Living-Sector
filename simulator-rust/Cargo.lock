@@ -4614,6 +4614,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "sim_db"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "flume",
+ "hecs",
+ "libsqlite3-sys",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "sim_core",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "sim_protocol"
 version = "0.1.0"
 dependencies = [
@@ -4640,6 +4658,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sim_core",
+ "sim_db",
  "sim_protocol",
  "sqlx",
  "thiserror 2.0.18",
