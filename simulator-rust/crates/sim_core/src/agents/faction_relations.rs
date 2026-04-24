@@ -414,11 +414,21 @@ pub fn market_sell_multiplier(
 /// Standing bump between ship's faction and contract requestor's
 /// faction on a successful delivery. Small — individual deliveries
 /// should nudge, not slingshot, the relationship.
-pub const DELIVERY_STANDING_BUMP: i32 = 1;
+///
+/// Retuned 2026-04-24: 20-minute soak showed the +1 bump with a
+/// −3 breach penalty produced a 3:1 loss ratio even in healthy
+/// trade conditions — matrix drifted net-negative across every
+/// pair, blocking organic TradePact formation. +2 delivery /
+/// −1 breach (below) flips the ratio to 2:1 *favour* of trade,
+/// so honest pairs can cross +50 sustained.
+pub const DELIVERY_STANDING_BUMP: i32 = 2;
 /// Standing penalty when a ship breaches (releases) a contract tied
-/// to a faction. Larger magnitude than the delivery reward so
-/// repeated flakes erode standing faster than honest trade rebuilds it.
-pub const BREACH_STANDING_PENALTY: i32 = -3;
+/// to a faction. The per-ship `faction_reputation` penalty (larger,
+/// scales with payment) still fires — this one is the cross-faction
+/// matrix debit only. Keeping it small acknowledges that a breach
+/// is usually one ship's bad luck, not an indictment of the whole
+/// faction.
+pub const BREACH_STANDING_PENALTY: i32 = -1;
 
 /// How often the relations tick runs (base ticks). 200 matches the
 /// faction-tax cadence — relations are low-frequency state, a rebuild

@@ -2473,6 +2473,7 @@ fn plan_goal(
         sensor_range_au,
         fuel_bucket,
         location_to_system,
+        dock_congestion,
     ) {
         let score = score_strategic(c.profit, c.goal_name, personality);
         // GOAP combined goal: if we have a retrofit plan AND the
@@ -2843,6 +2844,7 @@ fn try_plan_contract(
     sensor_range_au: f32,
     fuel_bucket: u8,
     location_to_system: &StdHashMap<String, String>,
+    dock_congestion: &StdHashMap<String, (u32, u32, u32)>,
 ) -> Option<ContractCandidate> {
     use crate::economy::contracts::ContractType;
 
@@ -2893,6 +2895,21 @@ fn try_plan_contract(
             if is_cross_system {
                 continue;
             }
+        }
+        // 2026-04-24: pre-accept congestion gate. A 20-minute soak
+        // revealed 50+ ships piling on a single 10-cap farm because
+        // the scorer only evaluated contract *profit*, not whether
+        // the ship could actually complete the delivery in finite
+        // time. Don't accept a contract whose source OR destination
+        // is already choked to 3× capacity — let another ship take
+        // it once the queue drains, or let the faction post a
+        // construction contract for a second facility. Skips when
+        // the location isn't in `dock_congestion` (e.g. gate-only
+        // locations, startup race).
+        if contract_destination_is_saturated(&c.source_location, dock_congestion)
+            || contract_destination_is_saturated(&c.destination_location, dock_congestion)
+        {
+            continue;
         }
         // Passenger / courier / crew-mission contracts don't occupy cargo
         // slots — treat them as "hop-around" jobs in the planner.
@@ -3349,6 +3366,34 @@ fn location_saturated(cap: u32, docked: u32, queued: u32) -> bool {
     }
     let effective_load = docked as f32 + queued as f32;
     effective_load / cap as f32 >= DOCK_SATURATION_THRESHOLD
+}
+
+/// Multiplier applied to capacity for the contract-acceptance
+/// congestion gate (see `contract_destination_is_saturated`). Much
+/// higher than the rest-destination threshold because contracts
+/// are longer-committed: a rest decision reverses cheaply, a
+/// contract acceptance commits the ship for many ticks. 3× means
+/// a 10-cap farm has to be choked past 30 queued before ships
+/// stop signing up for deliveries to/from it.
+pub const CONTRACT_ACCEPT_QUEUE_MULTIPLIER: f32 = 3.0;
+
+/// Pre-accept congestion gate for contract candidates. True when
+/// `location`'s aggregated queue length exceeds
+/// `CONTRACT_ACCEPT_QUEUE_MULTIPLIER × capacity`. Missing
+/// entries in `dock_congestion` (gate-only locations, startup
+/// race) return false — don't block when we can't prove
+/// saturation.
+fn contract_destination_is_saturated(
+    location: &str,
+    dock_congestion: &StdHashMap<String, (u32, u32, u32)>,
+) -> bool {
+    let Some(&(cap, _docked, queued)) = dock_congestion.get(location) else {
+        return false;
+    };
+    if cap == 0 {
+        return false;
+    }
+    queued as f32 >= CONTRACT_ACCEPT_QUEUE_MULTIPLIER * cap as f32
 }
 
 /// Phase 18L + post-21k-spiral fix: pick the best rest destination

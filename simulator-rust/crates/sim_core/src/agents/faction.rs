@@ -129,17 +129,22 @@ pub const SUBSIDY_LIFESPAN_BASE: u64 = 500;
 /// handles "we've been out for ages, the fix is to build a producer."
 pub const CONSTRUCTION_TRIGGER_TICKS: u32 = 600;
 
-/// How often the demand analyzer runs (every N base-ticks). Rare —
-/// spawning facilities is a consequential act. Cadence lives on the
-/// faction tick alongside subsidy. Raised from 100 → 300 so a faction
-/// that just posted a construction contract has time to recover
-/// treasury before the next scan potentially posts another.
-pub const CONSTRUCTION_CHECK_INTERVAL_BASE: u64 = 300;
+/// How often the demand analyzer runs (every N base-ticks). Spawning
+/// facilities is consequential, so the cadence stays relatively
+/// slow. 2026-04-24 tune: lowered 300 → 200 after the 20-minute
+/// soak showed sustained 50-ship backlogs at producer hubs — a
+/// shorter interval lets a faction respond to long-running
+/// saturation sooner. Treasury rebalance (Phase 19-tail) already
+/// gates on `CONSTRUCTION_MIN_TREASURY` so broke factions still
+/// skip the post.
+pub const CONSTRUCTION_CHECK_INTERVAL_BASE: u64 = 200;
 
 /// Max active construction contracts a faction can have posted at
-/// any time. One keeps the board focused; beyond that a struggling
-/// sector would flood the ticker with the same plea.
-pub const MAX_ACTIVE_CONSTRUCTIONS_PER_FACTION: u32 = 1;
+/// any time. 2026-04-24 tune: raised 1 → 2 for the same reason —
+/// a faction with multiple chronic shortages shouldn't wait for
+/// one build to finish before starting the next. Still low enough
+/// that a struggling sector can't flood the board.
+pub const MAX_ACTIVE_CONSTRUCTIONS_PER_FACTION: u32 = 2;
 
 /// Base payment for a construction contract. Higher than subsidy
 /// because the mission is bigger: you're literally ferrying 200 units
