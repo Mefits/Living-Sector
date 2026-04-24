@@ -674,3 +674,41 @@ pub async fn load_or_init_world_seed(pool: &SqlitePool) -> u64 {
     .await;
     seed
 }
+
+/// Load the retirement ledger. Returns up to `limit` rows newest-
+/// first (by tick then by insertion id). Safe to call at startup —
+/// the table is written only by the persistence worker, so a
+/// snapshot load can't race live writes. Clients that need a rolling
+/// view should re-invoke periodically.
+pub async fn load_retirements(pool: &SqlitePool, limit: i64) -> Result<Vec<RetirementRow>> {
+    use sqlx::Row;
+    let rows = sqlx::query(
+        "SELECT agent_id, name, class, faction_id, final_location,
+                final_credits, final_crew_morale, final_fuel_pct,
+                broke_strikes, hoard_strikes, retired_at_tick, reason
+         FROM retired_ships
+         ORDER BY retired_at_tick DESC, id DESC
+         LIMIT ?1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| RetirementRow {
+            agent_id: r.get::<String, _>("agent_id"),
+            name: r.get::<String, _>("name"),
+            class: r.get::<String, _>("class"),
+            faction_id: r.get::<String, _>("faction_id"),
+            final_location: r.get::<String, _>("final_location"),
+            final_credits: r.get::<i64, _>("final_credits"),
+            final_crew_morale: r.get::<i64, _>("final_crew_morale") as i32,
+            final_fuel_pct: r.get::<i64, _>("final_fuel_pct") as i32,
+            broke_strikes: r.get::<i64, _>("broke_strikes") as i32,
+            hoard_strikes: r.get::<i64, _>("hoard_strikes") as i32,
+            retired_at_tick: r.get::<i64, _>("retired_at_tick"),
+            reason: r.get::<String, _>("reason"),
+        })
+        .collect())
+}

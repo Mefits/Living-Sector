@@ -12,8 +12,18 @@ use sim_core::{
     simulation::{commands::CommandBuffer, config::TickConfig, spawner::AgentStore, tuning::WorldTuning},
     world::registry::WorldRegistry,
 };
+use sim_db::persistence::RetirementRow;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Historical ship retirements loaded at startup from the
+/// `retired_ships` table. Frozen snapshot — the embedded client
+/// doesn't currently write new retirements (apply_ship_commands is
+/// deferred to Bundle 2b.4), so reloading during play is unnecessary
+/// until that wiring lands. Newest-first, capped at the loader's
+/// limit.
+#[derive(Resource, Default)]
+pub struct Retirements(pub Vec<RetirementRow>);
 
 /// Base tick interval (seconds). Matches sim_server's default 125 ms
 /// cadence. World-speed UI in a future bundle rescales this.
@@ -27,6 +37,7 @@ pub struct SimPlugin;
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Sim>()
+            .init_resource::<Retirements>()
             .add_systems(Startup, load_world)
             .add_systems(FixedUpdate, tick_sim);
     }
@@ -73,7 +84,7 @@ impl Default for Sim {
 /// Behaviour mirrors `sim_server::main` exactly for this slice so
 /// the same `sim.db` file can be used interchangeably between the
 /// two binaries during the migration.
-fn load_world(mut sim: ResMut<Sim>) {
+fn load_world(mut sim: ResMut<Sim>, mut retirements: ResMut<Retirements>) {
     let db_path = resolve_db_path();
     info!("client_bevy: sim DB at {db_path}");
 
@@ -112,12 +123,21 @@ fn load_world(mut sim: ResMut<Sim>) {
 
         let world_seed = sim_db::persistence::load_or_init_world_seed(&pool).await;
         let resumed_tick = sim_db::persistence::load_tick_counter(&pool).await;
+        // Best-effort — an empty / brand-new DB has no retirements
+        // yet, so surface the load error as a warning rather than
+        // failing startup.
+        let retirements = sim_db::persistence::load_retirements(&pool, 200)
+            .await
+            .unwrap_or_else(|e| {
+                warn!("client_bevy: retirements load failed (DB probably fresh): {e}");
+                Vec::new()
+            });
 
-        Ok::<_, anyhow::Error>((store, registry, world_seed, resumed_tick))
+        Ok::<_, anyhow::Error>((store, registry, world_seed, resumed_tick, retirements))
     };
 
     match rt.block_on(load) {
-        Ok((store, registry, world_seed, resumed_tick)) => {
+        Ok((store, registry, world_seed, resumed_tick, retired)) => {
             let summary = store.summary();
             info!(
                 "client_bevy: world loaded: {} ships, {} facilities, {} bodies, {} factions, {} pops; world_seed={}, resume tick={}",
@@ -137,6 +157,9 @@ fn load_world(mut sim: ResMut<Sim>) {
             // lookup so ships can gate-jump. Required for any transit
             // through a gate to pick the right paired endpoint.
             sim.store.rebuild_gate_pairs();
+            let retired_count = retired.len();
+            retirements.0 = retired;
+            info!("client_bevy: loaded {retired_count} historical retirements");
         }
         Err(e) => {
             error!("client_bevy: world load failed: {e}");
