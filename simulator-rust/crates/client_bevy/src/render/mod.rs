@@ -44,6 +44,7 @@ impl Plugin for RenderPlugin {
                     highlight_selected,
                     draw_transit_lines,
                     draw_gate_rings,
+                    draw_construction_sites,
                     raycast_select,
                     cleanup_stale_ships,
                 ),
@@ -631,6 +632,44 @@ fn ray_sphere_hit(ray: &Ray3d, center: Vec3, radius: f32) -> Option<f32> {
 /// Tuned at 0.7 to read as "distinct from a station" at zoom-out
 /// without becoming dominant in the scene.
 const GATE_RING_RADIUS: f32 = 0.7;
+
+/// Outer radius of a construction site scaffold ring. Larger than
+/// gates so it reads as "work in progress, not a destination".
+const SITE_OUTER_RADIUS: f32 = 0.9;
+
+/// Draw construction-site scaffold rings for every
+/// `ConstructionSite` in the sim. Outer amber ring = scaffold
+/// boundary; filled amber arc = progress fraction. Scene is
+/// gizmo-only — construction sites spawn + despawn dynamically
+/// (faction::run_construction_cycle + engine::materialize_facility),
+/// and a gizmo approach doesn't require a matching Bevy-entity
+/// lifecycle. Cheap at ~10–30 active sites in a typical DB.
+fn draw_construction_sites(sim: Res<Sim>, mut gizmos: Gizmos) {
+    use sim_core::agents::construction::ConstructionSite;
+
+    let world = &sim.store.world;
+    let outer = Color::srgba(0.95, 0.75, 0.35, 0.85);
+    let inner = Color::srgba(0.5, 0.95, 0.65, 0.85);
+    let normal = Dir3::Y;
+
+    for (_e, site) in world.query::<&ConstructionSite>().iter() {
+        let (x, y) = site.position;
+        let center = Vec3::new(x * SCALE_FACTOR, 0.4, y * SCALE_FACTOR);
+        // Outer scaffold ring — constant radius.
+        gizmos
+            .circle(center, normal, SITE_OUTER_RADIUS, outer)
+            .resolution(48);
+        // Inner progress ring — radius scales with progress 0..=1 so
+        // it reads as a filling disk from the centre outward. No
+        // partial-arc API, so a second smaller ring is the cheap
+        // substitute.
+        let progress = site.progress().clamp(0.0, 1.0);
+        if progress > 0.0 {
+            let r = SITE_OUTER_RADIUS * progress;
+            gizmos.circle(center, normal, r, inner).resolution(32);
+        }
+    }
+}
 
 /// Draw a faint amber ring around every gate facility each frame via
 /// Bevy Gizmos. Gates are just another FacilityEntity with
