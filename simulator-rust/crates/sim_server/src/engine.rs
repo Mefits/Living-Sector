@@ -283,6 +283,12 @@ pub async fn run_tick_loop(
         );
         record_command_trace(&store, &commands, tick, &command_trace);
         apply_ship_commands(&mut store, &mut commands, &mut events, tick);
+        // Per-tick queue advance: admits any queue heads that have
+        // space and credits, independent of whether the ship at the
+        // head is currently emitting RequestDock. Prevents LOD'd-out
+        // ships from indefinitely holding queue slots they can't
+        // actively poll for.
+        tick_dock_queue_advance(&mut store);
         drain_pending_materializations(&mut store, &pool, &persist_tx, &mut events).await;
         drain_pending_decommissions(&mut store, tick, &mut events, &persist_tx).await;
         drain_pending_respawns(&mut store, &registry, tick, &mut events, &persist_tx, &pool).await;
@@ -2776,6 +2782,131 @@ fn admin_market_supply_delta(
                 "commodity": c, "delta": d
             })).collect::<Vec<_>>(),
         }));
+    }
+}
+
+/// Per-tick dock-queue advance. Independent of whether any queued
+/// ship is currently emitting `RequestDock` — walks every facility
+/// with a non-empty queue, prunes phantom entries inline, then
+/// admits as many heads as the available space + the ships'
+/// credits allow.
+///
+/// Why this exists: the original admission path only fires from a
+/// ship's own `ShipAction::Dock` emitting `RequestDock`. When a
+/// queued ship gets LOD-gated out (sitting at divisor 5/10/20/50)
+/// it stops emitting RequestDock for most ticks — so even if the
+/// facility has free slots, nothing pulls the queue forward. A
+/// 5-minute soak surfaced luna-base with 0 docked and 3 queued
+/// and similar patterns at proxima-outpost + belt-outpost. Moving
+/// admission into a cadenced sweep decouples it from the ship's
+/// individual tick cadence.
+///
+/// Cheap: only iterates facilities whose `dock_queue` is non-empty,
+/// and most ticks have zero or a handful of such facilities.
+fn tick_dock_queue_advance(store: &mut AgentStore) {
+    use sim_core::agents::{
+        facility::{
+            docking_fee, FacilityLocation, FacilityOperations, FacilityStorage,
+            DOCKING_FEE_BASE,
+        },
+        ship::{ShipEconomy, ShipPosition},
+    };
+
+    let facilities: Vec<(hecs::Entity, String)> = store
+        .world
+        .query::<(&FacilityLocation, &FacilityStorage)>()
+        .iter()
+        .filter(|(_, (_, s))| !s.dock_queue.is_empty())
+        .map(|(e, (loc, _))| (e, loc.location_name.clone()))
+        .collect();
+
+    for (facility, location) in facilities {
+        // Inline prune: drop entries whose ship moved or whose
+        // `dock_attempt_start_tick` was cleared (timed out / replanned).
+        let pruned: Vec<hecs::Entity> = {
+            let q = match store.world.get::<&FacilityStorage>(facility) {
+                Ok(s) => s.dock_queue.clone(),
+                Err(_) => continue,
+            };
+            q.into_iter()
+                .filter(|&e| {
+                    let still_here = store
+                        .world
+                        .get::<&ShipPosition>(e)
+                        .map(|p| p.location_name.as_deref() == Some(location.as_str()))
+                        .unwrap_or(false);
+                    let still_trying = store
+                        .world
+                        .get::<&ShipEconomy>(e)
+                        .map(|econ| econ.dock_attempt_start_tick.is_some())
+                        .unwrap_or(false);
+                    still_here && still_trying
+                })
+                .collect()
+        };
+        if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
+            if storage.dock_queue.len() != pruned.len() {
+                storage.dock_queue = pruned;
+            }
+        }
+
+        // Admit as many heads as we can — bounded by available
+        // slots and the head's ability to pay the fee. Broke head
+        // evicts without advancing the docked count.
+        loop {
+            let head = match store.world.get::<&FacilityStorage>(facility) {
+                Ok(s) => s.dock_queue.first().copied(),
+                Err(_) => break,
+            };
+            let Some(ship) = head else { break };
+
+            let (fee, has_space) = {
+                let ops = match store.world.get::<&FacilityOperations>(facility) {
+                    Ok(o) => o,
+                    Err(_) => break,
+                };
+                let storage = match store.world.get::<&FacilityStorage>(facility) {
+                    Ok(s) => s,
+                    Err(_) => break,
+                };
+                let docked = storage.docked_ships.len() as u32;
+                if docked >= ops.docking_capacity {
+                    (0, false)
+                } else {
+                    (
+                        docking_fee(
+                            DOCKING_FEE_BASE,
+                            docked,
+                            ops.docking_capacity,
+                            ops.condition,
+                        ),
+                        true,
+                    )
+                }
+            };
+            if !has_space {
+                break;
+            }
+            let can_afford = store
+                .world
+                .get::<&ShipEconomy>(ship)
+                .map(|econ| econ.credits >= fee)
+                .unwrap_or(false);
+            if !can_afford {
+                // Evict broke head so everyone behind can proceed.
+                // The ship's own Dock action sees queue absence next
+                // tick, BT unwinds, planner routes to a sell_cargo /
+                // refuel-elsewhere flow.
+                if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
+                    storage.dock_queue.retain(|&q| q != ship);
+                }
+                continue;
+            }
+            commit_dock(store, ship, facility, fee);
+            if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
+                storage.dock_queue.retain(|&q| q != ship);
+            }
+        }
     }
 }
 
