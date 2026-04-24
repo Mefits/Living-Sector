@@ -94,24 +94,55 @@ func _process(delta: float) -> void:
 	_cull_timer += delta
 	if _cull_timer >= CULL_INTERVAL:
 		_cull_timer = 0.0
-		_cull_ships()
+		_cull_world()
 
 
-func _cull_ships() -> void:
-	# Hide ships far from camera, show ones nearby
+func _cull_world() -> void:
+	# Extended 2026-04-24: prior implementation only culled ships, which
+	# meant ~93 facility OmniLight3Ds + 35 orbital bodies + every orbit
+	# ring + asteroid field always drew regardless of camera distance.
+	# At 1500 ships on top of that, the GPU was swamped by non-ship geo
+	# just as much as by ship geo. Cull all three categories on the same
+	# radius so the scene tree stops submitting work for anything the
+	# camera can't see. `visible = false` on a Node3D also hides every
+	# child (including OmniLight3D), so light contribution stops without
+	# any per-type special casing.
 	var cam_x := _camera.position.x
 	var cam_z := _camera.position.z
-	# Cull radius scales with zoom — see more when zoomed out
+	# Cull radius scales with zoom — see more when zoomed out.
 	var cull_radius: float = GameState.zoom_raw * 2.5
 	var cull_sq := cull_radius * cull_radius
 
+	# `global_position` rather than `.position` so facilities + bodies
+	# (nested under star_system Node3Ds) get their world-space distance
+	# checked. Ships are flat children of universe so the two are equal
+	# for them.
 	for ship_node in _ship_nodes.values():
 		var sn: Node3D = ship_node
-		var dx: float = sn.position.x - cam_x
-		var dz: float = sn.position.z - cam_z
+		var p := sn.global_position
+		var dx: float = p.x - cam_x
+		var dz: float = p.z - cam_z
 		var dist_sq: float = dx * dx + dz * dz
 		sn.visible = (dist_sq < cull_sq)
 		sn.set_process(sn.visible)
+
+	for facility_node in _facility_nodes.values():
+		var fn: Node3D = facility_node
+		var p2 := fn.global_position
+		var dx2: float = p2.x - cam_x
+		var dz2: float = p2.z - cam_z
+		var dist_sq2: float = dx2 * dx2 + dz2 * dz2
+		fn.visible = (dist_sq2 < cull_sq)
+		fn.set_process(fn.visible)
+
+	for body_node in _body_nodes.values():
+		var bn: Node3D = body_node
+		var p3 := bn.global_position
+		var dx3: float = p3.x - cam_x
+		var dz3: float = p3.z - cam_z
+		var dist_sq3: float = dx3 * dx3 + dz3 * dz3
+		bn.visible = (dist_sq3 < cull_sq)
+		bn.set_process(bn.visible)
 
 
 func _on_ship_removed(id: String) -> void:
