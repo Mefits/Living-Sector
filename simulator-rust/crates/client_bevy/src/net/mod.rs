@@ -136,7 +136,7 @@ async fn run_net_loop(
         // expects. Bundle 2 will tighten this up.
         let hello =
             serde_json::json!({ "type": "hello", "client_id": "client-bevy" });
-        if write.send(WsMessage::Text(hello.to_string().into())).await.is_err() {
+        if write.send(WsMessage::Text(hello.to_string())).await.is_err() {
             warn!("failed to send hello; will reconnect");
             continue;
         }
@@ -179,7 +179,7 @@ async fn run_net_loop(
                     }
                 }
                 Some(out) = out_rx.recv() => {
-                    if let Err(e) = write.send(WsMessage::Text(out.into())).await {
+                    if let Err(e) = write.send(WsMessage::Text(out)).await {
                         error!("ws write error: {e}");
                         break;
                     }

@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/sim_core", "crates/sim_protocol", "crates/sim_server"]
+members = [
+    "crates/sim_core",
+    "crates/sim_protocol",
+    "crates/sim_server",
+    "crates/client_bevy",
+]
 resolver = "2"
 
 [workspace.package]

@@ -1,0 +1,48 @@
+[package]
+name = "client_bevy"
+version.workspace = true
+edition.workspace = true
+authors = ["David Clausen"]
+
+# Bevy client for the spaceproject simulator. Sibling crate to
+# sim_server in the same workspace so we share Cargo.lock + target/
+# with the rest of the Rust side. The existing Godot client at
+# `../../../client/` stays as reference until parity lands; see
+# the session-level plan in `.claude/plans/`.
+#
+# Structure:
+#   src/main.rs       ← app bootstrap
+#   src/net/          ← WS + HTTP client, subprocess lifecycle
+#   src/world/        ← world-state resources + systems
+#   src/render/       ← mesh / material / instancing systems
+#   src/camera/       ← isometric cam + observer feedback
+#   src/ui/           ← egui inspector panels
+#   src/hud/          ← in-world HUD (labels, selection ring)
+#   src/admin/        ← admin controls (god toolbar, spawn, supply)
+
+[dependencies]
+# Shared wire protocol with the sim — no re-declared types.
+sim_protocol = { path = "../sim_protocol" }
+
+# Workspace-shared (resolved once across sim + client).
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+flume = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+
+# Engine + render stack — client-only deps, declared here directly.
+# Version-pinned intentionally: Bevy's API moves; bundle-by-bundle
+# upgrades are allowed, mid-bundle upgrades are not.
+bevy = "0.14"
+bevy_egui = "0.30"
+
+# Networking — client-only at this bundle. May get shared with
+# sim_server later if a second HTTP client surface appears, but
+# for now keep it crate-local.
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+reqwest = { version = "0.12", features = ["json"] }
+url = "2"
