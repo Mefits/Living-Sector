@@ -401,6 +401,13 @@ directly; zero marshalling between sim and render.
   Escape clears ship + facility selection. Both gated on
   `egui::Context::wants_keyboard_input` so typing in a filter box
   doesn't fire them.
+- **Bundle 3aa**: admin Heal Ship. Green button in ship details
+  refills fuel, resets morale / health to 100, clears hunger +
+  fatigue, floors credits at 10k (never downgrades richer ships).
+  Unsticks spiralling ships for debugging.
+- **Bundle 3ab**: gate ring gizmos. Amber 48-segment Gizmos circle
+  at each `facility_type == "gate"` body position, radius 0.7 wu.
+  Visually separates jump gates from stations at a glance.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
