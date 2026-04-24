@@ -31,6 +31,7 @@ impl Plugin for UiPlugin {
             .init_resource::<RetirementsState>()
             .init_resource::<ConstructionState>()
             .init_resource::<MinimapState>()
+            .init_resource::<BodyLabelsState>()
             .add_systems(
                 Update,
                 (
@@ -44,6 +45,7 @@ impl Plugin for UiPlugin {
                     populations_panel,
                     ship_details_panel,
                     minimap_panel,
+                    body_labels_panel,
                 )
                     .chain(),
             )
@@ -83,6 +85,7 @@ fn top_bar(
     mut retired_state: ResMut<RetirementsState>,
     mut construction: ResMut<ConstructionState>,
     mut minimap: ResMut<MinimapState>,
+    mut body_labels: ResMut<BodyLabelsState>,
 ) {
     // Count construction sites via an ECS query — the sim store
     // doesn't index them by id (sites aren't frequently looked up
@@ -197,6 +200,12 @@ fn top_bar(
                 .clicked()
             {
                 minimap.open = !minimap.open;
+            }
+            if ui
+                .selectable_label(body_labels.show, "Labels")
+                .clicked()
+            {
+                body_labels.show = !body_labels.show;
             }
         });
     });
@@ -2797,4 +2806,84 @@ fn minimap_panel(
         });
 
     state.open = open;
+}
+
+// =============================================================================
+// Body labels overlay
+// =============================================================================
+//
+// Projects each body's world position to screen space and draws its
+// name as an egui label. Helps with orientation at zoomed-out scales
+// where the body meshes are just dots. Toggleable from the top bar
+// so users who'd rather see a clean scene can hide them.
+
+#[derive(Resource)]
+struct BodyLabelsState {
+    show: bool,
+}
+
+impl Default for BodyLabelsState {
+    // Labels ON by default — first-time users benefit more from
+    // orientation hints than they lose to the small visual clutter.
+    fn default() -> Self {
+        Self { show: true }
+    }
+}
+
+fn body_labels_panel(
+    mut ctx: EguiContexts,
+    state: Res<BodyLabelsState>,
+    sim: Res<Sim>,
+    camera_q: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+) {
+    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
+
+    if !state.show {
+        return;
+    }
+
+    let Ok((camera, cam_xf)) = camera_q.get_single() else { return };
+
+    let world = &sim.store.world;
+    let entries: Vec<(String, Vec3)> = world
+        .query::<(&BodyIdentity, &BodyOrbit)>()
+        .iter()
+        .map(|(_e, (id, orbit))| {
+            let (x, y) = orbit.universe_position();
+            (
+                id.name.clone(),
+                Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
+            )
+        })
+        .collect();
+
+    // Use a transparent, non-interactive overlay area so labels
+    // paint on top without eating clicks or blocking egui's
+    // tooltip logic.
+    let ctx = ctx.ctx_mut();
+    egui::Area::new(egui::Id::new("body_labels_area"))
+        .movable(false)
+        .interactable(false)
+        .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            let painter = ui.painter();
+            for (name, pos) in entries {
+                // Skip bodies behind the camera. viewport_to_world's
+                // dual `world_to_viewport` returns None for off-screen
+                // or behind-camera — treat that as "don't draw".
+                let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
+                    continue;
+                };
+                // Offset label a bit above the body so it doesn't
+                // occlude the sphere.
+                let anchor = egui::pos2(screen.x, screen.y - 12.0);
+                painter.text(
+                    anchor,
+                    egui::Align2::CENTER_BOTTOM,
+                    &name,
+                    egui::FontId::proportional(11.0),
+                    egui::Color32::from_rgba_unmultiplied(230, 235, 245, 200),
+                );
+            }
+        });
 }
