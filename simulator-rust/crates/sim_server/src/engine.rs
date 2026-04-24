@@ -997,13 +997,13 @@ fn recompute_lod(
     stats
 }
 
-fn tick_bodies(store: &mut AgentStore, tick_scale: f32) {
+pub fn tick_bodies(store: &mut AgentStore, tick_scale: f32) {
     for (_e, orbit) in store.world.query_mut::<&mut BodyOrbit>() {
         orbit.advance(tick_scale);
     }
 }
 
-fn apply_ship_commands(
+pub fn apply_ship_commands(
     store: &mut AgentStore,
     commands: &mut CommandBuffer,
     events: &mut Vec<serde_json::Value>,
@@ -1557,7 +1557,7 @@ fn apply_ship_commands(
 /// and aren't candidates). Ties broken by first-seen hecs iteration order.
 /// Returns None if no dockable facility exists at the location, in which
 /// case dock/refuel commands silently no-op.
-fn primary_dock_at_location(store: &AgentStore, location: &str) -> Option<hecs::Entity> {
+pub fn primary_dock_at_location(store: &AgentStore, location: &str) -> Option<hecs::Entity> {
     primary_dock_at_location_typed(store, location, None)
 }
 
@@ -1566,7 +1566,7 @@ fn primary_dock_at_location(store: &AgentStore, location: &str) -> Option<hecs::
 /// if no candidate matches; callers (e.g. agent retrofit BT) should
 /// treat that as a silent dock rejection — the BT fails cleanly and
 /// replans next tick.
-fn primary_dock_at_location_typed(
+pub fn primary_dock_at_location_typed(
     store: &AgentStore,
     location: &str,
     facility_type: Option<&str>,
@@ -1583,7 +1583,7 @@ fn primary_dock_at_location_typed(
 /// full — haven-station has 5 facilities totalling 16 slots; pre-18k
 /// only the 8-slot primary got used, so 111 ships piled up on it and
 /// the remaining 8 slots sat idle.
-fn dockable_candidates_ordered(
+pub fn dockable_candidates_ordered(
     store: &AgentStore,
     location: &str,
     facility_type: Option<&str>,
@@ -1624,7 +1624,7 @@ fn dockable_candidates_ordered(
 /// `FacilityStorage.docked_ships`, and sets `ShipPosition.docked_at`.
 /// Returns `true` if the dock succeeded (ship now docked), `false` if
 /// it was rejected (no facility, capacity full, or ship broke).
-fn apply_request_dock_typed(
+pub fn apply_request_dock_typed(
     store: &mut AgentStore,
     ship: hecs::Entity,
     location: &str,
@@ -1832,7 +1832,7 @@ fn apply_request_dock_typed(
 ///
 /// Without this sweep a single vanished/idle ship can wedge the queue
 /// head forever and every ship behind it starves.
-fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, location: &str) {
+pub fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, location: &str) {
     use sim_core::agents::{
         facility::FacilityStorage,
         ship::{ShipEconomy, ShipPosition},
@@ -1874,7 +1874,7 @@ fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, locati
 /// Shared dock-commit helper: debits fee, credits facility, pushes the
 /// ship onto `docked_ships`, sets `ShipPosition.docked_at`. Caller is
 /// responsible for any queue cleanup.
-fn commit_dock(
+pub fn commit_dock(
     store: &mut AgentStore,
     ship: hecs::Entity,
     facility: hecs::Entity,
@@ -1946,7 +1946,7 @@ fn commit_dock(
 ///
 /// The ship's `docked_at` has already been cleared in-place by the
 /// Undock action.
-fn apply_release_dock(
+pub fn apply_release_dock(
     store: &mut AgentStore,
     ship: hecs::Entity,
     location: &str,
@@ -2503,7 +2503,7 @@ fn admin_grant_ship_xp(
 /// can decide whether to emit an event, log, or silently drop.
 #[allow(dead_code)]
 #[derive(Debug)]
-enum RefitAttempt {
+pub enum RefitAttempt {
     Applied { prev_slug: Option<String> },
     NoShip,
     NoClass,
@@ -2517,7 +2517,7 @@ enum RefitAttempt {
 /// Perform the fitting swap + rebake (cargo capacity, speed modifier).
 /// Pure local — no shipyard economy interaction. Shared by admin
 /// override refits and the admin/agent shipyard paths.
-fn apply_fitting_swap(
+pub fn apply_fitting_swap(
     store: &mut AgentStore,
     ship: hecs::Entity,
     slot: sim_core::modules::Slot,
@@ -2564,7 +2564,7 @@ fn apply_fitting_swap(
 /// extra work (event emit, retrofit-point consumption) should fire.
 /// Never mutates the fitting itself — caller does that via
 /// [`apply_fitting_swap`] after validation passes.
-fn try_shipyard_refit(
+pub fn try_shipyard_refit(
     store: &mut AgentStore,
     ship: hecs::Entity,
     slot: sim_core::modules::Slot,
@@ -2625,7 +2625,7 @@ fn try_shipyard_refit(
 /// have succeeded. Split from `try_shipyard_refit` so the caller can
 /// order {validate → swap → commit} and guarantee atomicity at the
 /// tick-phase boundary.
-fn commit_shipyard_refit(
+pub fn commit_shipyard_refit(
     store: &mut AgentStore,
     ship: hecs::Entity,
     facility_entity: hecs::Entity,
@@ -2803,7 +2803,7 @@ fn admin_market_supply_delta(
 ///
 /// Cheap: only iterates facilities whose `dock_queue` is non-empty,
 /// and most ticks have zero or a handful of such facilities.
-fn tick_dock_queue_advance(store: &mut AgentStore) {
+pub fn tick_dock_queue_advance(store: &mut AgentStore) {
     use sim_core::agents::{
         facility::{
             docking_fee, FacilityLocation, FacilityOperations, FacilityStorage,
@@ -2965,7 +2965,7 @@ fn admin_set_relations(
 /// position change only after apply confirms — current model is
 /// optimistic and can drift if the jump fails. Low risk today because
 /// the planner's "can_afford" check guards it.
-fn apply_gate_jump(
+pub fn apply_gate_jump(
     store: &mut AgentStore,
     ship: hecs::Entity,
     src_gate_location: &str,
@@ -3107,7 +3107,7 @@ fn apply_gate_jump(
 /// Apply `FacilityRefuel`: drain fuel from the facility's reserves and
 /// credit the facility's treasury. Ship-side fuel/credit updates already
 /// happened when the command was emitted.
-fn apply_facility_refuel(
+pub fn apply_facility_refuel(
     store: &mut AgentStore,
     location: &str,
     amount: f32,
@@ -3136,7 +3136,7 @@ fn apply_facility_refuel(
 /// into a real facility at the same position and the site entity is
 /// despawned. Fires `construction_progress` and, on finish,
 /// `construction_completed` events.
-fn apply_construction_delivery(
+pub fn apply_construction_delivery(
     store: &mut AgentStore,
     destination: &str,
     commodity: sim_core::economy::commodities::Commodity,
@@ -3296,7 +3296,7 @@ async fn drain_pending_materializations(
 /// flags prevents duplicate events each tick while the condition
 /// persists, and recovery events (`market_recovered` /
 /// `facility_recovered`) fire when state normalises again.
-fn scan_crisis_events(world: &mut hecs::World, events: &mut Vec<serde_json::Value>) {
+pub fn scan_crisis_events(world: &mut hecs::World, events: &mut Vec<serde_json::Value>) {
     use sim_core::agents::facility::{FacilityIdentity, FacilityOperations};
     use sim_core::agents::market::{MarketHistory, MarketIdentity};
     use sim_core::simulation::tuning::WorldTuning;
@@ -3350,7 +3350,7 @@ fn scan_crisis_events(world: &mut hecs::World, events: &mut Vec<serde_json::Valu
 /// `treaty_changed` event for every transition surfaced by the pure
 /// core pass. Gated on `RELATIONS_TICK_INTERVAL_BASE * tick_mult` so
 /// standing decay + treaty evaluations don't run every tick.
-fn tick_relations_pass(
+pub fn tick_relations_pass(
     store: &mut AgentStore,
     events: &mut Vec<serde_json::Value>,
     tick: u64,

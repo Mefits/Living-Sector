@@ -1490,6 +1490,7 @@ dependencies = [
  "serde_json",
  "sim_core",
  "sim_db",
+ "sim_server",
  "tokio",
  "tracing",
 ]

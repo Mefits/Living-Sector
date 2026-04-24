@@ -21,23 +21,18 @@
 //!   `server_manager.gd` so the sim doesn't outlive a crashing client.
 //!   Absent when running via `cargo run` directly — watcher no-ops.
 
-mod app_state;
-mod control;
-mod engine;
-mod http;
-mod snapshot;
-mod ws;
-
 use anyhow::Result;
-use app_state::AppState;
 use axum::{
     routing::{get, post},
     Router,
 };
-use control::ControlCommand;
-use engine::{RunningFlag, TickCounter};
 use sim_core::simulation::config::TickConfig;
-use snapshot::SnapshotCache;
+use sim_server::app_state::{self, AppState};
+use sim_server::control::ControlCommand;
+use sim_server::engine::{self, RunningFlag, TickCounter};
+use sim_server::http;
+use sim_server::snapshot::SnapshotCache;
+use sim_server::ws;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, AtomicU64},
     Arc,

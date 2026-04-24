@@ -25,6 +25,13 @@ sim_core = { path = "../sim_core" }
 # Persistence + seeder + spawner for loading the world on startup
 # and flushing changes back to SQLite.
 sim_db = { path = "../sim_db" }
+# sim_server exposes the command-apply phase + admin helpers as a
+# library surface (see crates/sim_server/src/lib.rs). Pulls in
+# axum/tower as transitive deps even though we don't use them —
+# that's the cost of the minimum-friction 2b.4 plan, which favours
+# a small code change over moving ~1200 lines of apply helpers to
+# sim_core.
+sim_server = { path = "../sim_server" }
 
 # Workspace-shared (resolved once across sim + client).
 serde = { workspace = true }

@@ -198,17 +198,24 @@ fn tick_sim(mut sim: ResMut<Sim>) {
     let tick_mult = sim.tick_mult.max(1);
 
     // Run `tick_mult` sim ticks per fixed update so the world-speed
-    // control feels crisp. At the current minimum-viable tick
-    // (ship::tick_ships only), running N ticks in sequence is the
-    // same as one tick with `tick_mult=N` used by the stepping math
-    // — keeps parity with sim_server's speed model once we wire the
-    // rest of the phases in Bundle 2b.4.
+    // control feels crisp. Bundle 2b.4 wires in the full command-
+    // apply phase via sim_server::engine — ships now actually dock,
+    // gate-jump, deliver contracts, etc. Other phases (facilities,
+    // markets, populations, factions) still aren't driven here; the
+    // economy progresses partially until those land.
     for _ in 0..tick_mult {
         sim.tick += 1;
         let tick = sim.tick;
         let Sim { store, registry, .. } = &mut *sim;
 
         let mut commands = CommandBuffer::new();
+        // `events` is a Vec per-tick because apply_ship_commands
+        // appends into it. The embedded client doesn't broadcast
+        // events anywhere yet (no WS layer), so we drop it at the
+        // end of the tick. Bundle 3y+ could pick this up into a
+        // live events ticker panel.
+        let mut events: Vec<serde_json::Value> = Vec::new();
+
         ship::tick_ships(
             &mut store.world,
             registry,
@@ -220,6 +227,16 @@ fn tick_sim(mut sim: ResMut<Sim>) {
             tick_scale,
             tick_mult,
         );
+        sim_server::engine::apply_ship_commands(
+            store,
+            &mut commands,
+            &mut events,
+            tick,
+        );
+        // Drop leftover commands (a few SimCommands can be deferred
+        // by the apply pass). In the full chain those get a second
+        // apply after market/faction phases; in the embedded tick
+        // we're fine dropping them — they're idempotent next tick.
         commands.clear();
     }
 }
