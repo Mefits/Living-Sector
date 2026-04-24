@@ -24,6 +24,8 @@ impl Plugin for UiPlugin {
             .init_resource::<MarketsState>()
             .init_resource::<PopulationsState>()
             .init_resource::<SelectedShip>()
+            .init_resource::<FacilityListState>()
+            .init_resource::<SelectedFacility>()
             .add_systems(
                 Update,
                 (
@@ -38,6 +40,15 @@ impl Plugin for UiPlugin {
                     ship_details_panel,
                 )
                     .chain(),
+            )
+            // Second chain keeps each system's parameter list small
+            // enough that Bevy's tuple-of-params limit isn't an issue,
+            // and also separates the "details" family so ship_details
+            // + facility_details don't compete for EguiContexts within
+            // the same chain.
+            .add_systems(
+                Update,
+                (facility_list_panel, facility_details_panel).chain(),
             );
     }
 }
@@ -46,6 +57,7 @@ impl Plugin for UiPlugin {
 /// open/close toggles to each panel's state Resource. Runs first
 /// in the UI chain so the panels below see up-to-date `open`
 /// flags the same frame the user clicks.
+#[allow(clippy::too_many_arguments)]
 fn top_bar(
     mut ctx: EguiContexts,
     sim: Res<Sim>,
@@ -54,6 +66,7 @@ fn top_bar(
     mut factions: ResMut<FactionsState>,
     mut markets: ResMut<MarketsState>,
     mut pops: ResMut<PopulationsState>,
+    mut facilities: ResMut<FacilityListState>,
 ) {
     egui::TopBottomPanel::top("top_bar").show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
@@ -104,6 +117,15 @@ fn top_bar(
                 .clicked()
             {
                 pops.open = !pops.open;
+            }
+            if ui
+                .selectable_label(
+                    facilities.open,
+                    format!("Facilities ({})", sim.store.facility_by_id.len()),
+                )
+                .clicked()
+            {
+                facilities.open = !facilities.open;
             }
         });
     });
@@ -1723,5 +1745,415 @@ fn crew_bar_color(v: f32) -> egui::Color32 {
         egui::Color32::from_rgb(230, 200, 90)
     } else {
         egui::Color32::from_rgb(240, 100, 90)
+    }
+}
+
+// =============================================================================
+// Facility list + details
+// =============================================================================
+//
+// Mirrors ships: a filterable/sortable list; clicking a row sets
+// SelectedFacility, opening a details panel with everything on the
+// facility entity. Both list and details read hecs directly.
+
+#[derive(Resource, Default)]
+struct FacilityListState {
+    open: bool,
+    sort: FacilitySort,
+    descending: bool,
+    filter: String,
+}
+
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+enum FacilitySort {
+    #[default]
+    Name,
+    Type,
+    Faction,
+    Location,
+    Credits,
+    Docked,
+    Level,
+}
+
+#[derive(Resource, Default)]
+struct SelectedFacility(Option<String>);
+
+struct FacilityRow {
+    id: String,
+    name: String,
+    facility_type: String,
+    faction: String,
+    location: String,
+    credits: i64,
+    docked: u32,
+    capacity: u32,
+    level: u8,
+    abandoned: bool,
+}
+
+fn facility_list_panel(
+    mut ctx: EguiContexts,
+    sim: Res<Sim>,
+    mut state: ResMut<FacilityListState>,
+    mut selected: ResMut<SelectedFacility>,
+) {
+    use sim_core::agents::facility::{
+        FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations,
+        FacilityStorage,
+    };
+
+    let mut open = state.open;
+    let mut sort = state.sort;
+    let mut descending = state.descending;
+    let mut filter = state.filter.clone();
+
+    if !open {
+        return;
+    }
+
+    let rows: Vec<FacilityRow> = sim
+        .store
+        .world
+        .query::<(
+            &FacilityIdentity,
+            &FacilityLocation,
+            &FacilityOperations,
+            &FacilityStorage,
+            &FacilityLifecycle,
+        )>()
+        .iter()
+        .map(|(_e, (id, loc, ops, stor, life))| FacilityRow {
+            id: id.id.clone(),
+            name: id.name.clone(),
+            facility_type: id.facility_type.clone(),
+            faction: id.faction_id.clone(),
+            location: loc.location_name.clone(),
+            credits: ops.credits,
+            docked: stor.docked_ships.len() as u32,
+            capacity: ops.docking_capacity,
+            level: life.level,
+            abandoned: life.abandoned,
+        })
+        .collect();
+
+    let filter_lc = filter.to_lowercase();
+    let mut filtered: Vec<&FacilityRow> = rows
+        .iter()
+        .filter(|r| {
+            if filter_lc.is_empty() {
+                return true;
+            }
+            r.name.to_lowercase().contains(&filter_lc)
+                || r.id.to_lowercase().contains(&filter_lc)
+                || r.facility_type.to_lowercase().contains(&filter_lc)
+                || r.faction.to_lowercase().contains(&filter_lc)
+                || r.location.to_lowercase().contains(&filter_lc)
+        })
+        .collect();
+
+    filtered.sort_by(|a, b| {
+        let cmp = match sort {
+            FacilitySort::Name => a.name.cmp(&b.name),
+            FacilitySort::Type => a.facility_type.cmp(&b.facility_type),
+            FacilitySort::Faction => a.faction.cmp(&b.faction),
+            FacilitySort::Location => a.location.cmp(&b.location),
+            FacilitySort::Credits => a.credits.cmp(&b.credits),
+            FacilitySort::Docked => a.docked.cmp(&b.docked),
+            FacilitySort::Level => a.level.cmp(&b.level),
+        };
+        if descending { cmp.reverse() } else { cmp }
+    });
+
+    let total = rows.len();
+    let shown = filtered.len();
+
+    egui::Window::new(format!("Facilities · {shown}/{total}"))
+        .default_width(800.0)
+        .default_height(460.0)
+        .open(&mut open)
+        .show(ctx.ctx_mut(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label("filter:");
+                ui.text_edit_singleline(&mut filter);
+            });
+            ui.separator();
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::Grid::new("facility_list_grid")
+                    .striped(true)
+                    .num_columns(7)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        fac_sort_header(ui, "Name", &mut sort, &mut descending, FacilitySort::Name);
+                        fac_sort_header(ui, "Type", &mut sort, &mut descending, FacilitySort::Type);
+                        fac_sort_header(ui, "Faction", &mut sort, &mut descending, FacilitySort::Faction);
+                        fac_sort_header(ui, "Location", &mut sort, &mut descending, FacilitySort::Location);
+                        fac_sort_header(ui, "Credits", &mut sort, &mut descending, FacilitySort::Credits);
+                        fac_sort_header(ui, "Dock", &mut sort, &mut descending, FacilitySort::Docked);
+                        fac_sort_header(ui, "Lvl", &mut sort, &mut descending, FacilitySort::Level);
+                        ui.end_row();
+
+                        for r in &filtered {
+                            let is_sel = selected.0.as_deref() == Some(r.id.as_str());
+                            let name_text = if r.abandoned {
+                                egui::RichText::new(&r.name)
+                                    .color(egui::Color32::from_gray(140))
+                                    .strikethrough()
+                            } else {
+                                egui::RichText::new(&r.name)
+                            };
+                            if ui.selectable_label(is_sel, name_text).clicked() {
+                                selected.0 = Some(r.id.clone());
+                            }
+                            ui.label(&r.facility_type);
+                            ui.label(&r.faction);
+                            ui.label(&r.location);
+                            ui.label(format_credits(r.credits));
+                            ui.label(format!("{}/{}", r.docked, r.capacity));
+                            ui.label(format!("{}", r.level));
+                            ui.end_row();
+                        }
+                    });
+            });
+        });
+
+    state.open = open;
+    state.sort = sort;
+    state.descending = descending;
+    state.filter = filter;
+}
+
+fn fac_sort_header(
+    ui: &mut egui::Ui,
+    label: &str,
+    current: &mut FacilitySort,
+    descending: &mut bool,
+    target: FacilitySort,
+) {
+    let arrow = if *current == target {
+        if *descending { " ▼" } else { " ▲" }
+    } else {
+        ""
+    };
+    let text = egui::RichText::new(format!("{label}{arrow}")).strong();
+    if ui.button(text).clicked() {
+        if *current == target {
+            *descending = !*descending;
+        } else {
+            *current = target;
+            *descending = matches!(
+                target,
+                FacilitySort::Credits | FacilitySort::Docked | FacilitySort::Level,
+            );
+        }
+    }
+}
+
+fn facility_details_panel(
+    mut ctx: EguiContexts,
+    sim: Res<Sim>,
+    mut selected: ResMut<SelectedFacility>,
+) {
+    use sim_core::agents::facility::{
+        FacilityCrew, FacilityFitting, FacilityIdentity, FacilityLifecycle, FacilityLocation,
+        FacilityOperations, FacilityStorage,
+    };
+
+    let Some(fac_id) = selected.0.clone() else {
+        return;
+    };
+    let Some(&entity) = sim.store.facility_by_id.get(&fac_id) else {
+        selected.0 = None;
+        return;
+    };
+
+    let mut still_open = true;
+    let title = format!("Facility · {}", fac_id);
+
+    egui::Window::new(title)
+        .default_width(520.0)
+        .default_height(640.0)
+        .open(&mut still_open)
+        .show(ctx.ctx_mut(), |ui| {
+            let Ok(mut q) = sim.store.world.query_one::<(
+                &FacilityIdentity,
+                &FacilityLocation,
+                &FacilityOperations,
+                &FacilityStorage,
+                &FacilityLifecycle,
+            )>(entity) else {
+                ui.label("(facility entity missing components)");
+                return;
+            };
+            let Some((id, loc, ops, storage, life)) = q.get() else {
+                ui.label("(facility entity missing components)");
+                return;
+            };
+
+            // Optional components — gates don't have fitting/crew, so
+            // wrap each in a separate query that degrades gracefully.
+            let fitting = sim
+                .store
+                .world
+                .query_one::<&FacilityFitting>(entity)
+                .ok()
+                .and_then(|mut q| q.get().cloned());
+            let crew = sim
+                .store
+                .world
+                .query_one::<&FacilityCrew>(entity)
+                .ok()
+                .and_then(|mut q| q.get().cloned());
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                if life.abandoned {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(240, 100, 90),
+                        egui::RichText::new("ABANDONED").strong(),
+                    );
+                    ui.separator();
+                }
+
+                ui.label(egui::RichText::new("Identity").strong().size(14.0));
+                egui::Grid::new("fac_details_identity")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        ui.label("Name"); ui.label(&id.name); ui.end_row();
+                        ui.label("Type"); ui.label(&id.facility_type); ui.end_row();
+                        ui.label("Body"); ui.label(&id.body_id); ui.end_row();
+                        ui.label("Location"); ui.label(&loc.location_name); ui.end_row();
+                        ui.label("Faction"); ui.label(&id.faction_id); ui.end_row();
+                    });
+                ui.separator();
+
+                ui.label(egui::RichText::new("Operations").strong().size(14.0));
+                egui::Grid::new("fac_details_ops")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        ui.label("Credits"); ui.label(format_credits(ops.credits)); ui.end_row();
+                        ui.label("Condition");
+                        let cond_color = if ops.condition >= 0.7 {
+                            egui::Color32::from_rgb(120, 220, 120)
+                        } else if ops.condition >= 0.3 {
+                            egui::Color32::from_rgb(230, 200, 90)
+                        } else {
+                            egui::Color32::from_rgb(240, 100, 90)
+                        };
+                        ui.colored_label(cond_color, format!("{:.0}%", ops.condition * 100.0));
+                        ui.end_row();
+                        ui.label("Docking");
+                        ui.label(format!(
+                            "{} / {} (+{} queued)",
+                            storage.docked_ships.len(),
+                            ops.docking_capacity,
+                            storage.dock_queue.len(),
+                        ));
+                        ui.end_row();
+                    });
+                ui.separator();
+
+                ui.label(egui::RichText::new("Lifecycle").strong().size(14.0));
+                egui::Grid::new("fac_details_life")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        ui.label("Level");
+                        ui.label(format!("{} / {}", life.level, sim_core::agents::facility::FACILITY_LEVEL_CAP));
+                        ui.end_row();
+                        ui.label("XP");
+                        ui.label(format!("{} / {}", life.xp, life.next_level_threshold()));
+                        ui.end_row();
+                        if life.abandon_counter > 0 {
+                            ui.label("Abandon countdown");
+                            ui.label(format!("{}", life.abandon_counter));
+                            ui.end_row();
+                        }
+                    });
+                ui.separator();
+
+                ui.label(egui::RichText::new("Reserves").strong().size(14.0));
+                if storage.reserves.is_empty() {
+                    ui.label(
+                        egui::RichText::new("(no reserves)")
+                            .italics()
+                            .color(egui::Color32::from_gray(160)),
+                    );
+                } else {
+                    egui::Grid::new("fac_details_reserves")
+                        .striped(true)
+                        .num_columns(2)
+                        .spacing([10.0, 2.0])
+                        .show(ui, |ui| {
+                            let mut items: Vec<_> = storage.reserves.iter().collect();
+                            items.sort_by_key(|(c, _)| c.as_str());
+                            for (c, qty) in items {
+                                ui.label(c.as_str());
+                                ui.label(format!("{:.0}", qty));
+                                ui.end_row();
+                            }
+                        });
+                }
+                ui.separator();
+
+                if let Some(fit) = fitting {
+                    ui.label(egui::RichText::new("Fitting").strong().size(14.0));
+                    egui::Grid::new("fac_details_fit")
+                        .num_columns(2)
+                        .spacing([12.0, 2.0])
+                        .show(ui, |ui| {
+                            for slot in sim_core::facility_modules::FACILITY_SLOTS.iter() {
+                                ui.label(slot.as_str());
+                                ui.label(fit.slots[slot.index()].unwrap_or("—"));
+                                ui.end_row();
+                            }
+                            ui.label("Recipe output mult");
+                            ui.label(format!("{:.2}×", fit.derived.recipe_output_mult));
+                            ui.end_row();
+                            ui.label("Max batches bonus");
+                            ui.label(format!("+{}", fit.derived.max_batches_bonus));
+                            ui.end_row();
+                        });
+                    ui.separator();
+                }
+
+                if let Some(crew) = crew {
+                    ui.label(egui::RichText::new("Crew").strong().size(14.0));
+                    egui::Grid::new("fac_details_crew")
+                        .num_columns(2)
+                        .spacing([12.0, 2.0])
+                        .show(ui, |ui| {
+                            ui.label("Count"); ui.label(format!("{}", crew.crew_count)); ui.end_row();
+                            ui.label("Morale");
+                            ui.colored_label(crew_bar_color(crew.morale), format!("{:.0}", crew.morale));
+                            ui.end_row();
+                            ui.label("Hunger");
+                            ui.colored_label(crew_bar_color(100.0 - crew.hunger), format!("{:.0}", crew.hunger));
+                            ui.end_row();
+                            ui.label("Efficiency");
+                            ui.label(format!("{:.2}×", crew.efficiency()));
+                            ui.end_row();
+                        });
+                    ui.separator();
+                }
+
+                if !storage.docked_ships.is_empty() || !storage.dock_queue.is_empty() {
+                    ui.label(egui::RichText::new("Dock").strong().size(14.0));
+                    ui.label(format!("Docked: {} ships", storage.docked_ships.len()));
+                    ui.label(format!("Queue: {} waiting", storage.dock_queue.len()));
+                    if !storage.pending_deliveries.is_empty() {
+                        ui.label(format!(
+                            "Pending deliveries: {}",
+                            storage.pending_deliveries.len()
+                        ));
+                    }
+                }
+            });
+        });
+
+    if !still_open {
+        selected.0 = None;
     }
 }
