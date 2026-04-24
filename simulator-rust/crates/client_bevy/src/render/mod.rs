@@ -35,7 +35,7 @@ impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         // Spawn entities after the sim has loaded (PostStartup ensures
         // `Sim::load_world` has populated the store).
-        app.add_systems(PostStartup, spawn_mirror_entities)
+        app.add_systems(PostStartup, (spawn_mirror_entities, spawn_starfield))
             .add_systems(
                 Update,
                 (sync_positions, highlight_selected, draw_transit_lines),
@@ -349,6 +349,73 @@ fn highlight_selected(
             xf.scale = Vec3::splat(wanted);
         }
     }
+}
+
+/// Starfield density — number of stars spawned. Tuned to feel like a
+/// populated sky without pressuring the frame budget. All stars are
+/// instances of one shared mesh + one shared material so they cost
+/// exactly one draw call between them.
+const STAR_COUNT: usize = 2000;
+
+/// Radius of the star shell around the galactic-overview focus.
+/// Generous so stars read as "distant background" at all zoom levels
+/// the camera clamp allows.
+const STAR_FIELD_RADIUS: f32 = 4000.0;
+
+/// One-time PostStartup spawn: scatter STAR_COUNT tiny emissive
+/// spheres in a shell around origin, seeded off `Sim.world_seed` so
+/// the constellations are stable across restarts. Godot does the
+/// same trick for its nebula-cloud backdrop (see the world_seed
+/// wiring in sim_server's WS `server_hello` frame).
+fn spawn_starfield(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    sim: Res<Sim>,
+) {
+    use rand::{rngs::StdRng, Rng, SeedableRng};
+
+    let seed = sim.world_seed;
+    let mut rng = StdRng::seed_from_u64(seed);
+
+    // Shared mesh + material. Small radius — perceived star size is
+    // dominated by HDR bloom / emissive intensity, not geometry.
+    let mesh = meshes.add(Sphere::new(0.8));
+    let material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.95, 0.95, 1.0),
+        emissive: LinearRgba::new(1.0, 1.0, 1.2, 1.0) * 3.0,
+        unlit: true,
+        ..default()
+    });
+
+    for _ in 0..STAR_COUNT {
+        // Uniform on a sphere via the z-and-theta method, then scale
+        // by a radius sampled with a mild bias toward the outer
+        // shell so stars don't cluster at the near side of the
+        // camera when zoomed in.
+        let z: f32 = rng.gen_range(-1.0..1.0);
+        let theta: f32 = rng.gen_range(0.0..std::f32::consts::TAU);
+        let r_xy = (1.0 - z * z).sqrt();
+        let dir = Vec3::new(r_xy * theta.cos(), z, r_xy * theta.sin());
+        // Ratio 0.7..1.0 gives a filled shell rather than hollow one,
+        // reads as "stars at many distances" at any zoom.
+        let radius = STAR_FIELD_RADIUS * rng.gen_range(0.7f32..1.0);
+        let pos = dir * radius;
+
+        commands.spawn((
+            PbrBundle {
+                mesh: mesh.clone(),
+                material: material.clone(),
+                transform: Transform::from_translation(pos),
+                ..default()
+            },
+            Name::new("Star"),
+        ));
+    }
+    info!(
+        "client_bevy: spawned {} stars (world_seed={})",
+        STAR_COUNT, seed,
+    );
 }
 
 /// Draw a faint line from each in-transit ship's departure point to
