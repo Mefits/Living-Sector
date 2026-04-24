@@ -2968,17 +2968,19 @@ fn build_fulfill_crew_mission_bt(
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> BtNode<ShipAction> {
-    if let Some(bt) = try_build_fulfill_crew_mission_bt_planned(
+    // Hand-authored fallback retired — the planner owns this goal.
+    // If the planner somehow fails (bug, depth cap exceeded), the
+    // ship returns an Idle BT for one tick and replans next tick
+    // with whatever state has changed. See the GOAP arc commits.
+    try_build_fulfill_crew_mission_bt_planned(
         current,
         station,
         &contract_id,
         fuel_bucket,
         registry,
         gate_pairs,
-    ) {
-        return bt;
-    }
-    build_fulfill_crew_mission_bt_handauthored(current, station, contract_id, registry, gate_pairs)
+    )
+    .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
 }
 
 /// GOAP: crew-mission planner. Single-station mission (travel →
@@ -3017,30 +3019,6 @@ fn try_build_fulfill_crew_mission_bt_planned(
     Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
 }
 
-fn build_fulfill_crew_mission_bt_handauthored(
-    current: &str,
-    station: &str,
-    contract_id: String,
-    registry: &WorldRegistry,
-    gate_pairs: &StdHashMap<String, String>,
-) -> BtNode<ShipAction> {
-    let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(8);
-    steps.push(BtNode::action(ShipAction::AcceptContract {
-        contract_id: contract_id.clone(),
-    }));
-    for a in route_actions(current, station, registry, gate_pairs) {
-        steps.push(BtNode::action(a));
-    }
-    steps.push(BtNode::action(ShipAction::Dock));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Refuel));
-    steps.push(BtNode::action(ShipAction::Rest));
-    steps.push(BtNode::action(ShipAction::DeliverCargo { contract_id }));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Undock));
-    BtNode::sequence(steps)
-}
-
 /// Build a passenger/courier BT. No Buy step; the ship just hops between
 /// source and destination and collects payment on Deliver.
 #[allow(clippy::too_many_arguments)]
@@ -3053,7 +3031,7 @@ fn build_fulfill_passenger_bt(
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> BtNode<ShipAction> {
-    if let Some(bt) = try_build_fulfill_passenger_bt_planned(
+    try_build_fulfill_passenger_bt_planned(
         current,
         source,
         destination,
@@ -3061,17 +3039,8 @@ fn build_fulfill_passenger_bt(
         fuel_bucket,
         registry,
         gate_pairs,
-    ) {
-        return bt;
-    }
-    build_fulfill_passenger_bt_handauthored(
-        current,
-        source,
-        destination,
-        contract_id,
-        registry,
-        gate_pairs,
     )
+    .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
 }
 
 /// GOAP: forward planner for passenger / courier contracts. No
@@ -3112,37 +3081,6 @@ fn try_build_fulfill_passenger_bt_planned(
         16,
     )?;
     Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
-}
-
-fn build_fulfill_passenger_bt_handauthored(
-    current: &str,
-    source: &str,
-    destination: &str,
-    contract_id: String,
-    registry: &WorldRegistry,
-    gate_pairs: &StdHashMap<String, String>,
-) -> BtNode<ShipAction> {
-    let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(12);
-    steps.push(BtNode::action(ShipAction::AcceptContract {
-        contract_id: contract_id.clone(),
-    }));
-    for a in route_actions(current, source, registry, gate_pairs) {
-        steps.push(BtNode::action(a));
-    }
-    steps.push(BtNode::action(ShipAction::Dock));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Refuel));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Undock));
-    for a in route_actions(source, destination, registry, gate_pairs) {
-        steps.push(BtNode::action(a));
-    }
-    steps.push(BtNode::action(ShipAction::Dock));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::DeliverCargo { contract_id }));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Undock));
-    BtNode::sequence(steps)
 }
 
 // --- BT builders ---
@@ -3201,12 +3139,8 @@ fn build_rest_crew_bt_to(
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> BtNode<ShipAction> {
-    if let Some(bt) =
-        try_build_rest_crew_bt_to_planned(current, target, fuel_bucket, registry, gate_pairs)
-    {
-        return bt;
-    }
-    build_rest_crew_bt_to_handauthored(current, target, registry, gate_pairs)
+    try_build_rest_crew_bt_to_planned(current, target, fuel_bucket, registry, gate_pairs)
+        .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
 }
 
 /// GOAP: rest_crew planner. Goal =
@@ -3242,25 +3176,6 @@ fn try_build_rest_crew_bt_to_planned(
         16,
     )?;
     Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
-}
-
-fn build_rest_crew_bt_to_handauthored(
-    current: &str,
-    target: &str,
-    registry: &WorldRegistry,
-    gate_pairs: &StdHashMap<String, String>,
-) -> BtNode<ShipAction> {
-    let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(8);
-    for a in route_actions(current, target, registry, gate_pairs) {
-        steps.push(BtNode::action(a));
-    }
-    steps.push(BtNode::action(ShipAction::Dock));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Refuel));
-    steps.push(BtNode::action(ShipAction::Rest));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Undock));
-    BtNode::sequence(steps)
 }
 
 /// Phase 18L: pick the best rest destination given current location
@@ -3430,10 +3345,8 @@ fn build_retrofit_bt(
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> BtNode<ShipAction> {
-    if let Some(bt) = try_build_retrofit_bt_planned(current, plan, fuel_bucket, registry, gate_pairs) {
-        return bt;
-    }
-    build_retrofit_bt_handauthored(current, plan, registry, gate_pairs)
+    try_build_retrofit_bt_planned(current, plan, fuel_bucket, registry, gate_pairs)
+        .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
 }
 
 /// GOAP: forward planner for standalone retrofit. Uses the
@@ -3481,27 +3394,6 @@ fn try_build_retrofit_bt_planned(
     Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
 }
 
-fn build_retrofit_bt_handauthored(
-    current: &str,
-    plan: &RetrofitPlan,
-    registry: &WorldRegistry,
-    gate_pairs: &StdHashMap<String, String>,
-) -> BtNode<ShipAction> {
-    let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(10);
-    for a in route_actions(current, &plan.shipyard_location, registry, gate_pairs) {
-        steps.push(BtNode::action(a));
-    }
-    steps.push(BtNode::action(ShipAction::DockAtShipyard));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Refit {
-        slot: plan.slot,
-        slug: plan.slug,
-    }));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Undock));
-    BtNode::sequence(steps)
-}
-
 #[allow(clippy::too_many_arguments)]
 fn build_trade_run_bt(
     current: &str,
@@ -3512,11 +3404,7 @@ fn build_trade_run_bt(
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> BtNode<ShipAction> {
-    // GOAP expansion: try the synthesised trade-run plan first,
-    // fall back to hand-authored on failure (same safety net as
-    // delivery). Once confidence is high we can retire the
-    // fallback.
-    if let Some(bt) = try_build_trade_run_bt_planned(
+    try_build_trade_run_bt_planned(
         current,
         buy_loc,
         sell_loc,
@@ -3524,10 +3412,8 @@ fn build_trade_run_bt(
         fuel_bucket,
         registry,
         gate_pairs,
-    ) {
-        return bt;
-    }
-    build_trade_run_bt_handauthored(current, buy_loc, sell_loc, commodity, registry, gate_pairs)
+    )
+    .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
 }
 
 /// GOAP expansion: run the forward planner for a trade run. Goal =
@@ -3569,35 +3455,6 @@ fn try_build_trade_run_bt_planned(
     Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
 }
 
-fn build_trade_run_bt_handauthored(
-    current: &str,
-    buy_loc: &str,
-    sell_loc: &str,
-    commodity: Commodity,
-    registry: &WorldRegistry,
-    gate_pairs: &StdHashMap<String, String>,
-) -> BtNode<ShipAction> {
-    let mut steps = Vec::with_capacity(12);
-    for a in route_actions(current, buy_loc, registry, gate_pairs) {
-        steps.push(BtNode::action(a));
-    }
-    steps.push(BtNode::action(ShipAction::Dock));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Refuel));
-    steps.push(BtNode::action(ShipAction::Buy { commodity, qty: TRADE_QTY_DEFAULT }));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Undock));
-    for a in route_actions(buy_loc, sell_loc, registry, gate_pairs) {
-        steps.push(BtNode::action(a));
-    }
-    steps.push(BtNode::action(ShipAction::Dock));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::SellAll));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Undock));
-    BtNode::sequence(steps)
-}
-
 /// Shared fuel-bucket cost estimator used by planned BT builders.
 /// Walks the real leg sequence via the pathfinder and rolls the
 /// summed distance into fuel buckets (~50 units per bucket).
@@ -3635,11 +3492,7 @@ fn build_fulfill_delivery_bt(
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> BtNode<ShipAction> {
-    // GOAP: try the synthesised path first. Falls back to the
-    // hand-authored sequence if the planner can't reach the goal
-    // within its depth cap, so behaviour is never worse than
-    // before.
-    if let Some(bt) = try_build_fulfill_delivery_bt_planned(
+    try_build_fulfill_delivery_bt_planned(
         current,
         source,
         destination,
@@ -3649,19 +3502,8 @@ fn build_fulfill_delivery_bt(
         fuel_bucket,
         registry,
         gate_pairs,
-    ) {
-        return bt;
-    }
-    build_fulfill_delivery_bt_handauthored(
-        current,
-        source,
-        destination,
-        commodity,
-        quantity,
-        contract_id,
-        registry,
-        gate_pairs,
     )
+    .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
 }
 
 /// GOAP MVP: run the forward planner to synthesise a delivery BT.
@@ -3859,46 +3701,6 @@ fn try_build_trade_run_with_retrofit_planned(
         28,
     )?;
     Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
-}
-
-/// Original hand-authored delivery BT. Preserved as the fallback
-/// when `try_build_fulfill_delivery_bt_planned` fails (planner can't
-/// reach the goal within its depth cap). Identical shape to the
-/// planner's output in the common case — we keep it around so a
-/// planner bug is never worse than a failed delivery.
-#[allow(clippy::too_many_arguments)]
-fn build_fulfill_delivery_bt_handauthored(
-    current: &str,
-    source: &str,
-    destination: &str,
-    commodity: Commodity,
-    quantity: u32,
-    contract_id: String,
-    registry: &WorldRegistry,
-    gate_pairs: &StdHashMap<String, String>,
-) -> BtNode<ShipAction> {
-    let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(16);
-    steps.push(BtNode::action(ShipAction::AcceptContract {
-        contract_id: contract_id.clone(),
-    }));
-    for a in route_actions(current, source, registry, gate_pairs) {
-        steps.push(BtNode::action(a));
-    }
-    steps.push(BtNode::action(ShipAction::Dock));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Refuel));
-    steps.push(BtNode::action(ShipAction::Buy { commodity, qty: quantity }));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Undock));
-    for a in route_actions(source, destination, registry, gate_pairs) {
-        steps.push(BtNode::action(a));
-    }
-    steps.push(BtNode::action(ShipAction::Dock));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::DeliverCargo { contract_id }));
-    steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
-    steps.push(BtNode::action(ShipAction::Undock));
-    BtNode::sequence(steps)
 }
 
 // --- Action executor (the dispatch closure's body) ---
