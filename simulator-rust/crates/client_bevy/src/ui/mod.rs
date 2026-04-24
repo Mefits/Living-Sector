@@ -19,8 +19,55 @@ impl Plugin for UiPlugin {
         app.add_plugins(EguiPlugin)
             .init_resource::<PerfStats>()
             .init_resource::<ShipListState>()
-            .add_systems(Update, (track_fps, perf_overlay, ship_list));
+            .init_resource::<ContractsState>()
+            .add_systems(
+                Update,
+                (
+                    track_fps,
+                    top_bar,
+                    perf_overlay,
+                    ship_list,
+                    contracts_panel,
+                )
+                    .chain(),
+            );
     }
+}
+
+/// Single top-bar system. Reads counts from the sim, hands out
+/// open/close toggles to each panel's state Resource. Runs first
+/// in the UI chain so the panels below see up-to-date `open`
+/// flags the same frame the user clicks.
+fn top_bar(
+    mut ctx: EguiContexts,
+    sim: Res<Sim>,
+    mut ships: ResMut<ShipListState>,
+    mut contracts: ResMut<ContractsState>,
+) {
+    egui::TopBottomPanel::top("top_bar").show(ctx.ctx_mut(), |ui| {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("spaceproject").strong());
+            ui.separator();
+            if ui
+                .selectable_label(
+                    ships.open,
+                    format!("Ships ({})", sim.store.ship_by_id.len()),
+                )
+                .clicked()
+            {
+                ships.open = !ships.open;
+            }
+            if ui
+                .selectable_label(
+                    contracts.open,
+                    format!("Contracts ({})", sim.store.contracts.iter().count()),
+                )
+                .clicked()
+            {
+                contracts.open = !contracts.open;
+            }
+        });
+    });
 }
 
 /// Rolling FPS window so the overlay doesn't flicker frame-to-frame.
@@ -180,22 +227,7 @@ fn ship_list(
     let mut sort = state.sort;
     let mut descending = state.descending;
 
-    let ship_count = sim.store.ship_by_id.len();
-    egui::TopBottomPanel::top("top_bar").show(ctx.ctx_mut(), |ui| {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("spaceproject").strong());
-            ui.separator();
-            if ui
-                .selectable_label(open, format!("Ships ({})", ship_count))
-                .clicked()
-            {
-                open = !open;
-            }
-        });
-    });
-
     if !open {
-        state.open = open;
         return;
     }
 
@@ -327,4 +359,267 @@ fn sort_header(
             *descending = false;
         }
     }
+}
+
+// =============================================================================
+// Contracts panel
+// =============================================================================
+
+#[derive(Resource, Default)]
+struct ContractsState {
+    open: bool,
+    kind_filter: ContractKindFilter,
+    status_filter: ContractStatusFilter,
+    show_expired: bool,
+}
+
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+enum ContractKindFilter {
+    #[default]
+    All,
+    Delivery,
+    Courier,
+    Passenger,
+    Subsidy,
+    Supply,
+    CrewMission,
+    Construction,
+}
+
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+enum ContractStatusFilter {
+    #[default]
+    All,
+    Posted,
+    Accepted,
+    PickedUp,
+    Delivered,
+    Paid,
+    Expired,
+}
+
+fn contracts_panel(
+    mut ctx: EguiContexts,
+    sim: Res<Sim>,
+    mut state: ResMut<ContractsState>,
+) {
+    use sim_core::economy::contracts::{ContractStatus, ContractType};
+
+    let mut open = state.open;
+    let mut kind_filter = state.kind_filter;
+    let mut status_filter = state.status_filter;
+    let mut show_expired = state.show_expired;
+
+    if !open {
+        return;
+    }
+
+    // Build the view slice. We walk the board once and filter upfront
+    // so the render loop doesn't re-check predicates per row. At 500+
+    // contracts the full walk is trivial.
+    struct Row {
+        id: String,
+        kind: &'static str,
+        status: &'static str,
+        commodity: String,
+        quantity: u32,
+        source: String,
+        dest: String,
+        payment: i64,
+        faction: String,
+        min_rep: u8,
+    }
+    let rows: Vec<Row> = sim
+        .store
+        .contracts
+        .iter()
+        .filter(|c| match kind_filter {
+            ContractKindFilter::All => true,
+            ContractKindFilter::Delivery => matches!(c.contract_type, ContractType::Delivery),
+            ContractKindFilter::Courier => matches!(c.contract_type, ContractType::Courier),
+            ContractKindFilter::Passenger => matches!(c.contract_type, ContractType::Passenger),
+            ContractKindFilter::Subsidy => matches!(c.contract_type, ContractType::Subsidy),
+            ContractKindFilter::Supply => matches!(c.contract_type, ContractType::Supply),
+            ContractKindFilter::CrewMission => {
+                matches!(c.contract_type, ContractType::CrewMission)
+            }
+            ContractKindFilter::Construction => {
+                matches!(c.contract_type, ContractType::Construction)
+            }
+        })
+        .filter(|c| match status_filter {
+            ContractStatusFilter::All => true,
+            ContractStatusFilter::Posted => matches!(c.status, ContractStatus::Posted),
+            ContractStatusFilter::Accepted => matches!(c.status, ContractStatus::Accepted),
+            ContractStatusFilter::PickedUp => matches!(c.status, ContractStatus::PickedUp),
+            ContractStatusFilter::Delivered => matches!(c.status, ContractStatus::Delivered),
+            ContractStatusFilter::Paid => matches!(c.status, ContractStatus::Paid),
+            ContractStatusFilter::Expired => matches!(c.status, ContractStatus::Expired),
+        })
+        .filter(|c| show_expired || !matches!(c.status, ContractStatus::Expired))
+        .map(|c| Row {
+            id: c.id.clone(),
+            kind: c.contract_type.as_str(),
+            status: status_str(&c.status),
+            commodity: c.commodity.as_str().to_string(),
+            quantity: c.quantity,
+            source: c.source_location.clone(),
+            dest: c.destination_location.clone(),
+            payment: c.payment,
+            faction: c.faction_id.clone().unwrap_or_default(),
+            min_rep: c.min_reputation,
+        })
+        .collect();
+
+    let total = sim.store.contracts.iter().count();
+    let shown = rows.len();
+
+    egui::Window::new(format!("Contracts · {shown}/{total}"))
+        .default_width(820.0)
+        .default_height(440.0)
+        .open(&mut open)
+        .show(ctx.ctx_mut(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label("kind:");
+                kind_combo(ui, &mut kind_filter);
+                ui.separator();
+                ui.label("status:");
+                status_combo(ui, &mut status_filter);
+                ui.separator();
+                ui.checkbox(&mut show_expired, "show expired");
+            });
+            ui.separator();
+
+            const PAGE_SIZE: usize = 400;
+            let page_rows: Vec<&Row> = rows.iter().take(PAGE_SIZE).collect();
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::Grid::new("contracts_grid")
+                    .striped(true)
+                    .num_columns(9)
+                    .spacing([10.0, 2.0])
+                    .show(ui, |ui| {
+                        for header in [
+                            "Kind", "Status", "Item", "Qty", "Source → Dest", "Pay", "Faction", "Rep", "ID",
+                        ] {
+                            ui.label(egui::RichText::new(header).strong());
+                        }
+                        ui.end_row();
+
+                        for r in &page_rows {
+                            ui.label(r.kind);
+                            let status_color = status_color(r.status);
+                            ui.colored_label(status_color, r.status);
+                            ui.label(&r.commodity);
+                            ui.label(format!("{}", r.quantity));
+                            ui.label(format!("{} → {}", r.source, r.dest));
+                            ui.label(format!("{}", r.payment));
+                            ui.label(&r.faction);
+                            if r.min_rep > 0 {
+                                ui.label(format!("{}", r.min_rep));
+                            } else {
+                                ui.label("–");
+                            }
+                            ui.label(
+                                egui::RichText::new(&r.id)
+                                    .small()
+                                    .color(egui::Color32::from_gray(140)),
+                            );
+                            ui.end_row();
+                        }
+                    });
+            });
+            if shown > PAGE_SIZE {
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} more contracts past page cap",
+                        shown - PAGE_SIZE
+                    ))
+                    .small()
+                    .color(egui::Color32::from_gray(160)),
+                );
+            }
+        });
+
+    state.open = open;
+    state.kind_filter = kind_filter;
+    state.status_filter = status_filter;
+    state.show_expired = show_expired;
+}
+
+fn status_str(s: &sim_core::economy::contracts::ContractStatus) -> &'static str {
+    use sim_core::economy::contracts::ContractStatus as S;
+    match s {
+        S::Posted => "posted",
+        S::Accepted => "accepted",
+        S::PickedUp => "picked_up",
+        S::Delivered => "delivered",
+        S::Paid => "paid",
+        S::Expired => "expired",
+    }
+}
+
+fn status_color(s: &'static str) -> egui::Color32 {
+    match s {
+        "posted" => egui::Color32::from_rgb(120, 180, 230),
+        "accepted" | "picked_up" => egui::Color32::from_rgb(230, 200, 90),
+        "delivered" | "paid" => egui::Color32::from_rgb(120, 220, 120),
+        "expired" => egui::Color32::from_rgb(200, 110, 110),
+        _ => egui::Color32::WHITE,
+    }
+}
+
+fn kind_combo(ui: &mut egui::Ui, current: &mut ContractKindFilter) {
+    egui::ComboBox::from_id_salt("kind_filter_combo")
+        .selected_text(match current {
+            ContractKindFilter::All => "all",
+            ContractKindFilter::Delivery => "delivery",
+            ContractKindFilter::Courier => "courier",
+            ContractKindFilter::Passenger => "passenger",
+            ContractKindFilter::Subsidy => "subsidy",
+            ContractKindFilter::Supply => "supply",
+            ContractKindFilter::CrewMission => "crew_mission",
+            ContractKindFilter::Construction => "construction",
+        })
+        .show_ui(ui, |ui| {
+            for (label, value) in [
+                ("all", ContractKindFilter::All),
+                ("delivery", ContractKindFilter::Delivery),
+                ("courier", ContractKindFilter::Courier),
+                ("passenger", ContractKindFilter::Passenger),
+                ("subsidy", ContractKindFilter::Subsidy),
+                ("supply", ContractKindFilter::Supply),
+                ("crew_mission", ContractKindFilter::CrewMission),
+                ("construction", ContractKindFilter::Construction),
+            ] {
+                ui.selectable_value(current, value, label);
+            }
+        });
+}
+
+fn status_combo(ui: &mut egui::Ui, current: &mut ContractStatusFilter) {
+    egui::ComboBox::from_id_salt("status_filter_combo")
+        .selected_text(match current {
+            ContractStatusFilter::All => "all",
+            ContractStatusFilter::Posted => "posted",
+            ContractStatusFilter::Accepted => "accepted",
+            ContractStatusFilter::PickedUp => "picked_up",
+            ContractStatusFilter::Delivered => "delivered",
+            ContractStatusFilter::Paid => "paid",
+            ContractStatusFilter::Expired => "expired",
+        })
+        .show_ui(ui, |ui| {
+            for (label, value) in [
+                ("all", ContractStatusFilter::All),
+                ("posted", ContractStatusFilter::Posted),
+                ("accepted", ContractStatusFilter::Accepted),
+                ("picked_up", ContractStatusFilter::PickedUp),
+                ("delivered", ContractStatusFilter::Delivered),
+                ("paid", ContractStatusFilter::Paid),
+                ("expired", ContractStatusFilter::Expired),
+            ] {
+                ui.selectable_value(current, value, label);
+            }
+        });
 }
