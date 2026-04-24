@@ -145,19 +145,34 @@ pub fn execute(
     // commodities the price map doesn't know about, so synthetic
     // tests + early-boot ticks without price data still run.
     if let Some(p) = prices {
-        let input_value: f32 = recipe
+        // If any input OR output commodity has no price data (missing
+        // from the map or 0 — "never observed / price hasn't settled"),
+        // skip the gate. Without this guard the output_value collapses
+        // to 0 whenever an output commodity is unpriced, falsely
+        // classifying a perfectly valid recipe as "severe loss" and
+        // stalling farms / refineries on the exact markets that most
+        // needed them. Observed live (tick 21k, 16/39 markets at
+        // food_supply=0 with water_price=0 tanking grow_food).
+        let any_unpriced = recipe
             .inputs
             .iter()
-            .map(|(c, n)| p.get(c).copied().unwrap_or(0.0) * (*n as f32 * scale))
-            .sum();
-        let output_value: f32 = recipe
-            .outputs
-            .iter()
-            .map(|(c, n)| p.get(c).copied().unwrap_or(0.0) * (*n as f32 * effective_scale))
-            .sum();
-        let ratio = crate::simulation::tuning::WorldTuning::current().min_recipe_margin_ratio;
-        if input_value > 0.0 && output_value < input_value * ratio {
-            return HashMap::new();
+            .chain(recipe.outputs.iter())
+            .any(|(c, _)| p.get(c).copied().unwrap_or(0.0) <= 0.0);
+        if !any_unpriced {
+            let input_value: f32 = recipe
+                .inputs
+                .iter()
+                .map(|(c, n)| p.get(c).copied().unwrap_or(0.0) * (*n as f32 * scale))
+                .sum();
+            let output_value: f32 = recipe
+                .outputs
+                .iter()
+                .map(|(c, n)| p.get(c).copied().unwrap_or(0.0) * (*n as f32 * effective_scale))
+                .sum();
+            let ratio = crate::simulation::tuning::WorldTuning::current().min_recipe_margin_ratio;
+            if input_value > 0.0 && output_value < input_value * ratio {
+                return HashMap::new();
+            }
         }
     }
 

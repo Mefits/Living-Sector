@@ -1755,18 +1755,27 @@ fn decide_and_act(
     };
 
     // Phase 18L: per-location dock congestion snapshot.
-    // `(total_capacity, total_docked_count)` summed across every
-    // non-gate facility at the location. Used by the congestion-
-    // aware rest planner so ships with low morale don't route to
-    // a fully-saturated station when a nearby one has space.
+    // `(total_capacity, total_docked_count, total_queued_count)`
+    // summed across every non-gate facility at the location. Used
+    // by the congestion-aware rest planner so ships with low
+    // morale don't route to a fully-saturated station when a
+    // nearby one has space.
+    //
+    // Post-tick-21k-spiral fix: queue length is tracked alongside
+    // docked count so a station with 25/25 docked + 44 queued is
+    // recognized as saturated even though the literal dock count
+    // equals capacity. Without this, `pick_rest_destination` saw
+    // "docked==cap" only when docks were exactly full, ignoring
+    // the massive queue pressure, and 170+ ships piled onto the
+    // same over-full station.
     //
     // Read-only; built once per call. Gates are excluded (they're
     // not meant to host resting crews).
-    let dock_congestion: std::collections::HashMap<String, (u32, u32)> = {
+    let dock_congestion: std::collections::HashMap<String, (u32, u32, u32)> = {
         use crate::agents::facility::{
             FacilityIdentity, FacilityLocation, FacilityOperations, FacilityStorage,
         };
-        let mut out: std::collections::HashMap<String, (u32, u32)> =
+        let mut out: std::collections::HashMap<String, (u32, u32, u32)> =
             std::collections::HashMap::new();
         for (_e, (id, loc, ops, storage)) in world
             .query::<(
@@ -1780,9 +1789,10 @@ fn decide_and_act(
             if id.facility_type == "gate" || ops.docking_capacity == 0 {
                 continue;
             }
-            let entry = out.entry(loc.location_name.clone()).or_insert((0, 0));
+            let entry = out.entry(loc.location_name.clone()).or_insert((0, 0, 0));
             entry.0 = entry.0.saturating_add(ops.docking_capacity);
             entry.1 = entry.1.saturating_add(storage.docked_ships.len() as u32);
+            entry.2 = entry.2.saturating_add(storage.dock_queue.len() as u32);
         }
         out
     };
@@ -2226,7 +2236,7 @@ fn plan_goal(
     sensor_range_au: f32,
     location_to_system: &StdHashMap<String, String>,
     personality: &crate::ai::personality::Personality,
-    dock_congestion: &StdHashMap<String, (u32, u32)>,
+    dock_congestion: &StdHashMap<String, (u32, u32, u32)>,
     idle_ticks: u32,
     current_tick: u64,
 ) -> ScoredGoal {
@@ -2252,7 +2262,9 @@ fn plan_goal(
     // reading blows past housekeeping scores. Personality's
     // morale / safety axes scale how strongly a ship reacts.
     if let Some(c) = crew {
-        if c.morale < CREW_REST_TRIGGER {
+        if c.morale < CREW_REST_TRIGGER
+            && any_rest_destination_viable(&at_loc, dock_congestion, location_to_system)
+        {
             let urgency = (1.0 - c.morale / CREW_REST_TRIGGER).clamp(0.0, 1.0);
             let score = urgency * personality.morale.max(0.2) * TIER_BIO_WEIGHT;
             // Phase 18L: congestion-aware rest target lookup.
@@ -2263,6 +2275,11 @@ fn plan_goal(
                 bt: build_rest_crew_bt_to(&at_loc, &target, fuel_bucket, registry, gate_pairs),
             });
         }
+        // When no viable rest target exists (every same-system station
+        // at saturation), skip generating the candidate — the ship
+        // will pick another goal (trade_run, fulfill_delivery, explore,
+        // idle) and keep moving instead of looping through
+        // Dock-timeout-replan at a permanently-full station.
     }
     if fuel.fraction() < FUEL_URGENCY_ONSET {
         let urgency = (1.0 - fuel.fraction() / FUEL_URGENCY_ONSET).clamp(0.0, 1.0);
@@ -3178,51 +3195,113 @@ fn try_build_rest_crew_bt_to_planned(
     Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
 }
 
-/// Phase 18L: pick the best rest destination given current location
-/// and a per-location congestion snapshot. Prefers the current
-/// location if it has any free dock slot; otherwise picks the
-/// least-congested station in the same system. Falls back to
-/// current if no better option exists (ship will still try, hit
-/// the Dock wait budget, unwind, and retry — better than nothing).
+/// Saturation threshold for "effectively full" — effective_load
+/// (docked + queued) / capacity >= this → treat as unavailable for
+/// new arrivals. 1.2 so a station with a queue equal to 20% of its
+/// dock capacity is still considered viable, but the moment the
+/// queue grows large enough that new arrivals face a long wait,
+/// the planner routes elsewhere. Post-tick-21k-spiral fix: the
+/// prior check (docked >= cap) missed queue pressure entirely and
+/// 170 ships piled onto one 25-slot station.
+pub const DOCK_SATURATION_THRESHOLD: f32 = 1.2;
+
+/// True when a location is effectively saturated: no capacity, OR
+/// `(docked + queued) / capacity >= DOCK_SATURATION_THRESHOLD`.
+/// Returns `true` for unknown locations so unknown targets are
+/// never picked.
+fn location_saturated(cap: u32, docked: u32, queued: u32) -> bool {
+    if cap == 0 {
+        return true;
+    }
+    let effective_load = docked as f32 + queued as f32;
+    effective_load / cap as f32 >= DOCK_SATURATION_THRESHOLD
+}
+
+/// Phase 18L + post-21k-spiral fix: pick the best rest destination
+/// given current location and a per-location congestion snapshot.
+/// Prefers the current location if it has free slots (and isn't
+/// overly queued); otherwise picks the least-congested station in
+/// the same system. Falls back to current if every same-system
+/// alternative is also saturated.
 ///
-/// Congestion scored as `docked / capacity` (saturation ratio).
+/// Congestion scored as `(docked + queued) / capacity` — queue
+/// pressure counts against a station for routing decisions, so
+/// ships don't pile onto an already-queue-bloated dock.
 /// Same-system constraint so ships don't pathfind across gates
-/// just for shore leave — that's for a later phase if needed.
+/// just for shore leave.
 pub fn pick_rest_destination(
     current: &str,
-    congestion: &StdHashMap<String, (u32, u32)>,
+    congestion: &StdHashMap<String, (u32, u32, u32)>,
     location_to_system: &StdHashMap<String, String>,
 ) -> String {
     let current_load = congestion.get(current);
-    let has_free_here = match current_load {
-        Some(&(cap, docked)) => cap > 0 && docked < cap,
-        None => false,
-    };
-    if has_free_here {
-        return current.to_string();
+    // Short-circuit: if current has a free dock slot RIGHT NOW,
+    // stay here — no fuel cost to travelling.
+    if let Some(&(cap, docked, _)) = current_load {
+        if cap > 0 && docked < cap {
+            return current.to_string();
+        }
     }
+    // Otherwise, compare current against siblings by effective
+    // load (docked + queued) / cap. Skip over-saturated siblings
+    // entirely; pick the strictly-less-loaded one; fall back to
+    // current when no sibling is a strict improvement.
+    let current_sat = current_load
+        .map(|&(cap, docked, queued)| {
+            (docked as f32 + queued as f32) / cap.max(1) as f32
+        })
+        .unwrap_or(f32::INFINITY);
     let ship_sys = location_to_system.get(current);
-    // Find the least-saturated location in the same system.
     let mut best: Option<(String, f32)> = None;
-    for (loc, &(cap, docked)) in congestion.iter() {
-        if cap == 0 {
+    for (loc, &(cap, docked, queued)) in congestion.iter() {
+        if location_saturated(cap, docked, queued) {
             continue;
         }
-        if docked >= cap {
-            continue; // still saturated
-        }
-        // Same-system only.
         let loc_sys = location_to_system.get(loc);
         if ship_sys.is_some() && ship_sys != loc_sys {
             continue;
         }
-        let saturation = docked as f32 / cap as f32;
-        let better = best.as_ref().is_none_or(|(_, s)| saturation < *s);
-        if better {
+        let saturation = (docked as f32 + queued as f32) / cap as f32;
+        if best.as_ref().is_none_or(|(_, s)| saturation < *s) {
             best = Some((loc.clone(), saturation));
         }
     }
-    best.map(|(loc, _)| loc).unwrap_or_else(|| current.to_string())
+    // Route to sibling only if it's strictly less loaded than
+    // current — ties go to current (stay, skip the fuel cost).
+    match best {
+        Some((loc, sat)) if sat < current_sat => loc,
+        _ => current.to_string(),
+    }
+}
+
+/// Fix 2: rest-crew viability check. Returns true when at least one
+/// same-system station has free effective capacity. Called before
+/// `plan_goal` generates a `rest_crew` candidate — if no viable
+/// target exists anywhere in the ship's system, the ship lets
+/// other goals compete rather than queue-forever at a saturated
+/// station. Without this, 170 ships all picked `rest_crew` at
+/// forge-smelter (25 slots) and pinned the fleet into a
+/// replan-queue-timeout death spiral.
+fn any_rest_destination_viable(
+    current: &str,
+    congestion: &StdHashMap<String, (u32, u32, u32)>,
+    location_to_system: &StdHashMap<String, String>,
+) -> bool {
+    // Current location viable? Short-circuit.
+    if let Some(&(cap, docked, queued)) = congestion.get(current) {
+        if !location_saturated(cap, docked, queued) {
+            return true;
+        }
+    }
+    // Any other same-system station viable?
+    let ship_sys = location_to_system.get(current);
+    congestion.iter().any(|(loc, &(cap, docked, queued))| {
+        if location_saturated(cap, docked, queued) {
+            return false;
+        }
+        let loc_sys = location_to_system.get(loc);
+        ship_sys.is_some() && ship_sys == loc_sys
+    })
 }
 
 /// Build a trade_run BT. Start at `current`, visit `buy_loc`, buy `commodity`,
@@ -3884,9 +3963,9 @@ mod tick_tests {
 
     #[test]
     fn pick_rest_destination_prefers_current_when_free() {
-        let mut cong: StdHashMap<String, (u32, u32)> = StdHashMap::new();
-        cong.insert("earth-station".into(), (23, 5)); // 21% full
-        cong.insert("mars-station".into(), (10, 1));
+        let mut cong: StdHashMap<String, (u32, u32, u32)> = StdHashMap::new();
+        cong.insert("earth-station".into(), (23, 5, 0)); // 21% full, no queue
+        cong.insert("mars-station".into(), (10, 1, 0));
         let mut sys: StdHashMap<String, String> = StdHashMap::new();
         sys.insert("earth-station".into(), "Sol".into());
         sys.insert("mars-station".into(), "Sol".into());
@@ -3899,10 +3978,10 @@ mod tick_tests {
 
     #[test]
     fn pick_rest_destination_routes_away_from_saturated() {
-        let mut cong: StdHashMap<String, (u32, u32)> = StdHashMap::new();
-        cong.insert("haven-station".into(), (19, 19)); // 100% full
-        cong.insert("proxima-outpost".into(), (8, 2)); // 25%
-        cong.insert("refuge-station".into(), (6, 1));  // 17%
+        let mut cong: StdHashMap<String, (u32, u32, u32)> = StdHashMap::new();
+        cong.insert("haven-station".into(), (19, 19, 0)); // 100% full
+        cong.insert("proxima-outpost".into(), (8, 2, 0)); // 25%
+        cong.insert("refuge-station".into(), (6, 1, 0));  // 17%
         let mut sys: StdHashMap<String, String> = StdHashMap::new();
         sys.insert("haven-station".into(), "Alpha Centauri".into());
         sys.insert("proxima-outpost".into(), "Alpha Centauri".into());
@@ -3916,9 +3995,9 @@ mod tick_tests {
 
     #[test]
     fn pick_rest_destination_stays_in_same_system() {
-        let mut cong: StdHashMap<String, (u32, u32)> = StdHashMap::new();
-        cong.insert("haven-station".into(), (19, 19)); // AC saturated
-        cong.insert("earth-station".into(), (23, 0));  // Sol wide open
+        let mut cong: StdHashMap<String, (u32, u32, u32)> = StdHashMap::new();
+        cong.insert("haven-station".into(), (19, 19, 0)); // AC saturated
+        cong.insert("earth-station".into(), (23, 0, 0));  // Sol wide open
         let mut sys: StdHashMap<String, String> = StdHashMap::new();
         sys.insert("haven-station".into(), "Alpha Centauri".into());
         sys.insert("earth-station".into(), "Sol".into());
@@ -3932,15 +4011,66 @@ mod tick_tests {
 
     #[test]
     fn pick_rest_destination_falls_back_when_all_full() {
-        let mut cong: StdHashMap<String, (u32, u32)> = StdHashMap::new();
-        cong.insert("a".into(), (10, 10));
-        cong.insert("b".into(), (5, 5));
+        let mut cong: StdHashMap<String, (u32, u32, u32)> = StdHashMap::new();
+        cong.insert("a".into(), (10, 10, 0));
+        cong.insert("b".into(), (5, 5, 0));
         let mut sys: StdHashMap<String, String> = StdHashMap::new();
         sys.insert("a".into(), "Sol".into());
         sys.insert("b".into(), "Sol".into());
         // All saturated → stick with current. Ship will still try,
         // hit the Dock wait budget, and replan — better than None.
         assert_eq!(pick_rest_destination("a", &cong, &sys), "a");
+    }
+
+    #[test]
+    fn pick_rest_destination_treats_queue_pressure_as_saturation() {
+        // Post-tick-21k-spiral fix: a station whose dock isn't yet
+        // full but whose queue is large should be considered
+        // saturated. Without the queue term, 44 ships would pile
+        // onto forge-smelter even as it was already failing.
+        let mut cong: StdHashMap<String, (u32, u32, u32)> = StdHashMap::new();
+        // forge-smelter: 25 cap / 25 docked / 44 queued → effectively
+        // full (load ratio 2.76).
+        cong.insert("forge-smelter".into(), (25, 25, 44));
+        // anvil-depot: 40 cap / 24 docked / 0 queued → load 0.6 — viable.
+        cong.insert("anvil-depot".into(), (40, 24, 0));
+        let mut sys: StdHashMap<String, String> = StdHashMap::new();
+        sys.insert("forge-smelter".into(), "Tau Ceti".into());
+        sys.insert("anvil-depot".into(), "Tau Ceti".into());
+        assert_eq!(
+            pick_rest_destination("forge-smelter", &cong, &sys),
+            "anvil-depot",
+            "saturation should consider queue pressure",
+        );
+    }
+
+    #[test]
+    fn any_rest_destination_viable_returns_false_when_all_saturated() {
+        let mut cong: StdHashMap<String, (u32, u32, u32)> = StdHashMap::new();
+        // Every station in the system is overloaded.
+        cong.insert("forge-smelter".into(), (25, 25, 44));
+        cong.insert("anvil-depot".into(), (10, 12, 5));
+        let mut sys: StdHashMap<String, String> = StdHashMap::new();
+        sys.insert("forge-smelter".into(), "Tau Ceti".into());
+        sys.insert("anvil-depot".into(), "Tau Ceti".into());
+        assert!(
+            !any_rest_destination_viable("forge-smelter", &cong, &sys),
+            "all-saturated system should report no viable destination",
+        );
+    }
+
+    #[test]
+    fn any_rest_destination_viable_returns_true_when_any_has_room() {
+        let mut cong: StdHashMap<String, (u32, u32, u32)> = StdHashMap::new();
+        cong.insert("forge-smelter".into(), (25, 25, 44));
+        cong.insert("anvil-depot".into(), (40, 5, 0));
+        let mut sys: StdHashMap<String, String> = StdHashMap::new();
+        sys.insert("forge-smelter".into(), "Tau Ceti".into());
+        sys.insert("anvil-depot".into(), "Tau Ceti".into());
+        assert!(
+            any_rest_destination_viable("forge-smelter", &cong, &sys),
+            "uncrowded sibling station should qualify as viable",
+        );
     }
 
     #[test]
