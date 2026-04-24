@@ -23,6 +23,7 @@ impl Plugin for UiPlugin {
             .init_resource::<FactionsState>()
             .init_resource::<MarketsState>()
             .init_resource::<PopulationsState>()
+            .init_resource::<SelectedShip>()
             .add_systems(
                 Update,
                 (
@@ -34,6 +35,7 @@ impl Plugin for UiPlugin {
                     factions_panel,
                     markets_panel,
                     populations_panel,
+                    ship_details_panel,
                 )
                     .chain(),
             );
@@ -249,10 +251,17 @@ struct ShipRow {
     location: String,
 }
 
+/// Currently-selected ship, written by a click in the ship list and
+/// read by the details panel. `None` means no selection (details
+/// window closes itself).
+#[derive(Resource, Default)]
+struct SelectedShip(Option<String>);
+
 fn ship_list(
     mut ctx: EguiContexts,
     sim: Res<Sim>,
     mut state: ResMut<ShipListState>,
+    mut selected: ResMut<SelectedShip>,
 ) {
     use sim_core::agents::ship::{ShipIdentity, ShipPosition};
 
@@ -354,7 +363,18 @@ fn ship_list(
                         ui.end_row();
 
                         for row in &page {
-                            ui.label(&row.name);
+                            // Name cell doubles as the row selector —
+                            // clicking highlights and opens the details
+                            // panel on this ship. Click-through the
+                            // whole row would be nicer but egui's grid
+                            // doesn't give us per-row click regions
+                            // without some contortion, and the name
+                            // column is the most natural thing to
+                            // click anyway.
+                            let is_sel = selected.0.as_deref() == Some(row.id.as_str());
+                            if ui.selectable_label(is_sel, &row.name).clicked() {
+                                selected.0 = Some(row.id.clone());
+                            }
                             ui.label(&row.class);
                             ui.label(&row.faction);
                             ui.label(&row.location);
@@ -1390,5 +1410,318 @@ fn format_int(n: i64) -> String {
         format!("-{}", result)
     } else {
         result
+    }
+}
+
+// =============================================================================
+// Ship details panel
+// =============================================================================
+//
+// The "inspector as live debugger" payoff of the embedded arch. Reads
+// every ship component directly from hecs — no snapshot marshalling —
+// and renders one section per component. Opens when a ship is selected
+// in the ship list; closes itself when the user clears the selection.
+
+fn ship_details_panel(
+    mut ctx: EguiContexts,
+    sim: Res<Sim>,
+    mut selected: ResMut<SelectedShip>,
+) {
+    use sim_core::agents::ship::{
+        ShipAI, ShipCargo, ShipCrew, ShipCrewSkills, ShipEconomy, ShipFitting, ShipFuel,
+        ShipIdentity, ShipLifecycle, ShipPosition, ShipProgression, ShipTransit,
+    };
+
+    let Some(ship_id) = selected.0.clone() else {
+        return;
+    };
+
+    let Some(&entity) = sim.store.ship_by_id.get(&ship_id) else {
+        // Ship was deleted / retired — clear selection so the panel
+        // doesn't keep trying to render a ghost.
+        selected.0 = None;
+        return;
+    };
+
+    let mut still_open = true;
+    let title = format!("Ship · {}", ship_id);
+
+    egui::Window::new(title)
+        .default_width(520.0)
+        .default_height(640.0)
+        .open(&mut still_open)
+        .show(ctx.ctx_mut(), |ui| {
+            let Ok(mut q) = sim.store.world.query_one::<(
+                &ShipIdentity,
+                &ShipPosition,
+                &ShipTransit,
+                &ShipCargo,
+                &ShipFuel,
+                &ShipEconomy,
+                &ShipAI,
+                &ShipCrew,
+                &ShipCrewSkills,
+                &ShipProgression,
+                &ShipFitting,
+                &ShipLifecycle,
+            )>(entity) else {
+                ui.label("(ship entity missing components)");
+                return;
+            };
+            let Some((id, pos, transit, cargo, fuel, econ, ai, crew, skills, prog, fit, life)) =
+                q.get()
+            else {
+                ui.label("(ship entity missing components)");
+                return;
+            };
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                // Identity
+                ui.label(egui::RichText::new("Identity").strong().size(14.0));
+                egui::Grid::new("details_identity")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        ui.label("Name"); ui.label(&id.name); ui.end_row();
+                        ui.label("Class"); ui.label(&id.class); ui.end_row();
+                        ui.label("Size"); ui.label(format!("{:?}", id.size)); ui.end_row();
+                        ui.label("Faction"); ui.label(&id.faction_id); ui.end_row();
+                    });
+                ui.separator();
+
+                // Position / transit
+                ui.label(egui::RichText::new("Position").strong().size(14.0));
+                egui::Grid::new("details_pos")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        ui.label("System"); ui.label(&pos.system_id); ui.end_row();
+                        ui.label("Location");
+                        ui.label(pos.location_name.as_deref().unwrap_or("(in transit)"));
+                        ui.end_row();
+                        ui.label("Docked");
+                        ui.label(if pos.docked_at.is_some() { "yes" } else { "no" });
+                        ui.end_row();
+                        ui.label("XY");
+                        ui.label(format!("{:.1}, {:.1}", pos.position.0, pos.position.1));
+                        ui.end_row();
+                        if let Some(t) = &transit.transit {
+                            let progress = if t.distance_total > 0.0 {
+                                (t.distance_travelled / t.distance_total).clamp(0.0, 1.0) * 100.0
+                            } else {
+                                0.0
+                            };
+                            ui.label("Transit");
+                            ui.label(format!(
+                                "{} → {} ({:.1}%)",
+                                t.from, t.to, progress,
+                            ));
+                            ui.end_row();
+                            ui.label("Arrival tick");
+                            ui.label(format!("{}", t.arrival_tick));
+                            ui.end_row();
+                        }
+                    });
+                ui.separator();
+
+                // Economy
+                ui.label(egui::RichText::new("Economy").strong().size(14.0));
+                egui::Grid::new("details_econ")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        ui.label("Credits"); ui.label(format_credits(econ.credits)); ui.end_row();
+                        ui.label("Efficiency"); ui.label(format!("{:.2}", econ.efficiency)); ui.end_row();
+                        ui.label("Active contract");
+                        ui.label(econ.active_contract_id.as_deref().unwrap_or("—"));
+                        ui.end_row();
+                    });
+                if !econ.faction_reputation.is_empty() {
+                    ui.label(egui::RichText::new("Reputation").italics().small());
+                    egui::Grid::new("details_rep")
+                        .num_columns(2)
+                        .spacing([10.0, 2.0])
+                        .show(ui, |ui| {
+                            let mut reps: Vec<_> = econ.faction_reputation.iter().collect();
+                            reps.sort_by(|a, b| b.1.cmp(a.1));
+                            for (faction, rep) in reps {
+                                ui.label(faction);
+                                ui.label(format!("{}", rep));
+                                ui.end_row();
+                            }
+                        });
+                }
+                ui.separator();
+
+                // Fuel
+                ui.label(egui::RichText::new("Fuel").strong().size(14.0));
+                egui::Grid::new("details_fuel")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        let frac = fuel.fraction();
+                        let frac_color = if frac >= 0.5 {
+                            egui::Color32::from_rgb(120, 220, 120)
+                        } else if frac >= 0.2 {
+                            egui::Color32::from_rgb(230, 200, 90)
+                        } else {
+                            egui::Color32::from_rgb(240, 100, 90)
+                        };
+                        ui.label("Fuel");
+                        ui.colored_label(
+                            frac_color,
+                            format!("{:.1} / {:.0} ({:.0}%)", fuel.fuel, fuel.fuel_capacity, frac * 100.0),
+                        );
+                        ui.end_row();
+                        ui.label("Speed mod"); ui.label(format!("{:.2}×", fuel.speed_modifier)); ui.end_row();
+                        ui.label("Burn rate"); ui.label(format!("{:.3}", fuel.fuel_consumption_rate)); ui.end_row();
+                    });
+                ui.separator();
+
+                // Cargo
+                ui.label(egui::RichText::new("Cargo").strong().size(14.0));
+                let used = cargo.used();
+                ui.label(format!("Hold: {} / {} ({:.0}%)",
+                    used,
+                    cargo.capacity,
+                    if cargo.capacity > 0 {
+                        used as f32 / cargo.capacity as f32 * 100.0
+                    } else {
+                        0.0
+                    }));
+                if !cargo.cargo.is_empty() {
+                    egui::Grid::new("details_cargo")
+                        .num_columns(2)
+                        .spacing([10.0, 2.0])
+                        .show(ui, |ui| {
+                            let mut items: Vec<_> = cargo.cargo.iter().collect();
+                            items.sort_by_key(|(c, _)| c.as_str());
+                            for (c, qty) in items {
+                                ui.label(c.as_str());
+                                ui.label(format!("{}", qty));
+                                ui.end_row();
+                            }
+                        });
+                }
+                ui.separator();
+
+                // Crew
+                ui.label(egui::RichText::new("Crew").strong().size(14.0));
+                egui::Grid::new("details_crew")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        ui.label("Size"); ui.label(format!("{}", crew.size)); ui.end_row();
+                        ui.label("Task"); ui.label(crew.current_task.as_str()); ui.end_row();
+                        ui.label("Morale");
+                        ui.colored_label(
+                            crew_bar_color(crew.morale),
+                            format!("{:.0}", crew.morale),
+                        );
+                        ui.end_row();
+                        ui.label("Hunger");
+                        ui.colored_label(
+                            // Inverse scale — hunger high = bad.
+                            crew_bar_color(100.0 - crew.hunger),
+                            format!("{:.0}", crew.hunger),
+                        );
+                        ui.end_row();
+                        ui.label("Fatigue");
+                        ui.colored_label(
+                            crew_bar_color(100.0 - crew.fatigue),
+                            format!("{:.0}", crew.fatigue),
+                        );
+                        ui.end_row();
+                        ui.label("Health"); ui.label(format!("{:.0}", crew.health)); ui.end_row();
+                        ui.label("Wages owed"); ui.label(format!("{}", crew.wages_credits)); ui.end_row();
+                        ui.label("Skills");
+                        ui.label(format!(
+                            "nav {}  eng {}  trd {}  cmb {}",
+                            skills.navigation, skills.engineering, skills.trading, skills.combat,
+                        ));
+                        ui.end_row();
+                    });
+                ui.separator();
+
+                // AI
+                ui.label(egui::RichText::new("AI").strong().size(14.0));
+                egui::Grid::new("details_ai")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        ui.label("Goal"); ui.label(&ai.current_goal); ui.end_row();
+                        ui.label("Goal score"); ui.label(format!("{:.2}", ai.current_goal_score)); ui.end_row();
+                        ui.label("Planned at tick"); ui.label(format!("{}", ai.last_plan_tick)); ui.end_row();
+                        ui.label("Personality");
+                        ui.label(format!(
+                            "profit {:.2}  safety {:.2}  morale {:.2}  explore {:.2}",
+                            ai.personality.profit,
+                            ai.personality.safety,
+                            ai.personality.morale,
+                            ai.personality.exploration,
+                        ));
+                        ui.end_row();
+                    });
+                ui.separator();
+
+                // Progression
+                ui.label(egui::RichText::new("Progression").strong().size(14.0));
+                egui::Grid::new("details_prog")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        ui.label("Level");
+                        ui.label(format!("{} / {}", prog.level, sim_core::agents::ship::SHIP_LEVEL_CAP));
+                        ui.end_row();
+                        ui.label("XP");
+                        ui.label(format!("{} / {}", prog.xp, prog.next_level_threshold()));
+                        ui.end_row();
+                        ui.label("Retrofit points"); ui.label(format!("{}", prog.retrofit_points)); ui.end_row();
+                        ui.label("Idle ticks"); ui.label(format!("{}", life.idle_ticks)); ui.end_row();
+                        ui.label("Broke / hoard strikes");
+                        ui.label(format!("{} / {}", life.broke_strikes, life.hoard_strikes));
+                        ui.end_row();
+                    });
+                ui.separator();
+
+                // Fitting
+                ui.label(egui::RichText::new("Fitting").strong().size(14.0));
+                egui::Grid::new("details_fit")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        for (slot_idx, slot) in sim_core::modules::SLOTS.iter().enumerate() {
+                            ui.label(slot.as_str());
+                            ui.label(fit.slots[slot_idx].unwrap_or("—"));
+                            ui.end_row();
+                        }
+                        ui.label("Sensor range");
+                        ui.label(format!("{:.1} AU", fit.derived.sensor_range_au));
+                        ui.end_row();
+                        ui.label("Cargo mult");
+                        ui.label(format!("{:.2}×", fit.derived.cargo_capacity_mult));
+                        ui.end_row();
+                        ui.label("Speed mult");
+                        ui.label(format!("{:.2}×", fit.derived.speed_mult));
+                        ui.end_row();
+                        ui.label("Comms bonus");
+                        ui.label(format!("{:+.2}", fit.derived.comms_bonus));
+                        ui.end_row();
+                    });
+            });
+        });
+
+    if !still_open {
+        selected.0 = None;
+    }
+}
+
+fn crew_bar_color(v: f32) -> egui::Color32 {
+    if v >= 70.0 {
+        egui::Color32::from_rgb(120, 220, 120)
+    } else if v >= 40.0 {
+        egui::Color32::from_rgb(230, 200, 90)
+    } else {
+        egui::Color32::from_rgb(240, 100, 90)
     }
 }
