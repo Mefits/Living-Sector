@@ -325,7 +325,7 @@ pub async fn run_tick_loop(
         }
 
         // Snapshot write
-        snapshots.update_from(&store);
+        snapshots.update_from(&store, tick);
         let total_us = t_start.elapsed().as_micros() as u64;
 
         // Emit dirty-state writes for the persistence worker (cheap: try_send + mark clean)

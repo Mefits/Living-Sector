@@ -54,15 +54,76 @@ impl SnapshotCache {
 
     /// Write snapshots for every agent by querying the world.
     /// Called at the end of each tick by the engine.
-    pub fn update_from(&self, store: &AgentStore) {
+    ///
+    /// Bundle (M): slow-changing categories update on a throttle
+    /// rather than every tick. Positions for bodies + facilities
+    /// are recomputed every tick (bodies orbit, facilities follow
+    /// their body) through lightweight helpers that skip the full
+    /// snapshot struct construction. The full struct rebuilds
+    /// happen at these cadences:
+    ///
+    /// - Ships, construction sites, body positions, facility
+    ///   positions: **every tick** (entities that move).
+    /// - Markets, facilities, populations, bodies, contracts:
+    ///   **every 4 ticks** (~500ms at WORLD_SPEED=1). Matches the
+    ///   WS broadcast cadence for these categories.
+    /// - Factions: **every 16 ticks** (factions touch their state
+    ///   only on tax / subsidy cycles that are much slower than
+    ///   this).
+    pub fn update_from(&self, store: &AgentStore, tick: u64) {
+        // Hot path — every tick.
         self.update_ships(store);
-        self.update_markets(store);
-        self.update_facilities(store);
-        self.update_populations(store);
-        self.update_bodies(store);
-        self.update_factions(store);
-        self.update_contracts(store);
         self.update_construction_sites(store);
+        self.update_body_positions(store);
+        self.update_facility_positions(store);
+
+        // Mid-cadence (4 ticks). Full snapshots rebuild; positions
+        // stay fresh via the always-on helpers above.
+        if tick % 4 == 0 {
+            self.update_bodies(store);
+            self.update_markets(store);
+            self.update_facilities(store);
+            self.update_populations(store);
+            self.update_contracts(store);
+        }
+
+        // Slow cadence (16 ticks). Factions rarely change outside
+        // their tax cycle (every 200 base-ticks) and subsidy cycle
+        // (every 30 base-ticks).
+        if tick % 16 == 0 {
+            self.update_factions(store);
+        }
+    }
+
+    /// Bundle (M): lightweight body-position refresh — skips the
+    /// full BodySnapshot rebuild. Called every tick so Godot sees
+    /// smooth orbits; the full body snapshot (biome, resources,
+    /// etc.) rolls over on the 4-tick throttle.
+    fn update_body_positions(&self, store: &AgentStore) {
+        use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
+        for (_e, (id, orbit)) in store.world.query::<(&BodyIdentity, &BodyOrbit)>().iter() {
+            self.positions
+                .insert(id.body_id.clone(), orbit.universe_position());
+        }
+    }
+
+    /// Bundle (M): lightweight facility-position refresh. Recomputes
+    /// the body-centered position each tick using the latest orbit,
+    /// without the `FacilitySnapshot::build` call or the optional-
+    /// component queries (crew, fitting, module_stock). The full
+    /// facility snapshot rolls over on the 4-tick throttle.
+    fn update_facility_positions(&self, store: &AgentStore) {
+        use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
+        let mut body_pos: std::collections::HashMap<String, (f32, f32)> =
+            std::collections::HashMap::new();
+        for (_e, (id, orbit)) in store.world.query::<(&BodyIdentity, &BodyOrbit)>().iter() {
+            body_pos.insert(id.body_id.clone(), orbit.universe_position());
+        }
+        for (_e, id) in store.world.query::<&FacilityIdentity>().iter() {
+            let center = body_pos.get(&id.body_id).copied().unwrap_or((0.0, 0.0));
+            let pos = facility_offset_position(center, &id.id);
+            self.positions.insert(id.id.clone(), pos);
+        }
     }
 
     /// Phase 19c: refresh the construction-sites cache each tick +
