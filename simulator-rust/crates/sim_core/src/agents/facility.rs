@@ -1697,6 +1697,16 @@ pub fn tick_post_contracts(
         qty: u32,
     }
 
+    impl ConvoyPlan for Plan {
+        fn destination(&self) -> &str { &self.destination }
+        fn commodity(&self) -> Commodity { self.commodity }
+        fn qty(&self) -> u32 { self.qty }
+        fn payment(&self) -> i64 { self.payment }
+        fn requestor_id(&self) -> &str { &self.requestor_id }
+        fn set_qty(&mut self, qty: u32) { self.qty = qty; }
+        fn set_payment(&mut self, payment: i64) { self.payment = payment; }
+    }
+
     // location → market_history for shortage lookup. Elixir's
     // shortage_ticks is a tick counter; we use u32 to match `MarketHistory`.
     let shortage_by_location: std::collections::HashMap<String, std::collections::HashMap<Commodity, u32>> =
@@ -1917,6 +1927,22 @@ pub fn tick_post_contracts(
         }
     }
 
+    // Bundle (J): merge plans whose (destination, commodity) match
+    // into a single larger contract. Multiple co-located facilities
+    // wanting the same thing → one bigger delivery instead of N
+    // small ones. Delivery lands in the shared market supply so
+    // everyone at the location benefits; the lead (highest-credits)
+    // facility fronts the combined payment. Plans whose lead can't
+    // cover the combined payment fall back to unbundled.
+    let plans = {
+        let credits_by_fac_id: std::collections::HashMap<String, i64> = world
+            .query::<(&FacilityIdentity, &FacilityOperations)>()
+            .iter()
+            .map(|(_, (id, ops))| (id.id.clone(), ops.credits))
+            .collect();
+        bundle_convoy_plans(plans, |fid| credits_by_fac_id.get(fid).copied().unwrap_or(0))
+    };
+
     // Apply the plans by posting to the board + debiting facility credits.
     // Iterate plans, resolve requestor facility entity, deduct payment.
     for plan in plans {
@@ -1946,6 +1972,92 @@ pub fn tick_post_contracts(
             lifespan,
         );
     }
+}
+
+/// Bundle (J): group delivery plans by (destination, commodity)
+/// and merge groups of 2+ into a single larger "convoy" contract.
+/// The lead (highest-credits facility that can cover the combined
+/// payment) becomes the requestor; non-lead plans are discarded
+/// because delivery lands in the shared market supply at the
+/// destination — everyone benefits from the one bigger order.
+///
+/// If no participant in a group can afford the combined payment,
+/// the group is unbundled: all original plans pass through
+/// individually so at least the best-funded facility still posts
+/// its own (smaller) contract.
+fn bundle_convoy_plans<P, F>(plans: Vec<P>, credits_for: F) -> Vec<P>
+where
+    P: ConvoyPlan,
+    F: Fn(&str) -> i64,
+{
+    // Group plans by (destination_location, commodity). HashMap
+    // ordering doesn't matter — each group is merged independently
+    // and the apply loop processes the resulting Vec serially.
+    let mut groups: std::collections::HashMap<(String, Commodity), Vec<P>> =
+        std::collections::HashMap::new();
+    for plan in plans {
+        groups
+            .entry((plan.destination().to_string(), plan.commodity()))
+            .or_default()
+            .push(plan);
+    }
+
+    let mut out: Vec<P> = Vec::new();
+    for ((_dest, _com), group) in groups {
+        if group.len() <= 1 {
+            out.extend(group);
+            continue;
+        }
+        let combined_qty: u32 = group
+            .iter()
+            .map(|p| p.qty())
+            .fold(0u32, |acc, q| acc.saturating_add(q))
+            .min(MAX_DELIVERY_CONTRACT_QTY * 2); // cap merged qty
+        let combined_payment: i64 = group.iter().map(|p| p.payment()).sum();
+
+        // Pick lead: the plan whose requestor has the most credits
+        // AND can cover the combined payment alone. Fall back to
+        // unbundled if nobody can afford it.
+        let lead_idx = group
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                credits_for(p.requestor_id())
+                    >= combined_payment
+            })
+            .max_by_key(|(_, p)| {
+                credits_for(p.requestor_id())
+            })
+            .map(|(i, _)| i);
+        let Some(lead_idx) = lead_idx else {
+            // No bundler rich enough — pass through unbundled.
+            out.extend(group);
+            continue;
+        };
+        let mut group = group;
+        let mut lead = group.swap_remove(lead_idx);
+        lead.set_qty(combined_qty);
+        lead.set_payment(combined_payment);
+        out.push(lead);
+        // Other group members are discarded — the bundled contract
+        // serves everyone at the destination through shared market
+        // supply.
+    }
+    out
+}
+
+/// Trait the local Plan struct impls so `bundle_convoy_plans` can
+/// be written generically and stay unit-testable against a tiny
+/// fake. Kept in this module so the `Plan` struct is the only
+/// implementor.
+trait ConvoyPlan {
+    fn destination(&self) -> &str;
+    fn commodity(&self) -> Commodity;
+    fn qty(&self) -> u32;
+    fn payment(&self) -> i64;
+    fn requestor_id(&self) -> &str;
+    fn set_qty(&mut self, qty: u32);
+    fn set_payment(&mut self, payment: i64);
 }
 
 /// Phase 7: post crew missions. Each eligible facility has a 25% chance
@@ -2099,6 +2211,108 @@ mod tests {
     #[test]
     fn docking_fee_guards_zero_capacity() {
         assert_eq!(docking_fee(50, 0, 0, 1.0), 50);
+    }
+
+    /// Bundle (J): test fake for the ConvoyPlan trait so we can
+    /// exercise `bundle_convoy_plans` without standing up a hecs
+    /// world.
+    #[derive(Clone, Debug, PartialEq)]
+    struct FakePlan {
+        requestor_id: String,
+        commodity: Commodity,
+        destination: String,
+        qty: u32,
+        payment: i64,
+    }
+
+    impl ConvoyPlan for FakePlan {
+        fn destination(&self) -> &str { &self.destination }
+        fn commodity(&self) -> Commodity { self.commodity }
+        fn qty(&self) -> u32 { self.qty }
+        fn payment(&self) -> i64 { self.payment }
+        fn requestor_id(&self) -> &str { &self.requestor_id }
+        fn set_qty(&mut self, qty: u32) { self.qty = qty; }
+        fn set_payment(&mut self, payment: i64) { self.payment = payment; }
+    }
+
+    fn mk_plan(reqid: &str, dest: &str, commodity: Commodity, qty: u32, payment: i64) -> FakePlan {
+        FakePlan {
+            requestor_id: reqid.into(),
+            commodity,
+            destination: dest.into(),
+            qty,
+            payment,
+        }
+    }
+
+    #[test]
+    fn convoy_bundle_single_plan_passes_through() {
+        let plans = vec![mk_plan("fac-a", "earth-station", Commodity::Food, 50, 2000)];
+        let out = bundle_convoy_plans(plans.clone(), |_| 100_000);
+        assert_eq!(out, plans);
+    }
+
+    #[test]
+    fn convoy_bundle_merges_co_located_same_commodity() {
+        // Two facilities at earth-station both wanting food.
+        let plans = vec![
+            mk_plan("fac-rich", "earth-station", Commodity::Food, 50, 2000),
+            mk_plan("fac-poor", "earth-station", Commodity::Food, 50, 2000),
+        ];
+        let credits = |id: &str| match id {
+            "fac-rich" => 10_000i64,
+            _ => 500,
+        };
+        let out = bundle_convoy_plans(plans, credits);
+        assert_eq!(out.len(), 1, "bundled into single plan");
+        assert_eq!(out[0].qty, 100, "qty summed");
+        assert_eq!(out[0].payment, 4000, "payment summed");
+        assert_eq!(out[0].requestor_id, "fac-rich", "lead is the rich one");
+    }
+
+    #[test]
+    fn convoy_bundle_passes_through_when_no_one_can_afford_merged() {
+        let plans = vec![
+            mk_plan("fac-a", "earth-station", Commodity::Food, 50, 5000),
+            mk_plan("fac-b", "earth-station", Commodity::Food, 50, 5000),
+        ];
+        // Both facilities have 6000 credits — enough for their OWN
+        // payment (5000) but not the combined 10000. Should fall
+        // back to unbundled.
+        let out = bundle_convoy_plans(plans.clone(), |_| 6000);
+        assert_eq!(out.len(), 2, "fallback to unbundled when no bundler can afford");
+    }
+
+    #[test]
+    fn convoy_bundle_does_not_merge_different_commodities() {
+        let plans = vec![
+            mk_plan("fac-a", "earth-station", Commodity::Food, 50, 2000),
+            mk_plan("fac-b", "earth-station", Commodity::Fuel, 50, 3000),
+        ];
+        let out = bundle_convoy_plans(plans.clone(), |_| 100_000);
+        assert_eq!(out.len(), 2, "different commodities don't merge");
+    }
+
+    #[test]
+    fn convoy_bundle_does_not_merge_different_destinations() {
+        let plans = vec![
+            mk_plan("fac-a", "earth-station", Commodity::Food, 50, 2000),
+            mk_plan("fac-b", "mars-station", Commodity::Food, 50, 2000),
+        ];
+        let out = bundle_convoy_plans(plans.clone(), |_| 100_000);
+        assert_eq!(out.len(), 2, "different destinations don't merge");
+    }
+
+    #[test]
+    fn convoy_bundle_caps_combined_qty() {
+        // Many plans summing to over 2×MAX should cap at 2×MAX.
+        let plans: Vec<FakePlan> = (0..10)
+            .map(|i| mk_plan(&format!("fac-{i}"), "earth-station", Commodity::Ore, 100, 1000))
+            .collect();
+        let credits = |id: &str| if id == "fac-0" { 1_000_000 } else { 0 };
+        let out = bundle_convoy_plans(plans, credits);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].qty <= MAX_DELIVERY_CONTRACT_QTY * 2);
     }
 
     #[test]
