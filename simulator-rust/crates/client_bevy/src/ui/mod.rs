@@ -10,6 +10,8 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use std::time::{Duration, Instant};
 
+use crate::camera::CameraFocusRequest;
+use crate::render::SCALE_FACTOR;
 use crate::sim::Sim;
 
 pub struct UiPlugin;
@@ -1448,6 +1450,7 @@ fn ship_details_panel(
     mut ctx: EguiContexts,
     sim: Res<Sim>,
     mut selected: ResMut<SelectedShip>,
+    mut focus_req: ResMut<CameraFocusRequest>,
 ) {
     use sim_core::agents::ship::{
         ShipAI, ShipCargo, ShipCrew, ShipCrewSkills, ShipEconomy, ShipFitting, ShipFuel,
@@ -1496,6 +1499,18 @@ fn ship_details_panel(
                 ui.label("(ship entity missing components)");
                 return;
             };
+
+            // Toolbar: camera focus. Uses the ship's current world
+            // position (scaled), dropped into the one-shot focus
+            // request Resource; the camera plugin snaps on the same
+            // frame.
+            ui.horizontal(|ui| {
+                if ui.button("Focus camera").clicked() {
+                    let (x, y) = pos.position;
+                    focus_req.0 = Some(Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR));
+                }
+            });
+            ui.separator();
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 // Identity
@@ -1954,7 +1969,9 @@ fn facility_details_panel(
     mut ctx: EguiContexts,
     sim: Res<Sim>,
     mut selected: ResMut<SelectedFacility>,
+    mut focus_req: ResMut<CameraFocusRequest>,
 ) {
+    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
     use sim_core::agents::facility::{
         FacilityCrew, FacilityFitting, FacilityIdentity, FacilityLifecycle, FacilityLocation,
         FacilityOperations, FacilityStorage,
@@ -2005,6 +2022,26 @@ fn facility_details_panel(
                 .query_one::<&FacilityCrew>(entity)
                 .ok()
                 .and_then(|mut q| q.get().cloned());
+
+            // Toolbar: focus camera on the facility's owning body. We
+            // don't apply the facility's small orbital offset here —
+            // body-centre is close enough for "fly the camera there"
+            // intent at galactic scale.
+            ui.horizontal(|ui| {
+                if ui.button("Focus camera").clicked() {
+                    let body_pos = sim
+                        .store
+                        .world
+                        .query::<(&BodyIdentity, &BodyOrbit)>()
+                        .iter()
+                        .find(|(_e, (b, _))| b.body_id == id.body_id)
+                        .map(|(_e, (_, o))| o.universe_position());
+                    if let Some((x, y)) = body_pos {
+                        focus_req.0 = Some(Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR));
+                    }
+                }
+            });
+            ui.separator();
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 if life.abandoned {

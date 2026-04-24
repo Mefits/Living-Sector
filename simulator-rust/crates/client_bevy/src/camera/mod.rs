@@ -21,10 +21,20 @@ pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_orbit_camera)
-            .add_systems(Update, orbit_camera_input);
+        app.init_resource::<CameraFocusRequest>()
+            .add_systems(Startup, spawn_orbit_camera)
+            .add_systems(Update, (orbit_camera_input, apply_focus_request));
     }
 }
+
+/// One-shot request to snap the camera's focus point to a world-space
+/// position. Set by UI button handlers (ship/facility details panels);
+/// consumed by [`apply_focus_request`] the same frame. Kept as a
+/// Resource rather than an Event so systems can read/mutate it without
+/// an `EventWriter/EventReader` pair — the semantics are "latest wins,
+/// consumed on apply", which an Option models more directly.
+#[derive(Resource, Default)]
+pub struct CameraFocusRequest(pub Option<Vec3>);
 
 /// Orbit camera state. Attached to the Camera3d entity so the
 /// control system can read/mutate it alongside the Transform.
@@ -178,4 +188,22 @@ fn orbit_camera_input(
     if changed {
         *xf = orbit.transform();
     }
+}
+
+/// Consume any pending [`CameraFocusRequest`] by snapping the orbit
+/// camera's focus to the requested point. Single snap — we don't keep
+/// tracking the target — so the user's manual pan/orbit/zoom input
+/// retakes control the moment they move the mouse.
+fn apply_focus_request(
+    mut req: ResMut<CameraFocusRequest>,
+    mut q: Query<(&mut OrbitCamera, &mut Transform)>,
+) {
+    let Some(target) = req.0.take() else {
+        return;
+    };
+    let Ok((mut orbit, mut xf)) = q.get_single_mut() else {
+        return;
+    };
+    orbit.focus = target;
+    *xf = orbit.transform();
 }
