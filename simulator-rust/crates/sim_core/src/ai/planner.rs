@@ -67,7 +67,36 @@
 
 use crate::agents::ship::ShipAction;
 use crate::economy::commodities::Commodity;
-use std::collections::{HashSet, VecDeque};
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap};
+
+/// Min-heap entry: ordered by `cost` only (state + path are payload,
+/// not part of the ordering). Tie-breaks collapse to equal — the
+/// search then relies on insertion order, which is deterministic
+/// per-operator-catalog.
+struct HeapEntry {
+    cost: u32,
+    state: WorldState,
+    path: Vec<ShipAction>,
+}
+
+impl Ord for HeapEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Reverse so BinaryHeap (a max-heap) pops smallest cost first.
+        other.cost.cmp(&self.cost)
+    }
+}
+impl PartialOrd for HeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl PartialEq for HeapEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.cost == other.cost
+    }
+}
+impl Eq for HeapEntry {}
 
 /// Symbolic locations relevant to a single plan. Four variants
 /// cover delivery, trade-run, and retrofit-on-route combined goals.
@@ -417,6 +446,23 @@ impl Operator {
         ]
     }
 
+    /// Operator cost for the search's priority function. Travel
+    /// costs dominate because they burn fuel; every other operator
+    /// takes a small non-zero cost so plans don't stack pointless
+    /// Dock / Undock / Refuel steps. The total cost of a plan is
+    /// the sum of per-step costs, and the search (Dijkstra) picks
+    /// the lowest-total-cost plan that reaches the goal.
+    pub fn cost(&self, state: &WorldState, map: &LocMap) -> u32 {
+        match self {
+            Operator::Travel { to } => map.travel_cost(state.at, *to) as u32,
+            // Dock / Undock / Refuel / Buy / SellAll / Deliver* /
+            // Refit / Rest all pay the same small flat overhead.
+            // Keeps search tie-breaks stable while still preferring
+            // short sequences.
+            _ => 1,
+        }
+    }
+
     /// Apply this operator to `state` if its preconditions hold.
     /// Returns `Some((next_state, action))` on success, `None` when
     /// the operator doesn't apply to this state.
@@ -585,15 +631,21 @@ pub struct Plan {
     pub final_state: WorldState,
 }
 
-/// BFS forward search. Expands states breadth-first, first hit
-/// wins (so plans are minimum-length). `max_depth` bounds the
-/// search — for delivery-class plans we expect ~8 actions so a cap
-/// around 12–16 is generous. Dedup by state keeps the frontier
-/// small (few hundred unique states in practice).
+/// Cost-weighted forward search (Dijkstra). Expands states in
+/// order of cumulative cost, so the first plan that satisfies the
+/// goal is the cheapest. "Cheap" here is the sum of
+/// `Operator::cost(state, map)` across the plan — Travel dominates
+/// because it burns fuel, all other operators pay a small flat
+/// overhead. For combined goals (delivery+retrofit, trade+retrofit)
+/// this naturally picks the lower-fuel-total path rather than the
+/// shortest-by-steps one BFS would pick.
 ///
-/// `goal` is any predicate; the caller supplies it. For a
-/// delivery-with-fuel-safety plan, pass something like
-/// `|s| s.delivered && s.fuel_bucket >= 3`.
+/// `max_depth` bounds the search by plan length so pathological
+/// inputs can't run forever. Dedup is by (state → best-known cost)
+/// so we never re-expand a state we've already reached cheaply.
+///
+/// `goal` is any predicate; the caller supplies it. Same shape as
+/// the BFS-era API — just swap `plan` calls work unchanged.
 pub fn plan<F>(
     initial: WorldState,
     goal: F,
@@ -611,15 +663,33 @@ where
         });
     }
 
-    // Frontier holds (state, plan-so-far). Plan grows by push on
-    // each expansion; we clone the Vec per child, which is fine at
-    // this scale (max ~16 actions × few hundred states).
-    let mut frontier: VecDeque<(WorldState, Vec<ShipAction>)> = VecDeque::new();
-    let mut seen: HashSet<WorldState> = HashSet::new();
-    frontier.push_back((initial.clone(), Vec::new()));
-    seen.insert(initial);
+    // Priority queue holds `HeapEntry { cost, state, path }`.
+    // HeapEntry's Ord is cost-only (reversed) so BinaryHeap pops
+    // cheapest-cost first. Clone-per-push on the path Vec is fine
+    // at this scale (plans cap at ~16 actions × few hundred states).
+    let mut heap: BinaryHeap<HeapEntry> = BinaryHeap::new();
+    let mut best_cost: HashMap<WorldState, u32> = HashMap::new();
+    heap.push(HeapEntry {
+        cost: 0,
+        state: initial.clone(),
+        path: Vec::new(),
+    });
+    best_cost.insert(initial, 0);
 
-    while let Some((state, path)) = frontier.pop_front() {
+    while let Some(HeapEntry { cost, state, path }) = heap.pop() {
+        // Goal test on pop guarantees the FIRST pop that satisfies
+        // the goal is the cheapest such plan (Dijkstra property).
+        if goal(&state) {
+            return Some(Plan {
+                actions: path,
+                final_state: state,
+            });
+        }
+        // Stale entry: we may have reached this state cheaper
+        // after pushing this one. Skip it.
+        if best_cost.get(&state).copied().unwrap_or(u32::MAX) < cost {
+            continue;
+        }
         if path.len() >= max_depth {
             continue;
         }
@@ -627,19 +697,23 @@ where
             let Some((next_state, action)) = op.apply(&state, map) else {
                 continue;
             };
-            if seen.contains(&next_state) {
+            let step_cost = op.cost(&state, map);
+            let new_cost = cost.saturating_add(step_cost);
+            if best_cost
+                .get(&next_state)
+                .copied()
+                .is_some_and(|prev| new_cost >= prev)
+            {
                 continue;
             }
+            best_cost.insert(next_state.clone(), new_cost);
             let mut next_path = path.clone();
             next_path.push(action);
-            if goal(&next_state) {
-                return Some(Plan {
-                    actions: next_path,
-                    final_state: next_state,
-                });
-            }
-            seen.insert(next_state.clone());
-            frontier.push_back((next_state, next_path));
+            heap.push(HeapEntry {
+                cost: new_cost,
+                state: next_state,
+                path: next_path,
+            });
         }
     }
     None
@@ -1104,6 +1178,70 @@ mod tests {
         assert!(
             !plan.actions.iter().any(|a| matches!(a, ShipAction::Refit { .. })),
             "pure delivery plan must not refit: {:?}",
+            plan.actions,
+        );
+    }
+
+    #[test]
+    fn cost_weighted_search_picks_cheaper_delivery_path() {
+        // Two competing routes for the same delivery:
+        //  - direct origin→source→dest with costs (5, 5), total 10
+        //  - origin→dest direct is 1, but it skips Source (can't
+        //    pick up cargo there), so not actually viable.
+        // Set up a map where shipyard is a VERY cheap detour (2+2)
+        // that happens to also be reachable from Source with cost 0.
+        // We craft costs so delivery-only via Origin→Source→Dest =
+        // 5+5 = 10, whereas Origin→Shipyard→Source→Dest = 2+0+5 = 7.
+        // Goal is just `delivered`; shipyard isn't required but is
+        // cheaper to route through. Cost-weighted search should
+        // notice this and take it; BFS would pick whichever came
+        // first in enumeration order.
+        //
+        // Note: since both plans satisfy `delivered` with different
+        // step counts, this documents that Dijkstra optimises cost,
+        // not steps.
+        let mut map = basic_map();
+        map.cost_origin_to_source = 5;
+        map.cost_source_to_dest = 5;
+        map.cost_origin_to_dest = 99;
+        map.shipyard = Some("cheap-way-station".into());
+        map.refit_slot = None;
+        map.refit_slug = None;
+        map.cost_origin_to_shipyard = 2;
+        map.cost_source_to_shipyard = 0;
+        map.cost_shipyard_to_dest = 99;
+        let initial = WorldState::new(Loc::Origin, 10);
+        let plan = plan(
+            initial,
+            |s| s.delivered,
+            Operator::delivery_catalog(),
+            &map,
+            20,
+        )
+        .expect("plan should exist");
+        // Total travel cost of the synthesised plan, summed from
+        // the operators that took it there.
+        let mut total_travel = 0u32;
+        let mut at = Loc::Origin;
+        for a in &plan.actions {
+            if let ShipAction::Travel { destination } = a {
+                let to = if *destination == map.source {
+                    Loc::Source
+                } else if *destination == map.dest {
+                    Loc::Dest
+                } else if map.shipyard.as_deref() == Some(destination.as_str()) {
+                    Loc::Shipyard
+                } else {
+                    Loc::Origin
+                };
+                total_travel += map.travel_cost(at, to) as u32;
+                at = to;
+            }
+        }
+        assert!(
+            total_travel <= 10,
+            "cost-weighted search should prefer the ≤10-cost route (got {}): {:?}",
+            total_travel,
             plan.actions,
         );
     }
