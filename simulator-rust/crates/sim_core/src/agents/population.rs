@@ -182,6 +182,14 @@ pub const CONTRACT_URGENCY_PEAK: f32 = 2.0;
 /// speed = quicker convergence toward the food-driven target).
 pub const SENTIMENT_INERTIA_BASE: f32 = 0.9;
 
+/// Bundle (K): how much of a pop's production / consumption value
+/// hits its own treasury per tick. 0.10 = 10%; the remaining 90%
+/// stays as abstract "market value" that's already reflected in
+/// supply/demand pricing. Keeping the rate small prevents per-pop
+/// treasuries from swinging wildly on one busy tick and keeps the
+/// long-run wealth drift observable rather than chaotic.
+pub const POP_MONETISATION_RATE: f32 = 0.10;
+
 /// Passenger contract preconditions. Matches Elixir thresholds.
 pub const PASSENGER_MIN_POPULATION: i64 = 5_000;
 pub const PASSENGER_MIN_SENTIMENT: i32 = 50;
@@ -292,10 +300,19 @@ pub fn tick_populations(
         };
 
         let mut any_shortage = false;
+        // Bundle (K): wealth delta accumulates per-commodity income
+        // (production × local price × MONETISATION_RATE) and expense
+        // (consumption × local price × MONETISATION_RATE). Applied
+        // once at end of the per-pop block so we aren't re-querying
+        // PopEconomy mid-inner-loop.
+        let mut wealth_delta: i64 = 0;
 
         // Consume
         if tick % consumption_interval == 0 {
             if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
+                // Snapshot prices for wealth-accounting; cheap
+                // (13-entry HashMap) and keeps the supply borrow.
+                let prices_snap = pricing.prices.clone();
                 for (commodity, amount) in consumption {
                     let available = pricing.supply.get(&commodity).copied().unwrap_or(0.0);
                     let consumed = amount.min(available);
@@ -305,6 +322,10 @@ pub fn tick_populations(
                     if consumed > 0.0 {
                         let entry = pricing.supply.entry(commodity).or_insert(0.0);
                         *entry = (*entry - consumed).max(0.0);
+                        // Wealth outflow for consumed goods.
+                        let price = prices_snap.get(&commodity).copied().unwrap_or(0.0);
+                        wealth_delta -= (price * consumed * POP_MONETISATION_RATE)
+                            .round() as i64;
                     }
                 }
 
@@ -335,8 +356,28 @@ pub fn tick_populations(
                 if production_amount > 0.0 {
                     if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
                         *pricing.supply.entry(commodity).or_insert(0.0) += production_amount;
+                        // Bundle (K): wealth inflow — market absorbs
+                        // the production at current price (partial
+                        // monetisation — most value stays in the
+                        // shared market supply pool).
+                        let price = pricing.prices.get(&commodity).copied().unwrap_or(0.0);
+                        wealth_delta += (price * production_amount * POP_MONETISATION_RATE)
+                            .round() as i64;
                     }
                 }
+            }
+        }
+
+        // Bundle (K): apply accumulated wealth delta. total_wealth
+        // is i64 and clamped at 0 below to prevent underflow into
+        // negative territory — a poor pop stays at wealth=0 rather
+        // than going into phantom debt. Growth-rate feedback from
+        // wealth is deferred to a follow-up commit; this commit's
+        // value is turning a previously-static field into a
+        // real-time signal.
+        if wealth_delta != 0 {
+            if let Ok(mut econ) = world.get::<&mut PopEconomy>(entity) {
+                econ.total_wealth = (econ.total_wealth + wealth_delta).max(0);
             }
         }
 
