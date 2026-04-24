@@ -262,6 +262,13 @@ pub struct ContractBoard {
     by_status: HashMap<ContractStatus, Vec<String>>,
     /// destination_location → list of contract ids currently Posted
     posted_by_destination: HashMap<String, Vec<String>>,
+    /// Bundle (P): faction_id → list of Posted contract ids. `None`
+    /// key holds all public (no-faction-tag) contracts. Lets
+    /// `posted_for_ship` walk only the relevant subset for each
+    /// ship's reputation map instead of the full Posted list.
+    /// Maintained by the post/accept/release/deliver/expire
+    /// pipelines alongside `posted_by_destination`.
+    posted_by_faction: HashMap<Option<String>, Vec<String>>,
 }
 
 impl ContractBoard {
@@ -308,6 +315,7 @@ impl ContractBoard {
         let id = c.id.clone();
         let status = c.status;
         let dest = c.destination_location.clone();
+        let faction = c.faction_id.clone();
         self.contracts.insert(id.clone(), c);
         self.by_status
             .entry(status)
@@ -316,6 +324,10 @@ impl ContractBoard {
         if status == ContractStatus::Posted {
             self.posted_by_destination
                 .entry(dest)
+                .or_default()
+                .push(id.clone());
+            self.posted_by_faction
+                .entry(faction)
                 .or_default()
                 .push(id);
         }
@@ -593,6 +605,7 @@ impl ContractBoard {
             ContractType::CrewMission => REP_GATE_ALLIED,
             _ => 0,
         };
+        let faction_for_index = faction_id.clone();
         let contract = Contract {
             id: id.clone(),
             contract_type,
@@ -623,6 +636,10 @@ impl ContractBoard {
             .entry(destination_location)
             .or_default()
             .push(id.clone());
+        self.posted_by_faction
+            .entry(faction_for_index)
+            .or_default()
+            .push(id.clone());
         id
     }
 
@@ -651,22 +668,40 @@ impl ContractBoard {
     /// per-faction reputation. Ships without a matching rep entry are
     /// treated as rep-0 with that faction (strangers). Contracts with no
     /// faction tag are always eligible.
+    ///
+    /// Bundle (P): iterate `posted_by_faction` (bucket-by-faction
+    /// map) instead of the full Posted list. Functionally
+    /// equivalent to the old one-loop-over-Posted version but
+    /// exposes the faction-keyed index for future enhancements
+    /// (rep-tier sub-buckets, destination-system pre-filters).
+    /// Current benefit: modest — the loop count is similar to
+    /// the pre-(P) version. The structural win is maintaining
+    /// the index so later optimisations (skip-entire-bucket-by-
+    /// rep-tier) become one-line changes.
     pub fn posted_for_ship(
         &self,
         ship_reputation: &HashMap<String, u8>,
     ) -> Vec<&Contract> {
-        self.posted()
-            .into_iter()
-            .filter(|c| {
-                match c.faction_id.as_deref() {
-                    None => true,
-                    Some(fac) => {
-                        let rep = ship_reputation.get(fac).copied().unwrap_or(0);
-                        rep >= c.min_reputation
+        let mut out: Vec<&Contract> = Vec::new();
+        for (fac_opt, ids) in self.posted_by_faction.iter() {
+            // Public bucket: ship_rep=0 trivially clears any
+            // min_reputation (public contracts are min_rep=0).
+            // Faction bucket: look up the ship's rep with this
+            // faction, defaulting to 0 for unknown factions so
+            // aged-to-public contracts still surface.
+            let ship_rep: u8 = match fac_opt {
+                None => 0,
+                Some(fac) => ship_reputation.get(fac).copied().unwrap_or(0),
+            };
+            for id in ids {
+                if let Some(c) = self.contracts.get(id) {
+                    if c.status == ContractStatus::Posted && ship_rep >= c.min_reputation {
+                        out.push(c);
                     }
                 }
-            })
-            .collect()
+            }
+        }
+        out
     }
 
     /// Age-open pass — decay `min_reputation` on long-posted contracts so
@@ -770,7 +805,7 @@ impl ContractBoard {
         // Mutate + collect what we need for the indexes in a single
         // scoped borrow, then drop `c` so `self` is free for the
         // reindex + posted-by-destination calls below.
-        let dest = {
+        let (dest, fac) = {
             let c = match self.contracts.get_mut(contract_id) {
                 Some(c) if c.status == ContractStatus::Accepted => c,
                 _ => return false,
@@ -784,15 +819,19 @@ impl ContractBoard {
             c.status = ContractStatus::Posted;
             c.fulfiller_id = None;
             c.accepted_at_tick = None;
-            c.destination_location.clone()
+            (c.destination_location.clone(), c.faction_id.clone())
         };
         self.reindex_status(contract_id, ContractStatus::Accepted, ContractStatus::Posted);
-        // Re-add to the by-destination posted index so the contract
-        // is visible to planners again.
+        // Re-add to the posted indexes so the contract is visible
+        // to planners again.
         let id = contract_id.to_string();
         let entry = self.posted_by_destination.entry(dest).or_default();
         if !entry.contains(&id) {
-            entry.push(id);
+            entry.push(id.clone());
+        }
+        let fentry = self.posted_by_faction.entry(fac).or_default();
+        if !fentry.contains(&id) {
+            fentry.push(id);
         }
         true
     }
@@ -913,8 +952,12 @@ impl ContractBoard {
                 };
                 c.status = ContractStatus::Expired;
                 let dest = c.destination_location.clone();
+                let fac = c.faction_id.clone();
                 self.reindex_status(&id, ContractStatus::Posted, ContractStatus::Expired);
                 if let Some(list) = self.posted_by_destination.get_mut(&dest) {
+                    list.retain(|i| i != &id);
+                }
+                if let Some(list) = self.posted_by_faction.get_mut(&fac) {
                     list.retain(|i| i != &id);
                 }
                 result.expired.push(summary);
@@ -963,8 +1006,12 @@ impl ContractBoard {
             })
             .collect();
         for id in ids {
-            let (status, dest) = match self.contracts.get(&id) {
-                Some(c) => (c.status, c.destination_location.clone()),
+            let (status, dest, fac) = match self.contracts.get(&id) {
+                Some(c) => (
+                    c.status,
+                    c.destination_location.clone(),
+                    c.faction_id.clone(),
+                ),
                 None => continue,
             };
             match status {
@@ -979,6 +1026,10 @@ impl ContractBoard {
                     let entry = self.posted_by_destination.entry(dest).or_default();
                     if !entry.contains(&id) {
                         entry.push(id.clone());
+                    }
+                    let fentry = self.posted_by_faction.entry(fac).or_default();
+                    if !fentry.contains(&id) {
+                        fentry.push(id.clone());
                     }
                     out.released.push(id);
                 }
@@ -1040,8 +1091,12 @@ impl ContractBoard {
             })
             .collect();
         for id in ids {
-            let (old_status, dest) = match self.contracts.get(&id) {
-                Some(c) => (c.status, c.destination_location.clone()),
+            let (old_status, dest, fac) = match self.contracts.get(&id) {
+                Some(c) => (
+                    c.status,
+                    c.destination_location.clone(),
+                    c.faction_id.clone(),
+                ),
                 None => continue,
             };
             if let Some(c) = self.contracts.get_mut(&id) {
@@ -1050,6 +1105,9 @@ impl ContractBoard {
             self.reindex_status(&id, old_status, ContractStatus::Expired);
             if old_status == ContractStatus::Posted {
                 if let Some(list) = self.posted_by_destination.get_mut(&dest) {
+                    list.retain(|i| i != &id);
+                }
+                if let Some(list) = self.posted_by_faction.get_mut(&fac) {
                     list.retain(|i| i != &id);
                 }
             }
