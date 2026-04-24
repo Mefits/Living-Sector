@@ -33,7 +33,7 @@
 
 use crate::economy::commodities::Commodity;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Reputation threshold used when a faction wants to restrict a contract
 /// to members only. Any ship needs rep ≥ this with the posting faction.
@@ -262,13 +262,15 @@ pub struct ContractBoard {
     by_status: HashMap<ContractStatus, Vec<String>>,
     /// destination_location → list of contract ids currently Posted
     posted_by_destination: HashMap<String, Vec<String>>,
-    /// Bundle (P): faction_id → list of Posted contract ids. `None`
-    /// key holds all public (no-faction-tag) contracts. Lets
-    /// `posted_for_ship` walk only the relevant subset for each
-    /// ship's reputation map instead of the full Posted list.
-    /// Maintained by the post/accept/release/deliver/expire
-    /// pipelines alongside `posted_by_destination`.
-    posted_by_faction: HashMap<Option<String>, Vec<String>>,
+    /// Bundle (P): faction_id → min_reputation → list of Posted
+    /// contract ids. `None` outer key holds all public contracts.
+    /// Inner BTreeMap keyed by min_reputation lets
+    /// `posted_for_ship` skip whole rep-tier sub-buckets above
+    /// the ship's rep instead of filtering per-contract. Maintained
+    /// by the post/release/sweep/cancel pipelines alongside
+    /// `posted_by_destination`. `age_open_reputation` re-buckets
+    /// contracts whose min_reputation ratchets down.
+    posted_by_faction: HashMap<Option<String>, BTreeMap<u8, Vec<String>>>,
 }
 
 impl ContractBoard {
@@ -316,6 +318,7 @@ impl ContractBoard {
         let status = c.status;
         let dest = c.destination_location.clone();
         let faction = c.faction_id.clone();
+        let min_rep = c.min_reputation;
         self.contracts.insert(id.clone(), c);
         self.by_status
             .entry(status)
@@ -326,10 +329,7 @@ impl ContractBoard {
                 .entry(dest)
                 .or_default()
                 .push(id.clone());
-            self.posted_by_faction
-                .entry(faction)
-                .or_default()
-                .push(id);
+            self.faction_bucket_add(&id, faction, min_rep);
         }
     }
 
@@ -636,10 +636,7 @@ impl ContractBoard {
             .entry(destination_location)
             .or_default()
             .push(id.clone());
-        self.posted_by_faction
-            .entry(faction_for_index)
-            .or_default()
-            .push(id.clone());
+        self.faction_bucket_add(&id, faction_for_index, min_reputation);
         id
     }
 
@@ -669,34 +666,34 @@ impl ContractBoard {
     /// treated as rep-0 with that faction (strangers). Contracts with no
     /// faction tag are always eligible.
     ///
-    /// Bundle (P): iterate `posted_by_faction` (bucket-by-faction
-    /// map) instead of the full Posted list. Functionally
-    /// equivalent to the old one-loop-over-Posted version but
-    /// exposes the faction-keyed index for future enhancements
-    /// (rep-tier sub-buckets, destination-system pre-filters).
-    /// Current benefit: modest — the loop count is similar to
-    /// the pre-(P) version. The structural win is maintaining
-    /// the index so later optimisations (skip-entire-bucket-by-
-    /// rep-tier) become one-line changes.
+    /// Bundle (P) + rep-tier: iterate `posted_by_faction`
+    /// (faction → BTreeMap<min_rep, ids>) and for each faction
+    /// walk only the rep-tier sub-buckets the ship qualifies
+    /// for (`BTreeMap::range(..=ship_rep)`). A ship with rep=0
+    /// in a faction touches only that faction's min_rep=0 tier;
+    /// a ship with rep=65 touches tiers {0, 50} but skips the
+    /// 70-tier entirely. At 150 contracts across 3 tiers per
+    /// faction, low-rep ships typically see 30-50 contracts
+    /// instead of 150.
     pub fn posted_for_ship(
         &self,
         ship_reputation: &HashMap<String, u8>,
     ) -> Vec<&Contract> {
         let mut out: Vec<&Contract> = Vec::new();
-        for (fac_opt, ids) in self.posted_by_faction.iter() {
-            // Public bucket: ship_rep=0 trivially clears any
-            // min_reputation (public contracts are min_rep=0).
-            // Faction bucket: look up the ship's rep with this
-            // faction, defaulting to 0 for unknown factions so
-            // aged-to-public contracts still surface.
+        for (fac_opt, tiers) in self.posted_by_faction.iter() {
             let ship_rep: u8 = match fac_opt {
                 None => 0,
                 Some(fac) => ship_reputation.get(fac).copied().unwrap_or(0),
             };
-            for id in ids {
-                if let Some(c) = self.contracts.get(id) {
-                    if c.status == ContractStatus::Posted && ship_rep >= c.min_reputation {
-                        out.push(c);
+            // BTreeMap::range(..=ship_rep) yields only tiers the
+            // ship qualifies for — higher tiers are skipped
+            // entirely without touching their contract ids.
+            for (_min_rep, ids) in tiers.range(..=ship_rep) {
+                for id in ids {
+                    if let Some(c) = self.contracts.get(id) {
+                        if c.status == ContractStatus::Posted {
+                            out.push(c);
+                        }
                     }
                 }
             }
@@ -721,6 +718,9 @@ impl ContractBoard {
             .get(&ContractStatus::Posted)
             .cloned()
             .unwrap_or_default();
+        // Collect re-bucket work first so we can release the
+        // `contracts.get_mut` borrow before touching the index.
+        let mut rebucket: Vec<(String, Option<String>, u8, u8)> = Vec::new();
         for id in ids {
             if let Some(c) = self.contracts.get_mut(&id) {
                 if c.min_reputation == 0 {
@@ -736,9 +736,27 @@ impl ContractBoard {
                     .saturating_sub((steps as u8).saturating_mul(REP_AGE_OPEN_STEP));
                 // We only ratchet down — never raise back above post-time value.
                 if expected < c.min_reputation {
+                    let old_tier = c.min_reputation;
                     c.min_reputation = expected;
+                    // Rep-tier sub-bucketing (Bundle P extension):
+                    // when the tier changes we have to move the
+                    // contract id from its old rep-tier sub-bucket
+                    // to its new one. Defer the index update until
+                    // after the mutable borrow drops.
+                    rebucket.push((id.clone(), c.faction_id.clone(), old_tier, expected));
                 }
             }
+        }
+        // Apply deferred re-bucket moves now that `contracts.get_mut`
+        // borrows are released.
+        for (id, fac, old_tier, new_tier) in rebucket {
+            if let Some(tiers) = self.posted_by_faction.get_mut(&fac) {
+                if let Some(old_list) = tiers.get_mut(&old_tier) {
+                    old_list.retain(|i| i != &id);
+                }
+                tiers.retain(|_, ids| !ids.is_empty());
+            }
+            self.faction_bucket_add(&id, fac, new_tier);
         }
     }
 
@@ -805,7 +823,7 @@ impl ContractBoard {
         // Mutate + collect what we need for the indexes in a single
         // scoped borrow, then drop `c` so `self` is free for the
         // reindex + posted-by-destination calls below.
-        let (dest, fac) = {
+        let (dest, fac, min_rep) = {
             let c = match self.contracts.get_mut(contract_id) {
                 Some(c) if c.status == ContractStatus::Accepted => c,
                 _ => return false,
@@ -819,7 +837,11 @@ impl ContractBoard {
             c.status = ContractStatus::Posted;
             c.fulfiller_id = None;
             c.accepted_at_tick = None;
-            (c.destination_location.clone(), c.faction_id.clone())
+            (
+                c.destination_location.clone(),
+                c.faction_id.clone(),
+                c.min_reputation,
+            )
         };
         self.reindex_status(contract_id, ContractStatus::Accepted, ContractStatus::Posted);
         // Re-add to the posted indexes so the contract is visible
@@ -829,10 +851,7 @@ impl ContractBoard {
         if !entry.contains(&id) {
             entry.push(id.clone());
         }
-        let fentry = self.posted_by_faction.entry(fac).or_default();
-        if !fentry.contains(&id) {
-            fentry.push(id);
-        }
+        self.faction_bucket_add(&id, fac, min_rep);
         true
     }
 
@@ -957,9 +976,7 @@ impl ContractBoard {
                 if let Some(list) = self.posted_by_destination.get_mut(&dest) {
                     list.retain(|i| i != &id);
                 }
-                if let Some(list) = self.posted_by_faction.get_mut(&fac) {
-                    list.retain(|i| i != &id);
-                }
+                self.faction_bucket_remove(&id, &fac);
                 result.expired.push(summary);
             }
         }
@@ -1006,11 +1023,12 @@ impl ContractBoard {
             })
             .collect();
         for id in ids {
-            let (status, dest, fac) = match self.contracts.get(&id) {
+            let (status, dest, fac, min_rep) = match self.contracts.get(&id) {
                 Some(c) => (
                     c.status,
                     c.destination_location.clone(),
                     c.faction_id.clone(),
+                    c.min_reputation,
                 ),
                 None => continue,
             };
@@ -1027,10 +1045,7 @@ impl ContractBoard {
                     if !entry.contains(&id) {
                         entry.push(id.clone());
                     }
-                    let fentry = self.posted_by_faction.entry(fac).or_default();
-                    if !fentry.contains(&id) {
-                        fentry.push(id.clone());
-                    }
+                    self.faction_bucket_add(&id, fac, min_rep);
                     out.released.push(id);
                 }
                 ContractStatus::PickedUp => {
@@ -1107,13 +1122,42 @@ impl ContractBoard {
                 if let Some(list) = self.posted_by_destination.get_mut(&dest) {
                     list.retain(|i| i != &id);
                 }
-                if let Some(list) = self.posted_by_faction.get_mut(&fac) {
-                    list.retain(|i| i != &id);
-                }
+                self.faction_bucket_remove(&id, &fac);
             }
             cancelled.push(id);
         }
         cancelled
+    }
+
+    /// Add a contract id to the faction bucket indexed by its
+    /// current `min_reputation`. Safe to call when the id is
+    /// already present — becomes a no-op via the `contains`
+    /// check, same pattern as `posted_by_destination` elsewhere.
+    fn faction_bucket_add(&mut self, id: &str, faction: Option<String>, min_rep: u8) {
+        let tier = self
+            .posted_by_faction
+            .entry(faction)
+            .or_default()
+            .entry(min_rep)
+            .or_default();
+        let id_string = id.to_string();
+        if !tier.contains(&id_string) {
+            tier.push(id_string);
+        }
+    }
+
+    /// Remove a contract id from whatever faction + rep-tier bucket
+    /// currently holds it. Walks the tier map for the faction
+    /// (typically 1-3 tiers) and retains all other ids. Cleans
+    /// up empty tier entries but keeps the outer faction entry
+    /// (insertion cost is negligible vs re-creation churn).
+    fn faction_bucket_remove(&mut self, id: &str, faction: &Option<String>) {
+        if let Some(tiers) = self.posted_by_faction.get_mut(faction) {
+            tiers.retain(|_tier, ids| {
+                ids.retain(|i| i != id);
+                !ids.is_empty()
+            });
+        }
     }
 
     fn reindex_status(&mut self, id: &str, from: ContractStatus, to: ContractStatus) {
@@ -1225,6 +1269,108 @@ mod tests {
         let n = board.expire(20);
         assert_eq!(n, 1);
         assert_eq!(board.posted().len(), 0);
+    }
+
+    #[test]
+    fn posted_for_ship_skips_tiers_above_rep() {
+        // Bundle (P) rep-tier: a ship with rep=40 in a faction
+        // should see the faction's min_rep=0 contracts but NOT
+        // its min_rep=50 (allied) or min_rep=70 (faction-only).
+        let mut board = ContractBoard::new();
+        // Public-tier contract for the faction (post normal delivery).
+        board.post_kind_with_faction(
+            ContractType::Delivery,
+            "fac-a".into(),
+            Some("terran-authority".into()),
+            Commodity::Food,
+            50,
+            "a".into(),
+            "b".into(),
+            1000,
+            0,
+            100,
+        );
+        // Allied-tier (crew mission, min_rep=50 by post rules).
+        board.post_kind_with_faction(
+            ContractType::CrewMission,
+            "fac-a".into(),
+            Some("terran-authority".into()),
+            Commodity::Food,
+            0,
+            "a".into(),
+            "a".into(),
+            2000,
+            0,
+            100,
+        );
+        // Faction-only (subsidy, min_rep=70).
+        board.post_kind_with_faction(
+            ContractType::Subsidy,
+            "fac-a".into(),
+            Some("terran-authority".into()),
+            Commodity::Food,
+            50,
+            "a".into(),
+            "b".into(),
+            3000,
+            0,
+            100,
+        );
+
+        // Ship with rep=40 sees only the delivery.
+        let mut low_rep = HashMap::new();
+        low_rep.insert("terran-authority".into(), 40u8);
+        let visible = board.posted_for_ship(&low_rep);
+        assert_eq!(
+            visible.len(),
+            1,
+            "rep=40 ship should see only min_rep=0 delivery: {:?}",
+            visible.iter().map(|c| (c.contract_type, c.min_reputation)).collect::<Vec<_>>(),
+        );
+
+        // Ship with rep=65 sees delivery + crew_mission.
+        let mut mid_rep = HashMap::new();
+        mid_rep.insert("terran-authority".into(), 65u8);
+        assert_eq!(board.posted_for_ship(&mid_rep).len(), 2);
+
+        // Ship with rep=80 sees all three.
+        let mut high_rep = HashMap::new();
+        high_rep.insert("terran-authority".into(), 80u8);
+        assert_eq!(board.posted_for_ship(&high_rep).len(), 3);
+    }
+
+    #[test]
+    fn age_open_rebuckets_contract_on_tier_decrease() {
+        // Post a subsidy (starts at min_rep=70). Age enough ticks
+        // that it decays to min_rep=40. A ship with rep=45 in the
+        // faction should now see it via the 40-tier sub-bucket.
+        let mut board = ContractBoard::new();
+        let id = board.post_kind_with_faction(
+            ContractType::Subsidy,
+            "fac-a".into(),
+            Some("terran-authority".into()),
+            Commodity::Food,
+            10,
+            "a".into(),
+            "b".into(),
+            5000,
+            0,       // posted_at_tick
+            10000,   // long lifespan
+        );
+        assert_eq!(board.get(&id).unwrap().min_reputation, 70);
+
+        // Advance age so the ratchet drops several steps.
+        // REP_AGE_OPEN_INTERVAL_TICKS=100, REP_AGE_OPEN_STEP=10 →
+        // after 300 ticks, expected min_rep = 70 - 3*10 = 40.
+        board.age_open_reputation(300);
+        assert_eq!(board.get(&id).unwrap().min_reputation, 40);
+
+        // Ship with rep=45 should now see this via the 40-tier.
+        let mut rep = HashMap::new();
+        rep.insert("terran-authority".into(), 45u8);
+        let visible = board.posted_for_ship(&rep);
+        assert_eq!(visible.len(), 1, "aged-down subsidy must be visible after re-bucket");
+        assert_eq!(visible[0].id, id);
     }
 
     #[test]
