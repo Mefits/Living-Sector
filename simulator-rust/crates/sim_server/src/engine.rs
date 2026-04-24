@@ -1738,6 +1738,15 @@ fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, locati
 /// Shared dock-commit helper: debits fee, credits facility, pushes the
 /// ship onto `docked_ships`, sets `ShipPosition.docked_at`. Caller is
 /// responsible for any queue cleanup.
+/// Bundle (G): fraction of the docking fee that's burned as a
+/// licensing tax rather than paid to the facility. Without a sink,
+/// credits drift monotonically up over long runs (contracts print
+/// credits, tax circulates them, but nothing destroys them).
+/// 30% is meaningful without being punitive — a ship paying a
+/// 100-credit dock fee only sends 70 to the station and the
+/// remaining 30 evaporates.
+const DOCK_FEE_BURN_PCT: f32 = 0.30;
+
 fn commit_dock(
     store: &mut AgentStore,
     ship: hecs::Entity,
@@ -1751,8 +1760,13 @@ fn commit_dock(
     if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
         econ.credits -= fee;
     }
+    // Bundle (G): split the fee — facility takes the remainder
+    // after burn, the burned portion is a true sink (subtracted
+    // from the ship, never added to any balance).
+    let burned = (fee as f32 * DOCK_FEE_BURN_PCT).round() as i64;
+    let to_facility = fee - burned;
     if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(facility) {
-        ops.credits += fee;
+        ops.credits += to_facility;
         ops.dirty = true;
     }
     if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
