@@ -27,15 +27,6 @@ func get_ship_node(id: String) -> Node3D:
 	return _ship_nodes.get(id)
 
 
-## Visibility lookup used by `transit_lines.gd` so it can skip line
-## draws for ships the cull pass has already hidden. Returns `false`
-## for unknown ids (missing, despawned, etc.) so callers don't emit
-## a line pointing to nothing.
-func is_ship_visible(id: String) -> bool:
-	var n: Node3D = _ship_nodes.get(id)
-	return n != null and n.visible
-
-
 func get_facility_node(id: String) -> Node3D:
 	return _facility_nodes.get(id)
 
