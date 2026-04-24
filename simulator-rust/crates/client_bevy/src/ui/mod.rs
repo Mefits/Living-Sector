@@ -1527,7 +1527,7 @@ fn format_int(n: i64) -> String {
 
 fn ship_details_panel(
     mut ctx: EguiContexts,
-    sim: ResMut<Sim>,
+    mut sim: ResMut<Sim>,
     mut selected: ResMut<SelectedShip>,
     mut focus_req: ResMut<CameraFocusRequest>,
 ) {
@@ -1552,6 +1552,7 @@ fn ship_details_panel(
     // so we don't try to mutably borrow sim while a read-query is
     // still alive inside.
     let mut grant_xp_requested = false;
+    let mut delete_requested = false;
     let title = format!("Ship · {}", ship_id);
 
     egui::Window::new(title)
@@ -1585,9 +1586,9 @@ fn ship_details_panel(
 
             // Toolbar: camera focus + admin actions. Camera focus
             // writes a separate Resource so it's safe inline. Grant
-            // XP flips a local bool that the system processes after
-            // the query borrow ends — hecs forbids concurrent read
-            // and write on the same world.
+            // XP / Delete flip local bools that the system processes
+            // after the query borrow ends — hecs forbids concurrent
+            // read and write on the same world.
             ui.horizontal(|ui| {
                 if ui.button("Focus camera").clicked() {
                     let (x, y) = pos.position;
@@ -1608,6 +1609,21 @@ fn ship_details_panel(
                     .clicked()
                 {
                     grant_xp_requested = true;
+                }
+                if ui
+                    .button(
+                        egui::RichText::new("Delete")
+                            .small()
+                            .color(egui::Color32::from_rgb(240, 100, 90)),
+                    )
+                    .on_hover_text(
+                        "Destroy this ship. Releases any accepted contracts \
+                         back to the board; PickedUp cargo is lost. In-memory \
+                         only — a restart reloads the ship from DB.",
+                    )
+                    .clicked()
+                {
+                    delete_requested = true;
                 }
             });
             ui.separator();
@@ -1859,6 +1875,40 @@ fn ship_details_panel(
                 prog.retrofit_points,
             );
         }
+    }
+
+    if delete_requested {
+        use sim_core::agents::facility::FacilityStorage;
+        // Step 1: yank the ship entity out of any docked list + dock
+        // queue. If we skip this the entry wedges behind a despawned
+        // entity and blocks live ships behind it. Mirrors the admin
+        // cascade in sim_server::engine::admin_remove_ship.
+        for (_e, storage) in sim.store.world.query_mut::<&mut FacilityStorage>() {
+            storage.docked_ships.retain(|&e| e != entity);
+            storage.dock_queue.retain(|&e| e != entity);
+        }
+        // Step 2: release any contracts tied to this ship. Accepted
+        // → Posted (re-postable); PickedUp → Expired (cargo lost with
+        // the ship). `drop` is ignored here because the client
+        // doesn't broadcast events the way sim_server does.
+        let _ = sim.store.contracts.drop_ship_holdings(&ship_id);
+        // Step 3: actually despawn + forget the id mapping.
+        let _ = sim.store.world.despawn(entity);
+        sim.store.ship_by_id.remove(&ship_id);
+        info!("client_bevy admin: deleted ship {}", ship_id);
+        // Clear selection so the details panel closes cleanly on the
+        // next frame (entity lookup will fail either way, but being
+        // explicit avoids one wasted frame of "entity missing"
+        // render).
+        selected.0 = None;
+        // Render entities in Bevy still reference the dead sim entity
+        // via ShipEntity.sim_id; sync_positions leaves them in place
+        // because there's no matching id in ship_state. That means
+        // the Bevy ship mesh lingers until restart, which is OK for
+        // embedded admin-mode but worth noting — a cleanup system
+        // that despawns stale Bevy entities when sim_id isn't found
+        // would land cleanly here if it ever becomes distracting.
+        return;
     }
 
     if !still_open {

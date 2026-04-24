@@ -44,6 +44,7 @@ impl Plugin for RenderPlugin {
                     highlight_selected,
                     draw_transit_lines,
                     raycast_select,
+                    cleanup_stale_ships,
                 ),
             );
     }
@@ -498,6 +499,25 @@ fn spawn_starfield(
         "client_bevy: spawned {} stars (world_seed={})",
         STAR_COUNT, seed,
     );
+}
+
+/// Cleanup pass — despawn Bevy ship render entities whose sim_id is
+/// no longer in `sim.store.ship_by_id`. Runs each frame; at typical
+/// scale that's 1600 dict lookups, trivial. Kicks in after an admin
+/// Delete Ship (Bundle 3x) so ghost ships don't linger in the scene.
+/// Does not currently handle facility or body deletes because nothing
+/// in the client deletes those yet; add parallel cleanup systems when
+/// those admin actions land.
+fn cleanup_stale_ships(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    ships: Query<(Entity, &ShipEntity)>,
+) {
+    for (e, ship) in ships.iter() {
+        if !sim.store.ship_by_id.contains_key(&ship.sim_id) {
+            commands.entity(e).despawn_recursive();
+        }
+    }
 }
 
 /// Screen-space radius (fraction of distance from camera) used as the
