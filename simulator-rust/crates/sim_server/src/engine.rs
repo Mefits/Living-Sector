@@ -1874,6 +1874,7 @@ fn admin_spawn_ship(
             cargo: std::collections::HashMap::new(),
             capacity: cargo_cap,
             cargo_age: std::collections::HashMap::new(),
+            cargo_origin: std::collections::HashMap::new(),
         },
         ShipFuel {
             fuel: fuel_cap,
@@ -1908,6 +1909,7 @@ fn admin_spawn_ship(
                 price_knowledge: std::collections::HashMap::new(),
                 visited: vec![payload.location_name.clone()],
                 recent_systems: std::collections::VecDeque::new(),
+                route_performance: std::collections::HashMap::new(),
             },
             ShipLifecycle {
                 broke_strikes: 0,
@@ -3669,6 +3671,7 @@ mod tests {
                 cargo: std::collections::HashMap::new(),
                 capacity: 500,
                 cargo_age: std::collections::HashMap::new(),
+                cargo_origin: std::collections::HashMap::new(),
             },
             ShipFuel {
                 fuel: 100.0,
@@ -3698,6 +3701,7 @@ mod tests {
                     price_knowledge: Default::default(),
                     visited: vec![],
                     recent_systems: std::collections::VecDeque::new(),
+                    route_performance: std::collections::HashMap::new(),
                 },
                 ShipLifecycle {
                     broke_strikes: 0,

@@ -103,6 +103,11 @@ pub struct ShipCargo {
     pub capacity: u32,
     /// tick each commodity was first acquired (for hoard detection)
     pub cargo_age: HashMap<Commodity, u64>,
+    /// Phase 20: where each commodity was bought and at what price,
+    /// used by the Sell action to compute actual realised profit and
+    /// feed it into `ShipMemory.route_performance`. Cleared when the
+    /// commodity's cargo entry drops to zero.
+    pub cargo_origin: HashMap<Commodity, (String, f32)>,
 }
 
 impl ShipCargo {
@@ -180,6 +185,43 @@ pub struct ShipMemory {
     /// exploration heuristic keeps picking the same neighbor. Capped
     /// at [`RECENT_SYSTEMS_CAP`]; oldest entries evict when it overflows.
     pub recent_systems: std::collections::VecDeque<String>,
+    /// Phase 20: learned outcomes for (from, to, commodity) trade
+    /// routes. Populated by the Sell action when it can match the
+    /// sold commodity to a remembered origin (see
+    /// `ShipCargo.cargo_origin`). `best_trade_route` applies a
+    /// penalty when a ship's actual avg profit on a route is far
+    /// below what current price memory suggests — lets individual
+    /// ships drift away from saturated runs instead of all
+    /// competing for the same Earth↔Mars margin.
+    pub route_performance: HashMap<(String, String, Commodity), RouteStats>,
+}
+
+/// Running aggregate of trade-route outcomes for a single
+/// (from, to, commodity) triple. The planner reads
+/// `total_profit_per_unit / attempts` as an average margin the ship
+/// has actually realised; compare to the current
+/// `(sell_price - buy_price)` projection to detect stale memory /
+/// competitor saturation. Plain struct so it round-trips through
+/// future persistence migrations trivially.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RouteStats {
+    pub attempts: u32,
+    pub total_profit_per_unit: f32,
+}
+
+impl RouteStats {
+    pub fn avg_profit_per_unit(&self) -> f32 {
+        if self.attempts == 0 {
+            0.0
+        } else {
+            self.total_profit_per_unit / self.attempts as f32
+        }
+    }
+
+    pub fn record(&mut self, profit_per_unit: f32) {
+        self.attempts = self.attempts.saturating_add(1);
+        self.total_profit_per_unit += profit_per_unit;
+    }
 }
 
 /// Max length of `ShipMemory.recent_systems`. 5 gives a ship enough
@@ -1577,7 +1619,33 @@ pub fn best_trade_route(memory: &ShipMemory) -> Option<(Commodity, String, Strin
                     } else {
                         ((*loc_b).clone(), (*loc_a).clone(), pb.price, pa.price)
                     };
-                    let margin = (hi - lo) / lo.max(1.0);
+                    let raw_margin = (hi - lo) / lo.max(1.0);
+                    // Phase 20: discount the margin when this ship's
+                    // actual history on (buy → sell, commodity)
+                    // underperforms what the current prices project.
+                    // After 3 attempts we trust the learned average;
+                    // if it's < 50% of the projected per-unit gap we
+                    // apply a strong (0.3×) penalty so the ship drifts
+                    // toward less-saturated routes. Ships with no
+                    // history keep the full raw margin — nothing
+                    // penalises an untried route.
+                    let expected_per_unit = hi - lo;
+                    let learned_mult = memory
+                        .route_performance
+                        .get(&(buy.clone(), sell.clone(), *commodity))
+                        .and_then(|stats| {
+                            if stats.attempts < 3 {
+                                return None;
+                            }
+                            let avg = stats.avg_profit_per_unit();
+                            if avg < expected_per_unit * 0.5 {
+                                Some(0.3_f32)
+                            } else {
+                                Some(1.0_f32)
+                            }
+                        })
+                        .unwrap_or(1.0);
+                    let margin = raw_margin * learned_mult;
                     if margin > MIN_TRADE_MARGIN && best.as_ref().is_none_or(|b| margin > b.3) {
                         best = Some((*commodity, buy, sell, margin));
                     }
@@ -2993,6 +3061,7 @@ mod crew_tests {
 #[cfg(test)]
 mod tick_tests {
     use super::*;
+    use super::actions::affordable_quantity;
 
     #[test]
     fn affordable_quantity_respects_credits_and_capacity() {
@@ -3008,6 +3077,7 @@ mod tick_tests {
             price_knowledge: Default::default(),
             visited: vec![],
             recent_systems: std::collections::VecDeque::new(),
+            route_performance: std::collections::HashMap::new(),
         };
         let mut a = std::collections::HashMap::new();
         a.insert(Commodity::Ore, PriceMemory { price: 10.0, tick: 1 });
@@ -3144,6 +3214,7 @@ mod tick_tests {
             price_knowledge: Default::default(),
             visited: vec![],
             recent_systems: std::collections::VecDeque::new(),
+            route_performance: std::collections::HashMap::new(),
         };
         let mut a = std::collections::HashMap::new();
         a.insert(Commodity::Ore, PriceMemory { price: 100.0, tick: 1 });

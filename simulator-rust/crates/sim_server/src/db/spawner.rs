@@ -866,6 +866,7 @@ async fn load_ships(
                 cargo,
                 capacity: fitted_cargo_capacity,
                 cargo_age,
+                cargo_origin: std::collections::HashMap::new(),
             },
             ShipFuel {
                 fuel: fuel as f32,
@@ -891,6 +892,7 @@ async fn load_ships(
                 price_knowledge,
                 visited,
                 recent_systems: std::collections::VecDeque::new(),
+                route_performance: std::collections::HashMap::new(),
             },
             ShipLifecycle {
                 broke_strikes: broke_strikes as u8,

@@ -141,6 +141,7 @@ mod tests {
             cargo: HashMap::new(),
             capacity: 500,
             cargo_age: HashMap::new(),
+            cargo_origin: HashMap::new(),
         });
         assert!((c.value - 1.0).abs() < 0.01);
     }
@@ -153,6 +154,7 @@ mod tests {
             cargo,
             capacity: 500,
             cargo_age: HashMap::new(),
+            cargo_origin: HashMap::new(),
         });
         assert!(c.value < 0.01);
     }

@@ -100,7 +100,7 @@ pub(super) fn execute_ship_action(
     cargo: &mut ShipCargo,
     fuel: &mut ShipFuel,
     economy: &mut ShipEconomy,
-    memory: &ShipMemory,
+    memory: &mut ShipMemory,
     registry: &WorldRegistry,
     commands: &mut CommandBuffer,
     tick: u64,
@@ -364,6 +364,9 @@ pub(super) fn execute_ship_action(
             economy.credits -= cost;
             *cargo.cargo.entry(*commodity).or_insert(0) += want;
             cargo.cargo_age.insert(*commodity, tick);
+            // Phase 20: remember origin + unit price so the Sell arm
+            // can compute realised profit and feed route_performance.
+            cargo.cargo_origin.insert(*commodity, (at.clone(), price));
             commands.push(SimCommand::RemoveSupplyAtShipLocation {
                 ship: entity,
                 commodity: *commodity,
@@ -395,10 +398,27 @@ pub(super) fn execute_ship_action(
             }
             let revenue = (price * amount as f32) as i64;
             economy.credits += revenue;
+            // Phase 20: record realised trade-route outcome if the
+            // sell location differs from where this cargo was
+            // bought. The Buy arm stamps `cargo_origin`; we consume
+            // it here once the full batch is sold so avg stays
+            // trade-round-accurate.
+            let origin_info = cargo.cargo_origin.get(commodity).cloned();
             let new_remaining = have - amount;
             if new_remaining == 0 {
                 cargo.cargo.remove(commodity);
                 cargo.cargo_age.remove(commodity);
+                cargo.cargo_origin.remove(commodity);
+                if let Some((bought_at, buy_price)) = origin_info {
+                    if bought_at != at {
+                        let profit = price - buy_price;
+                        memory
+                            .route_performance
+                            .entry((bought_at, at.clone(), *commodity))
+                            .or_default()
+                            .record(profit);
+                    }
+                }
             } else {
                 cargo.cargo.insert(*commodity, new_remaining);
             }
@@ -443,8 +463,22 @@ pub(super) fn execute_ship_action(
                 .unwrap_or(0.0);
             let revenue = (price * qty as f32) as i64;
             economy.credits += revenue;
+            // Phase 20: record realised route outcome before clearing
+            // cargo_origin. SellAll always sells the whole stack, so
+            // unlike partial Sell we don't need a remaining-qty guard.
+            let origin_info = cargo.cargo_origin.remove(&commodity);
             cargo.cargo.remove(&commodity);
             cargo.cargo_age.remove(&commodity);
+            if let Some((bought_at, buy_price)) = origin_info {
+                if bought_at != at {
+                    let profit = price - buy_price;
+                    memory
+                        .route_performance
+                        .entry((bought_at, at.clone(), commodity))
+                        .or_default()
+                        .record(profit);
+                }
+            }
             commands.push(SimCommand::AddSupplyAtShipLocation {
                 ship: entity,
                 commodity,
