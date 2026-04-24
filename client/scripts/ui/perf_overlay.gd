@@ -15,6 +15,9 @@ extends PanelContainer
 @onready var tps_label: Label = $VBox/Grid/TPSValue
 @onready var interval_label: Label = $VBox/Grid/IntervalValue
 @onready var lod_label: Label = $VBox/Grid/LodValue
+@onready var net_bytes_label: Label = $VBox/Grid/NetBytesValue
+@onready var net_handler_label: Label = $VBox/Grid/NetHandlerValue
+@onready var net_queue_label: Label = $VBox/Grid/NetQueueValue
 @onready var sparkline: Control = $VBox/Sparkline
 @onready var close_button: Button = $VBox/TopRow/CloseButton
 
@@ -92,6 +95,33 @@ func _process(_delta: float) -> void:
 	parts.append(_lod_chip("d20", GameState.lod_d20, false))
 	parts.append(_lod_chip("d50", GameState.lod_d50, false))
 	lod_label.text = " ".join(parts)
+
+	# -----------------------------------------------------------------
+	# Network telemetry (2026-04-24). Three rows, each showing the
+	# last-second rollup from NetworkManager. If "WS handler" creeps
+	# toward the frame budget (16.6 ms at 60 fps means ≥1000 ms of
+	# work per second is saturation), the main thread is stuck in
+	# JSON parse + `_handle_*_states` — not rendering.
+	# -----------------------------------------------------------------
+	net_bytes_label.text = "%s/s  (%d pkt/s)" % [
+		_fmt_bytes(NetworkManager.net_bytes_per_sec),
+		NetworkManager.net_packets_per_sec,
+	]
+	var handler_ms: float = float(NetworkManager.net_handler_us_per_sec) / 1000.0
+	net_handler_label.text = "%.1f ms/s" % handler_ms
+	if handler_ms > 300.0:
+		net_handler_label.add_theme_color_override("font_color", ThemePalette.DANGER)
+	elif handler_ms > 100.0:
+		net_handler_label.add_theme_color_override("font_color", ThemePalette.WARN)
+	else:
+		net_handler_label.remove_theme_color_override("font_color")
+	net_queue_label.text = "%d" % NetworkManager.net_queue_peak
+	if NetworkManager.net_queue_peak >= 100:
+		net_queue_label.add_theme_color_override("font_color", ThemePalette.DANGER)
+	elif NetworkManager.net_queue_peak >= 20:
+		net_queue_label.add_theme_color_override("font_color", ThemePalette.WARN)
+	else:
+		net_queue_label.remove_theme_color_override("font_color")
 
 	# Shift a new sample in each frame (dedup via the fact that redraw
 	# happens at frame rate — this gives a sense of tick-smoothness).
@@ -193,3 +223,11 @@ func _fmt_us(us: int) -> String:
 	if us >= 1_000:
 		return "%.2f ms" % (float(us) / 1000.0)
 	return "%d µs" % us
+
+
+func _fmt_bytes(bytes: int) -> String:
+	if bytes >= 1_048_576:
+		return "%.1f MB" % (float(bytes) / 1_048_576.0)
+	if bytes >= 1024:
+		return "%.1f KB" % (float(bytes) / 1024.0)
+	return "%d B" % bytes

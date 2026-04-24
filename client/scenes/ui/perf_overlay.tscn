@@ -77,6 +77,30 @@ text = "LOD tiers"
 layout_mode = 2
 text = "—"
 
+[node name="NetBytesKey" type="Label" parent="VBox/Grid"]
+layout_mode = 2
+text = "WS in"
+
+[node name="NetBytesValue" type="Label" parent="VBox/Grid"]
+layout_mode = 2
+text = "—"
+
+[node name="NetHandlerKey" type="Label" parent="VBox/Grid"]
+layout_mode = 2
+text = "WS handler"
+
+[node name="NetHandlerValue" type="Label" parent="VBox/Grid"]
+layout_mode = 2
+text = "—"
+
+[node name="NetQueueKey" type="Label" parent="VBox/Grid"]
+layout_mode = 2
+text = "WS queue peak"
+
+[node name="NetQueueValue" type="Label" parent="VBox/Grid"]
+layout_mode = 2
+text = "—"
+
 [node name="Sparkline" type="Control" parent="VBox"]
 layout_mode = 2
 custom_minimum_size = Vector2(0, 40)

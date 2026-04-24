@@ -59,6 +59,33 @@ var _reconnect_timer: float = -1.0
 var _last_positions_ms: int = -1
 var _last_positions_tick: int = -1
 
+# -----------------------------------------------------------------------------
+# Network telemetry (2026-04-24). Surfaces how much work Godot is doing
+# ingesting the WS firehose so the perf overlay can tell "main thread
+# stuck in JSON parse" apart from "main thread stuck in render". Counters
+# accumulate over a 1 s window; the ..._per_sec fields freeze to the
+# rolled-over value at the end of each window. Reset + rollover happens
+# in _process before the packet drain.
+# -----------------------------------------------------------------------------
+var _net_bytes_this_sec: int = 0
+var _net_packets_this_sec: int = 0
+var _net_handler_us_this_sec: int = 0
+var _net_window_elapsed: float = 0.0
+
+## Public read-only snapshots that the perf overlay polls every frame.
+var net_bytes_per_sec: int = 0
+var net_packets_per_sec: int = 0
+## Total microseconds spent inside `_handle_ws_packet` over the last 1 s
+## window — divide by 1000 for ms-per-second, which is effectively the
+## % of a frame budget the main thread burns on message digestion.
+var net_handler_us_per_sec: int = 0
+## Peak packets-queued observation during the last window. If this
+## consistently approaches MAX_PACKETS_PER_FRAME (150), the main thread
+## is falling behind and backlog is accumulating — the smoking gun for
+## "WS is the bottleneck."
+var net_queue_peak: int = 0
+var _net_queue_peak_this_sec: int = 0
+
 
 func _ready() -> void:
 	_http = HTTPRequest.new()
@@ -378,6 +405,13 @@ func _process(delta: float) -> void:
 				_on_ws_closed()
 
 	if _ws_state == WebSocketPeer.STATE_OPEN:
+		# Telemetry: remember the peak queue observation this window
+		# (before we drain) — a high sustained peak means we're falling
+		# behind the server's broadcast cadence.
+		var queued_now: int = _ws.get_available_packet_count()
+		if queued_now > _net_queue_peak_this_sec:
+			_net_queue_peak_this_sec = queued_now
+
 		var drained := 0
 		while _ws.get_available_packet_count() > 0:
 			if drained >= MAX_PACKETS_PER_FRAME:
@@ -389,6 +423,20 @@ func _process(delta: float) -> void:
 				break
 			_handle_ws_packet(_ws.get_packet())
 			drained += 1
+
+	# Telemetry window rollover — runs every frame, rolls the accumulated
+	# counters over into the public snapshots once per second.
+	_net_window_elapsed += delta
+	if _net_window_elapsed >= 1.0:
+		net_bytes_per_sec = _net_bytes_this_sec
+		net_packets_per_sec = _net_packets_this_sec
+		net_handler_us_per_sec = _net_handler_us_this_sec
+		net_queue_peak = _net_queue_peak_this_sec
+		_net_bytes_this_sec = 0
+		_net_packets_this_sec = 0
+		_net_handler_us_this_sec = 0
+		_net_queue_peak_this_sec = 0
+		_net_window_elapsed = 0.0
 
 
 func _on_ws_open() -> void:
@@ -410,6 +458,14 @@ func _on_ws_closed() -> void:
 
 
 func _handle_ws_packet(pkt: PackedByteArray) -> void:
+	# Telemetry: count this packet + its wire byte size, and time the
+	# whole handler so we can see main-thread saturation in the perf
+	# overlay. `pkt.size()` is the pre-UTF8 byte count which is the
+	# right thing (what came off the wire).
+	var t_start: int = Time.get_ticks_usec()
+	_net_packets_this_sec += 1
+	_net_bytes_this_sec += pkt.size()
+
 	var text := pkt.get_string_from_utf8()
 	if DEBUG_WS_TRAFFIC:
 		print("[Network] IN: %s" % text)
@@ -417,6 +473,7 @@ func _handle_ws_packet(pkt: PackedByteArray) -> void:
 	if not (parsed is Dictionary):
 		if DEBUG_WS:
 			push_warning("[Network] non-object WS message: %s" % text)
+		_net_handler_us_this_sec += Time.get_ticks_usec() - t_start
 		return
 	var msg_type := str(parsed.get("type", ""))
 	match msg_type:
@@ -445,6 +502,7 @@ func _handle_ws_packet(pkt: PackedByteArray) -> void:
 		_:
 			if DEBUG_WS:
 				push_warning("[Network] unknown message type: %s" % msg_type)
+	_net_handler_us_this_sec += Time.get_ticks_usec() - t_start
 
 
 func _handle_server_hello(msg: Dictionary) -> void:
