@@ -3,14 +3,13 @@ extends Node3D
 ## Draws dotted transit lines. All lines are very faint;
 ## the selected ship's line is drawn brighter on top.
 
-# --- Perf-bisection toggle (2026-04-24) ------------------------------------
-# The `_rebuild_lines` pass walks every ship every positions broadcast
-# (~125 ms). At ~1500 ships that's a big ImmediateMesh rebuild per frame
-# on the main thread, regardless of how many are actually in transit.
-# Flip to false + reload to see how much of the remaining FPS deficit
-# this accounts for. If it matters, the follow-up is to cache the line
-# mesh and only rebuild when a ship's transit state changes.
-const ENABLE_TRANSIT_LINES: bool = false
+# Kill switch (2026-04-24 perf bisect found transit lines were the
+# single biggest remaining FPS cost at ~1500 ships). Left in place so
+# we can flip it off without editing code if we ever need another
+# isolation run. The main cost has now been addressed by
+# (a) skipping ships the camera cull has hidden, (b) rebuilding every
+# REBUILD_EVERY_N broadcasts instead of every one.
+const ENABLE_TRANSIT_LINES: bool = true
 
 const LINE_COLOR_BASE := Color(0.5, 0.6, 0.9)
 const SELECTED_COLOR := Color(0.7, 0.8, 1.0)
@@ -36,6 +35,19 @@ var _sel_mat: StandardMaterial3D
 
 var _location_cache: Dictionary = {}
 
+# Cache our parent universe so _rebuild_lines can skip ships the
+# camera-distance cull has already hidden. Lets transit lines piggyback
+# on the existing cull work rather than draw across the whole fleet.
+var _universe: Node = null
+
+# Rebuild cadence. The positions broadcast fires every ~125 ms but at
+# 1500 ships the full rebuild dominated the main thread — and the lines
+# are a coarse visual hint, not precise nav, so sub-second freshness is
+# fine. 4 = rebuild every 4 broadcasts (~500 ms), quartering the cost
+# while still feeling live.
+const REBUILD_EVERY_N: int = 4
+var _broadcast_counter: int = 0
+
 
 func _ready() -> void:
 	# Faint lines for all ships
@@ -54,6 +66,11 @@ func _ready() -> void:
 	_sel_inst.material_override = _sel_mat
 	add_child(_sel_inst)
 
+	# We're instantiated as a child of the Universe node (see main.gd).
+	# Cache the reference once so _rebuild_lines can call
+	# `universe.is_ship_visible(id)` without a per-line get_parent().
+	_universe = get_parent()
+
 	GameState.positions_updated.connect(_on_positions_updated)
 
 
@@ -69,11 +86,18 @@ func _make_line_material(color: Color) -> StandardMaterial3D:
 
 func _on_positions_updated(_positions: Array) -> void:
 	if not ENABLE_TRANSIT_LINES:
-		# Perf bisect: skip the whole rebuild + location scan.
-		# The MeshInstance3Ds stay empty (no surfaces) so nothing draws.
+		# Killswitch for the perf bisect. Keeps the toggle useful as a
+		# one-flip "render nothing" if we ever want to isolate again.
 		_all_mesh.clear_surfaces()
 		_sel_mesh.clear_surfaces()
 		return
+	# Cadence gate: only rebuild every N broadcasts. Position drift
+	# during the gap is small and the lines are a coarse hint, not
+	# navigation-accurate geometry.
+	_broadcast_counter += 1
+	if _broadcast_counter < REBUILD_EVERY_N:
+		return
+	_broadcast_counter = 0
 	_rebuild_location_cache()
 	var alpha: float = TIER_ALPHA.get(GameState.zoom_tier, 0.03)
 	_all_mat.albedo_color = Color(LINE_COLOR_BASE, alpha)
@@ -116,6 +140,16 @@ func _rebuild_lines() -> void:
 		if arrive > 0 and arrive <= GameState.tick:
 			continue
 
+		# Visibility gate: skip lines for ships the camera-distance
+		# cull has already hidden. Always draw the selected ship's
+		# line regardless — the user is tracking it and a missing
+		# line for their selection would read as a bug.
+		var ship_id: String = ship_data.get("id", "")
+		var is_selected: bool = ship_id == selected_id
+		if not is_selected and _universe != null and _universe.has_method("is_ship_visible"):
+			if not _universe.is_ship_visible(ship_id):
+				continue
+
 		var pos = ship_data.get("position", {})
 		if not (pos is Dictionary):
 			continue
@@ -132,8 +166,7 @@ func _rebuild_lines() -> void:
 		from.y = 0.05
 		to.y = 0.05
 
-		var ship_id: String = ship_data.get("id", "")
-		if ship_id == selected_id:
+		if is_selected:
 			if not has_sel:
 				_sel_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
 				has_sel = true
