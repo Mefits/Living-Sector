@@ -307,15 +307,35 @@ directly; zero marshalling between sim and render.
 - **Bundle 3k**: "Focus camera" button on details panels
   (`CameraFocusRequest` one-shot Resource, consumed by a camera-side
   system that snaps `OrbitCamera.focus`).
+- **Bundle 3l**: retirements panel. `sim_db::load_retirements` loads
+  up to 200 rows at startup; panel filters + sorts with
+  colour-coded reasons (broke/hoard/admin).
+- **Bundle 3m**: construction sites panel. Stacked cards sorted by
+  progress descending, egui ProgressBar per site, per-card "Focus"
+  button that jumps the camera to the site universe position.
+- **Bundle 3n**: selection highlight. `highlight_selected` scales
+  the currently-selected ship or facility render entity up to 2.2×
+  and resets peers each frame. SelectedShip / SelectedFacility
+  promoted to pub so render/ can read them.
+- **Bundle 3o**: pause + speed controls in the top bar. Pause flips
+  `Sim.running`; speed combo (1×/2×/4×/8×) drives `Sim.tick_mult`,
+  and `tick_sim` now loops the tick body that many times per
+  FixedUpdate. Top bar also shows the live `tick N` counter.
+- **Bundle 3p**: transit line gizmos. Per-frame `draw_transit_lines`
+  renders a faint Gizmos line from each in-transit ship's
+  `departure_position` to its current position — trail-behind-the-
+  ship look. Batches into one draw call.
 
 Deferred:
 - **Bundle 2b.4** — extract `sim_engine` crate: lift
   `apply_ship_commands` (553 lines) + its helpers (~1500 lines) out
   of `sim_server::engine` so the Bevy client can drive the full
   phase chain. Until then the embedded tick moves ships visually
-  but doesn't progress the economy.
-- Events ticker, retirements panel, admin toolbar/panels, click-on-
-  mesh selection, procedural ship meshes, nebula backdrop.
+  but doesn't progress the economy and new retirements/events land
+  only after a restart.
+- Events ticker, minimap, admin toolbar/panels, click-on-mesh
+  raycast selection, procedural ship meshes, nebula backdrop,
+  save / save-as.
 
 ## Systems wired
 
