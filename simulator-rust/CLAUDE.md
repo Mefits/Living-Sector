@@ -263,7 +263,59 @@ Godot ⇄ WebSocket/HTTP (axum) ─┐
 | Crate | Depends on | Purpose |
 |---|---|---|
 | `sim_core` | `hecs`, `serde`, `rand`, `rayon` | All simulation logic, pure |
-| `sim_server` | `sim_core` + `tokio`, `axum`, `sqlx`, `dashmap`, `flume` | Runtime binary |
+| `sim_protocol` | `serde`, `sim_core` | WS wire types (sim_server only; kept for CI) |
+| `sim_db` | `sim_core` + `sqlx`, `tokio`, `anyhow` | Persistence: pool, seeder, spawner, persistence worker |
+| `sim_server` | `sim_core` + `sim_db` + `sim_protocol` + `tokio`, `axum`, `dashmap`, `flume` | Runtime binary (WS/HTTP, headless CI use) |
+| `client_bevy` | `sim_core` + `sim_db` + `bevy`, `bevy_egui` | **Embedded** Bevy client — sim runs in-process |
+
+### Client port (Bevy, embedded)
+
+Godot client hit a ceiling at ~500 ships (script dispatch across the
+scene tree saturated the frame). With the "no multiplayer, ever"
+constraint, the WS boundary became architectural dead weight. The
+Bevy client treats `sim_core` as a library — `Sim` wraps `AgentStore`
+as a Bevy Resource; the render layer queries the hecs `World`
+directly; zero marshalling between sim and render.
+
+- **Bundle 2a**: pivot from WS-client to embedded sim skeleton.
+- **Bundle 2b.1**: extracted `sim_db` so `client_bevy` doesn't need
+  `sim_server`'s HTTP stack.
+- **Bundle 2b.2**: load real world via `sim_db` at Startup (one-shot
+  tokio runtime for sqlx).
+- **Bundle 2c**: mirror hecs entities as Bevy entities (placeholder
+  meshes: boxes/spheres/cylinders).
+- **Bundle 2b.3**: minimum-viable tick — `ship::tick_ships` runs,
+  ships move in transit. Emitted `CommandBuffer` is discarded; full
+  apply_ship_commands wiring is deferred as **Bundle 2b.4**.
+- **Bundle 3a**: orbit camera (mouse drag orbit, WASD pan, scroll
+  zoom, right-drag pan).
+- **Bundle 3b**: perf overlay (FPS, tick, counts, world_seed).
+- **Bundle 3c**: ship list panel (sortable, filterable, paged).
+- **Bundle 3d**: faction-tint on ship meshes (per-faction material).
+- **Bundle 3e**: contracts panel (6-kind / 6-status filters,
+  show-expired, paged).
+- **Bundle 3f**: factions panel (ledger with ship/fac counts +
+  treasury + subsidies; pairwise relations matrix).
+- **Bundle 3g**: markets panel (collapsing headers per location,
+  per-commodity price/supply/demand, crisis/short tier sort).
+- **Bundle 3h**: populations panel (sort by count/sentiment/food/
+  wealth/migration; colour-coded sentiment + food bands).
+- **Bundle 3i**: ship details panel (click-select from ship list →
+  full inspector reading every component directly from hecs).
+- **Bundle 3j**: facility list + details panel (same pattern;
+  abandoned facilities strike-through).
+- **Bundle 3k**: "Focus camera" button on details panels
+  (`CameraFocusRequest` one-shot Resource, consumed by a camera-side
+  system that snaps `OrbitCamera.focus`).
+
+Deferred:
+- **Bundle 2b.4** — extract `sim_engine` crate: lift
+  `apply_ship_commands` (553 lines) + its helpers (~1500 lines) out
+  of `sim_server::engine` so the Bevy client can drive the full
+  phase chain. Until then the embedded tick moves ships visually
+  but doesn't progress the economy.
+- Events ticker, retirements panel, admin toolbar/panels, click-on-
+  mesh selection, procedural ship meshes, nebula backdrop.
 
 ## Systems wired
 
