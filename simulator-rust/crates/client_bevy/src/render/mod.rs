@@ -61,15 +61,48 @@ pub struct BodyEntity {
 
 /// Shared meshes + materials for the placeholder geometry. Stashed on
 /// a Resource so every entity references the same GPU handle — one
-/// draw call per archetype (~3 right now) instead of per-entity.
+/// draw call per archetype instead of per-entity. Ship material is
+/// per-faction (see `ship_mat_for`) so the placeholder fleet reads
+/// as factions at a glance.
 #[derive(Resource)]
 struct PlaceholderAssets {
     ship_mesh: Handle<Mesh>,
-    ship_mat: Handle<StandardMaterial>,
+    ship_mat_by_faction: std::collections::HashMap<String, Handle<StandardMaterial>>,
+    ship_mat_fallback: Handle<StandardMaterial>,
     facility_mesh: Handle<Mesh>,
     facility_mat: Handle<StandardMaterial>,
     body_mesh: Handle<Mesh>,
     body_mat: Handle<StandardMaterial>,
+}
+
+impl PlaceholderAssets {
+    fn ship_mat_for(&self, faction: &str) -> Handle<StandardMaterial> {
+        self.ship_mat_by_faction
+            .get(faction)
+            .cloned()
+            .unwrap_or_else(|| self.ship_mat_fallback.clone())
+    }
+}
+
+/// Hull colors per faction — lifted from the Godot
+/// `client/scripts/tools/procedural_ship.gd::FACTION_PALETTES` table
+/// so the two clients read the same at parity. Unknown factions use
+/// the `fallback` material (independent-grey).
+fn faction_palette() -> &'static [(&'static str, [f32; 3])] {
+    &[
+        ("terran-authority",   [0.85, 0.90, 0.92]),
+        ("mars-syndicate",     [0.55, 0.24, 0.16]),
+        ("belt-coalition",     [0.72, 0.64, 0.34]),
+        ("frontier-ventures",  [0.50, 0.60, 0.42]),
+        ("crucible-mining",    [0.26, 0.30, 0.34]),
+        ("the-doughtys",       [0.70, 0.50, 0.80]),
+        ("independent",        [0.58, 0.58, 0.60]),
+        // Factions not in the Godot palette — picked to be
+        // distinguishable at distance. Revisit when we do real
+        // procedural ships and can pull from a shared palette crate.
+        ("vega-conclave",      [0.35, 0.60, 0.85]),
+        ("outer-reach",        [0.85, 0.55, 0.30]),
+    ]
 }
 
 fn spawn_mirror_entities(
@@ -78,15 +111,30 @@ fn spawn_mirror_entities(
     mut materials: ResMut<Assets<StandardMaterial>>,
     sim: Res<Sim>,
 ) {
-    // Build the shared asset pool once.
+    // Build the shared asset pool once. Ships get one material per
+    // faction — materials are cheap; it's the mesh sharing + instancing
+    // that actually matters for draw calls.
+    let mut ship_mat_by_faction = std::collections::HashMap::new();
+    for (id, rgb) in faction_palette() {
+        let mat = materials.add(StandardMaterial {
+            base_color: Color::srgb(rgb[0], rgb[1], rgb[2]),
+            metallic: 0.3,
+            perceptual_roughness: 0.55,
+            ..default()
+        });
+        ship_mat_by_faction.insert((*id).to_string(), mat);
+    }
+    let ship_mat_fallback = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.58, 0.58, 0.60),
+        metallic: 0.3,
+        perceptual_roughness: 0.55,
+        ..default()
+    });
+
     let assets = PlaceholderAssets {
         ship_mesh: meshes.add(Cuboid::from_size(Vec3::splat(SHIP_SIZE))),
-        ship_mat: materials.add(StandardMaterial {
-            base_color: Color::srgb(0.85, 0.9, 1.0),
-            metallic: 0.2,
-            perceptual_roughness: 0.6,
-            ..default()
-        }),
+        ship_mat_by_faction,
+        ship_mat_fallback,
         facility_mesh: meshes.add(Cylinder::new(FACILITY_SIZE * 0.5, FACILITY_SIZE)),
         facility_mat: materials.add(StandardMaterial {
             base_color: Color::srgb(0.7, 0.75, 0.6),
@@ -116,7 +164,7 @@ fn spawn_mirror_entities(
         commands.spawn((
             PbrBundle {
                 mesh: assets.ship_mesh.clone(),
-                material: assets.ship_mat.clone(),
+                material: assets.ship_mat_for(&id.faction_id),
                 transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
                 ..default()
             },
