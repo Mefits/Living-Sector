@@ -23,7 +23,6 @@ texture = ExtResource("2")
 stretch_mode = 5
 expand_mode = 1
 custom_minimum_size = Vector2(20, 20)
-modulate = Color(0.45, 0.85, 1.0, 1.0)
 
 [node name="Title" type="Label" parent="VBox/TopRow"]
 layout_mode = 2

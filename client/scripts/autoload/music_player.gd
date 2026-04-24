@@ -51,7 +51,14 @@ var _last_idx: int = -1
 
 
 func _ready() -> void:
+  # Keep playing through the ESC pause menu. With the default
+  # PROCESS_MODE_INHERIT, `get_tree().paused = true` cuts the music
+  # mid-track, which is jarring. PROCESS_MODE_ALWAYS on the autoload
+  # and the inner player means the stream keeps decoding + the track
+  # rotation logic keeps ticking.
+  process_mode = Node.PROCESS_MODE_ALWAYS
   _player = AudioStreamPlayer.new()
+  _player.process_mode = Node.PROCESS_MODE_ALWAYS
   # Route to the Music bus — SettingsManager owns per-bus volume, so
   # we don't set volume_db here. Bus is created by SettingsManager's
   # _ready which runs first (it's earlier in project.godot's autoload

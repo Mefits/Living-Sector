@@ -101,6 +101,11 @@ func _on_tick_updated(tick: int) -> void:
 func _on_world_loaded() -> void:
 	ship_count_label.text = "Ships: %d" % GameState.ships.size()
 	_update_speed_label()
+	_sync_step_buttons()
+
+
+const _PAUSE_ICON := preload("res://assets/icons/ui/pause.svg")
+const _PLAY_ICON := preload("res://assets/icons/ui/play.svg")
 
 
 func _on_pause_pressed() -> void:
@@ -108,10 +113,29 @@ func _on_pause_pressed() -> void:
 		NetworkManager.post_sim_control("pause")
 		GameState.running = false
 		pause_button.text = "Resume"
+		pause_button.icon = _PLAY_ICON
 	else:
 		NetworkManager.post_sim_control("resume")
 		GameState.running = true
 		pause_button.text = "Pause"
+		pause_button.icon = _PAUSE_ICON
+	_sync_step_buttons()
+
+
+func _sync_step_buttons() -> void:
+	# Step buttons only make sense while the tick loop is halted —
+	# stepping a running sim is a no-op against the server-side clock
+	# and just confuses the HUD. Tooltip flips too so the player
+	# understands why they're greyed out.
+	var paused := not GameState.running
+	step1_button.disabled = not paused
+	step8_button.disabled = not paused
+	step1_button.tooltip_text = (
+		"Step 1 tick" if paused else "Step 1 tick (pause first)"
+	)
+	step8_button.tooltip_text = (
+		"Step 8 ticks" if paused else "Step 8 ticks (pause first)"
+	)
 
 
 func _on_observer_pressed() -> void:
