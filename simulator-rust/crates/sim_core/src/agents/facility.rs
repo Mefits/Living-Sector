@@ -32,7 +32,25 @@ pub struct FacilityOperations {
     pub reputation: i32,     // 0–100
     pub credits: i64,
     pub dirty: bool,
+    /// Bundle (S): set true when condition crossed
+    /// `FACILITY_STARVING_CONDITION` and a `facility_starving`
+    /// event was emitted. Cleared when condition recovers above
+    /// `FACILITY_STARVING_RECOVERY` so a later slide into the
+    /// same state re-emits the event. Prevents duplicate events
+    /// each tick while condition hovers near the threshold.
+    pub starving_notified: bool,
 }
+
+/// Bundle (S): condition below this → emit `facility_starving`
+/// event and set `starving_notified`. Tracks the point where
+/// self-repair has failed (which is the point the ship planner
+/// starts preferring alternate docks).
+pub const FACILITY_STARVING_CONDITION: f32 = 0.3;
+
+/// Bundle (S): condition above this → clear `starving_notified`.
+/// Hysteresis window with `FACILITY_STARVING_CONDITION` so a
+/// jittering condition doesn't emit repeated events.
+pub const FACILITY_STARVING_RECOVERY: f32 = 0.5;
 
 impl FacilityOperations {
     pub fn has_service(&self, service: &str) -> bool {
@@ -2222,6 +2240,7 @@ mod tests {
                 last_tick: 0,
                 spawned_at_tick: None,
                 dirty: false,
+                crisis_notified: Default::default(),
             },
         ));
         let _ = market_entity;
@@ -2302,6 +2321,7 @@ mod tests {
                 last_tick: 0,
                 spawned_at_tick: None,
                 dirty: false,
+                crisis_notified: Default::default(),
             },
         ));
         let yard = world.spawn((

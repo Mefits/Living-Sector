@@ -68,7 +68,27 @@ pub struct MarketHistory {
     /// `DEMAND_WARMUP_TICKS` so cold-start seed demand holds the floor.
     pub spawned_at_tick: Option<u64>,
     pub dirty: bool,
+    /// Bundle (S): per-commodity crisis notification flag. Set to
+    /// true when shortage crosses `MARKET_CRISIS_SHORTAGE_TICKS`,
+    /// cleared when shortage recovers below
+    /// `MARKET_CRISIS_RECOVERY_TICKS`. Prevents the scan pass from
+    /// emitting duplicate `market_crisis` events every tick once
+    /// the flag is raised.
+    pub crisis_notified: HashMap<Commodity, bool>,
 }
+
+/// Bundle (S): a commodity has been short on this market for this
+/// many consecutive ticks → structural shortage, emit a
+/// `market_crisis` event. Set well above the facility-contract
+/// threshold (30) and the subsidy threshold (600) so crises mark
+/// the point where market self-repair has clearly failed.
+pub const MARKET_CRISIS_SHORTAGE_TICKS: u32 = 200;
+
+/// Bundle (S): shortage_ticks drop to at-or-below this → clear the
+/// crisis-notified flag so a future recurrence fires again. Gap
+/// vs `MARKET_CRISIS_SHORTAGE_TICKS` is the hysteresis window —
+/// prevents flapping events around the threshold boundary.
+pub const MARKET_CRISIS_RECOVERY_TICKS: u32 = 50;
 
 /// Snapshot for HTTP/WS — built from components.
 #[derive(Debug, Clone, Serialize)]

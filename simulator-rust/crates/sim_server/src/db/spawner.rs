@@ -440,6 +440,7 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
                 reputation: reputation as i32,
                 credits,
                 dirty: false,
+                starving_notified: false,
             },
             FacilityStorage {
                 reserves,
@@ -587,6 +588,7 @@ async fn load_markets(pool: &SqlitePool, _config: &TickConfig, store: &mut Agent
                 last_tick: 0,
                 spawned_at_tick: None,
                 dirty: false,
+                crisis_notified: Default::default(),
             },
         ));
         store.index_market(id, facility_location, entity);

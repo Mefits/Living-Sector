@@ -291,6 +291,12 @@ pub async fn run_tick_loop(
             tick_mult,
         );
         market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
+        // Bundle (S): after markets + facilities tick, emit
+        // structural-warning events on threshold crossings so
+        // Godot can surface "5 markets in crisis" / "2 facilities
+        // starving" without polling every panel. Hysteresis
+        // windows inside `scan_crisis_events` prevent flapping.
+        scan_crisis_events(&mut store.world, &mut events);
         // Market emits TransferCredits (spread revenue) — apply before clearing
         record_command_trace(&store, &commands, tick, &command_trace);
         apply_ship_commands(&mut store, &mut commands, &mut events);
@@ -1995,6 +2001,7 @@ fn admin_spawn_facility(
             reputation: payload.reputation,
             credits: payload.credits,
             dirty: true,
+            starving_notified: false,
         },
         FacilityStorage {
             reserves: std::collections::HashMap::new(),
@@ -2948,6 +2955,64 @@ async fn drain_pending_materializations(
 /// ring. Runs BEFORE `apply_ship_commands` on each pass so the
 /// captured entry reflects what was requested, not the already-
 /// applied outcome. Per-ship filtering happens on read — the ring is
+/// Bundle (S): scan markets + facilities for structural warning
+/// thresholds and emit `market_crisis` / `facility_starving` events
+/// on crossings. Hysteresis via `crisis_notified` / `starving_notified`
+/// flags prevents duplicate events each tick while the condition
+/// persists, and recovery events (`market_recovered` /
+/// `facility_recovered`) fire when state normalises again.
+fn scan_crisis_events(world: &mut hecs::World, events: &mut Vec<serde_json::Value>) {
+    use sim_core::agents::facility::{
+        FacilityIdentity, FacilityOperations, FACILITY_STARVING_CONDITION,
+        FACILITY_STARVING_RECOVERY,
+    };
+    use sim_core::agents::market::{
+        MarketHistory, MarketIdentity, MARKET_CRISIS_RECOVERY_TICKS, MARKET_CRISIS_SHORTAGE_TICKS,
+    };
+
+    for (_e, (id, hist)) in world.query_mut::<(&MarketIdentity, &mut MarketHistory)>() {
+        for (&commodity, &shortage) in hist.shortage_ticks.clone().iter() {
+            let was_notified = hist.crisis_notified.get(&commodity).copied().unwrap_or(false);
+            if shortage >= MARKET_CRISIS_SHORTAGE_TICKS && !was_notified {
+                events.push(serde_json::json!({
+                    "kind": "market_crisis",
+                    "market_id": id.id,
+                    "location": id.facility_location,
+                    "commodity": commodity.to_string(),
+                    "shortage_ticks": shortage,
+                }));
+                hist.crisis_notified.insert(commodity, true);
+            } else if shortage <= MARKET_CRISIS_RECOVERY_TICKS && was_notified {
+                events.push(serde_json::json!({
+                    "kind": "market_recovered",
+                    "market_id": id.id,
+                    "location": id.facility_location,
+                    "commodity": commodity.to_string(),
+                }));
+                hist.crisis_notified.insert(commodity, false);
+            }
+        }
+    }
+
+    for (_e, (id, ops)) in world.query_mut::<(&FacilityIdentity, &mut FacilityOperations)>() {
+        if ops.condition < FACILITY_STARVING_CONDITION && !ops.starving_notified {
+            events.push(serde_json::json!({
+                "kind": "facility_starving",
+                "facility_id": id.id,
+                "condition": ops.condition,
+            }));
+            ops.starving_notified = true;
+        } else if ops.condition > FACILITY_STARVING_RECOVERY && ops.starving_notified {
+            events.push(serde_json::json!({
+                "kind": "facility_recovered",
+                "facility_id": id.id,
+                "condition": ops.condition,
+            }));
+            ops.starving_notified = false;
+        }
+    }
+}
+
 /// shared across all ships to keep the insertion path cheap (one
 /// write-lock per tick, not per-ship).
 fn record_command_trace(
@@ -3343,6 +3408,7 @@ fn materialize_facility(
             reputation: 50,
             credits: 20_000,
             dirty: false,
+            starving_notified: false,
         },
         FacilityStorage {
             reserves: HashMap::new(),
@@ -3644,6 +3710,7 @@ mod tests {
                 reputation: 50,
                 credits: 0,
                 dirty: false,
+                starving_notified: false,
             },
             FacilityStorage::default(),
             FacilityLifecycle::new(),
