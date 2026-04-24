@@ -1808,15 +1808,28 @@ fn apply_request_dock_typed(
 
 /// Remove stale entries from a facility's `dock_queue`. A queue entry
 /// is "stale" if the ship entity no longer exists OR the ship's
-/// current location_name doesn't match this facility's location — i.e.
-/// the ship left without emitting anything that told us to drop it
-/// from the queue (started a Travel, got admin-destroyed, etc.).
-/// Without this sweep a single vanished ship can wedge the queue head
-/// forever and every ship behind it starves.
+/// current location_name doesn't match this facility's location (the
+/// ship left without emitting anything that told us to drop it from
+/// the queue — started a Travel, got admin-destroyed, etc.) OR the
+/// ship is not actively attempting a dock right now
+/// (`dock_attempt_start_tick.is_none()`).
+///
+/// That last case is load-bearing: when a ship's `ShipAction::Dock`
+/// times out it clears `dock_attempt_start_tick` and returns Failure,
+/// but nothing removes it from whatever queue it was in. The ship
+/// usually stays at the same location (BT unwinds to a planner that
+/// picks another local goal), so the location-match prune above can't
+/// catch it — the stuck entry lives on at the head of the queue and
+/// blocks every ship behind it. A 2026-04-24 diagnostic showed
+/// `luna-base` with 0 ships docked and 2 queued against a capacity of
+/// 25 — pure phantom entries from prior dock-timeouts.
+///
+/// Without this sweep a single vanished/idle ship can wedge the queue
+/// head forever and every ship behind it starves.
 fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, location: &str) {
     use sim_core::agents::{
         facility::FacilityStorage,
-        ship::ShipPosition,
+        ship::{ShipEconomy, ShipPosition},
     };
     let queue_snapshot: Vec<hecs::Entity> = match store.world.get::<&FacilityStorage>(facility) {
         Ok(s) => s.dock_queue.clone(),
@@ -1832,9 +1845,18 @@ fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, locati
             .get::<&ShipPosition>(e)
             .map(|p| p.location_name.as_deref() == Some(location))
             .unwrap_or(false);
-        if still_here {
-            keep.push(e);
+        if !still_here {
+            continue;
         }
+        let still_trying = store
+            .world
+            .get::<&ShipEconomy>(e)
+            .map(|econ| econ.dock_attempt_start_tick.is_some())
+            .unwrap_or(false);
+        if !still_trying {
+            continue;
+        }
+        keep.push(e);
     }
     if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
         if storage.dock_queue.len() != keep.len() {

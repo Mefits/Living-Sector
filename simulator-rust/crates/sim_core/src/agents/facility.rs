@@ -1049,14 +1049,22 @@ fn tick_degrade_condition(world: &mut hecs::World, tick_scale: f32) {
 /// on its own interval and multiplies into recipe output + mining
 /// yield.
 /// Dock-queue sweep — runs on a slow cadence inside `tick_facilities`.
-/// Each facility's queue is trimmed to entries whose ship is still
-/// at this facility's location. Ships that started a Travel action
-/// (location_name → None) get dropped; despawned entities get dropped
-/// (the `ShipPosition` query fails). Head-of-line starvation is what
-/// this prevents: without this sweep, a single departed ship wedges
-/// everyone behind it.
+/// Each facility's queue is trimmed to entries whose ship is (a) still
+/// at this facility's location AND (b) actively attempting a dock
+/// right now (`dock_attempt_start_tick.is_some()`).
+///
+/// The second check catches phantom queue entries: when
+/// `ShipAction::Dock` times out it returns Failure + clears
+/// `dock_attempt_start_tick` but doesn't pop itself from any queue.
+/// If the ship's BT unwinds into a new goal at the same location
+/// (rest, sell cargo, retry a different contract from here) the
+/// location-match alone keeps the phantom in the queue, blocking
+/// every ship behind it indefinitely. Diagnostic on 2026-04-24 saw
+/// luna-base with 0 docked and 2 queued against capacity 25 — pure
+/// phantoms. Real ships can't get in because the queue head isn't
+/// actually trying to dock anymore.
 fn tick_dock_queue_sweep(world: &mut hecs::World) {
-    use crate::agents::ship::ShipPosition;
+    use crate::agents::ship::{ShipEconomy, ShipPosition};
     // Collect facility (entity, location_string) up front so we can
     // check ship positions without double-borrowing the world.
     let facilities: Vec<(hecs::Entity, String)> = world
@@ -1076,9 +1084,17 @@ fn tick_dock_queue_sweep(world: &mut hecs::World) {
                 .get::<&ShipPosition>(e)
                 .map(|p| p.location_name.as_deref() == Some(loc_name.as_str()))
                 .unwrap_or(false);
-            if still_here {
-                keep.push(e);
+            if !still_here {
+                continue;
             }
+            let still_trying = world
+                .get::<&ShipEconomy>(e)
+                .map(|econ| econ.dock_attempt_start_tick.is_some())
+                .unwrap_or(false);
+            if !still_trying {
+                continue;
+            }
+            keep.push(e);
         }
         if let Ok(mut storage) = world.get::<&mut FacilityStorage>(entity) {
             if storage.dock_queue.len() != keep.len() {
