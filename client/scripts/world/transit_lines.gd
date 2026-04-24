@@ -3,6 +3,15 @@ extends Node3D
 ## Draws dotted transit lines. All lines are very faint;
 ## the selected ship's line is drawn brighter on top.
 
+# --- Perf-bisection toggle (2026-04-24) ------------------------------------
+# The `_rebuild_lines` pass walks every ship every positions broadcast
+# (~125 ms). At ~1500 ships that's a big ImmediateMesh rebuild per frame
+# on the main thread, regardless of how many are actually in transit.
+# Flip to false + reload to see how much of the remaining FPS deficit
+# this accounts for. If it matters, the follow-up is to cache the line
+# mesh and only rebuild when a ship's transit state changes.
+const ENABLE_TRANSIT_LINES: bool = false
+
 const LINE_COLOR_BASE := Color(0.5, 0.6, 0.9)
 const SELECTED_COLOR := Color(0.7, 0.8, 1.0)
 const DASH_LENGTH := 0.8
@@ -59,6 +68,12 @@ func _make_line_material(color: Color) -> StandardMaterial3D:
 
 
 func _on_positions_updated(_positions: Array) -> void:
+	if not ENABLE_TRANSIT_LINES:
+		# Perf bisect: skip the whole rebuild + location scan.
+		# The MeshInstance3Ds stay empty (no surfaces) so nothing draws.
+		_all_mesh.clear_surfaces()
+		_sel_mesh.clear_surfaces()
+		return
 	_rebuild_location_cache()
 	var alpha: float = TIER_ALPHA.get(GameState.zoom_tier, 0.03)
 	_all_mat.albedo_color = Color(LINE_COLOR_BASE, alpha)

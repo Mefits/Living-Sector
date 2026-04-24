@@ -3,6 +3,15 @@ extends Node3D
 ## Renders a ship with a 3D model based on ship class.
 ## Uses GPS-style displacement window for stable heading and speed.
 
+# --- Perf-bisection toggles (2026-04-24) -----------------------------------
+# Flip to false, reload the Godot project (Ctrl+Shift+T), then stress-test
+# at ~1500 ships with the usual script. Compare FPS against the baseline
+# with both enabled to isolate which per-ship decoration is the hot one.
+# Once the culprit is known we'll either keep it off by default or gate it
+# behind a "low ship density in frame" check.
+const ENABLE_SHIP_PARTICLES: bool = false
+const ENABLE_SHIP_TRAILS: bool = false
+
 var ship_id: String
 var ship_class: String
 
@@ -138,17 +147,25 @@ func setup(data: Dictionary) -> void:
 	GameState.zoom_changed.connect(_on_zoom_changed)
 	_on_zoom_changed(GameState.zoom_tier, GameState.zoom_raw)
 
-	_setup_trail()
-	_setup_warp()
+	# --- Perf-bisection toggles (2026-04-24) -----------------------------
+	# The Godot stress test at ~1500 ships showed large FPS hits that
+	# the panel / archetype / cull work only partly recovered. Bisect
+	# the remaining cost by flipping these to false and reloading.
+	# When we identify the heavy one(s) we either fix per-ship or gate
+	# the feature globally on a "lots of ships in frame" signal.
+	if ENABLE_SHIP_TRAILS:
+		_setup_trail()
+		_setup_warp()
 	# Thruster particles scale with the ship's size tier so a tiny
 	# courier doesn't emit exhaust the size of the ship itself and a
 	# massive hauler gets visibly bigger burn plumes. We take the same
 	# multiplier ProceduralShip uses for geometry so particles stay
 	# proportional to what you see.
-	var size_mult: float = float(
-		ProceduralShip.SIZE_SCALES.get(proc_size, 1.0)
-	)
-	_setup_particles(size_mult)
+	if ENABLE_SHIP_PARTICLES:
+		var size_mult: float = float(
+			ProceduralShip.SIZE_SCALES.get(proc_size, 1.0)
+		)
+		_setup_particles(size_mult)
 
 	# If the server tells us the ship is already docked at spawn time,
 	# snap the model to its hidden state so we don't briefly flash a
@@ -364,7 +381,8 @@ func update_position(x: float, y: float) -> void:
 	# over ~1.5s) so the player sees that a jump happened instead of the
 	# ship silently reappearing somewhere else.
 	if _prev_pos.distance_to(_next_pos) > TELEPORT_JUMP_THRESHOLD:
-		_begin_warp(_prev_pos, _next_pos)
+		if ENABLE_SHIP_TRAILS:
+			_begin_warp(_prev_pos, _next_pos)
 		_pos_history.clear()
 		_trail_history.clear()
 		_prev_pos = _next_pos  # skip the lerp through the void
@@ -380,7 +398,8 @@ func update_position(x: float, y: float) -> void:
 
 	# Compute heading and speed from displacement window
 	_update_heading_from_history()
-	_update_trail()
+	if ENABLE_SHIP_TRAILS:
+		_update_trail()
 
 
 func _update_heading_from_history() -> void:
@@ -417,7 +436,7 @@ func _process(delta: float) -> void:
 		position = _prev_pos.lerp(_next_pos, t)
 
 	# Warp streak fade — advances on wall-clock, independent of sim speed.
-	if _warp_active:
+	if ENABLE_SHIP_TRAILS and _warp_active:
 		_update_warp(delta)
 
 	# Smooth rotation toward window-derived heading
@@ -431,15 +450,16 @@ func _process(delta: float) -> void:
 	# includes ships loitering at a location without a dock slot.
 	var ship_data: Dictionary = GameState.ships.get(ship_id, {})
 	var is_docked: bool = bool(ship_data.get("docked", false))
-	if _is_moving and _speed > 0.05 and not is_docked:
-		_particles.emitting = true
-		var burn_t := clampf(_speed / SPEED_FOR_MAX_BURN, 0.0, 1.0)
-		_particles.lifetime = lerpf(
-			PARTICLE_BASE_LIFETIME, PARTICLE_MAX_LIFETIME, burn_t
-		)
-		_particles.amount = int(lerpf(8, 24, burn_t))
-	else:
-		_particles.emitting = false
+	if ENABLE_SHIP_PARTICLES:
+		if _is_moving and _speed > 0.05 and not is_docked:
+			_particles.emitting = true
+			var burn_t := clampf(_speed / SPEED_FOR_MAX_BURN, 0.0, 1.0)
+			_particles.lifetime = lerpf(
+				PARTICLE_BASE_LIFETIME, PARTICLE_MAX_LIFETIME, burn_t
+			)
+			_particles.amount = int(lerpf(8, 24, burn_t))
+		else:
+			_particles.emitting = false
 
 	# Dock fade — only fire on the transition edge, not every frame.
 	if is_docked and _dock_visible:
