@@ -81,14 +81,29 @@ pub fn for_facility_type(facility_type: &str) -> impl Iterator<Item = &'static R
     RECIPES.iter().filter(move |r| r.facility_type == facility_type)
 }
 
+/// Bundle (H): profitability gate threshold. Recipes whose outputs
+/// (at current local prices) are worth less than this fraction of
+/// their inputs are skipped. 0.5 = "skip when we'd lose half or
+/// more"; leaves generous headroom for normal price fluctuation so
+/// facilities don't idle on transient dips.
+pub const MIN_RECIPE_MARGIN_RATIO: f32 = 0.5;
+
 /// Execute a recipe against available supply. Returns produced outputs
 /// and mutates supply in place. Scales down if inputs are insufficient.
 /// `max_batches` caps how many cycles run per tick.
+///
+/// Bundle (H): when `prices` is `Some`, the recipe is skipped if
+/// its output value falls below `MIN_RECIPE_MARGIN_RATIO` of its
+/// input value at those prices. Makes facilities respond to local
+/// economics — refineries idle when ore is cheap elsewhere, farms
+/// slow when food over-supplies. Pass `None` to disable the gate
+/// (used by unit tests that construct synthetic scenarios).
 pub fn execute(
     recipe: &Recipe,
     supply: &mut HashMap<Commodity, f32>,
     efficiency: f32,
     max_batches: u32,
+    prices: Option<&HashMap<Commodity, f32>>,
 ) -> HashMap<Commodity, f32> {
     // Find limiting factor
     let scale = recipe
@@ -119,6 +134,28 @@ pub fn execute(
         .all(|(_, amount)| (*amount as f32 * effective_scale).round() > 0.0);
     if !outputs_viable {
         return HashMap::new();
+    }
+
+    // Bundle (H): profitability gate. When prices are supplied,
+    // compare the expected input value to the expected output
+    // value at current market rates. Skip recipes that would be a
+    // severe loss (ratio below MIN_RECIPE_MARGIN_RATIO). Ignores
+    // commodities the price map doesn't know about, so synthetic
+    // tests + early-boot ticks without price data still run.
+    if let Some(p) = prices {
+        let input_value: f32 = recipe
+            .inputs
+            .iter()
+            .map(|(c, n)| p.get(c).copied().unwrap_or(0.0) * (*n as f32 * scale))
+            .sum();
+        let output_value: f32 = recipe
+            .outputs
+            .iter()
+            .map(|(c, n)| p.get(c).copied().unwrap_or(0.0) * (*n as f32 * effective_scale))
+            .sum();
+        if input_value > 0.0 && output_value < input_value * MIN_RECIPE_MARGIN_RATIO {
+            return HashMap::new();
+        }
     }
 
     // Consume inputs
@@ -156,7 +193,7 @@ mod tests {
         supply.insert(Commodity::Ore, 100.0);
         supply.insert(Commodity::Fuel, 50.0);
 
-        let produced = execute(recipe, &mut supply, 1.0, 5);
+        let produced = execute(recipe, &mut supply, 1.0, 5, None);
         assert_eq!(produced.get(&Commodity::Metals), Some(&40.0)); // 5 batches × 8 metals
         assert_eq!(supply[&Commodity::Ore], 50.0);
         assert_eq!(supply[&Commodity::Fuel], 45.0);
@@ -169,7 +206,7 @@ mod tests {
         supply.insert(Commodity::Ore, 15.0); // enough for 1.5 batches
         supply.insert(Commodity::Fuel, 100.0);
 
-        let produced = execute(recipe, &mut supply, 1.0, 10);
+        let produced = execute(recipe, &mut supply, 1.0, 10, None);
         // scale = min(15/10, 100/1) = 1.5 → produces 1.5 * 8 = 12 metals
         assert_eq!(produced.get(&Commodity::Metals), Some(&12.0));
     }
@@ -179,7 +216,46 @@ mod tests {
         let recipe = RECIPES.iter().find(|r| r.id == "smelt_metals").unwrap();
         let mut supply = HashMap::new();
 
-        let produced = execute(recipe, &mut supply, 1.0, 5);
+        let produced = execute(recipe, &mut supply, 1.0, 5, None);
         assert!(produced.is_empty());
+    }
+
+    #[test]
+    fn profitability_gate_skips_loss_recipes() {
+        // smelt_metals needs Ore×10 + Fuel×1, produces Metals×8.
+        // Price it so outputs are worth far less than inputs: Ore
+        // 100, Fuel 500, Metals 1 (absurd). Gate should skip.
+        let recipe = RECIPES.iter().find(|r| r.id == "smelt_metals").unwrap();
+        let mut supply = HashMap::new();
+        supply.insert(Commodity::Ore, 100.0);
+        supply.insert(Commodity::Fuel, 50.0);
+        let mut prices = HashMap::new();
+        prices.insert(Commodity::Ore, 100.0);
+        prices.insert(Commodity::Fuel, 500.0);
+        prices.insert(Commodity::Metals, 1.0);
+
+        let produced = execute(recipe, &mut supply, 1.0, 5, Some(&prices));
+        assert!(produced.is_empty(), "loss-making recipe should be skipped");
+        // Supply unchanged because we bailed before consuming.
+        assert_eq!(supply[&Commodity::Ore], 100.0);
+        assert_eq!(supply[&Commodity::Fuel], 50.0);
+    }
+
+    #[test]
+    fn profitability_gate_allows_profitable_recipe() {
+        // Normal base prices — smelt_metals is strongly profitable
+        // (Ore=10, Fuel=50, Metals=80 → outputs easily worth > inputs).
+        let recipe = RECIPES.iter().find(|r| r.id == "smelt_metals").unwrap();
+        let mut supply = HashMap::new();
+        supply.insert(Commodity::Ore, 100.0);
+        supply.insert(Commodity::Fuel, 50.0);
+        let mut prices = HashMap::new();
+        prices.insert(Commodity::Ore, 10.0);
+        prices.insert(Commodity::Fuel, 50.0);
+        prices.insert(Commodity::Metals, 80.0);
+
+        let produced = execute(recipe, &mut supply, 1.0, 5, Some(&prices));
+        assert!(!produced.is_empty(), "profitable recipe should run");
+        assert_eq!(produced.get(&Commodity::Metals), Some(&40.0));
     }
 }

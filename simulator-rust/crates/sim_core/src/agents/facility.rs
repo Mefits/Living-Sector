@@ -1468,12 +1468,18 @@ fn tick_recipes_and_mining(
             // of recipes that ran successfully each cycle.
             let mut recipes_run: u32 = 0;
             if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
+                // Bundle (H): snapshot prices for the profitability
+                // gate. Clone is cheap (HashMap<Commodity, f32>,
+                // ~13 entries) and lets us keep the mutable supply
+                // borrow below.
+                let prices_snap = pricing.prices.clone();
                 for recipe in recipes::for_facility_type(&fac.facility_type) {
                     let produced = recipes::execute(
                         recipe,
                         &mut pricing.supply,
                         output_mult,
                         max_batches,
+                        Some(&prices_snap),
                     );
                     if !produced.is_empty() {
                         recipes_run += 1;
