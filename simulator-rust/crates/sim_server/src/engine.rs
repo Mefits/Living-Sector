@@ -3852,7 +3852,7 @@ fn publish_positions(
                 // etc.) — default everything non-ship/non-facility to "body".
                 "body"
             };
-            PositionEntry { id, x, y, kind }
+            PositionEntry { id, x, y, kind: kind.to_string() }
         })
         .collect();
     let msg = ServerMsg::Positions { tick, interval_ms, entities };
