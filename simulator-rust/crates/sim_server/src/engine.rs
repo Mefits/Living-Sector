@@ -83,6 +83,7 @@ pub async fn run_tick_loop(
     mut control_rx: mpsc::Receiver<ControlCommand>,
     persist_tx: mpsc::Sender<DbWrite>,
     pool: sqlx::SqlitePool,
+    command_trace: std::sync::Arc<std::sync::RwLock<std::collections::VecDeque<crate::app_state::CommandTraceEntry>>>,
 ) {
     let mut timer_interval = tick_config.tick_interval_ms();
     interval_ms.store(timer_interval, Ordering::Relaxed);
@@ -268,6 +269,7 @@ pub async fn run_tick_loop(
             tick_scale,
             tick_mult,
         );
+        record_command_trace(&store, &commands, tick, &command_trace);
         apply_ship_commands(&mut store, &mut commands, &mut events);
         drain_pending_materializations(&mut store, &pool, &persist_tx, &mut events).await;
         drain_pending_decommissions(&mut store, tick, &mut events, &persist_tx).await;
@@ -290,6 +292,7 @@ pub async fn run_tick_loop(
         );
         market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
         // Market emits TransferCredits (spread revenue) — apply before clearing
+        record_command_trace(&store, &commands, tick, &command_trace);
         apply_ship_commands(&mut store, &mut commands, &mut events);
         drain_pending_materializations(&mut store, &pool, &persist_tx, &mut events).await;
         drain_pending_decommissions(&mut store, tick, &mut events, &persist_tx).await;
@@ -2921,6 +2924,47 @@ async fn drain_pending_materializations(
                 agent_id: req.source_site_id.clone(),
             })
             .await;
+    }
+}
+
+/// Record each ship-originated command in the global debug trace
+/// ring. Runs BEFORE `apply_ship_commands` on each pass so the
+/// captured entry reflects what was requested, not the already-
+/// applied outcome. Per-ship filtering happens on read — the ring is
+/// shared across all ships to keep the insertion path cheap (one
+/// write-lock per tick, not per-ship).
+fn record_command_trace(
+    store: &AgentStore,
+    commands: &CommandBuffer,
+    tick: u64,
+    trace: &std::sync::Arc<
+        std::sync::RwLock<std::collections::VecDeque<crate::app_state::CommandTraceEntry>>,
+    >,
+) {
+    use sim_core::agents::ship::ShipIdentity;
+    if commands.is_empty() {
+        return;
+    }
+    // Resolve ship Entity → string id up front, one query, then close
+    // over the map while iterating commands.
+    let mut id_by_entity: std::collections::HashMap<hecs::Entity, String> =
+        std::collections::HashMap::new();
+    for (e, id) in store.world.query::<&ShipIdentity>().iter() {
+        id_by_entity.insert(e, id.id.clone());
+    }
+    let Ok(mut buf) = trace.write() else { return };
+    for cmd in &commands.commands {
+        let Some(ship) = cmd.actor_ship() else { continue };
+        let Some(ship_id) = id_by_entity.get(&ship) else { continue };
+        if buf.len() >= crate::app_state::COMMAND_TRACE_CAPACITY {
+            buf.pop_front();
+        }
+        buf.push_back(crate::app_state::CommandTraceEntry {
+            tick,
+            ship_id: ship_id.clone(),
+            kind: cmd.kind_label(),
+            detail: cmd.trace_detail(),
+        });
     }
 }
 

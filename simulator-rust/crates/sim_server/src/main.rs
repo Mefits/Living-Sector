@@ -134,6 +134,10 @@ async fn main() -> Result<()> {
     let world_seed = db::persistence::load_or_init_world_seed(&pool).await;
     info!("world_seed = {world_seed}");
 
+    let command_trace = Arc::new(std::sync::RwLock::new(std::collections::VecDeque::with_capacity(
+        app_state::COMMAND_TRACE_CAPACITY,
+    )));
+
     let app_state = AppState {
         snapshots: snapshots.clone(),
         registry: registry.clone(),
@@ -158,6 +162,7 @@ async fn main() -> Result<()> {
         lod_d20: lod_d20.clone(),
         lod_d50: lod_d50.clone(),
         world_seed,
+        command_trace: command_trace.clone(),
     };
 
     // HTTP + WS server
@@ -233,6 +238,7 @@ async fn main() -> Result<()> {
                 control_rx,
                 persist_tx,
                 pool.clone(),
+                command_trace.clone(),
             )
             .await;
         })
@@ -430,6 +436,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/contracts", get(api::contracts))
         .route("/api/observers", get(api::observers))
         .route("/api/agent/{id}", get(api::agent_by_id))
+        .route("/api/debug/agent/{id}/trace", get(api::agent_command_trace))
         .route("/api/sim/pause", post(api::sim_pause))
         .route("/api/sim/resume", post(api::sim_resume))
         .route("/api/sim/speed", post(api::sim_speed))

@@ -234,6 +234,27 @@ func fetch_retirements(cb: Callable) -> void:
 	)
 
 
+func fetch_agent_trace(agent_id: String, limit: int, cb: Callable) -> void:
+	## GET /api/debug/agent/:id/trace?limit=N — returns recent
+	## ship-originated commands captured by the engine's trace ring,
+	## oldest-first. Callback signature: (code: int, rows: Array).
+	var path := "/api/debug/agent/" + agent_id + "/trace?limit=" + str(limit)
+	_admin_request(
+		HTTPClient.METHOD_GET, path, null,
+		func(code: int, body: String) -> void:
+			if not cb.is_valid():
+				return
+			var rows: Array = []
+			if code == 200:
+				var parsed: Variant = JSON.parse_string(body)
+				if parsed is Dictionary and (parsed as Dictionary).has("data"):
+					var data: Variant = (parsed as Dictionary)["data"]
+					if data is Array:
+						rows = data
+			cb.call(code, rows)
+	)
+
+
 func admin_market_supply_delta(
 	facility_location: String, commodity: String, delta: int, cb: Callable
 ) -> void:

@@ -381,6 +381,48 @@ pub async fn positions(State(state): State<AppState>) -> impl IntoResponse {
     }))
 }
 
+/// `GET /api/debug/agent/:id/trace` — returns the most recent
+/// ship-originated commands captured by the engine's trace ring,
+/// filtered to the requested ship id. Default limit 40; query-param
+/// `?limit=N` overrides (clamped 1..=200). Oldest-first ordering so
+/// the panel reads top-to-bottom in tick order.
+///
+/// Entries carry `{tick, kind, detail}` — the ship id is implied by
+/// the URL path. Returns `{data: []}` for unknown ids; never 404.
+pub async fn agent_command_trace(
+    Path(id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<
+        std::collections::HashMap<String, String>,
+    >,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let limit: usize = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(40)
+        .clamp(1, 200);
+    let entries: Vec<serde_json::Value> = if let Ok(buf) = state.command_trace.read() {
+        buf.iter()
+            .filter(|e| e.ship_id == id)
+            .rev()
+            .take(limit)
+            .map(|e| {
+                json!({
+                    "tick": e.tick,
+                    "kind": e.kind,
+                    "detail": e.detail,
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Json(json!({ "data": entries }))
+}
+
 pub async fn agent_by_id(
     Path(id): Path<String>,
     State(state): State<AppState>,

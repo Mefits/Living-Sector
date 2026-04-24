@@ -20,6 +20,12 @@ const BIOME_COLORS := {
 var _selected_id: String = ""
 var _selected_type: String = ""  # "ship", "facility", "body"
 
+# Cached command-trace rows for the selected ship, refreshed every
+# ~2 seconds while visible. Populated by `_refresh_command_trace`
+# which fires an HTTP fetch through NetworkManager.
+var _command_trace: Array = []
+var _trace_refresh_cooldown: int = 0
+
 @onready var title_label: Label = $VBox/TitleLabel
 @onready var type_label: Label = $VBox/TypeLabel
 @onready var info_label: RichTextLabel = $VBox/InfoLabel
@@ -35,8 +41,11 @@ func _ready() -> void:
 func select_ship(id: String) -> void:
   _selected_id = id
   _selected_type = "ship"
+  _command_trace = []
+  _trace_refresh_cooldown = 0
   visible = true
   _refresh()
+  _refresh_command_trace()
 
 
 func select_facility(id: String) -> void:
@@ -66,6 +75,52 @@ func is_selecting() -> bool:
 func _on_tick(_tick: int) -> void:
   if visible:
     _refresh()
+    # Refresh the command trace on a lazy cooldown when a ship is
+    # selected. 16-tick cadence matches the existing ship_states
+    # broadcast so the trace feels alive without hammering the HTTP
+    # endpoint on every tick.
+    if _selected_type == "ship":
+      _trace_refresh_cooldown -= 1
+      if _trace_refresh_cooldown <= 0:
+        _trace_refresh_cooldown = 16
+        _refresh_command_trace()
+
+
+func _refresh_command_trace() -> void:
+  if _selected_id == "":
+    return
+  var ship_id := _selected_id
+  NetworkManager.fetch_agent_trace(
+    ship_id, 20,
+    func(code: int, rows: Array) -> void:
+      if code == 200 and _selected_id == ship_id:
+        _command_trace = rows
+  )
+
+
+## Append a "Recent commands" section to the details panel body
+## showing the last ~N SimCommands the ship emitted, in tick order.
+## Requires `_command_trace` to be populated via the HTTP fetch; will
+## silently render nothing if the sim pre-dates the trace ring.
+func _append_command_trace(lines: Array) -> void:
+  if _command_trace.is_empty():
+    return
+  lines.append("")
+  lines.append("[b]Recent commands[/b]")
+  var now: int = GameState.tick
+  for entry in _command_trace:
+    if not (entry is Dictionary):
+      continue
+    var tick: int = int(entry.get("tick", 0))
+    var age := now - tick
+    var kind := str(entry.get("kind", "?"))
+    var detail := str(entry.get("detail", ""))
+    var line := "  -%dt [color=%s]%s[/color]" % [
+      age, ThemePalette.PRIMARY.to_html(), kind
+    ]
+    if detail != "":
+      line += " · " + detail
+    lines.append(line)
 
 
 ## Append a "Recent activity" section to the details panel body showing
@@ -351,6 +406,7 @@ func _refresh_ship() -> void:
       lines.append("  Power: %d / %d%s" % [p_use, p_cap, power_tag])
 
   _append_activity_trail(lines)
+  _append_command_trace(lines)
   info_label.text = "\n".join(lines)
 
 

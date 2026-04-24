@@ -170,6 +170,128 @@ pub enum SimCommand {
     },
 }
 
+impl SimCommand {
+    /// If this command is initiated by a specific ship, return its
+    /// entity. Used by the debug command trace to index commands per
+    /// ship — the `GET /api/debug/agent/:id/trace` endpoint filters
+    /// on this. Returns `None` for contract-board / supply-direct /
+    /// admin commands that don't have a clear ship actor.
+    pub fn actor_ship(&self) -> Option<Entity> {
+        match self {
+            SimCommand::PlaceBuyOrder { ship, .. }
+            | SimCommand::PlaceSellOrder { ship, .. }
+            | SimCommand::DockShip { ship, .. }
+            | SimCommand::UndockShip { ship }
+            | SimCommand::BeginTransit { ship, .. }
+            | SimCommand::ArriveAtLocation { ship, .. }
+            | SimCommand::RequestDock { ship, .. }
+            | SimCommand::ReleaseDock { ship, .. }
+            | SimCommand::FacilityRefuel { ship, .. }
+            | SimCommand::GrantCrewXp { ship, .. }
+            | SimCommand::RequestGateJump { ship, .. }
+            | SimCommand::AcceptContract { ship, .. }
+            | SimCommand::DeliverContract { ship, .. }
+            | SimCommand::AddSupplyAtShipLocation { ship, .. }
+            | SimCommand::RemoveSupplyAtShipLocation { ship, .. }
+            | SimCommand::DecommissionShip { ship, .. }
+            | SimCommand::RequestRefit { ship, .. } => Some(*ship),
+            SimCommand::ExecuteTrade { buyer, .. } => Some(*buyer),
+            SimCommand::TransferCredits { from, .. } => Some(*from),
+            // Commands without a ship actor — contract-board ops,
+            // direct market-entity supply adjustments, release (takes
+            // string id not entity), post/expire contract.
+            SimCommand::PostContract { .. }
+            | SimCommand::ExpireContract { .. }
+            | SimCommand::ReleaseContract { .. }
+            | SimCommand::AddSupply { .. }
+            | SimCommand::RemoveSupply { .. } => None,
+        }
+    }
+
+    /// Stable short label for the variant — used as the "kind" field
+    /// in the debug command trace. Keep this in sync when new variants
+    /// land; the catch-all default would render new commands as
+    /// `"unknown"` which breaks downstream filtering.
+    pub fn kind_label(&self) -> &'static str {
+        match self {
+            SimCommand::PlaceBuyOrder { .. } => "place_buy_order",
+            SimCommand::PlaceSellOrder { .. } => "place_sell_order",
+            SimCommand::ExecuteTrade { .. } => "execute_trade",
+            SimCommand::DockShip { .. } => "dock_ship",
+            SimCommand::UndockShip { .. } => "undock_ship",
+            SimCommand::BeginTransit { .. } => "begin_transit",
+            SimCommand::ArriveAtLocation { .. } => "arrive_at_location",
+            SimCommand::RequestDock { .. } => "request_dock",
+            SimCommand::ReleaseDock { .. } => "release_dock",
+            SimCommand::FacilityRefuel { .. } => "facility_refuel",
+            SimCommand::GrantCrewXp { .. } => "grant_crew_xp",
+            SimCommand::RequestGateJump { .. } => "request_gate_jump",
+            SimCommand::PostContract { .. } => "post_contract",
+            SimCommand::AcceptContract { .. } => "accept_contract",
+            SimCommand::DeliverContract { .. } => "deliver_contract",
+            SimCommand::ExpireContract { .. } => "expire_contract",
+            SimCommand::ReleaseContract { .. } => "release_contract",
+            SimCommand::TransferCredits { .. } => "transfer_credits",
+            SimCommand::AddSupplyAtShipLocation { .. } => "add_supply_at_ship_loc",
+            SimCommand::RemoveSupplyAtShipLocation { .. } => "remove_supply_at_ship_loc",
+            SimCommand::AddSupply { .. } => "add_supply",
+            SimCommand::RemoveSupply { .. } => "remove_supply",
+            SimCommand::DecommissionShip { .. } => "decommission_ship",
+            SimCommand::RequestRefit { .. } => "request_refit",
+        }
+    }
+
+    /// One-line human-readable detail string — what specific target,
+    /// amount, or commodity. Used in the trace panel so the entry
+    /// isn't just "place_buy_order" with no context.
+    pub fn trace_detail(&self) -> String {
+        use crate::economy::commodities::Commodity;
+        fn c(c: &Commodity) -> &'static str { c.as_str() }
+        match self {
+            SimCommand::PlaceBuyOrder { order, .. } => {
+                format!("{} x{} @ {:.1}", c(&order.commodity), order.quantity, order.price)
+            }
+            SimCommand::PlaceSellOrder { order, .. } => {
+                format!("{} x{} @ {:.1}", c(&order.commodity), order.quantity, order.price)
+            }
+            SimCommand::ExecuteTrade { commodity, quantity, total_cost, .. } => {
+                format!("{} x{} for {} cr", c(commodity), quantity, total_cost)
+            }
+            SimCommand::BeginTransit { from, to, .. } => format!("{from} → {to}"),
+            SimCommand::ArriveAtLocation { location, .. } => location.clone(),
+            SimCommand::RequestDock { facility_location, preferred_facility_type, .. } => {
+                match preferred_facility_type {
+                    Some(ft) => format!("{facility_location} ({ft})"),
+                    None => facility_location.clone(),
+                }
+            }
+            SimCommand::ReleaseDock { facility_location, .. } => facility_location.clone(),
+            SimCommand::FacilityRefuel { amount, payment, .. } => {
+                format!("{amount:.1} fuel for {payment} cr")
+            }
+            SimCommand::GrantCrewXp { skill, amount, .. } => format!("{skill} +{amount}"),
+            SimCommand::RequestGateJump { src_gate_location, dest_gate_location, .. } => {
+                format!("{src_gate_location} → {dest_gate_location}")
+            }
+            SimCommand::PostContract { contract_id } => contract_id.clone(),
+            SimCommand::AcceptContract { contract_id, .. } => contract_id.clone(),
+            SimCommand::DeliverContract { contract_id, .. } => contract_id.clone(),
+            SimCommand::ExpireContract { contract_id } => contract_id.clone(),
+            SimCommand::ReleaseContract { contract_id, .. } => contract_id.clone(),
+            SimCommand::TransferCredits { amount, .. } => format!("{amount} cr"),
+            SimCommand::AddSupplyAtShipLocation { commodity, quantity, .. }
+            | SimCommand::RemoveSupplyAtShipLocation { commodity, quantity, .. }
+            | SimCommand::AddSupply { commodity, quantity, .. }
+            | SimCommand::RemoveSupply { commodity, quantity, .. } => {
+                format!("{} {:.1}", c(commodity), quantity)
+            }
+            SimCommand::DecommissionShip { reason, .. } => reason.to_string(),
+            SimCommand::RequestRefit { slot, slug, .. } => format!("{slot:?}={slug}"),
+            SimCommand::DockShip { .. } | SimCommand::UndockShip { .. } => String::new(),
+        }
+    }
+}
+
 /// Per-tick command buffer. Cleared at the end of each tick after all commands
 /// have been applied. Rayon-parallel phases can each push to a thread-local
 /// buffer then merge at the phase boundary.
