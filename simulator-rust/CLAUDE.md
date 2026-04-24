@@ -364,24 +364,46 @@ directly; zero marshalling between sim and render.
   its contract holdings. Paired `cleanup_stale_ships` render
   system despawns orphan Bevy entities whose sim_id isn't in
   `ship_by_id` anymore.
+- **Bundle 2b.4**: full tick chain wired into `client_bevy`.
+  `sim_server` grew a `[lib]` target whose `src/lib.rs` re-exposes
+  the engine / control / http / ws / snapshot / app_state modules
+  as `pub`, and the apply helpers (`apply_ship_commands`,
+  `apply_request_dock_typed`, `apply_release_dock`, `commit_dock`,
+  `apply_gate_jump`, `apply_facility_refuel`,
+  `apply_construction_delivery`, `apply_fitting_swap`,
+  `try_shipyard_refit`, `commit_shipyard_refit`,
+  `primary_dock_at_location*`, `dockable_candidates_ordered`,
+  `prune_stale_dock_queue`, `tick_dock_queue_advance`,
+  `tick_bodies`, `tick_relations_pass`, `scan_crisis_events`) flip
+  from `fn` to `pub fn`. The `simulator` binary loses its local
+  `mod X;` declarations and imports from `sim_server::*` — one
+  compilation unit feeds both targets.
+
+  `client_bevy` adds `sim_server` as a path dep and `tick_sim` now
+  mirrors `run_tick_loop`'s phase order: bodies → ships → apply →
+  dock-queue-advance → facilities → populations → markets → apply
+  (2nd pass for market TransferCredits) → bodies_regen →
+  scan_crisis_events → factions → relations. Economy is LIVE:
+  facility recipes run, markets price, pops consume + migrate,
+  factions tax + subsidize, treaties transition. Skipped vs. the
+  full loop: the three async drains (materializations /
+  decommissions / respawns), persistence emit, WS broadcast.
+
+  Trade-off: `client_bevy` pulls axum / tower / flume / dashmap
+  transitively. They compile but aren't exercised. Preferred over
+  the cross-cutting risk of moving ~1200 lines of apply helpers
+  into `sim_core::engine`. A clean move remains possible later.
 
 Deferred:
-- **Bundle 2b.4** — extract `sim_engine` crate: lift
-  `apply_ship_commands` (553 lines) + its helpers (~1200 lines
-  total across apply_request_dock_typed / apply_release_dock /
-  commit_dock / apply_gate_jump / apply_facility_refuel /
-  apply_construction_delivery / apply_fitting_swap /
-  try_shipyard_refit / commit_shipyard_refit /
-  primary_dock_at_location / dockable_candidates_ordered /
-  prune_stale_dock_queue / tick_dock_queue_advance) out of
-  `sim_server::engine` so the Bevy client can drive the full
-  phase chain. Until then the embedded tick moves ships visually
-  but doesn't progress the economy and new retirements/events land
-  only after a restart. Scoped as its own day of work — the move
-  itself is mechanical but cross-cuts sim_server's entire engine
-  file and re-imports must be audited.
-- Events ticker, admin Spawn / Refit, procedural ship meshes,
-  nebula backdrop, save / save-as.
+- Events ticker panel (the events Vec now fills up every tick —
+  wire it to a new Resource and the panel reads it like
+  `SnapshotCache.events` does in sim_server).
+- Async drains (PendingMaterialization / PendingDecommission /
+  PendingRespawn) — need tokio inside the fixed-update system.
+- Persistence worker for the embedded client (flush dirty agents
+  to sim.db so hours of play don't vanish on quit).
+- Admin Spawn / Refit panels, procedural ship meshes, nebula
+  backdrop, save-as.
 
 ## Systems wired
 
