@@ -8,6 +8,7 @@
 use bevy::prelude::*;
 use std::time::Duration;
 
+mod render;
 mod sim;
 
 fn main() {
@@ -37,18 +38,21 @@ fn main() {
         // per tick (8 tps). World-speed UI will rescale this later.
         .insert_resource(Time::<Fixed>::from_seconds(sim::DEFAULT_TICK_INTERVAL_S))
         .add_plugins(sim::SimPlugin)
+        .add_plugins(render::RenderPlugin)
         .add_systems(Startup, setup_scene)
         .add_systems(Update, heartbeat_system)
         .run();
 }
 
-/// Placeholder scene for Bundle 2a: one camera + one directional light,
-/// so the window isn't black while we prove the tick loop works.
-/// Bundle 2b replaces this with the real world setup.
+/// Camera pulled back over the galactic plane so the three-system
+/// world (Sol at (0,0), AC at (200,50), Tau Ceti at (400,-100) in
+/// world units) is on screen in one frame. Isometric-ish angle down.
+/// Bundle 3 replaces this with a proper orbit camera + zoom + pan.
 fn setup_scene(mut commands: Commands) {
     commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+            transform: Transform::from_xyz(200.0, 400.0, 200.0)
+                .looking_at(Vec3::new(200.0, 0.0, 0.0), Vec3::Y),
             ..default()
         },
         Name::new("MainCamera"),
@@ -61,7 +65,14 @@ fn setup_scene(mut commands: Commands) {
         transform: Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.3, 0.0)),
         ..default()
     });
-    info!("client_bevy: window up, sim embedded. See tick counter below.");
+    // Dim ambient so the directional light isn't the only thing lighting
+    // anything — placeholder materials are pretty matte and go near-black
+    // on the shadow side without ambient fill.
+    commands.insert_resource(AmbientLight {
+        color: Color::srgb(0.2, 0.25, 0.35),
+        brightness: 200.0,
+    });
+    info!("client_bevy: window up, sim embedded.");
 }
 
 /// Log a one-line heartbeat every wall-clock second while the sim is
