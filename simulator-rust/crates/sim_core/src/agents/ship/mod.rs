@@ -2162,7 +2162,11 @@ pub const REPLAN_SCORE_RATIO: f32 = 1.30;
 pub fn is_replan_eligible(goal: &str) -> bool {
     !matches!(
         goal,
-        "rest_crew" | "refuel" | "seek_retrofit" | "sell_cargo"
+        "rest_crew"
+            | "refuel"
+            | "seek_retrofit"
+            | "sell_cargo"
+            | "fulfill_delivery_with_retrofit"
     )
 }
 
@@ -2294,6 +2298,38 @@ fn plan_goal(
         location_to_system,
     ) {
         let score = score_strategic(c.profit, c.goal_name, personality);
+        // GOAP combined goal: if we have a retrofit plan AND the
+        // contract is delivery-class, try to synthesise a single
+        // BT that picks up cargo, detours through the shipyard,
+        // delivers. When the planner succeeds, register the
+        // combined candidate with a small bonus — the ship
+        // accomplishes two goals in one trip. Fall through to the
+        // plain contract + separate seek_retrofit candidates when
+        // the planner bails, so nothing is worse than before.
+        if let (Some(rp), Some(dp)) = (retrofit, c.delivery_params.as_ref()) {
+            if let Some(combo_bt) = try_build_fulfill_delivery_with_retrofit_planned(
+                &at_loc,
+                &dp.source,
+                &dp.destination,
+                dp.commodity,
+                dp.quantity,
+                &dp.contract_id,
+                rp,
+                registry,
+                gate_pairs,
+            ) {
+                // Bonus is small (~20%) — we want combined plans
+                // to win when roughly on par, not dominate when
+                // delivery alone is clearly better.
+                let combo_score = score * 1.20
+                    + score_strategic(rp.cost / 5, "seek_retrofit", personality);
+                candidates.push(ScoredGoal {
+                    name: "fulfill_delivery_with_retrofit",
+                    score: combo_score,
+                    bt: combo_bt,
+                });
+            }
+        }
         candidates.push(ScoredGoal {
             name: c.goal_name,
             score,
@@ -2571,6 +2607,25 @@ pub struct ContractCandidate {
     pub goal_name: &'static str,
     pub profit: i64,
     pub bt: BtNode<ShipAction>,
+    /// Raw delivery params when the contract is a delivery-class
+    /// kind (Delivery / Subsidy / Construction). Used by `plan_goal`
+    /// to re-synthesise a combined delivery+retrofit BT when both
+    /// opportunities align. `None` for Passenger / Courier /
+    /// CrewMission / other non-delivery variants.
+    pub delivery_params: Option<DeliveryParams>,
+}
+
+/// Raw delivery parameters for combined-goal BT synthesis. Mirrors
+/// the args `build_fulfill_delivery_bt` takes so a caller can build
+/// an alternate BT (retrofit-on-route, e.g.) without threading the
+/// entire contract board through.
+#[derive(Debug, Clone)]
+pub struct DeliveryParams {
+    pub source: String,
+    pub destination: String,
+    pub commodity: Commodity,
+    pub quantity: u32,
+    pub contract_id: String,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2740,6 +2795,23 @@ fn try_plan_contract(
     let cand = best?;
     let profit = cand.payment - cand.cost;
 
+    // Snapshot delivery params before `cand.id` gets moved into the
+    // BT builder below — we need them for the `delivery_params`
+    // field on `ContractCandidate` so downstream callers can
+    // re-synthesise a combined delivery+retrofit BT.
+    let delivery_params = match cand.kind {
+        ContractType::Delivery | ContractType::Subsidy | ContractType::Construction => {
+            Some(DeliveryParams {
+                source: cand.source.clone(),
+                destination: cand.destination.clone(),
+                commodity: cand.commodity,
+                quantity: cand.qty,
+                contract_id: cand.id.clone(),
+            })
+        }
+        _ => None,
+    };
+
     // Kind-specific goal name — matches the personality archetype
     // `prefer_goals` keys (e.g. `courier` archetype weights
     // `fulfill_passenger_transport`, `reliable_trucker` weights
@@ -2821,6 +2893,7 @@ fn try_plan_contract(
         goal_name,
         profit,
         bt,
+        delivery_params,
     })
 }
 
@@ -3140,6 +3213,65 @@ fn build_trade_run_bt(
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> BtNode<ShipAction> {
+    // GOAP expansion: try the synthesised trade-run plan first,
+    // fall back to hand-authored on failure (same safety net as
+    // delivery). Once confidence is high we can retire the
+    // fallback.
+    if let Some(bt) = try_build_trade_run_bt_planned(
+        current,
+        buy_loc,
+        sell_loc,
+        commodity,
+        registry,
+        gate_pairs,
+    ) {
+        return bt;
+    }
+    build_trade_run_bt_handauthored(current, buy_loc, sell_loc, commodity, registry, gate_pairs)
+}
+
+/// GOAP expansion: run the forward planner for a trade run. Goal =
+/// `sold && fuel_bucket >= 2`. `trade_run_catalog` swaps DeliverCargo
+/// for SellAll at the destination — no contract, just a market sell.
+fn try_build_trade_run_bt_planned(
+    current: &str,
+    buy_loc: &str,
+    sell_loc: &str,
+    commodity: Commodity,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+    let map = LocMap::trade_run(
+        current.to_string(),
+        buy_loc.to_string(),
+        sell_loc.to_string(),
+        commodity,
+        TRADE_QTY_DEFAULT,
+        cost(current, buy_loc),
+        cost(buy_loc, sell_loc),
+        cost(current, sell_loc),
+    );
+    let initial = WorldState::new(Loc::Origin, 10);
+    let synth = plan(
+        initial,
+        |s| s.sold && s.fuel_bucket >= 2,
+        Operator::trade_run_catalog(),
+        &map,
+        20,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+fn build_trade_run_bt_handauthored(
+    current: &str,
+    buy_loc: &str,
+    sell_loc: &str,
+    commodity: Commodity,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
     let mut steps = Vec::with_capacity(12);
     for a in route_actions(current, buy_loc, registry, gate_pairs) {
         steps.push(BtNode::action(a));
@@ -3159,6 +3291,28 @@ fn build_trade_run_bt(
     steps.push(BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }));
     steps.push(BtNode::action(ShipAction::Undock));
     BtNode::sequence(steps)
+}
+
+/// Shared fuel-bucket cost estimator used by planned BT builders.
+/// Walks the real leg sequence via the pathfinder and rolls the
+/// summed distance into fuel buckets (~50 units per bucket).
+fn estimate_fuel_bucket_cost(
+    from: &str,
+    to: &str,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> u8 {
+    if from == to {
+        return 0;
+    }
+    let ctx = crate::world::pathfinder::PathfinderCtx { registry, gate_pairs };
+    let legs = match ctx.find_route(from, to) {
+        Some(l) => l,
+        None => return 1,
+    };
+    let total_distance: u32 = legs.iter().map(|l| l.distance.max(1)).sum();
+    let buckets = ((total_distance as f32) / 50.0).ceil().max(1.0) as u32;
+    buckets.min(10) as u8
 }
 
 /// Build a fulfill_delivery BT:
@@ -3227,42 +3381,19 @@ fn try_build_fulfill_delivery_bt_planned(
     gate_pairs: &StdHashMap<String, String>,
 ) -> Option<BtNode<ShipAction>> {
     use crate::ai::planner::{plan, LocMap, Loc, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
 
-    // Travel-cost estimation — how many fuel buckets each leg
-    // consumes. Uses the pathfinder to walk the actual leg sequence
-    // (honouring gate jumps) and sums tick-cost per leg, then
-    // converts to buckets at ~50 ticks/bucket. Coarse, but keeps
-    // the planner's numeric inputs coherent with the real world.
-    // When the pathfinder fails we assume 1 bucket (keeps the
-    // planner optimistic rather than refusing every contract).
-    let cost = |from: &str, to: &str| -> u8 {
-        if from == to {
-            return 0;
-        }
-        let ctx = crate::world::pathfinder::PathfinderCtx { registry, gate_pairs };
-        let legs = match ctx.find_route(from, to) {
-            Some(l) => l,
-            None => return 1,
-        };
-        // Leg `distance` is in universe units (u32); rough
-        // conversion of ~50 units per fuel bucket keeps the
-        // planner's numbers coherent with travel/fuel tick rates.
-        let total_distance: u32 = legs.iter().map(|l| l.distance.max(1)).sum();
-        let buckets = ((total_distance as f32) / 50.0).ceil().max(1.0) as u32;
-        buckets.min(10) as u8
-    };
-
-    let map = LocMap {
-        origin: current.to_string(),
-        source: source.to_string(),
-        dest: destination.to_string(),
+    let map = LocMap::delivery(
+        current.to_string(),
+        source.to_string(),
+        destination.to_string(),
         commodity,
         quantity,
-        contract_id: contract_id.to_string(),
-        cost_origin_to_source: cost(current, source),
-        cost_source_to_dest: cost(source, destination),
-        cost_origin_to_dest: cost(current, destination),
-    };
+        contract_id.to_string(),
+        cost(current, source),
+        cost(source, destination),
+        cost(current, destination),
+    );
 
     // Start state: full fuel assumption for the planner so it
     // produces the canonical plan shape. Actual fuel at plan time
@@ -3283,10 +3414,11 @@ fn try_build_fulfill_delivery_bt_planned(
 
 /// Expand a planner-emitted action sequence into a real BT. Abstract
 /// `Travel { destination }` steps get resolved to the actual multi-
-/// leg pathfinder output (gate jumps etc.), and `Dock` / `Undock`
-/// steps are wrapped with `DockDwell` so the visual pacing matches
-/// the hand-authored builders. `AcceptContract` is prepended so the
-/// contract board transitions to `Accepted` as the BT starts.
+/// leg pathfinder output (gate jumps etc.); `Dock` / `DockAtShipyard` /
+/// `Undock` steps are wrapped with `DockDwell` so the visual pacing
+/// matches the hand-authored builders. `AcceptContract` is prepended
+/// only when the map carries a contract_id — trade-run plans skip
+/// it entirely.
 fn compile_plan_to_bt(
     plan_actions: &[ShipAction],
     map: &crate::ai::planner::LocMap,
@@ -3294,9 +3426,11 @@ fn compile_plan_to_bt(
     gate_pairs: &StdHashMap<String, String>,
 ) -> BtNode<ShipAction> {
     let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(plan_actions.len() * 2 + 2);
-    steps.push(BtNode::action(ShipAction::AcceptContract {
-        contract_id: map.contract_id.clone(),
-    }));
+    if !map.contract_id.is_empty() {
+        steps.push(BtNode::action(ShipAction::AcceptContract {
+            contract_id: map.contract_id.clone(),
+        }));
+    }
     let mut current_loc = map.origin.clone();
     for a in plan_actions {
         match a {
@@ -3306,8 +3440,8 @@ fn compile_plan_to_bt(
                 }
                 current_loc = destination.clone();
             }
-            ShipAction::Dock => {
-                steps.push(BtNode::action(ShipAction::Dock));
+            ShipAction::Dock | ShipAction::DockAtShipyard => {
+                steps.push(BtNode::action(a.clone()));
                 steps.push(BtNode::action(ShipAction::DockDwell {
                     seconds: DOCK_ARRIVE_DWELL_SECS,
                 }));
@@ -3322,6 +3456,57 @@ fn compile_plan_to_bt(
         }
     }
     BtNode::sequence(steps)
+}
+
+/// GOAP expansion: synthesise a combined delivery+retrofit plan.
+/// Returns `None` when the planner can't fold both goals within its
+/// depth cap — caller falls back to the plain delivery builder,
+/// meaning the retrofit runs as a separate plan later. This is the
+/// first plan the hand-authored BTs literally cannot produce: a
+/// single BT that picks up contract cargo, detours through a
+/// shipyard for a refit, then delivers.
+#[allow(clippy::too_many_arguments)]
+fn try_build_fulfill_delivery_with_retrofit_planned(
+    current: &str,
+    source: &str,
+    destination: &str,
+    commodity: Commodity,
+    quantity: u32,
+    contract_id: &str,
+    retrofit: &RetrofitPlan,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+
+    let mut map = LocMap::delivery(
+        current.to_string(),
+        source.to_string(),
+        destination.to_string(),
+        commodity,
+        quantity,
+        contract_id.to_string(),
+        cost(current, source),
+        cost(source, destination),
+        cost(current, destination),
+    );
+    map.shipyard = Some(retrofit.shipyard_location.clone());
+    map.refit_slot = Some(retrofit.slot);
+    map.refit_slug = Some(retrofit.slug);
+    map.cost_origin_to_shipyard = cost(current, &retrofit.shipyard_location);
+    map.cost_source_to_shipyard = cost(source, &retrofit.shipyard_location);
+    map.cost_shipyard_to_dest = cost(&retrofit.shipyard_location, destination);
+
+    let initial = WorldState::new(Loc::Origin, 10);
+    let synth = plan(
+        initial,
+        |s| s.delivered && s.retrofitted && s.fuel_bucket >= 2,
+        Operator::delivery_catalog(),
+        &map,
+        28,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
 }
 
 /// Original hand-authored delivery BT. Preserved as the fallback
@@ -3734,6 +3919,9 @@ mod tick_tests {
         assert!(!is_replan_eligible("refuel"));
         assert!(!is_replan_eligible("seek_retrofit"));
         assert!(!is_replan_eligible("sell_cargo"));
+        // Combined delivery+retrofit is also committed — interrupting
+        // mid-detour loses both the delivery and the retrofit.
+        assert!(!is_replan_eligible("fulfill_delivery_with_retrofit"));
         // Strategic + idle are fair game.
         assert!(is_replan_eligible("fulfill_delivery"));
         assert!(is_replan_eligible("fulfill_contract"));
