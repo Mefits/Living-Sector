@@ -48,6 +48,7 @@ impl Plugin for UiPlugin {
                     minimap_panel,
                     body_labels_panel,
                     events_panel,
+                    keyboard_shortcuts,
                 )
                     .chain(),
             )
@@ -3100,5 +3101,39 @@ fn event_summary(v: &serde_json::Value) -> String {
         return v.to_string();
     }
     pieces.join(" · ")
+}
+
+// =============================================================================
+// Keyboard shortcuts
+// =============================================================================
+//
+// Global shortcuts that wire into the UI state:
+//   * Spacebar       → toggle Sim.running (pause/resume)
+//   * Escape         → clear Selected{Ship,Facility}
+//
+// Skips when egui owns the keyboard (a filter text box is focused,
+// etc.) so typing in a panel doesn't accidentally pause the sim.
+
+fn keyboard_shortcuts(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut sim: ResMut<Sim>,
+    mut selected_ship: ResMut<SelectedShip>,
+    mut selected_fac: ResMut<SelectedFacility>,
+    mut egui_ctx: EguiContexts,
+) {
+    // When egui is capturing keyboard input (an editable text
+    // widget has focus), don't fire shortcuts — typing "pause" in a
+    // filter box would otherwise trigger pause on the 'p' the user
+    // just wanted to search for.
+    if egui_ctx.ctx_mut().wants_keyboard_input() {
+        return;
+    }
+    if keys.just_pressed(KeyCode::Space) {
+        sim.running = !sim.running;
+    }
+    if keys.just_pressed(KeyCode::Escape) {
+        selected_ship.0 = None;
+        selected_fac.0 = None;
+    }
 }
 
