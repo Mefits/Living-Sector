@@ -358,16 +358,30 @@ directly; zero marshalling between sim and render.
   its name above the sphere. Toggle via "Labels" in top bar.
   Default ON for orientation; off-screen + behind-camera bodies
   skipped automatically.
+- **Bundle 3x**: admin Delete Ship button + render cleanup.
+  Despawns the ship, yanks it from docked_ships + dock_queue on
+  every facility (mirrors sim_server admin cascade), and drops
+  its contract holdings. Paired `cleanup_stale_ships` render
+  system despawns orphan Bevy entities whose sim_id isn't in
+  `ship_by_id` anymore.
 
 Deferred:
 - **Bundle 2b.4** — extract `sim_engine` crate: lift
-  `apply_ship_commands` (553 lines) + its helpers (~1500 lines) out
-  of `sim_server::engine` so the Bevy client can drive the full
+  `apply_ship_commands` (553 lines) + its helpers (~1200 lines
+  total across apply_request_dock_typed / apply_release_dock /
+  commit_dock / apply_gate_jump / apply_facility_refuel /
+  apply_construction_delivery / apply_fitting_swap /
+  try_shipyard_refit / commit_shipyard_refit /
+  primary_dock_at_location / dockable_candidates_ordered /
+  prune_stale_dock_queue / tick_dock_queue_advance) out of
+  `sim_server::engine` so the Bevy client can drive the full
   phase chain. Until then the embedded tick moves ships visually
   but doesn't progress the economy and new retirements/events land
-  only after a restart.
-- Events ticker, more admin actions (spawn / delete / refit),
-  procedural ship meshes, nebula backdrop, save / save-as.
+  only after a restart. Scoped as its own day of work — the move
+  itself is mechanical but cross-cuts sim_server's entire engine
+  file and re-imports must be audited.
+- Events ticker, admin Spawn / Refit, procedural ship meshes,
+  nebula backdrop, save / save-as.
 
 ## Systems wired
 
