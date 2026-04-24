@@ -1,40 +1,45 @@
-//! Bevy client for the spaceproject simulator.
+//! Bevy client for the spaceproject simulator, embedded flavour.
 //!
-//! Bundle 1.2 scope: empty window, WS client connects to localhost:8080,
-//! prints every received ServerMsg variant to the console. No rendering
-//! yet, no UI, no camera.
+//! Bundle 2a scope: wire the sim in as a Bevy Resource, run its tick
+//! loop on `FixedUpdate` at 125 ms cadence, log a one-line heartbeat
+//! every wall-clock second so we can see it's alive. No render yet —
+//! Bundle 2b spawns Bevy entities mirroring the sim state.
 
 use bevy::prelude::*;
+use std::time::Duration;
 
-mod net;
+mod sim;
 
 fn main() {
-    // tracing_subscriber so we see our own logs alongside bevy's.
-    // RUST_LOG=info is the useful default; bump to debug for the ws
-    // side while developing.
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,client_bevy=debug,tokio_tungstenite=info".into()),
+                .unwrap_or_else(|_| "info,client_bevy=info".into()),
         )
         .init();
 
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "spaceproject (bevy)".into(),
+                title: "spaceproject (bevy, embedded)".into(),
                 resolution: (1280., 720.).into(),
                 ..default()
             }),
             ..default()
         }))
-        .add_plugins(net::NetPlugin)
+        // Fixed-timestep schedule drives the sim tick independently of
+        // render frame rate. Matches the sim_server default of 125 ms
+        // per tick (8 tps). World-speed UI will rescale this later.
+        .insert_resource(Time::<Fixed>::from_seconds(sim::DEFAULT_TICK_INTERVAL_S))
+        .add_plugins(sim::SimPlugin)
         .add_systems(Startup, setup_scene)
+        .add_systems(Update, heartbeat_system)
         .run();
 }
 
-/// Placeholder: a light + a camera so the window isn't black.
-/// Bundle 2 replaces this with the real world setup.
+/// Placeholder scene for Bundle 2a: one camera + one directional light,
+/// so the window isn't black while we prove the tick loop works.
+/// Bundle 2b replaces this with the real world setup.
 fn setup_scene(mut commands: Commands) {
     commands.spawn((
         Camera3dBundle {
@@ -51,5 +56,27 @@ fn setup_scene(mut commands: Commands) {
         transform: Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.3, 0.0)),
         ..default()
     });
-    info!("client_bevy: scene placeholder up, waiting on WS");
+    info!("client_bevy: window up, sim embedded. See tick counter below.");
+}
+
+/// Log a one-line heartbeat every wall-clock second while the sim is
+/// running. Confirms the embedded tick loop spins. Goes away in 2b.
+fn heartbeat_system(
+    sim: Res<sim::Sim>,
+    time: Res<Time>,
+    mut last_emit: Local<Duration>,
+) {
+    let now = time.elapsed();
+    if now.saturating_sub(*last_emit) < Duration::from_secs(1) {
+        return;
+    }
+    *last_emit = now;
+    info!(
+        "tick={} ships={} facilities={} bodies={} factions={}",
+        sim.tick,
+        sim.store.ship_by_id.len(),
+        sim.store.facility_by_id.len(),
+        sim.store.body_by_id.len(),
+        sim.store.faction_by_id.len(),
+    );
 }
