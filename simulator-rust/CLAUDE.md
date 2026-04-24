@@ -393,11 +393,16 @@ directly; zero marshalling between sim and render.
   transitively. They compile but aren't exercised. Preferred over
   the cross-cutting risk of moving ~1200 lines of apply helpers
   into `sim_core::engine`. A clean move remains possible later.
+- **Bundle 3y**: events ticker. `EventsLog` Resource (VecDeque cap
+  2000); `tick_sim` drains each tick's events Vec into the ring
+  instead of dropping it. Panel renders newest-first with a kind
+  filter and colour-coded kind cells.
+- **Bundle 3z**: keyboard shortcuts. Spacebar toggles sim.running,
+  Escape clears ship + facility selection. Both gated on
+  `egui::Context::wants_keyboard_input` so typing in a filter box
+  doesn't fire them.
 
 Deferred:
-- Events ticker panel (the events Vec now fills up every tick —
-  wire it to a new Resource and the panel reads it like
-  `SnapshotCache.events` does in sim_server).
 - Async drains (PendingMaterialization / PendingDecommission /
   PendingRespawn) — need tokio inside the fixed-update system.
 - Persistence worker for the embedded client (flush dirty agents
