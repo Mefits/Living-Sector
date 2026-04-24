@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use std::time::{Duration, Instant};
 
-use crate::camera::{CameraFocusRequest, OrbitCamera};
+use crate::camera::{CameraFocusRequest, CameraResetRequest, OrbitCamera};
 use crate::render::SCALE_FACTOR;
 use crate::sim::{EventsLog, Retirements, Sim};
 
@@ -91,6 +91,7 @@ fn top_bar(
     mut body_labels: ResMut<BodyLabelsState>,
     mut events_state: ResMut<EventsState>,
     events: Res<EventsLog>,
+    mut cam_reset: ResMut<CameraResetRequest>,
 ) {
     // Count construction sites via an ECS query — the sim store
     // doesn't index them by id (sites aren't frequently looked up
@@ -220,6 +221,18 @@ fn top_bar(
                 .clicked()
             {
                 events_state.open = !events_state.open;
+            }
+            ui.separator();
+            if ui
+                .button("Reset view")
+                .on_hover_text(
+                    "Snap the camera back to the galactic overview starting \
+                     pose. Quick recovery when pan/zoom drifts off into \
+                     empty space.",
+                )
+                .clicked()
+            {
+                cam_reset.0 = true;
             }
         });
     });

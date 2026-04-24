@@ -22,8 +22,12 @@ pub struct CameraPlugin;
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CameraFocusRequest>()
+            .init_resource::<CameraResetRequest>()
             .add_systems(Startup, spawn_orbit_camera)
-            .add_systems(Update, (orbit_camera_input, apply_focus_request));
+            .add_systems(
+                Update,
+                (orbit_camera_input, apply_focus_request, apply_reset_request),
+            );
     }
 }
 
@@ -35,6 +39,14 @@ impl Plugin for CameraPlugin {
 /// consumed on apply", which an Option models more directly.
 #[derive(Resource, Default)]
 pub struct CameraFocusRequest(pub Option<Vec3>);
+
+/// One-shot request to restore the camera to its initial pose —
+/// same focus / yaw / pitch / distance as a fresh boot. Set by the
+/// top-bar "Reset view" button; consumed by [`apply_reset_request`].
+/// Separate from `CameraFocusRequest` because a reset clobbers yaw /
+/// pitch / distance too, not just the focus point.
+#[derive(Resource, Default)]
+pub struct CameraResetRequest(pub bool);
 
 /// Orbit camera state. Attached to the Camera3d entity so the
 /// control system can read/mutate it alongside the Transform.
@@ -205,5 +217,23 @@ fn apply_focus_request(
         return;
     };
     orbit.focus = target;
+    *xf = orbit.transform();
+}
+
+/// Consume any pending [`CameraResetRequest`] by rewriting the
+/// OrbitCamera to its fresh-boot pose. Use when the user has
+/// panned / zoomed into nowhere and can't find their way back.
+fn apply_reset_request(
+    mut req: ResMut<CameraResetRequest>,
+    mut q: Query<(&mut OrbitCamera, &mut Transform)>,
+) {
+    if !req.0 {
+        return;
+    }
+    req.0 = false;
+    let Ok((mut orbit, mut xf)) = q.get_single_mut() else {
+        return;
+    };
+    *orbit = OrbitCamera::initial();
     *xf = orbit.transform();
 }
