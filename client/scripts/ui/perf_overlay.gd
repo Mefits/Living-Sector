@@ -16,6 +16,7 @@ extends PanelContainer
 @onready var interval_label: Label = $VBox/Grid/IntervalValue
 @onready var lod_label: Label = $VBox/Grid/LodValue
 @onready var net_bytes_label: Label = $VBox/Grid/NetBytesValue
+@onready var net_parse_label: Label = $VBox/Grid/NetParseValue
 @onready var net_handler_label: Label = $VBox/Grid/NetHandlerValue
 @onready var net_queue_label: Label = $VBox/Grid/NetQueueValue
 @onready var sparkline: Control = $VBox/Sparkline
@@ -107,6 +108,11 @@ func _process(_delta: float) -> void:
 		_fmt_bytes(NetworkManager.net_bytes_per_sec),
 		NetworkManager.net_packets_per_sec,
 	]
+	# Parse time is spent on WorkerThreadPool threads — so high values
+	# here are NOT blocking frames. The main-thread "handler" row below
+	# is what FPS correlates to.
+	var parse_ms: float = float(NetworkManager.net_parse_us_per_sec) / 1000.0
+	net_parse_label.text = "%.1f ms/s (off-thread)" % parse_ms
 	var handler_ms: float = float(NetworkManager.net_handler_us_per_sec) / 1000.0
 	net_handler_label.text = "%.1f ms/s" % handler_ms
 	if handler_ms > 300.0:

@@ -105,6 +105,15 @@ var _parsed_queue: Array = []        # Array[Dictionary] — {seq, type, msg}
 var _parsed_mutex: Mutex = Mutex.new()
 var _dispatch_seq: int = 0
 
+# Separate telemetry for the worker half (UTF8 decode + JSON parse) so
+# we can distinguish "parse still dominates" from "merge still
+# dominates" after Phase 1. Worker threads accumulate into
+# `_net_parse_us_this_sec` under `_net_parse_mutex`; rollover happens
+# in the main-thread window tick alongside the other counters.
+var _net_parse_us_this_sec: int = 0
+var _net_parse_mutex: Mutex = Mutex.new()
+var net_parse_us_per_sec: int = 0
+
 
 func _ready() -> void:
 	_http = HTTPRequest.new()
@@ -457,6 +466,11 @@ func _process(delta: float) -> void:
 		net_packets_per_sec = _net_packets_this_sec
 		net_handler_us_per_sec = _net_handler_us_this_sec
 		net_queue_peak = _net_queue_peak_this_sec
+		# Parse counter lives behind a mutex because workers write it.
+		_net_parse_mutex.lock()
+		net_parse_us_per_sec = _net_parse_us_this_sec
+		_net_parse_us_this_sec = 0
+		_net_parse_mutex.unlock()
 		_net_bytes_this_sec = 0
 		_net_packets_this_sec = 0
 		_net_handler_us_this_sec = 0
@@ -500,6 +514,7 @@ func _handle_ws_packet(pkt: PackedByteArray) -> void:
 ## `net_handler_us_per_sec` counter below measures the dispatch + merge
 ## cost that actually blocks frames.
 func _parse_packet_worker(pkt: PackedByteArray, seq: int) -> void:
+	var t_start: int = Time.get_ticks_usec()
 	var text := pkt.get_string_from_utf8()
 	if DEBUG_WS_TRAFFIC:
 		print("[Network] IN: %s" % text)
@@ -507,11 +522,17 @@ func _parse_packet_worker(pkt: PackedByteArray, seq: int) -> void:
 	if not (parsed is Dictionary):
 		if DEBUG_WS:
 			push_warning("[Network] non-object WS message: %s" % text)
+		_net_parse_mutex.lock()
+		_net_parse_us_this_sec += Time.get_ticks_usec() - t_start
+		_net_parse_mutex.unlock()
 		return
 	var msg_type := str(parsed.get("type", ""))
 	_parsed_mutex.lock()
 	_parsed_queue.append({"seq": seq, "type": msg_type, "msg": parsed})
 	_parsed_mutex.unlock()
+	_net_parse_mutex.lock()
+	_net_parse_us_this_sec += Time.get_ticks_usec() - t_start
+	_net_parse_mutex.unlock()
 
 
 ## Main-thread drain: pull parsed results from the worker queue and

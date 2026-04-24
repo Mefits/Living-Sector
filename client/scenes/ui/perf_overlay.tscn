@@ -85,9 +85,17 @@ text = "WS in"
 layout_mode = 2
 text = "—"
 
+[node name="NetParseKey" type="Label" parent="VBox/Grid"]
+layout_mode = 2
+text = "WS parse (worker)"
+
+[node name="NetParseValue" type="Label" parent="VBox/Grid"]
+layout_mode = 2
+text = "—"
+
 [node name="NetHandlerKey" type="Label" parent="VBox/Grid"]
 layout_mode = 2
-text = "WS handler"
+text = "WS handler (main)"
 
 [node name="NetHandlerValue" type="Label" parent="VBox/Grid"]
 layout_mode = 2
