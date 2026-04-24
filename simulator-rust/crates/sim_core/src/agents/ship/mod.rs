@@ -2042,8 +2042,25 @@ fn decide_and_act(
                 lifecycle.idle_ticks,
                 tick,
             );
+            // Obligation-aware replan bar. A ship holding an active
+            // contract treats it as a real commitment — the bar to
+            // replace it rises by a fixed obligation weight plus a
+            // personality-loyalty multiplier. Without this, the
+            // scorer treated in-flight contracts as sunk cost and
+            // dropped them for marginal improvements, which showed
+            // up as a 43% contract breach rate in the Bundle-A
+            // diagnostic. Honest replans for genuinely much-better
+            // opportunities still fire.
+            let effective_ratio = if economy.active_contract_id.is_some() {
+                REPLAN_SCORE_RATIO
+                    + CONTRACT_OBLIGATION_WEIGHT
+                    + ai.personality.loyalty.clamp(0.0, 1.0)
+                        * LOYALTY_REPLAN_MULTIPLIER
+            } else {
+                REPLAN_SCORE_RATIO
+            };
             let accept = needs_plan
-                || candidate.score >= ai.current_goal_score * REPLAN_SCORE_RATIO;
+                || candidate.score >= ai.current_goal_score * effective_ratio;
             if accept {
                 // Release any active contract we were committed to
                 // before swapping plans — otherwise the ship can end
@@ -2236,6 +2253,24 @@ pub const REPLAN_CHECK_INTERVAL_TICKS: u64 = 40;
 /// before we interrupt the current plan. 1.30 = +30% — enough to
 /// tell signal from noise in the personality-weighted score.
 pub const REPLAN_SCORE_RATIO: f32 = 1.30;
+
+/// Added to `REPLAN_SCORE_RATIO` when the ship is holding an active
+/// contract, on top of the loyalty axis below. Represents the
+/// economic weight of the breach itself — rep damage + lost future
+/// visibility — that the scorer would otherwise ignore. Empirically
+/// motivated: diagnostic showed 91% of breaches were planner-driven
+/// replans scoring marginally better than the held contract, even
+/// though the breach cost (rep penalty + standing hit) made the
+/// switch net-negative. +0.5 raises the floor to 1.80× so the
+/// alternative must be nearly 2× better to be worth abandoning.
+pub const CONTRACT_OBLIGATION_WEIGHT: f32 = 0.5;
+
+/// Multiplier on `personality.loyalty` (0..=1) added to the
+/// in-contract replan ratio. A `reliable_trucker` (loyalty=0.9)
+/// gets +0.45 on top of obligation weight — an aggressive_trader
+/// (loyalty=0.3) gets +0.15. Makes the loyalty axis load-bearing
+/// where it used to be decorative.
+pub const LOYALTY_REPLAN_MULTIPLIER: f32 = 0.5;
 
 /// Bundle 2.2: which goals may be interrupted mid-execution.
 /// Biological needs (rest_crew, refuel) stay committed — the BT
