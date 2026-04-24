@@ -278,26 +278,86 @@ func _apply_size() -> void:
   scale = Vector3(mult, mult, mult)
 
 
+# -----------------------------------------------------------------------------
+# Archetype cache (2026-04-24 Godot perf pass).
+#
+# Before this change each ship carried its own Mesh + ShaderMaterial
+# instances — every part (~15 per ship) built fresh from a unique
+# ArrayMesh with a freshly-allocated ShaderMaterial. At 1500 ships that
+# meant ~22,500 distinct material binds per frame and the render thread
+# was the stress-test bottleneck.
+#
+# The procgen is deterministic for a given (class, size, faction, seed);
+# we quantise the seed into a small number of variants so ships with
+# identical archetypes can share a single prototype subtree. New ships
+# clone the prototype via `Node.duplicate()` — which preserves resource
+# references (Mesh, Material) and only allocates new MeshInstance3D
+# nodes. Unique resources fleet-wide collapse from O(N_ships) to
+# O(N_archetypes ≈ classes × sizes × factions × ARCHETYPE_VARIANTS).
+#
+# The prototypes are kept alive by the static cache but never added to
+# the live scene, so they don't render or tick — they're resource
+# holders only.
+# -----------------------------------------------------------------------------
+
+## Number of geometric variants per (class, size, faction). Too small and
+## every ship of the same archetype looks identical; too large and the
+## cache thrashes past useful sharing. 4 gives each archetype family a
+## handful of silhouettes while still collapsing 1500+ ships down to
+## hundreds of unique mesh resources in practice.
+const ARCHETYPE_VARIANTS: int = 4
+
+static var _prototype_cache: Dictionary = {}
+
+
 func _rebuild() -> void:
-  # Wipe and redo. Ship rebuilds are cheap — a handful of primitive meshes.
+  # Drop current children synchronously. The prior code used queue_free
+  # (deferred) which would have collided with the prototype-building
+  # pass below; explicit remove+queue_free keeps `get_children()` clean
+  # while we lift the newly-built subtree out at cache-miss time.
   for c in get_children():
+    remove_child(c)
     c.queue_free()
   # When the setter fires during @export-default init, we might be
   # pre-tree. Nothing to build yet; _ready will run us again.
   if not is_inside_tree():
     return
 
+  # Normalise the seed into a variant index (handle negative hashes).
+  var variant: int = ((ship_seed % ARCHETYPE_VARIANTS) + ARCHETYPE_VARIANTS) % ARCHETYPE_VARIANTS
+  var key: String = "%d:%d:%s:%d" % [ship_class, ship_size, faction_id, variant]
+  var prototype: Node3D = _prototype_cache.get(key)
+  if prototype == null:
+    prototype = _build_prototype(variant)
+    _prototype_cache[key] = prototype
+
+  # Duplicate each cached child into our live tree. Godot's default
+  # Node.duplicate() copies the node itself but keeps Resource fields
+  # (Mesh, Material, Shader) as shared references — exactly what we
+  # want: new MeshInstance3D, shared underlying GPU state.
+  for src in prototype.get_children():
+    add_child(src.duplicate())
+
+
+func _build_prototype(variant: int) -> Node3D:
+  ## Build the per-archetype subtree once, then detach into a holder
+  ## node so the live scene can clone it cheaply on subsequent spawns.
+  ## Seed is derived purely from the archetype key so every prototype
+  ## of the same key is bit-for-bit identical regardless of which ship
+  ## triggered its creation.
   var tpl: Dictionary = CLASS_TEMPLATES[ship_class]
   var pal: Dictionary = FACTION_PALETTES.get(
     faction_id, FACTION_PALETTES["independent"]
   )
   var rng := RandomNumberGenerator.new()
-  rng.seed = ship_seed
+  rng.seed = hash("%d:%d:%s:%d" % [ship_class, ship_size, faction_id, variant])
 
-  # Sample all the per-seed values up-front so downstream builders don't
-  # have to know the template structure.
   var params := _sample_template(tpl, rng)
 
+  # The _build_* functions all add their MeshInstance3D children to
+  # `self`. Let them do so (precondition: we have zero children right
+  # now, just freed above), then re-parent the built subtree into a
+  # detached root we cache.
   _build_hull(params, pal)
   if bool(tpl.get("mining_tool", false)):
     _build_mining_cutter(params, pal, tpl)
@@ -313,6 +373,16 @@ func _rebuild() -> void:
     _build_cargo_pods(params, pal, tpl, rng)
   if bool(tpl.get("running_lights", false)):
     _build_running_lights(params, pal, tpl)
+
+  # Re-parent the built children into a detached Node3D we cache.
+  # The prototype never enters the live scene so it doesn't tick or
+  # render — it's purely a resource-holder.
+  var proto := Node3D.new()
+  var kids := get_children()
+  for k in kids:
+    remove_child(k)
+    proto.add_child(k)
+  return proto
 
 
 # ---------------------------------------------------------------------------
