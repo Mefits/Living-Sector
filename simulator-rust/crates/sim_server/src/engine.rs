@@ -1913,6 +1913,8 @@ fn admin_spawn_ship(
             personality: Personality::for_class(&payload.class),
             current_goal: "idle".to_string(),
             current_bt: None,
+            current_goal_score: 0.0,
+            last_plan_tick: 0,
         },
     ));
     store.world.insert(
@@ -3705,6 +3707,8 @@ mod tests {
                 personality: Personality::balanced_trader(),
                 current_goal: "idle".into(),
                 current_bt: None,
+                current_goal_score: 0.0,
+                last_plan_tick: 0,
             },
         ));
         store.world.insert(

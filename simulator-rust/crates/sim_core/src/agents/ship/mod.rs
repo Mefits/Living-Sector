@@ -166,6 +166,16 @@ pub struct ShipAI {
     pub personality: Personality,
     pub current_goal: String,
     pub current_bt: Option<BtNode<ShipAction>>,
+    /// Bundle 2.2: score the planner assigned to `current_goal`
+    /// when it picked the plan. Used by the mid-action replan
+    /// check: a fresh candidate's score must beat this by
+    /// `REPLAN_SCORE_RATIO` to interrupt the running BT.
+    pub current_goal_score: f32,
+    /// Bundle 2.2: tick at which the running plan was chosen.
+    /// Replan checks gate on `tick - last_plan_tick >= REPLAN_MIN_COMMIT_TICKS`
+    /// to prevent thrashing — ships commit to a plan for a minimum
+    /// dwell before reconsidering.
+    pub last_plan_tick: u64,
 }
 
 pub mod actions;
@@ -753,7 +763,6 @@ fn route_actions(
     out
 }
 
-const FUEL_CRITICAL_FRACTION: f32 = 0.25;
 const MIN_TRADE_MARGIN: f32 = 0.10; // 10% minimum margin
 const TRADE_QTY_DEFAULT: u32 = 50;
 
@@ -1608,28 +1617,6 @@ fn try_plan_trade_run(
     Some(TradeRunCandidate { profit, bt })
 }
 
-/// Personality-aware goal score (Phase 18i). Log-scales profit so a
-/// 100k-credit subsidy doesn't automatically swamp a 1500-credit
-/// courier run, then multiplies by `1.0 + prefer_goals[goal]` so
-/// archetype bonuses tilt the choice. Profits ≤ 0 yield a score of
-/// 0 — the candidate exists but isn't attractive.
-fn score_goal(
-    profit: i64,
-    goal_name: &str,
-    personality: &crate::ai::personality::Personality,
-) -> f32 {
-    if profit <= 0 {
-        return 0.0;
-    }
-    let log_profit = (profit as f32).max(1.0).ln();
-    let bonus = personality
-        .prefer_goals
-        .get(goal_name)
-        .copied()
-        .unwrap_or(0.0);
-    log_profit * (1.0 + bonus)
-}
-
 /// Phase 19h: median of every remembered price for `commodity`
 /// across the ship's `price_knowledge`. Used by `try_plan_contract`
 /// as a "reasonable guess" when the ship has never observed the
@@ -1948,8 +1935,20 @@ fn decide_and_act(
         }
 
         let needs_plan = ai.current_bt.is_none();
-        if needs_plan {
-            let (goal, bt) = plan_goal(
+        // Bundle 2.2: mid-action replan check. If the current goal is
+        // replan-eligible, we've been committed for the minimum dwell,
+        // and it's a check-interval tick, re-run the planner and
+        // switch if the new top candidate clears the
+        // REPLAN_SCORE_RATIO bar. Prevents ships from locking into
+        // stale trade runs when a juicy subsidy lands mid-flight.
+        let elapsed_since_plan = tick.saturating_sub(ai.last_plan_tick);
+        let replan_check_due = !needs_plan
+            && is_replan_eligible(&ai.current_goal)
+            && elapsed_since_plan >= REPLAN_MIN_COMMIT_TICKS
+            && tick % REPLAN_CHECK_INTERVAL_TICKS == 0;
+
+        if needs_plan || replan_check_due {
+            let candidate = plan_goal(
                 position,
                 cargo,
                 fuel,
@@ -1968,8 +1967,27 @@ fn decide_and_act(
                 lifecycle.idle_ticks,
                 tick,
             );
-            ai.current_goal = goal.into();
-            ai.current_bt = bt;
+            let accept = needs_plan
+                || candidate.score >= ai.current_goal_score * REPLAN_SCORE_RATIO;
+            if accept {
+                // Release any active contract we were committed to
+                // before swapping plans — otherwise the ship can end
+                // up with an active_contract_id that no current BT is
+                // working. ReleaseContract apply phase tolerates
+                // stale ids safely.
+                if replan_check_due {
+                    if let Some(cid) = economy.active_contract_id.take() {
+                        commands.push(SimCommand::ReleaseContract {
+                            ship_id: ship_id.clone(),
+                            contract_id: cid,
+                        });
+                    }
+                }
+                ai.current_goal = candidate.name.into();
+                ai.current_goal_score = candidate.score;
+                ai.current_bt = Some(candidate.bt);
+                ai.last_plan_tick = tick;
+            }
         }
 
         // Phase 19h: track how long the ship has been in an idle-ish
@@ -2087,17 +2105,85 @@ fn decide_and_act(
     }
 }
 
+/// Bundle 2.1: tier weights for the unified utility scorer. Each
+/// candidate goal's raw signal is multiplied by the matching tier
+/// weight, so biological needs (rest, refuel) dominate when urgency
+/// is high, housekeeping (sell_cargo, retrofit) beats strategic
+/// when present, and strategic goals (contracts, trades, explore)
+/// compete among themselves on their natural log-profit scale. The
+/// waterfall is *emergent* rather than hardcoded — a 1% fuel reading
+/// produces a score so high no trade can out-bid it, but a 40% fuel
+/// reading leaves room for contracts to win if they're profitable.
+pub const TIER_BIO_WEIGHT: f32 = 100.0;
+pub const TIER_HOUSEKEEPING_WEIGHT: f32 = 40.0;
+pub const TIER_STRATEGIC_WEIGHT: f32 = 3.0;
+pub const TIER_EXPLORE_WEIGHT: f32 = 6.0;
+pub const TIER_IDLE_FLOOR: f32 = 0.5;
+
+/// Onset threshold for the refuel urgency curve. Below this the ship
+/// increasingly prioritises refuel; above it, the refuel score goes
+/// to 0 (no candidate). Set higher than the former `FUEL_CRITICAL_FRACTION`
+/// so the scorer sees the pressure building earlier but only actually
+/// dominates when fuel is genuinely low.
+pub const FUEL_URGENCY_ONSET: f32 = 0.45;
+
+/// Produced by the per-tick planner for each goal a ship could pursue
+/// this tick. The max-scored candidate wins. `score` ≥ 0; 0 means
+/// "don't pick this candidate".
+#[derive(Debug, Clone)]
+pub struct ScoredGoal {
+    pub name: &'static str,
+    pub score: f32,
+    pub bt: BtNode<ShipAction>,
+}
+
+/// Bundle 2.2: minimum-commit dwell before a ship may re-plan mid-
+/// action. Prevents thrashing when two goals have near-equal scores
+/// and the scorer narrowly flips one way then the other.
+pub const REPLAN_MIN_COMMIT_TICKS: u64 = 40;
+
+/// Bundle 2.2: cadence for the mid-action replan check. At 8 tps
+/// this fires every ~2.5 seconds of wall-clock — often enough to
+/// catch a fresh opportunity, rare enough to keep overhead low
+/// (a replan check rebuilds candidate BTs, which isn't free).
+pub const REPLAN_CHECK_INTERVAL_TICKS: u64 = 20;
+
+/// Bundle 2.2: how much better the best alternative needs to be
+/// before we interrupt the current plan. 1.30 = +30% — enough to
+/// tell signal from noise in the personality-weighted score.
+pub const REPLAN_SCORE_RATIO: f32 = 1.30;
+
+/// Bundle 2.2: which goals may be interrupted mid-execution.
+/// Biological needs (rest_crew, refuel) stay committed — the BT
+/// self-terminates on recovery anyway, so interrupting mid-action
+/// just loses progress. Housekeeping and retrofit are long-horizon
+/// investments the ship shouldn't abandon. Strategic + idle goals
+/// are fair game.
+pub fn is_replan_eligible(goal: &str) -> bool {
+    !matches!(
+        goal,
+        "rest_crew" | "refuel" | "seek_retrofit" | "sell_cargo"
+    )
+}
+
 /// Planner: pick a goal + build its BT.
 ///
-/// Rule order:
-/// 1. Crew morale critical → rest_crew BT (shore leave)
-/// 2. Fuel critical → refuel BT
-/// 3. Cargo onboard → sell_cargo BT (unload before replanning)
-/// 4. Banked retrofit point + credits + reachable shipyard → seek_retrofit BT (Phase 18d)
-/// 5. Posted contract matching the ship's capacity and price memory → fulfill_delivery BT
-/// 6. Known profitable trade route → trade_run BT
-/// 7. Else → idle
-#[allow(clippy::too_many_arguments)]
+/// Bundle 2.1 (A): unified utility scoring. Instead of a hardcoded
+/// priority cascade, every candidate goal is scored this tick and
+/// the highest-scoring one wins. Scale is set by tier weights above
+/// so biological needs at high urgency beat anything strategic, but
+/// at modest urgency contracts can compete. Ties and edge cases
+/// resolve deterministically by candidate order.
+///
+/// The goal set is:
+/// - **rest_crew** — when morale below CREW_REST_TRIGGER
+/// - **refuel** — when fuel below FUEL_URGENCY_ONSET
+/// - **sell_cargo** — when cargo onboard
+/// - **seek_retrofit** — when caller produced a RetrofitPlan
+/// - **fulfill_delivery / contract / passenger / courier / crew_mission** —
+///   from `try_plan_contract`, log-profit scored with `prefer_goals` bonus
+/// - **trade_run** — from `try_plan_trade_run`, same scoring
+/// - **explore / idle_seek_station / idle** — from `smart_idle_fallback`
 #[allow(clippy::too_many_arguments)]
 fn plan_goal(
     position: &ShipPosition,
@@ -2117,52 +2203,85 @@ fn plan_goal(
     dock_congestion: &StdHashMap<String, (u32, u32)>,
     idle_ticks: u32,
     current_tick: u64,
-) -> (&'static str, Option<BtNode<ShipAction>>) {
+) -> ScoredGoal {
     let at_loc = match &position.location_name {
         Some(l) => l.clone(),
-        None => return ("idle", Some(BtNode::action(ShipAction::Idle))),
+        None => {
+            return ScoredGoal {
+                name: "idle",
+                score: TIER_IDLE_FLOOR,
+                bt: BtNode::action(ShipAction::Idle),
+            };
+        }
     };
 
-    // 1. Crew morale critical
+    let mut candidates: Vec<ScoredGoal> = Vec::new();
+
+    // --- Biological tier: rest + refuel ---
+    // Urgency is in [0, 1], steepest near 1.0 so a near-crisis
+    // reading blows past housekeeping scores. Personality's
+    // morale / safety axes scale how strongly a ship reacts.
     if let Some(c) = crew {
         if c.morale < CREW_REST_TRIGGER {
-            // Phase 18L: congestion-aware rest. If the ship's
-            // current location is saturated (no free dock slots
-            // across any facility there), route to the least-
-            // congested station in the same system instead of
-            // trying to dock where everyone else is piled up.
-            // Same-system only — ships don't cross gates just to
-            // rest.
+            let urgency = (1.0 - c.morale / CREW_REST_TRIGGER).clamp(0.0, 1.0);
+            let score = urgency * personality.morale.max(0.2) * TIER_BIO_WEIGHT;
+            // Phase 18L: congestion-aware rest target lookup.
             let target = pick_rest_destination(&at_loc, dock_congestion, location_to_system);
-            return ("rest_crew", Some(build_rest_crew_bt_to(&at_loc, &target, registry, gate_pairs)));
+            candidates.push(ScoredGoal {
+                name: "rest_crew",
+                score,
+                bt: build_rest_crew_bt_to(&at_loc, &target, registry, gate_pairs),
+            });
         }
     }
-
-    // 2. Fuel critical
-    if fuel.fraction() < FUEL_CRITICAL_FRACTION {
-        return ("refuel", Some(build_refuel_bt()));
+    if fuel.fraction() < FUEL_URGENCY_ONSET {
+        let urgency = (1.0 - fuel.fraction() / FUEL_URGENCY_ONSET).clamp(0.0, 1.0);
+        let score = urgency * personality.safety.max(0.2) * TIER_BIO_WEIGHT;
+        candidates.push(ScoredGoal {
+            name: "refuel",
+            score,
+            bt: build_refuel_bt(),
+        });
     }
 
-    // 3. Cargo onboard — sell
+    // --- Housekeeping tier: sell_cargo + retrofit ---
+    // Strong enough to beat strategic when present (ships unload
+    // before chasing new contracts), weak enough that a biological
+    // crisis still wins. Cargo-fraction scaling means a ship with
+    // only a trickle of cargo can still opt to chase a hot
+    // contract instead of selling early.
     if cargo.used() > 0 {
-        return ("sell_cargo", Some(build_sell_cargo_bt()));
+        let frac = cargo.used() as f32 / cargo.capacity.max(1) as f32;
+        // Scale starts at ~0.5 even for tiny cargo so a bit of
+        // cargo is still a reason to unload; asymptotes to 1.0 as
+        // the hold fills.
+        let scaled = 0.5 + frac.clamp(0.0, 1.0) * 0.5;
+        candidates.push(ScoredGoal {
+            name: "sell_cargo",
+            score: scaled * personality.profit.max(0.3) * TIER_HOUSEKEEPING_WEIGHT,
+            bt: build_sell_cargo_bt(),
+        });
     }
-
     // 4. Retrofit opportunity (Phase 18d). The caller already checked
-    // retrofit_points > 0 + credits + stock + fitting-tier when
-    // producing the plan; we just need to route there.
+    //    retrofit_points > 0 + credits + stock + fitting-tier.
     if let Some(plan) = retrofit {
-        let bt = build_retrofit_bt(&at_loc, plan, registry, gate_pairs);
-        return ("seek_retrofit", Some(bt));
+        // Retrofit is a long-horizon investment: score moderately
+        // so it only fires when nothing more urgent exists. The
+        // ship's profit axis reflects "I want to grow my business."
+        let score = 0.9 * personality.profit.max(0.3) * TIER_HOUSEKEEPING_WEIGHT;
+        candidates.push(ScoredGoal {
+            name: "seek_retrofit",
+            score,
+            bt: build_retrofit_bt(&at_loc, plan, registry, gate_pairs),
+        });
     }
 
-    // 5/6. Elective band: score contract vs trade_run candidates
-    // against the ship's personality (Phase 18i). Archetype
-    // `prefer_goals` entries (cautious_trader likes
-    // fulfill_delivery, aggressive_trader likes trade_run, etc.)
-    // tilt the pick so the fleet fans out instead of every ship
-    // running the same waterfall.
-    let contract_cand = try_plan_contract(
+    // --- Strategic tier: contracts + trade_run ---
+    // Log-scaled profit × (1 + prefer_goals bonus) × strategic
+    // weight. Archetype `prefer_goals` entries tilt the pick so
+    // the fleet fans out instead of every ship running the same
+    // waterfall.
+    if let Some(c) = try_plan_contract(
         &at_loc,
         cargo,
         economy,
@@ -2173,41 +2292,91 @@ fn plan_goal(
         gate_pairs,
         sensor_range_au,
         location_to_system,
-    );
-    let trade_cand = try_plan_trade_run(&at_loc, memory, registry, gate_pairs, current_tick);
-
-    let contract_score = contract_cand
-        .as_ref()
-        .map(|c| score_goal(c.profit, c.goal_name, personality))
-        .unwrap_or(0.0);
-    let trade_score = trade_cand
-        .as_ref()
-        .map(|c| score_goal(c.profit, "trade_run", personality))
-        .unwrap_or(0.0);
-
-    match (contract_cand, trade_cand) {
-        (Some(c), Some(t)) => {
-            if contract_score >= trade_score {
-                (c.goal_name, Some(c.bt))
-            } else {
-                ("trade_run", Some(t.bt))
-            }
-        }
-        (Some(c), None) => (c.goal_name, Some(c.bt)),
-        (None, Some(t)) => ("trade_run", Some(t.bt)),
-        (None, None) => smart_idle_fallback(
-            &at_loc,
-            position,
-            economy,
-            fuel,
-            memory,
-            registry,
-            gate_pairs,
-            location_to_system,
-            personality,
-            idle_ticks,
-        ),
+    ) {
+        let score = score_strategic(c.profit, c.goal_name, personality);
+        candidates.push(ScoredGoal {
+            name: c.goal_name,
+            score,
+            bt: c.bt,
+        });
     }
+    if let Some(t) = try_plan_trade_run(&at_loc, memory, registry, gate_pairs, current_tick) {
+        let score = score_strategic(t.profit, "trade_run", personality);
+        candidates.push(ScoredGoal {
+            name: "trade_run",
+            score,
+            bt: t.bt,
+        });
+    }
+
+    // --- Exploration / idle fallback tier ---
+    // smart_idle_fallback's ladder (explore → idle_seek_station →
+    // plain idle) is always at least a low-score baseline so
+    // something is always pickable. Exploration scores a bit
+    // higher when the ship's personality actually wants it.
+    let (idle_name, idle_bt) = smart_idle_fallback(
+        &at_loc,
+        position,
+        economy,
+        fuel,
+        memory,
+        registry,
+        gate_pairs,
+        location_to_system,
+        personality,
+        idle_ticks,
+    );
+    let idle_score = match idle_name {
+        "explore" => personality.exploration.max(0.2) * TIER_EXPLORE_WEIGHT,
+        "idle_seek_station" => 0.8 * TIER_EXPLORE_WEIGHT,
+        _ => TIER_IDLE_FLOOR,
+    };
+    if let Some(bt) = idle_bt {
+        candidates.push(ScoredGoal {
+            name: idle_name,
+            score: idle_score,
+            bt,
+        });
+    } else {
+        // Shouldn't happen (smart_idle_fallback always returns a BT)
+        // but keep a belt-and-braces fallback so we always return
+        // something pickable.
+        candidates.push(ScoredGoal {
+            name: "idle",
+            score: TIER_IDLE_FLOOR,
+            bt: BtNode::action(ShipAction::Idle),
+        });
+    }
+
+    // Pick max-score candidate. Ties resolve by earliest-pushed
+    // (biological / housekeeping / strategic / idle order above),
+    // which matches the Phase-18i waterfall's tie-breaks.
+    candidates
+        .into_iter()
+        .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+        .expect("idle fallback guarantees at least one candidate")
+}
+
+/// Bundle 2.1: shared scoring for the strategic tier (contracts,
+/// trade_run). Log-scales profit so a 100k-credit subsidy doesn't
+/// automatically swamp a 1.5k courier run, multiplies by
+/// `1.0 + prefer_goals[goal]` so archetype bonuses tilt the pick,
+/// then by the ship's profit axis and the tier weight.
+fn score_strategic(
+    profit: i64,
+    goal_name: &str,
+    personality: &crate::ai::personality::Personality,
+) -> f32 {
+    if profit <= 0 {
+        return 0.0;
+    }
+    let log_profit = (profit as f32).max(1.0).ln();
+    let bonus = personality
+        .prefer_goals
+        .get(goal_name)
+        .copied()
+        .unwrap_or(0.0);
+    log_profit * (1.0 + bonus) * personality.profit.max(0.3) * TIER_STRATEGIC_WEIGHT
 }
 
 /// Phase 19h: smart idle branch. When the contract / trade_run
@@ -3275,8 +3444,8 @@ mod tick_tests {
         let p = crate::ai::personality::Personality::cautious_trader();
         // cautious_trader likes fulfill_delivery (+0.3) and
         // fulfill_contract (+0.3), flat on trade_run.
-        let contract = score_goal(1600, "fulfill_delivery", &p);
-        let trade = score_goal(1600, "trade_run", &p);
+        let contract = score_strategic(1600, "fulfill_delivery", &p);
+        let trade = score_strategic(1600, "trade_run", &p);
         assert!(
             contract > trade,
             "cautious_trader should favor fulfill_delivery over trade_run (got {contract} vs {trade})",
@@ -3287,8 +3456,8 @@ mod tick_tests {
     fn score_goal_aggressive_trader_picks_trade_over_contract() {
         let p = crate::ai::personality::Personality::aggressive_trader();
         // aggressive_trader has prefer_goals[trade_run] = 0.3.
-        let contract = score_goal(1600, "fulfill_delivery", &p);
-        let trade = score_goal(1600, "trade_run", &p);
+        let contract = score_strategic(1600, "fulfill_delivery", &p);
+        let trade = score_strategic(1600, "trade_run", &p);
         assert!(
             trade > contract,
             "aggressive_trader should pick trade_run over equal-profit contract",
@@ -3298,16 +3467,16 @@ mod tick_tests {
     #[test]
     fn score_goal_courier_picks_passenger_over_trade() {
         let p = crate::ai::personality::Personality::courier();
-        let passenger = score_goal(1200, "fulfill_passenger_transport", &p);
-        let trade = score_goal(1200, "trade_run", &p);
+        let passenger = score_strategic(1200, "fulfill_passenger_transport", &p);
+        let trade = score_strategic(1200, "trade_run", &p);
         assert!(passenger > trade, "courier should favor passenger work");
     }
 
     #[test]
     fn score_goal_zero_when_no_profit() {
         let p = crate::ai::personality::Personality::balanced_trader();
-        assert_eq!(score_goal(0, "fulfill_delivery", &p), 0.0);
-        assert_eq!(score_goal(-500, "trade_run", &p), 0.0);
+        assert_eq!(score_strategic(0, "fulfill_delivery", &p), 0.0);
+        assert_eq!(score_strategic(-500, "trade_run", &p), 0.0);
     }
 
     #[test]
@@ -3317,13 +3486,13 @@ mod tick_tests {
         // (>0.7), contract might still lose because log-scale
         // compresses. This test documents the expected behaviour.
         let p_flat = crate::ai::personality::Personality::balanced_trader();
-        assert!(score_goal(50000, "trade_run", &p_flat) > score_goal(2000, "fulfill_delivery", &p_flat));
+        assert!(score_strategic(50000, "trade_run", &p_flat) > score_strategic(2000, "fulfill_delivery", &p_flat));
         // With a modest contract preference it still doesn't win
         // a 25× profit gap (as designed — log-scaling prevents
         // personality from completely overriding profit).
         let mut p_biased = crate::ai::personality::Personality::balanced_trader();
         p_biased.prefer_goals.insert("fulfill_delivery".into(), 0.3);
-        assert!(score_goal(50000, "trade_run", &p_biased) > score_goal(2000, "fulfill_delivery", &p_biased));
+        assert!(score_strategic(50000, "trade_run", &p_biased) > score_strategic(2000, "fulfill_delivery", &p_biased));
     }
 
     #[test]
@@ -3341,6 +3510,99 @@ mod tick_tests {
         b.insert(Commodity::Ore, PriceMemory { price: 105.0, tick: 1 });
         memory.price_knowledge.insert("b".into(), b);
         assert!(best_trade_route(&memory, 1).is_none());
+    }
+
+    // --- Bundle 2.1 unified utility scorer tests ---
+
+    #[test]
+    fn unified_scorer_biological_dominates_strategic_when_critical() {
+        // Critical fuel (5%) on a cautious trader must outscore a
+        // 50k-credit trade. This is the "ship at 1% fuel shouldn't
+        // pursue a distant contract" invariant.
+        let p = crate::ai::personality::Personality::cautious_trader();
+        let fuel_urgency = (1.0 - 0.05 / FUEL_URGENCY_ONSET).clamp(0.0, 1.0);
+        let refuel_score = fuel_urgency * p.safety.max(0.2) * TIER_BIO_WEIGHT;
+        let trade_score = score_strategic(50_000, "trade_run", &p);
+        assert!(
+            refuel_score > trade_score,
+            "refuel at 5% fuel (score {refuel_score}) must beat 50k trade (score {trade_score})",
+        );
+    }
+
+    #[test]
+    fn unified_scorer_strategic_can_win_when_fuel_is_fine() {
+        // With fuel at 60% (above FUEL_URGENCY_ONSET=0.45) there's no
+        // refuel candidate at all, so a profitable trade is free to
+        // win. Housekeeping-tier sell_cargo with empty hold also
+        // scores 0. Strategic gets the nod.
+        let p = crate::ai::personality::Personality::aggressive_trader();
+        let trade_score = score_strategic(10_000, "trade_run", &p);
+        // Arbitrary but low idle baseline — strategic should easily
+        // clear it.
+        let idle_floor = TIER_IDLE_FLOOR;
+        assert!(
+            trade_score > idle_floor,
+            "10k trade (score {trade_score}) must beat idle baseline ({idle_floor})",
+        );
+    }
+
+    #[test]
+    fn unified_scorer_housekeeping_beats_strategic_when_cargo_onboard() {
+        // A ship with 80% cargo on a balanced trader should prefer
+        // sell_cargo to starting a 5k-credit trade run. Today's
+        // waterfall has this invariant; scoring must preserve it.
+        let p = crate::ai::personality::Personality::balanced_trader();
+        let cargo_frac = 0.8_f32;
+        let sell_score =
+            (0.5 + cargo_frac * 0.5) * p.profit.max(0.3) * TIER_HOUSEKEEPING_WEIGHT;
+        let trade_score = score_strategic(5_000, "trade_run", &p);
+        assert!(
+            sell_score > trade_score,
+            "sell_cargo at 80% full (score {sell_score}) must beat 5k trade (score {trade_score})",
+        );
+    }
+
+    #[test]
+    fn replan_eligible_only_for_strategic_and_idle() {
+        // Protect committed goals from mid-action replan.
+        assert!(!is_replan_eligible("rest_crew"));
+        assert!(!is_replan_eligible("refuel"));
+        assert!(!is_replan_eligible("seek_retrofit"));
+        assert!(!is_replan_eligible("sell_cargo"));
+        // Strategic + idle are fair game.
+        assert!(is_replan_eligible("fulfill_delivery"));
+        assert!(is_replan_eligible("fulfill_contract"));
+        assert!(is_replan_eligible("fulfill_passenger_transport"));
+        assert!(is_replan_eligible("trade_run"));
+        assert!(is_replan_eligible("explore"));
+        assert!(is_replan_eligible("idle"));
+        assert!(is_replan_eligible("idle_seek_station"));
+    }
+
+    #[test]
+    fn replan_ratio_requires_meaningful_improvement() {
+        // Sanity check the threshold: a candidate must beat the
+        // running plan by REPLAN_SCORE_RATIO (1.30) to interrupt.
+        // Noise-level improvements (5-10%) don't trigger thrash.
+        let current = 10.0_f32;
+        let noise = 10.5_f32;       // +5%
+        let solid_win = 14.0_f32;   // +40%
+        assert!(noise < current * REPLAN_SCORE_RATIO);
+        assert!(solid_win >= current * REPLAN_SCORE_RATIO);
+    }
+
+    #[test]
+    fn unified_scorer_housekeeping_loses_to_critical_biological() {
+        // A ship at 5% fuel with cargo onboard should still refuel
+        // rather than chase a sale. Biological > housekeeping.
+        let p = crate::ai::personality::Personality::balanced_trader();
+        let fuel_urgency = (1.0 - 0.05 / FUEL_URGENCY_ONSET).clamp(0.0, 1.0);
+        let refuel_score = fuel_urgency * p.safety.max(0.2) * TIER_BIO_WEIGHT;
+        let sell_score = 1.0 * p.profit.max(0.3) * TIER_HOUSEKEEPING_WEIGHT;
+        assert!(
+            refuel_score > sell_score,
+            "critical refuel (score {refuel_score}) must beat full-hold sell (score {sell_score})",
+        );
     }
 
     #[test]

@@ -887,6 +887,8 @@ async fn load_ships(
                 personality,
                 current_goal,
                 current_bt: None,
+                current_goal_score: 0.0,
+                last_plan_tick: 0,
             },
             ShipMemory {
                 price_knowledge,
