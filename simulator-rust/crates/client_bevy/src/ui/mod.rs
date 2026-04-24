@@ -21,6 +21,7 @@ impl Plugin for UiPlugin {
             .init_resource::<ShipListState>()
             .init_resource::<ContractsState>()
             .init_resource::<FactionsState>()
+            .init_resource::<MarketsState>()
             .add_systems(
                 Update,
                 (
@@ -30,6 +31,7 @@ impl Plugin for UiPlugin {
                     ship_list,
                     contracts_panel,
                     factions_panel,
+                    markets_panel,
                 )
                     .chain(),
             );
@@ -46,6 +48,7 @@ fn top_bar(
     mut ships: ResMut<ShipListState>,
     mut contracts: ResMut<ContractsState>,
     mut factions: ResMut<FactionsState>,
+    mut markets: ResMut<MarketsState>,
 ) {
     egui::TopBottomPanel::top("top_bar").show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
@@ -77,6 +80,16 @@ fn top_bar(
                 .clicked()
             {
                 factions.open = !factions.open;
+            }
+            // Markets live in the ECS under MarketIdentity — counted
+            // by iterating the world in the panel itself. Top-bar
+            // label just says "Markets" without a count to keep the
+            // shared top_bar system from having to query hecs too.
+            if ui
+                .selectable_label(markets.open, "Markets")
+                .clicked()
+            {
+                markets.open = !markets.open;
             }
         });
     });
@@ -864,4 +877,268 @@ fn format_credits(n: i64) -> String {
     } else {
         format!("{}", n)
     }
+}
+
+// =============================================================================
+// Markets panel
+// =============================================================================
+//
+// One collapsing header per market location. Expanded view shows every
+// commodity's price / supply / demand / shortage-tick counter. Top-level
+// row badges the market as `crisis` (MARKET_CRISIS_SHORTAGE_TICKS hit
+// on any commodity) or `short` (any commodity with shortage_ticks > 0).
+// Filter narrows by location substring, and a toggle collapses normal
+// markets so the eye goes straight to the problem spots.
+
+#[derive(Resource, Default)]
+struct MarketsState {
+    open: bool,
+    filter: String,
+    only_shortages: bool,
+}
+
+fn markets_panel(
+    mut ctx: EguiContexts,
+    sim: Res<Sim>,
+    mut state: ResMut<MarketsState>,
+) {
+    use sim_core::agents::market::{
+        MarketHistory, MarketIdentity, MarketPricing, MARKET_CRISIS_SHORTAGE_TICKS,
+    };
+    use sim_core::economy::commodities::Commodity;
+
+    let mut open = state.open;
+    let mut filter = state.filter.clone();
+    let mut only_shortages = state.only_shortages;
+
+    if !open {
+        return;
+    }
+
+    // Collect one view-model per market. We query all three components
+    // per entity via `query_one` below to keep borrow rules simple; at
+    // ~40 markets this is trivially cheap.
+    struct MarketRow {
+        location: String,
+        prices: Vec<(Commodity, f32)>,
+        supply: Vec<(Commodity, f32)>,
+        demand: Vec<(Commodity, f32)>,
+        shortage_ticks: Vec<(Commodity, u32)>,
+        crisis: bool,
+        any_short: bool,
+    }
+
+    let mut rows: Vec<MarketRow> = Vec::new();
+    let entities: Vec<_> = sim
+        .store
+        .world
+        .query::<&MarketIdentity>()
+        .iter()
+        .map(|(e, id)| (e, id.facility_location.clone()))
+        .collect();
+    for (entity, location) in entities {
+        let pricing = sim
+            .store
+            .world
+            .query_one::<&MarketPricing>(entity)
+            .ok()
+            .and_then(|mut q| q.get().cloned());
+        let history = sim
+            .store
+            .world
+            .query_one::<&MarketHistory>(entity)
+            .ok()
+            .and_then(|mut q| q.get().cloned());
+        let (Some(pricing), Some(history)) = (pricing, history) else { continue };
+
+        let mut prices: Vec<(Commodity, f32)> =
+            pricing.prices.iter().map(|(c, v)| (*c, *v)).collect();
+        prices.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+        let mut supply: Vec<(Commodity, f32)> =
+            pricing.supply.iter().map(|(c, v)| (*c, *v)).collect();
+        supply.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+        let mut demand: Vec<(Commodity, f32)> =
+            pricing.demand.iter().map(|(c, v)| (*c, *v)).collect();
+        demand.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+        let mut shortages: Vec<(Commodity, u32)> = history
+            .shortage_ticks
+            .iter()
+            .filter(|(_, t)| **t > 0)
+            .map(|(c, t)| (*c, *t))
+            .collect();
+        shortages.sort_by(|a, b| b.1.cmp(&a.1));
+
+        let crisis = shortages
+            .iter()
+            .any(|(_, t)| *t >= MARKET_CRISIS_SHORTAGE_TICKS);
+        let any_short = !shortages.is_empty();
+
+        rows.push(MarketRow {
+            location,
+            prices,
+            supply,
+            demand,
+            shortage_ticks: shortages,
+            crisis,
+            any_short,
+        });
+    }
+    rows.sort_by(|a, b| {
+        // Crises first, then shortages, then plain — each group
+        // alphabetised. Makes the problem-spots jump to the top.
+        let tier = |r: &MarketRow| -> u8 {
+            if r.crisis { 0 } else if r.any_short { 1 } else { 2 }
+        };
+        tier(a).cmp(&tier(b)).then(a.location.cmp(&b.location))
+    });
+
+    let filter_lc = filter.to_lowercase();
+    let filtered: Vec<&MarketRow> = rows
+        .iter()
+        .filter(|r| filter_lc.is_empty() || r.location.to_lowercase().contains(&filter_lc))
+        .filter(|r| !only_shortages || r.any_short)
+        .collect();
+
+    let total = rows.len();
+    let shown = filtered.len();
+
+    egui::Window::new(format!("Markets · {shown}/{total}"))
+        .default_width(760.0)
+        .default_height(520.0)
+        .open(&mut open)
+        .show(ctx.ctx_mut(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label("filter:");
+                ui.text_edit_singleline(&mut filter);
+                ui.separator();
+                ui.checkbox(&mut only_shortages, "only shortages");
+            });
+            ui.separator();
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for row in &filtered {
+                    let badge = if row.crisis {
+                        egui::RichText::new(" CRISIS ")
+                            .background_color(egui::Color32::from_rgb(180, 60, 60))
+                            .color(egui::Color32::WHITE)
+                            .strong()
+                    } else if row.any_short {
+                        egui::RichText::new(" SHORT ")
+                            .background_color(egui::Color32::from_rgb(180, 140, 40))
+                            .color(egui::Color32::BLACK)
+                            .strong()
+                    } else {
+                        egui::RichText::new("")
+                    };
+
+                    egui::CollapsingHeader::new(
+                        egui::RichText::new(&row.location).strong(),
+                    )
+                    .id_salt(format!("market_hdr_{}", row.location))
+                    .show(ui, |ui| {
+                        if !row.shortage_ticks.is_empty() {
+                            ui.label(
+                                egui::RichText::new("Active shortages:")
+                                    .color(egui::Color32::from_rgb(230, 170, 90)),
+                            );
+                            egui::Grid::new(format!("shortage_grid_{}", row.location))
+                                .num_columns(2)
+                                .spacing([10.0, 2.0])
+                                .show(ui, |ui| {
+                                    for (c, t) in &row.shortage_ticks {
+                                        ui.label(c.as_str());
+                                        let color = if *t >= MARKET_CRISIS_SHORTAGE_TICKS {
+                                            egui::Color32::from_rgb(240, 100, 90)
+                                        } else {
+                                            egui::Color32::from_rgb(230, 200, 90)
+                                        };
+                                        ui.colored_label(color, format!("{} ticks", t));
+                                        ui.end_row();
+                                    }
+                                });
+                            ui.separator();
+                        }
+
+                        egui::Grid::new(format!("commodity_grid_{}", row.location))
+                            .striped(true)
+                            .num_columns(4)
+                            .spacing([12.0, 2.0])
+                            .show(ui, |ui| {
+                                for header in ["Commodity", "Price", "Supply", "Demand"] {
+                                    ui.label(egui::RichText::new(header).strong());
+                                }
+                                ui.end_row();
+
+                                // Union of commodities from the three maps — a
+                                // commodity may appear in demand but not supply
+                                // (or vice versa).
+                                let mut commodities: Vec<Commodity> = row
+                                    .prices
+                                    .iter()
+                                    .map(|(c, _)| *c)
+                                    .chain(row.supply.iter().map(|(c, _)| *c))
+                                    .chain(row.demand.iter().map(|(c, _)| *c))
+                                    .collect();
+                                commodities.sort_by_key(|c| c.as_str());
+                                commodities.dedup();
+
+                                for c in commodities {
+                                    let price = row
+                                        .prices
+                                        .iter()
+                                        .find(|(k, _)| *k == c)
+                                        .map(|(_, v)| *v)
+                                        .unwrap_or(c.base_price());
+                                    let sup = row
+                                        .supply
+                                        .iter()
+                                        .find(|(k, _)| *k == c)
+                                        .map(|(_, v)| *v)
+                                        .unwrap_or(0.0);
+                                    let dem = row
+                                        .demand
+                                        .iter()
+                                        .find(|(k, _)| *k == c)
+                                        .map(|(_, v)| *v)
+                                        .unwrap_or(0.0);
+
+                                    ui.label(c.as_str());
+                                    // Colour price relative to its own base:
+                                    // > 1.25× red (scarcity), <0.75× green
+                                    // (glut). Reading at a glance matters
+                                    // more than exactness.
+                                    let base = c.base_price();
+                                    let price_color = if base > 0.0 {
+                                        let r = price / base;
+                                        if r >= 1.25 {
+                                            egui::Color32::from_rgb(240, 120, 90)
+                                        } else if r <= 0.75 {
+                                            egui::Color32::from_rgb(120, 220, 150)
+                                        } else {
+                                            egui::Color32::from_gray(220)
+                                        }
+                                    } else {
+                                        egui::Color32::from_gray(220)
+                                    };
+                                    ui.colored_label(price_color, format!("{:.1}", price));
+                                    ui.label(format!("{:.0}", sup));
+                                    ui.label(format!("{:.0}", dem));
+                                    ui.end_row();
+                                }
+                            });
+                    });
+
+                    if row.crisis || row.any_short {
+                        ui.horizontal(|ui| {
+                            ui.add_space(20.0);
+                            ui.label(badge);
+                        });
+                    }
+                }
+            });
+        });
+
+    state.open = open;
+    state.filter = filter;
+    state.only_shortages = only_shortages;
 }
