@@ -15,6 +15,7 @@ use sim_core::{
 };
 
 use crate::sim::Sim;
+use crate::ui::{SelectedFacility, SelectedShip};
 
 /// Scale factor from universe units → world units. Matches Godot's
 /// `GameState.SCALE_FACTOR` so the two clients place everything at
@@ -35,7 +36,7 @@ impl Plugin for RenderPlugin {
         // Spawn entities after the sim has loaded (PostStartup ensures
         // `Sim::load_world` has populated the store).
         app.add_systems(PostStartup, spawn_mirror_entities)
-            .add_systems(Update, sync_positions);
+            .add_systems(Update, (sync_positions, highlight_selected));
     }
 }
 
@@ -48,9 +49,6 @@ pub struct ShipEntity {
 
 #[derive(Component)]
 pub struct FacilityEntity {
-    // Read by future inspector / click-select work. Keep the field
-    // alive with an allow so strict clippy doesn't fail the build.
-    #[allow(dead_code)]
     pub sim_id: String,
 }
 
@@ -292,6 +290,60 @@ fn sync_positions(
         if let Some(&(x, y)) = body_positions.get(&body.sim_id) {
             xf.translation.x = x * SCALE_FACTOR;
             xf.translation.z = y * SCALE_FACTOR;
+        }
+    }
+}
+
+/// Selection scale factor — how big the chosen ship/facility gets
+/// relative to its peers. Big enough to stand out in a dense field
+/// of 1600 ships, small enough that it still reads as the same
+/// agent (not an impostor). Tune to taste once we have real ship
+/// meshes.
+const SELECT_SCALE: f32 = 2.2;
+
+/// Per-frame system: enlarge whichever ship and facility are
+/// currently selected; reset everyone else. The check is a string
+/// compare per entity per frame — ~1700 compares at our scale,
+/// trivially cheap vs. the 16.6 ms budget. If it ever shows up we
+/// can cache the selected Bevy Entity on change instead.
+#[allow(clippy::type_complexity)]
+fn highlight_selected(
+    selected_ship: Res<SelectedShip>,
+    selected_fac: Res<SelectedFacility>,
+    mut ships: Query<
+        (&ShipEntity, &mut Transform),
+        (Without<FacilityEntity>, Without<BodyEntity>),
+    >,
+    mut facilities: Query<
+        (&FacilityEntity, &mut Transform),
+        (Without<ShipEntity>, Without<BodyEntity>),
+    >,
+) {
+    let ship_id = selected_ship.0.as_deref();
+    for (ship, mut xf) in ships.iter_mut() {
+        let wanted = if Some(ship.sim_id.as_str()) == ship_id {
+            SELECT_SCALE
+        } else {
+            1.0
+        };
+        // Skip the write when the scale already matches to avoid
+        // flagging transforms as changed every frame — keeps
+        // Bevy's change-detection meaningful if downstream systems
+        // start relying on it.
+        if (xf.scale.x - wanted).abs() > f32::EPSILON {
+            xf.scale = Vec3::splat(wanted);
+        }
+    }
+
+    let fac_id = selected_fac.0.as_deref();
+    for (fac, mut xf) in facilities.iter_mut() {
+        let wanted = if Some(fac.sim_id.as_str()) == fac_id {
+            SELECT_SCALE
+        } else {
+            1.0
+        };
+        if (xf.scale.x - wanted).abs() > f32::EPSILON {
+            xf.scale = Vec3::splat(wanted);
         }
     }
 }

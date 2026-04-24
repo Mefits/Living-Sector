@@ -311,9 +311,10 @@ struct ShipRow {
 
 /// Currently-selected ship, written by a click in the ship list and
 /// read by the details panel. `None` means no selection (details
-/// window closes itself).
+/// window closes itself). Public so the render layer can use it to
+/// highlight the matching Bevy entity.
 #[derive(Resource, Default)]
-struct SelectedShip(Option<String>);
+pub struct SelectedShip(pub Option<String>);
 
 fn ship_list(
     mut ctx: EguiContexts,
@@ -1826,7 +1827,7 @@ enum FacilitySort {
 }
 
 #[derive(Resource, Default)]
-struct SelectedFacility(Option<String>);
+pub struct SelectedFacility(pub Option<String>);
 
 struct FacilityRow {
     id: String,
