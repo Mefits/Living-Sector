@@ -7,6 +7,7 @@
 //! The tick loop owns AgentStore and writes directly. HTTP/WS handlers read
 //! from the separate SnapshotCache (DashMap), not this.
 
+use crate::agents::faction_relations::FactionRelations;
 use crate::economy::contracts::ContractBoard;
 use hecs::{Entity, World};
 use std::collections::HashMap;
@@ -69,6 +70,13 @@ pub struct AgentStore {
     /// Contract board — directed demand signals between populations/facilities and ships.
     pub contracts: ContractBoard,
 
+    /// Inter-faction relations matrix (Bundle A). Singleton — pairwise
+    /// standing + treaty state for every faction pair that has ever
+    /// touched it. Same rationale as `contracts`: pinning to
+    /// AgentStore keeps it the single source of truth and avoids the
+    /// "stored on one side but not the other" divergence risk.
+    pub relations: FactionRelations,
+
     /// Construction-site materialisations awaiting DB INSERT. Pushed
     /// by the sync `apply_construction_delivery` path; drained by the
     /// async tick loop immediately after the apply phase.
@@ -116,6 +124,7 @@ impl AgentStore {
         Self {
             world: World::new(),
             contracts: ContractBoard::new(),
+            relations: FactionRelations::new(),
             pending_materializations: Vec::new(),
             pending_decommissions: Vec::new(),
             pending_respawns: Vec::new(),

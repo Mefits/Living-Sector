@@ -329,6 +329,22 @@ pub async fn factions(State(state): State<AppState>) -> impl IntoResponse {
     Json(json!({ "data": data }))
 }
 
+/// Bundle A: inter-faction standing + treaty state matrix. One entry
+/// per canonical pair. Returns an empty list when the sim hasn't
+/// generated any relations yet (fresh world, no deliveries).
+pub async fn factions_relations(State(state): State<AppState>) -> impl IntoResponse {
+    let data: Vec<_> = state
+        .snapshots
+        .relations
+        .iter()
+        .map(|e| e.value().clone())
+        .collect();
+    Json(json!({
+        "tick": state.tick.load(Ordering::Relaxed),
+        "data": data,
+    }))
+}
+
 pub async fn contracts(State(state): State<AppState>) -> impl IntoResponse {
     let data: Vec<serde_json::Value> = state
         .snapshots

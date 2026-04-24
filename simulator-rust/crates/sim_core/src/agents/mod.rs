@@ -2,6 +2,7 @@ pub mod celestial_body;
 pub mod construction;
 pub mod facility;
 pub mod faction;
+pub mod faction_relations;
 pub mod market;
 pub mod population;
 pub mod position_type;

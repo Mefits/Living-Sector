@@ -27,6 +27,19 @@ use sim_core::{
 };
 use std::sync::Arc;
 
+/// Flat JSON view of one relation pair, emitted by `/api/factions/relations`
+/// and by the ws frame. Keeps the snapshot cache independent of
+/// `FactionRelations`' internal types.
+#[derive(Clone, serde::Serialize)]
+pub struct RelationSnapshot {
+    pub a: String,
+    pub b: String,
+    pub standing: i32,
+    pub treaty: &'static str,
+    pub since_tick: u64,
+    pub last_event_tick: u64,
+}
+
 #[derive(Default)]
 pub struct SnapshotCache {
     pub ships: DashMap<String, ShipSnapshot>,
@@ -35,6 +48,11 @@ pub struct SnapshotCache {
     pub populations: DashMap<String, PopSnapshot>,
     pub bodies: DashMap<String, BodySnapshot>,
     pub factions: DashMap<String, FactionSnapshot>,
+    /// Bundle A: canonical-pair-keyed matrix of inter-faction
+    /// standing and treaty state. Refreshed on the faction snapshot
+    /// cadence (16 ticks); relations move slowly enough that anything
+    /// faster is wasted work. Key is `"{a}|{b}"` with `a < b` lexically.
+    pub relations: DashMap<String, RelationSnapshot>,
     /// Serialized contract board snapshot. Keyed by contract id. Refreshed
     /// at the end of each tick in `update_from`. Stored as `Value` so the
     /// snapshot layer doesn't depend on `ContractBoard`'s internal types.
@@ -89,10 +107,37 @@ impl SnapshotCache {
 
         // Slow cadence (16 ticks). Factions rarely change outside
         // their tax cycle (every 200 base-ticks) and subsidy cycle
-        // (every 30 base-ticks).
+        // (every 30 base-ticks). Same cadence catches the relations
+        // matrix (Bundle A) — decay + treaty transitions only run on
+        // `RELATIONS_TICK_INTERVAL_BASE` so a 16-tick refresh here
+        // is plenty.
         if tick % 16 == 0 {
             self.update_factions(store);
+            self.update_relations(store);
         }
+    }
+
+    /// Bundle A: copy the relations matrix into the lock-free cache.
+    /// One entry per canonical pair; key is `"{a}|{b}"` so HTTP reads
+    /// can scan in a stable order. Empty matrix = no entries.
+    fn update_relations(&self, store: &AgentStore) {
+        let mut live: std::collections::HashSet<String> = Default::default();
+        for (pair, state) in store.relations.iter() {
+            let key = format!("{}|{}", pair.0, pair.1);
+            live.insert(key.clone());
+            self.relations.insert(
+                key,
+                RelationSnapshot {
+                    a: pair.0.clone(),
+                    b: pair.1.clone(),
+                    standing: state.standing,
+                    treaty: state.treaty.as_str(),
+                    since_tick: state.since_tick,
+                    last_event_tick: state.last_event_tick,
+                },
+            );
+        }
+        self.relations.retain(|k, _| live.contains(k));
     }
 
     /// Bundle (M): lightweight body-position refresh — skips the

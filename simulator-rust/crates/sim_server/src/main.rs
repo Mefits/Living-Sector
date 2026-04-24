@@ -464,6 +464,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/retirements", get(api::retirements))
         .route("/api/populations", get(api::populations))
         .route("/api/factions", get(api::factions))
+        .route("/api/factions/relations", get(api::factions_relations))
         .route("/api/positions", get(api::positions))
         .route("/api/contracts", get(api::contracts))
         .route("/api/observers", get(api::observers))
@@ -484,6 +485,10 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/api/admin/markets/{location}/supply",
             post(admin::market_supply_delta),
+        )
+        .route(
+            "/api/admin/factions/{a}/relations/{b}",
+            post(admin::set_relations),
         )
         .route("/api/admin/save", post(admin::save))
         .route("/api/admin/save-as", post(admin::save_as))

@@ -1,16 +1,34 @@
-# simulator-rust — fresh-eyes review, bundled for execution
+# simulator-rust — faction interaction + combat roadmap
 
 ## Context
 
-You asked for a fresh pair of eyes on `simulator-rust/` to:
-1. Document the current agent/economy systems with mermaid diagrams.
-2. Spot places it could be smarter, more emergent, or architecturally cleaner.
+The previous plan's Bundles 1–4 are all landed, plus the full GOAP arc, Bundle 4 tranche (S/H/G/Q/K/M/J/P with rep-tier), and the spatial grid (`sim_core::spatial::UniformGrid`, combat-ready). 209 tests, strict clean, fleet behaviour healthy at ~500 agents. See `simulator-rust/CLAUDE.md` for the up-to-date status.
 
-This file is the master plan. It is organized into **bundles** — self-contained chunks of work that can be picked up independently in later sessions. Each bundle has a goal, the concrete items, an order, and a verification approach.
+The next arc is **faction interactions** — moving from "factions are economic tax pools" to "factions are political agents with relationships, treaties, rivalries, and (eventually) open warfare." You want the system to support:
 
-> **Concurrent-edit caveat.** Another Claude is editing the tree right now. Symbol names (`plan_goal`, `tick_populations`, `SimCommand`, `ContractBoard`, etc.) are durable anchors; line numbers and thresholds may drift. Re-read at head before acting.
+- **Allies** — treaty-level friendship that unlocks access and reduces friction.
+- **Trade deals** — bilateral agreements that shift pricing, fees, contract visibility.
+- **Competing pricing** — markets and contracts that reflect the controlling faction's posture toward the buyer.
+- **Competing resources** — contested bodies / stations / systems where multiple factions have interests.
+- **Warfare** — full hostile state that triggers combat, blockades, fleet redirection.
 
-> **This file will be copied to `simulator-rust/plan.md` as the first step of Bundle 3**, so it's tracked with the code and visible to whoever picks up next.
+This plan is a ramp: each bundle is shippable on its own, establishes primitives the next bundle reuses, and keeps the sim playable throughout. Combat is the final payoff but it's built on the relations/claims substrate below it, not bolted on.
+
+> **Concurrent-edit caveat** still applies. Symbol names (`FactionData`, `SimCommand`, `plan_goal`, `UniformGrid`) are durable anchors; line numbers drift.
+> **This file will be copied to `simulator-rust/plan.md`** as the first step of Bundle A.
+
+---
+
+## What's already in place (reuse these)
+
+- **`FactionData`** (`sim_core/src/agents/faction.rs`): treasury, tax + subsidy cycles, construction decisions. Per-faction tick already exists.
+- **Per-ship reputation** (`ShipEconomy.faction_reputation: HashMap<String, u8>`, 0..=100): grows on delivery, gates contracts. Ready to inform interaction penalties too.
+- **Contract `faction_id` tag** + rep-gated access via `posted_by_faction` rep-tier sub-buckets (committed earlier).
+- **`Personality.aggression`** axis on ships (0..=1): currently unused. Perfect input for combat behaviour selection.
+- **`SimCommand` buffer**: handles every cross-entity effect atomically. New combat/diplomacy events (DamageShip, DeclareWar, SignTreaty) slot in as new variants.
+- **`UniformGrid<T>`** (`sim_core::spatial::UniformGrid`): O(cells) proximity queries. The foundation for "ships within weapon range," "who's in our claim zone," "nearest hostile."
+- **GOAP planner** (`sim_core/src/ai/planner.rs`): new operators (Attack, Flee, Patrol) extend it cleanly without touching the search.
+- **Event stream** (`ws::protocol::Events`): ship_spawned, contract_delivered, etc. New events (treaty_signed, war_declared, ship_damaged, ship_destroyed) broadcast the same way.
 
 ---
 
@@ -18,357 +36,332 @@ This file is the master plan. It is organized into **bundles** — self-containe
 
 | # | Bundle | Theme | Effort | Risk |
 |---|---|---|---|---|
-| 1 | Starter Bundle | Quick wins: causal trace, price decay, personality drift, contract sizing, LOD extension | ~1–2 sessions | Low |
-| 2 | Big AI Arc | Utility-scored planner + mid-action replan | ~2–3 sessions | Medium (rewrites `plan_goal`) |
-| 3 | Mermaid Docs | Extract Part 5 diagrams into `simulator-rust/docs/ARCHITECTURE.md` + copy this plan in | ~1 session | None |
-| 4 | Backlog | Everything else, scoped but unprioritized | As-needed | Varies |
+| A | Relations matrix | Data model for inter-faction standing + treaty state | 1 session | Low |
+| B | Trade pacts | Treaty-driven pricing + visibility effects | 1 session | Low |
+| C | Market posture | Faction-controlled markets charge/discount based on buyer's rep | 1 session | Low-Med |
+| D | Territorial claims | Per-body controlling-faction + contested-zone mechanics | 1-2 sessions | Med |
+| E | Hostile posture | RelationState::Hostile with refusal-to-dock + surcharges | 1 session | Med |
+| F | Combat primitives | HP, weapons, Attack/Flee BT actions, damage events | 2 sessions | High |
+| G | Full warfare | War declaration, fleet redirection, truce + capitulation | 2-3 sessions | High |
 
-Recommended order: **3 → 1 → 2 → 4**. Docs first so future sessions (and the other Claude) have the shared reference; starter bundle next for low-risk wins; big AI arc when you have a clean session; backlog as appetite dictates.
+Recommended order: **A → B → C → D → E → F → G**. A is load-bearing — everything else reads the relations matrix. B/C/D are parallel economic pressure experiments; F/G are the combat escalation.
 
----
-
-## Bundle 1 — Starter Bundle (low risk, high leverage)
-
-**Goal.** Five small, independent improvements that each visibly improve sim behavior without touching tick-phase order or the BT engine. No single one is architectural; together they push the feel from "mechanical" toward "emergent."
-
-**Items, in suggested implementation order:**
-
-### 1.1 (R) Causal trace endpoint
-- **Problem.** Debugging "why did ship X go broke?" is archaeology.
-- **Change.** Add `GET /api/debug/ship/:id/trace` that returns the last N `SimCommand` entries mentioning that ship. Command trace ring buffer already exists (`app_state::COMMAND_TRACE_CAPACITY`, `engine::record_command_trace`).
-- **Files.** `sim_server/src/http/api.rs` (new route), `sim_server/src/app_state.rs` (expose filtered query).
-- **Acceptance.** Spawn a ship, let it trade, query endpoint, see Buy/Deliver/Pay events for that ship only.
-- **Effort.** ~1 hour.
-
-### 1.2 (E) Price memory decay
-- **Problem.** `ShipMemory.price_knowledge` keeps every price forever → stale routing.
-- **Change.** Decay stored prices by age when scoring, or store an EMA. Weight in `trade_opportunity` consideration.
-- **Files.** `sim_core/src/ai/considerations.rs::trade_opportunity`, `sim_core/src/agents/ship` (price observation site).
-- **Acceptance.** Unit test: observe a price at tick 0, observe a better price at tick 500 for same commodity at different station — ship routes to the fresher source even if raw margin is slightly lower.
-- **Effort.** ~2 hours.
-
-### 1.3 (F) Contract quantity scales with shortage depth
-- **Problem.** `DELIVERY_CONTRACT_QTY = 50` hardcoded. A market short 500 units spawns 10 serial 50-unit contracts.
-- **Change.** Compute `qty = clamp(shortage_magnitude, min_qty, max_qty_by_facility_credits)` at post time.
-- **Files.** `sim_core/src/agents/facility::tick_post_contracts`.
-- **Acceptance.** Smoke run: watch contract board — big shortages produce one big contract instead of a swarm of small ones.
-- **Effort.** ~2 hours.
-
-### 1.4 (D) Personality drift
-- **Problem.** Personality is frozen at spawn. No character arc over thousands of ticks.
-- **Change.** Nudge axes by ε on key events: completed contract → +profit, near-starvation → +safety, exploration-discovery → +exploration. Clamp to [0,1].
-- **Files.** `sim_core/src/ai/personality::Personality` (add `drift` method), hooks in `DeliverContract` apply and `Rest`-timeout path.
-- **Acceptance.** Unit test: simulate 100 deliveries, assert `profit` axis increased; simulate 5 near-starvations, assert `safety` axis increased.
-- **Effort.** ~3 hours.
-
-### 1.5 (L) Extend LOD gating to facilities + populations
-- **Problem.** CLAUDE.md admits facility/pop phases don't LOD-gate. They'll dominate at 10k agents.
-- **Change.** Gate `tick_recipes_and_mining`, `tick_restock`, `tick_populations` on `AgentLod::try_fire`; scale any per-tick accumulators (sentiment inertia, crew hunger) by `skipped_ticks`.
-- **Files.** `sim_core/src/agents/facility`, `sim_core/src/agents/population`; `AgentLod::try_fire` already supports it.
-- **Acceptance.** Spawn 500 facilities with observer present on 50, observer absent on 450 → perf HUD shows facility-phase cost drop proportional. 155 existing tests still pass.
-- **Effort.** ~4 hours. Main risk: missed accumulator scaling → slow drift over hours.
-
-**Bundle verification.** `scripts/verify.sh --strict` clean + `WORLD_SPEED=4 scripts/smoke.sh 60` shows no economic regression. Ship-list panel shows visibly more personality variation after 2000 ticks.
+**Shippable checkpoints:** after A+B you have visibly richer diplomacy with no new UI panels needed. After D you have contested-zone gameplay without combat. After F you have skirmishes between hostile ships. After G you have genuine warfare.
 
 ---
 
-## Bundle 2 — Big AI Arc (A + B)
+## Bundle A — Relations matrix (MVP foundation)
 
-**Goal.** Replace the priority waterfall in `plan_goal` with a unified utility scorer and add mid-action replanning. This is the single biggest "AI feel" upgrade available.
+**Goal.** Give every pair of factions a standing score and a treaty state. Every subsequent bundle reads from this one struct.
 
-### 2.1 (A) Unified utility scoring
-- **Problem.** `plan_goal` is a priority cascade. A ship with 1% fuel never considers any contract, even one that passes a refuel station on the way. Opportunities near the path are invisible.
-- **Change.** Score every candidate goal in one pass. Low fuel dominates by sheer consideration magnitude (fuel_urgency → 1.0 × safety weight), not by hardcoded bypass. Add compensating considerations: `fuel_on_route`, `morale_on_route`, `reachable_without_refuel`.
-- **Files.** `sim_core/src/agents/ship::plan_goal` (rewrite), `sim_core/src/agents/ship::score_goal` (expand), `sim_core/src/ai/considerations` (add new signals), `sim_core/src/ai/utility::best_action` (may need weighting tweaks).
-- **Subtasks.**
-  1. Define the new ActionSpec set (rest_crew, refuel, sell_cargo, fulfill_delivery, trade_run, retrofit, explore, idle) with factors + directions.
-  2. Write per-goal candidate generators (reuse `try_plan_contract`, `try_plan_trade_run`).
-  3. Implement combined scorer.
-  4. Replace `plan_goal` body. Keep BT builders unchanged — they consume the chosen goal.
-  5. Unit tests per goal: starvation-level fuel ⇒ refuel wins; healthy fuel + juicy contract ⇒ contract wins; gate-fuel edge case ⇒ refuel wins by narrow margin.
+**Data model** (new file `sim_core/src/agents/faction/relations.rs` or inline in `agents/faction.rs`):
 
-### 2.2 (B) Mid-action replan on opportunity
-- **Problem.** `Running` BT can't pivot. Ship finishes current plan even if a 10× better deal lands.
-- **Change.** Each tick, compute current goal's score + best alternative's score. If `alternative > current × 1.25` AND `ticks_since_plan > MIN_COMMIT`, abort BT and replan. Hysteresis + min-commit prevent thrashing.
-- **Files.** `sim_core/src/agents/ship::decide_and_act` (add score tracking on `ShipMemory`), planner integration.
-- **Acceptance.** Scenario: ship mid-trade run; spawn a high-value subsidy contract on a station it can reach — ship abandons the trade run, picks the contract. Inverse scenario: ship mid-retrofit, juicy trade posted — ship finishes retrofit (retrofits are committed by design).
+```rust
+pub struct FactionRelations {
+    /// (faction_a_id, faction_b_id) with a_id < b_id lexically to
+    /// canonicalise pairs. Stored as a flat HashMap for O(1) lookup.
+    pub by_pair: HashMap<(String, String), RelationState>,
+}
 
-**Bundle verification.** `scripts/verify.sh --strict` clean, 155 tests pass. Spawn two worlds with same seed, one with waterfall, one with scorer. Qualitatively: scorer fleet shows more opportunistic routing; waterfall fleet shows more lockstep behavior. Perf p50 increase < 200 µs.
+pub struct RelationState {
+    pub standing: i32,        // -100..=100; 0 = neutral
+    pub treaty: TreatyKind,
+    pub since_tick: u64,
+    pub last_event_tick: u64,
+}
 
-**Blast-radius notes.** `plan_goal` is central — almost every BT path starts there. High-value test: make sure the crew-starvation-death-spiral fix from Phase 18k still holds. The waterfall's biological-needs-first behavior must emerge naturally from the new scorer, not be lost.
+pub enum TreatyKind {
+    Neutral,
+    TradePact,   // bundle B consumes this
+    Allied,      // strongest positive (eventually bundle G: forced mutual-aid on war)
+    Tense,       // -50 < standing < -20 (no formal hostility yet)
+    Hostile,     // bundle E
+    War,         // bundle G
+}
+```
+
+Store one `FactionRelations` entity-resource (use a `hecs::World` resource-like singleton via a top-level struct on `AgentStore`). One entity, all pairs.
+
+**Tick updates.** In `agents/faction::tick_factions` (new sub-pass):
+
+1. Standing drift toward 0 over time (decay constant per 1000 ticks) — old grudges fade.
+2. Delivery events trigger standing bumps: a ship delivering for faction X from source-faction Y's market → small +standing between X and Y (mutual trade benefit).
+3. Contract theft / breach fires a minus (reputation breach path in `DeliverContract` apply already knows the penalty amount — mirror it to faction relations).
+4. Treaty transitions gated by thresholds:
+    - standing ≥ +50 sustained 500 ticks → auto-upgrade Neutral → TradePact.
+    - standing ≥ +75 sustained 1000 ticks → TradePact → Allied.
+    - standing ≤ −50 → Neutral/TradePact → Tense.
+    - standing ≤ −70 → Tense → Hostile (requires bundle E live).
+    - War is never auto-entered; needs an explicit declaration (bundle G).
+
+**Events + API.**
+
+- Emit `faction_standing_changed`, `treaty_signed`, `treaty_broken` into the engine event Vec.
+- `GET /api/factions/relations` returns the matrix.
+- `POST /api/admin/factions/:a/relations/:b` sets standing / treaty for debug.
+
+**Files to modify.**
+
+- `sim_core/src/agents/faction.rs` — add `FactionRelations` struct + `tick_relations` sub-pass.
+- `sim_core/src/simulation/spawner.rs` — initialise empty relations on world load.
+- `sim_server/src/engine.rs` — wire `tick_relations` into the tick loop between `tick_factions` and snapshot.
+- `sim_server/src/http/api.rs` — new `factions_relations` handler.
+- `sim_server/src/http/admin.rs` — admin override.
+- `sim_server/src/snapshot.rs` — publish relations matrix each tick (throttled per Bundle M).
+
+**Verification.**
+
+- Unit tests on `tick_relations`: simulated deliveries move standing; decay returns it to 0; threshold crossings fire the right treaty transitions.
+- `/api/factions/relations` returns the matrix; `/api/admin/factions/:a/relations/:b` adjusts it live.
+- Smoke: run 2000 ticks, inspect relations matrix at tick 2000; expect some pacts to have formed between high-trade faction pairs.
 
 ---
 
-## Bundle 3 — Mermaid Docs
+## Bundle B — Trade pacts (treaty-driven economics)
 
-**Goal.** Turn the architecture mermaid into a tracked doc so future sessions share the reference, and copy this plan into the repo.
+**Goal.** Make `TreatyKind::TradePact` and `Allied` mean something concrete in the economy.
 
-### 3.1 Copy `plan.md` into repo
-- Copy this file to `simulator-rust/plan.md`.
-- Add it to `.gitignore` review — probably tracked, not ignored.
+**Effects, all gated on the relations matrix.**
 
-### 3.2 Create `simulator-rust/docs/ARCHITECTURE.md`
-Contains eight mermaid diagrams (see Part 5 below), each with a one-paragraph caption. Cross-links to CLAUDE.md for the "Systems wired" table.
+1. **Docking fee discount.** When a ship docks at a facility whose owning faction has a TradePact (or Allied) with the ship's faction, the `DOCK_FEE_BURN_PCT` burn is halved AND the ship pays a reduced base fee. Same code path as the Bundle (G) burn — just a relations lookup at `commit_dock` time.
+2. **Contract visibility unlock.** In `ContractBoard::posted_for_ship`, treat the ship as having baseline rep with every TradePact-faction even if no explicit entry exists. Concretely: walk ally factions' buckets even when the ship has no `ship_reputation[fac]` entry.
+3. **Payment bonus.** Delivery contract payments scaled +10% when requestor-faction has TradePact with ship's faction. Applied in the `DeliverContract` apply phase.
 
-### 3.3 Add link from `simulator-rust/CLAUDE.md`
-Single-line pointer near the top: "See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for diagrams of the tick loop, AI stack, and economy."
+**Where it plugs in.**
 
-**Verification.** `gh pr checks` or whatever renders — view the file on GitHub, confirm mermaid renders.
+- `engine::commit_dock` — reads ship's faction + facility's owning faction, looks up `FactionRelations`, applies fee modifier.
+- `sim_core/src/economy/contracts.rs::posted_for_ship` — extends the iteration with ally-faction buckets.
+- `sim_server/src/engine.rs` DeliverContract apply — multiplies payment.
 
-**Effort.** ~30 minutes once the other Claude is done.
+**Verification.**
 
----
-
-## Bundle 4 — Backlog (scoped, unprioritized)
-
-Each item is an independent change we might pick up later. Ordered only by the section they belong to.
-
-### AI / decision-making
-- **(C) GOAP / HTN planner.** Synthesize multi-step plans instead of hand-authoring BTs. Defer until goal count doubles. `sim_core/src/ai/planner` (new). High effort.
-
-### Economy
-- **(G) Money sink / inflation anchor.** Pick one: docking-fee burn, wage void sink, faction treasury ceiling. Low-medium effort. **Important** for multi-day runs.
-- **(H) Facility profitability gate on recipes.** Skip negative-margin batches. `facility::tick_recipes_and_mining`. Medium effort.
-- **(I) Reverse-auction contracts.** Ships bid price; facility picks. High effort. Probably after G + F.
-- **(J) Bundled convoy contracts.** Aggregate nearby same-commodity demand into one big contract. Medium effort.
-- **(K) Population wealth as a real variable.** Wire wages → wealth → growth → consumption. Medium effort; test carefully.
-
-### Scalability / engine
-- **(M) Incremental snapshot cache.** Dirty-set rebuild instead of full scan. Medium-high effort.
-- **(N) Rayon on ship phase.** Architecture already supports it (no cross-ship writes within phase). Medium effort.
-- **(O) Spatial grid for LOD + proximity queries.** Replace O(n × observers) with grid lookup. `sim_core/src/spatial/` skeleton exists. Medium effort.
-- **(P) Contract board index.** Bucket by (rep-tier, destination-system). Low effort.
-
-### Observability / ergonomics
-- **(Q) Parameterize magic numbers.** `WorldTuning` struct, admin-tweakable. Low-medium effort, lots of touchpoints.
-- **(S) `MarketCrisis` / `FacilityStarving` events.** Threshold-crossing events for Godot to surface. Low effort.
+- Unit test: post a subsidy from faction X, ship is faction-Y with zero rep, Y has TradePact with X → ship can see + accept.
+- Smoke: manually set a TradePact via admin endpoint; confirm docking-fee events show reduced burn, contract payments are higher.
 
 ---
 
-## Part 5 — Architecture as-is (the diagrams for Bundle 3)
+## Bundle C — Market posture (buyer rep affects price)
 
-### 5.1 Tick loop phase graph
+**Goal.** Every market has a controlling faction (derived from its primary facility). Ships transacting at that market pay different prices based on their rep with the controller.
 
-```mermaid
-flowchart TD
-    ctrl[drain control channel<br/>pause/speed/step]
-    bodies[bodies: regen resources]
-    lod[LOD recompute<br/>every 50 base-ticks]
-    ships[ships: advance transit +<br/>observe prices + decide_and_act]
-    appS[apply ship commands<br/>dock / supply delta / contract accept]
-    drain1[drain materializations /<br/>decommissions / respawns]
-    facs[facilities: recipes + mining +<br/>condition + restock + post contracts]
-    pops[populations: consume + sentiment +<br/>passenger contracts + migration]
-    mkts[markets: produce → consume → emergency →<br/>surplus → match → demand → shortage → price]
-    appM[apply market commands<br/>credit transfers, supply deltas]
-    drain2[drain pending queues again]
-    facts[factions: tax + subsidy + construction]
-    snap[snapshot cache rebuild]
-    bcast[broadcast to WS clients]
-    persist[emit persist writes to worker]
+**Effects.**
 
-    ctrl --> bodies --> lod --> ships --> appS --> drain1 --> facs --> pops --> mkts --> appM --> drain2 --> facts --> snap --> bcast --> persist
-    persist -.->|next tick| ctrl
-```
+- Buy price paid by ship = `base_price × (1 + (50 - ship_rep_with_controller) × 0.005)`. Range: friend (rep=100) pays 0.75×, stranger (rep=50) pays 1.0×, enemy (rep=0) pays 1.25×.
+- Sell price received by ship = inverse curve.
+- If relations matrix puts ship_faction and controller at Hostile, surcharge doubles OR the market refuses the transaction (latter is Bundle E's job, keep it soft here).
 
-### 5.2 Runtime data ownership
+**Where it plugs in.**
 
-```mermaid
-flowchart LR
-    subgraph client[Godot client]
-        gd[scene + panels]
-    end
-    subgraph server[sim_server]
-        direction TB
-        ws[ws::handler]
-        http[http::api + admin]
-        engine[engine tick loop<br/>exclusive &mut AgentStore]
-        snap[(SnapshotCache<br/>DashMap, lock-free)]
-        pw[PersistenceWorker<br/>5s batch, mpsc dedup]
-        db[(SQLite WAL)]
-    end
-    subgraph core[sim_core — pure]
-        store[AgentStore = hecs::World + ContractBoard]
-        cmds[CommandBuffer]
-        ai[ai: BT + utility + considerations]
-        eco[economy: prices, recipes, contracts, missions]
-    end
+- `sim_core/src/economy/price_engine.rs` — new `posture_multiplier(ship_rep, controller_rep_signal)` that modifies the spread at buy/sell time.
+- `agents/ship/actions.rs` — Buy and SellAll actions resolve the controlling faction and apply the multiplier. Currently they just use `pricing.buy_price` etc.
 
-    gd <-->|JSON WS/HTTP| ws
-    gd <-->|HTTP| http
-    engine --> store
-    engine --> cmds
-    engine --> snap
-    engine -->|DbWrite mpsc| pw --> db
-    ws -->|read only| snap
-    http -->|read only| snap
-    http -->|SimCommand| engine
-    store -.uses.- ai
-    store -.uses.- eco
-```
+**Verification.**
 
-### 5.3 Ship decision stack
-
-```mermaid
-flowchart TD
-    tick[decide_and_act per active ship]
-    snaps[build per-tick snapshots:<br/>loc→system, dock congestion, shipyard stock]
-
-    plan[plan_goal — priority waterfall]
-    rest{crew morale<br/>below rest trigger?}
-    fuel{fuel<br/>critical?}
-    sell{cargo<br/>onboard?}
-    retro{retrofit points<br/>+ reachable yard?}
-    elective[elective band:<br/>score fulfill_delivery vs trade_run<br/>via ln profit × 1+prefer_goals]
-    idle[smart idle:<br/>explore or station-seek or hold]
-
-    bt[[build BtNode ShipAction tree]]
-    exec[execute_ship_action via closure dispatch]
-    emit[emit SimCommand<br/>cross-entity effects only]
-
-    tick --> snaps --> plan
-    plan --> rest --yes--> bt
-    rest --no--> fuel --yes--> bt
-    fuel --no--> sell --yes--> bt
-    sell --no--> retro --yes--> bt
-    retro --no--> elective --> bt
-    plan -.fallback.-> idle --> bt
-    bt --> exec --> emit
-    emit -->|applied next phase| plan
-```
-
-### 5.4 Economic feedback loop
-
-```mermaid
-flowchart LR
-    body[celestial body<br/>resources regen]
-    mine[mining_rig facility]
-    mkt[local market<br/>supply → coverage → price]
-    short[shortage_ticks++<br/>when coverage < 0.1]
-    facPost[facility posts<br/>Delivery contract]
-    popPost[population posts<br/>Passenger / Food contract]
-    sub[faction posts<br/>Subsidy 1.25× – 3×]
-    cons[construction:<br/>new facility spawned]
-    board[ContractBoard]
-    ship[ship plan_goal picks contract<br/>gated by rep + sensor range]
-    deliver[deliver → pay + supply bump<br/>via SimCommand apply phase]
-    recipe[facility recipes consume supply]
-
-    body --> mine --> mkt
-    recipe --> mkt
-    mkt --> short
-    short --> facPost --> board
-    short --> popPost --> board
-    short -.600 ticks.-> sub --> board
-    short -.very long.-> cons
-    board --> ship --> deliver --> mkt
-    deliver --> recipe
-```
-
-### 5.5 Contract lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> Posted: facility/pop/faction posts
-    Posted --> Posted: age_escalate_payment<br/>+5%/50 ticks, cap +100%
-    Posted --> Posted: age_open_reputation<br/>-10 rep/100 ticks → public
-    Posted --> Accepted: ship meets rep + sensor gate +<br/>profit > cost estimate
-    Posted --> Expired: TTL lapses without renewal
-    Expired --> Posted: renew (≤3 times, +25% pay, -15 rep)
-    Accepted --> PickedUp: cargo loaded at source
-    PickedUp --> Delivered: cargo unloaded at dest
-    Delivered --> Paid: apply phase pays ship + bumps supply
-    Paid --> [*]
-    Accepted --> Posted: ship dies / re-plans → orphan release
-```
-
-### 5.6 Market 8-phase tick
-
-```mermaid
-flowchart LR
-    p1[produce<br/>MarketFlow.production]
-    p2[consume<br/>update consumption_window]
-    p3[emergency orders<br/>low supply + positive demand]
-    p4[surplus orders<br/>supply > demand × 5]
-    p5[match orders<br/>midpoint - spread/2]
-    p6[update demand<br/>rolling window]
-    p7[track shortage<br/>shortage_ticks++]
-    p8[price recalc<br/>coverage × elasticity + urgency]
-
-    p1 --> p2 --> p3 --> p4 --> p5 --> p6 --> p7 --> p8
-```
-
-### 5.7 LOD gating (ship-only today)
-
-```mermaid
-flowchart TD
-    obs[observer positions<br/>from WS hello]
-    dist[distance² to nearest observer]
-    tier[divisor ∈ 1,2,5,10,20,50]
-    fire{tick >= next_tick?}
-    skip[skip this tick]
-    run[run ship phases<br/>scale fuel burn + crew needs by skipped_ticks]
-    fac[facilities + populations<br/>carry AgentLod but NOT gated<br/>— Bundle 1.5 closes this]
-    mkt[markets<br/>never LOD'd — ordering risk]
-
-    obs --> dist --> tier --> fire
-    fire --no--> skip
-    fire --yes--> run
-    fac -.unused.-> tier
-    mkt -.excluded by design.-> tier
-```
-
-### 5.8 Persistence + command flow
-
-```mermaid
-flowchart LR
-    phase[tick phase writes SimCommand<br/>to CommandBuffer]
-    apply[apply phase drains buffer,<br/>executes cross-entity effects]
-    dirty[dirty agents → DbWrite]
-    ch[mpsc channel]
-    pw[PersistenceWorker]
-    dedup[dedup by namespace+id]
-    flush[5s batch flush<br/>one tx per sweep]
-    sqlite[(SQLite WAL)]
-
-    phase --> apply --> dirty --> ch --> pw --> dedup --> flush --> sqlite
-```
+- Unit tests on `posture_multiplier` bounds + symmetry.
+- Smoke: ship with high rep trades at a market; watch credits gained vs base price. Spawn a fresh ship with rep=0, verify it pays more at the same market.
 
 ---
 
-## Part 6 — What's good that we should preserve
+## Bundle D — Territorial claims (contested resources)
 
-When any of these bundles touch core systems, these properties must survive.
+**Goal.** Model "whose system/body is this?" so contested zones can produce emergent pressure.
 
-- Strategic-vs-tactical AI split (utility picks *which*, BT handles *how*).
-- `BtNode<A>` generic action type — no fn-pointer capture problem.
-- Command buffer: same-entity mutations inline, cross-entity via `SimCommand`.
-- hecs single-writer tick — no locks on agent state.
-- Coverage-model pricing with urgency multiplier.
-- Reputation gating + age-decay — natural on-ramp for new ships.
-- Congestion-aware rest (Phase 18L) and multi-facility dock fallback (Phase 18k).
-- Deterministic replay (no wall-clock reads in sim_core).
+**Data model.**
+
+- Each **body** has a `controlling_faction: Option<String>` derived from majority facility ownership (tiebreak: highest total facility credits).
+- Each **system** has a `controlling_faction` derived from body majority.
+- **Contested flag** on a body: true when ≥2 factions each own ≥1 facility there.
+
+**Emergent effects.**
+
+- Contested body markets get increased shortage urgency + subsidy multipliers (existing Phase 19 subsidy system) — incumbent faction "fights back" by posting better-paid contracts to starve out rivals.
+- Ship planner's strategic tier gets a new signal: `in_contested_zone(current_loc) × personality.aggression` feeds into contract score. Aggressive ships gravitate toward contested areas.
+- `UniformGrid::query_radius` used here to "find all ships near contested body X" for future territorial pressure calc.
+
+**Snapshot + UI.**
+
+- `/api/bodies/:id` exposes `controlling_faction` + `contested`.
+- Godot body highlight color reflects faction palette (cyan/amber/red).
+
+**Files.**
+
+- `sim_core/src/agents/celestial_body.rs` — add `controlling_faction` + `contested` fields; `derive_territorial_control` pass in `tick_factions`.
+- `sim_core/src/agents/ship/mod.rs::plan_goal` strategic tier — score bump for contested-zone contracts when personality.aggression > threshold.
+
+**Verification.**
+
+- Unit test: a body with 3 faction-X facilities and 1 faction-Y facility is `controlling_faction = X`, `contested = true`.
+- Smoke: seed a contested system (manually spawn cross-faction facilities); observe higher subsidy post rate there vs a single-faction body.
 
 ---
 
-## Part 7 — Generic verification checklist
+## Bundle E — Hostile posture (soft refusal)
 
-For every bundle:
+**Goal.** `TreatyKind::Hostile` meaningfully changes behaviour without yet introducing weapons.
 
-- `scripts/verify.sh --strict` clean (155 tests pass + clippy strict).
-- `WORLD_SPEED=4 scripts/smoke.sh 60` runs without economic regression (no runaway inflation / mass starvation / stuck contracts).
-- `/api/health` p50 tick compute within 200 µs of baseline (~1 ms).
-- For AI changes: ship-list panel shows visible diversity in goal selection after 2000 ticks.
-- For economy changes: contract board panel shows healthy turnover (no contracts stuck > 5000 ticks).
+**Effects.**
+
+- Hostile ships are refused docking at facilities whose owning faction they're hostile with (`commit_dock` returns false with a `refused_hostile` event).
+- Hostile ships trigger "wanted" status at that facility → other ships get a warning event, and any active contracts between them auto-cancel.
+- Ship planner's `rest_crew` viability check (already exists) treats hostile-faction stations as ineligible. Forces ships to route home or to ally stations.
+- Gate fees between hostile factions double (soft blockade). Gate code is in `sim_core/src/world/pathfinder.rs` — add a fee multiplier resolver hook.
+
+**Files.**
+
+- `sim_server/src/engine.rs::commit_dock` — hostile refusal branch + event.
+- `sim_core/src/agents/ship/mod.rs::any_rest_destination_viable` — skip hostile-faction stations.
+- `sim_core/src/world/pathfinder.rs` — gate-fee multiplier.
+
+**Verification.**
+
+- Set two factions hostile via admin; spawn a ship of faction A, try to dock at faction B station → refused event in log.
+- rest_crew planner routes the ship to a non-hostile station instead of piling up at the refused one.
 
 ---
 
-## Part 8 — Pickup instructions for next session
+## Bundle F — Combat primitives
 
-1. `git status` / `git diff` — see what the other Claude changed.
-2. Reconcile any conflicts between this plan and current head. Symbol names are stable; line numbers may have moved.
-3. Pick a bundle (recommend **3 → 1 → 2 → 4**).
-4. For Bundle 1 and 2, produce a per-item implementation sub-plan before coding (one file per item, e.g. `.claude/plans/bundle-1-item-R-causal-trace.md`).
-5. For Bundle 3, just do it — ~30 min of file moves.
+**Goal.** Ships can shoot each other. Damage accumulates. Destroyed ships get decommissioned with a wreck event.
 
-Session boundaries are natural per-item. Don't try to do more than one Bundle-1 item per session unless they're obviously trivial.
+**Data model additions.**
+
+```rust
+pub struct ShipCombat {
+    pub hp: f32,              // 0..=100
+    pub shields: f32,         // 0..=100
+    pub weapon_slug: &'static str,
+    pub last_shot_tick: u64,
+}
+
+// ShipAction additions:
+Attack { target: hecs::Entity },
+Flee { away_from: (f32, f32) },
+```
+
+**Weapons catalog** (new `sim_core/src/modules/weapons.rs` — mirrors `modules/` subsystem pattern):
+
+- `laser_t1`: 5 damage, 10-unit range, 30-tick cooldown.
+- `missile_t1`: 15 damage, 30-unit range, 100-tick cooldown.
+- `pd_t1`: 3 damage, 5-unit range, 10-tick cooldown (defensive).
+
+**Combat tick phase** (runs after `decide_and_act`):
+
+1. Build `UniformGrid<Entity>` from ship positions once per tick.
+2. For each ship with `ShipAction::Attack { target }`: check range via `grid.query_radius(my_pos, weapon_range)`; if target present, fire weapon, emit `SimCommand::DamageShip { target, dmg }`.
+3. Apply phase: deduct shields first then HP; emit `ship_damaged` event; if HP ≤ 0, emit `ship_destroyed` + chain to existing `DecommissionShip`.
+
+**AI integration.**
+
+- `plan_goal` gets new biological-tier-like consideration: if hostile-faction ship in sensor range AND my aggression > 0.5, generate Attack candidate. Score = `ln(target_value) × personality.aggression × HOSTILE_BONUS`.
+- If under fire (recently damaged), generate Flee candidate with higher priority for low-aggression personalities.
+
+**Files.**
+
+- `sim_core/src/agents/ship/mod.rs` — `ShipCombat` component, BT action, planner considerations.
+- `sim_core/src/agents/combat.rs` (new) — `tick_combat` phase using `UniformGrid`.
+- `sim_server/src/engine.rs` — wire combat phase, `DamageShip` / `DestroyShip` SimCommand apply.
+- `sim_core/src/modules/weapons.rs` (new) — weapon catalog.
+- Migration: add `ships.weapon_slug` column persisted like fitting slots.
+
+**Verification.**
+
+- Unit test: two ships, one Hostile to the other, spawn 8 units apart with `aggression=0.9` → Attack fires, target HP drops, eventually destroyed.
+- Smoke: set two factions Hostile via admin, spawn aggressive ships at common system → observe `ship_damaged` and `ship_destroyed` events in the ticker.
+
+**NOTES**
+What breaks Rayon: hecs::World allows concurrent reads OR exclusive write, never mixed. If ship A's decide_and_act holds a mut-borrow
+  of A's components AND wants to read B's position (to decide "am I in weapon range?"), B can't simultaneously be mutating its own      
+  components on another thread. Any live cross-entity read kills parallelism.                                                           
+                                                  
+  The existing sim already solves this pattern — look at dock_congestion and location_to_system in decide_and_act. They're snapshot maps
+   built ONCE at the top of tick_ships (serial, O(n) read pass), then passed into per-ship planning as read-only &HashMap. Per-ship
+  threads never touch live world state for cross-entity info.                                                                           
+                                                             
+  The three rules to encode in Bundle F so combat doesn't become un-parallelizable:                                                     
+                                                                                
+  1. Build a combat snapshot at the top of the tick, serial. Something like combat_targets: HashMap<Loc, Vec<(Entity, faction_id, hp,   
+  position)>>. All targeting decisions read this, not live world components. Same pattern as dock_congestion.
+  2. Attack is a command, not a direct mutation. ShipAction::Attack emits SimCommand::RequestAttack { attacker, target, weapon }. The   
+  serial apply phase is where range re-check + HP deduction + destroy chain happens. Never write to another ship's components from
+  inside a per-ship plan closure.                                                                                                       
+  3. Combat tick phase runs AFTER decide_and_act, in its own pass. Per my plan already — but the discipline matters: the combat phase 
+  itself iterates sequentially (over the commands buffer), so it's not where parallelism lives. Parallelism lives in decide_and_act     
+  deciding which command to emit. The combat phase applying commands is inherently serial because it writes to arbitrary target
+  entities.                                                                                                                             
+                                                                                
+  The subtle one that's easy to miss: "reply" events like "I was just shot, I should flee." The temptation is for the combat phase to   
+  directly set the victim's under_fire_until: tick + 100 field. That's fine serial, but if we ever want the victim's next-tick          
+  decide_and_act to pick up on it in parallel, the component must already carry that state when the tick begins. So combat-phase writes
+  land in components → next tick's snapshot includes them → per-ship threads read from snapshot. Round trip is one tick. 
+
+---
+
+## Bundle G — Full warfare (state machine)
+
+**Goal.** Factions can declare war. War triggers fleet behaviour changes, economic blockades, and can end in truce or capitulation.
+
+**State + transitions.**
+
+- Declare war: `POST /api/admin/factions/:a/declare-war/:b` or AI-driven when standing ≤ −90 and treasury > threshold (willing to fund conflict).
+- During War: all contracts between the two factions auto-Expire; subsidy cycles double for home-faction members; gate fees between them 4×; ships of one treat the other as Hostile (auto-target).
+- End conditions:
+    - **Truce** — both factions' treasuries drop below a floor (can't afford conflict).
+    - **Capitulation** — one faction loses ≥75% of its ships within a 5000-tick window.
+    - **Treaty** — admin or AI signs a ceasefire (standing snaps to −50, treaty → Tense, 3000-tick cooldown before any escalation).
+
+**AI decisions.**
+
+- `FactionData` gets a `war_posture: WarPosture` field: Peaceful / Ready / Aggressive.
+- New faction-tick sub-pass every 500 base-ticks: evaluate relations, treasury, recent losses; transition posture and potentially declare war.
+- When at war, a faction biases its ship spawns toward combat-capable classes and directs their patrols via CrewMission-like directed contracts (`ContractType::WarPatrol`? or reuse CrewMission with a `mission_category`).
+
+**Observability.**
+
+- New events: `war_declared`, `truce_signed`, `capitulated`.
+- Faction ledger panel in Godot adds a "War posture" column + active-wars list.
+
+**Files.**
+
+- `sim_core/src/agents/faction.rs` — war posture logic, declare/end helpers.
+- `sim_core/src/economy/contracts.rs` — contract auto-expire when war declared between participants.
+- `sim_server/src/http/admin.rs` — war declaration endpoint.
+
+**Verification.**
+
+- Admin-declare a war; watch contracts between the two factions auto-expire in the board panel. Ships of each start pursuing Attack goals on each other.
+- Starve one faction's treasury (admin-adjust) → observe truce event fire.
+
+---
+
+## What to pick up first
+
+Bundle **A** is prerequisite for everything else. If you want to validate the approach cheaply, do A + B together in one session — that's ~150 lines of Rust plus ~50 lines of Godot panel changes and gives you visible "ships of allied factions pay less at each other's stations" behaviour without any combat code.
+
+Then D is probably the next big gameplay addition (contested zones feel emergent even without combat). E is a prerequisite for F (ships need a refusal-to-dock mechanic before they'll try Attack).
+
+**Deferred to later sessions (noted in backlog for continuity):**
+
+- **(N) Rayon on ship phase** — still the real 10k-ship unlock. Complementary to combat (Attack phase is cross-ship-write-heavy, so a rayon refactor would need to batch those commands carefully).
+- **Fog-of-war / sensor-filtered observability** — combat wants "ship X saw Y jump" events, which the current LOD system doesn't model.
+- **Pirates / third-party hostile factions** — once F + G are working, "no-faction" raider ships become cheap to add.
+
+---
+
+## Verification (session-level)
+
+For each bundle:
+
+- `scripts/verify.sh --strict` clean (all tests pass + clippy strict).
+- `WORLD_SPEED=4 ./target/debug/simulator` smoke run to tick 2000+; confirm new behaviour via `/api/factions/relations`, `/api/contracts`, event ticker.
+- Godot panels reflect new state without needing UI work in Bundle A (relations visible via admin endpoint for now; UI lands in a later pass).
+
+---
+
+## Pickup instructions for next session
+
+1. `git status` / `git log --oneline -10` — confirm we're picking up from the spatial-grid / rep-tier commits.
+2. Read `simulator-rust/CLAUDE.md` Status section to refresh on what's landed.
+3. Start Bundle A. Draft the `FactionRelations` struct first; get it into `AgentStore` + one unit test; then wire the tick pass; then the API.
+4. After A, commit. Pick B next in the same session if time permits.
+
+Core principle throughout: **relations matrix is the single source of truth.** Every other bundle reads from it; no bundle introduces parallel per-faction state that could drift.

@@ -702,6 +702,81 @@ pub async fn refit_ship(
     )
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SetRelationsReq {
+    /// Absolute new standing, clamped into `[-100, 100]`. Either or
+    /// both fields may be present; omitted → keep existing value.
+    #[serde(default)]
+    pub standing: Option<i32>,
+    /// Treaty name (see `TreatyKind::as_str` — `neutral`, `trade_pact`,
+    /// `allied`, `tense`, `hostile`, `war`).
+    #[serde(default)]
+    pub treaty: Option<String>,
+}
+
+/// POST /api/admin/factions/:a/relations/:b — set the relations-matrix
+/// entry between two factions. Either field may be omitted; omitted
+/// fields keep their current value. Empty or self-pair requests are
+/// 400.
+pub async fn set_relations(
+    State(state): State<AppState>,
+    Path((a, b)): Path<(String, String)>,
+    Json(body): Json<SetRelationsReq>,
+) -> (StatusCode, Json<Value>) {
+    use sim_core::agents::faction_relations::TreatyKind;
+    if a.is_empty() || b.is_empty() || a == b {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "a and b must be distinct non-empty faction ids"})),
+        );
+    }
+    let treaty = if let Some(t) = body.treaty.as_deref() {
+        match TreatyKind::parse(t) {
+            Some(k) => Some(k),
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("unknown treaty kind: {t}")})),
+                );
+            }
+        }
+    } else {
+        None
+    };
+    if body.standing.is_none() && treaty.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "must provide standing, treaty, or both"})),
+        );
+    }
+    if state
+        .control_tx
+        .send(crate::control::ControlCommand::AdminSetRelations {
+            a: a.clone(),
+            b: b.clone(),
+            standing: body.standing,
+            treaty,
+        })
+        .await
+        .is_err()
+    {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "control channel closed"})),
+        );
+    }
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "scheduled",
+            "a": a,
+            "b": b,
+            "standing": body.standing,
+            "treaty": body.treaty,
+        })),
+    )
+}
+
 /// GET /api/admin/tuning — return the current WorldTuning values as
 /// JSON. Inspection-only in this commit; a future PATCH endpoint
 /// will live-edit when `WorldTuning::set` is upgraded to ArcSwap.

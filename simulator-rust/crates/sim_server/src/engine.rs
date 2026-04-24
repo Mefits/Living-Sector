@@ -213,6 +213,17 @@ pub async fn run_tick_loop(
                         &mut events,
                     );
                 }
+                ControlCommand::AdminSetRelations { a, b, standing, treaty } => {
+                    admin_set_relations(
+                        &mut store,
+                        &a,
+                        &b,
+                        standing,
+                        treaty,
+                        tick_counter.load(Ordering::Relaxed),
+                        &mut events,
+                    );
+                }
             }
         }
 
@@ -270,7 +281,7 @@ pub async fn run_tick_loop(
             tick_mult,
         );
         record_command_trace(&store, &commands, tick, &command_trace);
-        apply_ship_commands(&mut store, &mut commands, &mut events);
+        apply_ship_commands(&mut store, &mut commands, &mut events, tick);
         drain_pending_materializations(&mut store, &pool, &persist_tx, &mut events).await;
         drain_pending_decommissions(&mut store, tick, &mut events, &persist_tx).await;
         drain_pending_respawns(&mut store, &registry, tick, &mut events, &persist_tx, &pool).await;
@@ -299,11 +310,16 @@ pub async fn run_tick_loop(
         scan_crisis_events(&mut store.world, &mut events);
         // Market emits TransferCredits (spread revenue) — apply before clearing
         record_command_trace(&store, &commands, tick, &command_trace);
-        apply_ship_commands(&mut store, &mut commands, &mut events);
+        apply_ship_commands(&mut store, &mut commands, &mut events, tick);
         drain_pending_materializations(&mut store, &pool, &persist_tx, &mut events).await;
         drain_pending_decommissions(&mut store, tick, &mut events, &persist_tx).await;
         drain_pending_respawns(&mut store, &registry, tick, &mut events, &persist_tx, &pool).await;
         faction::tick_factions(&mut store.world, &mut store.contracts, &mut events, tick, tick_mult);
+        // Bundle A: inter-faction relations. Low-frequency — decay +
+        // threshold-driven treaty transitions only need to run on
+        // the relations interval. Emits `treaty_changed` events for
+        // every state crossing (picked up by Godot event ticker).
+        tick_relations_pass(&mut store, &mut events, tick, tick_mult);
         commands.clear();
 
         let tick_compute_us = t_start.elapsed().as_micros() as u64;
@@ -984,6 +1000,7 @@ fn apply_ship_commands(
     store: &mut AgentStore,
     commands: &mut CommandBuffer,
     events: &mut Vec<serde_json::Value>,
+    tick: u64,
 ) {
     use sim_core::agents::ship::{ShipCargo, ShipEconomy};
 
@@ -1144,6 +1161,15 @@ fn apply_ship_commands(
                     if let Some((faction, payment)) = breach_info {
                         let ship_entity = store.ship_by_id.get(&ship_id).copied();
                         if let Some(e) = ship_entity {
+                            // Read ship faction up front — used by the
+                            // Bundle A standing hit after the econ
+                            // borrow releases.
+                            let ship_faction = store
+                                .world
+                                .get::<&sim_core::agents::ship::ShipIdentity>(e)
+                                .ok()
+                                .map(|i| i.faction_id.clone())
+                                .unwrap_or_default();
                             if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(e) {
                                 let penalty: u8 = (10 + (payment / 1000))
                                     .clamp(1, 25) as u8;
@@ -1158,6 +1184,29 @@ fn apply_ship_commands(
                                     "ship_id": ship_id,
                                     "faction_id": faction,
                                     "rep_penalty": penalty,
+                                }));
+                            }
+                            // Bundle A: ship's faction takes the blame
+                            // on the relations matrix too. Keeps the
+                            // per-faction stance aligned with per-ship
+                            // reputation — both sides walk together.
+                            if !ship_faction.is_empty()
+                                && !faction.is_empty()
+                                && ship_faction != faction
+                            {
+                                let new_standing = store.relations.bump_standing(
+                                    &ship_faction,
+                                    &faction,
+                                    sim_core::agents::faction_relations::BREACH_STANDING_PENALTY,
+                                    tick,
+                                );
+                                events.push(serde_json::json!({
+                                    "kind": "faction_standing_changed",
+                                    "a": ship_faction,
+                                    "b": faction,
+                                    "delta": sim_core::agents::faction_relations::BREACH_STANDING_PENALTY,
+                                    "new_standing": new_standing,
+                                    "cause": "breach",
                                 }));
                             }
                         }
@@ -1185,6 +1234,18 @@ fn apply_ship_commands(
                         .unwrap_or(0.0);
                     let effective_payment: i64 = ((c.payment as f32) * (1.0 + comms_bonus))
                         .round() as i64;
+                    // Bundle A: read ship faction up front for the
+                    // relations-standing bump. Taking an immutable
+                    // borrow of ShipIdentity here and letting it drop
+                    // before the `&mut ShipEconomy` acquisition below
+                    // keeps hecs happy (one live component borrow per
+                    // entity).
+                    let ship_faction = store
+                        .world
+                        .get::<&sim_core::agents::ship::ShipIdentity>(ship)
+                        .ok()
+                        .map(|i| i.faction_id.clone())
+                        .unwrap_or_default();
                     if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
                         econ.credits += effective_payment;
                         if let Some(faction) = c.faction_id.as_ref() {
@@ -1201,6 +1262,33 @@ fn apply_ship_commands(
                                 .entry(faction.clone())
                                 .or_insert(0);
                             *rep = rep.saturating_add(gain).min(100);
+                        }
+                    }
+                    // Bundle A: faction-to-faction standing bump. Fires
+                    // when both sides are tagged and distinct. Small
+                    // per-delivery nudge so a healthy trade corridor
+                    // accumulates into a TradePact over hundreds of
+                    // deliveries, not dozens. `bump_standing` is a
+                    // no-op on empty or self-pairs.
+                    if let Some(requestor) = c.faction_id.as_deref() {
+                        if !ship_faction.is_empty()
+                            && !requestor.is_empty()
+                            && ship_faction != requestor
+                        {
+                            let new_standing = store.relations.bump_standing(
+                                &ship_faction,
+                                requestor,
+                                sim_core::agents::faction_relations::DELIVERY_STANDING_BUMP,
+                                tick,
+                            );
+                            events.push(serde_json::json!({
+                                "kind": "faction_standing_changed",
+                                "a": ship_faction,
+                                "b": requestor,
+                                "delta": sim_core::agents::faction_relations::DELIVERY_STANDING_BUMP,
+                                "new_standing": new_standing,
+                                "cause": "delivery",
+                            }));
                         }
                     }
                     // Adaptive-fleet: clear hoard strikes on any
@@ -2624,6 +2712,48 @@ fn admin_market_supply_delta(
     }
 }
 
+/// Bundle A: admin override for the inter-faction relations matrix.
+/// Sets standing / treaty (either or both) and emits a
+/// `faction_standing_changed` event so the Godot ticker shows the
+/// intervention. Read-only inputs — all invariants enforced inside
+/// `FactionRelations::set_state`.
+fn admin_set_relations(
+    store: &mut AgentStore,
+    a: &str,
+    b: &str,
+    standing: Option<i32>,
+    treaty: Option<sim_core::agents::faction_relations::TreatyKind>,
+    tick: u64,
+    events: &mut Vec<serde_json::Value>,
+) {
+    if a == b || a.is_empty() || b.is_empty() {
+        return;
+    }
+    let existing = store.relations.state_or_default(a, b);
+    let new_standing = standing.unwrap_or(existing.standing);
+    let new_treaty = treaty.unwrap_or(existing.treaty);
+    store.relations.set_state(a, b, new_standing, new_treaty, tick);
+    events.push(serde_json::json!({
+        "kind": "faction_standing_changed",
+        "a": a,
+        "b": b,
+        "delta": new_standing - existing.standing,
+        "new_standing": new_standing,
+        "cause": "admin",
+    }));
+    if new_treaty != existing.treaty {
+        events.push(serde_json::json!({
+            "kind": "treaty_changed",
+            "a": a,
+            "b": b,
+            "from": existing.treaty.as_str(),
+            "to": new_treaty.as_str(),
+            "standing": new_standing,
+            "cause": "admin",
+        }));
+    }
+}
+
 /// Apply `RequestGateJump`: locate the source gate at the ship's
 /// location, charge the fee, credit the gate's owning facility,
 /// teleport the ship to the paired gate's position. Emits a
@@ -3015,6 +3145,36 @@ fn scan_crisis_events(world: &mut hecs::World, events: &mut Vec<serde_json::Valu
             }));
             ops.starving_notified = false;
         }
+    }
+}
+
+/// Bundle A: run the relations tick on cadence, then emit a
+/// `treaty_changed` event for every transition surfaced by the pure
+/// core pass. Gated on `RELATIONS_TICK_INTERVAL_BASE * tick_mult` so
+/// standing decay + treaty evaluations don't run every tick.
+fn tick_relations_pass(
+    store: &mut AgentStore,
+    events: &mut Vec<serde_json::Value>,
+    tick: u64,
+    tick_multiplier: u32,
+) {
+    use sim_core::agents::faction_relations::{
+        tick_relations, RELATIONS_TICK_INTERVAL_BASE,
+    };
+    let interval = RELATIONS_TICK_INTERVAL_BASE * tick_multiplier.max(1) as u64;
+    if interval == 0 || !tick.is_multiple_of(interval) {
+        return;
+    }
+    let out = tick_relations(&mut store.relations, tick, tick_multiplier);
+    for ch in out.treaty_changes {
+        events.push(serde_json::json!({
+            "kind": "treaty_changed",
+            "a": ch.a,
+            "b": ch.b,
+            "from": ch.from.as_str(),
+            "to": ch.to.as_str(),
+            "standing": ch.standing,
+        }));
     }
 }
 

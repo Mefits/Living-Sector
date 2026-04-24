@@ -118,4 +118,16 @@ pub enum ControlCommand {
         slug: Option<String>,
         via_shipyard: bool,
     },
+    /// Admin (Bundle A): set the relations-matrix entry between two
+    /// factions. Either `standing`, `treaty`, or both may be present
+    /// — `None` preserves the existing value. The engine applies via
+    /// `FactionRelations::set_state` so invariants (canonical pair
+    /// ordering, standing clamp, since_tick reset on treaty change)
+    /// hold.
+    AdminSetRelations {
+        a: String,
+        b: String,
+        standing: Option<i32>,
+        treaty: Option<sim_core::agents::faction_relations::TreatyKind>,
+    },
 }
