@@ -8,7 +8,10 @@ Rust port of an Elixir/Phoenix space-economy simulator. Drives a Godot client.
 Replaces the Elixir original because BEAM's process scheduler performs poorly
 on Windows gaming PCs. Ships at ~227 agents today, designed to scale to 100k+.
 Single native binary, no runtime dependencies. See [`SESSION-HANDOFF.md`](./SESSION-HANDOFF.md)
-for a fresh-session orientation and recent activity.
+for a fresh-session orientation and recent activity. See
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for mermaid diagrams of the tick loop,
+AI stack, and economic feedback loop, and [`plan.md`](./plan.md) for the bundled
+improvement roadmap.
 
 ## Status
 
