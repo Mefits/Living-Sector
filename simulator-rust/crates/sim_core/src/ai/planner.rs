@@ -136,6 +136,20 @@ impl WorldState {
     }
 }
 
+/// Convert a ship's fuel fraction (0.0..=1.0) to a planner bucket
+/// (0..=10). Rounds to nearest — a ship at 0.55 fuel becomes
+/// bucket 6, giving the planner enough granularity to distinguish
+/// "flush" from "low" without blowing up the state space. Fuel at
+/// or below zero maps to bucket 0 so unreachable states stay
+/// unreachable.
+pub fn fuel_fraction_to_bucket(fraction: f32) -> u8 {
+    if fraction <= 0.0 {
+        return 0;
+    }
+    let bucket = (fraction * 10.0).round().clamp(0.0, 10.0);
+    bucket as u8
+}
+
 /// The real-world identifiers a `Loc` resolves to. Caller fills
 /// this from the ship's current position + the chosen contract
 /// (and optional retrofit plan) before calling `plan`. The planner
@@ -281,6 +295,11 @@ pub enum Operator {
     SellAll,
     DeliverCargo,
     Refit,
+    /// Passenger / courier delivery. Same apply-phase semantics as
+    /// `DeliverCargo` in the engine (both emit `ShipAction::DeliverCargo`)
+    /// but the precondition doesn't require `cargo_loaded` — passenger
+    /// contracts don't occupy hold space. Effect: `delivered = true`.
+    DeliverPassengers,
 }
 
 impl Operator {
@@ -318,6 +337,40 @@ impl Operator {
             Operator::Travel { to: Loc::Origin },
             Operator::Travel { to: Loc::Source },
             Operator::Travel { to: Loc::Dest },
+            Operator::Travel { to: Loc::Shipyard },
+        ]
+    }
+
+    /// Operator catalog for passenger / courier plans. No cargo
+    /// mechanics — the contract's payment fires on
+    /// `DeliverPassengers` when the ship docks at the destination.
+    /// Refuel is still available so the planner can fold one in
+    /// at source or dest if fuel is marginal.
+    pub fn passenger_catalog() -> &'static [Operator] {
+        &[
+            Operator::Dock,
+            Operator::Refuel,
+            Operator::DeliverPassengers,
+            Operator::Undock,
+            Operator::Travel { to: Loc::Origin },
+            Operator::Travel { to: Loc::Source },
+            Operator::Travel { to: Loc::Dest },
+        ]
+    }
+
+    /// Operator catalog for standalone retrofit plans (the
+    /// `seek_retrofit` goal). Ship travels to a shipyard, docks,
+    /// refits, undocks. Goal = `retrofitted && fuel_bucket >= 2`.
+    /// Uses the Shipyard location edges rather than Source/Dest,
+    /// so LocMap callers point `shipyard` at the target yard and
+    /// leave Source/Dest set to sensible no-ops.
+    pub fn retrofit_catalog() -> &'static [Operator] {
+        &[
+            Operator::Dock,
+            Operator::Refuel,
+            Operator::Refit,
+            Operator::Undock,
+            Operator::Travel { to: Loc::Origin },
             Operator::Travel { to: Loc::Shipyard },
         ]
     }
@@ -431,6 +484,23 @@ impl Operator {
                 }
                 let mut next = state.clone();
                 next.cargo_loaded = false;
+                next.delivered = true;
+                let action = ShipAction::DeliverCargo {
+                    contract_id: map.contract_id.clone(),
+                };
+                Some((next, action))
+            }
+            Operator::DeliverPassengers => {
+                if !state.docked || state.at != Loc::Dest {
+                    return None;
+                }
+                if state.delivered {
+                    return None;
+                }
+                if map.contract_id.is_empty() {
+                    return None; // no passenger contract to deliver
+                }
+                let mut next = state.clone();
                 next.delivered = true;
                 let action = ShipAction::DeliverCargo {
                     contract_id: map.contract_id.clone(),
@@ -661,6 +731,125 @@ mod tests {
     }
 
     #[test]
+    fn plans_passenger_delivery_without_buy() {
+        // Passenger/courier plans have no Buy step — the contract
+        // payment fires on DeliverPassengers at the destination
+        // regardless of cargo state. Plan shape: Travel → Dock →
+        // Undock → Travel → Dock → DeliverPassengers.
+        let map = basic_map();
+        let initial = WorldState::new(Loc::Origin, 10);
+        let plan = plan(
+            initial,
+            |s| s.delivered,
+            Operator::passenger_catalog(),
+            &map,
+            16,
+        )
+        .expect("passenger plan should exist");
+        assert!(plan.final_state.delivered);
+        // Must include DeliverCargo (our DeliverPassengers op emits
+        // that action) but NOT Buy or SellAll.
+        assert!(
+            plan.actions.iter().any(|a| matches!(a, ShipAction::DeliverCargo { .. })),
+            "passenger plan must include DeliverCargo: {:?}",
+            plan.actions,
+        );
+        assert!(
+            !plan.actions.iter().any(|a| matches!(a, ShipAction::Buy { .. })),
+            "passenger plan must not Buy: {:?}",
+            plan.actions,
+        );
+        assert!(
+            !plan.actions.iter().any(|a| matches!(a, ShipAction::SellAll)),
+            "passenger plan must not SellAll: {:?}",
+            plan.actions,
+        );
+    }
+
+    #[test]
+    fn passenger_plan_is_shorter_than_delivery_plan() {
+        // Delivery requires Buy at source; passenger doesn't.
+        // Plans should reflect that — passenger is typically
+        // 1-2 actions shorter.
+        let map = basic_map();
+        let initial = WorldState::new(Loc::Origin, 10);
+        let delivery_plan = plan(
+            initial.clone(),
+            |s| s.delivered,
+            Operator::delivery_catalog(),
+            &map,
+            16,
+        )
+        .unwrap();
+        let passenger_plan = plan(
+            initial,
+            |s| s.delivered,
+            Operator::passenger_catalog(),
+            &map,
+            16,
+        )
+        .unwrap();
+        assert!(
+            passenger_plan.actions.len() < delivery_plan.actions.len(),
+            "passenger should be shorter than delivery: pax={} deliv={}",
+            passenger_plan.actions.len(),
+            delivery_plan.actions.len(),
+        );
+    }
+
+    #[test]
+    fn fuel_aware_delivery_skips_refuel_when_flush() {
+        // Full tank — no refuel needed. Plan should contain zero
+        // Refuel actions.
+        let map = basic_map();
+        let initial = WorldState::new(Loc::Origin, 10);
+        let plan = plan(
+            initial,
+            |s| s.delivered && s.fuel_bucket >= 2,
+            Operator::delivery_catalog(),
+            &map,
+            16,
+        )
+        .unwrap();
+        let refuels = plan
+            .actions
+            .iter()
+            .filter(|a| matches!(a, ShipAction::Refuel))
+            .count();
+        assert_eq!(
+            refuels, 0,
+            "flush-tank plan must not Refuel: {:?}",
+            plan.actions,
+        );
+    }
+
+    #[test]
+    fn fuel_aware_delivery_forces_refuel_when_thirsty() {
+        // Start at fuel bucket 4 — enough for origin→source (2)
+        // but not for source→dest (3). Plan must insert a Refuel.
+        let map = basic_map();
+        let initial = WorldState::new(Loc::Origin, 4);
+        let plan = plan(
+            initial,
+            |s| s.delivered && s.fuel_bucket >= 2,
+            Operator::delivery_catalog(),
+            &map,
+            20,
+        )
+        .expect("thirsty-tank plan must still find a solution");
+        let refuels = plan
+            .actions
+            .iter()
+            .filter(|a| matches!(a, ShipAction::Refuel))
+            .count();
+        assert!(
+            refuels >= 1,
+            "thirsty-tank plan must include a Refuel: {:?}",
+            plan.actions,
+        );
+    }
+
+    #[test]
     fn plans_trade_run_ends_in_sold_state() {
         let map = trade_map();
         let initial = WorldState::new(Loc::Origin, 10);
@@ -685,6 +874,36 @@ mod tests {
         assert!(
             !plan.actions.iter().any(|a| matches!(a, ShipAction::DeliverCargo { .. })),
             "trade-run plan must not include DeliverCargo: {:?}",
+            plan.actions,
+        );
+    }
+
+    #[test]
+    fn standalone_retrofit_plan_travels_to_shipyard_and_refits() {
+        // Use retrofit_map with a reachable shipyard. Goal is just
+        // `retrofitted`, using the retrofit_catalog (no Buy /
+        // SellAll / DeliverCargo available).
+        let map = retrofit_map((2, 0, 0));
+        let initial = WorldState::new(Loc::Origin, 10);
+        let plan = plan(
+            initial,
+            |s| s.retrofitted,
+            Operator::retrofit_catalog(),
+            &map,
+            16,
+        )
+        .expect("standalone retrofit plan should exist");
+        assert!(plan.final_state.retrofitted);
+        assert!(
+            plan.actions
+                .iter()
+                .any(|a| matches!(a, ShipAction::Refit { .. })),
+            "retrofit plan must include Refit: {:?}",
+            plan.actions,
+        );
+        assert!(
+            !plan.actions.iter().any(|a| matches!(a, ShipAction::Buy { .. })),
+            "retrofit-only plan must not Buy: {:?}",
             plan.actions,
         );
     }

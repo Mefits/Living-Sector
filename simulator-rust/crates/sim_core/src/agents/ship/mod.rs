@@ -1588,16 +1588,23 @@ fn observe_prices(
 pub struct TradeRunCandidate {
     pub profit: i64,
     pub bt: BtNode<ShipAction>,
+    /// Raw trade-run params so callers can re-synthesise a combined
+    /// trade_run+retrofit BT without re-computing `best_trade_route`.
+    pub buy_loc: String,
+    pub sell_loc: String,
+    pub commodity: Commodity,
 }
 
 /// Try to build a trade_run BT + estimate its profit. Returns `None`
 /// when no margin-positive route exists in the ship's price memory.
+#[allow(clippy::too_many_arguments)]
 fn try_plan_trade_run(
     at_loc: &str,
     memory: &ShipMemory,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
     current_tick: u64,
+    fuel_bucket: u8,
 ) -> Option<TradeRunCandidate> {
     let (commodity, buy_loc, sell_loc, _margin) = best_trade_route(memory, current_tick)?;
     let buy_price = memory
@@ -1613,8 +1620,22 @@ fn try_plan_trade_run(
         .map(|p| p.price)
         .unwrap_or(0.0);
     let profit = ((sell_price - buy_price) * TRADE_QTY_DEFAULT as f32).round() as i64;
-    let bt = build_trade_run_bt(at_loc, &buy_loc, &sell_loc, commodity, registry, gate_pairs);
-    Some(TradeRunCandidate { profit, bt })
+    let bt = build_trade_run_bt(
+        at_loc,
+        &buy_loc,
+        &sell_loc,
+        commodity,
+        fuel_bucket,
+        registry,
+        gate_pairs,
+    );
+    Some(TradeRunCandidate {
+        profit,
+        bt,
+        buy_loc,
+        sell_loc,
+        commodity,
+    })
 }
 
 /// Phase 19h: median of every remembered price for `commodity`
@@ -2167,6 +2188,7 @@ pub fn is_replan_eligible(goal: &str) -> bool {
             | "seek_retrofit"
             | "sell_cargo"
             | "fulfill_delivery_with_retrofit"
+            | "trade_run_with_retrofit"
     )
 }
 
@@ -2276,7 +2298,13 @@ fn plan_goal(
         candidates.push(ScoredGoal {
             name: "seek_retrofit",
             score,
-            bt: build_retrofit_bt(&at_loc, plan, registry, gate_pairs),
+            bt: build_retrofit_bt(
+                &at_loc,
+                plan,
+                crate::ai::planner::fuel_fraction_to_bucket(fuel.fraction()),
+                registry,
+                gate_pairs,
+            ),
         });
     }
 
@@ -2285,6 +2313,7 @@ fn plan_goal(
     // weight. Archetype `prefer_goals` entries tilt the pick so
     // the fleet fans out instead of every ship running the same
     // waterfall.
+    let fuel_bucket = crate::ai::planner::fuel_fraction_to_bucket(fuel.fraction());
     if let Some(c) = try_plan_contract(
         &at_loc,
         cargo,
@@ -2295,6 +2324,7 @@ fn plan_goal(
         registry,
         gate_pairs,
         sensor_range_au,
+        fuel_bucket,
         location_to_system,
     ) {
         let score = score_strategic(c.profit, c.goal_name, personality);
@@ -2315,6 +2345,7 @@ fn plan_goal(
                 dp.quantity,
                 &dp.contract_id,
                 rp,
+                fuel_bucket,
                 registry,
                 gate_pairs,
             ) {
@@ -2336,8 +2367,31 @@ fn plan_goal(
             bt: c.bt,
         });
     }
-    if let Some(t) = try_plan_trade_run(&at_loc, memory, registry, gate_pairs, current_tick) {
+    if let Some(t) = try_plan_trade_run(&at_loc, memory, registry, gate_pairs, current_tick, fuel_bucket) {
         let score = score_strategic(t.profit, "trade_run", personality);
+        // GOAP combined goal: trade_run + retrofit. Same pattern as
+        // delivery + retrofit. When the planner folds refit into
+        // the trade-run path it wins on two fronts in one trip.
+        if let Some(rp) = retrofit {
+            if let Some(combo_bt) = try_build_trade_run_with_retrofit_planned(
+                &at_loc,
+                &t.buy_loc,
+                &t.sell_loc,
+                t.commodity,
+                rp,
+                fuel_bucket,
+                registry,
+                gate_pairs,
+            ) {
+                let combo_score = score * 1.20
+                    + score_strategic(rp.cost / 5, "seek_retrofit", personality);
+                candidates.push(ScoredGoal {
+                    name: "trade_run_with_retrofit",
+                    score: combo_score,
+                    bt: combo_bt,
+                });
+            }
+        }
         candidates.push(ScoredGoal {
             name: "trade_run",
             score,
@@ -2639,6 +2693,7 @@ fn try_plan_contract(
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
     sensor_range_au: f32,
+    fuel_bucket: u8,
     location_to_system: &StdHashMap<String, String>,
 ) -> Option<ContractCandidate> {
     use crate::economy::contracts::ContractType;
@@ -2834,6 +2889,7 @@ fn try_plan_contract(
                 &cand.source,
                 &cand.destination,
                 cand.id,
+                fuel_bucket,
                 registry,
                 gate_pairs,
             ),
@@ -2845,6 +2901,7 @@ fn try_plan_contract(
                 &cand.source,
                 &cand.destination,
                 cand.id,
+                fuel_bucket,
                 registry,
                 gate_pairs,
             ),
@@ -2858,6 +2915,7 @@ fn try_plan_contract(
                 cand.commodity,
                 cand.qty,
                 cand.id,
+                fuel_bucket,
                 registry,
                 gate_pairs,
             ),
@@ -2871,6 +2929,7 @@ fn try_plan_contract(
                 cand.commodity,
                 cand.qty,
                 cand.id,
+                fuel_bucket,
                 registry,
                 gate_pairs,
             ),
@@ -2884,6 +2943,7 @@ fn try_plan_contract(
                 cand.commodity,
                 cand.qty,
                 cand.id,
+                fuel_bucket,
                 registry,
                 gate_pairs,
             ),
@@ -2927,7 +2987,78 @@ fn build_fulfill_crew_mission_bt(
 
 /// Build a passenger/courier BT. No Buy step; the ship just hops between
 /// source and destination and collects payment on Deliver.
+#[allow(clippy::too_many_arguments)]
 fn build_fulfill_passenger_bt(
+    current: &str,
+    source: &str,
+    destination: &str,
+    contract_id: String,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    if let Some(bt) = try_build_fulfill_passenger_bt_planned(
+        current,
+        source,
+        destination,
+        &contract_id,
+        fuel_bucket,
+        registry,
+        gate_pairs,
+    ) {
+        return bt;
+    }
+    build_fulfill_passenger_bt_handauthored(
+        current,
+        source,
+        destination,
+        contract_id,
+        registry,
+        gate_pairs,
+    )
+}
+
+/// GOAP: forward planner for passenger / courier contracts. No
+/// cargo mechanics — goal is `delivered && fuel_bucket >= 2`, and
+/// the `passenger_catalog` has no Buy / SellAll / Refit operators
+/// so plans are naturally compact (just dock at source, undock,
+/// travel, dock at dest, deliver).
+fn try_build_fulfill_passenger_bt_planned(
+    current: &str,
+    source: &str,
+    destination: &str,
+    contract_id: &str,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+    // Passenger contracts ignore commodity + quantity; pass a
+    // sentinel to satisfy LocMap's delivery constructor.
+    let map = LocMap::delivery(
+        current.to_string(),
+        source.to_string(),
+        destination.to_string(),
+        Commodity::Food,
+        0,
+        contract_id.to_string(),
+        cost(current, source),
+        cost(source, destination),
+        cost(current, destination),
+    );
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan(
+        initial,
+        |s| s.delivered && s.fuel_bucket >= 2,
+        Operator::passenger_catalog(),
+        &map,
+        16,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+fn build_fulfill_passenger_bt_handauthored(
     current: &str,
     source: &str,
     destination: &str,
@@ -3184,7 +3315,66 @@ pub fn find_retrofit_opportunity(
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_retrofit_bt(
+    current: &str,
+    plan: &RetrofitPlan,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    if let Some(bt) = try_build_retrofit_bt_planned(current, plan, fuel_bucket, registry, gate_pairs) {
+        return bt;
+    }
+    build_retrofit_bt_handauthored(current, plan, registry, gate_pairs)
+}
+
+/// GOAP: forward planner for standalone retrofit. Uses the
+/// `retrofit_catalog` which has no cargo operators. Goal =
+/// `retrofitted && fuel_bucket >= 2`. Travel is only meaningful
+/// to the shipyard, so we populate only origin + shipyard costs.
+fn try_build_retrofit_bt_planned(
+    current: &str,
+    retrofit: &RetrofitPlan,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan as plan_search, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+    // Retrofit-only LocMap — Source/Dest are unused by the
+    // retrofit_catalog so their strings and costs don't matter.
+    // Shipyard fields carry the real target.
+    let mut map = LocMap::delivery(
+        current.to_string(),
+        current.to_string(), // Source placeholder (unused)
+        current.to_string(), // Dest placeholder (unused)
+        Commodity::Food,
+        0,
+        String::new(), // no contract
+        0,
+        0,
+        0,
+    );
+    map.shipyard = Some(retrofit.shipyard_location.clone());
+    map.refit_slot = Some(retrofit.slot);
+    map.refit_slug = Some(retrofit.slug);
+    map.cost_origin_to_shipyard = cost(current, &retrofit.shipyard_location);
+    map.cost_source_to_shipyard = 0;
+    map.cost_shipyard_to_dest = 0;
+
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan_search(
+        initial,
+        |s| s.retrofitted && s.fuel_bucket >= 2,
+        Operator::retrofit_catalog(),
+        &map,
+        16,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+fn build_retrofit_bt_handauthored(
     current: &str,
     plan: &RetrofitPlan,
     registry: &WorldRegistry,
@@ -3205,11 +3395,13 @@ fn build_retrofit_bt(
     BtNode::sequence(steps)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_trade_run_bt(
     current: &str,
     buy_loc: &str,
     sell_loc: &str,
     commodity: Commodity,
+    fuel_bucket: u8,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> BtNode<ShipAction> {
@@ -3222,6 +3414,7 @@ fn build_trade_run_bt(
         buy_loc,
         sell_loc,
         commodity,
+        fuel_bucket,
         registry,
         gate_pairs,
     ) {
@@ -3233,11 +3426,16 @@ fn build_trade_run_bt(
 /// GOAP expansion: run the forward planner for a trade run. Goal =
 /// `sold && fuel_bucket >= 2`. `trade_run_catalog` swaps DeliverCargo
 /// for SellAll at the destination — no contract, just a market sell.
+/// Takes the ship's real `fuel_bucket` so fuel-aware optimisations
+/// can emerge: a flush ship skips refuels, a thirsty ship forces
+/// one in at the first dockable stop.
+#[allow(clippy::too_many_arguments)]
 fn try_build_trade_run_bt_planned(
     current: &str,
     buy_loc: &str,
     sell_loc: &str,
     commodity: Commodity,
+    fuel_bucket: u8,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> Option<BtNode<ShipAction>> {
@@ -3253,7 +3451,7 @@ fn try_build_trade_run_bt_planned(
         cost(buy_loc, sell_loc),
         cost(current, sell_loc),
     );
-    let initial = WorldState::new(Loc::Origin, 10);
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
     let synth = plan(
         initial,
         |s| s.sold && s.fuel_bucket >= 2,
@@ -3326,16 +3524,14 @@ fn build_fulfill_delivery_bt(
     commodity: Commodity,
     quantity: u32,
     contract_id: String,
+    fuel_bucket: u8,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> BtNode<ShipAction> {
-    // GOAP MVP: try the synthesised path first. When the planner
-    // produces a valid plan we use it — this validates that GOAP
-    // reproduces the hand-authored shape in the common case, and
-    // opens the door to combined goals (retrofit-on-route, chained
-    // contracts) without new hand-written builders. On any failure
-    // we fall back to the hand-authored sequence so behaviour is
-    // never worse than before.
+    // GOAP: try the synthesised path first. Falls back to the
+    // hand-authored sequence if the planner can't reach the goal
+    // within its depth cap, so behaviour is never worse than
+    // before.
     if let Some(bt) = try_build_fulfill_delivery_bt_planned(
         current,
         source,
@@ -3343,6 +3539,7 @@ fn build_fulfill_delivery_bt(
         commodity,
         quantity,
         &contract_id,
+        fuel_bucket,
         registry,
         gate_pairs,
     ) {
@@ -3377,6 +3574,7 @@ fn try_build_fulfill_delivery_bt_planned(
     commodity: Commodity,
     quantity: u32,
     contract_id: &str,
+    fuel_bucket: u8,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> Option<BtNode<ShipAction>> {
@@ -3395,12 +3593,12 @@ fn try_build_fulfill_delivery_bt_planned(
         cost(current, destination),
     );
 
-    // Start state: full fuel assumption for the planner so it
-    // produces the canonical plan shape. Actual fuel at plan time
-    // varies and the BT handles real fuel constraints via its
-    // Travel/Refuel executors — the planner's job is to produce a
-    // *structurally* correct sequence, not a fuel-exact one.
-    let initial = WorldState::new(Loc::Origin, 10);
+    // Start state uses the ship's real fuel bucket so fuel-aware
+    // optimisations can emerge — a flush ship skips unnecessary
+    // refuels, a thirsty ship forces one at the first dockable
+    // stop. The BT's real executors still re-check fuel at
+    // execution time as a belt-and-braces.
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
     let synth = plan(
         initial,
         |s| s.delivered && s.fuel_bucket >= 2,
@@ -3474,6 +3672,7 @@ fn try_build_fulfill_delivery_with_retrofit_planned(
     quantity: u32,
     contract_id: &str,
     retrofit: &RetrofitPlan,
+    fuel_bucket: u8,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> Option<BtNode<ShipAction>> {
@@ -3498,11 +3697,57 @@ fn try_build_fulfill_delivery_with_retrofit_planned(
     map.cost_source_to_shipyard = cost(source, &retrofit.shipyard_location);
     map.cost_shipyard_to_dest = cost(&retrofit.shipyard_location, destination);
 
-    let initial = WorldState::new(Loc::Origin, 10);
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
     let synth = plan(
         initial,
         |s| s.delivered && s.retrofitted && s.fuel_bucket >= 2,
         Operator::delivery_catalog(),
+        &map,
+        28,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+/// GOAP: combined trade_run + retrofit. Mirror of the delivery+retrofit
+/// variant for trade-class plans — ship buys at source, detours
+/// through the shipyard for a refit, sells at dest. Uses
+/// `trade_run_catalog` (SellAll at dest instead of DeliverCargo).
+#[allow(clippy::too_many_arguments)]
+fn try_build_trade_run_with_retrofit_planned(
+    current: &str,
+    buy_loc: &str,
+    sell_loc: &str,
+    commodity: Commodity,
+    retrofit: &RetrofitPlan,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+
+    let mut map = LocMap::trade_run(
+        current.to_string(),
+        buy_loc.to_string(),
+        sell_loc.to_string(),
+        commodity,
+        TRADE_QTY_DEFAULT,
+        cost(current, buy_loc),
+        cost(buy_loc, sell_loc),
+        cost(current, sell_loc),
+    );
+    map.shipyard = Some(retrofit.shipyard_location.clone());
+    map.refit_slot = Some(retrofit.slot);
+    map.refit_slug = Some(retrofit.slug);
+    map.cost_origin_to_shipyard = cost(current, &retrofit.shipyard_location);
+    map.cost_source_to_shipyard = cost(buy_loc, &retrofit.shipyard_location);
+    map.cost_shipyard_to_dest = cost(&retrofit.shipyard_location, sell_loc);
+
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan(
+        initial,
+        |s| s.sold && s.retrofitted && s.fuel_bucket >= 2,
+        Operator::trade_run_catalog(),
         &map,
         28,
     )?;
@@ -3922,6 +4167,8 @@ mod tick_tests {
         // Combined delivery+retrofit is also committed — interrupting
         // mid-detour loses both the delivery and the retrofit.
         assert!(!is_replan_eligible("fulfill_delivery_with_retrofit"));
+        // Same for combined trade_run+retrofit.
+        assert!(!is_replan_eligible("trade_run_with_retrofit"));
         // Strategic + idle are fair game.
         assert!(is_replan_eligible("fulfill_delivery"));
         assert!(is_replan_eligible("fulfill_contract"));
