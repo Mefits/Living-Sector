@@ -899,11 +899,13 @@ pub const CREW_HUNGER_MEAL_REDUCTION: f32 = 25.0;
 
 /// Tick all ships in 4 passes to keep hecs borrows clean.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub fn tick_ships(
     world: &mut hecs::World,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
     contracts: &crate::economy::contracts::ContractBoard,
+    relations: &crate::agents::faction_relations::FactionRelations,
     commands: &mut CommandBuffer,
     tick: u64,
     tick_scale: f32,
@@ -965,6 +967,7 @@ pub fn tick_ships(
         registry,
         gate_pairs,
         contracts,
+        relations,
         commands,
         tick,
         tick_multiplier,
@@ -1719,11 +1722,13 @@ pub fn best_trade_route(
 
 /// Pass 3: decide + act on each ship.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn decide_and_act(
     world: &mut hecs::World,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
     contracts: &crate::economy::contracts::ContractBoard,
+    relations: &crate::agents::faction_relations::FactionRelations,
     commands: &mut CommandBuffer,
     tick: u64,
     tick_multiplier: u32,
@@ -1835,11 +1840,13 @@ fn decide_and_act(
             continue;
         }
 
-        // Fetch ship's string id (used for contract acceptance)
-        let ship_id: String = match world.get::<&ShipIdentity>(entity) {
-            Ok(id) => id.id.clone(),
-            Err(_) => continue,
-        };
+        // Fetch ship's string id (used for contract acceptance) +
+        // faction id (used by Bundle B's treaty-implied rep floor).
+        let (ship_id, ship_faction): (String, String) =
+            match world.get::<&ShipIdentity>(entity) {
+                Ok(id) => (id.id.clone(), id.faction_id.clone()),
+                Err(_) => continue,
+            };
 
         // Snapshot crew state before the main mut borrow (needed for the planner).
         let crew_snapshot: Option<ShipCrew> = world
@@ -1994,6 +2001,26 @@ fn decide_and_act(
             && (tick + ship_offset) % REPLAN_CHECK_INTERVAL_TICKS == 0;
 
         if needs_plan || replan_check_due {
+            // Bundle B: merge the ship's explicit reputation with
+            // treaty-implied floors so a TradePact grants visibility
+            // of the 50-rep tier, Allied grants 70. Merge max()s in
+            // favour of explicit rep, so a heavily-decorated ship
+            // doesn't get *downgraded* by a treaty with a lesser ally.
+            let effective_reputation: StdHashMap<String, u8> = {
+                let floors =
+                    crate::agents::faction_relations::treaty_rep_floors(
+                        relations,
+                        &ship_faction,
+                    );
+                let mut out = economy.faction_reputation.clone();
+                for (fac, floor) in floors {
+                    let entry = out.entry(fac).or_insert(0);
+                    if *entry < floor {
+                        *entry = floor;
+                    }
+                }
+                out
+            };
             let candidate = plan_goal(
                 position,
                 cargo,
@@ -2002,6 +2029,7 @@ fn decide_and_act(
                 memory,
                 crew_snapshot.as_ref(),
                 contracts,
+                &effective_reputation,
                 &ship_id,
                 registry,
                 gate_pairs,
@@ -2243,6 +2271,7 @@ pub fn is_replan_eligible(goal: &str) -> bool {
 /// - **trade_run** — from `try_plan_trade_run`, same scoring
 /// - **explore / idle_seek_station / idle** — from `smart_idle_fallback`
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn plan_goal(
     position: &ShipPosition,
     cargo: &ShipCargo,
@@ -2251,6 +2280,7 @@ fn plan_goal(
     memory: &ShipMemory,
     crew: Option<&ShipCrew>,
     contracts: &crate::economy::contracts::ContractBoard,
+    effective_reputation: &StdHashMap<String, u8>,
     ship_id: &str,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
@@ -2354,6 +2384,7 @@ fn plan_goal(
         &at_loc,
         cargo,
         economy,
+        effective_reputation,
         memory,
         contracts,
         ship_id,
@@ -2723,6 +2754,7 @@ fn try_plan_contract(
     at_loc: &str,
     cargo: &ShipCargo,
     economy: &ShipEconomy,
+    effective_reputation: &StdHashMap<String, u8>,
     memory: &ShipMemory,
     contracts: &crate::economy::contracts::ContractBoard,
     _ship_id: &str,
@@ -2763,7 +2795,7 @@ fn try_plan_contract(
     }
     let mut best: Option<Candidate> = None;
 
-    for c in contracts.posted_for_ship(&economy.faction_reputation) {
+    for c in contracts.posted_for_ship(effective_reputation) {
         // Phase 18f: sensor-range gate for cross-system contracts.
         // If the contract's source and destination span different
         // systems (or leave the ship's system) and the ship's

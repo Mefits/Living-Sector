@@ -275,6 +275,7 @@ pub async fn run_tick_loop(
             &registry,
             &gate_pairs_snapshot,
             &store.contracts,
+            &store.relations,
             &mut commands,
             tick,
             tick_scale,
@@ -1232,8 +1233,6 @@ fn apply_ship_commands(
                         .get::<&sim_core::agents::ship::ShipFitting>(ship)
                         .map(|f| f.derived.comms_bonus)
                         .unwrap_or(0.0);
-                    let effective_payment: i64 = ((c.payment as f32) * (1.0 + comms_bonus))
-                        .round() as i64;
                     // Bundle A: read ship faction up front for the
                     // relations-standing bump. Taking an immutable
                     // borrow of ShipIdentity here and letting it drop
@@ -1246,6 +1245,24 @@ fn apply_ship_commands(
                         .ok()
                         .map(|i| i.faction_id.clone())
                         .unwrap_or_default();
+                    // Bundle B: treaty-driven payment bonus applies on
+                    // top of Phase 18f's comms multiplier. TradePact =
+                    // +10%, Allied = +15%, anything else = 1.0 (same
+                    // as pre-Bundle-B behaviour).
+                    let treaty_mult = c
+                        .faction_id
+                        .as_deref()
+                        .map(|f| {
+                            sim_core::agents::faction_relations::trade_pact_payment_multiplier(
+                                &store.relations,
+                                &ship_faction,
+                                f,
+                            )
+                        })
+                        .unwrap_or(1.0);
+                    let effective_payment: i64 =
+                        ((c.payment as f32) * (1.0 + comms_bonus) * treaty_mult)
+                            .round() as i64;
                     if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
                         econ.credits += effective_payment;
                         if let Some(faction) = c.faction_id.as_ref() {
@@ -1833,19 +1850,44 @@ fn commit_dock(
     fee: i64,
 ) {
     use sim_core::agents::{
-        facility::{FacilityOperations, FacilityStorage},
-        ship::{ShipEconomy, ShipPosition},
+        facility::{FacilityIdentity, FacilityOperations, FacilityStorage},
+        ship::{ShipEconomy, ShipIdentity, ShipPosition},
     };
+    // Bundle B: trade-pact / allied dock discount. Look up the
+    // relation between the ship's faction and the facility's
+    // owning faction once up front — same-faction + unfactioned
+    // facilities both no-op into (1.0, 1.0).
+    let ship_faction = store
+        .world
+        .get::<&ShipIdentity>(ship)
+        .ok()
+        .map(|i| i.faction_id.clone())
+        .unwrap_or_default();
+    let fac_faction = store
+        .world
+        .get::<&FacilityIdentity>(facility)
+        .ok()
+        .map(|i| i.faction_id.clone())
+        .unwrap_or_default();
+    let (fee_mult, burn_mult) =
+        sim_core::agents::faction_relations::trade_pact_dock_modifier(
+            &store.relations,
+            &ship_faction,
+            &fac_faction,
+        );
+    let discounted_fee = ((fee as f32) * fee_mult).round() as i64;
     if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
-        econ.credits -= fee;
+        econ.credits -= discounted_fee;
     }
     // Bundle (G): split the fee — facility takes the remainder
     // after burn, the burned portion is a true sink (subtracted
     // from the ship, never added to any balance). Burn fraction
-    // lives in WorldTuning (Bundle Q).
+    // lives in WorldTuning (Bundle Q); Bundle B further scales it
+    // by treaty state so allied docks burn less (or nothing).
     let burn_pct = sim_core::simulation::tuning::WorldTuning::current().dock_fee_burn_pct;
-    let burned = (fee as f32 * burn_pct).round() as i64;
-    let to_facility = fee - burned;
+    let effective_burn_pct = burn_pct * burn_mult;
+    let burned = (discounted_fee as f32 * effective_burn_pct).round() as i64;
+    let to_facility = discounted_fee - burned;
     if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(facility) {
         ops.credits += to_facility;
         ops.dirty = true;

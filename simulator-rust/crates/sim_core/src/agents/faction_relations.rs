@@ -226,6 +226,118 @@ impl FactionRelations {
 // ============================================================================
 
 // ----------------------------------------------------------------------------
+// Bundle B: dock-fee + burn modifiers per treaty state. Consumed by
+// `commit_dock` in the engine. A `(fee_mult, burn_mult)` tuple —
+// apply as `fee × fee_mult`, `burn_pct × burn_mult`. Neutral /
+// missing / same-faction all resolve to (1.0, 1.0).
+//
+// Numbers chosen so TradePact feels like a real perk without making
+// Allied-only routes economically obvious: a ship pays 80% of the
+// base fee with a halved burn at TradePact, 60% with zero burn at
+// Allied. Hostile reverses the sign (see Bundle E).
+// ----------------------------------------------------------------------------
+
+/// Returns `(fee_factor, burn_factor)` for a ship of `ship_faction`
+/// docking at a facility owned by `fac_faction`. Both default to 1.0
+/// when either side is missing or the pair is the same faction.
+pub fn trade_pact_dock_modifier(
+    relations: &FactionRelations,
+    ship_faction: &str,
+    fac_faction: &str,
+) -> (f32, f32) {
+    if ship_faction.is_empty() || fac_faction.is_empty() || ship_faction == fac_faction {
+        return (1.0, 1.0);
+    }
+    let Some(state) = relations.state(ship_faction, fac_faction) else {
+        return (1.0, 1.0);
+    };
+    match state.treaty {
+        TreatyKind::TradePact => (0.8, 0.5),
+        TreatyKind::Allied => (0.6, 0.0),
+        _ => (1.0, 1.0),
+    }
+}
+
+/// Returns the delivery-payment multiplier between a ship and a
+/// contract's requestor faction. TradePact = +10%, Allied = +15%,
+/// anything else = 1.0. Missing / same-faction short-circuits to 1.0.
+pub fn trade_pact_payment_multiplier(
+    relations: &FactionRelations,
+    ship_faction: &str,
+    requestor_faction: &str,
+) -> f32 {
+    if ship_faction.is_empty() || requestor_faction.is_empty() || ship_faction == requestor_faction {
+        return 1.0;
+    }
+    let Some(state) = relations.state(ship_faction, requestor_faction) else {
+        return 1.0;
+    };
+    match state.treaty {
+        TreatyKind::TradePact => 1.10,
+        TreatyKind::Allied => 1.15,
+        _ => 1.0,
+    }
+}
+
+/// True when `ship_faction` should see contracts tagged with
+/// `requestor_faction` regardless of stored reputation. Bundle B:
+/// TradePact + Allied = yes. Callers still OR this with the
+/// per-ship rep-tier scan so explicit rep above 0 stays the
+/// primary gate.
+pub fn trade_pact_grants_visibility(
+    relations: &FactionRelations,
+    ship_faction: &str,
+    requestor_faction: &str,
+) -> bool {
+    if ship_faction.is_empty() || requestor_faction.is_empty() || ship_faction == requestor_faction {
+        // Same-faction always visible — same as the existing
+        // behaviour when posted_by_faction buckets on the ship's
+        // own id.
+        return ship_faction == requestor_faction;
+    }
+    let Some(state) = relations.state(ship_faction, requestor_faction) else {
+        return false;
+    };
+    matches!(state.treaty, TreatyKind::TradePact | TreatyKind::Allied)
+}
+
+/// Bundle B: "implied" reputation floor per counterpart faction
+/// granted by an active treaty. TradePact lets the ship see the
+/// allied tier (50), Allied lets the ship see the faction-only
+/// tier (70). Callers merge this with `ShipEconomy.faction_reputation`
+/// via `max()` so explicit rep above the treaty floor still wins.
+///
+/// Returned map keys are counterpart faction ids (never `ship_faction`).
+/// Empty when the ship has no active positive treaties, which short-
+/// circuits the caller's merge.
+pub fn treaty_rep_floors(
+    relations: &FactionRelations,
+    ship_faction: &str,
+) -> std::collections::HashMap<String, u8> {
+    use std::collections::HashMap;
+    let mut out = HashMap::new();
+    if ship_faction.is_empty() {
+        return out;
+    }
+    for (pair, state) in relations.iter() {
+        let counterpart = if pair.0 == ship_faction {
+            pair.1.as_str()
+        } else if pair.1 == ship_faction {
+            pair.0.as_str()
+        } else {
+            continue;
+        };
+        let floor = match state.treaty {
+            TreatyKind::TradePact => 50,
+            TreatyKind::Allied => 70,
+            _ => continue,
+        };
+        out.insert(counterpart.to_string(), floor);
+    }
+    out
+}
+
+// ----------------------------------------------------------------------------
 // Standing-change magnitudes consumed by the `DeliverContract` /
 // `ReleaseContract` apply hooks. Small integers so decay can dominate
 // noise: ~50 successful cross-faction deliveries to reach TradePact
@@ -518,6 +630,59 @@ mod tests {
         r.bump_standing("a", "b", 100, 10);
         tick_relations(&mut r, 20, 1);
         assert_eq!(r.state("a", "b").unwrap().treaty, TreatyKind::War);
+    }
+
+    #[test]
+    fn trade_pact_dock_modifier_neutral_is_passthrough() {
+        let r = FactionRelations::new();
+        assert_eq!(trade_pact_dock_modifier(&r, "a", "b"), (1.0, 1.0));
+    }
+
+    #[test]
+    fn trade_pact_dock_modifier_applies_by_treaty() {
+        let mut r = FactionRelations::new();
+        r.set_treaty("a", "b", TreatyKind::TradePact, 0);
+        assert_eq!(trade_pact_dock_modifier(&r, "a", "b"), (0.8, 0.5));
+        r.set_treaty("a", "b", TreatyKind::Allied, 10);
+        assert_eq!(trade_pact_dock_modifier(&r, "a", "b"), (0.6, 0.0));
+    }
+
+    #[test]
+    fn trade_pact_payment_multiplier_applies_by_treaty() {
+        let mut r = FactionRelations::new();
+        assert_eq!(trade_pact_payment_multiplier(&r, "a", "b"), 1.0);
+        r.set_treaty("a", "b", TreatyKind::TradePact, 0);
+        assert!((trade_pact_payment_multiplier(&r, "a", "b") - 1.10).abs() < 1e-6);
+        r.set_treaty("a", "b", TreatyKind::Allied, 10);
+        assert!((trade_pact_payment_multiplier(&r, "a", "b") - 1.15).abs() < 1e-6);
+    }
+
+    #[test]
+    fn treaty_rep_floors_lifts_trade_pact_to_50() {
+        let mut r = FactionRelations::new();
+        r.set_treaty("alpha", "beta", TreatyKind::TradePact, 0);
+        let floors = treaty_rep_floors(&r, "alpha");
+        assert_eq!(floors.get("beta"), Some(&50));
+        // Direction-insensitive — querying from the other side works too.
+        let floors = treaty_rep_floors(&r, "beta");
+        assert_eq!(floors.get("alpha"), Some(&50));
+    }
+
+    #[test]
+    fn treaty_rep_floors_lifts_allied_to_70() {
+        let mut r = FactionRelations::new();
+        r.set_treaty("alpha", "beta", TreatyKind::Allied, 0);
+        let floors = treaty_rep_floors(&r, "alpha");
+        assert_eq!(floors.get("beta"), Some(&70));
+    }
+
+    #[test]
+    fn treaty_rep_floors_ignores_non_positive_treaties() {
+        let mut r = FactionRelations::new();
+        r.set_treaty("alpha", "beta", TreatyKind::Tense, 0);
+        r.set_treaty("alpha", "gamma", TreatyKind::Hostile, 0);
+        r.set_treaty("alpha", "delta", TreatyKind::War, 0);
+        assert!(treaty_rep_floors(&r, "alpha").is_empty());
     }
 
     #[test]
