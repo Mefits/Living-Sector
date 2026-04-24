@@ -344,6 +344,20 @@ directly; zero marshalling between sim and render.
   hecs `world.get::<&mut _>`, bypassing `SimCommand`. Proves the
   embedded-arch admin pattern: no HTTP, direct component write.
   Applied after the read-only query closure drops its borrow.
+- **Bundle 3u**: minimap. Bottom-right egui window draws a top-down
+  map — bodies as medium dots, ships as tiny dots, yellow crosshair
+  at camera focus, bounds auto-fit to body cluster each frame with
+  10% margin. Click anywhere on the minimap to recenter the orbit
+  camera on that universe position.
+- **Bundle 3v**: per-class ship silhouettes. Placeholder assets now
+  carry one Cuboid per class — courier slim+long, freighter wider,
+  hauler biggest+squat, tanker medium+tall, miner stubby — so role
+  reads at a glance.
+- **Bundle 3w**: body labels overlay. `Camera::world_to_viewport`
+  projects each celestial body's position to screen, egui draws
+  its name above the sphere. Toggle via "Labels" in top bar.
+  Default ON for orientation; off-screen + behind-camera bodies
+  skipped automatically.
 
 Deferred:
 - **Bundle 2b.4** — extract `sim_engine` crate: lift
@@ -352,8 +366,8 @@ Deferred:
   phase chain. Until then the embedded tick moves ships visually
   but doesn't progress the economy and new retirements/events land
   only after a restart.
-- Events ticker, minimap, more admin actions (spawn / delete /
-  refit), procedural ship meshes, nebula backdrop, save / save-as.
+- Events ticker, more admin actions (spawn / delete / refit),
+  procedural ship meshes, nebula backdrop, save / save-as.
 
 ## Systems wired
 
