@@ -73,7 +73,11 @@ pub struct BodyEntity {
 /// as factions at a glance.
 #[derive(Resource)]
 struct PlaceholderAssets {
-    ship_mesh: Handle<Mesh>,
+    /// One mesh per ship class — freighter wider, courier sleek, etc.
+    /// Fallback for unknown class strings falls back to the `default`
+    /// key. Shared handles → instancing still works per-archetype.
+    ship_mesh_by_class: std::collections::HashMap<String, Handle<Mesh>>,
+    ship_mesh_default: Handle<Mesh>,
     ship_mat_by_faction: std::collections::HashMap<String, Handle<StandardMaterial>>,
     ship_mat_fallback: Handle<StandardMaterial>,
     facility_mesh: Handle<Mesh>,
@@ -88,6 +92,35 @@ impl PlaceholderAssets {
             .get(faction)
             .cloned()
             .unwrap_or_else(|| self.ship_mat_fallback.clone())
+    }
+
+    fn ship_mesh_for(&self, class: &str) -> Handle<Mesh> {
+        self.ship_mesh_by_class
+            .get(class)
+            .cloned()
+            .unwrap_or_else(|| self.ship_mesh_default.clone())
+    }
+}
+
+/// Class-specific placeholder dimensions (width, height, length) in
+/// world units. Nose is +Z (see `sync_positions` rotation math); the
+/// rotation + stretched Z gives the sense of travel direction. Picked
+/// to read distinctly at the 1600-ship stress:
+///
+/// - **courier**: slim + long → fast, narrow
+/// - **freighter**: wider body → cargo capacity visible
+/// - **hauler**: biggest, squat → industrial
+/// - **tanker**: medium but tall → rounded silhouette
+/// - **miner**: stubby, balanced → industrial compact
+fn ship_dimensions(class: &str) -> (f32, f32, f32) {
+    let base = SHIP_SIZE;
+    match class {
+        "courier" => (base * 0.35, base * 0.35, base * 2.0),
+        "freighter" => (base * 0.70, base * 0.50, base * 1.6),
+        "hauler" => (base * 0.85, base * 0.60, base * 1.8),
+        "tanker" => (base * 0.60, base * 0.70, base * 1.5),
+        "miner" => (base * 0.55, base * 0.55, base * 1.3),
+        _ => (base * 0.5, base * 0.5, base * 1.6),
     }
 }
 
@@ -138,15 +171,23 @@ fn spawn_mirror_entities(
         ..default()
     });
 
+    // Build one placeholder mesh per ship class plus a default. Each
+    // class has its own cuboid proportions — see `ship_dimensions`.
+    // Nose is +Z so the rotation math in `sync_positions` lines up.
+    let mut ship_mesh_by_class = std::collections::HashMap::new();
+    for class in ["courier", "freighter", "hauler", "tanker", "miner"] {
+        let (w, h, l) = ship_dimensions(class);
+        ship_mesh_by_class.insert(
+            class.to_string(),
+            meshes.add(Cuboid::new(w, h, l)),
+        );
+    }
+    let (dw, dh, dl) = ship_dimensions("default");
+    let ship_mesh_default = meshes.add(Cuboid::new(dw, dh, dl));
+
     let assets = PlaceholderAssets {
-        // Elongated prism so ships read as "pointing somewhere". Nose
-        // is +Z in local space (before rotation). Scale picks a 3:1
-        // length-to-width so direction is legible even at zoom-out.
-        ship_mesh: meshes.add(Cuboid::new(
-            SHIP_SIZE * 0.5,
-            SHIP_SIZE * 0.5,
-            SHIP_SIZE * 1.6,
-        )),
+        ship_mesh_by_class,
+        ship_mesh_default,
         ship_mat_by_faction,
         ship_mat_fallback,
         facility_mesh: meshes.add(Cylinder::new(FACILITY_SIZE * 0.5, FACILITY_SIZE)),
@@ -177,7 +218,7 @@ fn spawn_mirror_entities(
         let (x, y) = pos.position;
         commands.spawn((
             PbrBundle {
-                mesh: assets.ship_mesh.clone(),
+                mesh: assets.ship_mesh_for(&id.class),
                 material: assets.ship_mat_for(&id.faction_id),
                 transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
                 ..default()
