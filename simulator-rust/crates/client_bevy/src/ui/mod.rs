@@ -1509,7 +1509,7 @@ fn format_int(n: i64) -> String {
 
 fn ship_details_panel(
     mut ctx: EguiContexts,
-    sim: Res<Sim>,
+    sim: ResMut<Sim>,
     mut selected: ResMut<SelectedShip>,
     mut focus_req: ResMut<CameraFocusRequest>,
 ) {
@@ -1530,6 +1530,10 @@ fn ship_details_panel(
     };
 
     let mut still_open = true;
+    // Captured by the egui closure; consulted after the closure ends
+    // so we don't try to mutably borrow sim while a read-query is
+    // still alive inside.
+    let mut grant_xp_requested = false;
     let title = format!("Ship · {}", ship_id);
 
     egui::Window::new(title)
@@ -1561,14 +1565,31 @@ fn ship_details_panel(
                 return;
             };
 
-            // Toolbar: camera focus. Uses the ship's current world
-            // position (scaled), dropped into the one-shot focus
-            // request Resource; the camera plugin snaps on the same
-            // frame.
+            // Toolbar: camera focus + admin actions. Camera focus
+            // writes a separate Resource so it's safe inline. Grant
+            // XP flips a local bool that the system processes after
+            // the query borrow ends — hecs forbids concurrent read
+            // and write on the same world.
             ui.horizontal(|ui| {
                 if ui.button("Focus camera").clicked() {
                     let (x, y) = pos.position;
                     focus_req.0 = Some(Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR));
+                }
+                ui.separator();
+                ui.label(
+                    egui::RichText::new("admin:")
+                        .small()
+                        .color(egui::Color32::from_gray(160)),
+                );
+                if ui
+                    .button(egui::RichText::new("+100 XP").small())
+                    .on_hover_text(
+                        "Instantly grant 100 XP to this ship (embedded-client \
+                         admin: mutates the hecs component in place, no HTTP).",
+                    )
+                    .clicked()
+                {
+                    grant_xp_requested = true;
                 }
             });
             ui.separator();
@@ -1808,6 +1829,19 @@ fn ship_details_panel(
                     });
             });
         });
+
+    if grant_xp_requested {
+        use sim_core::agents::ship::ShipProgression;
+        if let Ok(mut prog) = sim.store.world.get::<&mut ShipProgression>(entity) {
+            let levels = prog.grant_xp(100);
+            info!(
+                "client_bevy admin: +100 XP to {} ({}level+{})",
+                ship_id,
+                if levels > 0 { "leveled up! " } else { "" },
+                prog.retrofit_points,
+            );
+        }
+    }
 
     if !still_open {
         selected.0 = None;
