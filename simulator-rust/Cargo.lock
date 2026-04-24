@@ -1489,8 +1489,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sim_core",
+ "sim_db",
+ "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

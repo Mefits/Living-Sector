@@ -11,22 +11,27 @@ use std::time::Duration;
 mod sim;
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,client_bevy=info".into()),
-        )
-        .init();
-
+    // Let Bevy's LogPlugin own the global tracing subscriber — it
+    // already installs one and fights ours for the slot otherwise
+    // ("Could not set global logger" error on startup). We configure
+    // the same filter through its LogPlugin instead.
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "spaceproject (bevy, embedded)".into(),
-                resolution: (1280., 720.).into(),
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "spaceproject (bevy, embedded)".into(),
+                        resolution: (1280., 720.).into(),
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(bevy::log::LogPlugin {
+                    level: bevy::log::Level::INFO,
+                    filter: "info,client_bevy=info,wgpu=warn,naga=warn".into(),
+                    ..default()
+                }),
+        )
         // Fixed-timestep schedule drives the sim tick independently of
         // render frame rate. Matches the sim_server default of 125 ms
         // per tick (8 tps). World-speed UI will rescale this later.

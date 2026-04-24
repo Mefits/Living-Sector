@@ -22,14 +22,20 @@ authors = ["David Clausen"]
 # The sim itself, embedded as a library. All tick logic, types,
 # seeders, and state live here.
 sim_core = { path = "../sim_core" }
+# Persistence + seeder + spawner for loading the world on startup
+# and flushing changes back to SQLite.
+sim_db = { path = "../sim_db" }
 
 # Workspace-shared (resolved once across sim + client).
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 rand = { workspace = true }
+# Tokio for the one-shot Startup runtime that runs async sqlx
+# operations (seed + spawn) synchronously from Bevy's Startup
+# system, plus the persistence worker running on a side thread.
+tokio = { workspace = true }
 
 # Engine + render stack — client-only deps, declared here directly.
 # Version-pinned intentionally: Bevy's API moves; bundle-by-bundle
