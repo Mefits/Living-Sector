@@ -47,16 +47,16 @@ impl Plugin for SimPlugin {
 /// in turn owns the hecs `World`, the contract board, the various
 /// pending queues, etc.) plus the counters `sim_server` tracks
 /// separately on `AppState`.
-///
-/// Fields reserved for Bundle 2b.3 (tick orchestration) stay behind
-/// `#[allow(dead_code)]` until they're consumed.
 #[derive(Resource)]
 pub struct Sim {
     pub store: AgentStore,
     pub registry: Arc<WorldRegistry>,
     pub tick: u64,
     pub running: bool,
-    #[allow(dead_code)]
+    /// World-speed multiplier. `tick_sim` runs this many sim ticks
+    /// per fixed update; 1 = normal 125ms cadence, 2 = 2× speed, 4
+    /// = 4× speed, etc. Bumped by the top-bar speed combo; persists
+    /// only for the current session.
     pub tick_mult: u32,
     #[allow(dead_code)]
     pub world_seed: u64,
@@ -192,30 +192,36 @@ fn tick_sim(mut sim: ResMut<Sim>) {
     if !sim.running {
         return;
     }
-    sim.tick += 1;
 
     let config = TickConfig::DEFAULT;
     let tick_scale = config.tick_scale();
-    let tick_mult = sim.tick_mult;
-    let tick = sim.tick;
+    let tick_mult = sim.tick_mult.max(1);
 
-    let Sim { store, registry, .. } = &mut *sim;
+    // Run `tick_mult` sim ticks per fixed update so the world-speed
+    // control feels crisp. At the current minimum-viable tick
+    // (ship::tick_ships only), running N ticks in sequence is the
+    // same as one tick with `tick_mult=N` used by the stepping math
+    // — keeps parity with sim_server's speed model once we wire the
+    // rest of the phases in Bundle 2b.4.
+    for _ in 0..tick_mult {
+        sim.tick += 1;
+        let tick = sim.tick;
+        let Sim { store, registry, .. } = &mut *sim;
 
-    // Emitted commands go into `commands`; we drop the buffer at
-    // end-of-tick until Bundle 2b.4 wires in apply.
-    let mut commands = CommandBuffer::new();
-    ship::tick_ships(
-        &mut store.world,
-        registry,
-        &store.gate_pairs,
-        &store.contracts,
-        &store.relations,
-        &mut commands,
-        tick,
-        tick_scale,
-        tick_mult,
-    );
-    commands.clear();
+        let mut commands = CommandBuffer::new();
+        ship::tick_ships(
+            &mut store.world,
+            registry,
+            &store.gate_pairs,
+            &store.contracts,
+            &store.relations,
+            &mut commands,
+            tick,
+            tick_scale,
+            tick_mult,
+        );
+        commands.clear();
+    }
 }
 
 /// DB path resolution — honour `DATABASE_PATH` env var, else look

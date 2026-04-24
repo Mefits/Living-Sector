@@ -70,7 +70,7 @@ impl Plugin for UiPlugin {
 #[allow(clippy::too_many_arguments)]
 fn top_bar(
     mut ctx: EguiContexts,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     retirements: Res<Retirements>,
     mut ships: ResMut<ShipListState>,
     mut contracts: ResMut<ContractsState>,
@@ -89,6 +89,32 @@ fn top_bar(
     egui::TopBottomPanel::top("top_bar").show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("spaceproject").strong());
+            ui.separator();
+            // Pause toggle — empty string = play, dot = paused. Matches
+            // ▶/⏸ iconography without pulling a font in.
+            let running = sim.running;
+            let label = if running { "⏸ Pause" } else { "▶ Play" };
+            if ui.button(label).clicked() {
+                sim.running = !running;
+            }
+            // Speed combo. Stays in effect across pause/resume —
+            // pausing just freezes the tick loop.
+            let mut speed = sim.tick_mult.max(1);
+            egui::ComboBox::from_id_salt("sim_speed_combo")
+                .selected_text(format!("{}×", speed))
+                .show_ui(ui, |ui| {
+                    for &s in &[1u32, 2, 4, 8] {
+                        if ui.selectable_value(&mut speed, s, format!("{}×", s)).clicked() {
+                            sim.tick_mult = s;
+                        }
+                    }
+                });
+            ui.separator();
+            ui.label(
+                egui::RichText::new(format!("tick {}", sim.tick))
+                    .monospace()
+                    .color(egui::Color32::from_gray(180)),
+            );
             ui.separator();
             if ui
                 .selectable_label(
