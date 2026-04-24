@@ -408,6 +408,15 @@ directly; zero marshalling between sim and render.
 - **Bundle 3ab**: gate ring gizmos. Amber 48-segment Gizmos circle
   at each `facility_type == "gate"` body position, radius 0.7 wu.
   Visually separates jump gates from stations at a glance.
+- **Bundle 3ac**: construction site gizmos. Outer amber scaffold
+  ring (radius 0.9) + filled inner green progress ring whose
+  radius scales with `site.progress()`. Gizmo-only so it handles
+  dynamic spawn + materialization without a matching Bevy-entity
+  lifecycle.
+- **Bundle 3ad**: Reset view button + `CameraResetRequest`
+  Resource. Top bar button flips the flag; the camera plugin's
+  new `apply_reset_request` system restores `OrbitCamera` to
+  `::initial()` pose. One-click recovery when pan/zoom drifts.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
