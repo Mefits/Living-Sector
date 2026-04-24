@@ -1968,15 +1968,30 @@ fn decide_and_act(
         let needs_plan = ai.current_bt.is_none();
         // Bundle 2.2: mid-action replan check. If the current goal is
         // replan-eligible, we've been committed for the minimum dwell,
-        // and it's a check-interval tick, re-run the planner and
-        // switch if the new top candidate clears the
+        // and it's this ship's check-interval tick, re-run the planner
+        // and switch if the new top candidate clears the
         // REPLAN_SCORE_RATIO bar. Prevents ships from locking into
         // stale trade runs when a juicy subsidy lands mid-flight.
+        //
+        // Perf tune: the trigger used to be `tick % INTERVAL == 0`
+        // which synced every eligible ship onto the same ticks and
+        // created p99 spikes. Now each ship gets a per-id hash
+        // offset so checks spread across all ticks evenly — same
+        // overall check frequency, flatter CPU profile.
         let elapsed_since_plan = tick.saturating_sub(ai.last_plan_tick);
+        let ship_offset: u64 = {
+            // Cheap deterministic hash — FNV-style on the id bytes.
+            let mut h: u64 = 14695981039346656037;
+            for b in ship_id.as_bytes() {
+                h ^= *b as u64;
+                h = h.wrapping_mul(1099511628211);
+            }
+            h % REPLAN_CHECK_INTERVAL_TICKS
+        };
         let replan_check_due = !needs_plan
             && is_replan_eligible(&ai.current_goal)
             && elapsed_since_plan >= REPLAN_MIN_COMMIT_TICKS
-            && tick % REPLAN_CHECK_INTERVAL_TICKS == 0;
+            && (tick + ship_offset) % REPLAN_CHECK_INTERVAL_TICKS == 0;
 
         if needs_plan || replan_check_due {
             let candidate = plan_goal(
@@ -2174,10 +2189,17 @@ pub struct ScoredGoal {
 pub const REPLAN_MIN_COMMIT_TICKS: u64 = 40;
 
 /// Bundle 2.2: cadence for the mid-action replan check. At 8 tps
-/// this fires every ~2.5 seconds of wall-clock — often enough to
+/// this fires every ~5 seconds of wall-clock — often enough to
 /// catch a fresh opportunity, rare enough to keep overhead low
 /// (a replan check rebuilds candidate BTs, which isn't free).
-pub const REPLAN_CHECK_INTERVAL_TICKS: u64 = 20;
+///
+/// Perf tune 2026-04: bumped from 20 → 40 to halve the number
+/// of replan-check ticks. Combined with the per-ship stagger
+/// below (a hash-derived offset makes ship A check at tick 40,
+/// ship B at tick 41, etc.), the plan_goal work per tick is
+/// both halved AND smoothed — no more cliff at every
+/// multiple-of-20 tick where every eligible ship plans at once.
+pub const REPLAN_CHECK_INTERVAL_TICKS: u64 = 40;
 
 /// Bundle 2.2: how much better the best alternative needs to be
 /// before we interrupt the current plan. 1.30 = +30% — enough to
