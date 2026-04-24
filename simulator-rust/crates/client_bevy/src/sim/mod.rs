@@ -25,6 +25,19 @@ use std::sync::Arc;
 #[derive(Resource, Default)]
 pub struct Retirements(pub Vec<RetirementRow>);
 
+/// Rolling ring of per-tick events drained from the tick chain's
+/// `events: Vec<serde_json::Value>`. Oldest at the front; bounded
+/// at [`EVENTS_CAP`] to keep memory flat for long sessions. Each
+/// entry stores the tick it fired at alongside the raw json so the
+/// events panel can render in insertion order without reparsing
+/// tick numbers.
+#[derive(Resource, Default)]
+pub struct EventsLog(pub std::collections::VecDeque<(u64, serde_json::Value)>);
+
+/// Ring capacity — roughly 2 minutes of events at 1000 events/tick.
+/// Well below a MB of memory; the egui panel paginates anyway.
+pub const EVENTS_CAP: usize = 2000;
+
 /// Base tick interval (seconds). Matches sim_server's default 125 ms
 /// cadence. World-speed UI in a future bundle rescales this.
 pub const DEFAULT_TICK_INTERVAL_S: f64 = 0.125;
@@ -38,6 +51,7 @@ impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Sim>()
             .init_resource::<Retirements>()
+            .init_resource::<EventsLog>()
             .add_systems(Startup, load_world)
             .add_systems(FixedUpdate, tick_sim);
     }
@@ -188,7 +202,7 @@ fn load_world(mut sim: ResMut<Sim>, mut retirements: ResMut<Retirements>) {
 /// chain. Bundle 2b.4 extracts `apply_ship_commands` + the other
 /// phase helpers into a shared `sim_engine` crate and wires the
 /// full tick in.
-fn tick_sim(mut sim: ResMut<Sim>) {
+fn tick_sim(mut sim: ResMut<Sim>, mut events_log: ResMut<EventsLog>) {
     if !sim.running {
         return;
     }
@@ -316,6 +330,16 @@ fn tick_sim(mut sim: ResMut<Sim>) {
         // embedded tick we're fine dropping — they're mostly
         // supply-delta housekeeping that will re-emit next tick.
         commands.clear();
+
+        // Drain the per-tick events into the ring log so the events
+        // ticker panel can render them. Bounded capacity — at tick
+        // boundaries we pop-front until we're at the cap.
+        for ev in events.drain(..) {
+            if events_log.0.len() >= EVENTS_CAP {
+                events_log.0.pop_front();
+            }
+            events_log.0.push_back((tick, ev));
+        }
     }
 }
 
