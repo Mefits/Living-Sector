@@ -787,11 +787,41 @@ pub const MAX_ACTIVE_DELIVERIES_PER_FACILITY: usize = 4;
 /// instead of letting prices pin at ceiling while contracts
 /// expire unclaimed.
 pub const FACILITY_DELIVERY_LIFESPAN_BASE: u64 = 300;
-/// Reserve quantity requested per delivery contract. 50 (down from 100):
-/// smaller contracts mean cheaper payments, so facilities can post more
-/// contracts per cycle without bankrupting themselves. Also fits couriers
-/// (cargo_capacity=50).
+/// Baseline delivery contract quantity. Facilities now scale up from
+/// this when the triggering shortage has persisted (Bundle 1.3) —
+/// shallow shortages still get ~50-unit contracts that couriers can
+/// handle; deep / sustained shortages get larger orders that reward
+/// bigger hulls with a single trip instead of many small ones.
 pub const DELIVERY_CONTRACT_QTY: u32 = 50;
+/// Floor on delivery contract qty (Bundle 1.3). Even if affordability
+/// caps the order size, we never post a contract below this because
+/// sub-25 quantities under-price transit/gate-fuel overhead.
+pub const MIN_DELIVERY_CONTRACT_QTY: u32 = 25;
+/// Ceiling on delivery contract qty (Bundle 1.3). 200 units fits a
+/// medium freighter in one trip and matches the top of typical ship
+/// cargo capacities. Caps pathological quantities during extreme
+/// shortages that would otherwise exclude every ship in the fleet.
+pub const MAX_DELIVERY_CONTRACT_QTY: u32 = 200;
+/// Bucket size for shortage-driven qty scaling. Every extra
+/// `SHORTAGE_QTY_BUCKET_TICKS` beyond the 30-tick trigger adds 25 units
+/// to the requested quantity, so a 30-tick shortage → ~50 units, a
+/// 90-tick shortage → ~100 units, a 200-tick shortage → ~175 units.
+pub const SHORTAGE_QTY_BUCKET_TICKS: u32 = 30;
+
+/// Bundle 1.3: scale delivery contract quantity by how long the
+/// triggering shortage has persisted. `shortage_ticks` is 0 when
+/// supply is healthy and grows while the market is short, so a deeper
+/// / older shortage yields a larger order. Clamped to
+/// `[MIN_DELIVERY_CONTRACT_QTY, MAX_DELIVERY_CONTRACT_QTY]`.
+pub fn delivery_qty_for_shortage(shortage_ticks: u32) -> u32 {
+    let bonus = shortage_ticks
+        .saturating_sub(30)
+        .saturating_div(SHORTAGE_QTY_BUCKET_TICKS)
+        .saturating_mul(25);
+    DELIVERY_CONTRACT_QTY
+        .saturating_add(bonus)
+        .clamp(MIN_DELIVERY_CONTRACT_QTY, MAX_DELIVERY_CONTRACT_QTY)
+}
 /// Base payment-per-unit floor. The real payment for a contract is
 /// `max(QTY × BASE, src_price × QTY × delivery_multiplier)` — the flat
 /// floor only wins when source prices are unusually cheap. Tuned to 40
@@ -832,6 +862,49 @@ pub const MODULE_PRODUCTION_INTERVAL_BASE: u64 = 15;
 /// the facility flips to `abandoned = true`. Matches Elixir's `200`.
 pub const FACILITY_ABANDON_THRESHOLD_TICKS: u32 = 200;
 
+/// Type alias for the facility LOD gate — matches the ship-side one
+/// (`ShipLodGate`). `Entity → skipped_ticks`. Entities not in the
+/// map should skip this tick's heaviest sub-phases.
+pub type FacilityLodGate = std::collections::HashMap<hecs::Entity, u32>;
+
+/// Bundle 1.5: build the facility LOD gate for this tick. Advances
+/// each facility's own `AgentLod` cursor (ship-side passes are now
+/// filtered to ship entities, so facility cursors belong to us
+/// here). Facilities without an `AgentLod` default to "fires every
+/// tick, skipped=1" so missing-component fallback matches the ship
+/// behaviour.
+fn build_facility_lod_gate(world: &mut hecs::World, tick: u64) -> FacilityLodGate {
+    use crate::simulation::lod::AgentLod;
+    let fac_with_lod: std::collections::HashSet<hecs::Entity> = world
+        .query::<(&FacilityIdentity, &AgentLod)>()
+        .iter()
+        .map(|(e, _)| e)
+        .collect();
+    let mut gate: FacilityLodGate = std::collections::HashMap::new();
+    {
+        let mut lod_q = world.query::<&mut AgentLod>();
+        for (e, lod) in lod_q.iter() {
+            if !fac_with_lod.contains(&e) {
+                continue;
+            }
+            if let Some(skipped) = lod.try_fire(tick) {
+                gate.insert(e, skipped);
+            }
+        }
+    }
+    // Fallback: facilities without an AgentLod fire every tick.
+    let fac_no_lod: Vec<hecs::Entity> = world
+        .query::<&FacilityIdentity>()
+        .iter()
+        .map(|(e, _)| e)
+        .filter(|e| !fac_with_lod.contains(e))
+        .collect();
+    for e in fac_no_lod {
+        gate.insert(e, 1);
+    }
+    gate
+}
+
 pub fn tick_facilities(
     world: &mut hecs::World,
     contracts: &mut crate::economy::contracts::ContractBoard,
@@ -847,6 +920,17 @@ pub fn tick_facilities(
     let restock_interval = RESTOCK_INTERVAL_BASE * mult;
     let contract_interval = CONTRACT_POST_INTERVAL_BASE * mult;
     let abandon_interval = ABANDON_CHECK_INTERVAL_BASE * mult;
+
+    // Bundle 1.5: LOD gate so off-screen facilities skip the heavy
+    // sub-phases on most ticks. Built once per tick, consumed by
+    // tick_recipes_and_mining for now; remaining sub-phases (restock
+    // / condition / abandonment / contract-post) stay on their
+    // existing global intervals because they're cheap per-facility.
+    // Rate-scaling of recipe output per divisor is deferred — for
+    // now off-screen facilities produce ~1/divisor of their
+    // on-screen throughput, which is acceptable since the player
+    // isn't looking.
+    let facility_lod_gate = build_facility_lod_gate(world, tick);
 
     // Phase 1: condition degrade (every tick; cheap — one field write).
     tick_degrade_condition(world, tick_scale);
@@ -887,7 +971,7 @@ pub fn tick_facilities(
 
     // Phase 5: recipes + mining + XP (every 5×mult ticks).
     if tick % recipe_interval == 0 || tick % mining_interval == 0 {
-        tick_recipes_and_mining(world, tick, tick_multiplier);
+        tick_recipes_and_mining(world, tick, tick_multiplier, &facility_lod_gate);
     }
 
     // Phase 6: post delivery + courier contracts (every 50×mult ticks).
@@ -1280,7 +1364,12 @@ fn tick_restock(world: &mut hecs::World) {
 /// the level × 100 threshold increments level (capped at
 /// `FACILITY_LEVEL_CAP`) and boosts `max_batches` future runs via the
 /// `level_scaled_max_batches` helper.
-fn tick_recipes_and_mining(world: &mut hecs::World, tick: u64, tick_multiplier: u32) {
+fn tick_recipes_and_mining(
+    world: &mut hecs::World,
+    tick: u64,
+    tick_multiplier: u32,
+    lod_gate: &FacilityLodGate,
+) {
     let mult = tick_multiplier as u64;
     let recipe_interval = RECIPE_INTERVAL_BASE * mult;
     let mining_interval = MINING_INTERVAL_BASE * mult;
@@ -1323,6 +1412,12 @@ fn tick_recipes_and_mining(world: &mut hecs::World, tick: u64, tick_multiplier: 
     if tick % recipe_interval == 0 {
         for fac in &facilities {
             if fac.abandoned {
+                continue;
+            }
+            // Bundle 1.5: LOD gate — off-screen facilities skip
+            // recipes on ticks they aren't firing. No rate-scaling
+            // yet; see comment in tick_facilities.
+            if !lod_gate.contains_key(&fac.entity) {
                 continue;
             }
             let market_entity = match market_at_location.get(&fac.location_name) {
@@ -1376,6 +1471,10 @@ fn tick_recipes_and_mining(world: &mut hecs::World, tick: u64, tick_multiplier: 
     if tick % mining_interval == 0 {
         for fac in &facilities {
             if fac.abandoned || fac.facility_type != "mining_rig" {
+                continue;
+            }
+            // Bundle 1.5: LOD gate for mining too.
+            if !lod_gate.contains_key(&fac.entity) {
                 continue;
             }
             let market_entity = match market_at_location.get(&fac.location_name) {
@@ -1571,6 +1670,7 @@ pub fn tick_post_contracts(
         destination: String,
         source: String,
         payment: i64,
+        qty: u32,
     }
 
     // location → market_history for shortage lookup. Elixir's
@@ -1617,16 +1717,17 @@ pub fn tick_post_contracts(
     // can't honor).
     let compute_delivery_payment = |commodity: Commodity,
                                     source: &str,
-                                    fac_credits: i64|
+                                    fac_credits: i64,
+                                    qty: u32|
      -> i64 {
-        let flat = (DELIVERY_CONTRACT_QTY as i64) * DELIVERY_CONTRACT_BASE_PAYMENT_PER_UNIT;
+        let flat = (qty as i64) * DELIVERY_CONTRACT_BASE_PAYMENT_PER_UNIT;
         let src_price = price_by_location
             .get(source)
             .and_then(|m| m.get(&commodity))
             .copied()
             .unwrap_or(0.0);
         let market_based =
-            (src_price * DELIVERY_CONTRACT_QTY as f32 * 1.3).round() as i64;
+            (src_price * qty as f32 * 1.3).round() as i64;
         flat.max(market_based).min(fac_credits)
     };
 
@@ -1669,8 +1770,11 @@ pub fn tick_post_contracts(
             .cloned()
             .unwrap_or_default();
 
+        // Minimum-qty affordability gate — if the facility can't
+        // cover even a floor-sized contract at the flat base rate,
+        // don't bother scaling by shortage.
         let can_afford = ops.credits
-            >= (DELIVERY_CONTRACT_QTY as i64) * DELIVERY_CONTRACT_BASE_PAYMENT_PER_UNIT;
+            >= (MIN_DELIVERY_CONTRACT_QTY as i64) * DELIVERY_CONTRACT_BASE_PAYMENT_PER_UNIT;
 
         // --- Crew-essentials contracts (fuel/food/tools/water) ---
         // Fires when the facility's OWN RESERVES are low AND the local
@@ -1704,7 +1808,11 @@ pub fn tick_post_contracts(
                 if source == loc.location_name {
                     continue;
                 }
-                let payment = compute_delivery_payment(commodity, &source, ops.credits);
+                // Bundle 1.3: scale qty by how long this market has been
+                // short. Urgent-tools path bypasses the 30-tick wait but
+                // still gets the base qty (shortage may be 0).
+                let qty = delivery_qty_for_shortage(shortage);
+                let payment = compute_delivery_payment(commodity, &source, ops.credits, qty);
                 if payment <= 0 {
                     continue;
                 }
@@ -1722,6 +1830,7 @@ pub fn tick_post_contracts(
                     destination: loc.location_name.clone(),
                     source,
                     payment,
+                    qty,
                 });
                 break;
             }
@@ -1756,7 +1865,10 @@ pub fn tick_post_contracts(
                 if source == loc.location_name {
                     continue;
                 }
-                let payment = compute_delivery_payment(commodity, &source, ops.credits);
+                // Bundle 1.3: scale qty by shortage persistence, same
+                // policy as crew-essentials above.
+                let qty = delivery_qty_for_shortage(shortage);
+                let payment = compute_delivery_payment(commodity, &source, ops.credits, qty);
                 if payment <= 0 {
                     continue;
                 }
@@ -1774,6 +1886,7 @@ pub fn tick_post_contracts(
                     destination: loc.location_name.clone(),
                     source,
                     payment,
+                    qty,
                 });
                 break;
             }
@@ -1801,7 +1914,7 @@ pub fn tick_post_contracts(
             plan.requestor_id,
             plan.faction_id,
             plan.commodity,
-            DELIVERY_CONTRACT_QTY,
+            plan.qty,
             plan.source,
             plan.destination,
             plan.payment,
@@ -1962,6 +2075,40 @@ mod tests {
     #[test]
     fn docking_fee_guards_zero_capacity() {
         assert_eq!(docking_fee(50, 0, 0, 1.0), 50);
+    }
+
+    #[test]
+    fn delivery_qty_scales_with_shortage() {
+        // Zero or just-triggered shortage → base qty.
+        assert_eq!(delivery_qty_for_shortage(0), DELIVERY_CONTRACT_QTY);
+        assert_eq!(delivery_qty_for_shortage(30), DELIVERY_CONTRACT_QTY);
+        // One bucket (60 ticks) past trigger adds 25 units.
+        assert_eq!(
+            delivery_qty_for_shortage(60),
+            DELIVERY_CONTRACT_QTY + 25,
+        );
+        // Two buckets (90 ticks) adds 50.
+        assert_eq!(
+            delivery_qty_for_shortage(90),
+            DELIVERY_CONTRACT_QTY + 50,
+        );
+        // Deep / sustained shortage caps at MAX.
+        assert_eq!(
+            delivery_qty_for_shortage(10_000),
+            MAX_DELIVERY_CONTRACT_QTY,
+        );
+    }
+
+    #[test]
+    fn delivery_qty_respects_floor_and_ceiling() {
+        // Clamp bounds are respected for every input.
+        for shortage in [0_u32, 1, 29, 30, 31, 100, 1000, u32::MAX / 2] {
+            let qty = delivery_qty_for_shortage(shortage);
+            assert!(
+                (MIN_DELIVERY_CONTRACT_QTY..=MAX_DELIVERY_CONTRACT_QTY).contains(&qty),
+                "qty {qty} out of bounds for shortage {shortage}",
+            );
+        }
     }
 
     #[test]

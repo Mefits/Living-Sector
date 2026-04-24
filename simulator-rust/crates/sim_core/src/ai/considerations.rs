@@ -20,8 +20,12 @@ pub fn fuel_urgency(fuel: &ShipFuel) -> Consideration {
 
 // --- Economy / profit ---
 
-/// Best known profit margin across the ship's price memory. 2.0+ margin clamps to 1.0.
-pub fn trade_opportunity(memory: &ShipMemory) -> Consideration {
+/// Best known profit margin across the ship's price memory, with
+/// freshness decay (Bundle 1.2). 2.0+ margin clamps to 1.0. Pass
+/// the current sim tick so stale observations weigh less; callers
+/// that don't track ticks can pass the observation's own tick
+/// (yielding the legacy no-decay behaviour).
+pub fn trade_opportunity(memory: &ShipMemory, current_tick: u64) -> Consideration {
     if memory.price_knowledge.len() < 2 {
         return Consideration::new(0.0, Axis::Profit);
     }
@@ -37,7 +41,15 @@ pub fn trade_opportunity(memory: &ShipMemory) -> Consideration {
                     } else {
                         (price_b.price, price_a.price)
                     };
-                    let margin = (hi - lo) / lo.max(1.0);
+                    let freshness = crate::agents::ship::price_freshness_weight(
+                        price_a.tick,
+                        current_tick,
+                    )
+                    .min(crate::agents::ship::price_freshness_weight(
+                        price_b.tick,
+                        current_tick,
+                    ));
+                    let margin = (hi - lo) / lo.max(1.0) * freshness;
                     if margin > max_margin {
                         max_margin = margin;
                     }

@@ -92,8 +92,8 @@ pub struct ConstructionSite {
     /// so we can emit a `construction_completed` event without a
     /// separate side-channel.
     pub completed: bool,
-    /// Persistence flag. Set to true when any field changes, read
-    /// + cleared by the engine's flush sweep. Sites aren't persisted
+    /// Persistence flag. Set to true when any field changes, then
+    /// cleared by the engine's flush sweep. Sites aren't persisted
     /// to DB yet (MVP — they live only in RAM), so this is unused
     /// for now but wired so adding a migration is mechanical.
     pub dirty: bool,

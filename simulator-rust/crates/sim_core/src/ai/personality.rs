@@ -51,6 +51,25 @@ impl Personality {
         }
     }
 
+    /// Bundle 1.4: nudge a single axis by `delta`, clamping to [0,1].
+    /// Called from gameplay events (successful contract → +profit,
+    /// near-death rest → +safety, etc.) so a ship's personality
+    /// slowly drifts with its lived experience. Magnitudes are kept
+    /// small (ε ≈ 0.001–0.01) so drift is only visible over hundreds
+    /// of events — archetype identity stays stable over the short
+    /// term.
+    pub fn drift(&mut self, axis: Axis, delta: f32) {
+        let v = match axis {
+            Axis::Profit => &mut self.profit,
+            Axis::Safety => &mut self.safety,
+            Axis::Morale => &mut self.morale,
+            Axis::Exploration => &mut self.exploration,
+            Axis::Loyalty => &mut self.loyalty,
+            Axis::Aggression => &mut self.aggression,
+        };
+        *v = (*v + delta).clamp(0.0, 1.0);
+    }
+
     /// Perturbs each numeric axis by ±0.1 (clamped 0.0–1.0).
     pub fn with_variation<R: Rng>(&self, rng: &mut R) -> Self {
         let mut perturb = |v: f32| (v + rng.gen_range(-0.1..=0.1_f32)).clamp(0.0, 1.0);
@@ -306,5 +325,37 @@ mod tests {
         let json = serde_json::to_string(&p).unwrap();
         let back: Personality = serde_json::from_str(&json).unwrap();
         assert!((back.profit - p.profit).abs() < 0.001);
+    }
+
+    #[test]
+    fn drift_nudges_single_axis_and_clamps() {
+        let mut p = Personality::balanced_trader();
+        let start_profit = p.profit;
+        p.drift(Axis::Profit, 0.05);
+        assert!((p.profit - (start_profit + 0.05)).abs() < 1e-5);
+        // Other axes untouched.
+        assert_eq!(p.safety, Personality::balanced_trader().safety);
+        // Clamps at upper bound.
+        p.drift(Axis::Profit, 10.0);
+        assert!((p.profit - 1.0).abs() < 1e-5);
+        // Clamps at lower bound.
+        p.drift(Axis::Profit, -10.0);
+        assert!(p.profit.abs() < 1e-5);
+    }
+
+    #[test]
+    fn drift_accumulates_over_many_events() {
+        // Simulate 100 deliveries each nudging profit by 0.002.
+        let mut p = Personality::cautious_trader();
+        let start = p.profit;
+        for _ in 0..100 {
+            p.drift(Axis::Profit, 0.002);
+        }
+        // Expect ~+0.2 after 100 events (0.6 → ~0.8 on cautious_trader).
+        let delta = p.profit - start;
+        assert!(
+            (delta - 0.2).abs() < 0.01,
+            "expected ~+0.2 drift after 100 events, got {delta}",
+        );
     }
 }

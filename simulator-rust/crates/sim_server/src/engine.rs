@@ -1208,6 +1208,19 @@ fn apply_ship_commands(
                     {
                         life.hoard_strikes = 0;
                     }
+                    // Bundle 1.4: personality drift. A successful
+                    // delivery nudges the ship's `profit` axis up a
+                    // sliver. Invisible per-delivery; visible over
+                    // many deliveries as a character arc.
+                    if let Ok(mut ai) = store
+                        .world
+                        .get::<&mut sim_core::agents::ship::ShipAI>(ship)
+                    {
+                        ai.personality.drift(
+                            sim_core::ai::personality::Axis::Profit,
+                            sim_core::agents::ship::DRIFT_DELIVERY_PROFIT,
+                        );
+                    }
                     // Phase 18d: grant ship-level XP on every delivery.
                     // Cascades level-ups + banks retrofit points when a
                     // threshold crosses. Kept independent of crew skill
@@ -1499,7 +1512,7 @@ fn apply_request_dock_typed(
 ) -> bool {
     use sim_core::agents::{
         facility::{docking_fee, FacilityOperations, FacilityStorage, DOCKING_FEE_BASE},
-        ship::{ShipEconomy, ShipPosition},
+        ship::ShipEconomy,
     };
 
     // Phase 18k: iterate dockable facilities in descending-capacity
@@ -3014,7 +3027,7 @@ async fn drain_pending_decommissions(
         }
         // Schedule a replacement 300–600 base ticks out so the fleet
         // doesn't teleport a new captain into the slot.
-        let delay = 300 + ((tick % 300) as u64); // deterministic 300..=599 jitter
+        let delay = 300 + (tick % 300); // deterministic 300..=599 jitter
         store
             .pending_respawns
             .push(sim_core::simulation::spawner::PendingRespawn {
@@ -3140,8 +3153,8 @@ async fn spawn_replacement_ship(
     }
     let home_matches: Vec<(String, String)> = station_candidates
         .iter()
+        .filter(|&(_, fid)| *fid == faction_id)
         .cloned()
-        .filter(|(_, fid)| *fid == faction_id)
         .collect();
     let (location_name, _) = if !home_matches.is_empty() {
         home_matches[(seed as usize) % home_matches.len()].clone()

@@ -16,7 +16,7 @@ use super::{
     ShipTransit, Transit, CREW_REST_TARGET, DOCK_WAIT_DEFAULT, DOCK_WAIT_LOW_MORALE,
     DOCK_WAIT_LOW_MORALE_THRESHOLD, DOCK_WAIT_WITH_CONTRACT, MAX_REST_TICKS_BASE,
 };
-use crate::ai::behavior_tree::{Blackboard, BtStatus};
+use crate::ai::behavior_tree::{BbValue, Blackboard, BtStatus};
 use crate::economy::commodities::Commodity;
 use crate::simulation::commands::{CommandBuffer, SimCommand};
 use crate::world::{registry::WorldRegistry, travel};
@@ -90,6 +90,7 @@ pub enum ShipAction {
     },
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn execute_ship_action(
     action: &ShipAction,
     entity: hecs::Entity,
@@ -158,6 +159,14 @@ pub(super) fn execute_ship_action(
             };
             let elapsed = tick.saturating_sub(start);
             if crew.morale >= CREW_REST_TARGET || elapsed >= budget {
+                // Bundle 1.4: if we hit the budget without morale
+                // actually recovering, record the trauma for the
+                // planner frame to drift personality toward safety.
+                // Reading happens in `decide_and_act` right after
+                // `bt.tick()` returns.
+                if crew.morale < CREW_REST_TARGET {
+                    _bb.set("rest_timed_out", BbValue::Bool(true));
+                }
                 economy.rest_start_tick = None;
                 BtStatus::Success
             } else {

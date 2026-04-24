@@ -107,7 +107,11 @@ impl AppState {
     /// Push an entry onto the command-trace ring. Safe to call from
     /// the engine tick loop (brief write-lock) — readers are the
     /// `/api/debug/agent/:id/trace` handler, which holds a brief
-    /// read-lock and iterates.
+    /// read-lock and iterates. Currently unused: the engine writes
+    /// the ring directly via `record_command_trace` for batched
+    /// writes; this wrapper stays wired for future single-entry
+    /// call sites (e.g. non-SimCommand events).
+    #[allow(dead_code)]
     pub fn push_trace_entry(&self, entry: CommandTraceEntry) {
         if let Ok(mut buf) = self.command_trace.write() {
             if buf.len() >= COMMAND_TRACE_CAPACITY {

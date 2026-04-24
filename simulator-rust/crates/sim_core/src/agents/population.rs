@@ -206,6 +206,41 @@ pub fn tick_populations(
     if tick % consumption_interval != 0 && tick % production_interval != 0 {
         return;
     }
+
+    // Bundle 1.5: LOD gate. Build once, filter the main loop below.
+    // Off-screen populations skip consumption/production this tick.
+    // Rate-scaling of consumption / sentiment drift is deferred; for
+    // now off-screen pops consume less (proportional to LOD divisor),
+    // which matches the player's "these worlds are idling" expectation.
+    use crate::simulation::lod::AgentLod;
+    let pop_with_lod: std::collections::HashSet<hecs::Entity> = world
+        .query::<(&PopIdentity, &AgentLod)>()
+        .iter()
+        .map(|(e, _)| e)
+        .collect();
+    let mut pop_lod_gate: std::collections::HashMap<hecs::Entity, u32> =
+        std::collections::HashMap::new();
+    {
+        let mut lod_q = world.query::<&mut AgentLod>();
+        for (e, lod) in lod_q.iter() {
+            if !pop_with_lod.contains(&e) {
+                continue;
+            }
+            if let Some(skipped) = lod.try_fire(tick) {
+                pop_lod_gate.insert(e, skipped);
+            }
+        }
+    }
+    // Pops without AgentLod fire every tick.
+    let pop_no_lod: Vec<hecs::Entity> = world
+        .query::<&PopIdentity>()
+        .iter()
+        .map(|(e, _)| e)
+        .filter(|e| !pop_with_lod.contains(e))
+        .collect();
+    for e in pop_no_lod {
+        pop_lod_gate.insert(e, 1);
+    }
     let _ = tick_scale; // reserved for sentiment inertia scaling below
 
     // Index markets by location
@@ -226,6 +261,11 @@ pub fn tick_populations(
     let inertia_factor = SENTIMENT_INERTIA_BASE.powf(tick_scale.max(0.01));
 
     for entity in pop_entities {
+        // Bundle 1.5: LOD filter — skip off-screen pops on ticks they
+        // aren't firing.
+        if !pop_lod_gate.contains_key(&entity) {
+            continue;
+        }
         let (location, consumption, production_commodity, production_amount, pop_size, current_food_sat) = {
             let mut q = match world
                 .query_one::<(&PopIdentity, &PopEconomy, &PopDemographics, &PopSentiment)>(entity)

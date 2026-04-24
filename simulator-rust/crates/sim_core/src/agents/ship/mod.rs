@@ -643,7 +643,7 @@ pub use snapshot::{
 
 use crate::economy::commodities::PriceMemory;
 use crate::simulation::commands::{CommandBuffer, SimCommand};
-use crate::world::{pathfinder::{LegKind, PathfinderCtx}, registry::WorldRegistry, travel};
+use crate::world::{pathfinder::{LegKind, PathfinderCtx}, registry::WorldRegistry};
 use std::collections::HashMap as StdHashMap;
 
 /// Estimate gate fees a contract route will cost. Used by the contract
@@ -756,6 +756,34 @@ fn route_actions(
 const FUEL_CRITICAL_FRACTION: f32 = 0.25;
 const MIN_TRADE_MARGIN: f32 = 0.10; // 10% minimum margin
 const TRADE_QTY_DEFAULT: u32 = 50;
+
+/// Bundle 1.4: per-event personality-drift magnitudes. Tiny so
+/// archetype identity stays stable over the short term; visible only
+/// over tens-to-hundreds of events. Hundred successful deliveries
+/// shifts a ship's `profit` axis by ~+0.2; ten rest-timeouts (real
+/// trauma) shift `safety` by ~+0.2.
+pub const DRIFT_DELIVERY_PROFIT: f32 = 0.002;
+pub const DRIFT_REST_TIMEOUT_SAFETY: f32 = 0.02;
+
+/// Half-life (in base ticks) of a remembered price's weight when
+/// scoring trade routes. At age=0 a price contributes fully; at
+/// HALF_LIFE it's worth 50%; asymptotes toward a floor so even very
+/// old observations still weakly count. ~1500 base ticks ≈ 3 minutes
+/// of game time at `WORLD_SPEED=1.0`. Prevents ships from routing
+/// on stale prices after long exploration tours. Paired floor keeps
+/// early-game sims (few observations) from scoring everything at 0.
+pub const PRICE_MEMORY_HALF_LIFE_TICKS: u64 = 1500;
+pub const PRICE_MEMORY_FRESHNESS_FLOOR: f32 = 0.10;
+
+/// Exponential-decay weight for a price observed at `observed_tick`
+/// being scored at `current_tick`. Returns 1.0 for same-tick, 0.5
+/// at HALF_LIFE, clamped to `[FRESHNESS_FLOOR, 1.0]`.
+pub fn price_freshness_weight(observed_tick: u64, current_tick: u64) -> f32 {
+    let age = current_tick.saturating_sub(observed_tick) as f32;
+    let half = PRICE_MEMORY_HALF_LIFE_TICKS as f32;
+    let raw = (-age / half).exp2();
+    raw.clamp(PRICE_MEMORY_FRESHNESS_FLOOR, 1.0)
+}
 
 /// Sensor range (universe-units) required to see cross-system
 /// contracts in the planner. 2.0 matches the tier-2 `sensors_t2`
@@ -877,12 +905,26 @@ pub fn tick_ships(
     // (skipped-ticks since last fire). Subsequent phases filter on this
     // map — it's the single source of truth for "should ship X run?".
     // Ships without an AgentLod component default to "every tick".
+    //
+    // Bundle 1.5: restrict advancement to ship entities only. Prior
+    // to this the query advanced every AgentLod cursor in the world
+    // (facilities + populations included), which defeats facility /
+    // population LOD gates downstream because their cursors would
+    // already have been advanced this tick.
     use crate::simulation::lod::AgentLod;
+    let ship_entities: std::collections::HashSet<hecs::Entity> = world
+        .query::<(&ShipIdentity, &AgentLod)>()
+        .iter()
+        .map(|(e, _)| e)
+        .collect();
     let mut active: std::collections::HashMap<hecs::Entity, u32> =
         std::collections::HashMap::new();
     {
         let mut lod_q = world.query::<&mut AgentLod>();
         for (e, lod) in lod_q.iter() {
+            if !ship_entities.contains(&e) {
+                continue;
+            }
             if let Some(skipped) = lod.try_fire(tick) {
                 active.insert(e, skipped);
             }
@@ -1546,8 +1588,9 @@ fn try_plan_trade_run(
     memory: &ShipMemory,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
+    current_tick: u64,
 ) -> Option<TradeRunCandidate> {
-    let (commodity, buy_loc, sell_loc, _margin) = best_trade_route(memory)?;
+    let (commodity, buy_loc, sell_loc, _margin) = best_trade_route(memory, current_tick)?;
     let buy_price = memory
         .price_knowledge
         .get(&buy_loc)
@@ -1607,7 +1650,10 @@ pub fn median_known_price(memory: &ShipMemory, commodity: Commodity) -> Option<f
     Some(prices[mid])
 }
 
-pub fn best_trade_route(memory: &ShipMemory) -> Option<(Commodity, String, String, f32)> {
+pub fn best_trade_route(
+    memory: &ShipMemory,
+    current_tick: u64,
+) -> Option<(Commodity, String, String, f32)> {
     let mut best: Option<(Commodity, String, String, f32)> = None;
     let locs: Vec<_> = memory.price_knowledge.iter().collect();
     for (i, (loc_a, prices_a)) in locs.iter().enumerate() {
@@ -1619,7 +1665,14 @@ pub fn best_trade_route(memory: &ShipMemory) -> Option<(Commodity, String, Strin
                     } else {
                         ((*loc_b).clone(), (*loc_a).clone(), pb.price, pa.price)
                     };
-                    let raw_margin = (hi - lo) / lo.max(1.0);
+                    // Bundle 1.2: freshness decay — discount routes
+                    // whose endpoint prices are stale. The route is
+                    // only as fresh as the older of its two
+                    // observations, so use the minimum of the two
+                    // weights.
+                    let freshness = price_freshness_weight(pa.tick, current_tick)
+                        .min(price_freshness_weight(pb.tick, current_tick));
+                    let raw_margin = (hi - lo) / lo.max(1.0) * freshness;
                     // Phase 20: discount the margin when this ship's
                     // actual history on (buy → sell, commodity)
                     // underperforms what the current prices project.
@@ -1913,6 +1966,7 @@ fn decide_and_act(
                 &ai.personality,
                 &dock_congestion,
                 lifecycle.idle_ticks,
+                tick,
             );
             ai.current_goal = goal.into();
             ai.current_bt = bt;
@@ -1994,6 +2048,15 @@ fn decide_and_act(
                 bt.tick(&mut bb, &mut dispatch)
             };
 
+            // Bundle 1.4: drift personality in response to BT events
+            // surfaced via the blackboard. Only `rest_timed_out`
+            // today; delivery-success drift happens in the engine
+            // apply phase (direct world access on DeliverContract).
+            if bb.get_bool("rest_timed_out") {
+                ai.personality
+                    .drift(crate::ai::personality::Axis::Safety, DRIFT_REST_TIMEOUT_SAFETY);
+            }
+
             match status {
                 BtStatus::Running => ai.current_bt = Some(bt),
                 BtStatus::Success => {
@@ -2053,6 +2116,7 @@ fn plan_goal(
     personality: &crate::ai::personality::Personality,
     dock_congestion: &StdHashMap<String, (u32, u32)>,
     idle_ticks: u32,
+    current_tick: u64,
 ) -> (&'static str, Option<BtNode<ShipAction>>) {
     let at_loc = match &position.location_name {
         Some(l) => l.clone(),
@@ -2110,7 +2174,7 @@ fn plan_goal(
         sensor_range_au,
         location_to_system,
     );
-    let trade_cand = try_plan_trade_run(&at_loc, memory, registry, gate_pairs);
+    let trade_cand = try_plan_trade_run(&at_loc, memory, registry, gate_pairs, current_tick);
 
     let contract_score = contract_cand
         .as_ref()
@@ -2161,6 +2225,7 @@ fn plan_goal(
 ///      ship a chance to observe prices + refuel while resting.
 ///   3. **Otherwise**: plain Idle — the ship stays where it is. Some
 ///      captains just want quiet.
+#[allow(clippy::too_many_arguments)]
 fn smart_idle_fallback(
     at_loc: &str,
     position: &ShipPosition,
@@ -2967,9 +3032,6 @@ fn build_fulfill_delivery_bt(
 
 // --- Action executor (the dispatch closure's body) ---
 
-#[allow(clippy::too_many_arguments)]
-
-
 #[cfg(test)]
 mod crew_tests {
     use super::*;
@@ -3085,10 +3147,66 @@ mod tick_tests {
         let mut b = std::collections::HashMap::new();
         b.insert(Commodity::Ore, PriceMemory { price: 50.0, tick: 1 });
         memory.price_knowledge.insert("earth".into(), b);
-        let route = best_trade_route(&memory).unwrap();
+        let route = best_trade_route(&memory, 1).unwrap();
         assert_eq!(route.0, Commodity::Ore);
         assert_eq!(route.1, "belt");
         assert_eq!(route.2, "earth");
+    }
+
+    #[test]
+    fn best_trade_route_prefers_fresher_over_slightly_better_stale() {
+        // Stale huge-margin route at tick 1 vs fresh good-margin route
+        // at tick 10_000. The fresh route should win even though the
+        // stale one has a nominally larger raw margin.
+        let mut memory = ShipMemory {
+            price_knowledge: Default::default(),
+            visited: vec![],
+            recent_systems: std::collections::VecDeque::new(),
+            route_performance: std::collections::HashMap::new(),
+        };
+        let mut stale_a = std::collections::HashMap::new();
+        stale_a.insert(Commodity::Ore, PriceMemory { price: 10.0, tick: 1 });
+        memory.price_knowledge.insert("stale-belt".into(), stale_a);
+        let mut stale_b = std::collections::HashMap::new();
+        stale_b.insert(Commodity::Ore, PriceMemory { price: 100.0, tick: 1 });
+        memory.price_knowledge.insert("stale-hub".into(), stale_b);
+        // 900% raw margin, but 10_000 ticks old → heavily decayed.
+
+        let mut fresh_a = std::collections::HashMap::new();
+        fresh_a.insert(
+            Commodity::Fuel,
+            PriceMemory { price: 50.0, tick: 10_000 },
+        );
+        memory.price_knowledge.insert("fresh-belt".into(), fresh_a);
+        let mut fresh_b = std::collections::HashMap::new();
+        fresh_b.insert(
+            Commodity::Fuel,
+            PriceMemory { price: 150.0, tick: 10_000 },
+        );
+        memory.price_knowledge.insert("fresh-hub".into(), fresh_b);
+        // 200% raw margin, freshly observed at tick 10_000.
+
+        let route = best_trade_route(&memory, 10_000).unwrap();
+        assert_eq!(
+            route.0,
+            Commodity::Fuel,
+            "fresh fuel route should beat 10k-tick-stale ore route",
+        );
+    }
+
+    #[test]
+    fn price_freshness_weight_decays_monotonically() {
+        // Sanity check the decay curve: fresh = 1.0, half-life = 0.5,
+        // 2× half-life = 0.25, ancient floors at FRESHNESS_FLOOR.
+        let fresh = price_freshness_weight(1000, 1000);
+        assert!((fresh - 1.0).abs() < 1e-5);
+        let half = price_freshness_weight(0, PRICE_MEMORY_HALF_LIFE_TICKS);
+        assert!((half - 0.5).abs() < 1e-5, "half-life should halve weight, got {half}");
+        let ancient = price_freshness_weight(0, 1_000_000);
+        assert!(
+            (ancient - PRICE_MEMORY_FRESHNESS_FLOOR).abs() < 1e-5,
+            "very old should floor, got {ancient}",
+        );
     }
 
     #[test]
@@ -3222,7 +3340,7 @@ mod tick_tests {
         let mut b = std::collections::HashMap::new();
         b.insert(Commodity::Ore, PriceMemory { price: 105.0, tick: 1 });
         memory.price_knowledge.insert("b".into(), b);
-        assert!(best_trade_route(&memory).is_none());
+        assert!(best_trade_route(&memory, 1).is_none());
     }
 
     #[test]
