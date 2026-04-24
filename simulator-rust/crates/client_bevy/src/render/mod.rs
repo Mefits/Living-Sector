@@ -43,6 +43,7 @@ impl Plugin for RenderPlugin {
                     sync_positions,
                     highlight_selected,
                     draw_transit_lines,
+                    draw_gate_rings,
                     raycast_select,
                     cleanup_stale_ships,
                 ),
@@ -622,6 +623,51 @@ fn ray_sphere_hit(ray: &Ray3d, center: Vec3, radius: f32) -> Option<f32> {
         Some(t)
     } else {
         None
+    }
+}
+
+/// Gate-ring world-unit radius. A touch larger than the facility
+/// placeholder cylinder so the ring encloses rather than overlaps.
+/// Tuned at 0.7 to read as "distinct from a station" at zoom-out
+/// without becoming dominant in the scene.
+const GATE_RING_RADIUS: f32 = 0.7;
+
+/// Draw a faint amber ring around every gate facility each frame via
+/// Bevy Gizmos. Gates are just another FacilityEntity with
+/// `facility_type == "gate"` in sim-core, but visually they need to
+/// stand apart from stations so the player can navigate
+/// inter-system jump routes. Read-only per-frame; one gizmo circle
+/// per gate is effectively free at the scales we see (<30 gates).
+fn draw_gate_rings(sim: Res<Sim>, mut gizmos: Gizmos) {
+    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
+    use sim_core::agents::facility::FacilityIdentity;
+
+    let world = &sim.store.world;
+
+    // Resolve body_id → universe position once up front; facility
+    // orbit centre is just the body centre for visualisation
+    // purposes (the small 0.15 offset doesn't matter at this
+    // scale).
+    let body_positions: std::collections::HashMap<String, (f32, f32)> = world
+        .query::<(&BodyIdentity, &BodyOrbit)>()
+        .iter()
+        .map(|(_e, (id, orbit))| (id.body_id.clone(), orbit.universe_position()))
+        .collect();
+
+    // Amber, slightly translucent. Matches the "caution: traverse
+    // here" connotation stations don't carry.
+    let color = Color::srgba(0.95, 0.75, 0.35, 0.85);
+    let normal = Dir3::Y; // ring lies flat on the galactic plane
+
+    for (_e, id) in world.query::<&FacilityIdentity>().iter() {
+        if id.facility_type != "gate" {
+            continue;
+        }
+        let Some(&(x, y)) = body_positions.get(&id.body_id) else { continue };
+        let center = Vec3::new(x * SCALE_FACTOR, 0.5, y * SCALE_FACTOR);
+        gizmos
+            .circle(center, normal, GATE_RING_RADIUS, color)
+            .resolution(48);
     }
 }
 
