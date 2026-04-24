@@ -478,9 +478,21 @@ impl Operator {
                 // Shipyard travel requires the caller to have
                 // provided a shipyard location. No shipyard in map
                 // → this travel edge is unreachable.
+                let from_name = map.resolve(state.at)?;
                 let dest_name = map.resolve(*to)?;
+                // Fix: distinguish "two symbolic Locs that resolve
+                // to the same real location" (valid 0-cost
+                // transition — e.g. rest_crew where current==target,
+                // so Loc::Origin and Loc::Dest both map to
+                // "mars-station") from "unreachable edge" (no
+                // travel possible, different real locations).
+                // Without this, ships that try to rest at their
+                // current location get a planner dead-end and fall
+                // through to Idle BT — the bug that pinned 153
+                // ships in the tick-1k crew crisis.
+                let same_real_loc = from_name == dest_name;
                 let cost = map.travel_cost(state.at, *to);
-                if cost == 0 {
+                if !same_real_loc && cost == 0 {
                     return None; // unreachable edge
                 }
                 if state.fuel_bucket < cost {
@@ -489,6 +501,10 @@ impl Operator {
                 let mut next = state.clone();
                 next.at = *to;
                 next.fuel_bucket -= cost;
+                // Emit the Travel action unconditionally; compile
+                // step downstream calls `route_actions(from, to)`
+                // which returns empty for same-location, so the
+                // emitted Travel collapses to a no-op in the BT.
                 let action = ShipAction::Travel {
                     destination: dest_name.to_string(),
                 };
@@ -1051,6 +1067,53 @@ mod tests {
             "Rest must precede DeliverCargo: {:?}",
             p.actions,
         );
+    }
+
+    #[test]
+    fn plans_rest_crew_works_when_origin_equals_target() {
+        // The bug we hit live (tick 1k crew crisis): when a ship
+        // tries to rest at its current location, origin == target,
+        // so the LocMap has cost_origin_to_dest = 0 and both
+        // Loc::Origin and Loc::Dest resolve to the same real
+        // location string. Pre-fix, Travel{to: Dest} saw cost=0
+        // and bailed as "unreachable", leaving the planner with
+        // no path to the goal `at == Loc::Dest`. The caller's
+        // `unwrap_or_else(|| Idle)` then gave every resting ship
+        // an Idle BT — no Dock, no Rest, hunger pinned at 100.
+        let mut map = LocMap::delivery(
+            "earth-station".into(),
+            "earth-station".into(), // Source (unused by rest_crew catalog)
+            "earth-station".into(), // Dest SAME as Origin
+            Commodity::Food,
+            0,
+            String::new(),
+            0, 0, 0,
+        );
+        // Ignore Source<->Shipyard fields; rest_crew doesn't visit them.
+        let _ = &mut map;
+        let initial = WorldState::new(Loc::Origin, 10);
+        let p = plan(
+            initial,
+            |s| s.rested && !s.docked && s.at == Loc::Dest && s.fuel_bucket >= 2,
+            Operator::rest_crew_catalog(),
+            &map,
+            16,
+        )
+        .expect("rest plan must exist when origin==target");
+        assert!(p.final_state.rested);
+        assert_eq!(p.final_state.at, Loc::Dest);
+        // Plan must include Dock + Rest + Undock.
+        let mut has_dock = false; let mut has_rest = false; let mut has_undock = false;
+        for a in &p.actions {
+            match a {
+                ShipAction::Dock | ShipAction::DockAtShipyard => has_dock = true,
+                ShipAction::Rest => has_rest = true,
+                ShipAction::Undock => has_undock = true,
+                _ => {}
+            }
+        }
+        assert!(has_dock && has_rest && has_undock,
+            "rest_crew plan must Dock→Rest→Undock: {:?}", p.actions);
     }
 
     #[test]
