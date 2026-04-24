@@ -8,6 +8,7 @@
 use bevy::prelude::*;
 use std::time::Duration;
 
+mod camera;
 mod render;
 mod sim;
 
@@ -39,24 +40,16 @@ fn main() {
         .insert_resource(Time::<Fixed>::from_seconds(sim::DEFAULT_TICK_INTERVAL_S))
         .add_plugins(sim::SimPlugin)
         .add_plugins(render::RenderPlugin)
+        .add_plugins(camera::CameraPlugin)
         .add_systems(Startup, setup_scene)
         .add_systems(Update, heartbeat_system)
         .run();
 }
 
-/// Camera pulled back over the galactic plane so the three-system
-/// world (Sol at (0,0), AC at (200,50), Tau Ceti at (400,-100) in
-/// world units) is on screen in one frame. Isometric-ish angle down.
-/// Bundle 3 replaces this with a proper orbit camera + zoom + pan.
+/// Lighting only — camera is spawned by `CameraPlugin` with its own
+/// orbit-camera component. Bundle 3 will add a starfield / nebula
+/// backdrop; this keeps scene setup minimal.
 fn setup_scene(mut commands: Commands) {
-    commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_xyz(200.0, 400.0, 200.0)
-                .looking_at(Vec3::new(200.0, 0.0, 0.0), Vec3::Y),
-            ..default()
-        },
-        Name::new("MainCamera"),
-    ));
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
             illuminance: 10_000.0,
