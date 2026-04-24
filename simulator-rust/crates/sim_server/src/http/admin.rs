@@ -702,6 +702,17 @@ pub async fn refit_ship(
     )
 }
 
+/// GET /api/admin/tuning — return the current WorldTuning values as
+/// JSON. Inspection-only in this commit; a future PATCH endpoint
+/// will live-edit when `WorldTuning::set` is upgraded to ArcSwap.
+pub async fn get_tuning() -> (StatusCode, Json<Value>) {
+    let t = sim_core::simulation::tuning::WorldTuning::current();
+    (
+        StatusCode::OK,
+        Json(serde_json::to_value(t).unwrap_or_else(|_| json!({}))),
+    )
+}
+
 /// POST /api/admin/save — returns the current tick to acknowledge.
 /// The persistence worker flushes every 5s automatically; this endpoint
 /// is a UI hook that says "yes I heard you." A future pass can wire a

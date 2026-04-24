@@ -76,6 +76,38 @@ async fn main() -> Result<()> {
         info!("DB already seeded — skipping");
     }
 
+    // Bundle (Q): load WorldTuning from priv/data/tuning.json if
+    // present. Missing file → defaults. Missing fields in the file
+    // → default for just those (serde(default) on the struct).
+    {
+        use sim_core::simulation::tuning::WorldTuning;
+        let tuning_path = resolve_data_dir().join("tuning.json");
+        let tuning = match std::fs::read_to_string(&tuning_path) {
+            Ok(s) => match serde_json::from_str::<WorldTuning>(&s) {
+                Ok(t) => {
+                    info!("WorldTuning: loaded from {}", tuning_path.display());
+                    t
+                }
+                Err(e) => {
+                    info!(
+                        "WorldTuning: {} parse error ({}); using defaults",
+                        tuning_path.display(),
+                        e
+                    );
+                    WorldTuning::default()
+                }
+            },
+            Err(_) => {
+                info!(
+                    "WorldTuning: no {} — using defaults",
+                    tuning_path.display()
+                );
+                WorldTuning::default()
+            }
+        };
+        WorldTuning::set(tuning);
+    }
+
     // Config
     let config = {
         let mut c = TickConfig::DEFAULT;
@@ -455,6 +487,7 @@ fn build_router(state: AppState) -> Router {
         )
         .route("/api/admin/save", post(admin::save))
         .route("/api/admin/save-as", post(admin::save_as))
+        .route("/api/admin/tuning", get(admin::get_tuning))
         .with_state(state)
         .layer(cors)
 }

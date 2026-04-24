@@ -1738,15 +1738,6 @@ fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, locati
 /// Shared dock-commit helper: debits fee, credits facility, pushes the
 /// ship onto `docked_ships`, sets `ShipPosition.docked_at`. Caller is
 /// responsible for any queue cleanup.
-/// Bundle (G): fraction of the docking fee that's burned as a
-/// licensing tax rather than paid to the facility. Without a sink,
-/// credits drift monotonically up over long runs (contracts print
-/// credits, tax circulates them, but nothing destroys them).
-/// 30% is meaningful without being punitive — a ship paying a
-/// 100-credit dock fee only sends 70 to the station and the
-/// remaining 30 evaporates.
-const DOCK_FEE_BURN_PCT: f32 = 0.30;
-
 fn commit_dock(
     store: &mut AgentStore,
     ship: hecs::Entity,
@@ -1762,8 +1753,10 @@ fn commit_dock(
     }
     // Bundle (G): split the fee — facility takes the remainder
     // after burn, the burned portion is a true sink (subtracted
-    // from the ship, never added to any balance).
-    let burned = (fee as f32 * DOCK_FEE_BURN_PCT).round() as i64;
+    // from the ship, never added to any balance). Burn fraction
+    // lives in WorldTuning (Bundle Q).
+    let burn_pct = sim_core::simulation::tuning::WorldTuning::current().dock_fee_burn_pct;
+    let burned = (fee as f32 * burn_pct).round() as i64;
     let to_facility = fee - burned;
     if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(facility) {
         ops.credits += to_facility;
@@ -2976,18 +2969,16 @@ async fn drain_pending_materializations(
 /// persists, and recovery events (`market_recovered` /
 /// `facility_recovered`) fire when state normalises again.
 fn scan_crisis_events(world: &mut hecs::World, events: &mut Vec<serde_json::Value>) {
-    use sim_core::agents::facility::{
-        FacilityIdentity, FacilityOperations, FACILITY_STARVING_CONDITION,
-        FACILITY_STARVING_RECOVERY,
-    };
-    use sim_core::agents::market::{
-        MarketHistory, MarketIdentity, MARKET_CRISIS_RECOVERY_TICKS, MARKET_CRISIS_SHORTAGE_TICKS,
-    };
+    use sim_core::agents::facility::{FacilityIdentity, FacilityOperations};
+    use sim_core::agents::market::{MarketHistory, MarketIdentity};
+    use sim_core::simulation::tuning::WorldTuning;
+
+    let t = WorldTuning::current();
 
     for (_e, (id, hist)) in world.query_mut::<(&MarketIdentity, &mut MarketHistory)>() {
         for (&commodity, &shortage) in hist.shortage_ticks.clone().iter() {
             let was_notified = hist.crisis_notified.get(&commodity).copied().unwrap_or(false);
-            if shortage >= MARKET_CRISIS_SHORTAGE_TICKS && !was_notified {
+            if shortage >= t.market_crisis_shortage_ticks && !was_notified {
                 events.push(serde_json::json!({
                     "kind": "market_crisis",
                     "market_id": id.id,
@@ -2996,7 +2987,7 @@ fn scan_crisis_events(world: &mut hecs::World, events: &mut Vec<serde_json::Valu
                     "shortage_ticks": shortage,
                 }));
                 hist.crisis_notified.insert(commodity, true);
-            } else if shortage <= MARKET_CRISIS_RECOVERY_TICKS && was_notified {
+            } else if shortage <= t.market_crisis_recovery_ticks && was_notified {
                 events.push(serde_json::json!({
                     "kind": "market_recovered",
                     "market_id": id.id,
@@ -3009,14 +3000,14 @@ fn scan_crisis_events(world: &mut hecs::World, events: &mut Vec<serde_json::Valu
     }
 
     for (_e, (id, ops)) in world.query_mut::<(&FacilityIdentity, &mut FacilityOperations)>() {
-        if ops.condition < FACILITY_STARVING_CONDITION && !ops.starving_notified {
+        if ops.condition < t.facility_starving_condition && !ops.starving_notified {
             events.push(serde_json::json!({
                 "kind": "facility_starving",
                 "facility_id": id.id,
                 "condition": ops.condition,
             }));
             ops.starving_notified = true;
-        } else if ops.condition > FACILITY_STARVING_RECOVERY && ops.starving_notified {
+        } else if ops.condition > t.facility_starving_recovery && ops.starving_notified {
             events.push(serde_json::json!({
                 "kind": "facility_recovered",
                 "facility_id": id.id,

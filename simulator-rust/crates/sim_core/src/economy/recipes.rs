@@ -81,11 +81,13 @@ pub fn for_facility_type(facility_type: &str) -> impl Iterator<Item = &'static R
     RECIPES.iter().filter(move |r| r.facility_type == facility_type)
 }
 
-/// Bundle (H): profitability gate threshold. Recipes whose outputs
-/// (at current local prices) are worth less than this fraction of
-/// their inputs are skipped. 0.5 = "skip when we'd lose half or
-/// more"; leaves generous headroom for normal price fluctuation so
-/// facilities don't idle on transient dips.
+/// Bundle (H): profitability gate threshold (default). Recipes
+/// whose outputs are worth less than this fraction of their inputs
+/// are skipped. 0.5 = "skip when we'd lose half or more"; leaves
+/// generous headroom for normal price fluctuation so facilities
+/// don't idle on transient dips. Live-tunable via
+/// `WorldTuning::current().min_recipe_margin_ratio` (see
+/// `sim_core/src/simulation/tuning.rs`).
 pub const MIN_RECIPE_MARGIN_RATIO: f32 = 0.5;
 
 /// Execute a recipe against available supply. Returns produced outputs
@@ -153,7 +155,8 @@ pub fn execute(
             .iter()
             .map(|(c, n)| p.get(c).copied().unwrap_or(0.0) * (*n as f32 * effective_scale))
             .sum();
-        if input_value > 0.0 && output_value < input_value * MIN_RECIPE_MARGIN_RATIO {
+        let ratio = crate::simulation::tuning::WorldTuning::current().min_recipe_margin_ratio;
+        if input_value > 0.0 && output_value < input_value * ratio {
             return HashMap::new();
         }
     }
