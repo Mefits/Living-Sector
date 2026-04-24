@@ -11,6 +11,7 @@ use std::time::Duration;
 mod camera;
 mod render;
 mod sim;
+mod ui;
 
 fn main() {
     // Let Bevy's LogPlugin own the global tracing subscriber — it
@@ -41,6 +42,7 @@ fn main() {
         .add_plugins(sim::SimPlugin)
         .add_plugins(render::RenderPlugin)
         .add_plugins(camera::CameraPlugin)
+        .add_plugins(ui::UiPlugin)
         .add_systems(Startup, setup_scene)
         .add_systems(Update, heartbeat_system)
         .run();
