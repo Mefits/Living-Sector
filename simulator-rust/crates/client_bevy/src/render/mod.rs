@@ -139,7 +139,14 @@ fn spawn_mirror_entities(
     });
 
     let assets = PlaceholderAssets {
-        ship_mesh: meshes.add(Cuboid::from_size(Vec3::splat(SHIP_SIZE))),
+        // Elongated prism so ships read as "pointing somewhere". Nose
+        // is +Z in local space (before rotation). Scale picks a 3:1
+        // length-to-width so direction is legible even at zoom-out.
+        ship_mesh: meshes.add(Cuboid::new(
+            SHIP_SIZE * 0.5,
+            SHIP_SIZE * 0.5,
+            SHIP_SIZE * 1.6,
+        )),
         ship_mat_by_faction,
         ship_mat_fallback,
         facility_mesh: meshes.add(Cylinder::new(FACILITY_SIZE * 0.5, FACILITY_SIZE)),
@@ -272,17 +279,45 @@ fn sync_positions(
 ) {
     let world = &sim.store.world;
 
-    // Ship lookup: sim_id → (x, y).
-    let ship_positions: std::collections::HashMap<String, (f32, f32)> = world
-        .query::<(&ShipIdentity, &ShipPosition)>()
+    // Ship lookup: sim_id → (position, heading). Heading is a unit
+    // vector in xz-world-space derived from departure→current while
+    // in transit; None when docked / idle (keep last heading).
+    let ship_state: std::collections::HashMap<String, ((f32, f32), Option<Vec3>)> = world
+        .query::<(&ShipIdentity, &ShipPosition, &ShipTransit)>()
         .iter()
-        .map(|(_e, (id, pos))| (id.id.clone(), pos.position))
+        .map(|(_e, (id, pos, transit))| {
+            let heading = transit.transit.as_ref().and_then(|t| {
+                let (dx, dy) = t.departure_position?;
+                let delta = Vec3::new(
+                    (pos.position.0 - dx) * SCALE_FACTOR,
+                    0.0,
+                    (pos.position.1 - dy) * SCALE_FACTOR,
+                );
+                // Micro-transits (sub-tick progress at departure) can
+                // be zero-length; skip those rather than normalizing
+                // to NaN.
+                if delta.length_squared() > 1e-6 {
+                    Some(delta.normalize())
+                } else {
+                    None
+                }
+            });
+            (id.id.clone(), (pos.position, heading))
+        })
         .collect();
 
     for (ship, mut xf) in ships.iter_mut() {
-        if let Some(&(x, y)) = ship_positions.get(&ship.sim_id) {
-            xf.translation.x = x * SCALE_FACTOR;
-            xf.translation.z = y * SCALE_FACTOR;
+        if let Some((pos, heading)) = ship_state.get(&ship.sim_id) {
+            xf.translation.x = pos.0 * SCALE_FACTOR;
+            xf.translation.z = pos.1 * SCALE_FACTOR;
+            if let Some(dir) = heading {
+                // Face travel direction. `+Z` is the ship's nose in
+                // local space (see elongated cuboid above). Rotation
+                // around Y only — ships stay level in galactic plane.
+                xf.rotation = Quat::from_rotation_y(dir.x.atan2(dir.z));
+            }
+            // Docked / idle ships keep their last rotation so they
+            // don't snap back to identity when a transit ends.
         }
     }
 
