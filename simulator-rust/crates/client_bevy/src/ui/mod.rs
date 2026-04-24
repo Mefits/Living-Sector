@@ -22,6 +22,7 @@ impl Plugin for UiPlugin {
             .init_resource::<ContractsState>()
             .init_resource::<FactionsState>()
             .init_resource::<MarketsState>()
+            .init_resource::<PopulationsState>()
             .add_systems(
                 Update,
                 (
@@ -32,6 +33,7 @@ impl Plugin for UiPlugin {
                     contracts_panel,
                     factions_panel,
                     markets_panel,
+                    populations_panel,
                 )
                     .chain(),
             );
@@ -49,6 +51,7 @@ fn top_bar(
     mut contracts: ResMut<ContractsState>,
     mut factions: ResMut<FactionsState>,
     mut markets: ResMut<MarketsState>,
+    mut pops: ResMut<PopulationsState>,
 ) {
     egui::TopBottomPanel::top("top_bar").show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
@@ -90,6 +93,15 @@ fn top_bar(
                 .clicked()
             {
                 markets.open = !markets.open;
+            }
+            if ui
+                .selectable_label(
+                    pops.open,
+                    format!("Pops ({})", sim.store.population_by_id.len()),
+                )
+                .clicked()
+            {
+                pops.open = !pops.open;
             }
         });
     });
@@ -1141,4 +1153,242 @@ fn markets_panel(
     state.open = open;
     state.filter = filter;
     state.only_shortages = only_shortages;
+}
+
+// =============================================================================
+// Populations panel
+// =============================================================================
+//
+// One row per population (~27 today). Columns cover the levers: count,
+// sentiment, food satisfaction, total wealth, migration pressure. Sort
+// by any numeric column; filter by label/location/faction. Sentiment
+// and food cells colour-code against their natural ranges so stressed
+// pops jump out.
+
+#[derive(Resource, Default)]
+struct PopulationsState {
+    open: bool,
+    sort: PopSort,
+    descending: bool,
+    filter: String,
+}
+
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+enum PopSort {
+    #[default]
+    Label,
+    Location,
+    Count,
+    Sentiment,
+    Food,
+    Wealth,
+    Migration,
+}
+
+struct PopRow {
+    label: String,
+    demographic: String,
+    location: String,
+    faction: String,
+    count: i64,
+    sentiment: i32,
+    food: i32,
+    wealth: i64,
+    // Migration pressure is f32; keep as f32 for display, sort via bits
+    // so NaN doesn't panic.
+    migration: f32,
+}
+
+fn populations_panel(
+    mut ctx: EguiContexts,
+    sim: Res<Sim>,
+    mut state: ResMut<PopulationsState>,
+) {
+    use sim_core::agents::population::{
+        PopDemographics, PopEconomy, PopIdentity, PopSentiment,
+    };
+
+    let mut open = state.open;
+    let mut sort = state.sort;
+    let mut descending = state.descending;
+    let mut filter = state.filter.clone();
+
+    if !open {
+        return;
+    }
+
+    let rows: Vec<PopRow> = sim
+        .store
+        .world
+        .query::<(&PopIdentity, &PopDemographics, &PopEconomy, &PopSentiment)>()
+        .iter()
+        .map(|(_e, (id, demo, econ, sent))| PopRow {
+            label: id.label.clone(),
+            demographic: id.demographic.clone(),
+            location: id.facility_location.clone(),
+            faction: id.faction_id.clone(),
+            count: demo.population_count,
+            sentiment: sent.overall_sentiment,
+            food: sent.food_satisfaction,
+            wealth: econ.total_wealth,
+            migration: demo.migration_pressure,
+        })
+        .collect();
+
+    let filter_lc = filter.to_lowercase();
+    let mut filtered: Vec<&PopRow> = rows
+        .iter()
+        .filter(|r| {
+            if filter_lc.is_empty() {
+                return true;
+            }
+            r.label.to_lowercase().contains(&filter_lc)
+                || r.location.to_lowercase().contains(&filter_lc)
+                || r.faction.to_lowercase().contains(&filter_lc)
+                || r.demographic.to_lowercase().contains(&filter_lc)
+        })
+        .collect();
+
+    filtered.sort_by(|a, b| {
+        let cmp = match sort {
+            PopSort::Label => a.label.cmp(&b.label),
+            PopSort::Location => a.location.cmp(&b.location),
+            PopSort::Count => a.count.cmp(&b.count),
+            PopSort::Sentiment => a.sentiment.cmp(&b.sentiment),
+            PopSort::Food => a.food.cmp(&b.food),
+            PopSort::Wealth => a.wealth.cmp(&b.wealth),
+            // Bits-based ordering for f32 — safe for non-NaN values which
+            // migration_pressure is by construction (clamped >= 0.0).
+            PopSort::Migration => a
+                .migration
+                .partial_cmp(&b.migration)
+                .unwrap_or(std::cmp::Ordering::Equal),
+        };
+        if descending { cmp.reverse() } else { cmp }
+    });
+
+    let total = rows.len();
+    let shown = filtered.len();
+
+    egui::Window::new(format!("Populations · {shown}/{total}"))
+        .default_width(820.0)
+        .default_height(460.0)
+        .open(&mut open)
+        .show(ctx.ctx_mut(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label("filter:");
+                ui.text_edit_singleline(&mut filter);
+            });
+            ui.separator();
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::Grid::new("pops_grid")
+                    .striped(true)
+                    .num_columns(8)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        pop_sort_header(ui, "Label", &mut sort, &mut descending, PopSort::Label);
+                        ui.label(egui::RichText::new("Demo").strong());
+                        pop_sort_header(ui, "Location", &mut sort, &mut descending, PopSort::Location);
+                        pop_sort_header(ui, "Count", &mut sort, &mut descending, PopSort::Count);
+                        pop_sort_header(ui, "Sent", &mut sort, &mut descending, PopSort::Sentiment);
+                        pop_sort_header(ui, "Food", &mut sort, &mut descending, PopSort::Food);
+                        pop_sort_header(ui, "Wealth", &mut sort, &mut descending, PopSort::Wealth);
+                        pop_sort_header(ui, "Mig", &mut sort, &mut descending, PopSort::Migration);
+                        ui.end_row();
+
+                        for r in &filtered {
+                            ui.label(&r.label);
+                            ui.label(&r.demographic);
+                            ui.label(&r.location);
+                            ui.label(format_int(r.count));
+                            ui.colored_label(sentiment_color(r.sentiment), format!("{}", r.sentiment));
+                            ui.colored_label(food_color(r.food), format!("{}", r.food));
+                            ui.label(format_credits(r.wealth));
+                            let mig_color = if r.migration >= 1.0 {
+                                egui::Color32::from_rgb(240, 100, 90)
+                            } else if r.migration >= 0.5 {
+                                egui::Color32::from_rgb(230, 200, 90)
+                            } else {
+                                egui::Color32::from_gray(200)
+                            };
+                            ui.colored_label(mig_color, format!("{:.2}", r.migration));
+                            ui.end_row();
+                        }
+                    });
+            });
+        });
+
+    state.open = open;
+    state.sort = sort;
+    state.descending = descending;
+    state.filter = filter;
+}
+
+fn pop_sort_header(
+    ui: &mut egui::Ui,
+    label: &str,
+    current: &mut PopSort,
+    descending: &mut bool,
+    target: PopSort,
+) {
+    let arrow = if *current == target {
+        if *descending { " ▼" } else { " ▲" }
+    } else {
+        ""
+    };
+    let text = egui::RichText::new(format!("{label}{arrow}")).strong();
+    if ui.button(text).clicked() {
+        if *current == target {
+            *descending = !*descending;
+        } else {
+            *current = target;
+            // Numeric-y columns default to descending (biggest first),
+            // text-y columns default to ascending.
+            *descending = !matches!(target, PopSort::Label | PopSort::Location);
+        }
+    }
+}
+
+fn sentiment_color(s: i32) -> egui::Color32 {
+    if s >= 50 {
+        egui::Color32::from_rgb(120, 220, 120)
+    } else if s >= 30 {
+        egui::Color32::from_rgb(230, 200, 90)
+    } else if s >= 0 {
+        egui::Color32::from_rgb(230, 150, 100)
+    } else {
+        egui::Color32::from_rgb(240, 100, 90)
+    }
+}
+
+fn food_color(f: i32) -> egui::Color32 {
+    // Food sat scale is roughly 0..=100. <30 is the "emergency water"
+    // territory; >70 is the comfortable zone.
+    if f >= 70 {
+        egui::Color32::from_rgb(120, 220, 120)
+    } else if f >= 30 {
+        egui::Color32::from_rgb(230, 200, 90)
+    } else {
+        egui::Color32::from_rgb(240, 100, 90)
+    }
+}
+
+fn format_int(n: i64) -> String {
+    // Thousands separator for population counts so "1204000" reads
+    // as "1,204,000" at a glance.
+    let s = n.abs().to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    let result: String = out.chars().rev().collect();
+    if n < 0 {
+        format!("-{}", result)
+    } else {
+        result
+    }
 }
