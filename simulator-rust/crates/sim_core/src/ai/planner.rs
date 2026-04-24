@@ -120,6 +120,10 @@ pub struct WorldState {
     /// A retrofit operation has completed at a shipyard. Set by
     /// `Refit`. Used by combined delivery-with-retrofit goals.
     pub retrofitted: bool,
+    /// Crew has rested to full morale. Set by `Rest`. Used by
+    /// crew-mission plans (goal: `delivered && rested`) and
+    /// rest-crew plans (goal: `rested && !docked`).
+    pub rested: bool,
 }
 
 impl WorldState {
@@ -132,6 +136,7 @@ impl WorldState {
             delivered: false,
             sold: false,
             retrofitted: false,
+            rested: false,
         }
     }
 }
@@ -300,6 +305,12 @@ pub enum Operator {
     /// but the precondition doesn't require `cargo_loaded` — passenger
     /// contracts don't occupy hold space. Effect: `delivered = true`.
     DeliverPassengers,
+    /// Shore leave / crew-mission dwell. The real `ShipAction::Rest`
+    /// returns Running until morale ≥ CREW_REST_TARGET; for the
+    /// planner it's an instantaneous state transition. Pre: docked;
+    /// eff: `rested = true`. Used by crew_mission + rest_crew
+    /// catalogs.
+    Rest,
 }
 
 impl Operator {
@@ -372,6 +383,37 @@ impl Operator {
             Operator::Undock,
             Operator::Travel { to: Loc::Origin },
             Operator::Travel { to: Loc::Shipyard },
+        ]
+    }
+
+    /// Operator catalog for crew-mission plans. Ship travels to
+    /// the mission station (encoded in the LocMap as `Dest`,
+    /// source is a placeholder), docks, refuels, rests, delivers
+    /// payout, undocks. Goal = `delivered && rested && fuel_bucket >= 2`.
+    pub fn crew_mission_catalog() -> &'static [Operator] {
+        &[
+            Operator::Dock,
+            Operator::Refuel,
+            Operator::Rest,
+            Operator::DeliverPassengers,
+            Operator::Undock,
+            Operator::Travel { to: Loc::Origin },
+            Operator::Travel { to: Loc::Dest },
+        ]
+    }
+
+    /// Operator catalog for rest-crew (shore-leave) plans. Ship
+    /// travels to a chosen rest target (encoded as `Dest`), docks,
+    /// refuels, rests, undocks. Goal =
+    /// `rested && !docked && at == Dest && fuel_bucket >= 2`.
+    pub fn rest_crew_catalog() -> &'static [Operator] {
+        &[
+            Operator::Dock,
+            Operator::Refuel,
+            Operator::Rest,
+            Operator::Undock,
+            Operator::Travel { to: Loc::Origin },
+            Operator::Travel { to: Loc::Dest },
         ]
     }
 
@@ -489,6 +531,17 @@ impl Operator {
                     contract_id: map.contract_id.clone(),
                 };
                 Some((next, action))
+            }
+            Operator::Rest => {
+                if !state.docked {
+                    return None;
+                }
+                if state.rested {
+                    return None; // don't chain redundant Rest steps
+                }
+                let mut next = state.clone();
+                next.rested = true;
+                Some((next, ShipAction::Rest))
             }
             Operator::DeliverPassengers => {
                 if !state.docked || state.at != Loc::Dest {
@@ -876,6 +929,73 @@ mod tests {
             "trade-run plan must not include DeliverCargo: {:?}",
             plan.actions,
         );
+    }
+
+    fn mission_map() -> LocMap {
+        // Crew mission: station is the Dest (Source is an
+        // irrelevant placeholder).
+        LocMap::delivery(
+            "earth-station".into(),
+            "earth-station".into(), // Source (unused for mission)
+            "mars-station".into(),
+            Commodity::Food,
+            0,
+            "mission-contract-7".into(),
+            0,
+            0,
+            3,
+        )
+    }
+
+    #[test]
+    fn plans_crew_mission_requires_rest_before_deliver() {
+        // Crew mission plan goal: delivered && rested. Planner
+        // must produce Rest before DeliverPassengers.
+        let map = mission_map();
+        let initial = WorldState::new(Loc::Origin, 10);
+        let p = plan(
+            initial,
+            |s| s.delivered && s.rested,
+            Operator::crew_mission_catalog(),
+            &map,
+            16,
+        )
+        .expect("crew mission plan should exist");
+        assert!(p.final_state.delivered);
+        assert!(p.final_state.rested);
+        // Check ordering: Rest must appear before DeliverCargo in
+        // the synthesised sequence.
+        let rest_idx = p.actions.iter().position(|a| matches!(a, ShipAction::Rest));
+        let deliver_idx = p
+            .actions
+            .iter()
+            .position(|a| matches!(a, ShipAction::DeliverCargo { .. }));
+        assert!(rest_idx.is_some(), "plan must include Rest: {:?}", p.actions);
+        assert!(deliver_idx.is_some(), "plan must include DeliverCargo: {:?}", p.actions);
+        assert!(
+            rest_idx.unwrap() < deliver_idx.unwrap(),
+            "Rest must precede DeliverCargo: {:?}",
+            p.actions,
+        );
+    }
+
+    #[test]
+    fn plans_rest_crew_ends_undocked_at_target() {
+        // rest_crew goal: rested && not docked && at Dest.
+        let mut map = mission_map();
+        map.cost_origin_to_dest = 2;
+        let initial = WorldState::new(Loc::Origin, 10);
+        let p = plan(
+            initial,
+            |s| s.rested && !s.docked && s.at == Loc::Dest,
+            Operator::rest_crew_catalog(),
+            &map,
+            16,
+        )
+        .expect("rest_crew plan should exist");
+        assert!(p.final_state.rested);
+        assert!(!p.final_state.docked);
+        assert_eq!(p.final_state.at, Loc::Dest);
     }
 
     #[test]

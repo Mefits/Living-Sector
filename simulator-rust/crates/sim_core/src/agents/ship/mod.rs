@@ -2242,6 +2242,10 @@ fn plan_goal(
     };
 
     let mut candidates: Vec<ScoredGoal> = Vec::new();
+    // Compute the ship's fuel bucket once — passed into every
+    // planner BT builder so synthesised plans reason about real
+    // fuel state rather than a full-tank assumption.
+    let fuel_bucket = crate::ai::planner::fuel_fraction_to_bucket(fuel.fraction());
 
     // --- Biological tier: rest + refuel ---
     // Urgency is in [0, 1], steepest near 1.0 so a near-crisis
@@ -2256,7 +2260,7 @@ fn plan_goal(
             candidates.push(ScoredGoal {
                 name: "rest_crew",
                 score,
-                bt: build_rest_crew_bt_to(&at_loc, &target, registry, gate_pairs),
+                bt: build_rest_crew_bt_to(&at_loc, &target, fuel_bucket, registry, gate_pairs),
             });
         }
     }
@@ -2298,13 +2302,7 @@ fn plan_goal(
         candidates.push(ScoredGoal {
             name: "seek_retrofit",
             score,
-            bt: build_retrofit_bt(
-                &at_loc,
-                plan,
-                crate::ai::planner::fuel_fraction_to_bucket(fuel.fraction()),
-                registry,
-                gate_pairs,
-            ),
+            bt: build_retrofit_bt(&at_loc, plan, fuel_bucket, registry, gate_pairs),
         });
     }
 
@@ -2313,7 +2311,6 @@ fn plan_goal(
     // weight. Archetype `prefer_goals` entries tilt the pick so
     // the fleet fans out instead of every ship running the same
     // waterfall.
-    let fuel_bucket = crate::ai::planner::fuel_fraction_to_bucket(fuel.fraction());
     if let Some(c) = try_plan_contract(
         &at_loc,
         cargo,
@@ -2878,6 +2875,7 @@ fn try_plan_contract(
                 at_loc,
                 &cand.source,
                 cand.id,
+                fuel_bucket,
                 registry,
                 gate_pairs,
             ),
@@ -2961,7 +2959,65 @@ fn try_plan_contract(
 /// (the dwell — Rest returns Running until morale >= target, which
 /// approximates the mission's duration_ticks). Then Deliver claims the
 /// payout; Undock.
+#[allow(clippy::too_many_arguments)]
 fn build_fulfill_crew_mission_bt(
+    current: &str,
+    station: &str,
+    contract_id: String,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    if let Some(bt) = try_build_fulfill_crew_mission_bt_planned(
+        current,
+        station,
+        &contract_id,
+        fuel_bucket,
+        registry,
+        gate_pairs,
+    ) {
+        return bt;
+    }
+    build_fulfill_crew_mission_bt_handauthored(current, station, contract_id, registry, gate_pairs)
+}
+
+/// GOAP: crew-mission planner. Single-station mission (travel →
+/// dock → refuel → rest → deliver payout → undock). Ordering is
+/// enforced by the Rest precondition and the
+/// `delivered && rested` goal predicate.
+fn try_build_fulfill_crew_mission_bt_planned(
+    current: &str,
+    station: &str,
+    contract_id: &str,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+    let map = LocMap::delivery(
+        current.to_string(),
+        current.to_string(), // Source placeholder (unused by crew_mission_catalog)
+        station.to_string(),
+        Commodity::Food,
+        0,
+        contract_id.to_string(),
+        0,
+        0,
+        cost(current, station),
+    );
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan(
+        initial,
+        |s| s.delivered && s.rested && s.fuel_bucket >= 2,
+        Operator::crew_mission_catalog(),
+        &map,
+        20,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+fn build_fulfill_crew_mission_bt_handauthored(
     current: &str,
     station: &str,
     contract_id: String,
@@ -3137,7 +3193,58 @@ fn build_rest_crew_bt() -> BtNode<ShipAction> {
 /// saturated), then dock + refuel + rest + undock. If target ==
 /// current, the route leg is empty — identical behavior to the
 /// pre-18L flat sequence.
+#[allow(clippy::too_many_arguments)]
 fn build_rest_crew_bt_to(
+    current: &str,
+    target: &str,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    if let Some(bt) =
+        try_build_rest_crew_bt_to_planned(current, target, fuel_bucket, registry, gate_pairs)
+    {
+        return bt;
+    }
+    build_rest_crew_bt_to_handauthored(current, target, registry, gate_pairs)
+}
+
+/// GOAP: rest_crew planner. Goal =
+/// `rested && !docked && at == Dest && fuel_bucket >= 2`. The
+/// `rest_crew_catalog` has no cargo / contract ops so plans are
+/// tightly scoped to travel-dock-rest-undock.
+fn try_build_rest_crew_bt_to_planned(
+    current: &str,
+    target: &str,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+    let map = LocMap::delivery(
+        current.to_string(),
+        current.to_string(), // Source placeholder (unused by rest_crew_catalog)
+        target.to_string(),
+        Commodity::Food,
+        0,
+        String::new(), // no contract
+        0,
+        0,
+        cost(current, target),
+    );
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan(
+        initial,
+        |s| s.rested && !s.docked && s.at == Loc::Dest && s.fuel_bucket >= 2,
+        Operator::rest_crew_catalog(),
+        &map,
+        16,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+fn build_rest_crew_bt_to_handauthored(
     current: &str,
     target: &str,
     registry: &WorldRegistry,
