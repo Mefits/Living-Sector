@@ -8,7 +8,8 @@
 
 use bevy::prelude::*;
 use sim_core::{
-    simulation::{config::TickConfig, spawner::AgentStore, tuning::WorldTuning},
+    agents::ship,
+    simulation::{commands::CommandBuffer, config::TickConfig, spawner::AgentStore, tuning::WorldTuning},
     world::registry::WorldRegistry,
 };
 use std::path::PathBuf;
@@ -132,6 +133,10 @@ fn load_world(mut sim: ResMut<Sim>) {
             sim.registry = Arc::new(registry);
             sim.tick = resumed_tick;
             sim.world_seed = world_seed;
+            // Mirror sim_server's post-load step: build the gate-pair
+            // lookup so ships can gate-jump. Required for any transit
+            // through a gate to pick the right paired endpoint.
+            sim.store.rebuild_gate_pairs();
         }
         Err(e) => {
             error!("client_bevy: world load failed: {e}");
@@ -142,14 +147,52 @@ fn load_world(mut sim: ResMut<Sim>) {
 }
 
 /// Tick system — runs on Bevy's `FixedUpdate` at
-/// `DEFAULT_TICK_INTERVAL_S`. Bundle 2a bumped only the counter;
-/// Bundle 2b.3 extracts `sim_server::engine::run_tick_loop` into a
-/// sharable form and wires it in here.
+/// `DEFAULT_TICK_INTERVAL_S`. Bundle 2b.3 **minimum-viable** form:
+/// calls `sim_core::agents::ship::tick_ships` to advance transits +
+/// rotate the ships' internal state machines, but **discards the
+/// emitted `CommandBuffer`** because `apply_ship_commands` lives
+/// in `sim_server::engine` (private) and porting it cleanly is a
+/// follow-up bundle. The consequence:
+///
+/// - Ships in transit MOVE (advance_transits writes directly to
+///   `ShipPosition`).
+/// - Ship crew / BT decisions fire but their *outputs* (buy,
+///   deliver, dock fee, etc.) never apply. So the economy doesn't
+///   progress, and docked ships won't undock on their own.
+///
+/// That's fine for visual validation — we can see the scaling
+/// story (1500+ ships ticking, moving) without the full phase
+/// chain. Bundle 2b.4 extracts `apply_ship_commands` + the other
+/// phase helpers into a shared `sim_engine` crate and wires the
+/// full tick in.
 fn tick_sim(mut sim: ResMut<Sim>) {
     if !sim.running {
         return;
     }
     sim.tick += 1;
+
+    let config = TickConfig::DEFAULT;
+    let tick_scale = config.tick_scale();
+    let tick_mult = sim.tick_mult;
+    let tick = sim.tick;
+
+    let Sim { store, registry, .. } = &mut *sim;
+
+    // Emitted commands go into `commands`; we drop the buffer at
+    // end-of-tick until Bundle 2b.4 wires in apply.
+    let mut commands = CommandBuffer::new();
+    ship::tick_ships(
+        &mut store.world,
+        registry,
+        &store.gate_pairs,
+        &store.contracts,
+        &store.relations,
+        &mut commands,
+        tick,
+        tick_scale,
+        tick_mult,
+    );
+    commands.clear();
 }
 
 /// DB path resolution — honour `DATABASE_PATH` env var, else look
