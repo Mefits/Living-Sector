@@ -325,6 +325,25 @@ directly; zero marshalling between sim and render.
   renders a faint Gizmos line from each in-transit ship's
   `departure_position` to its current position — trail-behind-the-
   ship look. Batches into one draw call.
+- **Bundle 3q**: starfield backdrop. 2000 emissive star-spheres
+  scattered in a shell around origin, seeded off `Sim.world_seed`
+  so constellations stay put across restarts (parity with Godot's
+  nebula seed). Shares one mesh + one unlit material → one draw
+  call.
+- **Bundle 3r**: click-on-mesh raycast selection. Left-click picks
+  the nearest ship or facility via `Camera::viewport_to_world` +
+  ray-sphere test at a screen-space-scaled radius (~10px at
+  typical FOV). Skips egui-consumed clicks; empty-clicks leave
+  selection unchanged.
+- **Bundle 3s**: directional ship shape + rotation. Ship placeholder
+  mesh is now an elongated 1×1×3.2 prism (nose at +Z); in-transit
+  ships rotate around Y to face their travel direction, derived
+  from `departure_position → current position`.
+- **Bundle 3t**: admin Grant XP button. Ship details panel has a
+  "+100 XP" button that mutates `ShipProgression` directly via
+  hecs `world.get::<&mut _>`, bypassing `SimCommand`. Proves the
+  embedded-arch admin pattern: no HTTP, direct component write.
+  Applied after the read-only query closure drops its borrow.
 
 Deferred:
 - **Bundle 2b.4** — extract `sim_engine` crate: lift
@@ -333,9 +352,8 @@ Deferred:
   phase chain. Until then the embedded tick moves ships visually
   but doesn't progress the economy and new retirements/events land
   only after a restart.
-- Events ticker, minimap, admin toolbar/panels, click-on-mesh
-  raycast selection, procedural ship meshes, nebula backdrop,
-  save / save-as.
+- Events ticker, minimap, more admin actions (spawn / delete /
+  refit), procedural ship meshes, nebula backdrop, save / save-as.
 
 ## Systems wired
 
