@@ -48,7 +48,12 @@ func _ready() -> void:
 	visible = false
 	close_button.pressed.connect(func(): visible = false)
 	_build_header()
+	# Per-tick sparkline sampling stays on tick_updated — it's cheap
+	# (a few hashmap writes). Full grid rebuild moves to `markets_updated`
+	# which fires on the ~2 s market_states broadcast, since that's when
+	# the data actually changes; the 8-Hz rebuild was pure waste.
 	GameState.tick_updated.connect(_on_tick)
+	GameState.markets_updated.connect(_on_markets_updated)
 	if DEBUG:
 		print("[Market] _ready — close_button=%s header_row=%s rows_container=%s" % [
 			close_button != null, header_row != null, rows_container != null,
@@ -66,9 +71,15 @@ func toggle() -> void:
 
 
 func _on_tick(_tick: int) -> void:
+	# Sparkline history only — the full grid rebuild moved to the
+	# `markets_updated` handler below (fires on the ~2 s WS broadcast
+	# that actually contains fresh prices).
 	_tick_counter += 1
 	if _tick_counter % SAMPLE_EVERY_N_TICKS == 0:
 		_capture_samples()
+
+
+func _on_markets_updated() -> void:
 	if visible:
 		_refresh()
 

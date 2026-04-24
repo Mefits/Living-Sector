@@ -21,6 +21,18 @@ signal construction_site_removed(id: String)
 # that render dock glow / reserves listen for this to redraw. Fires ~every
 # 2 s (tick % 16) at default pace.
 signal facility_states_updated
+# Emitted after a ship_states WS broadcast is merged (~every 1 s / 8 ticks).
+# Panels that render per-ship state (ship list, details panel) should drive
+# their refresh off this signal rather than `tick_updated` — ship state only
+# changes at the broadcast cadence, so refreshing faster burns frames for
+# no visible difference. The 2026-04-24 Godot perf pass found ship_list
+# rebuilding its 1500-row tree 8× per second via `tick_updated`; switching
+# to this signal drops that to 1× per second.
+signal ships_updated
+# Emitted after a market_states WS broadcast is merged (~every 2 s / 16 ticks).
+# Market overlay's full-grid refresh listens here; per-tick sparkline
+# sampling stays on `tick_updated` because it's cheap.
+signal markets_updated
 # Emitted after population_states merge. Pop browser listens.
 signal populations_updated
 # Emitted after faction_states merge. Faction ledger listens.
@@ -430,6 +442,7 @@ func update_ship_states(states_array: Array) -> void:
 			stale.append(sid)
 	for sid in stale:
 		remove_ship_local(sid)
+	ships_updated.emit()
 
 
 func update_markets(markets_array: Array) -> void:
@@ -443,6 +456,7 @@ func update_markets(markets_array: Array) -> void:
 		if id == "":
 			continue
 		markets[id] = entry
+	markets_updated.emit()
 
 
 func update_facilities(facilities_array: Array) -> void:

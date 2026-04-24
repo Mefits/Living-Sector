@@ -25,7 +25,11 @@ func _ready() -> void:
 	ship_tree.column_title_clicked.connect(_on_column_clicked)
 
 	_setup_columns()
-	GameState.tick_updated.connect(_on_tick)
+	# Refresh when ship_states lands (~every 1 s) instead of every tick.
+	# At 1500 ships the 8-Hz full-tree rebuild was the single biggest
+	# source of FPS drop in the 2026-04-24 stress test; ship state
+	# itself only updates at 1 Hz so the extra rebuilds were wasted.
+	GameState.ships_updated.connect(_on_ships_updated)
 
 
 func _setup_columns() -> void:
@@ -53,7 +57,7 @@ func toggle() -> void:
 		_refresh()
 
 
-func _on_tick(_tick: int) -> void:
+func _on_ships_updated() -> void:
 	if visible:
 		_refresh()
 

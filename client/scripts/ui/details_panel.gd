@@ -20,11 +20,10 @@ const BIOME_COLORS := {
 var _selected_id: String = ""
 var _selected_type: String = ""  # "ship", "facility", "body"
 
-# Cached command-trace rows for the selected ship, refreshed every
-# ~2 seconds while visible. Populated by `_refresh_command_trace`
+# Cached command-trace rows for the selected ship, refreshed once per
+# ships_updated broadcast (~1 s). Populated by `_refresh_command_trace`
 # which fires an HTTP fetch through NetworkManager.
 var _command_trace: Array = []
-var _trace_refresh_cooldown: int = 0
 
 @onready var title_label: Label = $VBox/TitleLabel
 @onready var type_label: Label = $VBox/TypeLabel
@@ -34,7 +33,13 @@ var _trace_refresh_cooldown: int = 0
 
 func _ready() -> void:
   close_button.pressed.connect(deselect)
-  GameState.tick_updated.connect(_on_tick)
+  # Refresh when the underlying ship state actually changes (every ~1 s
+  # from the ship_states WS broadcast) rather than every tick — the
+  # panel was redrawing a RichTextLabel at 8 Hz for data that updates
+  # at 1 Hz. Pure overhead on the frame thread at 1500 agents.
+  GameState.ships_updated.connect(_on_ship_states)
+  # Facility / body renders ride the facility_states cadence (~2 s).
+  GameState.facility_states_updated.connect(_on_facility_states)
   visible = false
 
 
@@ -42,7 +47,6 @@ func select_ship(id: String) -> void:
   _selected_id = id
   _selected_type = "ship"
   _command_trace = []
-  _trace_refresh_cooldown = 0
   visible = true
   _refresh()
   _refresh_command_trace()
@@ -72,18 +76,22 @@ func is_selecting() -> bool:
   return visible
 
 
-func _on_tick(_tick: int) -> void:
-  if visible:
+func _on_ship_states() -> void:
+  if not visible:
+    return
+  if _selected_type != "ship":
+    return
+  _refresh()
+  # Command trace ride the same cadence (~1 s) — still cheap because
+  # each fire is a single HTTP GET bounded by the trace limit.
+  _refresh_command_trace()
+
+
+func _on_facility_states() -> void:
+  if not visible:
+    return
+  if _selected_type == "facility" or _selected_type == "body":
     _refresh()
-    # Refresh the command trace on a lazy cooldown when a ship is
-    # selected. 16-tick cadence matches the existing ship_states
-    # broadcast so the trace feels alive without hammering the HTTP
-    # endpoint on every tick.
-    if _selected_type == "ship":
-      _trace_refresh_cooldown -= 1
-      if _trace_refresh_cooldown <= 0:
-        _trace_refresh_cooldown = 16
-        _refresh_command_trace()
 
 
 func _refresh_command_trace() -> void:
