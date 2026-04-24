@@ -1567,6 +1567,7 @@ fn ship_details_panel(
     // still alive inside.
     let mut grant_xp_requested = false;
     let mut delete_requested = false;
+    let mut heal_requested = false;
     let title = format!("Ship · {}", ship_id);
 
     egui::Window::new(title)
@@ -1623,6 +1624,22 @@ fn ship_details_panel(
                     .clicked()
                 {
                     grant_xp_requested = true;
+                }
+                if ui
+                    .button(
+                        egui::RichText::new("Heal")
+                            .small()
+                            .color(egui::Color32::from_rgb(150, 220, 180)),
+                    )
+                    .on_hover_text(
+                        "Refill fuel to capacity, reset crew morale+health to \
+                         100, clear hunger + fatigue, and floor credits at 10k \
+                         so the ship can afford docks. Unsticks broke / \
+                         spiralling ships for debugging.",
+                    )
+                    .clicked()
+                {
+                    heal_requested = true;
                 }
                 if ui
                     .button(
@@ -1889,6 +1906,30 @@ fn ship_details_panel(
                 prog.retrofit_points,
             );
         }
+    }
+
+    if heal_requested {
+        use sim_core::agents::ship::{ShipCrew, ShipEconomy, ShipFuel};
+        // Drop borrows one at a time — hecs only allows one mutable
+        // query per component per scope. Each `get::<&mut _>` scopes
+        // to the `if let` block.
+        if let Ok(mut fuel) = sim.store.world.get::<&mut ShipFuel>(entity) {
+            fuel.fuel = fuel.fuel_capacity;
+        }
+        if let Ok(mut crew) = sim.store.world.get::<&mut ShipCrew>(entity) {
+            crew.morale = 100.0;
+            crew.health = 100.0;
+            crew.hunger = 0.0;
+            crew.fatigue = 0.0;
+        }
+        if let Ok(mut econ) = sim.store.world.get::<&mut ShipEconomy>(entity) {
+            // Floor — don't zap a millionaire ship back to 10k. Just
+            // make sure a stranded ship has dock money.
+            if econ.credits < 10_000 {
+                econ.credits = 10_000;
+            }
+        }
+        info!("client_bevy admin: healed {}", ship_id);
     }
 
     if delete_requested {
