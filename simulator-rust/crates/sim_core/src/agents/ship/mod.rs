@@ -1802,6 +1802,44 @@ fn decide_and_act(
         out
     };
 
+    // Bundle C: market-controlling faction per location. Majority of
+    // facility count at each location wins (tiebreak: first-seen).
+    // A market's controller governs the posture multiplier applied
+    // to every Buy / Sell at that location, so prices for a given
+    // ship depend on their personal rep with this faction.
+    //
+    // Built once per tick because facility ownership changes on the
+    // construction-completion + admin-delete paths (rare) and a
+    // per-ship rebuild would be wasteful.
+    let controller_by_location: std::collections::HashMap<String, String> = {
+        use crate::agents::facility::{FacilityIdentity, FacilityLocation};
+        let mut counts: std::collections::HashMap<String, std::collections::HashMap<String, u32>> =
+            std::collections::HashMap::new();
+        for (_e, (id, loc)) in world
+            .query::<(&FacilityIdentity, &FacilityLocation)>()
+            .iter()
+        {
+            if id.faction_id.is_empty() {
+                continue;
+            }
+            *counts
+                .entry(loc.location_name.clone())
+                .or_default()
+                .entry(id.faction_id.clone())
+                .or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .filter_map(|(loc, per_faction)| {
+                let winner = per_faction
+                    .into_iter()
+                    .max_by_key(|(_, n)| *n)
+                    .map(|(fac, _)| fac)?;
+                Some((loc, winner))
+            })
+            .collect()
+    };
+
     // Phase 18d: snapshot shipyard inventories once per call so per-ship
     // retrofit planning doesn't re-query hecs. Each entry is (location,
     // system_id, slug → qty). Skipping abandoned shipyards matches the
@@ -2137,11 +2175,13 @@ fn decide_and_act(
             let mut bb = Blackboard::new();
             let status = {
                 let ship_id_ref = &ship_id;
+                let ship_faction_ref = &ship_faction;
                 let mut dispatch = |action: &ShipAction, bb: &mut Blackboard| -> BtStatus {
                     execute_ship_action(
                         action,
                         entity,
                         ship_id_ref,
+                        ship_faction_ref,
                         crew,
                         position,
                         transit,
@@ -2150,6 +2190,8 @@ fn decide_and_act(
                         economy,
                         memory,
                         registry,
+                        relations,
+                        &controller_by_location,
                         commands,
                         tick,
                         &config,

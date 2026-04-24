@@ -95,6 +95,7 @@ pub(super) fn execute_ship_action(
     action: &ShipAction,
     entity: hecs::Entity,
     ship_id: &str,
+    ship_faction: &str,
     crew: &mut ShipCrew,
     position: &mut ShipPosition,
     transit: &mut ShipTransit,
@@ -103,6 +104,8 @@ pub(super) fn execute_ship_action(
     economy: &mut ShipEconomy,
     memory: &mut ShipMemory,
     registry: &WorldRegistry,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    controller_by_location: &std::collections::HashMap<String, String>,
     commands: &mut CommandBuffer,
     tick: u64,
     config: &crate::simulation::config::TickConfig,
@@ -361,10 +364,31 @@ pub(super) fn execute_ship_action(
                 Some(l) => l.clone(),
                 None => return BtStatus::Failure,
             };
-            let price = match memory.price_knowledge.get(&at).and_then(|m| m.get(commodity)) {
+            let base_price = match memory.price_knowledge.get(&at).and_then(|m| m.get(commodity)) {
                 Some(pm) => pm.price,
                 None => return BtStatus::Failure,
             };
+            // Bundle C: market-posture surcharge/discount. Controller
+            // at this location plus the ship's stored rep with them
+            // drives the multiplier (friend 0.75× → enemy 1.25×,
+            // hostile treaty doubles any surcharge). Neutral at
+            // unowned markets.
+            let controller = controller_by_location
+                .get(&at)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            let rep = economy
+                .faction_reputation
+                .get(controller)
+                .copied()
+                .unwrap_or(0);
+            let posture = crate::agents::faction_relations::market_buy_multiplier(
+                relations,
+                ship_faction,
+                rep,
+                controller,
+            );
+            let price = base_price * posture;
             let want = affordable_quantity(economy.credits, price, cargo.free()).min(*qty);
             if want == 0 {
                 return BtStatus::Failure;
@@ -375,6 +399,8 @@ pub(super) fn execute_ship_action(
             cargo.cargo_age.insert(*commodity, tick);
             // Phase 20: remember origin + unit price so the Sell arm
             // can compute realised profit and feed route_performance.
+            // Store the posture-adjusted price so the realised-profit
+            // calc at Sell time compares apples-to-apples.
             cargo.cargo_origin.insert(*commodity, (at.clone(), price));
             commands.push(SimCommand::RemoveSupplyAtShipLocation {
                 ship: entity,
@@ -396,10 +422,29 @@ pub(super) fn execute_ship_action(
                 Some(l) => l.clone(),
                 None => return BtStatus::Failure,
             };
-            let price = match memory.price_knowledge.get(&at).and_then(|m| m.get(commodity)) {
+            let base_price = match memory.price_knowledge.get(&at).and_then(|m| m.get(commodity)) {
                 Some(pm) => pm.price,
                 None => return BtStatus::Failure,
             };
+            // Bundle C: sell-side posture multiplier. Reciprocal of
+            // the buy-side curve, so a friend who buys at 0.75× also
+            // receives 1.33× when selling.
+            let controller = controller_by_location
+                .get(&at)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            let rep = economy
+                .faction_reputation
+                .get(controller)
+                .copied()
+                .unwrap_or(0);
+            let posture = crate::agents::faction_relations::market_sell_multiplier(
+                relations,
+                ship_faction,
+                rep,
+                controller,
+            );
+            let price = base_price * posture;
             let have = cargo.cargo.get(commodity).copied().unwrap_or(0);
             let amount = if *qty == 0 { have } else { (*qty).min(have) };
             if amount == 0 {
@@ -466,10 +511,28 @@ pub(super) fn execute_ship_action(
                 Some(pair) => pair,
                 None => return BtStatus::Success, // nothing sellable left
             };
-            let price = prices
+            let base_price = prices
                 .get(&commodity)
                 .map(|pm| pm.price)
                 .unwrap_or(0.0);
+            // Bundle C: posture multiplier on sells — reciprocal of
+            // the buy curve so a friend earns ~1.33× per unit here.
+            let controller = controller_by_location
+                .get(&at)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            let rep = economy
+                .faction_reputation
+                .get(controller)
+                .copied()
+                .unwrap_or(0);
+            let posture = crate::agents::faction_relations::market_sell_multiplier(
+                relations,
+                ship_faction,
+                rep,
+                controller,
+            );
+            let price = base_price * posture;
             let revenue = (price * qty as f32) as i64;
             economy.credits += revenue;
             // Phase 20: record realised route outcome before clearing

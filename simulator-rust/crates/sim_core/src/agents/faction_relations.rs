@@ -338,6 +338,73 @@ pub fn treaty_rep_floors(
 }
 
 // ----------------------------------------------------------------------------
+// Bundle C: market-posture price multipliers. Applied at the
+// transaction point in `ShipAction::Buy` / `Sell` / `SellAll` —
+// the market's posted price stays neutral, but every individual
+// trade is adjusted by the specific ship's standing with whoever
+// controls the market. Hostile relations amplify any surcharge
+// (but never erode a discount that the ship earned through rep).
+//
+// Curve: +0.5% per rep-point below 50 (stranger pays more),
+// -0.5% per rep-point above 50 (friend pays less). Clamped to
+// [0.75, 1.25] so the posture can't run away.
+// ----------------------------------------------------------------------------
+
+/// Posture buy-price multiplier for a ship of `ship_faction`
+/// trading at a market controlled by `controller_faction`, with
+/// `rep_with_controller` as the ship's stored rep for that faction
+/// (0..=100). Same-faction (ship buying at its own station) uses
+/// 100 implicitly — you trust yourself.
+pub fn market_buy_multiplier(
+    relations: &FactionRelations,
+    ship_faction: &str,
+    rep_with_controller: u8,
+    controller_faction: &str,
+) -> f32 {
+    // Treat own-faction as perfect rep (discount at the bulkhead).
+    // Empty controller = wild / unowned market — neutral prices.
+    let effective_rep: u8 = if controller_faction.is_empty() {
+        50
+    } else if !ship_faction.is_empty() && ship_faction == controller_faction {
+        100
+    } else {
+        rep_with_controller
+    };
+    let base = (1.0 + (50.0 - effective_rep as f32) * 0.005).clamp(0.75, 1.25);
+
+    let hostile = if ship_faction.is_empty() || controller_faction.is_empty() {
+        false
+    } else {
+        relations
+            .state(ship_faction, controller_faction)
+            .map(|s| matches!(s.treaty, TreatyKind::Hostile | TreatyKind::War))
+            .unwrap_or(false)
+    };
+    // Hostile doubles any surcharge (>1.0) but leaves earned
+    // discounts alone — a high-personal-rep ship in a diplomatic
+    // blow-up still benefits from the personal relationship at
+    // the counter.
+    if hostile && base > 1.0 {
+        1.0 + (base - 1.0) * 2.0
+    } else {
+        base
+    }
+}
+
+/// Sell-side posture multiplier — reciprocal of the buy multiplier
+/// so a friend who pays 0.75× on buys also gets ~1.33× on sells.
+/// Hostile amplification still applies via `market_buy_multiplier`.
+pub fn market_sell_multiplier(
+    relations: &FactionRelations,
+    ship_faction: &str,
+    rep_with_controller: u8,
+    controller_faction: &str,
+) -> f32 {
+    let m = market_buy_multiplier(relations, ship_faction, rep_with_controller, controller_faction);
+    1.0 / m
+}
+
+// ----------------------------------------------------------------------------
 // Standing-change magnitudes consumed by the `DeliverContract` /
 // `ReleaseContract` apply hooks. Small integers so decay can dominate
 // noise: ~50 successful cross-faction deliveries to reach TradePact
@@ -683,6 +750,67 @@ mod tests {
         r.set_treaty("alpha", "gamma", TreatyKind::Hostile, 0);
         r.set_treaty("alpha", "delta", TreatyKind::War, 0);
         assert!(treaty_rep_floors(&r, "alpha").is_empty());
+    }
+
+    #[test]
+    fn market_buy_multiplier_stranger_is_neutral() {
+        let r = FactionRelations::new();
+        let m = market_buy_multiplier(&r, "alpha", 50, "beta");
+        assert!((m - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn market_buy_multiplier_friend_discounts() {
+        let r = FactionRelations::new();
+        let m = market_buy_multiplier(&r, "alpha", 100, "beta");
+        assert!((m - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn market_buy_multiplier_enemy_surcharges() {
+        let r = FactionRelations::new();
+        let m = market_buy_multiplier(&r, "alpha", 0, "beta");
+        assert!((m - 1.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn market_buy_multiplier_own_faction_auto_friendly() {
+        let r = FactionRelations::new();
+        let m = market_buy_multiplier(&r, "alpha", 0, "alpha");
+        assert!((m - 0.75).abs() < 1e-6, "got {m}");
+    }
+
+    #[test]
+    fn market_buy_multiplier_unowned_is_neutral() {
+        let r = FactionRelations::new();
+        let m = market_buy_multiplier(&r, "alpha", 100, "");
+        assert!((m - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn market_buy_multiplier_hostile_doubles_surcharge() {
+        let mut r = FactionRelations::new();
+        r.set_treaty("alpha", "beta", TreatyKind::Hostile, 0);
+        // rep=0 → base 1.25; hostile doubles surcharge → 1.5
+        let m = market_buy_multiplier(&r, "alpha", 0, "beta");
+        assert!((m - 1.5).abs() < 1e-6, "got {m}");
+    }
+
+    #[test]
+    fn market_buy_multiplier_hostile_preserves_discount() {
+        let mut r = FactionRelations::new();
+        r.set_treaty("alpha", "beta", TreatyKind::Hostile, 0);
+        // rep=100 → base 0.75; hostile amplification only hits surcharges
+        let m = market_buy_multiplier(&r, "alpha", 100, "beta");
+        assert!((m - 0.75).abs() < 1e-6, "got {m}");
+    }
+
+    #[test]
+    fn market_sell_multiplier_is_reciprocal() {
+        let r = FactionRelations::new();
+        let buy = market_buy_multiplier(&r, "alpha", 100, "beta");
+        let sell = market_sell_multiplier(&r, "alpha", 100, "beta");
+        assert!((buy * sell - 1.0).abs() < 1e-6);
     }
 
     #[test]
