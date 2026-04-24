@@ -8,7 +8,7 @@
 
 use bevy::prelude::*;
 use sim_core::{
-    agents::ship,
+    agents::{celestial_body, facility, faction, market, population, ship},
     simulation::{commands::CommandBuffer, config::TickConfig, spawner::AgentStore, tuning::WorldTuning},
     world::registry::WorldRegistry,
 };
@@ -209,13 +209,27 @@ fn tick_sim(mut sim: ResMut<Sim>) {
         let Sim { store, registry, .. } = &mut *sim;
 
         let mut commands = CommandBuffer::new();
-        // `events` is a Vec per-tick because apply_ship_commands
-        // appends into it. The embedded client doesn't broadcast
-        // events anywhere yet (no WS layer), so we drop it at the
-        // end of the tick. Bundle 3y+ could pick this up into a
-        // live events ticker panel.
+        // `events` collects per-tick event values that every phase
+        // may push into. The embedded client doesn't yet broadcast
+        // or display these (no WS layer + no events-ticker panel),
+        // so we drop the Vec at end-of-tick. Wire up to a future
+        // events panel by stashing the drained list on a Resource.
         let mut events: Vec<serde_json::Value> = Vec::new();
 
+        // Phase order mirrors sim_server::engine::run_tick_loop —
+        // see its comments for the "why" of the ordering. The only
+        // steps we skip vs. that loop are the three async drains
+        // (materializations / decommissions / respawns) + the
+        // persistence / snapshot writes. Those paths need tokio +
+        // sqlx + the broadcast tx; not worth dragging into the
+        // fixed-update system right now.
+        //
+        // Bodies first so anything reading orbit positions later
+        // this tick sees today's orbit.
+        sim_server::engine::tick_bodies(store, tick_scale);
+
+        // Ships — AI decides + transits advance + commands get
+        // emitted into the CommandBuffer.
         ship::tick_ships(
             &mut store.world,
             registry,
@@ -227,16 +241,80 @@ fn tick_sim(mut sim: ResMut<Sim>) {
             tick_scale,
             tick_mult,
         );
+        // First apply pass — docks, gate jumps, contract deliveries,
+        // cargo buys/sells, credit transfers.
         sim_server::engine::apply_ship_commands(
             store,
             &mut commands,
             &mut events,
             tick,
         );
-        // Drop leftover commands (a few SimCommands can be deferred
-        // by the apply pass). In the full chain those get a second
-        // apply after market/faction phases; in the embedded tick
-        // we're fine dropping them — they're idempotent next tick.
+        sim_server::engine::tick_dock_queue_advance(store);
+
+        // Facilities: recipes, condition degrade, crew food draw,
+        // restock from local market, autonomous contract posting,
+        // abandonment countdown, level-up on XP.
+        facility::tick_facilities(
+            &mut store.world,
+            &mut store.contracts,
+            &mut events,
+            tick,
+            tick_scale,
+            tick_mult,
+        );
+        // Populations: food consumption, production, sentiment,
+        // passenger-contract posting, migration pressure.
+        population::tick_populations(
+            &mut store.world,
+            &mut store.contracts,
+            &mut events,
+            tick,
+            tick_scale,
+            tick_mult,
+        );
+        // Markets: the 8-phase pricing engine. Emits TransferCredits
+        // (spread revenue → facility) into `commands`, so we do a
+        // second apply pass below.
+        market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
+
+        // Second apply pass — market TransferCredits + anything the
+        // facility/pop phases emitted.
+        sim_server::engine::apply_ship_commands(
+            store,
+            &mut commands,
+            &mut events,
+            tick,
+        );
+
+        // Body regen (separate from body-orbit `tick_bodies` above —
+        // this regrows mined resources on a slower cadence).
+        celestial_body::tick_bodies_regen(
+            &mut store.world,
+            tick,
+            tick_scale,
+            tick_mult,
+        );
+
+        // Structural-warning events: market_crisis + facility_starving
+        // threshold crossings. Hysteresis-flagged; idempotent per
+        // flag flip.
+        sim_server::engine::scan_crisis_events(&mut store.world, &mut events);
+
+        // Factions: tax + subsidy + construction cycle.
+        faction::tick_factions(
+            &mut store.world,
+            &mut store.contracts,
+            &mut events,
+            tick,
+            tick_mult,
+        );
+        // Relations: decay + treaty transitions (low frequency).
+        sim_server::engine::tick_relations_pass(store, &mut events, tick, tick_mult);
+
+        // Drop leftover commands. In the full run_tick_loop another
+        // apply pass picks them up after faction phase; in the
+        // embedded tick we're fine dropping — they're mostly
+        // supply-delta housekeeping that will re-emit next tick.
         commands.clear();
     }
 }
