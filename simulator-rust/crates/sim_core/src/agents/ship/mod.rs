@@ -3175,6 +3175,171 @@ fn build_fulfill_delivery_bt(
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> BtNode<ShipAction> {
+    // GOAP MVP: try the synthesised path first. When the planner
+    // produces a valid plan we use it — this validates that GOAP
+    // reproduces the hand-authored shape in the common case, and
+    // opens the door to combined goals (retrofit-on-route, chained
+    // contracts) without new hand-written builders. On any failure
+    // we fall back to the hand-authored sequence so behaviour is
+    // never worse than before.
+    if let Some(bt) = try_build_fulfill_delivery_bt_planned(
+        current,
+        source,
+        destination,
+        commodity,
+        quantity,
+        &contract_id,
+        registry,
+        gate_pairs,
+    ) {
+        return bt;
+    }
+    build_fulfill_delivery_bt_handauthored(
+        current,
+        source,
+        destination,
+        commodity,
+        quantity,
+        contract_id,
+        registry,
+        gate_pairs,
+    )
+}
+
+/// GOAP MVP: run the forward planner to synthesise a delivery BT.
+/// Returns `None` when the planner can't find a plan within its
+/// depth cap (caller falls back to the hand-authored sequence).
+///
+/// This is where combined goals will live as the MVP expands. For
+/// now the goal is simple `delivered == true AND fuel_bucket ≥ 2`
+/// so the planner decides whether to insert a Refuel based on
+/// travel-cost budgets — same emergent behaviour the hand-authored
+/// builder has hardcoded, but derived rather than asserted.
+#[allow(clippy::too_many_arguments)]
+fn try_build_fulfill_delivery_bt_planned(
+    current: &str,
+    source: &str,
+    destination: &str,
+    commodity: Commodity,
+    quantity: u32,
+    contract_id: &str,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, LocMap, Loc, Operator, WorldState};
+
+    // Travel-cost estimation — how many fuel buckets each leg
+    // consumes. Uses the pathfinder to walk the actual leg sequence
+    // (honouring gate jumps) and sums tick-cost per leg, then
+    // converts to buckets at ~50 ticks/bucket. Coarse, but keeps
+    // the planner's numeric inputs coherent with the real world.
+    // When the pathfinder fails we assume 1 bucket (keeps the
+    // planner optimistic rather than refusing every contract).
+    let cost = |from: &str, to: &str| -> u8 {
+        if from == to {
+            return 0;
+        }
+        let ctx = crate::world::pathfinder::PathfinderCtx { registry, gate_pairs };
+        let legs = match ctx.find_route(from, to) {
+            Some(l) => l,
+            None => return 1,
+        };
+        // Leg `distance` is in universe units (u32); rough
+        // conversion of ~50 units per fuel bucket keeps the
+        // planner's numbers coherent with travel/fuel tick rates.
+        let total_distance: u32 = legs.iter().map(|l| l.distance.max(1)).sum();
+        let buckets = ((total_distance as f32) / 50.0).ceil().max(1.0) as u32;
+        buckets.min(10) as u8
+    };
+
+    let map = LocMap {
+        origin: current.to_string(),
+        source: source.to_string(),
+        dest: destination.to_string(),
+        commodity,
+        quantity,
+        contract_id: contract_id.to_string(),
+        cost_origin_to_source: cost(current, source),
+        cost_source_to_dest: cost(source, destination),
+        cost_origin_to_dest: cost(current, destination),
+    };
+
+    // Start state: full fuel assumption for the planner so it
+    // produces the canonical plan shape. Actual fuel at plan time
+    // varies and the BT handles real fuel constraints via its
+    // Travel/Refuel executors — the planner's job is to produce a
+    // *structurally* correct sequence, not a fuel-exact one.
+    let initial = WorldState::new(Loc::Origin, 10);
+    let synth = plan(
+        initial,
+        |s| s.delivered && s.fuel_bucket >= 2,
+        Operator::delivery_catalog(),
+        &map,
+        20,
+    )?;
+
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+/// Expand a planner-emitted action sequence into a real BT. Abstract
+/// `Travel { destination }` steps get resolved to the actual multi-
+/// leg pathfinder output (gate jumps etc.), and `Dock` / `Undock`
+/// steps are wrapped with `DockDwell` so the visual pacing matches
+/// the hand-authored builders. `AcceptContract` is prepended so the
+/// contract board transitions to `Accepted` as the BT starts.
+fn compile_plan_to_bt(
+    plan_actions: &[ShipAction],
+    map: &crate::ai::planner::LocMap,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(plan_actions.len() * 2 + 2);
+    steps.push(BtNode::action(ShipAction::AcceptContract {
+        contract_id: map.contract_id.clone(),
+    }));
+    let mut current_loc = map.origin.clone();
+    for a in plan_actions {
+        match a {
+            ShipAction::Travel { destination } => {
+                for leg in route_actions(&current_loc, destination, registry, gate_pairs) {
+                    steps.push(BtNode::action(leg));
+                }
+                current_loc = destination.clone();
+            }
+            ShipAction::Dock => {
+                steps.push(BtNode::action(ShipAction::Dock));
+                steps.push(BtNode::action(ShipAction::DockDwell {
+                    seconds: DOCK_ARRIVE_DWELL_SECS,
+                }));
+            }
+            ShipAction::Undock => {
+                steps.push(BtNode::action(ShipAction::DockDwell {
+                    seconds: DOCK_DEPART_DWELL_SECS,
+                }));
+                steps.push(BtNode::action(ShipAction::Undock));
+            }
+            other => steps.push(BtNode::action(other.clone())),
+        }
+    }
+    BtNode::sequence(steps)
+}
+
+/// Original hand-authored delivery BT. Preserved as the fallback
+/// when `try_build_fulfill_delivery_bt_planned` fails (planner can't
+/// reach the goal within its depth cap). Identical shape to the
+/// planner's output in the common case — we keep it around so a
+/// planner bug is never worse than a failed delivery.
+#[allow(clippy::too_many_arguments)]
+fn build_fulfill_delivery_bt_handauthored(
+    current: &str,
+    source: &str,
+    destination: &str,
+    commodity: Commodity,
+    quantity: u32,
+    contract_id: String,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
     let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(16);
     steps.push(BtNode::action(ShipAction::AcceptContract {
         contract_id: contract_id.clone(),
