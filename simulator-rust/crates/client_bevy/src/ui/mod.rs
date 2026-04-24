@@ -29,6 +29,7 @@ impl Plugin for UiPlugin {
             .init_resource::<FacilityListState>()
             .init_resource::<SelectedFacility>()
             .init_resource::<RetirementsState>()
+            .init_resource::<ConstructionState>()
             .add_systems(
                 Update,
                 (
@@ -51,7 +52,13 @@ impl Plugin for UiPlugin {
             // the same chain.
             .add_systems(
                 Update,
-                (facility_list_panel, facility_details_panel, retirements_panel).chain(),
+                (
+                    facility_list_panel,
+                    facility_details_panel,
+                    retirements_panel,
+                    construction_panel,
+                )
+                    .chain(),
             );
     }
 }
@@ -72,7 +79,13 @@ fn top_bar(
     mut pops: ResMut<PopulationsState>,
     mut facilities: ResMut<FacilityListState>,
     mut retired_state: ResMut<RetirementsState>,
+    mut construction: ResMut<ConstructionState>,
 ) {
+    // Count construction sites via an ECS query — the sim store
+    // doesn't index them by id (sites aren't frequently looked up
+    // by id). At typical counts (<20) the iteration is trivial.
+    use sim_core::agents::construction::ConstructionSite;
+    let construction_count = sim.store.world.query::<&ConstructionSite>().iter().count();
     egui::TopBottomPanel::top("top_bar").show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("spaceproject").strong());
@@ -140,6 +153,15 @@ fn top_bar(
                 .clicked()
             {
                 retired_state.open = !retired_state.open;
+            }
+            if ui
+                .selectable_label(
+                    construction.open,
+                    format!("Construction ({})", construction_count),
+                )
+                .clicked()
+            {
+                construction.open = !construction.open;
             }
         });
     });
@@ -2390,4 +2412,161 @@ fn reason_color(reason: &str) -> egui::Color32 {
     } else {
         egui::Color32::from_gray(210)
     }
+}
+
+// =============================================================================
+// Construction sites panel
+// =============================================================================
+//
+// Phase 19c sites — one row per pending build, with a progress bar
+// for delivered / required cargo. "Focus" button jumps the camera to
+// the site's universe position (same coordinate space as the body/
+// facility render). Lists the commodity each delivery consumes and
+// the faction sponsoring the build.
+
+#[derive(Resource, Default)]
+struct ConstructionState {
+    open: bool,
+}
+
+fn construction_panel(
+    mut ctx: EguiContexts,
+    sim: Res<Sim>,
+    mut state: ResMut<ConstructionState>,
+    mut focus_req: ResMut<CameraFocusRequest>,
+) {
+    use sim_core::agents::construction::ConstructionSite;
+
+    let mut open = state.open;
+    if !open {
+        return;
+    }
+
+    struct Row {
+        id: String,
+        name: String,
+        facility_type: String,
+        faction: String,
+        location: String,
+        body: String,
+        commodity: String,
+        progress: f32,
+        delivered: u32,
+        required: u32,
+        remaining: u32,
+        spawned_at: u64,
+        position: (f32, f32),
+    }
+
+    let mut rows: Vec<Row> = sim
+        .store
+        .world
+        .query::<&ConstructionSite>()
+        .iter()
+        .map(|(_e, s)| Row {
+            id: s.id.clone(),
+            name: s.name.clone(),
+            facility_type: s.facility_type.clone(),
+            faction: s.faction_id.clone(),
+            location: s.location_name.clone(),
+            body: s.body_id.clone(),
+            commodity: s.commodity.as_str().to_string(),
+            progress: s.progress(),
+            delivered: s.progress_delivered,
+            required: s.progress_required,
+            remaining: s.remaining(),
+            spawned_at: s.spawned_at_tick,
+            position: s.position,
+        })
+        .collect();
+
+    // Sort by progress descending — closest-to-done jumps to the top,
+    // the "almost-there" builds are the most interesting.
+    rows.sort_by(|a, b| {
+        b.progress
+            .partial_cmp(&a.progress)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let total = rows.len();
+
+    egui::Window::new(format!("Construction · {total}"))
+        .default_width(860.0)
+        .default_height(420.0)
+        .open(&mut open)
+        .show(ctx.ctx_mut(), |ui| {
+            ui.label(
+                egui::RichText::new(
+                    "Pending construction sites. Ships delivering their commodity \
+                     to the target location accrue progress; at 100% the site \
+                     materialises into a real facility.",
+                )
+                .small()
+                .color(egui::Color32::from_gray(150)),
+            );
+            ui.separator();
+
+            if total == 0 {
+                ui.label(
+                    egui::RichText::new("(no construction sites)")
+                        .italics()
+                        .color(egui::Color32::from_gray(160)),
+                );
+                return;
+            }
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for r in &rows {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(&r.name).strong());
+                            ui.separator();
+                            ui.label(
+                                egui::RichText::new(format!("({})", r.facility_type))
+                                    .italics()
+                                    .color(egui::Color32::from_gray(170)),
+                            );
+                            if ui.button("Focus").clicked() {
+                                let (x, y) = r.position;
+                                focus_req.0 = Some(Vec3::new(
+                                    x * SCALE_FACTOR,
+                                    0.0,
+                                    y * SCALE_FACTOR,
+                                ));
+                            }
+                        });
+                        egui::Grid::new(format!("site_grid_{}", r.id))
+                            .num_columns(2)
+                            .spacing([12.0, 2.0])
+                            .show(ui, |ui| {
+                                ui.label("Faction");
+                                ui.label(&r.faction);
+                                ui.end_row();
+                                ui.label("Body / location");
+                                ui.label(format!("{} · {}", r.body, r.location));
+                                ui.end_row();
+                                ui.label("Commodity");
+                                ui.label(&r.commodity);
+                                ui.end_row();
+                                ui.label("Spawned at tick");
+                                ui.label(format!("{}", r.spawned_at));
+                                ui.end_row();
+                            });
+                        ui.add(
+                            egui::ProgressBar::new(r.progress)
+                                .text(format!(
+                                    "{} / {} ({}% — {} left)",
+                                    r.delivered,
+                                    r.required,
+                                    (r.progress * 100.0) as u32,
+                                    r.remaining,
+                                ))
+                                .desired_width(f32::INFINITY),
+                        );
+                    });
+                }
+            });
+        });
+
+    state.open = open;
 }
