@@ -12,17 +12,29 @@ extends PanelContainer
 
 signal contract_selected(contract_id: String)
 
+## Max rows shown per page. The full contract board can grow to
+## 400+ entries; rendering all of them into a Tree every refresh
+## is what made this panel laggy. Pagination keeps per-refresh
+## work bounded.
+const PAGE_SIZE: int = 50
+
 var _filter_kind: String = ""      # "" = all
 var _filter_status: String = ""    # "" = all
+var _show_expired: bool = false    # hide expired rows by default (they pile up fast)
 var _sort_column: String = "age"
 var _sort_ascending: bool = true
 var _visible_contracts: Array = []
+var _page: int = 0                 # 0-indexed page into _visible_contracts
 
 @onready var kind_filter: OptionButton = $VBox/TopRow/KindFilter
 @onready var status_filter: OptionButton = $VBox/TopRow/StatusFilter
+@onready var show_expired_check: CheckBox = $VBox/TopRow/ShowExpired
 @onready var count_label: Label = $VBox/TopRow/CountLabel
 @onready var close_button: Button = $VBox/TopRow/CloseButton
 @onready var tree: Tree = $VBox/Tree
+@onready var prev_button: Button = $VBox/BottomRow/PrevButton
+@onready var next_button: Button = $VBox/BottomRow/NextButton
+@onready var page_label: Label = $VBox/BottomRow/PageLabel
 
 # Known kinds / statuses from the Rust ContractType + ContractStatus enums.
 const KIND_OPTIONS := [
@@ -57,11 +69,20 @@ func _ready() -> void:
 		status_filter.set_item_metadata(status_filter.item_count - 1, opt[1])
 	kind_filter.item_selected.connect(_on_kind_changed)
 	status_filter.item_selected.connect(_on_status_changed)
+	show_expired_check.button_pressed = _show_expired
+	show_expired_check.toggled.connect(_on_show_expired_toggled)
+	prev_button.pressed.connect(_on_prev_page)
+	next_button.pressed.connect(_on_next_page)
 	tree.item_selected.connect(_on_row_activated)
 	tree.column_title_clicked.connect(_on_column_clicked)
 	_setup_columns()
+	# Refresh on contract-board updates (every ~4s from the
+	# `contract_states` WS broadcast) rather than every tick.
+	# Per-tick refreshes were the lag source — rebuilding a
+	# 200+ row Tree at 8 Hz is expensive even on desktop.
+	# The age column will be up to ~4s stale; that's fine for
+	# this panel's purpose.
 	GameState.contracts_updated.connect(_on_contracts_updated)
-	GameState.tick_updated.connect(_on_tick)
 
 
 func _setup_columns() -> void:
@@ -99,20 +120,41 @@ func _on_contracts_updated() -> void:
 		_refresh()
 
 
-func _on_tick(_tick: int) -> void:
-	# Age column drifts every tick — cheap redraw via the existing data.
-	if visible:
-		_refresh()
-
-
 func _on_kind_changed(i: int) -> void:
 	_filter_kind = kind_filter.get_item_metadata(i)
+	_page = 0
 	_refresh()
 
 
 func _on_status_changed(i: int) -> void:
 	_filter_status = status_filter.get_item_metadata(i)
+	_page = 0
 	_refresh()
+
+
+func _on_show_expired_toggled(pressed: bool) -> void:
+	_show_expired = pressed
+	_page = 0
+	_refresh()
+
+
+func _on_prev_page() -> void:
+	if _page > 0:
+		_page -= 1
+		_refresh()
+
+
+func _on_next_page() -> void:
+	var total_pages: int = _total_pages()
+	if _page + 1 < total_pages:
+		_page += 1
+		_refresh()
+
+
+func _total_pages() -> int:
+	if _visible_contracts.is_empty():
+		return 1
+	return int(ceil(float(_visible_contracts.size()) / float(PAGE_SIZE)))
 
 
 func _on_column_clicked(column: int, _mouse_button: int) -> void:
@@ -139,18 +181,43 @@ func _on_row_activated() -> void:
 func _refresh() -> void:
 	_visible_contracts.clear()
 	for c in GameState.contracts.values():
+		var status: String = str(c.get("status", ""))
 		if _filter_kind != "" and str(c.get("contract_type", "")) != _filter_kind:
 			continue
-		if _filter_status != "" and str(c.get("status", "")) != _filter_status:
+		if _filter_status != "" and status != _filter_status:
+			continue
+		# Hide expired unless the user explicitly asks for them
+		# (either by toggling "Show expired" or by selecting
+		# "Expired" in the status filter). They accumulate fast
+		# and are usually not actionable.
+		if not _show_expired and status == "expired" and _filter_status != "expired":
 			continue
 		_visible_contracts.append(c)
 
 	_visible_contracts.sort_custom(_compare_contracts)
-	count_label.text = "%d / %d" % [_visible_contracts.size(), GameState.contracts.size()]
+	# Clamp the current page in case filtering shrank the list below it.
+	var total_pages: int = _total_pages()
+	if _page >= total_pages:
+		_page = total_pages - 1
+	if _page < 0:
+		_page = 0
+
+	# Slice the visible-page window.
+	var start_idx: int = _page * PAGE_SIZE
+	var end_idx: int = min(start_idx + PAGE_SIZE, _visible_contracts.size())
+	var page_slice: Array = _visible_contracts.slice(start_idx, end_idx)
+
+	count_label.text = "%d shown · %d total" % [
+		_visible_contracts.size(),
+		GameState.contracts.size(),
+	]
+	page_label.text = "Page %d/%d" % [_page + 1, total_pages]
+	prev_button.disabled = _page == 0
+	next_button.disabled = _page + 1 >= total_pages
 
 	tree.clear()
 	var root := tree.create_item()
-	for c in _visible_contracts:
+	for c in page_slice:
 		var row := tree.create_item(root)
 		row.set_metadata(0, str(c.get("id", "")))
 		row.set_text(0, str(c.get("contract_type", "?")).capitalize())
