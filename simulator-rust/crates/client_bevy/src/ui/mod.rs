@@ -37,6 +37,7 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     track_fps,
+                    top_bar_controls,
                     top_bar,
                     perf_overlay,
                     ship_list,
@@ -74,43 +75,24 @@ impl Plugin for UiPlugin {
 /// open/close toggles to each panel's state Resource. Runs first
 /// in the UI chain so the panels below see up-to-date `open`
 /// flags the same frame the user clicks.
-#[allow(clippy::too_many_arguments)]
-fn top_bar(
+/// Pause / speed / tick readout / global controls (reset view,
+/// save as). Split out from [`top_bar`] because Bevy caps system
+/// param tuples at 16 and the combined set blew through that.
+fn top_bar_controls(
     mut ctx: EguiContexts,
     mut sim: ResMut<Sim>,
-    retirements: Res<Retirements>,
-    mut ships: ResMut<ShipListState>,
-    mut contracts: ResMut<ContractsState>,
-    mut factions: ResMut<FactionsState>,
-    mut markets: ResMut<MarketsState>,
-    mut pops: ResMut<PopulationsState>,
-    mut facilities: ResMut<FacilityListState>,
-    mut retired_state: ResMut<RetirementsState>,
-    mut construction: ResMut<ConstructionState>,
-    mut minimap: ResMut<MinimapState>,
-    mut body_labels: ResMut<BodyLabelsState>,
-    mut events_state: ResMut<EventsState>,
-    events: Res<EventsLog>,
     mut cam_reset: ResMut<CameraResetRequest>,
+    mut save_req: ResMut<crate::sim::SaveAsRequest>,
 ) {
-    // Count construction sites via an ECS query — the sim store
-    // doesn't index them by id (sites aren't frequently looked up
-    // by id). At typical counts (<20) the iteration is trivial.
-    use sim_core::agents::construction::ConstructionSite;
-    let construction_count = sim.store.world.query::<&ConstructionSite>().iter().count();
-    egui::TopBottomPanel::top("top_bar").show(ctx.ctx_mut(), |ui| {
+    egui::TopBottomPanel::top("top_bar_controls").show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("spaceproject").strong());
             ui.separator();
-            // Pause toggle — empty string = play, dot = paused. Matches
-            // ▶/⏸ iconography without pulling a font in.
             let running = sim.running;
             let label = if running { "⏸ Pause" } else { "▶ Play" };
             if ui.button(label).clicked() {
                 sim.running = !running;
             }
-            // Speed combo. Stays in effect across pause/resume —
-            // pausing just freezes the tick loop.
             let mut speed = sim.tick_mult.max(1);
             egui::ComboBox::from_id_salt("sim_speed_combo")
                 .selected_text(format!("{}×", speed))
@@ -128,6 +110,54 @@ fn top_bar(
                     .color(egui::Color32::from_gray(180)),
             );
             ui.separator();
+            if ui
+                .button("Reset view")
+                .on_hover_text("Snap the camera back to the galactic overview starting pose.")
+                .clicked()
+            {
+                cam_reset.0 = true;
+            }
+            if ui
+                .button("Save as…")
+                .on_hover_text(
+                    "Write a timestamped VACUUM INTO snapshot of sim.db next to \
+                     the current DB. Embedded client has no persistence worker \
+                     yet, so the snapshot reflects the load tick rather than \
+                     live state.",
+                )
+                .clicked()
+            {
+                save_req.0 = true;
+            }
+        });
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn top_bar(
+    mut ctx: EguiContexts,
+    sim: Res<Sim>,
+    retirements: Res<Retirements>,
+    mut ships: ResMut<ShipListState>,
+    mut contracts: ResMut<ContractsState>,
+    mut factions: ResMut<FactionsState>,
+    mut markets: ResMut<MarketsState>,
+    mut pops: ResMut<PopulationsState>,
+    mut facilities: ResMut<FacilityListState>,
+    mut retired_state: ResMut<RetirementsState>,
+    mut construction: ResMut<ConstructionState>,
+    mut minimap: ResMut<MinimapState>,
+    mut body_labels: ResMut<BodyLabelsState>,
+    mut events_state: ResMut<EventsState>,
+    events: Res<EventsLog>,
+) {
+    // Count construction sites via an ECS query — the sim store
+    // doesn't index them by id (sites aren't frequently looked up
+    // by id). At typical counts (<20) the iteration is trivial.
+    use sim_core::agents::construction::ConstructionSite;
+    let construction_count = sim.store.world.query::<&ConstructionSite>().iter().count();
+    egui::TopBottomPanel::top("top_bar_panels").show(ctx.ctx_mut(), |ui| {
+        ui.horizontal(|ui| {
             if ui
                 .selectable_label(
                     ships.open,
@@ -221,18 +251,6 @@ fn top_bar(
                 .clicked()
             {
                 events_state.open = !events_state.open;
-            }
-            ui.separator();
-            if ui
-                .button("Reset view")
-                .on_hover_text(
-                    "Snap the camera back to the galactic overview starting \
-                     pose. Quick recovery when pan/zoom drifts off into \
-                     empty space.",
-                )
-                .clicked()
-            {
-                cam_reset.0 = true;
             }
         });
     });

@@ -38,6 +38,15 @@ pub struct EventsLog(pub std::collections::VecDeque<(u64, serde_json::Value)>);
 /// Well below a MB of memory; the egui panel paginates anyway.
 pub const EVENTS_CAP: usize = 2000;
 
+/// One-shot flag set by the top-bar "Save as…" button; consumed by
+/// [`process_save_as`] which opens the sim DB + runs VACUUM INTO a
+/// timestamped sibling path. Mirrors the admin save-as endpoint in
+/// sim_server but without the persistence-flush pre-step (embedded
+/// client has no worker yet — the snapshot reflects on-disk load
+/// state, which we acknowledge in the button's tooltip).
+#[derive(Resource, Default)]
+pub struct SaveAsRequest(pub bool);
+
 /// Base tick interval (seconds). Matches sim_server's default 125 ms
 /// cadence. World-speed UI in a future bundle rescales this.
 pub const DEFAULT_TICK_INTERVAL_S: f64 = 0.125;
@@ -52,8 +61,10 @@ impl Plugin for SimPlugin {
         app.init_resource::<Sim>()
             .init_resource::<Retirements>()
             .init_resource::<EventsLog>()
+            .init_resource::<SaveAsRequest>()
             .add_systems(Startup, load_world)
-            .add_systems(FixedUpdate, tick_sim);
+            .add_systems(FixedUpdate, tick_sim)
+            .add_systems(Update, process_save_as);
     }
 }
 
@@ -372,4 +383,53 @@ fn resolve_data_dir() -> PathBuf {
         };
     }
     dir.join("priv").join("data")
+}
+
+/// Consume a pending [`SaveAsRequest`] by opening a one-shot tokio
+/// runtime, pointing a sqlx pool at the live sim.db, and running
+/// `VACUUM INTO` with a timestamped destination path. Blocking from
+/// a Bevy Update system is ugly in principle but fine here — save
+/// is user-triggered and happens rarely, and the VACUUM is tiny.
+fn process_save_as(mut req: ResMut<SaveAsRequest>) {
+    if !req.0 {
+        return;
+    }
+    req.0 = false;
+
+    let src_path = resolve_db_path();
+    // Snapshot next to the source DB with a wall-clock timestamp
+    // (seconds since epoch) so each save produces a unique name.
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let dst_path = match std::path::PathBuf::from(&src_path)
+        .parent()
+        .map(|d| d.join(format!("sim-saveas-{ts}.db")))
+    {
+        Some(p) => p.to_string_lossy().to_string(),
+        None => {
+            error!("client_bevy: save-as could not resolve parent dir for {src_path}");
+            return;
+        }
+    };
+
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            error!("client_bevy: save-as failed to build tokio runtime: {e}");
+            return;
+        }
+    };
+    let src_for_task = src_path.clone();
+    let dst_for_task = dst_path.clone();
+    let result: Result<(), anyhow::Error> = rt.block_on(async move {
+        let pool = sim_db::pool::create_pool(&src_for_task).await?;
+        sim_db::persistence::save_as(&pool, &dst_for_task).await?;
+        Ok(())
+    });
+    match result {
+        Ok(()) => info!("client_bevy: save-as → {dst_path}"),
+        Err(e) => error!("client_bevy: save-as failed: {e}"),
+    }
 }

@@ -675,6 +675,17 @@ pub async fn load_or_init_world_seed(pool: &SqlitePool) -> u64 {
     seed
 }
 
+/// Run `VACUUM INTO '<dest>'` against the pool, copying the entire
+/// database to a new file. SQLite handles page locking + integrity.
+/// The caller is responsible for ensuring `dest` is a safe, owned
+/// path — the query interpolates it into the SQL directly because
+/// VACUUM INTO doesn't support parameter binding.
+pub async fn save_as(pool: &SqlitePool, dest: &str) -> Result<()> {
+    let query = format!("VACUUM INTO '{dest}'");
+    sqlx::query(&query).execute(pool).await?;
+    Ok(())
+}
+
 /// Load the retirement ledger. Returns up to `limit` rows newest-
 /// first (by tick then by insertion id). Safe to call at startup —
 /// the table is written only by the persistence worker, so a
