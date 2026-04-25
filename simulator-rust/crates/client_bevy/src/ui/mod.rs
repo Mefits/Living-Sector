@@ -4058,7 +4058,11 @@ fn keyboard_shortcuts(
     if egui_ctx.ctx_mut().wants_keyboard_input() {
         return;
     }
-    if keys.just_pressed(KeyCode::Space) {
+    // Suppress Spacebar pause-toggle while the pause menu is open —
+    // otherwise Space would flip sim.running independently of the
+    // menu's internal `was_running` bookkeeping, leaving the user
+    // staring at a "Paused" overlay over a running sim.
+    if keys.just_pressed(KeyCode::Space) && !menu.open {
         sim.running = !sim.running;
     }
     if keys.just_pressed(KeyCode::Escape) {
