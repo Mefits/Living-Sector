@@ -56,6 +56,22 @@ pub struct SaveAsRequest(pub bool);
 #[derive(Resource, Default)]
 pub struct SpawnShipRequest(pub bool);
 
+/// Rolling tick-compute timing window — `tick_sim` measures wall
+/// time and pushes microseconds into here so the perf overlay can
+/// surface p50/p99. Mirrors `sim_server.perf.tick_compute_*` so
+/// the embedded client has the same diagnostic budget visibility.
+#[derive(Resource, Default)]
+pub struct TickPerf {
+    pub samples: std::collections::VecDeque<u64>,
+    pub p50_us: u64,
+    pub p99_us: u64,
+}
+
+/// Sample-window length for [`TickPerf`]. 60 ticks at 8 tps =
+/// 7.5 s — long enough to smooth single-tick spikes, short
+/// enough that recent regressions surface quickly.
+pub const TICK_PERF_WINDOW: usize = 60;
+
 /// Base tick interval (seconds). Matches sim_server's default 125 ms
 /// cadence. World-speed UI in a future bundle rescales this.
 pub const DEFAULT_TICK_INTERVAL_S: f64 = 0.125;
@@ -72,6 +88,7 @@ impl Plugin for SimPlugin {
             .init_resource::<EventsLog>()
             .init_resource::<SaveAsRequest>()
             .init_resource::<SpawnShipRequest>()
+            .init_resource::<TickPerf>()
             .add_systems(Startup, load_world)
             .add_systems(FixedUpdate, tick_sim)
             .add_systems(Update, (process_save_as, process_spawn_ship));
@@ -223,10 +240,15 @@ fn load_world(mut sim: ResMut<Sim>, mut retirements: ResMut<Retirements>) {
 /// chain. Bundle 2b.4 extracts `apply_ship_commands` + the other
 /// phase helpers into a shared `sim_engine` crate and wires the
 /// full tick in.
-fn tick_sim(mut sim: ResMut<Sim>, mut events_log: ResMut<EventsLog>) {
+fn tick_sim(
+    mut sim: ResMut<Sim>,
+    mut events_log: ResMut<EventsLog>,
+    mut perf: ResMut<TickPerf>,
+) {
     if !sim.running {
         return;
     }
+    let t_start = std::time::Instant::now();
 
     let config = TickConfig::DEFAULT;
     let tick_scale = config.tick_scale();
@@ -361,6 +383,24 @@ fn tick_sim(mut sim: ResMut<Sim>, mut events_log: ResMut<EventsLog>) {
             }
             events_log.0.push_back((tick, ev));
         }
+    }
+
+    // Tick-compute window — record this fixed-update's wall-time
+    // budget into the perf ring. `tick_sim` runs `tick_mult`
+    // sub-ticks per FixedUpdate, so this is the FixedUpdate-level
+    // budget (matches what the user actually sees against the
+    // 125 ms FixedUpdate cadence at 1×).
+    let elapsed_us = t_start.elapsed().as_micros() as u64;
+    if perf.samples.len() >= TICK_PERF_WINDOW {
+        perf.samples.pop_front();
+    }
+    perf.samples.push_back(elapsed_us);
+    if !perf.samples.is_empty() {
+        let mut sorted: Vec<u64> = perf.samples.iter().copied().collect();
+        sorted.sort_unstable();
+        perf.p50_us = sorted[sorted.len() / 2];
+        let p99_idx = (sorted.len() as f32 * 0.99).ceil() as usize;
+        perf.p99_us = sorted[p99_idx.saturating_sub(1).min(sorted.len() - 1)];
     }
 }
 

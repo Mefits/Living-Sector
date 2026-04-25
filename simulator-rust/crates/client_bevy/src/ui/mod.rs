@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::camera::{CameraFocusRequest, CameraResetRequest, OrbitCamera};
 use crate::render::SCALE_FACTOR;
-use crate::sim::{EventsLog, Retirements, Sim};
+use crate::sim::{EventsLog, Retirements, Sim, TickPerf};
 
 pub struct UiPlugin;
 
@@ -350,6 +350,7 @@ fn perf_overlay(
     mut ctx: EguiContexts,
     sim: Res<Sim>,
     stats: Res<PerfStats>,
+    tick_perf: Res<TickPerf>,
 ) {
     egui::Window::new("Perf")
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 8.0))
@@ -393,6 +394,34 @@ fn perf_overlay(
                         tps_color,
                         format!("{:.1} / {:.0}", stats.avg_tps, target),
                     );
+                    ui.end_row();
+
+                    // Tick-compute p50/p99 (ms). FixedUpdate fires at
+                    // 125 ms; well under that and we have headroom for
+                    // higher tick_mult. Approaching 125 ms means the
+                    // sim is the bottleneck, not render.
+                    ui.label("Tick p50");
+                    let p50_ms = tick_perf.p50_us as f32 / 1000.0;
+                    let p99_ms = tick_perf.p99_us as f32 / 1000.0;
+                    let p50_color = if p50_ms < 30.0 {
+                        egui::Color32::from_rgb(120, 220, 120)
+                    } else if p50_ms < 80.0 {
+                        egui::Color32::from_rgb(230, 200, 90)
+                    } else {
+                        egui::Color32::from_rgb(240, 100, 90)
+                    };
+                    ui.colored_label(p50_color, format!("{p50_ms:.1} ms"));
+                    ui.end_row();
+
+                    ui.label("Tick p99");
+                    let p99_color = if p99_ms < 80.0 {
+                        egui::Color32::from_rgb(120, 220, 120)
+                    } else if p99_ms < 125.0 {
+                        egui::Color32::from_rgb(230, 200, 90)
+                    } else {
+                        egui::Color32::from_rgb(240, 100, 90)
+                    };
+                    ui.colored_label(p99_color, format!("{p99_ms:.1} ms"));
                     ui.end_row();
 
                     ui.label("Ships");
