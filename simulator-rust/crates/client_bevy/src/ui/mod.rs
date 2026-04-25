@@ -37,6 +37,7 @@ impl Plugin for UiPlugin {
             .init_resource::<BodyLabelsState>()
             .init_resource::<EventsState>()
             .init_resource::<PauseMenuState>()
+            .init_resource::<HelpState>()
             .init_resource::<AddShipDialogState>()
             .init_resource::<AddFacilityDialogState>()
             .init_resource::<ContextMenuRequest>()
@@ -78,6 +79,7 @@ impl Plugin for UiPlugin {
                     add_ship_dialog,
                     add_facility_dialog,
                     context_menu,
+                    help_panel,
                 )
                     .chain(),
             );
@@ -4045,10 +4047,12 @@ fn event_summary(v: &serde_json::Value) -> String {
 // Skips when egui owns the keyboard (a filter text box is focused,
 // etc.) so typing in a panel doesn't accidentally pause the sim.
 
+#[allow(clippy::too_many_arguments)]
 fn keyboard_shortcuts(
     keys: Res<ButtonInput<KeyCode>>,
     mut sim: ResMut<Sim>,
     mut menu: ResMut<PauseMenuState>,
+    mut help: ResMut<HelpState>,
     mut egui_ctx: EguiContexts,
 ) {
     // When egui is capturing keyboard input (an editable text
@@ -4064,6 +4068,12 @@ fn keyboard_shortcuts(
     // staring at a "Paused" overlay over a running sim.
     if keys.just_pressed(KeyCode::Space) && !menu.open {
         sim.running = !sim.running;
+    }
+    // `?` (Slash, with or without Shift) or `H` toggles the help
+    // popup. egui consumes Shift natively when ShiftLeft is held;
+    // we just react to either key landing.
+    if keys.just_pressed(KeyCode::Slash) || keys.just_pressed(KeyCode::KeyH) {
+        help.open = !help.open;
     }
     if keys.just_pressed(KeyCode::Escape) {
         // Esc toggles the pause menu. Selection clear lives on the
@@ -4573,6 +4583,69 @@ fn add_facility_dialog(
     }
 }
 
+/// Help popup. Toggled by `?` / `H` keys (see `keyboard_shortcuts`)
+/// or by clicking the `?` button on the pause menu. Lists the
+/// keyboard + mouse hotkeys as a single egui grid.
+#[derive(Resource, Default)]
+struct HelpState {
+    open: bool,
+}
+
+fn help_panel(mut ctx: EguiContexts, mut help: ResMut<HelpState>) {
+    let mut open = help.open;
+    if !open {
+        return;
+    }
+    egui::Window::new("Help · Hotkeys")
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .collapsible(false)
+        .resizable(false)
+        .default_width(380.0)
+        .open(&mut open)
+        .show(ctx.ctx_mut(), |ui| {
+            egui::Grid::new("help_keys")
+                .num_columns(2)
+                .striped(true)
+                .spacing([12.0, 4.0])
+                .show(ui, |ui| {
+                    let key = |label: &str| {
+                        egui::RichText::new(label).monospace().color(theme::PRIMARY)
+                    };
+                    let row = |ui: &mut egui::Ui, k: &str, desc: &str| {
+                        ui.label(key(k));
+                        ui.label(desc);
+                        ui.end_row();
+                    };
+                    ui.label(theme::section_header("Sim control"));
+                    ui.label("");
+                    ui.end_row();
+                    row(ui, "Space", "Pause / resume the sim");
+                    row(ui, "Esc", "Open / close the pause menu");
+                    ui.label(theme::section_header("Camera"));
+                    ui.label("");
+                    ui.end_row();
+                    row(ui, "Left-drag", "Orbit around focus point");
+                    row(ui, "Middle-drag", "Orbit around focus point");
+                    row(ui, "Right-drag", "Pan focus across plane");
+                    row(ui, "Shift-Left-drag", "Pan focus across plane");
+                    row(ui, "WASD", "Pan focus relative to camera");
+                    row(ui, "Scroll / Pinch", "Zoom in / out");
+                    ui.label(theme::section_header("Selection"));
+                    ui.label("");
+                    ui.end_row();
+                    row(ui, "Left-click", "Select ship / facility");
+                    row(ui, "Right-click", "Context menu (Inspect / Follow / POV / Destroy)");
+                    row(ui, "✕ Clear (top bar)", "Deselect");
+                    ui.label(theme::section_header("Misc"));
+                    ui.label("");
+                    ui.end_row();
+                    row(ui, "F12", "Screenshot to /tmp/bevy_screenshot.png");
+                    row(ui, "?  /  H", "Show this help popup");
+                });
+        });
+    help.open = open;
+}
+
 /// Modal-ish "Pause" menu. Esc toggles it (see `keyboard_shortcuts`).
 /// While open the sim is forced paused; closing the menu restores
 /// the prior running state. Buttons: Resume, Save As, Quit. Save is
@@ -4587,11 +4660,13 @@ struct PauseMenuState {
     was_running: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn pause_menu(
     mut ctx: EguiContexts,
     mut menu: ResMut<PauseMenuState>,
     mut sim: ResMut<Sim>,
     mut save_req: ResMut<crate::sim::SaveAsRequest>,
+    mut help: ResMut<HelpState>,
     mut exit: EventWriter<AppExit>,
 ) {
     if !menu.open {
@@ -4631,6 +4706,14 @@ fn pause_menu(
                     .clicked()
                 {
                     save_req.0 = true;
+                }
+                ui.add_space(2.0);
+                if ui
+                    .add_sized(btn_size, egui::Button::new("Help (?)"))
+                    .on_hover_text("Show the hotkey reference popup.")
+                    .clicked()
+                {
+                    help.open = true;
                 }
                 ui.add_space(2.0);
                 if ui
