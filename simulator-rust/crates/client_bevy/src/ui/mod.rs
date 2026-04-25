@@ -39,6 +39,7 @@ impl Plugin for UiPlugin {
             .init_resource::<PauseMenuState>()
             .init_resource::<HelpState>()
             .init_resource::<OptionsState>()
+            .init_resource::<SaveListState>()
             .init_resource::<AddShipDialogState>()
             .init_resource::<AddFacilityDialogState>()
             .init_resource::<ContextMenuRequest>()
@@ -54,6 +55,7 @@ impl Plugin for UiPlugin {
                     theme::apply_theme,
                     main_menu_panel.run_if(in_state(crate::AppState::MainMenu)),
                     options_panel,
+                    save_list_panel,
                 ),
             )
             // In-game UI: gated on `AppState::InGame`. MainMenu hides
@@ -5201,17 +5203,16 @@ fn help_panel(mut ctx: EguiContexts, mut help: ResMut<HelpState>) {
 /// drawing because RenderPlugin systems run unconditionally — the
 /// title floats over the live galaxy. Buttons:
 /// - **Start** transitions to InGame, unfreezes the sim.
+/// - **Load Game** opens the save-list browser.
 /// - **Options** opens the same OptionsState window the pause menu
 ///   uses, so audio mix is shared between menu and play.
 /// - **Quit** sends `AppExit::Success`.
-///
-/// Load Game is stubbed; Bundle 4br turns it into a save-list
-/// browser when the SQLite save scaffolding lands.
 fn main_menu_panel(
     mut ctx: EguiContexts,
     mut next_state: ResMut<NextState<crate::AppState>>,
     mut sim: ResMut<Sim>,
     mut options: ResMut<OptionsState>,
+    mut saves: ResMut<SaveListState>,
     mut exit: EventWriter<AppExit>,
 ) {
     egui::Area::new(egui::Id::new("main_menu"))
@@ -5244,16 +5245,16 @@ fn main_menu_panel(
                     sim.running = true;
                 }
                 ui.add_space(4.0);
-                let load_resp = ui.add_sized(
-                    btn_size,
-                    egui::Button::new(
-                        egui::RichText::new("Load Game").color(theme::TEXT_DIM),
-                    ),
-                );
-                load_resp.on_hover_text(
-                    "Save-list browser is coming in the next bundle. \
-                     For now, click Start to load the default sim.db.",
-                );
+                if ui
+                    .add_sized(btn_size, egui::Button::new("Load Game"))
+                    .on_hover_text(
+                        "Browse Save-As snapshots stored next to the binary.",
+                    )
+                    .clicked()
+                {
+                    saves.open = true;
+                    saves.last_scan = None; // force refresh on open
+                }
                 ui.add_space(4.0);
                 if ui
                     .add_sized(btn_size, egui::Button::new("Options"))
@@ -5276,6 +5277,248 @@ fn main_menu_panel(
                 ui.add_space(8.0);
             });
         });
+}
+
+/// Save-list browser. Scans the directory containing the executable
+/// (or current working directory in dev) for `*.db` files, lists
+/// each as a row with Load + Delete buttons. The active sim DB
+/// (default name `sim.db`) is filtered out so users can't blow it
+/// away by accident — that path stays reserved for "fresh boot".
+///
+/// Load is currently a stub that logs the picked path; the
+/// implementation needs an in-process sim teardown + reload pass
+/// (rebuild AgentStore, despawn render entities, re-run
+/// `load_world` with the chosen path), which is its own bundle.
+/// Delete is fully wired — `std::fs::remove_file` plus list
+/// refresh.
+#[derive(Resource, Default)]
+struct SaveListState {
+    open: bool,
+    saves: Vec<SaveEntry>,
+    /// `None` forces a re-scan on next render; otherwise we cache
+    /// the listing so opening the panel doesn't hit the FS every
+    /// frame. Refresh button bumps this back to None.
+    last_scan: Option<std::time::Instant>,
+}
+
+#[derive(Clone)]
+struct SaveEntry {
+    path: std::path::PathBuf,
+    name: String,
+    modified_iso: String,
+    size_kb: u64,
+}
+
+fn scan_saves() -> Vec<SaveEntry> {
+    let dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let mut out: Vec<SaveEntry> = Vec::new();
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        return out;
+    };
+    for entry in rd.flatten() {
+        let path = entry.path();
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        // Skip the active DB + sqlite sidecar files. Also skip
+        // anything not ending in .db.
+        if name == "sim.db" || !name.ends_with(".db") {
+            continue;
+        }
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let size_kb = meta.len() / 1024;
+        let modified_iso = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| {
+                let secs = d.as_secs() as i64;
+                // Compact YYYY-MM-DD HH:MM via chrono-free math.
+                let days = secs / 86_400;
+                let h = (secs % 86_400) / 3600;
+                let m = (secs % 3600) / 60;
+                // Naive UTC; plenty for a filesystem timestamp display.
+                let (y, mo, d) = days_to_ymd(days);
+                format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}")
+            })
+            .unwrap_or_else(|| "?".to_string());
+        out.push(SaveEntry {
+            path,
+            name,
+            modified_iso,
+            size_kb,
+        });
+    }
+    out.sort_by(|a, b| b.modified_iso.cmp(&a.modified_iso));
+    out
+}
+
+/// Convert days-since-1970-01-01 to (year, month, day). Naive
+/// proleptic Gregorian — the chrono crate would be cleaner but
+/// adding a dep for one display string is overkill.
+fn days_to_ymd(mut days: i64) -> (i32, u32, u32) {
+    let mut y: i32 = 1970;
+    loop {
+        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+        let yd: i64 = if leap { 366 } else { 365 };
+        if days < yd {
+            break;
+        }
+        days -= yd;
+        y += 1;
+    }
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let mdays: [i64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+    ];
+    let mut m: usize = 0;
+    while m < 12 && days >= mdays[m] {
+        days -= mdays[m];
+        m += 1;
+    }
+    (y, (m + 1) as u32, (days + 1) as u32)
+}
+
+fn save_list_panel(mut ctx: EguiContexts, mut state: ResMut<SaveListState>) {
+    if !state.open {
+        return;
+    }
+
+    // Scan once per open (or after Refresh). FS dirs change rarely
+    // during play so caching is fine; the user can hit Refresh to
+    // re-scan after a Save-As.
+    if state.last_scan.is_none() {
+        state.saves = scan_saves();
+        state.last_scan = Some(std::time::Instant::now());
+    }
+
+    let mut open = state.open;
+    let mut want_refresh = false;
+    let mut want_delete: Option<std::path::PathBuf> = None;
+    let mut want_load: Option<std::path::PathBuf> = None;
+
+    egui::Window::new("Saves")
+        .id(egui::Id::new("save_list_window"))
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .collapsible(false)
+        .resizable(false)
+        .default_width(540.0)
+        .open(&mut open)
+        .show(ctx.ctx_mut(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label(theme::section_header("Save snapshots"));
+                ui.with_layout(
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        if ui.small_button("Refresh").clicked() {
+                            want_refresh = true;
+                        }
+                    },
+                );
+            });
+            ui.separator();
+            if state.saves.is_empty() {
+                ui.label(
+                    egui::RichText::new(
+                        "No save snapshots found next to the binary. \
+                         Use the pause menu's Save As… to create one.",
+                    )
+                    .italics()
+                    .color(theme::TEXT_DIM),
+                );
+                return;
+            }
+            egui::ScrollArea::vertical()
+                .max_height(400.0)
+                .show(ui, |ui| {
+                    egui::Grid::new("save_list_grid")
+                        .num_columns(4)
+                        .striped(true)
+                        .spacing([12.0, 4.0])
+                        .show(ui, |ui| {
+                            ui.label(theme::caption("Name"));
+                            ui.label(theme::caption("Modified"));
+                            ui.label(theme::caption("Size"));
+                            ui.label("");
+                            ui.end_row();
+                            for save in &state.saves {
+                                ui.label(&save.name);
+                                ui.label(
+                                    egui::RichText::new(&save.modified_iso)
+                                        .small()
+                                        .monospace()
+                                        .color(theme::TEXT_DIM),
+                                );
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{} KB",
+                                        save.size_kb
+                                    ))
+                                    .small()
+                                    .monospace(),
+                                );
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .small_button("Load")
+                                        .on_hover_text(
+                                            "Load this save into the running \
+                                             sim. (Stub: in-process reload \
+                                             lands in a follow-up bundle.)",
+                                        )
+                                        .clicked()
+                                    {
+                                        want_load = Some(save.path.clone());
+                                    }
+                                    if ui
+                                        .small_button(
+                                            egui::RichText::new("Delete")
+                                                .color(theme::DANGER),
+                                        )
+                                        .on_hover_text(
+                                            "Permanently delete this snapshot \
+                                             from disk. No confirmation.",
+                                        )
+                                        .clicked()
+                                    {
+                                        want_delete = Some(save.path.clone());
+                                    }
+                                });
+                                ui.end_row();
+                            }
+                        });
+                });
+        });
+
+    if want_refresh {
+        state.last_scan = None;
+    }
+    if let Some(p) = want_delete {
+        match std::fs::remove_file(&p) {
+            Ok(()) => {
+                info!("client_bevy: deleted save {}", p.display());
+                state.last_scan = None;
+            }
+            Err(e) => {
+                error!("client_bevy: failed to delete {}: {}", p.display(), e);
+            }
+        }
+    }
+    if let Some(p) = want_load {
+        // TODO(4bs): in-process sim teardown + reload from `p`.
+        // For now log so the wiring's testable; the user can swap
+        // the file by exiting and copying it over sim.db.
+        info!("client_bevy: load requested for {} (in-process reload TBD)", p.display());
+    }
+    state.open = open;
 }
 
 /// Options window — audio + display settings. Toggled from the
@@ -5371,6 +5614,7 @@ fn pause_menu(
     mut save_req: ResMut<crate::sim::SaveAsRequest>,
     mut help: ResMut<HelpState>,
     mut options: ResMut<OptionsState>,
+    mut next_state: ResMut<NextState<crate::AppState>>,
     mut exit: EventWriter<AppExit>,
 ) {
     if !menu.open {
@@ -5426,6 +5670,19 @@ fn pause_menu(
                     .clicked()
                 {
                     help.open = true;
+                }
+                ui.add_space(2.0);
+                if ui
+                    .add_sized(btn_size, egui::Button::new("Return to Main Menu"))
+                    .on_hover_text(
+                        "Pause the sim and go back to the title screen. \
+                         The world stays loaded — Start resumes from here.",
+                    )
+                    .clicked()
+                {
+                    sim.running = false;
+                    menu.open = false;
+                    next_state.set(crate::AppState::MainMenu);
                 }
                 ui.add_space(2.0);
                 if ui
