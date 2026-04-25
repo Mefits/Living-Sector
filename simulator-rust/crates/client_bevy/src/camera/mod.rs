@@ -66,15 +66,20 @@ pub struct OrbitCamera {
 }
 
 impl OrbitCamera {
-    /// Default view over the three-system spread. Sol at (0,0), AC at
-    /// (200,50), Tau Ceti at (400,-100) → focus on the midpoint of
-    /// the spread with enough distance to see all three clusters.
+    /// Default view: focus on Sol at the universe origin so the
+    /// boot screen shows inner-system bodies + their stations,
+    /// not empty space. Sol's outer bodies (Saturn, Kuiper) sit
+    /// out near 5000 wu with `SCALE_FACTOR = 60`, but Earth and
+    /// the inner planets are within ~1500 wu of origin — so
+    /// distance ~3500 lands a comfortable iso view of the inner
+    /// system. Other systems spread to 4800 wu+ on +X; user
+    /// zooms out + pans to see them.
     pub fn initial() -> Self {
         Self {
-            focus: Vec3::new(200.0, 0.0, 0.0),
+            focus: Vec3::new(0.0, 0.0, 0.0),
             yaw: 0.0,
             pitch: -0.9, // ~50° down — iso-ish
-            distance: 500.0,
+            distance: 3500.0,
         }
     }
 
@@ -104,7 +109,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
     // backdrop at galactic zoom.
     let projection = Projection::Perspective(PerspectiveProjection {
         near: 0.1,
-        far: 20_000.0,
+        far: 120_000.0,
         ..default()
     });
     // HDR + bloom so emissive ship + body + nebula materials
@@ -145,8 +150,8 @@ const PINCH_ZOOM_FACTOR: f32 = 600.0;
 
 const PITCH_MIN: f32 = -1.45; // ~-83° (almost straight down)
 const PITCH_MAX: f32 = -0.1;  // ~-6° (almost horizontal)
-const DISTANCE_MIN: f32 = 30.0;
-const DISTANCE_MAX: f32 = 2000.0;
+const DISTANCE_MIN: f32 = 8.0;
+const DISTANCE_MAX: f32 = 30_000.0;
 
 #[allow(clippy::too_many_arguments)]
 fn orbit_camera_input(

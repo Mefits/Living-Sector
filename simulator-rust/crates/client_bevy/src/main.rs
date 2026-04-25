@@ -115,13 +115,13 @@ fn screenshot_key(
     *frame_counter = frame_counter.saturating_add(1);
 
     let manual = keys.just_pressed(KeyCode::F12);
-    // Auto-screenshot via env var. Note: macOS throttles
-    // background Bevy windows hard — `cargo run &` from a Terminal
-    // that doesn't surface the window sees Update fire at near-
-    // zero Hz and `frame_counter` never reaches the trigger. Run
-    // in foreground or hit F12 manually for reliable captures.
+    // Auto-screenshot via env var. macOS throttles backgrounded
+    // Bevy windows to ~1 Hz, so we trigger at frame 3 (≈3s from
+    // start) rather than something like frame 180 which would
+    // never land under `cargo run &`. Foreground + F12 is the
+    // interactive path; this covers headless-smoke verification.
     let auto = !*auto_done
-        && *frame_counter >= 180
+        && *frame_counter >= 3
         && std::env::var("CLIENT_BEVY_AUTO_SCREENSHOT").is_ok();
 
     if !(manual || auto) {

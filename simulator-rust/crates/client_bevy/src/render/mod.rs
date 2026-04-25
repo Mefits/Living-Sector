@@ -16,24 +16,59 @@ use sim_core::agents::{
 use crate::sim::Sim;
 use crate::ui::{SelectedFacility, SelectedShip};
 
-/// Scale factor from universe units → world units. Matches Godot's
-/// `GameState.SCALE_FACTOR` so the two clients place everything at
-/// the same coordinates (handy while both exist during the port).
-pub const SCALE_FACTOR: f32 = 10.0;
+/// Scale factor from universe units → world units. Bumped from
+/// Godot's `GameState.SCALE_FACTOR = 10` because Bevy renders the
+/// sun + bodies at a coherent absolute size hierarchy (sun ~35 wu,
+/// planets ~20 wu) — at 10× spread, inner-system orbital radii
+/// (~4-15 sim units → 40-150 wu) clipped into the sun, and
+/// inter-system distances were just a few hundred wu so systems
+/// blended together at galactic zoom. 60× spreads everything: a
+/// Mercury-like 4 sim-unit orbit lands 240 wu out from a 35-wu
+/// sun, and inter-system gaps land in the multi-thousand-wu range
+/// so each system reads as its own cluster against the starfield.
+/// Camera initial distance + far clip + nebula / star shell radii
+/// scale with this — keep them in sync if it changes.
+pub const SCALE_FACTOR: f32 = 100.0;
 
-/// Placeholder sizes (world units). Ships tiny, facilities medium,
-/// bodies big — mirrors the visual hierarchy of the Godot client
-/// without any procedural detail. The galactic-overview camera sits
-/// 500+ wu from focus and systems are spread over ~4000 wu, so
-/// bodies need to be visibly bigger than the realistic ratio would
-/// suggest — otherwise they read as flyspecks at max zoom-out.
-/// Ship size at 0.4 wu was sub-pixel at galactic zoom even with
-/// HDR bloom; 1.0 makes them readable as bright glowing points
-/// without being indistinguishable from facilities (1.5) or
-/// bodies (5.0).
-const SHIP_SIZE: f32 = 1.0;
-const FACILITY_SIZE: f32 = 1.5;
-const BODY_SIZE: f32 = 5.0;
+/// Visual size hierarchy (world units). One coherent ladder so
+/// proportions read at any zoom: a medium ship = 1 wu, and every
+/// other class scales relative to it.
+///
+/// ```text
+///   sun            ~14 wu  (biggest, anchors each system)
+///   planet body    ~7 wu   (visible, sub-orbit-radius)
+///   moon / asteroid ~4 wu  (between station and planet)
+///   station         ~4 wu  (mid-tier dock)
+///   gate ring       ~6 wu  (wider, navigation portal)
+///   ship (large)    ~5 wu  (hauler)
+///   ship (medium)   ~1 wu  (freighter / tanker / miner)
+///   ship (small)    ~0.5 wu (courier)
+/// ```
+///
+/// Sized small relative to `SCALE_FACTOR = 60` orbital distances:
+/// inner-system bodies at ~5 sim units → 300 wu orbit, so a 7-wu
+/// planet occupies a few percent of its orbit radius (real-ish
+/// solar-system feel). Bigger bodies looked correct in isolation
+/// but dominated their own orbits at the new spread.
+const SHIP_SIZE: f32 = 0.05;
+const BODY_SIZE: f32 = 4.0;
+
+/// Uniform scale applied to a freshly-spawned station SceneBundle.
+/// The Godot GLBs are ~80-unit hulls in their source coords; 0.125
+/// brings them down to ≈10 wu — 10× a medium ship, half a planet.
+/// **The one knob to twist if stations look wrong** —
+/// `FACILITY_SIZE` doesn't exist anymore; that was the cylinder-
+/// placeholder height before GLBs landed.
+const STATION_SCALE: f32 = 0.05;
+/// Gates get a wider scale than stations because the ring
+/// silhouette needs to read as a portal you fly through, not a
+/// dense bulk. ~6 wu across.
+const GATE_SCALE: f32 = 0.075;
+/// Facility selection-ring radius (world units). Replaces the
+/// `FACILITY_SIZE * SELECT_SCALE * 1.3` formula from the cylinder-
+/// placeholder era. Sized to wrap a STATION_SCALE-scaled station
+/// (~4 wu) with comfortable margin; tune if STATION_SCALE moves.
+const FACILITY_SELECT_RING_RADIUS: f32 = 1.0;
 
 pub struct RenderPlugin;
 
@@ -47,16 +82,23 @@ impl Plugin for RenderPlugin {
         app.add_systems(Startup, load_station_models)
             .add_systems(
                 PostStartup,
-                (spawn_mirror_entities, spawn_starfield, spawn_nebulae),
+                (
+                    spawn_mirror_entities,
+                    spawn_starfield,
+                    spawn_nebulae,
+                    spawn_system_suns,
+                ),
             )
-                .add_systems(
+            .add_systems(
                 Update,
                 (
                     sync_positions,
+                    follow_facilities_to_bodies,
                     highlight_selected,
                     draw_selection_rings,
                     draw_transit_lines,
                     draw_gate_rings,
+                    draw_orbit_rings,
                     draw_construction_sites,
                     raycast_select,
                     cleanup_stale_ships,
@@ -127,6 +169,18 @@ pub struct ShipEntity {
 #[derive(Component)]
 pub struct FacilityEntity {
     pub sim_id: String,
+    /// Per-model spawn scale (STATION_SCALE / GATE_SCALE). Stored
+    /// because `highlight_selected` writes `Transform::scale` every
+    /// frame, and without this we'd lose the model scale the moment
+    /// the selection system ran. The selection scale is layered on
+    /// top: `xf.scale = base_scale * (selected ? SELECT_SCALE : 1.0)`.
+    pub base_scale: f32,
+    /// Body the facility orbits. Per-frame the follow system reads
+    /// this body's current `BodyOrbit` position and offsets it via
+    /// `sim_core::agents::facility::facility_offset_position` — the
+    /// SAME helper the sim uses to pin docked ships and aim transit
+    /// arrivals. Single source of truth = no station/ship drift.
+    pub body_id: String,
 }
 
 #[derive(Component)]
@@ -173,20 +227,21 @@ impl PlaceholderAssets {
 /// rotation + stretched Z gives the sense of travel direction. Picked
 /// to read distinctly at the 1600-ship stress:
 ///
-/// - **courier**: slim + long → fast, narrow
-/// - **freighter**: wider body → cargo capacity visible
-/// - **hauler**: biggest, squat → industrial
-/// - **tanker**: medium but tall → rounded silhouette
-/// - **miner**: stubby, balanced → industrial compact
+/// - **courier**: smallest (~0.5 wu max axis) → fast, narrow
+/// - **freighter / tanker / miner**: medium (~1 wu) → workhorses
+/// - **hauler**: largest (~5 wu) → industrial behemoth
+///
+/// Spread chosen to match the user's "0.25 → 1 → 5" hierarchy so
+/// silhouettes at galactic zoom encode role without a label.
 fn ship_dimensions(class: &str) -> (f32, f32, f32) {
     let base = SHIP_SIZE;
     match class {
-        "courier" => (base * 0.35, base * 0.35, base * 2.0),
-        "freighter" => (base * 0.70, base * 0.50, base * 1.6),
-        "hauler" => (base * 0.85, base * 0.60, base * 1.8),
-        "tanker" => (base * 0.60, base * 0.70, base * 1.5),
-        "miner" => (base * 0.55, base * 0.55, base * 1.3),
-        _ => (base * 0.5, base * 0.5, base * 1.6),
+        "courier" => (base * 0.20, base * 0.20, base * 0.55),
+        "freighter" => (base * 0.70, base * 0.50, base * 1.4),
+        "hauler" => (base * 2.20, base * 1.50, base * 4.50),
+        "tanker" => (base * 0.55, base * 0.70, base * 1.3),
+        "miner" => (base * 0.50, base * 0.50, base * 1.10),
+        _ => (base * 0.5, base * 0.5, base * 1.5),
     }
 }
 
@@ -336,19 +391,20 @@ fn spawn_mirror_entities(
         // player needs to spot at mid-zoom). Other types use one of
         // the box/dome silhouettes scaled to fit alongside body
         // spheres.
-        let (bx, by) = body_positions
+        let body_center = body_positions
             .get(&id.body_id)
             .copied()
             .unwrap_or((0.0, 0.0));
+        // Authoritative dock-point offset: same helper the sim
+        // uses to pin docked ships, so render coords agree with
+        // sim coords every tick.
+        let (fx, fy) =
+            sim_core::agents::facility::facility_offset_position(body_center, &id.id);
         let y_offset = 0.5; // tiny vertical so facilities don't z-fight w/ bodies
         let is_gate = id.facility_type == "gate";
-        let scale = if is_gate { 0.15 } else { 0.05 };
-        let mut transform = Transform::from_xyz(
-            bx * SCALE_FACTOR,
-            y_offset,
-            by * SCALE_FACTOR,
-        )
-        .with_scale(Vec3::splat(scale));
+        let scale = if is_gate { GATE_SCALE } else { STATION_SCALE };
+        let mut transform = Transform::from_xyz(fx * SCALE_FACTOR, y_offset, fy * SCALE_FACTOR)
+            .with_scale(Vec3::splat(scale));
         if is_gate {
             // Ring model's source axis is +X; rotating 90° around Y
             // puts the hole along +Z so the ring reads as an
@@ -364,6 +420,8 @@ fn spawn_mirror_entities(
             },
             FacilityEntity {
                 sim_id: id.id.clone(),
+                base_scale: scale,
+                body_id: id.body_id.clone(),
             },
             FacilityLocationRef(loc.location_name.clone()),
             Name::new(format!("Facility::{}", id.id)),
@@ -466,6 +524,43 @@ fn sync_positions(
     }
 }
 
+/// Per-frame: re-pin every facility to its body's current orbit
+/// position + the same dock-point offset the sim uses. Without this,
+/// stations stay at their spawn-time position while bodies orbit out
+/// from underneath them.
+///
+/// Critically, this calls `sim_core::agents::facility::facility_offset_position`
+/// — the SAME helper the sim uses to (a) pin docked ships to the
+/// station, (b) aim ship transit arrivals. One source of truth for
+/// "where is the station?", so docked ships never drift away from
+/// their station and ships approaching always arrive on-station.
+fn follow_facilities_to_bodies(
+    sim: Res<Sim>,
+    mut facilities: Query<
+        (&FacilityEntity, &mut Transform),
+        (Without<ShipEntity>, Without<BodyEntity>),
+    >,
+) {
+    let world = &sim.store.world;
+    let mut body_query = world.query::<(&BodyIdentity, &BodyOrbit)>();
+    let body_positions: std::collections::HashMap<&str, (f32, f32)> = body_query
+        .iter()
+        .map(|(_e, (id, orbit))| (id.body_id.as_str(), orbit.universe_position()))
+        .collect();
+
+    for (fac, mut xf) in facilities.iter_mut() {
+        if let Some(&body_center) = body_positions.get(fac.body_id.as_str()) {
+            let (fx, fy) = sim_core::agents::facility::facility_offset_position(
+                body_center,
+                fac.sim_id.as_str(),
+            );
+            // Y stays at spawn (the small z-fight offset).
+            xf.translation.x = fx * SCALE_FACTOR;
+            xf.translation.z = fy * SCALE_FACTOR;
+        }
+    }
+}
+
 /// Selection scale factor — how big the chosen ship/facility gets
 /// relative to its peers. Big enough to stand out at galactic
 /// zoom where the base placeholder meshes are tiny dots; small
@@ -507,11 +602,15 @@ fn highlight_selected(
 
     let fac_id = selected_fac.0.as_deref();
     for (fac, mut xf) in facilities.iter_mut() {
-        let wanted = if Some(fac.sim_id.as_str()) == fac_id {
+        // Layer selection on top of the model's base scale (set at
+        // spawn). Without this multiplier the GLB's STATION_SCALE
+        // gets clobbered to 1.0 the first frame after spawn.
+        let mult = if Some(fac.sim_id.as_str()) == fac_id {
             SELECT_SCALE
         } else {
             1.0
         };
+        let wanted = fac.base_scale * mult;
         if (xf.scale.x - wanted).abs() > f32::EPSILON {
             xf.scale = Vec3::splat(wanted);
         }
@@ -527,7 +626,54 @@ const STAR_COUNT: usize = 2000;
 /// Radius of the star shell around the galactic-overview focus.
 /// Generous so stars read as "distant background" at all zoom levels
 /// the camera clamp allows.
-const STAR_FIELD_RADIUS: f32 = 4000.0;
+const STAR_FIELD_RADIUS: f32 = 24000.0;
+
+/// World-unit radius of the visible "sun" at each star system's
+/// universe_offset. ~2× a planet body (7 wu) so the system primary
+/// clearly anchors the orbital geometry. Sized small relative to
+/// the inter-orbit spread so inner planets don't clip into it.
+const SUN_RADIUS: f32 = 8.0;
+
+/// One-time PostStartup spawn: place a yellow emissive sphere at
+/// every star system's universe_offset so the player has a fixed
+/// reference point to see body orbits against. Without this, six
+/// systems' worth of orbiting bodies look like floating islands —
+/// no obvious centre of rotation. Reads `Sim.registry.systems`
+/// because that's where the seeder stashed the system → offset
+/// table (same source as ship/body universe coords).
+fn spawn_system_suns(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    sim: Res<Sim>,
+) {
+    let mesh = meshes.add(Sphere::new(SUN_RADIUS).mesh().ico(3).unwrap());
+    // Emissive yellow well into HDR so bloom paints a corona around
+    // the sphere — same trick the ship/body materials use to read
+    // at galactic zoom. RGBA 1.0 base, 6×/4×/0.6× emissive.
+    let mat = materials.add(StandardMaterial {
+        base_color: Color::srgb(1.0, 0.85, 0.3),
+        emissive: LinearRgba::new(6.0, 4.0, 0.6, 1.0),
+        unlit: true,
+        ..default()
+    });
+
+    let mut count = 0usize;
+    for (name, sys) in sim.registry.systems.iter() {
+        let (x, y) = sys.universe_offset;
+        commands.spawn((
+            PbrBundle {
+                mesh: mesh.clone(),
+                material: mat.clone(),
+                transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
+                ..default()
+            },
+            Name::new(format!("Sun::{}", name)),
+        ));
+        count += 1;
+    }
+    info!("client_bevy: spawned {} system suns", count);
+}
 
 /// One-time PostStartup spawn: scatter STAR_COUNT tiny emissive
 /// spheres in a shell around origin, seeded off `Sim.world_seed` so
@@ -592,7 +738,7 @@ const NEBULA_COUNT: usize = 14;
 /// Shell radius the nebula clouds sit at. Past the star shell
 /// (STAR_FIELD_RADIUS = 4000) so clouds read as deep-background
 /// volumes and can't occlude foreground bodies/ships.
-const NEBULA_FIELD_RADIUS: f32 = 9000.0;
+const NEBULA_FIELD_RADIUS: f32 = 45000.0;
 
 /// Per-cloud sphere radius range (min, max). At NEBULA_FIELD_RADIUS
 /// distance these still project to respectable backdrop blobs
@@ -934,7 +1080,7 @@ fn draw_selection_rings(
     if let Some(id) = selected_fac.0.as_deref() {
         for (fac, xf) in facilities.iter() {
             if fac.sim_id == id {
-                let r = FACILITY_SIZE * SELECT_SCALE * 1.3 * pulse;
+                let r = FACILITY_SELECT_RING_RADIUS * pulse;
                 gizmos
                     .circle(xf.translation, normal, r, color)
                     .resolution(48);
@@ -982,6 +1128,39 @@ fn draw_gate_rings(sim: Res<Sim>, mut gizmos: Gizmos) {
         gizmos
             .circle(center, normal, GATE_RING_RADIUS, color)
             .resolution(48);
+    }
+}
+
+/// Draw a faint cyan circle for each body's orbit around its system
+/// primary. Centre = system universe_offset; radius = orbit_radius
+/// (sim units → world units via SCALE_FACTOR). Bodies with
+/// orbit_radius ≈ 0 are the system primary themselves, skip those.
+///
+/// Doubles as alignment-debug: if a station drifts off its body's
+/// orbital path, the geometry shows it immediately. Single source
+/// of truth for "where is body X right now" (the orbit ring) makes
+/// any sim/render coordinate divergence visible.
+fn draw_orbit_rings(sim: Res<Sim>, mut gizmos: Gizmos) {
+    let world = &sim.store.world;
+    // Cool blue, low alpha so 35 rings don't crowd the view.
+    let color = Color::srgba(0.40, 0.65, 0.85, 0.18);
+    let normal = Dir3::Y; // ring on galactic plane
+
+    for (_e, orbit) in world.query::<&BodyOrbit>().iter() {
+        if orbit.orbit_radius < 0.01 {
+            // Effectively the system primary — no ring to draw.
+            continue;
+        }
+        let (cx, cy) = orbit.universe_offset;
+        let center = Vec3::new(cx * SCALE_FACTOR, 0.0, cy * SCALE_FACTOR);
+        let radius = orbit.orbit_radius * SCALE_FACTOR;
+        // Resolution scales with circumference so big outer-system
+        // rings stay smooth without wasting verts on small inner
+        // ones. Capped at 96 — beyond that the eye can't tell.
+        let resolution = ((radius * 0.5) as usize).clamp(32, 96);
+        gizmos
+            .circle(center, normal, radius, color)
+            .resolution(resolution);
     }
 }
 
