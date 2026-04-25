@@ -440,6 +440,13 @@ directly; zero marshalling between sim and render.
   0.6 Hz sine, ±15% radius; bright enough to bloom through the
   HDR post-process so a selected ship stays findable at any
   zoom level.
+- **Bundle 3ag**: Save-As DB backup. Top-bar "Save as…" button
+  fires a VACUUM INTO snapshot of sim.db via a one-shot tokio rt
+  + new `sim_db::persistence::save_as(pool, dest)` helper. Top
+  bar split into two systems (`top_bar_controls` for pause /
+  speed / tick / reset view / save; `top_bar` for panel
+  toggles) because the combined param list hit Bevy's 16-param
+  system-tuple limit.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
