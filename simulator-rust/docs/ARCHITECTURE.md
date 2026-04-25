@@ -36,40 +36,95 @@ flowchart TD
 
 ## 2. Runtime data ownership
 
-`sim_core` is pure (no tokio/sqlx/axum). `sim_server` bridges async IO to the pure world. The tick loop owns `&mut AgentStore` exclusively; HTTP and WS handlers only read from `SnapshotCache`. Persistence is a sibling tokio task consuming a buffered mpsc channel so disk IO never stalls the tick.
+`sim_core` is pure (no tokio/sqlx/axum). Two binaries embed it.
+
+**`client_bevy` (canonical)** — embeds `sim_core` directly. The tick loop runs as a Bevy system on `FixedUpdate` at 125 ms × `tick_mult`; it holds `&mut AgentStore` exclusively for that frame. egui panels and the render pipeline read the hecs `World` from a Bevy `Res<Sim>` — no snapshot layer, no serialization, no socket.
+
+**`sim_server` (headless / CI)** — wraps the engine in axum + sqlx + tokio for the WS / HTTP scenarios scripts and CI use. Same engine, same apply helpers (`pub fn` in `sim_server::engine`, shared via `[lib]`); just a different shell.
+
+Persistence is a sibling tokio task consuming a buffered mpsc channel so disk IO never stalls the tick — the persistence worker isn't yet wired into `client_bevy` (load-on-Start works; mid-game autosave is deferred), but the architecture is the same.
 
 ```mermaid
 flowchart LR
-    subgraph client[Godot client]
-        gd[scene + panels]
+    subgraph bevy[client_bevy<br/>canonical client]
+        direction TB
+        ui[egui panels]
+        render[Bevy render systems<br/>Time::Fixed::overstep_fraction lerp]
+        tick[tick_sim<br/>FixedUpdate, exclusive &mut AgentStore]
+        cam[orbit camera + audio]
     end
-    subgraph server[sim_server]
+    subgraph server[sim_server<br/>headless / CI]
         direction TB
         ws[ws::handler]
         http[http::api + admin]
-        engine[engine tick loop<br/>exclusive &mut AgentStore]
+        runloop[run_tick_loop<br/>tokio interval]
         snap[(SnapshotCache<br/>DashMap, lock-free)]
-        pw[PersistenceWorker<br/>5s batch, mpsc dedup]
-        db[(SQLite WAL)]
     end
     subgraph core[sim_core — pure]
         store[AgentStore = hecs::World + ContractBoard]
         cmds[CommandBuffer]
-        ai[ai: BT + utility + considerations]
+        ai[ai: BT + utility + considerations + GOAP]
         eco[economy: prices, recipes, contracts, missions]
     end
+    subgraph db_layer[sim_db]
+        seed[seeder + ECS loader]
+        pw[PersistenceWorker<br/>5s batch, mpsc dedup]
+        sqlite[(SQLite WAL)]
+    end
 
-    gd <-->|JSON WS/HTTP| ws
-    gd <-->|HTTP| http
-    engine --> store
-    engine --> cmds
-    engine --> snap
-    engine -->|DbWrite mpsc| pw --> db
+    ui --> tick
+    render --> tick
+    tick --> store
+    tick --> cmds
+    tick --> seed
+    seed --> sqlite
+    runloop --> store
+    runloop --> cmds
+    runloop --> snap
+    runloop -->|DbWrite mpsc| pw --> sqlite
     ws -->|read only| snap
     http -->|read only| snap
-    http -->|SimCommand| engine
+    http -->|SimCommand| runloop
     store -.uses.- ai
     store -.uses.- eco
+```
+
+---
+
+## 2.5 client_bevy state machine
+
+Discrete scenes — the title screen does NOT have the world hiding behind it. `OnEnter(InGame)` opens the chosen DB, seeds if empty, populates the AgentStore, and spawns Bevy mirror entities (ships / facilities / bodies / suns). `OnExit(InGame)` despawns every `GameWorld`-tagged entity and resets `Sim::default()` so a different universe can boot next Start.
+
+```mermaid
+stateDiagram-v2
+    [*] --> MainMenu: Bevy Startup
+    MainMenu --> NewUniverseDialog: Start
+    NewUniverseDialog --> InGame: Confirm name<br/>(sanitised + collision-suffixed)
+    NewUniverseDialog --> MainMenu: Cancel / Esc
+    MainMenu --> SaveList: Load Game
+    SaveList --> InGame: Load (sets SelectedSavePath)
+    SaveList --> MainMenu: ✕ / Esc
+    MainMenu --> [*]: Quit
+    InGame --> Pause: Esc / P / Menu button<br/>(only when no panels open)
+    Pause --> InGame: Resume
+    Pause --> MainMenu: Return to Main Menu<br/>(teardown_world)
+    Pause --> [*]: Quit
+
+    note right of InGame
+      OnEnter: load_world,
+        spawn_mirror_entities (.after(load_world)),
+        spawn_system_suns,
+        reset_camera_for_game
+      OnExit: cleanup_game_world,
+        teardown_world (reset Sim::default(),
+        clear Retirements/EventsLog/SelectedSavePath)
+    end note
+
+    note left of Pause
+      Esc closes panels LIFO via OpenPanelStack;
+      Pause menu only opens when stack is empty.
+      P jumps directly to Pause regardless.
+    end note
 ```
 
 ---

@@ -4,15 +4,24 @@ Context for Claude Code (claude.ai/code) when working in the `simulator-rust/` p
 
 ## What this is
 
-Rust port of an Elixir/Phoenix space-economy simulator. Drives a Godot client.
-Replaces the Elixir original because BEAM's process scheduler performs poorly
-on Windows gaming PCs. Ships at ~282 ships + ~95 facilities + 27 pops + 60
-bodies + 8 factions (~485 agents) today, designed to scale to 100k+.
-Single native binary, no runtime dependencies. See [`SESSION-HANDOFF.md`](./SESSION-HANDOFF.md)
-for a fresh-session orientation and recent activity. See
-[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for mermaid diagrams of the tick loop,
-AI stack, and economic feedback loop, and [`plan.md`](./plan.md) for the bundled
-improvement roadmap.
+Rust space-economy simulator + native Bevy client. The simulation engine
+(`sim_core`) is a port of an Elixir/Phoenix prototype — moved off BEAM
+because its scheduler performed poorly on Windows gaming PCs. The client
+(`client_bevy`) embeds the engine directly and renders + inspects it in
+one process, no socket boundary.
+
+Ships at ~282 ships + ~95 facilities + 27 pops + 60 bodies + 8 factions
+(~485 agents) today, designed to scale to 100k+. Single native binary,
+no runtime dependencies. The Godot client referenced in older history
+sections is archived under `client/` as a parity reference and is no
+longer the canonical front end — every new feature lands in
+`client_bevy`.
+
+See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for mermaid
+diagrams of the tick loop / AI stack / economic feedback loop /
+runtime ownership / state machine, and [`plan.md`](./plan.md) for
+the bundled improvement roadmap. `git log --oneline` is the source
+of truth for recent activity.
 
 ## Status
 
@@ -165,15 +174,16 @@ congestion-aware rest via 18L.
   min 10 everywhere).
 - **world_seed** — persistent u64 minted on first boot (through
   `simulation_state.world_seed`), exposed on `/api/health`,
-  `/api/report`, and the `server_hello` WS frame. Godot seeds nebula
-  backdrop off this.
+  `/api/report`, and the `server_hello` WS frame. Both clients seed
+  their nebula backdrop off it so landmark layout stays put across
+  restarts.
 
 **Phase 20 (observability + ergonomics):**
 - 20a — **Command-trace ring** (`AppState.command_trace:
   VecDeque<CommandTraceEntry>` cap 1000; `GET
-  /api/debug/agent/:id/trace?limit=N` returns recent ship-originated
-  commands; Godot details panel renders "Recent commands" subsection
-  refreshed every 16 ticks)
+  /api/debug/agent/:id/trace?limit=N` for sim_server consumers;
+  `client_bevy`'s ship-details panel reads the same ring in-process
+  and renders a "Recent commands" subsection.)
 - 20b — **Partial ship.rs split** (`ship/` directory: `mod.rs` +
   `snapshot.rs` + `actions.rs`; 4167 → 3420 line god module. Planner
   + BT builders still in mod.rs, intentionally deferred as lower ROI
@@ -195,38 +205,67 @@ table below.
 
 ## Architecture
 
+Two binaries share `sim_core`:
+
+- **`client_bevy`** (canonical) — embeds the engine. Bevy ECS + egui own
+  the main loop; `sim_core::AgentStore` is wrapped as a Bevy `Resource`
+  that systems read directly. No socket boundary, no JSON marshalling.
+- **`sim_server`** (headless / CI) — wraps the engine in axum + sqlx +
+  tokio for WebSocket / HTTP scenarios. Kept for smoke scripts,
+  persistence-roundtrip tests, and as a `[lib]` exporting the apply
+  helpers `client_bevy` re-uses.
+
 ```
-Godot ⇄ WebSocket/HTTP (axum) ─┐
-                                ├── sim_server (tokio, sqlx, axum)
-                                │     ├── engine: tick loop driver + command apply +
-                                │     │           LOD recompute + admin-spawn dispatch
-                                │     ├── ws/handler: per-client select loop
-                                │     ├── ws/protocol: ServerMsg / ClientMsg enums (wire truth)
-                                │     ├── http/api: inspection + sim control + perf + observers
-                                │     ├── http/admin: runtime ship/facility CRUD, supply delta, save-as
-                                │     ├── snapshot: DashMap lock-free read cache
-                                │     │             (ships, markets, facilities, pops, factions, contracts)
-                                │     └── db: pool + seeder + ECS loader + persistence worker
-                                │           (ships, markets, factions every tick;
-                                │            facilities + pops every 16; bodies every 40)
-                                │
-                                └── sim_core (pure, no async)
-                                      ├── agents/*: components + tick fns (hecs::World)
-                                      │   ship/ (mod + snapshot + actions submods),
-                                      │   market, facility, population, celestial_body,
-                                      │   faction, construction (Phase 19c sites)
-                                      ├── ai/*: BT<A> generic engine, utility scoring, considerations, personality
-                                      ├── economy/*: commodities, order_book, price_engine,
-                                      │              recipes, contracts, missions,
-                                      │              module_production (Phase 18c)
-                                      ├── modules/*: ship subsystem catalog (Phase 18a)
-                                      ├── facility_modules/*: facility subsystem catalog (Phase 18e)
-                                      ├── simulation/*: config (ShipClass, ShipSize),
-                                      │                 spawner (AgentStore + PendingMaterialization
-                                      │                        / PendingDecommission / PendingRespawn
-                                      │                        queues), commands (SimCommand),
-                                      │                 lod (AgentLod tier table)
-                                      └── world/*: registry, travel, body
+client_bevy (bevy + egui + sim_core + sim_db)
+  ├── main.rs: AppState { MainMenu, InGame }; Bevy plugins wire-up
+  ├── sim/: Sim Resource (= AgentStore + tick + tick_mult + speed),
+  │         tick_sim on FixedUpdate (125 ms × tick_mult sub-iters),
+  │         load_world OnEnter(InGame), teardown_world OnExit(InGame),
+  │         in-process admin processors (spawn / delete / save-as /
+  │         supply delta)
+  ├── render/: hecs → Bevy entity mirror + per-frame sync,
+  │            authored ship GLBs, station GLBs, sun + planet shaders,
+  │            nebula backdrop, starfield, hanabi particle trails,
+  │            tick interpolation via Time::<Fixed>::overstep_fraction
+  ├── ui/: egui inspector panels (perf / ships / markets / factions /
+  │        pops / facilities / contracts / construction / retirements /
+  │        events / details / minimap / labels / pause / options /
+  │        save-list / new-universe), Esc panel-stack, P shortcut
+  ├── camera/: orbit camera + WASD pan, follow lock, focus + reset
+  ├── audio/: music loop + procedural-baked SFX + pentatonic click chain
+  └── icons/: cached egui::Image handles for every panel toggle
+
+sim_server (tokio + axum + sqlx + sim_core + sim_db + sim_protocol)
+  ├── engine: tick loop driver + command apply + LOD recompute +
+  │           admin spawn / refit dispatch (apply helpers `pub` —
+  │           shared with client_bevy via `[lib]`)
+  ├── ws/handler: per-client select loop (sim_protocol JSON)
+  ├── http/api: read-only inspection + perf + observers + report
+  ├── http/admin: ship/facility/market CRUD, save-as
+  ├── snapshot: DashMap lock-free read cache for HTTP/WS readers
+  └── (no Bevy, no rendering — headless only)
+
+sim_core (pure, no async, no IO)
+  ├── agents/*: components + tick fns (hecs::World)
+  │   ship/ (mod + snapshot + actions), market, facility,
+  │   population, celestial_body, faction, construction
+  ├── ai/*: BT<A> generic engine, utility scoring, considerations,
+  │         personality, GOAP planner
+  ├── economy/*: commodities, order_book, price_engine, recipes,
+  │              contracts, missions, module_production
+  ├── modules/*: ship subsystem catalog (5 slots × 3 tiers)
+  ├── facility_modules/*: facility subsystem catalog (2 slots × 3 tiers)
+  ├── simulation/*: config (ShipClass, ShipSize), spawner (AgentStore
+  │                 + Pending{Materialization, Decommission, Respawn}),
+  │                 commands (SimCommand), lod (AgentLod tier table),
+  │                 tuning (WorldTuning)
+  └── world/*: registry, travel, body
+
+sim_db (sqlx + tokio + sim_core)
+  ├── pool, seeder, ECS loader, persistence worker, migrations 001–011
+
+sim_protocol (serde + sim_core)
+  └── WS wire types — sim_server's protocol module, unused by client_bevy
 ```
 
 ### Golden rules
@@ -268,14 +307,102 @@ Godot ⇄ WebSocket/HTTP (axum) ─┐
 | `sim_server` | `sim_core` + `sim_db` + `sim_protocol` + `tokio`, `axum`, `dashmap`, `flume` | Runtime binary (WS/HTTP, headless CI use) |
 | `client_bevy` | `sim_core` + `sim_db` + `bevy`, `bevy_egui` | **Embedded** Bevy client — sim runs in-process |
 
-### Client port (Bevy, embedded)
+### Bevy client (embedded)
 
 Godot client hit a ceiling at ~500 ships (script dispatch across the
 scene tree saturated the frame). With the "no multiplayer, ever"
 constraint, the WS boundary became architectural dead weight. The
 Bevy client treats `sim_core` as a library — `Sim` wraps `AgentStore`
 as a Bevy Resource; the render layer queries the hecs `World`
-directly; zero marshalling between sim and render.
+directly; zero marshalling between sim and render. Godot is archived
+under `client/` as a parity reference.
+
+#### Current state (post-pivot)
+
+- **AppState machine** — `MainMenu` is the title scene (starfield +
+  nebula backdrop, sim paused, world not loaded); `InGame` is the
+  running simulation with full HUD. Discrete scenes:
+  `sim::load_world` runs on `OnEnter(InGame)` (opens DB pool, seeds
+  if empty, loads agents into the in-memory `AgentStore`);
+  `sim::teardown_world` runs on `OnExit(InGame)` and resets the store
+  so a different universe can be loaded next Start. Game-world
+  Bevy entities tagged with `GameWorld` get `despawn_recursive`'d
+  on exit. `render::spawn_*` systems are explicitly
+  `.after(crate::sim::load_world)` so the AgentStore is populated
+  before the renderer reads it.
+- **Universe naming** — Start opens a modal with a sanitised name
+  field (default `sim`, alphanumeric + `_-` only, 48-char cap).
+  Collisions with existing `<name>.db` files auto-append `-2`, `-3`…
+  so Start always means *fresh world*; resume goes through Load Game.
+- **Save list** — Load Game scans the binary's directory for `*.db`,
+  pins the active `sim.db` at the top with a "Current session" badge.
+  Both Load and Delete are enabled for any save (deleting `sim.db`
+  from the menu is safe — no pool is held, next Start re-seeds).
+  Sidecar WAL/SHM/journal cleanup runs on delete.
+- **Pause menu** — Esc / `P` / top-bar "Menu" button. Resume / Save As
+  / Options / Help / Return to Main Menu / Quit.
+  `PauseMenuState.was_running` preserves prior running state across
+  the pause overlay so closing doesn't auto-resume an already-paused
+  sim.
+- **Esc panel-stack** — `OpenPanelStack` resource maintains a
+  `Vec<PanelKind>` reconciled each frame from every panel's `open`
+  flag. Esc pops the top into `CloseTopRequest`; a separate
+  `close_top_panel` system flips that panel's flag. Esc with no
+  panels open opens the pause menu. `P` jumps straight to the pause
+  menu regardless of stack state.
+- **Options panel** — audio sliders for music + SFX volume.
+  `apply_music_volume` writes the slider value to `AudioSink.set_volume`
+  every frame the resource changes, so music-volume drag is heard
+  immediately rather than waiting for the loop point.
+- **Tick interpolation** — every ship + body carries an `InterpPos
+  { prev, curr }` component. `snapshot_tick_positions` runs in
+  `FixedUpdate` after `sim::tick_sim`, rolls `curr → prev`, stamps
+  the freshly-ticked position into `curr`. `sync_positions` and
+  `follow_facilities_to_bodies` (in `Update`) lerp by
+  `Time::<Fixed>::overstep_fraction()` — smooth motion at any FPS,
+  independent of the 8 tps × tick_mult cadence.
+- **Authored visual assets** — five Godot-source GLB hulls
+  (Spitfire / Dispatcher / Imperial / Challenger / Executioner)
+  mapped per ship class via `ShipModels`. Stations + gates ship
+  with their own GLBs in `crates/client_bevy/assets/stations/`.
+  Bodies use custom WGSL: `PlanetMaterial` (procedural surface +
+  optional cloud + ring children), `CloudMaterial`, `HaloMaterial`
+  (sun corona), `NebulaMaterial`, `StarfieldMaterial`. Asteroid +
+  belt bodies get displaced ico-sphere meshes with multi-axis
+  `Tumble` rotation.
+- **Particles (`bevy_hanabi`)** — engine trails (cyan exhaust,
+  per-ship sibling entity, gates on docked state via
+  `Visibility::Hidden`), explosions on every despawn path
+  (admin Destroy, broke / hoard auto-retire, context-menu delete),
+  gate-jump flashes on `ship_gate_jumped` events.
+- **Audio** — Bevy 0.14 audio. `AudioPlugin` loops a random
+  Sci-Fi track at boot, loads pre-baked `.ogg` SFX (generated by
+  `tools/gen_sfx.py` from the Godot client's `procedural_audio.gd`),
+  and wires three event-driven hooks: pentatonic click chain
+  (6 steps with 1.2 s reset window) on every egui mouse-down,
+  explosion (small / med / large by ship class) on
+  `ship_decommissioned`, gate-jump ping on `ship_gate_jumped`.
+- **Versioning** — `[workspace.package].version` in the workspace
+  `Cargo.toml` is the single source of truth. The Rust binary reads
+  it as `env!("CARGO_PKG_VERSION")` and shows it in main + pause
+  menus (with credits "By Kalcode & Claude / Made with ❤️ in
+  Illinois"). The `Makefile` greps the same field with `awk` for
+  `Info.plist`, butler `--userversion`, and archive names so
+  packaged builds can never drift apart.
+- **Distribution** — `Makefile` wraps cargo + rustup + lipo +
+  codesign + butler:
+  - `make build-mac` (arm64, default) / `build-mac-intel` /
+    `build-mac-universal` / `build-win` (MSVC, run on Windows host) /
+    `build-linux` (best on Linux host).
+  - `make package-mac` (arm64-only `.app` + ad-hoc codesign +
+    Info.plist) / `package-mac-universal` (fat binary, requires both
+    rustup targets) / `package-win` (zip) / `package-linux` (tar.gz).
+  - `make dmg` / `zip-mac` for the macOS deliverable.
+  - `make publish-mac` / `publish-win` / `publish-linux` push to
+    itch.io via butler; `ITCH_USER` + `ITCH_GAME` overridable on
+    the CLI.
+
+#### Bundle history
 
 - **Bundle 2a**: pivot from WS-client to embedded sim skeleton.
 - **Bundle 2b.1**: extracted `sim_db` so `client_bevy` doesn't need
@@ -624,15 +751,15 @@ Deferred:
 | Demand analyzer + construction sites (19c) | `faction::run_construction_cycle` + `agents/construction` + `engine::materialize_facility` | Chronic shortage (≥ 600 ticks) posts a `ContractKind::Construction` with a spawned `ConstructionSite` entity at the destination. Ships delivering construction cargo bump `progress_delivered`; at 1.0 the site despawns and a real facility materialises at the same position. Migration 011 persists the sites; `PendingMaterialization` queue handles the DB INSERT + db_id backfill async after apply. |
 | Population migration (19d) | `population::tick_populations` migration branch | `migration_pressure` accumulates when `overall_sentiment < 30`, decays above. Crossing threshold → pick highest-sentiment reachable pop as destination, move N people via `SimCommand::MigratePopulation`. Emits `population_migrated` event. |
 | Reputation scaling (19e) | engine `SimCommand::DeliverContract` apply + breach on `ReleaseContract` | Delivery rep gain: `(5 + payment/2000).clamp(1,15)` — big contracts move rep faster. Breach penalty: `-(10 + payment/1000).clamp(-25,-1)` applied on dock-timeout release, taking real stakes for abandoning a run. |
-| Retirement ledger (19g) | migration 010 + `retired_ships` table + `engine::admin_remove_ship` | Per-decommission INSERT of `{agent_id, name, class, faction_id, final_location, final_credits, final_crew_morale, final_fuel_pct, broke/hoard_strikes, retired_at_tick, reason}`. Table survives after the `ships` row is deleted so the Godot retirements panel can scroll back through historical losses. |
+| Retirement ledger (19g) | migration 010 + `retired_ships` table + `engine::admin_remove_ship` | Per-decommission INSERT of `{agent_id, name, class, faction_id, final_location, final_credits, final_crew_morale, final_fuel_pct, broke/hoard_strikes, retired_at_tick, reason}`. Table survives after the `ships` row is deleted so the Retired panel can scroll back through historical losses (live + DB-loaded). |
 | Exploration + smart idle (19h) | `ship::smart_idle_fallback` + `try_build_explore_bt` | Post-plan idle_ticks counter increments when `current_goal.starts_with("idle")`. Past `IDLE_EXPLORE_TICKS * trigger_scale` and with credits/fuel OK, ship picks an adjacent system NOT in `ShipMemory.recent_systems` (VecDeque cap 5) and travels there. Anti-yo-yo; cross-system spread without pushing monoculture. |
 | Adaptive fleet retirement (post-19) | `ship::decide_and_act` strike block + `drain_pending_decommissions` + `drain_pending_respawns` | `broke_strike` when credits<500 + cargo empty + no contract; `hoard_strike` when credits>200k + idle_ticks>500. 3 strikes of either → `SimCommand::DecommissionShip { reason }`. Async drains run admin_remove_ship, queue `PendingRespawn` 300-600 base ticks out; respawn mirrors admin-spawn INSERT with randomised class (courier/freighter/hauler/tanker/miner), faction (70% same as retired ship, 30% fewest-ship faction), location (faction-owned dockable station preferred), and a two-word name. |
-| Dock queue (post-18L FIFO) | `FacilityStorage.dock_queue: Vec<Entity>` + `apply_request_dock_typed` | New arrivals admit immediately only when `docked + queue_len < capacity`; otherwise queue at shortest candidate facility's queue. Queue head gets admit priority. Broke heads self-evict on fee-reject (so they can't starve the line). Zombie sweep runs both inline (per `RequestDock`) and globally in `tick_facility_queue_sweep` every 10×mult ticks — drops entries whose ship no longer points at this location (typical cause: ship started a new Travel). Waiting ships pin to primary facility position so they orbit with their station. `FacilitySnapshot.dock_queue: Vec<String>` exposes the FIFO to Godot. |
+| Dock queue (post-18L FIFO) | `FacilityStorage.dock_queue: Vec<Entity>` + `apply_request_dock_typed` | New arrivals admit immediately only when `docked + queue_len < capacity`; otherwise queue at shortest candidate facility's queue. Queue head gets admit priority. Broke heads self-evict on fee-reject (so they can't starve the line). Zombie sweep runs both inline (per `RequestDock`) and globally in `tick_facility_queue_sweep` every 10×mult ticks — drops entries whose ship no longer points at this location (typical cause: ship started a new Travel). Waiting ships pin to primary facility position so they orbit with their station. `FacilitySnapshot.dock_queue: Vec<String>` exposes the FIFO to wire-protocol clients. |
 | Treasury tuning (Phase 19-tail) | `faction::*` constants | Money-laundering loop fix: bailouts used to pin every faction at $2k. New `FACTION_WORKING_CAPITAL_FLOOR = 10k` (shared by bailout + working capital), `FACTION_SUBSIDY_FLOOR = 5k` (lower so subsidy posts can fire in steady state). Tax rate 0.5% → 2.5%, bailout floor 3k → 500, bailout target 6k → 2k, construction 15k → 10k, subsidy base 2k → 800. Economy now sits $5.5k–$10k with subsidies still firing. |
 | Subsidy source preference (Phase 19-tail) | `run_subsidy_cycle` | Three-tier picker: same-system non-member + supply>100 → any non-member with supply → max-supply anywhere. Pairs with the one-shot desperate-bounty renewal (19b) so subsidies default to intra-system loyal ships and open public only when local fails. |
 | Admin delete cascade (post-19) | `ContractBoard::drop_ship_holdings` + `cancel_for_facility` + `admin_remove_facility` | Ship delete: Accepted held by this ship → Posted (re-postable); PickedUp → Expired. Facility delete: kick docked ships (`docked_at = None`), cancel contracts where this was requestor (always) + by source/dest only if last facility at the location, clear paired-gate back-reference. Events emitted per cascade step. |
-| world_seed (post-19) | `db::persistence::load_or_init_world_seed` | u64 minted from SystemTime nanos on first boot, persisted through `simulation_state.world_seed`. Exposed on `/api/health.world_seed`, `/api/report.world_seed`, and the `server_hello` WS frame. Godot seeds its deterministic nebula-cloud field off this so landmarks stay put across restarts. |
-| Command-trace ring (20a) | `AppState.command_trace` + `engine::record_command_trace` | VecDeque<CommandTraceEntry> cap 1000 (~64 KB), written before every `apply_ship_commands` pass. `SimCommand::actor_ship` / `kind_label` / `trace_detail` helpers extract per-variant context. `GET /api/debug/agent/:id/trace?limit=N` returns oldest-first entries filtered by ship id. Godot details panel fetches on 16-tick cooldown and renders under "Recent commands". |
+| world_seed (post-19) | `db::persistence::load_or_init_world_seed` | u64 minted from SystemTime nanos on first boot, persisted through `simulation_state.world_seed`. Exposed on `/api/health.world_seed`, `/api/report.world_seed`, and the `server_hello` WS frame. `client_bevy` reads it directly from `Sim.world_seed` and seeds its deterministic nebula-cloud field off it so landmarks stay put across restarts. |
+| Command-trace ring (20a) | `AppState.command_trace` + `engine::record_command_trace` | VecDeque<CommandTraceEntry> cap 1000 (~64 KB), written before every `apply_ship_commands` pass. `SimCommand::actor_ship` / `kind_label` / `trace_detail` helpers extract per-variant context. `GET /api/debug/agent/:id/trace?limit=N` returns oldest-first entries (sim_server). `client_bevy`'s ship-details panel reads the same ring directly from the `AppState` Resource. |
 | Route-performance memory (20c) | `ShipMemory.route_performance` + `ShipCargo.cargo_origin` | Sell arm stamps origin + price on Buy, computes realised profit on Sell, records `RouteStats { attempts, total_profit_per_unit }`. `best_trade_route` multiplies raw margin by 0.3× when attempts≥3 AND avg_profit_per_unit < 50% of current projected gap. Nudges ships off saturated routes once the evidence accumulates. |
 
 ## Common tasks
@@ -647,13 +774,18 @@ Deferred:
 | Trace sqlx queries | `RUST_LOG=trace scripts/smoke.sh` |
 
 Default `WORLD_SPEED=0.25` (chill play). Earth-Mars ≈ 4 min. Good for
-interactive Godot play. For smoke tests / validation use `WORLD_SPEED=4`
-or higher to see economic convergence in tens of seconds.
+interactive play. For smoke tests / validation use `WORLD_SPEED=4` or
+higher to see economic convergence in tens of seconds.
 
-World speed is runtime-adjustable via `POST /api/sim/speed
-{world_speed: N}` or the HUD 1×/2×/5×/10× buttons (0.25 / 0.5 / 1.25 / 2.5).
-Tick resolution (client smoothness) is a separate knob:
-`{ticks_per_second: 16}`.
+World speed in `client_bevy` is the top-bar combo (1× / 2× / 5× / 10×
+labels mapping to internal `tick_mult` 1/2/5/10; the `tick_mult × 0.25`
+scale anchored to the Godot WORLD_SPEED baseline isn't surfaced — clean
+integers read better in-game). `tick_sim` runs the sim-tick body
+`tick_mult` times per FixedUpdate, so 10× is genuinely 10× the agent
+work per wall-second.
+
+`sim_server` exposes the same knob over HTTP (`POST /api/sim/speed
+{world_speed: N}`) for headless / scripted runs.
 
 ## Conventions
 
@@ -729,7 +861,9 @@ this is why `A` exists instead of plain `fn` pointers.
   For I/O, enqueue a command and handle it in a tokio task (the
   persistence worker is the canonical example).
 - **Don't serialize whole agent state to JSON per tick.** Snapshot types
-  are trimmed for a reason — they're what Godot actually renders.
+  are trimmed for a reason — they're what `sim_server` actually
+  broadcasts. `client_bevy` reads hecs directly so it can splurge on
+  detail in panels without paying serialization costs every tick.
 - **Don't bring in Actix, bevy_ecs (vs hecs), or other heavy frameworks**
   without a clear justification documented in the commit message.
 - **Don't call `query_mut` while holding a `query_one` result** on
@@ -737,88 +871,126 @@ this is why `A` exists instead of plain `fn` pointers.
 - **Don't write directly to a component across entities** mid-phase. Use
   a `SimCommand` so the apply phase does it after the iteration.
 
-## Protocol quick ref (Godot ↔ sim_server)
+## sim_server protocol (headless / CI only)
 
-Plain JSON over WebSocket on port 8080. See
-`crates/sim_server/src/ws/protocol.rs` — that's the canonical reference.
+`client_bevy` does NOT use this — it reads the hecs `World` directly
+through the `Sim` Resource. The protocol is kept alive for the
+`sim_server` binary, which still serves the smoke / persistence /
+WS-roundtrip scripts under `scripts/` and remains buildable as a
+standalone headless harness. Plain JSON over WebSocket on port 8080;
+canonical reference is `crates/sim_server/src/ws/protocol.rs`.
 
-**Server → Godot** (pushed):
-- `server_hello` — on connect, reports tick + running + `world_speed` + interval + `world_seed` (Phase 19 — Godot seeds nebula field off this so landmark layout stays put across reconnects)
-- `positions` — every tick (125 ms). Entities include `type: "ship" | "body" | "facility"`
-- `ship_states` — every 8 ticks (~1 s). Full ship snapshots (now include `crew.current_task`, `crew.skills`, `crew.hunger`)
-- `market_states` — every 16 ticks (~2 s)
-- `facility_states` — every 16 ticks. Carries `docked_ships`, `dock_queue` (FIFO waiting list), reserves, `level`, `xp`, `abandoned`
-- `population_states` — every 16 ticks. Pop count, sentiment, food satisfaction
-- `faction_states` — every 32 ticks. Treasury + active subsidy count
-- `contract_states` — every 32 ticks. Full contract board (6 kinds, status, min_reputation, faction_id, mission_category).
-- `events` — every tick when non-empty. Mixed event stream (`ship_docked`, `contract_delivered`, `passengers_arrived`, `market_supply_adjusted`, `ship_spawned`, `facility_spawned`, `crew_mission_completed`, `ship_leveled_up` (18d), `ship_refitted` (18b/d), `facility_refitted` (18e), etc.)
+**Server → client** (pushed):
+- `server_hello` — on connect: tick + running + `world_speed` + interval + `world_seed`
+- `positions` — every tick (125 ms). `type: "ship" | "body" | "facility"`
+- `ship_states` — every 8 ticks (~1 s). Full snapshots (incl. `crew.current_task`, `crew.skills`, `crew.hunger`)
+- `market_states` — every 16 ticks
+- `facility_states` — every 16 ticks. Carries `docked_ships`, `dock_queue`, reserves, `level`, `xp`, `abandoned`
+- `population_states` — every 16 ticks
+- `faction_states` — every 32 ticks
+- `contract_states` — every 32 ticks (6 kinds × 6 statuses, `min_reputation`, `faction_id`, `mission_category`)
+- `events` — every tick when non-empty. `ship_docked`, `contract_delivered`, `ship_decommissioned`, `ship_leveled_up`, `ship_refitted`, `facility_refitted`, `passengers_arrived`, `market_supply_adjusted`, etc.
 - `agent_state` — reply to `get_agent` / `get_snapshot`
-- `sim_control_ack` — reply to pause/resume/speed (echoes current `world_speed` + interval)
+- `sim_control_ack` — reply to pause/resume/speed
 
-**Godot → Server**:
-- `hello`, `get_agent`, `get_snapshot`, `move_observer`, `sim_control`
+**Client → server**: `hello`, `get_agent`, `get_snapshot`, `move_observer`, `sim_control`
 
 HTTP (same port, `/api/*`):
-- Read: `/api/health` (+ `perf.tick_compute_p50_us` / `p99_us` + `world_seed`), `/api/report` (full world snapshot incl. `construction_sites` + `world_seed`), `/api/{ships,markets,facilities,populations,factions,positions,contracts,observers,construction_sites,retirements}`, `/api/agent/:id`
-- Debug: `GET /api/debug/agent/:id/trace?limit=N` (Phase 20a) — last N ship-originated SimCommands for this ship, oldest-first, clamp 1..=200
+- Read: `/api/health` (+ `perf.tick_compute_p50_us` / `p99_us` + `world_seed`), `/api/report`, `/api/{ships,markets,facilities,populations,factions,positions,contracts,observers,construction_sites,retirements}`, `/api/agent/:id`
+- Debug: `GET /api/debug/agent/:id/trace?limit=N` — last N ship-originated SimCommands, oldest-first, clamp 1..=200
 - Control: `POST /api/sim/{pause,resume,speed,step}` — step takes `{ticks: u32}` and forces N ticks through even when paused
-- Admin: `POST /api/admin/ships {class, faction_id, location, name?, credits?}`, `DELETE /api/admin/ships/:id`, `POST /api/admin/ships/:id/refit {slot, slug, via_shipyard?}` (18b/c), `POST /api/admin/ships/:id/grant-xp {amount}` (18d debug), `POST /api/admin/facilities {name, facility_type, body_id, faction_id, location?, docking_capacity?, credits?}`, `DELETE /api/admin/facilities/:id`, `POST /api/admin/facilities/:id/refit {slot, slug}` (18e), `POST /api/admin/markets/:loc/supply {deltas: {commodity: delta}}`, `POST /api/admin/save`, `POST /api/admin/save-as {name}`.
+- Admin: `POST /api/admin/ships`, `DELETE /api/admin/ships/:id`, `POST /api/admin/ships/:id/refit`, `POST /api/admin/ships/:id/grant-xp`, `POST /api/admin/facilities`, `DELETE /api/admin/facilities/:id`, `POST /api/admin/facilities/:id/refit`, `POST /api/admin/markets/:loc/supply`, `POST /api/admin/save`, `POST /api/admin/save-as`
 
-Admin delete paths cascade (post-19): ship delete releases held
-contracts back to the board and expires any PickedUp; facility
-delete kicks docked ships, cancels tied contracts, and clears paired
-gate back-references — see `ContractBoard::drop_ship_holdings` /
-`cancel_for_facility` / `admin_remove_facility`.
+`client_bevy` mirrors every admin endpoint as a direct in-process call:
+context-menu Destroy → `DeleteShipRequest` resource → next-frame
+processor calls `sim_server::engine::admin_remove_ship`. Add Ship
+dialog → `SpawnShipRequest` → `process_spawn_ship` →
+`sim_server::engine::admin_spawn_ship`. Refit combos in ship details
+→ `admin_refit_ship`. No HTTP, no JSON; the apply helpers (`pub fn`
+in `sim_server::engine`) are shared between both binaries via the
+`[lib]` target.
 
-## Binary invocation (Godot subprocess scenario)
+Admin delete paths cascade identically in both clients: ship delete
+releases held contracts (`drop_ship_holdings`); facility delete kicks
+docked ships, cancels tied contracts, clears paired gate back-references
+(`cancel_for_facility`, `admin_remove_facility`).
 
-1. Godot runs `./simulator[.exe]` as a subprocess
-2. Sim prints `sim:ready ws=ws://127.0.0.1:8080/ws http=http://127.0.0.1:8080/api tick=0` on stdout
-3. Godot waits for that line, then connects
-4. On SIGTERM / SIGINT, sim flips the running flag, persistence worker has up to
-   1000 ms grace to flush the final batch, then process exits cleanly
+## Running the binaries
 
-For dev runs: `client/dev.env` has `SPACESIM_USE_EXISTING_SERVER=1` so the
-Godot editor expects the Rust sim to already be running on port 8080. Just
-`cargo run --bin simulator` in one terminal and open Godot in another.
+### `client_bevy` (canonical client)
 
-## Godot inspector panels (client/scripts/ui/)
+```
+make run                # cargo run -p client_bevy (debug)
+make build              # cargo build --release -p client_bevy
+```
 
-14+ toggle-able panels, reachable from HUD buttons along the top.
-Icon assets live in `client/assets/icons/`:
+Saves live next to the binary as `<universe-name>.db` (default `sim.db`).
+The Bevy app boots into the main menu; Start opens the universe-name
+modal (default `sim`, collisions auto-suffix), Load Game lists every
+`*.db` in the binary directory with the active session pinned.
 
-| Panel | Script | Opens with | Role |
-|---|---|---|---|
-| Ship list | `ship_list.gd` | Ships button | Sortable table, click row → camera follows ship |
-| Market overlay | `market_overlay.gd` | Market button | One row per market location, commodity cells + sparklines |
-| Contract board | `contract_board.gd` | Contracts button | All 6 kinds filterable, sortable by age/payment |
-| Faction ledger | `faction_ledger.gd` | Factions button | Treasury, active subsidies, ship/fac counts |
-| Population browser | `population_browser.gd` | Pops button | Count / sentiment / food_sat sortable |
-| Events ticker | `events_ticker.gd` | Events button | Rolling stream with kind filter, click → focus |
-| Perf overlay | `perf_overlay.gd` | Perf button | p50/p99 tick µs, FPS, observed interval, LOD tier breakdown, 60-sample sparkline |
-| Retirements panel | `retirements_panel.gd` | Ledger button | Post-mortem of decommissioned ships (Phase 19g data). Reason + final credits + at_tick. |
-| Details panel | `details_panel.gd` | Click any ship/facility/body | Live state + "Recent activity" trail + (ship only) "Recent commands" subsection (Phase 20a trace, refreshed on 16-tick cooldown) + Status line (Docked / In queue / Approaching / In transit). |
-| Minimap | `minimap.gd` | Always on | 6 systems (Sol / Alpha Centauri / Tau Ceti / Vega / Barnard / Lalande) + camera viewport indicator |
-| God toolbar | `god_toolbar.gd` | Always on | Destroy toggle, +Ship, +Facility |
-| Add ship panel | `add_ship_panel.gd` | God toolbar | Class / faction / location / credits → POST `/api/admin/ships` |
-| Add facility panel | `add_facility_panel.gd` | God toolbar | Name / type / body / faction → POST `/api/admin/facilities` |
-| Facility reserves editor | `facility_reserves_panel.gd` | Context menu → Edit Supply | Delta supply per commodity → POST `/api/admin/markets/:loc/supply` |
+For dev: assets resolve via Cargo's path so editing
+`crates/client_bevy/assets/...` is hot-pickable on next run. For packaged
+builds, `make package-mac` etc. copy `assets/` next to the binary so
+Bevy's default `AssetPlugin` lookup works without an override.
 
-World renderer adds:
-- `construction_site.gd` — wireframe scaffold at Phase 19c sites with
-  progress ring 0.0→1.0 → materialise into real facility visual
-- `nebula_field.gd` + `procedural_nebula.gd` (shader) — Phase 19
-  decorative backdrop, seeded off `GameState.world_seed` for stable
-  layout across reboots
-- Gate rings, ship dock-fade, docking glow pulses
+### `sim_server` (headless)
 
-Plus the always-on HUD: tick / FPS / speed / ship count / observer /
-step-debug (▸1, ▸8) buttons. Save / save-as moved into the pause
-menu (ESC).
+```
+cargo run --bin simulator
+# stdout: sim:ready ws=ws://127.0.0.1:8080/ws http=http://127.0.0.1:8080/api tick=0
+```
 
-Theme palette in `client/scripts/ui/theme_palette.gd` — `PRIMARY` cyan
-for info, `SUCCESS` green for good, `WARN` amber for caution, `DANGER`
-red for crisis. Every panel should pull colours from there.
+Persistence worker has up to 1000 ms on SIGTERM / SIGINT to flush its
+final batch before exit. Smoke + perf scripts in `scripts/` exercise
+this path; CI uses it for round-trip persistence verification.
+
+## Inspector panels (Bevy / egui)
+
+All panels live in `crates/client_bevy/src/ui/mod.rs`. They share the
+`OpenPanelStack` (Esc closes top-most) and use the cyan / amber / green
+/ red theme palette from `ui::theme`. Every panel reads from the `Sim`
+Resource directly — the inspector IS a live debugger with full
+component access.
+
+| Panel | Toggle | Role |
+|---|---|---|
+| Perf overlay | top-bar Perf | FPS, ticks/sec vs. target (8 × tick_mult), p50/p99 tick compute ms, phase-cost breakdown |
+| Ship list | top-bar Ships | Sortable / filterable roster, hover tooltips (credits / fuel / goal), click → details |
+| Contracts | top-bar Contracts | All 6 kinds × 6 statuses, age + payment sort, show-expired toggle, paged |
+| Factions | top-bar Factions | Ledger (ship/fac counts, treasury, active subsidies); pairwise relations matrix |
+| Markets | top-bar Markets | Per-location collapsing headers; commodity rows with price / supply / demand / crisis flags |
+| Pops | top-bar Pops | Census — count / sentiment / food / wealth / migration; coloured sentiment + food bands |
+| Facilities | top-bar Facilities | Stations + refineries + factories + gates + shipyards; abandoned strike-through; click → details |
+| Retired | top-bar Retired | Decommissioned ledger (broke / hoard / admin); reason + final credits + final crew morale + retired-at-tick |
+| Construction | top-bar Construction | Active sites with ProgressBar, sorted by progress desc; per-card Focus camera button |
+| Events | top-bar Events | Rolling tick-event stream with kind filter, colour-coded kind cells |
+| Map | top-bar Map | Top-down minimap; bounds auto-fit each frame; click anywhere → recenter camera |
+| Labels | top-bar Labels | Body name labels overlaid in screen-space (toggleable to declutter) |
+| Ship details | click ship | Full inspector — every component (identity, economy, fitting, fuel, AI, crew, progression, memory, recent commands trail). Admin row: Heal / +XP / Destroy / Refit combos |
+| Facility details | click facility | Identity + ops + reserves + crew + fitting + docked-ships list + queue. Admin: Refill reserves / Refit / Destroy / per-commodity supply delta |
+| Pause menu | Esc / `P` / Menu button | Resume / Save As / Options / Help / Return to Main Menu / Quit |
+| Options | pause → Options | Audio sliders (music + SFX); applied live |
+| Save list | main menu Load Game | Active `sim.db` pinned; snapshot rows with Load + Delete (sidecar WAL/SHM cleanup) |
+| New universe | main menu Start | Sanitised name field + collision-resolved filename preview |
+| Add ship | top-bar +Ship | Class / faction / location / credits / name dropdowns from live world → in-process `admin_spawn_ship` |
+| Add facility | top-bar +Fac | Name / type / body / faction / docking_capacity / credits → in-process `admin_spawn_facility` |
+| Help | `?` / `H` / pause → Help | Hotkey reference (Space / Esc / P / WASD / scroll / right-click / F12) |
+| Context menu | right-click world | Inspect / Follow / POV / Destroy on hit ship or facility |
+
+World gizmos + overlays:
+- Selection ring (cyan, 0.6 Hz pulse) on the selected ship or facility
+- Gate rings (amber, 48-segment) at every `facility_type == "gate"` body
+- Construction-site rings (outer amber scaffold + inner green progress) sized by `site.progress()`
+- Engine-trail particles (cyan exhaust, hidden when docked)
+- Explosion particles on every despawn path
+- Transit-line gizmos from each in-transit ship's `departure_position` to its current position
+- Camera reset button + `CameraResetRequest` snaps `OrbitCamera::initial()`
+
+Theme module: `ui::theme` exports `PRIMARY` cyan, `SUCCESS` green,
+`WARN` amber, `DANGER` red, `TEXT_DIM`, `CHROME_BG` (top-bar), and
+helpers `section_header()`, `caption()`, `crew_bar_color()`. Every
+panel should pull colours from there.
 
 ## Things intentionally left out (not critical)
 
