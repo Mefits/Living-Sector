@@ -505,14 +505,73 @@ directly; zero marshalling between sim and render.
   `sim_server::engine::admin_spawn_ship`. `random_ship_name`
   promoted to pub for reuse. Embedded sim now maintains a
   steady-state fleet under organic strike pressure.
+- **Bundle 4y…4ai (visual + admin polish run)**:
+  - **4y**: theme palette sweep across all panels (last hardcoded
+    RGB ladders gone), construction site rings recolored green +
+    crosshair tick-marks (was indistinguishable from amber gate
+    rings), construction panel `f32::INFINITY` ProgressBar fix,
+    procedural cuboid ships replaced with 5 authored Godot GLB
+    hulls (Spitfire / Dispatcher / Imperial / Challenger /
+    Executioner) via new `ShipModels` resource + load_ship_models,
+    `SHIP_GLB_SCALE = 0.025`.
+  - **4z**: top-bar hover tooltips on every panel-toggle, selection
+    chip in `top_bar_controls` showing "ship · <id>" / "facility ·
+    <id>" with ✕ Clear button.
+  - **4aa**: Esc opens a centered Pause menu (Resume / Save As /
+    Quit). Save-As fires `SaveAsRequest`; Quit sends `AppExit`.
+    `PauseMenuState` carries `was_running` so restoring on close
+    doesn't auto-resume an already-paused sim.
+  - **4ab**: full Add Ship admin dialog — class / faction /
+    location / credits / name dropdowns built from the live world.
+    `SpawnShipRequest` evolves from `bool` to
+    `Option<SpawnShipParams>`.
+  - **4ac**: Add Facility admin dialog. `admin_spawn_facility`
+    promoted to `pub` in sim_server. `reconcile_new_facilities` in
+    render/ surfaces the new hecs entity as a SceneBundle on the
+    next frame (analogue of `reconcile_new_ships`).
+  - **4ad**: right-click context menu in the world (Inspect /
+    Follow / POV / Destroy). New `CameraFollow` resource +
+    `apply_camera_follow` system rewrite `OrbitCamera.focus` from
+    the target's transform each frame; manual pan clears the
+    follow lock. Ship/facility delete pipelines moved to
+    `DeleteShipRequest` + `DeleteFacilityRequest` resources +
+    `process_delete_*` systems.
+  - **4ae**: per-commodity reserve editor inline in facility-
+    details. -100 / +100 / +1k buttons per row + Add-commodity
+    picker. Mutations buffered into `reserves_deltas` during the
+    read-only render closure, applied after.
+  - **4af**: bevy_hanabi engine particle trails. Single shared
+    `EffectAsset` (cyan exhaust, 30 particles/s/ship, 0.6 s
+    lifetime, 512 cap). Per-ship sibling trail entity tagged
+    `EngineTrailFor(sim_id)`; `sync_engine_trails` glues each
+    trail's transform to its ship's rotation + position with a
+    1.5 wu aft offset.
+  - **4ag**: trails gate on transit — `Visibility::Hidden` when
+    `ShipPosition.docked_at.is_some()`, hanabi's default
+    `WhenVisible` halts emission instantly so docked ships read as
+    engines-off.
+  - **4ah**: review polish — `+Fac` button uses correct
+    `add_facility` icon; context-menu click-outside detection
+    fixed (was using area-scoped `interact_pointer_pos` which
+    returned None for outside clicks → menu never closed).
+  - **4ai**: ship explosion particles on destroy / retire.
+    `cleanup_stale_ships` spawns a one-shot
+    `ParticleEffectBundle` (80 particles, 1.0 s lifetime,
+    flash → orange → fade) at the doomed ship's last transform.
+    `ExplosionLifetime` timer self-cleans 1.5 s later. Renders for
+    every despawn path: admin Destroy, broke/hoard auto-retire,
+    deletion via context menu, etc.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
   PendingRespawn) — need tokio inside the fixed-update system.
 - Persistence worker for the embedded client (flush dirty agents
   to sim.db so hours of play don't vanish on quit).
-- Admin Spawn / Refit panels, procedural ship meshes, nebula
-  backdrop, save-as.
+- Window remember-state — egui Memory persistence needs a
+  bevy_egui hook + serde-bytes round-trip; risky without user
+  verification.
+- True 1st-person POV (4ad's POV menu item is a Follow at 80 wu
+  rather than a camera attached to the ship's transform).
 
 ## Systems wired
 
