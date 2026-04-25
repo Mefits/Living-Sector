@@ -99,6 +99,7 @@ impl Plugin for RenderPlugin {
                     draw_selection_rings,
                     update_ship_trails,
                     draw_ship_trails,
+                    draw_transit_intent_lines,
                     draw_gate_rings,
                     draw_orbit_rings,
                     draw_construction_sites,
@@ -1219,10 +1220,23 @@ struct ShipTrails {
     history: std::collections::HashMap<String, std::collections::VecDeque<Vec3>>,
 }
 
-/// Trail length in samples. Godot kept 60 (~7.5s at 8tps); Bevy's
-/// `Update` schedule fires per render frame (~60 Hz), so 60 samples
-/// = 1s of history. Plenty visible without dominating the screen.
-const TRAIL_MAX_LEN: usize = 60;
+/// Baseline trail length in samples (Medium ship). Tiny ships get
+/// proportionally shorter trails, Massive ships proportionally
+/// longer, so the trail reads at the same visual angular scale
+/// against the hull regardless of ship size — a Massive freighter
+/// with a 60-sample trail has the streak buried behind its own
+/// silhouette. Linear scale by `base_scale`, clamped so we don't
+/// pay for absurdly long trails behind tiny couriers OR draw
+/// 600-segment trails for the largest hulls.
+const TRAIL_BASELINE_LEN: usize = 60;
+
+/// Per-ship max trail length in samples, scaled by its size tier.
+/// Tiny=15, Medium=60, Massive=300. Cap matches user expectation
+/// that Huge/Massive trails should be "visible past the hull".
+fn trail_max_len_for(base_scale: f32) -> usize {
+    let scaled = (TRAIL_BASELINE_LEN as f32 * base_scale) as usize;
+    scaled.clamp(15, 300)
+}
 
 /// Sample each in-transit ship's current world position into its
 /// rolling history. Stationary / docked ships have their history
@@ -1259,12 +1273,99 @@ fn update_ship_trails(
             continue;
         }
         history.push_back(xf.translation);
-        while history.len() > TRAIL_MAX_LEN {
+        let cap = trail_max_len_for(ship.base_scale);
+        while history.len() > cap {
             history.pop_front();
         }
     }
 
     trails.history.retain(|k, _| live.contains(k));
+}
+
+/// Draw a faint dashed line from each in-transit ship to its
+/// destination station. Ports Godot `transit_lines.gd` — the
+/// "intent" line, separate from the exhaust trail behind the ship.
+/// Dashes are evenly spaced so long inter-system runs and short
+/// intra-system hops both read consistently. Brighter alpha for
+/// the currently selected ship, dim for the rest.
+fn draw_transit_intent_lines(
+    sim: Res<Sim>,
+    selected_ship: Res<SelectedShip>,
+    mut gizmos: Gizmos,
+) {
+    let world = &sim.store.world;
+
+    // Build location_name → world destination (body universe pos +
+    // facility offset, matching what the sim aimed the transit at).
+    // Many facilities share a location, so this dedups by name —
+    // first-write wins; sim ships travel to the location, not a
+    // specific facility id, so any facility at the location is
+    // a valid endpoint marker.
+    let body_positions: std::collections::HashMap<String, (f32, f32)> = world
+        .query::<(&BodyIdentity, &BodyOrbit)>()
+        .iter()
+        .map(|(_e, (id, orbit))| (id.body_id.clone(), orbit.universe_position()))
+        .collect();
+    let mut loc_to_world: std::collections::HashMap<String, Vec3> =
+        std::collections::HashMap::new();
+    for (_e, (fac_id, loc)) in world
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .iter()
+    {
+        if loc_to_world.contains_key(&loc.location_name) {
+            continue;
+        }
+        let Some(body_center) = body_positions.get(&fac_id.body_id).copied() else {
+            continue;
+        };
+        let (fx, fy) =
+            sim_core::agents::facility::facility_offset_position(body_center, &fac_id.id);
+        loc_to_world.insert(
+            loc.location_name.clone(),
+            Vec3::new(fx * SCALE_FACTOR, 0.0, fy * SCALE_FACTOR),
+        );
+    }
+
+    // Faint indigo for the all-ships pass; punchier blue for the
+    // selected ship (mirrors Godot's BASE / SELECTED split).
+    let base_color = Color::srgba(0.50, 0.60, 0.90, 0.10);
+    let selected_color = Color::srgba(0.70, 0.80, 1.00, 0.55);
+    let selected_id = selected_ship.0.as_deref();
+
+    // Constant dash count per line so length is decoupled from
+    // visual density — short and long runs both look the same.
+    const DASH_SEGMENTS: usize = 24;
+
+    for (_e, (id, transit, pos)) in world
+        .query::<(&ShipIdentity, &ShipTransit, &ShipPosition)>()
+        .iter()
+    {
+        let Some(t) = &transit.transit else { continue };
+        let Some(end) = loc_to_world.get(&t.to).copied() else {
+            continue;
+        };
+        let start = Vec3::new(
+            pos.position.0 * SCALE_FACTOR,
+            0.0,
+            pos.position.1 * SCALE_FACTOR,
+        );
+        let color = if Some(id.id.as_str()) == selected_id {
+            selected_color
+        } else {
+            base_color
+        };
+        // Walk start→end in 2*DASH_SEGMENTS steps; draw the even
+        // segments only. Two t-values per dash so the dash spans
+        // [t0, t1] of the line.
+        let total = (DASH_SEGMENTS * 2) as f32;
+        for i in 0..DASH_SEGMENTS {
+            let t0 = (i as f32 * 2.0) / total;
+            let t1 = (i as f32 * 2.0 + 1.0) / total;
+            let a = start.lerp(end, t0);
+            let b = start.lerp(end, t1);
+            gizmos.line(a, b, color);
+        }
+    }
 }
 
 /// Render the rolling trails as faded gizmo line segments. Per-segment
