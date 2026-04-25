@@ -122,7 +122,7 @@ fn top_bar_controls(
             ui.label(
                 egui::RichText::new(format!("tick {}", sim.tick))
                     .monospace()
-                    .color(egui::Color32::from_gray(180)),
+                    .color(theme::TEXT_DIM),
             );
             ui.separator();
             if ui
@@ -148,7 +148,7 @@ fn top_bar_controls(
             ui.label(
                 egui::RichText::new("admin:")
                     .small()
-                    .color(egui::Color32::from_gray(160)),
+                    .color(theme::TEXT_DIM),
             );
             if ui
                 .add(egui::Button::image_and_text(icons::add_ship(), "Freighter"))
@@ -526,7 +526,7 @@ fn perf_overlay(
                                 ui.label(
                                     egui::RichText::new(name)
                                         .small()
-                                        .color(egui::Color32::from_gray(180)),
+                                        .color(theme::TEXT_DIM),
                                 );
                                 ui.label(
                                     egui::RichText::new(format!("{:.2} ms", us as f32 / 1000.0))
@@ -542,7 +542,7 @@ fn perf_overlay(
                 egui::RichText::new("embedded sim — no network")
                     .small()
                     .italics()
-                    .color(egui::Color32::from_gray(140)),
+                    .color(theme::TEXT_DIM),
             );
         });
     // Write the close-button click back so future frames respect
@@ -713,7 +713,7 @@ fn ship_list(
                     ui.label(
                         egui::RichText::new(format!("(top {} shown)", PAGE_SIZE))
                             .small()
-                            .color(egui::Color32::from_gray(160)),
+                            .color(theme::TEXT_DIM),
                     );
                 }
             });
@@ -1033,7 +1033,7 @@ fn contracts_panel(
                         shown - PAGE_SIZE
                     ))
                     .small()
-                    .color(egui::Color32::from_gray(160)),
+                    .color(theme::TEXT_DIM),
                 );
             }
         });
@@ -2660,7 +2660,7 @@ fn facility_list_panel(
                             let is_sel = selected.0.as_deref() == Some(r.id.as_str());
                             let name_text = if r.abandoned {
                                 egui::RichText::new(&r.name)
-                                    .color(egui::Color32::from_gray(140))
+                                    .color(theme::TEXT_DIM)
                                     .strikethrough()
                             } else {
                                 egui::RichText::new(&r.name)
@@ -2819,7 +2819,7 @@ fn facility_details_panel(
             egui::ScrollArea::vertical().show(ui, |ui| {
                 if life.abandoned {
                     ui.colored_label(
-                        egui::Color32::from_rgb(240, 100, 90),
+                        theme::DANGER,
                         egui::RichText::new("ABANDONED").strong(),
                     );
                     ui.separator();
@@ -2845,13 +2845,7 @@ fn facility_details_panel(
                     .show(ui, |ui| {
                         ui.label("Credits"); ui.label(format_credits(ops.credits)); ui.end_row();
                         ui.label("Condition");
-                        let cond_color = if ops.condition >= 0.7 {
-                            egui::Color32::from_rgb(120, 220, 120)
-                        } else if ops.condition >= 0.3 {
-                            egui::Color32::from_rgb(230, 200, 90)
-                        } else {
-                            egui::Color32::from_rgb(240, 100, 90)
-                        };
+                        let cond_color = theme::status_color(ops.condition, (0.7, 0.3));
                         ui.colored_label(cond_color, format!("{:.0}%", ops.condition * 100.0));
                         ui.end_row();
                         ui.label("Docking");
@@ -2865,7 +2859,7 @@ fn facility_details_panel(
                     });
                 ui.separator();
 
-                ui.label(egui::RichText::new("Lifecycle").strong().size(14.0));
+                ui.label(theme::section_header("Lifecycle"));
                 egui::Grid::new("fac_details_life")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
@@ -2889,7 +2883,7 @@ fn facility_details_panel(
                     ui.label(
                         egui::RichText::new("(no reserves)")
                             .italics()
-                            .color(egui::Color32::from_gray(160)),
+                            .color(theme::TEXT_DIM),
                     );
                 } else {
                     egui::Grid::new("fac_details_reserves")
@@ -2950,7 +2944,7 @@ fn facility_details_panel(
                 }
 
                 if !storage.docked_ships.is_empty() || !storage.dock_queue.is_empty() {
-                    ui.label(egui::RichText::new("Dock").strong().size(14.0));
+                    ui.label(theme::section_header("Dock"));
                     // Resolve each docked / queued entity back to
                     // its ShipIdentity so the panel can name them.
                     // Cheap even at Haven's 45-capacity — 45 hecs
@@ -2982,7 +2976,7 @@ fn facility_details_panel(
                                 storage.docked_ships.len()
                             ))
                             .italics()
-                            .color(egui::Color32::from_gray(170)),
+                            .color(theme::TEXT_DIM),
                         );
                         for &e in &storage.docked_ships {
                             if let Some((sim_id, label)) = resolve(e) {
@@ -3003,7 +2997,7 @@ fn facility_details_panel(
                                 storage.dock_queue.len()
                             ))
                             .italics()
-                            .color(egui::Color32::from_rgb(230, 200, 90)),
+                            .color(theme::WARN),
                         );
                         for (i, &e) in storage.dock_queue.iter().enumerate() {
                             if let Some((sim_id, label)) = resolve(e) {
@@ -3440,6 +3434,12 @@ fn construction_panel(
                             pct as u32,
                             r.remaining,
                         );
+                        // ProgressBar wants a concrete desired width;
+                        // f32::INFINITY trips egui 0.29's
+                        // !max_rect.any_nan() assertion the moment a
+                        // parent layout subtracts INFINITY-INFINITY.
+                        // Pull the live available width instead.
+                        let bar_width = ui.available_width().max(120.0);
                         ui.add(
                             egui::ProgressBar::new(r.progress)
                                 .text(
@@ -3448,7 +3448,7 @@ fn construction_panel(
                                         .color(theme::status_color(pct, (50.0, 25.0))),
                                 )
                                 .fill(theme::status_color(pct, (50.0, 25.0)))
-                                .desired_width(f32::INFINITY),
+                                .desired_width(bar_width),
                         );
                     });
                 }
@@ -3534,7 +3534,7 @@ fn minimap_panel(
             );
             let painter = ui.painter_at(rect);
             // Background panel so the minimap reads as its own surface.
-            painter.rect_filled(rect, 2.0, egui::Color32::from_rgba_unmultiplied(10, 14, 22, 220));
+            painter.rect_filled(rect, 2.0, theme::PANEL_BG);
 
             let to_screen = |ux: f32, uy: f32| -> egui::Pos2 {
                 let nx = (ux - min_x) / (max_x - min_x);
@@ -3554,16 +3554,17 @@ fn minimap_panel(
                 painter.circle_filled(
                     to_screen(x, y),
                     1.0,
-                    egui::Color32::from_rgba_unmultiplied(180, 190, 210, 180),
+                    theme::TEXT_DIM,
                 );
             }
 
-            // Bodies: bigger dots, coloured by faction-less default.
+            // Bodies: bigger dots, PRIMARY-tinted to share the
+            // holographic palette with the rest of the HUD.
             for (_, (x, y)) in &body_positions {
                 painter.circle_filled(
                     to_screen(*x, *y),
                     3.0,
-                    egui::Color32::from_rgb(130, 180, 220),
+                    theme::PRIMARY,
                 );
             }
 
@@ -3574,7 +3575,7 @@ fn minimap_panel(
                 let uy = orbit.focus.z / SCALE_FACTOR;
                 if ux >= min_x && ux <= max_x && uy >= min_y && uy <= max_y {
                     let p = to_screen(ux, uy);
-                    let color = egui::Color32::from_rgb(240, 220, 120);
+                    let color = theme::WARN;
                     painter.line_segment(
                         [egui::pos2(p.x - 6.0, p.y), egui::pos2(p.x + 6.0, p.y)],
                         egui::Stroke::new(1.5, color),
@@ -3609,7 +3610,7 @@ fn minimap_panel(
                     "click to recenter · dots: ships · larger: bodies · cross: camera",
                 )
                 .small()
-                .color(egui::Color32::from_gray(150)),
+                .color(theme::TEXT_DIM),
             );
         });
 
@@ -3690,7 +3691,7 @@ fn body_labels_panel(
                     egui::Align2::CENTER_BOTTOM,
                     &name,
                     egui::FontId::proportional(11.0),
-                    egui::Color32::from_rgba_unmultiplied(230, 235, 245, 200),
+                    theme::TEXT,
                 );
             }
         });

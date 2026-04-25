@@ -81,6 +81,13 @@ const STATION_SCALE: f32 = 0.05;
 /// silhouette needs to read as a portal you fly through, not a
 /// dense bulk. ~6 wu across.
 const GATE_SCALE: f32 = 0.075;
+/// Uniform scale applied to a freshly-spawned ship SceneBundle.
+/// The Godot ship GLBs (Spitfire/Dispatcher/Imperial/Challenger/
+/// Executioner) are ~10-unit hulls in their source coords; 0.025
+/// brings a Medium ship to ≈0.25 wu — same order as the cuboid
+/// placeholders we replaced. `ship_size_multiplier` layers tier
+/// scale on top so a Massive hauler reads ~3.5× this.
+const SHIP_GLB_SCALE: f32 = 0.025;
 /// Facility selection-ring radius (world units). Replaces the
 /// `FACILITY_SIZE * SELECT_SCALE * 1.3` formula from the cylinder-
 /// placeholder era. Sized to wrap a STATION_SCALE-scaled station
@@ -104,7 +111,7 @@ impl Plugin for RenderPlugin {
                 StarfieldPlugin,
             ))
             .init_resource::<ShipTrails>()
-            .add_systems(Startup, load_station_models)
+            .add_systems(Startup, (load_station_models, load_ship_models))
             .add_systems(
                 PostStartup,
                 (spawn_mirror_entities, spawn_nebulae, spawn_system_suns),
@@ -183,6 +190,53 @@ fn load_station_models(asset_server: Res<AssetServer>, mut commands: Commands) {
     });
 }
 
+/// Preloaded `Handle<Scene>` for each ship-class GLB. Mapping
+/// matches the Godot client's authored hulls (lifted from
+/// `client/assets/ships/`):
+/// - **courier** → Spitfire (sleek fighter, fast)
+/// - **freighter** → Dispatcher (mid transport)
+/// - **hauler** → Imperial (largest hull)
+/// - **tanker** → Challenger (workhorse mid-weight)
+/// - **miner** → Executioner (industrial bulk)
+///
+/// Faction tinting is lost vs. the placeholder era — the GLBs ship
+/// with their own painted materials. We could overwrite them
+/// per-faction in a later pass, but the user explicitly preferred
+/// the authored look over the procedural cuboids.
+#[derive(Resource)]
+struct ShipModels {
+    courier: Handle<Scene>,
+    freighter: Handle<Scene>,
+    hauler: Handle<Scene>,
+    tanker: Handle<Scene>,
+    miner: Handle<Scene>,
+    default: Handle<Scene>,
+}
+
+impl ShipModels {
+    fn for_class(&self, class: &str) -> Handle<Scene> {
+        match class {
+            "courier" => self.courier.clone(),
+            "freighter" => self.freighter.clone(),
+            "hauler" => self.hauler.clone(),
+            "tanker" => self.tanker.clone(),
+            "miner" => self.miner.clone(),
+            _ => self.default.clone(),
+        }
+    }
+}
+
+fn load_ship_models(asset_server: Res<AssetServer>, mut commands: Commands) {
+    commands.insert_resource(ShipModels {
+        courier: asset_server.load("ships/Spitfire.gltf#Scene0"),
+        freighter: asset_server.load("ships/Dispatcher.gltf#Scene0"),
+        hauler: asset_server.load("ships/Imperial.gltf#Scene0"),
+        tanker: asset_server.load("ships/Challenger.gltf#Scene0"),
+        miner: asset_server.load("ships/Executioner.gltf#Scene0"),
+        default: asset_server.load("ships/Dispatcher.gltf#Scene0"),
+    });
+}
+
 /// Marker components so the per-frame position-sync query can narrow
 /// its work + so click-to-select can tell categories apart later.
 #[derive(Component)]
@@ -219,65 +273,17 @@ pub struct BodyEntity {
     pub sim_id: String,
 }
 
-/// Shared meshes + materials for the placeholder geometry. Stashed on
-/// a Resource so every entity references the same GPU handle — one
-/// draw call per archetype instead of per-entity. Ship material is
-/// per-faction (see `ship_mat_for`) so the placeholder fleet reads
-/// as factions at a glance.
+/// Shared body sphere + fallback material for the celestial-body
+/// renderer. Ships used to share a placeholder pool here too; that
+/// path was deleted in favour of authored GLBs (`ShipModels`).
 #[derive(Resource)]
 struct PlaceholderAssets {
-    /// One mesh per ship class — freighter wider, courier sleek, etc.
-    /// Fallback for unknown class strings falls back to the `default`
-    /// key. Shared handles → instancing still works per-archetype.
-    ship_mesh_by_class: std::collections::HashMap<String, Handle<Mesh>>,
-    ship_mesh_default: Handle<Mesh>,
-    ship_mat_by_faction: std::collections::HashMap<String, Handle<StandardMaterial>>,
-    ship_mat_fallback: Handle<StandardMaterial>,
     body_mesh: Handle<Mesh>,
     /// Kept around so the loop that builds it stays valid; bodies
     /// now use `PlanetMaterial` (per-body procedural) so this isn't
     /// referenced post-spawn.
     #[allow(dead_code)]
     body_mat: Handle<StandardMaterial>,
-}
-
-impl PlaceholderAssets {
-    fn ship_mat_for(&self, faction: &str) -> Handle<StandardMaterial> {
-        self.ship_mat_by_faction
-            .get(faction)
-            .cloned()
-            .unwrap_or_else(|| self.ship_mat_fallback.clone())
-    }
-
-    fn ship_mesh_for(&self, class: &str) -> Handle<Mesh> {
-        self.ship_mesh_by_class
-            .get(class)
-            .cloned()
-            .unwrap_or_else(|| self.ship_mesh_default.clone())
-    }
-}
-
-/// Class-specific placeholder dimensions (width, height, length) in
-/// world units. Nose is +Z (see `sync_positions` rotation math); the
-/// rotation + stretched Z gives the sense of travel direction. Picked
-/// to read distinctly at the 1600-ship stress:
-///
-/// - **courier**: smallest (~0.5 wu max axis) → fast, narrow
-/// - **freighter / tanker / miner**: medium (~1 wu) → workhorses
-/// - **hauler**: largest (~5 wu) → industrial behemoth
-///
-/// Spread chosen to match the user's "0.25 → 1 → 5" hierarchy so
-/// silhouettes at galactic zoom encode role without a label.
-fn ship_dimensions(class: &str) -> (f32, f32, f32) {
-    let base = SHIP_SIZE;
-    match class {
-        "courier" => (base * 0.20, base * 0.20, base * 0.55),
-        "freighter" => (base * 0.70, base * 0.50, base * 1.4),
-        "hauler" => (base * 2.20, base * 1.50, base * 4.50),
-        "tanker" => (base * 0.55, base * 0.70, base * 1.3),
-        "miner" => (base * 0.50, base * 0.50, base * 1.10),
-        _ => (base * 0.5, base * 0.5, base * 1.5),
-    }
 }
 
 /// Multiplier applied to the per-class cuboid based on the ship's
@@ -299,27 +305,6 @@ fn ship_size_multiplier(size: sim_core::simulation::config::ShipSize) -> f32 {
         ShipSize::Huge => 2.0,
         ShipSize::Massive => 3.5,
     }
-}
-
-/// Hull colors per faction — lifted from the Godot
-/// `client/scripts/tools/procedural_ship.gd::FACTION_PALETTES` table
-/// so the two clients read the same at parity. Unknown factions use
-/// the `fallback` material (independent-grey).
-fn faction_palette() -> &'static [(&'static str, [f32; 3])] {
-    &[
-        ("terran-authority", [0.85, 0.90, 0.92]),
-        ("mars-syndicate", [0.55, 0.24, 0.16]),
-        ("belt-coalition", [0.72, 0.64, 0.34]),
-        ("frontier-ventures", [0.50, 0.60, 0.42]),
-        ("crucible-mining", [0.26, 0.30, 0.34]),
-        ("the-doughtys", [0.70, 0.50, 0.80]),
-        ("independent", [0.58, 0.58, 0.60]),
-        // Factions not in the Godot palette — picked to be
-        // distinguishable at distance. Revisit when we do real
-        // procedural ships and can pull from a shared palette crate.
-        ("vega-conclave", [0.35, 0.60, 0.85]),
-        ("outer-reach", [0.85, 0.55, 0.30]),
-    ]
 }
 
 /// Per-frame rotation tag for child entities (ring planes, cloud
@@ -398,53 +383,13 @@ fn spawn_mirror_entities(
     mut cloud_materials: ResMut<Assets<CloudMaterial>>,
     sim: Res<Sim>,
     stations: Res<StationModels>,
+    ships: Res<ShipModels>,
 ) {
-    // Build the shared asset pool once. Ships get one material per
-    // faction — materials are cheap; it's the mesh sharing + instancing
-    // that actually matters for draw calls.
-    // Ship materials get a faction-tinted emissive so ships stay
-    // visible as glowing points at galactic-zoom where the
-    // placeholder mesh itself subtends just a few pixels even at
-    // SHIP_SIZE=1.0. Tonemapping blooms emissive samples across
-    // surrounding pixels so a tiny ship reads as a bright spark.
-    // 4.0 was tuned visually so a fleet at Earth shows as a
-    // distinct cluster of coloured dots, not a single body smear.
-    let emissive_scale = 4.0;
-    let mut ship_mat_by_faction = std::collections::HashMap::new();
-    for (id, rgb) in faction_palette() {
-        let mat = materials.add(StandardMaterial {
-            base_color: Color::srgb(rgb[0], rgb[1], rgb[2]),
-            emissive: LinearRgba::new(rgb[0], rgb[1], rgb[2], 1.0) * emissive_scale,
-            metallic: 0.3,
-            perceptual_roughness: 0.55,
-            ..default()
-        });
-        ship_mat_by_faction.insert((*id).to_string(), mat);
-    }
-    let ship_mat_fallback = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.58, 0.58, 0.60),
-        emissive: LinearRgba::new(0.58, 0.58, 0.60, 1.0) * emissive_scale,
-        metallic: 0.3,
-        perceptual_roughness: 0.55,
-        ..default()
-    });
-
-    // Build one placeholder mesh per ship class plus a default. Each
-    // class has its own cuboid proportions — see `ship_dimensions`.
-    // Nose is +Z so the rotation math in `sync_positions` lines up.
-    let mut ship_mesh_by_class = std::collections::HashMap::new();
-    for class in ["courier", "freighter", "hauler", "tanker", "miner"] {
-        let (w, h, l) = ship_dimensions(class);
-        ship_mesh_by_class.insert(class.to_string(), meshes.add(Cuboid::new(w, h, l)));
-    }
-    let (dw, dh, dl) = ship_dimensions("default");
-    let ship_mesh_default = meshes.add(Cuboid::new(dw, dh, dl));
-
+    // Ships now use authored GLBs (per-class scenes streamed via
+    // ShipModels). The placeholder cuboid + faction-emissive material
+    // pool was deleted with the rest of Bundle 4a's procedural ship
+    // path. Bodies still use shared sphere mesh + StandardMaterial.
     let assets = PlaceholderAssets {
-        ship_mesh_by_class,
-        ship_mesh_default,
-        ship_mat_by_faction,
-        ship_mat_fallback,
         body_mesh: meshes.add(Sphere::new(BODY_SIZE * 0.5)),
         body_mat: materials.add(StandardMaterial {
             base_color: Color::srgb(0.45, 0.55, 0.75),
@@ -464,11 +409,12 @@ fn spawn_mirror_entities(
     // position (system offset + local position) from `ShipPosition`.
     for (_e, (id, pos)) in world.query::<(&ShipIdentity, &ShipPosition)>().iter() {
         let (x, y) = pos.position;
-        let base_scale = ship_size_multiplier(id.size);
+        // GLB hulls are ~10 native units; SHIP_GLB_SCALE brings them
+        // to ~0.25 wu, then size_multiplier layers tier scale.
+        let base_scale = SHIP_GLB_SCALE * ship_size_multiplier(id.size);
         commands.spawn((
-            PbrBundle {
-                mesh: assets.ship_mesh_for(&id.class),
-                material: assets.ship_mat_for(&id.faction_id),
+            SceneBundle {
+                scene: ships.for_class(&id.class),
                 transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
                     .with_scale(Vec3::splat(base_scale)),
                 ..default()
@@ -1195,10 +1141,10 @@ fn cleanup_stale_ships(mut commands: Commands, sim: Res<Sim>, ships: Query<(Enti
 fn reconcile_new_ships(
     mut commands: Commands,
     sim: Res<Sim>,
-    assets: Option<Res<PlaceholderAssets>>,
+    ship_models: Option<Res<ShipModels>>,
     ships: Query<&ShipEntity>,
 ) {
-    let Some(assets) = assets else { return };
+    let Some(ship_models) = ship_models else { return };
     // Build set of known sim_ids as &str — avoids 1604 String
     // allocations every render frame (was a hot allocation source
     // at fleet scale on M1).
@@ -1217,11 +1163,10 @@ fn reconcile_new_ships(
         };
         let Some((id, pos)) = q.get() else { continue };
         let (x, y) = pos.position;
-        let base_scale = ship_size_multiplier(id.size);
+        let base_scale = SHIP_GLB_SCALE * ship_size_multiplier(id.size);
         commands.spawn((
-            PbrBundle {
-                mesh: assets.ship_mesh_for(&id.class),
-                material: assets.ship_mat_for(&id.faction_id),
+            SceneBundle {
+                scene: ship_models.for_class(&id.class),
                 transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
                     .with_scale(Vec3::splat(base_scale)),
                 ..default()
@@ -1369,8 +1314,13 @@ fn draw_construction_sites(sim: Res<Sim>, mut gizmos: Gizmos) {
     use sim_core::agents::construction::ConstructionSite;
 
     let world = &sim.store.world;
-    let outer = Color::srgba(0.95, 0.75, 0.35, 0.85);
-    let inner = Color::srgba(0.5, 0.95, 0.65, 0.85);
+    // Green scaffold + brighter green progress arc. The previous
+    // amber outer was indistinguishable from gate rings (also amber)
+    // — players read it as "warp gate at Venus / Trojan cluster",
+    // which is wrong. Green reads as "build in progress" and pairs
+    // with the inner progress arc.
+    let outer = Color::srgba(0.45, 0.85, 0.55, 0.55);
+    let inner = Color::srgba(0.6, 1.0, 0.75, 0.95);
     let normal = Dir3::Y;
 
     for (_e, site) in world.query::<&ConstructionSite>().iter() {
@@ -1380,6 +1330,21 @@ fn draw_construction_sites(sim: Res<Sim>, mut gizmos: Gizmos) {
         gizmos
             .circle(center, normal, SITE_OUTER_RADIUS, outer)
             .resolution(48);
+        // Crosshair tick-marks inside the ring so a freshly-spawned
+        // (0% progress) site still reads as a build site, not just
+        // an empty circle. Two short axis-aligned spokes from the
+        // centre.
+        let spoke = SITE_OUTER_RADIUS * 0.35;
+        gizmos.line(
+            center + Vec3::new(-spoke, 0.0, 0.0),
+            center + Vec3::new(spoke, 0.0, 0.0),
+            outer,
+        );
+        gizmos.line(
+            center + Vec3::new(0.0, 0.0, -spoke),
+            center + Vec3::new(0.0, 0.0, spoke),
+            outer,
+        );
         // Inner progress ring — radius scales with progress 0..=1 so
         // it reads as a filling disk from the centre outward. No
         // partial-arc API, so a second smaller ring is the cheap
