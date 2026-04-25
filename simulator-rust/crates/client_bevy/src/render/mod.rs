@@ -270,9 +270,9 @@ fn ship_size_multiplier(size: sim_core::simulation::config::ShipSize) -> f32 {
         ShipSize::Tiny => 0.25,
         ShipSize::Small => 0.5,
         ShipSize::Medium => 1.0,
-        ShipSize::Large => 1.6,
-        ShipSize::Huge => 2.5,
-        ShipSize::Massive => 5.0,
+        ShipSize::Large => 1.5,
+        ShipSize::Huge => 2.0,
+        ShipSize::Massive => 3.5,
     }
 }
 
@@ -432,8 +432,7 @@ fn spawn_mirror_entities(
         // Authoritative dock-point offset: same helper the sim
         // uses to pin docked ships, so render coords agree with
         // sim coords every tick.
-        let (fx, fy) =
-            sim_core::agents::facility::facility_offset_position(body_center, &id.id);
+        let (fx, fy) = sim_core::agents::facility::facility_offset_position(body_center, &id.id);
         let y_offset = 0.5; // tiny vertical so facilities don't z-fight w/ bodies
         let is_gate = id.facility_type == "gate";
         let scale = if is_gate { GATE_SCALE } else { STATION_SCALE };
@@ -595,62 +594,30 @@ fn follow_facilities_to_bodies(
     }
 }
 
-/// Selection scale factor — how big the chosen ship/facility gets
-/// relative to its peers. Big enough to stand out at galactic
-/// zoom where the base placeholder meshes are tiny dots; small
-/// enough that it still reads as the same agent up close. 4×
-/// makes a 0.4-wu ship visible as a 1.6-wu blob at overview —
-/// roughly body-sized, so clearly the selected one in the scene.
-const SELECT_SCALE: f32 = 4.0;
-
-/// Per-frame system: enlarge whichever ship and facility are
-/// currently selected; reset everyone else. The check is a string
-/// compare per entity per frame — ~1700 compares at our scale,
-/// trivially cheap vs. the 16.6 ms budget. If it ever shows up we
-/// can cache the selected Bevy Entity on change instead.
+/// Per-frame system: pin every ship and facility's Transform.scale
+/// to its `base_scale` (set at spawn from size tier / GLB scale).
+/// Selection no longer scales the entity — `draw_selection_rings`
+/// handles the visual indicator. Kept as a pin (not just a one-time
+/// spawn write) so any other system that mutates Transform.scale
+/// (GLB scene materialisation, future tweens) can't desync it.
 #[allow(clippy::type_complexity)]
 fn highlight_selected(
-    selected_ship: Res<SelectedShip>,
-    selected_fac: Res<SelectedFacility>,
     mut ships: Query<(&ShipEntity, &mut Transform), (Without<FacilityEntity>, Without<BodyEntity>)>,
     mut facilities: Query<
         (&FacilityEntity, &mut Transform),
         (Without<ShipEntity>, Without<BodyEntity>),
     >,
 ) {
-    let ship_id = selected_ship.0.as_deref();
     for (ship, mut xf) in ships.iter_mut() {
-        // Layer selection on top of the ship's base_scale (size
-        // tier). Without this multiplier the per-tier scale gets
-        // clobbered to 1.0 the first frame after spawn.
-        let mult = if Some(ship.sim_id.as_str()) == ship_id {
-            SELECT_SCALE
-        } else {
-            1.0
-        };
-        let wanted = ship.base_scale * mult;
         // Skip the write when the scale already matches to avoid
-        // flagging transforms as changed every frame — keeps
-        // Bevy's change-detection meaningful if downstream systems
-        // start relying on it.
-        if (xf.scale.x - wanted).abs() > f32::EPSILON {
-            xf.scale = Vec3::splat(wanted);
+        // flagging transforms as changed every frame.
+        if (xf.scale.x - ship.base_scale).abs() > f32::EPSILON {
+            xf.scale = Vec3::splat(ship.base_scale);
         }
     }
-
-    let fac_id = selected_fac.0.as_deref();
     for (fac, mut xf) in facilities.iter_mut() {
-        // Layer selection on top of the model's base scale (set at
-        // spawn). Without this multiplier the GLB's STATION_SCALE
-        // gets clobbered to 1.0 the first frame after spawn.
-        let mult = if Some(fac.sim_id.as_str()) == fac_id {
-            SELECT_SCALE
-        } else {
-            1.0
-        };
-        let wanted = fac.base_scale * mult;
-        if (xf.scale.x - wanted).abs() > f32::EPSILON {
-            xf.scale = Vec3::splat(wanted);
+        if (xf.scale.x - fac.base_scale).abs() > f32::EPSILON {
+            xf.scale = Vec3::splat(fac.base_scale);
         }
     }
 }
@@ -1110,7 +1077,12 @@ fn draw_selection_rings(
     if let Some(id) = selected_ship.0.as_deref() {
         for (ship, xf) in ships.iter() {
             if ship.sim_id == id {
-                let r = SHIP_SIZE * SELECT_SCALE * 1.6 * pulse;
+                // Ring wraps the ship's own visible size. SHIP_SIZE
+                // is the unit-cuboid baseline; * base_scale gives
+                // the actual hull length; * 6 leaves a comfortable
+                // halo so the ring is clearly outside the silhouette
+                // even on Massive hulls.
+                let r = SHIP_SIZE * ship.base_scale * 6.0 * pulse;
                 gizmos
                     .circle(xf.translation, normal, r, color)
                     .resolution(32);
@@ -1288,11 +1260,7 @@ fn update_ship_trails(
 /// Dashes are evenly spaced so long inter-system runs and short
 /// intra-system hops both read consistently. Brighter alpha for
 /// the currently selected ship, dim for the rest.
-fn draw_transit_intent_lines(
-    sim: Res<Sim>,
-    selected_ship: Res<SelectedShip>,
-    mut gizmos: Gizmos,
-) {
+fn draw_transit_intent_lines(sim: Res<Sim>, selected_ship: Res<SelectedShip>, mut gizmos: Gizmos) {
     let world = &sim.store.world;
 
     // Build location_name → world destination (body universe pos +
