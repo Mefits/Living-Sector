@@ -282,6 +282,13 @@ struct PerfStats {
     frame_samples: Vec<Duration>,
     last_frame_instant: Instant,
     avg_fps: f32,
+    /// Rolling window of (wall_time, sim_tick) samples for the
+    /// derived ticks-per-second readout. Compared against the
+    /// configured target (8 × tick_mult) to flag when the sim
+    /// is falling behind. Bounded at TPS_WINDOW; older entries
+    /// pop off the front each tracking pass.
+    tick_samples: std::collections::VecDeque<(Instant, u64)>,
+    avg_tps: f32,
 }
 
 impl Default for PerfStats {
@@ -290,13 +297,22 @@ impl Default for PerfStats {
             frame_samples: Vec::with_capacity(FPS_WINDOW),
             last_frame_instant: Instant::now(),
             avg_fps: 0.0,
+            tick_samples: std::collections::VecDeque::with_capacity(TPS_WINDOW),
+            avg_tps: 0.0,
         }
     }
 }
 
 const FPS_WINDOW: usize = 60;
+/// TPS sampling window — 60 entries × 1 sample-per-frame at 60 fps
+/// is a 1-second window, plenty to smooth out tick-mult bursts
+/// while still surfacing meaningful drops.
+const TPS_WINDOW: usize = 60;
 
-fn track_fps(mut stats: ResMut<PerfStats>) {
+fn track_fps(
+    mut stats: ResMut<PerfStats>,
+    sim: Res<Sim>,
+) {
     let now = Instant::now();
     let dt = now.saturating_duration_since(stats.last_frame_instant);
     stats.last_frame_instant = now;
@@ -304,15 +320,29 @@ fn track_fps(mut stats: ResMut<PerfStats>) {
         stats.frame_samples.remove(0);
     }
     stats.frame_samples.push(dt);
-    // Average frame time → FPS. Skip if we haven't gathered any
-    // samples yet (first frame).
-    if stats.frame_samples.is_empty() {
-        return;
+    if !stats.frame_samples.is_empty() {
+        let sum: Duration = stats.frame_samples.iter().sum();
+        let avg_secs = sum.as_secs_f32() / stats.frame_samples.len() as f32;
+        if avg_secs > 0.0 {
+            stats.avg_fps = 1.0 / avg_secs;
+        }
     }
-    let sum: Duration = stats.frame_samples.iter().sum();
-    let avg_secs = sum.as_secs_f32() / stats.frame_samples.len() as f32;
-    if avg_secs > 0.0 {
-        stats.avg_fps = 1.0 / avg_secs;
+
+    // Tick-rate sampling: record (wall_time, tick) each frame.
+    // TPS = (newest_tick - oldest_tick) / window_seconds.
+    let tick = sim.tick;
+    if stats.tick_samples.len() >= TPS_WINDOW {
+        stats.tick_samples.pop_front();
+    }
+    stats.tick_samples.push_back((now, tick));
+    if let (Some(&(t0, k0)), Some(&(t1, k1))) =
+        (stats.tick_samples.front(), stats.tick_samples.back())
+    {
+        let secs = t1.saturating_duration_since(t0).as_secs_f32();
+        if secs > 0.05 {
+            let dticks = k1.saturating_sub(k0) as f32;
+            stats.avg_tps = dticks / secs;
+        }
     }
 }
 
@@ -342,6 +372,27 @@ fn perf_overlay(
 
                     ui.label("Tick");
                     ui.label(format!("{}", sim.tick));
+                    ui.end_row();
+
+                    // Sim TPS — actual ticks/sec from the rolling
+                    // window, coloured against the configured
+                    // target (DEFAULT_TICK_INTERVAL_S = 0.125 → 8
+                    // tps × tick_mult). Green when keeping up,
+                    // amber within ~25%, red when sim is falling
+                    // significantly behind.
+                    ui.label("TPS");
+                    let target = 8.0 * sim.tick_mult.max(1) as f32;
+                    let tps_color = if stats.avg_tps >= target * 0.95 {
+                        egui::Color32::from_rgb(120, 220, 120)
+                    } else if stats.avg_tps >= target * 0.75 {
+                        egui::Color32::from_rgb(230, 200, 90)
+                    } else {
+                        egui::Color32::from_rgb(240, 100, 90)
+                    };
+                    ui.colored_label(
+                        tps_color,
+                        format!("{:.1} / {:.0}", stats.avg_tps, target),
+                    );
                     ui.end_row();
 
                     ui.label("Ships");
