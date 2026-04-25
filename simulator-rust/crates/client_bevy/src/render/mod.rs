@@ -79,7 +79,8 @@ impl Plugin for RenderPlugin {
         // Asset bytes load asynchronously; SceneBundle just shows
         // an empty parent until the gltf streams in (typically a
         // frame or two on local disk).
-        app.add_systems(Startup, load_station_models)
+        app.init_resource::<ShipTrails>()
+            .add_systems(Startup, load_station_models)
             .add_systems(
                 PostStartup,
                 (
@@ -96,7 +97,8 @@ impl Plugin for RenderPlugin {
                     follow_facilities_to_bodies,
                     highlight_selected,
                     draw_selection_rings,
-                    draw_transit_lines,
+                    update_ship_trails,
+                    draw_ship_trails,
                     draw_gate_rings,
                     draw_orbit_rings,
                     draw_construction_sites,
@@ -164,6 +166,13 @@ fn load_station_models(asset_server: Res<AssetServer>, mut commands: Commands) {
 #[derive(Component)]
 pub struct ShipEntity {
     pub sim_id: String,
+    /// Per-ship Transform.scale baseline derived from `ShipIdentity.size`
+    /// at spawn. Tiny=0.25 → Massive=5.0 so silhouettes encode the
+    /// hull tier alongside the class proportions baked into
+    /// `ship_dimensions`. `highlight_selected` multiplies this by
+    /// `SELECT_SCALE` for the chosen ship — same layering pattern
+    /// `FacilityEntity.base_scale` uses.
+    pub base_scale: f32,
 }
 
 #[derive(Component)]
@@ -242,6 +251,27 @@ fn ship_dimensions(class: &str) -> (f32, f32, f32) {
         "tanker" => (base * 0.55, base * 0.70, base * 1.3),
         "miner" => (base * 0.50, base * 0.50, base * 1.10),
         _ => (base * 0.5, base * 0.5, base * 1.5),
+    }
+}
+
+/// Multiplier applied to the per-class cuboid based on the ship's
+/// `ShipIdentity.size` tier. Layered on top of `ship_dimensions` so
+/// class encodes role-shape and size encodes hull tier — a Tiny
+/// hauler still reads as a hauler proportionally, just shrunk.
+///
+/// Range matches the user's "0.25 → 1 → 5" hierarchy: Medium = 1.0
+/// (no scale), Tiny = 0.25 (sub-pixel courier), Massive = 5.0
+/// (fleet flagship). The same scale also drives `highlight_selected`
+/// so the per-ship `Transform.scale` reads from one source.
+fn ship_size_multiplier(size: sim_core::simulation::config::ShipSize) -> f32 {
+    use sim_core::simulation::config::ShipSize;
+    match size {
+        ShipSize::Tiny => 0.25,
+        ShipSize::Small => 0.5,
+        ShipSize::Medium => 1.0,
+        ShipSize::Large => 1.6,
+        ShipSize::Huge => 2.5,
+        ShipSize::Massive => 5.0,
     }
 }
 
@@ -338,15 +368,18 @@ fn spawn_mirror_entities(
     // position (system offset + local position) from `ShipPosition`.
     for (_e, (id, pos)) in world.query::<(&ShipIdentity, &ShipPosition)>().iter() {
         let (x, y) = pos.position;
+        let base_scale = ship_size_multiplier(id.size);
         commands.spawn((
             PbrBundle {
                 mesh: assets.ship_mesh_for(&id.class),
                 material: assets.ship_mat_for(&id.faction_id),
-                transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
+                transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
+                    .with_scale(Vec3::splat(base_scale)),
                 ..default()
             },
             ShipEntity {
                 sim_id: id.id.clone(),
+                base_scale,
             },
             Name::new(format!("Ship::{}", id.id)),
         ));
@@ -586,11 +619,15 @@ fn highlight_selected(
 ) {
     let ship_id = selected_ship.0.as_deref();
     for (ship, mut xf) in ships.iter_mut() {
-        let wanted = if Some(ship.sim_id.as_str()) == ship_id {
+        // Layer selection on top of the ship's base_scale (size
+        // tier). Without this multiplier the per-tier scale gets
+        // clobbered to 1.0 the first frame after spawn.
+        let mult = if Some(ship.sim_id.as_str()) == ship_id {
             SELECT_SCALE
         } else {
             1.0
         };
+        let wanted = ship.base_scale * mult;
         // Skip the write when the scale already matches to avoid
         // flagging transforms as changed every frame — keeps
         // Bevy's change-detection meaningful if downstream systems
@@ -868,15 +905,18 @@ fn reconcile_new_ships(
         };
         let Some((id, pos)) = q.get() else { continue };
         let (x, y) = pos.position;
+        let base_scale = ship_size_multiplier(id.size);
         commands.spawn((
             PbrBundle {
                 mesh: assets.ship_mesh_for(&id.class),
                 material: assets.ship_mat_for(&id.faction_id),
-                transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
+                transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
+                    .with_scale(Vec3::splat(base_scale)),
                 ..default()
             },
             ShipEntity {
                 sim_id: sim_id.clone(),
+                base_scale,
             },
             Name::new(format!("Ship::{sim_id}")),
         ));
@@ -1164,30 +1204,96 @@ fn draw_orbit_rings(sim: Res<Sim>, mut gizmos: Gizmos) {
     }
 }
 
-/// Draw a faint line from each in-transit ship's departure point to
-/// its current position, using Bevy Gizmos. Read-only per-frame;
-/// Gizmos are batched into a single draw call so the cost is linear
-/// in the number of ACTIVE transits (usually a modest fraction of
-/// the fleet). If perf ever complains we can throttle by only
-/// drawing lines for ships within a distance threshold of the
-/// camera, but at 1600 ships total it's cheap enough to skip that.
-fn draw_transit_lines(sim: Res<Sim>, mut gizmos: Gizmos) {
-    let world = &sim.store.world;
-    // Dim grey so the lines read as "a trail behind the ship" rather
-    // than fighting the ships for attention at zoomed-out scales.
-    let color = Color::srgba(0.55, 0.60, 0.70, 0.35);
+/// Per-ship rolling history of recent world-space positions. Ports
+/// `_trail_history` from Godot's `ship.gd`. Capped at `TRAIL_MAX_LEN`
+/// per ship; `update_ship_trails` pushes the latest position each
+/// frame for ships in transit and trims; `draw_ship_trails` renders
+/// the strip with a quadratic alpha fade (oldest invisible →
+/// newest opaque) and red→orange colour shift along the length.
+///
+/// Cleared whenever a ship stops transiting, so the trail vanishes
+/// once the ship docks instead of lingering behind a stationary
+/// dot. Same behaviour as Godot's `_is_moving` gate.
+#[derive(Resource, Default)]
+struct ShipTrails {
+    history: std::collections::HashMap<String, std::collections::VecDeque<Vec3>>,
+}
 
-    for (_e, (transit, pos)) in world.query::<(&ShipTransit, &ShipPosition)>().iter() {
-        let Some(t) = &transit.transit else { continue };
-        let Some((dx, dy)) = t.departure_position else {
+/// Trail length in samples. Godot kept 60 (~7.5s at 8tps); Bevy's
+/// `Update` schedule fires per render frame (~60 Hz), so 60 samples
+/// = 1s of history. Plenty visible without dominating the screen.
+const TRAIL_MAX_LEN: usize = 60;
+
+/// Sample each in-transit ship's current world position into its
+/// rolling history. Stationary / docked ships have their history
+/// cleared so the trail fades away as the ship sits at a station.
+/// Drops history for ships that no longer exist.
+#[allow(clippy::type_complexity)]
+fn update_ship_trails(
+    sim: Res<Sim>,
+    mut trails: ResMut<ShipTrails>,
+    ships: Query<(&ShipEntity, &Transform), (Without<FacilityEntity>, Without<BodyEntity>)>,
+) {
+    let world = &sim.store.world;
+
+    // Build the in-transit set once so the per-ship inner loop is a
+    // hashmap lookup, not a hecs scan. Same approach `sync_positions`
+    // uses for ship state.
+    let in_transit: std::collections::HashSet<String> = world
+        .query::<(&ShipIdentity, &ShipTransit)>()
+        .iter()
+        .filter(|(_, (_, t))| t.transit.is_some())
+        .map(|(_, (id, _))| id.id.clone())
+        .collect();
+
+    // Live-ship set so we can drop trails for despawned ships.
+    let mut live: std::collections::HashSet<String> =
+        std::collections::HashSet::with_capacity(ships.iter().count());
+
+    for (ship, xf) in ships.iter() {
+        live.insert(ship.sim_id.clone());
+        let history = trails.history.entry(ship.sim_id.clone()).or_default();
+        if !in_transit.contains(&ship.sim_id) {
+            // Not moving — drop history so the trail disappears.
+            history.clear();
             continue;
+        }
+        history.push_back(xf.translation);
+        while history.len() > TRAIL_MAX_LEN {
+            history.pop_front();
+        }
+    }
+
+    trails.history.retain(|k, _| live.contains(k));
+}
+
+/// Render the rolling trails as faded gizmo line segments. Per-segment
+/// alpha = `t² * 0.35` where `t = 0` (oldest) → `1` (newest) so
+/// segments fade out at the tail like an exhaust streak. Colour
+/// shifts red (old) → orange/yellow (new) following Godot's
+/// `ship.gd::_update_trail`. Gizmos batch into one draw call so
+/// the cost is "active-trails × samples-per-trail" line segments —
+/// at 200 in-transit ships × 60 samples = 12k segments, batched
+/// fine.
+fn draw_ship_trails(trails: Res<ShipTrails>, mut gizmos: Gizmos) {
+    for history in trails.history.values() {
+        let n = history.len();
+        if n < 2 {
+            continue;
+        }
+        let last = (n - 1) as f32;
+        let mut iter = history.iter();
+        let mut prev = match iter.next() {
+            Some(p) => *p,
+            None => continue,
         };
-        let start = Vec3::new(dx * SCALE_FACTOR, 0.0, dy * SCALE_FACTOR);
-        let end = Vec3::new(
-            pos.position.0 * SCALE_FACTOR,
-            0.0,
-            pos.position.1 * SCALE_FACTOR,
-        );
-        gizmos.line(start, end, color);
+        for (i, &point) in iter.enumerate() {
+            // i+1 = vertex index of `point` (since iter started at 1).
+            let t = (i as f32 + 1.0) / last;
+            let alpha = t * t * 0.35;
+            let color = Color::srgba(1.0, 0.3 + t * 0.4, 0.1, alpha);
+            gizmos.line(prev, point, color);
+            prev = point;
+        }
     }
 }

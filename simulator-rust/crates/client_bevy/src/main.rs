@@ -121,7 +121,7 @@ fn screenshot_key(
     // never land under `cargo run &`. Foreground + F12 is the
     // interactive path; this covers headless-smoke verification.
     let auto = !*auto_done
-        && *frame_counter >= 3
+        && *frame_counter >= 90
         && std::env::var("CLIENT_BEVY_AUTO_SCREENSHOT").is_ok();
 
     if !(manual || auto) {
