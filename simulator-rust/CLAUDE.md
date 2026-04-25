@@ -488,6 +488,16 @@ directly; zero marshalling between sim and render.
   ship state without opening the details panel. ShipRow query
   expands to pull ShipEconomy + ShipFuel + ShipAI per row; cost
   is bounded by ship count which never blows up the UI loop.
+- **Bundle 3ao**: sync decommission drain. tick_sim now drains
+  `AgentStore.pending_decommissions` every tick — strikes
+  accumulating to retirement actually retire. Mirror of
+  `sim_server::drain_pending_decommissions` minus the persist_tx
+  (no DB worker). Builds a RetirementRow snapshot, releases
+  ship contract holdings, pops from facility docked + queue,
+  despawns + removes from ship_by_id, prepends the row to the
+  live `Retirements` resource (panel grows during play). Auto-
+  respawn still deferred — pending_respawns gets cleared each
+  drain so the queue doesn't grow without a consumer.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
