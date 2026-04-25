@@ -68,6 +68,14 @@ impl Plugin for UiPlugin {
             // and also separates the "details" family so ship_details
             // + facility_details don't compete for EguiContexts within
             // the same chain.
+            //
+            // `.after(top_bar)` is critical for the *_labels_panel
+            // systems — they call `ctx.available_rect()` to find out
+            // where the top bar ends, and that only returns the
+            // reduced rect AFTER `top_bar` has shown. Without this
+            // explicit ordering Bevy may run chain 2 in parallel
+            // with chain 1, leaving available_rect = full screen
+            // and labels bleeding into the chrome.
             .add_systems(
                 Update,
                 (
@@ -84,7 +92,8 @@ impl Plugin for UiPlugin {
                     facility_labels_panel,
                     ship_labels_panel,
                 )
-                    .chain(),
+                    .chain()
+                    .after(top_bar),
             );
     }
 }
@@ -4062,10 +4071,12 @@ impl Default for BodyLabelsState {
 /// layer ordering doesn't actually push Background-ordered Areas
 /// below TopBottomPanels in practice (verified via screenshot in
 /// 4bg) — clipping by Y is the reliable fix.
+///
+/// `available_rect().top()` returns the bottom of all top-anchored
+/// panels claimed so far this frame. Requires the calling system
+/// to run AFTER the top-bar shows — the chain-2 systems explicitly
+/// `.after(top_bar)` for this reason (see UiPlugin::build).
 fn label_min_y(ctx: &egui::Context) -> f32 {
-    // available_rect() returns the central viewport — the region
-    // egui considers "free" after panels claim their bands. Its
-    // top edge is exactly the bottom of any top-anchored panels.
     ctx.available_rect().top()
 }
 
