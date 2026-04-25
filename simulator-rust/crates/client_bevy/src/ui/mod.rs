@@ -2841,6 +2841,13 @@ fn facility_details_panel(
     // ends so admin mutations don't conflict with the read-only
     // query that's live inside.
     let mut refill_requested = false;
+    // Per-commodity reserve deltas captured by the +/- buttons in
+    // the Reserves grid. Applied after the read-only query drops.
+    let mut reserves_deltas: Vec<(sim_core::economy::commodities::Commodity, f32)> =
+        Vec::new();
+    // Optional "add new commodity" pick; if Some, the apply pass
+    // inserts an entry initialised to 100 units.
+    let mut add_commodity: Option<sim_core::economy::commodities::Commodity> = None;
     let title = format!("Facility · {}", fac_id);
 
     egui::Window::new(title)
@@ -2987,18 +2994,71 @@ fn facility_details_panel(
                 } else {
                     egui::Grid::new("fac_details_reserves")
                         .striped(true)
-                        .num_columns(2)
-                        .spacing([10.0, 2.0])
+                        .num_columns(5)
+                        .spacing([6.0, 2.0])
                         .show(ui, |ui| {
                             let mut items: Vec<_> = storage.reserves.iter().collect();
                             items.sort_by_key(|(c, _)| c.as_str());
                             for (c, qty) in items {
                                 ui.label(c.as_str());
-                                ui.label(format!("{:.0}", qty));
+                                ui.label(
+                                    egui::RichText::new(format!("{:.0}", qty)).monospace(),
+                                );
+                                if ui
+                                    .add(egui::Button::new("-100").small())
+                                    .on_hover_text("Subtract 100 units (floored at 0).")
+                                    .clicked()
+                                {
+                                    reserves_deltas.push((*c, -100.0));
+                                }
+                                if ui
+                                    .add(egui::Button::new("+100").small())
+                                    .on_hover_text("Add 100 units.")
+                                    .clicked()
+                                {
+                                    reserves_deltas.push((*c, 100.0));
+                                }
+                                if ui
+                                    .add(egui::Button::new("+1k").small())
+                                    .on_hover_text("Add 1000 units — quick top-up.")
+                                    .clicked()
+                                {
+                                    reserves_deltas.push((*c, 1000.0));
+                                }
                                 ui.end_row();
                             }
                         });
                 }
+                // "Add commodity" picker — list any commodity not
+                // already in reserves so the user can introduce a new
+                // line without typing a string. Initialises new
+                // entries at 100 units (small enough to feel like a
+                // delta, big enough to be visible).
+                ui.horizontal(|ui| {
+                    let existing: std::collections::HashSet<_> =
+                        storage.reserves.keys().copied().collect();
+                    let missing: Vec<_> =
+                        sim_core::economy::commodities::Commodity::ALL
+                            .iter()
+                            .copied()
+                            .filter(|c| !existing.contains(c))
+                            .collect();
+                    if !missing.is_empty() {
+                        ui.label(theme::caption("Add"));
+                        egui::ComboBox::from_id_salt("fac_reserves_add")
+                            .selected_text("(pick a commodity)")
+                            .show_ui(ui, |ui| {
+                                for c in &missing {
+                                    if ui
+                                        .selectable_label(false, c.as_str())
+                                        .clicked()
+                                    {
+                                        add_commodity = Some(*c);
+                                    }
+                                }
+                            });
+                    }
+                });
                 ui.separator();
 
                 if let Some(fit) = fitting {
@@ -3135,6 +3195,21 @@ fn facility_details_panel(
                 }
             }
             info!("client_bevy admin: refilled reserves on {fac_id}");
+        }
+    }
+
+    // Apply per-commodity reserve deltas + new-commodity inserts
+    // captured by the buttons inside the read-only render closure.
+    if !reserves_deltas.is_empty() || add_commodity.is_some() {
+        use sim_core::agents::facility::FacilityStorage;
+        if let Ok(mut storage) = sim.store.world.get::<&mut FacilityStorage>(entity) {
+            for (c, d) in reserves_deltas {
+                let entry = storage.reserves.entry(c).or_insert(0.0);
+                *entry = (*entry + d).max(0.0);
+            }
+            if let Some(c) = add_commodity {
+                storage.reserves.entry(c).or_insert(100.0);
+            }
         }
     }
 
