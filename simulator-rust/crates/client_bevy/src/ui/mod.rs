@@ -133,12 +133,23 @@ fn top_bar_controls(
                             sim.tick_mult = s;
                         }
                     }
-                });
+                })
+                .response
+                .on_hover_text(
+                    "Sim speed multiplier — tick_sim runs the tick body N× per \
+                     FixedUpdate. Higher = faster game time at the cost of frame \
+                     budget. 1× ≈ 8 ticks/sec real-time, 8× ≈ 64 ticks/sec.",
+                );
             ui.separator();
             ui.label(
                 egui::RichText::new(format!("tick {}", sim.tick))
                     .monospace()
                     .color(theme::TEXT_DIM),
+            )
+            .on_hover_text(
+                "Current sim tick. Each tick advances all agents one step \
+                 (planner, market, facility, etc). Default cadence is \
+                 8 ticks/sec × tick_mult.",
             );
             if !sim.running {
                 // Always-visible PAUSED chip so users glancing at the
