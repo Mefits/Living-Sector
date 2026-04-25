@@ -455,6 +455,12 @@ directly; zero marshalling between sim and render.
   hecs store. Paired `render::reconcile_new_ships` spawns the
   matching Bevy render entity on the next frame — mirror of
   `cleanup_stale_ships` for the birth side of the lifecycle.
+- **Bundle 3ai**: docked ship list in facility details + cross-
+  nav. Facility "Dock" subsection now lists each docked ship by
+  name/class and each queue entry by position; clicking any row
+  selects the ship (opens its details panel). Makes the dock
+  FIFO + occupancy inspectable and tightens the facility→ship
+  navigation path to match Godot.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
