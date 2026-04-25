@@ -48,6 +48,7 @@ impl Plugin for RenderPlugin {
                 (
                     sync_positions,
                     highlight_selected,
+                    draw_selection_rings,
                     draw_transit_lines,
                     draw_gate_rings,
                     draw_construction_sites,
@@ -773,6 +774,52 @@ fn draw_construction_sites(sim: Res<Sim>, mut gizmos: Gizmos) {
         if progress > 0.0 {
             let r = SITE_OUTER_RADIUS * progress;
             gizmos.circle(center, normal, r, inner).resolution(32);
+        }
+    }
+}
+
+/// Draw a pulsing ring around the selected ship / facility so the
+/// user can find their selection in a dense scene. Complements the
+/// scale-up in `highlight_selected` — a 4× ship at galactic zoom is
+/// still tiny; a pulsing cyan ring is visible at any zoom level.
+/// Pulse is time-based (sine of wall-clock seconds) so it doesn't
+/// get faster with sim speed.
+#[allow(clippy::type_complexity)]
+fn draw_selection_rings(
+    time: Res<Time>,
+    selected_ship: Res<SelectedShip>,
+    selected_fac: Res<SelectedFacility>,
+    ships: Query<(&ShipEntity, &Transform)>,
+    facilities: Query<(&FacilityEntity, &Transform)>,
+    mut gizmos: Gizmos,
+) {
+    // Pulse amplitude as a fraction of the base ring radius. Slow
+    // 1.5 Hz sine, range 0.85..1.15 so the pulse reads as a gentle
+    // breath rather than a strobe.
+    let t = time.elapsed_seconds();
+    let pulse = 1.0 + 0.15 * (t * std::f32::consts::TAU * 0.6).sin();
+
+    // Cyan, high intensity so the bloom post-process picks it up and
+    // the ring glows even when small.
+    let color = Color::srgb(0.4, 1.0, 1.5);
+    let normal = Dir3::Y;
+
+    if let Some(id) = selected_ship.0.as_deref() {
+        for (ship, xf) in ships.iter() {
+            if ship.sim_id == id {
+                let r = SHIP_SIZE * SELECT_SCALE * 1.6 * pulse;
+                gizmos.circle(xf.translation, normal, r, color).resolution(32);
+                break;
+            }
+        }
+    }
+    if let Some(id) = selected_fac.0.as_deref() {
+        for (fac, xf) in facilities.iter() {
+            if fac.sim_id == id {
+                let r = FACILITY_SIZE * SELECT_SCALE * 1.3 * pulse;
+                gizmos.circle(xf.translation, normal, r, color).resolution(48);
+                break;
+            }
         }
     }
 }
