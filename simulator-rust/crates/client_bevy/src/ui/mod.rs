@@ -2446,8 +2446,55 @@ fn facility_details_panel(
 
                 if !storage.docked_ships.is_empty() || !storage.dock_queue.is_empty() {
                     ui.label(egui::RichText::new("Dock").strong().size(14.0));
-                    ui.label(format!("Docked: {} ships", storage.docked_ships.len()));
-                    ui.label(format!("Queue: {} waiting", storage.dock_queue.len()));
+                    // Resolve each docked / queued entity back to
+                    // its ShipIdentity so the panel can name them.
+                    // Cheap even at Haven's 45-capacity — 45 hecs
+                    // query_ones per facility click, maybe once a
+                    // second when the user is browsing.
+                    use sim_core::agents::ship::ShipIdentity;
+                    // Inline the resolve as a plain closure inferring
+                    // its entity type from the docked_ships vec — we
+                    // don't have a hecs dep to name the type.
+                    let resolve = |e| {
+                        sim.store
+                            .world
+                            .query_one::<&ShipIdentity>(e)
+                            .ok()
+                            .and_then(|mut q| q.get().map(|id| {
+                                format!("{} ({})", id.name, id.class)
+                            }))
+                            .unwrap_or_else(|| "(unknown)".to_string())
+                    };
+
+                    if !storage.docked_ships.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Docked ({})",
+                                storage.docked_ships.len()
+                            ))
+                            .italics()
+                            .color(egui::Color32::from_gray(170)),
+                        );
+                        for &e in &storage.docked_ships {
+                            ui.label(egui::RichText::new(resolve(e)).small());
+                        }
+                    }
+                    if !storage.dock_queue.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Queue ({} waiting)",
+                                storage.dock_queue.len()
+                            ))
+                            .italics()
+                            .color(egui::Color32::from_rgb(230, 200, 90)),
+                        );
+                        for (i, &e) in storage.dock_queue.iter().enumerate() {
+                            ui.label(
+                                egui::RichText::new(format!("{:>2}. {}", i + 1, resolve(e)))
+                                    .small(),
+                            );
+                        }
+                    }
                     if !storage.pending_deliveries.is_empty() {
                         ui.label(format!(
                             "Pending deliveries: {}",
