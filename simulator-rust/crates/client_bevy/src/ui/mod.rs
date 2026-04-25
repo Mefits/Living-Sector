@@ -14,6 +14,8 @@ use crate::camera::{CameraFocusRequest, CameraResetRequest, OrbitCamera};
 use crate::render::SCALE_FACTOR;
 use crate::sim::{EventsLog, PhasePerf, Retirements, Sim, TickPerf};
 
+mod icons;
+
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -36,6 +38,7 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (
+                    icons::install_image_loaders,
                     track_fps,
                     top_bar_controls,
                     top_bar,
@@ -89,9 +92,18 @@ fn top_bar_controls(
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("spaceproject").strong());
             ui.separator();
+            // Pause / play — icon-only square button. Hover surfaces
+            // the action text since the icon alone is unambiguous
+            // (▶ play, ⏸ pause).
             let running = sim.running;
-            let label = if running { "⏸ Pause" } else { "▶ Play" };
-            if ui.button(label).clicked() {
+            let pp_resp = ui
+                .add(egui::ImageButton::new(if running {
+                    icons::pause()
+                } else {
+                    icons::play()
+                }))
+                .on_hover_text(if running { "Pause" } else { "Play" });
+            if pp_resp.clicked() {
                 sim.running = !running;
             }
             let mut speed = sim.tick_mult.max(1);
@@ -112,14 +124,14 @@ fn top_bar_controls(
             );
             ui.separator();
             if ui
-                .button("Reset view")
+                .add(egui::Button::image_and_text(icons::refresh(), "Reset view"))
                 .on_hover_text("Snap the camera back to the galactic overview starting pose.")
                 .clicked()
             {
                 cam_reset.0 = true;
             }
             if ui
-                .button("Save as…")
+                .add(egui::Button::image_and_text(icons::save(), "Save as…"))
                 .on_hover_text(
                     "Write a timestamped VACUUM INTO snapshot of sim.db next to \
                      the current DB. Embedded client has no persistence worker \
@@ -137,7 +149,7 @@ fn top_bar_controls(
                     .color(egui::Color32::from_gray(160)),
             );
             if ui
-                .button(egui::RichText::new("+Freighter").small())
+                .add(egui::Button::image_and_text(icons::add_ship(), "Freighter"))
                 .on_hover_text(
                     "Spawn a freighter at earth-station for the \
                      independent faction with 5000 credits. Quick way to \
@@ -177,102 +189,115 @@ fn top_bar(
     let construction_count = sim.store.world.query::<&ConstructionSite>().iter().count();
     egui::TopBottomPanel::top("top_bar_panels").show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
-            if ui
-                .selectable_label(
-                    ships.open,
-                    format!("Ships ({})", sim.store.ship_by_id.len()),
-                )
-                .clicked()
-            {
+            // Panel-toggle row: each entry is icon + "Label (count)".
+            // Click toggles the panel's `open` flag. The toggled
+            // state is shown by the button's `selected` highlight,
+            // not a separate visual cue, so the row stays uniform
+            // when half the panels are open.
+            if icon_toggle(ui, icons::ships(), "Ships", Some(sim.store.ship_by_id.len()), ships.open) {
                 ships.open = !ships.open;
             }
-            if ui
-                .selectable_label(
-                    contracts.open,
-                    format!("Contracts ({})", sim.store.contracts.iter().count()),
-                )
-                .clicked()
-            {
+            if icon_toggle(
+                ui,
+                icons::contracts(),
+                "Contracts",
+                Some(sim.store.contracts.iter().count()),
+                contracts.open,
+            ) {
                 contracts.open = !contracts.open;
             }
-            if ui
-                .selectable_label(
-                    factions.open,
-                    format!("Factions ({})", sim.store.faction_by_id.len()),
-                )
-                .clicked()
-            {
+            if icon_toggle(
+                ui,
+                icons::factions(),
+                "Factions",
+                Some(sim.store.faction_by_id.len()),
+                factions.open,
+            ) {
                 factions.open = !factions.open;
             }
             // Markets live in the ECS under MarketIdentity — counted
             // by iterating the world in the panel itself. Top-bar
             // label just says "Markets" without a count to keep the
             // shared top_bar system from having to query hecs too.
-            if ui
-                .selectable_label(markets.open, "Markets")
-                .clicked()
-            {
+            if icon_toggle(ui, icons::market(), "Markets", None, markets.open) {
                 markets.open = !markets.open;
             }
-            if ui
-                .selectable_label(
-                    pops.open,
-                    format!("Pops ({})", sim.store.population_by_id.len()),
-                )
-                .clicked()
-            {
+            if icon_toggle(
+                ui,
+                icons::pops(),
+                "Pops",
+                Some(sim.store.population_by_id.len()),
+                pops.open,
+            ) {
                 pops.open = !pops.open;
             }
-            if ui
-                .selectable_label(
-                    facilities.open,
-                    format!("Facilities ({})", sim.store.facility_by_id.len()),
-                )
-                .clicked()
-            {
+            if icon_toggle(
+                ui,
+                icons::ledger(),
+                "Facilities",
+                Some(sim.store.facility_by_id.len()),
+                facilities.open,
+            ) {
                 facilities.open = !facilities.open;
             }
-            if ui
-                .selectable_label(
-                    retired_state.open,
-                    format!("Retired ({})", retirements.0.len()),
-                )
-                .clicked()
-            {
+            if icon_toggle(
+                ui,
+                icons::ledger(),
+                "Retired",
+                Some(retirements.0.len()),
+                retired_state.open,
+            ) {
                 retired_state.open = !retired_state.open;
             }
-            if ui
-                .selectable_label(
-                    construction.open,
-                    format!("Construction ({})", construction_count),
-                )
-                .clicked()
-            {
+            if icon_toggle(
+                ui,
+                icons::ledger(),
+                "Construction",
+                Some(construction_count),
+                construction.open,
+            ) {
                 construction.open = !construction.open;
             }
-            if ui
-                .selectable_label(minimap.open, "Map")
-                .clicked()
-            {
+            if ui.selectable_label(minimap.open, "Map").clicked() {
                 minimap.open = !minimap.open;
             }
-            if ui
-                .selectable_label(body_labels.show, "Labels")
-                .clicked()
-            {
+            if ui.selectable_label(body_labels.show, "Labels").clicked() {
                 body_labels.show = !body_labels.show;
             }
-            if ui
-                .selectable_label(
-                    events_state.open,
-                    format!("Events ({})", events.0.len()),
-                )
-                .clicked()
-            {
+            if icon_toggle(
+                ui,
+                icons::events(),
+                "Events",
+                Some(events.0.len()),
+                events_state.open,
+            ) {
                 events_state.open = !events_state.open;
             }
         });
     });
+}
+
+/// Icon + label + optional `(count)` toggle button. Highlights when
+/// `open` is true (egui Button's `selected` styling, no frame). Used
+/// for every entry in the panel-toggles row so the top bar stays
+/// uniform and visually scannable.
+fn icon_toggle(
+    ui: &mut egui::Ui,
+    icon: egui::Image<'static>,
+    label: &str,
+    count: Option<usize>,
+    open: bool,
+) -> bool {
+    let text = match count {
+        Some(n) => format!("{label} ({n})"),
+        None => label.to_string(),
+    };
+    ui.add(
+        egui::Button::image_and_text(icon, text)
+            .selected(open)
+            .frame(false),
+    )
+    .clicked()
 }
 
 /// Rolling FPS window so the overlay doesn't flicker frame-to-frame.
