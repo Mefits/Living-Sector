@@ -36,7 +36,10 @@ impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         // Spawn entities after the sim has loaded (PostStartup ensures
         // `Sim::load_world` has populated the store).
-        app.add_systems(PostStartup, (spawn_mirror_entities, spawn_starfield))
+        app.add_systems(
+                PostStartup,
+                (spawn_mirror_entities, spawn_starfield, spawn_nebulae),
+            )
             .add_systems(
                 Update,
                 (
@@ -500,6 +503,99 @@ fn spawn_starfield(
     info!(
         "client_bevy: spawned {} stars (world_seed={})",
         STAR_COUNT, seed,
+    );
+}
+
+/// Number of nebula clouds. Kept small — each is a big translucent
+/// sphere; too many overlap into an opaque fog.
+const NEBULA_COUNT: usize = 14;
+
+/// Shell radius the nebula clouds sit at. Past the star shell
+/// (STAR_FIELD_RADIUS = 4000) so clouds read as deep-background
+/// volumes and can't occlude foreground bodies/ships. Earlier
+/// revisions had them at 2200 (inside the stars) and one cloud
+/// drifted right in front of the camera view — blotted out the
+/// scene.
+const NEBULA_FIELD_RADIUS: f32 = 6500.0;
+
+/// Per-cloud sphere radius range (min, max). Smaller than the first
+/// revision — at NEBULA_FIELD_RADIUS distance these still project
+/// to respectable backdrop blobs without dominating the scene.
+const NEBULA_RADIUS_RANGE: (f32, f32) = (300.0, 650.0);
+
+/// Paint a handful of translucent colored spheres around origin as
+/// nebula clouds, seeded off `Sim.world_seed`. Hues vary per-instance
+/// and per-seed so the same world shows the same clouds every boot
+/// but different worlds look distinct. Unlit emissive so the clouds
+/// don't darken behind bodies and stations.
+fn spawn_nebulae(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    sim: Res<Sim>,
+) {
+    use rand::{rngs::StdRng, Rng, SeedableRng};
+
+    // Offset the seed so the nebulae don't phase-lock with the
+    // starfield's layout — same world, different dice.
+    let seed = sim.world_seed.wrapping_add(0xBADC0FFEE0DDF00Du64);
+    let mut rng = StdRng::seed_from_u64(seed);
+
+    // Shared low-res sphere — nebulae are always soft blobs; poly
+    // count doesn't matter.
+    let mesh = meshes.add(Sphere::new(1.0));
+
+    for _ in 0..NEBULA_COUNT {
+        // Pick a direction on the shell (same z-theta method as
+        // stars) and a middle-distance radius.
+        let z: f32 = rng.gen_range(-1.0..1.0);
+        let theta: f32 = rng.gen_range(0.0..std::f32::consts::TAU);
+        let r_xy = (1.0 - z * z).sqrt();
+        let dir = Vec3::new(r_xy * theta.cos(), z * 0.4, r_xy * theta.sin());
+        let distance = NEBULA_FIELD_RADIUS * rng.gen_range(0.7f32..1.0);
+        let pos = dir * distance;
+
+        // Per-cloud radius + hue. Bias colours toward purples,
+        // teals, and dusty oranges — the classic "galaxy nebula"
+        // palette — rather than rainbow noise.
+        let radius = rng.gen_range(NEBULA_RADIUS_RANGE.0..NEBULA_RADIUS_RANGE.1);
+        let hue_roll: f32 = rng.gen_range(0.0f32..1.0);
+        let (r, g, b) = if hue_roll < 0.34 {
+            // purple/violet
+            (0.35, 0.22, 0.55)
+        } else if hue_roll < 0.67 {
+            // teal/cyan
+            (0.18, 0.40, 0.48)
+        } else {
+            // dusty orange
+            (0.55, 0.32, 0.20)
+        };
+        // Intensity + alpha tuned low — at NEBULA_FIELD_RADIUS
+        // distance these still read as visible colour gradients
+        // against pure black. Too high and a cloud becomes a
+        // foreground haze that blots out ships.
+        let intensity = rng.gen_range(0.10f32..0.22);
+        let mat = materials.add(StandardMaterial {
+            base_color: Color::srgba(r, g, b, 0.04),
+            emissive: LinearRgba::new(r, g, b, 1.0) * intensity,
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        });
+
+        commands.spawn((
+            PbrBundle {
+                mesh: mesh.clone(),
+                material: mat,
+                transform: Transform::from_translation(pos).with_scale(Vec3::splat(radius)),
+                ..default()
+            },
+            Name::new("Nebula"),
+        ));
+    }
+    info!(
+        "client_bevy: spawned {} nebula clouds (world_seed={})",
+        NEBULA_COUNT, sim.world_seed,
     );
 }
 

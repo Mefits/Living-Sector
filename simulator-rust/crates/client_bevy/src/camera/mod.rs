@@ -93,9 +93,20 @@ impl OrbitCamera {
 
 fn spawn_orbit_camera(mut commands: Commands) {
     let orbit = OrbitCamera::initial();
+    // Stretch the far clip plane well beyond the star shell
+    // (STAR_FIELD_RADIUS = 4000) + the nebula shell
+    // (NEBULA_FIELD_RADIUS = 6500) so backdrop elements actually
+    // render. Default Bevy far is 1000, which culls the whole
+    // backdrop at galactic zoom.
+    let projection = Projection::Perspective(PerspectiveProjection {
+        near: 0.1,
+        far: 20_000.0,
+        ..default()
+    });
     commands.spawn((
         Camera3dBundle {
             transform: orbit.transform(),
+            projection,
             ..default()
         },
         orbit,
