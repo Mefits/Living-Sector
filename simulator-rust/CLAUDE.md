@@ -417,6 +417,29 @@ directly; zero marshalling between sim and render.
   Resource. Top bar button flips the flag; the camera plugin's
   new `apply_reset_request` system restores `OrbitCamera` to
   `::initial()` pose. One-click recovery when pan/zoom drifts.
+- **Bundle 3ae**: nebula backdrop — 14 translucent colored spheres
+  at 9000-wu shell seeded off world_seed, palette biased toward
+  purple/teal/dusty-orange. Past the star shell so they read as
+  deep-background volumes. Alpha 0.04, emissive 0.10-0.22.
+- **Visual polish pass (post-feedback)**: ClearColor black (was
+  grey default), DirectionalLight `shadows_enabled: false` (fixed
+  1-FPS symptom on M1 with 1604 shadow-casters), WinitSettings
+  Continuous focused + unfocused (keeps window ticking when Terminal
+  takes focus — prior ReactiveLowPower path showed as 1 FPS),
+  camera PerspectiveProjection `far = 20_000` (default 1000 was
+  clipping starfield + nebulae at galactic zoom), F12 screenshot
+  via ScreenshotManager + `CLIENT_BEVY_AUTO_SCREENSHOT=1` env for
+  headless capture at frame 3. BODY_SIZE 1→5 / FACILITY_SIZE
+  0.35→1.5 / SHIP_SIZE 0.18→0.4 so agents are actually visible at
+  galactic zoom. SELECT_SCALE 2.2×→4×. Faction ship materials carry
+  emissive tint (1.8×); camera gets `hdr: true` + BloomSettings —
+  ships now read as bright faction-coloured sparks at overview.
+  `ClearColor(BLACK)` paired with ambient 80 (was 200) so ships
+  don't wash out against space.
+- **Bundle 3af**: pulsing cyan selection ring via Gizmos. Slow
+  0.6 Hz sine, ±15% radius; bright enough to bloom through the
+  HDR post-process so a selected ship stays findable at any
+  zoom level.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
