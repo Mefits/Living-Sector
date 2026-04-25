@@ -107,23 +107,23 @@ pub struct SfxLibrary {
 
 fn load_sfx(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(SfxLibrary {
-        explosion_small: asset_server.load("sfx/explosion_small.wav"),
-        explosion_med: asset_server.load("sfx/explosion_med.wav"),
-        explosion_large: asset_server.load("sfx/explosion_large.wav"),
+        explosion_small: asset_server.load("sfx/explosion_small.ogg"),
+        explosion_med: asset_server.load("sfx/explosion_med.ogg"),
+        explosion_large: asset_server.load("sfx/explosion_large.ogg"),
         click_steps: [
-            asset_server.load("sfx/click_0.wav"),
-            asset_server.load("sfx/click_1.wav"),
-            asset_server.load("sfx/click_2.wav"),
-            asset_server.load("sfx/click_3.wav"),
-            asset_server.load("sfx/click_4.wav"),
-            asset_server.load("sfx/click_5.wav"),
+            asset_server.load("sfx/click_0.ogg"),
+            asset_server.load("sfx/click_1.ogg"),
+            asset_server.load("sfx/click_2.ogg"),
+            asset_server.load("sfx/click_3.ogg"),
+            asset_server.load("sfx/click_4.ogg"),
+            asset_server.load("sfx/click_5.ogg"),
         ],
-        gate_jump: asset_server.load("sfx/gate_jump.wav"),
-        close: asset_server.load("sfx/close.wav"),
-        confirm: asset_server.load("sfx/confirm.wav"),
-        deny: asset_server.load("sfx/deny.wav"),
-        warn: asset_server.load("sfx/warn.wav"),
-        select: asset_server.load("sfx/select.wav"),
+        gate_jump: asset_server.load("sfx/gate_jump.ogg"),
+        close: asset_server.load("sfx/close.ogg"),
+        confirm: asset_server.load("sfx/confirm.ogg"),
+        deny: asset_server.load("sfx/deny.ogg"),
+        warn: asset_server.load("sfx/warn.ogg"),
+        select: asset_server.load("sfx/select.ogg"),
     });
 }
 

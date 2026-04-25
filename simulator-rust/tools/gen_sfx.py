@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Generate the client_bevy SFX WAV files.
+"""Generate the client_bevy SFX OGG files.
 
 Ported from `client/scripts/autoload/procedural_audio.gd` — the Godot
 client synthesised every sound at runtime; the Bevy client loads
-pre-baked WAVs from `crates/client_bevy/assets/sfx/`. Re-run this
-script whenever you tune a synth (and re-commit the WAVs).
+pre-baked OGG/Vorbis from `crates/client_bevy/assets/sfx/`. Re-run
+this script whenever you tune a synth (and re-commit the OGGs).
 
-Stdlib-only (math + wave + struct + random) — no numpy / scipy /
-pyfxr dependency.
+OGG over WAV: Bevy 0.14's default audio feature set includes
+`vorbis` but not `wav`, so WAV files panic with UnrecognizedFormat
+in `play_queued_audio_system`. OGG also matches the music files'
+format. We pipe raw PCM through ffmpeg's libvorbis encoder rather
+than carrying a heavy Python OGG dep.
+
+Stdlib for synthesis (math + struct + random); ffmpeg for encoding.
 
 Usage:
     python3 tools/gen_sfx.py
@@ -19,7 +24,7 @@ import math
 import os
 import random
 import struct
-import wave
+import subprocess
 from pathlib import Path
 
 SAMPLE_RATE = 22_050
@@ -35,21 +40,40 @@ OUT_DIR = (
 
 
 # ---------------------------------------------------------------------------
-# WAV writer
+# OGG writer (raw PCM → ffmpeg → libvorbis)
 # ---------------------------------------------------------------------------
 
 
-def write_wav(path: Path, samples: list[float]) -> None:
-    """Write a mono 16-bit PCM WAV. `samples` is float in [-1, 1]."""
+def write_ogg(path: Path, samples: list[float]) -> None:
+    """Write a mono OGG/Vorbis from float samples in [-1, 1].
+
+    Encoding goes through ffmpeg: we pack samples as little-endian
+    s16 PCM, pipe to ffmpeg over stdin, and let it run libvorbis.
+    Quality 5 (-q:a 5) is plenty for short SFX one-shots — keeps
+    the file small without artefacting the click attack transients.
+    """
     pcm = bytearray()
     for s in samples:
         s = max(-1.0, min(1.0, s))
         pcm += struct.pack("<h", int(s * 32_767))
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(SAMPLE_RATE)
-        w.writeframes(bytes(pcm))
+    cmd = [
+        "ffmpeg",
+        "-y",                  # overwrite
+        "-loglevel", "error",  # quiet unless something breaks
+        "-f", "s16le",         # raw input format
+        "-ar", str(SAMPLE_RATE),
+        "-ac", "1",            # mono
+        "-i", "pipe:0",        # stdin
+        "-c:a", "libvorbis",
+        "-q:a", "5",
+        str(path),
+    ]
+    proc = subprocess.run(cmd, input=bytes(pcm), capture_output=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg failed for {path}: "
+            f"{proc.stderr.decode('utf-8', errors='replace')}"
+        )
 
 
 def env_attack_release(i: int, n: int, attack_n: int, release_n: int) -> float:
@@ -181,30 +205,30 @@ def main() -> None:
     # Three explosion sizes — let the play layer pick by ship class
     # (Tiny → small, Massive → large) when the SFX-on-retire wires
     # land. Seed is fixed so re-running this script is deterministic.
-    write_wav(OUT_DIR / "explosion_small.wav", gen_explosion(0.5, 1))
-    write_wav(OUT_DIR / "explosion_med.wav", gen_explosion(1.0, 2))
-    write_wav(OUT_DIR / "explosion_large.wav", gen_explosion(1.6, 3))
+    write_ogg(OUT_DIR / "explosion_small.ogg", gen_explosion(0.5, 1))
+    write_ogg(OUT_DIR / "explosion_med.ogg", gen_explosion(1.0, 2))
+    write_ogg(OUT_DIR / "explosion_large.ogg", gen_explosion(1.6, 3))
 
     # UI cues — direct ports of the Godot helpers.
-    write_wav(OUT_DIR / "click.wav", gen_click(1.0))
-    write_wav(OUT_DIR / "close.wav", gen_click(0.55))
-    write_wav(OUT_DIR / "ui_blip.wav", gen_ui_blip(1.0))
-    write_wav(OUT_DIR / "select.wav", gen_ui_blip(1.25))
-    write_wav(OUT_DIR / "confirm.wav", gen_two_tone(660.0, 990.0, 0.06, 0.015))
-    write_wav(OUT_DIR / "deny.wav", gen_two_tone(440.0, 294.0, 0.08, 0.02))
-    write_wav(OUT_DIR / "warn.wav", gen_two_tone(550.0, 550.0, 0.05, 0.03))
+    write_ogg(OUT_DIR / "click.ogg", gen_click(1.0))
+    write_ogg(OUT_DIR / "close.ogg", gen_click(0.55))
+    write_ogg(OUT_DIR / "ui_blip.ogg", gen_ui_blip(1.0))
+    write_ogg(OUT_DIR / "select.ogg", gen_ui_blip(1.25))
+    write_ogg(OUT_DIR / "confirm.ogg", gen_two_tone(660.0, 990.0, 0.06, 0.015))
+    write_ogg(OUT_DIR / "deny.ogg", gen_two_tone(440.0, 294.0, 0.08, 0.02))
+    write_ogg(OUT_DIR / "warn.ogg", gen_two_tone(550.0, 550.0, 0.05, 0.03))
 
     # Gate-jump warp ping — higher pitched ui_blip with a longer tail.
-    write_wav(OUT_DIR / "gate_jump.wav", gen_ui_blip(1.6))
+    write_ogg(OUT_DIR / "gate_jump.ogg", gen_ui_blip(1.6))
 
     # Pentatonic-chain clicks — 6 pitched variants to walk up a scale
     # on rapid presses (mirrors GDScript's CLICK_PENTATONIC_SEMITONES).
     semitones = [0, 2, 4, 7, 9, 12]
     for idx, st in enumerate(semitones):
         mult = 2 ** (st / 12.0)
-        write_wav(OUT_DIR / f"click_{idx}.wav", gen_click(mult))
+        write_ogg(OUT_DIR / f"click_{idx}.ogg", gen_click(mult))
 
-    print(f"baked {len(list(OUT_DIR.glob('*.wav')))} files")
+    print(f"baked {len(list(OUT_DIR.glob('*.ogg')))} files")
 
 
 if __name__ == "__main__":
