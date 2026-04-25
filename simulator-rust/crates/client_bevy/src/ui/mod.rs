@@ -102,6 +102,7 @@ fn top_bar_controls(
     mut save_req: ResMut<crate::sim::SaveAsRequest>,
     mut add_ship: ResMut<AddShipDialogState>,
     mut add_fac: ResMut<AddFacilityDialogState>,
+    mut help: ResMut<HelpState>,
     mut ship_sel: ResMut<SelectedShip>,
     mut fac_sel: ResMut<SelectedFacility>,
 ) {
@@ -185,6 +186,17 @@ fn top_bar_controls(
                 .clicked()
             {
                 add_fac.open = !add_fac.open;
+            }
+            ui.separator();
+            // Help / hotkey reference. Tiny "?" button at the end of
+            // the controls row so the binding is discoverable
+            // without first reading docs.
+            if ui
+                .small_button("?")
+                .on_hover_text("Show keyboard + mouse hotkey reference (also `?` or `H`).")
+                .clicked()
+            {
+                help.open = !help.open;
             }
 
             // Selection chip — when a ship or facility is selected
