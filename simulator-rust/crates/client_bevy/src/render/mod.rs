@@ -389,11 +389,12 @@ fn sync_positions(
 }
 
 /// Selection scale factor — how big the chosen ship/facility gets
-/// relative to its peers. Big enough to stand out in a dense field
-/// of 1600 ships, small enough that it still reads as the same
-/// agent (not an impostor). Tune to taste once we have real ship
-/// meshes.
-const SELECT_SCALE: f32 = 2.2;
+/// relative to its peers. Big enough to stand out at galactic
+/// zoom where the base placeholder meshes are tiny dots; small
+/// enough that it still reads as the same agent up close. 4×
+/// makes a 0.4-wu ship visible as a 1.6-wu blob at overview —
+/// roughly body-sized, so clearly the selected one in the scene.
+const SELECT_SCALE: f32 = 4.0;
 
 /// Per-frame system: enlarge whichever ship and facility are
 /// currently selected; reset everyone else. The check is a string
