@@ -15,6 +15,7 @@ use crate::render::SCALE_FACTOR;
 use crate::sim::{EventsLog, PhasePerf, Retirements, Sim, TickPerf};
 
 mod icons;
+mod theme;
 
 pub struct UiPlugin;
 
@@ -39,6 +40,7 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     icons::install_image_loaders,
+                    theme::apply_theme,
                     track_fps,
                     top_bar_controls,
                     top_bar,
