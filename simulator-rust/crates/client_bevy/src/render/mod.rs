@@ -1516,24 +1516,56 @@ fn raycast_context_menu(
 /// 1 — the trail is NOT a child of the ship, so it isn't subject to
 /// SHIP_GLB_SCALE / size_multiplier shrinkage. Particle sizes set
 /// inside the EffectAsset render in world units accordingly.
+///
+/// Also gates emission on transit: if the matching sim ship is
+/// docked, the trail entity goes Visibility::Hidden — hanabi's
+/// default `simulation_condition: WhenVisible` halts emission while
+/// hidden, so docked ships read as engines-off instantly without a
+/// per-instance EffectInitializers mutation.
+#[allow(clippy::type_complexity)]
 fn sync_engine_trails(
+    sim: Res<Sim>,
     ships: Query<(&ShipEntity, &Transform), Without<EngineTrailFor>>,
-    mut trails: Query<(&EngineTrailFor, &mut Transform), Without<ShipEntity>>,
+    mut trails: Query<
+        (&EngineTrailFor, &mut Transform, &mut Visibility),
+        Without<ShipEntity>,
+    >,
 ) {
+    use sim_core::agents::ship::ShipPosition;
     if ships.is_empty() {
         return;
     }
     let positions: std::collections::HashMap<&str, &Transform> =
         ships.iter().map(|(s, t)| (s.sim_id.as_str(), t)).collect();
-    for (trail_for, mut trail_xf) in trails.iter_mut() {
-        if let Some(ship_xf) = positions.get(trail_for.0.as_str()) {
-            // Aft offset in ship-local frame (-Z behind nose), rotated
-            // into world space. 1.5 wu lands the emitter just behind
-            // the hull silhouette at typical ship scale.
-            let aft = ship_xf.rotation * Vec3::new(0.0, 0.0, -1.5);
-            trail_xf.translation = ship_xf.translation + aft;
-            trail_xf.rotation = ship_xf.rotation;
-            trail_xf.scale = Vec3::ONE;
+    for (trail_for, mut trail_xf, mut vis) in trails.iter_mut() {
+        let Some(ship_xf) = positions.get(trail_for.0.as_str()) else {
+            continue;
+        };
+        // Aft offset in ship-local frame (-Z behind nose), rotated
+        // into world space. 1.5 wu lands the emitter just behind
+        // the hull silhouette at typical ship scale.
+        let aft = ship_xf.rotation * Vec3::new(0.0, 0.0, -1.5);
+        trail_xf.translation = ship_xf.translation + aft;
+        trail_xf.rotation = ship_xf.rotation;
+        trail_xf.scale = Vec3::ONE;
+
+        // Engines-off when docked. Falls through to Visible if the
+        // sim entity lookup fails (better-than-nothing for racing
+        // spawns where the index hasn't caught up).
+        let docked = sim
+            .store
+            .ship_by_id
+            .get(&trail_for.0)
+            .and_then(|&e| sim.store.world.query_one::<&ShipPosition>(e).ok())
+            .and_then(|mut q| q.get().map(|p| p.docked_at.is_some()))
+            .unwrap_or(false);
+        let want = if docked {
+            Visibility::Hidden
+        } else {
+            Visibility::Visible
+        };
+        if *vis != want {
+            *vis = want;
         }
     }
 }
