@@ -512,10 +512,14 @@ fn event_driven_flashes(
 
     let spawn_flash = |commands: &mut Commands, x: f32, y: f32, label: &str| {
         let world = Vec3::new(x * SCALE_FACTOR, 0.5, y * SCALE_FACTOR);
+        // ParticleEffectBundle bundles its own Transform +
+        // GlobalTransform; spawning them as separate tuple entries
+        // panics on duplicate components.
         commands.spawn((
-            ParticleEffectBundle::new(flash.0.clone()),
-            Transform::from_translation(world),
-            GlobalTransform::default(),
+            ParticleEffectBundle {
+                transform: Transform::from_translation(world),
+                ..ParticleEffectBundle::new(flash.0.clone())
+            },
             ExplosionLifetime(Timer::from_seconds(1.0, TimerMode::Once)),
             Name::new(format!("Flash::{label}")),
         ));
@@ -1514,10 +1518,15 @@ fn cleanup_stale_ships(
             // position before we yank the entity. ExplosionLifetime
             // timer cleans up the particle entity 1.5 s later.
             if let Some(ref ex) = explosion {
+                // ParticleEffectBundle already includes Transform +
+                // GlobalTransform — passing them as separate tuple
+                // entries panics with "duplicate components". Set
+                // the transform inline on the bundle instead.
                 commands.spawn((
-                    ParticleEffectBundle::new(ex.0.clone()),
-                    Transform::from_translation(xf.translation),
-                    GlobalTransform::default(),
+                    ParticleEffectBundle {
+                        transform: Transform::from_translation(xf.translation),
+                        ..ParticleEffectBundle::new(ex.0.clone())
+                    },
                     ExplosionLifetime(Timer::from_seconds(1.5, TimerMode::Once)),
                     Name::new(format!("Explosion::{}", ship.sim_id)),
                 ));
