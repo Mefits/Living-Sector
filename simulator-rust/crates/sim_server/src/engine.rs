@@ -1993,7 +1993,7 @@ pub fn apply_release_dock(
 /// Admin: spawn a new ship hecs entity from an already-INSERTed DB row.
 /// The HTTP handler wrote the DB row and handed us the db_id; we build
 /// the matching hecs bundle here and index it.
-fn admin_spawn_ship(
+pub fn admin_spawn_ship(
     store: &mut AgentStore,
     _registry: &WorldRegistry,
     payload: crate::control::AdminSpawnShipPayload,

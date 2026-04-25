@@ -54,6 +54,7 @@ impl Plugin for RenderPlugin {
                     draw_construction_sites,
                     raycast_select,
                     cleanup_stale_ships,
+                    reconcile_new_ships,
                 ),
             );
     }
@@ -626,6 +627,51 @@ fn cleanup_stale_ships(
         if !sim.store.ship_by_id.contains_key(&ship.sim_id) {
             commands.entity(e).despawn_recursive();
         }
+    }
+}
+
+/// Reconcile newly-spawned sim ships into the Bevy scene. Mirror of
+/// [`cleanup_stale_ships`]: iterate sim.store.ship_by_id and spawn a
+/// render entity for any sim_id not yet present in the Bevy ships
+/// query. Runs every frame; membership check is a HashSet build +
+/// lookup so the cost scales with live ship count, not spawn-rate.
+/// Kicks in after admin Spawn Ship — the sim spawn path only
+/// touches hecs, so this bridge surfaces new ships visually.
+fn reconcile_new_ships(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    assets: Option<Res<PlaceholderAssets>>,
+    ships: Query<&ShipEntity>,
+) {
+    let Some(assets) = assets else { return };
+    let known: std::collections::HashSet<String> =
+        ships.iter().map(|s| s.sim_id.clone()).collect();
+
+    for (sim_id, &entity) in sim.store.ship_by_id.iter() {
+        if known.contains(sim_id) {
+            continue;
+        }
+        let Ok(mut q) = sim
+            .store
+            .world
+            .query_one::<(&ShipIdentity, &ShipPosition)>(entity)
+        else {
+            continue;
+        };
+        let Some((id, pos)) = q.get() else { continue };
+        let (x, y) = pos.position;
+        commands.spawn((
+            PbrBundle {
+                mesh: assets.ship_mesh_for(&id.class),
+                material: assets.ship_mat_for(&id.faction_id),
+                transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
+                ..default()
+            },
+            ShipEntity {
+                sim_id: sim_id.clone(),
+            },
+            Name::new(format!("Ship::{sim_id}")),
+        ));
     }
 }
 

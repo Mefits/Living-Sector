@@ -47,6 +47,15 @@ pub const EVENTS_CAP: usize = 2000;
 #[derive(Resource, Default)]
 pub struct SaveAsRequest(pub bool);
 
+/// One-shot flag for the top-bar "Spawn test freighter" admin
+/// button. Consumed by [`process_spawn_ship`] which builds an
+/// `AdminSpawnShipPayload` targeting earth-station with a random
+/// agent id + name, then calls `sim_server::engine::admin_spawn_ship`.
+/// Paired with the render-side `reconcile_new_ships` system which
+/// surfaces the new hecs entity as a Bevy render entity.
+#[derive(Resource, Default)]
+pub struct SpawnShipRequest(pub bool);
+
 /// Base tick interval (seconds). Matches sim_server's default 125 ms
 /// cadence. World-speed UI in a future bundle rescales this.
 pub const DEFAULT_TICK_INTERVAL_S: f64 = 0.125;
@@ -62,9 +71,10 @@ impl Plugin for SimPlugin {
             .init_resource::<Retirements>()
             .init_resource::<EventsLog>()
             .init_resource::<SaveAsRequest>()
+            .init_resource::<SpawnShipRequest>()
             .add_systems(Startup, load_world)
             .add_systems(FixedUpdate, tick_sim)
-            .add_systems(Update, process_save_as);
+            .add_systems(Update, (process_save_as, process_spawn_ship));
     }
 }
 
@@ -432,4 +442,63 @@ fn process_save_as(mut req: ResMut<SaveAsRequest>) {
         Ok(()) => info!("client_bevy: save-as → {dst_path}"),
         Err(e) => error!("client_bevy: save-as failed: {e}"),
     }
+}
+
+/// Consume a pending [`SpawnShipRequest`] by building a minimal
+/// AdminSpawnShipPayload (freighter at earth-station, 5000 credits,
+/// random name + agent id) and calling sim_server's admin_spawn_ship
+/// against our in-memory store. The new hecs entity becomes a Bevy
+/// render entity on the next frame via `reconcile_new_ships` in
+/// render/.
+fn process_spawn_ship(mut req: ResMut<SpawnShipRequest>, mut sim: ResMut<Sim>) {
+    if !req.0 {
+        return;
+    }
+    req.0 = false;
+
+    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
+
+    // Build a throwaway id + name from wall-clock so repeated clicks
+    // don't collide. Embedded ships aren't persisted yet (no DB
+    // worker), so db_id=0 is fine — a restart drops these anyway.
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let agent_id = format!("admin-spawn-{ts}");
+    let name = format!("admin-{ts}");
+    let location = "earth-station".to_string();
+
+    // Position: resolve the body that earth-station orbits. Admin
+    // spawn in sim_server uses per-facility offset math; here we
+    // settle for body-centre, which is close enough — the ship
+    // spawns docked-ish and the sim's planner takes over from there.
+    let body_pos = sim
+        .store
+        .world
+        .query::<(&BodyIdentity, &BodyOrbit)>()
+        .iter()
+        .find(|(_e, (b, _))| b.body_id == "earth")
+        .map(|(_e, (_, o))| o.universe_position())
+        .unwrap_or((0.0, 0.0));
+
+    let payload = sim_server::control::AdminSpawnShipPayload {
+        db_id: 0,
+        agent_id: agent_id.clone(),
+        name,
+        class: "freighter".to_string(),
+        location_name: location,
+        faction_id: "independent".to_string(),
+        universe_offset: (0.0, 0.0),
+        position: body_pos,
+        credits: 5_000,
+    };
+
+    let Sim { store, registry, .. } = &mut *sim;
+    let mut events: Vec<serde_json::Value> = Vec::new();
+    sim_server::engine::admin_spawn_ship(store, registry, payload, &mut events);
+    info!(
+        "client_bevy admin: spawned test freighter {} at earth-station",
+        agent_id
+    );
 }

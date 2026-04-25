@@ -83,6 +83,7 @@ fn top_bar_controls(
     mut sim: ResMut<Sim>,
     mut cam_reset: ResMut<CameraResetRequest>,
     mut save_req: ResMut<crate::sim::SaveAsRequest>,
+    mut spawn_req: ResMut<crate::sim::SpawnShipRequest>,
 ) {
     egui::TopBottomPanel::top("top_bar_controls").show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
@@ -128,6 +129,24 @@ fn top_bar_controls(
                 .clicked()
             {
                 save_req.0 = true;
+            }
+            ui.separator();
+            ui.label(
+                egui::RichText::new("admin:")
+                    .small()
+                    .color(egui::Color32::from_gray(160)),
+            );
+            if ui
+                .button(egui::RichText::new("+Freighter").small())
+                .on_hover_text(
+                    "Spawn a freighter at earth-station for the \
+                     independent faction with 5000 credits. Quick way to \
+                     seed test ships without the full spawn panel. Not \
+                     persisted (embedded client has no worker yet).",
+                )
+                .clicked()
+            {
+                spawn_req.0 = true;
             }
         });
     });
