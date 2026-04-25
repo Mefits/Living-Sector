@@ -8,13 +8,16 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 use sim_core::agents::{
-    celestial_body::{BodyIdentity, BodyOrbit},
+    celestial_body::{BodyBiome, BodyIdentity, BodyOrbit},
     facility::{FacilityIdentity, FacilityLocation},
     ship::{ShipIdentity, ShipPosition, ShipTransit},
 };
 
 use crate::sim::Sim;
 use crate::ui::{SelectedFacility, SelectedShip};
+
+mod planet;
+use planet::{preset_for_biome, seed_offset_from_id, PlanetMaterial, PlanetMaterialPlugin};
 
 /// Scale factor from universe units → world units. Bumped from
 /// Godot's `GameState.SCALE_FACTOR = 10` because Bevy renders the
@@ -79,7 +82,8 @@ impl Plugin for RenderPlugin {
         // Asset bytes load asynchronously; SceneBundle just shows
         // an empty parent until the gltf streams in (typically a
         // frame or two on local disk).
-        app.init_resource::<ShipTrails>()
+        app.add_plugins(PlanetMaterialPlugin)
+            .init_resource::<ShipTrails>()
             .add_systems(Startup, load_station_models)
             .add_systems(
                 PostStartup,
@@ -213,6 +217,10 @@ struct PlaceholderAssets {
     ship_mat_by_faction: std::collections::HashMap<String, Handle<StandardMaterial>>,
     ship_mat_fallback: Handle<StandardMaterial>,
     body_mesh: Handle<Mesh>,
+    /// Kept around so the loop that builds it stays valid; bodies
+    /// now use `PlanetMaterial` (per-body procedural) so this isn't
+    /// referenced post-spawn.
+    #[allow(dead_code)]
     body_mat: Handle<StandardMaterial>,
 }
 
@@ -301,6 +309,7 @@ fn spawn_mirror_entities(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut planet_materials: ResMut<Assets<PlanetMaterial>>,
     sim: Res<Sim>,
     stations: Res<StationModels>,
 ) {
@@ -388,12 +397,22 @@ fn spawn_mirror_entities(
     }
 
     // Bodies — always at their orbit's current universe position.
-    for (_e, (id, orbit)) in world.query::<(&BodyIdentity, &BodyOrbit)>().iter() {
+    // Each body gets its own PlanetMaterial keyed off biome (preset
+    // table) + body_id (seed offset so two earth-likes still differ).
+    for (_e, (id, orbit, biome)) in world
+        .query::<(&BodyIdentity, &BodyOrbit, &BodyBiome)>()
+        .iter()
+    {
         let (x, y) = orbit.universe_position();
+        let preset = preset_for_biome(&biome.biome);
+        let seed = seed_offset_from_id(&id.body_id);
+        let mat = planet_materials.add(PlanetMaterial {
+            params: preset.params(seed),
+        });
         commands.spawn((
-            PbrBundle {
+            MaterialMeshBundle::<PlanetMaterial> {
                 mesh: assets.body_mesh.clone(),
-                material: assets.body_mat.clone(),
+                material: mat,
                 transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
                 ..default()
             },
