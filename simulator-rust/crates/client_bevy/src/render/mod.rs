@@ -17,7 +17,7 @@ use crate::sim::Sim;
 use crate::ui::{SelectedFacility, SelectedShip};
 
 mod planet;
-use planet::{preset_for_biome, seed_offset_from_id, PlanetMaterial, PlanetMaterialPlugin};
+use planet::{params_for_body, PlanetMaterial, PlanetMaterialPlugin};
 
 /// Scale factor from universe units → world units. Bumped from
 /// Godot's `GameState.SCALE_FACTOR = 10` because Bevy renders the
@@ -404,10 +404,11 @@ fn spawn_mirror_entities(
         .iter()
     {
         let (x, y) = orbit.universe_position();
-        let preset = preset_for_biome(&biome.biome);
-        let seed = seed_offset_from_id(&id.body_id);
+        // params_for_body bakes biome→preset + per-body palette
+        // overrides + per-body seed offset into one call. Mirrors
+        // PlanetCatalog::build_config from the Godot side.
         let mat = planet_materials.add(PlanetMaterial {
-            params: preset.params(seed),
+            params: params_for_body(&id.body_id, &biome.biome),
         });
         commands.spawn((
             MaterialMeshBundle::<PlanetMaterial> {

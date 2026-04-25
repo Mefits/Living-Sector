@@ -75,8 +75,165 @@ pub fn preset_for_biome(biome: &str) -> Preset {
         "tundra" | "arctic" | "ice" | "frozen" => Preset::Ice,
         "desert" | "arid" => Preset::Desert,
         "volcanic" | "molten" => Preset::Lava,
+        "gas" | "gas_giant" => Preset::GasGiant,
+        "industrial" => Preset::Barren,
         "lifeless" | "barren" | "rock" | "moon" | "asteroid" | "belt" => Preset::Barren,
         _ => Preset::Earthlike,
+    }
+}
+
+/// Build full PlanetParams for a body, applying per-body color
+/// overrides on top of the biome-based preset. Mirrors Godot's
+/// `PlanetCatalog.PLANET_OVERRIDES`. Named bodies (Earth, Mars,
+/// Luna, …) get curated palettes so they read as themselves rather
+/// than generic terrestrial / barren planets.
+///
+/// This intentionally skips the Godot catalog's cloud + ring data —
+/// those need separate meshes/shaders. Add them back when we port
+/// procedural_clouds and the ring annulus geometry.
+pub fn params_for_body(body_id: &str, biome: &str) -> PlanetParams {
+    let seed = seed_offset_from_id(body_id);
+    let base_preset = body_preset_override(body_id).unwrap_or_else(|| preset_for_biome(biome));
+    let mut p = base_preset.params(seed);
+    apply_body_overrides(body_id, &mut p);
+    p
+}
+
+/// Some bodies override their biome's preset (e.g. Venus is `molten`
+/// in the sim but should read as a hazy yellow Barren planet, not a
+/// glowing lava world). Returning `None` keeps the biome-default.
+fn body_preset_override(body_id: &str) -> Option<Preset> {
+    match body_id {
+        "venus" => Some(Preset::Barren),
+        "jupiter" | "saturn" => Some(Preset::GasGiant),
+        "haven" => Some(Preset::Earthlike),
+        "proxima" => Some(Preset::Desert),
+        "refuge" | "frostheim" => Some(Preset::Ice),
+        "forge" => Some(Preset::Lava),
+        _ => None,
+    }
+}
+
+/// Apply per-body colour / shape patches on top of the preset
+/// baseline. Mirrors `PlanetCatalog.PLANET_OVERRIDES` 1:1 for the
+/// bodies in the current world. Cloud + ring keys from the Godot
+/// catalog are not represented here yet — see params_for_body.
+fn apply_body_overrides(body_id: &str, p: &mut PlanetParams) {
+    match body_id {
+        // ---- Sol ----
+        "earth" => {
+            p.color_low = Vec4::new(0.12, 0.42, 0.15, 1.0);
+            p.color_mid = Vec4::new(0.50, 0.45, 0.22, 1.0);
+            p.color_high = Vec4::new(0.95, 0.95, 0.92, 1.0);
+            p.sea_color = Vec4::new(0.04, 0.18, 0.48, 1.0);
+            p.sea_level = 0.52;
+            p.pole_threshold = 0.80;
+            p.noise_frequency = 2.4;
+            p.noise_warp = 0.4;
+        }
+        "mars" => {
+            p.color_low = Vec4::new(0.52, 0.28, 0.18, 1.0);
+            p.color_mid = Vec4::new(0.78, 0.40, 0.22, 1.0);
+            p.color_high = Vec4::new(0.92, 0.66, 0.45, 1.0);
+            // Threshold > 1 disables polar caps entirely — Mars
+            // shouldn't have white poles in our look.
+            p.pole_threshold = 2.0;
+            p.noise_frequency = 2.8;
+            p.noise_warp = 0.5;
+            p.sea_enabled = 0;
+        }
+        "luna" => {
+            p.color_low = Vec4::new(0.26, 0.26, 0.28, 1.0);
+            p.color_mid = Vec4::new(0.52, 0.50, 0.52, 1.0);
+            p.color_high = Vec4::new(0.78, 0.76, 0.78, 1.0);
+            p.pole_threshold = 2.0;
+            p.noise_frequency = 4.2;
+            p.noise_octaves = 5;
+            p.sea_enabled = 0;
+        }
+        "mercury" => {
+            p.color_low = Vec4::new(0.18, 0.14, 0.12, 1.0);
+            p.color_mid = Vec4::new(0.45, 0.32, 0.22, 1.0);
+            p.color_high = Vec4::new(0.72, 0.58, 0.42, 1.0);
+            p.emission_color = Vec4::new(1.0, 0.55, 0.18, 1.0);
+            p.emission_strength = 0.35;
+            p.emission_cutoff = 0.80;
+            p.sea_enabled = 0;
+            p.pole_threshold = 2.0;
+        }
+        "venus" => {
+            p.color_low = Vec4::new(0.72, 0.58, 0.30, 1.0);
+            p.color_mid = Vec4::new(0.88, 0.72, 0.40, 1.0);
+            p.color_high = Vec4::new(0.98, 0.88, 0.60, 1.0);
+            p.emission_color = Vec4::new(1.0, 0.60, 0.20, 1.0);
+            p.emission_strength = 0.45;
+            p.emission_cutoff = 0.75;
+            p.sea_enabled = 0;
+            p.noise_frequency = 1.8;
+            p.noise_warp = 0.7;
+            p.band_strength = 0.2;
+            p.pole_threshold = 2.0;
+        }
+        "jupiter" => {
+            p.color_low = Vec4::new(0.68, 0.55, 0.42, 1.0);
+            p.color_mid = Vec4::new(0.92, 0.80, 0.58, 1.0);
+            p.color_high = Vec4::new(0.48, 0.30, 0.22, 1.0);
+            p.band_strength = 0.92;
+            p.noise_frequency = 1.3;
+            p.noise_warp = 0.8;
+        }
+        "saturn" => {
+            p.color_low = Vec4::new(0.80, 0.72, 0.52, 1.0);
+            p.color_mid = Vec4::new(0.95, 0.88, 0.68, 1.0);
+            p.color_high = Vec4::new(0.55, 0.42, 0.32, 1.0);
+            p.band_strength = 0.80;
+            p.noise_frequency = 1.4;
+            p.noise_warp = 0.7;
+        }
+
+        // ---- Alpha Centauri ----
+        "haven" => {
+            p.color_low = Vec4::new(0.12, 0.48, 0.22, 1.0);
+            p.color_mid = Vec4::new(0.52, 0.45, 0.20, 1.0);
+            p.sea_color = Vec4::new(0.10, 0.28, 0.55, 1.0);
+            p.sea_level = 0.55;
+        }
+        "proxima" => {
+            p.color_low = Vec4::new(0.45, 0.24, 0.16, 1.0);
+            p.color_mid = Vec4::new(0.70, 0.36, 0.22, 1.0);
+            p.color_high = Vec4::new(0.88, 0.58, 0.38, 1.0);
+            p.emission_color = Vec4::new(1.0, 0.30, 0.10, 1.0);
+            p.emission_strength = 0.25;
+            p.emission_cutoff = 0.80;
+        }
+        "refuge" => {
+            p.color_low = Vec4::new(0.45, 0.60, 0.78, 1.0);
+            p.color_mid = Vec4::new(0.75, 0.85, 0.92, 1.0);
+            p.sea_color = Vec4::new(0.10, 0.25, 0.48, 1.0);
+            p.sea_level = 0.38;
+        }
+
+        // ---- Tau Ceti ----
+        "forge" => {
+            p.emission_strength = 2.6;
+            p.emission_color = Vec4::new(1.0, 0.50, 0.12, 1.0);
+        }
+        "anvil" => {
+            p.color_low = Vec4::new(0.18, 0.16, 0.14, 1.0);
+            p.color_mid = Vec4::new(0.58, 0.42, 0.20, 1.0);
+            p.color_high = Vec4::new(0.80, 0.58, 0.30, 1.0);
+            p.emission_color = Vec4::new(1.0, 0.60, 0.22, 1.0);
+            p.emission_strength = 1.10;
+            p.emission_cutoff = 0.70;
+        }
+        "frostheim" => {
+            p.color_low = Vec4::new(0.40, 0.60, 0.80, 1.0);
+            p.color_mid = Vec4::new(0.70, 0.85, 0.95, 1.0);
+            p.pole_threshold = 0.40;
+            p.pole_softness = 0.25;
+        }
+
+        _ => {}
     }
 }
 
