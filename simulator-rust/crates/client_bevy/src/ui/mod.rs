@@ -89,6 +89,23 @@ impl Plugin for UiPlugin {
     }
 }
 
+/// Holo-chrome frame for the top-bar panels. Deeper opaque base so
+/// labels behind the panel can't bleed through, plus a faint
+/// PRIMARY-tinted edge stroke for the holographic-glass cutoff.
+/// Egui draws the stroke around the full rect — invisible at the
+/// top (off-screen) and subtle on the sides; reads as a clean line
+/// at the bottom where it matters.
+fn holo_chrome_frame() -> egui::Frame {
+    egui::Frame {
+        fill: theme::CHROME_BG,
+        stroke: egui::Stroke::new(1.0, theme::PRIMARY_DIM),
+        inner_margin: egui::Margin::symmetric(8.0, 4.0),
+        outer_margin: egui::Margin::ZERO,
+        rounding: egui::Rounding::ZERO,
+        shadow: egui::epaint::Shadow::NONE,
+    }
+}
+
 /// Single top-bar system. Reads counts from the sim, hands out
 /// open/close toggles to each panel's state Resource. Runs first
 /// in the UI chain so the panels below see up-to-date `open`
@@ -109,7 +126,9 @@ fn top_bar_controls(
     mut fac_sel: ResMut<SelectedFacility>,
     mut follow: ResMut<crate::camera::CameraFollow>,
 ) {
-    egui::TopBottomPanel::top("top_bar_controls").show(ctx.ctx_mut(), |ui| {
+    egui::TopBottomPanel::top("top_bar_controls")
+        .frame(holo_chrome_frame())
+        .show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("spaceproject").strong());
             ui.separator();
@@ -132,7 +151,10 @@ fn top_bar_controls(
                 .selected_text(format!("{}×", speed))
                 .show_ui(ui, |ui| {
                     for &s in &[1u32, 2, 4, 8] {
-                        if ui.selectable_value(&mut speed, s, format!("{}×", s)).clicked() {
+                        if ui
+                            .selectable_value(&mut speed, s, format!("{}×", s))
+                            .clicked()
+                        {
                             sim.tick_mult = s;
                         }
                     }
@@ -187,11 +209,7 @@ fn top_bar_controls(
                 save_req.0 = true;
             }
             ui.separator();
-            ui.label(
-                egui::RichText::new("admin:")
-                    .small()
-                    .color(theme::TEXT_DIM),
-            );
+            ui.label(egui::RichText::new("admin:").small().color(theme::TEXT_DIM));
             if ui
                 .add(egui::Button::image_and_text(icons::add_ship(), "+Ship"))
                 .on_hover_text(
@@ -311,7 +329,9 @@ fn top_bar(
     // by id). At typical counts (<20) the iteration is trivial.
     use sim_core::agents::construction::ConstructionSite;
     let construction_count = sim.store.world.query::<&ConstructionSite>().iter().count();
-    egui::TopBottomPanel::top("top_bar_panels").show(ctx.ctx_mut(), |ui| {
+    egui::TopBottomPanel::top("top_bar_panels")
+        .frame(holo_chrome_frame())
+        .show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
             // Panel-toggle row: each entry is icon + "Label (count)".
             // Click toggles the panel's `open` flag. The toggled
@@ -514,10 +534,7 @@ const FPS_WINDOW: usize = 60;
 /// while still surfacing meaningful drops.
 const TPS_WINDOW: usize = 60;
 
-fn track_fps(
-    mut stats: ResMut<PerfStats>,
-    sim: Res<Sim>,
-) {
+fn track_fps(mut stats: ResMut<PerfStats>, sim: Res<Sim>) {
     let now = Instant::now();
     let dt = now.saturating_duration_since(stats.last_frame_instant);
     stats.last_frame_instant = now;
@@ -599,10 +616,7 @@ fn perf_overlay(
                     let target = 8.0 * sim.tick_mult.max(1) as f32;
                     let tps_color =
                         theme::status_color(stats.avg_tps, (target * 0.95, target * 0.75));
-                    ui.colored_label(
-                        tps_color,
-                        format!("{:.1} / {:.0}", stats.avg_tps, target),
-                    );
+                    ui.colored_label(tps_color, format!("{:.1} / {:.0}", stats.avg_tps, target));
                     ui.end_row();
 
                     // Tick-compute p50/p99 (ms). FixedUpdate fires at
@@ -688,11 +702,7 @@ fn perf_overlay(
                         .spacing([10.0, 2.0])
                         .show(ui, |ui| {
                             for (name, us) in rows {
-                                ui.label(
-                                    egui::RichText::new(name)
-                                        .small()
-                                        .color(theme::TEXT_DIM),
-                                );
+                                ui.label(egui::RichText::new(name).small().color(theme::TEXT_DIM));
                                 ui.label(
                                     egui::RichText::new(format!("{:.2} ms", us as f32 / 1000.0))
                                         .small()
@@ -894,13 +904,23 @@ fn ship_list(
                         sort_header(ui, "Name", &mut sort, &mut descending, ShipSort::Name);
                         sort_header(ui, "Class", &mut sort, &mut descending, ShipSort::Class);
                         sort_header(ui, "Faction", &mut sort, &mut descending, ShipSort::Faction);
-                        sort_header(ui, "Location", &mut sort, &mut descending, ShipSort::Location);
+                        sort_header(
+                            ui,
+                            "Location",
+                            &mut sort,
+                            &mut descending,
+                            ShipSort::Location,
+                        );
                         // Goal / Fuel / Credits aren't sortable yet —
                         // keep header styling consistent so the row
                         // reads as a single header band.
                         ui.label(egui::RichText::new("Goal").strong().color(theme::TEXT_DIM));
                         ui.label(egui::RichText::new("Fuel").strong().color(theme::TEXT_DIM));
-                        ui.label(egui::RichText::new("Credits").strong().color(theme::TEXT_DIM));
+                        ui.label(
+                            egui::RichText::new("Credits")
+                                .strong()
+                                .color(theme::TEXT_DIM),
+                        );
                         ui.end_row();
 
                         for row in &page {
@@ -927,9 +947,7 @@ fn ship_list(
                             }
                             // Goal is the planner's current goal name,
                             // monospaced so list lines up.
-                            ui.label(
-                                egui::RichText::new(&row.goal).small().monospace(),
-                            );
+                            ui.label(egui::RichText::new(&row.goal).small().monospace());
                             // Fuel %: SUCCESS ≥ 50%, WARN ≥ 20%,
                             // DANGER below — same banding the Godot
                             // ship_list uses (theme_palette colours).
@@ -940,10 +958,7 @@ fn ship_list(
                             );
                             // Credits: thousands-separated for
                             // readability at typical 1k-100k+ range.
-                            ui.label(
-                                egui::RichText::new(format_credits(row.credits))
-                                    .monospace(),
-                            );
+                            ui.label(egui::RichText::new(format_credits(row.credits)).monospace());
                             ui.end_row();
                         }
                     });
@@ -977,7 +992,11 @@ fn sort_header(
     // than a row of boxed buttons. Active sort gets PRIMARY tint;
     // others use TEXT_DIM so the active column stands out.
     let active = *current == target;
-    let color = if active { theme::PRIMARY } else { theme::TEXT_DIM };
+    let color = if active {
+        theme::PRIMARY
+    } else {
+        theme::TEXT_DIM
+    };
     let text = egui::RichText::new(format!("{label}{arrow}"))
         .strong()
         .color(color);
@@ -990,7 +1009,6 @@ fn sort_header(
         }
     }
 }
-
 
 // =============================================================================
 // Contracts panel
@@ -1043,11 +1061,7 @@ enum ContractStatusFilter {
     Expired,
 }
 
-fn contracts_panel(
-    mut ctx: EguiContexts,
-    sim: Res<Sim>,
-    mut state: ResMut<ContractsState>,
-) {
+fn contracts_panel(mut ctx: EguiContexts, sim: Res<Sim>, mut state: ResMut<ContractsState>) {
     use sim_core::economy::contracts::{ContractStatus, ContractType};
 
     let mut open = state.open;
@@ -1149,13 +1163,10 @@ fn contracts_panel(
                         // so the egui default font's missing "→" glyph
                         // (rendered as a tofu box) doesn't show up.
                         for header in [
-                            "Kind", "Status", "Item", "Qty", "Source", "Dest", "Pay", "Faction", "Rep", "ID",
+                            "Kind", "Status", "Item", "Qty", "Source", "Dest", "Pay", "Faction",
+                            "Rep", "ID",
                         ] {
-                            ui.label(
-                                egui::RichText::new(header)
-                                    .strong()
-                                    .color(theme::TEXT_DIM),
-                            );
+                            ui.label(egui::RichText::new(header).strong().color(theme::TEXT_DIM));
                         }
                         ui.end_row();
 
@@ -1163,17 +1174,13 @@ fn contracts_panel(
                             ui.label(r.kind);
                             ui.colored_label(contract_status_color(r.status), r.status);
                             ui.label(egui::RichText::new(&r.commodity).color(theme::TEXT_DIM));
-                            ui.label(
-                                egui::RichText::new(format!("{}", r.quantity)).monospace(),
-                            );
+                            ui.label(egui::RichText::new(format!("{}", r.quantity)).monospace());
                             // Source dimmed; destination is what the
                             // eye usually wants on this row.
                             ui.label(egui::RichText::new(&r.source).color(theme::TEXT_DIM));
                             ui.label(&r.dest);
                             // Pay in monospace, abbreviated (1.2k / 3.4M)
-                            ui.label(
-                                egui::RichText::new(format_credits(r.payment)).monospace(),
-                            );
+                            ui.label(egui::RichText::new(format_credits(r.payment)).monospace());
                             ui.label(egui::RichText::new(&r.faction).color(theme::TEXT_DIM));
                             // Rep gate: PRIMARY when set, dim em-dash
                             // when unrestricted (public board).
@@ -1346,15 +1353,9 @@ struct FactionRow {
     subsidies: u32,
 }
 
-fn factions_panel(
-    mut ctx: EguiContexts,
-    sim: Res<Sim>,
-    mut state: ResMut<FactionsState>,
-) {
+fn factions_panel(mut ctx: EguiContexts, sim: Res<Sim>, mut state: ResMut<FactionsState>) {
     use sim_core::agents::{
-        facility::FacilityIdentity,
-        faction::FactionData,
-        faction_relations::TreatyKind,
+        facility::FacilityIdentity, faction::FactionData, faction_relations::TreatyKind,
         ship::ShipIdentity,
     };
     use std::collections::HashMap;
@@ -1401,7 +1402,11 @@ fn factions_panel(
             FactionSort::Facilities => a.facilities.cmp(&b.facilities),
             FactionSort::Subsidies => a.subsidies.cmp(&b.subsidies),
         };
-        if descending { cmp.reverse() } else { cmp }
+        if descending {
+            cmp.reverse()
+        } else {
+            cmp
+        }
     });
 
     egui::Window::new(format!("Factions · {}", rows.len()))
@@ -1410,26 +1415,52 @@ fn factions_panel(
         .default_height(520.0)
         .open(&mut open)
         .show(ctx.ctx_mut(), |ui| {
-            ui.label(
-                egui::RichText::new("Ledger")
-                    .strong()
-                    .color(theme::PRIMARY),
-            );
+            ui.label(egui::RichText::new("Ledger").strong().color(theme::PRIMARY));
             egui::Grid::new("factions_ledger_grid")
                 .striped(true)
                 .num_columns(6)
                 .spacing([12.0, 3.0])
                 .show(ui, |ui| {
-                    faction_sort_header(ui, "Faction", &mut sort, &mut descending, FactionSort::Name);
+                    faction_sort_header(
+                        ui,
+                        "Faction",
+                        &mut sort,
+                        &mut descending,
+                        FactionSort::Name,
+                    );
                     ui.label(
                         egui::RichText::new("System")
                             .strong()
                             .color(theme::TEXT_DIM),
                     );
-                    faction_sort_header(ui, "Treasury", &mut sort, &mut descending, FactionSort::Treasury);
-                    faction_sort_header(ui, "Ships", &mut sort, &mut descending, FactionSort::Ships);
-                    faction_sort_header(ui, "Fac", &mut sort, &mut descending, FactionSort::Facilities);
-                    faction_sort_header(ui, "Subs", &mut sort, &mut descending, FactionSort::Subsidies);
+                    faction_sort_header(
+                        ui,
+                        "Treasury",
+                        &mut sort,
+                        &mut descending,
+                        FactionSort::Treasury,
+                    );
+                    faction_sort_header(
+                        ui,
+                        "Ships",
+                        &mut sort,
+                        &mut descending,
+                        FactionSort::Ships,
+                    );
+                    faction_sort_header(
+                        ui,
+                        "Fac",
+                        &mut sort,
+                        &mut descending,
+                        FactionSort::Facilities,
+                    );
+                    faction_sort_header(
+                        ui,
+                        "Subs",
+                        &mut sort,
+                        &mut descending,
+                        FactionSort::Subsidies,
+                    );
                     ui.end_row();
 
                     for r in &rows {
@@ -1482,9 +1513,7 @@ fn factions_panel(
                         .show(ui, |ui| {
                             for header in ["A", "B", "Standing", "Treaty"] {
                                 ui.label(
-                                    egui::RichText::new(header)
-                                        .strong()
-                                        .color(theme::TEXT_DIM),
+                                    egui::RichText::new(header).strong().color(theme::TEXT_DIM),
                                 );
                             }
                             ui.end_row();
@@ -1539,14 +1568,22 @@ fn faction_sort_header(
     target: FactionSort,
 ) {
     let arrow = if *current == target {
-        if *descending { " ▼" } else { " ▲" }
+        if *descending {
+            " ▼"
+        } else {
+            " ▲"
+        }
     } else {
         ""
     };
     // Mirror sort_header (ship list): PRIMARY tint when this column
     // is the active sort, TEXT_DIM otherwise; frameless button.
     let active = *current == target;
-    let color = if active { theme::PRIMARY } else { theme::TEXT_DIM };
+    let color = if active {
+        theme::PRIMARY
+    } else {
+        theme::TEXT_DIM
+    };
     let text = egui::RichText::new(format!("{label}{arrow}"))
         .strong()
         .color(color);
@@ -1606,11 +1643,7 @@ impl Default for MarketsState {
     }
 }
 
-fn markets_panel(
-    mut ctx: EguiContexts,
-    sim: Res<Sim>,
-    mut state: ResMut<MarketsState>,
-) {
+fn markets_panel(mut ctx: EguiContexts, sim: Res<Sim>, mut state: ResMut<MarketsState>) {
     use sim_core::agents::market::{
         MarketHistory, MarketIdentity, MarketPricing, MARKET_CRISIS_SHORTAGE_TICKS,
     };
@@ -1658,7 +1691,9 @@ fn markets_panel(
             .query_one::<&MarketHistory>(entity)
             .ok()
             .and_then(|mut q| q.get().cloned());
-        let (Some(pricing), Some(history)) = (pricing, history) else { continue };
+        let (Some(pricing), Some(history)) = (pricing, history) else {
+            continue;
+        };
 
         let mut prices: Vec<(Commodity, f32)> =
             pricing.prices.iter().map(|(c, v)| (*c, *v)).collect();
@@ -1696,7 +1731,13 @@ fn markets_panel(
         // Crises first, then shortages, then plain — each group
         // alphabetised. Makes the problem-spots jump to the top.
         let tier = |r: &MarketRow| -> u8 {
-            if r.crisis { 0 } else if r.any_short { 1 } else { 2 }
+            if r.crisis {
+                0
+            } else if r.any_short {
+                1
+            } else {
+                2
+            }
         };
         tier(a).cmp(&tier(b)).then(a.location.cmp(&b.location))
     });
@@ -1771,8 +1812,7 @@ fn markets_panel(
                                         };
                                         ui.colored_label(
                                             color,
-                                            egui::RichText::new(format!("{t} ticks"))
-                                                .monospace(),
+                                            egui::RichText::new(format!("{t} ticks")).monospace(),
                                         );
                                         ui.end_row();
                                     }
@@ -1787,9 +1827,7 @@ fn markets_panel(
                             .show(ui, |ui| {
                                 for header in ["Commodity", "Price", "Supply", "Demand"] {
                                     ui.label(
-                                        egui::RichText::new(header)
-                                            .strong()
-                                            .color(theme::TEXT_DIM),
+                                        egui::RichText::new(header).strong().color(theme::TEXT_DIM),
                                     );
                                 }
                                 ui.end_row();
@@ -1848,8 +1886,7 @@ fn markets_panel(
                                     };
                                     ui.colored_label(
                                         price_color,
-                                        egui::RichText::new(format!("{price:.1}"))
-                                            .monospace(),
+                                        egui::RichText::new(format!("{price:.1}")).monospace(),
                                     );
                                     ui.label(
                                         egui::RichText::new(format!("{sup:.0}"))
@@ -1870,7 +1907,8 @@ fn markets_panel(
                     // visible whether expanded or collapsed.
                     if let Some((label, color)) = header_text {
                         let header_rect = resp.header_response.rect;
-                        let chip_pos = egui::pos2(header_rect.right() + 8.0, header_rect.center().y);
+                        let chip_pos =
+                            egui::pos2(header_rect.right() + 8.0, header_rect.center().y);
                         ui.painter().text(
                             chip_pos,
                             egui::Align2::LEFT_CENTER,
@@ -1946,14 +1984,8 @@ struct PopRow {
     migration: f32,
 }
 
-fn populations_panel(
-    mut ctx: EguiContexts,
-    sim: Res<Sim>,
-    mut state: ResMut<PopulationsState>,
-) {
-    use sim_core::agents::population::{
-        PopDemographics, PopEconomy, PopIdentity, PopSentiment,
-    };
+fn populations_panel(mut ctx: EguiContexts, sim: Res<Sim>, mut state: ResMut<PopulationsState>) {
+    use sim_core::agents::population::{PopDemographics, PopEconomy, PopIdentity, PopSentiment};
 
     let mut open = state.open;
     let mut sort = state.sort;
@@ -2011,7 +2043,11 @@ fn populations_panel(
                 .partial_cmp(&b.migration)
                 .unwrap_or(std::cmp::Ordering::Equal),
         };
-        if descending { cmp.reverse() } else { cmp }
+        if descending {
+            cmp.reverse()
+        } else {
+            cmp
+        }
     });
 
     let total = rows.len();
@@ -2036,12 +2072,14 @@ fn populations_panel(
                     .spacing([12.0, 3.0])
                     .show(ui, |ui| {
                         pop_sort_header(ui, "Label", &mut sort, &mut descending, PopSort::Label);
-                        ui.label(
-                            egui::RichText::new("Demo")
-                                .strong()
-                                .color(theme::TEXT_DIM),
+                        ui.label(egui::RichText::new("Demo").strong().color(theme::TEXT_DIM));
+                        pop_sort_header(
+                            ui,
+                            "Location",
+                            &mut sort,
+                            &mut descending,
+                            PopSort::Location,
                         );
-                        pop_sort_header(ui, "Location", &mut sort, &mut descending, PopSort::Location);
                         pop_sort_header(ui, "Count", &mut sort, &mut descending, PopSort::Count);
                         pop_sort_header(ui, "Sent", &mut sort, &mut descending, PopSort::Sentiment);
                         pop_sort_header(ui, "Food", &mut sort, &mut descending, PopSort::Food);
@@ -2062,9 +2100,7 @@ fn populations_panel(
                                 food_color(r.food),
                                 egui::RichText::new(format!("{}", r.food)).monospace(),
                             );
-                            ui.label(
-                                egui::RichText::new(format_credits(r.wealth)).monospace(),
-                            );
+                            ui.label(egui::RichText::new(format_credits(r.wealth)).monospace());
                             // Migration pressure: DANGER ≥ 1.0 (likely
                             // to migrate next tick), WARN ≥ 0.5
                             // (stress building), TEXT_DIM otherwise.
@@ -2099,14 +2135,22 @@ fn pop_sort_header(
     target: PopSort,
 ) {
     let arrow = if *current == target {
-        if *descending { " ▼" } else { " ▲" }
+        if *descending {
+            " ▼"
+        } else {
+            " ▲"
+        }
     } else {
         ""
     };
     // Mirror the other panels: PRIMARY tint when active sort,
     // TEXT_DIM otherwise; frameless layout.
     let active = *current == target;
-    let color = if active { theme::PRIMARY } else { theme::TEXT_DIM };
+    let color = if active {
+        theme::PRIMARY
+    } else {
+        theme::TEXT_DIM
+    };
     let text = egui::RichText::new(format!("{label}{arrow}"))
         .strong()
         .color(color);
@@ -2250,11 +2294,7 @@ fn ship_details_panel(
                     focus_req.0 = Some(Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR));
                 }
                 ui.separator();
-                ui.label(
-                    egui::RichText::new("admin:")
-                        .small()
-                        .color(theme::TEXT_DIM),
-                );
+                ui.label(egui::RichText::new("admin:").small().color(theme::TEXT_DIM));
                 if ui
                     .button(egui::RichText::new("+100 XP").small())
                     .on_hover_text(
@@ -2266,11 +2306,7 @@ fn ship_details_panel(
                     grant_xp_requested = true;
                 }
                 if ui
-                    .button(
-                        egui::RichText::new("Heal")
-                            .small()
-                            .color(theme::SUCCESS),
-                    )
+                    .button(egui::RichText::new("Heal").small().color(theme::SUCCESS))
                     .on_hover_text(
                         "Refill fuel to capacity, reset crew morale+health to \
                          100, clear hunger + fatigue, and floor credits at 10k \
@@ -2282,11 +2318,7 @@ fn ship_details_panel(
                     heal_requested = true;
                 }
                 if ui
-                    .button(
-                        egui::RichText::new("Delete")
-                            .small()
-                            .color(theme::DANGER),
-                    )
+                    .button(egui::RichText::new("Delete").small().color(theme::DANGER))
                     .on_hover_text(
                         "Destroy this ship. Releases any accepted contracts \
                          back to the board; PickedUp cargo is lost. In-memory \
@@ -2306,10 +2338,18 @@ fn ship_details_panel(
                     .num_columns(2)
                     .spacing([12.0, 2.0])
                     .show(ui, |ui| {
-                        ui.label("Name"); ui.label(&id.name); ui.end_row();
-                        ui.label("Class"); ui.label(&id.class); ui.end_row();
-                        ui.label("Size"); ui.label(format!("{:?}", id.size)); ui.end_row();
-                        ui.label("Faction"); ui.label(&id.faction_id); ui.end_row();
+                        ui.label("Name");
+                        ui.label(&id.name);
+                        ui.end_row();
+                        ui.label("Class");
+                        ui.label(&id.class);
+                        ui.end_row();
+                        ui.label("Size");
+                        ui.label(format!("{:?}", id.size));
+                        ui.end_row();
+                        ui.label("Faction");
+                        ui.label(&id.faction_id);
+                        ui.end_row();
                     });
                 ui.separator();
 
@@ -2319,7 +2359,9 @@ fn ship_details_panel(
                     .num_columns(2)
                     .spacing([12.0, 2.0])
                     .show(ui, |ui| {
-                        ui.label("System"); ui.label(&pos.system_id); ui.end_row();
+                        ui.label("System");
+                        ui.label(&pos.system_id);
+                        ui.end_row();
                         ui.label("Location");
                         ui.label(pos.location_name.as_deref().unwrap_or("(in transit)"));
                         ui.end_row();
@@ -2336,10 +2378,7 @@ fn ship_details_panel(
                                 0.0
                             };
                             ui.label("Transit");
-                            ui.label(format!(
-                                "{} → {} ({:.1}%)",
-                                t.from, t.to, progress,
-                            ));
+                            ui.label(format!("{} → {} ({:.1}%)", t.from, t.to, progress,));
                             ui.end_row();
                             ui.label("Arrival tick");
                             ui.label(format!("{}", t.arrival_tick));
@@ -2354,8 +2393,12 @@ fn ship_details_panel(
                     .num_columns(2)
                     .spacing([12.0, 2.0])
                     .show(ui, |ui| {
-                        ui.label("Credits"); ui.label(format_credits(econ.credits)); ui.end_row();
-                        ui.label("Efficiency"); ui.label(format!("{:.2}", econ.efficiency)); ui.end_row();
+                        ui.label("Credits");
+                        ui.label(format_credits(econ.credits));
+                        ui.end_row();
+                        ui.label("Efficiency");
+                        ui.label(format!("{:.2}", econ.efficiency));
+                        ui.end_row();
                         ui.label("Active contract");
                         ui.label(econ.active_contract_id.as_deref().unwrap_or("—"));
                         ui.end_row();
@@ -2398,10 +2441,15 @@ fn ship_details_panel(
                         );
                         ui.end_row();
                         ui.label(theme::caption("Speed mod"));
-                        ui.label(egui::RichText::new(format!("{:.2}×", fuel.speed_modifier)).monospace());
+                        ui.label(
+                            egui::RichText::new(format!("{:.2}×", fuel.speed_modifier)).monospace(),
+                        );
                         ui.end_row();
                         ui.label(theme::caption("Burn rate"));
-                        ui.label(egui::RichText::new(format!("{:.3}", fuel.fuel_consumption_rate)).monospace());
+                        ui.label(
+                            egui::RichText::new(format!("{:.3}", fuel.fuel_consumption_rate))
+                                .monospace(),
+                        );
                         ui.end_row();
                     });
                 ui.separator();
@@ -2409,14 +2457,16 @@ fn ship_details_panel(
                 // Cargo
                 ui.label(theme::section_header("Cargo"));
                 let used = cargo.used();
-                ui.label(format!("Hold: {} / {} ({:.0}%)",
+                ui.label(format!(
+                    "Hold: {} / {} ({:.0}%)",
                     used,
                     cargo.capacity,
                     if cargo.capacity > 0 {
                         used as f32 / cargo.capacity as f32 * 100.0
                     } else {
                         0.0
-                    }));
+                    }
+                ));
                 if !cargo.cargo.is_empty() {
                     egui::Grid::new("details_cargo")
                         .num_columns(2)
@@ -2439,8 +2489,12 @@ fn ship_details_panel(
                     .num_columns(2)
                     .spacing([12.0, 2.0])
                     .show(ui, |ui| {
-                        ui.label("Size"); ui.label(format!("{}", crew.size)); ui.end_row();
-                        ui.label("Task"); ui.label(crew.current_task.as_str()); ui.end_row();
+                        ui.label("Size");
+                        ui.label(format!("{}", crew.size));
+                        ui.end_row();
+                        ui.label("Task");
+                        ui.label(crew.current_task.as_str());
+                        ui.end_row();
                         ui.label("Morale");
                         ui.colored_label(
                             theme::crew_bar_color(crew.morale),
@@ -2460,8 +2514,12 @@ fn ship_details_panel(
                             format!("{:.0}", crew.fatigue),
                         );
                         ui.end_row();
-                        ui.label("Health"); ui.label(format!("{:.0}", crew.health)); ui.end_row();
-                        ui.label("Wages owed"); ui.label(format!("{}", crew.wages_credits)); ui.end_row();
+                        ui.label("Health");
+                        ui.label(format!("{:.0}", crew.health));
+                        ui.end_row();
+                        ui.label("Wages owed");
+                        ui.label(format!("{}", crew.wages_credits));
+                        ui.end_row();
                         ui.label("Skills");
                         ui.label(format!(
                             "nav {}  eng {}  trd {}  cmb {}",
@@ -2477,9 +2535,15 @@ fn ship_details_panel(
                     .num_columns(2)
                     .spacing([12.0, 2.0])
                     .show(ui, |ui| {
-                        ui.label("Goal"); ui.label(&ai.current_goal); ui.end_row();
-                        ui.label("Goal score"); ui.label(format!("{:.2}", ai.current_goal_score)); ui.end_row();
-                        ui.label("Planned at tick"); ui.label(format!("{}", ai.last_plan_tick)); ui.end_row();
+                        ui.label("Goal");
+                        ui.label(&ai.current_goal);
+                        ui.end_row();
+                        ui.label("Goal score");
+                        ui.label(format!("{:.2}", ai.current_goal_score));
+                        ui.end_row();
+                        ui.label("Planned at tick");
+                        ui.label(format!("{}", ai.last_plan_tick));
+                        ui.end_row();
                         ui.label("Personality");
                         ui.label(format!(
                             "profit {:.2}  safety {:.2}  morale {:.2}  explore {:.2}",
@@ -2499,13 +2563,21 @@ fn ship_details_panel(
                     .spacing([12.0, 2.0])
                     .show(ui, |ui| {
                         ui.label("Level");
-                        ui.label(format!("{} / {}", prog.level, sim_core::agents::ship::SHIP_LEVEL_CAP));
+                        ui.label(format!(
+                            "{} / {}",
+                            prog.level,
+                            sim_core::agents::ship::SHIP_LEVEL_CAP
+                        ));
                         ui.end_row();
                         ui.label("XP");
                         ui.label(format!("{} / {}", prog.xp, prog.next_level_threshold()));
                         ui.end_row();
-                        ui.label("Retrofit points"); ui.label(format!("{}", prog.retrofit_points)); ui.end_row();
-                        ui.label("Idle ticks"); ui.label(format!("{}", life.idle_ticks)); ui.end_row();
+                        ui.label("Retrofit points");
+                        ui.label(format!("{}", prog.retrofit_points));
+                        ui.end_row();
+                        ui.label("Idle ticks");
+                        ui.label(format!("{}", life.idle_ticks));
+                        ui.end_row();
                         ui.label("Broke / hoard strikes");
                         ui.label(format!("{} / {}", life.broke_strikes, life.hoard_strikes));
                         ui.end_row();
@@ -2528,29 +2600,20 @@ fn ship_details_panel(
                             ui.label(slot.as_str());
                             let current = fit.slots[slot_idx];
                             let current_label = current.unwrap_or("—");
-                            egui::ComboBox::from_id_salt(format!(
-                                "refit_combo_{}",
-                                slot.as_str()
-                            ))
-                            .selected_text(current_label)
-                            .show_ui(ui, |ui| {
-                                for module in sim_core::modules::modules_for_slot(*slot) {
-                                    let label = format!(
-                                        "{} (T{})",
-                                        module.slug, module.tier
-                                    );
-                                    if ui
-                                        .selectable_label(
-                                            current == Some(module.slug),
-                                            label,
-                                        )
-                                        .clicked()
-                                        && current != Some(module.slug)
-                                    {
-                                        refit_request = Some((*slot, module.slug));
+                            egui::ComboBox::from_id_salt(format!("refit_combo_{}", slot.as_str()))
+                                .selected_text(current_label)
+                                .show_ui(ui, |ui| {
+                                    for module in sim_core::modules::modules_for_slot(*slot) {
+                                        let label = format!("{} (T{})", module.slug, module.tier);
+                                        if ui
+                                            .selectable_label(current == Some(module.slug), label)
+                                            .clicked()
+                                            && current != Some(module.slug)
+                                        {
+                                            refit_request = Some((*slot, module.slug));
+                                        }
                                     }
-                                }
-                            });
+                                });
                             ui.end_row();
                         }
                         ui.label("Sensor range");
@@ -2731,8 +2794,7 @@ fn facility_list_panel(
     mut selected: ResMut<SelectedFacility>,
 ) {
     use sim_core::agents::facility::{
-        FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations,
-        FacilityStorage,
+        FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations, FacilityStorage,
     };
 
     let mut open = state.open;
@@ -2794,7 +2856,11 @@ fn facility_list_panel(
             FacilitySort::Docked => a.docked.cmp(&b.docked),
             FacilitySort::Level => a.level.cmp(&b.level),
         };
-        if descending { cmp.reverse() } else { cmp }
+        if descending {
+            cmp.reverse()
+        } else {
+            cmp
+        }
     });
 
     let total = rows.len();
@@ -2820,10 +2886,34 @@ fn facility_list_panel(
                     .show(ui, |ui| {
                         fac_sort_header(ui, "Name", &mut sort, &mut descending, FacilitySort::Name);
                         fac_sort_header(ui, "Type", &mut sort, &mut descending, FacilitySort::Type);
-                        fac_sort_header(ui, "Faction", &mut sort, &mut descending, FacilitySort::Faction);
-                        fac_sort_header(ui, "Location", &mut sort, &mut descending, FacilitySort::Location);
-                        fac_sort_header(ui, "Credits", &mut sort, &mut descending, FacilitySort::Credits);
-                        fac_sort_header(ui, "Dock", &mut sort, &mut descending, FacilitySort::Docked);
+                        fac_sort_header(
+                            ui,
+                            "Faction",
+                            &mut sort,
+                            &mut descending,
+                            FacilitySort::Faction,
+                        );
+                        fac_sort_header(
+                            ui,
+                            "Location",
+                            &mut sort,
+                            &mut descending,
+                            FacilitySort::Location,
+                        );
+                        fac_sort_header(
+                            ui,
+                            "Credits",
+                            &mut sort,
+                            &mut descending,
+                            FacilitySort::Credits,
+                        );
+                        fac_sort_header(
+                            ui,
+                            "Dock",
+                            &mut sort,
+                            &mut descending,
+                            FacilitySort::Docked,
+                        );
                         fac_sort_header(ui, "Lvl", &mut sort, &mut descending, FacilitySort::Level);
                         ui.end_row();
 
@@ -2865,12 +2955,20 @@ fn fac_sort_header(
     target: FacilitySort,
 ) {
     let arrow = if *current == target {
-        if *descending { " ▼" } else { " ▲" }
+        if *descending {
+            " ▼"
+        } else {
+            " ▲"
+        }
     } else {
         ""
     };
     let active = *current == target;
-    let color = if active { theme::PRIMARY } else { theme::TEXT_DIM };
+    let color = if active {
+        theme::PRIMARY
+    } else {
+        theme::TEXT_DIM
+    };
     let text = egui::RichText::new(format!("{label}{arrow}"))
         .strong()
         .color(color);
@@ -2915,8 +3013,7 @@ fn facility_details_panel(
     let mut refill_requested = false;
     // Per-commodity reserve deltas captured by the +/- buttons in
     // the Reserves grid. Applied after the read-only query drops.
-    let mut reserves_deltas: Vec<(sim_core::economy::commodities::Commodity, f32)> =
-        Vec::new();
+    let mut reserves_deltas: Vec<(sim_core::economy::commodities::Commodity, f32)> = Vec::new();
     // Optional "add new commodity" pick; if Some, the apply pass
     // inserts an entry initialised to 100 units.
     let mut add_commodity: Option<sim_core::economy::commodities::Commodity> = None;
@@ -2974,11 +3071,7 @@ fn facility_details_panel(
                     }
                 }
                 ui.separator();
-                ui.label(
-                    egui::RichText::new("admin:")
-                        .small()
-                        .color(theme::TEXT_DIM),
-                );
+                ui.label(egui::RichText::new("admin:").small().color(theme::TEXT_DIM));
                 if ui
                     .button(egui::RichText::new("Refill reserves").small())
                     .on_hover_text(
@@ -2996,10 +3089,7 @@ fn facility_details_panel(
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 if life.abandoned {
-                    ui.colored_label(
-                        theme::DANGER,
-                        egui::RichText::new("ABANDONED").strong(),
-                    );
+                    ui.colored_label(theme::DANGER, egui::RichText::new("ABANDONED").strong());
                     ui.separator();
                 }
 
@@ -3008,11 +3098,21 @@ fn facility_details_panel(
                     .num_columns(2)
                     .spacing([12.0, 2.0])
                     .show(ui, |ui| {
-                        ui.label("Name"); ui.label(&id.name); ui.end_row();
-                        ui.label("Type"); ui.label(&id.facility_type); ui.end_row();
-                        ui.label("Body"); ui.label(&id.body_id); ui.end_row();
-                        ui.label("Location"); ui.label(&loc.location_name); ui.end_row();
-                        ui.label("Faction"); ui.label(&id.faction_id); ui.end_row();
+                        ui.label("Name");
+                        ui.label(&id.name);
+                        ui.end_row();
+                        ui.label("Type");
+                        ui.label(&id.facility_type);
+                        ui.end_row();
+                        ui.label("Body");
+                        ui.label(&id.body_id);
+                        ui.end_row();
+                        ui.label("Location");
+                        ui.label(&loc.location_name);
+                        ui.end_row();
+                        ui.label("Faction");
+                        ui.label(&id.faction_id);
+                        ui.end_row();
                     });
                 ui.separator();
 
@@ -3021,7 +3121,9 @@ fn facility_details_panel(
                     .num_columns(2)
                     .spacing([12.0, 2.0])
                     .show(ui, |ui| {
-                        ui.label("Credits"); ui.label(format_credits(ops.credits)); ui.end_row();
+                        ui.label("Credits");
+                        ui.label(format_credits(ops.credits));
+                        ui.end_row();
                         ui.label("Condition");
                         let cond_color = theme::status_color(ops.condition, (0.7, 0.3));
                         ui.colored_label(cond_color, format!("{:.0}%", ops.condition * 100.0));
@@ -3043,7 +3145,11 @@ fn facility_details_panel(
                     .spacing([12.0, 2.0])
                     .show(ui, |ui| {
                         ui.label("Level");
-                        ui.label(format!("{} / {}", life.level, sim_core::agents::facility::FACILITY_LEVEL_CAP));
+                        ui.label(format!(
+                            "{} / {}",
+                            life.level,
+                            sim_core::agents::facility::FACILITY_LEVEL_CAP
+                        ));
                         ui.end_row();
                         ui.label("XP");
                         ui.label(format!("{} / {}", life.xp, life.next_level_threshold()));
@@ -3073,9 +3179,7 @@ fn facility_details_panel(
                             items.sort_by_key(|(c, _)| c.as_str());
                             for (c, qty) in items {
                                 ui.label(c.as_str());
-                                ui.label(
-                                    egui::RichText::new(format!("{:.0}", qty)).monospace(),
-                                );
+                                ui.label(egui::RichText::new(format!("{:.0}", qty)).monospace());
                                 if ui
                                     .add(egui::Button::new("-100").small())
                                     .on_hover_text("Subtract 100 units (floored at 0).")
@@ -3109,22 +3213,18 @@ fn facility_details_panel(
                 ui.horizontal(|ui| {
                     let existing: std::collections::HashSet<_> =
                         storage.reserves.keys().copied().collect();
-                    let missing: Vec<_> =
-                        sim_core::economy::commodities::Commodity::ALL
-                            .iter()
-                            .copied()
-                            .filter(|c| !existing.contains(c))
-                            .collect();
+                    let missing: Vec<_> = sim_core::economy::commodities::Commodity::ALL
+                        .iter()
+                        .copied()
+                        .filter(|c| !existing.contains(c))
+                        .collect();
                     if !missing.is_empty() {
                         ui.label(theme::caption("Add"));
                         egui::ComboBox::from_id_salt("fac_reserves_add")
                             .selected_text("(pick a commodity)")
                             .show_ui(ui, |ui| {
                                 for c in &missing {
-                                    if ui
-                                        .selectable_label(false, c.as_str())
-                                        .clicked()
-                                    {
+                                    if ui.selectable_label(false, c.as_str()).clicked() {
                                         add_commodity = Some(*c);
                                     }
                                 }
@@ -3160,12 +3260,20 @@ fn facility_details_panel(
                         .num_columns(2)
                         .spacing([12.0, 2.0])
                         .show(ui, |ui| {
-                            ui.label("Count"); ui.label(format!("{}", crew.crew_count)); ui.end_row();
+                            ui.label("Count");
+                            ui.label(format!("{}", crew.crew_count));
+                            ui.end_row();
                             ui.label("Morale");
-                            ui.colored_label(theme::crew_bar_color(crew.morale), format!("{:.0}", crew.morale));
+                            ui.colored_label(
+                                theme::crew_bar_color(crew.morale),
+                                format!("{:.0}", crew.morale),
+                            );
                             ui.end_row();
                             ui.label("Hunger");
-                            ui.colored_label(theme::crew_bar_color(100.0 - crew.hunger), format!("{:.0}", crew.hunger));
+                            ui.colored_label(
+                                theme::crew_bar_color(100.0 - crew.hunger),
+                                format!("{:.0}", crew.hunger),
+                            );
                             ui.end_row();
                             ui.label("Efficiency");
                             ui.label(format!("{:.2}×", crew.efficiency()));
@@ -3192,22 +3300,16 @@ fn facility_details_panel(
                             .ok()
                             .and_then(|mut q| {
                                 q.get().map(|id| {
-                                    (
-                                        id.id.clone(),
-                                        format!("{} ({})", id.name, id.class),
-                                    )
+                                    (id.id.clone(), format!("{} ({})", id.name, id.class))
                                 })
                             })
                     };
 
                     if !storage.docked_ships.is_empty() {
                         ui.label(
-                            egui::RichText::new(format!(
-                                "Docked ({})",
-                                storage.docked_ships.len()
-                            ))
-                            .italics()
-                            .color(theme::TEXT_DIM),
+                            egui::RichText::new(format!("Docked ({})", storage.docked_ships.len()))
+                                .italics()
+                                .color(theme::TEXT_DIM),
                         );
                         for &e in &storage.docked_ships {
                             if let Some((sim_id, label)) = resolve(e) {
@@ -3372,7 +3474,11 @@ fn retirements_panel(
             RetirementSort::Credits => a.final_credits.cmp(&b.final_credits),
             RetirementSort::Reason => a.reason.cmp(&b.reason),
         };
-        if descending { cmp.reverse() } else { cmp }
+        if descending {
+            cmp.reverse()
+        } else {
+            cmp
+        }
     });
 
     let total = retirements.0.len();
@@ -3414,28 +3520,63 @@ fn retirements_panel(
                     .num_columns(8)
                     .spacing([12.0, 3.0])
                     .show(ui, |ui| {
-                        ret_sort_header(ui, "Tick", &mut sort, &mut descending, RetirementSort::Tick);
-                        ret_sort_header(ui, "Name", &mut sort, &mut descending, RetirementSort::Name);
-                        ret_sort_header(ui, "Class", &mut sort, &mut descending, RetirementSort::Class);
-                        ret_sort_header(ui, "Faction", &mut sort, &mut descending, RetirementSort::Faction);
+                        ret_sort_header(
+                            ui,
+                            "Tick",
+                            &mut sort,
+                            &mut descending,
+                            RetirementSort::Tick,
+                        );
+                        ret_sort_header(
+                            ui,
+                            "Name",
+                            &mut sort,
+                            &mut descending,
+                            RetirementSort::Name,
+                        );
+                        ret_sort_header(
+                            ui,
+                            "Class",
+                            &mut sort,
+                            &mut descending,
+                            RetirementSort::Class,
+                        );
+                        ret_sort_header(
+                            ui,
+                            "Faction",
+                            &mut sort,
+                            &mut descending,
+                            RetirementSort::Faction,
+                        );
                         ui.label(
                             egui::RichText::new("Location")
                                 .strong()
                                 .color(theme::TEXT_DIM),
                         );
-                        ret_sort_header(ui, "Credits", &mut sort, &mut descending, RetirementSort::Credits);
+                        ret_sort_header(
+                            ui,
+                            "Credits",
+                            &mut sort,
+                            &mut descending,
+                            RetirementSort::Credits,
+                        );
                         ui.label(
                             egui::RichText::new("Morale / Fuel")
                                 .strong()
                                 .color(theme::TEXT_DIM),
                         );
-                        ret_sort_header(ui, "Reason", &mut sort, &mut descending, RetirementSort::Reason);
+                        ret_sort_header(
+                            ui,
+                            "Reason",
+                            &mut sort,
+                            &mut descending,
+                            RetirementSort::Reason,
+                        );
                         ui.end_row();
 
                         for r in &filtered {
                             ui.label(
-                                egui::RichText::new(format!("{}", r.retired_at_tick))
-                                    .monospace(),
+                                egui::RichText::new(format!("{}", r.retired_at_tick)).monospace(),
                             );
                             ui.label(&r.name);
                             ui.label(egui::RichText::new(&r.class).color(theme::TEXT_DIM));
@@ -3473,12 +3614,20 @@ fn ret_sort_header(
     target: RetirementSort,
 ) {
     let arrow = if *current == target {
-        if *descending { " ▼" } else { " ▲" }
+        if *descending {
+            " ▼"
+        } else {
+            " ▲"
+        }
     } else {
         ""
     };
     let active = *current == target;
-    let color = if active { theme::PRIMARY } else { theme::TEXT_DIM };
+    let color = if active {
+        theme::PRIMARY
+    } else {
+        theme::TEXT_DIM
+    };
     let text = egui::RichText::new(format!("{label}{arrow}"))
         .strong()
         .color(color);
@@ -3489,10 +3638,7 @@ fn ret_sort_header(
             *current = target;
             // Tick + credits default descending (newest / richest
             // first); text columns ascending.
-            *descending = matches!(
-                target,
-                RetirementSort::Tick | RetirementSort::Credits,
-            );
+            *descending = matches!(target, RetirementSort::Tick | RetirementSort::Credits,);
         }
     }
 }
@@ -3666,8 +3812,7 @@ fn construction_panel(
                                 ui.end_row();
                                 ui.label(key("Spawned at tick"));
                                 ui.label(
-                                    egui::RichText::new(format!("{}", r.spawned_at))
-                                        .monospace(),
+                                    egui::RichText::new(format!("{}", r.spawned_at)).monospace(),
                                 );
                                 ui.end_row();
                             });
@@ -3677,10 +3822,7 @@ fn construction_panel(
                         let pct = r.progress * 100.0;
                         let bar_text = format!(
                             "{} / {} ({}% — {} left)",
-                            r.delivered,
-                            r.required,
-                            pct as u32,
-                            r.remaining,
+                            r.delivered, r.required, pct as u32, r.remaining,
                         );
                         // ProgressBar wants a concrete desired width;
                         // f32::INFINITY trips egui 0.29's
@@ -3751,7 +3893,12 @@ fn minimap_panel(
         return;
     }
 
-    let (mut min_x, mut max_x, mut min_y, mut max_y) = (f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY);
+    let (mut min_x, mut max_x, mut min_y, mut max_y) = (
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+    );
     for (_, (x, y)) in &body_positions {
         min_x = min_x.min(*x);
         max_x = max_x.max(*x);
@@ -3776,10 +3923,8 @@ fn minimap_panel(
         .show(ctx.ctx_mut(), |ui| {
             // Reserve a square plotting area; painter draws into the
             // allocated rect. 220×220 leaves room for the title bar.
-            let (rect, response) = ui.allocate_exact_size(
-                egui::vec2(220.0, 220.0),
-                egui::Sense::click(),
-            );
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(220.0, 220.0), egui::Sense::click());
             let painter = ui.painter_at(rect);
             // Background panel so the minimap reads as its own surface.
             painter.rect_filled(rect, 2.0, theme::PANEL_BG);
@@ -3799,21 +3944,13 @@ fn minimap_panel(
                 if x < min_x || x > max_x || y < min_y || y > max_y {
                     continue;
                 }
-                painter.circle_filled(
-                    to_screen(x, y),
-                    1.0,
-                    theme::TEXT_DIM,
-                );
+                painter.circle_filled(to_screen(x, y), 1.0, theme::TEXT_DIM);
             }
 
             // Bodies: bigger dots, PRIMARY-tinted to share the
             // holographic palette with the rest of the HUD.
             for (_, (x, y)) in &body_positions {
-                painter.circle_filled(
-                    to_screen(*x, *y),
-                    3.0,
-                    theme::PRIMARY,
-                );
+                painter.circle_filled(to_screen(*x, *y), 3.0, theme::PRIMARY);
             }
 
             // Camera focus crosshair — convert world-space back to
@@ -3845,11 +3982,7 @@ fn minimap_panel(
                     let ny = ((click.y - rect.top()) / rect.height()).clamp(0.0, 1.0);
                     let ux = min_x + nx * (max_x - min_x);
                     let uy = min_y + ny * (max_y - min_y);
-                    focus_req.0 = Some(Vec3::new(
-                        ux * SCALE_FACTOR,
-                        0.0,
-                        uy * SCALE_FACTOR,
-                    ));
+                    focus_req.0 = Some(Vec3::new(ux * SCALE_FACTOR, 0.0, uy * SCALE_FACTOR));
                 }
             }
 
@@ -3899,7 +4032,9 @@ fn body_labels_panel(
         return;
     }
 
-    let Ok((camera, cam_xf)) = camera_q.get_single() else { return };
+    let Ok((camera, cam_xf)) = camera_q.get_single() else {
+        return;
+    };
 
     let world = &sim.store.world;
     let entries: Vec<(String, Vec3)> = world
@@ -3955,9 +4090,9 @@ fn body_labels_panel(
 /// wider zoom. Tuned against `OrbitCamera::initial()` distance
 /// (~3500 wu galactic overview) and the per-system inner-planet
 /// scale (~500 wu).
-const FACILITY_LABEL_MAX_DIST: f32 = 1500.0;
-const CONSTRUCTION_LABEL_MAX_DIST: f32 = 1500.0;
-const SHIP_LABEL_MAX_DIST: f32 = 200.0;
+const FACILITY_LABEL_MAX_DIST: f32 = 500.0;
+const CONSTRUCTION_LABEL_MAX_DIST: f32 = 500.0;
+const SHIP_LABEL_MAX_DIST: f32 = 75.0;
 
 /// Construction-site labels overlay. Same pattern as
 /// `body_labels_panel`: project each site's universe position to
@@ -3975,7 +4110,9 @@ fn construction_labels_panel(
     if !state.show {
         return;
     }
-    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else { return };
+    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else {
+        return;
+    };
     if orbit.distance > CONSTRUCTION_LABEL_MAX_DIST {
         return;
     }
@@ -4039,7 +4176,9 @@ fn facility_labels_panel(
     if !state.show {
         return;
     }
-    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else { return };
+    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else {
+        return;
+    };
     if orbit.distance > FACILITY_LABEL_MAX_DIST {
         return;
     }
@@ -4062,8 +4201,7 @@ fn facility_labels_panel(
         .iter()
         .filter_map(|(_e, (id, _loc))| {
             let body = body_pos.get(&id.body_id).copied()?;
-            let (fx, fy) =
-                sim_core::agents::facility::facility_offset_position(body, &id.id);
+            let (fx, fy) = sim_core::agents::facility::facility_offset_position(body, &id.id);
             Some((
                 id.name.clone(),
                 Vec3::new(fx * SCALE_FACTOR, 0.5, fy * SCALE_FACTOR),
@@ -4109,7 +4247,9 @@ fn ship_labels_panel(
     if !state.show {
         return;
     }
-    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else { return };
+    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else {
+        return;
+    };
     if orbit.distance > SHIP_LABEL_MAX_DIST {
         return;
     }
@@ -4182,11 +4322,7 @@ impl Default for EventsState {
     }
 }
 
-fn events_panel(
-    mut ctx: EguiContexts,
-    events: Res<EventsLog>,
-    mut state: ResMut<EventsState>,
-) {
+fn events_panel(mut ctx: EguiContexts, events: Res<EventsLog>, mut state: ResMut<EventsState>) {
     let mut open = state.open;
     let mut filter = state.filter.clone();
     let mut follow_tail = state.follow_tail;
@@ -4239,39 +4375,32 @@ fn events_panel(
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                egui::Grid::new("events_grid")
-                    .striped(true)
-                    .num_columns(3)
-                    .spacing([10.0, 3.0])
-                    .show(ui, |ui| {
-                        for header in ["Tick", "Kind", "Detail"] {
-                            ui.label(
-                                egui::RichText::new(header)
-                                    .strong()
-                                    .color(theme::TEXT_DIM),
-                            );
-                        }
-                        ui.end_row();
-
-                        for (tick, v) in filtered {
-                            let kind = v
-                                .get("kind")
-                                .and_then(|k| k.as_str())
-                                .unwrap_or("?");
-                            let summary = event_summary(v);
-                            ui.label(
-                                egui::RichText::new(format!("{tick}"))
-                                    .monospace()
-                                    .color(theme::TEXT_DIM),
-                            );
-                            ui.colored_label(event_kind_color(kind), kind);
-                            ui.label(
-                                egui::RichText::new(summary).color(theme::TEXT_DIM),
-                            );
+                    egui::Grid::new("events_grid")
+                        .striped(true)
+                        .num_columns(3)
+                        .spacing([10.0, 3.0])
+                        .show(ui, |ui| {
+                            for header in ["Tick", "Kind", "Detail"] {
+                                ui.label(
+                                    egui::RichText::new(header).strong().color(theme::TEXT_DIM),
+                                );
+                            }
                             ui.end_row();
-                        }
-                    });
-            });
+
+                            for (tick, v) in filtered {
+                                let kind = v.get("kind").and_then(|k| k.as_str()).unwrap_or("?");
+                                let summary = event_summary(v);
+                                ui.label(
+                                    egui::RichText::new(format!("{tick}"))
+                                        .monospace()
+                                        .color(theme::TEXT_DIM),
+                                );
+                                ui.colored_label(event_kind_color(kind), kind);
+                                ui.label(egui::RichText::new(summary).color(theme::TEXT_DIM));
+                                ui.end_row();
+                            }
+                        });
+                });
         });
 
     state.open = open;
@@ -4283,15 +4412,16 @@ fn event_kind_color(kind: &str) -> egui::Color32 {
     // Theme palette buckets by subject. Nothing load-bearing — just
     // visual scan help. Unknown kinds fall through to neutral TEXT.
     match kind {
-        "ship_docked" | "ship_spawned" | "ship_leveled_up" | "ship_refitted"
-        | "treaty_changed" => theme::PRIMARY,
-        "ship_decommissioned" | "ship_destroyed_with_cargo" | "contract_expired" => {
-            theme::DANGER
+        "ship_docked" | "ship_spawned" | "ship_leveled_up" | "ship_refitted" | "treaty_changed" => {
+            theme::PRIMARY
         }
-        "contract_delivered" | "crew_mission_completed" | "passengers_arrived"
-        | "market_recovered" | "facility_recovered" | "construction_completed" => {
-            theme::SUCCESS
-        }
+        "ship_decommissioned" | "ship_destroyed_with_cargo" | "contract_expired" => theme::DANGER,
+        "contract_delivered"
+        | "crew_mission_completed"
+        | "passengers_arrived"
+        | "market_recovered"
+        | "facility_recovered"
+        | "construction_completed" => theme::SUCCESS,
         "market_crisis" | "facility_starving" | "facility_abandoned" => theme::WARN,
         _ => theme::TEXT,
     }
@@ -4303,12 +4433,26 @@ fn event_summary(v: &serde_json::Value) -> String {
     // meaningful. Trying to be exhaustive is a losing game since
     // new event kinds keep getting added; a few high-value fields
     // cover the bulk of output volume.
-    let get = |k: &str| v.get(k).map(|x| x.to_string().trim_matches('"').to_string());
+    let get = |k: &str| {
+        v.get(k)
+            .map(|x| x.to_string().trim_matches('"').to_string())
+    };
 
-    let pieces: Vec<String> = ["ship_id", "id", "location", "facility_id", "commodity", "reason", "a", "b", "to", "from"]
-        .iter()
-        .filter_map(|k| get(k).map(|val| format!("{k}={val}")))
-        .collect();
+    let pieces: Vec<String> = [
+        "ship_id",
+        "id",
+        "location",
+        "facility_id",
+        "commodity",
+        "reason",
+        "a",
+        "b",
+        "to",
+        "from",
+    ]
+    .iter()
+    .filter_map(|k| get(k).map(|val| format!("{k}={val}")))
+    .collect();
     if pieces.is_empty() {
         return v.to_string();
     }
@@ -4426,11 +4570,11 @@ fn context_menu(
         return;
     };
     let just_opened = !matches!(&*prev_target, Some(t) if std::mem::discriminant(t) == std::mem::discriminant(&target)
-        && match (t, &target) {
-            (ContextMenuTarget::Ship(a), ContextMenuTarget::Ship(b)) => a == b,
-            (ContextMenuTarget::Facility(a), ContextMenuTarget::Facility(b)) => a == b,
-            _ => false,
-        });
+    && match (t, &target) {
+        (ContextMenuTarget::Ship(a), ContextMenuTarget::Ship(b)) => a == b,
+        (ContextMenuTarget::Facility(a), ContextMenuTarget::Facility(b)) => a == b,
+        _ => false,
+    });
 
     let pos = menu.screen_pos;
     let mut close = false;
@@ -4500,9 +4644,7 @@ fn context_menu(
                     }
                     ui.separator();
                     if ui
-                        .button(
-                            egui::RichText::new("Destroy").color(theme::DANGER),
-                        )
+                        .button(egui::RichText::new("Destroy").color(theme::DANGER))
                         .clicked()
                     {
                         match &target {
@@ -4535,9 +4677,8 @@ fn context_menu(
     // Skip the dismiss check on the spawn frame (just_opened) so
     // the same right-click that opened the menu doesn't immediately
     // close it before egui registered the area's hover region.
-    let click_outside = !just_opened
-        && buttons.just_pressed(MouseButton::Left)
-        && !ctx_ref.is_pointer_over_area();
+    let click_outside =
+        !just_opened && buttons.just_pressed(MouseButton::Left) && !ctx_ref.is_pointer_over_area();
     if close || click_outside {
         menu.target = None;
         *prev_target = None;
@@ -4650,11 +4791,7 @@ fn add_ship_dialog(
                         .selected_text(&state.location_name)
                         .show_ui(ui, |ui| {
                             for l in &locations {
-                                ui.selectable_value(
-                                    &mut state.location_name,
-                                    l.clone(),
-                                    l,
-                                );
+                                ui.selectable_value(&mut state.location_name, l.clone(), l);
                             }
                         });
                     ui.end_row();
@@ -4662,7 +4799,11 @@ fn add_ship_dialog(
                     ui.label(theme::caption("Credits"));
                     let mut credits = state.credits;
                     if ui
-                        .add(egui::DragValue::new(&mut credits).range(0..=10_000_000).speed(100.0))
+                        .add(
+                            egui::DragValue::new(&mut credits)
+                                .range(0..=10_000_000)
+                                .speed(100.0),
+                        )
                         .changed()
                     {
                         state.credits = credits;
@@ -4798,11 +4939,7 @@ fn add_facility_dialog(
                         .selected_text(&state.facility_type)
                         .show_ui(ui, |ui| {
                             for &t in FACILITY_TYPES {
-                                ui.selectable_value(
-                                    &mut state.facility_type,
-                                    t.to_string(),
-                                    t,
-                                );
+                                ui.selectable_value(&mut state.facility_type, t.to_string(), t);
                             }
                         });
                     ui.end_row();
@@ -4857,9 +4994,7 @@ fn add_facility_dialog(
                 let valid = !state.name.trim().is_empty();
                 let spawn_btn = ui.add_enabled(
                     valid,
-                    egui::Button::new(
-                        egui::RichText::new("Spawn").color(theme::SUCCESS),
-                    ),
+                    egui::Button::new(egui::RichText::new("Spawn").color(theme::SUCCESS)),
                 );
                 if spawn_btn.clicked() {
                     spawn_clicked = true;
@@ -4917,9 +5052,8 @@ fn help_panel(mut ctx: EguiContexts, mut help: ResMut<HelpState>) {
                 .striped(true)
                 .spacing([12.0, 4.0])
                 .show(ui, |ui| {
-                    let key = |label: &str| {
-                        egui::RichText::new(label).monospace().color(theme::PRIMARY)
-                    };
+                    let key =
+                        |label: &str| egui::RichText::new(label).monospace().color(theme::PRIMARY);
                     let row = |ui: &mut egui::Ui, k: &str, desc: &str| {
                         ui.label(key(k));
                         ui.label(desc);
@@ -4943,7 +5077,11 @@ fn help_panel(mut ctx: EguiContexts, mut help: ResMut<HelpState>) {
                     ui.label("");
                     ui.end_row();
                     row(ui, "Left-click", "Select ship / facility");
-                    row(ui, "Right-click", "Context menu (Inspect / Follow / POV / Destroy)");
+                    row(
+                        ui,
+                        "Right-click",
+                        "Context menu (Inspect / Follow / POV / Destroy)",
+                    );
                     row(ui, "✕ Clear (top bar)", "Deselect");
                     ui.label(theme::section_header("Misc"));
                     ui.label("");
@@ -5028,9 +5166,7 @@ fn pause_menu(
                 if ui
                     .add_sized(
                         btn_size,
-                        egui::Button::new(
-                            egui::RichText::new("Quit").color(theme::DANGER),
-                        ),
+                        egui::Button::new(egui::RichText::new("Quit").color(theme::DANGER)),
                     )
                     .on_hover_text("Close the window.")
                     .clicked()
@@ -5041,4 +5177,3 @@ fn pause_menu(
             });
         });
 }
-
