@@ -1836,19 +1836,28 @@ fn sync_engine_trails(
     if ships.is_empty() {
         return;
     }
-    let positions: std::collections::HashMap<&str, &Transform> =
-        ships.iter().map(|(s, t)| (s.sim_id.as_str(), t)).collect();
+    // Stash both transform AND base_scale so the trail can size
+    // itself per-ship: tiny couriers get a small trail, massive
+    // haulers a big one. base_scale already factors SHIP_GLB_SCALE
+    // × size_multiplier; divide out the constant to recover the
+    // class-size-only factor.
+    let lookup: std::collections::HashMap<&str, (&Transform, f32)> = ships
+        .iter()
+        .map(|(s, t)| (s.sim_id.as_str(), (t, s.base_scale / SHIP_GLB_SCALE)))
+        .collect();
     for (trail_for, mut trail_xf, mut vis) in trails.iter_mut() {
-        let Some(ship_xf) = positions.get(trail_for.0.as_str()) else {
+        let Some(&(ship_xf, size_mult)) = lookup.get(trail_for.0.as_str()) else {
             continue;
         };
         // Aft offset in ship-local frame (-Z behind nose), rotated
         // into world space. 1.5 wu lands the emitter just behind
-        // the hull silhouette at typical ship scale.
-        let aft = ship_xf.rotation * Vec3::new(0.0, 0.0, -1.5);
+        // the hull silhouette at typical ship scale; we scale this
+        // with the ship size so a Massive hauler's exhaust trails
+        // further than a Tiny courier's.
+        let aft = ship_xf.rotation * Vec3::new(0.0, 0.0, -1.5 * size_mult);
         trail_xf.translation = ship_xf.translation + aft;
         trail_xf.rotation = ship_xf.rotation;
-        trail_xf.scale = Vec3::ONE;
+        trail_xf.scale = Vec3::splat(size_mult.clamp(0.5, 4.0));
 
         // Engines-off when docked. Falls through to Visible if the
         // sim entity lookup fails (better-than-nothing for racing
