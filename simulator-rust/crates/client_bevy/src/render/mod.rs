@@ -31,7 +31,7 @@ pub const SCALE_FACTOR: f32 = 10.0;
 /// HDR bloom; 1.0 makes them readable as bright glowing points
 /// without being indistinguishable from facilities (1.5) or
 /// bodies (5.0).
-const SHIP_SIZE: f32 = 18.0;
+const SHIP_SIZE: f32 = 1.0;
 const FACILITY_SIZE: f32 = 1.5;
 const BODY_SIZE: f32 = 5.0;
 
@@ -39,27 +39,82 @@ pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        // Spawn entities after the sim has loaded (PostStartup ensures
-        // `Sim::load_world` has populated the store).
-        app.add_systems(
-            PostStartup,
-            (spawn_mirror_entities, spawn_starfield, spawn_nebulae),
-        )
-        .add_systems(
-            Update,
-            (
-                sync_positions,
-                highlight_selected,
-                draw_selection_rings,
-                draw_transit_lines,
-                draw_gate_rings,
-                draw_construction_sites,
-                raycast_select,
-                cleanup_stale_ships,
-                reconcile_new_ships,
-            ),
-        );
+        // Stations preload in Startup so the Handle<Scene>s exist
+        // by the time spawn_mirror_entities runs in PostStartup.
+        // Asset bytes load asynchronously; SceneBundle just shows
+        // an empty parent until the gltf streams in (typically a
+        // frame or two on local disk).
+        app.add_systems(Startup, load_station_models)
+            .add_systems(
+                PostStartup,
+                (spawn_mirror_entities, spawn_starfield, spawn_nebulae),
+            )
+                .add_systems(
+                Update,
+                (
+                    sync_positions,
+                    highlight_selected,
+                    draw_selection_rings,
+                    draw_transit_lines,
+                    draw_gate_rings,
+                    draw_construction_sites,
+                    raycast_select,
+                    cleanup_stale_ships,
+                    reconcile_new_ships,
+                ),
+            );
     }
+}
+
+/// Preloaded `Handle<Scene>` for each station GLB. We map the sim's
+/// `FacilityIdentity.facility_type` string onto a slot here at spawn
+/// time — same mapping the Godot client used (see
+/// `client/scripts/world/facility.gd::TYPE_MODELS`) so the visual
+/// vocabulary stays consistent across the two clients.
+#[derive(Resource)]
+struct StationModels {
+    station: Handle<Scene>,
+    outpost: Handle<Scene>,
+    mining_rig: Handle<Scene>,
+    refinery: Handle<Scene>,
+    factory: Handle<Scene>,
+    farm: Handle<Scene>,
+    gate: Handle<Scene>,
+    shipyard: Handle<Scene>,
+    default: Handle<Scene>,
+}
+
+impl StationModels {
+    fn for_type(&self, facility_type: &str) -> Handle<Scene> {
+        match facility_type {
+            "station" => self.station.clone(),
+            "outpost" => self.outpost.clone(),
+            "mining_rig" => self.mining_rig.clone(),
+            "refinery" => self.refinery.clone(),
+            "factory" => self.factory.clone(),
+            "farm" => self.farm.clone(),
+            "gate" => self.gate.clone(),
+            "shipyard" => self.shipyard.clone(),
+            _ => self.default.clone(),
+        }
+    }
+}
+
+fn load_station_models(asset_server: Res<AssetServer>, mut commands: Commands) {
+    // glTF subasset path: "<file>.glb#Scene0" loads the first
+    // (typically only) scene the file declares. The Bevy GltfPlugin
+    // ships in DefaultPlugins.
+    commands.insert_resource(StationModels {
+        station: asset_server.load("stations/station01.glb#Scene0"),
+        outpost: asset_server.load("stations/station05.glb#Scene0"),
+        mining_rig: asset_server.load("stations/station03_base.glb#Scene0"),
+        refinery: asset_server.load("stations/station02_base.glb#Scene0"),
+        factory: asset_server.load("stations/station06_base.glb#Scene0"),
+        farm: asset_server.load("stations/station05.glb#Scene0"),
+        gate: asset_server.load("stations/station02_ring.glb#Scene0"),
+        shipyard: asset_server.load("stations/station06_base.glb#Scene0"),
+        default: asset_server.load("stations/station01.glb#Scene0"),
+    });
 }
 
 /// Marker components so the per-frame position-sync query can narrow
@@ -93,8 +148,6 @@ struct PlaceholderAssets {
     ship_mesh_default: Handle<Mesh>,
     ship_mat_by_faction: std::collections::HashMap<String, Handle<StandardMaterial>>,
     ship_mat_fallback: Handle<StandardMaterial>,
-    facility_mesh: Handle<Mesh>,
-    facility_mat: Handle<StandardMaterial>,
     body_mesh: Handle<Mesh>,
     body_mat: Handle<StandardMaterial>,
 }
@@ -163,6 +216,7 @@ fn spawn_mirror_entities(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     sim: Res<Sim>,
+    stations: Res<StationModels>,
 ) {
     // Build the shared asset pool once. Ships get one material per
     // faction — materials are cheap; it's the mesh sharing + instancing
@@ -210,13 +264,6 @@ fn spawn_mirror_entities(
         ship_mesh_default,
         ship_mat_by_faction,
         ship_mat_fallback,
-        facility_mesh: meshes.add(Cylinder::new(FACILITY_SIZE * 0.5, FACILITY_SIZE)),
-        facility_mat: materials.add(StandardMaterial {
-            base_color: Color::srgb(0.7, 0.75, 0.6),
-            metallic: 0.3,
-            perceptual_roughness: 0.7,
-            ..default()
-        }),
         body_mesh: meshes.add(Sphere::new(BODY_SIZE * 0.5)),
         body_mat: materials.add(StandardMaterial {
             base_color: Color::srgb(0.45, 0.55, 0.75),
@@ -282,26 +329,42 @@ fn spawn_mirror_entities(
         .query::<(&FacilityIdentity, &FacilityLocation)>()
         .iter()
     {
-        // Placeholder: put the facility AT its body centre. The real
-        // "facility orbits its body at offset 0.15" math lives in
-        // sim_core::agents::facility::facility_offset_position — we'll
-        // wire it in for Bundle 3 alongside the proper render.
+        // Bundle 4a: GLB station models replace the cylinder
+        // placeholder. Mapping mirrors the Godot client's
+        // `facility.gd::TYPE_MODELS`. Gates use the ring model and
+        // get a wider scale (they're navigation waypoints the
+        // player needs to spot at mid-zoom). Other types use one of
+        // the box/dome silhouettes scaled to fit alongside body
+        // spheres.
         let (bx, by) = body_positions
             .get(&id.body_id)
             .copied()
             .unwrap_or((0.0, 0.0));
-        let y_offset = 0.5; // small vertical so facilities don't z-fight with bodies
+        let y_offset = 0.5; // tiny vertical so facilities don't z-fight w/ bodies
+        let is_gate = id.facility_type == "gate";
+        let scale = if is_gate { 0.15 } else { 0.05 };
+        let mut transform = Transform::from_xyz(
+            bx * SCALE_FACTOR,
+            y_offset,
+            by * SCALE_FACTOR,
+        )
+        .with_scale(Vec3::splat(scale));
+        if is_gate {
+            // Ring model's source axis is +X; rotating 90° around Y
+            // puts the hole along +Z so the ring reads as an
+            // upright portal a ship flies into. Same trick as
+            // facility.gd's `rotation_degrees = Vector3(0, 90, 0)`.
+            transform.rotate_y(std::f32::consts::FRAC_PI_2);
+        }
         commands.spawn((
-            PbrBundle {
-                mesh: assets.facility_mesh.clone(),
-                material: assets.facility_mat.clone(),
-                transform: Transform::from_xyz(bx * SCALE_FACTOR, y_offset, by * SCALE_FACTOR),
+            SceneBundle {
+                scene: stations.for_type(&id.facility_type),
+                transform,
                 ..default()
             },
             FacilityEntity {
                 sim_id: id.id.clone(),
             },
-            // Silence the unused-field warning until selection work reads it.
             FacilityLocationRef(loc.location_name.clone()),
             Name::new(format!("Facility::{}", id.id)),
         ));
