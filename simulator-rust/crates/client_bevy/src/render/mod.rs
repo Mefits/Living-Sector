@@ -297,35 +297,38 @@ fn build_engine_trail_effect(
     color_gradient.add_key(0.5, Vec4::new(0.25, 0.55, 1.0, 0.7));
     color_gradient.add_key(1.0, Vec4::new(0.05, 0.10, 0.40, 0.0));
 
-    // Particle size shrinks toward zero so the trail tapers. Sizes
-    // here are in world units because the parent entity's transform
-    // is scale=1 (we sync a sibling, not a child). Hanabi 0.13's
-    // SizeOverLifetimeModifier expects Gradient<Vec3> (independent
-    // x/y/z scale axes); we use uniform sizes.
+    // Particle size in entity-local units; trail entity scales by
+    // the ship's size_multiplier (0.5..=4.0) so a Massive hauler's
+    // particles render up to 4× this. Native ship hull is ~10 units
+    // × SHIP_GLB_SCALE 0.025 × size_mult = 0.25 wu × size_mult, so
+    // a 0.04-base particle reads as ~16% of hull length — small
+    // enough to look like discrete exhaust dots, big enough to see.
     let mut size_gradient = Gradient::new();
-    size_gradient.add_key(0.0, Vec3::splat(0.20));
+    size_gradient.add_key(0.0, Vec3::splat(0.04));
     size_gradient.add_key(1.0, Vec3::splat(0.0));
 
     let mut module = Module::default();
 
-    // Spawn within a tiny sphere so the exhaust isn't a thin line.
+    // Tight spawn radius. Wider than this and the exhaust looks
+    // like a cloud, not a thrust column.
     let init_pos = SetPositionSphereModifier {
         center: module.lit(Vec3::ZERO),
-        radius: module.lit(0.05),
+        radius: module.lit(0.01),
         dimension: ShapeDimension::Volume,
     };
 
     // Velocity points -Z (the entity faces the ship's forward, so
-    // particles eject backward) with a small spread — Sphere variant
-    // gives a cone-ish distribution around the centre direction.
+    // particles eject backward) with a small spread. Slow enough
+    // that lifetime × velocity gives a trail roughly equal to ship
+    // hull length rather than 6× longer.
     let init_vel = SetVelocitySphereModifier {
-        center: module.lit(Vec3::new(0.0, 0.0, -1.5)),
-        speed: module.lit(0.8),
+        center: module.lit(Vec3::new(0.0, 0.0, -0.4)),
+        speed: module.lit(0.15),
     };
 
     let init_lifetime = SetAttributeModifier::new(
         Attribute::LIFETIME,
-        module.lit(0.6_f32),
+        module.lit(0.4_f32),
     );
 
     // 30 particles/sec/ship × ~282 ships ≈ 8500/sec aggregate. With
@@ -1875,11 +1878,13 @@ fn sync_engine_trails(
             continue;
         };
         // Aft offset in ship-local frame (-Z behind nose), rotated
-        // into world space. 1.5 wu lands the emitter just behind
-        // the hull silhouette at typical ship scale; we scale this
-        // with the ship size so a Massive hauler's exhaust trails
-        // further than a Tiny courier's.
-        let aft = ship_xf.rotation * Vec3::new(0.0, 0.0, -1.5 * size_mult);
+        // into world space. The native gltf hull is ~10 units long
+        // × SHIP_GLB_SCALE 0.025 × size_mult ≈ 0.25 × size_mult wu
+        // in world units. Pushing the emitter ~half a hull length
+        // back (0.13 × size_mult) plants it at the engine nozzles;
+        // particles emerge from the model itself rather than the
+        // big visible gap the old 1.5 × size_mult offset caused.
+        let aft = ship_xf.rotation * Vec3::new(0.0, 0.0, -0.13 * size_mult);
         trail_xf.translation = ship_xf.translation + aft;
         trail_xf.rotation = ship_xf.rotation;
         trail_xf.scale = Vec3::splat(size_mult.clamp(0.5, 4.0));
