@@ -77,18 +77,23 @@ async fn seed_world(pool: &SqlitePool, path: &std::path::Path) -> Result<()> {
         .filter(|a| a.len() == 2)
         .map(|a| (a[0].as_f64().unwrap_or(0.0) as f32, a[1].as_f64().unwrap_or(0.0) as f32))
         .unwrap_or((0.0, 0.0));
+    // Optional spectral class. Renderer maps the string to a sun
+    // colour + radius. Missing → default G-class yellow at load.
+    let star_type: Option<&str> = sys.get("star_type").and_then(|v| v.as_str());
 
     sqlx::query(
-        "INSERT INTO star_systems (name, universe_offset_x, universe_offset_y)
-         VALUES (?1, ?2, ?3)
+        "INSERT INTO star_systems (name, universe_offset_x, universe_offset_y, star_type)
+         VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT(name) DO UPDATE SET
            universe_offset_x=excluded.universe_offset_x,
            universe_offset_y=excluded.universe_offset_y,
+           star_type=excluded.star_type,
            updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')",
     )
     .bind(sys_name)
     .bind(offset.0)
     .bind(offset.1)
+    .bind(star_type)
     .execute(pool)
     .await?;
 

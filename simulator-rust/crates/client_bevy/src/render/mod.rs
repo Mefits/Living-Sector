@@ -20,7 +20,7 @@ mod planet;
 use planet::{
     cloud_for_body, params_for_body, rings_for_body, CloudMaterial, CloudMaterialPlugin,
     CloudParams, HaloMaterial, HaloMaterialPlugin, HaloParams, PlanetMaterial,
-    PlanetMaterialPlugin, Preset,
+    PlanetMaterialPlugin, StarProfile,
 };
 
 /// Scale factor from universe units → world units. Bumped from
@@ -814,20 +814,11 @@ fn spawn_system_suns(
     mut halo_materials: ResMut<Assets<HaloMaterial>>,
     sim: Res<Sim>,
 ) {
-    let core_mesh = meshes.add(Sphere::new(SUN_RADIUS).mesh().ico(4).unwrap());
-    let molten_mesh = meshes.add(Sphere::new(SUN_RADIUS * 1.04).mesh().ico(4).unwrap());
-    // Three nested halo shells at increasing radii. Stacking low-alpha
-    // glows produces a smooth diffuse falloff rather than a discrete
-    // ring at the silhouette of one shell. Higher ico subdivision
-    // hides the icosahedron facets — at 1.6× radius low-poly was
-    // visibly faceted in the screenshot.
-    let halo_mesh_inner = meshes.add(Sphere::new(SUN_RADIUS * 1.25).mesh().ico(5).unwrap());
-    let halo_mesh_mid = meshes.add(Sphere::new(SUN_RADIUS * 1.6).mesh().ico(5).unwrap());
-    let halo_mesh_outer = meshes.add(Sphere::new(SUN_RADIUS * 2.2).mesh().ico(5).unwrap());
-
     let mut count = 0usize;
     for (name, sys) in sim.registry.systems.iter() {
         let (x, y) = sys.universe_offset;
+        let profile = StarProfile::for_type(sys.star_type.as_deref());
+        let r = SUN_RADIUS * profile.radius_mul;
         // Per-star seed so two systems don't render identical
         // turbulence patterns. Hash the system name, FNV-style.
         let mut h: u64 = 0xcbf29ce484222325;
@@ -841,13 +832,22 @@ fn spawn_system_suns(
             (((h >> 42) ^ h) as f32 / u64::MAX as f32) * 1000.0 - 500.0,
         );
 
+        // Per-star meshes so each sun's halo radius scales with its
+        // type. Could be cached per radius_mul if perf shows up, but
+        // we have <10 stars total — negligible.
+        let core_mesh = meshes.add(Sphere::new(r).mesh().ico(4).unwrap());
+        let molten_mesh = meshes.add(Sphere::new(r * 1.04).mesh().ico(4).unwrap());
+        let halo_mesh_inner = meshes.add(Sphere::new(r * 1.25).mesh().ico(5).unwrap());
+        let halo_mesh_mid = meshes.add(Sphere::new(r * 1.6).mesh().ico(5).unwrap());
+        let halo_mesh_outer = meshes.add(Sphere::new(r * 2.2).mesh().ico(5).unwrap());
+
         let surface_mat = planet_materials.add(PlanetMaterial {
-            params: Preset::Star.params(star_seed),
+            params: profile.star_params(star_seed),
         });
         let molten_mat = cloud_materials.add(CloudMaterial {
             params: CloudParams {
-                cloud_color: Vec4::new(1.0, 0.55, 0.18, 1.0),
-                seed_offset: star_seed * 0.7, // decorrelate from surface
+                cloud_color: profile.molten_color,
+                seed_offset: star_seed * 0.7,
                 cloud_opacity: 0.55,
                 cloud_coverage: 0.45,
                 cloud_softness: 0.20,
@@ -858,14 +858,9 @@ fn spawn_system_suns(
                 _pad: Vec3::ZERO,
             },
         });
-        // Three concentric halo materials with progressively lower
-        // intensity + softer falloff. Inner shell is brightest +
-        // tightest; outer shells fade and spread the glow further.
-        // Combined alpha builds a smooth gradient that bleeds
-        // outward from the sun's silhouette.
         let halo_inner_mat = halo_materials.add(HaloMaterial {
             params: HaloParams {
-                color: Vec4::new(1.0, 0.85, 0.45, 1.0),
+                color: profile.halo_color,
                 intensity: 0.45,
                 falloff: 1.4,
                 _pad: Vec2::ZERO,
@@ -873,7 +868,7 @@ fn spawn_system_suns(
         });
         let halo_mid_mat = halo_materials.add(HaloMaterial {
             params: HaloParams {
-                color: Vec4::new(1.0, 0.70, 0.25, 1.0),
+                color: profile.halo_color * 0.85,
                 intensity: 0.22,
                 falloff: 1.0,
                 _pad: Vec2::ZERO,
@@ -881,7 +876,7 @@ fn spawn_system_suns(
         });
         let halo_outer_mat = halo_materials.add(HaloMaterial {
             params: HaloParams {
-                color: Vec4::new(1.0, 0.55, 0.15, 1.0),
+                color: profile.halo_color * 0.65,
                 intensity: 0.10,
                 falloff: 0.7,
                 _pad: Vec2::ZERO,
@@ -891,7 +886,7 @@ fn spawn_system_suns(
         commands
             .spawn((
                 MaterialMeshBundle::<PlanetMaterial> {
-                    mesh: core_mesh.clone(),
+                    mesh: core_mesh,
                     material: surface_mat,
                     transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
                     ..default()
@@ -901,15 +896,11 @@ fn spawn_system_suns(
             .with_children(|parent| {
                 parent.spawn((
                     MaterialMeshBundle::<CloudMaterial> {
-                        mesh: molten_mesh.clone(),
+                        mesh: molten_mesh,
                         material: molten_mat,
                         transform: Transform::IDENTITY,
                         ..default()
                     },
-                    // Plasma layer churns slightly faster than the
-                    // surface itself rotates — sells a turbulent
-                    // chromosphere. Tilted axis so it reads as
-                    // organic flow rather than a clean spin.
                     Spin {
                         axis: Vec3::new(0.2, 1.0, 0.1).normalize(),
                         speed_rad_per_sec: 0.05,
@@ -917,9 +908,9 @@ fn spawn_system_suns(
                     Name::new(format!("Sun::{}::molten", name)),
                 ));
                 for (idx, (mesh, mat)) in [
-                    (halo_mesh_inner.clone(), halo_inner_mat),
-                    (halo_mesh_mid.clone(), halo_mid_mat),
-                    (halo_mesh_outer.clone(), halo_outer_mat),
+                    (halo_mesh_inner, halo_inner_mat),
+                    (halo_mesh_mid, halo_mid_mat),
+                    (halo_mesh_outer, halo_outer_mat),
                 ]
                 .into_iter()
                 .enumerate()

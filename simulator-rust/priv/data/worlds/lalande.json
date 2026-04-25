@@ -5,7 +5,8 @@
     "universe_offset": [
       80.0,
       -45.0
-    ]
+    ],
+    "star_type": "M"
   },
   "bodies": [
     {

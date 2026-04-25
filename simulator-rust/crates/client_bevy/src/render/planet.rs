@@ -726,6 +726,119 @@ pub fn rings_for_body(body_id: &str, biome: &str) -> Vec<RingConfig> {
     }
 }
 
+/// Per-spectral-class visual profile. Driven by `SystemInfo.star_type`
+/// (Morgan-Keenan letter). Defaults to a G-class yellow Sol-alike
+/// when the type is missing or unrecognised. Two main knobs:
+///   - `radius_mul`: relative radius — M dwarfs small, A/B/O hot
+///     giants larger. Multiplied into the renderer's base SUN_RADIUS.
+///   - colours: fed into the Star preset's color_low/mid/high/emission
+///     so the surface temperature gradient + emission tint match the
+///     spectral class.
+pub struct StarProfile {
+    pub radius_mul: f32,
+    pub color_low: Vec4,
+    pub color_mid: Vec4,
+    pub color_high: Vec4,
+    pub emission_color: Vec4,
+    pub halo_color: Vec4,
+    pub molten_color: Vec4,
+}
+
+impl StarProfile {
+    pub fn for_type(star_type: Option<&str>) -> Self {
+        let key = star_type
+            .map(str::trim)
+            .map(|s| s.chars().next().unwrap_or('G').to_ascii_uppercase());
+        match key {
+            Some('M') => StarProfile {
+                // Red dwarf — small + cool. Deep red surface, dim
+                // emission, dusky halo.
+                radius_mul: 0.55,
+                color_low: Vec4::new(0.35, 0.05, 0.02, 1.0),
+                color_mid: Vec4::new(0.85, 0.20, 0.08, 1.0),
+                color_high: Vec4::new(1.00, 0.45, 0.20, 1.0),
+                emission_color: Vec4::new(1.00, 0.30, 0.10, 1.0),
+                halo_color: Vec4::new(1.00, 0.40, 0.20, 1.0),
+                molten_color: Vec4::new(1.00, 0.30, 0.10, 1.0),
+            },
+            Some('K') => StarProfile {
+                // Orange dwarf — warm orange-yellow.
+                radius_mul: 0.85,
+                color_low: Vec4::new(0.55, 0.18, 0.05, 1.0),
+                color_mid: Vec4::new(1.00, 0.50, 0.15, 1.0),
+                color_high: Vec4::new(1.00, 0.80, 0.40, 1.0),
+                emission_color: Vec4::new(1.00, 0.55, 0.18, 1.0),
+                halo_color: Vec4::new(1.00, 0.60, 0.25, 1.0),
+                molten_color: Vec4::new(1.00, 0.50, 0.15, 1.0),
+            },
+            Some('G') | None => StarProfile {
+                // Yellow main-sequence (Sol).
+                radius_mul: 1.0,
+                color_low: Vec4::new(0.65, 0.20, 0.05, 1.0),
+                color_mid: Vec4::new(1.00, 0.55, 0.10, 1.0),
+                color_high: Vec4::new(1.00, 0.92, 0.55, 1.0),
+                emission_color: Vec4::new(1.00, 0.65, 0.18, 1.0),
+                halo_color: Vec4::new(1.00, 0.75, 0.30, 1.0),
+                molten_color: Vec4::new(1.00, 0.55, 0.18, 1.0),
+            },
+            Some('F') => StarProfile {
+                // Yellow-white — slightly hotter, paler than G.
+                radius_mul: 1.15,
+                color_low: Vec4::new(0.70, 0.40, 0.20, 1.0),
+                color_mid: Vec4::new(1.00, 0.85, 0.55, 1.0),
+                color_high: Vec4::new(1.00, 1.00, 0.92, 1.0),
+                emission_color: Vec4::new(1.00, 0.92, 0.65, 1.0),
+                halo_color: Vec4::new(1.00, 0.95, 0.70, 1.0),
+                molten_color: Vec4::new(1.00, 0.85, 0.55, 1.0),
+            },
+            Some('A') => StarProfile {
+                // White — hot, bigger than Sol.
+                radius_mul: 1.4,
+                color_low: Vec4::new(0.55, 0.65, 0.85, 1.0),
+                color_mid: Vec4::new(0.90, 0.95, 1.00, 1.0),
+                color_high: Vec4::new(1.00, 1.00, 1.00, 1.0),
+                emission_color: Vec4::new(0.95, 0.97, 1.00, 1.0),
+                halo_color: Vec4::new(0.85, 0.92, 1.00, 1.0),
+                molten_color: Vec4::new(0.90, 0.95, 1.00, 1.0),
+            },
+            Some('B') => StarProfile {
+                // Blue-white giant.
+                radius_mul: 1.8,
+                color_low: Vec4::new(0.30, 0.50, 0.85, 1.0),
+                color_mid: Vec4::new(0.65, 0.80, 1.00, 1.0),
+                color_high: Vec4::new(1.00, 1.00, 1.00, 1.0),
+                emission_color: Vec4::new(0.70, 0.85, 1.00, 1.0),
+                halo_color: Vec4::new(0.55, 0.75, 1.00, 1.0),
+                molten_color: Vec4::new(0.65, 0.80, 1.00, 1.0),
+            },
+            Some('O') => StarProfile {
+                // Hottest — deep blue, very large.
+                radius_mul: 2.2,
+                color_low: Vec4::new(0.25, 0.35, 0.85, 1.0),
+                color_mid: Vec4::new(0.45, 0.65, 1.00, 1.0),
+                color_high: Vec4::new(0.85, 0.95, 1.00, 1.0),
+                emission_color: Vec4::new(0.45, 0.70, 1.00, 1.0),
+                halo_color: Vec4::new(0.30, 0.60, 1.00, 1.0),
+                molten_color: Vec4::new(0.45, 0.65, 1.00, 1.0),
+            },
+            // Unknown letter → fall through to G default.
+            _ => StarProfile::for_type(None),
+        }
+    }
+
+    /// Build a Star-preset PlanetParams with this profile's palette.
+    /// Other knobs (noise frequency, emission strength, etc.) match
+    /// the generic Star preset.
+    pub fn star_params(&self, seed: Vec3) -> PlanetParams {
+        let mut p = Preset::Star.params(seed);
+        p.color_low = self.color_low;
+        p.color_mid = self.color_mid;
+        p.color_high = self.color_high;
+        p.emission_color = self.emission_color;
+        p
+    }
+}
+
 /// Hash a body id string into a deterministic seed offset so two
 /// bodies with the same biome don't render identically. FNV-1a so
 /// the layout is stable across restarts.

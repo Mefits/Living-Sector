@@ -6,6 +6,11 @@ pub struct SystemInfo {
     pub db_id: i64,
     pub name: String,
     pub universe_offset: (f32, f32),
+    /// Spectral class string ("M", "K", "G", "F", "A", "B", "O" or
+    /// any custom marker the seed JSON uses). The renderer maps
+    /// this to a colour + size; sim logic doesn't care. None = use
+    /// the renderer's default (typically G-class yellow).
+    pub star_type: Option<String>,
 }
 
 /// Info about a location (nav node) loaded from DB.

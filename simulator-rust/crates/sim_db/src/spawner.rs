@@ -27,16 +27,24 @@ pub async fn load_registry(pool: &SqlitePool) -> Result<WorldRegistry> {
     let mut registry = WorldRegistry::default();
 
     // Systems
-    let rows = sqlx::query("SELECT id, name, universe_offset_x, universe_offset_y FROM star_systems")
-        .fetch_all(pool).await?;
+    let rows =
+        sqlx::query("SELECT id, name, universe_offset_x, universe_offset_y, star_type FROM star_systems")
+            .fetch_all(pool)
+            .await?;
     for r in rows {
         let id: i64 = r.get("id");
         let name: String = r.get("name");
         let ox: f64 = r.get("universe_offset_x");
         let oy: f64 = r.get("universe_offset_y");
+        let star_type: Option<String> = r.try_get("star_type").ok().flatten();
         registry.systems.insert(
             name.clone(),
-            SystemInfo { db_id: id, name, universe_offset: (ox as f32, oy as f32) },
+            SystemInfo {
+                db_id: id,
+                name,
+                universe_offset: (ox as f32, oy as f32),
+                star_type,
+            },
         );
     }
 
