@@ -72,6 +72,29 @@ pub struct TickPerf {
 /// enough that recent regressions surface quickly.
 pub const TICK_PERF_WINDOW: usize = 60;
 
+/// Per-phase microsecond breakdown of the most recent embedded
+/// tick. Updated in-place each `tick_sim` invocation so the perf
+/// panel can read which sub-phase is dominant when the overall
+/// budget is bad. Mirrors what a flame-graph would tell us
+/// without pulling a profiler in.
+#[derive(Resource, Default, Clone, Copy)]
+pub struct PhasePerf {
+    pub bodies_us: u64,
+    pub ships_us: u64,
+    pub apply1_us: u64,
+    pub drains_us: u64,
+    pub dock_queue_us: u64,
+    pub facilities_us: u64,
+    pub populations_us: u64,
+    pub markets_us: u64,
+    pub apply2_us: u64,
+    pub regen_us: u64,
+    pub crisis_us: u64,
+    pub factions_us: u64,
+    pub relations_us: u64,
+    pub events_log_us: u64,
+}
+
 /// Base tick interval (seconds). Matches sim_server's default 125 ms
 /// cadence. World-speed UI in a future bundle rescales this.
 pub const DEFAULT_TICK_INTERVAL_S: f64 = 0.125;
@@ -89,6 +112,7 @@ impl Plugin for SimPlugin {
             .init_resource::<SaveAsRequest>()
             .init_resource::<SpawnShipRequest>()
             .init_resource::<TickPerf>()
+            .init_resource::<PhasePerf>()
             .add_systems(Startup, load_world)
             .add_systems(FixedUpdate, tick_sim)
             .add_systems(Update, (process_save_as, process_spawn_ship));
@@ -244,6 +268,7 @@ fn tick_sim(
     mut sim: ResMut<Sim>,
     mut events_log: ResMut<EventsLog>,
     mut perf: ResMut<TickPerf>,
+    mut phase_perf: ResMut<PhasePerf>,
     mut retirements: ResMut<Retirements>,
 ) {
     if !sim.running {
@@ -282,101 +307,158 @@ fn tick_sim(
         // sqlx + the broadcast tx; not worth dragging into the
         // fixed-update system right now.
         //
+        // Per-phase timing so the perf panel can identify the
+        // dominant cost when the budget is bad. Microsecond
+        // resolution. Each `time!` block records into a local var;
+        // we copy to the PhasePerf resource at end-of-tick (last
+        // tick wins for tick_mult > 1, which is fine for relative
+        // diagnosis).
+        let t_bodies: u64;
+        let t_ships: u64;
+        let t_apply1: u64;
+        let t_drains: u64;
+        let t_dock_queue: u64;
+        let t_facilities: u64;
+        let t_pops: u64;
+        let t_markets: u64;
+        let t_apply2: u64;
+        let t_regen: u64;
+        let t_crisis: u64;
+        let t_factions: u64;
+        let t_relations: u64;
+
+        macro_rules! time {
+            ($acc:ident, $body:block) => {{
+                let t = std::time::Instant::now();
+                $body;
+                $acc = t.elapsed().as_micros() as u64;
+            }};
+        }
+
         // Bodies first so anything reading orbit positions later
         // this tick sees today's orbit.
-        sim_server::engine::tick_bodies(store, tick_scale);
+        time!(t_bodies, {
+            sim_server::engine::tick_bodies(store, tick_scale);
+        });
 
         // Ships — AI decides + transits advance + commands get
         // emitted into the CommandBuffer.
-        ship::tick_ships(
-            &mut store.world,
-            registry,
-            &store.gate_pairs,
-            &store.contracts,
-            &store.relations,
-            &mut commands,
-            tick,
-            tick_scale,
-            tick_mult,
-        );
+        time!(t_ships, {
+            ship::tick_ships(
+                &mut store.world,
+                registry,
+                &store.gate_pairs,
+                &store.contracts,
+                &store.relations,
+                &mut commands,
+                tick,
+                tick_scale,
+                tick_mult,
+            );
+        });
         // First apply pass — docks, gate jumps, contract deliveries,
         // cargo buys/sells, credit transfers.
-        sim_server::engine::apply_ship_commands(
-            store,
-            &mut commands,
-            &mut events,
-            tick,
-        );
+        time!(t_apply1, {
+            sim_server::engine::apply_ship_commands(
+                store,
+                &mut commands,
+                &mut events,
+                tick,
+            );
+        });
         // Drain organic retirements (3-strike ship deaths) +
-        // adaptive respawns. Both mirror their sim_server async
-        // siblings minus the persist_tx (no DB worker) and the DB
-        // location lookup (we resolve via in-memory body orbits).
-        // Retirements append live to the panel-backing Vec;
-        // respawns fire at their scheduled tick with derived
-        // class / faction / location.
-        drain_decommissions(store, &mut retirements.0, &mut events, tick);
-        drain_respawns(store, registry, &mut events, tick);
-        sim_server::engine::tick_dock_queue_advance(store);
+        // adaptive respawns.
+        time!(t_drains, {
+            drain_decommissions(store, &mut retirements.0, &mut events, tick);
+            drain_respawns(store, registry, &mut events, tick);
+        });
+        time!(t_dock_queue, {
+            sim_server::engine::tick_dock_queue_advance(store);
+        });
 
         // Facilities: recipes, condition degrade, crew food draw,
         // restock from local market, autonomous contract posting,
         // abandonment countdown, level-up on XP.
-        facility::tick_facilities(
-            &mut store.world,
-            &mut store.contracts,
-            &mut events,
-            tick,
-            tick_scale,
-            tick_mult,
-        );
+        time!(t_facilities, {
+            facility::tick_facilities(
+                &mut store.world,
+                &mut store.contracts,
+                &mut events,
+                tick,
+                tick_scale,
+                tick_mult,
+            );
+        });
         // Populations: food consumption, production, sentiment,
         // passenger-contract posting, migration pressure.
-        population::tick_populations(
-            &mut store.world,
-            &mut store.contracts,
-            &mut events,
-            tick,
-            tick_scale,
-            tick_mult,
-        );
-        // Markets: the 8-phase pricing engine. Emits TransferCredits
-        // (spread revenue → facility) into `commands`, so we do a
-        // second apply pass below.
-        market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
+        time!(t_pops, {
+            population::tick_populations(
+                &mut store.world,
+                &mut store.contracts,
+                &mut events,
+                tick,
+                tick_scale,
+                tick_mult,
+            );
+        });
+        // Markets: the 8-phase pricing engine.
+        time!(t_markets, {
+            market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
+        });
 
         // Second apply pass — market TransferCredits + anything the
         // facility/pop phases emitted.
-        sim_server::engine::apply_ship_commands(
-            store,
-            &mut commands,
-            &mut events,
-            tick,
-        );
+        time!(t_apply2, {
+            sim_server::engine::apply_ship_commands(
+                store,
+                &mut commands,
+                &mut events,
+                tick,
+            );
+        });
 
-        // Body regen (separate from body-orbit `tick_bodies` above —
-        // this regrows mined resources on a slower cadence).
-        celestial_body::tick_bodies_regen(
-            &mut store.world,
-            tick,
-            tick_scale,
-            tick_mult,
-        );
+        time!(t_regen, {
+            celestial_body::tick_bodies_regen(
+                &mut store.world,
+                tick,
+                tick_scale,
+                tick_mult,
+            );
+        });
+        time!(t_crisis, {
+            sim_server::engine::scan_crisis_events(&mut store.world, &mut events);
+        });
+        time!(t_factions, {
+            faction::tick_factions(
+                &mut store.world,
+                &mut store.contracts,
+                &mut events,
+                tick,
+                tick_mult,
+            );
+        });
+        time!(t_relations, {
+            sim_server::engine::tick_relations_pass(store, &mut events, tick, tick_mult);
+        });
 
-        // Structural-warning events: market_crisis + facility_starving
-        // threshold crossings. Hysteresis-flagged; idempotent per
-        // flag flip.
-        sim_server::engine::scan_crisis_events(&mut store.world, &mut events);
-
-        // Factions: tax + subsidy + construction cycle.
-        faction::tick_factions(
-            &mut store.world,
-            &mut store.contracts,
-            &mut events,
-            tick,
-            tick_mult,
-        );
-        // Relations: decay + treaty transitions (low frequency).
-        sim_server::engine::tick_relations_pass(store, &mut events, tick, tick_mult);
+        // Last-tick wins; over tick_mult > 1 the relative
+        // proportions are what matter, not absolute totals.
+        *phase_perf = PhasePerf {
+            bodies_us: t_bodies,
+            ships_us: t_ships,
+            apply1_us: t_apply1,
+            drains_us: t_drains,
+            dock_queue_us: t_dock_queue,
+            facilities_us: t_facilities,
+            populations_us: t_pops,
+            markets_us: t_markets,
+            apply2_us: t_apply2,
+            regen_us: t_regen,
+            crisis_us: t_crisis,
+            factions_us: t_factions,
+            relations_us: t_relations,
+            events_log_us: 0, // populated below
+        };
 
         // Drop leftover commands. In the full run_tick_loop another
         // apply pass picks them up after faction phase; in the
@@ -387,12 +469,14 @@ fn tick_sim(
         // Drain the per-tick events into the ring log so the events
         // ticker panel can render them. Bounded capacity — at tick
         // boundaries we pop-front until we're at the cap.
+        let t_evlog = std::time::Instant::now();
         for ev in events.drain(..) {
             if events_log.0.len() >= EVENTS_CAP {
                 events_log.0.pop_front();
             }
             events_log.0.push_back((tick, ev));
         }
+        phase_perf.events_log_us = t_evlog.elapsed().as_micros() as u64;
     }
 
     // Tick-compute window — record this fixed-update's wall-time

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::camera::{CameraFocusRequest, CameraResetRequest, OrbitCamera};
 use crate::render::SCALE_FACTOR;
-use crate::sim::{EventsLog, Retirements, Sim, TickPerf};
+use crate::sim::{EventsLog, PhasePerf, Retirements, Sim, TickPerf};
 
 pub struct UiPlugin;
 
@@ -351,6 +351,7 @@ fn perf_overlay(
     sim: Res<Sim>,
     stats: Res<PerfStats>,
     tick_perf: Res<TickPerf>,
+    phase: Res<PhasePerf>,
 ) {
     egui::Window::new("Perf")
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 8.0))
@@ -451,6 +452,51 @@ fn perf_overlay(
                     ui.label("World seed");
                     ui.label(format!("{}", sim.world_seed));
                     ui.end_row();
+                });
+            ui.separator();
+            // Per-phase breakdown of the most recent tick — sums
+            // approximately to tick_p50 (last-tick-wins for
+            // tick_mult > 1). Names mirror the sim_server tick
+            // phases. Sorted by decreasing cost so the dominant
+            // phase is at the top.
+            egui::CollapsingHeader::new("Phases (last tick µs)")
+                .default_open(false)
+                .show(ui, |ui| {
+                    let mut rows: Vec<(&str, u64)> = vec![
+                        ("ships", phase.ships_us),
+                        ("apply1", phase.apply1_us),
+                        ("apply2", phase.apply2_us),
+                        ("facilities", phase.facilities_us),
+                        ("markets", phase.markets_us),
+                        ("populations", phase.populations_us),
+                        ("factions", phase.factions_us),
+                        ("relations", phase.relations_us),
+                        ("regen", phase.regen_us),
+                        ("crisis", phase.crisis_us),
+                        ("dock_queue", phase.dock_queue_us),
+                        ("drains", phase.drains_us),
+                        ("bodies", phase.bodies_us),
+                        ("events_log", phase.events_log_us),
+                    ];
+                    rows.sort_by(|a, b| b.1.cmp(&a.1));
+                    egui::Grid::new("phase_grid")
+                        .num_columns(2)
+                        .spacing([10.0, 2.0])
+                        .show(ui, |ui| {
+                            for (name, us) in rows {
+                                ui.label(
+                                    egui::RichText::new(name)
+                                        .small()
+                                        .color(egui::Color32::from_gray(180)),
+                                );
+                                ui.label(
+                                    egui::RichText::new(format!("{:.2} ms", us as f32 / 1000.0))
+                                        .small()
+                                        .monospace(),
+                                );
+                                ui.end_row();
+                            }
+                        });
                 });
             ui.separator();
             ui.label(

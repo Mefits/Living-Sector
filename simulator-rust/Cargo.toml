@@ -54,3 +54,16 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+# Bevy's recommended dev-mode recipe. Default debug builds compile
+# sim_core's hot loops at opt-level = 0, which murders the embedded
+# tick (we measured p50 = 337 ms at 1604 ships). opt-level = 1 on
+# user code keeps compile times reasonable; opt-level = 3 on deps
+# (Bevy itself, hecs, sqlx, etc.) is rebuilt rarely so the cost is
+# amortised. Expect a 3-5× tick speedup vs the default.
+# https://bevyengine.org/learn/quick-start/getting-started/setup/#compile-with-performance-optimizations
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

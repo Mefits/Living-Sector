@@ -340,11 +340,13 @@ fn sync_positions(
 ) {
     let world = &sim.store.world;
 
-    // Ship lookup: sim_id → (position, heading). Heading is a unit
-    // vector in xz-world-space derived from departure→current while
-    // in transit; None when docked / idle (keep last heading).
-    let ship_state: std::collections::HashMap<String, ((f32, f32), Option<Vec3>)> = world
-        .query::<(&ShipIdentity, &ShipPosition, &ShipTransit)>()
+    // Ship lookup keyed by &str so we don't clone 1604 Strings into
+    // a HashMap every render frame (was a hot allocation source at
+    // fleet scale on M1). Bind the QueryBorrow first so it lives
+    // long enough for the &str borrows to outlive the `collect`.
+    let mut ship_query =
+        world.query::<(&ShipIdentity, &ShipPosition, &ShipTransit)>();
+    let ship_state: std::collections::HashMap<&str, ((f32, f32), Option<Vec3>)> = ship_query
         .iter()
         .map(|(_e, (id, pos, transit))| {
             let heading = transit.transit.as_ref().and_then(|t| {
@@ -354,21 +356,18 @@ fn sync_positions(
                     0.0,
                     (pos.position.1 - dy) * SCALE_FACTOR,
                 );
-                // Micro-transits (sub-tick progress at departure) can
-                // be zero-length; skip those rather than normalizing
-                // to NaN.
                 if delta.length_squared() > 1e-6 {
                     Some(delta.normalize())
                 } else {
                     None
                 }
             });
-            (id.id.clone(), (pos.position, heading))
+            (id.id.as_str(), (pos.position, heading))
         })
         .collect();
 
     for (ship, mut xf) in ships.iter_mut() {
-        if let Some((pos, heading)) = ship_state.get(&ship.sim_id) {
+        if let Some((pos, heading)) = ship_state.get(ship.sim_id.as_str()) {
             xf.translation.x = pos.0 * SCALE_FACTOR;
             xf.translation.z = pos.1 * SCALE_FACTOR;
             if let Some(dir) = heading {
@@ -382,17 +381,16 @@ fn sync_positions(
         }
     }
 
-    // Body positions update slowly (orbits). Refresh each frame for
-    // simplicity; we can move to a FixedUpdate system later if this
-    // ever shows up in a profile.
-    let body_positions: std::collections::HashMap<String, (f32, f32)> = world
-        .query::<(&BodyIdentity, &BodyOrbit)>()
+    // Body positions update slowly (orbits). 35 entries — keep
+    // &str keys for consistency with ships above.
+    let mut body_query = world.query::<(&BodyIdentity, &BodyOrbit)>();
+    let body_positions: std::collections::HashMap<&str, (f32, f32)> = body_query
         .iter()
-        .map(|(_e, (id, orbit))| (id.body_id.clone(), orbit.universe_position()))
+        .map(|(_e, (id, orbit))| (id.body_id.as_str(), orbit.universe_position()))
         .collect();
 
     for (body, mut xf) in bodies.iter_mut() {
-        if let Some(&(x, y)) = body_positions.get(&body.sim_id) {
+        if let Some(&(x, y)) = body_positions.get(body.sim_id.as_str()) {
             xf.translation.x = x * SCALE_FACTOR;
             xf.translation.z = y * SCALE_FACTOR;
         }
@@ -644,11 +642,14 @@ fn reconcile_new_ships(
     ships: Query<&ShipEntity>,
 ) {
     let Some(assets) = assets else { return };
-    let known: std::collections::HashSet<String> =
-        ships.iter().map(|s| s.sim_id.clone()).collect();
+    // Build set of known sim_ids as &str — avoids 1604 String
+    // allocations every render frame (was a hot allocation source
+    // at fleet scale on M1).
+    let known: std::collections::HashSet<&str> =
+        ships.iter().map(|s| s.sim_id.as_str()).collect();
 
     for (sim_id, &entity) in sim.store.ship_by_id.iter() {
-        if known.contains(sim_id) {
+        if known.contains(sim_id.as_str()) {
             continue;
         }
         let Ok(mut q) = sim
