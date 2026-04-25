@@ -865,6 +865,7 @@ fn ship_list(
     let page: Vec<&ShipRow> = filtered.into_iter().take(PAGE_SIZE).collect();
 
     egui::Window::new(format!("Ships · {shown}/{total}"))
+        .id(egui::Id::new("ships_window"))
         .default_width(640.0)
         .default_height(400.0)
         .open(&mut open)
@@ -1117,6 +1118,7 @@ fn contracts_panel(
     let shown = rows.len();
 
     egui::Window::new(format!("Contracts · {shown}/{total}"))
+        .id(egui::Id::new("contracts_window"))
         .default_width(820.0)
         .default_height(440.0)
         .open(&mut open)
@@ -1401,6 +1403,7 @@ fn factions_panel(
     });
 
     egui::Window::new(format!("Factions · {}", rows.len()))
+        .id(egui::Id::new("factions_window"))
         .default_width(720.0)
         .default_height(520.0)
         .open(&mut open)
@@ -1707,6 +1710,7 @@ fn markets_panel(
     let shown = filtered.len();
 
     egui::Window::new(format!("Markets · {shown}/{total}"))
+        .id(egui::Id::new("markets_window"))
         .default_width(760.0)
         .default_height(520.0)
         .open(&mut open)
@@ -2012,6 +2016,7 @@ fn populations_panel(
     let shown = filtered.len();
 
     egui::Window::new(format!("Populations · {shown}/{total}"))
+        .id(egui::Id::new("populations_window"))
         .default_width(820.0)
         .default_height(460.0)
         .open(&mut open)
@@ -2794,6 +2799,7 @@ fn facility_list_panel(
     let shown = filtered.len();
 
     egui::Window::new(format!("Facilities · {shown}/{total}"))
+        .id(egui::Id::new("facilities_window"))
         .default_width(800.0)
         .default_height(460.0)
         .open(&mut open)
@@ -3371,6 +3377,7 @@ fn retirements_panel(
     let shown = filtered.len();
 
     egui::Window::new(format!("Retired · {shown}/{total}"))
+        .id(egui::Id::new("retired_window"))
         .default_width(860.0)
         .default_height(480.0)
         .open(&mut open)
@@ -3589,6 +3596,7 @@ fn construction_panel(
     let total = rows.len();
 
     egui::Window::new(format!("Construction · {total}"))
+        .id(egui::Id::new("construction_window"))
         .default_width(860.0)
         .default_height(420.0)
         .open(&mut open)
@@ -4063,6 +4071,7 @@ fn events_panel(
     let shown = filtered.len();
 
     egui::Window::new(format!("Events · {shown}/{total}"))
+        .id(egui::Id::new("events_window"))
         .default_width(640.0)
         .default_height(420.0)
         .open(&mut open)
