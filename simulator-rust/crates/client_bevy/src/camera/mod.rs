@@ -235,11 +235,18 @@ fn orbit_camera_input(
     let right = Vec3::new(cy, 0.0, -sy);
     let fwd = Vec3::new(sy, 0.0, cy);
     let mut wasd = Vec3::ZERO;
+    // W/S map to "screen-up" / "screen-down" panning, i.e. the camera
+    // focus moves opposite the eye-to-target direction. With our
+    // top-down iso tilt that means W subtracts fwd (focus shifts
+    // toward the camera, world content scrolls down) and S adds it.
+    // The intuitive mapping for a strategy-style top-down: W feels
+    // like "scroll the map up" / "look at what's above", which
+    // matches how the user expects WASD to behave.
     if keys.pressed(KeyCode::KeyW) {
-        wasd += fwd;
+        wasd -= fwd;
     }
     if keys.pressed(KeyCode::KeyS) {
-        wasd -= fwd;
+        wasd += fwd;
     }
     if keys.pressed(KeyCode::KeyD) {
         wasd += right;
