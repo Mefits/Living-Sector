@@ -16,7 +16,9 @@ use sim_core::agents::{
 use crate::sim::Sim;
 use crate::ui::{SelectedFacility, SelectedShip};
 
+mod asteroid;
 mod planet;
+use asteroid::{build_asteroid_mesh, config_for_body as asteroid_config_for_body, material_for_asteroid, seed_for as asteroid_seed_for};
 use planet::{
     cloud_for_body, params_for_body, rings_for_body, CloudMaterial, CloudMaterialPlugin,
     CloudParams, HaloMaterial, HaloMaterialPlugin, HaloParams, PlanetMaterial,
@@ -104,6 +106,7 @@ impl Plugin for RenderPlugin {
                     sync_positions,
                     follow_facilities_to_bodies,
                     rotate_spinners,
+                    rotate_tumblers,
                     highlight_selected,
                     draw_selection_rings,
                     update_ship_trails,
@@ -330,6 +333,21 @@ fn rotate_spinners(time: Res<Time>, mut q: Query<(&Spin, &mut Transform)>) {
     }
 }
 
+/// Three-axis angular velocity (rad/s). Asteroids tumble on all
+/// three axes simultaneously rather than spinning cleanly on one,
+/// matching `procedural_asteroid.gd`'s `_process` behaviour.
+#[derive(Component)]
+struct Tumble(Vec3);
+
+fn rotate_tumblers(time: Res<Time>, mut q: Query<(&Tumble, &mut Transform)>) {
+    let dt = time.delta_seconds();
+    for (t, mut xf) in q.iter_mut() {
+        xf.rotate_local_x(t.0.x * dt);
+        xf.rotate_local_y(t.0.y * dt);
+        xf.rotate_local_z(t.0.z * dt);
+    }
+}
+
 /// Build a flat annulus mesh on the XZ plane (galactic plane).
 /// Bevy's `Annulus` primitive lives on the XY plane by default, so
 /// we mesh it then rotate the vertex buffer 90° around X to land on
@@ -456,18 +474,48 @@ fn spawn_mirror_entities(
     }
 
     // Bodies — always at their orbit's current universe position.
-    // Each body gets its own PlanetMaterial keyed off biome (preset
-    // table) + body_id (seed offset so two earth-likes still differ),
-    // plus optional ring + cloud child entities per Godot
-    // PlanetCatalog. Children inherit the parent's Transform via
-    // Bevy's GlobalTransform propagation, so they orbit with the
-    // planet for free.
+    // Two render paths split on `body_type`:
+    //   - `asteroid` / `belt`: lumpy displaced UV-sphere mesh +
+    //     planet shader with rocky palette + multi-axis Tumble.
+    //   - everything else (planet, moon, gas-giant): smooth ico
+    //     sphere + PlanetMaterial + optional rings + cloud shell.
+    //
+    // Children inherit the parent's Transform via Bevy's
+    // GlobalTransform propagation, so rings / clouds orbit with
+    // their planet for free.
     let body_radius = BODY_SIZE * 0.5;
     for (_e, (id, orbit, biome)) in world
         .query::<(&BodyIdentity, &BodyOrbit, &BodyBiome)>()
         .iter()
     {
         let (x, y) = orbit.universe_position();
+        let xf = Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR);
+        let is_rock = matches!(id.body_type.as_str(), "asteroid" | "belt");
+        if is_rock {
+            // Asteroid path: build a one-off mesh per body (cheap
+            // — there are <20 rocks total) and use PlanetMaterial
+            // with sea/poles/bands/emission disabled.
+            let cfg = asteroid_config_for_body(&id.body_id, &biome.biome);
+            let seed = asteroid_seed_for(&id.body_id);
+            let mesh = meshes.add(build_asteroid_mesh(seed, body_radius, &cfg));
+            let mat = planet_materials.add(material_for_asteroid(&cfg, &id.body_id));
+            commands.spawn((
+                MaterialMeshBundle::<PlanetMaterial> {
+                    mesh,
+                    material: mat,
+                    transform: xf,
+                    ..default()
+                },
+                BodyEntity {
+                    sim_id: id.body_id.clone(),
+                },
+                Tumble(cfg.tumble),
+                Name::new(format!("Body::{}", id.body_id)),
+            ));
+            body_count += 1;
+            continue;
+        }
+
         let mat = planet_materials.add(PlanetMaterial {
             params: params_for_body(&id.body_id, &biome.biome),
         });
@@ -478,7 +526,7 @@ fn spawn_mirror_entities(
                 MaterialMeshBundle::<PlanetMaterial> {
                     mesh: assets.body_mesh.clone(),
                     material: mat,
-                    transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
+                    transform: xf,
                     ..default()
                 },
                 BodyEntity {
