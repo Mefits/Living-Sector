@@ -28,6 +28,7 @@ impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CameraFocusRequest>()
             .init_resource::<CameraResetRequest>()
+            .init_resource::<CameraFollow>()
             .add_systems(Startup, spawn_orbit_camera)
             .add_systems(
                 Update,
@@ -52,6 +53,28 @@ pub struct CameraFocusRequest(pub Option<Vec3>);
 /// pitch / distance too, not just the focus point.
 #[derive(Resource, Default)]
 pub struct CameraResetRequest(pub bool);
+
+/// Continuous camera-follow target. Unlike `CameraFocusRequest`
+/// (one-shot snap), this is consumed every frame by a render-side
+/// system that rewrites `OrbitCamera.focus` from the entity's live
+/// transform. Cleared automatically when the user pans manually
+/// (WASD / right-drag) so muscle memory takes precedence over a
+/// stale follow lock. Set by the right-click context menu's
+/// Follow / POV items.
+#[derive(Resource, Default)]
+pub struct CameraFollow {
+    pub target: Option<CameraFollowTarget>,
+    /// When set, the apply system snaps `distance` to this value
+    /// once and clears it. POV uses a small distance for an "above
+    /// the shoulder" feel; Follow leaves it alone.
+    pub snap_distance: Option<f32>,
+}
+
+#[derive(Clone, Debug)]
+pub enum CameraFollowTarget {
+    Ship(String),
+    Facility(String),
+}
 
 /// Orbit camera state. Attached to the Camera3d entity so the
 /// control system can read/mutate it alongside the Transform.
@@ -155,6 +178,7 @@ const DISTANCE_MIN: f32 = 8.0;
 const DISTANCE_MAX: f32 = 30_000.0;
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn orbit_camera_input(
     time: Res<Time>,
     mouse_button: Res<ButtonInput<MouseButton>>,
@@ -164,6 +188,7 @@ fn orbit_camera_input(
     mut pinch: EventReader<PinchGesture>,
     mut egui_ctx: EguiContexts,
     mut q: Query<(&mut OrbitCamera, &mut Transform)>,
+    mut follow: ResMut<CameraFollow>,
 ) {
     // Drain the input event readers regardless of whether the camera
     // accepts them, so a click that originated on a panel doesn't
@@ -258,6 +283,15 @@ fn orbit_camera_input(
         let scale = WASD_SPEED * dt * (orbit.distance / 500.0);
         orbit.focus += wasd.normalize() * scale;
         changed = true;
+    }
+
+    // Manual pan (wasd OR right-drag) breaks any active follow lock —
+    // user intent wins over a stale right-click follow.
+    if (wasd != Vec3::ZERO || (panning && motion != Vec2::ZERO))
+        && follow.target.is_some()
+    {
+        follow.target = None;
+        follow.snap_distance = None;
     }
 
     // --- Scroll zoom (mouse wheel + trackpad two-finger scroll) ---

@@ -39,6 +39,7 @@ impl Plugin for UiPlugin {
             .init_resource::<PauseMenuState>()
             .init_resource::<AddShipDialogState>()
             .init_resource::<AddFacilityDialogState>()
+            .init_resource::<ContextMenuRequest>()
             .add_systems(
                 Update,
                 (
@@ -76,6 +77,7 @@ impl Plugin for UiPlugin {
                     pause_menu,
                     add_ship_dialog,
                     add_facility_dialog,
+                    context_menu,
                 )
                     .chain(),
             );
@@ -3996,6 +3998,149 @@ fn keyboard_shortcuts(
             menu.was_running = sim.running;
             sim.running = false;
         }
+    }
+}
+
+/// Right-click context menu state. `target` = whatever the right-
+/// click raycast hit (ship or facility, by sim_id); `screen_pos`
+/// anchors the popup. `target = None` means the menu is hidden.
+/// Set by `render::raycast_context_menu`; read + actioned by
+/// [`context_menu`].
+#[derive(Resource, Default)]
+pub struct ContextMenuRequest {
+    pub target: Option<ContextMenuTarget>,
+    pub screen_pos: Vec2,
+}
+
+#[derive(Clone, Debug)]
+pub enum ContextMenuTarget {
+    Ship(String),
+    Facility(String),
+}
+
+/// Render the right-click menu when a target is set. Items:
+/// - **Inspect** — selects the entity (opens its details panel).
+/// - **Follow** — locks the orbit camera's focus to the entity each
+///   frame; user pan clears the lock.
+/// - **POV** — same as Follow but snaps the orbit distance closer
+///   for a near-camera "above the shoulder" feel. Not a true 1st-
+///   person; defer real POV until we land a separate camera mode.
+/// - **Destroy** — fires the matching DeleteShipRequest /
+///   DeleteFacilityRequest. No confirmation — admin tool, embedded
+///   client, undo == restart.
+///
+/// Closes on click-away. Egui's `Area::interactable(true)` keeps
+/// hover events flowing; we close manually when an item fires or
+/// when the user clicks outside the menu rect.
+#[allow(clippy::too_many_arguments)]
+fn context_menu(
+    mut ctx: EguiContexts,
+    mut menu: ResMut<ContextMenuRequest>,
+    mut ship_sel: ResMut<SelectedShip>,
+    mut fac_sel: ResMut<SelectedFacility>,
+    mut follow: ResMut<crate::camera::CameraFollow>,
+    mut delete_ship: ResMut<crate::sim::DeleteShipRequest>,
+    mut delete_fac: ResMut<crate::sim::DeleteFacilityRequest>,
+    buttons: Res<ButtonInput<MouseButton>>,
+) {
+    let Some(target) = menu.target.clone() else { return };
+
+    let pos = menu.screen_pos;
+    let mut close = false;
+    let label_kind = match &target {
+        ContextMenuTarget::Ship(id) => format!("Ship · {id}"),
+        ContextMenuTarget::Facility(id) => format!("Facility · {id}"),
+    };
+
+    let area_resp = egui::Area::new(egui::Id::new("context_menu_area"))
+        .fixed_pos(egui::pos2(pos.x, pos.y))
+        .order(egui::Order::Foreground)
+        .show(ctx.ctx_mut(), |ui| {
+            egui::Frame::popup(ui.style())
+                .stroke(egui::Stroke::new(1.0, theme::PRIMARY_DIM))
+                .show(ui, |ui| {
+                    ui.set_min_width(160.0);
+                    ui.label(
+                        egui::RichText::new(label_kind)
+                            .small()
+                            .color(theme::TEXT_DIM),
+                    );
+                    ui.separator();
+                    if ui.button("Inspect").clicked() {
+                        match &target {
+                            ContextMenuTarget::Ship(id) => {
+                                ship_sel.0 = Some(id.clone());
+                                fac_sel.0 = None;
+                            }
+                            ContextMenuTarget::Facility(id) => {
+                                fac_sel.0 = Some(id.clone());
+                                ship_sel.0 = None;
+                            }
+                        }
+                        close = true;
+                    }
+                    if ui.button("Follow").clicked() {
+                        follow.target = Some(match &target {
+                            ContextMenuTarget::Ship(id) => {
+                                crate::camera::CameraFollowTarget::Ship(id.clone())
+                            }
+                            ContextMenuTarget::Facility(id) => {
+                                crate::camera::CameraFollowTarget::Facility(id.clone())
+                            }
+                        });
+                        follow.snap_distance = None;
+                        close = true;
+                    }
+                    if ui.button("POV").clicked() {
+                        follow.target = Some(match &target {
+                            ContextMenuTarget::Ship(id) => {
+                                crate::camera::CameraFollowTarget::Ship(id.clone())
+                            }
+                            ContextMenuTarget::Facility(id) => {
+                                crate::camera::CameraFollowTarget::Facility(id.clone())
+                            }
+                        });
+                        // Closer than default. True 1st-person would
+                        // need a separate camera mode (eye attached
+                        // to the ship's transform); this is a
+                        // pragmatic approximation that reads as
+                        // "zoomed in on the subject".
+                        follow.snap_distance = Some(80.0);
+                        close = true;
+                    }
+                    ui.separator();
+                    if ui
+                        .button(
+                            egui::RichText::new("Destroy").color(theme::DANGER),
+                        )
+                        .clicked()
+                    {
+                        match &target {
+                            ContextMenuTarget::Ship(id) => {
+                                delete_ship.0 = Some(id.clone());
+                                if ship_sel.0.as_deref() == Some(id.as_str()) {
+                                    ship_sel.0 = None;
+                                }
+                            }
+                            ContextMenuTarget::Facility(id) => {
+                                delete_fac.0 = Some(id.clone());
+                                if fac_sel.0.as_deref() == Some(id.as_str()) {
+                                    fac_sel.0 = None;
+                                }
+                            }
+                        }
+                        close = true;
+                    }
+                });
+        });
+
+    // Click-outside close: if user left-clicks and the click isn't
+    // on the menu rect, dismiss it.
+    let click_outside = buttons.just_pressed(MouseButton::Left)
+        && !area_resp.response.rect.contains(area_resp.response.interact_pointer_pos()
+            .unwrap_or(egui::pos2(pos.x, pos.y)));
+    if close || click_outside {
+        menu.target = None;
     }
 }
 

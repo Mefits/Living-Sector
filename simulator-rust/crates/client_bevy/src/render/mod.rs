@@ -135,6 +135,8 @@ impl Plugin for RenderPlugin {
                     cleanup_stale_ships,
                     reconcile_new_ships,
                     reconcile_new_facilities,
+                    raycast_context_menu,
+                    apply_camera_follow,
                 ),
             );
     }
@@ -1341,6 +1343,109 @@ fn raycast_select(
             // the Godot feel where clicking starry space doesn't
             // deselect. Users close the details panel to deselect.
         }
+    }
+}
+
+/// Right-click variant of [`raycast_select`]. Hits a ship or
+/// facility under the cursor → writes a `ContextMenuRequest` so the
+/// UI can render a popup at the screen position with action items
+/// (Inspect / Follow / POV / Destroy). Skips when egui owns the
+/// pointer so right-clicks on panels don't surface a world menu.
+fn raycast_context_menu(
+    buttons: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    ships: Query<(&ShipEntity, &Transform)>,
+    facilities: Query<(&FacilityEntity, &Transform)>,
+    mut menu_req: ResMut<crate::ui::ContextMenuRequest>,
+    mut egui_ctx: EguiContexts,
+) {
+    if !buttons.just_pressed(MouseButton::Right) {
+        return;
+    }
+    if egui_ctx.ctx_mut().is_pointer_over_area() {
+        return;
+    }
+    let Ok(window) = windows.get_single() else { return };
+    let Some(cursor) = window.cursor_position() else { return };
+    let Ok((camera, cam_xf)) = cameras.get_single() else { return };
+    let Some(ray) = camera.viewport_to_world(cam_xf, cursor) else {
+        return;
+    };
+
+    enum Hit {
+        Ship(String),
+        Facility(String),
+    }
+    let mut best: Option<(f32, Hit)> = None;
+    for (ship, xf) in ships.iter() {
+        let center = xf.translation;
+        let dist = (center - ray.origin).length().max(1.0);
+        let r = dist * PICK_RADIUS_FRAC;
+        if let Some(depth) = ray_sphere_hit(&ray, center, r) {
+            if best.as_ref().is_none_or(|(d, _)| depth < *d) {
+                best = Some((depth, Hit::Ship(ship.sim_id.clone())));
+            }
+        }
+    }
+    for (fac, xf) in facilities.iter() {
+        let center = xf.translation;
+        let dist = (center - ray.origin).length().max(1.0);
+        let r = dist * PICK_RADIUS_FRAC * 1.4;
+        if let Some(depth) = ray_sphere_hit(&ray, center, r) {
+            if best.as_ref().is_none_or(|(d, _)| depth < *d) {
+                best = Some((depth, Hit::Facility(fac.sim_id.clone())));
+            }
+        }
+    }
+
+    let target = match best {
+        Some((_, Hit::Ship(id))) => Some(crate::ui::ContextMenuTarget::Ship(id)),
+        Some((_, Hit::Facility(id))) => Some(crate::ui::ContextMenuTarget::Facility(id)),
+        None => return, // empty right-click leaves any open menu alone
+    };
+
+    *menu_req = crate::ui::ContextMenuRequest {
+        target,
+        screen_pos: Vec2::new(cursor.x, cursor.y),
+    };
+}
+
+/// Read `CameraFollow` each frame; if a target is set, look up the
+/// matching ShipEntity / FacilityEntity Bevy transform and write its
+/// translation into `OrbitCamera.focus`. Optional one-shot
+/// `snap_distance` (set by the POV menu item) collapses the orbit
+/// distance to a closer "above the shoulder" view, then clears
+/// itself. Manual user pan in `orbit_camera_input` clears the follow
+/// target so muscle memory wins.
+fn apply_camera_follow(
+    mut follow: ResMut<crate::camera::CameraFollow>,
+    mut camera_q: Query<&mut crate::camera::OrbitCamera>,
+    ships: Query<(&ShipEntity, &Transform)>,
+    facilities: Query<(&FacilityEntity, &Transform)>,
+) {
+    let Some(target) = follow.target.clone() else { return };
+    let Ok(mut orbit) = camera_q.get_single_mut() else { return };
+    let translation = match &target {
+        crate::camera::CameraFollowTarget::Ship(id) => ships
+            .iter()
+            .find(|(s, _)| s.sim_id == *id)
+            .map(|(_, xf)| xf.translation),
+        crate::camera::CameraFollowTarget::Facility(id) => facilities
+            .iter()
+            .find(|(f, _)| f.sim_id == *id)
+            .map(|(_, xf)| xf.translation),
+    };
+    if let Some(t) = translation {
+        orbit.focus = t;
+        if let Some(d) = follow.snap_distance.take() {
+            orbit.distance = d;
+        }
+    } else {
+        // Target despawned (ship retired, facility deleted) — drop
+        // the follow so we don't keep querying for a missing id.
+        follow.target = None;
+        follow.snap_distance = None;
     }
 }
 

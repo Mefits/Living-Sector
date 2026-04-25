@@ -88,6 +88,20 @@ pub struct SpawnFacilityParams {
     pub credits: i64,
 }
 
+/// One-shot ship-deletion request (right-click → Destroy, or future
+/// confirmation flows). Carries the agent_id; consumed by
+/// [`process_delete_ship`]. Mirrors the inline cleanup the
+/// ship-details Delete button does today.
+#[derive(Resource, Default)]
+pub struct DeleteShipRequest(pub Option<String>);
+
+/// Same for facilities. The cleanup mirrors
+/// `sim_server::engine::admin_remove_facility` (sync subset — no
+/// persist_tx, no async): kick docked ships, cancel contracts where
+/// this facility is requestor, despawn, drop the index entry.
+#[derive(Resource, Default)]
+pub struct DeleteFacilityRequest(pub Option<String>);
+
 /// Rolling tick-compute timing window — `tick_sim` measures wall
 /// time and pushes microseconds into here so the perf overlay can
 /// surface p50/p99. Mirrors `sim_server.perf.tick_compute_*` so
@@ -144,13 +158,21 @@ impl Plugin for SimPlugin {
             .init_resource::<SaveAsRequest>()
             .init_resource::<SpawnShipRequest>()
             .init_resource::<SpawnFacilityRequest>()
+            .init_resource::<DeleteShipRequest>()
+            .init_resource::<DeleteFacilityRequest>()
             .init_resource::<TickPerf>()
             .init_resource::<PhasePerf>()
             .add_systems(Startup, load_world)
             .add_systems(FixedUpdate, tick_sim)
             .add_systems(
                 Update,
-                (process_save_as, process_spawn_ship, process_spawn_facility),
+                (
+                    process_save_as,
+                    process_spawn_ship,
+                    process_spawn_facility,
+                    process_delete_ship,
+                    process_delete_facility,
+                ),
             );
     }
 }
@@ -982,4 +1004,63 @@ fn process_spawn_facility(mut req: ResMut<SpawnFacilityRequest>, mut sim: ResMut
         "client_bevy admin: spawned facility {} ({}) at body={}",
         agent_id, params.facility_type, params.body_id
     );
+}
+
+/// Consume a pending [`DeleteShipRequest`]. Cleanup mirrors the
+/// inline path in ship_details_panel: yank the ship from any
+/// facility's docked_ships / dock_queue, release its contract
+/// holdings, despawn the hecs entity, drop the index entry. Render
+/// cleanup happens in `cleanup_stale_ships`.
+fn process_delete_ship(mut req: ResMut<DeleteShipRequest>, mut sim: ResMut<Sim>) {
+    let Some(ship_id) = req.0.take() else { return };
+    use sim_core::agents::facility::FacilityStorage;
+    let Some(&entity) = sim.store.ship_by_id.get(&ship_id) else {
+        return;
+    };
+    for (_e, storage) in sim.store.world.query_mut::<&mut FacilityStorage>() {
+        storage.docked_ships.retain(|&e| e != entity);
+        storage.dock_queue.retain(|&e| e != entity);
+    }
+    let _ = sim.store.contracts.drop_ship_holdings(&ship_id);
+    let _ = sim.store.world.despawn(entity);
+    sim.store.ship_by_id.remove(&ship_id);
+    info!("client_bevy admin: deleted ship {}", ship_id);
+}
+
+/// Consume a pending [`DeleteFacilityRequest`]. Cleanup mirrors
+/// `sim_server::engine::admin_remove_facility` (sync subset, no
+/// persist_tx): clear `docked_at` on any ship pointing at this
+/// facility's location, cancel contracts where this facility is the
+/// requestor, despawn the hecs entity, drop the index. Render
+/// cleanup is the responsibility of any future
+/// `cleanup_stale_facilities` system; today the Bevy entity lingers
+/// until restart, same trade-off the existing ship cascade lives with.
+fn process_delete_facility(
+    mut req: ResMut<DeleteFacilityRequest>,
+    mut sim: ResMut<Sim>,
+) {
+    let Some(fac_id) = req.0.take() else { return };
+    use sim_core::agents::ship::ShipPosition;
+    let Some(&entity) = sim.store.facility_by_id.get(&fac_id) else {
+        return;
+    };
+
+    // Clear docked_at on any ship pointing at this facility entity —
+    // without this they'd hold a stale Entity reference. Same shape
+    // as sim_server's admin_remove_facility ship-cleanup pass.
+    for (_e, pos) in sim.store.world.query_mut::<&mut ShipPosition>() {
+        if pos.docked_at == Some(entity) {
+            pos.docked_at = None;
+        }
+    }
+
+    // Cancel contracts requested by this facility. The sim will
+    // re-post anything still relevant on the next economy cycle.
+    sim.store
+        .contracts
+        .cancel_for_facility(Some(&fac_id), None, None);
+
+    let _ = sim.store.world.despawn(entity);
+    sim.store.facility_by_id.remove(&fac_id);
+    info!("client_bevy admin: deleted facility {}", fac_id);
 }
