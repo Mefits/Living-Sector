@@ -5388,7 +5388,13 @@ fn days_to_ymd(mut days: i64) -> (i32, u32, u32) {
     (y, (m + 1) as u32, (days + 1) as u32)
 }
 
-fn save_list_panel(mut ctx: EguiContexts, mut state: ResMut<SaveListState>) {
+fn save_list_panel(
+    mut ctx: EguiContexts,
+    mut state: ResMut<SaveListState>,
+    mut selected_save: ResMut<crate::sim::SelectedSavePath>,
+    mut next_state: ResMut<NextState<crate::AppState>>,
+    mut sim: ResMut<Sim>,
+) {
     if !state.open {
         return;
     }
@@ -5513,10 +5519,16 @@ fn save_list_panel(mut ctx: EguiContexts, mut state: ResMut<SaveListState>) {
         }
     }
     if let Some(p) = want_load {
-        // TODO(4bs): in-process sim teardown + reload from `p`.
-        // For now log so the wiring's testable; the user can swap
-        // the file by exiting and copying it over sim.db.
-        info!("client_bevy: load requested for {} (in-process reload TBD)", p.display());
+        info!("client_bevy: loading save {}", p.display());
+        // Plumb through to the sim's OnEnter(InGame) load — set the
+        // path, transition state, the OnEnter handler reads the
+        // path and loads from there. Close the save list + main
+        // menu (no need to manually close — state transition hides
+        // the entire menu UI).
+        selected_save.0 = Some(p);
+        sim.running = true;
+        next_state.set(crate::AppState::InGame);
+        state.open = false;
     }
     state.open = open;
 }

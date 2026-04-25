@@ -116,13 +116,28 @@ impl Plugin for RenderPlugin {
                     build_gate_flash_effect,
                 ),
             )
+            // Nebulas spawn at PostStartup (they're stable backdrop
+            // — the user wants them visible in the menu scene too).
+            // Game-world entities (ships / facilities / bodies / suns)
+            // wait for `OnEnter(InGame)` so the title screen reads
+            // as its own scene, not the world hiding behind a label.
+            .add_systems(PostStartup, spawn_nebulae)
             .add_systems(
-                PostStartup,
-                (spawn_mirror_entities, spawn_nebulae, spawn_system_suns),
+                bevy::prelude::OnEnter(crate::AppState::InGame),
+                (spawn_mirror_entities, spawn_system_suns, reset_camera_for_game),
+            )
+            .add_systems(
+                bevy::prelude::OnExit(crate::AppState::InGame),
+                cleanup_game_world,
             )
             // Two Update tuples — Bevy caps system param tuples at 16
             // and the render set has outgrown that. Split is purely
             // mechanical (no ordering constraints between them).
+            //
+            // Both gated on `AppState::InGame` so menu scene doesn't
+            // run sync / raycast / reconcile work — also stops
+            // `reconcile_new_ships` from re-spawning ship entities
+            // immediately after `cleanup_game_world` despawns them.
             .add_systems(
                 Update,
                 (
@@ -142,7 +157,8 @@ impl Plugin for RenderPlugin {
                     cleanup_stale_ships,
                     reconcile_new_ships,
                     reconcile_new_facilities,
-                ),
+                )
+                    .run_if(in_state(crate::AppState::InGame)),
             )
             .add_systems(
                 Update,
@@ -153,7 +169,8 @@ impl Plugin for RenderPlugin {
                     cleanup_stale_engine_trails,
                     tick_explosion_lifetimes,
                     event_driven_flashes,
-                ),
+                )
+                    .run_if(in_state(crate::AppState::InGame)),
             );
     }
 }
@@ -608,6 +625,14 @@ fn load_ship_models(asset_server: Res<AssetServer>, mut commands: Commands) {
 
 /// Marker components so the per-frame position-sync query can narrow
 /// its work + so click-to-select can tell categories apart later.
+/// Marker on every game-only render entity (ships, facilities,
+/// bodies, suns, sun children, engine trails). Lets
+/// `cleanup_game_world` despawn the whole game scene cleanly when
+/// the user returns to the main menu, without disturbing the
+/// always-on backdrop (starfield, nebulas) or UI/camera.
+#[derive(Component)]
+pub struct GameWorld;
+
 #[derive(Component)]
 pub struct ShipEntity {
     pub sim_id: String,
@@ -744,6 +769,35 @@ fn annulus_mesh(inner: f32, outer: f32, segments: u32) -> Mesh {
     mesh
 }
 
+/// `OnExit(InGame)` cleanup: despawn everything tagged `GameWorld`.
+/// Returns the scene to its main-menu shape — starfield + nebulas
+/// remain (they're untagged), but bodies / ships / facilities /
+/// suns / engine trails all go.
+fn cleanup_game_world(
+    mut commands: Commands,
+    entities: Query<Entity, With<GameWorld>>,
+) {
+    let mut count = 0usize;
+    for e in entities.iter() {
+        commands.entity(e).despawn_recursive();
+        count += 1;
+    }
+    info!("client_bevy: cleaned up {} game-world entities", count);
+}
+
+/// `OnEnter(InGame)` camera setup. Snap the orbit camera back to
+/// its initial galactic-overview pose so the user sees the inner
+/// solar system the moment they hit Start, regardless of whatever
+/// pose was active during the menu (or last session before they
+/// returned to main menu).
+fn reset_camera_for_game(
+    mut q: Query<(&mut crate::camera::OrbitCamera, &mut Transform)>,
+) {
+    let Ok((mut orbit, mut xf)) = q.get_single_mut() else { return };
+    *orbit = crate::camera::OrbitCamera::initial();
+    *xf = orbit.transform();
+}
+
 #[allow(clippy::too_many_arguments)]
 fn spawn_mirror_entities(
     mut commands: Commands,
@@ -789,6 +843,7 @@ fn spawn_mirror_entities(
         commands.spawn((
             ParticleEffectBundle::new(engine_trail.0.clone()),
             EngineTrailFor(id.id.clone()),
+            GameWorld,
             Name::new(format!("EngineTrail::{}", id.id)),
         ));
         commands.spawn((
@@ -802,6 +857,7 @@ fn spawn_mirror_entities(
                 sim_id: id.id.clone(),
                 base_scale,
             },
+            GameWorld,
             Name::new(format!("Ship::{}", id.id)),
         ));
         ship_count += 1;
@@ -863,6 +919,7 @@ fn spawn_mirror_entities(
                     BodyEntity {
                         sim_id: id.body_id.clone(),
                     },
+                    GameWorld,
                     Name::new(format!("Body::{}", id.body_id)),
                 ))
             } else {
@@ -879,6 +936,7 @@ fn spawn_mirror_entities(
                         sim_id: id.body_id.clone(),
                     },
                     Tumble(cfg.tumble),
+                    GameWorld,
                     Name::new(format!("Body::{}", id.body_id)),
                 ))
             };
@@ -922,6 +980,7 @@ fn spawn_mirror_entities(
                 BodyEntity {
                     sim_id: id.body_id.clone(),
                 },
+                GameWorld,
                 Name::new(format!("Body::{}", id.body_id)),
             ))
             .with_children(|parent| {
@@ -1049,6 +1108,7 @@ fn spawn_mirror_entities(
                 body_id: id.body_id.clone(),
             },
             FacilityLocationRef(loc.location_name.clone()),
+            GameWorld,
             Name::new(format!("Facility::{}", id.id)),
         ));
         facility_count += 1;
@@ -1318,6 +1378,7 @@ fn spawn_system_suns(
                     transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
                     ..default()
                 },
+                GameWorld,
                 Name::new(format!("Sun::{}", name)),
             ))
             .with_children(|parent| {
@@ -1604,6 +1665,7 @@ fn reconcile_new_facilities(
                 body_id: id.body_id.clone(),
             },
             FacilityLocationRef(loc.location_name.clone()),
+            GameWorld,
             Name::new(format!("Facility::{}", id.id)),
         ));
     }
@@ -1640,6 +1702,7 @@ fn reconcile_new_ships(
         commands.spawn((
             ParticleEffectBundle::new(engine_trail.0.clone()),
             EngineTrailFor(sim_id.clone()),
+            GameWorld,
             Name::new(format!("EngineTrail::{sim_id}")),
         ));
         commands.spawn((
@@ -1653,6 +1716,7 @@ fn reconcile_new_ships(
                 sim_id: sim_id.clone(),
                 base_scale,
             },
+            GameWorld,
             Name::new(format!("Ship::{sim_id}")),
         ));
     }

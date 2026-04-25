@@ -162,7 +162,21 @@ impl Plugin for SimPlugin {
             .init_resource::<DeleteFacilityRequest>()
             .init_resource::<TickPerf>()
             .init_resource::<PhasePerf>()
-            .add_systems(Startup, load_world)
+            .init_resource::<SelectedSavePath>()
+            // Discrete scenes: world load happens on `OnEnter(InGame)`
+            // (when the user clicks Start or picks a save) and the
+            // store is reset on `OnExit(InGame)` (Return to Main
+            // Menu). The MainMenu state has an empty sim store —
+            // different sessions can boot from different DBs cleanly
+            // without a load-and-hide step.
+            .add_systems(
+                bevy::prelude::OnEnter(crate::AppState::InGame),
+                load_world,
+            )
+            .add_systems(
+                bevy::prelude::OnExit(crate::AppState::InGame),
+                teardown_world,
+            )
             .add_systems(
                 FixedUpdate,
                 tick_sim.run_if(bevy::prelude::in_state(crate::AppState::InGame)),
@@ -215,17 +229,33 @@ impl Default for Sim {
     }
 }
 
-/// Startup system: init DB, seed if empty, load agents into the Sim
-/// Resource. Uses a one-shot tokio runtime — we need it for sqlx's
-/// async API during this startup sequence only. The runtime gets
-/// dropped after the load; Bundle 2b.3 will keep a long-lived one
-/// for the persistence worker.
+/// Resource: which DB the next `OnEnter(InGame)` should load from.
+/// `None` = default `sim.db` next to the executable. Set by the
+/// save-list panel's Load button before transitioning to InGame.
+/// Cleared on `OnExit(InGame)` so subsequent Start clicks don't
+/// silently reuse the previous selection.
+#[derive(Resource, Default)]
+pub struct SelectedSavePath(pub Option<std::path::PathBuf>);
+
+/// `OnEnter(InGame)` system: init DB, seed if empty, load agents
+/// into the Sim Resource. Uses a one-shot tokio runtime — we need
+/// it for sqlx's async API during this load sequence only. The
+/// runtime gets dropped after the load; the persistence worker
+/// (when it lands) will hold its own long-lived runtime.
 ///
-/// Behaviour mirrors `sim_server::main` exactly for this slice so
-/// the same `sim.db` file can be used interchangeably between the
-/// two binaries during the migration.
-fn load_world(mut sim: ResMut<Sim>, mut retirements: ResMut<Retirements>) {
-    let db_path = resolve_db_path();
+/// Reads `SelectedSavePath` to choose between the default sim.db
+/// and a user-picked save snapshot — letting different sessions
+/// boot from different worlds without restart. The save-list's
+/// Load button writes this resource before transitioning state.
+fn load_world(
+    mut sim: ResMut<Sim>,
+    mut retirements: ResMut<Retirements>,
+    selected: Res<SelectedSavePath>,
+) {
+    let db_path = match &selected.0 {
+        Some(p) => p.to_string_lossy().to_string(),
+        None => resolve_db_path(),
+    };
     info!("client_bevy: sim DB at {db_path}");
 
     let rt = match tokio::runtime::Runtime::new() {
@@ -307,6 +337,29 @@ fn load_world(mut sim: ResMut<Sim>, mut retirements: ResMut<Retirements>) {
     }
     // rt drops here — Bundle 2b.3 keeps a long-lived one for
     // persistence worker + future async work.
+}
+
+/// `OnExit(InGame)` system: blow away the in-memory world. Mirrors
+/// the boot-state Sim::default + empty Retirements + drained
+/// EventsLog so the next `OnEnter(InGame)` (Start / Load Game)
+/// builds a fresh world from whatever DB it picks. Also clears
+/// `SelectedSavePath` so the next plain Start defaults back to
+/// sim.db rather than silently re-using the picked save.
+fn teardown_world(
+    mut sim: ResMut<Sim>,
+    mut retirements: ResMut<Retirements>,
+    mut events: ResMut<EventsLog>,
+    mut selected: ResMut<SelectedSavePath>,
+) {
+    let summary = sim.store.summary();
+    info!(
+        "client_bevy: tearing down world ({} ships, {} facilities, {} bodies)",
+        summary.ships, summary.facilities, summary.bodies
+    );
+    *sim = Sim::default();
+    retirements.0.clear();
+    events.0.clear();
+    selected.0 = None;
 }
 
 /// Tick system — runs on Bevy's `FixedUpdate` at
