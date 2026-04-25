@@ -447,6 +447,14 @@ directly; zero marshalling between sim and render.
   speed / tick / reset view / save; `top_bar` for panel
   toggles) because the combined param list hit Bevy's 16-param
   system-tuple limit.
+- **Bundle 3ah**: admin Spawn Ship button. `sim_server::engine::
+  admin_spawn_ship` promoted to `pub`; client_bevy's "+Freighter"
+  button queues a `SpawnShipRequest` that `process_spawn_ship`
+  consumes, building a payload (freighter at earth-station,
+  independent, 5000 cr, timestamp-derived id) and mutating the
+  hecs store. Paired `render::reconcile_new_ships` spawns the
+  matching Bevy render entity on the next frame — mirror of
+  `cleanup_stale_ships` for the birth side of the lifecycle.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
