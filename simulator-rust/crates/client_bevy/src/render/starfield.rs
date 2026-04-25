@@ -13,7 +13,7 @@ use bevy::{
     prelude::*,
     render::{
         alpha::AlphaMode,
-        render_resource::{AsBindGroup, Face, ShaderRef},
+        render_resource::{AsBindGroup, Face, ShaderRef, ShaderType},
     },
 };
 
@@ -28,7 +28,20 @@ impl Plugin for StarfieldPlugin {
 }
 
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
-pub struct SkyStarsMaterial {}
+pub struct SkyStarsMaterial {
+    #[uniform(0)]
+    pub params: SkyParams,
+}
+
+#[derive(ShaderType, Debug, Clone, Copy)]
+pub struct SkyParams {
+    /// 0 = render the sky-stars shader; non-zero = render a
+    /// debug "globe direction → RGB" pattern instead so we can
+    /// confirm the shell + culling are working before suspecting
+    /// the noise math. Toggle via `CLIENT_BEVY_SKY_DEBUG=1`.
+    pub debug_mode: u32,
+    pub _pad: UVec3,
+}
 
 impl Material for SkyStarsMaterial {
     fn fragment_shader() -> ShaderRef {
@@ -67,7 +80,17 @@ fn spawn_sky_shell(
     mut materials: ResMut<Assets<SkyStarsMaterial>>,
 ) {
     let mesh = meshes.add(Sphere::new(SKY_RADIUS).mesh().ico(4).unwrap());
-    let mat = materials.add(SkyStarsMaterial {});
+    let debug_mode = if std::env::var("CLIENT_BEVY_SKY_DEBUG").is_ok() {
+        1
+    } else {
+        0
+    };
+    let mat = materials.add(SkyStarsMaterial {
+        params: SkyParams {
+            debug_mode,
+            _pad: UVec3::ZERO,
+        },
+    });
     commands.spawn((
         MaterialMeshBundle::<SkyStarsMaterial> {
             mesh,
