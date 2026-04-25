@@ -159,7 +159,7 @@ impl Plugin for RenderPlugin {
                     sync_engine_trails,
                     cleanup_stale_engine_trails,
                     tick_explosion_lifetimes,
-                    gate_jump_flash,
+                    event_driven_flashes,
                 ),
             );
     }
@@ -454,11 +454,14 @@ fn build_gate_flash_effect(
     commands.insert_resource(GateFlashEffect(handle));
 }
 
-/// Watch the EventsLog for new `ship_gate_jumped` events; for each,
-/// spawn a one-shot flash effect at both the source and destination
-/// gate positions. A `Local<u64>` high-water tick mark prevents
-/// re-firing flashes for events we've already processed.
-fn gate_jump_flash(
+/// Watch the EventsLog for new "warp-y" events and spawn a one-shot
+/// flash effect at the relevant world position. Currently handles:
+/// - `ship_gate_jumped` → flash at both src + dest gates
+/// - `ship_spawned` → flash at the new ship's position (warp-in)
+///
+/// `Local<u64>` high-water tick mark prevents re-firing flashes
+/// for events we've already processed.
+fn event_driven_flashes(
     mut commands: Commands,
     sim: Res<crate::sim::Sim>,
     events: Res<crate::sim::EventsLog>,
@@ -468,16 +471,14 @@ fn gate_jump_flash(
     let Some(flash) = flash else { return };
     use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
     use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
+    use sim_core::agents::ship::ShipPosition;
 
-    // Build gate-location → body universe position lookup once per
-    // frame. Cheap at <30 gates; only runs when there are events to
-    // scan, so pure overhead in the typical no-jump case is the
-    // events.0.iter() in the early loop.
     if events.0.is_empty() {
         return;
     }
-    let mut gate_pos: std::collections::HashMap<String, (f32, f32)> =
-        std::collections::HashMap::new();
+
+    // Build gate-location → body universe position lookup once per
+    // frame. Cheap at <30 gates.
     let body_pos: std::collections::HashMap<String, (f32, f32)> = sim
         .store
         .world
@@ -485,6 +486,8 @@ fn gate_jump_flash(
         .iter()
         .map(|(_, (b, o))| (b.body_id.clone(), o.universe_position()))
         .collect();
+    let mut gate_pos: std::collections::HashMap<String, (f32, f32)> =
+        std::collections::HashMap::new();
     for (_, (id, loc)) in sim
         .store
         .world
@@ -498,6 +501,17 @@ fn gate_jump_flash(
         }
     }
 
+    let spawn_flash = |commands: &mut Commands, x: f32, y: f32, label: &str| {
+        let world = Vec3::new(x * SCALE_FACTOR, 0.5, y * SCALE_FACTOR);
+        commands.spawn((
+            ParticleEffectBundle::new(flash.0.clone()),
+            Transform::from_translation(world),
+            GlobalTransform::default(),
+            ExplosionLifetime(Timer::from_seconds(1.0, TimerMode::Once)),
+            Name::new(format!("Flash::{label}")),
+        ));
+    };
+
     let mut new_high = *last_tick;
     for (tick, ev) in events.0.iter() {
         if *tick <= *last_tick {
@@ -506,24 +520,37 @@ fn gate_jump_flash(
         if *tick > new_high {
             new_high = *tick;
         }
-        if ev.get("kind").and_then(|k| k.as_str()) != Some("ship_gate_jumped") {
-            continue;
-        }
-        for key in &["src_gate", "dest_gate"] {
-            let Some(loc_name) = ev.get(*key).and_then(|s| s.as_str()) else {
-                continue;
-            };
-            let Some(&(x, y)) = gate_pos.get(loc_name) else {
-                continue;
-            };
-            let world = Vec3::new(x * SCALE_FACTOR, 0.5, y * SCALE_FACTOR);
-            commands.spawn((
-                ParticleEffectBundle::new(flash.0.clone()),
-                Transform::from_translation(world),
-                GlobalTransform::default(),
-                ExplosionLifetime(Timer::from_seconds(1.0, TimerMode::Once)),
-                Name::new(format!("GateFlash::{}", loc_name)),
-            ));
+        match ev.get("kind").and_then(|k| k.as_str()) {
+            Some("ship_gate_jumped") => {
+                for key in &["src_gate", "dest_gate"] {
+                    let Some(loc_name) = ev.get(*key).and_then(|s| s.as_str()) else {
+                        continue;
+                    };
+                    let Some(&(x, y)) = gate_pos.get(loc_name) else {
+                        continue;
+                    };
+                    spawn_flash(&mut commands, x, y, loc_name);
+                }
+            }
+            Some("ship_spawned") => {
+                // Look up the new ship's position from the sim — the
+                // event's payload doesn't carry coordinates, just the
+                // agent_id. Reconcile_new_ships will materialise the
+                // Bevy entity later this frame; we don't need to wait.
+                let Some(ship_id) = ev.get("id").and_then(|s| s.as_str()) else {
+                    continue;
+                };
+                let Some(&entity) = sim.store.ship_by_id.get(ship_id) else {
+                    continue;
+                };
+                let Ok(mut q) = sim.store.world.query_one::<&ShipPosition>(entity) else {
+                    continue;
+                };
+                let Some(pos) = q.get() else { continue };
+                let (x, y) = pos.position;
+                spawn_flash(&mut commands, x, y, ship_id);
+            }
+            _ => {}
         }
     }
     *last_tick = new_high;
