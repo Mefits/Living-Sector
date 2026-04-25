@@ -108,8 +108,13 @@ impl OrbitCamera {
     }
 
     /// Recompute the eye position + looking direction for this
-    /// orbit state. Called whenever input moves us.
-    fn transform(&self) -> Transform {
+    /// orbit state. Called whenever input moves us. `pub(crate)`
+    /// so render-side systems (`apply_camera_follow`) can push the
+    /// Transform after they mutate orbit.focus / orbit.distance —
+    /// without it, those changes only show up the next time the
+    /// user pans because input is what previously gated the
+    /// `*xf = orbit.transform()` write.
+    pub(crate) fn transform(&self) -> Transform {
         let (sy, cy) = self.yaw.sin_cos();
         let (sp, cp) = self.pitch.sin_cos();
         // Spherical coords around focus. pitch = 0 is horizontal,

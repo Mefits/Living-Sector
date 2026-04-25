@@ -1919,10 +1919,14 @@ fn cleanup_stale_engine_trails(
 /// distance to a closer "above the shoulder" view, then clears
 /// itself. Manual user pan in `orbit_camera_input` clears the follow
 /// target so muscle memory wins.
+#[allow(clippy::type_complexity)]
 fn apply_camera_follow(
     time: Res<Time>,
     mut follow: ResMut<crate::camera::CameraFollow>,
-    mut camera_q: Query<&mut crate::camera::OrbitCamera>,
+    mut camera_q: Query<
+        (&mut crate::camera::OrbitCamera, &mut Transform),
+        (Without<ShipEntity>, Without<FacilityEntity>, Without<BodyEntity>),
+    >,
     ships: Query<(&ShipEntity, &Transform)>,
     facilities: Query<(&FacilityEntity, &Transform)>,
     mut prev: Local<Option<crate::camera::CameraFollowTarget>>,
@@ -1931,7 +1935,7 @@ fn apply_camera_follow(
         *prev = None;
         return;
     };
-    let Ok(mut orbit) = camera_q.get_single_mut() else { return };
+    let Ok((mut orbit, mut cam_xf)) = camera_q.get_single_mut() else { return };
     // First frame after target is set: snap focus instantly so the
     // user sees the camera respond to the menu click. Subsequent
     // frames lerp for smooth tracking. Without this snap a click
@@ -1978,6 +1982,11 @@ fn apply_camera_follow(
             // see the size jump immediately, not glide through it.
             orbit.distance = d;
         }
+        // Push the orbit state into the camera Transform so the
+        // render pipeline actually sees the change. Without this
+        // the follow updates orbit.focus / orbit.distance silently
+        // and the visible camera doesn't move until the user pans.
+        *cam_xf = orbit.transform();
         *prev = Some(target);
     } else {
         // Target despawned (ship retired, facility deleted) — drop
