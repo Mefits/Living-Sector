@@ -140,6 +140,18 @@ fn top_bar_controls(
                     .monospace()
                     .color(theme::TEXT_DIM),
             );
+            if !sim.running {
+                // Always-visible PAUSED chip so users glancing at the
+                // top bar see why nothing's moving — separate from
+                // the pause-menu overlay which only shows when Esc is
+                // pressed.
+                ui.label(
+                    egui::RichText::new("· PAUSED")
+                        .strong()
+                        .small()
+                        .color(theme::WARN),
+                );
+            }
             ui.separator();
             if ui
                 .add(egui::Button::image_and_text(icons::refresh(), "Reset view"))
