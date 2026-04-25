@@ -3683,7 +3683,7 @@ async fn spawn_replacement_ship(
 /// Tiny name picker — two-syllable word list hash-indexed by seed.
 /// Not meant to be clever; it just produces varied human-readable
 /// names without pulling in a full name-generator crate.
-fn random_ship_name(seed: u64) -> String {
+pub fn random_ship_name(seed: u64) -> String {
     const FIRST: &[&str] = &[
         "Dawn", "Ember", "Frost", "Ghost", "Iron", "Jade", "Kestrel",
         "Lark", "Mercury", "Nova", "Onyx", "Pike", "Quartz", "Raven",

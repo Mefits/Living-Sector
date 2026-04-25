@@ -307,14 +307,15 @@ fn tick_sim(
             &mut events,
             tick,
         );
-        // Drain organic retirements (3-strike ship deaths). Embedded
-        // version mirrors sim_server::drain_pending_decommissions
-        // minus the persist_tx (no DB worker) and minus the respawn
-        // wiring (full replacement-ship spawn is a follow-up). The
-        // retirement ledger grows in-memory so the panel stays
-        // current — `Retirements` is normally seeded at startup
-        // from sim_db, this appends to the same Vec live.
+        // Drain organic retirements (3-strike ship deaths) +
+        // adaptive respawns. Both mirror their sim_server async
+        // siblings minus the persist_tx (no DB worker) and the DB
+        // location lookup (we resolve via in-memory body orbits).
+        // Retirements append live to the panel-backing Vec;
+        // respawns fire at their scheduled tick with derived
+        // class / faction / location.
         drain_decommissions(store, &mut retirements.0, &mut events, tick);
+        drain_respawns(store, registry, &mut events, tick);
         sim_server::engine::tick_dock_queue_advance(store);
 
         // Facilities: recipes, condition degrade, crew food draw,
@@ -527,11 +528,140 @@ fn drain_decommissions(
         }
     }
 
-    // Auto-respawn isn't wired yet (deferred). Drop any queued
-    // respawns so the queue stays bounded; the loss is "lost ships
-    // don't get replacements during embedded play". Restart picks
-    // up fresh from DB.
-    store.pending_respawns.clear();
+}
+
+/// Sync version of `sim_server::drain_pending_respawns`. Drains the
+/// `PendingRespawn` queue at end-of-tick, spawning replacement ships
+/// for any entry whose `spawn_at_tick` has arrived. Embedded version
+/// resolves the spawn location's body position from the in-memory
+/// hecs world (no DB JOIN). Picks class deterministically from
+/// (tick, prefer_faction) hash; faction is 70%-prefer the lost
+/// ship's faction, else the underdog (fewest active ships).
+fn drain_respawns(
+    store: &mut AgentStore,
+    registry: &WorldRegistry,
+    events: &mut Vec<serde_json::Value>,
+    tick: u64,
+) {
+    use sim_core::agents::{
+        celestial_body::{BodyIdentity, BodyOrbit},
+        facility::{FacilityIdentity, FacilityLocation, FacilityOperations},
+        ship::ShipIdentity,
+    };
+    use sim_core::simulation::spawner::PendingRespawn;
+
+    // Partition the queue into "fire now" + "still waiting" — keep
+    // the not-yet-due entries for later ticks.
+    let pending: Vec<PendingRespawn> = std::mem::take(&mut store.pending_respawns);
+    let (due, later): (Vec<_>, Vec<_>) =
+        pending.into_iter().partition(|r| r.spawn_at_tick <= tick);
+    store.pending_respawns = later;
+    if due.is_empty() {
+        return;
+    }
+
+    const CANDIDATE_CLASSES: &[&str] =
+        &["courier", "freighter", "hauler", "tanker", "miner"];
+
+    for req in due {
+        // Deterministic seed: hash tick + faction so multiple
+        // retirements on the same tick still produce different picks.
+        let seed = tick
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(
+                req.prefer_faction
+                    .as_deref()
+                    .map(|s| s.bytes().map(|b| b as u64).sum())
+                    .unwrap_or(0),
+            );
+        let class = CANDIDATE_CLASSES[(seed as usize) % CANDIDATE_CLASSES.len()];
+
+        // Faction: 70% prefer the retired ship's faction, else the
+        // faction with the fewest active ships ("underdog
+        // pressure").
+        let use_hint = (seed >> 8) % 10 < 7;
+        let faction_id = if use_hint && req.prefer_faction.is_some() {
+            req.prefer_faction.clone().unwrap()
+        } else {
+            let mut counts: std::collections::HashMap<String, u32> =
+                std::collections::HashMap::new();
+            for (_, id) in store.world.query::<&ShipIdentity>().iter() {
+                if !id.faction_id.is_empty() {
+                    *counts.entry(id.faction_id.clone()).or_insert(0) += 1;
+                }
+            }
+            counts
+                .into_iter()
+                .min_by_key(|(_, n)| *n)
+                .map(|(f, _)| f)
+                .unwrap_or_else(|| {
+                    req.prefer_faction
+                        .clone()
+                        .unwrap_or_else(|| "terran-authority".to_string())
+                })
+        };
+
+        // Pick a dockable station — prefer the chosen faction's,
+        // fall back to any.
+        let candidates: Vec<(String, String, String)> = store
+            .world
+            .query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>()
+            .iter()
+            .filter(|(_, (id, _, ops))| {
+                id.facility_type != "gate" && ops.docking_capacity > 0
+            })
+            .map(|(_, (id, loc, _))| {
+                (
+                    loc.location_name.clone(),
+                    id.faction_id.clone(),
+                    id.body_id.clone(),
+                )
+            })
+            .collect();
+        if candidates.is_empty() {
+            continue;
+        }
+        let home: Vec<_> = candidates
+            .iter()
+            .filter(|(_, fid, _)| *fid == faction_id)
+            .cloned()
+            .collect();
+        let pool = if home.is_empty() { &candidates } else { &home };
+        let (location_name, _picked_faction, body_id) =
+            pool[(seed as usize) % pool.len()].clone();
+
+        // Resolve body position from the hecs world — no DB hop.
+        let body_pos = store
+            .world
+            .query::<(&BodyIdentity, &BodyOrbit)>()
+            .iter()
+            .find(|(_, (b, _))| b.body_id == body_id)
+            .map(|(_, (_, o))| o.universe_position())
+            .unwrap_or((0.0, 0.0));
+
+        let name = sim_server::engine::random_ship_name(seed);
+        let agent_id = format!("ship-respawn-{tick}-{:x}", seed & 0xFFFF);
+        let payload = sim_server::control::AdminSpawnShipPayload {
+            db_id: 0,
+            agent_id: agent_id.clone(),
+            name,
+            class: class.to_string(),
+            location_name: location_name.clone(),
+            faction_id: faction_id.clone(),
+            universe_offset: (0.0, 0.0),
+            position: body_pos,
+            credits: 5_000,
+        };
+        sim_server::engine::admin_spawn_ship(store, registry, payload, events);
+        events.push(serde_json::json!({
+            "kind": "ship_spawned",
+            "id": agent_id,
+            "class": class,
+            "faction_id": faction_id,
+            "location": location_name,
+            "reason": "adaptive_respawn",
+        }));
+    }
 }
 
 /// DB path resolution — honour `DATABASE_PATH` env var, else look
