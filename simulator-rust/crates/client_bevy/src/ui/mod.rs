@@ -2083,7 +2083,7 @@ fn ship_details_panel(
                 ui.label(
                     egui::RichText::new("admin:")
                         .small()
-                        .color(egui::Color32::from_gray(160)),
+                        .color(theme::TEXT_DIM),
                 );
                 if ui
                     .button(egui::RichText::new("+100 XP").small())
@@ -2099,7 +2099,7 @@ fn ship_details_panel(
                     .button(
                         egui::RichText::new("Heal")
                             .small()
-                            .color(egui::Color32::from_rgb(150, 220, 180)),
+                            .color(theme::SUCCESS),
                     )
                     .on_hover_text(
                         "Refill fuel to capacity, reset crew morale+health to \
@@ -2115,7 +2115,7 @@ fn ship_details_panel(
                     .button(
                         egui::RichText::new("Delete")
                             .small()
-                            .color(egui::Color32::from_rgb(240, 100, 90)),
+                            .color(theme::DANGER),
                     )
                     .on_hover_text(
                         "Destroy this ship. Releases any accepted contracts \
@@ -2131,7 +2131,7 @@ fn ship_details_panel(
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 // Identity
-                ui.label(egui::RichText::new("Identity").strong().size(14.0));
+                ui.label(theme::section_header("Identity"));
                 egui::Grid::new("details_identity")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
@@ -2144,7 +2144,7 @@ fn ship_details_panel(
                 ui.separator();
 
                 // Position / transit
-                ui.label(egui::RichText::new("Position").strong().size(14.0));
+                ui.label(theme::section_header("Position"));
                 egui::Grid::new("details_pos")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
@@ -2179,7 +2179,7 @@ fn ship_details_panel(
                 ui.separator();
 
                 // Economy
-                ui.label(egui::RichText::new("Economy").strong().size(14.0));
+                ui.label(theme::section_header("Economy"));
                 egui::Grid::new("details_econ")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
@@ -2208,32 +2208,36 @@ fn ship_details_panel(
                 ui.separator();
 
                 // Fuel
-                ui.label(egui::RichText::new("Fuel").strong().size(14.0));
+                ui.label(theme::section_header("Fuel"));
                 egui::Grid::new("details_fuel")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
                     .show(ui, |ui| {
                         let frac = fuel.fraction();
-                        let frac_color = if frac >= 0.5 {
-                            egui::Color32::from_rgb(120, 220, 120)
-                        } else if frac >= 0.2 {
-                            egui::Color32::from_rgb(230, 200, 90)
-                        } else {
-                            egui::Color32::from_rgb(240, 100, 90)
-                        };
-                        ui.label("Fuel");
+                        let frac_color = theme::status_color(frac, (0.5, 0.2));
+                        ui.label(theme::caption("Fuel"));
                         ui.colored_label(
                             frac_color,
-                            format!("{:.1} / {:.0} ({:.0}%)", fuel.fuel, fuel.fuel_capacity, frac * 100.0),
+                            egui::RichText::new(format!(
+                                "{:.1} / {:.0} ({:.0}%)",
+                                fuel.fuel,
+                                fuel.fuel_capacity,
+                                frac * 100.0
+                            ))
+                            .monospace(),
                         );
                         ui.end_row();
-                        ui.label("Speed mod"); ui.label(format!("{:.2}×", fuel.speed_modifier)); ui.end_row();
-                        ui.label("Burn rate"); ui.label(format!("{:.3}", fuel.fuel_consumption_rate)); ui.end_row();
+                        ui.label(theme::caption("Speed mod"));
+                        ui.label(egui::RichText::new(format!("{:.2}×", fuel.speed_modifier)).monospace());
+                        ui.end_row();
+                        ui.label(theme::caption("Burn rate"));
+                        ui.label(egui::RichText::new(format!("{:.3}", fuel.fuel_consumption_rate)).monospace());
+                        ui.end_row();
                     });
                 ui.separator();
 
                 // Cargo
-                ui.label(egui::RichText::new("Cargo").strong().size(14.0));
+                ui.label(theme::section_header("Cargo"));
                 let used = cargo.used();
                 ui.label(format!("Hold: {} / {} ({:.0}%)",
                     used,
@@ -2260,7 +2264,7 @@ fn ship_details_panel(
                 ui.separator();
 
                 // Crew
-                ui.label(egui::RichText::new("Crew").strong().size(14.0));
+                ui.label(theme::section_header("Crew"));
                 egui::Grid::new("details_crew")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
@@ -2269,20 +2273,20 @@ fn ship_details_panel(
                         ui.label("Task"); ui.label(crew.current_task.as_str()); ui.end_row();
                         ui.label("Morale");
                         ui.colored_label(
-                            crew_bar_color(crew.morale),
+                            theme::crew_bar_color(crew.morale),
                             format!("{:.0}", crew.morale),
                         );
                         ui.end_row();
                         ui.label("Hunger");
                         ui.colored_label(
                             // Inverse scale — hunger high = bad.
-                            crew_bar_color(100.0 - crew.hunger),
+                            theme::crew_bar_color(100.0 - crew.hunger),
                             format!("{:.0}", crew.hunger),
                         );
                         ui.end_row();
                         ui.label("Fatigue");
                         ui.colored_label(
-                            crew_bar_color(100.0 - crew.fatigue),
+                            theme::crew_bar_color(100.0 - crew.fatigue),
                             format!("{:.0}", crew.fatigue),
                         );
                         ui.end_row();
@@ -2298,7 +2302,7 @@ fn ship_details_panel(
                 ui.separator();
 
                 // AI
-                ui.label(egui::RichText::new("AI").strong().size(14.0));
+                ui.label(theme::section_header("AI"));
                 egui::Grid::new("details_ai")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
@@ -2319,7 +2323,7 @@ fn ship_details_panel(
                 ui.separator();
 
                 // Progression
-                ui.label(egui::RichText::new("Progression").strong().size(14.0));
+                ui.label(theme::section_header("Progression"));
                 egui::Grid::new("details_prog")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
@@ -2345,7 +2349,7 @@ fn ship_details_panel(
                 // admin_refit_ship after the read-query drops. Empty
                 // slot still shows "—" but we don't expose unset as
                 // a choice to reduce footguns.
-                ui.label(egui::RichText::new("Fitting").strong().size(14.0));
+                ui.label(theme::section_header("Fitting"));
                 egui::Grid::new("details_fit")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
@@ -2492,16 +2496,6 @@ fn ship_details_panel(
     }
 }
 
-fn crew_bar_color(v: f32) -> egui::Color32 {
-    if v >= 70.0 {
-        egui::Color32::from_rgb(120, 220, 120)
-    } else if v >= 40.0 {
-        egui::Color32::from_rgb(230, 200, 90)
-    } else {
-        egui::Color32::from_rgb(240, 100, 90)
-    }
-}
-
 // =============================================================================
 // Facility list + details
 // =============================================================================
@@ -2510,12 +2504,26 @@ fn crew_bar_color(v: f32) -> egui::Color32 {
 // SelectedFacility, opening a details panel with everything on the
 // facility entity. Both list and details read hecs directly.
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct FacilityListState {
     open: bool,
     sort: FacilitySort,
     descending: bool,
     filter: String,
+}
+
+impl Default for FacilityListState {
+    fn default() -> Self {
+        let auto_open = std::env::var("CLIENT_BEVY_OPEN_PANELS")
+            .map(|s| s.contains("facilities") || s == "all")
+            .unwrap_or(false);
+        Self {
+            open: auto_open,
+            sort: FacilitySort::default(),
+            descending: false,
+            filter: String::new(),
+        }
+    }
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
@@ -2690,8 +2698,12 @@ fn fac_sort_header(
     } else {
         ""
     };
-    let text = egui::RichText::new(format!("{label}{arrow}")).strong();
-    if ui.button(text).clicked() {
+    let active = *current == target;
+    let color = if active { theme::PRIMARY } else { theme::TEXT_DIM };
+    let text = egui::RichText::new(format!("{label}{arrow}"))
+        .strong()
+        .color(color);
+    if ui.add(egui::Button::new(text).frame(false)).clicked() {
         if *current == target {
             *descending = !*descending;
         } else {
@@ -2787,7 +2799,7 @@ fn facility_details_panel(
                 ui.label(
                     egui::RichText::new("admin:")
                         .small()
-                        .color(egui::Color32::from_gray(160)),
+                        .color(theme::TEXT_DIM),
                 );
                 if ui
                     .button(egui::RichText::new("Refill reserves").small())
@@ -2813,7 +2825,7 @@ fn facility_details_panel(
                     ui.separator();
                 }
 
-                ui.label(egui::RichText::new("Identity").strong().size(14.0));
+                ui.label(theme::section_header("Identity"));
                 egui::Grid::new("fac_details_identity")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
@@ -2826,7 +2838,7 @@ fn facility_details_panel(
                     });
                 ui.separator();
 
-                ui.label(egui::RichText::new("Operations").strong().size(14.0));
+                ui.label(theme::section_header("Operations"));
                 egui::Grid::new("fac_details_ops")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
@@ -2872,7 +2884,7 @@ fn facility_details_panel(
                     });
                 ui.separator();
 
-                ui.label(egui::RichText::new("Reserves").strong().size(14.0));
+                ui.label(theme::section_header("Reserves"));
                 if storage.reserves.is_empty() {
                     ui.label(
                         egui::RichText::new("(no reserves)")
@@ -2897,7 +2909,7 @@ fn facility_details_panel(
                 ui.separator();
 
                 if let Some(fit) = fitting {
-                    ui.label(egui::RichText::new("Fitting").strong().size(14.0));
+                    ui.label(theme::section_header("Fitting"));
                     egui::Grid::new("fac_details_fit")
                         .num_columns(2)
                         .spacing([12.0, 2.0])
@@ -2918,17 +2930,17 @@ fn facility_details_panel(
                 }
 
                 if let Some(crew) = crew {
-                    ui.label(egui::RichText::new("Crew").strong().size(14.0));
+                    ui.label(theme::section_header("Crew"));
                     egui::Grid::new("fac_details_crew")
                         .num_columns(2)
                         .spacing([12.0, 2.0])
                         .show(ui, |ui| {
                             ui.label("Count"); ui.label(format!("{}", crew.crew_count)); ui.end_row();
                             ui.label("Morale");
-                            ui.colored_label(crew_bar_color(crew.morale), format!("{:.0}", crew.morale));
+                            ui.colored_label(theme::crew_bar_color(crew.morale), format!("{:.0}", crew.morale));
                             ui.end_row();
                             ui.label("Hunger");
-                            ui.colored_label(crew_bar_color(100.0 - crew.hunger), format!("{:.0}", crew.hunger));
+                            ui.colored_label(theme::crew_bar_color(100.0 - crew.hunger), format!("{:.0}", crew.hunger));
                             ui.end_row();
                             ui.label("Efficiency");
                             ui.label(format!("{:.2}×", crew.efficiency()));
@@ -3695,11 +3707,24 @@ fn body_labels_panel(
 // exactly replicate every column — parity is "can you see what just
 // happened in the economy".
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct EventsState {
     open: bool,
     filter: String,
     follow_tail: bool,
+}
+
+impl Default for EventsState {
+    fn default() -> Self {
+        let auto_open = std::env::var("CLIENT_BEVY_OPEN_PANELS")
+            .map(|s| s.contains("events") || s == "all")
+            .unwrap_or(false);
+        Self {
+            open: auto_open,
+            filter: String::new(),
+            follow_tail: false,
+        }
+    }
 }
 
 fn events_panel(
@@ -3761,10 +3786,14 @@ fn events_panel(
                 egui::Grid::new("events_grid")
                     .striped(true)
                     .num_columns(3)
-                    .spacing([10.0, 2.0])
+                    .spacing([10.0, 3.0])
                     .show(ui, |ui| {
                         for header in ["Tick", "Kind", "Detail"] {
-                            ui.label(egui::RichText::new(header).strong());
+                            ui.label(
+                                egui::RichText::new(header)
+                                    .strong()
+                                    .color(theme::TEXT_DIM),
+                            );
                         }
                         ui.end_row();
 
@@ -3777,10 +3806,12 @@ fn events_panel(
                             ui.label(
                                 egui::RichText::new(format!("{tick}"))
                                     .monospace()
-                                    .color(egui::Color32::from_gray(160)),
+                                    .color(theme::TEXT_DIM),
                             );
                             ui.colored_label(event_kind_color(kind), kind);
-                            ui.label(summary);
+                            ui.label(
+                                egui::RichText::new(summary).color(theme::TEXT_DIM),
+                            );
                             ui.end_row();
                         }
                     });
@@ -3793,27 +3824,20 @@ fn events_panel(
 }
 
 fn event_kind_color(kind: &str) -> egui::Color32 {
-    // Rough buckets by subject. Nothing load-bearing — just visual
-    // scan help. Unknown kinds fall through to neutral grey.
+    // Theme palette buckets by subject. Nothing load-bearing — just
+    // visual scan help. Unknown kinds fall through to neutral TEXT.
     match kind {
-        "ship_docked" | "ship_spawned" | "ship_leveled_up" | "ship_refitted" => {
-            egui::Color32::from_rgb(120, 200, 230)
-        }
+        "ship_docked" | "ship_spawned" | "ship_leveled_up" | "ship_refitted"
+        | "treaty_changed" => theme::PRIMARY,
         "ship_decommissioned" | "ship_destroyed_with_cargo" | "contract_expired" => {
-            egui::Color32::from_rgb(240, 100, 90)
+            theme::DANGER
         }
-        "contract_delivered" | "crew_mission_completed" | "passengers_arrived" => {
-            egui::Color32::from_rgb(120, 220, 120)
+        "contract_delivered" | "crew_mission_completed" | "passengers_arrived"
+        | "market_recovered" | "facility_recovered" | "construction_completed" => {
+            theme::SUCCESS
         }
-        "market_crisis" | "facility_starving" | "facility_abandoned" => {
-            egui::Color32::from_rgb(230, 170, 90)
-        }
-        "market_recovered" | "facility_recovered" => {
-            egui::Color32::from_rgb(180, 220, 170)
-        }
-        "treaty_changed" => egui::Color32::from_rgb(200, 160, 230),
-        "construction_completed" => egui::Color32::from_rgb(150, 220, 180),
-        _ => egui::Color32::from_gray(200),
+        "market_crisis" | "facility_starving" | "facility_abandoned" => theme::WARN,
+        _ => theme::TEXT,
     }
 }
 

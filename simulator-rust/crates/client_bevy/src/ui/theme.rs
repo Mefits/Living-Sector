@@ -59,6 +59,25 @@ pub fn status_color_inv(value: f32, thresholds: (f32, f32)) -> egui::Color32 {
     }
 }
 
+/// Section header — strong, larger, PRIMARY-tinted. Used by
+/// ship-details / facility-details to break the long scroll into
+/// labelled blocks (Identity / Position / Economy / …).
+pub fn section_header(label: &str) -> egui::RichText {
+    egui::RichText::new(label).strong().size(14.0).color(PRIMARY)
+}
+
+/// Caption — left-column key in two-column inspector grids.
+/// TEXT_DIM so the value next to it pops.
+pub fn caption(label: &str) -> egui::RichText {
+    egui::RichText::new(label).color(TEXT_DIM)
+}
+
+/// Status colour for crew morale / health / inverse hunger /
+/// fatigue scaled 0..=100. SUCCESS ≥ 70, WARN ≥ 40, DANGER below.
+pub fn crew_bar_color(v: f32) -> egui::Color32 {
+    status_color(v, (70.0, 40.0))
+}
+
 /// Set egui Visuals to the holographic dark palette. Local<bool>
 /// guards so we only do it once after the egui context is live —
 /// no cost on subsequent frames.
