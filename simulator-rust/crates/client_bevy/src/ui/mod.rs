@@ -174,7 +174,7 @@ fn top_bar_controls(
                 add_ship.open = !add_ship.open;
             }
             if ui
-                .add(egui::Button::image_and_text(icons::add_ship(), "+Fac"))
+                .add(egui::Button::image_and_text(icons::add_facility(), "+Fac"))
                 .on_hover_text(
                     "Open the Add Facility dialog — type / body / faction / \
                      docking capacity / credits. Not persisted yet.",
@@ -4127,10 +4127,11 @@ fn context_menu(
         ContextMenuTarget::Facility(id) => format!("Facility · {id}"),
     };
 
-    let area_resp = egui::Area::new(egui::Id::new("context_menu_area"))
+    let ctx_ref = ctx.ctx_mut();
+    egui::Area::new(egui::Id::new("context_menu_area"))
         .fixed_pos(egui::pos2(pos.x, pos.y))
         .order(egui::Order::Foreground)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx_ref, |ui| {
             egui::Frame::popup(ui.style())
                 .stroke(egui::Stroke::new(1.0, theme::PRIMARY_DIM))
                 .show(ui, |ui| {
@@ -4209,11 +4210,14 @@ fn context_menu(
                 });
         });
 
-    // Click-outside close: if user left-clicks and the click isn't
-    // on the menu rect, dismiss it.
-    let click_outside = buttons.just_pressed(MouseButton::Left)
-        && !area_resp.response.rect.contains(area_resp.response.interact_pointer_pos()
-            .unwrap_or(egui::pos2(pos.x, pos.y)));
+    // Click-outside close: a left-click while the cursor is NOT
+    // over any egui area dismisses the menu (the menu itself is an
+    // egui Area, so clicks on it return is_pointer_over_area=true).
+    // Right-click ALSO dismisses — re-clicking a different ship
+    // should reopen, but until then the menu shouldn't pile up.
+    let any_click =
+        buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Right);
+    let click_outside = any_click && !ctx_ref.is_pointer_over_area();
     if close || click_outside {
         menu.target = None;
     }

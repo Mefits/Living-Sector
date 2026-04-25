@@ -119,7 +119,6 @@ pub fn add_ship() -> egui::Image<'static> {
         .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
 }
 
-#[allow(dead_code)]
 pub fn add_facility() -> egui::Image<'static> {
     egui::Image::new(egui::include_image!("../../assets/icons/panels/add-facility.svg"))
         .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
