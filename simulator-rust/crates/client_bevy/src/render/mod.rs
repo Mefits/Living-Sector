@@ -1958,29 +1958,84 @@ fn apply_camera_follow(
             .find(|(f, _)| f.sim_id == *id)
             .map(|(_, xf)| xf.translation),
     };
+    // Also pull the target's rotation when we're in POV mode so we
+    // can derive a chase-camera yaw from the ship's heading.
+    let rotation = match &target {
+        crate::camera::CameraFollowTarget::Ship(id) => ships
+            .iter()
+            .find(|(s, _)| s.sim_id == *id)
+            .map(|(_, xf)| xf.rotation),
+        crate::camera::CameraFollowTarget::Facility(id) => facilities
+            .iter()
+            .find(|(f, _)| f.sim_id == *id)
+            .map(|(_, xf)| xf.rotation),
+    };
+
     if let Some(t) = translation {
-        if just_locked {
-            // Snap fully on the first frame so the user sees the
-            // camera respond to their click, then lerp from there.
-            orbit.focus = t;
-            info!(
-                "client_bevy: camera follow → {:?} (focus snapped to {:?})",
-                target, t
-            );
-        } else {
-            // Smooth follow: ease toward the target so a fast ship
-            // doesn't yank the camera frame-to-frame. Time-aware
-            // exponential smoothing — 1 - exp(-rate*dt) — gives a
-            // framerate-independent settle time. RATE = 8 means
-            // ~12% closing per 16 ms frame, ~99% in ~580 ms.
-            const RATE: f32 = 8.0;
-            let alpha = 1.0 - (-RATE * time.delta_seconds()).exp();
-            orbit.focus = orbit.focus.lerp(t, alpha);
-        }
-        if let Some(d) = follow.snap_distance.take() {
-            // Distance always snaps — POV / Follow want the user to
-            // see the size jump immediately, not glide through it.
-            orbit.distance = d;
+        match follow.mode {
+            crate::camera::CameraFollowMode::Lock => {
+                if just_locked {
+                    // Snap fully on the first frame so the user
+                    // sees the camera respond to their click, then
+                    // lerp from there.
+                    orbit.focus = t;
+                    info!(
+                        "client_bevy: camera follow → {:?} (lock @ {:?})",
+                        target, t
+                    );
+                } else {
+                    // Smooth follow: ease toward the target so a
+                    // fast ship doesn't yank the camera frame-to-
+                    // frame. Time-aware exponential smoothing —
+                    // 1 - exp(-rate*dt) — gives a framerate-
+                    // independent settle time. RATE = 8 means
+                    // ~12% closing per 16 ms frame, ~99% in ~580 ms.
+                    const RATE: f32 = 8.0;
+                    let alpha = 1.0 - (-RATE * time.delta_seconds()).exp();
+                    orbit.focus = orbit.focus.lerp(t, alpha);
+                }
+                if let Some(d) = follow.snap_distance.take() {
+                    orbit.distance = d;
+                }
+            }
+            crate::camera::CameraFollowMode::Pov => {
+                // Third-person chase camera. Sit slightly above +
+                // behind the ship, look along its heading. Override
+                // orbit yaw / pitch / distance from the ship's
+                // forward direction so the user can't accidentally
+                // drag the camera off-axis.
+                //
+                // Ship's nose is +Z in local space (see
+                // sync_positions rotation math). Forward in world =
+                // rotation * Vec3::Z. Camera should be eye-behind-
+                // and-above-ship looking forward, so:
+                //   yaw points the eye-to-focus direction along
+                //        ship-forward (offset = -forward × distance)
+                //   pitch tilts down a touch for cinematic feel
+                let forward = rotation
+                    .map(|r| r * Vec3::Z)
+                    .unwrap_or(Vec3::Z);
+                // OrbitCamera's offset formula from .transform():
+                //   offset = (cp*sy, -sp, cp*cy) * distance
+                // We want offset to point from focus to eye, with eye
+                // BEHIND the nose (i.e. opposite of ship-forward).
+                // In the y=0 plane that means yaw such that
+                //   (sy, ., cy) ≈ -(forward.x, ., forward.z)
+                let target_yaw = (-forward.x).atan2(-forward.z);
+                orbit.focus = t;
+                orbit.yaw = target_yaw;
+                orbit.pitch = -0.18; // slight tilt down (~10°)
+                orbit.distance = 1.5; // close-third-person
+                if just_locked {
+                    info!(
+                        "client_bevy: camera follow → {:?} (pov, yaw {:.2})",
+                        target, target_yaw
+                    );
+                }
+                // Clear any leftover snap_distance — POV owns the
+                // distance.
+                follow.snap_distance = None;
+            }
         }
         // Push the orbit state into the camera Transform so the
         // render pipeline actually sees the change. Without this

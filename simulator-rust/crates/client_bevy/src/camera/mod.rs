@@ -65,15 +65,33 @@ pub struct CameraResetRequest(pub bool);
 pub struct CameraFollow {
     pub target: Option<CameraFollowTarget>,
     /// When set, the apply system snaps `distance` to this value
-    /// once and clears it. POV uses a small distance for an "above
-    /// the shoulder" feel; Follow leaves it alone.
+    /// once and clears it. Used by `Lock` mode (no-op for `Pov`,
+    /// which derives its own distance).
     pub snap_distance: Option<f32>,
+    /// How the camera tracks the target.
+    pub mode: CameraFollowMode,
 }
 
 #[derive(Clone, Debug)]
 pub enum CameraFollowTarget {
     Ship(String),
     Facility(String),
+}
+
+/// Camera-follow modes set by the right-click context menu:
+/// - **Lock** (Follow item): keep the orbit camera's focus pinned
+///   to the entity. Yaw / pitch / distance stay where the user had
+///   them. Lets the user inspect the entity from any angle while
+///   it moves through the scene.
+/// - **Pov** (POV item): third-person chase camera. Camera sits
+///   slightly above + behind the ship, looking forward in the
+///   ship's heading. Yaw / pitch / distance are overridden each
+///   frame from the ship's rotation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CameraFollowMode {
+    #[default]
+    Lock,
+    Pov,
 }
 
 /// Orbit camera state. Attached to the Camera3d entity so the
@@ -297,6 +315,7 @@ fn orbit_camera_input(
     {
         follow.target = None;
         follow.snap_distance = None;
+        follow.mode = CameraFollowMode::default();
     }
 
     // --- Scroll zoom (mouse wheel + trackpad two-finger scroll) ---

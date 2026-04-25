@@ -263,6 +263,7 @@ fn top_bar_controls(
                     {
                         follow.target = None;
                         follow.snap_distance = None;
+                        follow.mode = crate::camera::CameraFollowMode::default();
                     }
                     let label = match target {
                         crate::camera::CameraFollowTarget::Ship(id) => {
@@ -4320,6 +4321,7 @@ fn context_menu(
                                 crate::camera::CameraFollowTarget::Facility(id.clone())
                             }
                         });
+                        follow.mode = crate::camera::CameraFollowMode::Lock;
                         follow.snap_distance = None;
                         close = true;
                     }
@@ -4332,12 +4334,13 @@ fn context_menu(
                                 crate::camera::CameraFollowTarget::Facility(id.clone())
                             }
                         });
-                        // Closer than default. True 1st-person would
-                        // need a separate camera mode (eye attached
-                        // to the ship's transform); this is a
-                        // pragmatic approximation that reads as
-                        // "zoomed in on the subject".
-                        follow.snap_distance = Some(80.0);
+                        // True third-person chase camera —
+                        // apply_camera_follow's Pov branch overrides
+                        // yaw / pitch / distance from the ship's
+                        // heading each frame. snap_distance left
+                        // None; Pov owns its own distance.
+                        follow.mode = crate::camera::CameraFollowMode::Pov;
+                        follow.snap_distance = None;
                         close = true;
                     }
                     ui.separator();
