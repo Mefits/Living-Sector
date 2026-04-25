@@ -19,7 +19,8 @@ use crate::ui::{SelectedFacility, SelectedShip};
 mod planet;
 use planet::{
     cloud_for_body, params_for_body, rings_for_body, CloudMaterial, CloudMaterialPlugin,
-    PlanetMaterial, PlanetMaterialPlugin,
+    CloudParams, HaloMaterial, HaloMaterialPlugin, HaloParams, PlanetMaterial,
+    PlanetMaterialPlugin, Preset,
 };
 
 /// Scale factor from universe units → world units. Bumped from
@@ -85,7 +86,7 @@ impl Plugin for RenderPlugin {
         // Asset bytes load asynchronously; SceneBundle just shows
         // an empty parent until the gltf streams in (typically a
         // frame or two on local disk).
-        app.add_plugins((PlanetMaterialPlugin, CloudMaterialPlugin))
+        app.add_plugins((PlanetMaterialPlugin, CloudMaterialPlugin, HaloMaterialPlugin))
             .init_resource::<ShipTrails>()
             .add_systems(Startup, load_station_models)
             .add_systems(
@@ -102,6 +103,7 @@ impl Plugin for RenderPlugin {
                 (
                     sync_positions,
                     follow_facilities_to_bodies,
+                    rotate_spinners,
                     highlight_selected,
                     draw_selection_rings,
                     update_ship_trails,
@@ -308,6 +310,26 @@ fn faction_palette() -> &'static [(&'static str, [f32; 3])] {
     ]
 }
 
+/// Per-frame rotation tag for child entities (ring planes, cloud
+/// shells, sun molten-layer shells). One small system iterates all
+/// of them and rotates by `axis * speed * dt` — same trick Godot's
+/// `_process` uses on rings/clouds/sun. Local-space rotation, so a
+/// tilted ring spins around its own up axis instead of yawing the
+/// whole plane.
+#[derive(Component)]
+struct Spin {
+    axis: Vec3,
+    speed_rad_per_sec: f32,
+}
+
+fn rotate_spinners(time: Res<Time>, mut q: Query<(&Spin, &mut Transform)>) {
+    let dt = time.delta_seconds();
+    for (spin, mut xf) in q.iter_mut() {
+        let q_rot = Quat::from_axis_angle(spin.axis, spin.speed_rad_per_sec * dt);
+        xf.rotate_local(q_rot);
+    }
+}
+
 /// Build a flat annulus mesh on the XZ plane (galactic plane).
 /// Bevy's `Annulus` primitive lives on the XY plane by default, so
 /// we mesh it then rotate the vertex buffer 90° around X to land on
@@ -498,6 +520,13 @@ fn spawn_mirror_entities(
                             transform: xf,
                             ..default()
                         },
+                        // Slow ring spin around the ring's local up
+                        // axis (post-tilt). Matches Godot's
+                        // `rotate_object_local(Vector3.UP, ...)`.
+                        Spin {
+                            axis: Vec3::Y,
+                            speed_rad_per_sec: 0.06,
+                        },
                         Name::new(format!("Ring::{}", id.body_id)),
                     ));
                 }
@@ -515,6 +544,13 @@ fn spawn_mirror_entities(
                             material: mat,
                             transform: Transform::IDENTITY,
                             ..default()
+                        },
+                        // Clouds drift around the planet's polar axis
+                        // visibly faster than the planet itself rotates,
+                        // selling the atmospheric layer.
+                        Spin {
+                            axis: Vec3::Y,
+                            speed_rad_per_sec: 0.04,
                         },
                         Name::new(format!("Clouds::{}", id.body_id)),
                     ));
@@ -757,42 +793,111 @@ const STAR_FIELD_RADIUS: f32 = 24000.0;
 /// the inter-orbit spread so inner planets don't clip into it.
 const SUN_RADIUS: f32 = 8.0;
 
-/// One-time PostStartup spawn: place a yellow emissive sphere at
-/// every star system's universe_offset so the player has a fixed
-/// reference point to see body orbits against. Without this, six
-/// systems' worth of orbiting bodies look like floating islands —
-/// no obvious centre of rotation. Reads `Sim.registry.systems`
-/// because that's where the seeder stashed the system → offset
-/// table (same source as ship/body universe coords).
+/// One-time PostStartup spawn: place a procedural sun at every
+/// star system's universe_offset. Three layers, each a child of
+/// the parent sun entity so they share its position:
+///
+///   1. **Surface**: PlanetMaterial with `Preset::Star` — turbulent
+///      yellow/orange FBM at high emission_strength so bloom paints
+///      a natural corona around the boiling sphere.
+///   2. **Molten outer layer**: CloudMaterial tinted hot orange,
+///      slowly spinning. Reads as the chromosphere churning above
+///      the photosphere.
+///   3. **Halo**: HaloMaterial Fresnel shell at 1.6× radius — bright
+///      at silhouette, transparent at centre, so the sun reads as
+///      a corona out to a few wu past the disc.
 fn spawn_system_suns(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut planet_materials: ResMut<Assets<PlanetMaterial>>,
+    mut cloud_materials: ResMut<Assets<CloudMaterial>>,
+    mut halo_materials: ResMut<Assets<HaloMaterial>>,
     sim: Res<Sim>,
 ) {
-    let mesh = meshes.add(Sphere::new(SUN_RADIUS).mesh().ico(3).unwrap());
-    // Emissive yellow well into HDR so bloom paints a corona around
-    // the sphere — same trick the ship/body materials use to read
-    // at galactic zoom. RGBA 1.0 base, 6×/4×/0.6× emissive.
-    let mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(1.0, 0.85, 0.3),
-        emissive: LinearRgba::new(6.0, 4.0, 0.6, 1.0),
-        unlit: true,
-        ..default()
-    });
+    let core_mesh = meshes.add(Sphere::new(SUN_RADIUS).mesh().ico(3).unwrap());
+    let molten_mesh = meshes.add(Sphere::new(SUN_RADIUS * 1.04).mesh().ico(3).unwrap());
+    let halo_mesh = meshes.add(Sphere::new(SUN_RADIUS * 1.6).mesh().ico(2).unwrap());
 
     let mut count = 0usize;
     for (name, sys) in sim.registry.systems.iter() {
         let (x, y) = sys.universe_offset;
-        commands.spawn((
-            PbrBundle {
-                mesh: mesh.clone(),
-                material: mat.clone(),
-                transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
-                ..default()
+        // Per-star seed so two systems don't render identical
+        // turbulence patterns. Hash the system name, FNV-style.
+        let mut h: u64 = 0xcbf29ce484222325;
+        for b in name.as_bytes() {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        let star_seed = Vec3::new(
+            (h as f32 / u64::MAX as f32) * 1000.0 - 500.0,
+            (((h >> 21) ^ h) as f32 / u64::MAX as f32) * 1000.0 - 500.0,
+            (((h >> 42) ^ h) as f32 / u64::MAX as f32) * 1000.0 - 500.0,
+        );
+
+        let surface_mat = planet_materials.add(PlanetMaterial {
+            params: Preset::Star.params(star_seed),
+        });
+        let molten_mat = cloud_materials.add(CloudMaterial {
+            params: CloudParams {
+                cloud_color: Vec4::new(1.0, 0.55, 0.18, 1.0),
+                seed_offset: star_seed * 0.7, // decorrelate from surface
+                cloud_opacity: 0.55,
+                cloud_coverage: 0.45,
+                cloud_softness: 0.20,
+                cloud_frequency: 1.8,
+                cloud_lacunarity: 2.1,
+                cloud_gain: 0.6,
+                cloud_octaves: 4,
+                _pad: Vec3::ZERO,
             },
-            Name::new(format!("Sun::{}", name)),
-        ));
+        });
+        let halo_mat = halo_materials.add(HaloMaterial {
+            params: HaloParams {
+                color: Vec4::new(1.0, 0.75, 0.30, 1.0),
+                intensity: 1.4,
+                falloff: 2.5,
+                _pad: Vec2::ZERO,
+            },
+        });
+
+        commands
+            .spawn((
+                MaterialMeshBundle::<PlanetMaterial> {
+                    mesh: core_mesh.clone(),
+                    material: surface_mat,
+                    transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
+                    ..default()
+                },
+                Name::new(format!("Sun::{}", name)),
+            ))
+            .with_children(|parent| {
+                parent.spawn((
+                    MaterialMeshBundle::<CloudMaterial> {
+                        mesh: molten_mesh.clone(),
+                        material: molten_mat,
+                        transform: Transform::IDENTITY,
+                        ..default()
+                    },
+                    // Plasma layer churns slightly faster than the
+                    // surface itself rotates — sells a turbulent
+                    // chromosphere. Tilted axis so it reads as
+                    // organic flow rather than a clean spin.
+                    Spin {
+                        axis: Vec3::new(0.2, 1.0, 0.1).normalize(),
+                        speed_rad_per_sec: 0.05,
+                    },
+                    Name::new(format!("Sun::{}::molten", name)),
+                ));
+                parent.spawn((
+                    MaterialMeshBundle::<HaloMaterial> {
+                        mesh: halo_mesh.clone(),
+                        material: halo_mat,
+                        transform: Transform::IDENTITY,
+                        ..default()
+                    },
+                    Name::new(format!("Sun::{}::halo", name)),
+                ));
+            });
         count += 1;
     }
     info!("client_bevy: spawned {} system suns", count);

@@ -36,6 +36,37 @@ impl Plugin for CloudMaterialPlugin {
     }
 }
 
+pub struct HaloMaterialPlugin;
+
+impl Plugin for HaloMaterialPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(MaterialPlugin::<HaloMaterial>::default());
+    }
+}
+
+#[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
+pub struct HaloMaterial {
+    #[uniform(0)]
+    pub params: HaloParams,
+}
+
+#[derive(ShaderType, Debug, Clone, Copy)]
+pub struct HaloParams {
+    pub color: Vec4,
+    pub intensity: f32,
+    pub falloff: f32,
+    pub _pad: Vec2,
+}
+
+impl Material for HaloMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/halo.wgsl".into()
+    }
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Blend
+    }
+}
+
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
 pub struct CloudMaterial {
     #[uniform(0)]
@@ -464,7 +495,10 @@ fn apply_body_overrides(body_id: &str, p: &mut PlanetParams) {
 /// `ProceduralPlanet::Preset` enum so the port produces the same
 /// look across both clients. Rocky/GasGiant aren't reachable from
 /// the current biome table but are kept so future biomes ("rocky",
-/// "gas") can opt in without re-deriving the params.
+/// "gas") can opt in without re-deriving the params. Star is a
+/// Bevy-only preset — Godot's playground doesn't include it; the
+/// Rust client renders system primaries via the planet shader so
+/// we can give them turbulent surfaces instead of a flat sphere.
 #[allow(dead_code)]
 #[derive(Copy, Clone, Debug)]
 pub enum Preset {
@@ -476,6 +510,7 @@ pub enum Preset {
     GasGiant,
     Barren,
     Ocean,
+    Star,
 }
 
 impl Preset {
@@ -605,6 +640,27 @@ impl Preset {
                 p.noise_frequency = 2.0;
                 p.noise_octaves = 4;
                 p.noise_warp = 0.3;
+            }
+            Preset::Star => {
+                // Stellar surface: hot yellow base, brighter peaks,
+                // dark sunspot pits. High emission_strength + low
+                // emission_cutoff so the surface glows everywhere
+                // and HDR bloom paints a corona by itself. Low
+                // band_strength gives a turbulent rather than banded
+                // look. No sea, no poles. noise_warp churns the
+                // domain so individual cells boil rather than tile.
+                p.color_low = Vec4::new(0.65, 0.20, 0.05, 1.0);
+                p.color_mid = Vec4::new(1.00, 0.55, 0.10, 1.0);
+                p.color_high = Vec4::new(1.00, 0.92, 0.55, 1.0);
+                p.emission_color = Vec4::new(1.00, 0.65, 0.18, 1.0);
+                p.emission_strength = 3.5;
+                p.emission_cutoff = 0.05;
+                p.sea_enabled = 0;
+                p.pole_threshold = 2.0; // disable polar caps
+                p.noise_frequency = 2.4;
+                p.noise_octaves = 5;
+                p.noise_warp = 0.6;
+                p.band_strength = 0.15;
             }
         }
         p
