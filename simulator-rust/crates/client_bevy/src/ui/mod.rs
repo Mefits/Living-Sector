@@ -2235,7 +2235,7 @@ fn fac_sort_header(
 
 fn facility_details_panel(
     mut ctx: EguiContexts,
-    sim: Res<Sim>,
+    sim: ResMut<Sim>,
     mut selected: ResMut<SelectedFacility>,
     mut focus_req: ResMut<CameraFocusRequest>,
     mut ship_sel: ResMut<SelectedShip>,
@@ -2255,6 +2255,10 @@ fn facility_details_panel(
     };
 
     let mut still_open = true;
+    // Captured by the egui closure; consulted after the closure
+    // ends so admin mutations don't conflict with the read-only
+    // query that's live inside.
+    let mut refill_requested = false;
     let title = format!("Facility · {}", fac_id);
 
     egui::Window::new(title)
@@ -2292,10 +2296,9 @@ fn facility_details_panel(
                 .ok()
                 .and_then(|mut q| q.get().cloned());
 
-            // Toolbar: focus camera on the facility's owning body. We
-            // don't apply the facility's small orbital offset here —
-            // body-centre is close enough for "fly the camera there"
-            // intent at galactic scale.
+            // Toolbar: focus camera + admin actions. Focus writes a
+            // separate Resource (safe inline); Refill flips the
+            // outer bool we apply after the read-query drops.
             ui.horizontal(|ui| {
                 if ui.button("Focus camera").clicked() {
                     let body_pos = sim
@@ -2308,6 +2311,24 @@ fn facility_details_panel(
                     if let Some((x, y)) = body_pos {
                         focus_req.0 = Some(Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR));
                     }
+                }
+                ui.separator();
+                ui.label(
+                    egui::RichText::new("admin:")
+                        .small()
+                        .color(egui::Color32::from_gray(160)),
+                );
+                if ui
+                    .button(egui::RichText::new("Refill reserves").small())
+                    .on_hover_text(
+                        "Floor every commodity entry in this facility's \
+                         reserves at 500 units. Use to unstick starving \
+                         facilities during testing without rebuilding the \
+                         whole market.",
+                    )
+                    .clicked()
+                {
+                    refill_requested = true;
                 }
             });
             ui.separator();
@@ -2523,6 +2544,23 @@ fn facility_details_panel(
                 }
             });
         });
+
+    if refill_requested {
+        use sim_core::agents::facility::FacilityStorage;
+        use sim_core::economy::commodities::Commodity;
+        if let Ok(mut storage) = sim.store.world.get::<&mut FacilityStorage>(entity) {
+            // Floor each commodity's reserve at 500. Don't downgrade
+            // a richer facility — admins use this to recover from
+            // crisis, not to nuke a healthy stockpile.
+            for c in Commodity::ALL.iter().copied() {
+                let entry = storage.reserves.entry(c).or_insert(0.0);
+                if *entry < 500.0 {
+                    *entry = 500.0;
+                }
+            }
+            info!("client_bevy admin: refilled reserves on {fac_id}");
+        }
+    }
 
     if !still_open {
         selected.0 = None;
