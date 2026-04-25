@@ -7,6 +7,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
+use bevy_hanabi::prelude::*;
 use sim_core::agents::{
     celestial_body::{BodyBiome, BodyIdentity, BodyOrbit},
     facility::{FacilityIdentity, FacilityLocation},
@@ -109,9 +110,10 @@ impl Plugin for RenderPlugin {
                 HaloMaterialPlugin,
                 NebulaMaterialPlugin,
                 StarfieldPlugin,
+                HanabiPlugin,
             ))
             .init_resource::<ShipTrails>()
-            .add_systems(Startup, (load_station_models, load_ship_models))
+            .add_systems(Startup, (load_station_models, load_ship_models, build_engine_trail_effect))
             .add_systems(
                 PostStartup,
                 (spawn_mirror_entities, spawn_nebulae, spawn_system_suns),
@@ -137,6 +139,8 @@ impl Plugin for RenderPlugin {
                     reconcile_new_facilities,
                     raycast_context_menu,
                     apply_camera_follow,
+                    sync_engine_trails,
+                    cleanup_stale_engine_trails,
                 ),
             );
     }
@@ -227,6 +231,84 @@ impl ShipModels {
             _ => self.default.clone(),
         }
     }
+}
+
+/// Handle to the shared engine-trail particle EffectAsset. Built
+/// once at Startup; every ship references the same handle so we
+/// pay the GPU compile cost once.
+#[derive(Resource)]
+pub struct EngineTrailEffect(pub Handle<EffectAsset>);
+
+/// Marker on the per-ship particle-effect entity. Carries the
+/// ship's sim_id so the per-frame sync system can look up the
+/// matching ship transform. Lives as a sibling entity (NOT a child)
+/// so the ship's GLB scale (~0.025) doesn't shrink the particles.
+#[derive(Component)]
+pub struct EngineTrailFor(pub String);
+
+fn build_engine_trail_effect(
+    mut effects: ResMut<Assets<EffectAsset>>,
+    mut commands: Commands,
+) {
+    // Cyan exhaust gradient — bright core fading to dim blue, then
+    // transparent. Three keys is enough for a smooth ramp without
+    // banding.
+    let mut color_gradient = Gradient::new();
+    color_gradient.add_key(0.0, Vec4::new(0.55, 0.95, 1.0, 1.0));
+    color_gradient.add_key(0.5, Vec4::new(0.25, 0.55, 1.0, 0.7));
+    color_gradient.add_key(1.0, Vec4::new(0.05, 0.10, 0.40, 0.0));
+
+    // Particle size shrinks toward zero so the trail tapers. Sizes
+    // here are in world units because the parent entity's transform
+    // is scale=1 (we sync a sibling, not a child). Hanabi 0.13's
+    // SizeOverLifetimeModifier expects Gradient<Vec3> (independent
+    // x/y/z scale axes); we use uniform sizes.
+    let mut size_gradient = Gradient::new();
+    size_gradient.add_key(0.0, Vec3::splat(0.20));
+    size_gradient.add_key(1.0, Vec3::splat(0.0));
+
+    let mut module = Module::default();
+
+    // Spawn within a tiny sphere so the exhaust isn't a thin line.
+    let init_pos = SetPositionSphereModifier {
+        center: module.lit(Vec3::ZERO),
+        radius: module.lit(0.05),
+        dimension: ShapeDimension::Volume,
+    };
+
+    // Velocity points -Z (the entity faces the ship's forward, so
+    // particles eject backward) with a small spread — Sphere variant
+    // gives a cone-ish distribution around the centre direction.
+    let init_vel = SetVelocitySphereModifier {
+        center: module.lit(Vec3::new(0.0, 0.0, -1.5)),
+        speed: module.lit(0.8),
+    };
+
+    let init_lifetime = SetAttributeModifier::new(
+        Attribute::LIFETIME,
+        module.lit(0.6_f32),
+    );
+
+    // 30 particles/sec/ship × ~282 ships ≈ 8500/sec aggregate. With
+    // 0.6 s lifetime that's <5200 live particles total. Comfortably
+    // within hanabi's per-effect 512 cap × N effects budget on M1.
+    let spawner = Spawner::rate(30.0_f32.into());
+
+    let effect = EffectAsset::new(512, spawner, module)
+        .with_name("engine_trail")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_lifetime)
+        .render(ColorOverLifetimeModifier {
+            gradient: color_gradient,
+        })
+        .render(SizeOverLifetimeModifier {
+            gradient: size_gradient,
+            screen_space_size: false,
+        });
+
+    let handle = effects.add(effect);
+    commands.insert_resource(EngineTrailEffect(handle));
 }
 
 fn load_ship_models(asset_server: Res<AssetServer>, mut commands: Commands) {
@@ -378,6 +460,7 @@ fn annulus_mesh(inner: f32, outer: f32, segments: u32) -> Mesh {
     mesh
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_mirror_entities(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -387,6 +470,7 @@ fn spawn_mirror_entities(
     sim: Res<Sim>,
     stations: Res<StationModels>,
     ships: Res<ShipModels>,
+    engine_trail: Res<EngineTrailEffect>,
 ) {
     // Ships now use authored GLBs (per-class scenes streamed via
     // ShipModels). The placeholder cuboid + faction-emissive material
@@ -415,6 +499,14 @@ fn spawn_mirror_entities(
         // GLB hulls are ~10 native units; SHIP_GLB_SCALE brings them
         // to ~0.25 wu, then size_multiplier layers tier scale.
         let base_scale = SHIP_GLB_SCALE * ship_size_multiplier(id.size);
+        // Spawn the engine-trail effect as a sibling (not a child) so
+        // it doesn't inherit the ship's tiny scale. Sync system below
+        // glues its transform to the ship each frame.
+        commands.spawn((
+            ParticleEffectBundle::new(engine_trail.0.clone()),
+            EngineTrailFor(id.id.clone()),
+            Name::new(format!("EngineTrail::{}", id.id)),
+        ));
         commands.spawn((
             SceneBundle {
                 scene: ships.for_class(&id.class),
@@ -567,7 +659,7 @@ fn spawn_mirror_entities(
                             ring.color.z,
                             ring.color.w,
                         ),
-                        alpha_mode: AlphaMode::Blend,
+                        alpha_mode: bevy::prelude::AlphaMode::Blend,
                         cull_mode: None, // two-sided: visible from above + below
                         unlit: true,
                         ..default()
@@ -1215,9 +1307,11 @@ fn reconcile_new_ships(
     mut commands: Commands,
     sim: Res<Sim>,
     ship_models: Option<Res<ShipModels>>,
+    engine_trail: Option<Res<EngineTrailEffect>>,
     ships: Query<&ShipEntity>,
 ) {
     let Some(ship_models) = ship_models else { return };
+    let Some(engine_trail) = engine_trail else { return };
     // Build set of known sim_ids as &str — avoids 1604 String
     // allocations every render frame (was a hot allocation source
     // at fleet scale on M1).
@@ -1237,6 +1331,11 @@ fn reconcile_new_ships(
         let Some((id, pos)) = q.get() else { continue };
         let (x, y) = pos.position;
         let base_scale = SHIP_GLB_SCALE * ship_size_multiplier(id.size);
+        commands.spawn((
+            ParticleEffectBundle::new(engine_trail.0.clone()),
+            EngineTrailFor(sim_id.clone()),
+            Name::new(format!("EngineTrail::{sim_id}")),
+        ));
         commands.spawn((
             SceneBundle {
                 scene: ship_models.for_class(&id.class),
@@ -1409,6 +1508,49 @@ fn raycast_context_menu(
         target,
         screen_pos: Vec2::new(cursor.x, cursor.y),
     };
+}
+
+/// Per-frame: copy each ship's world rotation onto its engine-trail
+/// sibling, plus translate aft by a small offset so the exhaust
+/// emitter sits behind the hull. Scale on the trail entity stays at
+/// 1 — the trail is NOT a child of the ship, so it isn't subject to
+/// SHIP_GLB_SCALE / size_multiplier shrinkage. Particle sizes set
+/// inside the EffectAsset render in world units accordingly.
+fn sync_engine_trails(
+    ships: Query<(&ShipEntity, &Transform), Without<EngineTrailFor>>,
+    mut trails: Query<(&EngineTrailFor, &mut Transform), Without<ShipEntity>>,
+) {
+    if ships.is_empty() {
+        return;
+    }
+    let positions: std::collections::HashMap<&str, &Transform> =
+        ships.iter().map(|(s, t)| (s.sim_id.as_str(), t)).collect();
+    for (trail_for, mut trail_xf) in trails.iter_mut() {
+        if let Some(ship_xf) = positions.get(trail_for.0.as_str()) {
+            // Aft offset in ship-local frame (-Z behind nose), rotated
+            // into world space. 1.5 wu lands the emitter just behind
+            // the hull silhouette at typical ship scale.
+            let aft = ship_xf.rotation * Vec3::new(0.0, 0.0, -1.5);
+            trail_xf.translation = ship_xf.translation + aft;
+            trail_xf.rotation = ship_xf.rotation;
+            trail_xf.scale = Vec3::ONE;
+        }
+    }
+}
+
+/// Despawn engine-trail entities whose ship sim_id is no longer
+/// in the sim's index — sibling analogue of `cleanup_stale_ships`
+/// for the ParticleEffectBundle.
+fn cleanup_stale_engine_trails(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    trails: Query<(Entity, &EngineTrailFor)>,
+) {
+    for (entity, trail_for) in trails.iter() {
+        if !sim.store.ship_by_id.contains_key(&trail_for.0) {
+            commands.entity(entity).despawn_recursive();
+        }
+    }
 }
 
 /// Read `CameraFollow` each frame; if a target is set, look up the

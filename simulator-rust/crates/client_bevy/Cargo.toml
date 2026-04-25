@@ -55,3 +55,8 @@ bevy_egui = "0.30"
 # buttons stay text-only. egui_extras 0.28 matches bevy_egui
 # 0.30's egui dependency.
 egui_extras = { version = "0.29", features = ["svg"] }
+# GPU particle system. 0.13 is the last version compatible with
+# Bevy 0.14 (newer hanabi targets Bevy 0.15+). Drives engine trails
+# on in-transit ships — see `render::particles`. Default features
+# include both 2d + 3d backends; we only use 3d.
+bevy_hanabi = { version = "0.13", default-features = false, features = ["3d"] }
