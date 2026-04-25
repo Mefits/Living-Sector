@@ -11,6 +11,7 @@ use bevy::window::PrimaryWindow;
 use bevy::winit::{UpdateMode, WinitSettings};
 use std::time::Duration;
 
+mod audio;
 mod camera;
 mod render;
 mod sim;
@@ -61,6 +62,7 @@ fn main() {
         .add_plugins(render::RenderPlugin)
         .add_plugins(camera::CameraPlugin)
         .add_plugins(ui::UiPlugin)
+        .add_plugins(audio::AudioPlugin)
         .add_systems(Startup, setup_scene)
         .add_systems(Update, (heartbeat_system, screenshot_key))
         .run();
