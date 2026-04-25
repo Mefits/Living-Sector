@@ -2136,7 +2136,7 @@ pub fn admin_spawn_ship(
 }
 
 /// Admin: spawn a new facility hecs entity from an already-INSERTed DB row.
-fn admin_spawn_facility(
+pub fn admin_spawn_facility(
     store: &mut AgentStore,
     payload: crate::control::AdminSpawnFacilityPayload,
     events: &mut Vec<serde_json::Value>,

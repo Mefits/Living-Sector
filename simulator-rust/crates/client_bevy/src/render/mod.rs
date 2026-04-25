@@ -134,6 +134,7 @@ impl Plugin for RenderPlugin {
                     raycast_select,
                     cleanup_stale_ships,
                     reconcile_new_ships,
+                    reconcile_new_facilities,
                 ),
             );
     }
@@ -1138,6 +1139,76 @@ fn cleanup_stale_ships(mut commands: Commands, sim: Res<Sim>, ships: Query<(Enti
 /// lookup so the cost scales with live ship count, not spawn-rate.
 /// Kicks in after admin Spawn Ship — the sim spawn path only
 /// touches hecs, so this bridge surfaces new ships visually.
+/// Mirror of `reconcile_new_ships` for facilities. The Add Facility
+/// admin dialog spawns a hecs FacilityEntity post-startup; without
+/// this system there'd be no Bevy render entity for it. Iterates
+/// hecs facilities, spawns a SceneBundle for any that don't already
+/// have a matching Bevy `FacilityEntity`. Same StationModels lookup
+/// + STATION_SCALE / GATE_SCALE handling as the startup spawn.
+fn reconcile_new_facilities(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    stations: Option<Res<StationModels>>,
+    facilities: Query<&FacilityEntity>,
+) {
+    let Some(stations) = stations else { return };
+    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
+    use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
+
+    let known: std::collections::HashSet<&str> =
+        facilities.iter().map(|f| f.sim_id.as_str()).collect();
+
+    // Body positions for offset math — same approach the startup
+    // path uses. Cheap at <30 bodies.
+    let body_positions: std::collections::HashMap<String, (f32, f32)> = sim
+        .store
+        .world
+        .query::<(&BodyIdentity, &BodyOrbit)>()
+        .iter()
+        .map(|(_e, (id, orbit))| (id.body_id.clone(), orbit.universe_position()))
+        .collect();
+
+    for (_e, (id, loc)) in sim
+        .store
+        .world
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .iter()
+    {
+        if known.contains(id.id.as_str()) {
+            continue;
+        }
+        let body_center = body_positions
+            .get(&id.body_id)
+            .copied()
+            .unwrap_or((0.0, 0.0));
+        let (fx, fy) =
+            sim_core::agents::facility::facility_offset_position(body_center, &id.id);
+        let y_offset = 0.5;
+        let is_gate = id.facility_type == "gate";
+        let scale = if is_gate { GATE_SCALE } else { STATION_SCALE };
+        let mut transform =
+            Transform::from_xyz(fx * SCALE_FACTOR, y_offset, fy * SCALE_FACTOR)
+                .with_scale(Vec3::splat(scale));
+        if is_gate {
+            transform.rotate_y(std::f32::consts::FRAC_PI_2);
+        }
+        commands.spawn((
+            SceneBundle {
+                scene: stations.for_type(&id.facility_type),
+                transform,
+                ..default()
+            },
+            FacilityEntity {
+                sim_id: id.id.clone(),
+                base_scale: scale,
+                body_id: id.body_id.clone(),
+            },
+            FacilityLocationRef(loc.location_name.clone()),
+            Name::new(format!("Facility::{}", id.id)),
+        ));
+    }
+}
+
 fn reconcile_new_ships(
     mut commands: Commands,
     sim: Res<Sim>,

@@ -70,6 +70,24 @@ pub struct SpawnShipParams {
     pub name: String,
 }
 
+/// One-shot facility-spawn request emitted by the Add Facility
+/// dialog. Consumed by [`process_spawn_facility`] which derives the
+/// agent_id + location and calls
+/// `sim_server::engine::admin_spawn_facility`. Skips DB INSERT —
+/// embedded ships and facilities aren't persisted yet (no worker).
+#[derive(Resource, Default)]
+pub struct SpawnFacilityRequest(pub Option<SpawnFacilityParams>);
+
+#[derive(Clone, Debug)]
+pub struct SpawnFacilityParams {
+    pub name: String,
+    pub facility_type: String,
+    pub body_id: String,
+    pub faction_id: String,
+    pub docking_capacity: u32,
+    pub credits: i64,
+}
+
 /// Rolling tick-compute timing window — `tick_sim` measures wall
 /// time and pushes microseconds into here so the perf overlay can
 /// surface p50/p99. Mirrors `sim_server.perf.tick_compute_*` so
@@ -125,11 +143,15 @@ impl Plugin for SimPlugin {
             .init_resource::<EventsLog>()
             .init_resource::<SaveAsRequest>()
             .init_resource::<SpawnShipRequest>()
+            .init_resource::<SpawnFacilityRequest>()
             .init_resource::<TickPerf>()
             .init_resource::<PhasePerf>()
             .add_systems(Startup, load_world)
             .add_systems(FixedUpdate, tick_sim)
-            .add_systems(Update, (process_save_as, process_spawn_ship));
+            .add_systems(
+                Update,
+                (process_save_as, process_spawn_ship, process_spawn_facility),
+            );
     }
 }
 
@@ -910,5 +932,54 @@ fn process_spawn_ship(mut req: ResMut<SpawnShipRequest>, mut sim: ResMut<Sim>) {
     info!(
         "client_bevy admin: spawned {} {} at {} ({} cr)",
         params.class, agent_id, params.location_name, params.credits
+    );
+}
+
+/// Consume a pending [`SpawnFacilityRequest`] and call sim_server's
+/// admin_spawn_facility. The location_name is auto-derived from the
+/// body_id + a sluggified name (matches the HTTP admin handler's
+/// `facility-{location}-{slug}` agent_id pattern). location_id=0
+/// is fine — embedded client doesn't persist these, so the DB FK
+/// would only matter on next boot.
+fn process_spawn_facility(mut req: ResMut<SpawnFacilityRequest>, mut sim: ResMut<Sim>) {
+    let Some(params) = req.0.take() else { return };
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let slug = params
+        .name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>();
+    // Two facilities at the same body / same name would clash on
+    // agent_id. Wall-clock ts disambiguates and keeps embedded admin
+    // re-clicks idempotent-friendly (each click = a new id).
+    let location_name = format!("{}-{}", params.body_id, slug);
+    let agent_id = format!("facility-{location_name}-{ts}");
+
+    let payload = sim_server::control::AdminSpawnFacilityPayload {
+        db_id: 0,
+        agent_id: agent_id.clone(),
+        name: params.name.clone(),
+        facility_type: params.facility_type.clone(),
+        body_id: params.body_id.clone(),
+        faction_id: params.faction_id.clone(),
+        location_name,
+        location_id: 0,
+        docking_capacity: params.docking_capacity,
+        condition: 1.0,
+        reputation: 50,
+        credits: params.credits,
+    };
+
+    let Sim { store, .. } = &mut *sim;
+    let mut events: Vec<serde_json::Value> = Vec::new();
+    sim_server::engine::admin_spawn_facility(store, payload, &mut events);
+    info!(
+        "client_bevy admin: spawned facility {} ({}) at body={}",
+        agent_id, params.facility_type, params.body_id
     );
 }
