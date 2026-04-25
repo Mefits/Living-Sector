@@ -81,6 +81,8 @@ impl Plugin for UiPlugin {
                     context_menu,
                     help_panel,
                     construction_labels_panel,
+                    facility_labels_panel,
+                    ship_labels_panel,
                 )
                     .chain(),
             );
@@ -3943,22 +3945,39 @@ fn body_labels_panel(
         });
 }
 
+/// Zoom thresholds (orbit camera distance, world units) at which
+/// each label tier turns ON. Bodies are always-on (orientation
+/// anchor, ~30 of them). Facilities + construction sites only
+/// matter when the user is close enough to make station-level
+/// decisions. Ships only appear when the user is right on top of
+/// a single hull — their density would carpet the screen at any
+/// wider zoom. Tuned against `OrbitCamera::initial()` distance
+/// (~3500 wu galactic overview) and the per-system inner-planet
+/// scale (~500 wu).
+const FACILITY_LABEL_MAX_DIST: f32 = 1500.0;
+const CONSTRUCTION_LABEL_MAX_DIST: f32 = 1500.0;
+const SHIP_LABEL_MAX_DIST: f32 = 200.0;
+
 /// Construction-site labels overlay. Same pattern as
 /// `body_labels_panel`: project each site's universe position to
 /// screen and draw "<name> · <pct>%" above the gizmo. Gated on the
-/// same `BodyLabelsState.show` toggle so users get a single
-/// "Labels" button in the top bar covering both kinds.
+/// "Labels" toggle AND zoom — only shows when the user is close
+/// enough that the percentage actually helps (<1500 wu).
+#[allow(clippy::type_complexity)]
 fn construction_labels_panel(
     mut ctx: EguiContexts,
     state: Res<BodyLabelsState>,
     sim: Res<Sim>,
-    camera_q: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    camera_q: Query<(&Camera, &GlobalTransform, &OrbitCamera), With<Camera3d>>,
 ) {
     use sim_core::agents::construction::ConstructionSite;
     if !state.show {
         return;
     }
-    let Ok((camera, cam_xf)) = camera_q.get_single() else { return };
+    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else { return };
+    if orbit.distance > CONSTRUCTION_LABEL_MAX_DIST {
+        return;
+    }
 
     let entries: Vec<(String, f32, Vec3)> = sim
         .store
@@ -3983,9 +4002,6 @@ fn construction_labels_panel(
                 let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
                     continue;
                 };
-                // Two-line stack: name above, progress below — the
-                // progress arc itself shows on the gizmo, but a
-                // numeric percentage is easier to scan at a glance.
                 painter.text(
                     egui::pos2(screen.x, screen.y - 26.0),
                     egui::Align2::CENTER_BOTTOM,
@@ -4000,6 +4016,132 @@ fn construction_labels_panel(
                     format!("{pct}%"),
                     egui::FontId::proportional(11.0),
                     theme::status_color(prog * 100.0, (50.0, 25.0)),
+                );
+            }
+        });
+}
+
+/// Facility name labels overlay. Walks every facility, projects to
+/// screen, draws name above the icon. Zoom-gated against
+/// `FACILITY_LABEL_MAX_DIST` so the user gets clean orbits at
+/// galactic scale and station names when they zoom into a system.
+#[allow(clippy::type_complexity)]
+fn facility_labels_panel(
+    mut ctx: EguiContexts,
+    state: Res<BodyLabelsState>,
+    sim: Res<Sim>,
+    camera_q: Query<(&Camera, &GlobalTransform, &OrbitCamera), With<Camera3d>>,
+) {
+    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
+    use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
+    if !state.show {
+        return;
+    }
+    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else { return };
+    if orbit.distance > FACILITY_LABEL_MAX_DIST {
+        return;
+    }
+
+    // Resolve each facility's world position via its body orbit +
+    // facility_offset_position helper — same math the renderer
+    // uses to plant facility scenes.
+    let body_pos: std::collections::HashMap<String, (f32, f32)> = sim
+        .store
+        .world
+        .query::<(&BodyIdentity, &BodyOrbit)>()
+        .iter()
+        .map(|(_e, (id, orbit))| (id.body_id.clone(), orbit.universe_position()))
+        .collect();
+
+    let entries: Vec<(String, Vec3)> = sim
+        .store
+        .world
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .iter()
+        .filter_map(|(_e, (id, _loc))| {
+            let body = body_pos.get(&id.body_id).copied()?;
+            let (fx, fy) =
+                sim_core::agents::facility::facility_offset_position(body, &id.id);
+            Some((
+                id.name.clone(),
+                Vec3::new(fx * SCALE_FACTOR, 0.5, fy * SCALE_FACTOR),
+            ))
+        })
+        .collect();
+
+    let ctx = ctx.ctx_mut();
+    egui::Area::new(egui::Id::new("facility_labels_area"))
+        .movable(false)
+        .interactable(false)
+        .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            let painter = ui.painter();
+            for (name, pos) in entries {
+                let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
+                    continue;
+                };
+                painter.text(
+                    egui::pos2(screen.x, screen.y - 14.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    &name,
+                    egui::FontId::proportional(10.0),
+                    theme::TEXT_DIM,
+                );
+            }
+        });
+}
+
+/// Ship name labels overlay. Tightest zoom gate of the three —
+/// labels appear only when the camera is right on a ship cluster
+/// (<200 wu). At any wider zoom the density would carpet the
+/// screen with overlapping text.
+#[allow(clippy::type_complexity)]
+fn ship_labels_panel(
+    mut ctx: EguiContexts,
+    state: Res<BodyLabelsState>,
+    sim: Res<Sim>,
+    camera_q: Query<(&Camera, &GlobalTransform, &OrbitCamera), With<Camera3d>>,
+) {
+    use sim_core::agents::ship::{ShipIdentity, ShipPosition};
+    if !state.show {
+        return;
+    }
+    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else { return };
+    if orbit.distance > SHIP_LABEL_MAX_DIST {
+        return;
+    }
+
+    let entries: Vec<(String, Vec3)> = sim
+        .store
+        .world
+        .query::<(&ShipIdentity, &ShipPosition)>()
+        .iter()
+        .map(|(_e, (id, pos))| {
+            let (x, y) = pos.position;
+            (
+                id.name.clone(),
+                Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
+            )
+        })
+        .collect();
+
+    let ctx = ctx.ctx_mut();
+    egui::Area::new(egui::Id::new("ship_labels_area"))
+        .movable(false)
+        .interactable(false)
+        .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            let painter = ui.painter();
+            for (name, pos) in entries {
+                let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
+                    continue;
+                };
+                painter.text(
+                    egui::pos2(screen.x, screen.y - 10.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    &name,
+                    egui::FontId::proportional(10.0),
+                    theme::TEXT_DIM,
                 );
             }
         });
