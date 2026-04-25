@@ -7,12 +7,10 @@
 
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
-use sim_core::{
-    agents::{
-        celestial_body::{BodyIdentity, BodyOrbit},
-        facility::{FacilityIdentity, FacilityLocation},
-        ship::{ShipIdentity, ShipPosition, ShipTransit},
-    },
+use sim_core::agents::{
+    celestial_body::{BodyIdentity, BodyOrbit},
+    facility::{FacilityIdentity, FacilityLocation},
+    ship::{ShipIdentity, ShipPosition, ShipTransit},
 };
 
 use crate::sim::Sim;
@@ -29,7 +27,11 @@ pub const SCALE_FACTOR: f32 = 10.0;
 /// 500+ wu from focus and systems are spread over ~4000 wu, so
 /// bodies need to be visibly bigger than the realistic ratio would
 /// suggest — otherwise they read as flyspecks at max zoom-out.
-const SHIP_SIZE: f32 = 0.4;
+/// Ship size at 0.4 wu was sub-pixel at galactic zoom even with
+/// HDR bloom; 1.0 makes them readable as bright glowing points
+/// without being indistinguishable from facilities (1.5) or
+/// bodies (5.0).
+const SHIP_SIZE: f32 = 18.0;
 const FACILITY_SIZE: f32 = 1.5;
 const BODY_SIZE: f32 = 5.0;
 
@@ -40,23 +42,23 @@ impl Plugin for RenderPlugin {
         // Spawn entities after the sim has loaded (PostStartup ensures
         // `Sim::load_world` has populated the store).
         app.add_systems(
-                PostStartup,
-                (spawn_mirror_entities, spawn_starfield, spawn_nebulae),
-            )
-            .add_systems(
-                Update,
-                (
-                    sync_positions,
-                    highlight_selected,
-                    draw_selection_rings,
-                    draw_transit_lines,
-                    draw_gate_rings,
-                    draw_construction_sites,
-                    raycast_select,
-                    cleanup_stale_ships,
-                    reconcile_new_ships,
-                ),
-            );
+            PostStartup,
+            (spawn_mirror_entities, spawn_starfield, spawn_nebulae),
+        )
+        .add_systems(
+            Update,
+            (
+                sync_positions,
+                highlight_selected,
+                draw_selection_rings,
+                draw_transit_lines,
+                draw_gate_rings,
+                draw_construction_sites,
+                raycast_select,
+                cleanup_stale_ships,
+                reconcile_new_ships,
+            ),
+        );
     }
 }
 
@@ -141,18 +143,18 @@ fn ship_dimensions(class: &str) -> (f32, f32, f32) {
 /// the `fallback` material (independent-grey).
 fn faction_palette() -> &'static [(&'static str, [f32; 3])] {
     &[
-        ("terran-authority",   [0.85, 0.90, 0.92]),
-        ("mars-syndicate",     [0.55, 0.24, 0.16]),
-        ("belt-coalition",     [0.72, 0.64, 0.34]),
-        ("frontier-ventures",  [0.50, 0.60, 0.42]),
-        ("crucible-mining",    [0.26, 0.30, 0.34]),
-        ("the-doughtys",       [0.70, 0.50, 0.80]),
-        ("independent",        [0.58, 0.58, 0.60]),
+        ("terran-authority", [0.85, 0.90, 0.92]),
+        ("mars-syndicate", [0.55, 0.24, 0.16]),
+        ("belt-coalition", [0.72, 0.64, 0.34]),
+        ("frontier-ventures", [0.50, 0.60, 0.42]),
+        ("crucible-mining", [0.26, 0.30, 0.34]),
+        ("the-doughtys", [0.70, 0.50, 0.80]),
+        ("independent", [0.58, 0.58, 0.60]),
         // Factions not in the Godot palette — picked to be
         // distinguishable at distance. Revisit when we do real
         // procedural ships and can pull from a shared palette crate.
-        ("vega-conclave",      [0.35, 0.60, 0.85]),
-        ("outer-reach",        [0.85, 0.55, 0.30]),
+        ("vega-conclave", [0.35, 0.60, 0.85]),
+        ("outer-reach", [0.85, 0.55, 0.30]),
     ]
 }
 
@@ -167,11 +169,12 @@ fn spawn_mirror_entities(
     // that actually matters for draw calls.
     // Ship materials get a faction-tinted emissive so ships stay
     // visible as glowing points at galactic-zoom where the
-    // placeholder mesh itself subtends a sub-pixel footprint.
-    // Tonemapping blooms emissive samples across nearby pixels so a
-    // half-pixel ship still reads as a coloured spark. Scale is
-    // small enough that at close zoom emissive is just "sheen".
-    let emissive_scale = 1.8;
+    // placeholder mesh itself subtends just a few pixels even at
+    // SHIP_SIZE=1.0. Tonemapping blooms emissive samples across
+    // surrounding pixels so a tiny ship reads as a bright spark.
+    // 4.0 was tuned visually so a fleet at Earth shows as a
+    // distinct cluster of coloured dots, not a single body smear.
+    let emissive_scale = 4.0;
     let mut ship_mat_by_faction = std::collections::HashMap::new();
     for (id, rgb) in faction_palette() {
         let mat = materials.add(StandardMaterial {
@@ -197,10 +200,7 @@ fn spawn_mirror_entities(
     let mut ship_mesh_by_class = std::collections::HashMap::new();
     for class in ["courier", "freighter", "hauler", "tanker", "miner"] {
         let (w, h, l) = ship_dimensions(class);
-        ship_mesh_by_class.insert(
-            class.to_string(),
-            meshes.add(Cuboid::new(w, h, l)),
-        );
+        ship_mesh_by_class.insert(class.to_string(), meshes.add(Cuboid::new(w, h, l)));
     }
     let (dw, dh, dl) = ship_dimensions("default");
     let ship_mesh_default = meshes.add(Cuboid::new(dw, dh, dl));
@@ -243,7 +243,9 @@ fn spawn_mirror_entities(
                 transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
                 ..default()
             },
-            ShipEntity { sim_id: id.id.clone() },
+            ShipEntity {
+                sim_id: id.id.clone(),
+            },
             Name::new(format!("Ship::{}", id.id)),
         ));
         ship_count += 1;
@@ -259,7 +261,9 @@ fn spawn_mirror_entities(
                 transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
                 ..default()
             },
-            BodyEntity { sim_id: id.body_id.clone() },
+            BodyEntity {
+                sim_id: id.body_id.clone(),
+            },
             Name::new(format!("Body::{}", id.body_id)),
         ));
         body_count += 1;
@@ -274,7 +278,10 @@ fn spawn_mirror_entities(
         .map(|(_e, (id, orbit))| (id.body_id.clone(), orbit.universe_position()))
         .collect();
 
-    for (_e, (id, loc)) in world.query::<(&FacilityIdentity, &FacilityLocation)>().iter() {
+    for (_e, (id, loc)) in world
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .iter()
+    {
         // Placeholder: put the facility AT its body centre. The real
         // "facility orbits its body at offset 0.15" math lives in
         // sim_core::agents::facility::facility_offset_position — we'll
@@ -344,8 +351,7 @@ fn sync_positions(
     // a HashMap every render frame (was a hot allocation source at
     // fleet scale on M1). Bind the QueryBorrow first so it lives
     // long enough for the &str borrows to outlive the `collect`.
-    let mut ship_query =
-        world.query::<(&ShipIdentity, &ShipPosition, &ShipTransit)>();
+    let mut ship_query = world.query::<(&ShipIdentity, &ShipPosition, &ShipTransit)>();
     let ship_state: std::collections::HashMap<&str, ((f32, f32), Option<Vec3>)> = ship_query
         .iter()
         .map(|(_e, (id, pos, transit))| {
@@ -414,10 +420,7 @@ const SELECT_SCALE: f32 = 4.0;
 fn highlight_selected(
     selected_ship: Res<SelectedShip>,
     selected_fac: Res<SelectedFacility>,
-    mut ships: Query<
-        (&ShipEntity, &mut Transform),
-        (Without<FacilityEntity>, Without<BodyEntity>),
-    >,
+    mut ships: Query<(&ShipEntity, &mut Transform), (Without<FacilityEntity>, Without<BodyEntity>)>,
     mut facilities: Query<
         (&FacilityEntity, &mut Transform),
         (Without<ShipEntity>, Without<BodyEntity>),
@@ -616,11 +619,7 @@ fn spawn_nebulae(
 /// Does not currently handle facility or body deletes because nothing
 /// in the client deletes those yet; add parallel cleanup systems when
 /// those admin actions land.
-fn cleanup_stale_ships(
-    mut commands: Commands,
-    sim: Res<Sim>,
-    ships: Query<(Entity, &ShipEntity)>,
-) {
+fn cleanup_stale_ships(mut commands: Commands, sim: Res<Sim>, ships: Query<(Entity, &ShipEntity)>) {
     for (e, ship) in ships.iter() {
         if !sim.store.ship_by_id.contains_key(&ship.sim_id) {
             commands.entity(e).despawn_recursive();
@@ -645,8 +644,7 @@ fn reconcile_new_ships(
     // Build set of known sim_ids as &str — avoids 1604 String
     // allocations every render frame (was a hot allocation source
     // at fleet scale on M1).
-    let known: std::collections::HashSet<&str> =
-        ships.iter().map(|s| s.sim_id.as_str()).collect();
+    let known: std::collections::HashSet<&str> = ships.iter().map(|s| s.sim_id.as_str()).collect();
 
     for (sim_id, &entity) in sim.store.ship_by_id.iter() {
         if known.contains(sim_id.as_str()) {
@@ -708,10 +706,18 @@ fn raycast_select(
         return;
     }
 
-    let Ok(window) = windows.get_single() else { return };
-    let Some(cursor) = window.cursor_position() else { return };
-    let Ok((camera, cam_xf)) = cameras.get_single() else { return };
-    let Some(ray) = camera.viewport_to_world(cam_xf, cursor) else { return };
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        return;
+    };
+    let Ok((camera, cam_xf)) = cameras.get_single() else {
+        return;
+    };
+    let Some(ray) = camera.viewport_to_world(cam_xf, cursor) else {
+        return;
+    };
 
     // Track best (smallest) depth across all candidates so we pick the
     // nearest thing the ray touches.
@@ -855,7 +861,9 @@ fn draw_selection_rings(
         for (ship, xf) in ships.iter() {
             if ship.sim_id == id {
                 let r = SHIP_SIZE * SELECT_SCALE * 1.6 * pulse;
-                gizmos.circle(xf.translation, normal, r, color).resolution(32);
+                gizmos
+                    .circle(xf.translation, normal, r, color)
+                    .resolution(32);
                 break;
             }
         }
@@ -864,7 +872,9 @@ fn draw_selection_rings(
         for (fac, xf) in facilities.iter() {
             if fac.sim_id == id {
                 let r = FACILITY_SIZE * SELECT_SCALE * 1.3 * pulse;
-                gizmos.circle(xf.translation, normal, r, color).resolution(48);
+                gizmos
+                    .circle(xf.translation, normal, r, color)
+                    .resolution(48);
                 break;
             }
         }
@@ -902,7 +912,9 @@ fn draw_gate_rings(sim: Res<Sim>, mut gizmos: Gizmos) {
         if id.facility_type != "gate" {
             continue;
         }
-        let Some(&(x, y)) = body_positions.get(&id.body_id) else { continue };
+        let Some(&(x, y)) = body_positions.get(&id.body_id) else {
+            continue;
+        };
         let center = Vec3::new(x * SCALE_FACTOR, 0.5, y * SCALE_FACTOR);
         gizmos
             .circle(center, normal, GATE_RING_RADIUS, color)
@@ -925,7 +937,9 @@ fn draw_transit_lines(sim: Res<Sim>, mut gizmos: Gizmos) {
 
     for (_e, (transit, pos)) in world.query::<(&ShipTransit, &ShipPosition)>().iter() {
         let Some(t) = &transit.transit else { continue };
-        let Some((dx, dy)) = t.departure_position else { continue };
+        let Some((dx, dy)) = t.departure_position else {
+            continue;
+        };
         let start = Vec3::new(dx * SCALE_FACTOR, 0.0, dy * SCALE_FACTOR);
         let end = Vec3::new(
             pos.position.0 * SCALE_FACTOR,

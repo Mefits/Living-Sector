@@ -14,7 +14,10 @@
 
 use bevy::{
     core_pipeline::bloom::BloomSettings,
-    input::mouse::{MouseMotion, MouseWheel},
+    input::{
+        gestures::PinchGesture,
+        mouse::{MouseMotion, MouseWheel},
+    },
     prelude::*,
 };
 
@@ -131,6 +134,14 @@ const ORBIT_SPEED: f32 = 0.004; // radians per pixel of mouse motion
 const PAN_SPEED: f32 = 0.5;     // world units per pixel of mouse motion (scales w/ distance)
 const WASD_SPEED: f32 = 200.0;  // world units per second at WASD
 const ZOOM_SPEED: f32 = 20.0;   // world units per scroll line
+/// Per-key zoom step when held — `=`/`+` zoom in, `-`/`_` zoom out.
+/// Tuned so a held key noticeably moves the camera without feeling
+/// twitchy. Trackpad users without scroll-up/down rely on this.
+const KEY_ZOOM_STEP: f32 = 600.0; // wu per second
+/// Pinch-gesture multiplier. macOS PinchGesture deltas come in
+/// small fractional values per event (~0.01 per gentle pinch frame);
+/// scale them up so a normal pinch covers a useful zoom range.
+const PINCH_ZOOM_FACTOR: f32 = 600.0;
 
 const PITCH_MIN: f32 = -1.45; // ~-83° (almost straight down)
 const PITCH_MAX: f32 = -0.1;  // ~-6° (almost horizontal)
@@ -144,6 +155,7 @@ fn orbit_camera_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut mouse_motion: EventReader<MouseMotion>,
     mut mouse_wheel: EventReader<MouseWheel>,
+    mut pinch: EventReader<PinchGesture>,
     mut q: Query<(&mut OrbitCamera, &mut Transform)>,
 ) {
     let Ok((mut orbit, mut xf)) = q.get_single_mut() else {
@@ -206,7 +218,7 @@ fn orbit_camera_input(
         changed = true;
     }
 
-    // --- Scroll zoom ---
+    // --- Scroll zoom (mouse wheel + trackpad two-finger scroll) ---
     let mut scroll = 0.0;
     for ev in mouse_wheel.read() {
         scroll += ev.y;
@@ -215,6 +227,35 @@ fn orbit_camera_input(
         // Zoom factor scales with current distance so the perceived
         // speed of zooming stays consistent across scales.
         let delta = -scroll * ZOOM_SPEED * (orbit.distance / 200.0);
+        orbit.distance = (orbit.distance + delta).clamp(DISTANCE_MIN, DISTANCE_MAX);
+        changed = true;
+    }
+
+    // --- Pinch-gesture zoom (macOS trackpad). Bevy 0.14's
+    // PinchGesture surfaces magnification deltas (positive = pinch
+    // out / zoom in, negative = pinch in / zoom out).
+    let mut pinch_delta = 0.0;
+    for ev in pinch.read() {
+        pinch_delta += ev.0;
+    }
+    if pinch_delta != 0.0 {
+        let delta = -pinch_delta * PINCH_ZOOM_FACTOR * (orbit.distance / 500.0);
+        orbit.distance = (orbit.distance + delta).clamp(DISTANCE_MIN, DISTANCE_MAX);
+        changed = true;
+    }
+
+    // --- Keyboard zoom (`=`/`+` in, `-`/`_` out). Continuous while
+    // held — for trackpad users without scroll-wheel zoom or for
+    // precise framing. Both Equal and NumpadAdd map to zoom-in.
+    let mut key_zoom = 0.0;
+    if keys.pressed(KeyCode::Equal) || keys.pressed(KeyCode::NumpadAdd) {
+        key_zoom -= 1.0;
+    }
+    if keys.pressed(KeyCode::Minus) || keys.pressed(KeyCode::NumpadSubtract) {
+        key_zoom += 1.0;
+    }
+    if key_zoom != 0.0 {
+        let delta = key_zoom * KEY_ZOOM_STEP * dt * (orbit.distance / 500.0);
         orbit.distance = (orbit.distance + delta).clamp(DISTANCE_MIN, DISTANCE_MAX);
         changed = true;
     }
