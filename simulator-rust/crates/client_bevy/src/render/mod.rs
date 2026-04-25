@@ -25,10 +25,13 @@ pub const SCALE_FACTOR: f32 = 10.0;
 
 /// Placeholder sizes (world units). Ships tiny, facilities medium,
 /// bodies big — mirrors the visual hierarchy of the Godot client
-/// without any procedural detail.
-const SHIP_SIZE: f32 = 0.18;
-const FACILITY_SIZE: f32 = 0.35;
-const BODY_SIZE: f32 = 1.0;
+/// without any procedural detail. The galactic-overview camera sits
+/// 500+ wu from focus and systems are spread over ~4000 wu, so
+/// bodies need to be visibly bigger than the realistic ratio would
+/// suggest — otherwise they read as flyspecks at max zoom-out.
+const SHIP_SIZE: f32 = 0.4;
+const FACILITY_SIZE: f32 = 1.5;
+const BODY_SIZE: f32 = 5.0;
 
 pub struct RenderPlugin;
 
@@ -512,16 +515,13 @@ const NEBULA_COUNT: usize = 14;
 
 /// Shell radius the nebula clouds sit at. Past the star shell
 /// (STAR_FIELD_RADIUS = 4000) so clouds read as deep-background
-/// volumes and can't occlude foreground bodies/ships. Earlier
-/// revisions had them at 2200 (inside the stars) and one cloud
-/// drifted right in front of the camera view — blotted out the
-/// scene.
-const NEBULA_FIELD_RADIUS: f32 = 6500.0;
+/// volumes and can't occlude foreground bodies/ships.
+const NEBULA_FIELD_RADIUS: f32 = 9000.0;
 
-/// Per-cloud sphere radius range (min, max). Smaller than the first
-/// revision — at NEBULA_FIELD_RADIUS distance these still project
-/// to respectable backdrop blobs without dominating the scene.
-const NEBULA_RADIUS_RANGE: (f32, f32) = (300.0, 650.0);
+/// Per-cloud sphere radius range (min, max). At NEBULA_FIELD_RADIUS
+/// distance these still project to respectable backdrop blobs
+/// without dominating the scene.
+const NEBULA_RADIUS_RANGE: (f32, f32) = (200.0, 400.0);
 
 /// Paint a handful of translucent colored spheres around origin as
 /// nebula clouds, seeded off `Sim.world_seed`. Hues vary per-instance
