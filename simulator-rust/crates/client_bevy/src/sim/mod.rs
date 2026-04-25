@@ -47,14 +47,28 @@ pub const EVENTS_CAP: usize = 2000;
 #[derive(Resource, Default)]
 pub struct SaveAsRequest(pub bool);
 
-/// One-shot flag for the top-bar "Spawn test freighter" admin
-/// button. Consumed by [`process_spawn_ship`] which builds an
-/// `AdminSpawnShipPayload` targeting earth-station with a random
-/// agent id + name, then calls `sim_server::engine::admin_spawn_ship`.
-/// Paired with the render-side `reconcile_new_ships` system which
-/// surfaces the new hecs entity as a Bevy render entity.
+/// One-shot request for the top-bar admin spawn button.
+/// `Some(params)` carries the picker selections from the Add Ship
+/// dialog; `None` means "use default preset" (quick freighter at
+/// earth-station). Consumed by [`process_spawn_ship`] which builds
+/// an `AdminSpawnShipPayload`, then calls
+/// `sim_server::engine::admin_spawn_ship`. Paired with the
+/// render-side `reconcile_new_ships` system which surfaces the new
+/// hecs entity as a Bevy render entity.
 #[derive(Resource, Default)]
-pub struct SpawnShipRequest(pub bool);
+pub struct SpawnShipRequest(pub Option<SpawnShipParams>);
+
+/// Picker selections from the Add Ship dialog. `name` empty means
+/// "let process_spawn_ship generate one" so users can leave it
+/// blank.
+#[derive(Clone, Debug)]
+pub struct SpawnShipParams {
+    pub class: String,
+    pub faction_id: String,
+    pub location_name: String,
+    pub credits: i64,
+    pub name: String,
+}
 
 /// Rolling tick-compute timing window — `tick_sim` measures wall
 /// time and pushes microseconds into here so the perf overlay can
@@ -828,61 +842,73 @@ fn process_save_as(mut req: ResMut<SaveAsRequest>) {
     }
 }
 
-/// Consume a pending [`SpawnShipRequest`] by building a minimal
-/// AdminSpawnShipPayload (freighter at earth-station, 5000 credits,
-/// random name + agent id) and calling sim_server's admin_spawn_ship
-/// against our in-memory store. The new hecs entity becomes a Bevy
-/// render entity on the next frame via `reconcile_new_ships` in
-/// render/.
+/// Consume a pending [`SpawnShipRequest`] and call sim_server's
+/// admin_spawn_ship against our in-memory store. `Some(params)`
+/// honours the picker dropdown values; `None` falls back to the
+/// freighter-at-earth-station preset for the quick-spawn path. The
+/// new hecs entity becomes a Bevy render entity on the next frame
+/// via `reconcile_new_ships` in render/.
 fn process_spawn_ship(mut req: ResMut<SpawnShipRequest>, mut sim: ResMut<Sim>) {
-    if !req.0 {
-        return;
-    }
-    req.0 = false;
+    let Some(params) = req.0.take() else { return };
 
     use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
+    use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
 
-    // Build a throwaway id + name from wall-clock so repeated clicks
-    // don't collide. Embedded ships aren't persisted yet (no DB
-    // worker), so db_id=0 is fine — a restart drops these anyway.
+    // Throwaway id from wall-clock so repeated clicks don't collide.
+    // Embedded ships aren't persisted yet (no DB worker), so db_id=0
+    // is fine — a restart drops these anyway.
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     let agent_id = format!("admin-spawn-{ts}");
-    let name = format!("admin-{ts}");
-    let location = "earth-station".to_string();
+    let name = if params.name.trim().is_empty() {
+        format!("admin-{ts}")
+    } else {
+        params.name.trim().to_string()
+    };
 
-    // Position: resolve the body that earth-station orbits. Admin
-    // spawn in sim_server uses per-facility offset math; here we
-    // settle for body-centre, which is close enough — the ship
-    // spawns docked-ish and the sim's planner takes over from there.
-    let body_pos = sim
+    // Location → body_id: walk facilities and find the one whose
+    // location_name matches the user's pick. Multiple facilities can
+    // share a location (a station + a refinery on the same body); we
+    // only need the body_id, which is consistent across them.
+    let body_id_for_location: Option<String> = sim
         .store
         .world
-        .query::<(&BodyIdentity, &BodyOrbit)>()
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
         .iter()
-        .find(|(_e, (b, _))| b.body_id == "earth")
-        .map(|(_e, (_, o))| o.universe_position())
+        .find(|(_e, (_id, loc))| loc.location_name == params.location_name)
+        .map(|(_e, (id, _loc))| id.body_id.clone());
+
+    let body_pos = body_id_for_location
+        .as_deref()
+        .and_then(|bid| {
+            sim.store
+                .world
+                .query::<(&BodyIdentity, &BodyOrbit)>()
+                .iter()
+                .find(|(_e, (b, _))| b.body_id == bid)
+                .map(|(_e, (_, o))| o.universe_position())
+        })
         .unwrap_or((0.0, 0.0));
 
     let payload = sim_server::control::AdminSpawnShipPayload {
         db_id: 0,
         agent_id: agent_id.clone(),
         name,
-        class: "freighter".to_string(),
-        location_name: location,
-        faction_id: "independent".to_string(),
+        class: params.class.clone(),
+        location_name: params.location_name.clone(),
+        faction_id: params.faction_id.clone(),
         universe_offset: (0.0, 0.0),
         position: body_pos,
-        credits: 5_000,
+        credits: params.credits,
     };
 
     let Sim { store, registry, .. } = &mut *sim;
     let mut events: Vec<serde_json::Value> = Vec::new();
     sim_server::engine::admin_spawn_ship(store, registry, payload, &mut events);
     info!(
-        "client_bevy admin: spawned test freighter {} at earth-station",
-        agent_id
+        "client_bevy admin: spawned {} {} at {} ({} cr)",
+        params.class, agent_id, params.location_name, params.credits
     );
 }

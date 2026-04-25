@@ -37,6 +37,7 @@ impl Plugin for UiPlugin {
             .init_resource::<BodyLabelsState>()
             .init_resource::<EventsState>()
             .init_resource::<PauseMenuState>()
+            .init_resource::<AddShipDialogState>()
             .add_systems(
                 Update,
                 (
@@ -72,6 +73,7 @@ impl Plugin for UiPlugin {
                     retirements_panel,
                     construction_panel,
                     pause_menu,
+                    add_ship_dialog,
                 )
                     .chain(),
             );
@@ -91,7 +93,7 @@ fn top_bar_controls(
     mut sim: ResMut<Sim>,
     mut cam_reset: ResMut<CameraResetRequest>,
     mut save_req: ResMut<crate::sim::SaveAsRequest>,
-    mut spawn_req: ResMut<crate::sim::SpawnShipRequest>,
+    mut add_ship: ResMut<AddShipDialogState>,
     mut ship_sel: ResMut<SelectedShip>,
     mut fac_sel: ResMut<SelectedFacility>,
 ) {
@@ -156,16 +158,15 @@ fn top_bar_controls(
                     .color(theme::TEXT_DIM),
             );
             if ui
-                .add(egui::Button::image_and_text(icons::add_ship(), "Freighter"))
+                .add(egui::Button::image_and_text(icons::add_ship(), "+Ship"))
                 .on_hover_text(
-                    "Spawn a freighter at earth-station for the \
-                     independent faction with 5000 credits. Quick way to \
-                     seed test ships without the full spawn panel. Not \
-                     persisted (embedded client has no worker yet).",
+                    "Open the Add Ship dialog — class / faction / location / \
+                     credits / name. Not persisted (embedded client has no \
+                     worker yet).",
                 )
                 .clicked()
             {
-                spawn_req.0 = true;
+                add_ship.open = !add_ship.open;
             }
 
             // Selection chip — when a ship or facility is selected
@@ -362,19 +363,11 @@ fn top_bar(
 /// `open` is true (egui Button's `selected` styling, no frame). Used
 /// for every entry in the panel-toggles row so the top bar stays
 /// uniform and visually scannable.
-fn icon_toggle(
-    ui: &mut egui::Ui,
-    icon: egui::Image<'static>,
-    label: &str,
-    count: Option<usize>,
-    open: bool,
-) -> bool {
-    icon_toggle_with_tip(ui, icon, label, count, open, None)
-}
-
-/// Same as `icon_toggle` but with a hover tooltip. The default tip
-/// is `"Toggle <Label>"`; pass `Some(...)` for richer text. egui's
-/// hover delay (~250 ms) keeps the bar quiet on quick mouse-overs.
+/// Icon + label + optional `(count)` toggle button with a hover
+/// tooltip. The default tip is the label itself; pass `Some(...)`
+/// for richer text. egui's hover delay (~250 ms) keeps the bar
+/// quiet on quick mouse-overs. Button highlights when `open` is
+/// true (egui's `selected` styling, frameless).
 fn icon_toggle_with_tip(
     ui: &mut egui::Ui,
     icon: egui::Image<'static>,
@@ -3990,6 +3983,172 @@ fn keyboard_shortcuts(
             menu.was_running = sim.running;
             sim.running = false;
         }
+    }
+}
+
+/// State for the "Add Ship" admin dialog. Open/close via the
+/// top-bar "+Ship" button. Form fields persist between openings so
+/// repeated test spawns don't make the user re-pick everything.
+#[derive(Resource)]
+struct AddShipDialogState {
+    open: bool,
+    class: String,
+    faction_id: String,
+    location_name: String,
+    credits: i64,
+    name: String,
+}
+
+impl Default for AddShipDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            class: "freighter".to_string(),
+            faction_id: "independent".to_string(),
+            location_name: "earth-station".to_string(),
+            credits: 5_000,
+            name: String::new(),
+        }
+    }
+}
+
+const SHIP_CLASSES: &[&str] = &["courier", "freighter", "hauler", "tanker", "miner"];
+
+fn add_ship_dialog(
+    mut ctx: EguiContexts,
+    mut state: ResMut<AddShipDialogState>,
+    sim: Res<Sim>,
+    mut spawn_req: ResMut<crate::sim::SpawnShipRequest>,
+) {
+    if !state.open {
+        return;
+    }
+
+    use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
+
+    // Build picker options from the live world. Factions come from
+    // the faction_by_id index; locations from facility ECS data.
+    // Sorted + deduped so the dropdowns are stable across frames
+    // (hashmap iteration order isn't).
+    let mut factions: Vec<String> = sim.store.faction_by_id.keys().cloned().collect();
+    factions.sort();
+
+    let location_set: std::collections::BTreeSet<String> = sim
+        .store
+        .world
+        .query::<(&FacilityIdentity, &FacilityLocation)>()
+        .iter()
+        .filter_map(|(_e, (id, loc))| {
+            // Skip gates as spawn destinations — gates aren't dock
+            // points and admin_spawn_ship at a gate gets the ship
+            // immediately reset by the gate logic. Stations / mines /
+            // factories / refineries / farms / outposts only.
+            if id.facility_type == "gate" {
+                None
+            } else {
+                Some(loc.location_name.clone())
+            }
+        })
+        .collect();
+    let locations: Vec<String> = location_set.into_iter().collect();
+
+    let mut open = state.open;
+    let mut spawn_clicked = false;
+    egui::Window::new("Add Ship")
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .collapsible(false)
+        .resizable(false)
+        .default_width(360.0)
+        .open(&mut open)
+        .show(ctx.ctx_mut(), |ui| {
+            egui::Grid::new("add_ship_form")
+                .num_columns(2)
+                .spacing([12.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label(theme::caption("Class"));
+                    egui::ComboBox::from_id_salt("add_ship_class")
+                        .selected_text(&state.class)
+                        .show_ui(ui, |ui| {
+                            for &c in SHIP_CLASSES {
+                                ui.selectable_value(&mut state.class, c.to_string(), c);
+                            }
+                        });
+                    ui.end_row();
+
+                    ui.label(theme::caption("Faction"));
+                    egui::ComboBox::from_id_salt("add_ship_faction")
+                        .selected_text(&state.faction_id)
+                        .show_ui(ui, |ui| {
+                            for f in &factions {
+                                ui.selectable_value(&mut state.faction_id, f.clone(), f);
+                            }
+                        });
+                    ui.end_row();
+
+                    ui.label(theme::caption("Location"));
+                    egui::ComboBox::from_id_salt("add_ship_location")
+                        .selected_text(&state.location_name)
+                        .show_ui(ui, |ui| {
+                            for l in &locations {
+                                ui.selectable_value(
+                                    &mut state.location_name,
+                                    l.clone(),
+                                    l,
+                                );
+                            }
+                        });
+                    ui.end_row();
+
+                    ui.label(theme::caption("Credits"));
+                    let mut credits = state.credits;
+                    if ui
+                        .add(egui::DragValue::new(&mut credits).range(0..=10_000_000).speed(100.0))
+                        .changed()
+                    {
+                        state.credits = credits;
+                    }
+                    ui.end_row();
+
+                    ui.label(theme::caption("Name"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut state.name)
+                            .hint_text("(auto-generated if empty)"),
+                    );
+                    ui.end_row();
+                });
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .add(egui::Button::new(
+                        egui::RichText::new("Spawn").color(theme::SUCCESS),
+                    ))
+                    .clicked()
+                {
+                    spawn_clicked = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    // Cancel just closes; we keep the form fields so
+                    // the user can re-open and tweak without
+                    // re-picking from scratch.
+                    state.open = false;
+                }
+            });
+        });
+
+    if spawn_clicked {
+        spawn_req.0 = Some(crate::sim::SpawnShipParams {
+            class: state.class.clone(),
+            faction_id: state.faction_id.clone(),
+            location_name: state.location_name.clone(),
+            credits: state.credits,
+            name: state.name.clone(),
+        });
+        // Auto-close on spawn so the user sees their new ship; they
+        // can re-open if they want to spawn a few in a row.
+        state.open = false;
+    } else {
+        state.open = open;
     }
 }
 
