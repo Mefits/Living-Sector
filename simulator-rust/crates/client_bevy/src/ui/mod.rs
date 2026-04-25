@@ -2238,6 +2238,7 @@ fn facility_details_panel(
     sim: Res<Sim>,
     mut selected: ResMut<SelectedFacility>,
     mut focus_req: ResMut<CameraFocusRequest>,
+    mut ship_sel: ResMut<SelectedShip>,
 ) {
     use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
     use sim_core::agents::facility::{
@@ -2452,18 +2453,22 @@ fn facility_details_panel(
                     // query_ones per facility click, maybe once a
                     // second when the user is browsing.
                     use sim_core::agents::ship::ShipIdentity;
-                    // Inline the resolve as a plain closure inferring
-                    // its entity type from the docked_ships vec — we
-                    // don't have a hecs dep to name the type.
+                    // Resolve a docked / queued entity back to
+                    // (id, label). id is the sim_id we use for
+                    // selection; label is "<name> (<class>)".
                     let resolve = |e| {
                         sim.store
                             .world
                             .query_one::<&ShipIdentity>(e)
                             .ok()
-                            .and_then(|mut q| q.get().map(|id| {
-                                format!("{} ({})", id.name, id.class)
-                            }))
-                            .unwrap_or_else(|| "(unknown)".to_string())
+                            .and_then(|mut q| {
+                                q.get().map(|id| {
+                                    (
+                                        id.id.clone(),
+                                        format!("{} ({})", id.name, id.class),
+                                    )
+                                })
+                            })
                     };
 
                     if !storage.docked_ships.is_empty() {
@@ -2476,7 +2481,15 @@ fn facility_details_panel(
                             .color(egui::Color32::from_gray(170)),
                         );
                         for &e in &storage.docked_ships {
-                            ui.label(egui::RichText::new(resolve(e)).small());
+                            if let Some((sim_id, label)) = resolve(e) {
+                                if ui
+                                    .selectable_label(false, egui::RichText::new(label).small())
+                                    .on_hover_text("Select this docked ship")
+                                    .clicked()
+                                {
+                                    ship_sel.0 = Some(sim_id);
+                                }
+                            }
                         }
                     }
                     if !storage.dock_queue.is_empty() {
@@ -2489,10 +2502,16 @@ fn facility_details_panel(
                             .color(egui::Color32::from_rgb(230, 200, 90)),
                         );
                         for (i, &e) in storage.dock_queue.iter().enumerate() {
-                            ui.label(
-                                egui::RichText::new(format!("{:>2}. {}", i + 1, resolve(e)))
-                                    .small(),
-                            );
+                            if let Some((sim_id, label)) = resolve(e) {
+                                let line = format!("{:>2}. {}", i + 1, label);
+                                if ui
+                                    .selectable_label(false, egui::RichText::new(line).small())
+                                    .on_hover_text("Select this queued ship")
+                                    .clicked()
+                                {
+                                    ship_sel.0 = Some(sim_id);
+                                }
+                            }
                         }
                     }
                     if !storage.pending_deliveries.is_empty() {
