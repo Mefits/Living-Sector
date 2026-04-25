@@ -473,6 +473,16 @@ directly; zero marshalling between sim and render.
   slug fires admin_refit_ship with `via_shipyard=false` (admin
   override, no cost or stock check). Derived stats refresh same
   frame.
+- **Bundle 3al**: TPS readout in perf panel. Rolling
+  `(Instant, tick)` ring → derived ticks/sec, coloured against
+  the configured `8 × tick_mult` target. Diagnoses background-
+  window throttling vs. real overload.
+- **Bundle 3am**: tick compute p50/p99 in perf panel. New
+  `TickPerf` resource records each FixedUpdate `tick_sim` wall-
+  time into a 60-sample window; recomputes p50/p99 each tick.
+  Two overlay rows show ms with budget-aware colouring (red
+  approaches 125 ms FixedUpdate cadence). Mirrors
+  `sim_server.perf.tick_compute_*`.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
