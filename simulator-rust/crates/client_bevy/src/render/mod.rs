@@ -477,6 +477,15 @@ fn event_driven_flashes(
         return;
     }
 
+    // Skip the gate-position lookup build when nothing in the log
+    // is newer than our last high-water tick. Common steady-state
+    // when the user is paused or watching a quiet system. Saves
+    // two hecs query iterations per frame.
+    let any_new = events.0.iter().any(|(t, _)| *t > *last_tick);
+    if !any_new {
+        return;
+    }
+
     // Build gate-location → body universe position lookup once per
     // frame. Cheap at <30 gates.
     let body_pos: std::collections::HashMap<String, (f32, f32)> = sim

@@ -48,6 +48,7 @@ pub fn refresh() -> egui::Image<'static> {
         .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
 }
 
+#[allow(dead_code)]
 pub fn plus() -> egui::Image<'static> {
     egui::Image::new(egui::include_image!("../../assets/icons/ui/plus.svg"))
         .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
