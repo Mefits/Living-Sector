@@ -1418,11 +1418,24 @@ fn format_credits(n: i64) -> String {
 // Filter narrows by location substring, and a toggle collapses normal
 // markets so the eye goes straight to the problem spots.
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct MarketsState {
     open: bool,
     filter: String,
     only_shortages: bool,
+}
+
+impl Default for MarketsState {
+    fn default() -> Self {
+        let auto_open = std::env::var("CLIENT_BEVY_OPEN_PANELS")
+            .map(|s| s.contains("markets") || s == "all")
+            .unwrap_or(false);
+        Self {
+            open: auto_open,
+            filter: String::new(),
+            only_shortages: false,
+        }
+    }
 }
 
 fn markets_panel(
@@ -1545,29 +1558,36 @@ fn markets_panel(
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for row in &filtered {
-                    let badge = if row.crisis {
-                        egui::RichText::new(" CRISIS ")
-                            .background_color(egui::Color32::from_rgb(180, 60, 60))
-                            .color(egui::Color32::WHITE)
-                            .strong()
-                    } else if row.any_short {
-                        egui::RichText::new(" SHORT ")
-                            .background_color(egui::Color32::from_rgb(180, 140, 40))
-                            .color(egui::Color32::BLACK)
-                            .strong()
-                    } else {
-                        egui::RichText::new("")
+                    // Build the collapsing-header label inline so the
+                    // tag (CRISIS / SHORT) sits next to the location
+                    // name instead of below the section. The header
+                    // accepts WidgetText, which won't take a styled
+                    // RichText with background color out of the box —
+                    // so we render the header via .show_unindented
+                    // wrapped in a horizontal that paints location +
+                    // chip side by side.
+                    let header_text = match (row.crisis, row.any_short) {
+                        (true, _) => Some((" CRISIS ", theme::DANGER)),
+                        (false, true) => Some((" SHORT ", theme::WARN)),
+                        _ => None,
                     };
 
-                    egui::CollapsingHeader::new(
-                        egui::RichText::new(&row.location).strong(),
-                    )
-                    .id_salt(format!("market_hdr_{}", row.location))
-                    .show(ui, |ui| {
+                    let collapsing = egui::CollapsingHeader::new({
+                        let mut t = egui::RichText::new(&row.location).strong();
+                        if row.crisis {
+                            t = t.color(theme::DANGER);
+                        } else if row.any_short {
+                            t = t.color(theme::WARN);
+                        }
+                        t
+                    })
+                    .id_salt(format!("market_hdr_{}", row.location));
+                    let resp = collapsing.show(ui, |ui| {
                         if !row.shortage_ticks.is_empty() {
                             ui.label(
-                                egui::RichText::new("Active shortages:")
-                                    .color(egui::Color32::from_rgb(230, 170, 90)),
+                                egui::RichText::new("Active shortages")
+                                    .strong()
+                                    .color(theme::WARN),
                             );
                             egui::Grid::new(format!("shortage_grid_{}", row.location))
                                 .num_columns(2)
@@ -1576,11 +1596,15 @@ fn markets_panel(
                                     for (c, t) in &row.shortage_ticks {
                                         ui.label(c.as_str());
                                         let color = if *t >= MARKET_CRISIS_SHORTAGE_TICKS {
-                                            egui::Color32::from_rgb(240, 100, 90)
+                                            theme::DANGER
                                         } else {
-                                            egui::Color32::from_rgb(230, 200, 90)
+                                            theme::WARN
                                         };
-                                        ui.colored_label(color, format!("{} ticks", t));
+                                        ui.colored_label(
+                                            color,
+                                            egui::RichText::new(format!("{t} ticks"))
+                                                .monospace(),
+                                        );
                                         ui.end_row();
                                     }
                                 });
@@ -1593,7 +1617,11 @@ fn markets_panel(
                             .spacing([12.0, 2.0])
                             .show(ui, |ui| {
                                 for header in ["Commodity", "Price", "Supply", "Demand"] {
-                                    ui.label(egui::RichText::new(header).strong());
+                                    ui.label(
+                                        egui::RichText::new(header)
+                                            .strong()
+                                            .color(theme::TEXT_DIM),
+                                    );
                                 }
                                 ui.end_row();
 
@@ -1631,36 +1659,56 @@ fn markets_panel(
                                         .unwrap_or(0.0);
 
                                     ui.label(c.as_str());
-                                    // Colour price relative to its own base:
-                                    // > 1.25× red (scarcity), <0.75× green
-                                    // (glut). Reading at a glance matters
-                                    // more than exactness.
+                                    // Price banding vs the commodity's own
+                                    // base — DANGER above 1.25× (scarcity),
+                                    // SUCCESS below 0.75× (glut), TEXT in
+                                    // the middle band. Glance reads >
+                                    // precise number.
                                     let base = c.base_price();
                                     let price_color = if base > 0.0 {
                                         let r = price / base;
                                         if r >= 1.25 {
-                                            egui::Color32::from_rgb(240, 120, 90)
+                                            theme::DANGER
                                         } else if r <= 0.75 {
-                                            egui::Color32::from_rgb(120, 220, 150)
+                                            theme::SUCCESS
                                         } else {
-                                            egui::Color32::from_gray(220)
+                                            theme::TEXT
                                         }
                                     } else {
-                                        egui::Color32::from_gray(220)
+                                        theme::TEXT
                                     };
-                                    ui.colored_label(price_color, format!("{:.1}", price));
-                                    ui.label(format!("{:.0}", sup));
-                                    ui.label(format!("{:.0}", dem));
+                                    ui.colored_label(
+                                        price_color,
+                                        egui::RichText::new(format!("{price:.1}"))
+                                            .monospace(),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format!("{sup:.0}"))
+                                            .monospace()
+                                            .color(theme::TEXT_DIM),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format!("{dem:.0}"))
+                                            .monospace()
+                                            .color(theme::TEXT_DIM),
+                                    );
                                     ui.end_row();
                                 }
                             });
                     });
 
-                    if row.crisis || row.any_short {
-                        ui.horizontal(|ui| {
-                            ui.add_space(20.0);
-                            ui.label(badge);
-                        });
+                    // CRISIS / SHORT chip beside the header row,
+                    // visible whether expanded or collapsed.
+                    if let Some((label, color)) = header_text {
+                        let header_rect = resp.header_response.rect;
+                        let chip_pos = egui::pos2(header_rect.right() + 8.0, header_rect.center().y);
+                        ui.painter().text(
+                            chip_pos,
+                            egui::Align2::LEFT_CENTER,
+                            label.trim(),
+                            egui::FontId::proportional(11.0),
+                            color,
+                        );
                     }
                 }
             });
