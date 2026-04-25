@@ -830,12 +830,26 @@ fn sort_header(
 // Contracts panel
 // =============================================================================
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct ContractsState {
     open: bool,
     kind_filter: ContractKindFilter,
     status_filter: ContractStatusFilter,
     show_expired: bool,
+}
+
+impl Default for ContractsState {
+    fn default() -> Self {
+        let auto_open = std::env::var("CLIENT_BEVY_OPEN_PANELS")
+            .map(|s| s.contains("contracts") || s == "all")
+            .unwrap_or(false);
+        Self {
+            open: auto_open,
+            kind_filter: ContractKindFilter::default(),
+            status_filter: ContractStatusFilter::default(),
+            show_expired: false,
+        }
+    }
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
@@ -961,34 +975,51 @@ fn contracts_panel(
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Grid::new("contracts_grid")
                     .striped(true)
-                    .num_columns(9)
-                    .spacing([10.0, 2.0])
+                    .num_columns(10)
+                    .spacing([10.0, 3.0])
                     .show(ui, |ui| {
+                        // Headers — Source / Dest are separate columns
+                        // so the egui default font's missing "→" glyph
+                        // (rendered as a tofu box) doesn't show up.
                         for header in [
-                            "Kind", "Status", "Item", "Qty", "Source → Dest", "Pay", "Faction", "Rep", "ID",
+                            "Kind", "Status", "Item", "Qty", "Source", "Dest", "Pay", "Faction", "Rep", "ID",
                         ] {
-                            ui.label(egui::RichText::new(header).strong());
+                            ui.label(
+                                egui::RichText::new(header)
+                                    .strong()
+                                    .color(theme::TEXT_DIM),
+                            );
                         }
                         ui.end_row();
 
                         for r in &page_rows {
                             ui.label(r.kind);
-                            let status_color = status_color(r.status);
-                            ui.colored_label(status_color, r.status);
-                            ui.label(&r.commodity);
-                            ui.label(format!("{}", r.quantity));
-                            ui.label(format!("{} → {}", r.source, r.dest));
-                            ui.label(format!("{}", r.payment));
-                            ui.label(&r.faction);
+                            ui.colored_label(contract_status_color(r.status), r.status);
+                            ui.label(egui::RichText::new(&r.commodity).color(theme::TEXT_DIM));
+                            ui.label(
+                                egui::RichText::new(format!("{}", r.quantity)).monospace(),
+                            );
+                            // Source dimmed; destination is what the
+                            // eye usually wants on this row.
+                            ui.label(egui::RichText::new(&r.source).color(theme::TEXT_DIM));
+                            ui.label(&r.dest);
+                            // Pay in monospace, abbreviated (1.2k / 3.4M)
+                            ui.label(
+                                egui::RichText::new(format_credits(r.payment)).monospace(),
+                            );
+                            ui.label(egui::RichText::new(&r.faction).color(theme::TEXT_DIM));
+                            // Rep gate: PRIMARY when set, dim em-dash
+                            // when unrestricted (public board).
                             if r.min_rep > 0 {
-                                ui.label(format!("{}", r.min_rep));
+                                ui.colored_label(theme::PRIMARY, format!("{}", r.min_rep));
                             } else {
-                                ui.label("–");
+                                ui.label(egui::RichText::new("-").color(theme::TEXT_DIM));
                             }
                             ui.label(
                                 egui::RichText::new(&r.id)
                                     .small()
-                                    .color(egui::Color32::from_gray(140)),
+                                    .monospace()
+                                    .color(theme::TEXT_DIM),
                             );
                             ui.end_row();
                         }
@@ -1025,13 +1056,18 @@ fn status_str(s: &sim_core::economy::contracts::ContractStatus) -> &'static str 
     }
 }
 
-fn status_color(s: &'static str) -> egui::Color32 {
+/// Map a contract status string to a theme palette colour. Posted
+/// = PRIMARY (info), in-flight (accepted/picked_up) = WARN, terminal
+/// success (delivered/paid) = SUCCESS, terminal failure (expired) =
+/// DANGER. Renamed from `status_color` to avoid colliding with
+/// `theme::status_color`, which is the threshold-based helper.
+fn contract_status_color(s: &'static str) -> egui::Color32 {
     match s {
-        "posted" => egui::Color32::from_rgb(120, 180, 230),
-        "accepted" | "picked_up" => egui::Color32::from_rgb(230, 200, 90),
-        "delivered" | "paid" => egui::Color32::from_rgb(120, 220, 120),
-        "expired" => egui::Color32::from_rgb(200, 110, 110),
-        _ => egui::Color32::WHITE,
+        "posted" => theme::PRIMARY,
+        "accepted" | "picked_up" => theme::WARN,
+        "delivered" | "paid" => theme::SUCCESS,
+        "expired" => theme::DANGER,
+        _ => theme::TEXT,
     }
 }
 
