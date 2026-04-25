@@ -244,6 +244,7 @@ fn tick_sim(
     mut sim: ResMut<Sim>,
     mut events_log: ResMut<EventsLog>,
     mut perf: ResMut<TickPerf>,
+    mut retirements: ResMut<Retirements>,
 ) {
     if !sim.running {
         return;
@@ -306,6 +307,14 @@ fn tick_sim(
             &mut events,
             tick,
         );
+        // Drain organic retirements (3-strike ship deaths). Embedded
+        // version mirrors sim_server::drain_pending_decommissions
+        // minus the persist_tx (no DB worker) and minus the respawn
+        // wiring (full replacement-ship spawn is a follow-up). The
+        // retirement ledger grows in-memory so the panel stays
+        // current — `Retirements` is normally seeded at startup
+        // from sim_db, this appends to the same Vec live.
+        drain_decommissions(store, &mut retirements.0, &mut events, tick);
         sim_server::engine::tick_dock_queue_advance(store);
 
         // Facilities: recipes, condition degrade, crew food draw,
@@ -402,6 +411,127 @@ fn tick_sim(
         let p99_idx = (sorted.len() as f32 * 0.99).ceil() as usize;
         perf.p99_us = sorted[p99_idx.saturating_sub(1).min(sorted.len() - 1)];
     }
+}
+
+/// Sync version of `sim_server::drain_pending_decommissions` for the
+/// embedded client. Drains [`AgentStore::pending_decommissions`],
+/// builds a retirement-ledger row for each, drops the ship's
+/// contract holdings, removes the entity from facility docked +
+/// queue lists, despawns from hecs, removes from `ship_by_id`, and
+/// emits a `ship_decommissioned` event with the retirement reason.
+/// Respawns: the embedded client doesn't auto-spawn replacements
+/// yet, so we clear `pending_respawns` here to keep the queue from
+/// growing without a consumer.
+///
+/// All in-memory work — no DB writes, no async. The retirement row
+/// is pushed onto the live [`Retirements`] resource so the panel
+/// grows during play instead of staying frozen at the load-time
+/// snapshot.
+fn drain_decommissions(
+    store: &mut AgentStore,
+    retirements_log: &mut Vec<RetirementRow>,
+    events: &mut Vec<serde_json::Value>,
+    tick: u64,
+) {
+    use sim_core::agents::{
+        facility::FacilityStorage,
+        ship::{ShipCrew, ShipEconomy, ShipFuel, ShipIdentity, ShipLifecycle, ShipPosition},
+    };
+
+    let pending: Vec<sim_core::simulation::spawner::PendingDecommission> =
+        std::mem::take(&mut store.pending_decommissions);
+    if pending.is_empty() {
+        return;
+    }
+    for req in pending {
+        let entity = req.entity;
+        // Snapshot ship state for the retirement row before despawn.
+        let id_clone = match store.world.get::<&ShipIdentity>(entity) {
+            Ok(id) => id.id.clone(),
+            Err(_) => continue,
+        };
+        let row = {
+            let identity = store.world.get::<&ShipIdentity>(entity).ok();
+            let position = store.world.get::<&ShipPosition>(entity).ok();
+            let econ = store.world.get::<&ShipEconomy>(entity).ok();
+            let crew = store.world.get::<&ShipCrew>(entity).ok();
+            let fuel = store.world.get::<&ShipFuel>(entity).ok();
+            let life = store.world.get::<&ShipLifecycle>(entity).ok();
+            identity.map(|id_ref| RetirementRow {
+                agent_id: id_ref.id.clone(),
+                name: id_ref.name.clone(),
+                class: id_ref.class.clone(),
+                faction_id: id_ref.faction_id.clone(),
+                final_location: position
+                    .as_ref()
+                    .and_then(|p| p.location_name.clone())
+                    .unwrap_or_default(),
+                final_credits: econ.as_ref().map(|e| e.credits).unwrap_or(0),
+                final_crew_morale: crew
+                    .as_ref()
+                    .map(|c| c.morale.round().clamp(0.0, 100.0) as i32)
+                    .unwrap_or(0),
+                final_fuel_pct: fuel
+                    .as_ref()
+                    .map(|f| {
+                        if f.fuel_capacity <= 0.0 {
+                            0
+                        } else {
+                            ((f.fuel / f.fuel_capacity) * 100.0).round() as i32
+                        }
+                    })
+                    .unwrap_or(0),
+                broke_strikes: life.as_ref().map(|l| l.broke_strikes as i32).unwrap_or(0),
+                hoard_strikes: life.as_ref().map(|l| l.hoard_strikes as i32).unwrap_or(0),
+                retired_at_tick: tick as i64,
+                reason: req.reason.to_string(),
+            })
+        };
+
+        // Pop from any facility's docked + queue lists so a despawned
+        // entity doesn't wedge a queue head forever.
+        for (_e, storage) in store.world.query_mut::<&mut FacilityStorage>() {
+            storage.docked_ships.retain(|&e| e != entity);
+            storage.dock_queue.retain(|&e| e != entity);
+        }
+        // Release contract holdings: Accepted → Posted (re-postable),
+        // PickedUp → Expired (cargo gone with the ship).
+        let drop = store.contracts.drop_ship_holdings(&id_clone);
+        for cid in &drop.released {
+            events.push(serde_json::json!({
+                "kind": "contract_released",
+                "id": cid,
+                "reason": "ship_destroyed",
+                "ship_id": id_clone.clone(),
+            }));
+        }
+        for cid in &drop.cancelled {
+            events.push(serde_json::json!({
+                "kind": "contract_expired",
+                "id": cid,
+                "reason": "ship_destroyed_with_cargo",
+                "ship_id": id_clone.clone(),
+            }));
+        }
+        let _ = store.world.despawn(entity);
+        store.ship_by_id.remove(&id_clone);
+
+        events.push(serde_json::json!({
+            "kind": "ship_decommissioned",
+            "id": id_clone,
+            "reason": req.reason.to_string(),
+        }));
+        if let Some(row) = row {
+            // Newest-first match the panel's default display order.
+            retirements_log.insert(0, row);
+        }
+    }
+
+    // Auto-respawn isn't wired yet (deferred). Drop any queued
+    // respawns so the queue stays bounded; the loss is "lost ships
+    // don't get replacements during embedded play". Restart picks
+    // up fresh from DB.
+    store.pending_respawns.clear();
 }
 
 /// DB path resolution — honour `DATABASE_PATH` env var, else look
