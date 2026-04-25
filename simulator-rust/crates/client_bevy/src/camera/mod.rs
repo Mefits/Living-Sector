@@ -20,6 +20,7 @@ use bevy::{
     },
     prelude::*,
 };
+use bevy_egui::EguiContexts;
 
 pub struct CameraPlugin;
 
@@ -161,8 +162,42 @@ fn orbit_camera_input(
     mut mouse_motion: EventReader<MouseMotion>,
     mut mouse_wheel: EventReader<MouseWheel>,
     mut pinch: EventReader<PinchGesture>,
+    mut egui_ctx: EguiContexts,
     mut q: Query<(&mut OrbitCamera, &mut Transform)>,
 ) {
+    // Drain the input event readers regardless of whether the camera
+    // accepts them, so a click that originated on a panel doesn't
+    // bleed into the next frame's camera state. `read()` consumes the
+    // events; `pressed()` queries on `Res<ButtonInput>` are independent
+    // of these readers and stay reliable.
+    let mut motion = Vec2::ZERO;
+    for ev in mouse_motion.read() {
+        motion += ev.delta;
+    }
+    let mut scroll = 0.0;
+    for ev in mouse_wheel.read() {
+        scroll += ev.y;
+    }
+    let mut pinch_delta = 0.0;
+    for ev in pinch.read() {
+        pinch_delta += ev.0;
+    }
+
+    // egui owns input when the cursor is over a panel/window (drag
+    // headers, scroll wheel inside a list, button clicks). Bail
+    // before we convert any of that into camera motion. The
+    // `wants_*` queries cover keyboard focus too — typing in a
+    // filter box won't trigger WASD pan.
+    let egui_owns = {
+        let ctx = egui_ctx.ctx_mut();
+        ctx.wants_pointer_input()
+            || ctx.is_pointer_over_area()
+            || ctx.wants_keyboard_input()
+    };
+    if egui_owns {
+        return;
+    }
+
     let Ok((mut orbit, mut xf)) = q.get_single_mut() else {
         return;
     };
@@ -175,11 +210,6 @@ fn orbit_camera_input(
         || (mouse_button.pressed(MouseButton::Left) && !keys.pressed(KeyCode::ShiftLeft));
     let panning = mouse_button.pressed(MouseButton::Right)
         || (mouse_button.pressed(MouseButton::Left) && keys.pressed(KeyCode::ShiftLeft));
-
-    let mut motion = Vec2::ZERO;
-    for ev in mouse_motion.read() {
-        motion += ev.delta;
-    }
 
     if orbiting && motion != Vec2::ZERO {
         orbit.yaw -= motion.x * ORBIT_SPEED;
@@ -224,10 +254,6 @@ fn orbit_camera_input(
     }
 
     // --- Scroll zoom (mouse wheel + trackpad two-finger scroll) ---
-    let mut scroll = 0.0;
-    for ev in mouse_wheel.read() {
-        scroll += ev.y;
-    }
     if scroll != 0.0 {
         // Zoom factor scales with current distance so the perceived
         // speed of zooming stays consistent across scales.
@@ -239,10 +265,6 @@ fn orbit_camera_input(
     // --- Pinch-gesture zoom (macOS trackpad). Bevy 0.14's
     // PinchGesture surfaces magnification deltas (positive = pinch
     // out / zoom in, negative = pinch in / zoom out).
-    let mut pinch_delta = 0.0;
-    for ev in pinch.read() {
-        pinch_delta += ev.0;
-    }
     if pinch_delta != 0.0 {
         let delta = -pinch_delta * PINCH_ZOOM_FACTOR * (orbit.distance / 500.0);
         orbit.distance = (orbit.distance + delta).clamp(DISTANCE_MIN, DISTANCE_MAX);
