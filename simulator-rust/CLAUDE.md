@@ -495,9 +495,16 @@ directly; zero marshalling between sim and render.
   (no DB worker). Builds a RetirementRow snapshot, releases
   ship contract holdings, pops from facility docked + queue,
   despawns + removes from ship_by_id, prepends the row to the
-  live `Retirements` resource (panel grows during play). Auto-
-  respawn still deferred — pending_respawns gets cleared each
-  drain so the queue doesn't grow without a consumer.
+  live `Retirements` resource (panel grows during play).
+- **Bundle 3ap**: sync respawn drain. Pair to 3ao closing the
+  death/rebirth loop. `drain_respawns` partitions
+  `pending_respawns` by `spawn_at_tick`, fires due entries with
+  deterministic seed-derived class / faction (70% prefer / 30%
+  underdog) / dockable station, resolves body position from the
+  in-memory hecs world (no DB JOIN), calls
+  `sim_server::engine::admin_spawn_ship`. `random_ship_name`
+  promoted to pub for reuse. Embedded sim now maintains a
+  steady-state fleet under organic strike pressure.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
