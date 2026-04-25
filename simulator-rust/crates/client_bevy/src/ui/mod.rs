@@ -1618,6 +1618,9 @@ fn ship_details_panel(
     let mut grant_xp_requested = false;
     let mut delete_requested = false;
     let mut heal_requested = false;
+    // Refit request: (slot, slug) pair captured from the Fitting
+    // dropdowns. None=keep current, Some((slot, slug)) = swap.
+    let mut refit_request: Option<(sim_core::modules::Slot, &'static str)> = None;
     let title = format!("Ship · {}", ship_id);
 
     egui::Window::new(title)
@@ -1918,7 +1921,13 @@ fn ship_details_panel(
                     });
                 ui.separator();
 
-                // Fitting
+                // Fitting — interactive: each slot row is a combo
+                // of compatible module slugs. Selecting a different
+                // slug fires an admin-override refit (no cost / no
+                // shipyard stock check) via sim_server::engine::
+                // admin_refit_ship after the read-query drops. Empty
+                // slot still shows "—" but we don't expose unset as
+                // a choice to reduce footguns.
                 ui.label(egui::RichText::new("Fitting").strong().size(14.0));
                 egui::Grid::new("details_fit")
                     .num_columns(2)
@@ -1926,7 +1935,31 @@ fn ship_details_panel(
                     .show(ui, |ui| {
                         for (slot_idx, slot) in sim_core::modules::SLOTS.iter().enumerate() {
                             ui.label(slot.as_str());
-                            ui.label(fit.slots[slot_idx].unwrap_or("—"));
+                            let current = fit.slots[slot_idx];
+                            let current_label = current.unwrap_or("—");
+                            egui::ComboBox::from_id_salt(format!(
+                                "refit_combo_{}",
+                                slot.as_str()
+                            ))
+                            .selected_text(current_label)
+                            .show_ui(ui, |ui| {
+                                for module in sim_core::modules::modules_for_slot(*slot) {
+                                    let label = format!(
+                                        "{} (T{})",
+                                        module.slug, module.tier
+                                    );
+                                    if ui
+                                        .selectable_label(
+                                            current == Some(module.slug),
+                                            label,
+                                        )
+                                        .clicked()
+                                        && current != Some(module.slug)
+                                    {
+                                        refit_request = Some((*slot, module.slug));
+                                    }
+                                }
+                            });
                             ui.end_row();
                         }
                         ui.label("Sensor range");
@@ -1956,6 +1989,27 @@ fn ship_details_panel(
                 prog.retrofit_points,
             );
         }
+    }
+
+    if let Some((slot, slug)) = refit_request {
+        // via_shipyard=false → admin override path: no cost, no
+        // shipyard stock decrement. Matches the HTTP admin/refit
+        // endpoint behaviour for the no-cost form.
+        let mut refit_events: Vec<serde_json::Value> = Vec::new();
+        sim_server::engine::admin_refit_ship(
+            &mut sim.store,
+            &ship_id,
+            slot,
+            Some(slug),
+            false,
+            &mut refit_events,
+        );
+        info!(
+            "client_bevy admin: refit {} {} → {}",
+            ship_id,
+            slot.as_str(),
+            slug,
+        );
     }
 
     if heal_requested {

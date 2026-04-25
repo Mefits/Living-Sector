@@ -2699,7 +2699,7 @@ fn admin_refit_facility(
 /// docked at a shipyard with `slug` in stock, and debits the ship +
 /// credits the shipyard + decrements the stock. Both paths emit a
 /// `ship_refitted` event with the economic context attached.
-fn admin_refit_ship(
+pub fn admin_refit_ship(
     store: &mut AgentStore,
     id: &str,
     slot: sim_core::modules::Slot,
