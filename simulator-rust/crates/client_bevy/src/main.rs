@@ -6,7 +6,9 @@
 //! Bundle 2b spawns Bevy entities mirroring the sim state.
 
 use bevy::prelude::*;
+use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
 use bevy::render::view::screenshot::ScreenshotManager;
+use bevy::render::RenderPlugin;
 use bevy::window::PrimaryWindow;
 use bevy::winit::{UpdateMode, WinitSettings};
 use std::time::Duration;
@@ -48,6 +50,24 @@ fn main() {
                 .set(bevy::log::LogPlugin {
                     level: bevy::log::Level::INFO,
                     filter: "info,client_bevy=info,wgpu=warn,naga=warn".into(),
+                    ..default()
+                })
+                // Force the wgpu backend per-platform. On Windows, DX12
+                // hits a swapchain state-tracking bug with HDR + bloom +
+                // bevy_hanabi 0.13 (RENDER_TARGET vs PRESENT mismatch on
+                // wgpu 0.20). Vulkan on NVIDIA/AMD/Intel is the stable
+                // path; Metal is the only backend on macOS anyway. Linux
+                // gets Vulkan too. The env var WGPU_BACKEND still
+                // overrides this if a player needs to escape hatch.
+                .set(RenderPlugin {
+                    render_creation: RenderCreation::Automatic(WgpuSettings {
+                        backends: Some(if cfg!(target_os = "macos") {
+                            Backends::METAL
+                        } else {
+                            Backends::VULKAN
+                        }),
+                        ..default()
+                    }),
                     ..default()
                 }),
         )
