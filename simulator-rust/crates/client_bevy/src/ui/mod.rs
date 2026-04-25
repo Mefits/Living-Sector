@@ -388,36 +388,31 @@ fn perf_overlay(
                 .num_columns(2)
                 .spacing([12.0, 4.0])
                 .show(ui, |ui| {
-                    ui.label("FPS");
-                    let fps_color = if stats.avg_fps >= 55.0 {
-                        egui::Color32::from_rgb(120, 220, 120)
-                    } else if stats.avg_fps >= 30.0 {
-                        egui::Color32::from_rgb(230, 200, 90)
-                    } else {
-                        egui::Color32::from_rgb(240, 100, 90)
-                    };
-                    ui.colored_label(fps_color, format!("{:.0}", stats.avg_fps));
+                    // Helper: dim label column matches the holographic
+                    // theme — keys read as muted captions, values pop
+                    // in TEXT or status colour.
+                    let key = |s: &str| egui::RichText::new(s).color(theme::TEXT_DIM);
+
+                    ui.label(key("FPS"));
+                    ui.colored_label(
+                        theme::status_color(stats.avg_fps, (55.0, 30.0)),
+                        format!("{:.0}", stats.avg_fps),
+                    );
                     ui.end_row();
 
-                    ui.label("Tick");
+                    ui.label(key("Tick"));
                     ui.label(format!("{}", sim.tick));
                     ui.end_row();
 
                     // Sim TPS — actual ticks/sec from the rolling
-                    // window, coloured against the configured
-                    // target (DEFAULT_TICK_INTERVAL_S = 0.125 → 8
-                    // tps × tick_mult). Green when keeping up,
-                    // amber within ~25%, red when sim is falling
-                    // significantly behind.
-                    ui.label("TPS");
+                    // window, coloured against the configured target
+                    // (DEFAULT_TICK_INTERVAL_S = 0.125 → 8 tps ×
+                    // tick_mult). Green when keeping up, amber within
+                    // ~25%, red when significantly behind.
+                    ui.label(key("TPS"));
                     let target = 8.0 * sim.tick_mult.max(1) as f32;
-                    let tps_color = if stats.avg_tps >= target * 0.95 {
-                        egui::Color32::from_rgb(120, 220, 120)
-                    } else if stats.avg_tps >= target * 0.75 {
-                        egui::Color32::from_rgb(230, 200, 90)
-                    } else {
-                        egui::Color32::from_rgb(240, 100, 90)
-                    };
+                    let tps_color =
+                        theme::status_color(stats.avg_tps, (target * 0.95, target * 0.75));
                     ui.colored_label(
                         tps_color,
                         format!("{:.1} / {:.0}", stats.avg_tps, target),
@@ -425,59 +420,55 @@ fn perf_overlay(
                     ui.end_row();
 
                     // Tick-compute p50/p99 (ms). FixedUpdate fires at
-                    // 125 ms; well under that and we have headroom for
-                    // higher tick_mult. Approaching 125 ms means the
-                    // sim is the bottleneck, not render.
-                    ui.label("Tick p50");
+                    // 125 ms; well under means headroom for higher
+                    // tick_mult. Approaching 125 ms = sim is the
+                    // bottleneck.
                     let p50_ms = tick_perf.p50_us as f32 / 1000.0;
                     let p99_ms = tick_perf.p99_us as f32 / 1000.0;
-                    let p50_color = if p50_ms < 30.0 {
-                        egui::Color32::from_rgb(120, 220, 120)
-                    } else if p50_ms < 80.0 {
-                        egui::Color32::from_rgb(230, 200, 90)
-                    } else {
-                        egui::Color32::from_rgb(240, 100, 90)
-                    };
-                    ui.colored_label(p50_color, format!("{p50_ms:.1} ms"));
+                    ui.label(key("Tick p50"));
+                    ui.colored_label(
+                        theme::status_color_inv(p50_ms, (30.0, 80.0)),
+                        format!("{p50_ms:.1} ms"),
+                    );
                     ui.end_row();
 
-                    ui.label("Tick p99");
-                    let p99_color = if p99_ms < 80.0 {
-                        egui::Color32::from_rgb(120, 220, 120)
-                    } else if p99_ms < 125.0 {
-                        egui::Color32::from_rgb(230, 200, 90)
-                    } else {
-                        egui::Color32::from_rgb(240, 100, 90)
-                    };
-                    ui.colored_label(p99_color, format!("{p99_ms:.1} ms"));
+                    ui.label(key("Tick p99"));
+                    ui.colored_label(
+                        theme::status_color_inv(p99_ms, (80.0, 125.0)),
+                        format!("{p99_ms:.1} ms"),
+                    );
                     ui.end_row();
 
-                    ui.label("Ships");
+                    ui.label(key("Ships"));
                     ui.label(format!("{}", sim.store.ship_by_id.len()));
                     ui.end_row();
 
-                    ui.label("Facilities");
+                    ui.label(key("Facilities"));
                     ui.label(format!("{}", sim.store.facility_by_id.len()));
                     ui.end_row();
 
-                    ui.label("Bodies");
+                    ui.label(key("Bodies"));
                     ui.label(format!("{}", sim.store.body_by_id.len()));
                     ui.end_row();
 
-                    ui.label("Populations");
+                    ui.label(key("Populations"));
                     ui.label(format!("{}", sim.store.population_by_id.len()));
                     ui.end_row();
 
-                    ui.label("Factions");
+                    ui.label(key("Factions"));
                     ui.label(format!("{}", sim.store.faction_by_id.len()));
                     ui.end_row();
 
-                    ui.label("Contracts");
+                    ui.label(key("Contracts"));
                     ui.label(format!("{}", sim.store.contracts.iter().count()));
                     ui.end_row();
 
-                    ui.label("World seed");
-                    ui.label(format!("{}", sim.world_seed));
+                    ui.label(key("World seed"));
+                    ui.label(
+                        egui::RichText::new(format!("{}", sim.world_seed))
+                            .small()
+                            .monospace(),
+                    );
                     ui.end_row();
                 });
             ui.separator();

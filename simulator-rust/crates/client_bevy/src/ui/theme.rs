@@ -31,6 +31,34 @@ pub const DANGER: egui::Color32 = egui::Color32::from_rgb(0xff, 0x5a, 0x5a);
 
 const SEPARATOR: egui::Color32 = egui::Color32::from_rgba_premultiplied(89, 140, 191, 89);
 
+/// Pick a status colour for a value compared against
+/// `(success_at_or_above, warn_at_or_above)` thresholds. Below the
+/// warn threshold returns DANGER. Used by perf / ship / facility
+/// readouts so all panels share the same SUCCESS/WARN/DANGER
+/// banding instead of each redefining its own RGB ladder.
+pub fn status_color(value: f32, thresholds: (f32, f32)) -> egui::Color32 {
+    if value >= thresholds.0 {
+        SUCCESS
+    } else if value >= thresholds.1 {
+        WARN
+    } else {
+        DANGER
+    }
+}
+
+/// Same idea but for "lower is better" metrics (latencies, etc.)
+/// where SUCCESS = below the green ceiling and DANGER = above the
+/// amber ceiling.
+pub fn status_color_inv(value: f32, thresholds: (f32, f32)) -> egui::Color32 {
+    if value < thresholds.0 {
+        SUCCESS
+    } else if value < thresholds.1 {
+        WARN
+    } else {
+        DANGER
+    }
+}
+
 /// Set egui Visuals to the holographic dark palette. Local<bool>
 /// guards so we only do it once after the egui context is live —
 /// no cost on subsequent frames.
