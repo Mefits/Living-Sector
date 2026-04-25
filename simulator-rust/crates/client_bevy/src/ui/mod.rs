@@ -38,6 +38,7 @@ impl Plugin for UiPlugin {
             .init_resource::<EventsState>()
             .init_resource::<PauseMenuState>()
             .init_resource::<HelpState>()
+            .init_resource::<OptionsState>()
             .init_resource::<AddShipDialogState>()
             .init_resource::<AddFacilityDialogState>()
             .init_resource::<ContextMenuRequest>()
@@ -91,6 +92,7 @@ impl Plugin for UiPlugin {
                     construction_labels_panel,
                     facility_labels_panel,
                     ship_labels_panel,
+                    options_panel,
                 )
                     .chain()
                     .after(top_bar),
@@ -5172,6 +5174,77 @@ fn help_panel(mut ctx: EguiContexts, mut help: ResMut<HelpState>) {
     help.open = open;
 }
 
+/// Options window — audio + display settings. Toggled from the
+/// pause menu's "Options" button (and, in a later bundle, from the
+/// main menu). State is just `open`; the actual settings live on
+/// `crate::audio::AudioSettings` etc. so they stay valid when the
+/// window is closed.
+#[derive(Resource, Default)]
+struct OptionsState {
+    open: bool,
+}
+
+fn options_panel(
+    mut ctx: EguiContexts,
+    mut state: ResMut<OptionsState>,
+    mut audio: ResMut<crate::audio::AudioSettings>,
+) {
+    let mut open = state.open;
+    if !open {
+        return;
+    }
+    egui::Window::new("Options")
+        .id(egui::Id::new("options_window"))
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .collapsible(false)
+        .resizable(false)
+        .default_width(360.0)
+        .open(&mut open)
+        .show(ctx.ctx_mut(), |ui| {
+            ui.add_space(4.0);
+            ui.label(theme::section_header("Audio"));
+            ui.add_space(4.0);
+
+            // Bevy's AudioSink::set_volume is linear gain; volumes
+            // 0..=1 map directly. Capping the sliders at 1.0 keeps
+            // the user from blowing out — boost beyond unity gain
+            // requires HDR mixing we don't ship.
+            egui::Grid::new("options_audio")
+                .num_columns(2)
+                .spacing([12.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(theme::caption("Music"));
+                    ui.add(
+                        egui::Slider::new(&mut audio.music_volume, 0.0..=1.0)
+                            .show_value(true)
+                            .fixed_decimals(2),
+                    );
+                    ui.end_row();
+
+                    ui.label(theme::caption("SFX"));
+                    ui.add(
+                        egui::Slider::new(&mut audio.sfx_volume, 0.0..=1.0)
+                            .show_value(true)
+                            .fixed_decimals(2),
+                    );
+                    ui.end_row();
+                });
+
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(2.0);
+            ui.label(
+                egui::RichText::new(
+                    "Music applies live; SFX applies on the next one-shot.",
+                )
+                .small()
+                .italics()
+                .color(theme::TEXT_DIM),
+            );
+        });
+    state.open = open;
+}
+
 /// Modal-ish "Pause" menu. Esc toggles it (see `keyboard_shortcuts`).
 /// While open the sim is forced paused; closing the menu restores
 /// the prior running state. Buttons: Resume, Save As, Quit. Save is
@@ -5193,6 +5266,7 @@ fn pause_menu(
     mut sim: ResMut<Sim>,
     mut save_req: ResMut<crate::sim::SaveAsRequest>,
     mut help: ResMut<HelpState>,
+    mut options: ResMut<OptionsState>,
     mut exit: EventWriter<AppExit>,
 ) {
     if !menu.open {
@@ -5232,6 +5306,14 @@ fn pause_menu(
                     .clicked()
                 {
                     save_req.0 = true;
+                }
+                ui.add_space(2.0);
+                if ui
+                    .add_sized(btn_size, egui::Button::new("Options"))
+                    .on_hover_text("Audio + display settings.")
+                    .clicked()
+                {
+                    options.open = true;
                 }
                 ui.add_space(2.0);
                 if ui

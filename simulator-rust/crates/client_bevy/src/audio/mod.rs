@@ -27,14 +27,40 @@ impl Plugin for AudioPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MusicState>()
             .init_resource::<ClickChain>()
+            .init_resource::<AudioSettings>()
             .add_systems(Startup, (start_music, load_sfx))
             .add_systems(
                 Update,
                 (
                     play_click_on_egui_press,
                     play_event_driven_sfx,
+                    apply_music_volume,
                 ),
             );
+    }
+}
+
+/// User-tunable audio mix. Both volumes are linear 0..=1; the
+/// effective egui slider default lands roughly where the previous
+/// hard-coded baselines sat. Persists in-memory only — Bundle 4br
+/// will hook this up to disk alongside the save-list work.
+#[derive(Resource)]
+pub struct AudioSettings {
+    pub music_volume: f32,
+    pub sfx_volume: f32,
+}
+
+impl Default for AudioSettings {
+    fn default() -> Self {
+        Self {
+            // Matches the previous music spawn volume so first-boot
+            // sounds the same as Bundle 4bk did.
+            music_volume: 0.45,
+            // SFX baseline — the per-effect volume passed to
+            // PlaybackSettings is multiplied by this so users can
+            // tame loud one-shots without zeroing music too.
+            sfx_volume: 0.6,
+        }
     }
 }
 
@@ -62,6 +88,7 @@ fn start_music(
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut state: ResMut<MusicState>,
+    settings: Res<AudioSettings>,
 ) {
     let mut rng = rand::thread_rng();
     let idx = rng.gen_range(0..TRACKS.len());
@@ -73,12 +100,30 @@ fn start_music(
             source: asset_server.load(path),
             settings: PlaybackSettings {
                 mode: bevy::audio::PlaybackMode::Loop,
-                volume: bevy::audio::Volume::new(0.45),
+                volume: bevy::audio::Volume::new(settings.music_volume),
                 ..default()
             },
         })
         .id();
     state.entity = Some(entity);
+}
+
+/// Per-frame: when `AudioSettings.music_volume` changes (Options
+/// slider), push the new value into the music entity's `AudioSink`
+/// so the change is heard immediately rather than waiting for the
+/// track to loop. Cheap — only mutates when the resource is
+/// `is_changed()`.
+fn apply_music_volume(
+    settings: Res<AudioSettings>,
+    music: Res<MusicState>,
+    sinks: Query<&bevy::audio::AudioSink>,
+) {
+    if !settings.is_changed() {
+        return;
+    }
+    let Some(entity) = music.entity else { return };
+    let Ok(sink) = sinks.get(entity) else { return };
+    sink.set_volume(settings.music_volume);
 }
 
 // ---------------------------------------------------------------------------
@@ -182,10 +227,12 @@ impl ClickChain {
 /// pop-ups, sliders, tooltips. The only false-positive is
 /// click-on-empty-panel-space, which is a rare-enough motion to
 /// trade for getting top bar clicks to chime.
+#[allow(clippy::too_many_arguments)]
 fn play_click_on_egui_press(
     mut ctx: bevy_egui::EguiContexts,
     buttons: Res<ButtonInput<MouseButton>>,
     sfx: Option<Res<SfxLibrary>>,
+    settings: Res<AudioSettings>,
     mut chain: ResMut<ClickChain>,
     mut commands: Commands,
 ) {
@@ -201,7 +248,7 @@ fn play_click_on_egui_press(
         source: sfx.click_steps[step].clone(),
         settings: PlaybackSettings {
             mode: bevy::audio::PlaybackMode::Despawn,
-            volume: bevy::audio::Volume::new(0.35),
+            volume: bevy::audio::Volume::new(0.35 * settings.sfx_volume),
             ..default()
         },
     });
@@ -218,6 +265,7 @@ fn play_click_on_egui_press(
 fn play_event_driven_sfx(
     events: Res<crate::sim::EventsLog>,
     sfx: Option<Res<SfxLibrary>>,
+    settings: Res<AudioSettings>,
     mut last_tick: Local<u64>,
     mut commands: Commands,
 ) {
@@ -250,7 +298,7 @@ fn play_event_driven_sfx(
                     source,
                     settings: PlaybackSettings {
                         mode: bevy::audio::PlaybackMode::Despawn,
-                        volume: bevy::audio::Volume::new(0.6),
+                        volume: bevy::audio::Volume::new(0.6 * settings.sfx_volume),
                         ..default()
                     },
                 });
@@ -260,7 +308,7 @@ fn play_event_driven_sfx(
                     source: sfx.gate_jump.clone(),
                     settings: PlaybackSettings {
                         mode: bevy::audio::PlaybackMode::Despawn,
-                        volume: bevy::audio::Volume::new(0.4),
+                        volume: bevy::audio::Volume::new(0.4 * settings.sfx_volume),
                         ..default()
                     },
                 });
