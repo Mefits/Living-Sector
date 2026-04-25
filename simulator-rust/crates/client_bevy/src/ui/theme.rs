@@ -19,11 +19,11 @@ pub const PANEL_BG: egui::Color32 = egui::Color32::from_rgba_premultiplied(10, 1
 pub const PANEL_BG_SOLID: egui::Color32 = egui::Color32::from_rgb(10, 15, 25);
 pub const PANEL_HEADER_BG: egui::Color32 =
     egui::Color32::from_rgba_premultiplied(20, 35, 50, 230);
-/// Dark holo-glass fill for chrome panels (top bar, side panels).
-/// Deeper than PANEL_BG_SOLID for a stronger contrast against the
-/// 3D world, but still tinted blue so it reads as part of the
-/// holographic palette rather than flat black.
-pub const CHROME_BG: egui::Color32 = egui::Color32::from_rgb(4, 8, 14);
+/// Holo-glass fill for chrome panels (top bar). Same tint as
+/// PANEL_BG_SOLID but slightly lifted so the dot-grid + gradient
+/// overlay (`paint_holo_chrome_overlay`) reads against it. Reads
+/// as a faint navy plane against the black 3D world.
+pub const CHROME_BG: egui::Color32 = egui::Color32::from_rgb(12, 22, 36);
 
 pub const TEXT: egui::Color32 = egui::Color32::from_rgb(0xdf, 0xf3, 0xff);
 pub const TEXT_DIM: egui::Color32 = egui::Color32::from_rgb(0x8a, 0xaa, 0xcc);

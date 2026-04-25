@@ -89,12 +89,13 @@ impl Plugin for UiPlugin {
     }
 }
 
-/// Holo-chrome frame for the top-bar panels. Deeper opaque base so
+/// Holo-chrome frame for the top-bar panels. Opaque navy base so
 /// labels behind the panel can't bleed through, plus a faint
 /// PRIMARY-tinted edge stroke for the holographic-glass cutoff.
-/// Egui draws the stroke around the full rect — invisible at the
-/// top (off-screen) and subtle on the sides; reads as a clean line
-/// at the bottom where it matters.
+/// Real backdrop blur would need a separate Bevy render pass that
+/// samples the previous frame's color attachment — punting that
+/// to a later bundle. Until then we fake the holo-glass feel via
+/// `paint_holo_chrome_overlay` (dot grid + vertical gradient).
 fn holo_chrome_frame() -> egui::Frame {
     egui::Frame {
         fill: theme::CHROME_BG,
@@ -103,6 +104,49 @@ fn holo_chrome_frame() -> egui::Frame {
         outer_margin: egui::Margin::ZERO,
         rounding: egui::Rounding::ZERO,
         shadow: egui::epaint::Shadow::NONE,
+    }
+}
+
+/// Paint the holo-glass texture overlay on top of a top-bar panel.
+/// Two layers:
+///
+///   1. Vertical gradient — subtle PRIMARY-tinted highlight at the
+///      top edge fading to transparent toward the bottom. Reads as
+///      an "interior glow" on the chrome.
+///   2. Dot grid — low-alpha cyan pinpricks every 14 px in both
+///      axes, giving the surface a faint pixel-pattern texture.
+///      Bounded by ship/panel rect so the cost is per-pixel-area
+///      bounded — at 1280×60 px and 14 px step that's ~390 dots.
+///
+/// Painted into a Foreground LayerId so it sits above the panel's
+/// fill but BELOW interactive widget content (egui draws panel
+/// chrome → our overlay → widget bg/fg → text).
+fn paint_holo_chrome_overlay(painter: &egui::Painter, rect: egui::Rect) {
+    // --- Gradient overlay -----------------------------------------------
+    let top = egui::Color32::from_rgba_premultiplied(20, 60, 95, 36);
+    let bot = egui::Color32::from_rgba_premultiplied(0, 0, 0, 0);
+    let mut mesh = egui::Mesh::default();
+    let i0 = mesh.vertices.len() as u32;
+    mesh.colored_vertex(rect.left_top(), top);
+    mesh.colored_vertex(rect.right_top(), top);
+    mesh.colored_vertex(rect.left_bottom(), bot);
+    mesh.colored_vertex(rect.right_bottom(), bot);
+    mesh.add_triangle(i0, i0 + 1, i0 + 2);
+    mesh.add_triangle(i0 + 1, i0 + 3, i0 + 2);
+    painter.add(egui::Shape::mesh(mesh));
+
+    // --- Dot grid -------------------------------------------------------
+    const GRID: f32 = 14.0;
+    const RADIUS: f32 = 0.7;
+    let dot = egui::Color32::from_rgba_premultiplied(60, 160, 210, 22);
+    let mut x = rect.left() + 4.0;
+    while x < rect.right() {
+        let mut y = rect.top() + 4.0;
+        while y < rect.bottom() {
+            painter.circle_filled(egui::pos2(x, y), RADIUS, dot);
+            y += GRID;
+        }
+        x += GRID;
     }
 }
 
@@ -126,7 +170,7 @@ fn top_bar_controls(
     mut fac_sel: ResMut<SelectedFacility>,
     mut follow: ResMut<crate::camera::CameraFollow>,
 ) {
-    egui::TopBottomPanel::top("top_bar_controls")
+    let resp_controls = egui::TopBottomPanel::top("top_bar_controls")
         .frame(holo_chrome_frame())
         .show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
@@ -303,6 +347,15 @@ fn top_bar_controls(
             });
         });
     });
+    // Holo-glass overlay (dot grid + vertical gradient) painted on
+    // top of the panel fill. Foreground LayerId so it sits above
+    // the chrome but underneath any popups / windows the panel
+    // toggles open elsewhere.
+    let painter = ctx.ctx_mut().layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("top_bar_controls_overlay"),
+    ));
+    paint_holo_chrome_overlay(&painter, resp_controls.response.rect);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -329,7 +382,7 @@ fn top_bar(
     // by id). At typical counts (<20) the iteration is trivial.
     use sim_core::agents::construction::ConstructionSite;
     let construction_count = sim.store.world.query::<&ConstructionSite>().iter().count();
-    egui::TopBottomPanel::top("top_bar_panels")
+    let resp_panels = egui::TopBottomPanel::top("top_bar_panels")
         .frame(holo_chrome_frame())
         .show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
@@ -458,6 +511,11 @@ fn top_bar(
             }
         });
     });
+    let painter = ctx.ctx_mut().layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("top_bar_panels_overlay"),
+    ));
+    paint_holo_chrome_overlay(&painter, resp_panels.response.rect);
 }
 
 /// Icon + label + optional `(count)` toggle button. Highlights when
