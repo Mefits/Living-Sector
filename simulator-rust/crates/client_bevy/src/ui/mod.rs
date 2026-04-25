@@ -1139,11 +1139,24 @@ fn status_combo(ui: &mut egui::Ui, current: &mut ContractStatusFilter) {
 // facilities by iterating their identity components once per frame
 // (tiny work at this scale).
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct FactionsState {
     open: bool,
     sort: FactionSort,
     descending: bool,
+}
+
+impl Default for FactionsState {
+    fn default() -> Self {
+        let auto_open = std::env::var("CLIENT_BEVY_OPEN_PANELS")
+            .map(|s| s.contains("factions") || s == "all")
+            .unwrap_or(false);
+        Self {
+            open: auto_open,
+            sort: FactionSort::default(),
+            descending: false,
+        }
+    }
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
@@ -1229,14 +1242,22 @@ fn factions_panel(
         .default_height(520.0)
         .open(&mut open)
         .show(ctx.ctx_mut(), |ui| {
-            ui.label(egui::RichText::new("Ledger").strong());
+            ui.label(
+                egui::RichText::new("Ledger")
+                    .strong()
+                    .color(theme::PRIMARY),
+            );
             egui::Grid::new("factions_ledger_grid")
                 .striped(true)
                 .num_columns(6)
                 .spacing([12.0, 3.0])
                 .show(ui, |ui| {
                     faction_sort_header(ui, "Faction", &mut sort, &mut descending, FactionSort::Name);
-                    ui.label(egui::RichText::new("System").strong());
+                    ui.label(
+                        egui::RichText::new("System")
+                            .strong()
+                            .color(theme::TEXT_DIM),
+                    );
                     faction_sort_header(ui, "Treasury", &mut sort, &mut descending, FactionSort::Treasury);
                     faction_sort_header(ui, "Ships", &mut sort, &mut descending, FactionSort::Ships);
                     faction_sort_header(ui, "Fac", &mut sort, &mut descending, FactionSort::Facilities);
@@ -1244,29 +1265,42 @@ fn factions_panel(
                     ui.end_row();
 
                     for r in &rows {
-                        ui.label(format!("{} ({})", r.name, r.faction_type));
-                        ui.label(&r.home_system);
-                        let t_color = if r.treasury >= 10_000 {
-                            egui::Color32::from_rgb(120, 220, 120)
-                        } else if r.treasury >= 2_000 {
-                            egui::Color32::from_rgb(230, 200, 90)
-                        } else {
-                            egui::Color32::from_rgb(240, 100, 90)
-                        };
-                        ui.colored_label(t_color, format_credits(r.treasury));
-                        ui.label(format!("{}", r.ships));
-                        ui.label(format!("{}", r.facilities));
-                        ui.label(format!("{}", r.subsidies));
+                        // Faction name strong, type as small dim
+                        // suffix so the row name stands out.
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(&r.name).strong());
+                            ui.label(
+                                egui::RichText::new(format!("({})", r.faction_type))
+                                    .small()
+                                    .color(theme::TEXT_DIM),
+                            );
+                        });
+                        ui.label(egui::RichText::new(&r.home_system).color(theme::TEXT_DIM));
+                        // Treasury banding via theme helper —
+                        // SUCCESS ≥ 10k, WARN ≥ 2k, DANGER below.
+                        // Mirrors the broke-strike threshold the
+                        // sim uses for bailouts.
+                        ui.colored_label(
+                            theme::status_color(r.treasury as f32, (10_000.0, 2_000.0)),
+                            egui::RichText::new(format_credits(r.treasury)).monospace(),
+                        );
+                        ui.label(egui::RichText::new(format!("{}", r.ships)).monospace());
+                        ui.label(egui::RichText::new(format!("{}", r.facilities)).monospace());
+                        ui.label(egui::RichText::new(format!("{}", r.subsidies)).monospace());
                         ui.end_row();
                     }
                 });
 
             ui.separator();
-            ui.label(egui::RichText::new("Relations").strong());
             ui.label(
-                egui::RichText::new("canonical pairs — standing ∈ [-100, 100]")
+                egui::RichText::new("Relations")
+                    .strong()
+                    .color(theme::PRIMARY),
+            );
+            ui.label(
+                egui::RichText::new("canonical pairs · standing in [-100, 100]")
                     .small()
-                    .color(egui::Color32::from_gray(150)),
+                    .color(theme::TEXT_DIM),
             );
 
             egui::ScrollArea::vertical()
@@ -1279,7 +1313,11 @@ fn factions_panel(
                         .spacing([10.0, 2.0])
                         .show(ui, |ui| {
                             for header in ["A", "B", "Standing", "Treaty"] {
-                                ui.label(egui::RichText::new(header).strong());
+                                ui.label(
+                                    egui::RichText::new(header)
+                                        .strong()
+                                        .color(theme::TEXT_DIM),
+                                );
                             }
                             ui.end_row();
 
@@ -1287,23 +1325,31 @@ fn factions_panel(
                             pairs.sort_by(|(ka, _), (kb, _)| ka.cmp(kb));
 
                             for ((a, b), state) in pairs {
-                                ui.label(a);
+                                ui.label(egui::RichText::new(a).color(theme::TEXT_DIM));
                                 ui.label(b);
+                                // Standing: SUCCESS ≥ 25, neutral
+                                // band TEXT, DANGER ≤ -25.
                                 let s_color = if state.standing >= 25 {
-                                    egui::Color32::from_rgb(120, 220, 120)
+                                    theme::SUCCESS
                                 } else if state.standing <= -25 {
-                                    egui::Color32::from_rgb(240, 100, 90)
+                                    theme::DANGER
                                 } else {
-                                    egui::Color32::from_gray(200)
+                                    theme::TEXT
                                 };
-                                ui.colored_label(s_color, format!("{:+}", state.standing));
+                                ui.colored_label(
+                                    s_color,
+                                    egui::RichText::new(format!("{:+}", state.standing))
+                                        .monospace(),
+                                );
+                                // Treaty palette: Allied/TradePact
+                                // green-on-cyan, Neutral text,
+                                // Tense/Hostile/War warming reds.
                                 let t_color = match state.treaty {
-                                    TreatyKind::Allied => egui::Color32::from_rgb(100, 200, 255),
-                                    TreatyKind::TradePact => egui::Color32::from_rgb(120, 220, 120),
-                                    TreatyKind::Neutral => egui::Color32::from_gray(200),
-                                    TreatyKind::Tense => egui::Color32::from_rgb(230, 200, 90),
-                                    TreatyKind::Hostile => egui::Color32::from_rgb(240, 140, 90),
-                                    TreatyKind::War => egui::Color32::from_rgb(240, 80, 80),
+                                    TreatyKind::Allied => theme::PRIMARY,
+                                    TreatyKind::TradePact => theme::SUCCESS,
+                                    TreatyKind::Neutral => theme::TEXT_DIM,
+                                    TreatyKind::Tense => theme::WARN,
+                                    TreatyKind::Hostile | TreatyKind::War => theme::DANGER,
                                 };
                                 ui.colored_label(t_color, state.treaty.as_str());
                                 ui.end_row();
@@ -1329,8 +1375,14 @@ fn faction_sort_header(
     } else {
         ""
     };
-    let text = egui::RichText::new(format!("{label}{arrow}")).strong();
-    if ui.button(text).clicked() {
+    // Mirror sort_header (ship list): PRIMARY tint when this column
+    // is the active sort, TEXT_DIM otherwise; frameless button.
+    let active = *current == target;
+    let color = if active { theme::PRIMARY } else { theme::TEXT_DIM };
+    let text = egui::RichText::new(format!("{label}{arrow}"))
+        .strong()
+        .color(color);
+    if ui.add(egui::Button::new(text).frame(false)).clicked() {
         if *current == target {
             *descending = !*descending;
         } else {
