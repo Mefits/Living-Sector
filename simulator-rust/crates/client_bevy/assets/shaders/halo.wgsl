@@ -17,9 +17,19 @@ struct HaloParams {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Soft outward bleed: the shell sphere is much larger than the
+    // sun, and we ramp alpha by how parallel the surface normal is
+    // to the view direction. Glancing → bright; head-on (in front
+    // of the sun's disc) → bright too. The curve is smooth enough
+    // to read as a diffuse corona, not a ring around the silhouette.
     let view_dir = normalize(view.world_position.xyz - in.world_position.xyz);
     let n = normalize(in.world_normal);
-    let fresnel = 1.0 - max(dot(n, view_dir), 0.0);
-    let alpha = pow(fresnel, params.falloff) * params.intensity;
-    return vec4<f32>(params.color.rgb * alpha, alpha);
+    let cos_a = max(dot(n, view_dir), 0.0);
+    // Bloom-style falloff: peak at glancing angles, gentle slope
+    // toward centre so the disc behind shows through bright.
+    let glow = pow(1.0 - cos_a, params.falloff);
+    let alpha = glow * params.intensity;
+    // Premultiply the colour into RGB so additive-style blending
+    // reads as light, and clamp to keep alpha sane.
+    return vec4<f32>(params.color.rgb * alpha, clamp(alpha, 0.0, 1.0));
 }

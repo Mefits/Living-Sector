@@ -814,9 +814,16 @@ fn spawn_system_suns(
     mut halo_materials: ResMut<Assets<HaloMaterial>>,
     sim: Res<Sim>,
 ) {
-    let core_mesh = meshes.add(Sphere::new(SUN_RADIUS).mesh().ico(3).unwrap());
-    let molten_mesh = meshes.add(Sphere::new(SUN_RADIUS * 1.04).mesh().ico(3).unwrap());
-    let halo_mesh = meshes.add(Sphere::new(SUN_RADIUS * 1.6).mesh().ico(2).unwrap());
+    let core_mesh = meshes.add(Sphere::new(SUN_RADIUS).mesh().ico(4).unwrap());
+    let molten_mesh = meshes.add(Sphere::new(SUN_RADIUS * 1.04).mesh().ico(4).unwrap());
+    // Three nested halo shells at increasing radii. Stacking low-alpha
+    // glows produces a smooth diffuse falloff rather than a discrete
+    // ring at the silhouette of one shell. Higher ico subdivision
+    // hides the icosahedron facets — at 1.6× radius low-poly was
+    // visibly faceted in the screenshot.
+    let halo_mesh_inner = meshes.add(Sphere::new(SUN_RADIUS * 1.25).mesh().ico(5).unwrap());
+    let halo_mesh_mid = meshes.add(Sphere::new(SUN_RADIUS * 1.6).mesh().ico(5).unwrap());
+    let halo_mesh_outer = meshes.add(Sphere::new(SUN_RADIUS * 2.2).mesh().ico(5).unwrap());
 
     let mut count = 0usize;
     for (name, sys) in sim.registry.systems.iter() {
@@ -851,11 +858,32 @@ fn spawn_system_suns(
                 _pad: Vec3::ZERO,
             },
         });
-        let halo_mat = halo_materials.add(HaloMaterial {
+        // Three concentric halo materials with progressively lower
+        // intensity + softer falloff. Inner shell is brightest +
+        // tightest; outer shells fade and spread the glow further.
+        // Combined alpha builds a smooth gradient that bleeds
+        // outward from the sun's silhouette.
+        let halo_inner_mat = halo_materials.add(HaloMaterial {
             params: HaloParams {
-                color: Vec4::new(1.0, 0.75, 0.30, 1.0),
-                intensity: 1.4,
-                falloff: 2.5,
+                color: Vec4::new(1.0, 0.85, 0.45, 1.0),
+                intensity: 0.45,
+                falloff: 1.4,
+                _pad: Vec2::ZERO,
+            },
+        });
+        let halo_mid_mat = halo_materials.add(HaloMaterial {
+            params: HaloParams {
+                color: Vec4::new(1.0, 0.70, 0.25, 1.0),
+                intensity: 0.22,
+                falloff: 1.0,
+                _pad: Vec2::ZERO,
+            },
+        });
+        let halo_outer_mat = halo_materials.add(HaloMaterial {
+            params: HaloParams {
+                color: Vec4::new(1.0, 0.55, 0.15, 1.0),
+                intensity: 0.10,
+                falloff: 0.7,
                 _pad: Vec2::ZERO,
             },
         });
@@ -888,15 +916,24 @@ fn spawn_system_suns(
                     },
                     Name::new(format!("Sun::{}::molten", name)),
                 ));
-                parent.spawn((
-                    MaterialMeshBundle::<HaloMaterial> {
-                        mesh: halo_mesh.clone(),
-                        material: halo_mat,
-                        transform: Transform::IDENTITY,
-                        ..default()
-                    },
-                    Name::new(format!("Sun::{}::halo", name)),
-                ));
+                for (idx, (mesh, mat)) in [
+                    (halo_mesh_inner.clone(), halo_inner_mat),
+                    (halo_mesh_mid.clone(), halo_mid_mat),
+                    (halo_mesh_outer.clone(), halo_outer_mat),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    parent.spawn((
+                        MaterialMeshBundle::<HaloMaterial> {
+                            mesh,
+                            material: mat,
+                            transform: Transform::IDENTITY,
+                            ..default()
+                        },
+                        Name::new(format!("Sun::{}::halo{}", name, idx)),
+                    ));
+                }
             });
         count += 1;
     }
