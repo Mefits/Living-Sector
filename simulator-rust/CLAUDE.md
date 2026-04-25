@@ -466,6 +466,13 @@ directly; zero marshalling between sim and render.
   `FacilityStorage.reserves` at 500 — never downgrades a richer
   stockpile. Quick way to recover a starving facility during
   testing without the per-commodity delta UI.
+- **Bundle 3ak**: admin Refit combos. `admin_refit_ship` promoted
+  to `pub`. Ship-details Fitting block becomes interactive — each
+  slot row is a ComboBox of compatible module slugs (filtered via
+  `sim_core::modules::modules_for_slot`). Selecting a different
+  slug fires admin_refit_ship with `via_shipyard=false` (admin
+  override, no cost or stock check). Derived stats refresh same
+  frame.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
