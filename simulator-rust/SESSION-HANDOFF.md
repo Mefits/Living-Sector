@@ -6,233 +6,216 @@ anything else as you need it.
 
 ## Where we are
 
-**Phases 1–18L shipped + a dock-capacity seed bump on top.** 155 tests
-passing. Sim runs 227 agents (seed + 5 Phase-18h veterans) at p50 ≈ 1
-ms / p99 ≈ 3 ms per tick. Full economic loop, per-faction rep-gated
-contracts, observer-driven spatial LOD for ships, facility autonomy
-with abandonment, admin CRUD including runtime spawn + refit, SQLite
-persistence that round-trips ships / markets / factions / facilities /
-populations / bodies / tick counter / **ship fitting / ship
-progression / facility fitting / shipyard module stock** across
-restart. Three systems (Sol / Alpha Centauri / Tau Ceti) connected by
-6 inter-system gates; three shipyards (earth-station, haven-station,
-anvil-depot) actually produce installable modules. Godot client has
-the inspector panels plus size/tier labels + Subsystems / Progression /
-Module Stock sections in the details panel.
+**Bevy embedded client is the canonical client.** The Godot client
+at `../client/` is code-frozen reference. The Rust sim runs through
+the full economic loop *embedded inside the Bevy binary* — no WS,
+no HTTP between sim and render. 39 client-side bundles shipped
+(2a → 3aj). 1604 ships / 93 facilities / 27 pops / 8 factions
+load, tick, render with HDR + bloom, and the user can pause /
+speed / inspect / select / spawn / heal / delete from a 12-panel
+egui inspector. `sim_server` still builds for headless CI use but
+the development path is `cargo run --bin client_bevy`.
 
-## Phase 18 arc (the recent work)
+**Pre-Bevy phases (the long arc that came before the port):**
+Phases 1–20c shipped, GOAP planner arc complete, Bundle 4 tranche
+(S, H, G, Q, K, M, J), Bundle A (FactionRelations), Bundle B
+(trade-pact effects), Bundle C (market posture). 190 tests passing.
+Sim runs at p50 ≈ 10–20 ms, p99 ≈ 30–50 ms at 485 agents with
+WORLD_SPEED=4. Three systems (Sol / Alpha Centauri / Tau Ceti)
+plus extensions (Vega / Barnard / Lalande on the seed side).
 
-A long sweep on **subsystems + economy self-regulation**. The shape
-to keep in your head:
+## The Bevy port arc (Bundle 2a → 3aj)
 
-| Phase | Commit | What it does |
-|---|---|---|
-| 18a | `cea98a4` | Ship subsystem scaffold: `modules/` catalog (5 slots × 3 tiers), `ShipFitting` component, tier-1 defaults seeded on every ship. Gameplay-neutral at tier 1. |
-| 18b | `400291c` | Refit mechanics. `POST /api/admin/ships/:id/refit`. Migration 003 persists `ships.fitting` JSON. |
-| 18c | `7498330` | Shipyards + module economy. New `facility_type = "shipyard"`, `ModuleStock` component, 10 production recipes, refit-via-shipyard charges credits + consumes stock. Migration 004. |
-| 18d | `97846d2` | Agent-driven retrofit. `ShipProgression { level, xp, retrofit_points }`, XP on delivery, banks 1 retrofit point per level-up, planner preempts `trade_run` with `seek_retrofit` when stocked + credited + reachable shipyard exists. Migration 005. |
-| 18e | `63e637f` | Facility subsystems (Production + Automation), `facility_modules/` catalog, wired into `tick_recipes_and_mining`. Migration 006. |
-| 18f | `bd32a66` | Ship size tiers (Tiny..Massive), cross-system contract gate via sensor range, comms payment bump. Migration 007. |
-| 18g | `942e7f5` | Size-driven speed penalty (Tiny 1.15× → Massive 0.70×). Bigger = slower. |
-| 18h | `aefab38` | Beef up seed JSONs: 5 veteran ships with levels + tier-2 fittings, 3 pre-stocked shipyards, advanced factories. |
-| 18i | `b2faeee` | Personality-weighted `plan_goal`. `score_goal(profit, goal, personality)` picks between contract vs trade_run by archetype `prefer_goals`. `Personality::for_class` maps class→archetype. |
-| 18j | `2ba4976` | Contract payment age-escalation. Stale Posted contracts accrue +5% / 50 ticks, cap +100%. Lifespan trimmed 500→300 for faster churn. |
-| 18k | `ee5bf48` | Break the morale-0 death spiral: multi-facility dock fallback (haven-station's 5 facilities all get used), Rest action timeout + non-docked `Resting` recovery bump. |
-| 18L | `14bc93c` | Dock-queue awareness. `Dock` is multi-tick with context-dependent wait budget (has-contract 150 / default 60 / low-morale 30 base ticks). Congestion-aware `rest_crew` picks the least-saturated same-system station. |
-| chore | `69a6635` | Seed dock capacity bumps: AC 44→70, TC 59→87. `PLAN.md` retired in favour of this handoff. |
+| Bundle | What |
+|---|---|
+| 2a | Pivot from a planned WS client to embedded sim. Deleted `client_bevy/src/net/`. |
+| 2b.1 | Extracted `sim_db` crate (pool, seeder, spawner, persistence) so client_bevy can load a world without sim_server's HTTP stack. |
+| 2b.2 | client_bevy loads the real world from `sim.db` at Startup via a one-shot tokio runtime. |
+| 2c | Spawn Bevy entities mirroring hecs ships / facilities / bodies. Per-faction materials. |
+| 2b.3 | Minimum-viable tick — `ship::tick_ships` runs each FixedUpdate; ships move in transit. CommandBuffer dropped. |
+| **2b.4** | **`sim_server` grew a `[lib]` target** so client_bevy could call `apply_ship_commands` + helpers. Full tick chain wired (bodies → ships → apply → dock-queue → facilities → pops → markets → apply2 → bodies_regen → crisis → factions → relations). Economy is **live** in embedded. |
+| 3a–3w | Camera, perf overlay, ship list, faction-tint, contracts panel, factions panel, markets panel, populations panel, ship details (click-select), facility list+details, camera focus, retirements panel, construction sites panel, selection highlight, pause+speed, transit-line gizmos, starfield, click-on-mesh raycast, directional ship rotation, admin Grant XP, minimap, per-class silhouettes, body labels overlay. |
+| 3x–3aj | Admin Delete Ship + render cleanup, events ticker, keyboard shortcuts (Space=pause, Esc=clear), admin Heal Ship, gate ring gizmos, construction site gizmos, Reset view, nebula backdrop, selection ring (pulsing), Save-As DB backup, admin Spawn Ship + reconciler, docked ship list with cross-nav, admin Refill Reserves on facility. |
+| visual fix pass | Black ClearColor, shadows off (1604 shadow-casters dropped FPS to 1 on M1), WinitSettings Continuous (window kept ticking when Terminal took focus), camera far clip 20000, body/facility/ship sizes bumped, HDR + bloom on camera, F12 + env-var auto screenshot. |
 
-**Fleet signal at tick 1833 of an 18L smoke** (before the capacity
-bump): 227 ships, 48 docked, 144 in transit, **35 stuck** (down from
-130 at 18j), 65 morale-pinned-at-zero (down from 158). Goals
-diversified: trade_run 78% / rest_crew 12% / delivery+passenger+
-contract+retrofit the rest. Contract throughput 12 paid + 12
-accepted + 250 expired. **After the capacity bump** (very early
-sample at tick 827), stuck dropped further to 18 and docked rose to
-31. A longer-burn review is a good next-session starting point.
+The last visual-fix pass came out of user feedback ("background is
+grey, FPS is 1, are you taking screenshots?"). Self-verification
+loop now uses `CLIENT_BEVY_AUTO_SCREENSHOT=1 cargo run --bin
+client_bevy` which captures `/tmp/bevy_screenshot.png` at frame 3
+(macOS throttles backgrounded Bevy windows so frame counts stay low
+under `cargo run &`; F12 in foreground works for live capture).
 
 ## How to run it, today
 
 ```bash
-# Terminal 1 — Rust sim
+# Bevy client (canonical, embedded sim, no separate process)
 cd /Users/dclausen/code/spaceproject/simulator-rust
+cargo run --bin client_bevy
+# F12 saves /tmp/bevy_screenshot.png. Spacebar pauses; Esc clears
+# selection. Top bar exposes 12 panel toggles + pause + speed +
+# Reset view + Save as… + +Freighter (admin spawn). Click ships
+# in the list or in the 3D scene to inspect.
+
+# Auto-screenshot for headless verification (background-throttled
+# but enough frames render to capture):
+CLIENT_BEVY_AUTO_SCREENSHOT=1 cargo run --bin client_bevy &
+sleep 12 && kill %1
+ls /tmp/bevy_screenshot.png
+
+# Headless sim_server (still builds, useful for CI)
 WORLD_SPEED=4.0 cargo run --bin simulator
 
-# Terminal 2 — Godot (dev.env already has SPACESIM_USE_EXISTING_SERVER=1)
-cd /Users/dclausen/code/spaceproject/client
-godot project.godot
+# Verify everything (cargo check + test + clippy at -D warnings)
+scripts/verify.sh --strict          # passes; ~190 tests across 4 crates
 ```
 
-Or for a quick headless check:
+## Crate layout (current)
 
-```bash
-cd simulator-rust
-scripts/verify.sh --strict   # cargo check + test + clippy; 155 tests
-scripts/smoke.sh 15          # boot 15 s with temp DB, print log tail
-scripts/persist-test.sh      # confirm restart resumes from persisted tick
-```
+| Crate | Depends on | Purpose |
+|---|---|---|
+| `sim_core` | hecs, serde, rand, rayon | Pure sim logic, no async |
+| `sim_protocol` | serde + sim_core | WS wire types (sim_server only) |
+| `sim_db` | sim_core + sqlx + tokio | Pool, migrations, seeder, spawner, persistence |
+| `sim_server` | sim_core + sim_db + sim_protocol + tokio + axum | Headless HTTP/WS + library surface for engine helpers |
+| `client_bevy` | sim_core + sim_db + sim_server (lib) + bevy + bevy_egui | Embedded Bevy client |
 
-Default `WORLD_SPEED=0.25` is "chill play" pace (Earth↔Mars ≈ 4 min).
-`4.0` is the smoke-test default — economy converges in tens of
-seconds.
+`client_bevy` pulls axum / tower / flume transitively via sim_server's
+lib target. They compile but aren't exercised — the trade-off
+documented in Bundle 2b.4's commit. A clean move of `apply_ship_commands`
++ helpers into `sim_core::engine` remains possible later.
 
-## Verification one-liners
+## Open candidates (heavy items, want focused sessions)
 
-```bash
-# Full economy + regression sweep against a live sim (calls out
-# stuck contracts, pinned prices, stranded ships, etc.)
-#   /sim-review    (skill at simulator-rust/.claude/skills/sim-review)
-
-# Direct API pokes
-curl -s localhost:8080/api/health | jq '.perf'
-curl -s localhost:8080/api/contracts | jq '.data | length'
-
-# Phase-18 specific:
-curl -s localhost:8080/api/ships | jq '.data[0].fitting'          # subsystems
-curl -s localhost:8080/api/ships | jq '.data[0].progression'      # level/XP/RP
-curl -s localhost:8080/api/ships | jq '[.data[].size] | group_by(.) | map({size:.[0], count:length})'
-curl -s localhost:8080/api/facilities | jq '.data | map(select(.type == "shipyard")) | map({id, module_stock, credits})'
-
-# Spawn + retrofit smoke:
-curl -sS -X POST -H 'Content-Type: application/json' \
-  -d '{"class":"freighter","faction_id":"terran-authority","location":"earth-station","credits":50000}' \
-  localhost:8080/api/admin/ships
-curl -sS -X POST -H 'Content-Type: application/json' \
-  -d '{"amount":100}' \
-  "localhost:8080/api/admin/ships/ship-admin-NN/grant-xp"
-curl -sS -X POST -H 'Content-Type: application/json' \
-  -d '{"slot":"engine","slug":"engine_t2","via_shipyard":true}' \
-  "localhost:8080/api/admin/ships/ship-admin-NN/refit"
-```
-
-## Open candidates (triage to taste)
-
-1. **Longer-burn health check with capacity-bump** — run the sim
-   for 5–10 minutes, confirm stuck-count trends toward zero, trade_run
-   monoculture keeps breaking up. Then either celebrate or the next
-   bottleneck surfaces.
-2. **Price-engine upstream** — the 18j review flagged ~45% of price
-   cells at ceiling with supply=0 scattered across ore/metals/components/
-   polymers/tools/food. 18L's queue-awareness + the capacity bump
-   might fix this indirectly (ships can finally dock + execute
-   contracts → commodities move), but if not, the damping / coverage
-   math might need a look. `economy/price_engine.rs`.
-3. **Wire the `mine` goal** for real. Miners have the archetype but
-   the mining BT doesn't exist — they fall back to trade/contracts
-   like everyone else. Would be a natural extension of the agent
-   BT work.
-4. **Dock capacity in Sol** — Sol is at 146 slots / ~24% utilisation,
-   looks fine, but worth watching as Sol gets busier with the
-   retrofit / shipyard flows pulling ships in.
-5. **Per-crew individual simulation** — still aggregated on the ship
-   (`ShipCrew` + `ShipCrewSkills`). The `crew_members` table in
-   SQLite is waiting for this whenever mission richness demands it.
-6. **Facility + population LOD rate scaling** — components
-   (`AgentLod`) attached but the tick phases don't gate yet. Not
-   critical until ship count climbs past ~2k.
-7. **Autonomous facility retrofit** — facilities have
-   `FacilityLifecycle.level/xp` but no retrofit-point banking +
-   spend-credits-on-modules behaviour yet. Mirror of the 18d ship
-   retrofit arc.
-8. **Windows native build validation** — cross-compile scaffolded
-   (`rustup target add x86_64-pc-windows-gnu` + bundled SQLite).
-   Waiting on a Windows box.
-9. **Rayon parallelism** — dep is in, never called. Skip until 10k+
-   agents.
+1. **Async drains in client_bevy** — `PendingMaterialization`,
+   `PendingDecommission`, `PendingRespawn` queues never drain in
+   embedded mode, so construction sites complete logically but
+   never materialise into facilities; strikes accumulate but ships
+   don't auto-retire; respawn queue fills with no consumer. The
+   sim_server drain helpers are async (`drain_pending_*`) — would
+   need either a long-lived tokio runtime + `rt.block_on(...)` per
+   tick (blocks the FixedUpdate system) or sync no-DB versions.
+2. **Embedded persistence worker** — sessions currently die at
+   restart. Mirror sim_server's `PersistenceWorker`: long-lived
+   tokio rt on a Resource, mpsc::Sender<DbWrite>, end-of-tick
+   `emit_persist_writes`. Pairs with #1 — both want the long-lived
+   runtime.
+3. **Procedural ship meshes** — port `procedural_ship.gd` geometry
+   into Rust. Per-class+size mesh cache; faction-coloured material;
+   instanced render. Currently using elongated cuboids — works
+   visually with HDR bloom but doesn't read as "ships". This is
+   the biggest visual upgrade left.
+4. **Admin Refit + Spawn Facility panels** — Spawn Ship is wired
+   (3ah), Refit + Spawn Facility need similar treatment. Refit
+   needs slot+slug dropdowns and via_shipyard bool; Spawn Facility
+   needs facility_type + body_id pickers.
+5. **Rayon on ship `decide_and_act`** — dep is in, never called.
+   Snapshot-then-plan-then-apply refactor. ~5× speedup at 10k
+   ships. Skip until needed.
+6. **Backlog (N) from old roadmap** — same as #5 above.
+7. **Click-on-mesh selection at zoom-in** — works at galactic
+   overview (Bundle 3r) but pick radius is screen-space, so when
+   zoomed in the radius shrinks proportionally. Could clamp to a
+   minimum to keep clicks forgiving.
+8. **Sol / Alpha Centauri / Tau Ceti vs Vega / Barnard / Lalande** —
+   the world JSON has six systems but the gate network may not
+   connect them all. Worth auditing if a player can actually
+   traverse the whole map.
 
 ## Watch-outs / gotchas
 
-- **Monitor timeouts**: default 300s is probably too long for
-  wait-on-tick loops. Use ~120 000 ms when you re-arm — user called
-  this out mid-session.
-- **`bash` sessions lose cwd** when you background a process. If you
-  `cd` + `&` then the next Bash call, the backgrounded process still
-  has the cwd but the SHELL call does not. Safer: `cd X && cargo run
-  ... > log 2>&1 &` on one line, then `disown`.
-- **Seeder writes empty `{}` defaults** for `fitting` / `progression` /
-  `module_stock`. The loader's `parse_*` helpers handle this: empty
-  JSON → class/size defaults. New in 18h: seed JSONs may also pass
-  explicit values — the seeder stores them, loader parses them. Don't
-  drop the fallbacks; they're how existing DB rows migrate forward.
-- **`Dock` is multi-tick now** (18L). Returning `Running` is expected.
-  Don't assume a single tick resolves a dock request.
-- **`ShipEconomy` has ephemeral state**: `dock_dwell_start_tick`,
-  `rest_start_tick`, `dock_attempt_start_tick`. Not persisted. Cleared
-  by the action that set them on Success/Failure. If you add a
-  similar "how long have I been doing X" timer, follow the same
-  pattern.
-- **The tick loop owns `hecs::World` exclusively.** HTTP / WS handlers
+- **macOS throttles backgrounded Bevy windows** to ~1 Hz unless
+  `WinitSettings::focused_mode = unfocused_mode = Continuous` (set
+  in `client_bevy/src/main.rs`). Without it, `cargo run &` runs
+  the sim at 1 FPS. The user originally reported "FPS is 1" which
+  was actually this, not real perf.
+- **Shadows on a DirectionalLight kill perf at fleet scale.** 1604
+  shadow-caster meshes on M1 integrated GPU drops the frame budget
+  catastrophically. We set `shadows_enabled: false`; space scenes
+  read fine on key + ambient alone.
+- **Default Bevy camera far clip is 1000 wu.** With stars at 4000 and
+  nebulae at 9000, both clipped. Set explicitly to 20000 in
+  `camera/mod.rs`.
+- **HDR + Bloom is load-bearing** for ship visibility. SHIP_SIZE is
+  0.4 wu; at 500-wu camera distance that's a sub-pixel silhouette.
+  Faction-tinted emissive materials + `BloomSettings::NATURAL` make
+  ships read as bright sparks.
+- **Bevy systems cap at 16 params per tuple.** `top_bar` blew through
+  this when Save-As + Reset-view + Spawn-Ship were added; split
+  into `top_bar_controls` + `top_bar` (panel toggles). Future
+  large-param systems can use the same pattern or aggregate ResMuts
+  into a single struct Resource.
+- **Admin actions in client_bevy mutate hecs directly** (Grant XP,
+  Heal, Delete, Refill Reserves). They don't round-trip through
+  `SimCommand::*` — they're treated as direct admin overrides
+  (matching sim_server's `admin_*` functions). Spawn Ship goes
+  through `sim_server::engine::admin_spawn_ship` which is the same
+  function the HTTP path uses.
+- **The render side has two reconciliation systems**:
+  `cleanup_stale_ships` despawns Bevy entities for vanished sim
+  ships; `reconcile_new_ships` spawns Bevy entities for new sim
+  ships. Without them, admin Spawn / Delete leak ghost or missing
+  meshes. Same pattern would extend to facility add/delete when
+  those land.
+- **`Dock` is multi-tick** (Phase 18L). Returning `Running` is
+  expected. Don't assume a single tick resolves a dock request.
+- **Cross-system contract gate (Phase 18f)**: ships with
+  `sensor_range_au < 2.0` never see cross-system contracts. Size≥5
+  spawns tier-2 sensors. If "why won't this ship take this contract"
+  comes up, check the fitting first.
+- **Tick loop owns `hecs::World` exclusively.** HTTP / WS handlers
   read from `SnapshotCache` (DashMap), never touch the live world.
-  Cross-entity state changes MUST go through `SimCommand` so they
-  apply in a dedicated phase. Same-entity mutation is in-place and fine.
-- **Ship LOD rate scaling depends on `skipped_ticks`.** If a ship
-  hasn't fired for 10 real ticks and fires now, it burns 10× fuel in
-  that one tick. If you add a new per-tick ship rate, multiply by
-  `effective_scale = tick_scale × skipped_ticks`, not raw `tick_scale`.
-- **Ships don't replan every tick.** `plan_goal` only fires when a
-  ship's BT completes (`ai.current_bt.is_none()`). A trade_run BT is
-  10+ actions long, so between replans a ship ignores newly-posted
-  contracts. This is why economic rebalancing takes ~10+ game-minutes
-  to settle, not seconds.
-- **Recipe inputs come from market.supply, not facility reserves.** A
-  refinery's `reserves[Ore]=2000` doesn't feed its recipe; the recipe
-  eats from the market at that location. Ships SellAll at earth adds
-  to earth market supply, which is what refineries consume.
-- **`posted_for_ship` requires ship credits ≥ `buy_cost + gate_fees`.**
-  If ships look broke + contracts look rich but acceptance is zero,
-  the issue is usually `try_plan_contract` rejecting at the cost
-  check. `compute_delivery_payment` scales with live source-market
-  price specifically to prevent that.
-- **Cross-system contract gate (18f)**: ships with
-  `sensor_range_au < 2.0` never see contracts whose source+dest span
-  different systems. Size≥5 ships spawn with tier-2 sensors (range
-  2.0) by default; size-4 rolls 50% deterministically; smaller
-  ships need a sensor retrofit. If you're debugging "why won't
-  this ship take this contract?", check the fitting first.
-- **Trail teleport detection in `ship.gd` uses a 3-unit threshold.**
-  If someone shortens cross-system offsets further, the warp streak
-  might not trigger on genuine gate jumps. Raise the threshold or
-  check against a different signal (e.g. a `gate_jump` event).
-- **Editing a `.gd` file can cascade.** Godot's scene loader fails
-  hard on a parse error in one script and silently wedges unrelated
-  panels. After editing GDScript, reload the project in the editor
-  (Ctrl+Shift+T or restart).
+  Cross-entity state changes go through `SimCommand`. Same-entity
+  mutation is in-place.
+- **Ships don't replan every tick** — `plan_goal` only fires when a
+  ship's BT completes. Trade_run BTs are 10+ actions. Economic
+  rebalancing takes ~10+ game-minutes to settle, not seconds.
+- **Recipe inputs come from `market.supply`, not facility reserves.**
+  Refilling reserves doesn't feed recipes — that's why the Refill
+  Reserves admin button only addresses the food/fuel/tools crisis,
+  not raw input shortages.
 
 ## Critical files to read first
 
-1. **`crates/sim_server/src/engine.rs`** — tick loop, command drain,
-   LOD recompute, admin-spawn dispatch, event emit, persistence
-   writes. One file to read to understand how everything hangs
-   together. Grown a lot with the 18-series but still navigable.
-2. **`crates/sim_core/src/agents/ship.rs`** — the biggest single
-   file. Components + tick phases + BT actions + planner +
-   personality scoring + retrofit opportunity finder + congestion-
-   aware rest. Skim top-to-bottom at least once.
-3. **`crates/sim_core/src/modules/mod.rs`** — ship subsystem catalog
-   (18a). Small, self-contained, shows the `ModuleDef` + `Slot` +
-   `combine_effects` pattern that `facility_modules/` mirrors.
-4. **`crates/sim_core/src/economy/contracts.rs`** — `Contract` +
-   `ContractBoard`, rep gating, age-open decay, and the new 18j
-   payment age-escalation. Also the best demonstration of the
-   seed-default shape for snake-case enum serialization.
-5. **`crates/sim_server/src/ws/protocol.rs`** — wire format truth.
-6. **`crates/sim_core/src/simulation/commands.rs`** — every cross-
-   entity effect goes through here. Read the variants to know what
-   the sim is capable of. Most recent additions: `RequestRefit`.
-7. **`crates/sim_server/migrations/`** — seven migrations now. New
-   columns: `ships.fitting` (003), `facilities.module_stock` (004),
-   `ships.progression` (005), `facilities.fitting` (006),
-   `ships.size` (007).
-8. **`client/scripts/ui/details_panel.gd`** — how the Godot panel
-   renders all the new Phase-18 fields (Progression, Subsystems,
-   Module Stock, size tier next to class label).
-9. **`client/CLAUDE.md`** — client-side orientation, still accurate
-   except the "Rust sim is Phases 1–15" line.
+1. **`crates/client_bevy/src/main.rs`** — Bevy app bootstrap. Plugins,
+   ClearColor, WinitSettings, screenshot system, scene lighting.
+2. **`crates/client_bevy/src/sim/mod.rs`** — embedded `Sim` resource,
+   tick chain (mirror of `sim_server::run_tick_loop`), admin
+   request resources (SaveAsRequest, SpawnShipRequest), event log.
+3. **`crates/client_bevy/src/render/mod.rs`** — placeholder mesh
+   pool, faction materials with emissive, sync_positions,
+   highlight_selected, gizmo systems (transit lines, gate rings,
+   construction sites, selection ring), reconcile_new_ships +
+   cleanup_stale_ships, raycast_select, starfield + nebulae.
+4. **`crates/client_bevy/src/ui/mod.rs`** — every egui panel.
+   `top_bar_controls` (pause/speed/save/reset/admin) + `top_bar`
+   (panel toggles) + 12 inspector panels + minimap + body labels +
+   keyboard shortcuts.
+5. **`crates/client_bevy/src/camera/mod.rs`** — orbit camera with
+   pan / zoom / orbit, CameraFocusRequest, CameraResetRequest,
+   HDR + BloomSettings.
+6. **`crates/sim_server/src/lib.rs`** — re-exports the engine /
+   control / http / ws / snapshot / app_state modules so
+   client_bevy can call into them.
+7. **`crates/sim_server/src/engine.rs`** — tick loop driver, full
+   command-apply phase, admin helpers. Many helpers were promoted
+   to `pub` in Bundle 2b.4 + 3ah for client_bevy access.
+8. **`crates/sim_core/src/agents/ship/mod.rs`** — biggest single
+   file. Components + tick phases + BT actions + planner.
+9. **`crates/sim_core/src/economy/contracts.rs`** — contract
+   board + lifecycle.
+10. **`crates/sim_db/src/persistence.rs`** — `DbWrite` enum,
+    persistence worker, `load_retirements`, `save_as` (added in
+    Bundle 3ag).
 
 ## Next session's first move
 
-Read this doc, then `CLAUDE.md`. If the user is mid-task, pick up
-where they are. If not, a long-burn `/sim-review` is the natural
-starting point: does the capacity bump + 18L queue-awareness finally
-take the stuck-ship count to zero and loosen the trade_run
-monoculture further? From there the economy opens up for the next
-lever (price engine, `mine` goal, autonomous facility retrofit).
+Decide based on user direction:
+- "keep going" → pick the smallest unblocked item from open
+  candidates (most likely #4 Admin Refit panel — follows the
+  Spawn-Ship pattern from 3ah).
+- "polish the visuals" → #3 procedural ship meshes.
+- "fix retirements / persistence" → start #1 (async drains) since
+  #2 (persistence worker) shares the long-lived runtime work.
+
+`/ultrareview` for a multi-agent review of the current branch is
+also viable — the port is feature-dense and ripe for a fresh look.
