@@ -461,6 +461,11 @@ directly; zero marshalling between sim and render.
   selects the ship (opens its details panel). Makes the dock
   FIFO + occupancy inspectable and tightens the facility→ship
   navigation path to match Godot.
+- **Bundle 3aj**: admin Refill Reserves. Facility toolbar gains
+  a button that floors every Commodity entry in
+  `FacilityStorage.reserves` at 500 — never downgrades a richer
+  stockpile. Quick way to recover a starving facility during
+  testing without the per-commodity delta UI.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
