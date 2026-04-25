@@ -13,6 +13,7 @@
 //! focus) so we're not reading Transform and back-computing angles.
 
 use bevy::{
+    core_pipeline::bloom::BloomSettings,
     input::mouse::{MouseMotion, MouseWheel},
     prelude::*,
 };
@@ -95,7 +96,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
     let orbit = OrbitCamera::initial();
     // Stretch the far clip plane well beyond the star shell
     // (STAR_FIELD_RADIUS = 4000) + the nebula shell
-    // (NEBULA_FIELD_RADIUS = 6500) so backdrop elements actually
+    // (NEBULA_FIELD_RADIUS = 9000) so backdrop elements actually
     // render. Default Bevy far is 1000, which culls the whole
     // backdrop at galactic zoom.
     let projection = Projection::Perspective(PerspectiveProjection {
@@ -103,12 +104,22 @@ fn spawn_orbit_camera(mut commands: Commands) {
         far: 20_000.0,
         ..default()
     });
+    // HDR + bloom so emissive ship + body + nebula materials
+    // actually bloom on-screen. Without these, emissive just adds
+    // to base colour — sub-pixel ships are invisible. With HDR
+    // post-process, a half-pixel spark paints several pixels of
+    // colour — ships become visible at galactic zoom.
     commands.spawn((
         Camera3dBundle {
+            camera: Camera {
+                hdr: true,
+                ..default()
+            },
             transform: orbit.transform(),
             projection,
             ..default()
         },
+        BloomSettings::NATURAL,
         orbit,
         Name::new("OrbitCamera"),
     ));

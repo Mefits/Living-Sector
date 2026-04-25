@@ -163,10 +163,18 @@ fn spawn_mirror_entities(
     // Build the shared asset pool once. Ships get one material per
     // faction — materials are cheap; it's the mesh sharing + instancing
     // that actually matters for draw calls.
+    // Ship materials get a faction-tinted emissive so ships stay
+    // visible as glowing points at galactic-zoom where the
+    // placeholder mesh itself subtends a sub-pixel footprint.
+    // Tonemapping blooms emissive samples across nearby pixels so a
+    // half-pixel ship still reads as a coloured spark. Scale is
+    // small enough that at close zoom emissive is just "sheen".
+    let emissive_scale = 1.8;
     let mut ship_mat_by_faction = std::collections::HashMap::new();
     for (id, rgb) in faction_palette() {
         let mat = materials.add(StandardMaterial {
             base_color: Color::srgb(rgb[0], rgb[1], rgb[2]),
+            emissive: LinearRgba::new(rgb[0], rgb[1], rgb[2], 1.0) * emissive_scale,
             metallic: 0.3,
             perceptual_roughness: 0.55,
             ..default()
@@ -175,6 +183,7 @@ fn spawn_mirror_entities(
     }
     let ship_mat_fallback = materials.add(StandardMaterial {
         base_color: Color::srgb(0.58, 0.58, 0.60),
+        emissive: LinearRgba::new(0.58, 0.58, 0.60, 1.0) * emissive_scale,
         metallic: 0.3,
         perceptual_roughness: 0.55,
         ..default()
