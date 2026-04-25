@@ -68,7 +68,6 @@ pub const SCALE_FACTOR: f32 = 100.0;
 /// planet occupies a few percent of its orbit radius (real-ish
 /// solar-system feel). Bigger bodies looked correct in isolation
 /// but dominated their own orbits at the new spread.
-const SHIP_SIZE: f32 = 0.05;
 const BODY_SIZE: f32 = 4.0;
 
 /// Uniform scale applied to a freshly-spawned station SceneBundle.
@@ -89,12 +88,6 @@ const GATE_SCALE: f32 = 0.075;
 /// placeholders we replaced. `ship_size_multiplier` layers tier
 /// scale on top so a Massive hauler reads ~3.5× this.
 const SHIP_GLB_SCALE: f32 = 0.025;
-/// Facility selection-ring radius (world units). Replaces the
-/// `FACILITY_SIZE * SELECT_SCALE * 1.3` formula from the cylinder-
-/// placeholder era. Sized to wrap a STATION_SCALE-scaled station
-/// (~4 wu) with comfortable margin; tune if STATION_SCALE moves.
-const FACILITY_SELECT_RING_RADIUS: f32 = 1.0;
-
 pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
@@ -1932,9 +1925,25 @@ fn apply_camera_follow(
     mut camera_q: Query<&mut crate::camera::OrbitCamera>,
     ships: Query<(&ShipEntity, &Transform)>,
     facilities: Query<(&FacilityEntity, &Transform)>,
+    mut prev: Local<Option<crate::camera::CameraFollowTarget>>,
 ) {
-    let Some(target) = follow.target.clone() else { return };
+    let Some(target) = follow.target.clone() else {
+        *prev = None;
+        return;
+    };
     let Ok(mut orbit) = camera_q.get_single_mut() else { return };
+    // First frame after target is set: snap focus instantly so the
+    // user sees the camera respond to the menu click. Subsequent
+    // frames lerp for smooth tracking. Without this snap a click
+    // when the camera was far from the target reads as "nothing
+    // happened" because the 12% lerp per frame is invisible at
+    // galactic-overview distances.
+    let just_locked = match (&*prev, &target) {
+        (Some(crate::camera::CameraFollowTarget::Ship(a)), crate::camera::CameraFollowTarget::Ship(b)) => a != b,
+        (Some(crate::camera::CameraFollowTarget::Facility(a)), crate::camera::CameraFollowTarget::Facility(b)) => a != b,
+        (Some(_), _) => true,
+        (None, _) => true,
+    };
     let translation = match &target {
         crate::camera::CameraFollowTarget::Ship(id) => ships
             .iter()
@@ -1946,25 +1955,36 @@ fn apply_camera_follow(
             .map(|(_, xf)| xf.translation),
     };
     if let Some(t) = translation {
-        // Smooth follow: ease the focus toward the target so a fast
-        // ship doesn't yank the camera frame-to-frame. Time-aware
-        // exponential smoothing — 1 - exp(-rate*dt) — gives a
-        // framerate-independent settle time. RATE = 8 means ~12%
-        // closing per 16 ms frame, ~99% in ~580 ms; comfortable
-        // glide without feeling laggy.
-        const RATE: f32 = 8.0;
-        let alpha = 1.0 - (-RATE * time.delta_seconds()).exp();
-        orbit.focus = orbit.focus.lerp(t, alpha);
+        if just_locked {
+            // Snap fully on the first frame so the user sees the
+            // camera respond to their click, then lerp from there.
+            orbit.focus = t;
+            info!(
+                "client_bevy: camera follow → {:?} (focus snapped to {:?})",
+                target, t
+            );
+        } else {
+            // Smooth follow: ease toward the target so a fast ship
+            // doesn't yank the camera frame-to-frame. Time-aware
+            // exponential smoothing — 1 - exp(-rate*dt) — gives a
+            // framerate-independent settle time. RATE = 8 means
+            // ~12% closing per 16 ms frame, ~99% in ~580 ms.
+            const RATE: f32 = 8.0;
+            let alpha = 1.0 - (-RATE * time.delta_seconds()).exp();
+            orbit.focus = orbit.focus.lerp(t, alpha);
+        }
         if let Some(d) = follow.snap_distance.take() {
-            // Distance still snaps — POV / Follow want the user to
+            // Distance always snaps — POV / Follow want the user to
             // see the size jump immediately, not glide through it.
             orbit.distance = d;
         }
+        *prev = Some(target);
     } else {
         // Target despawned (ship retired, facility deleted) — drop
         // the follow so we don't keep querying for a missing id.
         follow.target = None;
         follow.snap_distance = None;
+        *prev = None;
     }
 }
 
@@ -2068,25 +2088,27 @@ fn draw_selection_rings(
     mut gizmos: Gizmos,
 ) {
     // Pulse amplitude as a fraction of the base ring radius. Slow
-    // 1.5 Hz sine, range 0.85..1.15 so the pulse reads as a gentle
+    // 0.6 Hz sine, range 0.85..1.15 so the pulse reads as a gentle
     // breath rather than a strobe.
     let t = time.elapsed_seconds();
     let pulse = 1.0 + 0.15 * (t * std::f32::consts::TAU * 0.6).sin();
 
-    // Cyan, high intensity so the bloom post-process picks it up and
-    // the ring glows even when small.
-    let color = Color::srgb(0.4, 1.0, 1.5);
+    // Amber — high-intensity warm channel so bloom amps it to a
+    // bright orange-gold halo, distinct from the cyan transit
+    // streaks and the green construction rings.
+    let color = Color::srgb(1.6, 1.1, 0.4);
     let normal = Dir3::Y;
 
     if let Some(id) = selected_ship.0.as_deref() {
         for (ship, xf) in ships.iter() {
             if ship.sim_id == id {
-                // Ring wraps the ship's own visible size. SHIP_SIZE
-                // is the unit-cuboid baseline; * base_scale gives
-                // the actual hull length; * 6 leaves a comfortable
-                // halo so the ring is clearly outside the silhouette
-                // even on Massive hulls.
-                let r = SHIP_SIZE * ship.base_scale * 6.0 * pulse;
+                // Recover the size_multiplier alone (0.25..=3.5)
+                // from base_scale = SHIP_GLB_SCALE × size_mult, then
+                // 0.4 wu × size_mult × ~6 = a ring 2.4× the hull
+                // length at default size. Comfortable halo at every
+                // size tier.
+                let size_mult = ship.base_scale / SHIP_GLB_SCALE;
+                let r = 0.4 * size_mult * pulse;
                 gizmos
                     .circle(xf.translation, normal, r, color)
                     .resolution(32);
@@ -2097,7 +2119,14 @@ fn draw_selection_rings(
     if let Some(id) = selected_fac.0.as_deref() {
         for (fac, xf) in facilities.iter() {
             if fac.sim_id == id {
-                let r = FACILITY_SELECT_RING_RADIUS * pulse;
+                // Facility hulls render at base_scale × ~80-unit
+                // native gltf, so STATION_SCALE 0.05 → ~4 wu world
+                // size, GATE_SCALE 0.075 → ~6 wu. Multiplier 50
+                // gives 2.5 wu / 3.75 wu rings — wraps each with
+                // breathing room. Replaces the old hard-coded
+                // FACILITY_SELECT_RING_RADIUS = 1.0 (stuck inside
+                // the station silhouette).
+                let r = fac.base_scale * 50.0 * pulse;
                 gizmos
                     .circle(xf.translation, normal, r, color)
                     .resolution(48);

@@ -4245,6 +4245,7 @@ pub enum ContextMenuTarget {
 /// hover events flowing; we close manually when an item fires or
 /// when the user clicks outside the menu rect.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn context_menu(
     mut ctx: EguiContexts,
     mut menu: ResMut<ContextMenuRequest>,
@@ -4254,8 +4255,26 @@ fn context_menu(
     mut delete_ship: ResMut<crate::sim::DeleteShipRequest>,
     mut delete_fac: ResMut<crate::sim::DeleteFacilityRequest>,
     buttons: Res<ButtonInput<MouseButton>>,
+    // Tracks the menu target seen on the previous frame. When the
+    // current frame's target differs (None → Some, or a fresh
+    // right-click on a different entity), we skip the click-outside
+    // dismiss check for one frame so the very right-click that
+    // opened the menu doesn't also close it. egui's
+    // is_pointer_over_area() returns false on the spawn frame
+    // because the area hasn't been registered yet, which made the
+    // menu flash open for one frame and then auto-close.
+    mut prev_target: Local<Option<ContextMenuTarget>>,
 ) {
-    let Some(target) = menu.target.clone() else { return };
+    let Some(target) = menu.target.clone() else {
+        *prev_target = None;
+        return;
+    };
+    let just_opened = !matches!(&*prev_target, Some(t) if std::mem::discriminant(t) == std::mem::discriminant(&target)
+        && match (t, &target) {
+            (ContextMenuTarget::Ship(a), ContextMenuTarget::Ship(b)) => a == b,
+            (ContextMenuTarget::Facility(a), ContextMenuTarget::Facility(b)) => a == b,
+            _ => false,
+        });
 
     let pos = menu.screen_pos;
     let mut close = false;
@@ -4350,13 +4369,22 @@ fn context_menu(
     // Click-outside close: a left-click while the cursor is NOT
     // over any egui area dismisses the menu (the menu itself is an
     // egui Area, so clicks on it return is_pointer_over_area=true).
-    // Right-click ALSO dismisses — re-clicking a different ship
-    // should reopen, but until then the menu shouldn't pile up.
-    let any_click =
-        buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Right);
-    let click_outside = any_click && !ctx_ref.is_pointer_over_area();
+    // We DON'T listen for right-click here — the right-click that
+    // opens the menu is consumed by raycast_context_menu, which
+    // either re-targets to a new entity or leaves an empty-space
+    // click as a no-op. Listening here would race with that path.
+    //
+    // Skip the dismiss check on the spawn frame (just_opened) so
+    // the same right-click that opened the menu doesn't immediately
+    // close it before egui registered the area's hover region.
+    let click_outside = !just_opened
+        && buttons.just_pressed(MouseButton::Left)
+        && !ctx_ref.is_pointer_over_area();
     if close || click_outside {
         menu.target = None;
+        *prev_target = None;
+    } else {
+        *prev_target = Some(target);
     }
 }
 
