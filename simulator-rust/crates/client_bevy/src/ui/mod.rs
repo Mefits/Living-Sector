@@ -83,12 +83,15 @@ impl Plugin for UiPlugin {
 /// Pause / speed / tick readout / global controls (reset view,
 /// save as). Split out from [`top_bar`] because Bevy caps system
 /// param tuples at 16 and the combined set blew through that.
+#[allow(clippy::too_many_arguments)]
 fn top_bar_controls(
     mut ctx: EguiContexts,
     mut sim: ResMut<Sim>,
     mut cam_reset: ResMut<CameraResetRequest>,
     mut save_req: ResMut<crate::sim::SaveAsRequest>,
     mut spawn_req: ResMut<crate::sim::SpawnShipRequest>,
+    mut ship_sel: ResMut<SelectedShip>,
+    mut fac_sel: ResMut<SelectedFacility>,
 ) {
     egui::TopBottomPanel::top("top_bar_controls").show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
@@ -162,6 +165,40 @@ fn top_bar_controls(
             {
                 spawn_req.0 = true;
             }
+
+            // Selection chip — when a ship or facility is selected
+            // somewhere, surface a clearable label here so the user
+            // doesn't have to remember Esc. Right-aligned so it lives
+            // at the end of the row regardless of how many panels
+            // are visible. Lives on top_bar_controls (not top_bar)
+            // because Bevy caps system param tuples at 16 and the
+            // panel-toggle row is at the limit.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let any_selected = ship_sel.0.is_some() || fac_sel.0.is_some();
+                if any_selected {
+                    if ui
+                        .small_button("✕ Clear")
+                        .on_hover_text("Deselect the current ship / facility (Esc).")
+                        .clicked()
+                    {
+                        ship_sel.0 = None;
+                        fac_sel.0 = None;
+                    }
+                    let label = if let Some(ref id) = ship_sel.0 {
+                        format!("ship · {id}")
+                    } else if let Some(ref id) = fac_sel.0 {
+                        format!("facility · {id}")
+                    } else {
+                        String::new()
+                    };
+                    ui.label(
+                        egui::RichText::new(label)
+                            .small()
+                            .monospace()
+                            .color(theme::PRIMARY),
+                    );
+                }
+            });
         });
     });
 }
@@ -197,27 +234,43 @@ fn top_bar(
             // state is shown by the button's `selected` highlight,
             // not a separate visual cue, so the row stays uniform
             // when half the panels are open.
-            if icon_toggle(ui, icons::perf(), "Perf", None, perf.open) {
+            if icon_toggle_with_tip(
+                ui,
+                icons::perf(),
+                "Perf",
+                None,
+                perf.open,
+                Some("FPS, ticks/sec, p50/p99 tick compute, phase breakdown."),
+            ) {
                 perf.open = !perf.open;
             }
-            if icon_toggle(ui, icons::ships(), "Ships", Some(sim.store.ship_by_id.len()), ships.open) {
+            if icon_toggle_with_tip(
+                ui,
+                icons::ships(),
+                "Ships",
+                Some(sim.store.ship_by_id.len()),
+                ships.open,
+                Some("Sortable / filterable fleet roster. Click a row to inspect."),
+            ) {
                 ships.open = !ships.open;
             }
-            if icon_toggle(
+            if icon_toggle_with_tip(
                 ui,
                 icons::contracts(),
                 "Contracts",
                 Some(sim.store.contracts.iter().count()),
                 contracts.open,
+                Some("All 6 contract kinds with kind / status filters and expiry visibility."),
             ) {
                 contracts.open = !contracts.open;
             }
-            if icon_toggle(
+            if icon_toggle_with_tip(
                 ui,
                 icons::factions(),
                 "Factions",
                 Some(sim.store.faction_by_id.len()),
                 factions.open,
+                Some("Treasuries, member counts, active subsidies, pairwise relations matrix."),
             ) {
                 factions.open = !factions.open;
             }
@@ -225,57 +278,77 @@ fn top_bar(
             // by iterating the world in the panel itself. Top-bar
             // label just says "Markets" without a count to keep the
             // shared top_bar system from having to query hecs too.
-            if icon_toggle(ui, icons::market(), "Markets", None, markets.open) {
+            if icon_toggle_with_tip(
+                ui,
+                icons::market(),
+                "Markets",
+                None,
+                markets.open,
+                Some("Per-location commodity prices, supply / demand, crisis flags."),
+            ) {
                 markets.open = !markets.open;
             }
-            if icon_toggle(
+            if icon_toggle_with_tip(
                 ui,
                 icons::pops(),
                 "Pops",
                 Some(sim.store.population_by_id.len()),
                 pops.open,
+                Some("Population census — count, sentiment, food, wealth, migration."),
             ) {
                 pops.open = !pops.open;
             }
-            if icon_toggle(
+            if icon_toggle_with_tip(
                 ui,
                 icons::ledger(),
                 "Facilities",
                 Some(sim.store.facility_by_id.len()),
                 facilities.open,
+                Some("Stations, refineries, factories, gates. Click a row to inspect."),
             ) {
                 facilities.open = !facilities.open;
             }
-            if icon_toggle(
+            if icon_toggle_with_tip(
                 ui,
                 icons::ledger(),
                 "Retired",
                 Some(retirements.0.len()),
                 retired_state.open,
+                Some("Decommissioned ship ledger — broke / hoard / admin reasons."),
             ) {
                 retired_state.open = !retired_state.open;
             }
-            if icon_toggle(
+            if icon_toggle_with_tip(
                 ui,
                 icons::ledger(),
                 "Construction",
                 Some(construction_count),
                 construction.open,
+                Some("Active construction sites accruing commodity deliveries toward materialisation."),
             ) {
                 construction.open = !construction.open;
             }
-            if ui.selectable_label(minimap.open, "Map").clicked() {
+            if ui
+                .selectable_label(minimap.open, "Map")
+                .on_hover_text("Top-down minimap. Click anywhere on it to recenter the camera.")
+                .clicked()
+            {
                 minimap.open = !minimap.open;
             }
-            if ui.selectable_label(body_labels.show, "Labels").clicked() {
+            if ui
+                .selectable_label(body_labels.show, "Labels")
+                .on_hover_text("Show / hide the body name labels overlaid on the 3D scene.")
+                .clicked()
+            {
                 body_labels.show = !body_labels.show;
             }
-            if icon_toggle(
+            if icon_toggle_with_tip(
                 ui,
                 icons::events(),
                 "Events",
                 Some(events.0.len()),
                 events_state.open,
+                Some("Rolling event log — docks, deliveries, level-ups, crises, retirements."),
             ) {
                 events_state.open = !events_state.open;
             }
@@ -294,16 +367,32 @@ fn icon_toggle(
     count: Option<usize>,
     open: bool,
 ) -> bool {
+    icon_toggle_with_tip(ui, icon, label, count, open, None)
+}
+
+/// Same as `icon_toggle` but with a hover tooltip. The default tip
+/// is `"Toggle <Label>"`; pass `Some(...)` for richer text. egui's
+/// hover delay (~250 ms) keeps the bar quiet on quick mouse-overs.
+fn icon_toggle_with_tip(
+    ui: &mut egui::Ui,
+    icon: egui::Image<'static>,
+    label: &str,
+    count: Option<usize>,
+    open: bool,
+    tooltip: Option<&str>,
+) -> bool {
     let text = match count {
         Some(n) => format!("{label} ({n})"),
         None => label.to_string(),
     };
-    ui.add(
+    let resp = ui.add(
         egui::Button::image_and_text(icon, text)
             .selected(open)
             .frame(false),
-    )
-    .clicked()
+    );
+    let tip = tooltip.unwrap_or(label);
+    let resp = resp.on_hover_text(tip);
+    resp.clicked()
 }
 
 /// Rolling FPS window so the overlay doesn't flicker frame-to-frame.

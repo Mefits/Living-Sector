@@ -10,7 +10,7 @@ extends Node3D
 # Flip to false + reload to see how much of the remaining FPS deficit
 # this accounts for. If it matters, the follow-up is to cache the line
 # mesh and only rebuild when a ship's transit state changes.
-const ENABLE_TRANSIT_LINES: bool = false
+const ENABLE_TRANSIT_LINES: bool = true
 
 const LINE_COLOR_BASE := Color(0.5, 0.6, 0.9)
 const SELECTED_COLOR := Color(0.7, 0.8, 1.0)
