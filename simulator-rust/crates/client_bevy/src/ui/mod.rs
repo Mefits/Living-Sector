@@ -42,11 +42,28 @@ impl Plugin for UiPlugin {
             .init_resource::<AddShipDialogState>()
             .init_resource::<AddFacilityDialogState>()
             .init_resource::<ContextMenuRequest>()
+            // Always-on systems: theme + image loaders init egui state
+            // regardless of state, and the main_menu_panel needs to
+            // render in MainMenu state. Options window is reachable
+            // from both states (main menu's Options button + pause
+            // menu's Options button) so it lives outside the gate.
             .add_systems(
                 Update,
                 (
                     icons::install_image_loaders,
                     theme::apply_theme,
+                    main_menu_panel.run_if(in_state(crate::AppState::MainMenu)),
+                    options_panel,
+                ),
+            )
+            // In-game UI: gated on `AppState::InGame`. MainMenu hides
+            // the entire HUD; only the title screen + 3D backdrop
+            // show. The chain keeps system order stable — top bar
+            // first so available_rect is correct for the labels
+            // farther down.
+            .add_systems(
+                Update,
+                (
                     track_fps,
                     top_bar_controls,
                     top_bar,
@@ -62,7 +79,8 @@ impl Plugin for UiPlugin {
                     events_panel,
                     keyboard_shortcuts,
                 )
-                    .chain(),
+                    .chain()
+                    .run_if(in_state(crate::AppState::InGame)),
             )
             // Second chain keeps each system's parameter list small
             // enough that Bevy's tuple-of-params limit isn't an issue,
@@ -73,10 +91,7 @@ impl Plugin for UiPlugin {
             // `.after(top_bar)` is critical for the *_labels_panel
             // systems — they call `ctx.available_rect()` to find out
             // where the top bar ends, and that only returns the
-            // reduced rect AFTER `top_bar` has shown. Without this
-            // explicit ordering Bevy may run chain 2 in parallel
-            // with chain 1, leaving available_rect = full screen
-            // and labels bleeding into the chrome.
+            // reduced rect AFTER `top_bar` has shown.
             .add_systems(
                 Update,
                 (
@@ -92,10 +107,10 @@ impl Plugin for UiPlugin {
                     construction_labels_panel,
                     facility_labels_panel,
                     ship_labels_panel,
-                    options_panel,
                 )
                     .chain()
-                    .after(top_bar),
+                    .after(top_bar)
+                    .run_if(in_state(crate::AppState::InGame)),
             );
     }
 }
@@ -565,13 +580,20 @@ struct PerfStats {
 
 impl Default for PerfStats {
     fn default() -> Self {
+        // Honour CLIENT_BEVY_OPEN_PANELS for parity with the other
+        // panels — but default to closed for normal sessions. The
+        // perf panel was the last one defaulting to open and felt
+        // intrusive once the rest of the UX matured.
+        let auto_open = std::env::var("CLIENT_BEVY_OPEN_PANELS")
+            .map(|s| s.contains("perf") || s == "all")
+            .unwrap_or(false);
         Self {
             frame_samples: Vec::with_capacity(FPS_WINDOW),
             last_frame_instant: Instant::now(),
             avg_fps: 0.0,
             tick_samples: std::collections::VecDeque::with_capacity(TPS_WINDOW),
             avg_tps: 0.0,
-            open: true,
+            open: auto_open,
         }
     }
 }
@@ -5172,6 +5194,88 @@ fn help_panel(mut ctx: EguiContexts, mut help: ResMut<HelpState>) {
                 });
         });
     help.open = open;
+}
+
+/// Main menu screen. Renders only when `AppState::MainMenu` is
+/// active. The 3D backdrop (starfield + nebulas + bodies) keeps
+/// drawing because RenderPlugin systems run unconditionally — the
+/// title floats over the live galaxy. Buttons:
+/// - **Start** transitions to InGame, unfreezes the sim.
+/// - **Options** opens the same OptionsState window the pause menu
+///   uses, so audio mix is shared between menu and play.
+/// - **Quit** sends `AppExit::Success`.
+///
+/// Load Game is stubbed; Bundle 4br turns it into a save-list
+/// browser when the SQLite save scaffolding lands.
+fn main_menu_panel(
+    mut ctx: EguiContexts,
+    mut next_state: ResMut<NextState<crate::AppState>>,
+    mut sim: ResMut<Sim>,
+    mut options: ResMut<OptionsState>,
+    mut exit: EventWriter<AppExit>,
+) {
+    egui::Area::new(egui::Id::new("main_menu"))
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .order(egui::Order::Foreground)
+        .show(ctx.ctx_mut(), |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("SPACE SIMULATOR")
+                        .size(32.0)
+                        .strong()
+                        .color(theme::PRIMARY),
+                );
+                ui.add_space(28.0);
+
+                let btn_size = egui::vec2(260.0, 40.0);
+                if ui
+                    .add_sized(
+                        btn_size,
+                        egui::Button::new(
+                            egui::RichText::new("Start").size(16.0).color(theme::PRIMARY),
+                        ),
+                    )
+                    .clicked()
+                {
+                    next_state.set(crate::AppState::InGame);
+                    // Resume the sim — it was forced false on entry
+                    // to MainMenu (or never started, on a fresh boot).
+                    sim.running = true;
+                }
+                ui.add_space(4.0);
+                let load_resp = ui.add_sized(
+                    btn_size,
+                    egui::Button::new(
+                        egui::RichText::new("Load Game").color(theme::TEXT_DIM),
+                    ),
+                );
+                load_resp.on_hover_text(
+                    "Save-list browser is coming in the next bundle. \
+                     For now, click Start to load the default sim.db.",
+                );
+                ui.add_space(4.0);
+                if ui
+                    .add_sized(btn_size, egui::Button::new("Options"))
+                    .clicked()
+                {
+                    options.open = true;
+                }
+                ui.add_space(4.0);
+                if ui
+                    .add_sized(
+                        btn_size,
+                        egui::Button::new(
+                            egui::RichText::new("Quit").color(theme::DANGER),
+                        ),
+                    )
+                    .clicked()
+                {
+                    exit.send(AppExit::Success);
+                }
+                ui.add_space(8.0);
+            });
+        });
 }
 
 /// Options window — audio + display settings. Toggled from the

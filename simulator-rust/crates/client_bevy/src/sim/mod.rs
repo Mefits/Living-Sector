@@ -163,7 +163,10 @@ impl Plugin for SimPlugin {
             .init_resource::<TickPerf>()
             .init_resource::<PhasePerf>()
             .add_systems(Startup, load_world)
-            .add_systems(FixedUpdate, tick_sim)
+            .add_systems(
+                FixedUpdate,
+                tick_sim.run_if(bevy::prelude::in_state(crate::AppState::InGame)),
+            )
             .add_systems(
                 Update,
                 (
@@ -202,7 +205,10 @@ impl Default for Sim {
             store: AgentStore::new(),
             registry: Arc::new(WorldRegistry::default()),
             tick: 0,
-            running: true,
+            // Boot paused — MainMenu's Start button flips this true
+            // on transition to InGame. Prevents one tick of phantom
+            // motion before the user actually starts the game.
+            running: false,
             tick_mult: 1,
             world_seed: 0,
         }

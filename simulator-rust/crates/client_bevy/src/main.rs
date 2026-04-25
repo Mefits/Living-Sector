@@ -17,6 +17,18 @@ mod render;
 mod sim;
 mod ui;
 
+/// Top-level app state. `MainMenu` is the title screen — sim is
+/// frozen, panels hidden, but the 3D scene (starfield + nebulas
+/// + bodies) keeps rendering as a backdrop. `InGame` is the
+/// running simulation with full UI. The Bevy `States` plumbing
+/// gates per-system runs via `.run_if(in_state(...))`.
+#[derive(States, Clone, Copy, Eq, PartialEq, Hash, Debug, Default)]
+pub enum AppState {
+    #[default]
+    MainMenu,
+    InGame,
+}
+
 fn main() {
     // Let Bevy's LogPlugin own the global tracing subscriber — it
     // already installs one and fights ours for the slot otherwise
@@ -58,6 +70,7 @@ fn main() {
         // render frame rate. Matches the sim_server default of 125 ms
         // per tick (8 tps). World-speed UI will rescale this later.
         .insert_resource(Time::<Fixed>::from_seconds(sim::DEFAULT_TICK_INTERVAL_S))
+        .init_state::<AppState>()
         .add_plugins(sim::SimPlugin)
         .add_plugins(render::RenderPlugin)
         .add_plugins(camera::CameraPlugin)
