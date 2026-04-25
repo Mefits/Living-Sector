@@ -3921,6 +3921,7 @@ fn body_labels_panel(
     egui::Area::new(egui::Id::new("body_labels_area"))
         .movable(false)
         .interactable(false)
+        .order(egui::Order::Background)
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
         .show(ctx, |ui| {
             let painter = ui.painter();
@@ -3995,6 +3996,7 @@ fn construction_labels_panel(
     egui::Area::new(egui::Id::new("construction_labels_area"))
         .movable(false)
         .interactable(false)
+        .order(egui::Order::Background)
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
         .show(ctx, |ui| {
             let painter = ui.painter();
@@ -4073,6 +4075,7 @@ fn facility_labels_panel(
     egui::Area::new(egui::Id::new("facility_labels_area"))
         .movable(false)
         .interactable(false)
+        .order(egui::Order::Background)
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
         .show(ctx, |ui| {
             let painter = ui.painter();
@@ -4129,6 +4132,7 @@ fn ship_labels_panel(
     egui::Area::new(egui::Id::new("ship_labels_area"))
         .movable(false)
         .interactable(false)
+        .order(egui::Order::Background)
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
         .show(ctx, |ui| {
             let painter = ui.painter();
