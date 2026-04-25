@@ -533,12 +533,30 @@ fn perf_overlay(
 /// Persistent UI state for the ship list (sort key, search filter,
 /// whether the window is open). Anything that needs to survive
 /// between frames lives on this Resource.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct ShipListState {
     open: bool,
     sort: ShipSort,
     descending: bool,
     filter: String,
+}
+
+impl Default for ShipListState {
+    fn default() -> Self {
+        // CLIENT_BEVY_OPEN_PANELS=ships|all auto-opens this panel
+        // on boot — used by the visual-loop screenshot path so the
+        // panel is visible at the auto-screenshot frame without
+        // simulating a click.
+        let auto_open = std::env::var("CLIENT_BEVY_OPEN_PANELS")
+            .map(|s| s.contains("ships") || s == "all")
+            .unwrap_or(false);
+        Self {
+            open: auto_open,
+            sort: ShipSort::default(),
+            descending: false,
+            filter: String::new(),
+        }
+    }
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
@@ -679,46 +697,62 @@ fn ship_list(
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Grid::new("ship_list_grid")
                     .striped(true)
-                    .num_columns(4)
-                    .spacing([12.0, 2.0])
+                    .num_columns(7)
+                    .spacing([12.0, 3.0])
                     .show(ui, |ui| {
                         sort_header(ui, "Name", &mut sort, &mut descending, ShipSort::Name);
                         sort_header(ui, "Class", &mut sort, &mut descending, ShipSort::Class);
                         sort_header(ui, "Faction", &mut sort, &mut descending, ShipSort::Faction);
                         sort_header(ui, "Location", &mut sort, &mut descending, ShipSort::Location);
+                        // Goal / Fuel / Credits aren't sortable yet —
+                        // keep header styling consistent so the row
+                        // reads as a single header band.
+                        ui.label(egui::RichText::new("Goal").strong().color(theme::TEXT_DIM));
+                        ui.label(egui::RichText::new("Fuel").strong().color(theme::TEXT_DIM));
+                        ui.label(egui::RichText::new("Credits").strong().color(theme::TEXT_DIM));
                         ui.end_row();
 
                         for row in &page {
                             // Name cell doubles as the row selector —
                             // clicking highlights and opens the details
-                            // panel on this ship. Click-through the
-                            // whole row would be nicer but egui's grid
-                            // doesn't give us per-row click regions
-                            // without some contortion, and the name
-                            // column is the most natural thing to
-                            // click anyway.
+                            // panel on this ship.
                             let is_sel = selected.0.as_deref() == Some(row.id.as_str());
-                            // Build a tooltip with credits/fuel/goal —
-                            // quick-glance state without opening the
-                            // details panel. Uses the per-row pulls
-                            // from ShipEconomy/ShipFuel/ShipAI baked
-                            // into ShipRow.
-                            let tooltip = format!(
-                                "credits {}\nfuel {:.0}%\ngoal {}",
-                                row.credits,
-                                row.fuel_frac * 100.0,
-                                row.goal,
-                            );
-                            if ui
-                                .selectable_label(is_sel, &row.name)
-                                .on_hover_text(&tooltip)
-                                .clicked()
-                            {
+                            if ui.selectable_label(is_sel, &row.name).clicked() {
                                 selected.0 = Some(row.id.clone());
                             }
-                            ui.label(&row.class).on_hover_text(&tooltip);
-                            ui.label(&row.faction).on_hover_text(&tooltip);
-                            ui.label(&row.location).on_hover_text(&tooltip);
+                            ui.label(egui::RichText::new(&row.class).color(theme::TEXT_DIM));
+                            ui.label(egui::RichText::new(&row.faction).color(theme::TEXT_DIM));
+                            // Location: italicise "(in transit)" so a
+                            // moving ship reads differently from a
+                            // docked one without colour-shouting it.
+                            if row.location == "(in transit)" {
+                                ui.label(
+                                    egui::RichText::new(&row.location)
+                                        .italics()
+                                        .color(theme::TEXT_DIM),
+                                );
+                            } else {
+                                ui.label(&row.location);
+                            }
+                            // Goal is the planner's current goal name,
+                            // monospaced so list lines up.
+                            ui.label(
+                                egui::RichText::new(&row.goal).small().monospace(),
+                            );
+                            // Fuel %: SUCCESS ≥ 50%, WARN ≥ 20%,
+                            // DANGER below — same banding the Godot
+                            // ship_list uses (theme_palette colours).
+                            let fuel_pct = row.fuel_frac * 100.0;
+                            ui.colored_label(
+                                theme::status_color(fuel_pct, (50.0, 20.0)),
+                                format!("{fuel_pct:.0}%"),
+                            );
+                            // Credits: thousands-separated for
+                            // readability at typical 1k-100k+ range.
+                            ui.label(
+                                egui::RichText::new(format_credits(row.credits))
+                                    .monospace(),
+                            );
                             ui.end_row();
                         }
                     });
@@ -748,8 +782,15 @@ fn sort_header(
     } else {
         ""
     };
-    let text = egui::RichText::new(format!("{label}{arrow}")).strong();
-    if ui.button(text).clicked() {
+    // Frameless so the header row reads as a single band rather
+    // than a row of boxed buttons. Active sort gets PRIMARY tint;
+    // others use TEXT_DIM so the active column stands out.
+    let active = *current == target;
+    let color = if active { theme::PRIMARY } else { theme::TEXT_DIM };
+    let text = egui::RichText::new(format!("{label}{arrow}"))
+        .strong()
+        .color(color);
+    if ui.add(egui::Button::new(text).frame(false)).clicked() {
         if *current == target {
             *descending = !*descending;
         } else {
@@ -758,6 +799,7 @@ fn sort_header(
         }
     }
 }
+
 
 // =============================================================================
 // Contracts panel
