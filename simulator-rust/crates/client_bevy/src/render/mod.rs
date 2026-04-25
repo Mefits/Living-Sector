@@ -17,7 +17,10 @@ use crate::sim::Sim;
 use crate::ui::{SelectedFacility, SelectedShip};
 
 mod planet;
-use planet::{params_for_body, PlanetMaterial, PlanetMaterialPlugin};
+use planet::{
+    cloud_for_body, params_for_body, rings_for_body, CloudMaterial, CloudMaterialPlugin,
+    PlanetMaterial, PlanetMaterialPlugin,
+};
 
 /// Scale factor from universe units → world units. Bumped from
 /// Godot's `GameState.SCALE_FACTOR = 10` because Bevy renders the
@@ -82,7 +85,7 @@ impl Plugin for RenderPlugin {
         // Asset bytes load asynchronously; SceneBundle just shows
         // an empty parent until the gltf streams in (typically a
         // frame or two on local disk).
-        app.add_plugins(PlanetMaterialPlugin)
+        app.add_plugins((PlanetMaterialPlugin, CloudMaterialPlugin))
             .init_resource::<ShipTrails>()
             .add_systems(Startup, load_station_models)
             .add_systems(
@@ -305,11 +308,45 @@ fn faction_palette() -> &'static [(&'static str, [f32; 3])] {
     ]
 }
 
+/// Build a flat annulus mesh on the XZ plane (galactic plane).
+/// Bevy's `Annulus` primitive lives on the XY plane by default, so
+/// we mesh it then rotate the vertex buffer 90° around X to land on
+/// XZ. Single-sided geometry — the spawn site uses `cull_mode: None`
+/// so the ring is visible from above and below.
+fn annulus_mesh(inner: f32, outer: f32, segments: u32) -> Mesh {
+    use bevy::math::primitives::Annulus;
+    let mut mesh = Annulus::new(inner, outer)
+        .mesh()
+        .resolution(segments.max(8) as usize)
+        .build();
+    // Annulus mesh is XY-plane (normal +Z). Rotate vertices to XZ
+    // (normal +Y) so the disk lies on the orbital plane.
+    let rot = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    if let Some(bevy::render::mesh::VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for p in positions.iter_mut() {
+            let v = rot * Vec3::from_array(*p);
+            *p = v.to_array();
+        }
+    }
+    if let Some(bevy::render::mesh::VertexAttributeValues::Float32x3(normals)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_NORMAL)
+    {
+        for n in normals.iter_mut() {
+            let v = rot * Vec3::from_array(*n);
+            *n = v.to_array();
+        }
+    }
+    mesh
+}
+
 fn spawn_mirror_entities(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut planet_materials: ResMut<Assets<PlanetMaterial>>,
+    mut cloud_materials: ResMut<Assets<CloudMaterial>>,
     sim: Res<Sim>,
     stations: Res<StationModels>,
 ) {
@@ -398,30 +435,91 @@ fn spawn_mirror_entities(
 
     // Bodies — always at their orbit's current universe position.
     // Each body gets its own PlanetMaterial keyed off biome (preset
-    // table) + body_id (seed offset so two earth-likes still differ).
+    // table) + body_id (seed offset so two earth-likes still differ),
+    // plus optional ring + cloud child entities per Godot
+    // PlanetCatalog. Children inherit the parent's Transform via
+    // Bevy's GlobalTransform propagation, so they orbit with the
+    // planet for free.
+    let body_radius = BODY_SIZE * 0.5;
     for (_e, (id, orbit, biome)) in world
         .query::<(&BodyIdentity, &BodyOrbit, &BodyBiome)>()
         .iter()
     {
         let (x, y) = orbit.universe_position();
-        // params_for_body bakes biome→preset + per-body palette
-        // overrides + per-body seed offset into one call. Mirrors
-        // PlanetCatalog::build_config from the Godot side.
         let mat = planet_materials.add(PlanetMaterial {
             params: params_for_body(&id.body_id, &biome.biome),
         });
-        commands.spawn((
-            MaterialMeshBundle::<PlanetMaterial> {
-                mesh: assets.body_mesh.clone(),
-                material: mat,
-                transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
-                ..default()
-            },
-            BodyEntity {
-                sim_id: id.body_id.clone(),
-            },
-            Name::new(format!("Body::{}", id.body_id)),
-        ));
+        let rings = rings_for_body(&id.body_id, &biome.biome);
+        let cloud = cloud_for_body(&id.body_id, &biome.biome);
+        commands
+            .spawn((
+                MaterialMeshBundle::<PlanetMaterial> {
+                    mesh: assets.body_mesh.clone(),
+                    material: mat,
+                    transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
+                    ..default()
+                },
+                BodyEntity {
+                    sim_id: id.body_id.clone(),
+                },
+                Name::new(format!("Body::{}", id.body_id)),
+            ))
+            .with_children(|parent| {
+                // Rings — flat annulus tilted around X. Builds one
+                // mesh per ring config so per-ring colour + opacity
+                // stay independent (Saturn's two bands are distinct).
+                // Inner/outer multiplied by body_radius to land in
+                // world units.
+                for ring in &rings {
+                    let mesh = meshes.add(annulus_mesh(
+                        ring.inner_rel * body_radius,
+                        ring.outer_rel * body_radius,
+                        ring.segments,
+                    ));
+                    let mat = materials.add(StandardMaterial {
+                        base_color: Color::srgba(
+                            ring.color.x,
+                            ring.color.y,
+                            ring.color.z,
+                            ring.color.w,
+                        ),
+                        alpha_mode: AlphaMode::Blend,
+                        cull_mode: None, // two-sided: visible from above + below
+                        unlit: true,
+                        ..default()
+                    });
+                    let mut xf = Transform::IDENTITY;
+                    xf.rotation =
+                        Quat::from_rotation_x(ring.tilt_x_deg.to_radians());
+                    parent.spawn((
+                        PbrBundle {
+                            mesh,
+                            material: mat,
+                            transform: xf,
+                            ..default()
+                        },
+                        Name::new(format!("Ring::{}", id.body_id)),
+                    ));
+                }
+
+                // Cloud shell — slightly larger sphere with the
+                // procedural cloud shader. AlphaMode::Blend so the
+                // planet underneath shows through cloud-free patches.
+                if let Some(cfg) = cloud {
+                    let r = body_radius * cfg.height_rel;
+                    let mesh = meshes.add(Sphere::new(r).mesh().ico(3).unwrap());
+                    let mat = cloud_materials.add(CloudMaterial { params: cfg.params });
+                    parent.spawn((
+                        MaterialMeshBundle::<CloudMaterial> {
+                            mesh,
+                            material: mat,
+                            transform: Transform::IDENTITY,
+                            ..default()
+                        },
+                        Name::new(format!("Clouds::{}", id.body_id)),
+                    ));
+                }
+            });
         body_count += 1;
     }
 

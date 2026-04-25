@@ -14,7 +14,10 @@
 use bevy::{
     pbr::{Material, MaterialPlugin},
     prelude::*,
-    render::render_resource::{AsBindGroup, ShaderRef, ShaderType},
+    render::{
+        alpha::AlphaMode,
+        render_resource::{AsBindGroup, ShaderRef, ShaderType},
+    },
 };
 
 pub struct PlanetMaterialPlugin;
@@ -22,6 +25,226 @@ pub struct PlanetMaterialPlugin;
 impl Plugin for PlanetMaterialPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<PlanetMaterial>::default());
+    }
+}
+
+pub struct CloudMaterialPlugin;
+
+impl Plugin for CloudMaterialPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(MaterialPlugin::<CloudMaterial>::default());
+    }
+}
+
+#[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
+pub struct CloudMaterial {
+    #[uniform(0)]
+    pub params: CloudParams,
+}
+
+#[derive(ShaderType, Debug, Clone, Copy)]
+pub struct CloudParams {
+    pub cloud_color: Vec4,
+    pub seed_offset: Vec3,
+    pub cloud_opacity: f32,
+    pub cloud_coverage: f32,
+    pub cloud_softness: f32,
+    pub cloud_frequency: f32,
+    pub cloud_lacunarity: f32,
+    pub cloud_gain: f32,
+    pub cloud_octaves: i32,
+    pub _pad: Vec3,
+}
+
+impl Material for CloudMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/cloud.wgsl".into()
+    }
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Blend
+    }
+}
+
+/// Per-body cloud config. Mirrors the cloud_* keys in
+/// `PlanetCatalog.PLANET_OVERRIDES` / `BIOME_DEFAULTS`. Returns
+/// `None` for bodies that have no atmosphere — the planet shader
+/// renders alone.
+pub struct CloudConfig {
+    pub params: CloudParams,
+    /// Shell radius multiplier relative to the planet radius. 1.04
+    /// = 4% bigger, the Godot default. Tighter = clouds appear to
+    /// hug the surface; bigger = visible halo at silhouette.
+    pub height_rel: f32,
+}
+
+pub fn cloud_for_body(body_id: &str, biome: &str) -> Option<CloudConfig> {
+    // Per-body overrides win — Earth's blue-tinted swirls, Mars' dusty
+    // sparse cover, Venus' hazy near-total cover.
+    if let Some(c) = body_cloud_override(body_id) {
+        return Some(c);
+    }
+    biome_cloud_default(biome)
+}
+
+fn make_cloud_params(
+    color: Vec4,
+    opacity: f32,
+    coverage: f32,
+    softness: f32,
+    frequency: f32,
+    octaves: i32,
+    seed_offset: Vec3,
+) -> CloudParams {
+    CloudParams {
+        cloud_color: color,
+        seed_offset,
+        cloud_opacity: opacity,
+        cloud_coverage: coverage,
+        cloud_softness: softness,
+        cloud_frequency: frequency,
+        cloud_lacunarity: 2.1,
+        cloud_gain: 0.55,
+        cloud_octaves: octaves,
+        _pad: Vec3::ZERO,
+    }
+}
+
+fn cloud_seed(body_id: &str) -> Vec3 {
+    // Decorrelate clouds from terrain noise so continents and
+    // weather systems don't line up. Same body id → same clouds.
+    let mut h: u64 = 0xcbf29ce484222325 ^ 0x5EED_BEEF_5EED_BEEF;
+    for b in body_id.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    let a = (h as f32 / u64::MAX as f32) * 1000.0 - 500.0;
+    let b = (((h >> 21) ^ h) as f32 / u64::MAX as f32) * 1000.0 - 500.0;
+    let c = (((h >> 42) ^ h) as f32 / u64::MAX as f32) * 1000.0 - 500.0;
+    Vec3::new(a, b, c)
+}
+
+fn biome_cloud_default(biome: &str) -> Option<CloudConfig> {
+    let seed = Vec3::ZERO; // overridden per-body via cloud_seed
+    match biome {
+        "terrestrial" | "temperate" | "earthlike" | "forest" | "jungle" => Some(CloudConfig {
+            params: make_cloud_params(
+                Vec4::new(1.0, 1.0, 1.0, 1.0),
+                1.0,
+                0.55,
+                0.08,
+                2.8,
+                4,
+                seed,
+            ),
+            height_rel: 1.035,
+        }),
+        "desert" | "arid" => Some(CloudConfig {
+            params: make_cloud_params(
+                Vec4::new(0.95, 0.85, 0.70, 1.0),
+                0.55,
+                0.80,
+                0.12,
+                3.2,
+                4,
+                seed,
+            ),
+            height_rel: 1.03,
+        }),
+        "ice" | "frozen" | "tundra" | "arctic" => Some(CloudConfig {
+            params: make_cloud_params(
+                Vec4::new(0.88, 0.93, 1.0, 1.0),
+                0.75,
+                0.65,
+                0.10,
+                2.4,
+                4,
+                seed,
+            ),
+            height_rel: 1.035,
+        }),
+        "industrial" => Some(CloudConfig {
+            params: make_cloud_params(
+                Vec4::new(0.65, 0.50, 0.28, 1.0),
+                0.70,
+                0.45,
+                0.18,
+                2.6,
+                4,
+                seed,
+            ),
+            height_rel: 1.05,
+        }),
+        // Lifeless / asteroid / molten / gas-giant: no atmosphere →
+        // no cloud shell. Gas giants get banded weather from the
+        // planet shader's `band_strength` instead.
+        _ => None,
+    }
+}
+
+fn body_cloud_override(body_id: &str) -> Option<CloudConfig> {
+    let seed = cloud_seed(body_id);
+    match body_id {
+        "earth" => Some(CloudConfig {
+            params: make_cloud_params(
+                Vec4::new(1.0, 1.0, 1.0, 1.0),
+                1.0,
+                0.48,
+                0.10,
+                2.6,
+                4,
+                seed,
+            ),
+            height_rel: 1.035,
+        }),
+        "mars" => Some(CloudConfig {
+            params: make_cloud_params(
+                Vec4::new(0.95, 0.82, 0.68, 1.0),
+                0.40,
+                0.85,
+                0.12,
+                3.6,
+                4,
+                seed,
+            ),
+            height_rel: 1.03,
+        }),
+        "venus" => Some(CloudConfig {
+            params: make_cloud_params(
+                Vec4::new(0.98, 0.85, 0.52, 1.0),
+                0.95,
+                0.18,
+                0.15,
+                2.0,
+                4,
+                seed,
+            ),
+            height_rel: 1.06,
+        }),
+        "anvil" => Some(CloudConfig {
+            params: make_cloud_params(
+                Vec4::new(0.55, 0.35, 0.22, 1.0),
+                0.80,
+                0.30,
+                0.18,
+                2.2,
+                4,
+                seed,
+            ),
+            height_rel: 1.05,
+        }),
+        "haven" => Some(CloudConfig {
+            params: make_cloud_params(
+                Vec4::new(1.0, 1.0, 1.0, 1.0),
+                1.0,
+                0.60,
+                0.08,
+                2.8,
+                4,
+                seed,
+            ),
+            height_rel: 1.035,
+        }),
+        _ => None,
     }
 }
 
@@ -385,6 +608,65 @@ impl Preset {
             }
         }
         p
+    }
+}
+
+/// One ring around a planet. Mirrors Godot
+/// `PlanetCatalog.DEFAULT_RING` shape. Sizes are RELATIVE to the
+/// planet's body radius — multiplying by world-unit radius at spawn
+/// time means the ring scales with whatever BODY_SIZE we land on.
+/// Tilt is around the local X axis so the ring reads as a banded
+/// disk instead of a flat halo.
+#[derive(Copy, Clone, Debug)]
+pub struct RingConfig {
+    pub inner_rel: f32,
+    pub outer_rel: f32,
+    pub tilt_x_deg: f32,
+    pub color: Vec4,
+    pub segments: u32,
+}
+
+/// Per-body ring configurations — only ringed bodies appear here.
+/// Catalog mirrors `PlanetCatalog.PLANET_OVERRIDES` ring keys.
+/// Saturn gets two concentric bands; Jupiter gets a thin warm
+/// inner ring. Other ringed bodies can be added by extending this
+/// match. Returns empty vec for non-ringed bodies (most planets).
+pub fn rings_for_body(body_id: &str, biome: &str) -> Vec<RingConfig> {
+    match body_id {
+        "saturn" => vec![
+            RingConfig {
+                inner_rel: 1.45,
+                outer_rel: 2.10,
+                tilt_x_deg: 26.0,
+                color: Vec4::new(0.92, 0.84, 0.65, 0.70),
+                segments: 96,
+            },
+            RingConfig {
+                inner_rel: 2.15,
+                outer_rel: 2.45,
+                tilt_x_deg: 26.0,
+                color: Vec4::new(0.78, 0.70, 0.52, 0.40),
+                segments: 96,
+            },
+        ],
+        "jupiter" => vec![RingConfig {
+            inner_rel: 1.42,
+            outer_rel: 1.52,
+            tilt_x_deg: 3.0,
+            color: Vec4::new(0.55, 0.45, 0.30, 0.30),
+            segments: 72,
+        }],
+        // Generic gas-giant biome fallback: thin warm ring like the
+        // Godot catalog's default. Skipped for jupiter/saturn above
+        // (they're matched first).
+        _ if biome == "gas_giant" || biome == "gas" => vec![RingConfig {
+            inner_rel: 1.45,
+            outer_rel: 1.95,
+            tilt_x_deg: 20.0,
+            color: Vec4::new(0.85, 0.78, 0.62, 0.55),
+            segments: 72,
+        }],
+        _ => Vec::new(),
     }
 }
 
