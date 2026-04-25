@@ -80,6 +80,7 @@ impl Plugin for UiPlugin {
                     add_facility_dialog,
                     context_menu,
                     help_panel,
+                    construction_labels_panel,
                 )
                     .chain(),
             );
@@ -3868,6 +3869,68 @@ fn body_labels_panel(
                     &name,
                     egui::FontId::proportional(11.0),
                     theme::TEXT,
+                );
+            }
+        });
+}
+
+/// Construction-site labels overlay. Same pattern as
+/// `body_labels_panel`: project each site's universe position to
+/// screen and draw "<name> · <pct>%" above the gizmo. Gated on the
+/// same `BodyLabelsState.show` toggle so users get a single
+/// "Labels" button in the top bar covering both kinds.
+fn construction_labels_panel(
+    mut ctx: EguiContexts,
+    state: Res<BodyLabelsState>,
+    sim: Res<Sim>,
+    camera_q: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+) {
+    use sim_core::agents::construction::ConstructionSite;
+    if !state.show {
+        return;
+    }
+    let Ok((camera, cam_xf)) = camera_q.get_single() else { return };
+
+    let entries: Vec<(String, f32, Vec3)> = sim
+        .store
+        .world
+        .query::<&ConstructionSite>()
+        .iter()
+        .map(|(_e, site)| {
+            let (x, y) = site.position;
+            let world = Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR);
+            (site.name.clone(), site.progress(), world)
+        })
+        .collect();
+
+    let ctx = ctx.ctx_mut();
+    egui::Area::new(egui::Id::new("construction_labels_area"))
+        .movable(false)
+        .interactable(false)
+        .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            let painter = ui.painter();
+            for (name, prog, pos) in entries {
+                let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
+                    continue;
+                };
+                // Two-line stack: name above, progress below — the
+                // progress arc itself shows on the gizmo, but a
+                // numeric percentage is easier to scan at a glance.
+                painter.text(
+                    egui::pos2(screen.x, screen.y - 26.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    &name,
+                    egui::FontId::proportional(11.0),
+                    theme::TEXT_DIM,
+                );
+                let pct = (prog * 100.0).round() as u32;
+                painter.text(
+                    egui::pos2(screen.x, screen.y - 14.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    format!("{pct}%"),
+                    egui::FontId::proportional(11.0),
+                    theme::status_color(prog * 100.0, (50.0, 25.0)),
                 );
             }
         });
