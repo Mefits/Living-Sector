@@ -113,11 +113,22 @@ impl Plugin for RenderPlugin {
                 HanabiPlugin,
             ))
             .init_resource::<ShipTrails>()
-            .add_systems(Startup, (load_station_models, load_ship_models, build_engine_trail_effect))
+            .add_systems(
+                Startup,
+                (
+                    load_station_models,
+                    load_ship_models,
+                    build_engine_trail_effect,
+                    build_explosion_effect,
+                ),
+            )
             .add_systems(
                 PostStartup,
                 (spawn_mirror_entities, spawn_nebulae, spawn_system_suns),
             )
+            // Two Update tuples — Bevy caps system param tuples at 16
+            // and the render set has outgrown that. Split is purely
+            // mechanical (no ordering constraints between them).
             .add_systems(
                 Update,
                 (
@@ -137,10 +148,16 @@ impl Plugin for RenderPlugin {
                     cleanup_stale_ships,
                     reconcile_new_ships,
                     reconcile_new_facilities,
+                ),
+            )
+            .add_systems(
+                Update,
+                (
                     raycast_context_menu,
                     apply_camera_follow,
                     sync_engine_trails,
                     cleanup_stale_engine_trails,
+                    tick_explosion_lifetimes,
                 ),
             );
     }
@@ -239,6 +256,19 @@ impl ShipModels {
 #[derive(Resource)]
 pub struct EngineTrailEffect(pub Handle<EffectAsset>);
 
+/// Handle to the shared one-shot explosion EffectAsset. Spawned by
+/// `cleanup_stale_ships` at the doomed ship's last position before
+/// it despawns. Self-cleans via [`ExplosionLifetime`] timer.
+#[derive(Resource)]
+pub struct ExplosionEffect(pub Handle<EffectAsset>);
+
+/// Tag + timer attached to a one-shot explosion entity so it can be
+/// despawned after its particles finish. Hanabi keeps the entity
+/// alive after the last particle dies; without this it'd just
+/// linger in queries forever.
+#[derive(Component)]
+pub struct ExplosionLifetime(pub Timer);
+
 /// Marker on the per-ship particle-effect entity. Carries the
 /// ship's sim_id so the per-frame sync system can look up the
 /// matching ship transform. Lives as a sibling entity (NOT a child)
@@ -309,6 +339,75 @@ fn build_engine_trail_effect(
 
     let handle = effects.add(effect);
     commands.insert_resource(EngineTrailEffect(handle));
+}
+
+fn build_explosion_effect(
+    mut effects: ResMut<Assets<EffectAsset>>,
+    mut commands: Commands,
+) {
+    // Hot-flash → orange → fade. Stays warm enough to read as fire,
+    // not just blue-shifted hanabi default.
+    let mut color_gradient = Gradient::new();
+    color_gradient.add_key(0.0, Vec4::new(1.0, 0.95, 0.55, 1.0));
+    color_gradient.add_key(0.3, Vec4::new(1.0, 0.55, 0.20, 0.95));
+    color_gradient.add_key(1.0, Vec4::new(0.30, 0.10, 0.05, 0.0));
+
+    let mut size_gradient = Gradient::new();
+    size_gradient.add_key(0.0, Vec3::splat(0.40));
+    size_gradient.add_key(0.5, Vec3::splat(0.30));
+    size_gradient.add_key(1.0, Vec3::splat(0.0));
+
+    let mut module = Module::default();
+
+    let init_pos = SetPositionSphereModifier {
+        center: module.lit(Vec3::ZERO),
+        radius: module.lit(0.05),
+        dimension: ShapeDimension::Volume,
+    };
+    // Radial outward burst — speed 6 wu/s, sphere distribution so it
+    // reads as a 3D shockwave from any camera angle.
+    let init_vel = SetVelocitySphereModifier {
+        center: module.lit(Vec3::ZERO),
+        speed: module.lit(6.0),
+    };
+    let init_lifetime = SetAttributeModifier::new(
+        Attribute::LIFETIME,
+        module.lit(1.0_f32),
+    );
+
+    // Once: emit 80 particles in a single burst at spawn.
+    let spawner = Spawner::once(80.0_f32.into(), true);
+
+    let effect = EffectAsset::new(256, spawner, module)
+        .with_name("explosion")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_lifetime)
+        .render(ColorOverLifetimeModifier {
+            gradient: color_gradient,
+        })
+        .render(SizeOverLifetimeModifier {
+            gradient: size_gradient,
+            screen_space_size: false,
+        });
+
+    let handle = effects.add(effect);
+    commands.insert_resource(ExplosionEffect(handle));
+}
+
+/// Despawn explosion entities once their lifetime timer expires.
+/// 1.5× the longest particle lifetime so the entity sticks around
+/// long enough to render every particle, then disappears.
+fn tick_explosion_lifetimes(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut explosions: Query<(Entity, &mut ExplosionLifetime)>,
+) {
+    for (entity, mut life) in explosions.iter_mut() {
+        if life.0.tick(time.delta()).finished() {
+            commands.entity(entity).despawn_recursive();
+        }
+    }
 }
 
 fn load_ship_models(asset_server: Res<AssetServer>, mut commands: Commands) {
@@ -1218,9 +1317,26 @@ fn spawn_nebulae(
 /// Does not currently handle facility or body deletes because nothing
 /// in the client deletes those yet; add parallel cleanup systems when
 /// those admin actions land.
-fn cleanup_stale_ships(mut commands: Commands, sim: Res<Sim>, ships: Query<(Entity, &ShipEntity)>) {
-    for (e, ship) in ships.iter() {
+fn cleanup_stale_ships(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    explosion: Option<Res<ExplosionEffect>>,
+    ships: Query<(Entity, &ShipEntity, &Transform)>,
+) {
+    for (e, ship, xf) in ships.iter() {
         if !sim.store.ship_by_id.contains_key(&ship.sim_id) {
+            // Spawn a one-shot explosion at the ship's last known
+            // position before we yank the entity. ExplosionLifetime
+            // timer cleans up the particle entity 1.5 s later.
+            if let Some(ref ex) = explosion {
+                commands.spawn((
+                    ParticleEffectBundle::new(ex.0.clone()),
+                    Transform::from_translation(xf.translation),
+                    GlobalTransform::default(),
+                    ExplosionLifetime(Timer::from_seconds(1.5, TimerMode::Once)),
+                    Name::new(format!("Explosion::{}", ship.sim_id)),
+                ));
+            }
             commands.entity(e).despawn_recursive();
         }
     }
