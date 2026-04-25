@@ -36,6 +36,7 @@ impl Plugin for UiPlugin {
             .init_resource::<MinimapState>()
             .init_resource::<BodyLabelsState>()
             .init_resource::<EventsState>()
+            .init_resource::<PauseMenuState>()
             .add_systems(
                 Update,
                 (
@@ -70,6 +71,7 @@ impl Plugin for UiPlugin {
                     facility_details_panel,
                     retirements_panel,
                     construction_panel,
+                    pause_menu,
                 )
                     .chain(),
             );
@@ -3963,8 +3965,7 @@ fn event_summary(v: &serde_json::Value) -> String {
 fn keyboard_shortcuts(
     keys: Res<ButtonInput<KeyCode>>,
     mut sim: ResMut<Sim>,
-    mut selected_ship: ResMut<SelectedShip>,
-    mut selected_fac: ResMut<SelectedFacility>,
+    mut menu: ResMut<PauseMenuState>,
     mut egui_ctx: EguiContexts,
 ) {
     // When egui is capturing keyboard input (an editable text
@@ -3978,8 +3979,94 @@ fn keyboard_shortcuts(
         sim.running = !sim.running;
     }
     if keys.just_pressed(KeyCode::Escape) {
-        selected_ship.0 = None;
-        selected_fac.0 = None;
+        // Esc toggles the pause menu. Selection clear lives on the
+        // top-bar "✕ Clear" chip — separating the two stops Esc from
+        // doing two unrelated things based on selection state.
+        if menu.open {
+            menu.open = false;
+            sim.running = menu.was_running;
+        } else {
+            menu.open = true;
+            menu.was_running = sim.running;
+            sim.running = false;
+        }
     }
+}
+
+/// Modal-ish "Pause" menu. Esc toggles it (see `keyboard_shortcuts`).
+/// While open the sim is forced paused; closing the menu restores
+/// the prior running state. Buttons: Resume, Save As, Quit. Save is
+/// folded into Save As since the embedded client has no live
+/// persistence worker — every save is effectively a snapshot copy.
+#[derive(Resource, Default)]
+struct PauseMenuState {
+    open: bool,
+    /// Sim's `running` state at the moment the menu was opened, so
+    /// closing the menu restores that state instead of always
+    /// resuming.
+    was_running: bool,
+}
+
+fn pause_menu(
+    mut ctx: EguiContexts,
+    mut menu: ResMut<PauseMenuState>,
+    mut sim: ResMut<Sim>,
+    mut save_req: ResMut<crate::sim::SaveAsRequest>,
+    mut exit: EventWriter<AppExit>,
+) {
+    if !menu.open {
+        return;
+    }
+    egui::Window::new("Paused")
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .collapsible(false)
+        .resizable(false)
+        .default_width(280.0)
+        .show(ctx.ctx_mut(), |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("Game paused")
+                        .strong()
+                        .size(16.0)
+                        .color(theme::PRIMARY),
+                );
+                ui.add_space(8.0);
+                let btn_size = egui::vec2(220.0, 32.0);
+                if ui
+                    .add_sized(btn_size, egui::Button::new("Resume (Esc)"))
+                    .clicked()
+                {
+                    menu.open = false;
+                    sim.running = menu.was_running;
+                }
+                ui.add_space(2.0);
+                if ui
+                    .add_sized(btn_size, egui::Button::new("Save As…"))
+                    .on_hover_text(
+                        "Write a timestamped VACUUM INTO snapshot of sim.db. \
+                         Embedded client has no persistence worker yet, so the \
+                         snapshot reflects the load tick rather than live state.",
+                    )
+                    .clicked()
+                {
+                    save_req.0 = true;
+                }
+                ui.add_space(2.0);
+                if ui
+                    .add_sized(
+                        btn_size,
+                        egui::Button::new(
+                            egui::RichText::new("Quit").color(theme::DANGER),
+                        ),
+                    )
+                    .on_hover_text("Close the window.")
+                    .clicked()
+                {
+                    exit.send(AppExit::Success);
+                }
+                ui.add_space(6.0);
+            });
+        });
 }
 
