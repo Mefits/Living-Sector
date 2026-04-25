@@ -171,6 +171,7 @@ fn top_bar(
     mut ctx: EguiContexts,
     sim: Res<Sim>,
     retirements: Res<Retirements>,
+    mut perf: ResMut<PerfStats>,
     mut ships: ResMut<ShipListState>,
     mut contracts: ResMut<ContractsState>,
     mut factions: ResMut<FactionsState>,
@@ -196,6 +197,9 @@ fn top_bar(
             // state is shown by the button's `selected` highlight,
             // not a separate visual cue, so the row stays uniform
             // when half the panels are open.
+            if icon_toggle(ui, icons::perf(), "Perf", None, perf.open) {
+                perf.open = !perf.open;
+            }
             if icon_toggle(ui, icons::ships(), "Ships", Some(sim.store.ship_by_id.len()), ships.open) {
                 ships.open = !ships.open;
             }
@@ -303,7 +307,9 @@ fn icon_toggle(
 }
 
 /// Rolling FPS window so the overlay doesn't flicker frame-to-frame.
-/// Tracks the last N frame durations and averages them.
+/// Tracks the last N frame durations and averages them. Also carries
+/// the panel's `open` flag — keeping it on the same Resource avoids
+/// a second init_resource just for one bool.
 #[derive(Resource)]
 struct PerfStats {
     frame_samples: Vec<Duration>,
@@ -316,6 +322,12 @@ struct PerfStats {
     /// pop off the front each tracking pass.
     tick_samples: std::collections::VecDeque<(Instant, u64)>,
     avg_tps: f32,
+    /// Whether the Perf window renders. Default true — the perf
+    /// readout is the primary always-on overlay during dev. Top
+    /// bar gives you a button to hide it when a panel needs the
+    /// space (it's anchored top-left and fights for room with the
+    /// Ships toggle).
+    open: bool,
 }
 
 impl Default for PerfStats {
@@ -326,6 +338,7 @@ impl Default for PerfStats {
             avg_fps: 0.0,
             tick_samples: std::collections::VecDeque::with_capacity(TPS_WINDOW),
             avg_tps: 0.0,
+            open: true,
         }
     }
 }
@@ -376,13 +389,21 @@ fn track_fps(
 fn perf_overlay(
     mut ctx: EguiContexts,
     sim: Res<Sim>,
-    stats: Res<PerfStats>,
+    mut stats: ResMut<PerfStats>,
     tick_perf: Res<TickPerf>,
     phase: Res<PhasePerf>,
 ) {
+    if !stats.open {
+        return;
+    }
+    let mut open = stats.open;
     egui::Window::new("Perf")
-        .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 8.0))
+        // Anchor below the two-row top bar so the panel doesn't
+        // sit on top of the panel-toggle row (≈52 px tall: one
+        // row of controls, one row of panel toggles).
+        .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 60.0))
         .default_width(220.0)
+        .open(&mut open)
         .show(ctx.ctx_mut(), |ui| {
             egui::Grid::new("perf_grid")
                 .num_columns(2)
@@ -524,6 +545,10 @@ fn perf_overlay(
                     .color(egui::Color32::from_gray(140)),
             );
         });
+    // Write the close-button click back so future frames respect
+    // it. egui's Window builder writes `false` into `open` when the
+    // user clicks the X header button.
+    stats.open = open;
 }
 
 // =============================================================================
