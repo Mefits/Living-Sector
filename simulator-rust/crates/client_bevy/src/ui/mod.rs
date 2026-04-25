@@ -40,9 +40,12 @@ impl Plugin for UiPlugin {
             .init_resource::<HelpState>()
             .init_resource::<OptionsState>()
             .init_resource::<SaveListState>()
+            .init_resource::<NewUniverseDialogState>()
             .init_resource::<AddShipDialogState>()
             .init_resource::<AddFacilityDialogState>()
             .init_resource::<ContextMenuRequest>()
+            .init_resource::<OpenPanelStack>()
+            .init_resource::<CloseTopRequest>()
             // Always-on systems: theme + image loaders init egui state
             // regardless of state, and the main_menu_panel needs to
             // render in MainMenu state. Options window is reachable
@@ -54,6 +57,8 @@ impl Plugin for UiPlugin {
                     icons::install_image_loaders,
                     theme::apply_theme,
                     main_menu_panel.run_if(in_state(crate::AppState::MainMenu)),
+                    new_universe_dialog
+                        .run_if(in_state(crate::AppState::MainMenu)),
                     options_panel,
                     save_list_panel,
                 ),
@@ -79,7 +84,9 @@ impl Plugin for UiPlugin {
                     minimap_panel,
                     body_labels_panel,
                     events_panel,
+                    reconcile_panel_stack,
                     keyboard_shortcuts,
+                    close_top_panel,
                 )
                     .chain()
                     .run_if(in_state(crate::AppState::InGame)),
@@ -176,6 +183,7 @@ fn top_bar_controls(
     mut ship_sel: ResMut<SelectedShip>,
     mut fac_sel: ResMut<SelectedFacility>,
     mut follow: ResMut<crate::camera::CameraFollow>,
+    mut menu: ResMut<PauseMenuState>,
 ) {
     let resp_controls = egui::TopBottomPanel::top("top_bar_controls")
         .frame(holo_chrome_frame())
@@ -283,6 +291,23 @@ fn top_bar_controls(
                 add_fac.open = !add_fac.open;
             }
             ui.separator();
+            // Menu button — opens the pause overlay (Save As / Options
+            // / Return to Main Menu / Quit). Mirrors the `P` shortcut.
+            // Esc still works the panel-stack flow first; this gives
+            // users a one-click escape to game-level controls.
+            if ui
+                .button("Menu")
+                .on_hover_text(
+                    "Open the pause menu (also `P`). Esc dismisses panels \
+                     one at a time before reaching the menu.",
+                )
+                .clicked()
+                && !menu.open
+            {
+                menu.open = true;
+                menu.was_running = sim.running;
+                sim.running = false;
+            }
             // Help / hotkey reference. Tiny "?" button at the end of
             // the controls row so the binding is discoverable
             // without first reading docs.
@@ -4565,15 +4590,112 @@ fn event_summary(v: &serde_json::Value) -> String {
 }
 
 // =============================================================================
-// Keyboard shortcuts
+// Keyboard shortcuts + panel stack
 // =============================================================================
 //
-// Global shortcuts that wire into the UI state:
+// Global shortcuts:
 //   * Spacebar       → toggle Sim.running (pause/resume)
-//   * Escape         → clear Selected{Ship,Facility}
+//   * Escape         → close most-recently-opened panel; if none open,
+//                      open the pause menu. If pause is open, resume.
+//   * P              → open the pause menu directly (matches the top
+//                      bar "Menu" button — even when other panels are
+//                      open, P escapes the panel-clearing flow and
+//                      jumps to pause).
+//   * H / ?          → toggle help popup
+//
+// The "Esc clears panels first" behaviour is driven by
+// [`OpenPanelStack`]. A reconcile system watches the open flag of
+// every dismissable panel and pushes / removes entries as those
+// flags transition. Esc pops the top entry into [`CloseTopRequest`];
+// a separate system closes the matching panel by mutating its state.
+// The split keeps each system inside Bevy's SystemParam-tuple
+// limit.
 //
 // Skips when egui owns the keyboard (a filter text box is focused,
 // etc.) so typing in a panel doesn't accidentally pause the sim.
+
+/// Enumeration of every panel that participates in the Esc-closes-
+/// top-panel stack. Each variant maps to a single `*State.open`
+/// (or equivalent) flag — see [`reconcile_panel_stack`] for the
+/// read side and [`close_top_panel`] for the write side.
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+pub enum PanelKind {
+    Perf,
+    ShipList,
+    Contracts,
+    Factions,
+    Markets,
+    Populations,
+    FacilityList,
+    Retirements,
+    Construction,
+    Events,
+    Help,
+    Options,
+    AddShip,
+    AddFacility,
+}
+
+/// LIFO stack of currently-open panels. Reconciled each frame from
+/// individual `*State.open` flags so toggling a panel from any
+/// path (top-bar button, hotkey, programmatic) keeps the stack
+/// honest. Esc pops the back; the popped kind lands in
+/// [`CloseTopRequest`] for [`close_top_panel`] to action.
+#[derive(Resource, Default)]
+pub struct OpenPanelStack {
+    pub stack: Vec<PanelKind>,
+}
+
+/// One-shot request set by the Esc handler; consumed by
+/// [`close_top_panel`]. Lives in its own resource so the system
+/// that handles input doesn't need ResMut on every panel state
+/// (Bevy's tuple-of-params limit).
+#[derive(Resource, Default)]
+pub struct CloseTopRequest(pub Option<PanelKind>);
+
+#[allow(clippy::too_many_arguments)]
+fn reconcile_panel_stack(
+    mut stack: ResMut<OpenPanelStack>,
+    perf: Res<PerfStats>,
+    ship_list: Res<ShipListState>,
+    contracts: Res<ContractsState>,
+    factions: Res<FactionsState>,
+    markets: Res<MarketsState>,
+    populations: Res<PopulationsState>,
+    facility_list: Res<FacilityListState>,
+    retirements: Res<RetirementsState>,
+    construction: Res<ConstructionState>,
+    events: Res<EventsState>,
+    help: Res<HelpState>,
+    options: Res<OptionsState>,
+    add_ship: Res<AddShipDialogState>,
+    add_facility: Res<AddFacilityDialogState>,
+) {
+    let table = [
+        (PanelKind::Perf, perf.open),
+        (PanelKind::ShipList, ship_list.open),
+        (PanelKind::Contracts, contracts.open),
+        (PanelKind::Factions, factions.open),
+        (PanelKind::Markets, markets.open),
+        (PanelKind::Populations, populations.open),
+        (PanelKind::FacilityList, facility_list.open),
+        (PanelKind::Retirements, retirements.open),
+        (PanelKind::Construction, construction.open),
+        (PanelKind::Events, events.open),
+        (PanelKind::Help, help.open),
+        (PanelKind::Options, options.open),
+        (PanelKind::AddShip, add_ship.open),
+        (PanelKind::AddFacility, add_facility.open),
+    ];
+    for (kind, is_open) in table {
+        let in_stack = stack.stack.contains(&kind);
+        if is_open && !in_stack {
+            stack.stack.push(kind);
+        } else if !is_open && in_stack {
+            stack.stack.retain(|k| *k != kind);
+        }
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 fn keyboard_shortcuts(
@@ -4582,6 +4704,8 @@ fn keyboard_shortcuts(
     mut menu: ResMut<PauseMenuState>,
     mut help: ResMut<HelpState>,
     mut egui_ctx: EguiContexts,
+    stack: Res<OpenPanelStack>,
+    mut close_req: ResMut<CloseTopRequest>,
 ) {
     // When egui is capturing keyboard input (an editable text
     // widget has focus), don't fire shortcuts — typing "pause" in a
@@ -4603,18 +4727,72 @@ fn keyboard_shortcuts(
     if keys.just_pressed(KeyCode::Slash) || keys.just_pressed(KeyCode::KeyH) {
         help.open = !help.open;
     }
+    // P opens the pause menu unconditionally — even with panels
+    // open. Lets the user jump straight to Save / Quit / Options
+    // without first dismissing N stacked panels.
+    if keys.just_pressed(KeyCode::KeyP) && !menu.open {
+        menu.open = true;
+        menu.was_running = sim.running;
+        sim.running = false;
+    }
     if keys.just_pressed(KeyCode::Escape) {
-        // Esc toggles the pause menu. Selection clear lives on the
-        // top-bar "✕ Clear" chip — separating the two stops Esc from
-        // doing two unrelated things based on selection state.
         if menu.open {
+            // Pause menu is its own thing — Esc resumes.
             menu.open = false;
             sim.running = menu.was_running;
+        } else if let Some(top) = stack.stack.last().copied() {
+            // Defer the actual close to `close_top_panel`, which
+            // owns the panel-state ResMuts we'd otherwise need
+            // here. Setting the request and returning keeps Esc
+            // single-step (one panel per press).
+            close_req.0 = Some(top);
         } else {
+            // No panels left — Esc opens the pause menu.
             menu.open = true;
             menu.was_running = sim.running;
             sim.running = false;
         }
+    }
+}
+
+/// Drains [`CloseTopRequest`] by flipping the corresponding panel's
+/// open flag. Split from [`keyboard_shortcuts`] so each system
+/// stays under Bevy's SystemParam-tuple limit — input handling
+/// over there, panel mutation here.
+#[allow(clippy::too_many_arguments)]
+fn close_top_panel(
+    mut close_req: ResMut<CloseTopRequest>,
+    mut perf: ResMut<PerfStats>,
+    mut ship_list: ResMut<ShipListState>,
+    mut contracts: ResMut<ContractsState>,
+    mut factions: ResMut<FactionsState>,
+    mut markets: ResMut<MarketsState>,
+    mut populations: ResMut<PopulationsState>,
+    mut facility_list: ResMut<FacilityListState>,
+    mut retirements: ResMut<RetirementsState>,
+    mut construction: ResMut<ConstructionState>,
+    mut events: ResMut<EventsState>,
+    mut help: ResMut<HelpState>,
+    mut options: ResMut<OptionsState>,
+    mut add_ship: ResMut<AddShipDialogState>,
+    mut add_facility: ResMut<AddFacilityDialogState>,
+) {
+    let Some(kind) = close_req.0.take() else { return };
+    match kind {
+        PanelKind::Perf => perf.open = false,
+        PanelKind::ShipList => ship_list.open = false,
+        PanelKind::Contracts => contracts.open = false,
+        PanelKind::Factions => factions.open = false,
+        PanelKind::Markets => markets.open = false,
+        PanelKind::Populations => populations.open = false,
+        PanelKind::FacilityList => facility_list.open = false,
+        PanelKind::Retirements => retirements.open = false,
+        PanelKind::Construction => construction.open = false,
+        PanelKind::Events => events.open = false,
+        PanelKind::Help => help.open = false,
+        PanelKind::Options => options.open = false,
+        PanelKind::AddShip => add_ship.open = false,
+        PanelKind::AddFacility => add_facility.open = false,
     }
 }
 
@@ -5168,7 +5346,8 @@ fn help_panel(mut ctx: EguiContexts, mut help: ResMut<HelpState>) {
                     ui.label("");
                     ui.end_row();
                     row(ui, "Space", "Pause / resume the sim");
-                    row(ui, "Esc", "Open / close the pause menu");
+                    row(ui, "Esc", "Close top open panel; opens pause menu when none");
+                    row(ui, "P", "Open the pause menu directly");
                     ui.label(theme::section_header("Camera"));
                     ui.label("");
                     ui.end_row();
@@ -5209,12 +5388,20 @@ fn help_panel(mut ctx: EguiContexts, mut help: ResMut<HelpState>) {
 /// - **Quit** sends `AppExit::Success`.
 fn main_menu_panel(
     mut ctx: EguiContexts,
-    mut next_state: ResMut<NextState<crate::AppState>>,
-    mut sim: ResMut<Sim>,
+    mut new_universe: ResMut<NewUniverseDialogState>,
     mut options: ResMut<OptionsState>,
     mut saves: ResMut<SaveListState>,
     mut exit: EventWriter<AppExit>,
 ) {
+    // Suppress the menu while any modal is up. Menu used Foreground
+    // ordering so its buttons stayed visible above the 3D backdrop
+    // — but Foreground also paints OVER egui Windows, which made
+    // the button text bleed through Saves / Options / new-universe
+    // modals. Cleanest fix: just don't draw the menu while a modal
+    // is open.
+    if new_universe.open || options.open || saves.open {
+        return;
+    }
     egui::Area::new(egui::Id::new("main_menu"))
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .order(egui::Order::Foreground)
@@ -5239,16 +5426,15 @@ fn main_menu_panel(
                     )
                     .clicked()
                 {
-                    next_state.set(crate::AppState::InGame);
-                    // Resume the sim — it was forced false on entry
-                    // to MainMenu (or never started, on a fresh boot).
-                    sim.running = true;
+                    new_universe.open = true;
+                    new_universe.name = "sim".to_string();
+                    new_universe.focus_pending = true;
                 }
                 ui.add_space(4.0);
                 if ui
                     .add_sized(btn_size, egui::Button::new("Load Game"))
                     .on_hover_text(
-                        "Browse Save-As snapshots stored next to the binary.",
+                        "Browse the saves stored next to the binary.",
                     )
                     .clicked()
                 {
@@ -5274,23 +5460,252 @@ fn main_menu_panel(
                 {
                     exit.send(AppExit::Success);
                 }
+                ui.add_space(20.0);
+                credits_block(ui);
                 ui.add_space(8.0);
             });
         });
 }
 
+/// Shared credit + version footer rendered on both the main menu
+/// and the pause menu. CARGO_PKG_VERSION is the workspace version
+/// from `Cargo.toml`; the Makefile reads the same field so packaged
+/// builds (Info.plist, butler --userversion, archive names) line
+/// up with what's shown in-game.
+fn credits_block(ui: &mut egui::Ui) {
+    ui.label(
+        egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+            .small()
+            .monospace()
+            .color(theme::TEXT_DIM),
+    );
+    ui.add_space(2.0);
+    ui.label(
+        egui::RichText::new("By Kalcode & Claude")
+            .small()
+            .color(theme::TEXT_DIM),
+    );
+    ui.label(
+        egui::RichText::new("Made with ❤️ in Illinois")
+            .small()
+            .color(theme::TEXT_DIM),
+    );
+}
+
+/// Modal that appears after Start. User picks a universe name; the
+/// sanitised form becomes the SQLite file (`<name>.db`) loaded on
+/// `OnEnter(InGame)`. Empty input falls back to `sim`. If a DB with
+/// the chosen name already exists, the loader resumes it; otherwise
+/// the seeder creates a fresh world.
+#[derive(Resource)]
+struct NewUniverseDialogState {
+    open: bool,
+    name: String,
+    /// One-shot flag set when the dialog opens so we can grab the
+    /// text-field focus on the first frame it renders. Cleared after
+    /// the focus call lands.
+    focus_pending: bool,
+}
+
+impl Default for NewUniverseDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            name: "sim".to_string(),
+            focus_pending: false,
+        }
+    }
+}
+
+/// Strip everything that isn't `[A-Za-z0-9_-]` and clamp length so
+/// the resulting `.db` path can't break out of its parent directory
+/// or trip filesystem rules. Empty input → "sim" as the fallback.
+fn sanitize_universe_name(raw: &str) -> String {
+    let cleaned: String = raw
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .take(48)
+        .collect();
+    if cleaned.is_empty() {
+        "sim".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// Directory where save DBs live (next to the running binary —
+/// matches `scan_saves()` / `process_save_as()`). Falls back to the
+/// current working directory if `current_exe` can't resolve, which
+/// is the same fallback `resolve_db_path` uses for the default DB.
+fn save_dir() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+}
+
+/// Pick a free filename for a fresh universe — avoids clobbering
+/// existing saves when the user hits Start with a name that already
+/// has a `.db` on disk. Returns `(final_stem, path)`. If the base
+/// name is free, returns it as-is. Otherwise appends `-2`, `-3`, …
+/// up to a sanity cap.
+fn unique_universe_path(stem: &str) -> (String, std::path::PathBuf) {
+    let dir = save_dir();
+    let base_path = dir.join(format!("{stem}.db"));
+    if !base_path.exists() {
+        return (stem.to_string(), base_path);
+    }
+    for n in 2..=999 {
+        let candidate_stem = format!("{stem}-{n}");
+        let candidate = dir.join(format!("{candidate_stem}.db"));
+        if !candidate.exists() {
+            return (candidate_stem, candidate);
+        }
+    }
+    // Pathological case — 999 worlds with the same base name. Fall
+    // back to a wall-clock suffix so we still produce a unique
+    // path instead of clobbering.
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let suffix_stem = format!("{stem}-{ts}");
+    let path = dir.join(format!("{suffix_stem}.db"));
+    (suffix_stem, path)
+}
+
+fn new_universe_dialog(
+    mut ctx: EguiContexts,
+    mut state: ResMut<NewUniverseDialogState>,
+    mut next_state: ResMut<NextState<crate::AppState>>,
+    mut sim: ResMut<Sim>,
+    mut selected_save: ResMut<crate::sim::SelectedSavePath>,
+) {
+    if !state.open {
+        return;
+    }
+
+    let mut want_start = false;
+    let mut want_cancel = false;
+
+    egui::Window::new("Name your universe")
+        .id(egui::Id::new("new_universe_dialog"))
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .collapsible(false)
+        .resizable(false)
+        .default_width(380.0)
+        .show(ctx.ctx_mut(), |ui| {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new(
+                    "Pick a name for this universe. The simulation \
+                     persists to a SQLite file with this name. Letters, \
+                     digits, dashes and underscores only.",
+                )
+                .small()
+                .color(theme::TEXT_DIM),
+            );
+            ui.add_space(8.0);
+
+            let resp = ui.add(
+                egui::TextEdit::singleline(&mut state.name)
+                    .hint_text("sim")
+                    .desired_width(f32::INFINITY),
+            );
+            if state.focus_pending {
+                resp.request_focus();
+                state.focus_pending = false;
+            }
+            // Enter inside the text field commits.
+            if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                want_start = true;
+            }
+
+            let sanitized = sanitize_universe_name(&state.name);
+            let (resolved_stem, _) = unique_universe_path(&sanitized);
+            let collided = resolved_stem != sanitized;
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("File:")
+                        .small()
+                        .color(theme::TEXT_DIM),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{resolved_stem}.db"))
+                        .small()
+                        .monospace()
+                        .color(theme::PRIMARY),
+                );
+            });
+            if collided {
+                // Existing save with the picked stem — explain why
+                // we're appending a suffix so the user isn't
+                // surprised that the filename doesn't match what
+                // they typed. They can either accept the new name
+                // or hit Cancel and use Load Game on the existing
+                // save instead.
+                ui.label(
+                    egui::RichText::new(format!(
+                        "⚠ '{sanitized}.db' already exists — \
+                         starting as '{resolved_stem}.db'. Use Load \
+                         Game to resume the existing save."
+                    ))
+                    .small()
+                    .color(theme::WARN),
+                );
+            }
+
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .add(egui::Button::new(
+                        egui::RichText::new("Start").color(theme::PRIMARY),
+                    ))
+                    .clicked()
+                {
+                    want_start = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    want_cancel = true;
+                }
+            });
+            // Esc cancels.
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                want_cancel = true;
+            }
+        });
+
+    if want_cancel {
+        state.open = false;
+        return;
+    }
+
+    if want_start {
+        let sanitized = sanitize_universe_name(&state.name);
+        // Resolve to a non-colliding path so Start always means
+        // "fresh world" — never silently overwrite or resume an
+        // existing save. Resume goes through Load Game instead.
+        let (final_stem, path) = unique_universe_path(&sanitized);
+        info!(
+            "client_bevy: starting universe '{}' → {}",
+            final_stem,
+            path.display(),
+        );
+        selected_save.0 = Some(path);
+        sim.running = true;
+        next_state.set(crate::AppState::InGame);
+        state.open = false;
+    }
+}
+
 /// Save-list browser. Scans the directory containing the executable
-/// (or current working directory in dev) for `*.db` files, lists
-/// each as a row with Load + Delete buttons. The active sim DB
-/// (default name `sim.db`) is filtered out so users can't blow it
-/// away by accident — that path stays reserved for "fresh boot".
-///
-/// Load is currently a stub that logs the picked path; the
-/// implementation needs an in-process sim teardown + reload pass
-/// (rebuild AgentStore, despawn render entities, re-run
-/// `load_world` with the chosen path), which is its own bundle.
-/// Delete is fully wired — `std::fs::remove_file` plus list
-/// refresh.
+/// (or current working directory in dev) for `*.db` files. The
+/// active `sim.db` is included as a special "Current session" entry
+/// — loadable (re-loads the live DB) but not deletable so users
+/// can't blow away their auto-saved game by accident. Save-As
+/// snapshots show normally with Load + Delete.
 #[derive(Resource, Default)]
 struct SaveListState {
     open: bool,
@@ -5307,6 +5722,9 @@ struct SaveEntry {
     name: String,
     modified_iso: String,
     size_kb: u64,
+    /// True for the active `sim.db`. Renders with a "Current
+    /// session" badge and disables the Delete button.
+    is_active: bool,
 }
 
 fn scan_saves() -> Vec<SaveEntry> {
@@ -5324,11 +5742,10 @@ fn scan_saves() -> Vec<SaveEntry> {
             Some(n) => n.to_string(),
             None => continue,
         };
-        // Skip the active DB + sqlite sidecar files. Also skip
-        // anything not ending in .db.
-        if name == "sim.db" || !name.ends_with(".db") {
+        if !name.ends_with(".db") {
             continue;
         }
+        let is_active = name == "sim.db";
         let meta = match entry.metadata() {
             Ok(m) => m,
             Err(_) => continue,
@@ -5354,9 +5771,16 @@ fn scan_saves() -> Vec<SaveEntry> {
             name,
             modified_iso,
             size_kb,
+            is_active,
         });
     }
-    out.sort_by(|a, b| b.modified_iso.cmp(&a.modified_iso));
+    // Active session always pinned to the top, then snapshots
+    // newest-first.
+    out.sort_by(|a, b| {
+        b.is_active
+            .cmp(&a.is_active)
+            .then_with(|| b.modified_iso.cmp(&a.modified_iso))
+    });
     out
 }
 
@@ -5435,8 +5859,9 @@ fn save_list_panel(
             if state.saves.is_empty() {
                 ui.label(
                     egui::RichText::new(
-                        "No save snapshots found next to the binary. \
-                         Use the pause menu's Save As… to create one.",
+                        "No save files found next to the binary. \
+                         Start a new game to create one, or use Save As… \
+                         from the pause menu to take a snapshot.",
                     )
                     .italics()
                     .color(theme::TEXT_DIM),
@@ -5457,7 +5882,18 @@ fn save_list_panel(
                             ui.label("");
                             ui.end_row();
                             for save in &state.saves {
-                                ui.label(&save.name);
+                                if save.is_active {
+                                    ui.horizontal(|ui| {
+                                        ui.label(&save.name);
+                                        ui.label(
+                                            egui::RichText::new("· Current session")
+                                                .small()
+                                                .color(theme::PRIMARY),
+                                        );
+                                    });
+                                } else {
+                                    ui.label(&save.name);
+                                }
                                 ui.label(
                                     egui::RichText::new(&save.modified_iso)
                                         .small()
@@ -5475,24 +5911,35 @@ fn save_list_panel(
                                 ui.horizontal(|ui| {
                                     if ui
                                         .small_button("Load")
-                                        .on_hover_text(
-                                            "Load this save into the running \
-                                             sim. (Stub: in-process reload \
-                                             lands in a follow-up bundle.)",
-                                        )
+                                        .on_hover_text(if save.is_active {
+                                            "Load the active session DB."
+                                        } else {
+                                            "Load this Save-As snapshot."
+                                        })
                                         .clicked()
                                     {
                                         want_load = Some(save.path.clone());
                                     }
+                                    // sim.db is safe to delete from the
+                                    // main menu — load_world only opens
+                                    // a pool on OnEnter(InGame), so no
+                                    // file handle is held here. Next
+                                    // Start will recreate + seed a
+                                    // fresh world.
+                                    let delete_hover = if save.is_active {
+                                        "Permanently delete the active save. \
+                                         The next Start will create a fresh \
+                                         seeded world."
+                                    } else {
+                                        "Permanently delete this snapshot \
+                                         from disk. No confirmation."
+                                    };
                                     if ui
                                         .small_button(
                                             egui::RichText::new("Delete")
                                                 .color(theme::DANGER),
                                         )
-                                        .on_hover_text(
-                                            "Permanently delete this snapshot \
-                                             from disk. No confirmation.",
-                                        )
+                                        .on_hover_text(delete_hover)
                                         .clicked()
                                     {
                                         want_delete = Some(save.path.clone());
@@ -5511,6 +5958,18 @@ fn save_list_panel(
         match std::fs::remove_file(&p) {
             Ok(()) => {
                 info!("client_bevy: deleted save {}", p.display());
+                // Sidecar WAL/SHM files would otherwise resurrect
+                // partial state on next open. Best-effort cleanup —
+                // missing sidecars (the common case for a clean DB)
+                // are silently ignored.
+                if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                    if let Some(parent) = p.parent() {
+                        for suffix in ["-wal", "-shm", "-journal"] {
+                            let side = parent.join(format!("{name}{suffix}"));
+                            let _ = std::fs::remove_file(&side);
+                        }
+                    }
+                }
                 state.last_scan = None;
             }
             Err(e) => {
@@ -5521,14 +5980,16 @@ fn save_list_panel(
     if let Some(p) = want_load {
         info!("client_bevy: loading save {}", p.display());
         // Plumb through to the sim's OnEnter(InGame) load — set the
-        // path, transition state, the OnEnter handler reads the
-        // path and loads from there. Close the save list + main
-        // menu (no need to manually close — state transition hides
-        // the entire menu UI).
+        // path, transition state, then close the panel. The early
+        // return below skips the `state.open = open` writeback that
+        // would otherwise restore the open flag from egui's
+        // close-button binding (which is still `true` at this point
+        // because the user clicked Load, not X).
         selected_save.0 = Some(p);
         sim.running = true;
         next_state.set(crate::AppState::InGame);
         state.open = false;
+        return;
     }
     state.open = open;
 }
@@ -5707,6 +6168,8 @@ fn pause_menu(
                 {
                     exit.send(AppExit::Success);
                 }
+                ui.add_space(14.0);
+                credits_block(ui);
                 ui.add_space(6.0);
             });
         });

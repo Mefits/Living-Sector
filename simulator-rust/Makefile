@@ -46,6 +46,13 @@ WORKSPACE    := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 ASSETS_SRC   := crates/client_bevy/assets
 DIST_DIR     := dist
 
+# Version: source of truth is the workspace [workspace.package]
+# version in Cargo.toml. Both the Rust binary (via env!CARGO_PKG_VERSION)
+# and packaging targets (Info.plist, butler --userversion, archive
+# names) read from there so they can never drift apart. Fallback to
+# `dev` if the grep fails for any reason (corrupt Cargo.toml, etc).
+VERSION      ?= $(shell awk -F\" '/^version[[:space:]]*=[[:space:]]*"/ { print $$2; exit }' $(WORKSPACE)/Cargo.toml 2>/dev/null || echo dev)
+
 # Apple bundle metadata. APP_NAME is the user-visible filename
 # (Finder shows it without the .app extension by default).
 APP_NAME     := Space Simulator
@@ -188,9 +195,9 @@ _write-info-plist:
 			<key>CFBundleDisplayName</key>
 			<string>$(APP_NAME)</string>
 			<key>CFBundleVersion</key>
-			<string>0.1.0</string>
+			<string>$(VERSION)</string>
 			<key>CFBundleShortVersionString</key>
-			<string>0.1.0</string>
+			<string>$(VERSION)</string>
 			<key>CFBundlePackageType</key>
 			<string>APPL</string>
 			<key>LSMinimumSystemVersion</key>
@@ -241,6 +248,39 @@ package-linux: build-linux
 	@echo ""
 	@echo "==> $(LINUX_DIR)/"
 	@echo "==> $(LINUX_TGZ)"
+
+# ------- itch.io publishing (butler) -------
+#
+# One-time setup: `brew install butler` then `butler login`.
+# Create the game page on itch.io first, then override these:
+#
+#   make ITCH_USER=yourname ITCH_GAME=space-simulator publish-mac
+#
+# Or set defaults here once you've picked a slug.
+# VERSION is optional but recommended — itch.io shows it in the launcher
+# and uses it for the "what's new" delta. Falls back to the short git SHA.
+
+ITCH_USER    ?= kalcode
+ITCH_GAME    ?= the-space-project
+ITCH_TARGET  := $(ITCH_USER)/$(ITCH_GAME)
+# VERSION is defined at the top of this file from Cargo.toml;
+# overridable on the command line as `make VERSION=1.2.3 publish-mac`.
+
+.PHONY: publish-mac publish-win publish-linux publish-all butler-status
+
+publish-mac: zip-mac
+	butler push $(APP_ZIP) $(ITCH_TARGET):mac --userversion $(VERSION)
+
+publish-win: package-win
+	butler push $(WIN_ZIP) $(ITCH_TARGET):windows --userversion $(VERSION)
+
+publish-linux: package-linux
+	butler push $(LINUX_TGZ) $(ITCH_TARGET):linux --userversion $(VERSION)
+
+publish-all: publish-mac publish-win publish-linux
+
+butler-status:
+	butler status $(ITCH_TARGET)
 
 # ------- Cleanup -------
 
