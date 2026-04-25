@@ -108,21 +108,14 @@ fn holo_chrome_frame() -> egui::Frame {
 }
 
 /// Paint the holo-glass texture overlay on top of a top-bar panel.
-/// Two layers:
-///
-///   1. Vertical gradient — subtle PRIMARY-tinted highlight at the
-///      top edge fading to transparent toward the bottom. Reads as
-///      an "interior glow" on the chrome.
-///   2. Dot grid — low-alpha cyan pinpricks every 14 px in both
-///      axes, giving the surface a faint pixel-pattern texture.
-///      Bounded by ship/panel rect so the cost is per-pixel-area
-///      bounded — at 1280×60 px and 14 px step that's ~390 dots.
+/// Subtle PRIMARY-tinted highlight at the top edge fading to
+/// transparent toward the bottom — reads as an "interior glow" on
+/// the chrome without a hard line.
 ///
 /// Painted into a Foreground LayerId so it sits above the panel's
 /// fill but BELOW interactive widget content (egui draws panel
 /// chrome → our overlay → widget bg/fg → text).
 fn paint_holo_chrome_overlay(painter: &egui::Painter, rect: egui::Rect) {
-    // --- Gradient overlay -----------------------------------------------
     let top = egui::Color32::from_rgba_premultiplied(20, 60, 95, 36);
     let bot = egui::Color32::from_rgba_premultiplied(0, 0, 0, 0);
     let mut mesh = egui::Mesh::default();
@@ -134,20 +127,6 @@ fn paint_holo_chrome_overlay(painter: &egui::Painter, rect: egui::Rect) {
     mesh.add_triangle(i0, i0 + 1, i0 + 2);
     mesh.add_triangle(i0 + 1, i0 + 3, i0 + 2);
     painter.add(egui::Shape::mesh(mesh));
-
-    // --- Dot grid -------------------------------------------------------
-    const GRID: f32 = 14.0;
-    const RADIUS: f32 = 0.7;
-    let dot = egui::Color32::from_rgba_premultiplied(60, 160, 210, 22);
-    let mut x = rect.left() + 4.0;
-    while x < rect.right() {
-        let mut y = rect.top() + 4.0;
-        while y < rect.bottom() {
-            painter.circle_filled(egui::pos2(x, y), RADIUS, dot);
-            y += GRID;
-        }
-        x += GRID;
-    }
 }
 
 /// Single top-bar system. Reads counts from the sim, hands out
