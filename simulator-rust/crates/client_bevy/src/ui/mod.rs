@@ -1729,12 +1729,26 @@ fn markets_panel(
 // and food cells colour-code against their natural ranges so stressed
 // pops jump out.
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct PopulationsState {
     open: bool,
     sort: PopSort,
     descending: bool,
     filter: String,
+}
+
+impl Default for PopulationsState {
+    fn default() -> Self {
+        let auto_open = std::env::var("CLIENT_BEVY_OPEN_PANELS")
+            .map(|s| s.contains("pops") || s.contains("populations") || s == "all")
+            .unwrap_or(false);
+        Self {
+            open: auto_open,
+            sort: PopSort::default(),
+            descending: false,
+            filter: String::new(),
+        }
+    }
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
@@ -1849,10 +1863,14 @@ fn populations_panel(
                 egui::Grid::new("pops_grid")
                     .striped(true)
                     .num_columns(8)
-                    .spacing([12.0, 2.0])
+                    .spacing([12.0, 3.0])
                     .show(ui, |ui| {
                         pop_sort_header(ui, "Label", &mut sort, &mut descending, PopSort::Label);
-                        ui.label(egui::RichText::new("Demo").strong());
+                        ui.label(
+                            egui::RichText::new("Demo")
+                                .strong()
+                                .color(theme::TEXT_DIM),
+                        );
                         pop_sort_header(ui, "Location", &mut sort, &mut descending, PopSort::Location);
                         pop_sort_header(ui, "Count", &mut sort, &mut descending, PopSort::Count);
                         pop_sort_header(ui, "Sent", &mut sort, &mut descending, PopSort::Sentiment);
@@ -1863,20 +1881,34 @@ fn populations_panel(
 
                         for r in &filtered {
                             ui.label(&r.label);
-                            ui.label(&r.demographic);
-                            ui.label(&r.location);
-                            ui.label(format_int(r.count));
-                            ui.colored_label(sentiment_color(r.sentiment), format!("{}", r.sentiment));
-                            ui.colored_label(food_color(r.food), format!("{}", r.food));
-                            ui.label(format_credits(r.wealth));
+                            ui.label(egui::RichText::new(&r.demographic).color(theme::TEXT_DIM));
+                            ui.label(egui::RichText::new(&r.location).color(theme::TEXT_DIM));
+                            ui.label(egui::RichText::new(format_int(r.count)).monospace());
+                            ui.colored_label(
+                                sentiment_color(r.sentiment),
+                                egui::RichText::new(format!("{}", r.sentiment)).monospace(),
+                            );
+                            ui.colored_label(
+                                food_color(r.food),
+                                egui::RichText::new(format!("{}", r.food)).monospace(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format_credits(r.wealth)).monospace(),
+                            );
+                            // Migration pressure: DANGER ≥ 1.0 (likely
+                            // to migrate next tick), WARN ≥ 0.5
+                            // (stress building), TEXT_DIM otherwise.
                             let mig_color = if r.migration >= 1.0 {
-                                egui::Color32::from_rgb(240, 100, 90)
+                                theme::DANGER
                             } else if r.migration >= 0.5 {
-                                egui::Color32::from_rgb(230, 200, 90)
+                                theme::WARN
                             } else {
-                                egui::Color32::from_gray(200)
+                                theme::TEXT_DIM
                             };
-                            ui.colored_label(mig_color, format!("{:.2}", r.migration));
+                            ui.colored_label(
+                                mig_color,
+                                egui::RichText::new(format!("{:.2}", r.migration)).monospace(),
+                            );
                             ui.end_row();
                         }
                     });
@@ -1901,8 +1933,14 @@ fn pop_sort_header(
     } else {
         ""
     };
-    let text = egui::RichText::new(format!("{label}{arrow}")).strong();
-    if ui.button(text).clicked() {
+    // Mirror the other panels: PRIMARY tint when active sort,
+    // TEXT_DIM otherwise; frameless layout.
+    let active = *current == target;
+    let color = if active { theme::PRIMARY } else { theme::TEXT_DIM };
+    let text = egui::RichText::new(format!("{label}{arrow}"))
+        .strong()
+        .color(color);
+    if ui.add(egui::Button::new(text).frame(false)).clicked() {
         if *current == target {
             *descending = !*descending;
         } else {
@@ -1915,27 +1953,29 @@ fn pop_sort_header(
 }
 
 fn sentiment_color(s: i32) -> egui::Color32 {
+    // Pop sentiment: SUCCESS ≥ 50 (content), WARN ≥ 30 (drift),
+    // mid-band amber-ish below zero, DANGER strictly negative
+    // (migration / unrest territory). Two amber tiers so the curve
+    // is gentler than the binary status_color helper would give.
     if s >= 50 {
-        egui::Color32::from_rgb(120, 220, 120)
+        theme::SUCCESS
     } else if s >= 30 {
-        egui::Color32::from_rgb(230, 200, 90)
+        theme::WARN
     } else if s >= 0 {
+        // Halfway between WARN and DANGER for the "low but not yet
+        // crisis" band. Stays in the warm range rather than jumping
+        // straight to red.
         egui::Color32::from_rgb(230, 150, 100)
     } else {
-        egui::Color32::from_rgb(240, 100, 90)
+        theme::DANGER
     }
 }
 
 fn food_color(f: i32) -> egui::Color32 {
-    // Food sat scale is roughly 0..=100. <30 is the "emergency water"
-    // territory; >70 is the comfortable zone.
-    if f >= 70 {
-        egui::Color32::from_rgb(120, 220, 120)
-    } else if f >= 30 {
-        egui::Color32::from_rgb(230, 200, 90)
-    } else {
-        egui::Color32::from_rgb(240, 100, 90)
-    }
+    // Food sat scale is roughly 0..=100. <30 is "emergency water"
+    // territory; >70 is comfortable. Same SUCCESS / WARN / DANGER
+    // banding as the rest of the panels.
+    theme::status_color(f as f32, (70.0, 30.0))
 }
 
 fn format_int(n: i64) -> String {
@@ -3007,12 +3047,26 @@ fn facility_details_panel(
 // + morale, the strike counters that tipped them into auto-retirement,
 // the reason string, and the tick they retired at. Filter + sort.
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct RetirementsState {
     open: bool,
     sort: RetirementSort,
     descending: bool,
     filter: String,
+}
+
+impl Default for RetirementsState {
+    fn default() -> Self {
+        let auto_open = std::env::var("CLIENT_BEVY_OPEN_PANELS")
+            .map(|s| s.contains("retired") || s.contains("retirements") || s == "all")
+            .unwrap_or(false);
+        Self {
+            open: auto_open,
+            sort: RetirementSort::default(),
+            descending: false,
+            filter: String::new(),
+        }
+    }
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
@@ -3085,11 +3139,10 @@ fn retirements_panel(
                 egui::RichText::new(
                     "Snapshot of past decommissions. Newest-first by default. \
                      Loaded once at startup — new retirements during play \
-                     will appear after a restart (apply_ship_commands wiring \
-                     is deferred to Bundle 2b.4).",
+                     will appear after a restart.",
                 )
                 .small()
-                .color(egui::Color32::from_gray(150)),
+                .color(theme::TEXT_DIM),
             );
             ui.separator();
 
@@ -3097,7 +3150,7 @@ fn retirements_panel(
                 ui.label(
                     egui::RichText::new("(no retirements yet — fresh DB or no decommissions)")
                         .italics()
-                        .color(egui::Color32::from_gray(160)),
+                        .color(theme::TEXT_DIM),
                 );
                 return;
             }
@@ -3106,28 +3159,47 @@ fn retirements_panel(
                 egui::Grid::new("retirements_grid")
                     .striped(true)
                     .num_columns(8)
-                    .spacing([12.0, 2.0])
+                    .spacing([12.0, 3.0])
                     .show(ui, |ui| {
                         ret_sort_header(ui, "Tick", &mut sort, &mut descending, RetirementSort::Tick);
                         ret_sort_header(ui, "Name", &mut sort, &mut descending, RetirementSort::Name);
                         ret_sort_header(ui, "Class", &mut sort, &mut descending, RetirementSort::Class);
                         ret_sort_header(ui, "Faction", &mut sort, &mut descending, RetirementSort::Faction);
-                        ui.label(egui::RichText::new("Location").strong());
+                        ui.label(
+                            egui::RichText::new("Location")
+                                .strong()
+                                .color(theme::TEXT_DIM),
+                        );
                         ret_sort_header(ui, "Credits", &mut sort, &mut descending, RetirementSort::Credits);
-                        ui.label(egui::RichText::new("Morale / Fuel").strong());
+                        ui.label(
+                            egui::RichText::new("Morale / Fuel")
+                                .strong()
+                                .color(theme::TEXT_DIM),
+                        );
                         ret_sort_header(ui, "Reason", &mut sort, &mut descending, RetirementSort::Reason);
                         ui.end_row();
 
                         for r in &filtered {
-                            ui.label(format!("{}", r.retired_at_tick));
+                            ui.label(
+                                egui::RichText::new(format!("{}", r.retired_at_tick))
+                                    .monospace(),
+                            );
                             ui.label(&r.name);
-                            ui.label(&r.class);
-                            ui.label(&r.faction_id);
-                            ui.label(&r.final_location);
-                            ui.label(format_credits(r.final_credits));
-                            ui.label(format!("{} / {}", r.final_crew_morale, r.final_fuel_pct));
-                            let color = reason_color(&r.reason);
-                            ui.colored_label(color, &r.reason);
+                            ui.label(egui::RichText::new(&r.class).color(theme::TEXT_DIM));
+                            ui.label(egui::RichText::new(&r.faction_id).color(theme::TEXT_DIM));
+                            ui.label(egui::RichText::new(&r.final_location).color(theme::TEXT_DIM));
+                            ui.label(
+                                egui::RichText::new(format_credits(r.final_credits)).monospace(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} / {}",
+                                    r.final_crew_morale, r.final_fuel_pct
+                                ))
+                                .monospace()
+                                .color(theme::TEXT_DIM),
+                            );
+                            ui.colored_label(reason_color(&r.reason), &r.reason);
                             ui.end_row();
                         }
                     });
@@ -3152,8 +3224,12 @@ fn ret_sort_header(
     } else {
         ""
     };
-    let text = egui::RichText::new(format!("{label}{arrow}")).strong();
-    if ui.button(text).clicked() {
+    let active = *current == target;
+    let color = if active { theme::PRIMARY } else { theme::TEXT_DIM };
+    let text = egui::RichText::new(format!("{label}{arrow}"))
+        .strong()
+        .color(color);
+    if ui.add(egui::Button::new(text).frame(false)).clicked() {
         if *current == target {
             *descending = !*descending;
         } else {
@@ -3169,17 +3245,17 @@ fn ret_sort_header(
 }
 
 fn reason_color(reason: &str) -> egui::Color32 {
-    // Rough colouring against the known strike kinds. Anything else
-    // (admin deletes, future causes) renders neutral.
+    // Theme-mapped colouring against the known strike kinds.
+    // Anything else (future causes) renders neutral TEXT.
     let lc = reason.to_lowercase();
     if lc.contains("broke") {
-        egui::Color32::from_rgb(240, 100, 90)
+        theme::DANGER
     } else if lc.contains("hoard") {
-        egui::Color32::from_rgb(230, 200, 90)
+        theme::WARN
     } else if lc.contains("admin") {
-        egui::Color32::from_rgb(160, 160, 230)
+        theme::PRIMARY
     } else {
-        egui::Color32::from_gray(210)
+        theme::TEXT
     }
 }
 
@@ -3193,9 +3269,18 @@ fn reason_color(reason: &str) -> egui::Color32 {
 // facility render). Lists the commodity each delivery consumes and
 // the faction sponsoring the build.
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct ConstructionState {
     open: bool,
+}
+
+impl Default for ConstructionState {
+    fn default() -> Self {
+        let auto_open = std::env::var("CLIENT_BEVY_OPEN_PANELS")
+            .map(|s| s.contains("construction") || s == "all")
+            .unwrap_or(false);
+        Self { open: auto_open }
+    }
 }
 
 fn construction_panel(
@@ -3271,7 +3356,7 @@ fn construction_panel(
                      materialises into a real facility.",
                 )
                 .small()
-                .color(egui::Color32::from_gray(150)),
+                .color(theme::TEXT_DIM),
             );
             ui.separator();
 
@@ -3279,57 +3364,78 @@ fn construction_panel(
                 ui.label(
                     egui::RichText::new("(no construction sites)")
                         .italics()
-                        .color(egui::Color32::from_gray(160)),
+                        .color(theme::TEXT_DIM),
                 );
                 return;
             }
+
+            // Helper closure: dim caption column for the per-site
+            // grids. Same `key` pattern the perf panel uses.
+            let key = |s: &str| egui::RichText::new(s).color(theme::TEXT_DIM);
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for r in &rows {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(&r.name).strong());
-                            ui.separator();
                             ui.label(
                                 egui::RichText::new(format!("({})", r.facility_type))
-                                    .italics()
-                                    .color(egui::Color32::from_gray(170)),
+                                    .small()
+                                    .color(theme::TEXT_DIM),
                             );
-                            if ui.button("Focus").clicked() {
-                                let (x, y) = r.position;
-                                focus_req.0 = Some(Vec3::new(
-                                    x * SCALE_FACTOR,
-                                    0.0,
-                                    y * SCALE_FACTOR,
-                                ));
-                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("Focus").clicked() {
+                                        let (x, y) = r.position;
+                                        focus_req.0 = Some(Vec3::new(
+                                            x * SCALE_FACTOR,
+                                            0.0,
+                                            y * SCALE_FACTOR,
+                                        ));
+                                    }
+                                },
+                            );
                         });
                         egui::Grid::new(format!("site_grid_{}", r.id))
                             .num_columns(2)
                             .spacing([12.0, 2.0])
                             .show(ui, |ui| {
-                                ui.label("Faction");
+                                ui.label(key("Faction"));
                                 ui.label(&r.faction);
                                 ui.end_row();
-                                ui.label("Body / location");
+                                ui.label(key("Body / location"));
                                 ui.label(format!("{} · {}", r.body, r.location));
                                 ui.end_row();
-                                ui.label("Commodity");
+                                ui.label(key("Commodity"));
                                 ui.label(&r.commodity);
                                 ui.end_row();
-                                ui.label("Spawned at tick");
-                                ui.label(format!("{}", r.spawned_at));
+                                ui.label(key("Spawned at tick"));
+                                ui.label(
+                                    egui::RichText::new(format!("{}", r.spawned_at))
+                                        .monospace(),
+                                );
                                 ui.end_row();
                             });
+                        // Progress: SUCCESS once it crosses 50%, WARN
+                        // 25-50%, DANGER below — the early-stage sites
+                        // need attention to find a fulfilling ship.
+                        let pct = r.progress * 100.0;
+                        let bar_text = format!(
+                            "{} / {} ({}% — {} left)",
+                            r.delivered,
+                            r.required,
+                            pct as u32,
+                            r.remaining,
+                        );
                         ui.add(
                             egui::ProgressBar::new(r.progress)
-                                .text(format!(
-                                    "{} / {} ({}% — {} left)",
-                                    r.delivered,
-                                    r.required,
-                                    (r.progress * 100.0) as u32,
-                                    r.remaining,
-                                ))
+                                .text(
+                                    egui::RichText::new(bar_text)
+                                        .monospace()
+                                        .color(theme::status_color(pct, (50.0, 25.0))),
+                                )
+                                .fill(theme::status_color(pct, (50.0, 25.0)))
                                 .desired_width(f32::INFINITY),
                         );
                     });
