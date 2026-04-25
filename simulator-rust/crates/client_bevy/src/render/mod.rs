@@ -477,39 +477,6 @@ fn event_driven_flashes(
         return;
     }
 
-    // Skip the gate-position lookup build when nothing in the log
-    // is newer than our last high-water tick. Common steady-state
-    // when the user is paused or watching a quiet system. Saves
-    // two hecs query iterations per frame.
-    let any_new = events.0.iter().any(|(t, _)| *t > *last_tick);
-    if !any_new {
-        return;
-    }
-
-    // Build gate-location → body universe position lookup once per
-    // frame. Cheap at <30 gates.
-    let body_pos: std::collections::HashMap<String, (f32, f32)> = sim
-        .store
-        .world
-        .query::<(&BodyIdentity, &BodyOrbit)>()
-        .iter()
-        .map(|(_, (b, o))| (b.body_id.clone(), o.universe_position()))
-        .collect();
-    let mut gate_pos: std::collections::HashMap<String, (f32, f32)> =
-        std::collections::HashMap::new();
-    for (_, (id, loc)) in sim
-        .store
-        .world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
-        .iter()
-    {
-        if id.facility_type == "gate" {
-            if let Some(&p) = body_pos.get(&id.body_id) {
-                gate_pos.insert(loc.location_name.clone(), p);
-            }
-        }
-    }
-
     let spawn_flash = |commands: &mut Commands, x: f32, y: f32, label: &str| {
         let world = Vec3::new(x * SCALE_FACTOR, 0.5, y * SCALE_FACTOR);
         // ParticleEffectBundle bundles its own Transform +
@@ -525,7 +492,14 @@ fn event_driven_flashes(
         ));
     };
 
+    // Single pass over the events log: track high-water tick AND
+    // dispatch flashes inline. The gate-position lookup is built
+    // lazily on the FIRST ship_gate_jumped event seen this frame —
+    // in busy sims most ticks have no gate jumps even though the
+    // events log gets pushed every frame, so deferring saves the
+    // two hecs queries that earlier always-build versions cost.
     let mut new_high = *last_tick;
+    let mut gate_pos: Option<std::collections::HashMap<String, (f32, f32)>> = None;
     for (tick, ev) in events.0.iter() {
         if *tick <= *last_tick {
             continue;
@@ -535,21 +509,47 @@ fn event_driven_flashes(
         }
         match ev.get("kind").and_then(|k| k.as_str()) {
             Some("ship_gate_jumped") => {
+                if gate_pos.is_none() {
+                    let body_pos: std::collections::HashMap<String, (f32, f32)> = sim
+                        .store
+                        .world
+                        .query::<(&BodyIdentity, &BodyOrbit)>()
+                        .iter()
+                        .map(|(_, (b, o))| (b.body_id.clone(), o.universe_position()))
+                        .collect();
+                    let mut gp: std::collections::HashMap<String, (f32, f32)> =
+                        std::collections::HashMap::new();
+                    for (_, (id, loc)) in sim
+                        .store
+                        .world
+                        .query::<(&FacilityIdentity, &FacilityLocation)>()
+                        .iter()
+                    {
+                        if id.facility_type == "gate" {
+                            if let Some(&p) = body_pos.get(&id.body_id) {
+                                gp.insert(loc.location_name.clone(), p);
+                            }
+                        }
+                    }
+                    gate_pos = Some(gp);
+                }
+                let gp = gate_pos.as_ref().unwrap();
                 for key in &["src_gate", "dest_gate"] {
                     let Some(loc_name) = ev.get(*key).and_then(|s| s.as_str()) else {
                         continue;
                     };
-                    let Some(&(x, y)) = gate_pos.get(loc_name) else {
+                    let Some(&(x, y)) = gp.get(loc_name) else {
                         continue;
                     };
                     spawn_flash(&mut commands, x, y, loc_name);
                 }
             }
             Some("ship_spawned") => {
-                // Look up the new ship's position from the sim — the
-                // event's payload doesn't carry coordinates, just the
-                // agent_id. Reconcile_new_ships will materialise the
-                // Bevy entity later this frame; we don't need to wait.
+                // Look up the new ship's position from the sim —
+                // the event payload doesn't carry coordinates, just
+                // the agent_id. reconcile_new_ships will materialise
+                // the Bevy entity later this frame; we don't need to
+                // wait.
                 let Some(ship_id) = ev.get("id").and_then(|s| s.as_str()) else {
                     continue;
                 };
@@ -564,9 +564,9 @@ fn event_driven_flashes(
                 spawn_flash(&mut commands, x, y, ship_id);
             }
             Some("construction_completed") => {
-                // Construction-site materialisations carry an explicit
-                // (x, y) payload — pull straight off the event without
-                // having to consult the sim.
+                // Construction-site materialisations carry an
+                // explicit (x, y) payload — pull straight off the
+                // event without consulting the sim.
                 let pos = ev.get("position");
                 let x = pos.and_then(|p| p.get("x")).and_then(|v| v.as_f64());
                 let y = pos.and_then(|p| p.get("y")).and_then(|v| v.as_f64());
@@ -1845,6 +1845,22 @@ fn sync_engine_trails(
     if ships.is_empty() {
         return;
     }
+    // Build the per-ship lookup with ONE pass over the hecs world
+    // instead of one query_one per trail per frame. At 282 ships /
+    // 60 fps the previous shape was ~17k query_ones/sec just for
+    // the docked-at gate; that quietly dominated the particle
+    // system's frame cost. One world.query::<(ShipIdentity,
+    // ShipPosition)>() walks every ship once and stores
+    // (docked, sim_id) pairs into a HashMap keyed by string.
+    use sim_core::agents::ship::ShipIdentity;
+    let docked_by_id: std::collections::HashMap<String, bool> = sim
+        .store
+        .world
+        .query::<(&ShipIdentity, &ShipPosition)>()
+        .iter()
+        .map(|(_, (id, pos))| (id.id.clone(), pos.docked_at.is_some()))
+        .collect();
+
     // Stash both transform AND base_scale so the trail can size
     // itself per-ship: tiny couriers get a small trail, massive
     // haulers a big one. base_scale already factors SHIP_GLB_SCALE
@@ -1869,15 +1885,9 @@ fn sync_engine_trails(
         trail_xf.scale = Vec3::splat(size_mult.clamp(0.5, 4.0));
 
         // Engines-off when docked. Falls through to Visible if the
-        // sim entity lookup fails (better-than-nothing for racing
-        // spawns where the index hasn't caught up).
-        let docked = sim
-            .store
-            .ship_by_id
-            .get(&trail_for.0)
-            .and_then(|&e| sim.store.world.query_one::<&ShipPosition>(e).ok())
-            .and_then(|mut q| q.get().map(|p| p.docked_at.is_some()))
-            .unwrap_or(false);
+        // sim lookup fails (better-than-nothing for racing spawns
+        // where the index hasn't caught up).
+        let docked = docked_by_id.get(&trail_for.0).copied().unwrap_or(false);
         let want = if docked {
             Visibility::Hidden
         } else {
