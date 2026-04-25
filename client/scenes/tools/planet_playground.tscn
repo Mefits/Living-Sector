@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://pcb8ckaac7sx"]
-
-[ext_resource type="Script" uid="uid://cxdpcdkamrh0d" path="res://scripts/tools/planet_playground.gd" id="1"]
-
-[node name="PlanetPlayground" type="Node3D" unique_id=1185130066]
-script = ExtResource("1")

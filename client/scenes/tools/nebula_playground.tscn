@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://bwfbg8emkh52v"]
-
-[ext_resource type="Script" uid="uid://c0a8shxalof8n" path="res://scripts/tools/nebula_playground.gd" id="1"]
-
-[node name="NebulaPlayground" type="Node3D" unique_id=1111599654]
-script = ExtResource("1")
