@@ -57,8 +57,7 @@ impl Plugin for UiPlugin {
                     icons::install_image_loaders,
                     theme::apply_theme,
                     main_menu_panel.run_if(in_state(crate::AppState::MainMenu)),
-                    new_universe_dialog
-                        .run_if(in_state(crate::AppState::MainMenu)),
+                    new_universe_dialog.run_if(in_state(crate::AppState::MainMenu)),
                     options_panel,
                     save_list_panel,
                 ),
@@ -188,197 +187,206 @@ fn top_bar_controls(
     let resp_controls = egui::TopBottomPanel::top("top_bar_controls")
         .frame(holo_chrome_frame())
         .show(ctx.ctx_mut(), |ui| {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("spaceproject").strong());
-            ui.separator();
-            // Pause / play — icon-only square button. Hover surfaces
-            // the action text since the icon alone is unambiguous
-            // (▶ play, ⏸ pause).
-            let running = sim.running;
-            let pp_resp = ui
-                .add(egui::ImageButton::new(if running {
-                    icons::pause()
-                } else {
-                    icons::play()
-                }))
-                .on_hover_text(if running { "Pause" } else { "Play" });
-            if pp_resp.clicked() {
-                sim.running = !running;
-            }
-            let mut speed = sim.tick_mult.max(1);
-            egui::ComboBox::from_id_salt("sim_speed_combo")
-                .selected_text(format!("{}×", speed))
-                .show_ui(ui, |ui| {
-                    for &s in &[1u32, 2, 4, 8] {
-                        if ui
-                            .selectable_value(&mut speed, s, format!("{}×", s))
-                            .clicked()
-                        {
-                            sim.tick_mult = s;
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("spaceproject").strong());
+                ui.separator();
+                // Pause / play — icon-only square button. Hover surfaces
+                // the action text since the icon alone is unambiguous
+                // (▶ play, ⏸ pause).
+                let running = sim.running;
+                let pp_resp = ui
+                    .add(egui::ImageButton::new(if running {
+                        icons::pause()
+                    } else {
+                        icons::play()
+                    }))
+                    .on_hover_text(if running { "Pause" } else { "Play" });
+                if pp_resp.clicked() {
+                    sim.running = !running;
+                }
+                // UI labels are the pretty 1×/2×/5×/10× scale.
+                // Internally these ARE the tick_mult values that
+                // drive how many sim-tick iterations run per
+                // FixedUpdate. The "real" world-speed (0.25 ×
+                // tick_mult) is a code-internal anchor matching the
+                // Godot baseline; we don't surface it because the
+                // round numbers read better in-game.
+                let mut speed = sim.tick_mult.max(1);
+                egui::ComboBox::from_id_salt("sim_speed_combo")
+                    .selected_text(format!("{}×", speed))
+                    .show_ui(ui, |ui| {
+                        for &s in &[1u32, 2, 5, 10] {
+                            if ui
+                                .selectable_value(&mut speed, s, format!("{}×", s))
+                                .clicked()
+                            {
+                                sim.tick_mult = s;
+                            }
                         }
-                    }
-                })
-                .response
-                .on_hover_text(
-                    "Sim speed multiplier — tick_sim runs the tick body N× per \
-                     FixedUpdate. Higher = faster game time at the cost of frame \
-                     budget. 1× ≈ 8 ticks/sec real-time, 8× ≈ 64 ticks/sec.",
-                );
-            ui.separator();
-            ui.label(
-                egui::RichText::new(format!("tick {}", sim.tick))
-                    .monospace()
-                    .color(theme::TEXT_DIM),
-            )
-            .on_hover_text(
-                "Current sim tick. Each tick advances all agents one step \
-                 (planner, market, facility, etc). Default cadence is \
-                 8 ticks/sec × tick_mult.",
-            );
-            if !sim.running {
-                // Always-visible PAUSED chip so users glancing at the
-                // top bar see why nothing's moving — separate from
-                // the pause-menu overlay which only shows when Esc is
-                // pressed.
+                    })
+                    .response
+                    .on_hover_text(
+                        "Sim speed. 1× is the chill default (Earth–Mars ≈ 4 min); \
+                     10× fast-forwards for watching economic convergence. \
+                     Each step runs that many tick-loop iterations per \
+                     FixedUpdate.",
+                    );
+                ui.separator();
                 ui.label(
-                    egui::RichText::new("· PAUSED")
-                        .strong()
-                        .small()
-                        .color(theme::WARN),
-                );
-            }
-            ui.separator();
-            if ui
-                .add(egui::Button::image_and_text(icons::refresh(), "Reset view"))
-                .on_hover_text("Snap the camera back to the galactic overview starting pose.")
-                .clicked()
-            {
-                cam_reset.0 = true;
-            }
-            if ui
-                .add(egui::Button::image_and_text(icons::save(), "Save as…"))
+                    egui::RichText::new(format!("tick {}", sim.tick))
+                        .monospace()
+                        .color(theme::TEXT_DIM),
+                )
                 .on_hover_text(
-                    "Write a timestamped VACUUM INTO snapshot of sim.db next to \
+                    "Current sim tick. Each tick advances all agents one step \
+                 (planner, market, facility, etc). Cadence = 8 ticks/sec × \
+                 tick_mult; world-speed selector above maps that to a \
+                 user-facing 0.25×–2.5× scale.",
+                );
+                if !sim.running {
+                    // Always-visible PAUSED chip so users glancing at the
+                    // top bar see why nothing's moving — separate from
+                    // the pause-menu overlay which only shows when Esc is
+                    // pressed.
+                    ui.label(
+                        egui::RichText::new("· PAUSED")
+                            .strong()
+                            .small()
+                            .color(theme::WARN),
+                    );
+                }
+                ui.separator();
+                if ui
+                    .add(egui::Button::image_and_text(icons::refresh(), "Reset view"))
+                    .on_hover_text("Snap the camera back to the galactic overview starting pose.")
+                    .clicked()
+                {
+                    cam_reset.0 = true;
+                }
+                if ui
+                    .add(egui::Button::image_and_text(icons::save(), "Save as…"))
+                    .on_hover_text(
+                        "Write a timestamped VACUUM INTO snapshot of sim.db next to \
                      the current DB. Embedded client has no persistence worker \
                      yet, so the snapshot reflects the load tick rather than \
                      live state.",
-                )
-                .clicked()
-            {
-                save_req.0 = true;
-            }
-            ui.separator();
-            ui.label(egui::RichText::new("admin:").small().color(theme::TEXT_DIM));
-            if ui
-                .add(egui::Button::image_and_text(icons::add_ship(), "+Ship"))
-                .on_hover_text(
-                    "Open the Add Ship dialog — class / faction / location / \
+                    )
+                    .clicked()
+                {
+                    save_req.0 = true;
+                }
+                ui.separator();
+                ui.label(egui::RichText::new("admin:").small().color(theme::TEXT_DIM));
+                if ui
+                    .add(egui::Button::image_and_text(icons::add_ship(), "+Ship"))
+                    .on_hover_text(
+                        "Open the Add Ship dialog — class / faction / location / \
                      credits / name. Not persisted (embedded client has no \
                      worker yet).",
-                )
-                .clicked()
-            {
-                add_ship.open = !add_ship.open;
-            }
-            if ui
-                .add(egui::Button::image_and_text(icons::add_facility(), "+Fac"))
-                .on_hover_text(
-                    "Open the Add Facility dialog — type / body / faction / \
+                    )
+                    .clicked()
+                {
+                    add_ship.open = !add_ship.open;
+                }
+                if ui
+                    .add(egui::Button::image_and_text(icons::add_facility(), "+Fac"))
+                    .on_hover_text(
+                        "Open the Add Facility dialog — type / body / faction / \
                      docking capacity / credits. Not persisted yet.",
-                )
-                .clicked()
-            {
-                add_fac.open = !add_fac.open;
-            }
-            ui.separator();
-            // Menu button — opens the pause overlay (Save As / Options
-            // / Return to Main Menu / Quit). Mirrors the `P` shortcut.
-            // Esc still works the panel-stack flow first; this gives
-            // users a one-click escape to game-level controls.
-            if ui
-                .button("Menu")
-                .on_hover_text(
-                    "Open the pause menu (also `P`). Esc dismisses panels \
+                    )
+                    .clicked()
+                {
+                    add_fac.open = !add_fac.open;
+                }
+                ui.separator();
+                // Menu button — opens the pause overlay (Save As / Options
+                // / Return to Main Menu / Quit). Mirrors the `P` shortcut.
+                // Esc still works the panel-stack flow first; this gives
+                // users a one-click escape to game-level controls.
+                if ui
+                    .button("Menu")
+                    .on_hover_text(
+                        "Open the pause menu (also `P`). Esc dismisses panels \
                      one at a time before reaching the menu.",
-                )
-                .clicked()
-                && !menu.open
-            {
-                menu.open = true;
-                menu.was_running = sim.running;
-                sim.running = false;
-            }
-            // Help / hotkey reference. Tiny "?" button at the end of
-            // the controls row so the binding is discoverable
-            // without first reading docs.
-            if ui
-                .small_button("?")
-                .on_hover_text("Show keyboard + mouse hotkey reference (also `?` or `H`).")
-                .clicked()
-            {
-                help.open = !help.open;
-            }
+                    )
+                    .clicked()
+                    && !menu.open
+                {
+                    menu.open = true;
+                    menu.was_running = sim.running;
+                    sim.running = false;
+                }
+                // Help / hotkey reference. Tiny "?" button at the end of
+                // the controls row so the binding is discoverable
+                // without first reading docs.
+                if ui
+                    .small_button("?")
+                    .on_hover_text("Show keyboard + mouse hotkey reference (also `?` or `H`).")
+                    .clicked()
+                {
+                    help.open = !help.open;
+                }
 
-            // Selection / follow chips — surface state from the
-            // right-click context menu so users always have a way
-            // to back out without remembering keys. Right-aligned
-            // chain (rightmost first because of right_to_left
-            // layout): clear-selection + selection label, then
-            // unfollow + follow label.
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let any_selected = ship_sel.0.is_some() || fac_sel.0.is_some();
-                if any_selected {
-                    if ui
-                        .small_button("✕ Clear")
-                        .on_hover_text("Deselect the current ship / facility (Esc).")
-                        .clicked()
-                    {
-                        ship_sel.0 = None;
-                        fac_sel.0 = None;
-                    }
-                    let label = if let Some(ref id) = ship_sel.0 {
-                        format!("ship · {id}")
-                    } else if let Some(ref id) = fac_sel.0 {
-                        format!("facility · {id}")
-                    } else {
-                        String::new()
-                    };
-                    ui.label(
-                        egui::RichText::new(label)
-                            .small()
-                            .monospace()
-                            .color(theme::PRIMARY),
-                    );
-                }
-                if let Some(target) = follow.target.clone() {
-                    ui.separator();
-                    if ui
-                        .small_button("✕ Unfollow")
-                        .on_hover_text("Stop the camera-follow lock (or pan manually).")
-                        .clicked()
-                    {
-                        follow.target = None;
-                        follow.snap_distance = None;
-                        follow.mode = crate::camera::CameraFollowMode::default();
-                    }
-                    let label = match target {
-                        crate::camera::CameraFollowTarget::Ship(id) => {
-                            format!("◎ ship · {id}")
+                // Selection / follow chips — surface state from the
+                // right-click context menu so users always have a way
+                // to back out without remembering keys. Right-aligned
+                // chain (rightmost first because of right_to_left
+                // layout): clear-selection + selection label, then
+                // unfollow + follow label.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let any_selected = ship_sel.0.is_some() || fac_sel.0.is_some();
+                    if any_selected {
+                        if ui
+                            .small_button("✕ Clear")
+                            .on_hover_text("Deselect the current ship / facility (Esc).")
+                            .clicked()
+                        {
+                            ship_sel.0 = None;
+                            fac_sel.0 = None;
                         }
-                        crate::camera::CameraFollowTarget::Facility(id) => {
-                            format!("◎ facility · {id}")
+                        let label = if let Some(ref id) = ship_sel.0 {
+                            format!("ship · {id}")
+                        } else if let Some(ref id) = fac_sel.0 {
+                            format!("facility · {id}")
+                        } else {
+                            String::new()
+                        };
+                        ui.label(
+                            egui::RichText::new(label)
+                                .small()
+                                .monospace()
+                                .color(theme::PRIMARY),
+                        );
+                    }
+                    if let Some(target) = follow.target.clone() {
+                        ui.separator();
+                        if ui
+                            .small_button("✕ Unfollow")
+                            .on_hover_text("Stop the camera-follow lock (or pan manually).")
+                            .clicked()
+                        {
+                            follow.target = None;
+                            follow.snap_distance = None;
+                            follow.mode = crate::camera::CameraFollowMode::default();
                         }
-                    };
-                    ui.label(
-                        egui::RichText::new(label)
-                            .small()
-                            .monospace()
-                            .color(theme::SUCCESS),
-                    );
-                }
+                        let label = match target {
+                            crate::camera::CameraFollowTarget::Ship(id) => {
+                                format!("◎ ship · {id}")
+                            }
+                            crate::camera::CameraFollowTarget::Facility(id) => {
+                                format!("◎ facility · {id}")
+                            }
+                        };
+                        ui.label(
+                            egui::RichText::new(label)
+                                .small()
+                                .monospace()
+                                .color(theme::SUCCESS),
+                        );
+                    }
+                });
             });
         });
-    });
     // Holo-glass overlay (dot grid + vertical gradient) painted on
     // top of the panel fill. Foreground LayerId so it sits above
     // the chrome but underneath any popups / windows the panel
@@ -4777,7 +4785,9 @@ fn close_top_panel(
     mut add_ship: ResMut<AddShipDialogState>,
     mut add_facility: ResMut<AddFacilityDialogState>,
 ) {
-    let Some(kind) = close_req.0.take() else { return };
+    let Some(kind) = close_req.0.take() else {
+        return;
+    };
     match kind {
         PanelKind::Perf => perf.open = false,
         PanelKind::ShipList => ship_list.open = false,
@@ -5346,7 +5356,11 @@ fn help_panel(mut ctx: EguiContexts, mut help: ResMut<HelpState>) {
                     ui.label("");
                     ui.end_row();
                     row(ui, "Space", "Pause / resume the sim");
-                    row(ui, "Esc", "Close top open panel; opens pause menu when none");
+                    row(
+                        ui,
+                        "Esc",
+                        "Close top open panel; opens pause menu when none",
+                    );
                     row(ui, "P", "Open the pause menu directly");
                     ui.label(theme::section_header("Camera"));
                     ui.label("");
@@ -5409,7 +5423,7 @@ fn main_menu_panel(
             ui.vertical_centered(|ui| {
                 ui.add_space(8.0);
                 ui.label(
-                    egui::RichText::new("SPACE SIMULATOR")
+                    egui::RichText::new("The Space Project")
                         .size(32.0)
                         .strong()
                         .color(theme::PRIMARY),
@@ -5421,7 +5435,9 @@ fn main_menu_panel(
                     .add_sized(
                         btn_size,
                         egui::Button::new(
-                            egui::RichText::new("Start").size(16.0).color(theme::PRIMARY),
+                            egui::RichText::new("Start")
+                                .size(16.0)
+                                .color(theme::PRIMARY),
                         ),
                     )
                     .clicked()
@@ -5433,9 +5449,7 @@ fn main_menu_panel(
                 ui.add_space(4.0);
                 if ui
                     .add_sized(btn_size, egui::Button::new("Load Game"))
-                    .on_hover_text(
-                        "Browse the saves stored next to the binary.",
-                    )
+                    .on_hover_text("Browse the saves stored next to the binary.")
                     .clicked()
                 {
                     saves.open = true;
@@ -5452,9 +5466,7 @@ fn main_menu_panel(
                 if ui
                     .add_sized(
                         btn_size,
-                        egui::Button::new(
-                            egui::RichText::new("Quit").color(theme::DANGER),
-                        ),
+                        egui::Button::new(egui::RichText::new("Quit").color(theme::DANGER)),
                     )
                     .clicked()
                 {
@@ -5627,11 +5639,7 @@ fn new_universe_dialog(
             let collided = resolved_stem != sanitized;
             ui.add_space(2.0);
             ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("File:")
-                        .small()
-                        .color(theme::TEXT_DIM),
-                );
+                ui.label(egui::RichText::new("File:").small().color(theme::TEXT_DIM));
                 ui.label(
                     egui::RichText::new(format!("{resolved_stem}.db"))
                         .small()
@@ -5802,7 +5810,16 @@ fn days_to_ymd(mut days: i64) -> (i32, u32, u32) {
     let mdays: [i64; 12] = [
         31,
         if leap { 29 } else { 28 },
-        31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut m: usize = 0;
     while m < 12 && days >= mdays[m] {
@@ -5846,14 +5863,11 @@ fn save_list_panel(
         .show(ctx.ctx_mut(), |ui| {
             ui.horizontal(|ui| {
                 ui.label(theme::section_header("Save snapshots"));
-                ui.with_layout(
-                    egui::Layout::right_to_left(egui::Align::Center),
-                    |ui| {
-                        if ui.small_button("Refresh").clicked() {
-                            want_refresh = true;
-                        }
-                    },
-                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("Refresh").clicked() {
+                        want_refresh = true;
+                    }
+                });
             });
             ui.separator();
             if state.saves.is_empty() {
@@ -5901,12 +5915,9 @@ fn save_list_panel(
                                         .color(theme::TEXT_DIM),
                                 );
                                 ui.label(
-                                    egui::RichText::new(format!(
-                                        "{} KB",
-                                        save.size_kb
-                                    ))
-                                    .small()
-                                    .monospace(),
+                                    egui::RichText::new(format!("{} KB", save.size_kb))
+                                        .small()
+                                        .monospace(),
                                 );
                                 ui.horizontal(|ui| {
                                     if ui
@@ -5936,8 +5947,7 @@ fn save_list_panel(
                                     };
                                     if ui
                                         .small_button(
-                                            egui::RichText::new("Delete")
-                                                .color(theme::DANGER),
+                                            egui::RichText::new("Delete").color(theme::DANGER),
                                         )
                                         .on_hover_text(delete_hover)
                                         .clicked()
@@ -6054,12 +6064,10 @@ fn options_panel(
             ui.separator();
             ui.add_space(2.0);
             ui.label(
-                egui::RichText::new(
-                    "Music applies live; SFX applies on the next one-shot.",
-                )
-                .small()
-                .italics()
-                .color(theme::TEXT_DIM),
+                egui::RichText::new("Music applies live; SFX applies on the next one-shot.")
+                    .small()
+                    .italics()
+                    .color(theme::TEXT_DIM),
             );
         });
     state.open = open;

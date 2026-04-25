@@ -122,9 +122,28 @@ impl Plugin for RenderPlugin {
             // wait for `OnEnter(InGame)` so the title screen reads
             // as its own scene, not the world hiding behind a label.
             .add_systems(PostStartup, spawn_nebulae)
+            // Tick-position snapshot. Runs in FixedUpdate AFTER
+            // sim::tick_sim so the captured `curr` reflects the
+            // freshly-applied tick state. sync_positions / follow_
+            // facilities_to_bodies (in Update) lerp prev → curr by
+            // `Time::<Fixed>::overstep_fraction()` for smooth motion
+            // independent of sim cadence (8 tps × tick_mult).
+            .add_systems(
+                FixedUpdate,
+                snapshot_tick_positions
+                    .after(crate::sim::tick_sim)
+                    .run_if(in_state(crate::AppState::InGame)),
+            )
+            // `.after(load_world)` is critical: both crates schedule
+            // OnEnter(InGame) systems and Bevy gives no default
+            // ordering between them. Without the explicit dependency
+            // render's spawn pass would sometimes run before sim
+            // had populated the AgentStore, so bodies / suns came
+            // up empty until you bounced back to the main menu.
             .add_systems(
                 bevy::prelude::OnEnter(crate::AppState::InGame),
-                (spawn_mirror_entities, spawn_system_suns, reset_camera_for_game),
+                (spawn_mirror_entities, spawn_system_suns, reset_camera_for_game)
+                    .after(crate::sim::load_world),
             )
             .add_systems(
                 bevy::prelude::OnExit(crate::AppState::InGame),
@@ -667,6 +686,38 @@ pub struct BodyEntity {
     pub sim_id: String,
 }
 
+/// Per-entity tick interpolation buffer. Sim ticks at 8/sec
+/// (125 ms cadence) but render runs at 60+ fps; without
+/// interpolation positions snap on every tick boundary, producing
+/// the "stuttery" look at low world-speed multipliers. Each
+/// FixedUpdate after `tick_sim`, [`snapshot_tick_positions`]
+/// rolls `curr → prev` and stamps the new sim position into
+/// `curr`. [`sync_positions`] / [`follow_facilities_to_bodies`]
+/// lerp between the two using `Time::<Fixed>::overstep_fraction()`
+/// so motion is smooth at any render cadence. Coords are universe-
+/// space (`(f32, f32)` x/z), pre-`SCALE_FACTOR`. Attached to ships
+/// + bodies; facilities follow their bodies so they don't need
+/// their own buffer.
+#[derive(Component, Clone, Copy)]
+pub struct InterpPos {
+    prev: (f32, f32),
+    curr: (f32, f32),
+}
+
+impl InterpPos {
+    fn at(p: (f32, f32)) -> Self {
+        Self { prev: p, curr: p }
+    }
+
+    fn lerp(&self, alpha: f32) -> (f32, f32) {
+        let a = alpha.clamp(0.0, 1.0);
+        (
+            self.prev.0 + (self.curr.0 - self.prev.0) * a,
+            self.prev.1 + (self.curr.1 - self.prev.1) * a,
+        )
+    }
+}
+
 /// Shared body sphere + fallback material for the celestial-body
 /// renderer. Ships used to share a placeholder pool here too; that
 /// path was deleted in favour of authored GLBs (`ShipModels`).
@@ -857,6 +908,7 @@ fn spawn_mirror_entities(
                 sim_id: id.id.clone(),
                 base_scale,
             },
+            InterpPos::at((x, y)),
             GameWorld,
             Name::new(format!("Ship::{}", id.id)),
         ));
@@ -919,6 +971,7 @@ fn spawn_mirror_entities(
                     BodyEntity {
                         sim_id: id.body_id.clone(),
                     },
+                    InterpPos::at((x, y)),
                     GameWorld,
                     Name::new(format!("Body::{}", id.body_id)),
                 ))
@@ -935,6 +988,7 @@ fn spawn_mirror_entities(
                     BodyEntity {
                         sim_id: id.body_id.clone(),
                     },
+                    InterpPos::at((x, y)),
                     Tumble(cfg.tumble),
                     GameWorld,
                     Name::new(format!("Body::{}", id.body_id)),
@@ -980,6 +1034,7 @@ fn spawn_mirror_entities(
                 BodyEntity {
                     sim_id: id.body_id.clone(),
                 },
+                InterpPos::at((x, y)),
                 GameWorld,
                 Name::new(format!("Body::{}", id.body_id)),
             ))
@@ -1138,6 +1193,45 @@ struct FacilityLocationRef(pub String);
 /// budget even without optimisation. If perf ever complains the
 /// cure is caching the hecs Entity handle in the Bevy component so
 /// we skip the id→entity lookup.
+/// Roll `curr → prev` and read the freshly-ticked sim positions
+/// into `curr` for every interpolated entity. Runs in `FixedUpdate`
+/// after `tick_sim` so the snapshot reflects the just-applied tick
+/// state. Pair with [`sync_positions`] / [`follow_facilities_to_bodies`]
+/// which read both fields on every render frame and lerp between
+/// them using the fixed-update overstep.
+#[allow(clippy::type_complexity)]
+fn snapshot_tick_positions(
+    sim: Res<Sim>,
+    mut ships: Query<(&ShipEntity, &mut InterpPos), Without<BodyEntity>>,
+    mut bodies: Query<(&BodyEntity, &mut InterpPos), Without<ShipEntity>>,
+) {
+    let world = &sim.store.world;
+
+    let mut ship_query = world.query::<(&ShipIdentity, &ShipPosition)>();
+    let ship_pos: std::collections::HashMap<&str, (f32, f32)> = ship_query
+        .iter()
+        .map(|(_e, (id, p))| (id.id.as_str(), p.position))
+        .collect();
+    for (ship, mut interp) in ships.iter_mut() {
+        if let Some(&p) = ship_pos.get(ship.sim_id.as_str()) {
+            interp.prev = interp.curr;
+            interp.curr = p;
+        }
+    }
+
+    let mut body_query = world.query::<(&BodyIdentity, &BodyOrbit)>();
+    let body_pos: std::collections::HashMap<&str, (f32, f32)> = body_query
+        .iter()
+        .map(|(_e, (id, orbit))| (id.body_id.as_str(), orbit.universe_position()))
+        .collect();
+    for (body, mut interp) in bodies.iter_mut() {
+        if let Some(&p) = body_pos.get(body.sim_id.as_str()) {
+            interp.prev = interp.curr;
+            interp.curr = p;
+        }
+    }
+}
+
 // Bevy system-parameter query filters are idiomatically tuple-heavy
 // (exclusion between kinds). Clippy's `type_complexity` isn't a
 // useful signal for this shape — quiet it at the call site instead
@@ -1145,67 +1239,58 @@ struct FacilityLocationRef(pub String);
 #[allow(clippy::type_complexity)]
 fn sync_positions(
     sim: Res<Sim>,
-    mut ships: Query<(&ShipEntity, &mut Transform), Without<BodyEntity>>,
+    fixed: Res<Time<Fixed>>,
+    mut ships: Query<(&ShipEntity, &InterpPos, &mut Transform), Without<BodyEntity>>,
     mut bodies: Query<
-        (&BodyEntity, &mut Transform),
-        (Without<ShipEntity>, Without<FacilityEntity>),
+        (&InterpPos, &mut Transform),
+        (With<BodyEntity>, Without<ShipEntity>, Without<FacilityEntity>),
     >,
 ) {
+    let alpha = fixed.overstep_fraction();
     let world = &sim.store.world;
 
-    // Ship lookup keyed by &str so we don't clone 1604 Strings into
-    // a HashMap every render frame (was a hot allocation source at
-    // fleet scale on M1). Bind the QueryBorrow first so it lives
-    // long enough for the &str borrows to outlive the `collect`.
-    let mut ship_query = world.query::<(&ShipIdentity, &ShipPosition, &ShipTransit)>();
-    let ship_state: std::collections::HashMap<&str, ((f32, f32), Option<Vec3>)> = ship_query
+    // Heading lookup is still per-tick (we only update direction
+    // when the sim says transit data changed). No alloc on the
+    // headed-set for idle ships — ShipTransit's transit is None.
+    let mut ship_query = world.query::<(&ShipIdentity, &ShipTransit)>();
+    let ship_heading: std::collections::HashMap<&str, Option<Vec3>> = ship_query
         .iter()
-        .map(|(_e, (id, pos, transit))| {
+        .map(|(_e, (id, transit))| {
             let heading = transit.transit.as_ref().and_then(|t| {
                 let (dx, dy) = t.departure_position?;
-                let delta = Vec3::new(
-                    (pos.position.0 - dx) * SCALE_FACTOR,
-                    0.0,
-                    (pos.position.1 - dy) * SCALE_FACTOR,
-                );
-                if delta.length_squared() > 1e-6 {
-                    Some(delta.normalize())
-                } else {
-                    None
-                }
+                // Heading is end-of-transit minus start. Use the
+                // current InterpPos.curr later — read direction
+                // from the sim's current target so it doesn't
+                // wobble during the lerp toward each tick.
+                let _ = (dx, dy);
+                Some((dx, dy))
             });
-            (id.id.as_str(), (pos.position, heading))
+            (id.id.as_str(), heading.map(|(dx, dy)| Vec3::new(dx, 0.0, dy)))
         })
         .collect();
 
-    for (ship, mut xf) in ships.iter_mut() {
-        if let Some((pos, heading)) = ship_state.get(ship.sim_id.as_str()) {
-            xf.translation.x = pos.0 * SCALE_FACTOR;
-            xf.translation.z = pos.1 * SCALE_FACTOR;
-            if let Some(dir) = heading {
-                // Face travel direction. `+Z` is the ship's nose in
-                // local space (see elongated cuboid above). Rotation
-                // around Y only — ships stay level in galactic plane.
-                xf.rotation = Quat::from_rotation_y(dir.x.atan2(dir.z));
+    for (ship, interp, mut xf) in ships.iter_mut() {
+        let (x, z) = interp.lerp(alpha);
+        xf.translation.x = x * SCALE_FACTOR;
+        xf.translation.z = z * SCALE_FACTOR;
+        if let Some(Some(departure)) = ship_heading.get(ship.sim_id.as_str()) {
+            // Face travel direction (+Z is local nose). Compute
+            // from current curr-pos minus departure rather than
+            // the lerped value so heading stays stable during the
+            // fractional-tick interpolation.
+            let dx = interp.curr.0 - departure.x;
+            let dz = interp.curr.1 - departure.z;
+            if dx * dx + dz * dz > 1e-6 {
+                xf.rotation = Quat::from_rotation_y(dx.atan2(dz));
             }
-            // Docked / idle ships keep their last rotation so they
-            // don't snap back to identity when a transit ends.
         }
+        // Docked / idle ships keep their last rotation.
     }
 
-    // Body positions update slowly (orbits). 35 entries — keep
-    // &str keys for consistency with ships above.
-    let mut body_query = world.query::<(&BodyIdentity, &BodyOrbit)>();
-    let body_positions: std::collections::HashMap<&str, (f32, f32)> = body_query
-        .iter()
-        .map(|(_e, (id, orbit))| (id.body_id.as_str(), orbit.universe_position()))
-        .collect();
-
-    for (body, mut xf) in bodies.iter_mut() {
-        if let Some(&(x, y)) = body_positions.get(body.sim_id.as_str()) {
-            xf.translation.x = x * SCALE_FACTOR;
-            xf.translation.z = y * SCALE_FACTOR;
-        }
+    for (interp, mut xf) in bodies.iter_mut() {
+        let (x, z) = interp.lerp(alpha);
+        xf.translation.x = x * SCALE_FACTOR;
+        xf.translation.z = z * SCALE_FACTOR;
     }
 }
 
@@ -1219,18 +1304,24 @@ fn sync_positions(
 /// station, (b) aim ship transit arrivals. One source of truth for
 /// "where is the station?", so docked ships never drift away from
 /// their station and ships approaching always arrive on-station.
+#[allow(clippy::type_complexity)]
 fn follow_facilities_to_bodies(
-    sim: Res<Sim>,
+    fixed: Res<Time<Fixed>>,
+    bodies: Query<(&BodyEntity, &InterpPos), Without<FacilityEntity>>,
     mut facilities: Query<
         (&FacilityEntity, &mut Transform),
         (Without<ShipEntity>, Without<BodyEntity>),
     >,
 ) {
-    let world = &sim.store.world;
-    let mut body_query = world.query::<(&BodyIdentity, &BodyOrbit)>();
-    let body_positions: std::collections::HashMap<&str, (f32, f32)> = body_query
+    let alpha = fixed.overstep_fraction();
+    // Read body positions from InterpPos (universe coords, pre-
+    // SCALE_FACTOR) instead of the sim store. Same alpha as
+    // sync_positions so a station stays glued to its planet
+    // through the lerp — otherwise stations would orbit at the
+    // tick cadence while planets glided smoothly past them.
+    let body_positions: std::collections::HashMap<&str, (f32, f32)> = bodies
         .iter()
-        .map(|(_e, (id, orbit))| (id.body_id.as_str(), orbit.universe_position()))
+        .map(|(b, ip)| (b.sim_id.as_str(), ip.lerp(alpha)))
         .collect();
 
     for (fac, mut xf) in facilities.iter_mut() {
@@ -1716,6 +1807,7 @@ fn reconcile_new_ships(
                 sim_id: sim_id.clone(),
                 base_scale,
             },
+            InterpPos::at((x, y)),
             GameWorld,
             Name::new(format!("Ship::{sim_id}")),
         ));

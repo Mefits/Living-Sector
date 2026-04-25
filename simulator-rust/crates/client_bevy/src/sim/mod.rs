@@ -247,7 +247,7 @@ pub struct SelectedSavePath(pub Option<std::path::PathBuf>);
 /// and a user-picked save snapshot — letting different sessions
 /// boot from different worlds without restart. The save-list's
 /// Load button writes this resource before transitioning state.
-fn load_world(
+pub(crate) fn load_world(
     mut sim: ResMut<Sim>,
     mut retirements: ResMut<Retirements>,
     selected: Res<SelectedSavePath>,
@@ -381,7 +381,7 @@ fn teardown_world(
 /// chain. Bundle 2b.4 extracts `apply_ship_commands` + the other
 /// phase helpers into a shared `sim_engine` crate and wires the
 /// full tick in.
-fn tick_sim(
+pub(crate) fn tick_sim(
     mut sim: ResMut<Sim>,
     mut events_log: ResMut<EventsLog>,
     mut perf: ResMut<TickPerf>,
