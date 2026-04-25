@@ -201,6 +201,12 @@ pub fn build_asteroid_mesh(seed_int: u64, base_radius: f32, cfg: &AsteroidConfig
         }
     };
 
+    // Triangle winding: Bevy's default face culling treats CCW
+    // (viewed from outside) as front-facing. The Godot port had
+    // (v00, v10, v11) which gave inward normals in our coordinate
+    // basis — rocks rendered inside-out (back-face culling killed
+    // the outside, leaving the inside visible). Swapping to
+    // (v00, v11, v10) flips winding so normals point outward.
     for r in 0..rc {
         for s in 0..seg {
             let i00 = r * cols + s;
@@ -218,8 +224,8 @@ pub fn build_asteroid_mesh(seed_int: u64, base_radius: f32, cfg: &AsteroidConfig
                 &mut indices,
                 &mut next_idx,
                 v00,
-                v10,
                 v11,
+                v10,
             );
             push_tri(
                 &mut positions,
@@ -228,8 +234,8 @@ pub fn build_asteroid_mesh(seed_int: u64, base_radius: f32, cfg: &AsteroidConfig
                 &mut indices,
                 &mut next_idx,
                 v00,
-                v11,
                 v01,
+                v11,
             );
         }
     }
@@ -278,6 +284,163 @@ pub fn material_for_asteroid(cfg: &AsteroidConfig, body_id: &str) -> PlanetMater
         p.noise_octaves = 1;
     }
     PlanetMaterial { params: p }
+}
+
+/// Field-scatter layout: shell = 3D halo around a lead body
+/// (asteroid type), disc = flat orbital ring (belt type). Mirrors
+/// `AsteroidField._scatter_position` from the Godot side.
+#[derive(Copy, Clone, Debug)]
+pub enum FieldLayout {
+    Shell,
+    Disc,
+}
+
+/// One scattered baby rock in a field. Position is local to the
+/// parent body's transform; per-rock rotation + scale are random
+/// but seeded.
+#[derive(Clone, Debug)]
+pub struct FieldRock {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub scale: f32,
+    pub tumble: Vec3,
+}
+
+/// Build a deterministic scatter of baby rocks around a body.
+/// Mirrors `AsteroidField.setup` from the Godot client:
+///   - asteroid bodies: 14 rocks in a spherical shell, sized
+///     0.12..0.30 of the lead radius, kept clear of `inner` so
+///     they don't clip the lead silhouette.
+///   - belt bodies: 55 rocks in a disc with small Y jitter,
+///     sized 0.35..0.75 of the body radius. No `inner` clearance
+///     since belts have no lead.
+///
+/// Counts + size ranges + spread come from the Godot side at the
+/// orbital_body.gd call sites. Seeded from `body_id + "_field"`
+/// so layout is stable across runs.
+pub fn build_field(body_id: &str, body_type: &str, body_radius: f32) -> Vec<FieldRock> {
+    let (count, layout, spread, inner, size_range, thick) =
+        if matches!(body_type, "belt") {
+            (
+                55,
+                FieldLayout::Disc,
+                body_radius * 22.0,
+                0.0,
+                (body_radius * 0.35, body_radius * 0.75),
+                body_radius * 1.2,
+            )
+        } else {
+            (
+                14,
+                FieldLayout::Shell,
+                body_radius * 6.0,
+                body_radius * 1.8,
+                (body_radius * 0.12, body_radius * 0.30),
+                0.0,
+            )
+        };
+    let mut rng = LcgRng::new(field_seed(body_id));
+    (0..count)
+        .map(|_| {
+            let position = scatter_position(layout, inner, spread, thick, &mut rng);
+            let rotation = Quat::from_euler(
+                EulerRot::XYZ,
+                rng.next_f32() * std::f32::consts::TAU,
+                rng.next_f32() * std::f32::consts::TAU,
+                rng.next_f32() * std::f32::consts::TAU,
+            );
+            let scale = lerpf(size_range.0, size_range.1, rng.next_f32());
+            // Per-rock tumble axis-velocities so babies don't all
+            // spin together. Bias toward small rates — these are
+            // far away most of the time and big spins look weird.
+            let tumble = Vec3::new(
+                (rng.next_f32() - 0.5) * 0.3,
+                (rng.next_f32() - 0.5) * 0.3,
+                (rng.next_f32() - 0.5) * 0.3,
+            );
+            FieldRock {
+                position,
+                rotation,
+                scale,
+                tumble,
+            }
+        })
+        .collect()
+}
+
+fn lerpf(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+fn scatter_position(
+    layout: FieldLayout,
+    inner: f32,
+    spread: f32,
+    thick: f32,
+    rng: &mut LcgRng,
+) -> Vec3 {
+    match layout {
+        FieldLayout::Disc => {
+            // Uniform-area on a disc: r = spread * sqrt(u). Push
+            // anything inside `inner` out past the clear zone.
+            let u = rng.next_f32();
+            let mut r = u.sqrt() * spread;
+            if r < inner {
+                r = inner + rng.next_f32() * (spread - inner).max(0.0001);
+            }
+            let theta = rng.next_f32() * std::f32::consts::TAU;
+            let y = (rng.next_f32() - 0.5) * 2.0 * thick;
+            Vec3::new(r * theta.cos(), y, r * theta.sin())
+        }
+        FieldLayout::Shell => {
+            // Uniform-on-sphere via acos sampling. Linear-interp
+            // radius across the shell so rocks spread evenly
+            // rather than clumping at the outside.
+            let u = rng.next_f32();
+            let v = rng.next_f32();
+            let phi = (2.0 * v - 1.0).acos();
+            let theta = std::f32::consts::TAU * u;
+            let r = lerpf(inner.max(0.0001), spread, rng.next_f32());
+            let sp = phi.sin();
+            Vec3::new(r * sp * theta.cos(), r * phi.cos(), r * sp * theta.sin())
+        }
+    }
+}
+
+/// Tiny PRNG so we don't pull in `rand` here; LCG is fine for
+/// scatter positions where we don't care about cryptographic
+/// quality. Same seed → same field every run.
+struct LcgRng(u64);
+
+impl LcgRng {
+    fn new(seed: u64) -> Self {
+        Self(seed | 1)
+    }
+    fn next_u32(&mut self) -> u32 {
+        // Numerical Recipes constants. Step the state then take the
+        // upper 32 bits which have better distribution than lower.
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (self.0 >> 32) as u32
+    }
+    fn next_f32(&mut self) -> f32 {
+        (self.next_u32() as f32) / (u32::MAX as f32 + 1.0)
+    }
+}
+
+fn field_seed(body_id: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325 ^ 0xf1e1d_u64;
+    for b in body_id.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    for b in b"_field" {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
 }
 
 /// Seed → 3D offset for FBM domain. Same FNV hash pattern the rest

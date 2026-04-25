@@ -17,8 +17,14 @@ use crate::sim::Sim;
 use crate::ui::{SelectedFacility, SelectedShip};
 
 mod asteroid;
+mod nebula;
 mod planet;
-use asteroid::{build_asteroid_mesh, config_for_body as asteroid_config_for_body, material_for_asteroid, seed_for as asteroid_seed_for};
+use asteroid::{
+    build_asteroid_mesh, build_field as build_asteroid_field,
+    config_for_body as asteroid_config_for_body, material_for_asteroid, seed_for as asteroid_seed_for,
+    AsteroidConfig,
+};
+use nebula::{nebula_params, NebulaMaterial, NebulaMaterialPlugin};
 use planet::{
     cloud_for_body, params_for_body, rings_for_body, CloudMaterial, CloudMaterialPlugin,
     CloudParams, HaloMaterial, HaloMaterialPlugin, HaloParams, PlanetMaterial,
@@ -88,7 +94,12 @@ impl Plugin for RenderPlugin {
         // Asset bytes load asynchronously; SceneBundle just shows
         // an empty parent until the gltf streams in (typically a
         // frame or two on local disk).
-        app.add_plugins((PlanetMaterialPlugin, CloudMaterialPlugin, HaloMaterialPlugin))
+        app.add_plugins((
+                PlanetMaterialPlugin,
+                CloudMaterialPlugin,
+                HaloMaterialPlugin,
+                NebulaMaterialPlugin,
+            ))
             .init_resource::<ShipTrails>()
             .add_systems(Startup, load_station_models)
             .add_systems(
@@ -492,26 +503,82 @@ fn spawn_mirror_entities(
         let xf = Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR);
         let is_rock = matches!(id.body_type.as_str(), "asteroid" | "belt");
         if is_rock {
-            // Asteroid path: build a one-off mesh per body (cheap
-            // — there are <20 rocks total) and use PlanetMaterial
-            // with sea/poles/bands/emission disabled.
+            // Asteroid / belt path. Mirrors orbital_body.gd's
+            // split:
+            //   - asteroid: lead rock + 14-baby spherical-shell
+            //     halo around it.
+            //   - belt: no lead, 55-baby disc.
             let cfg = asteroid_config_for_body(&id.body_id, &biome.biome);
             let seed = asteroid_seed_for(&id.body_id);
-            let mesh = meshes.add(build_asteroid_mesh(seed, body_radius, &cfg));
-            let mat = planet_materials.add(material_for_asteroid(&cfg, &id.body_id));
-            commands.spawn((
-                MaterialMeshBundle::<PlanetMaterial> {
-                    mesh,
-                    material: mat,
-                    transform: xf,
-                    ..default()
-                },
-                BodyEntity {
-                    sim_id: id.body_id.clone(),
-                },
-                Tumble(cfg.tumble),
-                Name::new(format!("Body::{}", id.body_id)),
-            ));
+            let is_belt = id.body_type == "belt";
+
+            // Shared baby mesh + material — we spawn many entities
+            // but they all reference the same handles so Bevy's
+            // renderer batches them into one draw call. Smaller
+            // poly count than the lead since babies are far away.
+            let baby_mesh_handle = {
+                let baby_cfg = AsteroidConfig {
+                    radial_segments: 10,
+                    rings: 6,
+                    deformation: 0.45,
+                    deform_frequency: 1.8,
+                    deform_octaves: 2,
+                    ..cfg.clone()
+                };
+                meshes.add(build_asteroid_mesh(seed.wrapping_add(0xBABE), 1.0, &baby_cfg))
+            };
+            let baby_mat_handle =
+                planet_materials.add(material_for_asteroid(&cfg, &id.body_id));
+
+            // Parent: the body's transform anchor. For asteroid
+            // bodies the parent also carries the lead-rock mesh;
+            // for belt bodies the parent is just an empty
+            // SpatialBundle and only the children have geometry.
+            let mut parent_cmd = if is_belt {
+                commands.spawn((
+                    SpatialBundle::from_transform(xf),
+                    BodyEntity {
+                        sim_id: id.body_id.clone(),
+                    },
+                    Name::new(format!("Body::{}", id.body_id)),
+                ))
+            } else {
+                let lead_mesh = meshes.add(build_asteroid_mesh(seed, body_radius, &cfg));
+                let lead_mat = planet_materials.add(material_for_asteroid(&cfg, &id.body_id));
+                commands.spawn((
+                    MaterialMeshBundle::<PlanetMaterial> {
+                        mesh: lead_mesh,
+                        material: lead_mat,
+                        transform: xf,
+                        ..default()
+                    },
+                    BodyEntity {
+                        sim_id: id.body_id.clone(),
+                    },
+                    Tumble(cfg.tumble),
+                    Name::new(format!("Body::{}", id.body_id)),
+                ))
+            };
+
+            let field = build_asteroid_field(&id.body_id, &id.body_type, body_radius);
+            parent_cmd.with_children(|parent| {
+                for (idx, rock) in field.iter().enumerate() {
+                    let mut t = Transform::from_translation(rock.position);
+                    t.rotation = rock.rotation;
+                    t.scale = Vec3::splat(rock.scale);
+                    parent.spawn((
+                        MaterialMeshBundle::<PlanetMaterial> {
+                            mesh: baby_mesh_handle.clone(),
+                            material: baby_mat_handle.clone(),
+                            transform: t,
+                            ..default()
+                        },
+                        Tumble(rock.tumble),
+                        Name::new(format!("Rock::{}::{}", id.body_id, idx)),
+                    ));
+                }
+            });
+
             body_count += 1;
             continue;
         }
@@ -1035,29 +1102,36 @@ fn spawn_starfield(
     );
 }
 
-/// Number of nebula clouds. Kept small — each is a big translucent
-/// sphere; too many overlap into an opaque fog.
-const NEBULA_COUNT: usize = 14;
-
-/// Shell radius the nebula clouds sit at. Past the star shell
-/// (STAR_FIELD_RADIUS = 4000) so clouds read as deep-background
-/// volumes and can't occlude foreground bodies/ships.
-const NEBULA_FIELD_RADIUS: f32 = 45000.0;
-
-/// Per-cloud sphere radius range (min, max). At NEBULA_FIELD_RADIUS
-/// distance these still project to respectable backdrop blobs
-/// without dominating the scene.
-const NEBULA_RADIUS_RANGE: (f32, f32) = (200.0, 400.0);
+/// Number of nebula clouds. Capped at 10 (matches Godot
+/// nebula_field.gd) — extra grid cells exist as fallbacks when an
+/// inset-skipped cell wastes a slot, but only this many actually
+/// spawn.
+const NEBULA_COUNT: usize = 10;
 
 /// Paint a handful of translucent colored spheres around origin as
 /// nebula clouds, seeded off `Sim.world_seed`. Hues vary per-instance
 /// and per-seed so the same world shows the same clouds every boot
 /// but different worlds look distinct. Unlit emissive so the clouds
 /// don't darken behind bodies and stations.
+/// Per-axis Y depth + horizontal radius of the nebula backdrop
+/// field, plus inset radius around the camera focus that nebulae
+/// avoid. Matches Godot's `nebula_field.gd` constants
+/// (FIELD_Y / FIELD_Y_JITTER / FIELD_RADIUS_WORLD / INSET_RADIUS_WORLD)
+/// scaled up 10× for our SCALE_FACTOR=100 universe.
+const NEBULA_FIELD_Y: f32 = -2000.0;
+const NEBULA_FIELD_Y_JITTER: f32 = 600.0;
+const NEBULA_FIELD_HALF_EXTENT: f32 = 14000.0;
+const NEBULA_INSET_RADIUS: f32 = 1200.0;
+/// Per-nebula radius range. Big enough that distant clouds still
+/// subtend a visible angle from the play plane; small enough that
+/// neighbouring clouds don't overlap into a uniform haze.
+const NEBULA_RADIUS_MIN: f32 = 900.0;
+const NEBULA_RADIUS_MAX: f32 = 2200.0;
+
 fn spawn_nebulae(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut nebula_materials: ResMut<Assets<NebulaMaterial>>,
     sim: Res<Sim>,
 ) {
     use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -1067,61 +1141,101 @@ fn spawn_nebulae(
     let seed = sim.world_seed.wrapping_add(0xBADC0FFEE0DDF00Du64);
     let mut rng = StdRng::seed_from_u64(seed);
 
-    // Shared low-res sphere — nebulae are always soft blobs; poly
-    // count doesn't matter.
-    let mesh = meshes.add(Sphere::new(1.0));
+    // Jittered-grid cell list. Mirrors `_shuffled_cells` from
+    // nebula_field.gd: 4×3 grid across the field, Fisher-Yates
+    // shuffled with the seeded RNG so each save keeps the same
+    // distribution but different worlds get different layouts.
+    const GRID_COLS: usize = 4;
+    const GRID_ROWS: usize = 3;
+    let cell_w = (2.0 * NEBULA_FIELD_HALF_EXTENT) / GRID_COLS as f32;
+    let cell_h = (2.0 * NEBULA_FIELD_HALF_EXTENT) / GRID_ROWS as f32;
+    let mut cells: Vec<(f32, f32)> = (0..GRID_ROWS)
+        .flat_map(|row| {
+            (0..GRID_COLS).map(move |col| {
+                let cx = -NEBULA_FIELD_HALF_EXTENT + cell_w * (col as f32 + 0.5);
+                let cz = -NEBULA_FIELD_HALF_EXTENT + cell_h * (row as f32 + 0.5);
+                (cx, cz)
+            })
+        })
+        .collect();
+    // Fisher-Yates with our deterministic RNG.
+    for i in (1..cells.len()).rev() {
+        let j = rng.gen_range(0..=i);
+        cells.swap(i, j);
+    }
 
-    for _ in 0..NEBULA_COUNT {
-        // Pick a direction on the shell (same z-theta method as
-        // stars) and a middle-distance radius.
-        let z: f32 = rng.gen_range(-1.0..1.0);
-        let theta: f32 = rng.gen_range(0.0..std::f32::consts::TAU);
-        let r_xy = (1.0 - z * z).sqrt();
-        let dir = Vec3::new(r_xy * theta.cos(), z * 0.4, r_xy * theta.sin());
-        let distance = NEBULA_FIELD_RADIUS * rng.gen_range(0.7f32..1.0);
-        let pos = dir * distance;
+    // Shared low-poly sphere; the shader does the heavy lifting,
+    // so geometry detail doesn't matter.
+    let mesh = meshes.add(Sphere::new(1.0).mesh().ico(2).unwrap());
 
-        // Per-cloud radius + hue. Bias colours toward purples,
-        // teals, and dusty oranges — the classic "galaxy nebula"
-        // palette — rather than rainbow noise.
-        let radius = rng.gen_range(NEBULA_RADIUS_RANGE.0..NEBULA_RADIUS_RANGE.1);
-        let hue_roll: f32 = rng.gen_range(0.0f32..1.0);
-        let (r, g, b) = if hue_roll < 0.34 {
-            // purple/violet
-            (0.35, 0.22, 0.55)
-        } else if hue_roll < 0.67 {
-            // teal/cyan
-            (0.18, 0.40, 0.48)
-        } else {
-            // dusty orange
-            (0.55, 0.32, 0.20)
-        };
-        // Intensity + alpha tuned low — at NEBULA_FIELD_RADIUS
-        // distance these still read as visible colour gradients
-        // against pure black. Too high and a cloud becomes a
-        // foreground haze that blots out ships.
-        let intensity = rng.gen_range(0.10f32..0.22);
-        let mat = materials.add(StandardMaterial {
-            base_color: Color::srgba(r, g, b, 0.04),
-            emissive: LinearRgba::new(r, g, b, 1.0) * intensity,
-            unlit: true,
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        });
+    let mut placed: u32 = 0;
+    let inset_sq = NEBULA_INSET_RADIUS * NEBULA_INSET_RADIUS;
+    let limit = NEBULA_COUNT as u32;
+    for (cx, cz) in cells {
+        if placed >= limit {
+            break;
+        }
+        // Bounded jitter inside the cell, matching Godot's 0.35×
+        // half-cell range.
+        let jx = rng.gen_range(-cell_w * 0.35..cell_w * 0.35);
+        let jz = rng.gen_range(-cell_h * 0.35..cell_h * 0.35);
+        let x = cx + jx;
+        let z = cz + jz;
+        if x * x + z * z < inset_sq {
+            continue; // skip — too close to the camera focus
+        }
+        let y =
+            NEBULA_FIELD_Y + rng.gen_range(-NEBULA_FIELD_Y_JITTER..NEBULA_FIELD_Y_JITTER);
+        let pos = Vec3::new(x, y, z);
 
+        let radius = rng.gen_range(NEBULA_RADIUS_MIN..NEBULA_RADIUS_MAX);
+        // Per-axis shape: flattened Y so the cloud reads as a
+        // sheet rather than a perfect sphere.
+        let shape = Vec3::new(
+            rng.gen_range(0.8f32..1.6),
+            rng.gen_range(0.25f32..0.7),
+            rng.gen_range(0.8f32..1.6),
+        );
+
+        // Build per-cloud NebulaParams with Godot's randomised
+        // ranges. radial_falloff floor of 5.0 + density_threshold
+        // floor of 0.63 keeps the cloud volumetric instead of
+        // reading as a solid disc.
+        let mut params = nebula_params(placed, sim.world_seed);
+        params.density = rng.gen_range(0.7f32..1.3);
+        params.brightness = rng.gen_range(0.45f32..0.85);
+        params.noise_frequency = rng.gen_range(1.0f32..2.0);
+        params.noise_warp = rng.gen_range(0.5f32..1.1);
+        params.wisp_strength = rng.gen_range(0.5f32..1.1);
+        params.radial_falloff = rng.gen_range(5.0f32..6.5);
+        params.density_threshold = rng.gen_range(0.63f32..0.72);
+        params.color_mix_shift = rng.gen_range(0.35f32..0.65);
+        let mat = nebula_materials.add(NebulaMaterial { params });
+
+        let xf = Transform::from_translation(pos).with_scale(shape * radius);
+        // Glacial tumble — light-year-scale cloud shouldn't
+        // visibly rotate during a play session. Per-axis ±0.002
+        // rad/sec — full turn ≈ 50 minutes.
+        let tumble = Vec3::new(
+            rng.gen_range(-0.002f32..0.002),
+            rng.gen_range(-0.002f32..0.002),
+            rng.gen_range(-0.002f32..0.002),
+        );
         commands.spawn((
-            PbrBundle {
+            MaterialMeshBundle::<NebulaMaterial> {
                 mesh: mesh.clone(),
                 material: mat,
-                transform: Transform::from_translation(pos).with_scale(Vec3::splat(radius)),
+                transform: xf,
                 ..default()
             },
+            Tumble(tumble),
             Name::new("Nebula"),
         ));
+        placed += 1;
     }
     info!(
         "client_bevy: spawned {} nebula clouds (world_seed={})",
-        NEBULA_COUNT, sim.world_seed,
+        placed, sim.world_seed,
     );
 }
 
