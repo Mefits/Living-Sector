@@ -495,6 +495,12 @@ struct ShipRow {
     class: String,
     faction: String,
     location: String,
+    // Hover-tooltip fields. Read every frame for every ship — at
+    // 1604 ships × 3 numeric pulls each that's 4800 hash lookups,
+    // trivial vs the rest of UI cost.
+    credits: i64,
+    fuel_frac: f32,
+    goal: String,
 }
 
 /// Currently-selected ship, written by a click in the ship list and
@@ -510,7 +516,7 @@ fn ship_list(
     mut state: ResMut<ShipListState>,
     mut selected: ResMut<SelectedShip>,
 ) {
-    use sim_core::agents::ship::{ShipIdentity, ShipPosition};
+    use sim_core::agents::ship::{ShipAI, ShipEconomy, ShipFuel, ShipIdentity, ShipPosition};
 
     // Snapshot the mutable fields we'll need inside egui closures so
     // the borrow checker doesn't choke on overlapping mut refs into
@@ -527,9 +533,15 @@ fn ship_list(
     let rows: Vec<ShipRow> = sim
         .store
         .world
-        .query::<(&ShipIdentity, &ShipPosition)>()
+        .query::<(
+            &ShipIdentity,
+            &ShipPosition,
+            &ShipEconomy,
+            &ShipFuel,
+            &ShipAI,
+        )>()
         .iter()
-        .map(|(_e, (id, pos))| ShipRow {
+        .map(|(_e, (id, pos, econ, fuel, ai))| ShipRow {
             id: id.id.clone(),
             name: id.name.clone(),
             class: id.class.clone(),
@@ -538,6 +550,9 @@ fn ship_list(
                 .location_name
                 .clone()
                 .unwrap_or_else(|| "(in transit)".into()),
+            credits: econ.credits,
+            fuel_frac: fuel.fraction(),
+            goal: ai.current_goal.clone(),
         })
         .collect();
 
@@ -619,12 +634,27 @@ fn ship_list(
                             // column is the most natural thing to
                             // click anyway.
                             let is_sel = selected.0.as_deref() == Some(row.id.as_str());
-                            if ui.selectable_label(is_sel, &row.name).clicked() {
+                            // Build a tooltip with credits/fuel/goal —
+                            // quick-glance state without opening the
+                            // details panel. Uses the per-row pulls
+                            // from ShipEconomy/ShipFuel/ShipAI baked
+                            // into ShipRow.
+                            let tooltip = format!(
+                                "credits {}\nfuel {:.0}%\ngoal {}",
+                                row.credits,
+                                row.fuel_frac * 100.0,
+                                row.goal,
+                            );
+                            if ui
+                                .selectable_label(is_sel, &row.name)
+                                .on_hover_text(&tooltip)
+                                .clicked()
+                            {
                                 selected.0 = Some(row.id.clone());
                             }
-                            ui.label(&row.class);
-                            ui.label(&row.faction);
-                            ui.label(&row.location);
+                            ui.label(&row.class).on_hover_text(&tooltip);
+                            ui.label(&row.faction).on_hover_text(&tooltip);
+                            ui.label(&row.location).on_hover_text(&tooltip);
                             ui.end_row();
                         }
                     });
