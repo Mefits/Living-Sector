@@ -550,6 +550,21 @@ fn event_driven_flashes(
                 let (x, y) = pos.position;
                 spawn_flash(&mut commands, x, y, ship_id);
             }
+            Some("construction_completed") => {
+                // Construction-site materialisations carry an explicit
+                // (x, y) payload — pull straight off the event without
+                // having to consult the sim.
+                let pos = ev.get("position");
+                let x = pos.and_then(|p| p.get("x")).and_then(|v| v.as_f64());
+                let y = pos.and_then(|p| p.get("y")).and_then(|v| v.as_f64());
+                if let (Some(x), Some(y)) = (x, y) {
+                    let label = ev
+                        .get("facility_id")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("construction");
+                    spawn_flash(&mut commands, x as f32, y as f32, label);
+                }
+            }
             _ => {}
         }
     }
