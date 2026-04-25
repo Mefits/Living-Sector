@@ -171,9 +171,17 @@ impl ClickChain {
 
 /// Listen for left-mouse clicks that landed on egui chrome and play
 /// the next pentatonic-chain click variant. World clicks (raycasts
-/// for selection) DON'T fire — they aren't UI presses. Detection is
-/// `is_pointer_over_area()` true at the moment of `just_pressed`,
-/// which catches buttons / list rows / dropdowns / sliders.
+/// for selection) DON'T fire — they aren't UI presses.
+///
+/// Detection uses `wants_pointer_input()` rather than
+/// `is_pointer_over_area()`. The latter only registers floating
+/// Windows / Areas; clicks on TopBottomPanel chrome (the always-on
+/// top bar) returned false, so panel-toggle buttons up there were
+/// silent. `wants_pointer_input()` is true whenever egui claims the
+/// pointer for hover/drag/click — covers panels, windows, dropdown
+/// pop-ups, sliders, tooltips. The only false-positive is
+/// click-on-empty-panel-space, which is a rare-enough motion to
+/// trade for getting top bar clicks to chime.
 fn play_click_on_egui_press(
     mut ctx: bevy_egui::EguiContexts,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -185,7 +193,7 @@ fn play_click_on_egui_press(
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
-    if !ctx.ctx_mut().is_pointer_over_area() {
+    if !ctx.ctx_mut().wants_pointer_input() {
         return;
     }
     let step = chain.next_step();
