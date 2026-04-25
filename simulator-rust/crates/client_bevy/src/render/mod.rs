@@ -1922,6 +1922,7 @@ fn cleanup_stale_engine_trails(
 /// itself. Manual user pan in `orbit_camera_input` clears the follow
 /// target so muscle memory wins.
 fn apply_camera_follow(
+    time: Res<Time>,
     mut follow: ResMut<crate::camera::CameraFollow>,
     mut camera_q: Query<&mut crate::camera::OrbitCamera>,
     ships: Query<(&ShipEntity, &Transform)>,
@@ -1940,8 +1941,18 @@ fn apply_camera_follow(
             .map(|(_, xf)| xf.translation),
     };
     if let Some(t) = translation {
-        orbit.focus = t;
+        // Smooth follow: ease the focus toward the target so a fast
+        // ship doesn't yank the camera frame-to-frame. Time-aware
+        // exponential smoothing — 1 - exp(-rate*dt) — gives a
+        // framerate-independent settle time. RATE = 8 means ~12%
+        // closing per 16 ms frame, ~99% in ~580 ms; comfortable
+        // glide without feeling laggy.
+        const RATE: f32 = 8.0;
+        let alpha = 1.0 - (-RATE * time.delta_seconds()).exp();
+        orbit.focus = orbit.focus.lerp(t, alpha);
         if let Some(d) = follow.snap_distance.take() {
+            // Distance still snaps — POV / Follow want the user to
+            // see the size jump immediately, not glide through it.
             orbit.distance = d;
         }
     } else {
