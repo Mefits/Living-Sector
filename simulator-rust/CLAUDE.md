@@ -483,6 +483,11 @@ directly; zero marshalling between sim and render.
   Two overlay rows show ms with budget-aware colouring (red
   approaches 125 ms FixedUpdate cadence). Mirrors
   `sim_server.perf.tick_compute_*`.
+- **Bundle 3an**: ship-list hover tooltips. Each row's labels
+  show "credits N / fuel X% / goal Y" on hover — quick-glance
+  ship state without opening the details panel. ShipRow query
+  expands to pull ShipEconomy + ShipFuel + ShipAI per row; cost
+  is bounded by ship count which never blows up the UI loop.
 
 Deferred:
 - Async drains (PendingMaterialization / PendingDecommission /
