@@ -35,6 +35,7 @@ Set-Location $PSScriptRoot
 
 $AppName    = 'The Space Project'
 $AssetsSrc  = 'crates/client_bevy/assets'
+$DataSrc    = 'priv'
 $DistDir    = 'dist'
 $WinDirRel  = "windows/$AppName"
 $WinDir     = Join-Path $DistDir $WinDirRel
@@ -68,7 +69,7 @@ function Invoke-Native([string]$exe, [string[]]$argv) {
     }
 }
 
-function Ensure-RustupTarget([string]$triple) {
+function Install-RustupTarget([string]$triple) {
     $installed = & rustup target list --installed
     if ($installed -notcontains $triple) {
         Step "rustup target add $triple"
@@ -126,7 +127,7 @@ function Invoke-Verify {
 }
 
 function Invoke-BuildWin {
-    Ensure-RustupTarget $TargetWin
+    Install-RustupTarget $TargetWin
     Step "$Cargo build --release -p $Bin --target $TargetWin"
     Invoke-Native $Cargo @('build', '--release', '-p', $Bin, '--target', $TargetWin)
     Info "==> target\$TargetWin\release\$Bin.exe"
@@ -144,6 +145,12 @@ function Invoke-PackageWin {
 
     $assetsDst = Join-Path $WinDir 'assets'
     Copy-Item $AssetsSrc $assetsDst -Recurse
+
+    # priv/data/ holds the world/faction JSON the seeder reads on
+    # first boot. resolve_data_dir() walks up from the exe looking
+    # for `priv/`, so dropping it next to the binary is enough.
+    $privDst = Join-Path $WinDir 'priv'
+    Copy-Item $DataSrc $privDst -Recurse
 
     if (Test-Path $WinZip) { Remove-Item $WinZip -Force }
 

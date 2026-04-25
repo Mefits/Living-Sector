@@ -46,6 +46,11 @@ BIN          ?= client_bevy
 CARGO        ?= cargo
 WORKSPACE    := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 ASSETS_SRC   := crates/client_bevy/assets
+# priv/data/ holds the world/faction JSON the seeder reads on first
+# boot. resolve_data_dir() walks up from the exe looking for `priv/`,
+# so dropping it next to the binary is enough. Without this, packaged
+# builds boot with an empty DB.
+DATA_SRC     := priv
 DIST_DIR     := dist
 
 # Version: source of truth is the workspace [workspace.package]
@@ -179,6 +184,7 @@ package-mac: build-mac
 	@cp "target/$(TARGET_MAC_ARM)/release/$(BIN)" "$(APP_BUNDLE)/Contents/MacOS/$(BIN)"
 	@chmod +x "$(APP_BUNDLE)/Contents/MacOS/$(BIN)"
 	@cp -R "$(ASSETS_SRC)" "$(APP_BUNDLE)/Contents/MacOS/assets"
+	@cp -R "$(DATA_SRC)" "$(APP_BUNDLE)/Contents/MacOS/priv"
 	@$(MAKE) --no-print-directory _write-info-plist
 	@codesign --force --deep --sign - "$(APP_BUNDLE)"
 	@echo ""
@@ -196,6 +202,7 @@ package-mac-universal: build-mac-universal
 	@cp "target/universal-apple-darwin/release/$(BIN)" "$(APP_BUNDLE)/Contents/MacOS/$(BIN)"
 	@chmod +x "$(APP_BUNDLE)/Contents/MacOS/$(BIN)"
 	@cp -R "$(ASSETS_SRC)" "$(APP_BUNDLE)/Contents/MacOS/assets"
+	@cp -R "$(DATA_SRC)" "$(APP_BUNDLE)/Contents/MacOS/priv"
 	@$(MAKE) --no-print-directory _write-info-plist
 	@codesign --force --deep --sign - "$(APP_BUNDLE)"
 	@echo ""
@@ -259,6 +266,7 @@ package-win: build-win
 	@mkdir -p "$(WIN_DIR)"
 	@cp "target/$(TARGET_WIN)/release/$(BIN).exe" "$(WIN_DIR)/$(BIN).exe"
 	@cp -R "$(ASSETS_SRC)" "$(WIN_DIR)/assets"
+	@cp -R "$(DATA_SRC)" "$(WIN_DIR)/priv"
 	@rm -f "$(WIN_ZIP)"
 	@cd "$(DIST_DIR)/windows" && zip -rq "$(notdir $(WIN_ZIP))" "$(notdir $(WIN_DIR))"
 	@echo ""
@@ -271,6 +279,7 @@ package-linux: build-linux
 	@cp "target/$(TARGET_LINUX)/release/$(BIN)" "$(LINUX_DIR)/$(BIN)"
 	@chmod +x "$(LINUX_DIR)/$(BIN)"
 	@cp -R "$(ASSETS_SRC)" "$(LINUX_DIR)/assets"
+	@cp -R "$(DATA_SRC)" "$(LINUX_DIR)/priv"
 	@rm -f "$(LINUX_TGZ)"
 	@cd "$(DIST_DIR)/linux" && tar -czf "$(notdir $(LINUX_TGZ))" "$(notdir $(LINUX_DIR))"
 	@echo ""
