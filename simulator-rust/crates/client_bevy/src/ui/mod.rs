@@ -105,6 +105,7 @@ fn top_bar_controls(
     mut help: ResMut<HelpState>,
     mut ship_sel: ResMut<SelectedShip>,
     mut fac_sel: ResMut<SelectedFacility>,
+    mut follow: ResMut<crate::camera::CameraFollow>,
 ) {
     egui::TopBottomPanel::top("top_bar_controls").show(ctx.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
@@ -222,13 +223,12 @@ fn top_bar_controls(
                 help.open = !help.open;
             }
 
-            // Selection chip — when a ship or facility is selected
-            // somewhere, surface a clearable label here so the user
-            // doesn't have to remember Esc. Right-aligned so it lives
-            // at the end of the row regardless of how many panels
-            // are visible. Lives on top_bar_controls (not top_bar)
-            // because Bevy caps system param tuples at 16 and the
-            // panel-toggle row is at the limit.
+            // Selection / follow chips — surface state from the
+            // right-click context menu so users always have a way
+            // to back out without remembering keys. Right-aligned
+            // chain (rightmost first because of right_to_left
+            // layout): clear-selection + selection label, then
+            // unfollow + follow label.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let any_selected = ship_sel.0.is_some() || fac_sel.0.is_some();
                 if any_selected {
@@ -252,6 +252,31 @@ fn top_bar_controls(
                             .small()
                             .monospace()
                             .color(theme::PRIMARY),
+                    );
+                }
+                if let Some(target) = follow.target.clone() {
+                    ui.separator();
+                    if ui
+                        .small_button("✕ Unfollow")
+                        .on_hover_text("Stop the camera-follow lock (or pan manually).")
+                        .clicked()
+                    {
+                        follow.target = None;
+                        follow.snap_distance = None;
+                    }
+                    let label = match target {
+                        crate::camera::CameraFollowTarget::Ship(id) => {
+                            format!("◎ ship · {id}")
+                        }
+                        crate::camera::CameraFollowTarget::Facility(id) => {
+                            format!("◎ facility · {id}")
+                        }
+                    };
+                    ui.label(
+                        egui::RichText::new(label)
+                            .small()
+                            .monospace()
+                            .color(theme::SUCCESS),
                     );
                 }
             });
