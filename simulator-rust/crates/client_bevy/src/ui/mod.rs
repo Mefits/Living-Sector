@@ -4057,6 +4057,18 @@ impl Default for BodyLabelsState {
     }
 }
 
+/// Top-of-screen Y below which labels are allowed to render. Above
+/// this they'd overlap the always-on top-bar chrome. Bevy_egui's
+/// layer ordering doesn't actually push Background-ordered Areas
+/// below TopBottomPanels in practice (verified via screenshot in
+/// 4bg) — clipping by Y is the reliable fix.
+fn label_min_y(ctx: &egui::Context) -> f32 {
+    // available_rect() returns the central viewport — the region
+    // egui considers "free" after panels claim their bands. Its
+    // top edge is exactly the bottom of any top-anchored panels.
+    ctx.available_rect().top()
+}
+
 fn body_labels_panel(
     mut ctx: EguiContexts,
     state: Res<BodyLabelsState>,
@@ -4090,6 +4102,7 @@ fn body_labels_panel(
     // paint on top without eating clicks or blocking egui's
     // tooltip logic.
     let ctx = ctx.ctx_mut();
+    let min_y = label_min_y(ctx);
     egui::Area::new(egui::Id::new("body_labels_area"))
         .movable(false)
         .interactable(false)
@@ -4098,15 +4111,18 @@ fn body_labels_panel(
         .show(ctx, |ui| {
             let painter = ui.painter();
             for (name, pos) in entries {
-                // Skip bodies behind the camera. viewport_to_world's
-                // dual `world_to_viewport` returns None for off-screen
-                // or behind-camera — treat that as "don't draw".
+                // Skip bodies behind the camera. world_to_viewport
+                // returns None for off-screen or behind-camera —
+                // treat that as "don't draw".
                 let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
                     continue;
                 };
                 // Offset label a bit above the body so it doesn't
                 // occlude the sphere.
                 let anchor = egui::pos2(screen.x, screen.y - 12.0);
+                if anchor.y < min_y {
+                    continue;
+                }
                 painter.text(
                     anchor,
                     egui::Align2::CENTER_BOTTOM,
@@ -4167,6 +4183,7 @@ fn construction_labels_panel(
         .collect();
 
     let ctx = ctx.ctx_mut();
+    let min_y = label_min_y(ctx);
     egui::Area::new(egui::Id::new("construction_labels_area"))
         .movable(false)
         .interactable(false)
@@ -4178,8 +4195,12 @@ fn construction_labels_panel(
                 let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
                     continue;
                 };
+                let name_y = screen.y - 26.0;
+                if name_y < min_y {
+                    continue;
+                }
                 painter.text(
-                    egui::pos2(screen.x, screen.y - 26.0),
+                    egui::pos2(screen.x, name_y),
                     egui::Align2::CENTER_BOTTOM,
                     &name,
                     egui::FontId::proportional(11.0),
@@ -4247,6 +4268,7 @@ fn facility_labels_panel(
         .collect();
 
     let ctx = ctx.ctx_mut();
+    let min_y = label_min_y(ctx);
     egui::Area::new(egui::Id::new("facility_labels_area"))
         .movable(false)
         .interactable(false)
@@ -4258,8 +4280,12 @@ fn facility_labels_panel(
                 let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
                     continue;
                 };
+                let anchor = egui::pos2(screen.x, screen.y - 14.0);
+                if anchor.y < min_y {
+                    continue;
+                }
                 painter.text(
-                    egui::pos2(screen.x, screen.y - 14.0),
+                    anchor,
                     egui::Align2::CENTER_BOTTOM,
                     &name,
                     egui::FontId::proportional(10.0),
@@ -4306,6 +4332,7 @@ fn ship_labels_panel(
         .collect();
 
     let ctx = ctx.ctx_mut();
+    let min_y = label_min_y(ctx);
     egui::Area::new(egui::Id::new("ship_labels_area"))
         .movable(false)
         .interactable(false)
@@ -4317,8 +4344,12 @@ fn ship_labels_panel(
                 let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
                     continue;
                 };
+                let anchor = egui::pos2(screen.x, screen.y - 10.0);
+                if anchor.y < min_y {
+                    continue;
+                }
                 painter.text(
-                    egui::pos2(screen.x, screen.y - 10.0),
+                    anchor,
                     egui::Align2::CENTER_BOTTOM,
                     &name,
                     egui::FontId::proportional(10.0),
