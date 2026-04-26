@@ -878,22 +878,76 @@ fn resolve_db_path() -> String {
     })
 }
 
-/// Resolve `priv/data/` relative to the workspace root, same as
-/// `sim_server::resolve_data_dir` does.
+/// Resolve `priv/data/`.
+///
+/// Two layouts exist:
+///
+///   1. **Packaged build** (Mac .app bundle, Windows zip, Linux
+///      tarball, itch.io / Steam install): `priv/` sits right next
+///      to the binary in the same directory. Specifically the
+///      Makefile copies `priv/` into:
+///         - `dist/macos/<App>.app/Contents/MacOS/priv/`
+///         - `dist/windows/<App>/priv/`
+///         - `dist/linux/<App>/priv/`
+///      So `<exe_dir>/priv/data/` is the canonical packaged path.
+///
+///   2. **Cargo dev** (`cargo run -p client_bevy`): the binary
+///      lives at `target/{debug,release}/client_bevy`, so we have
+///      to walk up the directory tree looking for the workspace's
+///      `priv/` directory.
+///
+/// Order: env override → next to the exe → walk up. If none of
+/// them resolve a real `priv/data/` directory we still return the
+/// `<exe_dir>/priv/data` path (so callers get a stable error
+/// message in the logs) but log a loud warning so the failure is
+/// visible — earlier behaviour just walked to `/` and returned
+/// `/priv/data`, producing a confusing "No such file" deep inside
+/// the seeder.
 fn resolve_data_dir() -> PathBuf {
-    // Works when the binary is inside the workspace target directory
-    // (standard cargo layout).
-    let mut dir = std::env::current_exe()
+    if let Ok(env_path) = std::env::var("DATA_DIR") {
+        return PathBuf::from(env_path);
+    }
+    let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."));
-    while dir.parent().is_some() && !dir.join("priv").is_dir() {
+
+    // Layout 1: packaged build. priv/data sitting next to the exe.
+    let next_to_exe = exe_dir.join("priv").join("data");
+    if next_to_exe.is_dir() {
+        return next_to_exe;
+    }
+
+    // Layout 2: cargo dev. Walk up looking for `priv/`.
+    let mut dir = exe_dir.clone();
+    let mut hops = 0;
+    // Cap the walk at 8 levels so we don't accidentally stroll all
+    // the way to `/` and return `/priv/data` on a misconfigured
+    // host.
+    while hops < 8 && dir.parent().is_some() && !dir.join("priv").is_dir() {
         dir = match dir.parent() {
             Some(p) => p.to_path_buf(),
             None => break,
         };
+        hops += 1;
     }
-    dir.join("priv").join("data")
+    let walked = dir.join("priv").join("data");
+    if walked.is_dir() {
+        return walked;
+    }
+
+    // Neither layout resolved — log loudly so the seeder's
+    // downstream "No such file" error doesn't read like a mystery.
+    // Prefer the packaged path in the returned value: that's what
+    // the user can fix by dropping a `priv/` directory next to the
+    // binary, and matches what shipping installers ship anyway.
+    warn!(
+        "resolve_data_dir: no priv/data found next to exe ({}) \
+         or up to 8 levels above; world seed will fail. Set DATA_DIR \
+         to override.",
+        exe_dir.display()
+    );
+    next_to_exe
 }
 
 /// Consume a pending [`SaveAsRequest`] by opening a one-shot tokio
