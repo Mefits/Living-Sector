@@ -889,6 +889,7 @@ fn resolve_db_path() -> String {
 ///         - `dist/macos/<App>.app/Contents/MacOS/priv/`
 ///         - `dist/windows/<App>/priv/`
 ///         - `dist/linux/<App>/priv/`
+///
 ///      So `<exe_dir>/priv/data/` is the canonical packaged path.
 ///
 ///   2. **Cargo dev** (`cargo run -p client_bevy`): the binary

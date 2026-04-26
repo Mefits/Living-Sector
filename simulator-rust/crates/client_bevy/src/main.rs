@@ -20,10 +20,10 @@ mod sim;
 mod ui;
 
 /// Top-level app state. `MainMenu` is the title screen — sim is
-/// frozen, panels hidden, but the 3D scene (starfield + nebulas
-/// + bodies) keeps rendering as a backdrop. `InGame` is the
-/// running simulation with full UI. The Bevy `States` plumbing
-/// gates per-system runs via `.run_if(in_state(...))`.
+/// frozen, panels hidden, but the 3D scene (starfield + nebulas,
+/// bodies) keeps rendering as a backdrop. `InGame` is the running
+/// simulation with full UI. The Bevy `States` plumbing gates
+/// per-system runs via `.run_if(in_state(...))`.
 #[derive(States, Clone, Copy, Eq, PartialEq, Hash, Debug, Default)]
 pub enum AppState {
     #[default]

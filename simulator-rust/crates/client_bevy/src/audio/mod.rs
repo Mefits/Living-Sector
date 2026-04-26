@@ -183,16 +183,10 @@ fn load_sfx(asset_server: Res<AssetServer>, mut commands: Commands) {
 /// when the user pauses.
 const CLICK_CHAIN_WINDOW: Duration = Duration::from_millis(1200);
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct ClickChain {
     step: usize,
     last_click: Option<Instant>,
-}
-
-impl Default for ClickChain {
-    fn default() -> Self {
-        Self { step: 0, last_click: None }
-    }
 }
 
 impl ClickChain {

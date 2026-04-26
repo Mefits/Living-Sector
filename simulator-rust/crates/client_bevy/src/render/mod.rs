@@ -696,7 +696,7 @@ pub struct BodyEntity {
 /// lerp between the two using `Time::<Fixed>::overstep_fraction()`
 /// so motion is smooth at any render cadence. Coords are universe-
 /// space (`(f32, f32)` x/z), pre-`SCALE_FACTOR`. Attached to ships
-/// + bodies; facilities follow their bodies so they don't need
+/// and bodies; facilities follow their bodies so they don't need
 /// their own buffer.
 #[derive(Component, Clone, Copy)]
 pub struct InterpPos {

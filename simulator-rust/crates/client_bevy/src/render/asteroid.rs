@@ -483,7 +483,7 @@ fn colour_seed_offset(body_id: &str) -> Vec3 {
 // ---- CPU-side noise (mesh displacement only). The shader has its own. ----
 
 fn hash3(p: Vec3) -> f32 {
-    let h = (p.x * 12.9898 + p.y * 78.233 + p.z * 37.719).sin() * 43758.5453;
+    let h = (p.x * 12.9898 + p.y * 78.233 + p.z * 37.719).sin() * 43758.547;
     h - h.floor()
 }
 
