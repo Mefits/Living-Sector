@@ -100,7 +100,7 @@ fn start_music(
             AudioPlayer::<AudioSource>(asset_server.load(path)),
             PlaybackSettings {
                 mode: bevy::audio::PlaybackMode::Loop,
-                volume: bevy::audio::Volume::new(settings.music_volume),
+                volume: bevy::audio::Volume::Linear(settings.music_volume),
                 ..default()
             },
         ))
@@ -116,14 +116,14 @@ fn start_music(
 fn apply_music_volume(
     settings: Res<AudioSettings>,
     music: Res<MusicState>,
-    sinks: Query<&bevy::audio::AudioSink>,
+    mut sinks: Query<&mut bevy::audio::AudioSink>,
 ) {
     if !settings.is_changed() {
         return;
     }
     let Some(entity) = music.entity else { return };
-    let Ok(sink) = sinks.get(entity) else { return };
-    sink.set_volume(settings.music_volume);
+    let Ok(mut sink) = sinks.get_mut(entity) else { return };
+    sink.set_volume(bevy::audio::Volume::Linear(settings.music_volume));
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +242,7 @@ fn play_click_on_egui_press(
         AudioPlayer::<AudioSource>(sfx.click_steps[step].clone()),
         PlaybackSettings {
             mode: bevy::audio::PlaybackMode::Despawn,
-            volume: bevy::audio::Volume::new(0.35 * settings.sfx_volume),
+            volume: bevy::audio::Volume::Linear(0.35 * settings.sfx_volume),
             ..default()
         },
     ));
@@ -292,7 +292,7 @@ fn play_event_driven_sfx(
                     AudioPlayer::<AudioSource>(source),
                     PlaybackSettings {
                         mode: bevy::audio::PlaybackMode::Despawn,
-                        volume: bevy::audio::Volume::new(0.6 * settings.sfx_volume),
+                        volume: bevy::audio::Volume::Linear(0.6 * settings.sfx_volume),
                         ..default()
                     },
                 ));
@@ -302,7 +302,7 @@ fn play_event_driven_sfx(
                     AudioPlayer::<AudioSource>(sfx.gate_jump.clone()),
                     PlaybackSettings {
                         mode: bevy::audio::PlaybackMode::Despawn,
-                        volume: bevy::audio::Volume::new(0.4 * settings.sfx_volume),
+                        volume: bevy::audio::Volume::Linear(0.4 * settings.sfx_volume),
                         ..default()
                     },
                 ));

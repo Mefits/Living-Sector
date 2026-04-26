@@ -13,7 +13,7 @@
 //! focus) so we're not reading Transform and back-computing angles.
 
 use bevy::{
-    core_pipeline::bloom::BloomSettings,
+    core_pipeline::bloom::Bloom,
     input::{
         gestures::PinchGesture,
         mouse::{MouseMotion, MouseWheel},
@@ -165,16 +165,14 @@ fn spawn_orbit_camera(mut commands: Commands) {
     // post-process, a half-pixel spark paints several pixels of
     // colour — ships become visible at galactic zoom.
     commands.spawn((
-        Camera3dBundle {
-            camera: Camera {
-                hdr: true,
-                ..default()
-            },
-            transform: orbit.transform(),
-            projection,
+        Camera3d::default(),
+        Camera {
+            hdr: true,
             ..default()
         },
-        BloomSettings::NATURAL,
+        orbit.transform(),
+        projection,
+        Bloom::NATURAL,
         orbit,
         Name::new("OrbitCamera"),
     ));

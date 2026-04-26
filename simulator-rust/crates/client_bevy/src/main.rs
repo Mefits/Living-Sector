@@ -126,6 +126,7 @@ fn setup_scene(mut commands: Commands) {
     commands.insert_resource(AmbientLight {
         color: Color::srgb(0.2, 0.25, 0.35),
         brightness: 80.0,
+        affects_lightmapped_meshes: true,
     });
     info!("client_bevy: window up, sim embedded.");
 }

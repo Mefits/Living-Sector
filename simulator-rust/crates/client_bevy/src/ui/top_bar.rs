@@ -59,9 +59,12 @@ fn holo_chrome_frame() -> egui::Frame {
     egui::Frame {
         fill: theme::CHROME_BG,
         stroke: egui::Stroke::new(1.0, theme::PRIMARY_DIM),
-        inner_margin: egui::Margin::symmetric(8.0, 4.0),
+        // egui 0.31 (bevy_egui 0.34): Margin fields are i8 (was f32);
+        // Frame::rounding renamed to Frame::corner_radius and uses
+        // CornerRadius (not Rounding).
+        inner_margin: egui::Margin::symmetric(8, 4),
         outer_margin: egui::Margin::ZERO,
-        rounding: egui::Rounding::ZERO,
+        corner_radius: egui::CornerRadius::ZERO,
         shadow: egui::epaint::Shadow::NONE,
     }
 }
