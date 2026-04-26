@@ -80,13 +80,17 @@ pub fn ships() -> egui::Image<'static> {
 }
 
 pub fn contracts() -> egui::Image<'static> {
-    egui::Image::new(egui::include_image!("../../assets/icons/panels/contracts.svg"))
-        .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
+    egui::Image::new(egui::include_image!(
+        "../../assets/icons/panels/contracts.svg"
+    ))
+    .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
 }
 
 pub fn factions() -> egui::Image<'static> {
-    egui::Image::new(egui::include_image!("../../assets/icons/panels/factions.svg"))
-        .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
+    egui::Image::new(egui::include_image!(
+        "../../assets/icons/panels/factions.svg"
+    ))
+    .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
 }
 
 pub fn market() -> egui::Image<'static> {
@@ -110,25 +114,45 @@ pub fn events() -> egui::Image<'static> {
         .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
 }
 
+pub fn factory() -> egui::Image<'static> {
+    egui::Image::new(egui::include_image!(
+        "../../assets/icons/panels/factory.svg"
+    ))
+    .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
+}
+
+pub fn barrier() -> egui::Image<'static> {
+    egui::Image::new(egui::include_image!(
+        "../../assets/icons/panels/barrier.svg"
+    ))
+    .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
+}
+
 pub fn ledger() -> egui::Image<'static> {
     egui::Image::new(egui::include_image!("../../assets/icons/panels/ledger.svg"))
         .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
 }
 
 pub fn add_ship() -> egui::Image<'static> {
-    egui::Image::new(egui::include_image!("../../assets/icons/panels/add-ship.svg"))
-        .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
+    egui::Image::new(egui::include_image!(
+        "../../assets/icons/panels/add-ship.svg"
+    ))
+    .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
 }
 
 pub fn add_facility() -> egui::Image<'static> {
-    egui::Image::new(egui::include_image!("../../assets/icons/panels/add-facility.svg"))
-        .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
+    egui::Image::new(egui::include_image!(
+        "../../assets/icons/panels/add-facility.svg"
+    ))
+    .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
 }
 
 #[allow(dead_code)]
 pub fn destroy() -> egui::Image<'static> {
-    egui::Image::new(egui::include_image!("../../assets/icons/panels/destroy.svg"))
-        .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
+    egui::Image::new(egui::include_image!(
+        "../../assets/icons/panels/destroy.svg"
+    ))
+    .fit_to_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON))
 }
 
 /// One-shot system that registers the egui_extras image loaders

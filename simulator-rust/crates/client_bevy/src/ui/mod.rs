@@ -497,7 +497,7 @@ fn top_bar(
             }
             if icon_toggle_with_tip(
                 ui,
-                icons::ledger(),
+                icons::factory(),
                 "Facilities",
                 Some(sim.store.facility_by_id.len()),
                 facilities.open,
@@ -517,7 +517,7 @@ fn top_bar(
             }
             if icon_toggle_with_tip(
                 ui,
-                icons::ledger(),
+                icons::barrier(),
                 "Construction",
                 Some(construction_count),
                 construction.open,
@@ -4375,8 +4375,9 @@ fn ship_labels_panel(
     state: Res<BodyLabelsState>,
     sim: Res<Sim>,
     camera_q: Query<(&Camera, &GlobalTransform, &OrbitCamera), With<Camera3d>>,
+    ships_q: Query<(&crate::render::ShipEntity, &GlobalTransform)>,
 ) {
-    use sim_core::agents::ship::{ShipIdentity, ShipPosition};
+    use sim_core::agents::ship::ShipIdentity;
     if !state.show {
         return;
     }
@@ -4387,17 +4388,28 @@ fn ship_labels_panel(
         return;
     }
 
-    let entries: Vec<(String, Vec3)> = sim
+    // Read positions from each Bevy ship entity's `GlobalTransform`
+    // — that's already lerped between sim ticks by `sync_positions`
+    // (render/mod.rs) using `Time::<Fixed>::overstep_fraction()`.
+    // Querying `ShipPosition` from the hecs world here would yield
+    // the tick-quantized authoritative position, so labels would
+    // snap on every tick boundary while the ship meshes glide. The
+    // hecs world is consulted only for the display name.
+    let names: std::collections::HashMap<String, String> = sim
         .store
         .world
-        .query::<(&ShipIdentity, &ShipPosition)>()
+        .query::<&ShipIdentity>()
         .iter()
-        .map(|(_e, (id, pos))| {
-            let (x, y) = pos.position;
-            (
-                id.name.clone(),
-                Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
-            )
+        .map(|(_e, id)| (id.id.clone(), id.name.clone()))
+        .collect();
+
+    let entries: Vec<(String, Vec3)> = ships_q
+        .iter()
+        .filter_map(|(ship, xf)| {
+            names
+                .get(&ship.sim_id)
+                .cloned()
+                .map(|name| (name, xf.translation()))
         })
         .collect();
 
