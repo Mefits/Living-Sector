@@ -1,0 +1,7 @@
+[toolchain]
+# Pin a recent rustc so cargo always picks the rustup toolchain over
+# whatever Homebrew or distro packages happen to be on PATH first.
+# Bevy 0.18 / wgpu 27 / egui 0.34 require rustc ≥ 1.92 (1.95 is what
+# rustup ships at the time this was bumped).
+channel = "stable"
+components = ["rustfmt", "clippy"]
