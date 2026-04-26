@@ -6,7 +6,6 @@
 //! ship meshes come in Bundle 3.
 
 use bevy::prelude::*;
-use bevy_egui::EguiContexts;
 use bevy_hanabi::prelude::*;
 use sim_core::agents::{
     celestial_body::{BodyBiome, BodyIdentity, BodyOrbit},
@@ -15,7 +14,6 @@ use sim_core::agents::{
 };
 
 use crate::sim::Sim;
-use crate::ui::{SelectedFacility, SelectedShip};
 
 mod asteroid;
 mod nebula;
@@ -90,6 +88,8 @@ const GATE_SCALE: f32 = 0.075;
 pub(super) const SHIP_GLB_SCALE: f32 = 0.025;
 mod gizmos;
 mod particles;
+mod raycast;
+use raycast::{raycast_context_menu, raycast_select};
 use gizmos::{
     draw_construction_sites, draw_gate_rings, draw_orbit_rings, draw_selection_rings,
     draw_ship_trails, draw_transit_intent_lines, update_ship_trails, ShipTrails,
@@ -1476,169 +1476,6 @@ fn reconcile_new_ships(
     }
 }
 
-/// Screen-space radius (fraction of distance from camera) used as the
-/// ray-sphere hit threshold. At 1% of distance a clicked pixel picks
-/// anything within roughly 10 px at typical FOV — loose enough to be
-/// forgiving, tight enough to not pick through adjacent ships.
-const PICK_RADIUS_FRAC: f32 = 0.015;
-
-/// Left-click raycast against ship + facility render entities, sets
-/// the matching Selected* resource on hit. Skips when egui wants the
-/// pointer (so clicks on panel widgets don't fire a world pick) and
-/// when the click started on nothing (leaves selection unchanged —
-/// empty-clicks don't deselect, matching Godot's feel). Uses a
-/// screen-space-aware pick radius so the threshold doesn't become
-/// unusable when zoomed out.
-#[allow(clippy::too_many_arguments)]
-fn raycast_select(
-    buttons: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    ships: Query<(&ShipEntity, &Transform)>,
-    facilities: Query<(&FacilityEntity, &Transform)>,
-    mut selected_ship: ResMut<SelectedShip>,
-    mut selected_fac: ResMut<SelectedFacility>,
-    mut egui_ctx: EguiContexts,
-) {
-    if !buttons.just_pressed(MouseButton::Left) {
-        return;
-    }
-    // Skip world picks when the click is on an egui window.
-    if egui_ctx.ctx_mut().is_pointer_over_area() {
-        return;
-    }
-
-    let Ok(window) = windows.get_single() else {
-        return;
-    };
-    let Some(cursor) = window.cursor_position() else {
-        return;
-    };
-    let Ok((camera, cam_xf)) = cameras.get_single() else {
-        return;
-    };
-    let Some(ray) = camera.viewport_to_world(cam_xf, cursor) else {
-        return;
-    };
-
-    // Track best (smallest) depth across all candidates so we pick the
-    // nearest thing the ray touches.
-    enum Hit {
-        Ship(String),
-        Facility(String),
-    }
-    let mut best: Option<(f32, Hit)> = None;
-
-    for (ship, xf) in ships.iter() {
-        let center = xf.translation;
-        let dist = (center - ray.origin).length().max(1.0);
-        let r = dist * PICK_RADIUS_FRAC;
-        if let Some(depth) = ray_sphere_hit(&ray, center, r) {
-            if best.as_ref().is_none_or(|(d, _)| depth < *d) {
-                best = Some((depth, Hit::Ship(ship.sim_id.clone())));
-            }
-        }
-    }
-    for (fac, xf) in facilities.iter() {
-        let center = xf.translation;
-        let dist = (center - ray.origin).length().max(1.0);
-        // Facilities are visually bigger than ships, so widen the pick
-        // radius slightly in kind.
-        let r = dist * PICK_RADIUS_FRAC * 1.4;
-        if let Some(depth) = ray_sphere_hit(&ray, center, r) {
-            if best.as_ref().is_none_or(|(d, _)| depth < *d) {
-                best = Some((depth, Hit::Facility(fac.sim_id.clone())));
-            }
-        }
-    }
-
-    match best {
-        Some((_, Hit::Ship(id))) => {
-            selected_ship.0 = Some(id);
-            selected_fac.0 = None;
-        }
-        Some((_, Hit::Facility(id))) => {
-            selected_fac.0 = Some(id);
-            selected_ship.0 = None;
-        }
-        None => {
-            // Empty click — leave existing selection alone. Matches
-            // the Godot feel where clicking starry space doesn't
-            // deselect. Users close the details panel to deselect.
-        }
-    }
-}
-
-/// Right-click variant of [`raycast_select`]. Hits a ship or
-/// facility under the cursor → writes a `ContextMenuRequest` so the
-/// UI can render a popup at the screen position with action items
-/// (Inspect / Follow / POV / Destroy). Skips when egui owns the
-/// pointer so right-clicks on panels don't surface a world menu.
-fn raycast_context_menu(
-    buttons: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    ships: Query<(&ShipEntity, &Transform)>,
-    facilities: Query<(&FacilityEntity, &Transform)>,
-    mut menu_req: ResMut<crate::ui::ContextMenuRequest>,
-    mut egui_ctx: EguiContexts,
-) {
-    if !buttons.just_pressed(MouseButton::Right) {
-        return;
-    }
-    if egui_ctx.ctx_mut().is_pointer_over_area() {
-        return;
-    }
-    let Ok(window) = windows.get_single() else { return };
-    let Some(cursor) = window.cursor_position() else { return };
-    let Ok((camera, cam_xf)) = cameras.get_single() else { return };
-    let Some(ray) = camera.viewport_to_world(cam_xf, cursor) else {
-        return;
-    };
-
-    enum Hit {
-        Ship(String),
-        Facility(String),
-    }
-    let mut best: Option<(f32, Hit)> = None;
-    for (ship, xf) in ships.iter() {
-        let center = xf.translation;
-        let dist = (center - ray.origin).length().max(1.0);
-        let r = dist * PICK_RADIUS_FRAC;
-        if let Some(depth) = ray_sphere_hit(&ray, center, r) {
-            if best.as_ref().is_none_or(|(d, _)| depth < *d) {
-                best = Some((depth, Hit::Ship(ship.sim_id.clone())));
-            }
-        }
-    }
-    for (fac, xf) in facilities.iter() {
-        let center = xf.translation;
-        let dist = (center - ray.origin).length().max(1.0);
-        let r = dist * PICK_RADIUS_FRAC * 1.4;
-        if let Some(depth) = ray_sphere_hit(&ray, center, r) {
-            if best.as_ref().is_none_or(|(d, _)| depth < *d) {
-                best = Some((depth, Hit::Facility(fac.sim_id.clone())));
-            }
-        }
-    }
-
-    let target = match best {
-        Some((_, Hit::Ship(id))) => Some(crate::ui::ContextMenuTarget::Ship(id)),
-        Some((_, Hit::Facility(id))) => Some(crate::ui::ContextMenuTarget::Facility(id)),
-        None => return, // empty right-click leaves any open menu alone
-    };
-
-    *menu_req = crate::ui::ContextMenuRequest {
-        target,
-        screen_pos: Vec2::new(cursor.x, cursor.y),
-    };
-}
-
-/// Per-frame: copy each ship's world rotation onto its engine-trail
-/// sibling, plus translate aft by a small offset so the exhaust
-/// emitter sits behind the hull. Scale on the trail entity stays at
-/// 1 — the trail is NOT a child of the ship, so it isn't subject to
-/// SHIP_GLB_SCALE / size_multiplier shrinkage. Particle sizes set
 /// Read `CameraFollow` each frame; if a target is set, look up the
 /// matching ShipEntity / FacilityEntity Bevy transform and write its
 /// translation into `OrbitCamera.focus`. Optional one-shot
@@ -1779,23 +1616,4 @@ fn apply_camera_follow(
     }
 }
 
-/// Standard ray-sphere hit test. Returns the depth along the ray if
-/// the ray enters the sphere, None otherwise. We project the sphere
-/// centre onto the ray, then reject when the perpendicular distance
-/// exceeds the radius. "Behind camera" filtered via the early t<0.
-fn ray_sphere_hit(ray: &Ray3d, center: Vec3, radius: f32) -> Option<f32> {
-    let dir = ray.direction.as_vec3();
-    let to_center = center - ray.origin;
-    let t = to_center.dot(dir);
-    if t < 0.0 {
-        return None;
-    }
-    let closest = ray.origin + dir * t;
-    let perp2 = (center - closest).length_squared();
-    if perp2 <= radius * radius {
-        Some(t)
-    } else {
-        None
-    }
-}
 
