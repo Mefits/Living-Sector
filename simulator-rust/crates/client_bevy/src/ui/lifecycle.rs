@@ -99,7 +99,7 @@ pub(super) fn main_menu_panel(
     mut new_universe: ResMut<NewUniverseDialogState>,
     mut options: ResMut<OptionsState>,
     mut saves: ResMut<SaveListState>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     // Suppress the menu while any modal is up. Menu used Foreground
     // ordering so its buttons stayed visible above the 3D backdrop

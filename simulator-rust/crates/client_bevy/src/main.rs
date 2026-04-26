@@ -123,7 +123,9 @@ fn setup_scene(mut commands: Commands) {
     // on the shadow side without ambient fill. Dropped to 80 (was 200)
     // so ships + facilities don't wash out against the new black clear
     // color.
-    commands.insert_resource(AmbientLight {
+    // Bevy 0.18: AmbientLight is now a per-camera Component;
+    // the world-wide ambient lives on the GlobalAmbientLight Resource.
+    commands.insert_resource(bevy::light::GlobalAmbientLight {
         color: Color::srgb(0.2, 0.25, 0.35),
         brightness: 80.0,
         affects_lightmapped_meshes: true,

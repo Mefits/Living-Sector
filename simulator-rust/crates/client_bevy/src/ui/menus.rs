@@ -129,7 +129,7 @@ pub(super) fn pause_menu(
     mut help: ResMut<HelpState>,
     mut options: ResMut<OptionsState>,
     mut next_state: ResMut<NextState<crate::AppState>>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     if !menu.open {
         return;
