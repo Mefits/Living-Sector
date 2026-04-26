@@ -370,6 +370,7 @@ package-win: build-win
 	@cp "target/$(TARGET_WIN)/release/$(BIN).exe" "$(WIN_DIR)/$(BIN).exe"
 	@cp -R "$(ASSETS_SRC)" "$(WIN_DIR)/assets"
 	@cp -R "$(DATA_SRC)" "$(WIN_DIR)/priv"
+	@$(MAKE) --no-print-directory _strip_apple_metadata DIR="$(WIN_DIR)"
 	@rm -f "$(WIN_ZIP)"
 	@cd "$(DIST_DIR)/windows" && zip -rq "$(notdir $(WIN_ZIP))" "$(notdir $(WIN_DIR))"
 	@echo ""
@@ -387,11 +388,37 @@ _package-linux-tree:
 	@chmod +x "$(LINUX_DIR)/$(BIN)"
 	@cp -R "$(ASSETS_SRC)" "$(LINUX_DIR)/assets"
 	@cp -R "$(DATA_SRC)" "$(LINUX_DIR)/priv"
+	@$(MAKE) --no-print-directory _strip_apple_metadata DIR="$(LINUX_DIR)"
 	@rm -f "$(LINUX_TGZ)"
-	@cd "$(DIST_DIR)/linux" && tar -czf "$(notdir $(LINUX_TGZ))" "$(notdir $(LINUX_DIR))"
+	@cd "$(DIST_DIR)/linux" && COPYFILE_DISABLE=1 tar --no-xattrs -czf "$(notdir $(LINUX_TGZ))" "$(notdir $(LINUX_DIR))"
 	@echo ""
 	@echo "==> $(LINUX_DIR)/"
 	@echo "==> $(LINUX_TGZ)"
+
+# Strip macOS metadata files from a staged dist dir before archiving.
+#
+# When the build host is macOS, `cp -R` brings in resource-fork
+# metadata as `._foo` AppleDouble files. macOS handles them
+# transparently in Finder, but on Linux / SteamOS / Windows they show
+# up as separate files in the extracted archive. The seeder iterates
+# `priv/data/worlds/*.json` purely by extension, so it tries to parse
+# `._barnard.json` as JSON, fails on the first byte (binary
+# AppleDouble header), and aborts the world load with a confusing
+# "reading <path>/._barnard.json" error.
+#
+# Hit observed on a SteamOS install in production. Belt-and-braces fix:
+#   - Strip the files from the staging dir BEFORE archiving (this rule).
+#   - `COPYFILE_DISABLE=1 tar --no-xattrs` on the tar call so any new
+#     ones don't get re-added during compression on macOS hosts.
+#   - Defensive filter in the seeder (sim_db) skips `._*` and `_*` /
+#     `.*` filenames even if they slip through.
+#
+# Argument: `DIR=<path>` — root to scan. Used by package-win + the
+# linux tree builder.
+.PHONY: _strip_apple_metadata
+_strip_apple_metadata:
+	@if [ -z "$(DIR)" ]; then echo "_strip_apple_metadata: DIR is required"; exit 1; fi
+	@find "$(DIR)" \( -name "._*" -o -name ".DS_Store" -o -name ".AppleDouble" \) -delete 2>/dev/null || true
 
 package-linux: build-linux _package-linux-tree
 

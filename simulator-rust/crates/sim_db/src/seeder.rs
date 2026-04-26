@@ -23,10 +23,32 @@ pub async fn seed_all(pool: &SqlitePool, data_dir: &std::path::Path) -> Result<(
         .with_context(|| format!("reading worlds dir: {}", worlds_dir.display()))?
     {
         let path = entry?.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            info!("Seeder: loading world {}", path.display());
-            seed_world(pool, &path).await?;
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
         }
+        // Skip junk filenames that can sneak into release archives:
+        //   * `._foo.json` — macOS AppleDouble metadata, created by
+        //     `tar` on Mac unless `COPYFILE_DISABLE=1` is set. They
+        //     have a `.json` extension but contain a 4KB binary
+        //     resource-fork header that fails JSON parsing on the
+        //     first byte. SteamOS install observed in production
+        //     bombing on `._barnard.json` because the seeder tried
+        //     to parse this metadata file.
+        //   * `_foo.json` / `.foo.json` — hidden / scratch files
+        //     editors leave behind. Same parse-failure outcome.
+        // The official world JSONs all start with a letter, so this
+        // filter has no false positives on legitimate seeds.
+        let name_starts_invalid = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.starts_with('.') || n.starts_with('_'))
+            .unwrap_or(false);
+        if name_starts_invalid {
+            tracing::debug!("Seeder: skipping non-canonical entry {}", path.display());
+            continue;
+        }
+        info!("Seeder: loading world {}", path.display());
+        seed_world(pool, &path).await?;
     }
     info!("Seeder: complete");
     Ok(())
