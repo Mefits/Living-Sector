@@ -6,7 +6,7 @@
 //! ship meshes come in Bundle 3.
 
 use bevy::prelude::*;
-// bevy_hanabi temporarily disabled — see render::particles stub.
+use bevy_hanabi::prelude::*;
 use sim_core::agents::{
     celestial_body::{BodyBiome, BodyIdentity, BodyOrbit},
     facility::{FacilityIdentity, FacilityLocation},
@@ -116,7 +116,7 @@ impl Plugin for RenderPlugin {
                 HaloMaterialPlugin,
                 NebulaMaterialPlugin,
                 StarfieldPlugin,
-                // HanabiPlugin temporarily disabled — see particles stub.
+                HanabiPlugin,
             ))
             .init_resource::<ShipTrails>()
             .add_systems(
@@ -555,9 +555,16 @@ fn spawn_mirror_entities(
         // glues its transform to the ship each frame. Skipped when
         // hanabi is disabled (debug build for the macOS GPU-stall
         // investigation).
-        // Engine-trail spawn skipped — hanabi disabled during the
-        // Bevy 0.14 → 0.18 upgrade. Re-enabled in particles.rs.
-        let _ = engine_trail;
+        if let Some(ref engine_trail) = engine_trail {
+            // ParticleEffect is the leaf component; Transform +
+            // Visibility get auto-inserted via Required Components.
+            commands.spawn((
+                ParticleEffect::new(engine_trail.0.clone()),
+                EngineTrailFor(id.id.clone()),
+                GameWorld,
+                Name::new(format!("EngineTrail::{}", id.id)),
+            ));
+        }
         commands.spawn((
             SceneRoot(ships.for_class(&id.class)),
             Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
@@ -1297,9 +1304,17 @@ fn cleanup_stale_ships(
             // Spawn a one-shot explosion at the ship's last known
             // position before we yank the entity. ExplosionLifetime
             // timer cleans up the particle entity 1.5 s later.
-            // Explosion spawn skipped — hanabi disabled during the
-            // Bevy 0.14 → 0.18 upgrade.
-            let _ = (&explosion, &xf);
+            if let Some(ref ex) = explosion {
+                // ParticleEffect is the leaf; spawn it alongside an
+                // explicit Transform so we can place it at the
+                // doomed ship's last known position.
+                commands.spawn((
+                    ParticleEffect::new(ex.0.clone()),
+                    Transform::from_translation(xf.translation),
+                    ExplosionLifetime(Timer::from_seconds(1.5, TimerMode::Once)),
+                    Name::new(format!("Explosion::{}", ship.sim_id)),
+                ));
+            }
             commands.entity(e).despawn();
         }
     }
@@ -1384,13 +1399,11 @@ fn reconcile_new_ships(
     mut commands: Commands,
     sim: Res<Sim>,
     ship_models: Option<Res<ShipModels>>,
-    // Engine trail param kept so the system signature is stable for
-    // when hanabi is re-enabled. Currently a no-op.
     engine_trail: Option<Res<EngineTrailEffect>>,
     ships: Query<&ShipEntity>,
 ) {
     let Some(ship_models) = ship_models else { return };
-    let _ = engine_trail;
+    let Some(engine_trail) = engine_trail else { return };
     // Build set of known sim_ids as &str — avoids 1604 String
     // allocations every render frame (was a hot allocation source
     // at fleet scale on M1).
@@ -1410,8 +1423,12 @@ fn reconcile_new_ships(
         let Some((id, pos)) = q.get() else { continue };
         let (x, y) = pos.position;
         let base_scale = SHIP_GLB_SCALE * ship_size_multiplier(id.size);
-        // Engine-trail spawn skipped — hanabi disabled during the
-        // Bevy 0.14 → 0.18 upgrade.
+        commands.spawn((
+            ParticleEffect::new(engine_trail.0.clone()),
+            EngineTrailFor(sim_id.clone()),
+            GameWorld,
+            Name::new(format!("EngineTrail::{sim_id}")),
+        ));
         commands.spawn((
             SceneRoot(ship_models.for_class(&id.class)),
             Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
