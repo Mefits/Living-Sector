@@ -66,14 +66,15 @@ pub(super) fn draw_construction_sites(sim: Res<Sim>, mut gizmos: Gizmos) {
     // with the inner progress arc.
     let outer = Color::srgba(0.45, 0.85, 0.55, 0.55);
     let inner = Color::srgba(0.6, 1.0, 0.75, 0.95);
-    let normal = Dir3::Y;
 
     for (_e, site) in world.query::<&ConstructionSite>().iter() {
         let (x, y) = site.position;
         let center = Vec3::new(x * SCALE_FACTOR, 0.4, y * SCALE_FACTOR);
-        // Outer scaffold ring — constant radius.
+        // Outer scaffold ring — constant radius. Bevy 0.15+ Gizmos
+        // takes an Isometry3d; the default rotation puts the circle
+        // in the XZ plane (matches old `normal = Dir3::Y` behaviour).
         gizmos
-            .circle(center, normal, SITE_OUTER_RADIUS, outer)
+            .circle(Isometry3d::from_translation(center), SITE_OUTER_RADIUS, outer)
             .resolution(48);
         // Crosshair tick-marks inside the ring so a freshly-spawned
         // (0% progress) site still reads as a build site, not just
@@ -97,7 +98,9 @@ pub(super) fn draw_construction_sites(sim: Res<Sim>, mut gizmos: Gizmos) {
         let progress = site.progress().clamp(0.0, 1.0);
         if progress > 0.0 {
             let r = SITE_OUTER_RADIUS * progress;
-            gizmos.circle(center, normal, r, inner).resolution(32);
+            gizmos
+                .circle(Isometry3d::from_translation(center), r, inner)
+                .resolution(32);
         }
     }
 }
@@ -120,14 +123,13 @@ pub(super) fn draw_selection_rings(
     // Pulse amplitude as a fraction of the base ring radius. Slow
     // 0.6 Hz sine, range 0.85..1.15 so the pulse reads as a gentle
     // breath rather than a strobe.
-    let t = time.elapsed_seconds();
+    let t = time.elapsed_secs();
     let pulse = 1.0 + 0.15 * (t * std::f32::consts::TAU * 0.6).sin();
 
     // Amber — high-intensity warm channel so bloom amps it to a
     // bright orange-gold halo, distinct from the cyan transit
     // streaks and the green construction rings.
     let color = Color::srgb(1.6, 1.1, 0.4);
-    let normal = Dir3::Y;
 
     if let Some(id) = selected_ship.0.as_deref() {
         for (ship, xf) in ships.iter() {
@@ -140,7 +142,7 @@ pub(super) fn draw_selection_rings(
                 let size_mult = ship.base_scale / SHIP_GLB_SCALE;
                 let r = 0.4 * size_mult * pulse;
                 gizmos
-                    .circle(xf.translation, normal, r, color)
+                    .circle(Isometry3d::from_translation(xf.translation), r, color)
                     .resolution(32);
                 break;
             }
@@ -158,7 +160,7 @@ pub(super) fn draw_selection_rings(
                 // the station silhouette).
                 let r = fac.base_scale * 50.0 * pulse;
                 gizmos
-                    .circle(xf.translation, normal, r, color)
+                    .circle(Isometry3d::from_translation(xf.translation), r, color)
                     .resolution(48);
                 break;
             }
@@ -191,7 +193,6 @@ pub(super) fn draw_gate_rings(sim: Res<Sim>, mut gizmos: Gizmos) {
     // Amber, slightly translucent. Matches the "caution: traverse
     // here" connotation stations don't carry.
     let color = Color::srgba(0.95, 0.75, 0.35, 0.85);
-    let normal = Dir3::Y; // ring lies flat on the galactic plane
 
     for (_e, id) in world.query::<&FacilityIdentity>().iter() {
         if id.facility_type != "gate" {
@@ -202,7 +203,7 @@ pub(super) fn draw_gate_rings(sim: Res<Sim>, mut gizmos: Gizmos) {
         };
         let center = Vec3::new(x * SCALE_FACTOR, 0.5, y * SCALE_FACTOR);
         gizmos
-            .circle(center, normal, GATE_RING_RADIUS, color)
+            .circle(Isometry3d::from_translation(center), GATE_RING_RADIUS, color)
             .resolution(48);
     }
 }
@@ -220,7 +221,6 @@ pub(super) fn draw_orbit_rings(sim: Res<Sim>, mut gizmos: Gizmos) {
     let world = &sim.store.world;
     // Cool blue, low alpha so 35 rings don't crowd the view.
     let color = Color::srgba(0.40, 0.65, 0.85, 0.18);
-    let normal = Dir3::Y; // ring on galactic plane
 
     for (_e, orbit) in world.query::<&BodyOrbit>().iter() {
         if orbit.orbit_radius < 0.01 {
@@ -233,9 +233,9 @@ pub(super) fn draw_orbit_rings(sim: Res<Sim>, mut gizmos: Gizmos) {
         // Resolution scales with circumference so big outer-system
         // rings stay smooth without wasting verts on small inner
         // ones. Capped at 96 — beyond that the eye can't tell.
-        let resolution = ((radius * 0.5) as usize).clamp(32, 96);
+        let resolution = ((radius * 0.5) as u32).clamp(32, 96);
         gizmos
-            .circle(center, normal, radius, color)
+            .circle(Isometry3d::from_translation(center), radius, color)
             .resolution(resolution);
     }
 }

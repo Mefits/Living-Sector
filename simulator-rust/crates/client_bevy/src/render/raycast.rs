@@ -66,7 +66,7 @@ pub(super) fn raycast_select(
     let Ok((camera, cam_xf)) = cameras.get_single() else {
         return;
     };
-    let Some(ray) = camera.viewport_to_world(cam_xf, cursor) else {
+    let Ok(ray) = camera.viewport_to_world(cam_xf, cursor) else {
         return;
     };
 
@@ -141,7 +141,7 @@ pub(super) fn raycast_context_menu(
     let Ok(window) = windows.get_single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
     let Ok((camera, cam_xf)) = cameras.get_single() else { return };
-    let Some(ray) = camera.viewport_to_world(cam_xf, cursor) else {
+    let Ok(ray) = camera.viewport_to_world(cam_xf, cursor) else {
         return;
     };
 

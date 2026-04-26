@@ -250,7 +250,7 @@ fn orbit_camera_input(
         return;
     };
 
-    let dt = time.delta_seconds();
+    let dt = time.delta_secs();
     let mut changed = false;
 
     // --- Mouse orbit (middle or left drag) ---

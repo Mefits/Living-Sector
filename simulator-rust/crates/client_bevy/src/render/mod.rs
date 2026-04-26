@@ -427,7 +427,7 @@ struct Spin {
 }
 
 fn rotate_spinners(time: Res<Time>, mut q: Query<(&Spin, &mut Transform)>) {
-    let dt = time.delta_seconds();
+    let dt = time.delta_secs();
     for (spin, mut xf) in q.iter_mut() {
         let q_rot = Quat::from_axis_angle(spin.axis, spin.speed_rad_per_sec * dt);
         xf.rotate_local(q_rot);
@@ -441,7 +441,7 @@ fn rotate_spinners(time: Res<Time>, mut q: Query<(&Spin, &mut Transform)>) {
 struct Tumble(Vec3);
 
 fn rotate_tumblers(time: Res<Time>, mut q: Query<(&Tumble, &mut Transform)>) {
-    let dt = time.delta_seconds();
+    let dt = time.delta_secs();
     for (t, mut xf) in q.iter_mut() {
         xf.rotate_local_x(t.0.x * dt);
         xf.rotate_local_y(t.0.y * dt);
@@ -458,7 +458,7 @@ fn annulus_mesh(inner: f32, outer: f32, segments: u32) -> Mesh {
     use bevy::math::primitives::Annulus;
     let mut mesh = Annulus::new(inner, outer)
         .mesh()
-        .resolution(segments.max(8) as usize)
+        .resolution(segments.max(8))
         .build();
     // Annulus mesh is XY-plane (normal +Z). Rotate vertices to XZ
     // (normal +Y) so the disk lies on the orbital plane.
@@ -556,20 +556,20 @@ fn spawn_mirror_entities(
         // hanabi is disabled (debug build for the macOS GPU-stall
         // investigation).
         if let Some(ref engine_trail) = engine_trail {
+            // Bevy 0.15+ / hanabi 0.14: ParticleEffect is the leaf
+            // component; Transform + Visibility get auto-inserted via
+            // Required Components.
             commands.spawn((
-                ParticleEffectBundle::new(engine_trail.0.clone()),
+                ParticleEffect::new(engine_trail.0.clone()),
                 EngineTrailFor(id.id.clone()),
                 GameWorld,
                 Name::new(format!("EngineTrail::{}", id.id)),
             ));
         }
         commands.spawn((
-            SceneBundle {
-                scene: ships.for_class(&id.class),
-                transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
-                    .with_scale(Vec3::splat(base_scale)),
-                ..default()
-            },
+            SceneRoot(ships.for_class(&id.class)),
+            Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
+                .with_scale(Vec3::splat(base_scale)),
             ShipEntity {
                 sim_id: id.id.clone(),
                 base_scale,
@@ -645,12 +645,9 @@ fn spawn_mirror_entities(
                 let lead_mesh = meshes.add(build_asteroid_mesh(seed, body_radius, &cfg));
                 let lead_mat = planet_materials.add(material_for_asteroid(&cfg, &id.body_id));
                 commands.spawn((
-                    MaterialMeshBundle::<PlanetMaterial> {
-                        mesh: lead_mesh,
-                        material: lead_mat,
-                        transform: xf,
-                        ..default()
-                    },
+                    Mesh3d(lead_mesh),
+                    MeshMaterial3d::<PlanetMaterial>(lead_mat),
+                    xf,
                     BodyEntity {
                         sim_id: id.body_id.clone(),
                     },
@@ -668,12 +665,9 @@ fn spawn_mirror_entities(
                     t.rotation = rock.rotation;
                     t.scale = Vec3::splat(rock.scale);
                     parent.spawn((
-                        MaterialMeshBundle::<PlanetMaterial> {
-                            mesh: baby_mesh_handle.clone(),
-                            material: baby_mat_handle.clone(),
-                            transform: t,
-                            ..default()
-                        },
+                        Mesh3d(baby_mesh_handle.clone()),
+                        MeshMaterial3d::<PlanetMaterial>(baby_mat_handle.clone()),
+                        t,
                         Tumble(rock.tumble),
                         Name::new(format!("Rock::{}::{}", id.body_id, idx)),
                     ));
@@ -691,12 +685,9 @@ fn spawn_mirror_entities(
         let cloud = cloud_for_body(&id.body_id, &biome.biome);
         commands
             .spawn((
-                MaterialMeshBundle::<PlanetMaterial> {
-                    mesh: assets.body_mesh.clone(),
-                    material: mat,
-                    transform: xf,
-                    ..default()
-                },
+                Mesh3d(assets.body_mesh.clone()),
+                MeshMaterial3d::<PlanetMaterial>(mat),
+                xf,
                 BodyEntity {
                     sim_id: id.body_id.clone(),
                 },
@@ -732,12 +723,9 @@ fn spawn_mirror_entities(
                     xf.rotation =
                         Quat::from_rotation_x(ring.tilt_x_deg.to_radians());
                     parent.spawn((
-                        PbrBundle {
-                            mesh,
-                            material: mat,
-                            transform: xf,
-                            ..default()
-                        },
+                        Mesh3d(mesh),
+                        MeshMaterial3d::<StandardMaterial>(mat),
+                        xf,
                         // Slow ring spin around the ring's local up
                         // axis (post-tilt). Matches Godot's
                         // `rotate_object_local(Vector3.UP, ...)`.
@@ -757,12 +745,9 @@ fn spawn_mirror_entities(
                     let mesh = meshes.add(Sphere::new(r).mesh().ico(3).unwrap());
                     let mat = cloud_materials.add(CloudMaterial { params: cfg.params });
                     parent.spawn((
-                        MaterialMeshBundle::<CloudMaterial> {
-                            mesh,
-                            material: mat,
-                            transform: Transform::IDENTITY,
-                            ..default()
-                        },
+                        Mesh3d(mesh),
+                        MeshMaterial3d::<CloudMaterial>(mat),
+                        Transform::IDENTITY,
                         // Clouds drift around the planet's polar axis
                         // visibly faster than the planet itself rotates,
                         // selling the atmospheric layer.
@@ -818,11 +803,8 @@ fn spawn_mirror_entities(
             transform.rotate_y(std::f32::consts::FRAC_PI_2);
         }
         commands.spawn((
-            SceneBundle {
-                scene: stations.for_type(&id.facility_type),
-                transform,
-                ..default()
-            },
+            SceneRoot(stations.for_type(&id.facility_type)),
+            transform,
             FacilityEntity {
                 sim_id: id.id.clone(),
                 base_scale: scale,
@@ -1129,23 +1111,17 @@ fn spawn_system_suns(
 
         commands
             .spawn((
-                MaterialMeshBundle::<PlanetMaterial> {
-                    mesh: core_mesh,
-                    material: surface_mat,
-                    transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
-                    ..default()
-                },
+                Mesh3d(core_mesh),
+                MeshMaterial3d::<PlanetMaterial>(surface_mat),
+                Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
                 GameWorld,
                 Name::new(format!("Sun::{}", name)),
             ))
             .with_children(|parent| {
                 parent.spawn((
-                    MaterialMeshBundle::<CloudMaterial> {
-                        mesh: molten_mesh,
-                        material: molten_mat,
-                        transform: Transform::IDENTITY,
-                        ..default()
-                    },
+                    Mesh3d(molten_mesh),
+                    MeshMaterial3d::<CloudMaterial>(molten_mat),
+                    Transform::IDENTITY,
                     Spin {
                         axis: Vec3::new(0.2, 1.0, 0.1).normalize(),
                         speed_rad_per_sec: 0.05,
@@ -1161,12 +1137,9 @@ fn spawn_system_suns(
                 .enumerate()
                 {
                     parent.spawn((
-                        MaterialMeshBundle::<HaloMaterial> {
-                            mesh,
-                            material: mat,
-                            transform: Transform::IDENTITY,
-                            ..default()
-                        },
+                        Mesh3d(mesh),
+                        MeshMaterial3d::<HaloMaterial>(mat),
+                        Transform::IDENTITY,
                         Name::new(format!("Sun::{}::halo{}", name, idx)),
                     ));
                 }
@@ -1296,12 +1269,9 @@ fn spawn_nebulae(
             rng.gen_range(-0.002f32..0.002),
         );
         commands.spawn((
-            MaterialMeshBundle::<NebulaMaterial> {
-                mesh: mesh.clone(),
-                material: mat,
-                transform: xf,
-                ..default()
-            },
+            Mesh3d(mesh.clone()),
+            MeshMaterial3d::<NebulaMaterial>(mat),
+            xf,
             Tumble(tumble),
             Name::new("Nebula"),
         ));
@@ -1332,20 +1302,18 @@ fn cleanup_stale_ships(
             // position before we yank the entity. ExplosionLifetime
             // timer cleans up the particle entity 1.5 s later.
             if let Some(ref ex) = explosion {
-                // ParticleEffectBundle already includes Transform +
-                // GlobalTransform — passing them as separate tuple
-                // entries panics with "duplicate components". Set
-                // the transform inline on the bundle instead.
+                // Bevy 0.15+ / hanabi 0.14: ParticleEffect is the leaf
+                // component; spawn it alongside an explicit Transform
+                // since Required Components defaults Transform to
+                // identity and we need it at the doomed ship's position.
                 commands.spawn((
-                    ParticleEffectBundle {
-                        transform: Transform::from_translation(xf.translation),
-                        ..ParticleEffectBundle::new(ex.0.clone())
-                    },
+                    ParticleEffect::new(ex.0.clone()),
+                    Transform::from_translation(xf.translation),
                     ExplosionLifetime(Timer::from_seconds(1.5, TimerMode::Once)),
                     Name::new(format!("Explosion::{}", ship.sim_id)),
                 ));
             }
-            commands.entity(e).despawn_recursive();
+            commands.entity(e).despawn();
         }
     }
 }
@@ -1411,11 +1379,8 @@ fn reconcile_new_facilities(
             transform.rotate_y(std::f32::consts::FRAC_PI_2);
         }
         commands.spawn((
-            SceneBundle {
-                scene: stations.for_type(&id.facility_type),
-                transform,
-                ..default()
-            },
+            SceneRoot(stations.for_type(&id.facility_type)),
+            transform,
             FacilityEntity {
                 sim_id: id.id.clone(),
                 base_scale: scale,
@@ -1457,18 +1422,15 @@ fn reconcile_new_ships(
         let (x, y) = pos.position;
         let base_scale = SHIP_GLB_SCALE * ship_size_multiplier(id.size);
         commands.spawn((
-            ParticleEffectBundle::new(engine_trail.0.clone()),
+            ParticleEffect::new(engine_trail.0.clone()),
             EngineTrailFor(sim_id.clone()),
             GameWorld,
             Name::new(format!("EngineTrail::{sim_id}")),
         ));
         commands.spawn((
-            SceneBundle {
-                scene: ship_models.for_class(&id.class),
-                transform: Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
-                    .with_scale(Vec3::splat(base_scale)),
-                ..default()
-            },
+            SceneRoot(ship_models.for_class(&id.class)),
+            Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
+                .with_scale(Vec3::splat(base_scale)),
             ShipEntity {
                 sim_id: sim_id.clone(),
                 base_scale,
@@ -1559,7 +1521,7 @@ fn apply_camera_follow(
                     // independent settle time. RATE = 8 means
                     // ~12% closing per 16 ms frame, ~99% in ~580 ms.
                     const RATE: f32 = 8.0;
-                    let alpha = 1.0 - (-RATE * time.delta_seconds()).exp();
+                    let alpha = 1.0 - (-RATE * time.delta_secs()).exp();
                     orbit.focus = orbit.focus.lerp(t, alpha);
                 }
                 if let Some(d) = follow.snap_distance.take() {

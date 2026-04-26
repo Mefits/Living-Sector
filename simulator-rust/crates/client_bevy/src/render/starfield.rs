@@ -92,12 +92,9 @@ fn spawn_sky_shell(
         },
     });
     commands.spawn((
-        MaterialMeshBundle::<SkyStarsMaterial> {
-            mesh,
-            material: mat,
-            transform: Transform::IDENTITY,
-            ..default()
-        },
+        Mesh3d(mesh),
+        MeshMaterial3d::<SkyStarsMaterial>(mat),
+        Transform::IDENTITY,
         SkyShell,
         // Belt-and-braces: skybox should never participate in
         // shadow casting/receiving. Bevy default is "everything

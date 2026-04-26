@@ -96,14 +96,14 @@ fn start_music(
     info!("client_bevy: starting background music — {}", path);
 
     let entity = commands
-        .spawn(AudioBundle {
-            source: asset_server.load(path),
-            settings: PlaybackSettings {
+        .spawn((
+            AudioPlayer::<AudioSource>(asset_server.load(path)),
+            PlaybackSettings {
                 mode: bevy::audio::PlaybackMode::Loop,
                 volume: bevy::audio::Volume::new(settings.music_volume),
                 ..default()
             },
-        })
+        ))
         .id();
     state.entity = Some(entity);
 }
@@ -238,14 +238,14 @@ fn play_click_on_egui_press(
         return;
     }
     let step = chain.next_step();
-    commands.spawn(AudioBundle {
-        source: sfx.click_steps[step].clone(),
-        settings: PlaybackSettings {
+    commands.spawn((
+        AudioPlayer::<AudioSource>(sfx.click_steps[step].clone()),
+        PlaybackSettings {
             mode: bevy::audio::PlaybackMode::Despawn,
             volume: bevy::audio::Volume::new(0.35 * settings.sfx_volume),
             ..default()
         },
-    });
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -288,24 +288,24 @@ fn play_event_driven_sfx(
                     "hauler" => sfx.explosion_large.clone(),
                     _ => sfx.explosion_med.clone(),
                 };
-                commands.spawn(AudioBundle {
-                    source,
-                    settings: PlaybackSettings {
+                commands.spawn((
+                    AudioPlayer::<AudioSource>(source),
+                    PlaybackSettings {
                         mode: bevy::audio::PlaybackMode::Despawn,
                         volume: bevy::audio::Volume::new(0.6 * settings.sfx_volume),
                         ..default()
                     },
-                });
+                ));
             }
             "ship_gate_jumped" => {
-                commands.spawn(AudioBundle {
-                    source: sfx.gate_jump.clone(),
-                    settings: PlaybackSettings {
+                commands.spawn((
+                    AudioPlayer::<AudioSource>(sfx.gate_jump.clone()),
+                    PlaybackSettings {
                         mode: bevy::audio::PlaybackMode::Despawn,
                         volume: bevy::audio::Volume::new(0.4 * settings.sfx_volume),
                         ..default()
                     },
-                });
+                ));
             }
             _ => {}
         }

@@ -7,7 +7,7 @@
 
 use bevy::prelude::*;
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
-use bevy::render::view::screenshot::ScreenshotManager;
+use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy::render::RenderPlugin;
 use bevy::window::PrimaryWindow;
 use bevy::winit::{UpdateMode, WinitSettings};
@@ -105,8 +105,8 @@ fn main() {
 /// orbit-camera component. Bundle 3 will add a starfield / nebula
 /// backdrop; this keeps scene setup minimal.
 fn setup_scene(mut commands: Commands) {
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
+    commands.spawn((
+        DirectionalLight {
             illuminance: 10_000.0,
             // Critical for FPS at 1600+ ships: a shadow-casting
             // directional light with that many meshes kills the
@@ -116,9 +116,8 @@ fn setup_scene(mut commands: Commands) {
             shadows_enabled: false,
             ..default()
         },
-        transform: Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.3, 0.0)),
-        ..default()
-    });
+        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.3, 0.0)),
+    ));
     // Dim ambient so the directional light isn't the only thing lighting
     // anything — placeholder materials are pretty matte and go near-black
     // on the shadow side without ambient fill. Dropped to 80 (was 200)
@@ -131,19 +130,21 @@ fn setup_scene(mut commands: Commands) {
     info!("client_bevy: window up, sim embedded.");
 }
 
-/// F12 captures a PNG of the primary window to `/tmp/bevy_screenshot.png`
-/// via Bevy's built-in ScreenshotManager. A quick way to verify what's
-/// actually on screen during headless / backgrounded testing — Claude
-/// can Read the saved PNG directly.
+/// F12 captures a PNG of the primary window to `/tmp/bevy_screenshot.png`.
+/// Bevy 0.15 reshaped the API: spawn a `Screenshot` entity targeting the
+/// window, attach a `save_to_disk` observer that fires `ScreenshotCaptured`,
+/// and the entity self-cleans after the capture finishes. A quick way to
+/// verify what's actually on screen during headless / backgrounded testing —
+/// Claude can Read the saved PNG directly.
 ///
 /// Also auto-captures once when the `CLIENT_BEVY_AUTO_SCREENSHOT` env
 /// var is set: the system fires after ~120 frames (≈2s at 60 fps)
 /// then sets the flag to stop repeated saves. This makes self-verify
 /// from a short-lived background smoke test feasible.
 fn screenshot_key(
+    mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     primary: Query<Entity, With<PrimaryWindow>>,
-    mut screenshots: ResMut<ScreenshotManager>,
     mut frame_counter: Local<u32>,
     mut auto_done: Local<bool>,
 ) {
@@ -165,11 +166,10 @@ fn screenshot_key(
 
     let Ok(window) = primary.get_single() else { return };
     let path = "/tmp/bevy_screenshot.png";
-    if let Err(e) = screenshots.save_screenshot_to_disk(window, path) {
-        warn!("client_bevy: screenshot failed: {e}");
-    } else {
-        info!("client_bevy: screenshot → {path}");
-    }
+    commands
+        .spawn(Screenshot::window(window))
+        .observe(save_to_disk(path));
+    info!("client_bevy: screenshot → {path}");
     if auto {
         *auto_done = true;
     }

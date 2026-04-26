@@ -265,14 +265,12 @@ pub(super) fn event_driven_flashes(
 
     let spawn_flash = |commands: &mut Commands, x: f32, y: f32, label: &str| {
         let world = Vec3::new(x * SCALE_FACTOR, 0.5, y * SCALE_FACTOR);
-        // ParticleEffectBundle bundles its own Transform +
-        // GlobalTransform; spawning them as separate tuple entries
-        // panics on duplicate components.
+        // ParticleEffect now uses Required Components in 0.15+ which
+        // pulls in Transform + Visibility automatically; we just spawn
+        // the effect alongside our own Transform.
         commands.spawn((
-            ParticleEffectBundle {
-                transform: Transform::from_translation(world),
-                ..ParticleEffectBundle::new(flash.0.clone())
-            },
+            ParticleEffect::new(flash.0.clone()),
+            Transform::from_translation(world),
             ExplosionLifetime(Timer::from_seconds(1.0, TimerMode::Once)),
             Name::new(format!("Flash::{label}")),
         ));
@@ -380,7 +378,7 @@ pub(super) fn tick_explosion_lifetimes(
 ) {
     for (entity, mut life) in explosions.iter_mut() {
         if life.0.tick(time.delta()).finished() {
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
     }
 }
@@ -465,7 +463,7 @@ pub(super) fn cleanup_stale_engine_trails(
 ) {
     for (entity, trail_for) in trails.iter() {
         if !sim.store.ship_by_id.contains_key(&trail_for.0) {
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
     }
 }

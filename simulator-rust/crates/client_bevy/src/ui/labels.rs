@@ -109,7 +109,7 @@ pub(super) fn body_labels_panel(
                 // Skip bodies behind the camera. world_to_viewport
                 // returns None for off-screen or behind-camera —
                 // treat that as "don't draw".
-                let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
+                let Ok(screen) = camera.world_to_viewport(cam_xf, pos) else {
                     continue;
                 };
                 // Offset label a bit above the body so it doesn't
@@ -187,7 +187,7 @@ pub(super) fn construction_labels_panel(
         .show(ctx, |ui| {
             let painter = ui.painter();
             for (name, prog, pos) in entries {
-                let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
+                let Ok(screen) = camera.world_to_viewport(cam_xf, pos) else {
                     continue;
                 };
                 let name_y = screen.y - 26.0;
@@ -272,7 +272,7 @@ pub(super) fn facility_labels_panel(
         .show(ctx, |ui| {
             let painter = ui.painter();
             for (name, pos) in entries {
-                let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
+                let Ok(screen) = camera.world_to_viewport(cam_xf, pos) else {
                     continue;
                 };
                 let anchor = egui::pos2(screen.x, screen.y - 14.0);
@@ -348,7 +348,7 @@ pub(super) fn ship_labels_panel(
         .show(ctx, |ui| {
             let painter = ui.painter();
             for (name, pos) in entries {
-                let Some(screen) = camera.world_to_viewport(cam_xf, pos) else {
+                let Ok(screen) = camera.world_to_viewport(cam_xf, pos) else {
                     continue;
                 };
                 let anchor = egui::pos2(screen.x, screen.y - 10.0);

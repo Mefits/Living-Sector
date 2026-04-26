@@ -47,16 +47,15 @@ tokio = { workspace = true }
 # Engine + render stack — client-only deps, declared here directly.
 # Version-pinned intentionally: Bevy's API moves; bundle-by-bundle
 # upgrades are allowed, mid-bundle upgrades are not.
-bevy = "0.14"
-bevy_egui = "0.30"
+bevy = "0.15"
+bevy_egui = "0.32"
 # egui_extras with the `svg` feature gives us runtime SVG image
 # loaders — we feed it the SVGs already lifted into
 # `assets/icons/` from the Godot client. Without it, top-bar
-# buttons stay text-only. egui_extras 0.28 matches bevy_egui
-# 0.30's egui dependency.
-egui_extras = { version = "0.29", features = ["svg"] }
-# GPU particle system. 0.13 is the last version compatible with
-# Bevy 0.14 (newer hanabi targets Bevy 0.15+). Drives engine trails
+# buttons stay text-only. egui_extras 0.30 matches bevy_egui
+# 0.32's egui dependency.
+egui_extras = { version = "0.30", features = ["svg"] }
+# GPU particle system. 0.14 targets Bevy 0.15. Drives engine trails
 # on in-transit ships — see `render::particles`. Default features
 # include both 2d + 3d backends; we only use 3d.
-bevy_hanabi = { version = "0.13", default-features = false, features = ["3d"] }
+bevy_hanabi = { version = "0.14", default-features = false, features = ["3d"] }
