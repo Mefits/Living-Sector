@@ -39,7 +39,7 @@ use sim_core::world::registry::WorldRegistry;
 use sim_db::persistence::DbWrite;
 use tokio::sync::mpsc;
 
-use super::{admin_remove_ship, admin_spawn_ship};
+use super::admin::{admin_remove_ship, admin_spawn_ship};
 
 /// Drain `store.pending_materializations`: INSERT each queued facility
 /// row into SQLite, stash the returned id back on the in-memory
