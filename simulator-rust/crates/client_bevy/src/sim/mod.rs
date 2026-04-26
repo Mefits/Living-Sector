@@ -288,20 +288,33 @@ pub(crate) fn load_world(
         WorldTuning::set(tuning);
 
         let config = TickConfig::DEFAULT;
+        // Step-by-step timing for the load freeze investigation.
+        // Whatever step is dominant during a 5-10s freeze on a
+        // saved DB, this surfaces it in the terminal logs.
+        let t_reg = std::time::Instant::now();
         let registry = sim_db::spawner::load_registry(&pool).await?;
-        let store = sim_db::spawner::load_agents(&pool, &registry, &config).await?;
+        info!("client_bevy: load_registry done in {:.0}ms", t_reg.elapsed().as_secs_f32() * 1000.0);
 
+        let t_agents = std::time::Instant::now();
+        let store = sim_db::spawner::load_agents(&pool, &registry, &config).await?;
+        info!("client_bevy: load_agents done in {:.0}ms", t_agents.elapsed().as_secs_f32() * 1000.0);
+
+        let t_seed = std::time::Instant::now();
         let world_seed = sim_db::persistence::load_or_init_world_seed(&pool).await;
         let resumed_tick = sim_db::persistence::load_tick_counter(&pool).await;
+        info!("client_bevy: load_seed+tick done in {:.0}ms", t_seed.elapsed().as_secs_f32() * 1000.0);
+
         // Best-effort — an empty / brand-new DB has no retirements
         // yet, so surface the load error as a warning rather than
         // failing startup.
+        let t_retired = std::time::Instant::now();
         let retirements = sim_db::persistence::load_retirements(&pool, 200)
             .await
             .unwrap_or_else(|e| {
                 warn!("client_bevy: retirements load failed (DB probably fresh): {e}");
                 Vec::new()
             });
+        info!("client_bevy: load_retirements done in {:.0}ms", t_retired.elapsed().as_secs_f32() * 1000.0);
 
         Ok::<_, anyhow::Error>((store, registry, world_seed, resumed_tick, retirements))
     };
@@ -612,6 +625,52 @@ pub(crate) fn tick_sim(
         perf.p50_us = sorted[sorted.len() / 2];
         let p99_idx = (sorted.len() as f32 * 0.99).ceil() as usize;
         perf.p99_us = sorted[p99_idx.saturating_sub(1).min(sorted.len() - 1)];
+    }
+
+    // Slow-tick warning. If a single FixedUpdate took longer than
+    // SLOW_TICK_US, emit a `warn!` with the phase breakdown sorted
+    // by cost so the dominant phase shows up first. Threshold sits
+    // well above normal noise (p50 is typically 3-5 ms) but well
+    // below the 125 ms FixedUpdate budget so a real spike still
+    // gets caught before it visibly stutters the client.
+    //
+    // SLOW_TICK_US scales with tick_mult — at 10× we run 10
+    // sub-ticks per FixedUpdate, so a "fair" budget is 10× the 1×
+    // threshold. Capped at 100 ms so we don't silence pathological
+    // ones that would still be felt as freezes.
+    const SLOW_TICK_BASE_US: u64 = 30_000; // 30 ms at 1×
+    let slow_threshold = (SLOW_TICK_BASE_US * tick_mult as u64).min(100_000);
+    if elapsed_us > slow_threshold {
+        let mut phases = [
+            ("ships", phase_perf.ships_us),
+            ("apply1", phase_perf.apply1_us),
+            ("apply2", phase_perf.apply2_us),
+            ("facilities", phase_perf.facilities_us),
+            ("markets", phase_perf.markets_us),
+            ("populations", phase_perf.populations_us),
+            ("factions", phase_perf.factions_us),
+            ("relations", phase_perf.relations_us),
+            ("regen", phase_perf.regen_us),
+            ("crisis", phase_perf.crisis_us),
+            ("dock_queue", phase_perf.dock_queue_us),
+            ("drains", phase_perf.drains_us),
+            ("bodies", phase_perf.bodies_us),
+            ("events_log", phase_perf.events_log_us),
+        ];
+        phases.sort_by(|a, b| b.1.cmp(&a.1));
+        let breakdown: Vec<String> = phases
+            .iter()
+            .filter(|(_, us)| *us >= 1_000) // skip <1ms phases
+            .map(|(name, us)| format!("{name}={:.1}ms", *us as f32 / 1000.0))
+            .collect();
+        bevy::log::warn!(
+            "client_bevy: slow tick {} took {:.1}ms (mult={}, threshold={}ms) — {}",
+            sim.tick,
+            elapsed_us as f32 / 1000.0,
+            tick_mult,
+            slow_threshold / 1000,
+            breakdown.join(" "),
+        );
     }
 }
 

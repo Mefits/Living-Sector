@@ -521,7 +521,7 @@ fn spawn_mirror_entities(
     sim: Res<Sim>,
     stations: Res<StationModels>,
     ships: Res<ShipModels>,
-    engine_trail: Res<EngineTrailEffect>,
+    engine_trail: Option<Res<EngineTrailEffect>>,
 ) {
     // Ships now use authored GLBs (per-class scenes streamed via
     // ShipModels). The placeholder cuboid + faction-emissive material
@@ -552,13 +552,17 @@ fn spawn_mirror_entities(
         let base_scale = SHIP_GLB_SCALE * ship_size_multiplier(id.size);
         // Spawn the engine-trail effect as a sibling (not a child) so
         // it doesn't inherit the ship's tiny scale. Sync system below
-        // glues its transform to the ship each frame.
-        commands.spawn((
-            ParticleEffectBundle::new(engine_trail.0.clone()),
-            EngineTrailFor(id.id.clone()),
-            GameWorld,
-            Name::new(format!("EngineTrail::{}", id.id)),
-        ));
+        // glues its transform to the ship each frame. Skipped when
+        // hanabi is disabled (debug build for the macOS GPU-stall
+        // investigation).
+        if let Some(ref engine_trail) = engine_trail {
+            commands.spawn((
+                ParticleEffectBundle::new(engine_trail.0.clone()),
+                EngineTrailFor(id.id.clone()),
+                GameWorld,
+                Name::new(format!("EngineTrail::{}", id.id)),
+            ));
+        }
         commands.spawn((
             SceneBundle {
                 scene: ships.for_class(&id.class),

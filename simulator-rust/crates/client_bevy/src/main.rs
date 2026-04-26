@@ -97,7 +97,7 @@ fn main() {
         .add_plugins(ui::UiPlugin)
         .add_plugins(audio::AudioPlugin)
         .add_systems(Startup, setup_scene)
-        .add_systems(Update, (heartbeat_system, screenshot_key))
+        .add_systems(Update, (heartbeat_system, screenshot_key, frame_pulse))
         .run();
 }
 
@@ -195,4 +195,27 @@ fn heartbeat_system(
         sim.store.body_by_id.len(),
         sim.store.faction_by_id.len(),
     );
+}
+
+/// Frame-level slow-frame detector. Measures wall-clock between
+/// successive Update invocations; if a single frame took longer than
+/// SLOW_FRAME_MS (= main thread was blocked that long), warn with the
+/// duration. macOS beach-balls show up as 5+ second frames here. The
+/// sim's own slow-tick warning catches sim-side stalls; this catches
+/// render-side / panel-side / GPU stalls that the sim warning misses.
+fn frame_pulse(mut last: Local<Option<std::time::Instant>>) {
+    let now = std::time::Instant::now();
+    if let Some(prev) = *last {
+        let dt = now.saturating_duration_since(prev);
+        // 250 ms is well above 60-fps frame time (16 ms) and even
+        // above the FixedUpdate cadence (125 ms). A frame this long
+        // is felt as a hitch; multi-second ones are felt as freezes.
+        if dt >= Duration::from_millis(250) {
+            warn!(
+                "client_bevy: slow frame — Update gap of {:.0}ms",
+                dt.as_secs_f32() * 1000.0,
+            );
+        }
+    }
+    *last = Some(now);
 }
