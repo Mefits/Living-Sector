@@ -73,22 +73,30 @@ DIST_DIR     := dist
 VERSION      ?= $(shell awk -F\" '/^version[[:space:]]*=[[:space:]]*"/ { print $$2; exit }' $(WORKSPACE)/Cargo.toml 2>/dev/null || echo dev)
 
 # Apple bundle metadata. APP_NAME is the user-visible filename
-# (Finder shows it without the .app extension by default).
+# (Finder shows it without the .app extension by default). The same
+# string is also the folder name inside the Windows + Linux archives
+# so post-extraction the user sees "The Space Project/", which
+# matches the itch.io game title and what the .app bundle reports.
 APP_NAME     := The Space Project
-# Bundle / folder names stay version-free — what the user sees in
-# Finder / after extracting on Windows / Linux is the plain app name.
-# Archive filenames carry the version so successive builds don't
-# overwrite each other in dist/, and so a casual `ls dist/macos/`
-# tells you which builds are still kicking around.
-APP_BUNDLE   := $(DIST_DIR)/macos/$(APP_NAME).app
-APP_ZIP      := $(DIST_DIR)/macos/$(APP_NAME)-$(VERSION).zip
-APP_DMG      := $(DIST_DIR)/macos/$(APP_NAME)-$(VERSION).dmg
 
-# Windows / Linux dist roots.
+# Archive filename slug — kebab-case + platform tag + version so the
+# downloaded files are unambiguous in a Downloads folder and don't
+# collide with each other. The internal folder / .app bundle keeps
+# the friendly `APP_NAME`; only the .zip / .tar.gz / .dmg filenames
+# use this slug.
+ARCHIVE_SLUG := the-space-project
+
+APP_BUNDLE   := $(DIST_DIR)/macos/$(APP_NAME).app
+APP_ZIP      := $(DIST_DIR)/macos/$(ARCHIVE_SLUG)-mac_$(VERSION).zip
+APP_DMG      := $(DIST_DIR)/macos/$(ARCHIVE_SLUG)-mac_$(VERSION).dmg
+
+# Windows / Linux dist roots. Folder name (`WIN_DIR` / `LINUX_DIR`)
+# stays as `APP_NAME` so the extracted directory the user sees
+# matches the macOS .app naming.
 WIN_DIR      := $(DIST_DIR)/windows/$(APP_NAME)
-WIN_ZIP      := $(DIST_DIR)/windows/$(APP_NAME)-$(VERSION).zip
+WIN_ZIP      := $(DIST_DIR)/windows/$(ARCHIVE_SLUG)-windows_$(VERSION).zip
 LINUX_DIR    := $(DIST_DIR)/linux/$(APP_NAME)
-LINUX_TGZ    := $(DIST_DIR)/linux/$(APP_NAME)-$(VERSION).tar.gz
+LINUX_TGZ    := $(DIST_DIR)/linux/$(ARCHIVE_SLUG)-linux_$(VERSION).tar.gz
 
 # Cargo target triples.
 TARGET_MAC_ARM   := aarch64-apple-darwin

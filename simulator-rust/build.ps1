@@ -34,6 +34,11 @@ Set-Location $PSScriptRoot
 # ------- Paths -------
 
 $AppName    = 'The Space Project'
+# Archive filename slug — kebab-case + platform tag + version. The
+# extracted folder still uses $AppName so the user sees "The Space
+# Project/" in Explorer; only the .zip filename uses the slug. Keep
+# in sync with Makefile's ARCHIVE_SLUG.
+$ArchiveSlug = 'the-space-project'
 $AssetsSrc  = 'crates/client_bevy/assets'
 $DataSrc    = 'priv'
 $DistDir    = 'dist'
@@ -53,7 +58,7 @@ if (-not $Version) {
     else        { $Version = 'dev' }
 }
 
-$WinZipName = "$AppName-$Version.zip"
+$WinZipName = "$ArchiveSlug-windows_$Version.zip"
 $WinZip     = Join-Path $DistDir "windows/$WinZipName"
 $ItchTarget = "$ItchUser/$ItchGame"
 
