@@ -11,12 +11,28 @@ Assume the sim is already running — if `curl -s localhost:8080/api/health`
 returns nothing, say so and stop (don't auto-start one; that would trample
 the user's running instance).
 
-The Godot client now ships bundled with the Rust sim as one app. The Godot
-HUD already exposes most of what this skill checks (perf overlay, ship list,
-market, factions, contracts, events ticker, retirements, details panel with
-"Recent commands"). For an interactive review the user can already see most
-of it — this skill is for **scriptable scans**, **anomaly hunting**, and
-**self-review loop runs** where you don't have the UI in front of you.
+## The two flavours (this matters)
+
+The simulator now ships in two flavours:
+
+1. **`client_bevy` (canonical)** — Bevy + egui app that **embeds `sim_core`
+   directly**. Same process, same memory, **no HTTP, no WebSocket, no
+   network.** Tick loop runs on Bevy `FixedUpdate`. Inspector + admin
+   actions are direct function calls on the `Sim` Resource. Old Godot
+   client at `../../client/` is archived as a parity reference and is no
+   longer canonical.
+2. **`sim_server` (headless)** — the original `simulator` binary with the
+   HTTP/WS server on port 8080. Used for CI smokes, scripted external
+   tools, and **this skill**.
+
+**Implication for sim-review:** the curl-based checks below ONLY work
+against `cargo run --bin simulator`. If the user is running the Bevy
+client, there is no HTTP endpoint — they're already inside the inspector
+and should look at the egui panels (Ships / Markets / Factions / Pops /
+Contracts / Construction / Retired / Events / Perf, plus per-entity
+detail panels) instead. If you're in a self-review loop or asked to
+"review the sim" with no context: try `curl -s localhost:8080/api/health`
+first; if it fails, ask whether the headless binary is up, and stop.
 
 ## What's running today (snapshot of the sim's shape)
 
