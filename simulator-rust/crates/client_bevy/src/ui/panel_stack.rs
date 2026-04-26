@@ -48,7 +48,8 @@ use super::menus::{OptionsState, PauseMenuState};
 use super::populations::PopulationsState;
 use super::retirements::RetirementsState;
 use super::ship_list::ShipListState;
-use super::{AddFacilityDialogState, AddShipDialogState, PerfStats};
+use super::spawn_dialogs::{AddFacilityDialogState, AddShipDialogState};
+use super::PerfStats;
 use crate::sim::Sim;
 
 /// Enumeration of every panel that participates in the Esc-closes-

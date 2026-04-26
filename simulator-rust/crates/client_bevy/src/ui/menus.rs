@@ -32,8 +32,8 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
-use super::credits_block;
 use super::help::HelpState;
+use super::lifecycle::credits_block;
 use super::theme;
 use crate::sim::Sim;
 
