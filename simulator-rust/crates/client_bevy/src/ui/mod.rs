@@ -19,10 +19,13 @@ mod events;
 mod facility;
 mod factions;
 mod format;
+mod help;
 mod icons;
 mod labels;
 mod markets;
+mod menus;
 mod minimap;
+mod panel_stack;
 mod populations;
 mod retirements;
 mod ship_details;
@@ -35,12 +38,16 @@ use events::{events_panel, EventsState};
 pub use facility::SelectedFacility;
 use facility::{facility_details_panel, facility_list_panel, FacilityListState};
 use factions::{factions_panel, FactionsState};
+use help::{help_panel, HelpState};
 use labels::{
     body_labels_panel, construction_labels_panel, facility_labels_panel, ship_labels_panel,
     BodyLabelsState,
 };
 use markets::{markets_panel, MarketsState};
+use menus::{options_panel, pause_menu, OptionsState, PauseMenuState};
 use minimap::{minimap_panel, MinimapState};
+pub use panel_stack::{CloseTopRequest, OpenPanelStack};
+use panel_stack::{close_top_panel, keyboard_shortcuts, reconcile_panel_stack};
 use populations::{populations_panel, PopulationsState};
 use retirements::{retirements_panel, RetirementsState};
 use ship_details::ship_details_panel;
@@ -861,215 +868,6 @@ fn perf_overlay(
     stats.open = open;
 }
 
-// =============================================================================
-// Keyboard shortcuts + panel stack
-// =============================================================================
-//
-// Global shortcuts:
-//   * Spacebar       → toggle Sim.running (pause/resume)
-//   * Escape         → close most-recently-opened panel; if none open,
-//                      open the pause menu. If pause is open, resume.
-//   * P              → open the pause menu directly (matches the top
-//                      bar "Menu" button — even when other panels are
-//                      open, P escapes the panel-clearing flow and
-//                      jumps to pause).
-//   * H / ?          → toggle help popup
-//
-// The "Esc clears panels first" behaviour is driven by
-// [`OpenPanelStack`]. A reconcile system watches the open flag of
-// every dismissable panel and pushes / removes entries as those
-// flags transition. Esc pops the top entry into [`CloseTopRequest`];
-// a separate system closes the matching panel by mutating its state.
-// The split keeps each system inside Bevy's SystemParam-tuple
-// limit.
-//
-// Skips when egui owns the keyboard (a filter text box is focused,
-// etc.) so typing in a panel doesn't accidentally pause the sim.
-
-/// Enumeration of every panel that participates in the Esc-closes-
-/// top-panel stack. Each variant maps to a single `*State.open`
-/// (or equivalent) flag — see [`reconcile_panel_stack`] for the
-/// read side and [`close_top_panel`] for the write side.
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
-pub enum PanelKind {
-    Perf,
-    ShipList,
-    Contracts,
-    Factions,
-    Markets,
-    Populations,
-    FacilityList,
-    Retirements,
-    Construction,
-    Events,
-    Help,
-    Options,
-    AddShip,
-    AddFacility,
-}
-
-/// LIFO stack of currently-open panels. Reconciled each frame from
-/// individual `*State.open` flags so toggling a panel from any
-/// path (top-bar button, hotkey, programmatic) keeps the stack
-/// honest. Esc pops the back; the popped kind lands in
-/// [`CloseTopRequest`] for [`close_top_panel`] to action.
-#[derive(Resource, Default)]
-pub struct OpenPanelStack {
-    pub stack: Vec<PanelKind>,
-}
-
-/// One-shot request set by the Esc handler; consumed by
-/// [`close_top_panel`]. Lives in its own resource so the system
-/// that handles input doesn't need ResMut on every panel state
-/// (Bevy's tuple-of-params limit).
-#[derive(Resource, Default)]
-pub struct CloseTopRequest(pub Option<PanelKind>);
-
-#[allow(clippy::too_many_arguments)]
-fn reconcile_panel_stack(
-    mut stack: ResMut<OpenPanelStack>,
-    perf: Res<PerfStats>,
-    ship_list: Res<ShipListState>,
-    contracts: Res<ContractsState>,
-    factions: Res<FactionsState>,
-    markets: Res<MarketsState>,
-    populations: Res<PopulationsState>,
-    facility_list: Res<FacilityListState>,
-    retirements: Res<RetirementsState>,
-    construction: Res<ConstructionState>,
-    events: Res<EventsState>,
-    help: Res<HelpState>,
-    options: Res<OptionsState>,
-    add_ship: Res<AddShipDialogState>,
-    add_facility: Res<AddFacilityDialogState>,
-) {
-    let table = [
-        (PanelKind::Perf, perf.open),
-        (PanelKind::ShipList, ship_list.open),
-        (PanelKind::Contracts, contracts.open),
-        (PanelKind::Factions, factions.open),
-        (PanelKind::Markets, markets.open),
-        (PanelKind::Populations, populations.open),
-        (PanelKind::FacilityList, facility_list.open),
-        (PanelKind::Retirements, retirements.open),
-        (PanelKind::Construction, construction.open),
-        (PanelKind::Events, events.open),
-        (PanelKind::Help, help.open),
-        (PanelKind::Options, options.open),
-        (PanelKind::AddShip, add_ship.open),
-        (PanelKind::AddFacility, add_facility.open),
-    ];
-    for (kind, is_open) in table {
-        let in_stack = stack.stack.contains(&kind);
-        if is_open && !in_stack {
-            stack.stack.push(kind);
-        } else if !is_open && in_stack {
-            stack.stack.retain(|k| *k != kind);
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn keyboard_shortcuts(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut sim: ResMut<Sim>,
-    mut menu: ResMut<PauseMenuState>,
-    mut help: ResMut<HelpState>,
-    mut egui_ctx: EguiContexts,
-    stack: Res<OpenPanelStack>,
-    mut close_req: ResMut<CloseTopRequest>,
-) {
-    // When egui is capturing keyboard input (an editable text
-    // widget has focus), don't fire shortcuts — typing "pause" in a
-    // filter box would otherwise trigger pause on the 'p' the user
-    // just wanted to search for.
-    if egui_ctx.ctx_mut().wants_keyboard_input() {
-        return;
-    }
-    // Suppress Spacebar pause-toggle while the pause menu is open —
-    // otherwise Space would flip sim.running independently of the
-    // menu's internal `was_running` bookkeeping, leaving the user
-    // staring at a "Paused" overlay over a running sim.
-    if keys.just_pressed(KeyCode::Space) && !menu.open {
-        sim.running = !sim.running;
-    }
-    // `?` (Slash, with or without Shift) or `H` toggles the help
-    // popup. egui consumes Shift natively when ShiftLeft is held;
-    // we just react to either key landing.
-    if keys.just_pressed(KeyCode::Slash) || keys.just_pressed(KeyCode::KeyH) {
-        help.open = !help.open;
-    }
-    // P opens the pause menu unconditionally — even with panels
-    // open. Lets the user jump straight to Save / Quit / Options
-    // without first dismissing N stacked panels.
-    if keys.just_pressed(KeyCode::KeyP) && !menu.open {
-        menu.open = true;
-        menu.was_running = sim.running;
-        sim.running = false;
-    }
-    if keys.just_pressed(KeyCode::Escape) {
-        if menu.open {
-            // Pause menu is its own thing — Esc resumes.
-            menu.open = false;
-            sim.running = menu.was_running;
-        } else if let Some(top) = stack.stack.last().copied() {
-            // Defer the actual close to `close_top_panel`, which
-            // owns the panel-state ResMuts we'd otherwise need
-            // here. Setting the request and returning keeps Esc
-            // single-step (one panel per press).
-            close_req.0 = Some(top);
-        } else {
-            // No panels left — Esc opens the pause menu.
-            menu.open = true;
-            menu.was_running = sim.running;
-            sim.running = false;
-        }
-    }
-}
-
-/// Drains [`CloseTopRequest`] by flipping the corresponding panel's
-/// open flag. Split from [`keyboard_shortcuts`] so each system
-/// stays under Bevy's SystemParam-tuple limit — input handling
-/// over there, panel mutation here.
-#[allow(clippy::too_many_arguments)]
-fn close_top_panel(
-    mut close_req: ResMut<CloseTopRequest>,
-    mut perf: ResMut<PerfStats>,
-    mut ship_list: ResMut<ShipListState>,
-    mut contracts: ResMut<ContractsState>,
-    mut factions: ResMut<FactionsState>,
-    mut markets: ResMut<MarketsState>,
-    mut populations: ResMut<PopulationsState>,
-    mut facility_list: ResMut<FacilityListState>,
-    mut retirements: ResMut<RetirementsState>,
-    mut construction: ResMut<ConstructionState>,
-    mut events: ResMut<EventsState>,
-    mut help: ResMut<HelpState>,
-    mut options: ResMut<OptionsState>,
-    mut add_ship: ResMut<AddShipDialogState>,
-    mut add_facility: ResMut<AddFacilityDialogState>,
-) {
-    let Some(kind) = close_req.0.take() else {
-        return;
-    };
-    match kind {
-        PanelKind::Perf => perf.open = false,
-        PanelKind::ShipList => ship_list.open = false,
-        PanelKind::Contracts => contracts.open = false,
-        PanelKind::Factions => factions.open = false,
-        PanelKind::Markets => markets.open = false,
-        PanelKind::Populations => populations.open = false,
-        PanelKind::FacilityList => facility_list.open = false,
-        PanelKind::Retirements => retirements.open = false,
-        PanelKind::Construction => construction.open = false,
-        PanelKind::Events => events.open = false,
-        PanelKind::Help => help.open = false,
-        PanelKind::Options => options.open = false,
-        PanelKind::AddShip => add_ship.open = false,
-        PanelKind::AddFacility => add_facility.open = false,
-    }
-}
-
 /// Right-click context menu state. `target` = whatever the right-
 /// click raycast hit (ship or facility, by sim_id); `screen_pos`
 /// anchors the popup. `target = None` means the menu is hidden.
@@ -1584,77 +1382,6 @@ fn add_facility_dialog(
     }
 }
 
-/// Help popup. Toggled by `?` / `H` keys (see `keyboard_shortcuts`)
-/// or by clicking the `?` button on the pause menu. Lists the
-/// keyboard + mouse hotkeys as a single egui grid.
-#[derive(Resource, Default)]
-struct HelpState {
-    open: bool,
-}
-
-fn help_panel(mut ctx: EguiContexts, mut help: ResMut<HelpState>) {
-    let mut open = help.open;
-    if !open {
-        return;
-    }
-    egui::Window::new("Help · Hotkeys")
-        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-        .collapsible(false)
-        .resizable(false)
-        .default_width(380.0)
-        .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
-            egui::Grid::new("help_keys")
-                .num_columns(2)
-                .striped(true)
-                .spacing([12.0, 4.0])
-                .show(ui, |ui| {
-                    let key =
-                        |label: &str| egui::RichText::new(label).monospace().color(theme::PRIMARY);
-                    let row = |ui: &mut egui::Ui, k: &str, desc: &str| {
-                        ui.label(key(k));
-                        ui.label(desc);
-                        ui.end_row();
-                    };
-                    ui.label(theme::section_header("Sim control"));
-                    ui.label("");
-                    ui.end_row();
-                    row(ui, "Space", "Pause / resume the sim");
-                    row(
-                        ui,
-                        "Esc",
-                        "Close top open panel; opens pause menu when none",
-                    );
-                    row(ui, "P", "Open the pause menu directly");
-                    ui.label(theme::section_header("Camera"));
-                    ui.label("");
-                    ui.end_row();
-                    row(ui, "Left-drag", "Orbit around focus point");
-                    row(ui, "Middle-drag", "Orbit around focus point");
-                    row(ui, "Right-drag", "Pan focus across plane");
-                    row(ui, "Shift-Left-drag", "Pan focus across plane");
-                    row(ui, "WASD", "Pan focus relative to camera");
-                    row(ui, "Scroll / Pinch", "Zoom in / out");
-                    ui.label(theme::section_header("Selection"));
-                    ui.label("");
-                    ui.end_row();
-                    row(ui, "Left-click", "Select ship / facility");
-                    row(
-                        ui,
-                        "Right-click",
-                        "Context menu (Inspect / Follow / POV / Destroy)",
-                    );
-                    row(ui, "✕ Clear (top bar)", "Deselect");
-                    ui.label(theme::section_header("Misc"));
-                    ui.label("");
-                    ui.end_row();
-                    row(ui, "F12", "Screenshot to /tmp/bevy_screenshot.png");
-                    row(ui, "?  /  H", "Show this help popup");
-                });
-        });
-    help.open = open;
-}
-
 /// Main menu screen. Renders only when `AppState::MainMenu` is
 /// active. The 3D backdrop (starfield + nebulas + bodies) keeps
 /// drawing because RenderPlugin systems run unconditionally — the
@@ -1748,7 +1475,7 @@ fn main_menu_panel(
 /// from `Cargo.toml`; the Makefile reads the same field so packaged
 /// builds (Info.plist, butler --userversion, archive names) line
 /// up with what's shown in-game.
-fn credits_block(ui: &mut egui::Ui) {
+pub(super) fn credits_block(ui: &mut egui::Ui) {
     ui.label(
         egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
             .small()
@@ -2268,181 +1995,3 @@ fn save_list_panel(
     state.open = open;
 }
 
-/// Options window — audio + display settings. Toggled from the
-/// pause menu's "Options" button (and, in a later bundle, from the
-/// main menu). State is just `open`; the actual settings live on
-/// `crate::audio::AudioSettings` etc. so they stay valid when the
-/// window is closed.
-#[derive(Resource, Default)]
-struct OptionsState {
-    open: bool,
-}
-
-fn options_panel(
-    mut ctx: EguiContexts,
-    mut state: ResMut<OptionsState>,
-    mut audio: ResMut<crate::audio::AudioSettings>,
-) {
-    let mut open = state.open;
-    if !open {
-        return;
-    }
-    egui::Window::new("Options")
-        .id(egui::Id::new("options_window"))
-        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-        .collapsible(false)
-        .resizable(false)
-        .default_width(360.0)
-        .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
-            ui.add_space(4.0);
-            ui.label(theme::section_header("Audio"));
-            ui.add_space(4.0);
-
-            // Bevy's AudioSink::set_volume is linear gain; volumes
-            // 0..=1 map directly. Capping the sliders at 1.0 keeps
-            // the user from blowing out — boost beyond unity gain
-            // requires HDR mixing we don't ship.
-            egui::Grid::new("options_audio")
-                .num_columns(2)
-                .spacing([12.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(theme::caption("Music"));
-                    ui.add(
-                        egui::Slider::new(&mut audio.music_volume, 0.0..=1.0)
-                            .show_value(true)
-                            .fixed_decimals(2),
-                    );
-                    ui.end_row();
-
-                    ui.label(theme::caption("SFX"));
-                    ui.add(
-                        egui::Slider::new(&mut audio.sfx_volume, 0.0..=1.0)
-                            .show_value(true)
-                            .fixed_decimals(2),
-                    );
-                    ui.end_row();
-                });
-
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(2.0);
-            ui.label(
-                egui::RichText::new("Music applies live; SFX applies on the next one-shot.")
-                    .small()
-                    .italics()
-                    .color(theme::TEXT_DIM),
-            );
-        });
-    state.open = open;
-}
-
-/// Modal-ish "Pause" menu. Esc toggles it (see `keyboard_shortcuts`).
-/// While open the sim is forced paused; closing the menu restores
-/// the prior running state. Buttons: Resume, Save As, Quit. Save is
-/// folded into Save As since the embedded client has no live
-/// persistence worker — every save is effectively a snapshot copy.
-#[derive(Resource, Default)]
-struct PauseMenuState {
-    open: bool,
-    /// Sim's `running` state at the moment the menu was opened, so
-    /// closing the menu restores that state instead of always
-    /// resuming.
-    was_running: bool,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn pause_menu(
-    mut ctx: EguiContexts,
-    mut menu: ResMut<PauseMenuState>,
-    mut sim: ResMut<Sim>,
-    mut save_req: ResMut<crate::sim::SaveAsRequest>,
-    mut help: ResMut<HelpState>,
-    mut options: ResMut<OptionsState>,
-    mut next_state: ResMut<NextState<crate::AppState>>,
-    mut exit: EventWriter<AppExit>,
-) {
-    if !menu.open {
-        return;
-    }
-    egui::Window::new("Paused")
-        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-        .collapsible(false)
-        .resizable(false)
-        .default_width(280.0)
-        .show(ctx.ctx_mut(), |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new("Game paused")
-                        .strong()
-                        .size(16.0)
-                        .color(theme::PRIMARY),
-                );
-                ui.add_space(8.0);
-                let btn_size = egui::vec2(220.0, 32.0);
-                if ui
-                    .add_sized(btn_size, egui::Button::new("Resume (Esc)"))
-                    .clicked()
-                {
-                    menu.open = false;
-                    sim.running = menu.was_running;
-                }
-                ui.add_space(2.0);
-                if ui
-                    .add_sized(btn_size, egui::Button::new("Save As…"))
-                    .on_hover_text(
-                        "Write a timestamped VACUUM INTO snapshot of sim.db. \
-                         Embedded client has no persistence worker yet, so the \
-                         snapshot reflects the load tick rather than live state.",
-                    )
-                    .clicked()
-                {
-                    save_req.0 = true;
-                }
-                ui.add_space(2.0);
-                if ui
-                    .add_sized(btn_size, egui::Button::new("Options"))
-                    .on_hover_text("Audio + display settings.")
-                    .clicked()
-                {
-                    options.open = true;
-                }
-                ui.add_space(2.0);
-                if ui
-                    .add_sized(btn_size, egui::Button::new("Help (?)"))
-                    .on_hover_text("Show the hotkey reference popup.")
-                    .clicked()
-                {
-                    help.open = true;
-                }
-                ui.add_space(2.0);
-                if ui
-                    .add_sized(btn_size, egui::Button::new("Return to Main Menu"))
-                    .on_hover_text(
-                        "Pause the sim and go back to the title screen. \
-                         The world stays loaded — Start resumes from here.",
-                    )
-                    .clicked()
-                {
-                    sim.running = false;
-                    menu.open = false;
-                    next_state.set(crate::AppState::MainMenu);
-                }
-                ui.add_space(2.0);
-                if ui
-                    .add_sized(
-                        btn_size,
-                        egui::Button::new(egui::RichText::new("Quit").color(theme::DANGER)),
-                    )
-                    .on_hover_text("Close the window.")
-                    .clicked()
-                {
-                    exit.send(AppExit::Success);
-                }
-                ui.add_space(14.0);
-                credits_block(ui);
-                ui.add_space(6.0);
-            });
-        });
-}
