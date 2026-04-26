@@ -11,12 +11,18 @@
 #   make build-mac-universal  Both, combined into one fat binary via lipo.
 #   make build-win          x86_64-pc-windows-msvc (run on a Windows host).
 #   make build-linux        x86_64-unknown-linux-gnu (best built on Linux).
+#   make build-linux-sniper x86_64-unknown-linux-gnu via Steam Runtime
+#                           sniper SDK Docker image (glibc 2.31 — works on
+#                           Steam Deck + every recent desktop distro).
+#                           Runs from any host (Mac / Windows / Linux).
 #
 #   make package-mac           macOS .app bundle (arm64-only, fast path).
 #   make package-mac-universal macOS .app bundle (arm64 + x86_64, requires
 #                              both rustup targets installed).
 #   make package-win           Windows zip in dist/windows/ (binary + assets).
 #   make package-linux         Linux tarball in dist/linux/ (binary + assets).
+#   make package-linux-sniper  Same tarball, built inside sniper SDK
+#                              (Steam-compatible glibc).
 #
 #   make dmg                package-mac + DMG.
 #   make zip-mac            package-mac + ditto-zipped .app for sharing.
@@ -35,6 +41,12 @@
 #                       Run `make build-linux` directly on a Linux host —
 #                       cross-compiling Bevy + sqlx + bevy_hanabi from
 #                       Mac/Windows is fragile (host-system libs).
+#   * Linux (sniper):   Docker (Desktop on Mac/Windows, daemon on Linux).
+#                       One-time `make docker-sniper-image` builds the
+#                       wrapper image from docker/sniper/Dockerfile.
+#                       Then `make build-linux-sniper` runs cargo inside
+#                       it — cross-platform-friendly, glibc 2.31 baseline,
+#                       Steam Deck compatible.
 #
 # Override at invocation:
 #   make CARGO=cargo+nightly build
@@ -84,10 +96,22 @@ TARGET_MAC_INTEL := x86_64-apple-darwin
 TARGET_WIN       := x86_64-pc-windows-msvc
 TARGET_LINUX     := x86_64-unknown-linux-gnu
 
+# Steam Runtime sniper SDK wrapper. Tag is local-only; rebuild on demand.
+# Named volumes persist Cargo's registry + sniper-target dir across runs
+# so successive `build-linux-sniper` invocations only recompile changed
+# crates instead of starting from a cold cache. Sniper-target is kept
+# separate from the host's `target/` to avoid clobbering native builds.
+DOCKER            ?= docker
+SNIPER_IMAGE      := spaceproject/sniper-rust:latest
+SNIPER_DOCKERFILE := docker/sniper/Dockerfile
+SNIPER_CACHE_VOL  := spaceproject-sniper-cargo-cache
+SNIPER_TARGET_VOL := spaceproject-sniper-cargo-target
+
 .PHONY: help build run verify \
         build-mac build-mac-intel build-mac-universal \
-        build-win build-linux \
-        package-mac package-mac-universal package-win package-linux \
+        build-win build-linux build-linux-sniper \
+        package-mac package-mac-universal package-win package-linux package-linux-sniper \
+        docker-sniper-image docker-sniper-shell docker-sniper-clean \
         dmg zip-mac \
         clean
 
@@ -105,14 +129,21 @@ help:
 	@echo "  build-mac-universal     fat binary (both arches)"
 	@echo "  build-win               x86_64-pc-windows-msvc (run on Windows host)"
 	@echo "  build-linux             x86_64-unknown-linux-gnu (best on Linux host)"
+	@echo "  build-linux-sniper      Linux build via Steam Runtime sniper SDK Docker"
 	@echo ""
 	@echo "Distributables:"
 	@echo "  package-mac             $(APP_BUNDLE) (arm64-only)"
 	@echo "  package-mac-universal   $(APP_BUNDLE) (arm64 + x86_64)"
 	@echo "  package-win             $(WIN_DIR)/ + $(WIN_ZIP)"
 	@echo "  package-linux           $(LINUX_DIR)/ + $(LINUX_TGZ)"
+	@echo "  package-linux-sniper    $(LINUX_TGZ) (Steam Deck / SteamOS compatible)"
 	@echo "  dmg                     $(APP_DMG)"
 	@echo "  zip-mac                 $(APP_ZIP) (ditto-archive of .app)"
+	@echo ""
+	@echo "Docker (sniper SDK):"
+	@echo "  docker-sniper-image     Build the local sniper-rust wrapper image"
+	@echo "  docker-sniper-shell     Drop into an interactive shell inside the image"
+	@echo "  docker-sniper-clean     Remove the wrapper image + cargo cache volumes"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean                   Remove target/ and dist/"
@@ -167,6 +198,70 @@ build-linux:
 	@rustup target list --installed | grep -q $(TARGET_LINUX) || rustup target add $(TARGET_LINUX)
 	$(CARGO) build --release -p $(BIN) --target $(TARGET_LINUX)
 	@echo "==> target/$(TARGET_LINUX)/release/$(BIN)"
+
+# ------- Steam Runtime sniper SDK build -------
+#
+# Builds inside a Debian 11 / glibc 2.31 container so the resulting
+# binary runs on Steam Deck (SteamOS 3) and any modern desktop distro
+# without dragging in newer-glibc symbols. Cross-platform: works from
+# Mac / Windows / Linux as long as Docker is running.
+#
+# The container build artefacts land in a Docker named volume rather
+# than the host's `target/` directory — keeps host vs sniper builds
+# from clobbering each other's incremental compilation, and avoids the
+# osxfs / Hyper-V file-system slowdown that mounted target dirs
+# otherwise incur on Mac / Windows hosts.
+#
+# After the build, `docker cp` extracts the binary into
+# target/$(TARGET_LINUX)/release/ on the host so the existing
+# package-linux machinery can pick it up unchanged.
+
+docker-sniper-image:
+	$(DOCKER) build -t $(SNIPER_IMAGE) -f $(SNIPER_DOCKERFILE) docker/sniper
+	@echo "==> built $(SNIPER_IMAGE)"
+
+# Layout inside the container:
+#   /workspace        bind mount of the source tree (read-write — cargo
+#                     updates Cargo.lock; pass :ro and pre-generate lock
+#                     if you want strict read-only).
+#   /build-target     named volume — CARGO_TARGET_DIR points here so all
+#                     build artefacts stay on a native Linux filesystem
+#                     (no osxfs / Hyper-V slowdown on Mac / Windows
+#                     hosts) and persist across container runs.
+#   /usr/local/cargo/registry  named volume — Cargo's downloaded crates
+#                     cache, also persistent.
+# After the build the recipe copies the final binary out of the volume
+# into the host's `target/$(TARGET_LINUX)/release/` so the existing
+# `package-linux` target picks it up unchanged.
+build-linux-sniper:
+	@$(DOCKER) image inspect $(SNIPER_IMAGE) >/dev/null 2>&1 || $(MAKE) --no-print-directory docker-sniper-image
+	@mkdir -p target/$(TARGET_LINUX)/release
+	$(DOCKER) run --rm \
+		-v "$(WORKSPACE)":/workspace \
+		-v $(SNIPER_CACHE_VOL):/usr/local/cargo/registry \
+		-v $(SNIPER_TARGET_VOL):/build-target \
+		-e CARGO_TARGET_DIR=/build-target \
+		$(SNIPER_IMAGE) \
+		bash -c "cargo build --release -p $(BIN) --target $(TARGET_LINUX) \
+			&& cp /build-target/$(TARGET_LINUX)/release/$(BIN) /workspace/target/$(TARGET_LINUX)/release/$(BIN)"
+	@echo ""
+	@echo "==> target/$(TARGET_LINUX)/release/$(BIN) (built in sniper SDK)"
+	@file target/$(TARGET_LINUX)/release/$(BIN) || true
+
+docker-sniper-shell:
+	@$(DOCKER) image inspect $(SNIPER_IMAGE) >/dev/null 2>&1 || $(MAKE) --no-print-directory docker-sniper-image
+	$(DOCKER) run --rm -it \
+		-v "$(WORKSPACE)":/workspace \
+		-v $(SNIPER_CACHE_VOL):/usr/local/cargo/registry \
+		-v $(SNIPER_TARGET_VOL):/build-target \
+		-e CARGO_TARGET_DIR=/build-target \
+		$(SNIPER_IMAGE) \
+		bash
+
+docker-sniper-clean:
+	-$(DOCKER) volume rm $(SNIPER_CACHE_VOL) $(SNIPER_TARGET_VOL) 2>/dev/null
+	-$(DOCKER) image  rm $(SNIPER_IMAGE) 2>/dev/null
+	@echo "==> removed sniper image + cache volumes"
 
 # ------- macOS .app bundle -------
 #
@@ -273,7 +368,11 @@ package-win: build-win
 	@echo "==> $(WIN_DIR)/"
 	@echo "==> $(WIN_ZIP)"
 
-package-linux: build-linux
+# Body extracted so package-linux + package-linux-sniper can share it.
+# Both flavours land their binary at target/$(TARGET_LINUX)/release/$(BIN);
+# the only difference is which build target produced it.
+.PHONY: _package-linux-tree
+_package-linux-tree:
 	@rm -rf "$(LINUX_DIR)"
 	@mkdir -p "$(LINUX_DIR)"
 	@cp "target/$(TARGET_LINUX)/release/$(BIN)" "$(LINUX_DIR)/$(BIN)"
@@ -285,6 +384,10 @@ package-linux: build-linux
 	@echo ""
 	@echo "==> $(LINUX_DIR)/"
 	@echo "==> $(LINUX_TGZ)"
+
+package-linux: build-linux _package-linux-tree
+
+package-linux-sniper: build-linux-sniper _package-linux-tree
 
 # ------- itch.io publishing (butler) -------
 #
@@ -303,7 +406,7 @@ ITCH_TARGET  := $(ITCH_USER)/$(ITCH_GAME)
 # VERSION is defined at the top of this file from Cargo.toml;
 # overridable on the command line as `make VERSION=1.2.3 publish-mac`.
 
-.PHONY: publish-mac publish-win publish-linux publish-all butler-status
+.PHONY: publish-mac publish-win publish-linux publish-linux-sniper publish-all butler-status
 
 publish-mac: zip-mac
 	butler push "$(APP_ZIP)" $(ITCH_TARGET):mac --userversion $(VERSION)
@@ -312,6 +415,13 @@ publish-win: package-win
 	butler push "$(WIN_ZIP)" $(ITCH_TARGET):windows --userversion $(VERSION)
 
 publish-linux: package-linux
+	butler push "$(LINUX_TGZ)" $(ITCH_TARGET):linux --userversion $(VERSION)
+
+# Sniper-built variant pushed to the same `linux` channel — overrides
+# any prior native-glibc Linux upload. This is the binary to use when
+# Steam Deck is in the test pool: glibc 2.31 baseline runs everywhere
+# from SteamOS 3 → current Ubuntu without compatibility shims.
+publish-linux-sniper: package-linux-sniper
 	butler push "$(LINUX_TGZ)" $(ITCH_TARGET):linux --userversion $(VERSION)
 
 publish-all: publish-mac publish-win publish-linux
