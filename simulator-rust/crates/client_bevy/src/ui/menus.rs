@@ -63,7 +63,7 @@ pub(super) fn options_panel(
         .resizable(false)
         .default_width(360.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.add_space(4.0);
             ui.label(theme::section_header("Audio"));
             ui.add_space(4.0);
@@ -139,7 +139,7 @@ pub(super) fn pause_menu(
         .collapsible(false)
         .resizable(false)
         .default_width(280.0)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(6.0);
                 ui.label(
@@ -207,7 +207,7 @@ pub(super) fn pause_menu(
                     .on_hover_text("Close the window.")
                     .clicked()
                 {
-                    exit.send(AppExit::Success);
+                    exit.write(AppExit::Success);
                 }
                 ui.add_space(14.0);
                 credits_block(ui);

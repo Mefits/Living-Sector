@@ -133,7 +133,7 @@ pub(super) fn perf_overlay(
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 60.0))
         .default_width(220.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             egui::Grid::new("perf_grid")
                 .num_columns(2)
                 .spacing([12.0, 4.0])

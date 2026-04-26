@@ -130,7 +130,7 @@ pub(super) fn factions_panel(
         .default_width(720.0)
         .default_height(520.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.label(egui::RichText::new("Ledger").strong().color(theme::PRIMARY));
             egui::Grid::new("factions_ledger_grid")
                 .striped(true)

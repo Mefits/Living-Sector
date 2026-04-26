@@ -156,7 +156,7 @@ pub(super) fn contracts_panel(
         .default_width(820.0)
         .default_height(440.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("kind:");
                 kind_combo(ui, &mut kind_filter);

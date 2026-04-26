@@ -83,7 +83,7 @@ pub(super) fn minimap_panel(
         .default_width(260.0)
         .default_height(260.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             // Reserve a square plotting area; painter draws into the
             // allocated rect. 220×220 leaves room for the title bar.
             let (rect, response) =
@@ -118,7 +118,7 @@ pub(super) fn minimap_panel(
 
             // Camera focus crosshair — convert world-space back to
             // universe coords by dividing out SCALE_FACTOR.
-            if let Ok(orbit) = camera_q.get_single() {
+            if let Ok(orbit) = camera_q.single() {
                 let ux = orbit.focus.x / SCALE_FACTOR;
                 let uy = orbit.focus.z / SCALE_FACTOR;
                 if ux >= min_x && ux <= max_x && uy >= min_y && uy <= max_y {

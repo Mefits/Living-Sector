@@ -8,11 +8,9 @@
 //! shader runs, with sea/poles/bands/emission knobs zeroed out.
 
 use bevy::{
+    asset::RenderAssetUsages,
+    mesh::{Indices, PrimitiveTopology},
     prelude::*,
-    render::{
-        mesh::{Indices, PrimitiveTopology},
-        render_asset::RenderAssetUsages,
-    },
 };
 
 use super::planet::{PlanetMaterial, PlanetParams};

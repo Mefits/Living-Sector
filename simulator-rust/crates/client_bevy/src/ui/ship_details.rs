@@ -82,7 +82,7 @@ pub(super) fn ship_details_panel(
         .default_width(520.0)
         .default_height(640.0)
         .open(&mut still_open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             let Ok(mut q) = sim.store.world.query_one::<(
                 &ShipIdentity,
                 &ShipPosition,

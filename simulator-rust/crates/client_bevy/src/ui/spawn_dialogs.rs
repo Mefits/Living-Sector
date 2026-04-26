@@ -109,7 +109,7 @@ pub(super) fn add_ship_dialog(
         .resizable(false)
         .default_width(360.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             egui::Grid::new("add_ship_form")
                 .num_columns(2)
                 .spacing([12.0, 6.0])
@@ -270,7 +270,7 @@ pub(super) fn add_facility_dialog(
         .resizable(false)
         .default_width(360.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             egui::Grid::new("add_fac_form")
                 .num_columns(2)
                 .spacing([12.0, 6.0])

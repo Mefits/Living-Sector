@@ -13,7 +13,7 @@
 //! focus) so we're not reading Transform and back-computing angles.
 
 use bevy::{
-    core_pipeline::bloom::Bloom,
+    post_process::bloom::Bloom,
     input::{
         gestures::PinchGesture,
         mouse::{MouseMotion, MouseWheel},
@@ -166,10 +166,10 @@ fn spawn_orbit_camera(mut commands: Commands) {
     // colour — ships become visible at galactic zoom.
     commands.spawn((
         Camera3d::default(),
-        Camera {
-            hdr: true,
-            ..default()
-        },
+        Camera::default(),
+        // Bevy 0.17: Camera::hdr field moved to a separate Hdr
+        // marker component (bevy::render::view::Hdr).
+        bevy::render::view::Hdr,
         orbit.transform(),
         projection,
         Bloom::NATURAL,
@@ -235,7 +235,7 @@ fn orbit_camera_input(
     // `wants_*` queries cover keyboard focus too — typing in a
     // filter box won't trigger WASD pan.
     let egui_owns = {
-        let ctx = egui_ctx.ctx_mut();
+        let ctx = egui_ctx.ctx_mut().unwrap();
         ctx.wants_pointer_input()
             || ctx.is_pointer_over_area()
             || ctx.wants_keyboard_input()
@@ -244,7 +244,7 @@ fn orbit_camera_input(
         return;
     }
 
-    let Ok((mut orbit, mut xf)) = q.get_single_mut() else {
+    let Ok((mut orbit, mut xf)) = q.single_mut() else {
         return;
     };
 
@@ -366,7 +366,7 @@ fn apply_focus_request(
     let Some(target) = req.0.take() else {
         return;
     };
-    let Ok((mut orbit, mut xf)) = q.get_single_mut() else {
+    let Ok((mut orbit, mut xf)) = q.single_mut() else {
         return;
     };
     orbit.focus = target;
@@ -384,7 +384,7 @@ fn apply_reset_request(
         return;
     }
     req.0 = false;
-    let Ok((mut orbit, mut xf)) = q.get_single_mut() else {
+    let Ok((mut orbit, mut xf)) = q.single_mut() else {
         return;
     };
     *orbit = OrbitCamera::initial();

@@ -9,12 +9,14 @@
 //! the procedural sky alone covers POV / horizontal angles.
 
 use bevy::{
-    pbr::{Material, MaterialPlugin, NotShadowCaster, NotShadowReceiver},
+    light::{NotShadowCaster, NotShadowReceiver},
+    pbr::{Material, MaterialPlugin},
     prelude::*,
     render::{
         alpha::AlphaMode,
-        render_resource::{AsBindGroup, Face, ShaderRef, ShaderType},
+        render_resource::{AsBindGroup, Face, ShaderType},
     },
+    shader::ShaderRef,
 };
 
 pub struct StarfieldPlugin;
@@ -52,9 +54,9 @@ impl Material for SkyStarsMaterial {
     /// inside means we'd see nothing — this flip is the entire
     /// reason the inside is visible.
     fn specialize(
-        _pipeline: &bevy::pbr::MaterialPipeline<Self>,
+        _pipeline: &bevy::pbr::MaterialPipeline,
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
-        _layout: &bevy::render::mesh::MeshVertexBufferLayoutRef,
+        _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
         _key: bevy::pbr::MaterialPipelineKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         descriptor.primitive.cull_mode = Some(Face::Front);
@@ -113,7 +115,7 @@ fn follow_camera(
     mut q_shell: Query<&mut Transform, (With<SkyShell>, Without<Camera>)>,
     q_cam: Query<&Transform, (With<Camera>, Without<SkyShell>)>,
 ) {
-    let Ok(cam) = q_cam.get_single() else {
+    let Ok(cam) = q_cam.single() else {
         return;
     };
     for mut xf in q_shell.iter_mut() {

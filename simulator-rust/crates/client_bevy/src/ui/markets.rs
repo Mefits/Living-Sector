@@ -170,7 +170,7 @@ pub(super) fn markets_panel(
         .default_width(760.0)
         .default_height(520.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("filter:");
                 ui.text_edit_singleline(&mut filter);

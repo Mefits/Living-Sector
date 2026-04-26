@@ -166,6 +166,6 @@ pub fn install_image_loaders(
     if *done {
         return;
     }
-    egui_extras::install_image_loaders(ctx.ctx_mut());
+    egui_extras::install_image_loaders(ctx.ctx_mut().unwrap());
     *done = true;
 }

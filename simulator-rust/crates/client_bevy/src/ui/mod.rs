@@ -80,9 +80,7 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(EguiPlugin {
-                enable_multipass_for_primary_context: false,
-            })
+        app.add_plugins(EguiPlugin::default())
             .init_resource::<PerfStats>()
             .init_resource::<ShipListState>()
             .init_resource::<ContractsState>()

@@ -90,7 +90,7 @@ pub(super) fn context_menu(
         ContextMenuTarget::Facility(id) => format!("Facility · {id}"),
     };
 
-    let ctx_ref = ctx.ctx_mut();
+    let ctx_ref = ctx.ctx_mut().unwrap();
     egui::Area::new(egui::Id::new("context_menu_area"))
         .fixed_pos(egui::pos2(pos.x, pos.y))
         .order(egui::Order::Foreground)

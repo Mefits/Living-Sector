@@ -16,8 +16,9 @@ use bevy::{
     prelude::*,
     render::{
         alpha::AlphaMode,
-        render_resource::{AsBindGroup, ShaderRef, ShaderType},
+        render_resource::{AsBindGroup, ShaderType},
     },
+    shader::ShaderRef,
 };
 
 pub struct PlanetMaterialPlugin;

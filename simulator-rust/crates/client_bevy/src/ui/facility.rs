@@ -186,7 +186,7 @@ pub(super) fn facility_list_panel(
         .default_width(800.0)
         .default_height(460.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("filter:");
                 ui.text_edit_singleline(&mut filter);
@@ -338,7 +338,7 @@ pub(super) fn facility_details_panel(
         .default_width(520.0)
         .default_height(640.0)
         .open(&mut still_open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             let Ok(mut q) = sim.store.world.query_one::<(
                 &FacilityIdentity,
                 &FacilityLocation,

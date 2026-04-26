@@ -42,7 +42,7 @@ fn main() {
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "spaceproject (bevy, embedded)".into(),
-                        resolution: (1280., 720.).into(),
+                        resolution: (1280u32, 720u32).into(),
                         ..default()
                     }),
                     ..default()
@@ -165,7 +165,7 @@ fn screenshot_key(
         return;
     }
 
-    let Ok(window) = primary.get_single() else { return };
+    let Ok(window) = primary.single() else { return };
     let path = "/tmp/bevy_screenshot.png";
     commands
         .spawn(Screenshot::window(window))

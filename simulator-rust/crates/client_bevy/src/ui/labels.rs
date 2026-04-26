@@ -76,7 +76,7 @@ pub(super) fn body_labels_panel(
         return;
     }
 
-    let Ok((camera, cam_xf)) = camera_q.get_single() else {
+    let Ok((camera, cam_xf)) = camera_q.single() else {
         return;
     };
 
@@ -96,7 +96,7 @@ pub(super) fn body_labels_panel(
     // Use a transparent, non-interactive overlay area so labels
     // paint on top without eating clicks or blocking egui's
     // tooltip logic.
-    let ctx = ctx.ctx_mut();
+    let ctx = ctx.ctx_mut().unwrap();
     let min_y = label_min_y(ctx);
     egui::Area::new(egui::Id::new("body_labels_area"))
         .movable(false)
@@ -158,7 +158,7 @@ pub(super) fn construction_labels_panel(
     if !state.show {
         return;
     }
-    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else {
+    let Ok((camera, cam_xf, orbit)) = camera_q.single() else {
         return;
     };
     if orbit.distance > CONSTRUCTION_LABEL_MAX_DIST {
@@ -177,7 +177,7 @@ pub(super) fn construction_labels_panel(
         })
         .collect();
 
-    let ctx = ctx.ctx_mut();
+    let ctx = ctx.ctx_mut().unwrap();
     let min_y = label_min_y(ctx);
     egui::Area::new(egui::Id::new("construction_labels_area"))
         .movable(false)
@@ -229,7 +229,7 @@ pub(super) fn facility_labels_panel(
     if !state.show {
         return;
     }
-    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else {
+    let Ok((camera, cam_xf, orbit)) = camera_q.single() else {
         return;
     };
     if orbit.distance > FACILITY_LABEL_MAX_DIST {
@@ -262,7 +262,7 @@ pub(super) fn facility_labels_panel(
         })
         .collect();
 
-    let ctx = ctx.ctx_mut();
+    let ctx = ctx.ctx_mut().unwrap();
     let min_y = label_min_y(ctx);
     egui::Area::new(egui::Id::new("facility_labels_area"))
         .movable(false)
@@ -306,7 +306,7 @@ pub(super) fn ship_labels_panel(
     if !state.show {
         return;
     }
-    let Ok((camera, cam_xf, orbit)) = camera_q.get_single() else {
+    let Ok((camera, cam_xf, orbit)) = camera_q.single() else {
         return;
     };
     if orbit.distance > SHIP_LABEL_MAX_DIST {
@@ -338,7 +338,7 @@ pub(super) fn ship_labels_panel(
         })
         .collect();
 
-    let ctx = ctx.ctx_mut();
+    let ctx = ctx.ctx_mut().unwrap();
     let min_y = label_min_y(ctx);
     egui::Area::new(egui::Id::new("ship_labels_area"))
         .movable(false)

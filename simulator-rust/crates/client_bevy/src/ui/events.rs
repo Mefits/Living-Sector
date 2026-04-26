@@ -81,7 +81,7 @@ pub(super) fn events_panel(
         .default_width(640.0)
         .default_height(420.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("filter kind:");
                 ui.text_edit_singleline(&mut filter);

@@ -153,7 +153,7 @@ pub(super) fn populations_panel(
         .default_width(820.0)
         .default_height(460.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("filter:");
                 ui.text_edit_singleline(&mut filter);

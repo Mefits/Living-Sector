@@ -234,7 +234,7 @@ fn play_click_on_egui_press(
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
-    if !ctx.ctx_mut().wants_pointer_input() {
+    if !ctx.ctx_mut().unwrap().wants_pointer_input() {
         return;
     }
     let step = chain.next_step();

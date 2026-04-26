@@ -137,7 +137,7 @@ pub(super) fn top_bar_controls(
 ) {
     let resp_controls = egui::TopBottomPanel::top("top_bar_controls")
         .frame(holo_chrome_frame())
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("spaceproject").strong());
                 ui.separator();
@@ -342,7 +342,7 @@ pub(super) fn top_bar_controls(
     // top of the panel fill. Foreground LayerId so it sits above
     // the chrome but underneath any popups / windows the panel
     // toggles open elsewhere.
-    let painter = ctx.ctx_mut().layer_painter(egui::LayerId::new(
+    let painter = ctx.ctx_mut().unwrap().layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
         egui::Id::new("top_bar_controls_overlay"),
     ));
@@ -375,7 +375,7 @@ pub(super) fn top_bar(
     let construction_count = sim.store.world.query::<&ConstructionSite>().iter().count();
     let resp_panels = egui::TopBottomPanel::top("top_bar_panels")
         .frame(holo_chrome_frame())
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
         ui.horizontal(|ui| {
             // Panel-toggle row: each entry is icon + "Label (count)".
             // Click toggles the panel's `open` flag. The toggled
@@ -502,7 +502,7 @@ pub(super) fn top_bar(
             }
         });
     });
-    let painter = ctx.ctx_mut().layer_painter(egui::LayerId::new(
+    let painter = ctx.ctx_mut().unwrap().layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
         egui::Id::new("top_bar_panels_overlay"),
     ));

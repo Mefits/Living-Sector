@@ -463,7 +463,7 @@ fn annulus_mesh(inner: f32, outer: f32, segments: u32) -> Mesh {
     // Annulus mesh is XY-plane (normal +Z). Rotate vertices to XZ
     // (normal +Y) so the disk lies on the orbital plane.
     let rot = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    if let Some(bevy::render::mesh::VertexAttributeValues::Float32x3(positions)) =
+    if let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
     {
         for p in positions.iter_mut() {
@@ -471,7 +471,7 @@ fn annulus_mesh(inner: f32, outer: f32, segments: u32) -> Mesh {
             *p = v.to_array();
         }
     }
-    if let Some(bevy::render::mesh::VertexAttributeValues::Float32x3(normals)) =
+    if let Some(bevy::mesh::VertexAttributeValues::Float32x3(normals)) =
         mesh.attribute_mut(Mesh::ATTRIBUTE_NORMAL)
     {
         for n in normals.iter_mut() {
@@ -492,7 +492,7 @@ fn cleanup_game_world(
 ) {
     let mut count = 0usize;
     for e in entities.iter() {
-        commands.entity(e).despawn_recursive();
+        commands.entity(e).despawn();
         count += 1;
     }
     info!("client_bevy: cleaned up {} game-world entities", count);
@@ -506,7 +506,7 @@ fn cleanup_game_world(
 fn reset_camera_for_game(
     mut q: Query<(&mut crate::camera::OrbitCamera, &mut Transform)>,
 ) {
-    let Ok((mut orbit, mut xf)) = q.get_single_mut() else { return };
+    let Ok((mut orbit, mut xf)) = q.single_mut() else { return };
     *orbit = crate::camera::OrbitCamera::initial();
     *xf = orbit.transform();
 }
@@ -1450,7 +1450,7 @@ fn apply_camera_follow(
         *prev = None;
         return;
     };
-    let Ok((mut orbit, mut cam_xf)) = camera_q.get_single_mut() else { return };
+    let Ok((mut orbit, mut cam_xf)) = camera_q.single_mut() else { return };
     // First frame after target is set: snap focus instantly so the
     // user sees the camera respond to the menu click. Subsequent
     // frames lerp for smooth tracking. Without this snap a click

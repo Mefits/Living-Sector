@@ -90,7 +90,7 @@ pub fn apply_theme(mut ctx: EguiContexts, mut done: Local<bool>) {
     if *done {
         return;
     }
-    let ctx = ctx.ctx_mut();
+    let ctx = ctx.ctx_mut().unwrap();
     let mut visuals = egui::Visuals::dark();
 
     visuals.window_fill = PANEL_BG_SOLID;

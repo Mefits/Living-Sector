@@ -115,7 +115,7 @@ pub(super) fn retirements_panel(
         .default_width(860.0)
         .default_height(480.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("filter:");
                 ui.text_edit_singleline(&mut filter);

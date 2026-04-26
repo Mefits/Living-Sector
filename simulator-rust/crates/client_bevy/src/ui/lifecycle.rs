@@ -113,7 +113,7 @@ pub(super) fn main_menu_panel(
     egui::Area::new(egui::Id::new("main_menu"))
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .order(egui::Order::Foreground)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(8.0);
                 ui.label(
@@ -164,7 +164,7 @@ pub(super) fn main_menu_panel(
                     )
                     .clicked()
                 {
-                    exit.send(AppExit::Success);
+                    exit.write(AppExit::Success);
                 }
                 ui.add_space(20.0);
                 credits_block(ui);
@@ -276,7 +276,7 @@ pub(super) fn new_universe_dialog(
         .collapsible(false)
         .resizable(false)
         .default_width(380.0)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.add_space(4.0);
             ui.label(
                 egui::RichText::new(
@@ -499,7 +499,7 @@ pub(super) fn save_list_panel(
         .resizable(false)
         .default_width(540.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.horizontal(|ui| {
                 ui.label(theme::section_header("Save snapshots"));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

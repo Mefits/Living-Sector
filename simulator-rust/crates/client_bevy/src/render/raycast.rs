@@ -53,17 +53,17 @@ pub(super) fn raycast_select(
         return;
     }
     // Skip world picks when the click is on an egui window.
-    if egui_ctx.ctx_mut().is_pointer_over_area() {
+    if egui_ctx.ctx_mut().unwrap().is_pointer_over_area() {
         return;
     }
 
-    let Ok(window) = windows.get_single() else {
+    let Ok(window) = windows.single() else {
         return;
     };
     let Some(cursor) = window.cursor_position() else {
         return;
     };
-    let Ok((camera, cam_xf)) = cameras.get_single() else {
+    let Ok((camera, cam_xf)) = cameras.single() else {
         return;
     };
     let Ok(ray) = camera.viewport_to_world(cam_xf, cursor) else {
@@ -135,12 +135,12 @@ pub(super) fn raycast_context_menu(
     if !buttons.just_pressed(MouseButton::Right) {
         return;
     }
-    if egui_ctx.ctx_mut().is_pointer_over_area() {
+    if egui_ctx.ctx_mut().unwrap().is_pointer_over_area() {
         return;
     }
-    let Ok(window) = windows.get_single() else { return };
+    let Ok(window) = windows.single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
-    let Ok((camera, cam_xf)) = cameras.get_single() else { return };
+    let Ok((camera, cam_xf)) = cameras.single() else { return };
     let Ok(ray) = camera.viewport_to_world(cam_xf, cursor) else {
         return;
     };

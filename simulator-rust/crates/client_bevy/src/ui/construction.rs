@@ -101,7 +101,7 @@ pub(super) fn construction_panel(
         .default_width(860.0)
         .default_height(420.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             ui.label(
                 egui::RichText::new(
                     "Pending construction sites. Ships delivering their commodity \

@@ -33,7 +33,7 @@ pub(super) fn help_panel(mut ctx: EguiContexts, mut help: ResMut<HelpState>) {
         .resizable(false)
         .default_width(380.0)
         .open(&mut open)
-        .show(ctx.ctx_mut(), |ui| {
+        .show(ctx.ctx_mut().unwrap(), |ui| {
             egui::Grid::new("help_keys")
                 .num_columns(2)
                 .striped(true)

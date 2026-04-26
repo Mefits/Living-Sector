@@ -149,7 +149,7 @@ pub(super) fn keyboard_shortcuts(
     // widget has focus), don't fire shortcuts — typing "pause" in a
     // filter box would otherwise trigger pause on the 'p' the user
     // just wanted to search for.
-    if egui_ctx.ctx_mut().wants_keyboard_input() {
+    if egui_ctx.ctx_mut().unwrap().wants_keyboard_input() {
         return;
     }
     // Suppress Spacebar pause-toggle while the pause menu is open —
