@@ -38,6 +38,19 @@ use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
 use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
 use sim_core::agents::ship::{ShipIdentity, ShipPosition, ShipTransit};
 
+/// Build an Isometry3d that places a Gizmos circle on the orbital
+/// (XZ) plane at `center`. Bevy 0.18 changed the default Gizmos circle
+/// to draw in the XY plane (normal +Z); orbital rings + gate rings +
+/// selection rings should lie flat on the XZ plane (normal +Y), so
+/// every site needs an explicit -π/2 rotation around X.
+#[inline]
+fn orbital_iso(center: Vec3) -> Isometry3d {
+    Isometry3d::new(
+        center,
+        Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2),
+    )
+}
+
 /// Gate-ring world-unit radius. A touch larger than the facility
 /// placeholder cylinder so the ring encloses rather than overlaps.
 /// Tuned at 0.7 to read as "distinct from a station" at zoom-out
@@ -74,7 +87,7 @@ pub(super) fn draw_construction_sites(sim: Res<Sim>, mut gizmos: Gizmos) {
         // takes an Isometry3d; the default rotation puts the circle
         // in the XZ plane (matches old `normal = Dir3::Y` behaviour).
         gizmos
-            .circle(Isometry3d::from_translation(center), SITE_OUTER_RADIUS, outer)
+            .circle(orbital_iso(center), SITE_OUTER_RADIUS, outer)
             .resolution(48);
         // Crosshair tick-marks inside the ring so a freshly-spawned
         // (0% progress) site still reads as a build site, not just
@@ -99,7 +112,7 @@ pub(super) fn draw_construction_sites(sim: Res<Sim>, mut gizmos: Gizmos) {
         if progress > 0.0 {
             let r = SITE_OUTER_RADIUS * progress;
             gizmos
-                .circle(Isometry3d::from_translation(center), r, inner)
+                .circle(orbital_iso(center), r, inner)
                 .resolution(32);
         }
     }
@@ -142,7 +155,7 @@ pub(super) fn draw_selection_rings(
                 let size_mult = ship.base_scale / SHIP_GLB_SCALE;
                 let r = 0.4 * size_mult * pulse;
                 gizmos
-                    .circle(Isometry3d::from_translation(xf.translation), r, color)
+                    .circle(orbital_iso(xf.translation), r, color)
                     .resolution(32);
                 break;
             }
@@ -160,7 +173,7 @@ pub(super) fn draw_selection_rings(
                 // the station silhouette).
                 let r = fac.base_scale * 50.0 * pulse;
                 gizmos
-                    .circle(Isometry3d::from_translation(xf.translation), r, color)
+                    .circle(orbital_iso(xf.translation), r, color)
                     .resolution(48);
                 break;
             }
@@ -203,7 +216,7 @@ pub(super) fn draw_gate_rings(sim: Res<Sim>, mut gizmos: Gizmos) {
         };
         let center = Vec3::new(x * SCALE_FACTOR, 0.5, y * SCALE_FACTOR);
         gizmos
-            .circle(Isometry3d::from_translation(center), GATE_RING_RADIUS, color)
+            .circle(orbital_iso(center), GATE_RING_RADIUS, color)
             .resolution(48);
     }
 }
@@ -235,7 +248,7 @@ pub(super) fn draw_orbit_rings(sim: Res<Sim>, mut gizmos: Gizmos) {
         // ones. Capped at 96 — beyond that the eye can't tell.
         let resolution = ((radius * 0.5) as u32).clamp(32, 96);
         gizmos
-            .circle(Isometry3d::from_translation(center), radius, color)
+            .circle(orbital_iso(center), radius, color)
             .resolution(resolution);
     }
 }
