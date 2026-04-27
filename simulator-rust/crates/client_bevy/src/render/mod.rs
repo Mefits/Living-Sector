@@ -6,11 +6,6 @@
 //! ship meshes come in Bundle 3.
 
 use bevy::prelude::*;
-// bevy_hanabi is target-conditional (Windows + Linux only). On macOS
-// the `particles` module routes to a no-op stub and the import is
-// elided. See `Cargo.toml` and `render/particles/mod.rs` for the
-// rationale.
-#[cfg(not(target_os = "macos"))]
 use bevy_hanabi::prelude::*;
 use sim_core::agents::{
     celestial_body::{BodyBiome, BodyIdentity, BodyOrbit},
@@ -121,12 +116,9 @@ impl Plugin for RenderPlugin {
                 HaloMaterialPlugin,
                 NebulaMaterialPlugin,
                 StarfieldPlugin,
-            ));
-        // HanabiPlugin only on non-macOS targets (see Cargo.toml +
-        // particles/mod.rs for the rationale).
-        #[cfg(not(target_os = "macos"))]
-        app.add_plugins(HanabiPlugin);
-        app.init_resource::<ShipTrails>()
+                HanabiPlugin,
+            ))
+            .init_resource::<ShipTrails>()
             .add_systems(
                 Startup,
                 (
@@ -560,9 +552,7 @@ fn spawn_mirror_entities(
         let base_scale = SHIP_GLB_SCALE * ship_size_multiplier(id.size);
         // Spawn the engine-trail effect as a sibling (not a child) so
         // it doesn't inherit the ship's tiny scale. Sync system below
-        // glues its transform to the ship each frame. Compiled out on
-        // macOS — see render::particles for the hanabi-on-Metal note.
-        #[cfg(not(target_os = "macos"))]
+        // glues its transform to the ship each frame.
         if let Some(ref engine_trail) = engine_trail {
             commands.spawn((
                 ParticleEffect::new(engine_trail.0.clone()),
@@ -571,9 +561,6 @@ fn spawn_mirror_entities(
                 Name::new(format!("EngineTrail::{}", id.id)),
             ));
         }
-        // Silence the unused-binding warning on macOS.
-        #[cfg(target_os = "macos")]
-        let _ = engine_trail;
         commands.spawn((
             SceneRoot(ships.for_class(&id.class)),
             Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
@@ -1313,8 +1300,6 @@ fn cleanup_stale_ships(
             // Spawn a one-shot explosion at the ship's last known
             // position before we yank the entity. ExplosionLifetime
             // timer cleans up the particle entity 1.5 s later.
-            // Compiled out on macOS — see render::particles.
-            #[cfg(not(target_os = "macos"))]
             if let Some(ref ex) = explosion {
                 commands.spawn((
                     ParticleEffect::new(ex.0.clone()),
@@ -1323,8 +1308,6 @@ fn cleanup_stale_ships(
                     Name::new(format!("Explosion::{}", ship.sim_id)),
                 ));
             }
-            #[cfg(target_os = "macos")]
-            let _ = (&explosion, &xf);
             commands.entity(e).despawn();
         }
     }
@@ -1413,10 +1396,7 @@ fn reconcile_new_ships(
     ships: Query<&ShipEntity>,
 ) {
     let Some(ship_models) = ship_models else { return };
-    // engine_trail is unused on macOS; the cfg block below references
-    // it on every other target.
-    #[cfg(target_os = "macos")]
-    let _ = engine_trail;
+    let Some(engine_trail) = engine_trail else { return };
     // Build set of known sim_ids as &str — avoids 1604 String
     // allocations every render frame (was a hot allocation source
     // at fleet scale on M1).
@@ -1436,16 +1416,12 @@ fn reconcile_new_ships(
         let Some((id, pos)) = q.get() else { continue };
         let (x, y) = pos.position;
         let base_scale = SHIP_GLB_SCALE * ship_size_multiplier(id.size);
-        // Engine trail per-ship sibling — Windows + Linux only.
-        #[cfg(not(target_os = "macos"))]
-        if let Some(ref engine_trail) = engine_trail {
-            commands.spawn((
-                ParticleEffect::new(engine_trail.0.clone()),
-                EngineTrailFor(sim_id.clone()),
-                GameWorld,
-                Name::new(format!("EngineTrail::{sim_id}")),
-            ));
-        }
+        commands.spawn((
+            ParticleEffect::new(engine_trail.0.clone()),
+            EngineTrailFor(sim_id.clone()),
+            GameWorld,
+            Name::new(format!("EngineTrail::{sim_id}")),
+        ));
         commands.spawn((
             SceneRoot(ship_models.for_class(&id.class)),
             Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)

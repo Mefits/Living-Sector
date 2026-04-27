@@ -32,7 +32,7 @@
 use bevy::prelude::*;
 use bevy_hanabi::prelude::*;
 
-use crate::render::{ShipEntity, SCALE_FACTOR, SHIP_GLB_SCALE};
+use super::{ShipEntity, SCALE_FACTOR, SHIP_GLB_SCALE};
 use crate::sim::Sim;
 
 /// Handle to the shared engine-trail particle EffectAsset. Built
@@ -68,7 +68,7 @@ pub struct ExplosionLifetime(pub Timer);
 #[derive(Component)]
 pub struct EngineTrailFor(pub String);
 
-pub fn build_engine_trail_effect(
+pub(super) fn build_engine_trail_effect(
     mut effects: ResMut<Assets<EffectAsset>>,
     mut commands: Commands,
 ) {
@@ -134,7 +134,7 @@ pub fn build_engine_trail_effect(
     commands.insert_resource(EngineTrailEffect(handle));
 }
 
-pub fn build_explosion_effect(
+pub(super) fn build_explosion_effect(
     mut effects: ResMut<Assets<EffectAsset>>,
     mut commands: Commands,
 ) {
@@ -186,7 +186,7 @@ pub fn build_explosion_effect(
     commands.insert_resource(ExplosionEffect(handle));
 }
 
-pub fn build_gate_flash_effect(
+pub(super) fn build_gate_flash_effect(
     mut effects: ResMut<Assets<EffectAsset>>,
     mut commands: Commands,
 ) {
@@ -241,7 +241,7 @@ pub fn build_gate_flash_effect(
 ///
 /// `Local<u64>` high-water tick mark prevents re-firing flashes
 /// for events we've already processed.
-pub fn event_driven_flashes(
+pub(super) fn event_driven_flashes(
     mut commands: Commands,
     sim: Res<crate::sim::Sim>,
     events: Res<crate::sim::EventsLog>,
@@ -365,7 +365,7 @@ pub fn event_driven_flashes(
 /// Despawn explosion entities once their lifetime timer expires.
 /// 1.5× the longest particle lifetime so the entity sticks around
 /// long enough to render every particle, then disappears.
-pub fn tick_explosion_lifetimes(
+pub(super) fn tick_explosion_lifetimes(
     mut commands: Commands,
     time: Res<Time>,
     mut explosions: Query<(Entity, &mut ExplosionLifetime)>,
@@ -379,7 +379,7 @@ pub fn tick_explosion_lifetimes(
 /// hidden, so docked ships read as engines-off instantly without a
 /// per-instance EffectInitializers mutation.
 #[allow(clippy::type_complexity)]
-pub fn sync_engine_trails(
+pub(super) fn sync_engine_trails(
     sim: Res<Sim>,
     ships: Query<(&ShipEntity, &Transform), Without<EngineTrailFor>>,
     mut trails: Query<
@@ -450,7 +450,7 @@ pub fn sync_engine_trails(
 /// Despawn engine-trail entities whose ship sim_id is no longer
 /// in the sim's index — sibling analogue of `cleanup_stale_ships`
 /// for the ParticleEffectBundle.
-pub fn cleanup_stale_engine_trails(
+pub(super) fn cleanup_stale_engine_trails(
     mut commands: Commands,
     sim: Res<Sim>,
     trails: Query<(Entity, &EngineTrailFor)>,
