@@ -32,7 +32,7 @@
 use bevy::prelude::*;
 use bevy_hanabi::prelude::*;
 
-use super::{ShipEntity, SCALE_FACTOR, SHIP_GLB_SCALE};
+use crate::render::{ShipEntity, SCALE_FACTOR, SHIP_GLB_SCALE};
 use crate::sim::Sim;
 
 /// Handle to the shared engine-trail particle EffectAsset. Built
@@ -68,14 +68,14 @@ pub struct ExplosionLifetime(pub Timer);
 #[derive(Component)]
 pub struct EngineTrailFor(pub String);
 
-pub(super) fn build_engine_trail_effect(
+pub fn build_engine_trail_effect(
     mut effects: ResMut<Assets<EffectAsset>>,
     mut commands: Commands,
 ) {
     // Cyan exhaust gradient — bright core fading to dim blue, then
     // transparent. Three keys is enough for a smooth ramp without
     // banding.
-    let mut color_gradient = Gradient::new();
+    let mut color_gradient = bevy_hanabi::Gradient::new();
     color_gradient.add_key(0.0, Vec4::new(0.55, 0.95, 1.0, 1.0));
     color_gradient.add_key(0.5, Vec4::new(0.25, 0.55, 1.0, 0.7));
     color_gradient.add_key(1.0, Vec4::new(0.05, 0.10, 0.40, 0.0));
@@ -86,7 +86,7 @@ pub(super) fn build_engine_trail_effect(
     // × SHIP_GLB_SCALE 0.025 × size_mult = 0.25 wu × size_mult, so
     // a 0.04-base particle reads as ~16% of hull length — small
     // enough to look like discrete exhaust dots, big enough to see.
-    let mut size_gradient = Gradient::new();
+    let mut size_gradient = bevy_hanabi::Gradient::new();
     size_gradient.add_key(0.0, Vec3::splat(0.04));
     size_gradient.add_key(1.0, Vec3::splat(0.0));
 
@@ -117,16 +117,14 @@ pub(super) fn build_engine_trail_effect(
     // 30 particles/sec/ship × ~282 ships ≈ 8500/sec aggregate. With
     // 0.6 s lifetime that's <5200 live particles total. Comfortably
     // within hanabi's per-effect 512 cap × N effects budget on M1.
-    let spawner = Spawner::rate(30.0_f32.into());
+    let spawner = SpawnerSettings::rate(30.0_f32.into());
 
     let effect = EffectAsset::new(512, spawner, module)
         .with_name("engine_trail")
         .init(init_pos)
         .init(init_vel)
         .init(init_lifetime)
-        .render(ColorOverLifetimeModifier {
-            gradient: color_gradient,
-        })
+        .render(ColorOverLifetimeModifier::new(color_gradient))
         .render(SizeOverLifetimeModifier {
             gradient: size_gradient,
             screen_space_size: false,
@@ -136,18 +134,18 @@ pub(super) fn build_engine_trail_effect(
     commands.insert_resource(EngineTrailEffect(handle));
 }
 
-pub(super) fn build_explosion_effect(
+pub fn build_explosion_effect(
     mut effects: ResMut<Assets<EffectAsset>>,
     mut commands: Commands,
 ) {
     // Hot-flash → orange → fade. Stays warm enough to read as fire,
     // not just blue-shifted hanabi default.
-    let mut color_gradient = Gradient::new();
+    let mut color_gradient = bevy_hanabi::Gradient::new();
     color_gradient.add_key(0.0, Vec4::new(1.0, 0.95, 0.55, 1.0));
     color_gradient.add_key(0.3, Vec4::new(1.0, 0.55, 0.20, 0.95));
     color_gradient.add_key(1.0, Vec4::new(0.30, 0.10, 0.05, 0.0));
 
-    let mut size_gradient = Gradient::new();
+    let mut size_gradient = bevy_hanabi::Gradient::new();
     size_gradient.add_key(0.0, Vec3::splat(0.40));
     size_gradient.add_key(0.5, Vec3::splat(0.30));
     size_gradient.add_key(1.0, Vec3::splat(0.0));
@@ -171,16 +169,14 @@ pub(super) fn build_explosion_effect(
     );
 
     // Once: emit 80 particles in a single burst at spawn.
-    let spawner = Spawner::once(80.0_f32.into(), true);
+    let spawner = SpawnerSettings::once(80.0_f32.into());
 
     let effect = EffectAsset::new(256, spawner, module)
         .with_name("explosion")
         .init(init_pos)
         .init(init_vel)
         .init(init_lifetime)
-        .render(ColorOverLifetimeModifier {
-            gradient: color_gradient,
-        })
+        .render(ColorOverLifetimeModifier::new(color_gradient))
         .render(SizeOverLifetimeModifier {
             gradient: size_gradient,
             screen_space_size: false,
@@ -190,18 +186,18 @@ pub(super) fn build_explosion_effect(
     commands.insert_resource(ExplosionEffect(handle));
 }
 
-pub(super) fn build_gate_flash_effect(
+pub fn build_gate_flash_effect(
     mut effects: ResMut<Assets<EffectAsset>>,
     mut commands: Commands,
 ) {
     // Cyan-white flash gradient. Fades fast — gate jumps are
     // instantaneous events, the visual should pop and disappear.
-    let mut color_gradient = Gradient::new();
+    let mut color_gradient = bevy_hanabi::Gradient::new();
     color_gradient.add_key(0.0, Vec4::new(0.85, 1.0, 1.0, 1.0));
     color_gradient.add_key(0.4, Vec4::new(0.45, 0.85, 1.0, 0.8));
     color_gradient.add_key(1.0, Vec4::new(0.10, 0.30, 0.70, 0.0));
 
-    let mut size_gradient = Gradient::new();
+    let mut size_gradient = bevy_hanabi::Gradient::new();
     size_gradient.add_key(0.0, Vec3::splat(0.50));
     size_gradient.add_key(1.0, Vec3::splat(0.0));
 
@@ -221,16 +217,14 @@ pub(super) fn build_gate_flash_effect(
         module.lit(0.5_f32),
     );
 
-    let spawner = Spawner::once(40.0_f32.into(), true);
+    let spawner = SpawnerSettings::once(40.0_f32.into());
 
     let effect = EffectAsset::new(128, spawner, module)
         .with_name("gate_flash")
         .init(init_pos)
         .init(init_vel)
         .init(init_lifetime)
-        .render(ColorOverLifetimeModifier {
-            gradient: color_gradient,
-        })
+        .render(ColorOverLifetimeModifier::new(color_gradient))
         .render(SizeOverLifetimeModifier {
             gradient: size_gradient,
             screen_space_size: false,
@@ -247,7 +241,7 @@ pub(super) fn build_gate_flash_effect(
 ///
 /// `Local<u64>` high-water tick mark prevents re-firing flashes
 /// for events we've already processed.
-pub(super) fn event_driven_flashes(
+pub fn event_driven_flashes(
     mut commands: Commands,
     sim: Res<crate::sim::Sim>,
     events: Res<crate::sim::EventsLog>,
@@ -371,13 +365,13 @@ pub(super) fn event_driven_flashes(
 /// Despawn explosion entities once their lifetime timer expires.
 /// 1.5× the longest particle lifetime so the entity sticks around
 /// long enough to render every particle, then disappears.
-pub(super) fn tick_explosion_lifetimes(
+pub fn tick_explosion_lifetimes(
     mut commands: Commands,
     time: Res<Time>,
     mut explosions: Query<(Entity, &mut ExplosionLifetime)>,
 ) {
     for (entity, mut life) in explosions.iter_mut() {
-        if life.0.tick(time.delta()).finished() {
+        if life.0.tick(time.delta()).is_finished() {
             commands.entity(entity).despawn();
         }
     }
@@ -385,7 +379,7 @@ pub(super) fn tick_explosion_lifetimes(
 /// hidden, so docked ships read as engines-off instantly without a
 /// per-instance EffectInitializers mutation.
 #[allow(clippy::type_complexity)]
-pub(super) fn sync_engine_trails(
+pub fn sync_engine_trails(
     sim: Res<Sim>,
     ships: Query<(&ShipEntity, &Transform), Without<EngineTrailFor>>,
     mut trails: Query<
@@ -456,7 +450,7 @@ pub(super) fn sync_engine_trails(
 /// Despawn engine-trail entities whose ship sim_id is no longer
 /// in the sim's index — sibling analogue of `cleanup_stale_ships`
 /// for the ParticleEffectBundle.
-pub(super) fn cleanup_stale_engine_trails(
+pub fn cleanup_stale_engine_trails(
     mut commands: Commands,
     sim: Res<Sim>,
     trails: Query<(Entity, &EngineTrailFor)>,

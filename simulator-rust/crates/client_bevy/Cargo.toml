@@ -55,10 +55,14 @@ bevy_egui = "0.39"
 # buttons stay text-only. egui_extras 0.33 matches bevy_egui
 # 0.39's egui 0.33 dependency.
 egui_extras = { version = "0.33", features = ["svg"] }
-# GPU particle system — TEMPORARILY DISABLED for the Bevy 0.14 → 0.18
-# upgrade. Hanabi 0.13 caused a 30-second macOS Metal GPU stall on
-# certain saved DBs. Re-enable post-upgrade with the bevy_hanabi
-# version that targets the final Bevy version we land on. See
-# `crates/client_bevy/src/render/particles.rs.disabled` for the
-# preserved implementation.
-# bevy_hanabi = { version = "0.16", default-features = false, features = ["3d"] }
+# GPU particle system — Windows + Linux only. Disabled on macOS
+# because hanabi 0.18.0 has a wgpu validation panic on Metal at
+# pipeline creation (`premultiplied_alpha_mesh_pipeline`: shader
+# Uniform vs pipeline-layout Storage mismatch — likely an upstream
+# bug in hanabi's bindless / non-bindless code path interaction
+# with Metal). On Vulkan / DX12 the same code path renders fine.
+# render/particles.rs cfg-routes between the real impl and a no-op
+# stub by `target_os`; render/mod.rs cfg-gates the HanabiPlugin add
+# + the three ParticleEffect spawn sites the same way.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+bevy_hanabi = { version = "0.18", default-features = false, features = ["3d"] }
