@@ -242,6 +242,46 @@ pub async fn markets(State(state): State<AppState>) -> impl IntoResponse {
     Json(json!({ "data": data }))
 }
 
+/// Phase 20d (persistent trends): time-series review endpoint. Returns
+/// the `trend_samples` from this market's `MarketSnapshot` (which
+/// flattens the in-memory `MarketHistory.trend_samples` ring on every
+/// snapshot rebuild). For raw query power against the full persisted
+/// history, query the table directly:
+///
+/// ```sh
+/// sqlite3 sim.db 'SELECT tick, commodity, price, supply
+///                 FROM market_trend_samples
+///                 WHERE market_id = (SELECT id FROM markets
+///                                    WHERE facility_location = "earth-station")
+///                 ORDER BY tick DESC LIMIT 100'
+/// ```
+pub async fn market_trends(
+    State(state): State<AppState>,
+    axum::extract::Path(location): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    // Match by facility_location first (the canonical id), fall
+    // through to the synthesised `market-<location>` form so callers
+    // can hit the endpoint with either shape.
+    let market = state
+        .snapshots
+        .markets
+        .iter()
+        .find(|e| {
+            let v = e.value();
+            v.facility_location == location || v.id == format!("market-{location}")
+        })
+        .map(|e| e.value().clone());
+
+    match market {
+        Some(m) => Json(json!({
+            "location": m.facility_location,
+            "sample_count": m.trend_samples.len(),
+            "samples": m.trend_samples,
+        })),
+        None => Json(json!({ "error": "market not found", "location": location })),
+    }
+}
+
 pub async fn facilities(State(state): State<AppState>) -> impl IntoResponse {
     let data: Vec<_> = state
         .snapshots

@@ -202,6 +202,36 @@ pub(super) fn emit_persist_writes(
             demand_json: to_json(&pricing.demand),
             shortage_ticks_json: shortage_json,
         });
+
+        // Phase 20d (persistent trends): emit the freshest trend
+        // sample, if one was added this tick. The in-memory ring's
+        // sampling cadence (every `MARKET_TREND_SAMPLE_INTERVAL_BASE`
+        // base ticks) means most market flushes have nothing new at
+        // the back; we cheap-check that the latest sample's tick
+        // matches the current tick before emitting. Same dedup-key
+        // (market, tick) so two flushes in one tick collapse to a
+        // single batch INSERT.
+        if let Some(latest) = hist.trend_samples.back() {
+            if latest.tick == tick {
+                let entries: Vec<(String, f32, f32)> = latest
+                    .prices
+                    .iter()
+                    .map(|(commodity, &price)| {
+                        let supply =
+                            latest.supply.get(commodity).copied().unwrap_or(0.0);
+                        (commodity.as_str().to_string(), price, supply)
+                    })
+                    .collect();
+                if !entries.is_empty() {
+                    let _ = tx.try_send(DbWrite::MarketTrendBatch {
+                        market_db_id: identity.db_id,
+                        tick: tick as i64,
+                        entries,
+                    });
+                }
+            }
+        }
+
         hist.dirty = false;
     }
 

@@ -108,6 +108,17 @@ pub const MARKET_CRISIS_SHORTAGE_TICKS: u32 = 200;
 /// prevents flapping events around the threshold boundary.
 pub const MARKET_CRISIS_RECOVERY_TICKS: u32 = 50;
 
+/// Phase 20d: per-tick trend point flattened to string-keyed maps for
+/// JSON / WS clients. Mirrors `MarketTrendSample` but with `String`
+/// commodity keys so it serialises cleanly without depending on
+/// `Commodity`'s ad-hoc `as_str` everywhere.
+#[derive(Debug, Clone, Serialize)]
+pub struct MarketTrendSnapshot {
+    pub tick: u64,
+    pub prices: HashMap<String, f32>,
+    pub supply: HashMap<String, f32>,
+}
+
 /// Snapshot for HTTP/WS — built from components.
 #[derive(Debug, Clone, Serialize)]
 pub struct MarketSnapshot {
@@ -117,6 +128,12 @@ pub struct MarketSnapshot {
     pub supply: HashMap<String, f32>,
     pub demand: HashMap<String, f32>,
     pub shortage_ticks: HashMap<String, u32>,
+    /// Phase 20d: rolling time-series samples drained from the
+    /// in-memory `MarketHistory.trend_samples` ring. Capped at
+    /// `MARKET_TREND_KEEP` entries; oldest at index 0, newest at the
+    /// end. Drives the `/api/markets/:loc/trends` endpoint and the
+    /// embedded Bevy markets panel's sparkline view.
+    pub trend_samples: Vec<MarketTrendSnapshot>,
 }
 
 impl MarketSnapshot {
@@ -131,6 +148,15 @@ impl MarketSnapshot {
         let u_map = |m: &HashMap<Commodity, u32>| {
             m.iter().map(|(c, &v)| (c.as_str().to_string(), v)).collect()
         };
+        let trend_samples = history
+            .trend_samples
+            .iter()
+            .map(|s| MarketTrendSnapshot {
+                tick: s.tick,
+                prices: f_map(&s.prices),
+                supply: f_map(&s.supply),
+            })
+            .collect();
         Self {
             id: identity.id.clone(),
             facility_location: identity.facility_location.clone(),
@@ -138,6 +164,7 @@ impl MarketSnapshot {
             supply: f_map(&pricing.supply),
             demand: f_map(&pricing.demand),
             shortage_ticks: u_map(&history.shortage_ticks),
+            trend_samples,
         }
     }
 }

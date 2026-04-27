@@ -91,6 +91,12 @@ pub async fn load_agents(
     load_factions(pool, &mut store).await?;
     load_facilities(pool, &mut store).await?;
     load_markets(pool, tick_config, &mut store).await?;
+    // Phase 20d: rehydrate the in-memory trend-sample ring from
+    // `market_trend_samples`. Must run AFTER `load_markets` (the
+    // markets need to exist in hecs first) but before any tick
+    // logic so `tick_one_market`'s "is the latest sample current?"
+    // check has the right reference.
+    load_market_trend_samples(pool, &mut store).await?;
     load_populations(pool, &mut store).await?;
     load_ships(pool, registry, tick_config, &mut store).await?;
     load_contracts(pool, &mut store).await?;
@@ -601,6 +607,103 @@ async fn load_markets(pool: &SqlitePool, _config: &TickConfig, store: &mut Agent
         ));
         store.index_market(id, facility_location, entity);
     }
+    Ok(())
+}
+
+/// Phase 20d: read the most recent `MARKET_TREND_KEEP` samples per
+/// market from the `market_trend_samples` table and rehydrate each
+/// `MarketHistory.trend_samples` ring. Must run after `load_markets`
+/// so the target hecs entities exist.
+///
+/// Query strategy: pull every row in tick-ascending order (per market)
+/// and let the in-memory cap take care of trimming. Cheap because the
+/// "interesting" set is bounded — at the worst case, 39 markets × ~6
+/// commodities × 200 ring depth = ~47k rows; deliberate-table-scan
+/// territory, especially with the `(market_id, tick DESC)` index from
+/// migration 013.
+async fn load_market_trend_samples(
+    pool: &SqlitePool,
+    store: &mut AgentStore,
+) -> Result<()> {
+    use sim_core::agents::celestial_body as _; // for trait imports if needed
+    use sim_core::agents::market::{MarketHistory, MarketIdentity, MarketTrendSample, MARKET_TREND_KEEP};
+    use sim_core::economy::commodities::Commodity;
+    use std::collections::HashMap;
+
+    // Build market_db_id → hecs::Entity once. Mirrors the helper used
+    // by `load_markets`'s facility lookup.
+    let entity_by_db_id: HashMap<i64, hecs::Entity> = store
+        .world
+        .query::<&MarketIdentity>()
+        .iter()
+        .map(|(e, id)| (id.db_id, e))
+        .collect();
+
+    // Pull every persisted sample. The KEEP cap is enforced after the
+    // pivot (sorted ASC, then truncated from the front) so even if the
+    // DB has more rows than the in-memory ring per market, we end up
+    // with exactly the freshest `MARKET_TREND_KEEP` samples in RAM.
+    let rows = sqlx::query(
+        "SELECT market_id, tick, commodity, price, supply
+         FROM market_trend_samples
+         ORDER BY market_id ASC, tick ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    // Pivot: (market_db_id, tick) → HashMap<Commodity, (price, supply)>
+    let mut by_market_tick: HashMap<i64, HashMap<i64, MarketTrendSample>> =
+        HashMap::new();
+    for r in rows {
+        let market_db_id: i64 = r.get("market_id");
+        let tick: i64 = r.get("tick");
+        let commodity_str: String = r.get("commodity");
+        let price: f64 = r.get("price");
+        let supply: f64 = r.get("supply");
+        let Some(commodity) = Commodity::parse(&commodity_str) else {
+            continue;
+        };
+        let market_bucket = by_market_tick.entry(market_db_id).or_default();
+        let sample = market_bucket
+            .entry(tick)
+            .or_insert_with(|| MarketTrendSample {
+                tick: tick as u64,
+                prices: HashMap::new(),
+                supply: HashMap::new(),
+            });
+        sample.prices.insert(commodity, price as f32);
+        sample.supply.insert(commodity, supply as f32);
+    }
+
+    // Apply per market: sort samples ascending, keep newest KEEP entries,
+    // push into the live `MarketHistory.trend_samples`.
+    let mut total_loaded = 0usize;
+    for (market_db_id, tick_map) in by_market_tick {
+        let Some(&entity) = entity_by_db_id.get(&market_db_id) else {
+            // Market was dropped between the trend write and the load —
+            // skip the orphan rows. The ON DELETE CASCADE in migration
+            // 013 should make this rare, but seed-rebuild paths can
+            // still produce it.
+            continue;
+        };
+        let mut samples: Vec<MarketTrendSample> = tick_map.into_values().collect();
+        samples.sort_by_key(|s| s.tick);
+        // Trim to the in-memory ring depth (keep newest).
+        if samples.len() > MARKET_TREND_KEEP {
+            let drop_n = samples.len() - MARKET_TREND_KEEP;
+            samples.drain(..drop_n);
+        }
+        if let Ok(mut hist) = store.world.get::<&mut MarketHistory>(entity) {
+            hist.trend_samples = samples.into_iter().collect();
+            total_loaded += hist.trend_samples.len();
+        }
+    }
+
+    info!("Spawner: rehydrated {} market trend samples", total_loaded);
     Ok(())
 }
 

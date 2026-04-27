@@ -453,6 +453,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/report", get(api::report))
         .route("/api/ships", get(api::ships))
         .route("/api/markets", get(api::markets))
+        .route("/api/markets/{location}/trends", get(api::market_trends))
         .route("/api/facilities", get(api::facilities))
         .route("/api/construction_sites", get(api::construction_sites))
         .route("/api/retirements", get(api::retirements))

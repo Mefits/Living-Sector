@@ -125,6 +125,20 @@ pub enum DbWrite {
     ContractBoardSnapshot {
         rows: Vec<ContractRow>,
     },
+    /// Phase 20d (persistent trends): one batch of trend samples for
+    /// a single market at a single tick — multiple commodities, all
+    /// captured in lockstep with the in-memory `MarketTrendSample`.
+    /// One row per (market, tick, commodity) lands in
+    /// `market_trend_samples`. The dedup key includes `tick` so two
+    /// emissions at the same tick collapse, but consecutive emissions
+    /// (different ticks) accumulate.
+    MarketTrendBatch {
+        market_db_id: i64,
+        tick: i64,
+        /// `(commodity_str, price, supply)` per commodity, prebuilt by
+        /// the engine so the worker stays free of sim_core types.
+        entries: Vec<(String, f32, f32)>,
+    },
 }
 
 /// Phase 19g: final snapshot captured when a ship is decommissioned.
@@ -215,6 +229,15 @@ impl DbWrite {
             // multiple retirements in a single sweep don't collapse.
             DbWrite::RetireShip { row } => {
                 ("retire", format!("{}-{}", row.agent_id, row.retired_at_tick))
+            }
+            // Phase 20d (persistent trends): keyed on (market, tick).
+            // Two emits at the same (market, tick) collapse to one
+            // INSERT batch. Different ticks land as separate rows
+            // because the batch INSERT uses INSERT OR REPLACE keyed
+            // on the table's (market_id, tick, commodity) primary key
+            // — same tick re-emission overwrites cleanly.
+            DbWrite::MarketTrendBatch { market_db_id, tick, .. } => {
+                ("market_trend", format!("{market_db_id}:{tick}"))
             }
         }
     }
@@ -604,6 +627,31 @@ impl PersistenceWorker {
                         .bind(r.posted_at_tick)
                         .bind(r.accepted_at_tick)
                         .bind(r.expires_at_tick)
+                        .execute(&mut *tx)
+                        .await?;
+                    }
+                }
+
+                DbWrite::MarketTrendBatch {
+                    market_db_id,
+                    tick,
+                    entries,
+                } => {
+                    // INSERT OR REPLACE on the (market_id, tick,
+                    // commodity) primary key — re-emission at the
+                    // same tick (e.g. boot pump that ran the loop
+                    // twice) overwrites without growing the table.
+                    for (commodity, price, supply) in entries {
+                        sqlx::query(
+                            "INSERT OR REPLACE INTO market_trend_samples
+                             (market_id, tick, commodity, price, supply)
+                             VALUES (?1, ?2, ?3, ?4, ?5)",
+                        )
+                        .bind(market_db_id)
+                        .bind(tick)
+                        .bind(&commodity)
+                        .bind(price as f64)
+                        .bind(supply as f64)
                         .execute(&mut *tx)
                         .await?;
                     }
