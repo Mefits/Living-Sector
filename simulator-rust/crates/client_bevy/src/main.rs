@@ -31,6 +31,35 @@ pub enum AppState {
     InGame,
 }
 
+/// View sub-mode while the player is `InGame`. `Orbit` is the
+/// existing top-down god-view (orbit camera, all UI panels). `Interior`
+/// is the FPS walking-skeleton mode where the player is inside a
+/// ship-room and the orbit world keeps rendering through a window
+/// quad via a render-target camera.
+///
+/// **Why a sub-state and not a sibling AppState:** transitioning out
+/// of `AppState::InGame` fires `OnExit(InGame)` in `render::mod.rs`,
+/// which despawns every `GameWorld`-tagged entity (ships, bodies,
+/// facilities). The interior view's `OutsideCam` needs those alive
+/// to render. As a sub-state, we never leave `InGame` — the
+/// despawn never fires, the world stays put, and only camera +
+/// input swap.
+///
+/// **Lifecycle.** Bevy's `SubStates` derive auto-registers this as
+/// existing only while `AppState == InGame`. Entering `MainMenu`
+/// drops the sub-state; re-entering `InGame` re-initialises it to
+/// `Orbit`. F2 toggles between the two; Escape in `Interior` returns
+/// to `Orbit` (Escape in `Orbit` keeps its existing
+/// close-top-panel / open-pause-menu behaviour from
+/// `ui/panel_stack.rs`).
+#[derive(SubStates, Clone, Copy, Eq, PartialEq, Hash, Debug, Default)]
+#[source(AppState = AppState::InGame)]
+pub enum InGameView {
+    #[default]
+    Orbit,
+    Interior,
+}
+
 fn main() {
     // Let Bevy's LogPlugin own the global tracing subscriber — it
     // already installs one and fights ours for the slot otherwise
@@ -91,13 +120,27 @@ fn main() {
         // per tick (8 tps). World-speed UI will rescale this later.
         .insert_resource(Time::<Fixed>::from_seconds(sim::DEFAULT_TICK_INTERVAL_S))
         .init_state::<AppState>()
+        // M0 (FPS interior): InGameView is a sub-state of InGame —
+        // see the type docs above for the cleanup-blocker reasoning.
+        // The InteriorPlugin (M0 task 2) will register OnEnter /
+        // OnExit handlers against this sub-state; for now the toggle
+        // key is wired but the interior scene itself isn't spawned.
+        .add_sub_state::<InGameView>()
         .add_plugins(sim::SimPlugin)
         .add_plugins(render::RenderPlugin)
         .add_plugins(camera::CameraPlugin)
         .add_plugins(ui::UiPlugin)
         .add_plugins(audio::AudioPlugin)
         .add_systems(Startup, setup_scene)
-        .add_systems(Update, (heartbeat_system, screenshot_key, frame_pulse))
+        .add_systems(
+            Update,
+            (
+                heartbeat_system,
+                screenshot_key,
+                frame_pulse,
+                interior_toggle_key.run_if(in_state(AppState::InGame)),
+            ),
+        )
         .run();
 }
 
@@ -198,6 +241,37 @@ fn heartbeat_system(
         sim.store.body_by_id.len(),
         sim.store.faction_by_id.len(),
     );
+}
+
+/// M0: F2 toggles the `InGameView` sub-state between `Orbit` and
+/// `Interior`. Escape while in `Interior` returns to `Orbit` (a
+/// safety net for when the cursor is locked and the user wants out
+/// fast). Gated on `AppState::InGame` at the call site so neither
+/// key fires from the main menu.
+///
+/// `egui` keyboard gating is intentionally NOT applied to F2 — the
+/// interior toggle is a high-level mode switch users want to fire
+/// even mid-text-edit (closing whatever panel they were in). Escape
+/// stays unfiltered for the same reason: in Interior the cursor is
+/// locked anyway, so egui isn't taking input.
+fn interior_toggle_key(
+    keys: Res<ButtonInput<KeyCode>>,
+    current: Res<State<InGameView>>,
+    mut next: ResMut<NextState<InGameView>>,
+) {
+    if keys.just_pressed(KeyCode::F2) {
+        let target = match *current.get() {
+            InGameView::Orbit => InGameView::Interior,
+            InGameView::Interior => InGameView::Orbit,
+        };
+        info!("client_bevy: InGameView → {target:?}");
+        next.set(target);
+        return;
+    }
+    if keys.just_pressed(KeyCode::Escape) && *current.get() == InGameView::Interior {
+        info!("client_bevy: Escape from Interior → Orbit");
+        next.set(InGameView::Orbit);
+    }
 }
 
 /// Frame-level slow-frame detector. Measures wall-clock between
