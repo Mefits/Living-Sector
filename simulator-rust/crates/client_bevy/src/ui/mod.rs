@@ -80,7 +80,17 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(EguiPlugin::default())
+        // bevy_egui 0.39's EguiPlugin::default() enables multipass for
+        // the primary context, which requires every UI system to run
+        // inside EguiContextPass (not Update). Our ~20 panel systems
+        // all run in Update; flipping multipass off keeps the prior
+        // single-pass semantics with no scheduling churn. The field is
+        // deprecated in 0.39 — revisit when bevy_egui drops it.
+        #[allow(deprecated)]
+        app.add_plugins(EguiPlugin {
+                enable_multipass_for_primary_context: false,
+                ..default()
+            })
             .init_resource::<PerfStats>()
             .init_resource::<ShipListState>()
             .init_resource::<ContractsState>()
