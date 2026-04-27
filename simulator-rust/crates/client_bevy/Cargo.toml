@@ -55,7 +55,10 @@ bevy_egui = "0.39"
 # buttons stay text-only. egui_extras 0.33 matches bevy_egui
 # 0.39's egui 0.33 dependency.
 egui_extras = { version = "0.33", features = ["svg"] }
-# GPU particle system. 0.18 targets Bevy 0.18. Drives engine trails
-# on in-transit ships — see `render::particles`. Default features
-# include both 2d + 3d backends; we only use 3d.
-bevy_hanabi = { version = "0.18", default-features = false, features = ["3d"] }
+# GPU particle system — TEMPORARILY DISABLED for the Bevy 0.14 → 0.18
+# upgrade. Hanabi 0.13 caused a 30-second macOS Metal GPU stall on
+# certain saved DBs. Re-enable post-upgrade with the bevy_hanabi
+# version that targets the final Bevy version we land on. See
+# `crates/client_bevy/src/render/particles.rs.disabled` for the
+# preserved implementation.
+# bevy_hanabi = { version = "0.16", default-features = false, features = ["3d"] }
