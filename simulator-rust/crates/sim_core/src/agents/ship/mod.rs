@@ -1290,8 +1290,8 @@ mod tick_tests {
         let p = crate::ai::personality::Personality::cautious_trader();
         // cautious_trader likes fulfill_delivery (+0.3) and
         // fulfill_contract (+0.3), flat on trade_run.
-        let contract = score_strategic(1600, "fulfill_delivery", &p);
-        let trade = score_strategic(1600, "trade_run", &p);
+        let contract = score_strategic(1600, "fulfill_delivery", &p, false);
+        let trade = score_strategic(1600, "trade_run", &p, false);
         assert!(
             contract > trade,
             "cautious_trader should favor fulfill_delivery over trade_run (got {contract} vs {trade})",
@@ -1302,8 +1302,8 @@ mod tick_tests {
     fn score_goal_aggressive_trader_picks_trade_over_contract() {
         let p = crate::ai::personality::Personality::aggressive_trader();
         // aggressive_trader has prefer_goals[trade_run] = 0.3.
-        let contract = score_strategic(1600, "fulfill_delivery", &p);
-        let trade = score_strategic(1600, "trade_run", &p);
+        let contract = score_strategic(1600, "fulfill_delivery", &p, false);
+        let trade = score_strategic(1600, "trade_run", &p, false);
         assert!(
             trade > contract,
             "aggressive_trader should pick trade_run over equal-profit contract",
@@ -1313,16 +1313,16 @@ mod tick_tests {
     #[test]
     fn score_goal_courier_picks_passenger_over_trade() {
         let p = crate::ai::personality::Personality::courier();
-        let passenger = score_strategic(1200, "fulfill_passenger_transport", &p);
-        let trade = score_strategic(1200, "trade_run", &p);
+        let passenger = score_strategic(1200, "fulfill_passenger_transport", &p, false);
+        let trade = score_strategic(1200, "trade_run", &p, false);
         assert!(passenger > trade, "courier should favor passenger work");
     }
 
     #[test]
     fn score_goal_zero_when_no_profit() {
         let p = crate::ai::personality::Personality::balanced_trader();
-        assert_eq!(score_strategic(0, "fulfill_delivery", &p), 0.0);
-        assert_eq!(score_strategic(-500, "trade_run", &p), 0.0);
+        assert_eq!(score_strategic(0, "fulfill_delivery", &p, false), 0.0);
+        assert_eq!(score_strategic(-500, "trade_run", &p, false), 0.0);
     }
 
     #[test]
@@ -1332,13 +1332,13 @@ mod tick_tests {
         // (>0.7), contract might still lose because log-scale
         // compresses. This test documents the expected behaviour.
         let p_flat = crate::ai::personality::Personality::balanced_trader();
-        assert!(score_strategic(50000, "trade_run", &p_flat) > score_strategic(2000, "fulfill_delivery", &p_flat));
+        assert!(score_strategic(50000, "trade_run", &p_flat, false) > score_strategic(2000, "fulfill_delivery", &p_flat, false));
         // With a modest contract preference it still doesn't win
         // a 25× profit gap (as designed — log-scaling prevents
         // personality from completely overriding profit).
         let mut p_biased = crate::ai::personality::Personality::balanced_trader();
         p_biased.prefer_goals.insert("fulfill_delivery".into(), 0.3);
-        assert!(score_strategic(50000, "trade_run", &p_biased) > score_strategic(2000, "fulfill_delivery", &p_biased));
+        assert!(score_strategic(50000, "trade_run", &p_biased, false) > score_strategic(2000, "fulfill_delivery", &p_biased, false));
     }
 
     #[test]
@@ -1368,7 +1368,7 @@ mod tick_tests {
         let p = crate::ai::personality::Personality::cautious_trader();
         let fuel_urgency = (1.0 - 0.05 / FUEL_URGENCY_ONSET).clamp(0.0, 1.0);
         let refuel_score = fuel_urgency * p.safety.max(0.2) * TIER_BIO_WEIGHT;
-        let trade_score = score_strategic(50_000, "trade_run", &p);
+        let trade_score = score_strategic(50_000, "trade_run", &p, false);
         assert!(
             refuel_score > trade_score,
             "refuel at 5% fuel (score {refuel_score}) must beat 50k trade (score {trade_score})",
@@ -1382,7 +1382,7 @@ mod tick_tests {
         // win. Housekeeping-tier sell_cargo with empty hold also
         // scores 0. Strategic gets the nod.
         let p = crate::ai::personality::Personality::aggressive_trader();
-        let trade_score = score_strategic(10_000, "trade_run", &p);
+        let trade_score = score_strategic(10_000, "trade_run", &p, false);
         // Arbitrary but low idle baseline — strategic should easily
         // clear it.
         let idle_floor = TIER_IDLE_FLOOR;
@@ -1401,7 +1401,7 @@ mod tick_tests {
         let cargo_frac = 0.8_f32;
         let sell_score =
             (0.5 + cargo_frac * 0.5) * p.profit.max(0.3) * TIER_HOUSEKEEPING_WEIGHT;
-        let trade_score = score_strategic(5_000, "trade_run", &p);
+        let trade_score = score_strategic(5_000, "trade_run", &p, false);
         assert!(
             sell_score > trade_score,
             "sell_cargo at 80% full (score {sell_score}) must beat 5k trade (score {trade_score})",

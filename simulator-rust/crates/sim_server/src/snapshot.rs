@@ -7,7 +7,7 @@
 use dashmap::DashMap;
 use sim_core::{
     agents::{
-        celestial_body::{BodyBiome, BodyIdentity, BodyOrbit, BodySnapshot},
+        celestial_body::{BodyBiome, BodyIdentity, BodyOrbit, BodySnapshot, BodyTerritory},
         construction::{ConstructionSite, ConstructionSiteSnapshot},
         facility::{
             FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations,
@@ -369,12 +369,16 @@ impl SnapshotCache {
     }
 
     fn update_bodies(&self, store: &AgentStore) {
-        for (_e, (identity, orbit, biome)) in store
+        // Bundle D: BodyTerritory is optional — newly-spawned bodies that
+        // haven't been through `derive_territorial_control` yet won't
+        // carry one. The snapshot defaults those to `None / not contested`,
+        // matching the `BodyTerritory::default()` behaviour at boot.
+        for (_e, (identity, orbit, biome, territory)) in store
             .world
-            .query::<(&BodyIdentity, &BodyOrbit, &BodyBiome)>()
+            .query::<(&BodyIdentity, &BodyOrbit, &BodyBiome, Option<&BodyTerritory>)>()
             .iter()
         {
-            let snap = BodySnapshot::build(identity, orbit, biome);
+            let snap = BodySnapshot::build(identity, orbit, biome, territory);
             self.positions
                 .insert(identity.body_id.clone(), (snap.universe_position.x, snap.universe_position.y));
             self.bodies.insert(identity.body_id.clone(), snap);

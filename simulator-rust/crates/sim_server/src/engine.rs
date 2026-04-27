@@ -348,7 +348,14 @@ pub async fn run_tick_loop(
         drain_pending_materializations(&mut store, &pool, &persist_tx, &mut events).await;
         drain_pending_decommissions(&mut store, tick, &mut events, &persist_tx).await;
         drain_pending_respawns(&mut store, &registry, tick, &mut events, &persist_tx, &pool).await;
-        faction::tick_factions(&mut store.world, &mut store.contracts, &mut events, tick, tick_mult);
+        faction::tick_factions(
+            &mut store.world,
+            &mut store.contracts,
+            &mut events,
+            &mut store.system_control,
+            tick,
+            tick_mult,
+        );
         // Bundle A: inter-faction relations. Low-frequency — decay +
         // threshold-driven treaty transitions only need to run on
         // the relations interval. Emits `treaty_changed` events for
@@ -471,6 +478,7 @@ pub fn run_contract_pump(store: &mut AgentStore, passes: u32) {
             &mut store.world,
             &mut store.contracts,
             &mut pump_events,
+            &mut store.system_control,
             0,
             1,
         );

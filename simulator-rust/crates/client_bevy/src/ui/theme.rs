@@ -83,6 +83,30 @@ pub fn crew_bar_color(v: f32) -> egui::Color32 {
     status_color(v, (70.0, 40.0))
 }
 
+/// Bundle D: deterministic faction tint, picked from a fixed palette
+/// by stable hash of the faction id. Same id → same color across
+/// boots, sessions, and saves. Eight distinguishable hues at HDR-
+/// bloom intensity so faction-tinted body labels read at galactic
+/// zoom. Used by `body_labels_panel` to colour controlled bodies and
+/// (later bundles) by ship-list rows / faction matrix cells.
+pub fn faction_color(faction_id: &str) -> egui::Color32 {
+    const PALETTE: [egui::Color32; 8] = [
+        egui::Color32::from_rgb(110, 200, 220), // cyan
+        egui::Color32::from_rgb(220, 160, 80),  // amber
+        egui::Color32::from_rgb(200, 110, 130), // rose
+        egui::Color32::from_rgb(140, 200, 130), // sage
+        egui::Color32::from_rgb(180, 130, 220), // violet
+        egui::Color32::from_rgb(220, 200, 110), // gold
+        egui::Color32::from_rgb(130, 200, 200), // teal
+        egui::Color32::from_rgb(220, 130, 90),  // coral
+    ];
+    let mut h: u32 = 0;
+    for b in faction_id.bytes() {
+        h = h.wrapping_mul(31).wrapping_add(b as u32);
+    }
+    PALETTE[h as usize % PALETTE.len()]
+}
+
 /// Set egui Visuals to the holographic dark palette. Local<bool>
 /// guards so we only do it once after the egui context is live —
 /// no cost on subsequent frames.

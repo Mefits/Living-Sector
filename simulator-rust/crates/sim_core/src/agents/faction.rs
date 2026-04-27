@@ -170,13 +170,36 @@ pub const CONSTRUCTION_LIFESPAN_BASE: u64 = 800;
 /// old 15k payment left factions one cycle from the $2k floor.
 pub const CONSTRUCTION_MIN_TREASURY: i64 = 30_000;
 
+/// Bundle D: territorial-control recompute interval (base ticks).
+/// Body-level control changes only when facilities spawn / abandon /
+/// transfer ownership — all rare events — so this can run much
+/// slower than a per-tick scan. 50 base ticks lines up with the
+/// other coarse maintenance passes.
+pub const TERRITORIAL_RECOMPUTE_INTERVAL_BASE: u64 = 50;
+
+/// Bundle D: subsidy payment multiplier when the destination is at a
+/// contested body. Stacks on top of the existing shortage-age ramp —
+/// the incumbent fights back with a richer payout so loyal couriers
+/// keep choosing the contested zone over a quiet rival market.
+pub const SUBSIDY_CONTESTED_MULTIPLIER: f32 = 1.4;
+
 pub fn tick_factions(
     world: &mut hecs::World,
     contracts: &mut ContractBoard,
     events: &mut Vec<serde_json::Value>,
+    system_control: &mut std::collections::HashMap<String, Option<String>>,
     tick: u64,
     tick_multiplier: u32,
 ) {
+    // --- Bundle D: territorial control derivation ---
+    // Runs first in the cycle so subsidy + construction can read
+    // fresh `BodyTerritory` state when scoring contested zones.
+    let territory_interval = TERRITORIAL_RECOMPUTE_INTERVAL_BASE * tick_multiplier as u64;
+    if territory_interval > 0 && tick % territory_interval == 0 {
+        let updated = crate::agents::celestial_body::derive_territorial_control(world);
+        *system_control = updated;
+    }
+
     // --- Tax collection ---
     let tax_interval = FACTION_INTERVAL_BASE * tick_multiplier as u64;
     if tax_interval > 0 && tick % tax_interval == 0 {
@@ -310,6 +333,28 @@ fn run_bailout_cycle(world: &mut hecs::World) {
             }
         }
     }
+}
+
+/// Bundle D helper: is the body at `location_name` flagged contested?
+/// Walks `FacilityIdentity` once to find the body the location maps
+/// to, then reads that body's `BodyTerritory`. Returns false when the
+/// location has no facilities or the body's territory hasn't been
+/// derived yet (defensive — `BodyTerritory::default().contested`
+/// would also be false, just less obviously).
+fn dest_is_contested(world: &hecs::World, location_name: &str) -> bool {
+    use crate::agents::celestial_body::{BodyIdentity, BodyTerritory};
+    let body_id = world
+        .query::<(&FacilityIdentity, &crate::agents::facility::FacilityLocation)>()
+        .iter()
+        .find(|(_, (_, loc))| loc.location_name == location_name)
+        .map(|(_, (id, _))| id.body_id.clone());
+    let Some(body_id) = body_id else { return false };
+    world
+        .query::<(&BodyIdentity, &BodyTerritory)>()
+        .iter()
+        .find(|(_, (id, _))| id.body_id == body_id)
+        .map(|(_, (_, t))| t.contested)
+        .unwrap_or(false)
 }
 
 fn run_tax_cycle(world: &mut hecs::World) {
@@ -549,7 +594,15 @@ fn run_subsidy_cycle(
         // the onset point.
         let over = (max_shortage.saturating_sub(SUBSIDY_TRIGGER_TICKS)) as f32;
         let ramp = (over / 100.0).min(SUBSIDY_MAX_MULTIPLIER - SUBSIDY_MIN_MULTIPLIER);
-        let multiplier = SUBSIDY_MIN_MULTIPLIER + ramp;
+        let mut multiplier = SUBSIDY_MIN_MULTIPLIER + ramp;
+        // Bundle D: contested-body bump. The incumbent posts a richer
+        // payout when the destination body has rival facilities, so
+        // loyal couriers stay engaged with the squeeze rather than
+        // peel off to easier markets. Stacks multiplicatively with the
+        // shortage-age ramp.
+        if dest_is_contested(world, &destination) {
+            multiplier *= SUBSIDY_CONTESTED_MULTIPLIER;
+        }
         let payment = ((SUBSIDY_BASE_PAYMENT as f32) * multiplier) as i64;
 
         plans.push(SubsidyPlan {

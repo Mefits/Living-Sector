@@ -70,7 +70,7 @@ pub(super) fn body_labels_panel(
     sim: Res<Sim>,
     camera_q: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 ) {
-    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
+    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit, BodyTerritory};
 
     if !state.show {
         return;
@@ -81,14 +81,23 @@ pub(super) fn body_labels_panel(
     };
 
     let world = &sim.store.world;
-    let entries: Vec<(String, Vec3)> = world
-        .query::<(&BodyIdentity, &BodyOrbit)>()
+    // Bundle D: pull controlling-faction + contested flag alongside
+    // the position so labels can colour by faction palette and flag
+    // contested bodies with a `[!]` suffix. `BodyTerritory` is
+    // optional so freshly-spawned bodies that haven't been through
+    // `derive_territorial_control` yet still draw (with TEXT colour).
+    let entries: Vec<(String, Vec3, Option<String>, bool)> = world
+        .query::<(&BodyIdentity, &BodyOrbit, Option<&BodyTerritory>)>()
         .iter()
-        .map(|(_e, (id, orbit))| {
+        .map(|(_e, (id, orbit, territory))| {
             let (x, y) = orbit.universe_position();
+            let controlling = territory.and_then(|t| t.controlling_faction.clone());
+            let contested = territory.map(|t| t.contested).unwrap_or(false);
             (
                 id.name.clone(),
                 Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
+                controlling,
+                contested,
             )
         })
         .collect();
@@ -105,7 +114,7 @@ pub(super) fn body_labels_panel(
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
         .show(ctx, |ui| {
             let painter = ui.painter();
-            for (name, pos) in entries {
+            for (name, pos, controlling, contested) in entries {
                 // Skip bodies behind the camera. world_to_viewport
                 // returns None for off-screen or behind-camera —
                 // treat that as "don't draw".
@@ -118,12 +127,25 @@ pub(super) fn body_labels_panel(
                 if anchor.y < min_y {
                     continue;
                 }
+                // Bundle D: faction-tint controlled bodies, suffix
+                // contested ones with `[!]` so the orientation of
+                // the conflict reads at a glance. Unsettled bodies
+                // (no controller) keep the neutral TEXT colour.
+                let colour = controlling
+                    .as_deref()
+                    .map(theme::faction_color)
+                    .unwrap_or(theme::TEXT);
+                let display = if contested {
+                    format!("{name} [!]")
+                } else {
+                    name
+                };
                 painter.text(
                     anchor,
                     egui::Align2::CENTER_BOTTOM,
-                    &name,
+                    &display,
                     egui::FontId::proportional(11.0),
-                    theme::TEXT,
+                    colour,
                 );
             }
         });

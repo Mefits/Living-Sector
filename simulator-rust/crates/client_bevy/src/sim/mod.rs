@@ -563,6 +563,7 @@ pub(crate) fn tick_sim(
                 &mut store.world,
                 &mut store.contracts,
                 &mut events,
+                &mut store.system_control,
                 tick,
                 tick_mult,
             );

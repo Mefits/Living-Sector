@@ -226,6 +226,39 @@ pub(super) fn decide_and_act(
             .collect()
     };
 
+    // Bundle D: contested-destination snapshot. A `location_name` ends
+    // up here when its host body is flagged `contested`. Built once
+    // per ship-tick (cheap — bounded by body count) and read by
+    // `score_strategic` to give aggressive captains a bonus on
+    // contracts pulling toward those zones. Skip the work if no body
+    // has BodyTerritory yet (cold-start before the first faction cycle
+    // — `derive_territorial_control` populates them).
+    let contested_destinations: std::collections::HashSet<String> = {
+        use crate::agents::celestial_body::{BodyIdentity, BodyTerritory};
+        use crate::agents::facility::{FacilityIdentity, FacilityLocation};
+        let contested_body_ids: std::collections::HashSet<String> = world
+            .query::<(&BodyIdentity, &BodyTerritory)>()
+            .iter()
+            .filter(|(_, (_, t))| t.contested)
+            .map(|(_, (id, _))| id.body_id.clone())
+            .collect();
+        if contested_body_ids.is_empty() {
+            std::collections::HashSet::new()
+        } else {
+            world
+                .query::<(&FacilityIdentity, &FacilityLocation)>()
+                .iter()
+                .filter_map(|(_, (id, loc))| {
+                    if contested_body_ids.contains(&id.body_id) {
+                        Some(loc.location_name.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
+    };
+
     // Phase 18L: per-location dock congestion snapshot.
     // `(total_capacity, total_docked_count, total_queued_count)`
     // summed across every non-gate facility at the location. Used
@@ -542,6 +575,7 @@ pub(super) fn decide_and_act(
                 retrofit_plan.as_ref(),
                 sensor_range_au,
                 &location_to_system,
+                &contested_destinations,
                 &ai.personality,
                 &dock_congestion,
                 lifecycle.idle_ticks,
@@ -834,6 +868,7 @@ fn plan_goal(
     retrofit: Option<&RetrofitPlan>,
     sensor_range_au: f32,
     location_to_system: &StdHashMap<String, String>,
+    contested_destinations: &std::collections::HashSet<String>,
     personality: &crate::ai::personality::Personality,
     dock_congestion: &StdHashMap<String, (u32, u32, u32)>,
     idle_ticks: u32,
@@ -942,7 +977,13 @@ fn plan_goal(
         location_to_system,
         dock_congestion,
     ) {
-        let score = score_strategic(c.profit, c.goal_name, personality);
+        // Bundle D: aggressive captains gravitate toward contested
+        // bodies. The flag is true when the contract's destination is
+        // a body where ≥2 factions each own ≥1 facility. `personality
+        // .aggression > 0.5` gates the bonus inside `score_strategic`,
+        // so cautious ships ignore it.
+        let contested = contested_destinations.contains(&c.destination);
+        let score = score_strategic(c.profit, c.goal_name, personality, contested);
         // GOAP combined goal: if we have a retrofit plan AND the
         // contract is delivery-class, try to synthesise a single
         // BT that picks up cargo, detours through the shipyard,
@@ -968,7 +1009,7 @@ fn plan_goal(
                 // to win when roughly on par, not dominate when
                 // delivery alone is clearly better.
                 let combo_score = score * 1.20
-                    + score_strategic(rp.cost / 5, "seek_retrofit", personality);
+                    + score_strategic(rp.cost / 5, "seek_retrofit", personality, false);
                 candidates.push(ScoredGoal {
                     name: "fulfill_delivery_with_retrofit",
                     score: combo_score,
@@ -983,7 +1024,11 @@ fn plan_goal(
         });
     }
     if let Some(t) = try_plan_trade_run(&at_loc, memory, registry, gate_pairs, current_tick, fuel_bucket) {
-        let score = score_strategic(t.profit, "trade_run", personality);
+        // Bundle D: trade run counts as contested when either endpoint
+        // is — the ship is risking exposure on either leg of the run.
+        let contested = contested_destinations.contains(&t.buy_loc)
+            || contested_destinations.contains(&t.sell_loc);
+        let score = score_strategic(t.profit, "trade_run", personality, contested);
         // GOAP combined goal: trade_run + retrofit. Same pattern as
         // delivery + retrofit. When the planner folds refit into
         // the trade-run path it wins on two fronts in one trip.
@@ -999,7 +1044,7 @@ fn plan_goal(
                 gate_pairs,
             ) {
                 let combo_score = score * 1.20
-                    + score_strategic(rp.cost / 5, "seek_retrofit", personality);
+                    + score_strategic(rp.cost / 5, "seek_retrofit", personality, false);
                 candidates.push(ScoredGoal {
                     name: "trade_run_with_retrofit",
                     score: combo_score,
@@ -1067,10 +1112,20 @@ fn plan_goal(
 /// automatically swamp a 1.5k courier run, multiplies by
 /// `1.0 + prefer_goals[goal]` so archetype bonuses tilt the pick,
 /// then by the ship's profit axis and the tier weight.
+///
+/// Bundle D: when `contested_zone` is true (the contract / trade run
+/// touches a body whose facilities are split across factions), an
+/// aggressive personality gets a stacking bonus on top of
+/// `prefer_goals`. Cautious ships (`aggression ≤ 0.5`) ignore the
+/// flag entirely — they still pick the safer market. The +0.4 ceiling
+/// is small enough that a much more profitable safe contract still
+/// wins, but big enough that two roughly-equal contracts tilt the
+/// fleet's aggressive captains toward the contested side.
 pub(super) fn score_strategic(
     profit: i64,
     goal_name: &str,
     personality: &crate::ai::personality::Personality,
+    contested_zone: bool,
 ) -> f32 {
     if profit <= 0 {
         return 0.0;
@@ -1081,7 +1136,15 @@ pub(super) fn score_strategic(
         .get(goal_name)
         .copied()
         .unwrap_or(0.0);
-    log_profit * (1.0 + bonus) * personality.profit.max(0.3) * TIER_STRATEGIC_WEIGHT
+    let contested_bonus = if contested_zone && personality.aggression > 0.5 {
+        personality.aggression * 0.4
+    } else {
+        0.0
+    };
+    log_profit
+        * (1.0 + bonus + contested_bonus)
+        * personality.profit.max(0.3)
+        * TIER_STRATEGIC_WEIGHT
 }
 
 /// Phase 19h: smart idle branch. When the contract / trade_run
@@ -1276,6 +1339,13 @@ pub struct ContractCandidate {
     pub goal_name: &'static str,
     pub profit: i64,
     pub bt: BtNode<ShipAction>,
+    /// Destination location_name. Populated for every contract kind —
+    /// `plan_goal` reads this to check the contested-zone bonus. For
+    /// delivery / passenger / courier the value is the cargo or
+    /// passengers' end stop; for crew-mission it's the requestor's
+    /// own location (which is also a viable contested-flag check
+    /// since the ship is heading there to dwell).
+    pub destination: String,
     /// Raw delivery params when the contract is a delivery-class
     /// kind (Delivery / Subsidy / Construction). Used by `plan_goal`
     /// to re-synthesise a combined delivery+retrofit BT when both
@@ -1482,10 +1552,11 @@ fn try_plan_contract(
     let cand = best?;
     let profit = cand.payment - cand.cost;
 
-    // Snapshot delivery params before `cand.id` gets moved into the
-    // BT builder below — we need them for the `delivery_params`
-    // field on `ContractCandidate` so downstream callers can
-    // re-synthesise a combined delivery+retrofit BT.
+    // Snapshot the destination + delivery params before `cand.id` gets
+    // moved into the BT builders below. The destination is also
+    // surfaced on the public `ContractCandidate` so `plan_goal` can
+    // check the contested-zone bonus without re-walking the contract.
+    let candidate_destination = cand.destination.clone();
     let delivery_params = match cand.kind {
         ContractType::Delivery | ContractType::Subsidy | ContractType::Construction => {
             Some(DeliveryParams {
@@ -1586,6 +1657,7 @@ fn try_plan_contract(
         goal_name,
         profit,
         bt,
+        destination: candidate_destination,
         delivery_params,
     })
 }

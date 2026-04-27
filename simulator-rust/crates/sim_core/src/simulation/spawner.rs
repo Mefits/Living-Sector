@@ -77,6 +77,15 @@ pub struct AgentStore {
     /// "stored on one side but not the other" divergence risk.
     pub relations: FactionRelations,
 
+    /// Bundle D: per-system territorial controller, recomputed every
+    /// faction cycle by `derive_territorial_control`. `system_name →
+    /// controlling_faction`; `None` for genuinely contested or
+    /// unsettled systems. Per-body control lives on each body's
+    /// `BodyTerritory` component — this map is the system-level
+    /// rollup, useful when planners ask "is this destination's host
+    /// system one we share friendly relations with?"
+    pub system_control: HashMap<String, Option<String>>,
+
     /// Construction-site materialisations awaiting DB INSERT. Pushed
     /// by the sync `apply_construction_delivery` path; drained by the
     /// async tick loop immediately after the apply phase.
@@ -125,6 +134,7 @@ impl AgentStore {
             world: World::new(),
             contracts: ContractBoard::new(),
             relations: FactionRelations::new(),
+            system_control: HashMap::new(),
             pending_materializations: Vec::new(),
             pending_decommissions: Vec::new(),
             pending_respawns: Vec::new(),
