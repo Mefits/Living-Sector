@@ -61,6 +61,8 @@ pub(super) fn markets_panel(
         MarketHistory, MarketIdentity, MarketPricing, MARKET_CRISIS_SHORTAGE_TICKS,
     };
     use sim_core::economy::commodities::Commodity;
+    // Phase 20d: trend sparkline rendering — see `draw_sparkline`
+    // helper below the panel function.
 
     let mut open = state.open;
     let mut filter = state.filter.clone();
@@ -81,6 +83,11 @@ pub(super) fn markets_panel(
         shortage_ticks: Vec<(Commodity, u32)>,
         crisis: bool,
         any_short: bool,
+        /// Phase 20d: per-commodity time series — `(tick, price, supply)`
+        /// flattened from `MarketHistory.trend_samples`. The UI's
+        /// sparkline draws these in chronological order; oldest at the
+        /// left edge, newest at the right.
+        trend: Vec<(Commodity, Vec<(u64, f32, f32)>)>,
     }
 
     let mut rows: Vec<MarketRow> = Vec::new();
@@ -130,6 +137,30 @@ pub(super) fn markets_panel(
             .any(|(_, t)| *t >= MARKET_CRISIS_SHORTAGE_TICKS);
         let any_short = !shortages.is_empty();
 
+        // Phase 20d: flatten trend_samples into per-commodity series.
+        // `MarketHistory.trend_samples` carries one sample per
+        // `MARKET_TREND_SAMPLE_INTERVAL_BASE` ticks, each holding the
+        // full `prices` + `supply` HashMaps; the sparkline view wants
+        // it pivoted: per-commodity `Vec<(tick, price, supply)>`.
+        let mut trend_by_commodity: std::collections::HashMap<
+            Commodity,
+            Vec<(u64, f32, f32)>,
+        > = std::collections::HashMap::new();
+        for sample in history.trend_samples.iter() {
+            for (commodity, &price) in &sample.prices {
+                let supply = sample.supply.get(commodity).copied().unwrap_or(0.0);
+                trend_by_commodity
+                    .entry(*commodity)
+                    .or_default()
+                    .push((sample.tick, price, supply));
+            }
+        }
+        let mut trend: Vec<(Commodity, Vec<(u64, f32, f32)>)> = trend_by_commodity
+            .into_iter()
+            .filter(|(_, v)| v.len() >= 2)
+            .collect();
+        trend.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+
         rows.push(MarketRow {
             location,
             prices,
@@ -138,6 +169,7 @@ pub(super) fn markets_panel(
             shortage_ticks: shortages,
             crisis,
             any_short,
+            trend,
         });
     }
     rows.sort_by(|a, b| {
@@ -314,6 +346,62 @@ pub(super) fn markets_panel(
                                     ui.end_row();
                                 }
                             });
+
+                        // Phase 20d: trends — per-commodity sparkline
+                        // pair (price + supply) so users can spot
+                        // sustained shortages, supply chain backups, or
+                        // recovery curves at a glance. Only renders
+                        // when ≥2 samples exist for at least one
+                        // commodity (cold-start markets show nothing).
+                        if !row.trend.is_empty() {
+                            ui.add_space(4.0);
+                            egui::CollapsingHeader::new(
+                                egui::RichText::new("📈 Trends")
+                                    .strong()
+                                    .color(theme::PRIMARY),
+                            )
+                            .id_salt(format!("trends_hdr_{}", row.location))
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                ui.label(
+                                    egui::RichText::new(
+                                        "price (cyan) · supply (amber) — newest at right",
+                                    )
+                                    .small()
+                                    .color(theme::TEXT_DIM),
+                                );
+                                for (commodity, samples) in &row.trend {
+                                    ui.horizontal(|ui| {
+                                        ui.add_sized(
+                                            [70.0, 32.0],
+                                            egui::Label::new(
+                                                egui::RichText::new(commodity.as_str())
+                                                    .monospace(),
+                                            ),
+                                        );
+                                        draw_trend_sparkline(ui, samples);
+                                        let last_p = samples
+                                            .last()
+                                            .map(|(_, p, _)| *p)
+                                            .unwrap_or(0.0);
+                                        let last_s = samples
+                                            .last()
+                                            .map(|(_, _, s)| *s)
+                                            .unwrap_or(0.0);
+                                        ui.add_sized(
+                                            [80.0, 32.0],
+                                            egui::Label::new(
+                                                egui::RichText::new(format!(
+                                                    "p {last_p:>5.1}  s {last_s:>5.0}"
+                                                ))
+                                                .monospace()
+                                                .color(theme::TEXT_DIM),
+                                            ),
+                                        );
+                                    });
+                                }
+                            });
+                        }
                     });
 
                     // CRISIS / SHORT chip beside the header row,
@@ -337,4 +425,70 @@ pub(super) fn markets_panel(
     state.open = open;
     state.filter = filter;
     state.only_shortages = only_shortages;
+}
+
+/// Phase 20d: draw a two-line sparkline (price + supply) for one
+/// commodity. Each series is min/max-normalised independently so a
+/// commodity whose price hovers ~12 and whose supply hovers ~3000
+/// still produces readable curves on the same canvas.
+///
+/// Hand-rolled rather than pulling in `egui_plot` — the sparkline is
+/// ~30 line segments per commodity per market, well under the cost of
+/// a dependency for the MVP. If the market panel grows zoom / hover-
+/// tooltip / multi-line legends, switch to `egui_plot` later; the call
+/// site is one line.
+fn draw_trend_sparkline(ui: &mut egui::Ui, samples: &[(u64, f32, f32)]) {
+    const W: f32 = 220.0;
+    const H: f32 = 32.0;
+    let (rect, _resp) = ui.allocate_exact_size(egui::vec2(W, H), egui::Sense::hover());
+    if samples.len() < 2 {
+        return;
+    }
+    let painter = ui.painter_at(rect);
+    // Faint baseline so an empty / flat region still reads as "this is
+    // a chart slot." Without it, a near-flat series looks like nothing.
+    painter.line_segment(
+        [
+            egui::pos2(rect.left(), rect.bottom() - 0.5),
+            egui::pos2(rect.right(), rect.bottom() - 0.5),
+        ],
+        egui::Stroke::new(1.0, theme::PRIMARY_DIM),
+    );
+
+    let n = samples.len();
+    let plot_one = |painter: &egui::Painter, values: Vec<f32>, stroke: egui::Stroke| {
+        let min = values.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let range = (max - min).max(0.001);
+        let pts: Vec<egui::Pos2> = values
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                let x = rect.left() + rect.width() * i as f32 / (n - 1) as f32;
+                let norm = (v - min) / range;
+                let y = rect.bottom() - rect.height() * norm;
+                egui::pos2(x, y)
+            })
+            .collect();
+        for w in pts.windows(2) {
+            painter.line_segment([w[0], w[1]], stroke);
+        }
+        // Latest-sample dot — bright so the eye snaps to "now."
+        if let Some(last) = pts.last() {
+            painter.circle_filled(*last, 2.5, stroke.color);
+        }
+    };
+
+    let prices: Vec<f32> = samples.iter().map(|(_, p, _)| *p).collect();
+    let supply: Vec<f32> = samples.iter().map(|(_, _, s)| *s).collect();
+    plot_one(
+        &painter,
+        prices,
+        egui::Stroke::new(1.5, theme::PRIMARY),
+    );
+    plot_one(
+        &painter,
+        supply,
+        egui::Stroke::new(1.0, theme::WARN),
+    );
 }

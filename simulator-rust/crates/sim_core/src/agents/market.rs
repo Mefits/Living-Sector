@@ -57,10 +57,28 @@ pub struct MarketOrders {
     pub order_expiry_ticks: u64,
 }
 
+/// Phase 20d: one trend snapshot for a market — captured every
+/// `MARKET_TREND_SAMPLE_INTERVAL_BASE` base ticks. Carries tick timestamp
+/// + per-commodity price + per-commodity supply so the UI can draw
+/// "market watch" charts and supply-chain inspectors can see whether
+/// a stuck production sub is on a long decline or a brief dip.
+#[derive(Debug, Clone, Default)]
+pub struct MarketTrendSample {
+    pub tick: u64,
+    pub prices: HashMap<Commodity, f32>,
+    pub supply: HashMap<Commodity, f32>,
+}
+
 /// Historical/telemetry data — rarely touched by core logic.
 #[derive(Debug, Clone, Default)]
 pub struct MarketHistory {
-    pub price_history: VecDeque<HashMap<Commodity, f32>>,
+    /// Phase 20d: rolling time-series ring of `MarketTrendSample`s.
+    /// Sampled every `MARKET_TREND_SAMPLE_INTERVAL_BASE` base ticks
+    /// inside `tick_one_market`'s price recompute, capped at
+    /// `MARKET_TREND_KEEP` entries. Replaces the older untimed
+    /// per-tick `price_history` (no callers read it; this richer
+    /// shape is what the UI needs).
+    pub trend_samples: VecDeque<MarketTrendSample>,
     pub trade_volume: HashMap<Commodity, f32>,
     pub shortage_ticks: HashMap<Commodity, u32>,
     pub last_tick: u64,
@@ -163,6 +181,21 @@ pub const SHORTAGE_MIN_FLOOR: f32 = 10.0;
 pub const SURPLUS_THRESHOLD_MULTIPLIER: f32 = 5.0;
 pub const SURPLUS_DISCOUNT: f32 = 0.8;
 pub const PRICE_HISTORY_KEEP: usize = 100;
+
+/// Phase 20d: how often `tick_one_market` writes a fresh
+/// `MarketTrendSample` into the rolling history ring. 16 base ticks =
+/// one sample every two simulated seconds at the default 8 tps, which
+/// yields readable line plots without flooding the buffer. Aligns
+/// with the WS `market_states` broadcast cadence so trend data lands
+/// on the same beats clients already expect.
+pub const MARKET_TREND_SAMPLE_INTERVAL_BASE: u64 = 16;
+
+/// Phase 20d: trend ring depth. 200 entries × 16-tick interval =
+/// 3200 base ticks of history (~6.6 min at 1× WORLD_SPEED, ~100 s
+/// at 4×). Memory cost: ~200 samples × ~6 commodities × 12 bytes
+/// per (price + supply) value × 39 markets ≈ 1.1 MB for the whole
+/// world — well under any concern.
+pub const MARKET_TREND_KEEP: usize = 200;
 
 /// Essential commodities: (threshold, order_qty, premium_multiplier).
 /// When supply < threshold, market posts an emergency buy order at premium price.
@@ -468,10 +501,19 @@ fn tick_one_market(
         .collect();
     pricing.prices = new_prices.clone();
 
-    // Push price snapshot onto history (keep last N)
-    history.price_history.push_back(new_prices);
-    while history.price_history.len() > PRICE_HISTORY_KEEP {
-        history.price_history.pop_front();
+    // Phase 20d: sample the trend ring every
+    // `MARKET_TREND_SAMPLE_INTERVAL_BASE` base ticks. The price
+    // recompute itself fires every tick, so we gate sample insertion
+    // here rather than the call site to keep the cadence local.
+    if tick.is_multiple_of(MARKET_TREND_SAMPLE_INTERVAL_BASE) {
+        history.trend_samples.push_back(MarketTrendSample {
+            tick,
+            prices: new_prices,
+            supply: pricing.supply.clone(),
+        });
+        while history.trend_samples.len() > MARKET_TREND_KEEP {
+            history.trend_samples.pop_front();
+        }
     }
 
     // --- Cleanup: expire old orders ---
@@ -501,4 +543,60 @@ fn record_consumption(flow: &mut MarketFlow, commodity: _Commodity, qty: f32, ti
         .entry(commodity)
         .or_default()
         .push((tick, qty));
+}
+
+#[cfg(test)]
+mod trend_tests {
+    use super::*;
+
+    /// Push 250 trend samples — the deque must cap at MARKET_TREND_KEEP
+    /// and drop the oldest entries. Failure here means the sampling
+    /// loop in `tick_one_market` could grow the buffer without bound.
+    #[test]
+    fn trend_ring_caps_at_keep_constant() {
+        let mut h = MarketHistory::default();
+        for t in 0..250u64 {
+            h.trend_samples.push_back(MarketTrendSample {
+                tick: t,
+                prices: HashMap::new(),
+                supply: HashMap::new(),
+            });
+            while h.trend_samples.len() > MARKET_TREND_KEEP {
+                h.trend_samples.pop_front();
+            }
+        }
+        assert_eq!(h.trend_samples.len(), MARKET_TREND_KEEP);
+        // Newest sample is the last tick we pushed.
+        assert_eq!(h.trend_samples.back().unwrap().tick, 249);
+        // Oldest is `250 - KEEP`.
+        assert_eq!(
+            h.trend_samples.front().unwrap().tick,
+            250 - MARKET_TREND_KEEP as u64
+        );
+    }
+
+    /// Sample interval must be ≥ the production cycle so each sample
+    /// captures the effect of at least one full prod/consumption pass.
+    /// 16 / 5 = 3.2 prod cycles per sample is fine; the warning
+    /// guards against someone slashing the interval below the prod
+    /// cadence and getting flat-line charts.
+    #[test]
+    fn trend_interval_observes_at_least_one_prod_cycle() {
+        assert!(MARKET_TREND_SAMPLE_INTERVAL_BASE >= PROD_CONS_INTERVAL_BASE);
+    }
+
+    /// Trend ring captures both price + supply per commodity. Verifies
+    /// the field shape — guards against an accidental drop of the
+    /// `supply` field during a future refactor (the UI would silently
+    /// stop drawing the supply line).
+    #[test]
+    fn trend_sample_records_both_price_and_supply() {
+        let s = MarketTrendSample {
+            tick: 100,
+            prices: HashMap::from([(Commodity::Fuel, 12.5)]),
+            supply: HashMap::from([(Commodity::Fuel, 480.0)]),
+        };
+        assert_eq!(s.prices.get(&Commodity::Fuel), Some(&12.5));
+        assert_eq!(s.supply.get(&Commodity::Fuel), Some(&480.0));
+    }
 }

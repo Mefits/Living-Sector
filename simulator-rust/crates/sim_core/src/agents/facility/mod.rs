@@ -1810,7 +1810,7 @@ mod tests {
                 order_expiry_ticks: 100,
             },
             MarketHistory {
-                price_history: Default::default(),
+                trend_samples: Default::default(),
                 trade_volume: Default::default(),
                 shortage_ticks: Default::default(),
                 last_tick: 0,
@@ -1891,7 +1891,7 @@ mod tests {
                 order_expiry_ticks: 100,
             },
             MarketHistory {
-                price_history: Default::default(),
+                trend_samples: Default::default(),
                 trade_volume: Default::default(),
                 shortage_ticks: Default::default(),
                 last_tick: 0,

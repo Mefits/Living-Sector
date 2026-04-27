@@ -590,7 +590,7 @@ async fn load_markets(pool: &SqlitePool, _config: &TickConfig, store: &mut Agent
                 order_expiry_ticks: 50 * _config.tick_multiplier() as u64,
             },
             MarketHistory {
-                price_history: Default::default(),
+                trend_samples: Default::default(),
                 trade_volume: parse_commodity_f32_map(&volume_json),
                 shortage_ticks: parse_commodity_u32_map(&shortage_json),
                 last_tick: 0,
