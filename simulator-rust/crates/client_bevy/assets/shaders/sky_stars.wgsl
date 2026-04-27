@@ -26,7 +26,7 @@ struct SkyParams {
     _pad: vec3<u32>,
 };
 
-@group(2) @binding(0) var<uniform> params: SkyParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: SkyParams;
 
 fn hash31(p_in: vec3<f32>) -> f32 {
     var p = fract(p_in * 0.1031);
