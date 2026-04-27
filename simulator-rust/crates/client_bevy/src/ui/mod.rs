@@ -58,7 +58,8 @@ use labels::{
     BodyLabelsState,
 };
 use lifecycle::{
-    main_menu_panel, new_universe_dialog, save_list_panel, NewUniverseDialogState, SaveListState,
+    auto_load_from_env, main_menu_panel, new_universe_dialog, save_list_panel,
+    NewUniverseDialogState, SaveListState,
 };
 use markets::{markets_panel, MarketsState};
 use menus::{options_panel, pause_menu, OptionsState, PauseMenuState};
@@ -125,6 +126,7 @@ impl Plugin for UiPlugin {
                 (
                     icons::install_image_loaders,
                     theme::apply_theme,
+                    auto_load_from_env,
                     main_menu_panel.run_if(in_state(crate::AppState::MainMenu)),
                     new_universe_dialog.run_if(in_state(crate::AppState::MainMenu)),
                     options_panel,

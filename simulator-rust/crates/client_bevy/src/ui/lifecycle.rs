@@ -94,6 +94,71 @@ struct SaveEntry {
     is_active: bool,
 }
 
+/// Dev affordance: when `CLIENT_BEVY_AUTO_LOAD` is set, skip the main
+/// menu and load straight into a save. The same code path as the Load
+/// Game button — sets `SelectedSavePath`, flips `sim.running`, transitions
+/// to `InGame`.
+///
+/// Values:
+///   * `CLIENT_BEVY_AUTO_LOAD=1` — pick the most-recent `*.db` in the
+///     binary's directory (mtime-newest wins).
+///   * `CLIENT_BEVY_AUTO_LOAD=/abs/path.db` — load that exact file.
+///
+/// Runs in `Update` rather than `Startup` because `SelectedSavePath`
+/// is initialised by the `SimPlugin` build, but the work is one-shot:
+/// `Local<bool>` flag so we only fire once.
+pub(super) fn auto_load_from_env(
+    mut sim: ResMut<Sim>,
+    mut selected_save: ResMut<crate::sim::SelectedSavePath>,
+    mut next_state: ResMut<NextState<crate::AppState>>,
+    mut fired: Local<bool>,
+) {
+    if *fired {
+        return;
+    }
+    *fired = true;
+    let Ok(raw) = std::env::var("CLIENT_BEVY_AUTO_LOAD") else {
+        return;
+    };
+    let path: std::path::PathBuf = if raw == "1" {
+        // Pick the freshest *.db in the save directory by mtime.
+        let dir = save_dir();
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            warn!("CLIENT_BEVY_AUTO_LOAD=1 but {} unreadable", dir.display());
+            return;
+        };
+        let mut best: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if p.extension().and_then(|s| s.to_str()) != Some("db") {
+                continue;
+            }
+            let Ok(meta) = entry.metadata() else { continue };
+            let Ok(mtime) = meta.modified() else { continue };
+            if best.as_ref().map(|(_, t)| mtime > *t).unwrap_or(true) {
+                best = Some((p, mtime));
+            }
+        }
+        match best {
+            Some((p, _)) => p,
+            None => {
+                warn!("CLIENT_BEVY_AUTO_LOAD=1 but no *.db files in {}", dir.display());
+                return;
+            }
+        }
+    } else {
+        std::path::PathBuf::from(&raw)
+    };
+    if !path.exists() {
+        warn!("CLIENT_BEVY_AUTO_LOAD: {} does not exist", path.display());
+        return;
+    }
+    info!("CLIENT_BEVY_AUTO_LOAD: loading {} (test affordance)", path.display());
+    selected_save.0 = Some(path);
+    sim.running = true;
+    next_state.set(crate::AppState::InGame);
+}
+
 pub(super) fn main_menu_panel(
     mut ctx: EguiContexts,
     mut new_universe: ResMut<NewUniverseDialogState>,
