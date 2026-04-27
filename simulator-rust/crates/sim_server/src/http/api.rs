@@ -209,6 +209,12 @@ fn build_systems_with_bodies(state: &AppState) -> Vec<serde_json::Value> {
                     "orbit_radius": snap.orbit_radius,
                     "orbit_period": snap.orbit_period,
                     "biome": snap.biome,
+                    // Bundle D: territorial control surfaces in the
+                    // body listing so external tools (sim-review,
+                    // archived Godot client) can read it without an
+                    // extra request.
+                    "controlling_faction": snap.controlling_faction,
+                    "contested": snap.contested,
                 }));
             }
         }
