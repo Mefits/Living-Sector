@@ -146,7 +146,7 @@ pub(super) fn top_bar_controls(
                 // (▶ play, ⏸ pause).
                 let running = sim.running;
                 let pp_resp = ui
-                    .add(egui::ImageButton::new(if running {
+                    .add(egui::Button::image(if running {
                         icons::pause()
                     } else {
                         icons::play()
