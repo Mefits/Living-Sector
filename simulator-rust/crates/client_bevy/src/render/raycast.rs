@@ -42,7 +42,7 @@ pub(super) const PICK_RADIUS_FRAC: f32 = 0.015;
 pub(super) fn raycast_select(
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<crate::camera::OrbitCamera>>,
     ships: Query<(&ShipEntity, &Transform)>,
     facilities: Query<(&FacilityEntity, &Transform)>,
     mut selected_ship: ResMut<SelectedShip>,
@@ -126,7 +126,7 @@ pub(super) fn raycast_select(
 pub(super) fn raycast_context_menu(
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<crate::camera::OrbitCamera>>,
     ships: Query<(&ShipEntity, &Transform)>,
     facilities: Query<(&FacilityEntity, &Transform)>,
     mut menu_req: ResMut<crate::ui::ContextMenuRequest>,

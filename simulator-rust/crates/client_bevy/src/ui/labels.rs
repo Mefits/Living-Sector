@@ -68,7 +68,7 @@ pub(super) fn body_labels_panel(
     mut ctx: EguiContexts,
     state: Res<BodyLabelsState>,
     sim: Res<Sim>,
-    camera_q: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    camera_q: Query<(&Camera, &GlobalTransform), With<OrbitCamera>>,
 ) {
     use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit, BodyTerritory};
 
