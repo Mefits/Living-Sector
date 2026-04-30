@@ -464,14 +464,15 @@ fn tick_crew(
     // Collect per-ship snapshot info we need: class (for crew roles), transit
     // state, docked state. Done in a read pass so the mutable pass can close
     // over static data without hecs borrow conflicts.
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     struct CrewCtx {
-        entity: Entity,
         roles: &'static [&'static str],
         in_transit: bool,
         docked: bool,
     }
-    let contexts: Vec<CrewCtx> = {
+    // Phase C step 3c: keyed by Entity for O(1) lookup inside the
+    // par_iter_mut closure (instead of the previous Vec walk).
+    let contexts: std::collections::HashMap<Entity, CrewCtx> = {
         let mut q = world
             .query::<(Entity, &ShipIdentity, &ShipTransit, &ShipPosition, &ShipCrew)>();
         q.iter(&world)
@@ -479,32 +480,34 @@ fn tick_crew(
                 let roles = crate::simulation::config::ship_class(&id.class)
                     .map(|c| c.crew_roles)
                     .unwrap_or(&[]);
-                CrewCtx {
-                    entity: e,
-                    roles,
-                    in_transit: transit.transit.is_some(),
-                    docked: position.docked_at.is_some(),
-                }
+                (
+                    e,
+                    CrewCtx {
+                        roles,
+                        in_transit: transit.transit.is_some(),
+                        docked: position.docked_at.is_some(),
+                    },
+                )
             })
             .collect()
     };
 
-    for ctx in contexts {
-        // LOD gate — skipped_ticks scales the crew rates so a ship that
-        // fires every 10 real ticks still ages its hunger/fatigue by the
-        // right amount when it does fire.
-        let skipped = match active.get(&ctx.entity).copied() {
+    // Phase C step 3c: parallel mutation pass over (ShipCrew, ShipEconomy,
+    // ShipCargo). Per-ship-independent — closure captures `active` and
+    // `contexts` by &reference (read-only) and writes only the entity's
+    // own components. Ships not in `active` (LOD'd off) skip via early
+    // return; ships not in `contexts` (raced spawn/despawn) skip too.
+    let mut q = world.query::<(Entity, &mut ShipCrew, &mut ShipEconomy, &mut ShipCargo)>();
+    q.par_iter_mut(world).for_each(|(entity, mut crew, mut economy, mut cargo)| {
+        let skipped = match active.get(&entity).copied() {
             Some(n) => n,
-            None => continue,
+            None => return,
+        };
+        let ctx = match contexts.get(&entity).copied() {
+            Some(c) => c,
+            None => return,
         };
         let effective_scale = tick_scale * skipped as f32;
-
-        // Read-mutate ShipCrew + ShipEconomy + ShipCargo via query_one.
-        let mut q = world.query::<(&mut ShipCrew, &mut ShipEconomy, &mut ShipCargo)>();
-        let (mut crew, mut economy, mut cargo) = match q.get_mut(world, ctx.entity) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
 
         // --- 1. Decay ---
         // While docked, the station provides food service and off-shift
@@ -627,7 +630,7 @@ fn tick_crew(
         // --- 5. Push efficiency back to economy for trade math ---
         economy.efficiency = crew.efficiency();
         crew.dirty = true;
-    }
+    });
 }
 
 /// Primary task derived from crew roles. If the ship is in transit and
@@ -737,15 +740,20 @@ fn advance_transits(
         &mut ShipMemory,
         &mut ShipLifecycle,
     )>();
-    for (entity, mut position, mut transit, mut fuel, mut memory, mut lifecycle) in
-        transit_q.iter_mut(world)
-    {
+    // Phase C step 3a: advance_transits is per-ship-independent — each
+    // ship reads only `active` + `location_to_pos` + `registry` + small
+    // scalars (all read-only captures) and writes only its own
+    // components. par_iter_mut spreads the work across `ComputeTaskPool`
+    // workers; the closure's `return` replaces the original `continue`
+    // since for_each iteration semantics differ.
+    transit_q.par_iter_mut(world).for_each(
+        |(entity, mut position, mut transit, mut fuel, mut memory, mut lifecycle)| {
         // LOD gate: skip ships whose divisor cursor hasn't fired this
         // round. Ships that do fire scale their fuel burn by skipped
         // ticks so total consumption over wall-clock is preserved.
         let skipped = match active.get(&entity).copied() {
             Some(n) => n,
-            None => continue,
+            None => return,
         };
         let effective_scale = tick_scale * skipped as f32;
         if let Some(mut t) = transit.transit.clone() {
@@ -769,7 +777,7 @@ fn advance_transits(
                 Some(p) => p,
                 None => {
                     transit.transit = Some(t);
-                    continue;
+                    return;
                 }
             };
             let dx = target.0 - position.position.0;
@@ -843,7 +851,8 @@ fn advance_transits(
                 }
             }
         }
-    }
+    },
+    );
     // Placate the linter — tick_multiplier is no longer needed in the
     // velocity-based model but we keep the signature for now.
     let _ = tick_multiplier;
@@ -971,13 +980,17 @@ fn observe_prices(
         }
     }
 
+    // Phase C step 3b: observe_prices is per-ship-independent — closure
+    // captures the location/system/neighbor index snapshots + active map
+    // by &reference (read-only) and writes only memory.price_knowledge.
+    // par_iter_mut spreads the work across ComputeTaskPool workers.
     let mut ship_q = world.query::<(Entity, &ShipPosition, &ShipFitting, &mut ShipMemory)>();
-    for (e, position, fitting, mut memory) in ship_q.iter_mut(world) {
+    ship_q.par_iter_mut(world).for_each(|(e, position, fitting, mut memory)| {
         if !active.contains_key(&e) {
-            continue;
+            return;
         }
         let Some(loc) = position.location_name.as_ref() else {
-            continue;
+            return;
         };
 
         // Read the comms tier from the fitted module. Default to 1 if
@@ -1042,7 +1055,7 @@ fn observe_prices(
                 }
             }
         }
-    }
+    });
 }
 
 

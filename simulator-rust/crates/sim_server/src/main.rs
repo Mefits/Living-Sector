@@ -55,6 +55,17 @@ async fn main() -> Result<()> {
 
     info!("Simulator starting...");
 
+    // Phase C: bevy_ecs's `Query::par_iter_mut` (used by sim_core's ship
+    // sub-phases) panics if `ComputeTaskPool` isn't initialized. In a
+    // Bevy app this happens automatically at app startup; in our
+    // headless tokio main we have to do it explicitly. Sized to the
+    // physical core count — the task pool is global and only used by
+    // the parallel ship sub-phases, so over-provisioning would just
+    // sit idle.
+    bevy_tasks::ComputeTaskPool::get_or_init(|| {
+        bevy_tasks::TaskPool::default()
+    });
+
     // Database
     let db_path = resolve_db_path();
     info!("DB: {db_path}");

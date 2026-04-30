@@ -5626,6 +5626,7 @@ dependencies = [
  "arc-swap",
  "axum",
  "bevy_ecs",
+ "bevy_tasks",
  "dashmap",
  "dotenvy",
  "flume",

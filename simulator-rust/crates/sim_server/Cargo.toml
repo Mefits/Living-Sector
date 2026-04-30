@@ -28,6 +28,10 @@ flume = { workspace = true }
 rayon = { workspace = true }
 arc-swap = { workspace = true }
 bevy_ecs = { workspace = true }
+# bevy_tasks: explicit dep so sim_server can init ComputeTaskPool for
+# the parallel ship sub-phases (see Phase C in the migration plan).
+# Pinned to match bevy_ecs's transitive version.
+bevy_tasks = "0.18"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
