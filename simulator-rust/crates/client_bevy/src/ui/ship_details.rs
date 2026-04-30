@@ -51,19 +51,21 @@ pub(super) fn ship_details_panel(
     mut sim: ResMut<Sim>,
     mut selected: ResMut<SelectedShip>,
     mut focus_req: ResMut<CameraFocusRequest>,
+    // Bevy 0.18 schedule rejects systems whose params hold both `&T`
+    // and `&mut T` for the same component (Query<&Foo> + Query<&mut Foo>
+    // even on different entities). Workaround: every component this
+    // panel mutates lives only in its `*_mut_q` Query; we read it back
+    // via that Query's `.get(entity)` (which yields `&T`). Components
+    // we never mutate stay in the read-only base_q / extra_q tuples.
     base_q: Query<(
         &sim_core::agents::ship::ShipIdentity,
         &sim_core::agents::ship::ShipPosition,
         &sim_core::agents::ship::ShipTransit,
         &sim_core::agents::ship::ShipCargo,
-        &sim_core::agents::ship::ShipFuel,
-        &sim_core::agents::ship::ShipEconomy,
         &sim_core::agents::ship::ShipAI,
     )>,
     extra_q: Query<(
-        &sim_core::agents::ship::ShipCrew,
         &sim_core::agents::ship::ShipCrewSkills,
-        &sim_core::agents::ship::ShipProgression,
         &sim_core::agents::ship::ShipFitting,
         &sim_core::agents::ship::ShipLifecycle,
     )>,
@@ -102,11 +104,30 @@ pub(super) fn ship_details_panel(
         .default_height(640.0)
         .open(&mut still_open)
         .show(ctx.ctx_mut().unwrap(), |ui| {
-            let Ok((id, pos, transit, cargo, fuel, econ, ai)) = base_q.get(entity) else {
+            let Ok((id, pos, transit, cargo, ai)) = base_q.get(entity) else {
                 ui.label("(ship entity missing components)");
                 return;
             };
-            let Ok((crew, skills, prog, fit, life)) = extra_q.get(entity) else {
+            let Ok((skills, fit, life)) = extra_q.get(entity) else {
+                ui.label("(ship entity missing components)");
+                return;
+            };
+            // Read the conflicted components through their mut query.
+            // Query<&mut T>::get yields `&T` so this is a borrow-safe
+            // read; only later admin handlers reach for `.get_mut`.
+            let Ok(fuel) = fuel_mut_q.get(entity) else {
+                ui.label("(ship entity missing components)");
+                return;
+            };
+            let Ok(econ) = econ_mut_q.get(entity) else {
+                ui.label("(ship entity missing components)");
+                return;
+            };
+            let Ok(crew) = crew_mut_q.get(entity) else {
+                ui.label("(ship entity missing components)");
+                return;
+            };
+            let Ok(prog) = prog_mut_q.get(entity) else {
                 ui.label("(ship entity missing components)");
                 return;
             };

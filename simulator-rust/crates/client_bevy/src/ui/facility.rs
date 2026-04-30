@@ -307,11 +307,14 @@ pub(super) fn facility_details_panel(
     )>,
     fitting_q: Query<&sim_core::agents::facility::FacilityFitting>,
     crew_q: Query<&sim_core::agents::facility::FacilityCrew>,
+    // Bevy 0.18 schedule rejects systems whose params hold both &T and
+    // &mut T for the same component. FacilityStorage lives only in the
+    // mut query; reads happen through `storage_mut_q.get(entity)` which
+    // yields `&FacilityStorage`. Other components stay in base_q.
     base_q: Query<(
         &sim_core::agents::facility::FacilityIdentity,
         &sim_core::agents::facility::FacilityLocation,
         &sim_core::agents::facility::FacilityOperations,
-        &sim_core::agents::facility::FacilityStorage,
         &sim_core::agents::facility::FacilityLifecycle,
     )>,
     mut storage_mut_q: Query<&mut sim_core::agents::facility::FacilityStorage>,
@@ -360,7 +363,11 @@ pub(super) fn facility_details_panel(
             let fitting: Option<FacilityFitting> = fitting_q.get(entity).ok().cloned();
             let crew: Option<FacilityCrew> = crew_q.get(entity).ok().cloned();
 
-            let Ok((id, loc, ops, storage, life)) = base_q.get(entity) else {
+            let Ok((id, loc, ops, life)) = base_q.get(entity) else {
+                ui.label("(facility entity missing components)");
+                return;
+            };
+            let Ok(storage) = storage_mut_q.get(entity) else {
                 ui.label("(facility entity missing components)");
                 return;
             };
