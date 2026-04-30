@@ -708,17 +708,17 @@ fn drain_decommissions(
     for req in pending {
         let entity = req.entity;
         // Snapshot ship state for the retirement row before despawn.
-        let id_clone = match store.world.get::<&ShipIdentity>(entity) {
-            Ok(id) => id.id.clone(),
-            Err(_) => continue,
+        let id_clone = match store.world.get::<ShipIdentity>(entity) {
+            Some(id) => id.id.clone(),
+            None => continue,
         };
         let row = {
-            let identity = store.world.get::<&ShipIdentity>(entity).ok();
-            let position = store.world.get::<&ShipPosition>(entity).ok();
-            let econ = store.world.get::<&ShipEconomy>(entity).ok();
-            let crew = store.world.get::<&ShipCrew>(entity).ok();
-            let fuel = store.world.get::<&ShipFuel>(entity).ok();
-            let life = store.world.get::<&ShipLifecycle>(entity).ok();
+            let identity = store.world.get::<ShipIdentity>(entity);
+            let position = store.world.get::<ShipPosition>(entity);
+            let econ = store.world.get::<ShipEconomy>(entity);
+            let crew = store.world.get::<ShipCrew>(entity);
+            let fuel = store.world.get::<ShipFuel>(entity);
+            let life = store.world.get::<ShipLifecycle>(entity);
             identity.map(|id_ref| RetirementRow {
                 agent_id: id_ref.id.clone(),
                 name: id_ref.name.clone(),
@@ -752,9 +752,12 @@ fn drain_decommissions(
 
         // Pop from any facility's docked + queue lists so a despawned
         // entity doesn't wedge a queue head forever.
-        for (_e, storage) in store.world.query_mut::<&mut FacilityStorage>() {
-            storage.docked_ships.retain(|&e| e != entity);
-            storage.dock_queue.retain(|&e| e != entity);
+        {
+            let mut q = store.world.query::<&mut FacilityStorage>();
+            for mut storage in q.iter_mut(&mut store.world) {
+                storage.docked_ships.retain(|&e| e != entity);
+                storage.dock_queue.retain(|&e| e != entity);
+            }
         }
         // Release contract holdings: Accepted → Posted (re-postable),
         // PickedUp → Expired (cargo gone with the ship).
@@ -846,7 +849,8 @@ fn drain_respawns(
         } else {
             let mut counts: std::collections::HashMap<String, u32> =
                 std::collections::HashMap::new();
-            for (_, id) in store.world.query::<&ShipIdentity>().iter() {
+            let mut q = store.world.query::<&ShipIdentity>();
+            for id in q.iter(&store.world) {
                 if !id.faction_id.is_empty() {
                     *counts.entry(id.faction_id.clone()).or_insert(0) += 1;
                 }
@@ -864,21 +868,21 @@ fn drain_respawns(
 
         // Pick a dockable station — prefer the chosen faction's,
         // fall back to any.
-        let candidates: Vec<(String, String, String)> = store
-            .world
-            .query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>()
-            .iter()
-            .filter(|(_, (id, _, ops))| {
-                id.facility_type != "gate" && ops.docking_capacity > 0
-            })
-            .map(|(_, (id, loc, _))| {
-                (
-                    loc.location_name.clone(),
-                    id.faction_id.clone(),
-                    id.body_id.clone(),
-                )
-            })
-            .collect();
+        let candidates: Vec<(String, String, String)> = {
+            let mut q = store.world.query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>();
+            q.iter(&store.world)
+                .filter(|(id, _, ops)| {
+                    id.facility_type != "gate" && ops.docking_capacity > 0
+                })
+                .map(|(id, loc, _)| {
+                    (
+                        loc.location_name.clone(),
+                        id.faction_id.clone(),
+                        id.body_id.clone(),
+                    )
+                })
+                .collect()
+        };
         if candidates.is_empty() {
             continue;
         }
@@ -892,13 +896,13 @@ fn drain_respawns(
             pool[(seed as usize) % pool.len()].clone();
 
         // Resolve body position from the hecs world — no DB hop.
-        let body_pos = store
-            .world
-            .query::<(&BodyIdentity, &BodyOrbit)>()
-            .iter()
-            .find(|(_, (b, _))| b.body_id == body_id)
-            .map(|(_, (_, o))| o.universe_position())
-            .unwrap_or((0.0, 0.0));
+        let body_pos = {
+            let mut q = store.world.query::<(&BodyIdentity, &BodyOrbit)>();
+            q.iter(&store.world)
+                .find(|(b, _)| b.body_id == body_id)
+                .map(|(_, o)| o.universe_position())
+                .unwrap_or((0.0, 0.0))
+        };
 
         let name = sim_server::engine::random_ship_name(seed);
         let agent_id = format!("ship-respawn-{tick}-{:x}", seed & 0xFFFF);
@@ -1090,23 +1094,26 @@ fn process_spawn_ship(mut req: ResMut<SpawnShipRequest>, mut sim: ResMut<Sim>) {
     // location_name matches the user's pick. Multiple facilities can
     // share a location (a station + a refinery on the same body); we
     // only need the body_id, which is consistent across them.
-    let body_id_for_location: Option<String> = sim
-        .store
-        .world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
-        .iter()
-        .find(|(_e, (_id, loc))| loc.location_name == params.location_name)
-        .map(|(_e, (id, _loc))| id.body_id.clone());
+    let body_id_for_location: Option<String> = {
+        let mut q = sim
+            .store
+            .world
+            .query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(&sim.store.world)
+            .find(|(_id, loc)| loc.location_name == params.location_name)
+            .map(|(id, _loc)| id.body_id.clone())
+    };
 
     let body_pos = body_id_for_location
         .as_deref()
         .and_then(|bid| {
-            sim.store
+            let mut q = sim
+                .store
                 .world
-                .query::<(&BodyIdentity, &BodyOrbit)>()
-                .iter()
-                .find(|(_e, (b, _))| b.body_id == bid)
-                .map(|(_e, (_, o))| o.universe_position())
+                .query::<(&BodyIdentity, &BodyOrbit)>();
+            q.iter(&sim.store.world)
+                .find(|(b, _)| b.body_id == bid)
+                .map(|(_, o)| o.universe_position())
         })
         .unwrap_or((0.0, 0.0));
 
@@ -1191,9 +1198,12 @@ fn process_delete_ship(mut req: ResMut<DeleteShipRequest>, mut sim: ResMut<Sim>)
     let Some(&entity) = sim.store.ship_by_id.get(&ship_id) else {
         return;
     };
-    for (_e, storage) in sim.store.world.query_mut::<&mut FacilityStorage>() {
-        storage.docked_ships.retain(|&e| e != entity);
-        storage.dock_queue.retain(|&e| e != entity);
+    {
+        let mut q = sim.store.world.query::<&mut FacilityStorage>();
+        for mut storage in q.iter_mut(&mut sim.store.world) {
+            storage.docked_ships.retain(|&e| e != entity);
+            storage.dock_queue.retain(|&e| e != entity);
+        }
     }
     let _ = sim.store.contracts.drop_ship_holdings(&ship_id);
     let _ = sim.store.world.despawn(entity);
@@ -1222,9 +1232,12 @@ fn process_delete_facility(
     // Clear docked_at on any ship pointing at this facility entity —
     // without this they'd hold a stale Entity reference. Same shape
     // as sim_server's admin_remove_facility ship-cleanup pass.
-    for (_e, pos) in sim.store.world.query_mut::<&mut ShipPosition>() {
-        if pos.docked_at == Some(entity) {
-            pos.docked_at = None;
+    {
+        let mut q = sim.store.world.query::<&mut ShipPosition>();
+        for mut pos in q.iter_mut(&mut sim.store.world) {
+            if pos.docked_at == Some(entity) {
+                pos.docked_at = None;
+            }
         }
     }
 

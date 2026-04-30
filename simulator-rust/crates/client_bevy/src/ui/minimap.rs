@@ -28,7 +28,7 @@ pub(super) struct MinimapState {
 
 pub(super) fn minimap_panel(
     mut ctx: EguiContexts,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     mut state: ResMut<MinimapState>,
     camera_q: Query<&OrbitCamera>,
     mut focus_req: ResMut<CameraFocusRequest>,
@@ -44,12 +44,18 @@ pub(super) fn minimap_panel(
     // Fit to body extents; bodies are the stable anchors. Ships can
     // drift off-map (distant explorers) but the minimap is about the
     // galactic structure, not ship tracking.
-    let world = &sim.store.world;
-    let body_positions: Vec<(String, (f32, f32))> = world
-        .query::<(&BodyIdentity, &BodyOrbit)>()
-        .iter()
-        .map(|(_e, (id, orbit))| (id.body_id.clone(), orbit.universe_position()))
-        .collect();
+    let body_positions: Vec<(String, (f32, f32))> = {
+        let mut q = sim.store.world.query::<(&BodyIdentity, &BodyOrbit)>();
+        q.iter(&sim.store.world)
+            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+            .collect()
+    };
+    let ship_positions: Vec<(f32, f32)> = {
+        let mut q = sim.store.world.query::<(&ShipIdentity, &ShipPosition)>();
+        q.iter(&sim.store.world)
+            .map(|(_, pos)| pos.position)
+            .collect()
+    };
 
     if body_positions.is_empty() {
         state.open = open;
@@ -102,8 +108,7 @@ pub(super) fn minimap_panel(
             };
 
             // Ships first so bodies overlay them.
-            for (_e, (_, pos)) in world.query::<(&ShipIdentity, &ShipPosition)>().iter() {
-                let (x, y) = pos.position;
+            for &(x, y) in &ship_positions {
                 if x < min_x || x > max_x || y < min_y || y > max_y {
                     continue;
                 }

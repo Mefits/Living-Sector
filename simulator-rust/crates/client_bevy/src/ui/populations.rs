@@ -77,7 +77,7 @@ struct PopRow {
 
 pub(super) fn populations_panel(
     mut ctx: EguiContexts,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     mut state: ResMut<PopulationsState>,
 ) {
     use sim_core::agents::population::{PopDemographics, PopEconomy, PopIdentity, PopSentiment};
@@ -91,23 +91,25 @@ pub(super) fn populations_panel(
         return;
     }
 
-    let rows: Vec<PopRow> = sim
-        .store
-        .world
-        .query::<(&PopIdentity, &PopDemographics, &PopEconomy, &PopSentiment)>()
-        .iter()
-        .map(|(_e, (id, demo, econ, sent))| PopRow {
-            label: id.label.clone(),
-            demographic: id.demographic.clone(),
-            location: id.facility_location.clone(),
-            faction: id.faction_id.clone(),
-            count: demo.population_count,
-            sentiment: sent.overall_sentiment,
-            food: sent.food_satisfaction,
-            wealth: econ.total_wealth,
-            migration: demo.migration_pressure,
-        })
-        .collect();
+    let rows: Vec<PopRow> = {
+        let mut q = sim
+            .store
+            .world
+            .query::<(&PopIdentity, &PopDemographics, &PopEconomy, &PopSentiment)>();
+        q.iter(&sim.store.world)
+            .map(|(id, demo, econ, sent)| PopRow {
+                label: id.label.clone(),
+                demographic: id.demographic.clone(),
+                location: id.facility_location.clone(),
+                faction: id.faction_id.clone(),
+                count: demo.population_count,
+                sentiment: sent.overall_sentiment,
+                food: sent.food_satisfaction,
+                wealth: econ.total_wealth,
+                migration: demo.migration_pressure,
+            })
+            .collect()
+    };
 
     let filter_lc = filter.to_lowercase();
     let mut filtered: Vec<&PopRow> = rows

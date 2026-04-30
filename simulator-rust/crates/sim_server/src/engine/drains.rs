@@ -83,7 +83,7 @@ pub(super) async fn drain_pending_materializations(
         match insert {
             Ok(r) => {
                 let db_id = r.last_insert_rowid();
-                if let Ok(mut fid) = store.world.get::<&mut FacilityIdentity>(req.entity) {
+                if let Some(mut fid) = store.world.get_mut::<FacilityIdentity>(req.entity) {
                     fid.db_id = db_id;
                 }
             }
@@ -131,9 +131,9 @@ pub(super) async fn drain_pending_decommissions(
         // Snapshot the ship's faction + id BEFORE despawn so the
         // respawn can prefer the same faction (losses register as
         // pressure before the weighted pick redistributes).
-        let (ship_id, faction_id) = match store.world.get::<&ShipIdentity>(req.entity) {
-            Ok(id) => (id.id.clone(), id.faction_id.clone()),
-            Err(_) => continue,
+        let (ship_id, faction_id) = match store.world.get::<ShipIdentity>(req.entity) {
+            Some(id) => (id.id.clone(), id.faction_id.clone()),
+            None => continue,
         };
         // Overwrite the retirement reason by driving the existing
         // admin path; we want the same cleanup, just a different
@@ -244,11 +244,10 @@ async fn spawn_replacement_ship(
     } else {
         let mut counts: std::collections::HashMap<String, u32> =
             std::collections::HashMap::new();
-        for (_, id) in store
+        let mut q = store
             .world
-            .query::<&sim_core::agents::ship::ShipIdentity>()
-            .iter()
-        {
+            .query::<&sim_core::agents::ship::ShipIdentity>();
+        for id in q.iter(&store.world) {
             if !id.faction_id.is_empty() {
                 *counts.entry(id.faction_id.clone()).or_insert(0) += 1;
             }
@@ -266,15 +265,17 @@ async fn spawn_replacement_ship(
 
     // Location: prefer a dockable faction-owned station; fall back to
     // any dockable station if the faction has none left.
-    let station_candidates: Vec<(String, String)> = store
-        .world
-        .query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>()
-        .iter()
-        .filter(|(_, (id, _, ops))| {
-            id.facility_type != "gate" && ops.docking_capacity > 0
-        })
-        .map(|(_, (id, loc, _))| (loc.location_name.clone(), id.faction_id.clone()))
-        .collect();
+    let station_candidates: Vec<(String, String)> = {
+        let mut q = store
+            .world
+            .query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>();
+        q.iter(&store.world)
+            .filter(|(id, _, ops)| {
+                id.facility_type != "gate" && ops.docking_capacity > 0
+            })
+            .map(|(id, loc, _)| (loc.location_name.clone(), id.faction_id.clone()))
+            .collect()
+    };
     if station_candidates.is_empty() {
         anyhow::bail!("no dockable stations available for respawn");
     }
@@ -440,13 +441,15 @@ pub(super) fn materialize_facility(
 
     // Pull location_id from an existing facility at the same location
     // so the new entity slots into the same row.
-    let location_id = store
-        .world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
-        .iter()
-        .find(|(_, (_, loc))| loc.location_name == location_name)
-        .map(|(_, (_, loc))| loc.location_id)
-        .unwrap_or(0);
+    let location_id = {
+        let mut q = store
+            .world
+            .query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(&store.world)
+            .find(|(_, loc)| loc.location_name == location_name)
+            .map(|(_, loc)| loc.location_id)
+            .unwrap_or(0)
+    };
 
     let entity = store.world.spawn((
         FacilityIdentity {
@@ -480,7 +483,7 @@ pub(super) fn materialize_facility(
         sim_core::simulation::lod::AgentLod::new(),
         FacilityFitting::new_default(),
         FacilityCrew::new_for_type(facility_type),
-    ));
+    )).id();
 
     // Record position on the positions snapshot so Godot renders the
     // facility at the same spot the site occupied. The per-tick

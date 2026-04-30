@@ -32,6 +32,7 @@
 //!
 //! Extracted from `engine.rs` in the Phase-21 god-module split.
 
+use bevy_ecs::prelude::Entity;
 use sim_db::persistence::DbWrite;
 use sim_core::simulation::spawner::AgentStore;
 use tokio::sync::mpsc;
@@ -99,84 +100,103 @@ pub(super) fn emit_persist_writes(
     // every archetype. Fall back to the tier-1 default when absent so we
     // always emit a well-formed `fitting_json`.
     let mut ship_writes: Vec<DbWrite> = Vec::new();
-    let mut dirty_ships: Vec<hecs::Entity> = Vec::new();
-    for (e, (identity, pos, cargo, fuel, econ, life)) in store
-        .world
-        .query::<(
+    let mut dirty_ships: Vec<Entity> = Vec::new();
+    {
+        let mut q = store.world.query::<(
+            Entity,
             &ShipIdentity,
             &ShipPosition,
             &ShipCargo,
             &ShipFuel,
             &ShipEconomy,
             &ShipLifecycle,
-        )>()
-        .iter()
-    {
-        // A ship flushes when lifecycle OR progression (Phase 18d)
-        // dirties. Fitting is mutated through the refit apply, which
-        // also marks lifecycle dirty, so we don't track it separately
-        // here.
-        let prog_dirty = store
-            .world
-            .get::<&ShipProgression>(e)
-            .map(|p| p.dirty)
-            .unwrap_or(false);
-        if !life.dirty && !prog_dirty {
-            continue;
-        }
-        let cargo_json: serde_json::Map<String, serde_json::Value> = cargo
-            .cargo
-            .iter()
-            .map(|(c, &q)| (c.as_str().to_string(), serde_json::Value::from(q)))
+        )>();
+        // Snapshot the per-ship data we need so we can do nested
+        // optional-component reads (ShipProgression, ShipFitting) on
+        // `&store.world` without holding the QueryState's borrow.
+        let rows: Vec<(Entity, DbWrite, bool)> = q
+            .iter(&store.world)
+            .map(|(e, identity, pos, cargo, fuel, econ, life)| {
+                let cargo_json: serde_json::Map<String, serde_json::Value> = cargo
+                    .cargo
+                    .iter()
+                    .map(|(c, &q)| (c.as_str().to_string(), serde_json::Value::from(q)))
+                    .collect();
+                (
+                    e,
+                    DbWrite::Ship {
+                        db_id: identity.db_id,
+                        credits: econ.credits,
+                        fuel: fuel.fuel,
+                        position_x: pos.position.0,
+                        position_y: pos.position.1,
+                        cargo_json: serde_json::Value::Object(cargo_json).to_string(),
+                        current_goal: String::new(), // ShipAI field; we don't have it in this query
+                        active_contract_id: econ.active_contract_id.clone(),
+                        broke_strikes: life.broke_strikes,
+                        hoard_strikes: life.hoard_strikes,
+                        idle_ticks: life.idle_ticks,
+                        // placeholders, filled below
+                        fitting_json: String::new(),
+                        progression_json: String::new(),
+                    },
+                    life.dirty,
+                )
+            })
             .collect();
-        let fitting_json = store
-            .world
-            .get::<&ShipFitting>(e)
-            .ok()
-            .map(|f| ship_fitting_to_json(&f))
-            .unwrap_or_else(|| ship_fitting_to_json(&ShipFitting::new_default()));
-        let progression_json = store
-            .world
-            .get::<&ShipProgression>(e)
-            .ok()
-            .map(|p| ship_progression_to_json(&p))
-            .unwrap_or_else(|| ship_progression_to_json(&ShipProgression::new()));
-        let write = DbWrite::Ship {
-            db_id: identity.db_id,
-            credits: econ.credits,
-            fuel: fuel.fuel,
-            position_x: pos.position.0,
-            position_y: pos.position.1,
-            cargo_json: serde_json::Value::Object(cargo_json).to_string(),
-            current_goal: String::new(), // ShipAI field; we don't have it in this query
-            active_contract_id: econ.active_contract_id.clone(),
-            broke_strikes: life.broke_strikes,
-            hoard_strikes: life.hoard_strikes,
-            idle_ticks: life.idle_ticks,
-            fitting_json,
-            progression_json,
-        };
-        ship_writes.push(write);
-        dirty_ships.push(e);
+        for (e, mut write, life_dirty) in rows {
+            // A ship flushes when lifecycle OR progression (Phase 18d)
+            // dirties. Fitting is mutated through the refit apply, which
+            // also marks lifecycle dirty, so we don't track it separately
+            // here.
+            let prog_dirty = store
+                .world
+                .get::<ShipProgression>(e)
+                .map(|p| p.dirty)
+                .unwrap_or(false);
+            if !life_dirty && !prog_dirty {
+                continue;
+            }
+            let fitting_json = store
+                .world
+                .get::<ShipFitting>(e)
+                .map(|f| ship_fitting_to_json(f))
+                .unwrap_or_else(|| ship_fitting_to_json(&ShipFitting::new_default()));
+            let progression_json = store
+                .world
+                .get::<ShipProgression>(e)
+                .map(|p| ship_progression_to_json(p))
+                .unwrap_or_else(|| ship_progression_to_json(&ShipProgression::new()));
+            if let DbWrite::Ship {
+                fitting_json: ref mut fj,
+                progression_json: ref mut pj,
+                ..
+            } = write
+            {
+                *fj = fitting_json;
+                *pj = progression_json;
+            }
+            ship_writes.push(write);
+            dirty_ships.push(e);
+        }
     }
     for write in ship_writes {
         let _ = tx.try_send(write);
     }
     for e in dirty_ships {
-        if let Ok(mut life) = store.world.get::<&mut ShipLifecycle>(e) {
+        if let Some(mut life) = store.world.get_mut::<ShipLifecycle>(e) {
             life.dirty = false;
         }
-        if let Ok(mut prog) = store.world.get::<&mut ShipProgression>(e) {
+        if let Some(mut prog) = store.world.get_mut::<ShipProgression>(e) {
             prog.dirty = false;
         }
     }
 
     // Markets
-    for (_e, (identity, pricing, hist)) in store
+    let mut market_q = store
         .world
-        .query::<(&MarketIdentity, &MarketPricing, &mut MarketHistory)>()
-        .iter()
-    {
+        .query::<(&MarketIdentity, &MarketPricing, &mut MarketHistory)>();
+    for (identity, pricing, mut hist) in market_q.iter_mut(&mut store.world) {
         if !hist.dirty {
             continue;
         }
@@ -236,7 +256,8 @@ pub(super) fn emit_persist_writes(
     }
 
     // Factions
-    for (_e, data) in store.world.query::<&mut FactionData>().iter() {
+    let mut faction_q = store.world.query::<&mut FactionData>();
+    for mut data in faction_q.iter_mut(&mut store.world) {
         if !data.dirty {
             continue;
         }
@@ -266,49 +287,54 @@ pub(super) fn emit_persist_writes(
         // FacilityFitting, or FacilityCrew has changed since the
         // last flush.
         use sim_core::agents::facility::FacilityCrew;
-        let mut dirty: Vec<hecs::Entity> = Vec::new();
-        for (e, ops) in store.world.query::<&FacilityOperations>().iter() {
-            if ops.dirty {
-                dirty.push(e);
-                continue;
-            }
-            let stock_dirty = store
-                .world
-                .get::<&ModuleStock>(e)
-                .map(|s| s.dirty)
-                .unwrap_or(false);
-            if stock_dirty {
-                dirty.push(e);
-                continue;
-            }
-            let fit_dirty = store
-                .world
-                .get::<&FacilityFitting>(e)
-                .map(|f| f.dirty)
-                .unwrap_or(false);
-            if fit_dirty {
-                dirty.push(e);
-                continue;
-            }
-            let crew_dirty = store
-                .world
-                .get::<&FacilityCrew>(e)
-                .map(|c| c.dirty)
-                .unwrap_or(false);
-            if crew_dirty {
-                dirty.push(e);
+        let mut dirty: Vec<Entity> = Vec::new();
+        {
+            let mut q = store.world.query::<(Entity, &FacilityOperations)>();
+            let entities: Vec<(Entity, bool)> =
+                q.iter(&store.world).map(|(e, ops)| (e, ops.dirty)).collect();
+            for (e, ops_dirty) in entities {
+                if ops_dirty {
+                    dirty.push(e);
+                    continue;
+                }
+                let stock_dirty = store
+                    .world
+                    .get::<ModuleStock>(e)
+                    .map(|s| s.dirty)
+                    .unwrap_or(false);
+                if stock_dirty {
+                    dirty.push(e);
+                    continue;
+                }
+                let fit_dirty = store
+                    .world
+                    .get::<FacilityFitting>(e)
+                    .map(|f| f.dirty)
+                    .unwrap_or(false);
+                if fit_dirty {
+                    dirty.push(e);
+                    continue;
+                }
+                let crew_dirty = store
+                    .world
+                    .get::<FacilityCrew>(e)
+                    .map(|c| c.dirty)
+                    .unwrap_or(false);
+                if crew_dirty {
+                    dirty.push(e);
+                }
             }
         }
 
         for entity in dirty {
             let (db_id, credits, condition, reserves_json) = {
-                let Ok(fid) = store.world.get::<&FacilityIdentity>(entity) else {
+                let Some(fid) = store.world.get::<FacilityIdentity>(entity) else {
                     continue;
                 };
-                let Ok(ops) = store.world.get::<&FacilityOperations>(entity) else {
+                let Some(ops) = store.world.get::<FacilityOperations>(entity) else {
                     continue;
                 };
-                let Ok(storage) = store.world.get::<&FacilityStorage>(entity) else {
+                let Some(storage) = store.world.get::<FacilityStorage>(entity) else {
                     continue;
                 };
                 let reserves_json: serde_json::Map<String, serde_json::Value> = storage
@@ -323,8 +349,8 @@ pub(super) fn emit_persist_writes(
                     serde_json::Value::Object(reserves_json).to_string(),
                 )
             };
-            let module_stock_json = match store.world.get::<&ModuleStock>(entity) {
-                Ok(stock) => {
+            let module_stock_json = match store.world.get::<ModuleStock>(entity) {
+                Some(stock) => {
                     let obj: serde_json::Map<String, serde_json::Value> = stock
                         .stock
                         .iter()
@@ -332,18 +358,18 @@ pub(super) fn emit_persist_writes(
                         .collect();
                     serde_json::Value::Object(obj).to_string()
                 }
-                Err(_) => "{}".to_string(),
+                None => "{}".to_string(),
             };
-            let fitting_json = match store.world.get::<&FacilityFitting>(entity) {
-                Ok(f) => facility_fitting_to_json(&f),
-                Err(_) => "{}".to_string(),
+            let fitting_json = match store.world.get::<FacilityFitting>(entity) {
+                Some(f) => facility_fitting_to_json(f),
+                None => "{}".to_string(),
             };
-            let crew_state_json = match store.world.get::<&FacilityCrew>(entity) {
-                Ok(c) => {
+            let crew_state_json = match store.world.get::<FacilityCrew>(entity) {
+                Some(c) => {
                     let snap = sim_core::agents::facility::FacilityCrewSnapshot::from(&*c);
                     serde_json::to_string(&snap).unwrap_or_else(|_| "{}".to_string())
                 }
-                Err(_) => "{}".to_string(),
+                None => "{}".to_string(),
             };
             let _ = tx.try_send(DbWrite::Facility {
                 db_id,
@@ -354,16 +380,16 @@ pub(super) fn emit_persist_writes(
                 fitting_json,
                 crew_state_json,
             });
-            if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(entity) {
+            if let Some(mut ops) = store.world.get_mut::<FacilityOperations>(entity) {
                 ops.dirty = false;
             }
-            if let Ok(mut stock) = store.world.get::<&mut ModuleStock>(entity) {
+            if let Some(mut stock) = store.world.get_mut::<ModuleStock>(entity) {
                 stock.dirty = false;
             }
-            if let Ok(mut fit) = store.world.get::<&mut FacilityFitting>(entity) {
+            if let Some(mut fit) = store.world.get_mut::<FacilityFitting>(entity) {
                 fit.dirty = false;
             }
-            if let Ok(mut crew) = store.world.get::<&mut FacilityCrew>(entity) {
+            if let Some(mut crew) = store.world.get_mut::<FacilityCrew>(entity) {
                 crew.dirty = false;
             }
         }
@@ -374,16 +400,16 @@ pub(super) fn emit_persist_writes(
     // so we push every dirty row directly — no further dedup needed.
     if flush_facility {
         use sim_core::agents::construction::ConstructionSite;
-        let dirty: Vec<hecs::Entity> = store
-            .world
-            .query::<&ConstructionSite>()
-            .iter()
-            .filter(|(_, s)| s.dirty)
-            .map(|(e, _)| e)
-            .collect();
+        let dirty: Vec<Entity> = {
+            let mut q = store.world.query::<(Entity, &ConstructionSite)>();
+            q.iter(&store.world)
+                .filter(|(_, s)| s.dirty)
+                .map(|(e, _)| e)
+                .collect()
+        };
         for entity in dirty {
             let row_opt = {
-                let Ok(site) = store.world.get::<&ConstructionSite>(entity) else {
+                let Some(site) = store.world.get::<ConstructionSite>(entity) else {
                     continue;
                 };
                 Some(sim_db::persistence::ConstructionSiteRow {
@@ -405,7 +431,7 @@ pub(super) fn emit_persist_writes(
             if let Some(row) = row_opt {
                 let _ = tx.try_send(DbWrite::ConstructionSiteUpsert { row });
             }
-            if let Ok(mut site) = store.world.get::<&mut ConstructionSite>(entity) {
+            if let Some(mut site) = store.world.get_mut::<ConstructionSite>(entity) {
                 site.dirty = false;
             }
         }
@@ -415,11 +441,10 @@ pub(super) fn emit_persist_writes(
         use sim_core::agents::population::{
             PopDemographics, PopEconomy, PopIdentity, PopSentiment,
         };
-        for (_e, (pid, demo, econ, sent)) in store
+        let mut q = store
             .world
-            .query::<(&PopIdentity, &PopDemographics, &PopEconomy, &mut PopSentiment)>()
-            .iter()
-        {
+            .query::<(&PopIdentity, &PopDemographics, &PopEconomy, &mut PopSentiment)>();
+        for (pid, demo, econ, mut sent) in q.iter_mut(&mut store.world) {
             if !sent.dirty {
                 continue;
             }
@@ -436,11 +461,10 @@ pub(super) fn emit_persist_writes(
 
     if flush_body {
         use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit, BodyResources};
-        for (_e, (bid, orbit, resources)) in store
+        let mut q = store
             .world
-            .query::<(&BodyIdentity, &mut BodyOrbit, &BodyResources)>()
-            .iter()
-        {
+            .query::<(&BodyIdentity, &mut BodyOrbit, &BodyResources)>();
+        for (bid, mut orbit, resources) in q.iter_mut(&mut store.world) {
             if !orbit.dirty {
                 continue;
             }

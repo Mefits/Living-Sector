@@ -67,7 +67,7 @@ fn label_min_y(ctx: &egui::Context) -> f32 {
 pub(super) fn body_labels_panel(
     mut ctx: EguiContexts,
     state: Res<BodyLabelsState>,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     camera_q: Query<(&Camera, &GlobalTransform), With<OrbitCamera>>,
 ) {
     use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit, BodyTerritory};
@@ -80,27 +80,28 @@ pub(super) fn body_labels_panel(
         return;
     };
 
-    let world = &sim.store.world;
+    let world = &mut sim.store.world;
     // Bundle D: pull controlling-faction + contested flag alongside
     // the position so labels can colour by faction palette and flag
     // contested bodies with a `[!]` suffix. `BodyTerritory` is
     // optional so freshly-spawned bodies that haven't been through
     // `derive_territorial_control` yet still draw (with TEXT colour).
-    let entries: Vec<(String, Vec3, Option<String>, bool)> = world
-        .query::<(&BodyIdentity, &BodyOrbit, Option<&BodyTerritory>)>()
-        .iter()
-        .map(|(_e, (id, orbit, territory))| {
-            let (x, y) = orbit.universe_position();
-            let controlling = territory.and_then(|t| t.controlling_faction.clone());
-            let contested = territory.map(|t| t.contested).unwrap_or(false);
-            (
-                id.name.clone(),
-                Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
-                controlling,
-                contested,
-            )
-        })
-        .collect();
+    let entries: Vec<(String, Vec3, Option<String>, bool)> = {
+        let mut q = world.query::<(&BodyIdentity, &BodyOrbit, Option<&BodyTerritory>)>();
+        q.iter(world)
+            .map(|(id, orbit, territory)| {
+                let (x, y) = orbit.universe_position();
+                let controlling = territory.and_then(|t| t.controlling_faction.clone());
+                let contested = territory.map(|t| t.contested).unwrap_or(false);
+                (
+                    id.name.clone(),
+                    Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR),
+                    controlling,
+                    contested,
+                )
+            })
+            .collect()
+    };
 
     // Use a transparent, non-interactive overlay area so labels
     // paint on top without eating clicks or blocking egui's
@@ -173,7 +174,7 @@ const SHIP_LABEL_MAX_DIST: f32 = 75.0;
 pub(super) fn construction_labels_panel(
     mut ctx: EguiContexts,
     state: Res<BodyLabelsState>,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     camera_q: Query<(&Camera, &GlobalTransform, &OrbitCamera), With<Camera3d>>,
 ) {
     use sim_core::agents::construction::ConstructionSite;
@@ -187,17 +188,16 @@ pub(super) fn construction_labels_panel(
         return;
     }
 
-    let entries: Vec<(String, f32, Vec3)> = sim
-        .store
-        .world
-        .query::<&ConstructionSite>()
-        .iter()
-        .map(|(_e, site)| {
-            let (x, y) = site.position;
-            let world = Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR);
-            (site.name.clone(), site.progress(), world)
-        })
-        .collect();
+    let entries: Vec<(String, f32, Vec3)> = {
+        let mut q = sim.store.world.query::<&ConstructionSite>();
+        q.iter(&sim.store.world)
+            .map(|site| {
+                let (x, y) = site.position;
+                let world = Vec3::new(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR);
+                (site.name.clone(), site.progress(), world)
+            })
+            .collect()
+    };
 
     let ctx = ctx.ctx_mut().unwrap();
     let min_y = label_min_y(ctx);
@@ -243,7 +243,7 @@ pub(super) fn construction_labels_panel(
 pub(super) fn facility_labels_panel(
     mut ctx: EguiContexts,
     state: Res<BodyLabelsState>,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     camera_q: Query<(&Camera, &GlobalTransform, &OrbitCamera), With<Camera3d>>,
 ) {
     use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
@@ -261,28 +261,26 @@ pub(super) fn facility_labels_panel(
     // Resolve each facility's world position via its body orbit +
     // facility_offset_position helper — same math the renderer
     // uses to plant facility scenes.
-    let body_pos: std::collections::HashMap<String, (f32, f32)> = sim
-        .store
-        .world
-        .query::<(&BodyIdentity, &BodyOrbit)>()
-        .iter()
-        .map(|(_e, (id, orbit))| (id.body_id.clone(), orbit.universe_position()))
-        .collect();
+    let body_pos: std::collections::HashMap<String, (f32, f32)> = {
+        let mut q = sim.store.world.query::<(&BodyIdentity, &BodyOrbit)>();
+        q.iter(&sim.store.world)
+            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+            .collect()
+    };
 
-    let entries: Vec<(String, Vec3)> = sim
-        .store
-        .world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
-        .iter()
-        .filter_map(|(_e, (id, _loc))| {
-            let body = body_pos.get(&id.body_id).copied()?;
-            let (fx, fy) = sim_core::agents::facility::facility_offset_position(body, &id.id);
-            Some((
-                id.name.clone(),
-                Vec3::new(fx * SCALE_FACTOR, 0.5, fy * SCALE_FACTOR),
-            ))
-        })
-        .collect();
+    let entries: Vec<(String, Vec3)> = {
+        let mut q = sim.store.world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(&sim.store.world)
+            .filter_map(|(id, _loc)| {
+                let body = body_pos.get(&id.body_id).copied()?;
+                let (fx, fy) = sim_core::agents::facility::facility_offset_position(body, &id.id);
+                Some((
+                    id.name.clone(),
+                    Vec3::new(fx * SCALE_FACTOR, 0.5, fy * SCALE_FACTOR),
+                ))
+            })
+            .collect()
+    };
 
     let ctx = ctx.ctx_mut().unwrap();
     let min_y = label_min_y(ctx);
@@ -320,7 +318,7 @@ pub(super) fn facility_labels_panel(
 pub(super) fn ship_labels_panel(
     mut ctx: EguiContexts,
     state: Res<BodyLabelsState>,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     camera_q: Query<(&Camera, &GlobalTransform, &OrbitCamera), With<Camera3d>>,
     ships_q: Query<(&crate::render::ShipEntity, &GlobalTransform)>,
 ) {
@@ -342,13 +340,12 @@ pub(super) fn ship_labels_panel(
     // the tick-quantized authoritative position, so labels would
     // snap on every tick boundary while the ship meshes glide. The
     // hecs world is consulted only for the display name.
-    let names: std::collections::HashMap<String, String> = sim
-        .store
-        .world
-        .query::<&ShipIdentity>()
-        .iter()
-        .map(|(_e, id)| (id.id.clone(), id.name.clone()))
-        .collect();
+    let names: std::collections::HashMap<String, String> = {
+        let mut q = sim.store.world.query::<&ShipIdentity>();
+        q.iter(&sim.store.world)
+            .map(|id| (id.id.clone(), id.name.clone()))
+            .collect()
+    };
 
     let entries: Vec<(String, Vec3)> = ships_q
         .iter()

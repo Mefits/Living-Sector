@@ -1,6 +1,7 @@
 //! Load world state from SQLite into a hecs-backed AgentStore.
 
 use anyhow::Result;
+use bevy_ecs::prelude::{Entity, World};
 use sim_core::{
     agents::{
         celestial_body::{BodyIdentity, BodyOrbit, BodyResources},
@@ -144,21 +145,22 @@ fn seed_ship_price_knowledge(store: &mut AgentStore) {
     // location -> commodity -> price
     let mut market_prices: HashMap<String, HashMap<sim_core::economy::commodities::Commodity, f32>> =
         HashMap::new();
-    for (_e, (id, pricing)) in store
-        .world
-        .query::<(&MarketIdentity, &MarketPricing)>()
-        .iter()
     {
-        market_prices.insert(id.facility_location.clone(), pricing.prices.clone());
+        let mut q = store.world.query::<(&MarketIdentity, &MarketPricing)>();
+        for (id, pricing) in q.iter(&store.world) {
+            market_prices.insert(id.facility_location.clone(), pricing.prices.clone());
+        }
     }
 
     // location -> body_id
-    let loc_to_body: HashMap<String, String> = store
-        .world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
-        .iter()
-        .map(|(_, (id, loc))| (loc.location_name.clone(), id.body_id.clone()))
-        .collect();
+    let loc_to_body: HashMap<String, String> = {
+        let mut q = store
+            .world
+            .query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(&store.world)
+            .map(|(id, loc)| (loc.location_name.clone(), id.body_id.clone()))
+            .collect()
+    };
 
     // body_id -> all locations orbiting it
     let mut body_to_locs: HashMap<String, Vec<String>> = HashMap::new();
@@ -167,21 +169,21 @@ fn seed_ship_price_knowledge(store: &mut AgentStore) {
     }
 
     // location -> system_name (via body_db_id -> system)
-    let body_db_to_system: HashMap<i64, String> = store
-        .world
-        .query::<&BodyIdentity>()
-        .iter()
-        .map(|(_, id)| (id.db_id, id.system_name.clone()))
-        .collect();
+    let body_db_to_system: HashMap<i64, String> = {
+        let mut q = store.world.query::<&BodyIdentity>();
+        q.iter(&store.world)
+            .map(|id| (id.db_id, id.system_name.clone()))
+            .collect()
+    };
     // celestial_body_id on WorldRegistry is the DB id; but we only have
     // the FacilityIdentity.body_id *string*. Re-map via a body_name ->
     // db_id pass so we can connect location -> system.
-    let body_name_to_db: HashMap<String, i64> = store
-        .world
-        .query::<&BodyIdentity>()
-        .iter()
-        .map(|(_, id)| (id.body_id.clone(), id.db_id))
-        .collect();
+    let body_name_to_db: HashMap<String, i64> = {
+        let mut q = store.world.query::<&BodyIdentity>();
+        q.iter(&store.world)
+            .map(|id| (id.body_id.clone(), id.db_id))
+            .collect()
+    };
     let location_to_system: HashMap<String, String> = loc_to_body
         .iter()
         .filter_map(|(loc, body_name)| {
@@ -217,10 +219,10 @@ fn seed_ship_price_knowledge(store: &mut AgentStore) {
         }
     }
 
-    for (_e, (pos, fitting, memory)) in store
+    let mut q = store
         .world
-        .query_mut::<(&ShipPosition, &ShipFitting, &mut ShipMemory)>()
-    {
+        .query::<(&ShipPosition, &ShipFitting, &mut ShipMemory)>();
+    for (pos, fitting, mut memory) in q.iter_mut(&mut store.world) {
         if !memory.price_knowledge.is_empty() {
             continue;
         }
@@ -339,7 +341,7 @@ async fn load_bodies(
                 max_resources,
             },
             sim_core::agents::celestial_body::BodyBiome::new(biome),
-        ));
+        )).id();
         store.index_body(body_id, entity);
     }
     Ok(())
@@ -386,7 +388,7 @@ async fn load_factions(pool: &SqlitePool, store: &mut AgentStore) -> Result<()> 
             colors: FactionColors { primary, secondary },
             active_subsidies: 0,
             dirty: false,
-        },));
+        },)).id();
         store.index_faction(id, entity);
     }
     Ok(())
@@ -464,7 +466,7 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
             },
             sim_core::agents::facility::FacilityLifecycle::new(),
             sim_core::simulation::lod::AgentLod::new(),
-        ));
+        )).id();
         // Attach FacilityFitting (Phase 18e) to every non-gate
         // facility. Gates don't run recipes, so the fitting has no
         // effect on them — skipping keeps the component set tight.
@@ -472,14 +474,14 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
             // Pull the type out before it's moved into identity.
             let id_ref = store
                 .world
-                .get::<&FacilityIdentity>(entity)
+                .get::<FacilityIdentity>(entity)
                 .expect("just-spawned facility has identity");
             id_ref.facility_type.clone()
         };
         if !is_gate {
             let fitting_json: String = r.try_get("fitting").unwrap_or_default();
             let fitting = parse_facility_fitting(&fitting_json);
-            store.world.insert_one(entity, fitting).ok();
+            store.world.entity_mut(entity).insert(fitting);
         }
 
         // Phase 19a: attach FacilityCrew to every facility. Gate
@@ -488,7 +490,7 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
         // Hydrates from the crew_state JSON if set, else type default.
         let crew_json: String = r.try_get("crew_state").unwrap_or_default();
         let crew = parse_facility_crew(&crew_json, &fac_type_for_crew);
-        store.world.insert_one(entity, crew).ok();
+        store.world.entity_mut(entity).insert(crew);
 
         // Attach ModuleStock to shipyards (Phase 18c). Non-shipyards
         // get nothing — the tick phase keys on facility_type before
@@ -499,14 +501,11 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
             let stock = parse_module_stock(&module_stock_json);
             store
                 .world
-                .insert_one(
-                    entity,
-                    sim_core::agents::facility::ModuleStock {
-                        stock,
-                        dirty: false,
-                    },
-                )
-                .ok();
+                .entity_mut(entity)
+                .insert(sim_core::agents::facility::ModuleStock {
+                    stock,
+                    dirty: false,
+                });
         }
 
         // Attach GateLink for gate facilities. Pairing is symmetric but
@@ -520,16 +519,13 @@ async fn load_facilities(pool: &SqlitePool, store: &mut AgentStore) -> Result<()
                 };
                 store
                     .world
-                    .insert_one(
-                        entity,
-                        GateLink {
-                            paired_gate_id: paired,
-                            fee_flat: DEFAULT_GATE_FEE_FLAT,
-                            fee_per_cargo_unit: DEFAULT_GATE_FEE_PER_CARGO,
-                            throughput_cap: DEFAULT_GATE_THROUGHPUT,
-                        },
-                    )
-                    .ok();
+                    .entity_mut(entity)
+                    .insert(GateLink {
+                        paired_gate_id: paired,
+                        fee_flat: DEFAULT_GATE_FEE_FLAT,
+                        fee_per_cargo_unit: DEFAULT_GATE_FEE_PER_CARGO,
+                        throughput_cap: DEFAULT_GATE_THROUGHPUT,
+                    });
             }
         }
         store.index_facility(id, location_name, entity);
@@ -604,7 +600,7 @@ async fn load_markets(pool: &SqlitePool, _config: &TickConfig, store: &mut Agent
                 dirty: false,
                 crisis_notified: Default::default(),
             },
-        ));
+        )).id();
         store.index_market(id, facility_location, entity);
     }
     Ok(())
@@ -625,19 +621,18 @@ async fn load_market_trend_samples(
     pool: &SqlitePool,
     store: &mut AgentStore,
 ) -> Result<()> {
-    use sim_core::agents::celestial_body as _; // for trait imports if needed
     use sim_core::agents::market::{MarketHistory, MarketIdentity, MarketTrendSample, MARKET_TREND_KEEP};
     use sim_core::economy::commodities::Commodity;
     use std::collections::HashMap;
 
-    // Build market_db_id → hecs::Entity once. Mirrors the helper used
+    // Build market_db_id → bevy_ecs::Entity once. Mirrors the helper used
     // by `load_markets`'s facility lookup.
-    let entity_by_db_id: HashMap<i64, hecs::Entity> = store
-        .world
-        .query::<&MarketIdentity>()
-        .iter()
-        .map(|(e, id)| (id.db_id, e))
-        .collect();
+    let entity_by_db_id: HashMap<i64, Entity> = {
+        let mut q = store.world.query::<(Entity, &MarketIdentity)>();
+        q.iter(&store.world)
+            .map(|(e, id)| (id.db_id, e))
+            .collect()
+    };
 
     // Pull every persisted sample. The KEEP cap is enforced after the
     // pivot (sorted ASC, then truncated from the front) so even if the
@@ -697,7 +692,7 @@ async fn load_market_trend_samples(
             let drop_n = samples.len() - MARKET_TREND_KEEP;
             samples.drain(..drop_n);
         }
-        if let Ok(mut hist) = store.world.get::<&mut MarketHistory>(entity) {
+        if let Some(mut hist) = store.world.get_mut::<MarketHistory>(entity) {
             hist.trend_samples = samples.into_iter().collect();
             total_loaded += hist.trend_samples.len();
         }
@@ -779,7 +774,7 @@ async fn load_populations(pool: &SqlitePool, store: &mut AgentStore) -> Result<(
                 dirty: false,
             },
             sim_core::simulation::lod::AgentLod::new(),
-        ));
+        )).id();
         store.index_population(id, entity);
     }
     Ok(())
@@ -1015,37 +1010,34 @@ async fn load_ships(
                 idle_ticks: idle_ticks as u32,
                 dirty: false,
             },
-        ));
+        )).id();
         // Crew from class. Seed from Elixir CrewComplement defaults:
         // morale=70, fatigue=10, hunger=10, health=100, idle task, no wages yet.
         let ship_class = sim_core::simulation::config::ship_class(&class);
         let crew_size = ship_class.map(|c| c.crew_size).unwrap_or(5);
         let crew_roles = ship_class.map(|c| c.crew_roles).unwrap_or(&[]);
-        store.world.insert_one(
-            entity,
-            ShipCrew {
-                size: crew_size,
-                hunger: 10.0,
-                morale: 70.0,
-                fatigue: 10.0,
-                health: 100.0,
-                wages_credits: 0,
-                current_task: sim_core::agents::ship::CrewTask::Idle,
-                dirty: false,
-            },
-        ).ok();
-        store.world.insert_one(
-            entity,
-            sim_core::agents::ship::ShipCrewSkills::for_roles(crew_roles),
-        ).ok();
-        store.world.insert_one(entity, fitting).ok();
-        store.world.insert_one(entity, progression).ok();
+        store.world.entity_mut(entity).insert(ShipCrew {
+            size: crew_size,
+            hunger: 10.0,
+            morale: 70.0,
+            fatigue: 10.0,
+            health: 100.0,
+            wages_credits: 0,
+            current_task: sim_core::agents::ship::CrewTask::Idle,
+            dirty: false,
+        });
+        store
+            .world
+            .entity_mut(entity)
+            .insert(sim_core::agents::ship::ShipCrewSkills::for_roles(crew_roles));
+        store.world.entity_mut(entity).insert(fitting);
+        store.world.entity_mut(entity).insert(progression);
         // Attach LOD cursor — defaults to divisor 1 so new ships run at
         // full cadence until the next `tick_lod_recompute` pass.
-        store.world.insert_one(
-            entity,
-            sim_core::simulation::lod::AgentLod::new(),
-        ).ok();
+        store
+            .world
+            .entity_mut(entity)
+            .insert(sim_core::simulation::lod::AgentLod::new());
         store.index_ship(id, entity);
     }
     Ok(())
@@ -1059,7 +1051,7 @@ async fn load_ships(
 /// body isn't in the ECS yet (bodies must be loaded before ships — which
 /// they are, per `load_agents`'s ordering).
 fn resolve_location_world_pos(
-    store: &AgentStore,
+    store: &mut AgentStore,
     registry: &WorldRegistry,
     location_name: &str,
 ) -> Option<(f32, f32)> {
@@ -1070,20 +1062,22 @@ fn resolve_location_world_pos(
     let loc_info = registry.locations.get(location_name)?;
     let body_db_id = loc_info.celestial_body_id;
     // Find the body by db_id and compute its universe position.
-    let body_pos = store
-        .world
-        .query::<(&BodyIdentity, &BodyOrbit)>()
-        .iter()
-        .find(|(_, (id, _))| id.db_id == body_db_id)
-        .map(|(_, (_, orbit))| orbit.universe_position())?;
+    let body_pos = {
+        let mut q = store.world.query::<(&BodyIdentity, &BodyOrbit)>();
+        q.iter(&store.world)
+            .find(|(id, _)| id.db_id == body_db_id)
+            .map(|(_, orbit)| orbit.universe_position())?
+    };
     // If there's a facility at this location, use its offset so the ship
     // starts at the dock rather than the body center.
-    let fac_id = store
-        .world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
-        .iter()
-        .find(|(_, (_, loc))| loc.location_name == location_name)
-        .map(|(_, (id, _))| id.id.clone());
+    let fac_id = {
+        let mut q = store
+            .world
+            .query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(&store.world)
+            .find(|(_, loc)| loc.location_name == location_name)
+            .map(|(id, _)| id.id.clone())
+    };
     Some(if let Some(id) = fac_id {
         facility_offset_position(body_pos, &id)
     } else {
@@ -1091,10 +1085,11 @@ fn resolve_location_world_pos(
     })
 }
 
-fn facility_entity_by_db_id(store: &AgentStore, db_id: i64) -> Option<hecs::Entity> {
+fn facility_entity_by_db_id(store: &mut AgentStore, db_id: i64) -> Option<Entity> {
     // Look up by iterating the world; we only do this during initial spawn so cost is O(N_facilities)
     // and only runs once. After startup, agents reference facilities by hecs::Entity directly.
-    for (e, id) in store.world.query::<&FacilityIdentity>().iter() {
+    let mut q = store.world.query::<(Entity, &FacilityIdentity)>();
+    for (e, id) in q.iter(&store.world) {
         if id.db_id == db_id {
             return Some(e);
         }
@@ -1190,11 +1185,11 @@ fn parse_facility_crew(
 /// check whether it's a shipyard. Queried off the live world instead
 /// of passed explicitly so `load_facilities` doesn't need to hold an
 /// extra variable mid-loop.
-fn facility_entity_is_shipyard_like(world: &hecs::World, entity: hecs::Entity) -> bool {
+fn facility_entity_is_shipyard_like(world: &World, entity: Entity) -> bool {
     use sim_core::agents::facility::FacilityIdentity;
-    match world.get::<&FacilityIdentity>(entity) {
-        Ok(id) => id.facility_type == "shipyard",
-        Err(_) => false,
+    match world.get::<FacilityIdentity>(entity) {
+        Some(id) => id.facility_type == "shipyard",
+        None => false,
     }
 }
 

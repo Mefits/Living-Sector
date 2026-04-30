@@ -518,7 +518,7 @@ fn spawn_mirror_entities(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut planet_materials: ResMut<Assets<PlanetMaterial>>,
     mut cloud_materials: ResMut<Assets<CloudMaterial>>,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     stations: Res<StationModels>,
     ships: Res<ShipModels>,
     engine_trail: Option<Res<EngineTrailEffect>>,
@@ -537,7 +537,7 @@ fn spawn_mirror_entities(
         }),
     };
 
-    let world = &sim.store.world;
+    let world = &mut sim.store.world;
     let mut ship_count = 0;
     let mut facility_count = 0;
     let mut body_count = 0;
@@ -545,7 +545,13 @@ fn spawn_mirror_entities(
     // Ships. Spawn one Bevy entity per hecs ship; the per-frame sync
     // copies position across each tick. We grab the full universe
     // position (system offset + local position) from `ShipPosition`.
-    for (_e, (id, pos)) in world.query::<(&ShipIdentity, &ShipPosition)>().iter() {
+    let ship_iter: Vec<(ShipIdentity, ShipPosition)> = {
+        let mut q = world.query::<(&ShipIdentity, &ShipPosition)>();
+        q.iter(world)
+            .map(|(id, pos)| (id.clone(), pos.clone()))
+            .collect()
+    };
+    for (id, pos) in &ship_iter {
         let (x, y) = pos.position;
         // GLB hulls are ~10 native units; SHIP_GLB_SCALE brings them
         // to ~0.25 wu, then size_multiplier layers tier scale.
@@ -587,10 +593,13 @@ fn spawn_mirror_entities(
     // GlobalTransform propagation, so rings / clouds orbit with
     // their planet for free.
     let body_radius = BODY_SIZE * 0.5;
-    for (_e, (id, orbit, biome)) in world
-        .query::<(&BodyIdentity, &BodyOrbit, &BodyBiome)>()
-        .iter()
-    {
+    let body_iter: Vec<(BodyIdentity, BodyOrbit, BodyBiome)> = {
+        let mut q = world.query::<(&BodyIdentity, &BodyOrbit, &BodyBiome)>();
+        q.iter(world)
+            .map(|(id, orbit, biome)| (id.clone(), orbit.clone(), biome.clone()))
+            .collect()
+    };
+    for (id, orbit, biome) in &body_iter {
         let (x, y) = orbit.universe_position();
         let xf = Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR);
         let is_rock = matches!(id.body_type.as_str(), "asteroid" | "belt");
@@ -764,16 +773,20 @@ fn spawn_mirror_entities(
     // Facilities — follow their parent body, so compute body_pos from
     // the body's orbit, then apply the facility's small orbital offset
     // (same math the Godot side + sim_server use).
-    let body_positions: std::collections::HashMap<String, (f32, f32)> = world
-        .query::<(&BodyIdentity, &BodyOrbit)>()
-        .iter()
-        .map(|(_e, (id, orbit))| (id.body_id.clone(), orbit.universe_position()))
-        .collect();
+    let body_positions: std::collections::HashMap<String, (f32, f32)> = {
+        let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
+        q.iter(world)
+            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+            .collect()
+    };
 
-    for (_e, (id, loc)) in world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
-        .iter()
-    {
+    let facility_iter: Vec<(FacilityIdentity, FacilityLocation)> = {
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(world)
+            .map(|(id, loc)| (id.clone(), loc.clone()))
+            .collect()
+    };
+    for (id, loc) in &facility_iter {
         // Bundle 4a: GLB station models replace the cylinder
         // placeholder. Mapping mirrors the Godot client's
         // `facility.gd::TYPE_MODELS`. Gates use the ring model and
@@ -848,17 +861,19 @@ struct FacilityLocationRef(pub String);
 /// them using the fixed-update overstep.
 #[allow(clippy::type_complexity)]
 fn snapshot_tick_positions(
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     mut ships: Query<(&ShipEntity, &mut InterpPos), Without<BodyEntity>>,
     mut bodies: Query<(&BodyEntity, &mut InterpPos), Without<ShipEntity>>,
 ) {
-    let world = &sim.store.world;
+    let world = &mut sim.store.world;
 
-    let mut ship_query = world.query::<(&ShipIdentity, &ShipPosition)>();
-    let ship_pos: std::collections::HashMap<&str, (f32, f32)> = ship_query
-        .iter()
-        .map(|(_e, (id, p))| (id.id.as_str(), p.position))
-        .collect();
+    let ship_pos: std::collections::HashMap<String, (f32, f32)> = {
+        let mut ship_query = world.query::<(&ShipIdentity, &ShipPosition)>();
+        ship_query
+            .iter(world)
+            .map(|(id, p)| (id.id.clone(), p.position))
+            .collect()
+    };
     for (ship, mut interp) in ships.iter_mut() {
         if let Some(&p) = ship_pos.get(ship.sim_id.as_str()) {
             interp.prev = interp.curr;
@@ -866,11 +881,13 @@ fn snapshot_tick_positions(
         }
     }
 
-    let mut body_query = world.query::<(&BodyIdentity, &BodyOrbit)>();
-    let body_pos: std::collections::HashMap<&str, (f32, f32)> = body_query
-        .iter()
-        .map(|(_e, (id, orbit))| (id.body_id.as_str(), orbit.universe_position()))
-        .collect();
+    let body_pos: std::collections::HashMap<String, (f32, f32)> = {
+        let mut body_query = world.query::<(&BodyIdentity, &BodyOrbit)>();
+        body_query
+            .iter(world)
+            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+            .collect()
+    };
     for (body, mut interp) in bodies.iter_mut() {
         if let Some(&p) = body_pos.get(body.sim_id.as_str()) {
             interp.prev = interp.curr;
@@ -885,7 +902,7 @@ fn snapshot_tick_positions(
 // of disabling the lint crate-wide.
 #[allow(clippy::type_complexity)]
 fn sync_positions(
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     fixed: Res<Time<Fixed>>,
     mut ships: Query<(&ShipEntity, &InterpPos, &mut Transform), Without<BodyEntity>>,
     mut bodies: Query<
@@ -894,27 +911,29 @@ fn sync_positions(
     >,
 ) {
     let alpha = fixed.overstep_fraction();
-    let world = &sim.store.world;
+    let world = &mut sim.store.world;
 
     // Heading lookup is still per-tick (we only update direction
     // when the sim says transit data changed). No alloc on the
     // headed-set for idle ships — ShipTransit's transit is None.
-    let mut ship_query = world.query::<(&ShipIdentity, &ShipTransit)>();
-    let ship_heading: std::collections::HashMap<&str, Option<Vec3>> = ship_query
-        .iter()
-        .map(|(_e, (id, transit))| {
-            let heading = transit.transit.as_ref().and_then(|t| {
-                let (dx, dy) = t.departure_position?;
-                // Heading is end-of-transit minus start. Use the
-                // current InterpPos.curr later — read direction
-                // from the sim's current target so it doesn't
-                // wobble during the lerp toward each tick.
-                let _ = (dx, dy);
-                Some((dx, dy))
-            });
-            (id.id.as_str(), heading.map(|(dx, dy)| Vec3::new(dx, 0.0, dy)))
-        })
-        .collect();
+    let ship_heading: std::collections::HashMap<String, Option<Vec3>> = {
+        let mut ship_query = world.query::<(&ShipIdentity, &ShipTransit)>();
+        ship_query
+            .iter(world)
+            .map(|(id, transit)| {
+                let heading = transit.transit.as_ref().and_then(|t| {
+                    let (dx, dy) = t.departure_position?;
+                    // Heading is end-of-transit minus start. Use the
+                    // current InterpPos.curr later — read direction
+                    // from the sim's current target so it doesn't
+                    // wobble during the lerp toward each tick.
+                    let _ = (dx, dy);
+                    Some((dx, dy))
+                });
+                (id.id.clone(), heading.map(|(dx, dy)| Vec3::new(dx, 0.0, dy)))
+            })
+            .collect()
+    };
 
     for (ship, interp, mut xf) in ships.iter_mut() {
         let (x, z) = interp.lerp(alpha);
@@ -1328,7 +1347,7 @@ fn cleanup_stale_ships(
 /// + STATION_SCALE / GATE_SCALE handling as the startup spawn.
 fn reconcile_new_facilities(
     mut commands: Commands,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     stations: Option<Res<StationModels>>,
     facilities: Query<&FacilityEntity>,
 ) {
@@ -1336,25 +1355,25 @@ fn reconcile_new_facilities(
     use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
     use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
 
-    let known: std::collections::HashSet<&str> =
-        facilities.iter().map(|f| f.sim_id.as_str()).collect();
+    let known: std::collections::HashSet<String> =
+        facilities.iter().map(|f| f.sim_id.clone()).collect();
 
     // Body positions for offset math — same approach the startup
     // path uses. Cheap at <30 bodies.
-    let body_positions: std::collections::HashMap<String, (f32, f32)> = sim
-        .store
-        .world
-        .query::<(&BodyIdentity, &BodyOrbit)>()
-        .iter()
-        .map(|(_e, (id, orbit))| (id.body_id.clone(), orbit.universe_position()))
-        .collect();
+    let body_positions: std::collections::HashMap<String, (f32, f32)> = {
+        let mut q = sim.store.world.query::<(&BodyIdentity, &BodyOrbit)>();
+        q.iter(&sim.store.world)
+            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+            .collect()
+    };
 
-    for (_e, (id, loc)) in sim
-        .store
-        .world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
-        .iter()
-    {
+    let facility_iter: Vec<(FacilityIdentity, FacilityLocation)> = {
+        let mut q = sim.store.world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(&sim.store.world)
+            .map(|(id, loc)| (id.clone(), loc.clone()))
+            .collect()
+    };
+    for (id, loc) in &facility_iter {
         if known.contains(id.id.as_str()) {
             continue;
         }
@@ -1390,7 +1409,7 @@ fn reconcile_new_facilities(
 
 fn reconcile_new_ships(
     mut commands: Commands,
-    sim: Res<Sim>,
+    sim: ResMut<Sim>,
     ship_models: Option<Res<ShipModels>>,
     engine_trail: Option<Res<EngineTrailEffect>>,
     ships: Query<&ShipEntity>,
@@ -1402,18 +1421,24 @@ fn reconcile_new_ships(
     // at fleet scale on M1).
     let known: std::collections::HashSet<&str> = ships.iter().map(|s| s.sim_id.as_str()).collect();
 
-    for (sim_id, &entity) in sim.store.ship_by_id.iter() {
-        if known.contains(sim_id.as_str()) {
-            continue;
-        }
-        let Ok(mut q) = sim
-            .store
-            .world
-            .query_one::<(&ShipIdentity, &ShipPosition)>(entity)
-        else {
-            continue;
-        };
-        let Some((id, pos)) = q.get() else { continue };
+    // Collect (sim_id, entity, ShipIdentity, ShipPosition) snapshots
+    // outside the spawn loop so we don't hold a borrow on
+    // sim.store.world while issuing commands.spawn.
+    let to_spawn: Vec<(String, ShipIdentity, ShipPosition)> = sim
+        .store
+        .ship_by_id
+        .iter()
+        .filter_map(|(sim_id, &entity)| {
+            if known.contains(sim_id.as_str()) {
+                return None;
+            }
+            let id = sim.store.world.get::<ShipIdentity>(entity)?;
+            let pos = sim.store.world.get::<ShipPosition>(entity)?;
+            Some((sim_id.clone(), id.clone(), pos.clone()))
+        })
+        .collect();
+    for (sim_id, id, pos) in &to_spawn {
+        let sim_id = sim_id.clone();
         let (x, y) = pos.position;
         let base_scale = SHIP_GLB_SCALE * ship_size_multiplier(id.size);
         commands.spawn((

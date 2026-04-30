@@ -89,7 +89,7 @@ pub struct SelectedShip(pub Option<String>);
 
 pub(super) fn ship_list(
     mut ctx: EguiContexts,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     mut state: ResMut<ShipListState>,
     mut selected: ResMut<SelectedShip>,
 ) {
@@ -107,31 +107,33 @@ pub(super) fn ship_list(
         return;
     }
 
-    let rows: Vec<ShipRow> = sim
-        .store
-        .world
-        .query::<(
-            &ShipIdentity,
-            &ShipPosition,
-            &ShipEconomy,
-            &ShipFuel,
-            &ShipAI,
-        )>()
-        .iter()
-        .map(|(_e, (id, pos, econ, fuel, ai))| ShipRow {
-            id: id.id.clone(),
-            name: id.name.clone(),
-            class: id.class.clone(),
-            faction: id.faction_id.clone(),
-            location: pos
-                .location_name
-                .clone()
-                .unwrap_or_else(|| "(in transit)".into()),
-            credits: econ.credits,
-            fuel_frac: fuel.fraction(),
-            goal: ai.current_goal.clone(),
-        })
-        .collect();
+    let rows: Vec<ShipRow> = {
+        let mut q = sim
+            .store
+            .world
+            .query::<(
+                &ShipIdentity,
+                &ShipPosition,
+                &ShipEconomy,
+                &ShipFuel,
+                &ShipAI,
+            )>();
+        q.iter(&sim.store.world)
+            .map(|(id, pos, econ, fuel, ai)| ShipRow {
+                id: id.id.clone(),
+                name: id.name.clone(),
+                class: id.class.clone(),
+                faction: id.faction_id.clone(),
+                location: pos
+                    .location_name
+                    .clone()
+                    .unwrap_or_else(|| "(in transit)".into()),
+                credits: econ.credits,
+                fuel_frac: fuel.fraction(),
+                goal: ai.current_goal.clone(),
+            })
+            .collect()
+    };
 
     let filter_lc = filter.to_lowercase();
     let mut filtered: Vec<&ShipRow> = rows

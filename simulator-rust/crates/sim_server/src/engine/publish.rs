@@ -138,7 +138,7 @@ pub(super) fn publish_contract_states(
     let _ = tx.send(Arc::new(msg));
 }
 
-pub(super) fn log_sample_market(store: &AgentStore, label: &str) {
+pub(super) fn log_sample_market(store: &mut AgentStore, label: &str) {
     use sim_core::economy::commodities::Commodity::*;
     let target = store
         .market_at_location
@@ -146,17 +146,16 @@ pub(super) fn log_sample_market(store: &AgentStore, label: &str) {
         .copied()
         .or_else(|| store.market_by_id.values().next().copied());
     if let Some(entity) = target {
-        if let Ok(mut q) = store.world.query_one::<(&MarketIdentity, &MarketPricing)>(entity) {
-            if let Some((id, pricing)) = q.get() {
-                let fuel = pricing.prices.get(&Fuel).copied().unwrap_or(0.0);
-                let food = pricing.prices.get(&Food).copied().unwrap_or(0.0);
-                let ore = pricing.prices.get(&Ore).copied().unwrap_or(0.0);
-                let fuel_supply = pricing.supply.get(&Fuel).copied().unwrap_or(0.0);
-                info!(
-                    "market[{}] {}: fuel={:.2} food={:.2} ore={:.2} fuel_supply={:.0}",
-                    id.id, label, fuel, food, ore, fuel_supply,
-                );
-            }
+        let mut q = store.world.query::<(&MarketIdentity, &MarketPricing)>();
+        if let Ok((id, pricing)) = q.get(&store.world, entity) {
+            let fuel = pricing.prices.get(&Fuel).copied().unwrap_or(0.0);
+            let food = pricing.prices.get(&Food).copied().unwrap_or(0.0);
+            let ore = pricing.prices.get(&Ore).copied().unwrap_or(0.0);
+            let fuel_supply = pricing.supply.get(&Fuel).copied().unwrap_or(0.0);
+            info!(
+                "market[{}] {}: fuel={:.2} food={:.2} ore={:.2} fuel_supply={:.0}",
+                id.id, label, fuel, food, ore, fuel_supply,
+            );
         }
     }
 }
@@ -168,13 +167,12 @@ pub(super) fn log_contract_board(store: &AgentStore, tick: u64) {
     }
 }
 
-pub(super) fn log_factions(store: &AgentStore, tick: u64) {
+pub(super) fn log_factions(store: &mut AgentStore, tick: u64) {
     use sim_core::agents::faction::FactionData;
-    let mut totals: Vec<(String, i64)> = store
-        .world
-        .query::<&FactionData>()
-        .iter()
-        .map(|(_, d)| (d.id.clone(), d.treasury))
+    let mut q = store.world.query::<&FactionData>();
+    let mut totals: Vec<(String, i64)> = q
+        .iter(&store.world)
+        .map(|d| (d.id.clone(), d.treasury))
         .collect();
     totals.sort_by(|a, b| b.1.cmp(&a.1));
     let summary: Vec<String> = totals
@@ -184,7 +182,7 @@ pub(super) fn log_factions(store: &AgentStore, tick: u64) {
     info!(tick, "factions: {}", summary.join(", "));
 }
 
-pub(super) fn log_sample_ships(store: &AgentStore, tick: u64) {
+pub(super) fn log_sample_ships(store: &mut AgentStore, tick: u64) {
     use sim_core::agents::ship::{ShipAI, ShipCargo, ShipCrew, ShipEconomy, ShipMemory};
     let mut by_goal: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     let mut by_task: std::collections::HashMap<&'static str, u32> = std::collections::HashMap::new();
@@ -196,11 +194,10 @@ pub(super) fn log_sample_ships(store: &AgentStore, tick: u64) {
     let mut total_visited: u32 = 0;
     let mut total_morale: f32 = 0.0;
     let mut min_morale: f32 = 100.0;
-    for (_e, (ai, econ, cargo, mem, crew)) in store
+    let mut q = store
         .world
-        .query::<(&ShipAI, &ShipEconomy, &ShipCargo, &ShipMemory, &ShipCrew)>()
-        .iter()
-    {
+        .query::<(&ShipAI, &ShipEconomy, &ShipCargo, &ShipMemory, &ShipCrew)>();
+    for (ai, econ, cargo, mem, crew) in q.iter(&store.world) {
         *by_goal.entry(ai.current_goal.clone()).or_insert(0) += 1;
         *by_task.entry(crew.current_task.as_str()).or_insert(0) += 1;
         total_credits += econ.credits;

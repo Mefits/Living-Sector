@@ -43,6 +43,7 @@
 //!
 //! Extracted from `engine.rs` in the Phase-21 god-module split.
 
+use bevy_ecs::prelude::Entity;
 use sim_core::agents::market::MarketPricing;
 use sim_core::simulation::spawner::AgentStore;
 use sim_core::world::registry::WorldRegistry;
@@ -149,39 +150,35 @@ pub fn admin_spawn_ship(
             current_goal_score: 0.0,
             last_plan_tick: 0,
         },
+    )).id();
+    store.world.entity_mut(entity).insert((
+        ShipMemory {
+            price_knowledge: std::collections::HashMap::new(),
+            visited: vec![payload.location_name.clone()],
+            recent_systems: std::collections::VecDeque::new(),
+            route_performance: std::collections::HashMap::new(),
+        },
+        ShipLifecycle {
+            broke_strikes: 0,
+            hoard_strikes: 0,
+            idle_ticks: 0,
+            dirty: true, // ensure first persistence flush
+        },
+        ShipCrew {
+            size: crew_size,
+            hunger: 10.0,
+            morale: 70.0,
+            fatigue: 10.0,
+            health: 100.0,
+            wages_credits: 0,
+            current_task: CrewTask::Idle,
+            dirty: false,
+        },
+        ShipCrewSkills::for_roles(crew_roles),
+        fitting,
+        sim_core::agents::ship::ShipProgression::new(),
+        sim_core::simulation::lod::AgentLod::new(),
     ));
-    store.world.insert(
-        entity,
-        (
-            ShipMemory {
-                price_knowledge: std::collections::HashMap::new(),
-                visited: vec![payload.location_name.clone()],
-                recent_systems: std::collections::VecDeque::new(),
-                route_performance: std::collections::HashMap::new(),
-            },
-            ShipLifecycle {
-                broke_strikes: 0,
-                hoard_strikes: 0,
-                idle_ticks: 0,
-                dirty: true, // ensure first persistence flush
-            },
-            ShipCrew {
-                size: crew_size,
-                hunger: 10.0,
-                morale: 70.0,
-                fatigue: 10.0,
-                health: 100.0,
-                wages_credits: 0,
-                current_task: CrewTask::Idle,
-                dirty: false,
-            },
-            ShipCrewSkills::for_roles(crew_roles),
-            fitting,
-            sim_core::agents::ship::ShipProgression::new(),
-            sim_core::simulation::lod::AgentLod::new(),
-        ),
-    )
-    .ok();
     store.index_ship(payload.agent_id.clone(), entity);
 
     events.push(serde_json::json!({
@@ -238,37 +235,31 @@ pub fn admin_spawn_facility(
         },
         FacilityLifecycle::new(),
         sim_core::simulation::lod::AgentLod::new(),
-    ));
+    )).id();
     // Phase 18c: shipyards carry a ModuleStock. Attached separately so
     // non-shipyards don't pay the component cost.
     if payload.facility_type == "shipyard" {
         store
             .world
-            .insert_one(entity, sim_core::agents::facility::ModuleStock::default())
-            .ok();
+            .entity_mut(entity)
+            .insert(sim_core::agents::facility::ModuleStock::default());
     }
     // Phase 18e: all non-gate facilities get a default FacilityFitting.
     if payload.facility_type != "gate" {
         store
             .world
-            .insert_one(
-                entity,
-                sim_core::agents::facility::FacilityFitting::new_default(),
-            )
-            .ok();
+            .entity_mut(entity)
+            .insert(sim_core::agents::facility::FacilityFitting::new_default());
     }
     // Phase 19a: every facility (gates included) gets a crew complement
     // sized by type. Admin-spawned facilities pick the default the same
     // way seed-loaded ones do.
     store
         .world
-        .insert_one(
-            entity,
-            sim_core::agents::facility::FacilityCrew::new_for_type(
-                &payload.facility_type,
-            ),
-        )
-        .ok();
+        .entity_mut(entity)
+        .insert(sim_core::agents::facility::FacilityCrew::new_for_type(
+            &payload.facility_type,
+        ));
     store.index_facility(
         payload.agent_id.clone(),
         payload.location_name.clone(),
@@ -307,12 +298,12 @@ pub(super) async fn admin_remove_ship(
     // row is deleted so the player can scroll back through
     // decommissioned ships in the details panel.
     let retirement_row = {
-        let identity = store.world.get::<&ShipIdentity>(entity).ok();
-        let position = store.world.get::<&ShipPosition>(entity).ok();
-        let econ = store.world.get::<&ShipEconomy>(entity).ok();
-        let crew = store.world.get::<&ShipCrew>(entity).ok();
-        let fuel = store.world.get::<&ShipFuel>(entity).ok();
-        let life = store.world.get::<&ShipLifecycle>(entity).ok();
+        let identity = store.world.get::<ShipIdentity>(entity);
+        let position = store.world.get::<ShipPosition>(entity);
+        let econ = store.world.get::<ShipEconomy>(entity);
+        let crew = store.world.get::<ShipCrew>(entity);
+        let fuel = store.world.get::<ShipFuel>(entity);
+        let life = store.world.get::<ShipLifecycle>(entity);
         identity.map(|id_ref| sim_db::persistence::RetirementRow {
             agent_id: id_ref.id.clone(),
             name: id_ref.name.clone(),
@@ -345,15 +336,17 @@ pub(super) async fn admin_remove_ship(
     };
     let db_id = store
         .world
-        .get::<&ShipIdentity>(entity)
-        .ok()
+        .get::<ShipIdentity>(entity)
         .map(|i| i.db_id);
     // Pop from any facility's docked list AND dock queue first —
     // otherwise a despawned entity sits in a queue forever blocking
     // the head.
-    for (_e, storage) in store.world.query_mut::<&mut FacilityStorage>() {
-        storage.docked_ships.retain(|&e| e != entity);
-        storage.dock_queue.retain(|&e| e != entity);
+    {
+        let mut q = store.world.query::<&mut FacilityStorage>();
+        for mut storage in q.iter_mut(&mut store.world) {
+            storage.docked_ships.retain(|&e| e != entity);
+            storage.dock_queue.retain(|&e| e != entity);
+        }
     }
     // Release every contract the ship was fulfilling so the board
     // doesn't leave Accepted contracts pinned to a despawned ship
@@ -378,7 +371,7 @@ pub(super) async fn admin_remove_ship(
             "ship_id": id,
         }));
     }
-    let _ = store.world.despawn(entity);
+    store.world.despawn(entity);
     store.ship_by_id.remove(id);
     // Snapshot cache is purged by `update_from` on the next tick (diffs
     // live entity ids against the cache and removes missing keys).
@@ -413,18 +406,15 @@ pub(super) async fn admin_remove_facility(
     // cascade cleanup without re-querying a half-deleted world.
     let db_id = store
         .world
-        .get::<&FacilityIdentity>(entity)
-        .ok()
+        .get::<FacilityIdentity>(entity)
         .map(|i| i.db_id);
     let location_name = store
         .world
-        .get::<&FacilityLocation>(entity)
-        .ok()
+        .get::<FacilityLocation>(entity)
         .map(|l| l.location_name.clone());
     let paired_gate_id = store
         .world
-        .get::<&GateLink>(entity)
-        .ok()
+        .get::<GateLink>(entity)
         .map(|g| g.paired_gate_id.clone());
 
     // 1. Kick every ship docked at this facility. Without this, the
@@ -437,10 +427,10 @@ pub(super) async fn admin_remove_facility(
     //    and moves on.
     let kicked: Vec<String> = {
         let mut out = Vec::new();
-        for (_e, (identity, pos)) in store
+        let mut q = store
             .world
-            .query_mut::<(&sim_core::agents::ship::ShipIdentity, &mut ShipPosition)>()
-        {
+            .query::<(&sim_core::agents::ship::ShipIdentity, &mut ShipPosition)>();
+        for (identity, mut pos) in q.iter_mut(&mut store.world) {
             if pos.docked_at == Some(entity) {
                 pos.docked_at = None;
                 out.push(identity.id.clone());
@@ -499,7 +489,7 @@ pub(super) async fn admin_remove_facility(
     //    still a valid facility; it just has nowhere to point.
     if let Some(paired_id) = paired_gate_id {
         if let Some(&paired_entity) = store.facility_by_id.get(&paired_id) {
-            if let Ok(mut link) = store.world.get::<&mut GateLink>(paired_entity) {
+            if let Some(mut link) = store.world.get_mut::<GateLink>(paired_entity) {
                 link.paired_gate_id.clear();
             }
             events.push(serde_json::json!({
@@ -511,7 +501,7 @@ pub(super) async fn admin_remove_facility(
         }
     }
 
-    let _ = store.world.despawn(entity);
+    store.world.despawn(entity);
     store.facility_by_id.remove(id);
     if let Some(db_id) = db_id {
         let _ = persist_tx.send(DbWrite::DeleteFacility { db_id }).await;
@@ -540,7 +530,7 @@ pub(super) fn admin_grant_ship_xp(
     let Some(&entity) = store.ship_by_id.get(id) else {
         return;
     };
-    let Ok(mut prog) = store.world.get::<&mut ShipProgression>(entity) else {
+    let Some(mut prog) = store.world.get_mut::<ShipProgression>(entity) else {
         return;
     };
     let gained = prog.grant_xp(amount);
@@ -578,15 +568,15 @@ pub enum RefitAttempt {
 /// override refits and the admin/agent shipyard paths.
 pub fn apply_fitting_swap(
     store: &mut AgentStore,
-    ship: hecs::Entity,
+    ship: Entity,
     slot: sim_core::modules::Slot,
     slug: Option<&'static str>,
 ) -> RefitAttempt {
     use sim_core::agents::ship::{ShipCargo, ShipFitting, ShipFuel, ShipIdentity, ShipLifecycle};
 
-    let class_name = match store.world.get::<&ShipIdentity>(ship) {
-        Ok(id) => id.class.clone(),
-        Err(_) => return RefitAttempt::NoShip,
+    let class_name = match store.world.get::<ShipIdentity>(ship) {
+        Some(id) => id.class.clone(),
+        None => return RefitAttempt::NoShip,
     };
     let class_cfg = sim_core::simulation::config::ship_class(&class_name);
     let (base_cargo, base_speed) = match class_cfg {
@@ -595,22 +585,22 @@ pub fn apply_fitting_swap(
     };
 
     let (prev_slug, new_derived) = {
-        let mut fitting = match store.world.get::<&mut ShipFitting>(ship) {
-            Ok(f) => f,
-            Err(_) => return RefitAttempt::NoShip,
+        let mut fitting = match store.world.get_mut::<ShipFitting>(ship) {
+            Some(f) => f,
+            None => return RefitAttempt::NoShip,
         };
         let prev = fitting.slot_slug(slot).map(|s| s.to_string());
         fitting.set(slot, slug);
         (prev, fitting.derived)
     };
 
-    if let Ok(mut cargo) = store.world.get::<&mut ShipCargo>(ship) {
+    if let Some(mut cargo) = store.world.get_mut::<ShipCargo>(ship) {
         cargo.capacity = ((base_cargo as f32) * new_derived.cargo_capacity_mult).round() as u32;
     }
-    if let Ok(mut fuel) = store.world.get::<&mut ShipFuel>(ship) {
+    if let Some(mut fuel) = store.world.get_mut::<ShipFuel>(ship) {
         fuel.speed_modifier = base_speed * new_derived.speed_mult;
     }
-    if let Ok(mut life) = store.world.get::<&mut ShipLifecycle>(ship) {
+    if let Some(mut life) = store.world.get_mut::<ShipLifecycle>(ship) {
         life.dirty = true;
     }
 
@@ -625,10 +615,10 @@ pub fn apply_fitting_swap(
 /// [`apply_fitting_swap`] after validation passes.
 pub fn try_shipyard_refit(
     store: &mut AgentStore,
-    ship: hecs::Entity,
+    ship: Entity,
     slot: sim_core::modules::Slot,
     slug: &'static str,
-) -> Result<(hecs::Entity, String, i64), RefitAttempt> {
+) -> Result<(Entity, String, i64), RefitAttempt> {
     use sim_core::agents::facility::{FacilityIdentity, ModuleStock};
     use sim_core::agents::ship::{ShipEconomy, ShipPosition};
 
@@ -643,17 +633,17 @@ pub fn try_shipyard_refit(
     };
     let cost = recipe.base_cost_credits;
 
-    let docked_at = match store.world.get::<&ShipPosition>(ship) {
-        Ok(pos) => pos.docked_at,
-        Err(_) => return Err(RefitAttempt::NoShip),
+    let docked_at = match store.world.get::<ShipPosition>(ship) {
+        Some(pos) => pos.docked_at,
+        None => return Err(RefitAttempt::NoShip),
     };
     let Some(facility_entity) = docked_at else {
         return Err(RefitAttempt::NotDocked);
     };
 
-    let (fid_str, is_yard) = match store.world.get::<&FacilityIdentity>(facility_entity) {
-        Ok(id) => (id.id.clone(), id.facility_type == "shipyard"),
-        Err(_) => return Err(RefitAttempt::NotShipyard),
+    let (fid_str, is_yard) = match store.world.get::<FacilityIdentity>(facility_entity) {
+        Some(id) => (id.id.clone(), id.facility_type == "shipyard"),
+        None => return Err(RefitAttempt::NotShipyard),
     };
     if !is_yard {
         return Err(RefitAttempt::NotShipyard);
@@ -661,7 +651,7 @@ pub fn try_shipyard_refit(
 
     let in_stock = store
         .world
-        .get::<&ModuleStock>(facility_entity)
+        .get::<ModuleStock>(facility_entity)
         .map(|s| s.count(slug) > 0)
         .unwrap_or(false);
     if !in_stock {
@@ -670,7 +660,7 @@ pub fn try_shipyard_refit(
 
     let has_credits = store
         .world
-        .get::<&ShipEconomy>(ship)
+        .get::<ShipEconomy>(ship)
         .map(|e| e.credits >= cost)
         .unwrap_or(false);
     if !has_credits {
@@ -686,21 +676,21 @@ pub fn try_shipyard_refit(
 /// tick-phase boundary.
 pub fn commit_shipyard_refit(
     store: &mut AgentStore,
-    ship: hecs::Entity,
-    facility_entity: hecs::Entity,
+    ship: Entity,
+    facility_entity: Entity,
     slug: &'static str,
     cost: i64,
 ) {
     use sim_core::agents::facility::{FacilityOperations, ModuleStock};
     use sim_core::agents::ship::ShipEconomy;
 
-    if let Ok(mut stock) = store.world.get::<&mut ModuleStock>(facility_entity) {
+    if let Some(mut stock) = store.world.get_mut::<ModuleStock>(facility_entity) {
         stock.take_one(slug);
     }
-    if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
+    if let Some(mut econ) = store.world.get_mut::<ShipEconomy>(ship) {
         econ.credits = econ.credits.saturating_sub(cost);
     }
-    if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(facility_entity) {
+    if let Some(mut ops) = store.world.get_mut::<FacilityOperations>(facility_entity) {
         ops.credits = ops.credits.saturating_add(cost);
         ops.dirty = true;
     }
@@ -730,7 +720,7 @@ pub(super) fn admin_refit_facility(
         },
     };
     let prev_slug: Option<String> = {
-        let Ok(mut fit) = store.world.get::<&mut FacilityFitting>(entity) else {
+        let Some(mut fit) = store.world.get_mut::<FacilityFitting>(entity) else {
             return;
         };
         let prev = fit.slot_slug(slot).map(|s| s.to_string());
@@ -825,7 +815,7 @@ pub(super) fn admin_market_supply_delta(
         return;
     };
     let mut applied: Vec<(String, f32)> = Vec::new();
-    if let Ok(mut pricing) = store.world.get::<&mut MarketPricing>(market_entity) {
+    if let Some(mut pricing) = store.world.get_mut::<MarketPricing>(market_entity) {
         for (commodity, delta) in deltas {
             let entry = pricing.supply.entry(*commodity).or_insert(0.0);
             *entry = (*entry + delta).max(0.0);

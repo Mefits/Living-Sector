@@ -54,7 +54,7 @@ impl Default for MarketsState {
 
 pub(super) fn markets_panel(
     mut ctx: EguiContexts,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     mut state: ResMut<MarketsState>,
 ) {
     use sim_core::agents::market::{
@@ -91,26 +91,23 @@ pub(super) fn markets_panel(
     }
 
     let mut rows: Vec<MarketRow> = Vec::new();
-    let entities: Vec<_> = sim
-        .store
-        .world
-        .query::<&MarketIdentity>()
-        .iter()
-        .map(|(e, id)| (e, id.facility_location.clone()))
-        .collect();
+    let entities: Vec<(Entity, String)> = {
+        let mut q = sim.store.world.query::<(Entity, &MarketIdentity)>();
+        q.iter(&sim.store.world)
+            .map(|(e, id)| (e, id.facility_location.clone()))
+            .collect()
+    };
     for (entity, location) in entities {
         let pricing = sim
             .store
             .world
-            .query_one::<&MarketPricing>(entity)
-            .ok()
-            .and_then(|mut q| q.get().cloned());
+            .get::<MarketPricing>(entity)
+            .map(|p| p.clone());
         let history = sim
             .store
             .world
-            .query_one::<&MarketHistory>(entity)
-            .ok()
-            .and_then(|mut q| q.get().cloned());
+            .get::<MarketHistory>(entity)
+            .map(|h| h.clone());
         let (Some(pricing), Some(history)) = (pricing, history) else {
             continue;
         };

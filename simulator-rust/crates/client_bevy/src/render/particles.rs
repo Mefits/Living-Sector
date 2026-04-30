@@ -243,7 +243,7 @@ pub(super) fn build_gate_flash_effect(
 /// for events we've already processed.
 pub(super) fn event_driven_flashes(
     mut commands: Commands,
-    sim: Res<crate::sim::Sim>,
+    mut sim: ResMut<crate::sim::Sim>,
     events: Res<crate::sim::EventsLog>,
     flash: Option<Res<GateFlashEffect>>,
     mut last_tick: Local<u64>,
@@ -288,24 +288,27 @@ pub(super) fn event_driven_flashes(
         match ev.get("kind").and_then(|k| k.as_str()) {
             Some("ship_gate_jumped") => {
                 if gate_pos.is_none() {
-                    let body_pos: std::collections::HashMap<String, (f32, f32)> = sim
-                        .store
-                        .world
-                        .query::<(&BodyIdentity, &BodyOrbit)>()
-                        .iter()
-                        .map(|(_, (b, o))| (b.body_id.clone(), o.universe_position()))
-                        .collect();
+                    let body_pos: std::collections::HashMap<String, (f32, f32)> = {
+                        let mut q = sim
+                            .store
+                            .world
+                            .query::<(&BodyIdentity, &BodyOrbit)>();
+                        q.iter(&sim.store.world)
+                            .map(|(b, o)| (b.body_id.clone(), o.universe_position()))
+                            .collect()
+                    };
                     let mut gp: std::collections::HashMap<String, (f32, f32)> =
                         std::collections::HashMap::new();
-                    for (_, (id, loc)) in sim
-                        .store
-                        .world
-                        .query::<(&FacilityIdentity, &FacilityLocation)>()
-                        .iter()
                     {
-                        if id.facility_type == "gate" {
-                            if let Some(&p) = body_pos.get(&id.body_id) {
-                                gp.insert(loc.location_name.clone(), p);
+                        let mut q = sim
+                            .store
+                            .world
+                            .query::<(&FacilityIdentity, &FacilityLocation)>();
+                        for (id, loc) in q.iter(&sim.store.world) {
+                            if id.facility_type == "gate" {
+                                if let Some(&p) = body_pos.get(&id.body_id) {
+                                    gp.insert(loc.location_name.clone(), p);
+                                }
                             }
                         }
                     }
@@ -334,10 +337,9 @@ pub(super) fn event_driven_flashes(
                 let Some(&entity) = sim.store.ship_by_id.get(ship_id) else {
                     continue;
                 };
-                let Ok(mut q) = sim.store.world.query_one::<&ShipPosition>(entity) else {
+                let Some(pos) = sim.store.world.get::<ShipPosition>(entity) else {
                     continue;
                 };
-                let Some(pos) = q.get() else { continue };
                 let (x, y) = pos.position;
                 spawn_flash(&mut commands, x, y, ship_id);
             }
@@ -380,7 +382,7 @@ pub(super) fn tick_explosion_lifetimes(
 /// per-instance EffectInitializers mutation.
 #[allow(clippy::type_complexity)]
 pub(super) fn sync_engine_trails(
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     ships: Query<(&ShipEntity, &Transform), Without<EngineTrailFor>>,
     mut trails: Query<
         (&EngineTrailFor, &mut Transform, &mut Visibility),
@@ -399,13 +401,15 @@ pub(super) fn sync_engine_trails(
     // ShipPosition)>() walks every ship once and stores
     // (docked, sim_id) pairs into a HashMap keyed by string.
     use sim_core::agents::ship::ShipIdentity;
-    let docked_by_id: std::collections::HashMap<String, bool> = sim
-        .store
-        .world
-        .query::<(&ShipIdentity, &ShipPosition)>()
-        .iter()
-        .map(|(_, (id, pos))| (id.id.clone(), pos.docked_at.is_some()))
-        .collect();
+    let docked_by_id: std::collections::HashMap<String, bool> = {
+        let mut q = sim
+            .store
+            .world
+            .query::<(&ShipIdentity, &ShipPosition)>();
+        q.iter(&sim.store.world)
+            .map(|(id, pos)| (id.id.clone(), pos.docked_at.is_some()))
+            .collect()
+    };
 
     // Stash both transform AND base_scale so the trail can size
     // itself per-ship: tiny couriers get a small trail, massive

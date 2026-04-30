@@ -26,6 +26,7 @@ use crate::{
     snapshot::SnapshotCache,
     ws::protocol::ServerMsg,
 };
+use bevy_ecs::prelude::{Entity, World};
 use sim_db::persistence::DbWrite;
 use sim_core::{
     agents::{
@@ -135,7 +136,7 @@ pub async fn run_tick_loop(
         "Engine: tick loop started at {}ms/tick ({} tps, world_speed={}, mult={})",
         timer_interval, tick_config.ticks_per_second, tick_config.world_speed, tick_mult,
     );
-    log_sample_market(&store, "initial");
+    log_sample_market(&mut store, "initial");
 
     loop {
         timer.tick().await;
@@ -308,7 +309,7 @@ pub async fn run_tick_loop(
             tick_scale,
             tick_mult,
         );
-        record_command_trace(&store, &commands, tick, &command_trace);
+        record_command_trace(&mut store, &commands, tick, &command_trace);
         apply_ship_commands(&mut store, &mut commands, &mut events, tick);
         // Per-tick queue advance: admits any queue heads that have
         // space and credits, independent of whether the ship at the
@@ -343,7 +344,7 @@ pub async fn run_tick_loop(
         // windows inside `scan_crisis_events` prevent flapping.
         scan_crisis_events(&mut store.world, &mut events);
         // Market emits TransferCredits (spread revenue) — apply before clearing
-        record_command_trace(&store, &commands, tick, &command_trace);
+        record_command_trace(&mut store, &commands, tick, &command_trace);
         apply_ship_commands(&mut store, &mut commands, &mut events, tick);
         drain_pending_materializations(&mut store, &pool, &persist_tx, &mut events).await;
         drain_pending_decommissions(&mut store, tick, &mut events, &persist_tx).await;
@@ -382,7 +383,7 @@ pub async fn run_tick_loop(
         }
 
         // Snapshot write
-        snapshots.update_from(&store, tick);
+        snapshots.update_from(&mut store, tick);
         let total_us = t_start.elapsed().as_micros() as u64;
 
         // Emit dirty-state writes for the persistence worker (cheap: try_send + mark clean)
@@ -417,10 +418,10 @@ pub async fn run_tick_loop(
                 tick_compute_us,
                 total_us,
             );
-            log_sample_market(&store, &format!("tick={tick}"));
-            log_sample_ships(&store, tick);
+            log_sample_market(&mut store, &format!("tick={tick}"));
+            log_sample_ships(&mut store, tick);
             log_contract_board(&store, tick);
-            log_factions(&store, tick);
+            log_factions(&mut store, tick);
         } else if tick % (8 * 5) == 0 {
             debug!(tick, tick_compute_us, total_us, "Engine: tick");
         }
@@ -516,34 +517,35 @@ fn recompute_lod(
         Err(_) => Vec::new(),
     };
 
-    let mut pos_by_entity: std::collections::HashMap<hecs::Entity, (f32, f32)> =
+    let mut pos_by_entity: std::collections::HashMap<Entity, (f32, f32)> =
         std::collections::HashMap::new();
 
     // Ships — live positions.
-    for (e, (_lod, pos)) in store
-        .world
-        .query::<(&AgentLod, &ShipPosition)>()
-        .iter()
     {
-        pos_by_entity.insert(e, pos.position);
+        let mut q = store.world.query::<(Entity, &AgentLod, &ShipPosition)>();
+        for (e, _lod, pos) in q.iter(&store.world) {
+            pos_by_entity.insert(e, pos.position);
+        }
     }
 
     // Facilities + populations — look up by their facility location →
     // body position. Build body position map once.
-    let body_pos: std::collections::HashMap<String, (f32, f32)> = store
-        .world
-        .query::<(&BodyIdentity, &BodyOrbit)>()
-        .iter()
-        .map(|(_e, (id, orbit))| (id.body_id.clone(), orbit.universe_position()))
-        .collect();
+    let body_pos: std::collections::HashMap<String, (f32, f32)> = {
+        let mut q = store.world.query::<(&BodyIdentity, &BodyOrbit)>();
+        q.iter(&store.world)
+            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+            .collect()
+    };
 
     // Facilities.
-    let facility_info: Vec<(hecs::Entity, String, String)> = store
-        .world
-        .query::<(&AgentLod, &FacilityIdentity, &FacilityLocation)>()
-        .iter()
-        .map(|(e, (_lod, id, _loc))| (e, id.body_id.clone(), id.id.clone()))
-        .collect();
+    let facility_info: Vec<(Entity, String, String)> = {
+        let mut q = store
+            .world
+            .query::<(Entity, &AgentLod, &FacilityIdentity, &FacilityLocation)>();
+        q.iter(&store.world)
+            .map(|(e, _lod, id, _loc)| (e, id.body_id.clone(), id.id.clone()))
+            .collect()
+    };
     for (e, body_id, fac_id) in facility_info {
         if let Some(&center) = body_pos.get(&body_id) {
             let pos = sim_core::agents::facility::facility_offset_position(center, &fac_id);
@@ -554,19 +556,21 @@ fn recompute_lod(
     // Populations — use the facility's body position (same offset as
     // the parent facility isn't necessary; body center is plenty for
     // LOD bucketing).
-    let pop_info: Vec<(hecs::Entity, String)> = store
-        .world
-        .query::<(&AgentLod, &PopIdentity)>()
-        .iter()
-        .map(|(e, (_lod, id))| (e, id.facility_location.clone()))
-        .collect();
+    let pop_info: Vec<(Entity, String)> = {
+        let mut q = store.world.query::<(Entity, &AgentLod, &PopIdentity)>();
+        q.iter(&store.world)
+            .map(|(e, _lod, id)| (e, id.facility_location.clone()))
+            .collect()
+    };
     // location → body_id
-    let loc_to_body: std::collections::HashMap<String, String> = store
-        .world
-        .query::<(&FacilityLocation, &FacilityIdentity)>()
-        .iter()
-        .map(|(_e, (loc, fid))| (loc.location_name.clone(), fid.body_id.clone()))
-        .collect();
+    let loc_to_body: std::collections::HashMap<String, String> = {
+        let mut q = store
+            .world
+            .query::<(&FacilityLocation, &FacilityIdentity)>();
+        q.iter(&store.world)
+            .map(|(loc, fid)| (loc.location_name.clone(), fid.body_id.clone()))
+            .collect()
+    };
     for (e, loc) in pop_info {
         if let Some(body_id) = loc_to_body.get(&loc) {
             if let Some(&center) = body_pos.get(body_id) {
@@ -593,7 +597,8 @@ fn recompute_lod(
 }
 
 pub fn tick_bodies(store: &mut AgentStore, tick_scale: f32) {
-    for (_e, orbit) in store.world.query_mut::<&mut BodyOrbit>() {
+    let mut q = store.world.query::<&mut BodyOrbit>();
+    for mut orbit in q.iter_mut(&mut store.world) {
         orbit.advance(tick_scale);
     }
 }
@@ -609,52 +614,58 @@ pub fn tick_bodies(store: &mut AgentStore, tick_scale: f32) {
 /// flags prevents duplicate events each tick while the condition
 /// persists, and recovery events (`market_recovered` /
 /// `facility_recovered`) fire when state normalises again.
-pub fn scan_crisis_events(world: &mut hecs::World, events: &mut Vec<serde_json::Value>) {
+pub fn scan_crisis_events(world: &mut World, events: &mut Vec<serde_json::Value>) {
     use sim_core::agents::facility::{FacilityIdentity, FacilityOperations};
     use sim_core::agents::market::{MarketHistory, MarketIdentity};
     use sim_core::simulation::tuning::WorldTuning;
 
     let t = WorldTuning::current();
 
-    for (_e, (id, hist)) in world.query_mut::<(&MarketIdentity, &mut MarketHistory)>() {
-        for (&commodity, &shortage) in hist.shortage_ticks.clone().iter() {
-            let was_notified = hist.crisis_notified.get(&commodity).copied().unwrap_or(false);
-            if shortage >= t.market_crisis_shortage_ticks && !was_notified {
-                events.push(serde_json::json!({
-                    "kind": "market_crisis",
-                    "market_id": id.id,
-                    "location": id.facility_location,
-                    "commodity": commodity.to_string(),
-                    "shortage_ticks": shortage,
-                }));
-                hist.crisis_notified.insert(commodity, true);
-            } else if shortage <= t.market_crisis_recovery_ticks && was_notified {
-                events.push(serde_json::json!({
-                    "kind": "market_recovered",
-                    "market_id": id.id,
-                    "location": id.facility_location,
-                    "commodity": commodity.to_string(),
-                }));
-                hist.crisis_notified.insert(commodity, false);
+    {
+        let mut q = world.query::<(&MarketIdentity, &mut MarketHistory)>();
+        for (id, mut hist) in q.iter_mut(world) {
+            for (&commodity, &shortage) in hist.shortage_ticks.clone().iter() {
+                let was_notified = hist.crisis_notified.get(&commodity).copied().unwrap_or(false);
+                if shortage >= t.market_crisis_shortage_ticks && !was_notified {
+                    events.push(serde_json::json!({
+                        "kind": "market_crisis",
+                        "market_id": id.id,
+                        "location": id.facility_location,
+                        "commodity": commodity.to_string(),
+                        "shortage_ticks": shortage,
+                    }));
+                    hist.crisis_notified.insert(commodity, true);
+                } else if shortage <= t.market_crisis_recovery_ticks && was_notified {
+                    events.push(serde_json::json!({
+                        "kind": "market_recovered",
+                        "market_id": id.id,
+                        "location": id.facility_location,
+                        "commodity": commodity.to_string(),
+                    }));
+                    hist.crisis_notified.insert(commodity, false);
+                }
             }
         }
     }
 
-    for (_e, (id, ops)) in world.query_mut::<(&FacilityIdentity, &mut FacilityOperations)>() {
-        if ops.condition < t.facility_starving_condition && !ops.starving_notified {
-            events.push(serde_json::json!({
-                "kind": "facility_starving",
-                "facility_id": id.id,
-                "condition": ops.condition,
-            }));
-            ops.starving_notified = true;
-        } else if ops.condition > t.facility_starving_recovery && ops.starving_notified {
-            events.push(serde_json::json!({
-                "kind": "facility_recovered",
-                "facility_id": id.id,
-                "condition": ops.condition,
-            }));
-            ops.starving_notified = false;
+    {
+        let mut q = world.query::<(&FacilityIdentity, &mut FacilityOperations)>();
+        for (id, mut ops) in q.iter_mut(world) {
+            if ops.condition < t.facility_starving_condition && !ops.starving_notified {
+                events.push(serde_json::json!({
+                    "kind": "facility_starving",
+                    "facility_id": id.id,
+                    "condition": ops.condition,
+                }));
+                ops.starving_notified = true;
+            } else if ops.condition > t.facility_starving_recovery && ops.starving_notified {
+                events.push(serde_json::json!({
+                    "kind": "facility_recovered",
+                    "facility_id": id.id,
+                    "condition": ops.condition,
+                }));
+                ops.starving_notified = false;
+            }
         }
     }
 }
@@ -692,7 +703,7 @@ pub fn tick_relations_pass(
 /// shared across all ships to keep the insertion path cheap (one
 /// write-lock per tick, not per-ship).
 fn record_command_trace(
-    store: &AgentStore,
+    store: &mut AgentStore,
     commands: &CommandBuffer,
     tick: u64,
     trace: &std::sync::Arc<
@@ -705,10 +716,13 @@ fn record_command_trace(
     }
     // Resolve ship Entity → string id up front, one query, then close
     // over the map while iterating commands.
-    let mut id_by_entity: std::collections::HashMap<hecs::Entity, String> =
+    let mut id_by_entity: std::collections::HashMap<Entity, String> =
         std::collections::HashMap::new();
-    for (e, id) in store.world.query::<&ShipIdentity>().iter() {
-        id_by_entity.insert(e, id.id.clone());
+    {
+        let mut q = store.world.query::<(Entity, &ShipIdentity)>();
+        for (e, id) in q.iter(&store.world) {
+            id_by_entity.insert(e, id.id.clone());
+        }
     }
     let Ok(mut buf) = trace.write() else { return };
     for cmd in &commands.commands {
@@ -729,6 +743,7 @@ fn record_command_trace(
 #[cfg(test)]
 mod tests {
     use super::admin_refit_ship;
+    use bevy_ecs::prelude::Entity;
     use sim_core::{
         agents::{
             facility::{
@@ -745,7 +760,7 @@ mod tests {
         simulation::spawner::AgentStore,
     };
 
-    fn make_shipyard(store: &mut AgentStore, stock_slug: &str, stock_qty: u32) -> hecs::Entity {
+    fn make_shipyard(store: &mut AgentStore, stock_slug: &str, stock_qty: u32) -> Entity {
         let entity = store.world.spawn((
             FacilityIdentity {
                 db_id: 100,
@@ -776,7 +791,7 @@ mod tests {
                 s.dirty = false; // fresh
                 s
             },
-        ));
+        )).id();
         store
             .facility_by_id
             .insert("facility-test-shipyard".into(), entity);
@@ -785,9 +800,9 @@ mod tests {
 
     fn make_ship(
         store: &mut AgentStore,
-        docked_at: Option<hecs::Entity>,
+        docked_at: Option<Entity>,
         credits: i64,
-    ) -> hecs::Entity {
+    ) -> Entity {
         let entity = store.world.spawn((
             ShipIdentity {
                 db_id: 1,
@@ -833,27 +848,23 @@ mod tests {
                 current_goal_score: 0.0,
                 last_plan_tick: 0,
             },
+        )).id();
+        store.world.entity_mut(entity).insert((
+            ShipMemory {
+                price_knowledge: Default::default(),
+                visited: vec![],
+                recent_systems: std::collections::VecDeque::new(),
+                route_performance: std::collections::HashMap::new(),
+            },
+            ShipLifecycle {
+                broke_strikes: 0,
+                hoard_strikes: 0,
+                idle_ticks: 0,
+                dirty: false,
+            },
+            ShipFitting::new_default(),
+            sim_core::agents::ship::ShipProgression::new(),
         ));
-        store.world.insert(
-            entity,
-            (
-                ShipMemory {
-                    price_knowledge: Default::default(),
-                    visited: vec![],
-                    recent_systems: std::collections::VecDeque::new(),
-                    route_performance: std::collections::HashMap::new(),
-                },
-                ShipLifecycle {
-                    broke_strikes: 0,
-                    hoard_strikes: 0,
-                    idle_ticks: 0,
-                    dirty: false,
-                },
-                ShipFitting::new_default(),
-                sim_core::agents::ship::ShipProgression::new(),
-            ),
-        )
-        .ok();
         store.ship_by_id.insert("ship-test".into(), entity);
         entity
     }
@@ -868,19 +879,19 @@ mod tests {
         admin_refit_ship(&mut store, "ship-test", Slot::Engine, Some("engine_t2"), true, &mut events);
 
         // Fitting now carries the new slug + rebaked speed_modifier.
-        let fit = store.world.get::<&ShipFitting>(ship).unwrap();
+        let fit = store.world.get::<ShipFitting>(ship).unwrap();
         assert_eq!(fit.slot_slug(Slot::Engine), Some("engine_t2"));
-        let fuel = store.world.get::<&ShipFuel>(ship).unwrap();
+        let fuel = store.world.get::<ShipFuel>(ship).unwrap();
         assert!((fuel.speed_modifier - 1.15).abs() < 1e-5);
 
         // Shipyard stock decremented by 1; shipyard credits +8000.
-        let stock = store.world.get::<&ModuleStock>(yard).unwrap();
+        let stock = store.world.get::<ModuleStock>(yard).unwrap();
         assert_eq!(stock.count("engine_t2"), 1);
-        let ops = store.world.get::<&FacilityOperations>(yard).unwrap();
+        let ops = store.world.get::<FacilityOperations>(yard).unwrap();
         assert_eq!(ops.credits, 8000);
 
         // Ship paid the cost.
-        let econ = store.world.get::<&ShipEconomy>(ship).unwrap();
+        let econ = store.world.get::<ShipEconomy>(ship).unwrap();
         assert_eq!(econ.credits, 50_000 - 8_000);
 
         // Refit event carries the shipyard context.
@@ -899,9 +910,9 @@ mod tests {
         admin_refit_ship(&mut store, "ship-test", Slot::CargoBay, Some("cargo_bay_t2"), true, &mut events);
 
         // No refit happened — slot is still the tier-1 default.
-        let fit = store.world.get::<&ShipFitting>(ship).unwrap();
+        let fit = store.world.get::<ShipFitting>(ship).unwrap();
         assert_eq!(fit.slot_slug(Slot::CargoBay), Some("cargo_bay_t1"));
-        let econ = store.world.get::<&ShipEconomy>(ship).unwrap();
+        let econ = store.world.get::<ShipEconomy>(ship).unwrap();
         assert_eq!(econ.credits, 50_000, "credits shouldn't move on rejected refit");
     }
 
@@ -914,7 +925,7 @@ mod tests {
 
         admin_refit_ship(&mut store, "ship-test", Slot::Engine, Some("engine_t2"), true, &mut events);
 
-        let ops = store.world.get::<&FacilityOperations>(yard).unwrap();
+        let ops = store.world.get::<FacilityOperations>(yard).unwrap();
         assert_eq!(ops.credits, 0, "empty stock should not be saleable");
     }
 
@@ -927,9 +938,9 @@ mod tests {
 
         admin_refit_ship(&mut store, "ship-test", Slot::Reactor, Some("reactor_t3"), true, &mut events);
 
-        let fit = store.world.get::<&ShipFitting>(ship).unwrap();
+        let fit = store.world.get::<ShipFitting>(ship).unwrap();
         assert_eq!(fit.slot_slug(Slot::Reactor), Some("reactor_t1"));
-        let stock = store.world.get::<&ModuleStock>(yard).unwrap();
+        let stock = store.world.get::<ModuleStock>(yard).unwrap();
         assert_eq!(stock.count("reactor_t3"), 1, "stock should not decrement");
     }
 
@@ -942,9 +953,9 @@ mod tests {
 
         admin_refit_ship(&mut store, "ship-test", Slot::Engine, Some("engine_t3"), false, &mut events);
 
-        let fit = store.world.get::<&ShipFitting>(ship).unwrap();
+        let fit = store.world.get::<ShipFitting>(ship).unwrap();
         assert_eq!(fit.slot_slug(Slot::Engine), Some("engine_t3"));
-        let econ = store.world.get::<&ShipEconomy>(ship).unwrap();
+        let econ = store.world.get::<ShipEconomy>(ship).unwrap();
         assert_eq!(econ.credits, 0, "admin override does not charge");
     }
 }

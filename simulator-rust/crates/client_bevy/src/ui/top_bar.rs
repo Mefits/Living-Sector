@@ -352,7 +352,7 @@ pub(super) fn top_bar_controls(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn top_bar(
     mut ctx: EguiContexts,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     retirements: Res<Retirements>,
     mut perf: ResMut<PerfStats>,
     mut ships: ResMut<ShipListState>,
@@ -372,7 +372,10 @@ pub(super) fn top_bar(
     // doesn't index them by id (sites aren't frequently looked up
     // by id). At typical counts (<20) the iteration is trivial.
     use sim_core::agents::construction::ConstructionSite;
-    let construction_count = sim.store.world.query::<&ConstructionSite>().iter().count();
+    let construction_count = {
+        let mut q = sim.store.world.query::<&ConstructionSite>();
+        q.iter(&sim.store.world).count()
+    };
     let resp_panels = egui::TopBottomPanel::top("top_bar_panels")
         .frame(holo_chrome_frame())
         .show(ctx.ctx_mut().unwrap(), |ui| {

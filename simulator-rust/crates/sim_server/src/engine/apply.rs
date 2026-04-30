@@ -43,6 +43,7 @@
 //!
 //! Extracted from `engine.rs` in the Phase-21 god-module split.
 
+use bevy_ecs::prelude::Entity;
 use sim_core::agents::market::MarketPricing;
 use sim_core::agents::ship::ShipPosition;
 use sim_core::simulation::commands::{CommandBuffer, SimCommand};
@@ -69,12 +70,11 @@ pub fn apply_ship_commands(
                 let adding = matches!(&cmd, SimCommand::AddSupplyAtShipLocation { .. });
                 let location = store
                     .world
-                    .get::<&ShipPosition>(ship)
-                    .ok()
+                    .get::<ShipPosition>(ship)
                     .and_then(|p| p.location_name.clone());
                 if let Some(loc) = location {
                     if let Some(&market_entity) = store.market_at_location.get(&loc) {
-                        if let Ok(mut pricing) = store.world.get::<&mut MarketPricing>(market_entity) {
+                        if let Some(mut pricing) = store.world.get_mut::<MarketPricing>(market_entity) {
                             let entry = pricing.supply.entry(commodity).or_insert(0.0);
                             if adding {
                                 *entry += quantity;
@@ -86,12 +86,12 @@ pub fn apply_ship_commands(
                 }
             }
             SimCommand::AddSupply { market, commodity, quantity } => {
-                if let Ok(mut pricing) = store.world.get::<&mut MarketPricing>(market) {
+                if let Some(mut pricing) = store.world.get_mut::<MarketPricing>(market) {
                     *pricing.supply.entry(commodity).or_insert(0.0) += quantity;
                 }
             }
             SimCommand::RemoveSupply { market, commodity, quantity } => {
-                if let Ok(mut pricing) = store.world.get::<&mut MarketPricing>(market) {
+                if let Some(mut pricing) = store.world.get_mut::<MarketPricing>(market) {
                     let entry = pricing.supply.entry(commodity).or_insert(0.0);
                     *entry = (*entry - quantity).max(0.0);
                 }
@@ -101,7 +101,7 @@ pub fn apply_ship_commands(
             SimCommand::TransferCredits { to, amount, .. } => {
                 use sim_core::agents::facility::FacilityOperations;
                 if amount > 0 {
-                    if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(to) {
+                    if let Some(mut ops) = store.world.get_mut::<FacilityOperations>(to) {
                         ops.credits += amount;
                     }
                 }
@@ -141,7 +141,7 @@ pub fn apply_ship_commands(
             }
             SimCommand::GrantCrewXp { ship, skill, amount } => {
                 use sim_core::agents::ship::ShipCrewSkills;
-                if let Ok(mut skills) = store.world.get::<&mut ShipCrewSkills>(ship) {
+                if let Some(mut skills) = store.world.get_mut::<ShipCrewSkills>(ship) {
                     skills.grant(skill, amount);
                 }
             }
@@ -222,11 +222,10 @@ pub fn apply_ship_commands(
                             // borrow releases.
                             let ship_faction = store
                                 .world
-                                .get::<&sim_core::agents::ship::ShipIdentity>(e)
-                                .ok()
+                                .get::<sim_core::agents::ship::ShipIdentity>(e)
                                 .map(|i| i.faction_id.clone())
                                 .unwrap_or_default();
-                            if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(e) {
+                            if let Some(mut econ) = store.world.get_mut::<ShipEconomy>(e) {
                                 let penalty: u8 = (10 + (payment / 1000))
                                     .clamp(1, 25) as u8;
                                 let rep = econ
@@ -287,7 +286,7 @@ pub fn apply_ship_commands(
                     // after a refit mid-flight.
                     let comms_bonus = store
                         .world
-                        .get::<&sim_core::agents::ship::ShipFitting>(ship)
+                        .get::<sim_core::agents::ship::ShipFitting>(ship)
                         .map(|f| f.derived.comms_bonus)
                         .unwrap_or(0.0);
                     // Bundle A: read ship faction up front for the
@@ -298,8 +297,7 @@ pub fn apply_ship_commands(
                     // entity).
                     let ship_faction = store
                         .world
-                        .get::<&sim_core::agents::ship::ShipIdentity>(ship)
-                        .ok()
+                        .get::<sim_core::agents::ship::ShipIdentity>(ship)
                         .map(|i| i.faction_id.clone())
                         .unwrap_or_default();
                     // Bundle B: treaty-driven payment bonus applies on
@@ -320,7 +318,7 @@ pub fn apply_ship_commands(
                     let effective_payment: i64 =
                         ((c.payment as f32) * (1.0 + comms_bonus) * treaty_mult)
                             .round() as i64;
-                    if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
+                    if let Some(mut econ) = store.world.get_mut::<ShipEconomy>(ship) {
                         econ.credits += effective_payment;
                         if let Some(faction) = c.faction_id.as_ref() {
                             // Phase 19e: reputation gain scales with
@@ -370,9 +368,9 @@ pub fn apply_ship_commands(
                     // idle recovers toward "productive" the moment it
                     // moves cargo, without waiting for idle_ticks to
                     // drop below the threshold.
-                    if let Ok(mut life) = store
+                    if let Some(mut life) = store
                         .world
-                        .get::<&mut sim_core::agents::ship::ShipLifecycle>(ship)
+                        .get_mut::<sim_core::agents::ship::ShipLifecycle>(ship)
                     {
                         life.hoard_strikes = 0;
                     }
@@ -380,9 +378,9 @@ pub fn apply_ship_commands(
                     // delivery nudges the ship's `profit` axis up a
                     // sliver. Invisible per-delivery; visible over
                     // many deliveries as a character arc.
-                    if let Ok(mut ai) = store
+                    if let Some(mut ai) = store
                         .world
-                        .get::<&mut sim_core::agents::ship::ShipAI>(ship)
+                        .get_mut::<sim_core::agents::ship::ShipAI>(ship)
                     {
                         ai.personality.drift(
                             sim_core::ai::personality::Axis::Profit,
@@ -399,10 +397,10 @@ pub fn apply_ship_commands(
                         };
                         let ship_agent_id = store
                             .world
-                            .get::<&ShipIdentity>(ship)
+                            .get::<ShipIdentity>(ship)
                             .map(|i| i.id.clone())
                             .unwrap_or_default();
-                        if let Ok(mut prog) = store.world.get::<&mut ShipProgression>(ship) {
+                        if let Some(mut prog) = store.world.get_mut::<ShipProgression>(ship) {
                             let gained = prog.grant_xp(SHIP_XP_PER_DELIVERY);
                             if gained > 0 {
                                 events.push(serde_json::json!({
@@ -425,8 +423,8 @@ pub fn apply_ship_commands(
                             // (e.g. legacy data) → no XP, just payment.
                             if let Some(cat) = c.mission_category.as_deref() {
                                 if let Some(template) = missions::get(cat) {
-                                    if let Ok(mut skills) =
-                                        store.world.get::<&mut ShipCrewSkills>(ship)
+                                    if let Some(mut skills) =
+                                        store.world.get_mut::<ShipCrewSkills>(ship)
                                     {
                                         skills.grant(
                                             template.required_skill,
@@ -448,11 +446,10 @@ pub fn apply_ship_commands(
                             // Disembark: increment destination population.
                             // We treat the facility_location as the pop's
                             // home; any pops there grow by the head count.
-                            for (_e, (id, demo)) in store
+                            let mut q = store
                                 .world
-                                .query::<(&sim_core::agents::population::PopIdentity, &mut PopDemographics)>()
-                                .iter()
-                            {
+                                .query::<(&sim_core::agents::population::PopIdentity, &mut PopDemographics)>();
+                            for (id, mut demo) in q.iter_mut(&mut store.world) {
                                 if id.facility_location == c.destination_location {
                                     demo.population_count += c.quantity as i64;
                                 }
@@ -472,7 +469,7 @@ pub fn apply_ship_commands(
                             // cargo hold the same way, then route
                             // progress to the site at this
                             // (location, commodity).
-                            if let Ok(mut cargo) = store.world.get::<&mut ShipCargo>(ship) {
+                            if let Some(mut cargo) = store.world.get_mut::<ShipCargo>(ship) {
                                 let have = cargo.cargo.get(&c.commodity).copied().unwrap_or(0);
                                 let leftover = have.saturating_sub(c.quantity);
                                 if leftover == 0 {
@@ -502,7 +499,7 @@ pub fn apply_ship_commands(
                         _ => {
                             // Standard delivery / courier / subsidy: drop the
                             // commodity into the destination market supply.
-                            if let Ok(mut cargo) = store.world.get::<&mut ShipCargo>(ship) {
+                            if let Some(mut cargo) = store.world.get_mut::<ShipCargo>(ship) {
                                 let have = cargo.cargo.get(&c.commodity).copied().unwrap_or(0);
                                 let leftover = have.saturating_sub(c.quantity);
                                 if leftover == 0 {
@@ -515,8 +512,8 @@ pub fn apply_ship_commands(
                             if let Some(&market_entity) =
                                 store.market_at_location.get(&c.destination_location)
                             {
-                                if let Ok(mut pricing) =
-                                    store.world.get::<&mut MarketPricing>(market_entity)
+                                if let Some(mut pricing) =
+                                    store.world.get_mut::<MarketPricing>(market_entity)
                                 {
                                     *pricing.supply.entry(c.commodity).or_insert(0.0) +=
                                         c.quantity as f32;
@@ -546,7 +543,7 @@ pub fn apply_ship_commands(
 
                 let has_point = store
                     .world
-                    .get::<&ShipProgression>(ship)
+                    .get::<ShipProgression>(ship)
                     .map(|p| p.retrofit_points > 0)
                     .unwrap_or(false);
                 if !has_point {
@@ -561,12 +558,12 @@ pub fn apply_ship_commands(
                     _ => continue,
                 };
                 commit_shipyard_refit(store, ship, fac_entity, slug, cost);
-                if let Ok(mut prog) = store.world.get::<&mut ShipProgression>(ship) {
+                if let Some(mut prog) = store.world.get_mut::<ShipProgression>(ship) {
                     prog.spend_retrofit_point();
                 }
                 let ship_id = store
                     .world
-                    .get::<&ShipIdentity>(ship)
+                    .get::<ShipIdentity>(ship)
                     .map(|i| i.id.clone())
                     .unwrap_or_default();
                 events.push(serde_json::json!({
@@ -605,7 +602,7 @@ pub fn apply_ship_commands(
 /// and aren't candidates). Ties broken by first-seen hecs iteration order.
 /// Returns None if no dockable facility exists at the location, in which
 /// case dock/refuel commands silently no-op.
-pub fn primary_dock_at_location(store: &AgentStore, location: &str) -> Option<hecs::Entity> {
+pub fn primary_dock_at_location(store: &AgentStore, location: &str) -> Option<Entity> {
     primary_dock_at_location_typed(store, location, None)
 }
 
@@ -618,7 +615,7 @@ pub fn primary_dock_at_location_typed(
     store: &AgentStore,
     location: &str,
     facility_type: Option<&str>,
-) -> Option<hecs::Entity> {
+) -> Option<Entity> {
     dockable_candidates_ordered(store, location, facility_type)
         .into_iter()
         .next()
@@ -635,17 +632,17 @@ pub fn dockable_candidates_ordered(
     store: &AgentStore,
     location: &str,
     facility_type: Option<&str>,
-) -> Vec<hecs::Entity> {
+) -> Vec<Entity> {
     use sim_core::agents::facility::{FacilityIdentity, FacilityOperations};
     let Some(candidates) = store.facilities_at_location.get(location) else {
         return Vec::new();
     };
-    let mut scored: Vec<(hecs::Entity, u32)> = Vec::new();
+    let mut scored: Vec<(Entity, u32)> = Vec::new();
     for &e in candidates {
         if let Some(want) = facility_type {
             let ok = store
                 .world
-                .get::<&FacilityIdentity>(e)
+                .get::<FacilityIdentity>(e)
                 .map(|id| id.facility_type == want)
                 .unwrap_or(false);
             if !ok {
@@ -654,7 +651,7 @@ pub fn dockable_candidates_ordered(
         }
         let cap = store
             .world
-            .get::<&FacilityOperations>(e)
+            .get::<FacilityOperations>(e)
             .map(|o| o.docking_capacity)
             .unwrap_or(0);
         if cap == 0 {
@@ -674,7 +671,7 @@ pub fn dockable_candidates_ordered(
 /// it was rejected (no facility, capacity full, or ship broke).
 pub fn apply_request_dock_typed(
     store: &mut AgentStore,
-    ship: hecs::Entity,
+    ship: Entity,
     location: &str,
     preferred_facility_type: Option<&'static str>,
 ) -> bool {
@@ -721,12 +718,12 @@ pub fn apply_request_dock_typed(
     for &e in &candidates {
         let queued_at_head = store
             .world
-            .get::<&FacilityStorage>(e)
+            .get::<FacilityStorage>(e)
             .map(|s| s.dock_queue.first() == Some(&ship))
             .unwrap_or(false);
         let in_queue = store
             .world
-            .get::<&FacilityStorage>(e)
+            .get::<FacilityStorage>(e)
             .map(|s| s.dock_queue.contains(&ship))
             .unwrap_or(false);
         if !in_queue {
@@ -739,13 +736,13 @@ pub fn apply_request_dock_typed(
         // We're at the head of this facility's queue. Admit if a slot
         // is available AND we can afford the fee.
         let (fee, has_space) = {
-            let ops = match store.world.get::<&FacilityOperations>(e) {
-                Ok(o) => o,
-                Err(_) => continue,
+            let ops = match store.world.get::<FacilityOperations>(e) {
+                Some(o) => o,
+                None => continue,
             };
-            let storage = match store.world.get::<&FacilityStorage>(e) {
-                Ok(s) => s,
-                Err(_) => continue,
+            let storage = match store.world.get::<FacilityStorage>(e) {
+                Some(s) => s,
+                None => continue,
             };
             let docked = storage.docked_ships.len() as u32;
             if docked >= ops.docking_capacity {
@@ -767,7 +764,7 @@ pub fn apply_request_dock_typed(
         }
         let ship_ok = store
             .world
-            .get::<&ShipEconomy>(ship)
+            .get::<ShipEconomy>(ship)
             .map(|econ| econ.credits >= fee)
             .unwrap_or(false);
         if !ship_ok {
@@ -777,13 +774,13 @@ pub fn apply_request_dock_typed(
             // replans, usually into a sell_cargo or refuel-elsewhere
             // flow that can recover credits. Without this eviction
             // the broke head stalls the queue forever.
-            if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(e) {
+            if let Some(mut storage) = store.world.get_mut::<FacilityStorage>(e) {
                 storage.dock_queue.retain(|&q| q != ship);
             }
             return false;
         }
         commit_dock(store, ship, e, fee);
-        if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(e) {
+        if let Some(mut storage) = store.world.get_mut::<FacilityStorage>(e) {
             storage.dock_queue.retain(|&q| q != ship);
         }
         return true;
@@ -795,13 +792,13 @@ pub fn apply_request_dock_typed(
     // slots are implicitly reserved for the waiting ships.
     for &e in &candidates {
         let (fee, can_admit) = {
-            let ops = match store.world.get::<&FacilityOperations>(e) {
-                Ok(o) => o,
-                Err(_) => continue,
+            let ops = match store.world.get::<FacilityOperations>(e) {
+                Some(o) => o,
+                None => continue,
             };
-            let storage = match store.world.get::<&FacilityStorage>(e) {
-                Ok(s) => s,
-                Err(_) => continue,
+            let storage = match store.world.get::<FacilityStorage>(e) {
+                Some(s) => s,
+                None => continue,
             };
             let docked = storage.docked_ships.len() as u32;
             let queued = storage.dock_queue.len() as u32;
@@ -824,7 +821,7 @@ pub fn apply_request_dock_typed(
         }
         let ship_ok = store
             .world
-            .get::<&ShipEconomy>(ship)
+            .get::<ShipEconomy>(ship)
             .map(|econ| econ.credits >= fee)
             .unwrap_or(false);
         if !ship_ok {
@@ -837,11 +834,11 @@ pub fn apply_request_dock_typed(
     // Case 2b: all facilities are full or have queues that eat the
     // remaining capacity. Append to the shortest queue — balances
     // load across secondaries and minimises the waiting ship's wait.
-    let mut shortest: Option<(hecs::Entity, usize)> = None;
+    let mut shortest: Option<(Entity, usize)> = None;
     for &e in &candidates {
         let qlen = store
             .world
-            .get::<&FacilityStorage>(e)
+            .get::<FacilityStorage>(e)
             .map(|s| s.dock_queue.len())
             .unwrap_or(usize::MAX);
         match shortest {
@@ -851,7 +848,7 @@ pub fn apply_request_dock_typed(
         }
     }
     if let Some((e, _)) = shortest {
-        if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(e) {
+        if let Some(mut storage) = store.world.get_mut::<FacilityStorage>(e) {
             if !storage.dock_queue.contains(&ship) {
                 storage.dock_queue.push(ship);
             }
@@ -880,23 +877,23 @@ pub fn apply_request_dock_typed(
 ///
 /// Without this sweep a single vanished/idle ship can wedge the queue
 /// head forever and every ship behind it starves.
-pub fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, location: &str) {
+pub fn prune_stale_dock_queue(store: &mut AgentStore, facility: Entity, location: &str) {
     use sim_core::agents::{
         facility::FacilityStorage,
         ship::{ShipEconomy, ShipPosition},
     };
-    let queue_snapshot: Vec<hecs::Entity> = match store.world.get::<&FacilityStorage>(facility) {
-        Ok(s) => s.dock_queue.clone(),
-        Err(_) => return,
+    let queue_snapshot: Vec<Entity> = match store.world.get::<FacilityStorage>(facility) {
+        Some(s) => s.dock_queue.clone(),
+        None => return,
     };
     if queue_snapshot.is_empty() {
         return;
     }
-    let mut keep: Vec<hecs::Entity> = Vec::with_capacity(queue_snapshot.len());
+    let mut keep: Vec<Entity> = Vec::with_capacity(queue_snapshot.len());
     for e in queue_snapshot {
         let still_here = store
             .world
-            .get::<&ShipPosition>(e)
+            .get::<ShipPosition>(e)
             .map(|p| p.location_name.as_deref() == Some(location))
             .unwrap_or(false);
         if !still_here {
@@ -904,7 +901,7 @@ pub fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, lo
         }
         let still_trying = store
             .world
-            .get::<&ShipEconomy>(e)
+            .get::<ShipEconomy>(e)
             .map(|econ| econ.dock_attempt_start_tick.is_some())
             .unwrap_or(false);
         if !still_trying {
@@ -912,7 +909,7 @@ pub fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, lo
         }
         keep.push(e);
     }
-    if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
+    if let Some(mut storage) = store.world.get_mut::<FacilityStorage>(facility) {
         if storage.dock_queue.len() != keep.len() {
             storage.dock_queue = keep;
         }
@@ -924,8 +921,8 @@ pub fn prune_stale_dock_queue(store: &mut AgentStore, facility: hecs::Entity, lo
 /// responsible for any queue cleanup.
 pub fn commit_dock(
     store: &mut AgentStore,
-    ship: hecs::Entity,
-    facility: hecs::Entity,
+    ship: Entity,
+    facility: Entity,
     fee: i64,
 ) {
     use sim_core::agents::{
@@ -938,14 +935,12 @@ pub fn commit_dock(
     // facilities both no-op into (1.0, 1.0).
     let ship_faction = store
         .world
-        .get::<&ShipIdentity>(ship)
-        .ok()
+        .get::<ShipIdentity>(ship)
         .map(|i| i.faction_id.clone())
         .unwrap_or_default();
     let fac_faction = store
         .world
-        .get::<&FacilityIdentity>(facility)
-        .ok()
+        .get::<FacilityIdentity>(facility)
         .map(|i| i.faction_id.clone())
         .unwrap_or_default();
     let (fee_mult, burn_mult) =
@@ -955,7 +950,7 @@ pub fn commit_dock(
             &fac_faction,
         );
     let discounted_fee = ((fee as f32) * fee_mult).round() as i64;
-    if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
+    if let Some(mut econ) = store.world.get_mut::<ShipEconomy>(ship) {
         econ.credits -= discounted_fee;
     }
     // Bundle (G): split the fee — facility takes the remainder
@@ -967,16 +962,16 @@ pub fn commit_dock(
     let effective_burn_pct = burn_pct * burn_mult;
     let burned = (discounted_fee as f32 * effective_burn_pct).round() as i64;
     let to_facility = discounted_fee - burned;
-    if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(facility) {
+    if let Some(mut ops) = store.world.get_mut::<FacilityOperations>(facility) {
         ops.credits += to_facility;
         ops.dirty = true;
     }
-    if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
+    if let Some(mut storage) = store.world.get_mut::<FacilityStorage>(facility) {
         if !storage.docked_ships.contains(&ship) {
             storage.docked_ships.push(ship);
         }
     }
-    if let Ok(mut pos) = store.world.get::<&mut ShipPosition>(ship) {
+    if let Some(mut pos) = store.world.get_mut::<ShipPosition>(ship) {
         pos.docked_at = Some(facility);
     }
 }
@@ -996,7 +991,7 @@ pub fn commit_dock(
 /// Undock action.
 pub fn apply_release_dock(
     store: &mut AgentStore,
-    ship: hecs::Entity,
+    ship: Entity,
     location: &str,
 ) {
     use sim_core::agents::{
@@ -1008,7 +1003,7 @@ pub fn apply_release_dock(
         Some(e) => e,
         None => return,
     };
-    if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
+    if let Some(mut storage) = store.world.get_mut::<FacilityStorage>(facility) {
         storage.docked_ships.retain(|&e| e != ship);
     }
 
@@ -1017,23 +1012,23 @@ pub fn apply_release_dock(
     // avoids a dependency on the snapshot-side facility position,
     // which isn't written until after the tick's apply phase.
     let facility_pos = {
-        let id = match store.world.get::<&FacilityIdentity>(facility) {
-            Ok(id) => id.clone(),
-            Err(_) => return,
+        let id = match store.world.get::<FacilityIdentity>(facility) {
+            Some(id) => id.clone(),
+            None => return,
         };
-        let body_center = store
-            .world
-            .query::<(&BodyIdentity, &BodyOrbit)>()
-            .iter()
-            .find(|(_, (bid, _))| bid.body_id == id.body_id)
-            .map(|(_, (_, orbit))| orbit.universe_position());
+        let body_center = {
+            let mut q = store.world.query::<(&BodyIdentity, &BodyOrbit)>();
+            q.iter(&store.world)
+                .find(|(bid, _)| bid.body_id == id.body_id)
+                .map(|(_, orbit)| orbit.universe_position())
+        };
         let Some(body_center) = body_center else {
             return;
         };
         facility_offset_position(body_center, &id.id)
     };
 
-    if let Ok(mut pos) = store.world.get::<&mut ShipPosition>(ship) {
+    if let Some(mut pos) = store.world.get_mut::<ShipPosition>(ship) {
         pos.position = facility_pos;
     }
 }
@@ -1065,39 +1060,41 @@ pub fn tick_dock_queue_advance(store: &mut AgentStore) {
         ship::{ShipEconomy, ShipPosition},
     };
 
-    let facilities: Vec<(hecs::Entity, String)> = store
-        .world
-        .query::<(&FacilityLocation, &FacilityStorage)>()
-        .iter()
-        .filter(|(_, (_, s))| !s.dock_queue.is_empty())
-        .map(|(e, (loc, _))| (e, loc.location_name.clone()))
-        .collect();
+    let facilities: Vec<(Entity, String)> = {
+        let mut q = store
+            .world
+            .query::<(Entity, &FacilityLocation, &FacilityStorage)>();
+        q.iter(&store.world)
+            .filter(|(_, _, s)| !s.dock_queue.is_empty())
+            .map(|(e, loc, _)| (e, loc.location_name.clone()))
+            .collect()
+    };
 
     for (facility, location) in facilities {
         // Inline prune: drop entries whose ship moved or whose
         // `dock_attempt_start_tick` was cleared (timed out / replanned).
-        let pruned: Vec<hecs::Entity> = {
-            let q = match store.world.get::<&FacilityStorage>(facility) {
-                Ok(s) => s.dock_queue.clone(),
-                Err(_) => continue,
+        let pruned: Vec<Entity> = {
+            let q = match store.world.get::<FacilityStorage>(facility) {
+                Some(s) => s.dock_queue.clone(),
+                None => continue,
             };
             q.into_iter()
                 .filter(|&e| {
                     let still_here = store
                         .world
-                        .get::<&ShipPosition>(e)
+                        .get::<ShipPosition>(e)
                         .map(|p| p.location_name.as_deref() == Some(location.as_str()))
                         .unwrap_or(false);
                     let still_trying = store
                         .world
-                        .get::<&ShipEconomy>(e)
+                        .get::<ShipEconomy>(e)
                         .map(|econ| econ.dock_attempt_start_tick.is_some())
                         .unwrap_or(false);
                     still_here && still_trying
                 })
                 .collect()
         };
-        if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
+        if let Some(mut storage) = store.world.get_mut::<FacilityStorage>(facility) {
             if storage.dock_queue.len() != pruned.len() {
                 storage.dock_queue = pruned;
             }
@@ -1107,20 +1104,20 @@ pub fn tick_dock_queue_advance(store: &mut AgentStore) {
         // slots and the head's ability to pay the fee. Broke head
         // evicts without advancing the docked count.
         loop {
-            let head = match store.world.get::<&FacilityStorage>(facility) {
-                Ok(s) => s.dock_queue.first().copied(),
-                Err(_) => break,
+            let head = match store.world.get::<FacilityStorage>(facility) {
+                Some(s) => s.dock_queue.first().copied(),
+                None => break,
             };
             let Some(ship) = head else { break };
 
             let (fee, has_space) = {
-                let ops = match store.world.get::<&FacilityOperations>(facility) {
-                    Ok(o) => o,
-                    Err(_) => break,
+                let ops = match store.world.get::<FacilityOperations>(facility) {
+                    Some(o) => o,
+                    None => break,
                 };
-                let storage = match store.world.get::<&FacilityStorage>(facility) {
-                    Ok(s) => s,
-                    Err(_) => break,
+                let storage = match store.world.get::<FacilityStorage>(facility) {
+                    Some(s) => s,
+                    None => break,
                 };
                 let docked = storage.docked_ships.len() as u32;
                 if docked >= ops.docking_capacity {
@@ -1142,7 +1139,7 @@ pub fn tick_dock_queue_advance(store: &mut AgentStore) {
             }
             let can_afford = store
                 .world
-                .get::<&ShipEconomy>(ship)
+                .get::<ShipEconomy>(ship)
                 .map(|econ| econ.credits >= fee)
                 .unwrap_or(false);
             if !can_afford {
@@ -1150,13 +1147,13 @@ pub fn tick_dock_queue_advance(store: &mut AgentStore) {
                 // The ship's own Dock action sees queue absence next
                 // tick, BT unwinds, planner routes to a sell_cargo /
                 // refuel-elsewhere flow.
-                if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
+                if let Some(mut storage) = store.world.get_mut::<FacilityStorage>(facility) {
                     storage.dock_queue.retain(|&q| q != ship);
                 }
                 continue;
             }
             commit_dock(store, ship, facility, fee);
-            if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
+            if let Some(mut storage) = store.world.get_mut::<FacilityStorage>(facility) {
                 storage.dock_queue.retain(|&q| q != ship);
             }
         }
@@ -1179,7 +1176,7 @@ pub fn tick_dock_queue_advance(store: &mut AgentStore) {
 /// the planner's "can_afford" check guards it.
 pub fn apply_gate_jump(
     store: &mut AgentStore,
-    ship: hecs::Entity,
+    ship: Entity,
     src_gate_location: &str,
     dest_gate_location: &str,
     events: &mut Vec<serde_json::Value>,
@@ -1197,20 +1194,20 @@ pub fn apply_gate_jump(
         .into_iter()
         .flatten()
         .copied()
-        .find(|&e| store.world.get::<&GateLink>(e).is_ok());
+        .find(|&e| store.world.get::<GateLink>(e).is_some());
     let Some(src_gate_entity) = src_gate_entity else {
         return;
     };
 
     // Pull the fee up front (all reads) before any mutation.
     let (fee, paired_id) = {
-        let link = match store.world.get::<&GateLink>(src_gate_entity) {
-            Ok(l) => l,
-            Err(_) => return,
+        let link = match store.world.get::<GateLink>(src_gate_entity) {
+            Some(l) => l,
+            None => return,
         };
         let cargo_used = store
             .world
-            .get::<&ShipCargo>(ship)
+            .get::<ShipCargo>(ship)
             .map(|c| c.used())
             .unwrap_or(0);
         (gate_transit_fee(&link, cargo_used), link.paired_gate_id.clone())
@@ -1219,7 +1216,7 @@ pub fn apply_gate_jump(
     // Ship must be able to pay.
     let can_afford = store
         .world
-        .get::<&ShipEconomy>(ship)
+        .get::<ShipEconomy>(ship)
         .map(|e| e.credits >= fee)
         .unwrap_or(false);
     if !can_afford {
@@ -1227,10 +1224,10 @@ pub fn apply_gate_jump(
     }
 
     // Deduct from ship, credit gate.
-    if let Ok(mut econ) = store.world.get::<&mut ShipEconomy>(ship) {
+    if let Some(mut econ) = store.world.get_mut::<ShipEconomy>(ship) {
         econ.credits -= fee;
     }
-    if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(src_gate_entity) {
+    if let Some(mut ops) = store.world.get_mut::<FacilityOperations>(src_gate_entity) {
         ops.credits += fee;
         ops.dirty = true;
     }
@@ -1238,23 +1235,23 @@ pub fn apply_gate_jump(
     // Resolve the paired gate and its position, teleport the ship.
     let dest_entity = store.facility_by_id.get(&paired_id).copied();
     let ship_new_pos = dest_entity.and_then(|e| {
-        let id = store.world.get::<&FacilityIdentity>(e).ok()?.id.clone();
+        let id = store.world.get::<FacilityIdentity>(e)?.id.clone();
         // Find the body the paired gate is orbiting so we can compute
         // the offset-position to match where the paired gate renders.
-        let body_id = store.world.get::<&FacilityIdentity>(e).ok()?.body_id.clone();
+        let body_id = store.world.get::<FacilityIdentity>(e)?.body_id.clone();
         use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
-        let body_pos = store
-            .world
-            .query::<(&BodyIdentity, &BodyOrbit)>()
-            .iter()
-            .find(|(_, (bid, _))| bid.body_id == body_id)
-            .map(|(_, (_, orbit))| orbit.universe_position());
+        let body_pos = {
+            let mut q = store.world.query::<(&BodyIdentity, &BodyOrbit)>();
+            q.iter(&store.world)
+                .find(|(bid, _)| bid.body_id == body_id)
+                .map(|(_, orbit)| orbit.universe_position())
+        };
         let body_pos = body_pos?;
         Some(sim_core::agents::facility::facility_offset_position(
             body_pos, &id,
         ))
     });
-    if let Ok(mut pos) = store.world.get::<&mut ShipPosition>(ship) {
+    if let Some(mut pos) = store.world.get_mut::<ShipPosition>(ship) {
         pos.location_name = Some(dest_gate_location.to_string());
         pos.docked_at = None;
         if let Some(new_pos) = ship_new_pos {
@@ -1273,23 +1270,23 @@ pub fn apply_gate_jump(
         let dest_system: Option<String> = {
             use sim_core::agents::celestial_body::BodyIdentity;
             use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
-            let body_id = store
-                .world
-                .query::<(&FacilityIdentity, &FacilityLocation)>()
-                .iter()
-                .find(|(_, (_, loc))| loc.location_name == dest_gate_location)
-                .map(|(_, (id, _))| id.body_id.clone());
-            body_id.and_then(|b| {
-                store
+            let body_id = {
+                let mut q = store
                     .world
-                    .query::<&BodyIdentity>()
-                    .iter()
-                    .find(|(_, id)| id.body_id == b)
-                    .map(|(_, id)| id.system_name.clone())
+                    .query::<(&FacilityIdentity, &FacilityLocation)>();
+                q.iter(&store.world)
+                    .find(|(_, loc)| loc.location_name == dest_gate_location)
+                    .map(|(id, _)| id.body_id.clone())
+            };
+            body_id.and_then(|b| {
+                let mut q = store.world.query::<&BodyIdentity>();
+                q.iter(&store.world)
+                    .find(|id| id.body_id == b)
+                    .map(|id| id.system_name.clone())
             })
         };
         if let Some(dst_sys) = dest_system {
-            if let Ok(mut mem) = store.world.get::<&mut ShipMemory>(ship) {
+            if let Some(mut mem) = store.world.get_mut::<ShipMemory>(ship) {
                 // Push only on new-system entry (skip if already
                 // the most recent entry — rare but defensive).
                 if mem.recent_systems.back() != Some(&dst_sys) {
@@ -1304,9 +1301,9 @@ pub fn apply_gate_jump(
 
     let ship_id = store
         .world
-        .get::<&ShipIdentity>(ship)
+        .get::<ShipIdentity>(ship)
         .map(|i| i.id.clone())
-        .unwrap_or_else(|_| "unknown".to_string());
+        .unwrap_or_else(|| "unknown".to_string());
     events.push(serde_json::json!({
         "kind": "ship_gate_jumped",
         "id": ship_id,
@@ -1333,11 +1330,11 @@ pub fn apply_facility_refuel(
         Some(e) => e,
         None => return,
     };
-    if let Ok(mut storage) = store.world.get::<&mut FacilityStorage>(facility) {
+    if let Some(mut storage) = store.world.get_mut::<FacilityStorage>(facility) {
         let entry = storage.reserves.entry(Commodity::Fuel).or_insert(0.0);
         *entry = (*entry - amount).max(0.0);
     }
-    if let Ok(mut ops) = store.world.get::<&mut FacilityOperations>(facility) {
+    if let Some(mut ops) = store.world.get_mut::<FacilityOperations>(facility) {
         ops.credits += payment;
         ops.dirty = true;
     }
@@ -1357,7 +1354,7 @@ pub fn apply_construction_delivery(
 ) {
     use sim_core::agents::construction::{self, ConstructionSite};
 
-    let site_entity = match construction::find_site(&store.world, destination, commodity) {
+    let site_entity = match construction::find_site(&mut store.world, destination, commodity) {
         Some(e) => e,
         None => {
             // No matching site — fall through to normal market drop
@@ -1365,9 +1362,9 @@ pub fn apply_construction_delivery(
             // because the demand analyzer spawns the site before
             // posting the contract.
             if let Some(&market_entity) = store.market_at_location.get(destination) {
-                if let Ok(mut pricing) = store
+                if let Some(mut pricing) = store
                     .world
-                    .get::<&mut sim_core::agents::market::MarketPricing>(market_entity)
+                    .get_mut::<sim_core::agents::market::MarketPricing>(market_entity)
                 {
                     *pricing.supply.entry(commodity).or_insert(0.0) += quantity as f32;
                 }
@@ -1379,7 +1376,7 @@ pub fn apply_construction_delivery(
     // Snapshot the fields we need before mutating.
     let (site_id, site_name, completed_now, new_progress, facility_type, body_id,
          faction_id, position, site_location) = {
-        if let Ok(mut site) = store.world.get::<&mut ConstructionSite>(site_entity) {
+        if let Some(mut site) = store.world.get_mut::<ConstructionSite>(site_entity) {
             let absorbed = quantity.min(site.remaining());
             site.progress_delivered = site.progress_delivered.saturating_add(absorbed);
             site.dirty = true;

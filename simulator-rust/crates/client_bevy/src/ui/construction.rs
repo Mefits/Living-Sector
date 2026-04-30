@@ -37,7 +37,7 @@ impl Default for ConstructionState {
 
 pub(super) fn construction_panel(
     mut ctx: EguiContexts,
-    sim: Res<Sim>,
+    mut sim: ResMut<Sim>,
     mut state: ResMut<ConstructionState>,
     mut focus_req: ResMut<CameraFocusRequest>,
 ) {
@@ -64,27 +64,26 @@ pub(super) fn construction_panel(
         position: (f32, f32),
     }
 
-    let mut rows: Vec<Row> = sim
-        .store
-        .world
-        .query::<&ConstructionSite>()
-        .iter()
-        .map(|(_e, s)| Row {
-            id: s.id.clone(),
-            name: s.name.clone(),
-            facility_type: s.facility_type.clone(),
-            faction: s.faction_id.clone(),
-            location: s.location_name.clone(),
-            body: s.body_id.clone(),
-            commodity: s.commodity.as_str().to_string(),
-            progress: s.progress(),
-            delivered: s.progress_delivered,
-            required: s.progress_required,
-            remaining: s.remaining(),
-            spawned_at: s.spawned_at_tick,
-            position: s.position,
-        })
-        .collect();
+    let mut rows: Vec<Row> = {
+        let mut q = sim.store.world.query::<&ConstructionSite>();
+        q.iter(&sim.store.world)
+            .map(|s| Row {
+                id: s.id.clone(),
+                name: s.name.clone(),
+                facility_type: s.facility_type.clone(),
+                faction: s.faction_id.clone(),
+                location: s.location_name.clone(),
+                body: s.body_id.clone(),
+                commodity: s.commodity.as_str().to_string(),
+                progress: s.progress(),
+                delivered: s.progress_delivered,
+                required: s.progress_required,
+                remaining: s.remaining(),
+                spawned_at: s.spawned_at_tick,
+                position: s.position,
+            })
+            .collect()
+    };
 
     // Sort by progress descending — closest-to-done jumps to the top,
     // the "almost-there" builds are the most interesting.
