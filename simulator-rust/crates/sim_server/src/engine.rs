@@ -106,6 +106,7 @@ pub async fn run_tick_loop(
     world_speed_bits: Arc<AtomicU32>,
     tick_compute_p50_us: Arc<AtomicU64>,
     tick_compute_p99_us: Arc<AtomicU64>,
+    phase_breakdown_us: Arc<std::sync::RwLock<crate::app_state::PhaseBreakdownUs>>,
     observers: Arc<std::sync::RwLock<Vec<Observer>>>,
     lod_counters: LodCounters,
     broadcast_tx: broadcast::Sender<Arc<ServerMsg>>,
@@ -273,99 +274,138 @@ pub async fn run_tick_loop(
         let tick = tick_counter.fetch_add(1, Ordering::Relaxed) + 1;
         let t_start = std::time::Instant::now();
 
+        // `phase!` records elapsed microseconds into a local accumulator
+        // so we can write the per-tick breakdown out at end-of-tick. Last
+        // tick wins — single-sample noisy at low n, fine for stress.
+        let mut breakdown = crate::app_state::PhaseBreakdownUs::default();
+        macro_rules! phase {
+            ($field:ident, $body:block) => {{
+                let t = std::time::Instant::now();
+                $body;
+                breakdown.$field = t.elapsed().as_micros() as u64;
+            }};
+        }
+
         // Tick phases
-        tick_bodies(&mut world, &mut store, tick_scale);
-        sim_core::agents::celestial_body::tick_bodies_regen(
-            &mut world,
-            tick,
-            tick_scale,
-            tick_mult,
-        );
+        phase!(bodies, { tick_bodies(&mut world, &mut store, tick_scale); });
+        phase!(bodies_regen, {
+            sim_core::agents::celestial_body::tick_bodies_regen(
+                &mut world,
+                tick,
+                tick_scale,
+                tick_mult,
+            );
+        });
 
         // LOD recompute — gated by interval so we're not rebuilding the
         // distance table every tick. Populations + facilities inherit
         // their body's current position; ships use their own.
-        let lod_interval = sim_core::simulation::lod::LOD_RECOMPUTE_INTERVAL_BASE
-            * tick_mult as u64;
-        if lod_interval > 0 && tick % lod_interval == 0 {
-            let stats = recompute_lod(&mut world, &mut store, &observers, tick);
-            // Publish counters so the perf HUD can read tier distribution.
-            lod_counters.0.store(stats.d1 as u64, Ordering::Relaxed);
-            lod_counters.1.store(stats.d2 as u64, Ordering::Relaxed);
-            lod_counters.2.store(stats.d5 as u64, Ordering::Relaxed);
-            lod_counters.3.store(stats.d10 as u64, Ordering::Relaxed);
-            lod_counters.4.store(stats.d20 as u64, Ordering::Relaxed);
-            lod_counters.5.store(stats.d50 as u64, Ordering::Relaxed);
-        }
+        phase!(lod, {
+            let lod_interval = sim_core::simulation::lod::LOD_RECOMPUTE_INTERVAL_BASE
+                * tick_mult as u64;
+            if lod_interval > 0 && tick % lod_interval == 0 {
+                let stats = recompute_lod(&mut world, &mut store, &observers, tick);
+                // Publish counters so the perf HUD can read tier distribution.
+                lod_counters.0.store(stats.d1 as u64, Ordering::Relaxed);
+                lod_counters.1.store(stats.d2 as u64, Ordering::Relaxed);
+                lod_counters.2.store(stats.d5 as u64, Ordering::Relaxed);
+                lod_counters.3.store(stats.d10 as u64, Ordering::Relaxed);
+                lod_counters.4.store(stats.d20 as u64, Ordering::Relaxed);
+                lod_counters.5.store(stats.d50 as u64, Ordering::Relaxed);
+            }
+        });
         // Snapshot gate_pairs before ship tick so the pathfinder has a
         // stable read during BT planning. AgentStore.gate_pairs is
         // updated when gates spawn/despawn (admin operations).
         let gate_pairs_snapshot = store.gate_pairs.clone();
-        ship::tick_ships(
-            &mut world,
-            &registry,
-            &gate_pairs_snapshot,
-            &store.contracts,
-            &store.relations,
-            &mut commands,
-            tick,
-            tick_scale,
-            tick_mult,
-        );
-        record_command_trace(&mut world, &mut store, &commands, tick, &command_trace);
-        apply_ship_commands(&mut world, &mut store, &mut commands, &mut events, tick);
+        phase!(ships, {
+            ship::tick_ships(
+                &mut world,
+                &registry,
+                &gate_pairs_snapshot,
+                &store.contracts,
+                &store.relations,
+                &mut commands,
+                tick,
+                tick_scale,
+                tick_mult,
+            );
+        });
+        phase!(apply1, {
+            record_command_trace(&mut world, &mut store, &commands, tick, &command_trace);
+            apply_ship_commands(&mut world, &mut store, &mut commands, &mut events, tick);
+        });
         // Per-tick queue advance: admits any queue heads that have
         // space and credits, independent of whether the ship at the
         // head is currently emitting RequestDock. Prevents LOD'd-out
         // ships from indefinitely holding queue slots they can't
         // actively poll for.
-        tick_dock_queue_advance(&mut world, &mut store);
+        phase!(dock_queue, { tick_dock_queue_advance(&mut world, &mut store); });
+        let t_drains = std::time::Instant::now();
         drain_pending_materializations(&mut world, &mut store, &pool, &persist_tx, &mut events).await;
         drain_pending_decommissions(&mut world, &mut store, tick, &mut events, &persist_tx).await;
         drain_pending_respawns(&mut world, &mut store, &registry, tick, &mut events, &persist_tx, &pool).await;
-        facility::tick_facilities(
-            &mut world,
-            &mut store.contracts,
-            &mut events,
-            tick,
-            tick_scale,
-            tick_mult,
-        );
-        population::tick_populations(
-            &mut world,
-            &mut store.contracts,
-            &mut events,
-            tick,
-            tick_scale,
-            tick_mult,
-        );
-        market::tick_markets(&mut world, &mut commands, tick, tick_mult);
+        breakdown.drains = t_drains.elapsed().as_micros() as u64;
+        phase!(facilities, {
+            facility::tick_facilities(
+                &mut world,
+                &mut store.contracts,
+                &mut events,
+                tick,
+                tick_scale,
+                tick_mult,
+            );
+        });
+        phase!(populations, {
+            population::tick_populations(
+                &mut world,
+                &mut store.contracts,
+                &mut events,
+                tick,
+                tick_scale,
+                tick_mult,
+            );
+        });
+        phase!(markets, {
+            market::tick_markets(&mut world, &mut commands, tick, tick_mult);
+        });
         // Bundle (S): after markets + facilities tick, emit
         // structural-warning events on threshold crossings so
         // Godot can surface "5 markets in crisis" / "2 facilities
         // starving" without polling every panel. Hysteresis
         // windows inside `scan_crisis_events` prevent flapping.
-        scan_crisis_events(&mut world, &mut events);
+        phase!(crisis, { scan_crisis_events(&mut world, &mut events); });
         // Market emits TransferCredits (spread revenue) — apply before clearing
+        let t_apply2 = std::time::Instant::now();
         record_command_trace(&mut world, &mut store, &commands, tick, &command_trace);
         apply_ship_commands(&mut world, &mut store, &mut commands, &mut events, tick);
         drain_pending_materializations(&mut world, &mut store, &pool, &persist_tx, &mut events).await;
         drain_pending_decommissions(&mut world, &mut store, tick, &mut events, &persist_tx).await;
         drain_pending_respawns(&mut world, &mut store, &registry, tick, &mut events, &persist_tx, &pool).await;
-        faction::tick_factions(
-            &mut world,
-            &mut store.contracts,
-            &mut events,
-            &mut store.system_control,
-            tick,
-            tick_mult,
-        );
+        breakdown.apply2 = t_apply2.elapsed().as_micros() as u64;
+        phase!(factions, {
+            faction::tick_factions(
+                &mut world,
+                &mut store.contracts,
+                &mut events,
+                &mut store.system_control,
+                tick,
+                tick_mult,
+            );
+        });
         // Bundle A: inter-faction relations. Low-frequency — decay +
         // threshold-driven treaty transitions only need to run on
         // the relations interval. Emits `treaty_changed` events for
         // every state crossing (picked up by Godot event ticker).
-        tick_relations_pass(&mut store, &mut events, tick, tick_mult);
+        phase!(relations, {
+            tick_relations_pass(&mut store, &mut events, tick, tick_mult);
+        });
         commands.clear();
+
+        // Publish per-phase breakdown for /api/health. Last tick wins.
+        if let Ok(mut bd) = phase_breakdown_us.write() {
+            *bd = breakdown;
+        }
 
         let tick_compute_us = t_start.elapsed().as_micros() as u64;
 

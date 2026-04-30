@@ -23,6 +23,34 @@ pub struct CommandTraceEntry {
     pub detail: String,
 }
 
+/// Last-tick wall-clock microseconds per tick phase. Updated each
+/// tick by `run_tick_loop`; read by the `/api/health` "phase_perf"
+/// payload so the stress harness (and future debug HUD) can see
+/// which phase dominates. Single-tick samples are noisy at low
+/// agent counts; sample multiple times for stable readings.
+///
+/// Phases mirror the order in [`run_tick_loop`]:
+/// `bodies → bodies_regen → lod → ships → apply1 → dock_queue →
+/// drains → facilities → populations → markets → crisis → apply2 →
+/// factions → relations`.
+#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
+pub struct PhaseBreakdownUs {
+    pub bodies: u64,
+    pub bodies_regen: u64,
+    pub lod: u64,
+    pub ships: u64,
+    pub apply1: u64,
+    pub dock_queue: u64,
+    pub drains: u64,
+    pub facilities: u64,
+    pub populations: u64,
+    pub markets: u64,
+    pub crisis: u64,
+    pub apply2: u64,
+    pub factions: u64,
+    pub relations: u64,
+}
+
 /// Camera-attached attention volume. The Godot client sends MoveObserver
 /// over the control channel every time the viewport shifts; the LOD
 /// phase reads this to set per-agent `AgentLod.divisor`. Multiple
@@ -69,6 +97,10 @@ pub struct AppState {
     /// overlay reads these through `/api/health`.
     pub tick_compute_p50_us: Arc<AtomicU64>,
     pub tick_compute_p99_us: Arc<AtomicU64>,
+    /// Per-phase microsecond breakdown of the most recent tick. Single
+    /// sample (last tick wins) — noisy at low agent counts but useful
+    /// for finding the dominant phase under stress. Read via `/api/health`.
+    pub phase_breakdown_us: Arc<RwLock<PhaseBreakdownUs>>,
     /// Attention volumes attached to client viewports. The control-drain
     /// writes here whenever it sees a `MoveObserver`; the tick loop's LOD
     /// phase reads. Kept tiny (usually 1 observer) — RwLock cost is

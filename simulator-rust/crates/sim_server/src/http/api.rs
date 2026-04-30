@@ -29,6 +29,15 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
         "perf": {
             "tick_compute_p50_us": state.tick_compute_p50_us.load(Ordering::Relaxed),
             "tick_compute_p99_us": state.tick_compute_p99_us.load(Ordering::Relaxed),
+            // Last-tick per-phase microsecond breakdown. Single sample —
+            // poll over a window if you want stable readings. Useful for
+            // localizing the dominant phase under stress.
+            "phase_us": state
+                .phase_breakdown_us
+                .read()
+                .ok()
+                .map(|bd| serde_json::to_value(*bd).unwrap_or(serde_json::Value::Null))
+                .unwrap_or(serde_json::Value::Null),
             // Spatial-LOD tier distribution (updated every 50 base-ticks by
             // the LOD recompute phase). Counts agents that carry an
             // AgentLod — ships always, facilities/populations carry the

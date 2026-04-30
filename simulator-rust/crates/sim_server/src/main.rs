@@ -147,6 +147,9 @@ async fn main() -> Result<()> {
     let agent_count = Arc::new(AtomicU64::new(agent_count_initial));
     let tick_compute_p50_us = Arc::new(AtomicU64::new(0));
     let tick_compute_p99_us = Arc::new(AtomicU64::new(0));
+    let phase_breakdown_us = Arc::new(std::sync::RwLock::new(
+        app_state::PhaseBreakdownUs::default(),
+    ));
     let observers: Arc<std::sync::RwLock<Vec<app_state::Observer>>> =
         Arc::new(std::sync::RwLock::new(Vec::new()));
     let lod_d1 = Arc::new(AtomicU64::new(0));
@@ -185,6 +188,7 @@ async fn main() -> Result<()> {
         db_pool: Arc::new(pool.clone()),
         tick_compute_p50_us: tick_compute_p50_us.clone(),
         tick_compute_p99_us: tick_compute_p99_us.clone(),
+        phase_breakdown_us: phase_breakdown_us.clone(),
         observers: observers.clone(),
         lod_d1: lod_d1.clone(),
         lod_d2: lod_d2.clone(),
@@ -240,6 +244,7 @@ async fn main() -> Result<()> {
         let world_speed_bits = world_speed_bits.clone();
         let tick_compute_p50_us = tick_compute_p50_us.clone();
         let tick_compute_p99_us = tick_compute_p99_us.clone();
+        let phase_breakdown_us = phase_breakdown_us.clone();
         let observers = observers.clone();
         let lod_counters = (
             lod_d1.clone(),
@@ -264,6 +269,7 @@ async fn main() -> Result<()> {
                 world_speed_bits,
                 tick_compute_p50_us,
                 tick_compute_p99_us,
+                phase_breakdown_us,
                 observers,
                 lod_counters,
                 broadcast_tx,
