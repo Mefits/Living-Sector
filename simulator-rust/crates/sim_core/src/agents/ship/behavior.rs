@@ -365,43 +365,84 @@ pub(super) fn decide_and_act(
             .collect()
     };
 
-    let entities: Vec<Entity> = {
-        let mut q = world.query::<(Entity, &ShipIdentity)>();
-        q.iter(world).map(|(e, _)| e).collect()
-    };
-
-    for entity in entities {
+    // Phase C step 3d: parallel ship-decision pass.
+    //
+    // Each ship's BT execution is independent — it mutates only its own
+    // 9 mut components and reads pre-built snapshots (shipyard_inventory,
+    // controller_by_location, contracts/relations refs, etc.). The only
+    // shared mutable target is the SimCommand buffer, which we replace
+    // with a per-closure local CommandBuffer that gets merged under a
+    // single Mutex once per ship at end-of-closure (≤1 lock/ship rather
+    // than 1 lock/command). After the parallel pass, the merged buffer
+    // is sorted by actor-entity bits before flushing into the outer
+    // CommandBuffer so apply ordering stays deterministic across runs
+    // regardless of TaskPool worker scheduling.
+    //
+    // ShipIdentity / ShipFitting / ShipProgression were previously
+    // fetched via separate `world.get<>` calls; they're now in the
+    // query as immutable refs alongside the 9 muts so the parallel
+    // closure has no need to touch the World outside its own slice.
+    let cmd_mutex = std::sync::Mutex::new(CommandBuffer::new());
+    let mut q = world.query::<(
+        Entity,
+        &ShipIdentity,
+        &ShipFitting,
+        &ShipProgression,
+        &mut ShipPosition,
+        &mut ShipTransit,
+        &mut ShipCargo,
+        &mut ShipFuel,
+        &mut ShipEconomy,
+        &mut ShipAI,
+        &mut ShipMemory,
+        &mut ShipLifecycle,
+        &mut ShipCrew,
+    )>();
+    q.par_iter_mut(world).for_each(|(
+        entity,
+        identity,
+        fitting,
+        progression,
+        mut position,
+        mut transit,
+        mut cargo,
+        mut fuel,
+        mut economy,
+        mut ai,
+        mut memory,
+        mut lifecycle,
+        mut crew,
+    )| {
         // LOD gate — LOD'd-out ships don't replan or execute BT steps
         // this round. They'll pick back up on their next fire.
         if !active.contains_key(&entity) {
-            continue;
+            return;
         }
 
-        // Fetch ship's string id (used for contract acceptance) +
-        // faction id (used by Bundle B's treaty-implied rep floor).
-        let (ship_id, ship_faction): (String, String) =
-            match world.get::<ShipIdentity>(entity) {
-                Some(id) => (id.id.clone(), id.faction_id.clone()),
-                None => continue,
-            };
+        // Per-closure local command buffer — drained into the shared
+        // mutex once at end-of-body to minimize contention.
+        let mut local_buf = CommandBuffer::new();
+        let commands: &mut CommandBuffer = &mut local_buf;
 
-        // Snapshot crew state before the main mut borrow (needed for the planner).
-        let crew_snapshot: Option<ShipCrew> = world
-            .get::<ShipCrew>(entity)
-            .map(|c| (*c).clone());
+        // Ship's string id (used for contract acceptance) + faction id
+        // (used by Bundle B's treaty-implied rep floor) — pulled from
+        // the query's read-only ShipIdentity ref instead of a separate
+        // world.get<> call.
+        let ship_id: String = identity.id.clone();
+        let ship_faction: String = identity.faction_id.clone();
 
-        // Phase 18d: compute a retrofit opportunity before the main mut
-        // borrow. Requires a banked retrofit point AND the usual
-        // fitting + credits + stock gates. None if any check fails —
-        // the ship will plan normally.
+        // Snapshot crew state for the planner. The mut borrow hasn't
+        // changed crew yet, so cloning here gives the same pre-mutation
+        // view the old `world.get::<ShipCrew>` did.
+        let crew_snapshot: Option<ShipCrew> = Some((*crew).clone());
+
+        // Phase 18d: compute a retrofit opportunity. Reads come from
+        // the query's read-only refs + the snapshotted shipyard
+        // inventory; no World access needed.
         let retrofit_plan: Option<RetrofitPlan> = (|| {
-            let prog = world.get::<ShipProgression>(entity)?;
-            if prog.retrofit_points == 0 {
+            if progression.retrofit_points == 0 {
                 return None;
             }
-            let fitting = world.get::<ShipFitting>(entity)?;
-            let economy = world.get::<ShipEconomy>(entity)?;
-            let position = world.get::<ShipPosition>(entity)?;
             let ship_location = position.location_name.clone().unwrap_or_default();
             let ship_system = position.system_id.clone();
             find_retrofit_opportunity(
@@ -413,32 +454,10 @@ pub(super) fn decide_and_act(
             )
         })();
 
-        // Phase 18f: sensor range determines whether the contract
-        // planner can see cross-system contracts. Read before the
-        // main mut borrow so plan_goal doesn't need mutable access
-        // to the fitting. Default to 0.0 for pre-18f ships (they'll
-        // be treated as myopic and skip cross-system contracts).
-        let sensor_range_au: f32 = world
-            .get::<ShipFitting>(entity)
-            .map(|f| f.derived.sensor_range_au)
-            .unwrap_or(0.0);
+        // Phase 18f: sensor range determines cross-system contract
+        // visibility. Read directly off the fitting in-query.
+        let sensor_range_au: f32 = fitting.derived.sensor_range_au;
 
-        let mut q = world.query::<(
-            &mut ShipPosition,
-            &mut ShipTransit,
-            &mut ShipCargo,
-            &mut ShipFuel,
-            &mut ShipEconomy,
-            &mut ShipAI,
-            &mut ShipMemory,
-            &mut ShipLifecycle,
-            &mut ShipCrew,
-        )>();
-        let (mut position, mut transit, mut cargo, mut fuel, mut economy, mut ai, mut memory, mut lifecycle, mut crew) =
-            match q.get_mut(world, entity) {
-                Ok(t) => t,
-                Err(_) => continue,
-            };
         let position = &mut *position;
         let transit = &mut *transit;
         let cargo = &mut *cargo;
@@ -454,7 +473,15 @@ pub(super) fn decide_and_act(
             // "fulfill_delivery") so the UI can show what the ship is
             // actually doing mid-flight. The BT's Travel node returns
             // Running, so we don't re-tick the BT here.
-            continue;
+            // (Drain local_buf before returning — currently empty at
+            // this point but defensive against future edits adding
+            // pre-transit emissions.)
+            if !local_buf.is_empty() {
+                if let Ok(mut shared) = cmd_mutex.lock() {
+                    shared.append(&mut local_buf);
+                }
+            }
+            return;
         }
 
         // Sanity-clean stale active_contract_id before planning.
@@ -744,7 +771,25 @@ pub(super) fn decide_and_act(
         }
 
         lifecycle.dirty = true;
-    }
+
+        // Flush this ship's accumulated commands into the shared
+        // mutex. One acquire per ship rather than one per push.
+        if !local_buf.is_empty() {
+            if let Ok(mut shared) = cmd_mutex.lock() {
+                shared.append(&mut local_buf);
+            }
+        }
+    });
+
+    // Drain the merged buffer, sort by actor entity id for
+    // deterministic apply ordering across runs (par_iter_mut worker
+    // scheduling is otherwise non-deterministic), and append to the
+    // outer CommandBuffer the caller passed in.
+    let mut merged = cmd_mutex.into_inner().unwrap_or_default();
+    merged.commands.sort_by_key(|cmd| {
+        cmd.actor_ship().map(|e| e.to_bits()).unwrap_or(u64::MAX)
+    });
+    commands.append(&mut merged);
 }
 
 /// Bundle 2.1: tier weights for the unified utility scorer. Each
