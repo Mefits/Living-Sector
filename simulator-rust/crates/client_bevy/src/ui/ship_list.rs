@@ -89,12 +89,17 @@ pub struct SelectedShip(pub Option<String>);
 
 pub(super) fn ship_list(
     mut ctx: EguiContexts,
-    mut sim: ResMut<Sim>,
+    _sim: Res<Sim>,
     mut state: ResMut<ShipListState>,
     mut selected: ResMut<SelectedShip>,
+    ships_q: Query<(
+        &sim_core::agents::ship::ShipIdentity,
+        &sim_core::agents::ship::ShipPosition,
+        &sim_core::agents::ship::ShipEconomy,
+        &sim_core::agents::ship::ShipFuel,
+        &sim_core::agents::ship::ShipAI,
+    )>,
 ) {
-    use sim_core::agents::ship::{ShipAI, ShipEconomy, ShipFuel, ShipIdentity, ShipPosition};
-
     // Snapshot the mutable fields we'll need inside egui closures so
     // the borrow checker doesn't choke on overlapping mut refs into
     // the ResMut. We write back at the end of the function.
@@ -107,33 +112,22 @@ pub(super) fn ship_list(
         return;
     }
 
-    let rows: Vec<ShipRow> = {
-        let mut q = sim
-            .store
-            .world
-            .query::<(
-                &ShipIdentity,
-                &ShipPosition,
-                &ShipEconomy,
-                &ShipFuel,
-                &ShipAI,
-            )>();
-        q.iter(&sim.store.world)
-            .map(|(id, pos, econ, fuel, ai)| ShipRow {
-                id: id.id.clone(),
-                name: id.name.clone(),
-                class: id.class.clone(),
-                faction: id.faction_id.clone(),
-                location: pos
-                    .location_name
-                    .clone()
-                    .unwrap_or_else(|| "(in transit)".into()),
-                credits: econ.credits,
-                fuel_frac: fuel.fraction(),
-                goal: ai.current_goal.clone(),
-            })
-            .collect()
-    };
+    let rows: Vec<ShipRow> = ships_q
+        .iter()
+        .map(|(id, pos, econ, fuel, ai)| ShipRow {
+            id: id.id.clone(),
+            name: id.name.clone(),
+            class: id.class.clone(),
+            faction: id.faction_id.clone(),
+            location: pos
+                .location_name
+                .clone()
+                .unwrap_or_else(|| "(in transit)".into()),
+            credits: econ.credits,
+            fuel_frac: fuel.fraction(),
+            goal: ai.current_goal.clone(),
+        })
+        .collect();
 
     let filter_lc = filter.to_lowercase();
     let mut filtered: Vec<&ShipRow> = rows

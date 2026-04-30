@@ -44,17 +44,36 @@ use crate::camera::CameraFocusRequest;
 use crate::render::SCALE_FACTOR;
 use crate::sim::Sim;
 
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 pub(super) fn ship_details_panel(
     mut ctx: EguiContexts,
     mut sim: ResMut<Sim>,
     mut selected: ResMut<SelectedShip>,
     mut focus_req: ResMut<CameraFocusRequest>,
+    base_q: Query<(
+        &sim_core::agents::ship::ShipIdentity,
+        &sim_core::agents::ship::ShipPosition,
+        &sim_core::agents::ship::ShipTransit,
+        &sim_core::agents::ship::ShipCargo,
+        &sim_core::agents::ship::ShipFuel,
+        &sim_core::agents::ship::ShipEconomy,
+        &sim_core::agents::ship::ShipAI,
+    )>,
+    extra_q: Query<(
+        &sim_core::agents::ship::ShipCrew,
+        &sim_core::agents::ship::ShipCrewSkills,
+        &sim_core::agents::ship::ShipProgression,
+        &sim_core::agents::ship::ShipFitting,
+        &sim_core::agents::ship::ShipLifecycle,
+    )>,
+    mut prog_mut_q: Query<&mut sim_core::agents::ship::ShipProgression>,
+    mut fuel_mut_q: Query<&mut sim_core::agents::ship::ShipFuel>,
+    mut crew_mut_q: Query<&mut sim_core::agents::ship::ShipCrew>,
+    mut econ_mut_q: Query<&mut sim_core::agents::ship::ShipEconomy>,
+    mut storage_mut_q: Query<&mut sim_core::agents::facility::FacilityStorage>,
+    mut commands: Commands,
 ) {
-    use sim_core::agents::ship::{
-        ShipAI, ShipCargo, ShipCrew, ShipCrewSkills, ShipEconomy, ShipFitting, ShipFuel,
-        ShipIdentity, ShipLifecycle, ShipPosition, ShipProgression, ShipTransit,
-    };
-
     let Some(ship_id) = selected.0.clone() else {
         return;
     };
@@ -83,57 +102,13 @@ pub(super) fn ship_details_panel(
         .default_height(640.0)
         .open(&mut still_open)
         .show(ctx.ctx_mut().unwrap(), |ui| {
-            let (id, pos, transit, cargo, fuel, econ, ai, crew, skills, prog, fit, life) = {
-                let world = &sim.store.world;
-                let Some(id) = world.get::<ShipIdentity>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                let Some(pos) = world.get::<ShipPosition>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                let Some(transit) = world.get::<ShipTransit>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                let Some(cargo) = world.get::<ShipCargo>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                let Some(fuel) = world.get::<ShipFuel>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                let Some(econ) = world.get::<ShipEconomy>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                let Some(ai) = world.get::<ShipAI>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                let Some(crew) = world.get::<ShipCrew>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                let Some(skills) = world.get::<ShipCrewSkills>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                let Some(prog) = world.get::<ShipProgression>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                let Some(fit) = world.get::<ShipFitting>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                let Some(life) = world.get::<ShipLifecycle>(entity) else {
-                    ui.label("(ship entity missing components)");
-                    return;
-                };
-                (id, pos, transit, cargo, fuel, econ, ai, crew, skills, prog, fit, life)
+            let Ok((id, pos, transit, cargo, fuel, econ, ai)) = base_q.get(entity) else {
+                ui.label("(ship entity missing components)");
+                return;
+            };
+            let Ok((crew, skills, prog, fit, life)) = extra_q.get(entity) else {
+                ui.label("(ship entity missing components)");
+                return;
             };
 
             // Toolbar: camera focus + admin actions. Camera focus
@@ -486,8 +461,7 @@ pub(super) fn ship_details_panel(
         });
 
     if grant_xp_requested {
-        use sim_core::agents::ship::ShipProgression;
-        if let Some(mut prog) = sim.store.world.get_mut::<ShipProgression>(entity) {
+        if let Ok(mut prog) = prog_mut_q.get_mut(entity) {
             let levels = prog.grant_xp(100);
             info!(
                 "client_bevy admin: +100 XP to {} ({}level+{})",
@@ -502,38 +476,51 @@ pub(super) fn ship_details_panel(
         // via_shipyard=false → admin override path: no cost, no
         // shipyard stock decrement. Matches the HTTP admin/refit
         // endpoint behaviour for the no-cost form.
-        let mut refit_events: Vec<serde_json::Value> = Vec::new();
-        sim_server::engine::admin_refit_ship(
-            &mut sim.store,
-            &ship_id,
-            slot,
-            Some(slug),
-            false,
-            &mut refit_events,
-        );
-        info!(
-            "client_bevy admin: refit {} {} → {}",
-            ship_id,
-            slot.as_str(),
-            slug,
-        );
+        //
+        // Phase B: admin_refit_ship now takes (&mut World, &mut
+        // AgentStore, ...). The Bevy app World holds the sim
+        // entities; we can't access it through Res<Sim> + Query
+        // params, so the refit path is queued through Commands as
+        // a deferred World mutation that the next stage of the
+        // schedule applies.
+        let ship_id_for_cmd = ship_id.clone();
+        commands.queue(move |world: &mut World| {
+            if let Some(mut sim) = world.remove_resource::<Sim>() {
+                let mut events: Vec<serde_json::Value> = Vec::new();
+                sim_server::engine::admin_refit_ship(
+                    world,
+                    &mut sim.store,
+                    &ship_id_for_cmd,
+                    slot,
+                    Some(slug),
+                    false,
+                    &mut events,
+                );
+                world.insert_resource(sim);
+                info!(
+                    "client_bevy admin: refit (deferred) {} → {}",
+                    slot.as_str(),
+                    slug,
+                );
+            }
+        });
     }
 
     if heal_requested {
-        use sim_core::agents::ship::{ShipCrew, ShipEconomy, ShipFuel};
-        // Drop borrows one at a time — hecs only allows one mutable
-        // query per component per scope. Each `get::<&mut _>` scopes
-        // to the `if let` block.
-        if let Some(mut fuel) = sim.store.world.get_mut::<ShipFuel>(entity) {
+        // Drop borrows one at a time — Bevy queries enforce one
+        // mutable borrow per component per scope. Each `if let`
+        // block ends the borrow on its component before the next
+        // begins.
+        if let Ok(mut fuel) = fuel_mut_q.get_mut(entity) {
             fuel.fuel = fuel.fuel_capacity;
         }
-        if let Some(mut crew) = sim.store.world.get_mut::<ShipCrew>(entity) {
+        if let Ok(mut crew) = crew_mut_q.get_mut(entity) {
             crew.morale = 100.0;
             crew.health = 100.0;
             crew.hunger = 0.0;
             crew.fatigue = 0.0;
         }
-        if let Some(mut econ) = sim.store.world.get_mut::<ShipEconomy>(entity) {
+        if let Ok(mut econ) = econ_mut_q.get_mut(entity) {
             // Floor — don't zap a millionaire ship back to 10k. Just
             // make sure a stranded ship has dock money.
             if econ.credits < 10_000 {
@@ -544,13 +531,11 @@ pub(super) fn ship_details_panel(
     }
 
     if delete_requested {
-        use sim_core::agents::facility::FacilityStorage;
         // Step 1: yank the ship entity out of any docked list + dock
         // queue. If we skip this the entry wedges behind a despawned
         // entity and blocks live ships behind it. Mirrors the admin
         // cascade in sim_server::engine::admin_remove_ship.
-        let mut q = sim.store.world.query::<&mut FacilityStorage>();
-        for mut storage in q.iter_mut(&mut sim.store.world) {
+        for mut storage in storage_mut_q.iter_mut() {
             storage.docked_ships.retain(|&e| e != entity);
             storage.dock_queue.retain(|&e| e != entity);
         }
@@ -559,9 +544,11 @@ pub(super) fn ship_details_panel(
         // the ship). `drop` is ignored here because the client
         // doesn't broadcast events the way sim_server does.
         let _ = sim.store.contracts.drop_ship_holdings(&ship_id);
-        // Step 3: actually despawn + forget the id mapping.
-        let _ = sim.store.world.despawn(entity);
+        // Step 3: actually despawn + forget the id mapping. We use
+        // Commands to defer the despawn since Bevy's borrow rules
+        // forbid grabbing &mut World while query params are live.
         sim.store.ship_by_id.remove(&ship_id);
+        commands.entity(entity).despawn();
         info!("client_bevy admin: deleted ship {}", ship_id);
         // Clear selection so the details panel closes cleanly on the
         // next frame (entity lookup will fail either way, but being

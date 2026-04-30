@@ -67,13 +67,13 @@ struct FactionRow {
 
 pub(super) fn factions_panel(
     mut ctx: EguiContexts,
-    mut sim: ResMut<Sim>,
+    sim: Res<Sim>,
     mut state: ResMut<FactionsState>,
+    ships_q: Query<&sim_core::agents::ship::ShipIdentity>,
+    facilities_q: Query<&sim_core::agents::facility::FacilityIdentity>,
+    factions_q: Query<&sim_core::agents::faction::FactionData>,
 ) {
-    use sim_core::agents::{
-        facility::FacilityIdentity, faction::FactionData, faction_relations::TreatyKind,
-        ship::ShipIdentity,
-    };
+    use sim_core::agents::faction_relations::TreatyKind;
     use std::collections::HashMap;
 
     let mut open = state.open;
@@ -86,34 +86,26 @@ pub(super) fn factions_panel(
 
     // Ship + facility counts per faction id, built once.
     let mut ship_counts: HashMap<String, u32> = HashMap::new();
-    {
-        let mut q = sim.store.world.query::<&ShipIdentity>();
-        for id in q.iter(&sim.store.world) {
-            *ship_counts.entry(id.faction_id.clone()).or_insert(0) += 1;
-        }
+    for id in ships_q.iter() {
+        *ship_counts.entry(id.faction_id.clone()).or_insert(0) += 1;
     }
     let mut fac_counts: HashMap<String, u32> = HashMap::new();
-    {
-        let mut q = sim.store.world.query::<&FacilityIdentity>();
-        for id in q.iter(&sim.store.world) {
-            *fac_counts.entry(id.faction_id.clone()).or_insert(0) += 1;
-        }
+    for id in facilities_q.iter() {
+        *fac_counts.entry(id.faction_id.clone()).or_insert(0) += 1;
     }
 
-    let mut rows: Vec<FactionRow> = {
-        let mut q = sim.store.world.query::<&FactionData>();
-        q.iter(&sim.store.world)
-            .map(|f| FactionRow {
-                name: f.name.clone(),
-                home_system: f.home_system.clone(),
-                faction_type: f.faction_type.clone(),
-                treasury: f.treasury,
-                ships: ship_counts.get(&f.id).copied().unwrap_or(0),
-                facilities: fac_counts.get(&f.id).copied().unwrap_or(0),
-                subsidies: f.active_subsidies,
-            })
-            .collect()
-    };
+    let mut rows: Vec<FactionRow> = factions_q
+        .iter()
+        .map(|f| FactionRow {
+            name: f.name.clone(),
+            home_system: f.home_system.clone(),
+            faction_type: f.faction_type.clone(),
+            treasury: f.treasury,
+            ships: ship_counts.get(&f.id).copied().unwrap_or(0),
+            facilities: fac_counts.get(&f.id).copied().unwrap_or(0),
+            subsidies: f.active_subsidies,
+        })
+        .collect();
 
     rows.sort_by(|a, b| {
         let cmp = match sort {

@@ -26,6 +26,7 @@
 //!
 //! Extracted from `ui/mod.rs` in the Phase-21 god-module split.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
@@ -349,33 +350,54 @@ pub(super) fn top_bar_controls(
     paint_holo_chrome_overlay(&painter, resp_controls.response.rect);
 }
 
+/// Phase B: bundle the eleven panel-state ResMuts top_bar drives
+/// into a single SystemParam so the system parameter list stays
+/// inside Bevy's 16-tuple cap. Adding a `Query<&ConstructionSite>`
+/// for the live site count pushed the explicit form past the cap.
+#[derive(SystemParam)]
+pub(super) struct PanelStates<'w> {
+    perf: ResMut<'w, PerfStats>,
+    ships: ResMut<'w, ShipListState>,
+    contracts: ResMut<'w, ContractsState>,
+    factions: ResMut<'w, FactionsState>,
+    markets: ResMut<'w, MarketsState>,
+    pops: ResMut<'w, PopulationsState>,
+    facilities: ResMut<'w, FacilityListState>,
+    retired_state: ResMut<'w, RetirementsState>,
+    construction: ResMut<'w, ConstructionState>,
+    minimap: ResMut<'w, MinimapState>,
+    body_labels: ResMut<'w, BodyLabelsState>,
+    events_state: ResMut<'w, EventsState>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn top_bar(
     mut ctx: EguiContexts,
-    mut sim: ResMut<Sim>,
+    sim: Res<Sim>,
     retirements: Res<Retirements>,
-    mut perf: ResMut<PerfStats>,
-    mut ships: ResMut<ShipListState>,
-    mut contracts: ResMut<ContractsState>,
-    mut factions: ResMut<FactionsState>,
-    mut markets: ResMut<MarketsState>,
-    mut pops: ResMut<PopulationsState>,
-    mut facilities: ResMut<FacilityListState>,
-    mut retired_state: ResMut<RetirementsState>,
-    mut construction: ResMut<ConstructionState>,
-    mut minimap: ResMut<MinimapState>,
-    mut body_labels: ResMut<BodyLabelsState>,
-    mut events_state: ResMut<EventsState>,
+    mut panels: PanelStates,
     events: Res<EventsLog>,
+    construction_q: Query<&sim_core::agents::construction::ConstructionSite>,
 ) {
+    // Destructure to keep the body's existing variable names. Each
+    // borrow lives as `&mut *panels.X` so the pre-Phase-B closures
+    // stay readable.
+    let perf = &mut *panels.perf;
+    let ships = &mut *panels.ships;
+    let contracts = &mut *panels.contracts;
+    let factions = &mut *panels.factions;
+    let markets = &mut *panels.markets;
+    let pops = &mut *panels.pops;
+    let facilities = &mut *panels.facilities;
+    let retired_state = &mut *panels.retired_state;
+    let construction = &mut *panels.construction;
+    let minimap = &mut *panels.minimap;
+    let body_labels = &mut *panels.body_labels;
+    let events_state = &mut *panels.events_state;
     // Count construction sites via an ECS query — the sim store
     // doesn't index them by id (sites aren't frequently looked up
     // by id). At typical counts (<20) the iteration is trivial.
-    use sim_core::agents::construction::ConstructionSite;
-    let construction_count = {
-        let mut q = sim.store.world.query::<&ConstructionSite>();
-        q.iter(&sim.store.world).count()
-    };
+    let construction_count = construction_q.iter().count();
     let resp_panels = egui::TopBottomPanel::top("top_bar_panels")
         .frame(holo_chrome_frame())
         .show(ctx.ctx_mut().unwrap(), |ui| {

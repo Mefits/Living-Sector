@@ -66,14 +66,16 @@ const SHIP_CLASSES: &[&str] = &["courier", "freighter", "hauler", "tanker", "min
 pub(super) fn add_ship_dialog(
     mut ctx: EguiContexts,
     mut state: ResMut<AddShipDialogState>,
-    mut sim: ResMut<Sim>,
+    sim: Res<Sim>,
     mut spawn_req: ResMut<crate::sim::SpawnShipRequest>,
+    facilities_q: Query<(
+        &sim_core::agents::facility::FacilityIdentity,
+        &sim_core::agents::facility::FacilityLocation,
+    )>,
 ) {
     if !state.open {
         return;
     }
-
-    use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
 
     // Build picker options from the live world. Factions come from
     // the faction_by_id index; locations from facility ECS data.
@@ -82,22 +84,20 @@ pub(super) fn add_ship_dialog(
     let mut factions: Vec<String> = sim.store.faction_by_id.keys().cloned().collect();
     factions.sort();
 
-    let location_set: std::collections::BTreeSet<String> = {
-        let mut q = sim.store.world.query::<(&FacilityIdentity, &FacilityLocation)>();
-        q.iter(&sim.store.world)
-            .filter_map(|(id, loc)| {
-                // Skip gates as spawn destinations — gates aren't dock
-                // points and admin_spawn_ship at a gate gets the ship
-                // immediately reset by the gate logic. Stations / mines /
-                // factories / refineries / farms / outposts only.
-                if id.facility_type == "gate" {
-                    None
-                } else {
-                    Some(loc.location_name.clone())
-                }
-            })
-            .collect()
-    };
+    let location_set: std::collections::BTreeSet<String> = facilities_q
+        .iter()
+        .filter_map(|(id, loc)| {
+            // Skip gates as spawn destinations — gates aren't dock
+            // points and admin_spawn_ship at a gate gets the ship
+            // immediately reset by the gate logic. Stations / mines /
+            // factories / refineries / farms / outposts only.
+            if id.facility_type == "gate" {
+                None
+            } else {
+                Some(loc.location_name.clone())
+            }
+        })
+        .collect();
     let locations: Vec<String> = location_set.into_iter().collect();
 
     let mut open = state.open;
@@ -240,24 +240,21 @@ const FACILITY_TYPES: &[&str] = &[
 pub(super) fn add_facility_dialog(
     mut ctx: EguiContexts,
     mut state: ResMut<AddFacilityDialogState>,
-    mut sim: ResMut<Sim>,
+    sim: Res<Sim>,
     mut spawn_req: ResMut<crate::sim::SpawnFacilityRequest>,
+    bodies_q: Query<&sim_core::agents::celestial_body::BodyIdentity>,
 ) {
     if !state.open {
         return;
     }
 
-    use sim_core::agents::celestial_body::BodyIdentity;
-
     let mut factions: Vec<String> = sim.store.faction_by_id.keys().cloned().collect();
     factions.sort();
 
-    let body_set: std::collections::BTreeSet<String> = {
-        let mut q = sim.store.world.query::<&BodyIdentity>();
-        q.iter(&sim.store.world)
-            .map(|id| id.body_id.clone())
-            .collect()
-    };
+    let body_set: std::collections::BTreeSet<String> = bodies_q
+        .iter()
+        .map(|id| id.body_id.clone())
+        .collect();
     let bodies: Vec<String> = body_set.into_iter().collect();
 
     let mut open = state.open;

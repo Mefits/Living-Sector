@@ -32,7 +32,6 @@
 use bevy::prelude::*;
 
 use super::{BodyEntity, FacilityEntity, ShipEntity, SCALE_FACTOR, SHIP_GLB_SCALE};
-use crate::sim::Sim;
 use crate::ui::{SelectedFacility, SelectedShip};
 use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
 use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
@@ -68,10 +67,10 @@ pub(super) const SITE_OUTER_RADIUS: f32 = 0.9;
 /// (faction::run_construction_cycle + engine::materialize_facility),
 /// and a gizmo approach doesn't require a matching Bevy-entity
 /// lifecycle. Cheap at ~10–30 active sites in a typical DB.
-pub(super) fn draw_construction_sites(mut sim: ResMut<Sim>, mut gizmos: Gizmos) {
-    use sim_core::agents::construction::ConstructionSite;
-
-    let world = &mut sim.store.world;
+pub(super) fn draw_construction_sites(
+    sites_q: Query<&sim_core::agents::construction::ConstructionSite>,
+    mut gizmos: Gizmos,
+) {
     // Green scaffold + brighter green progress arc. The previous
     // amber outer was indistinguishable from gate rings (also amber)
     // — players read it as "warp gate at Venus / Trojan cluster",
@@ -80,8 +79,7 @@ pub(super) fn draw_construction_sites(mut sim: ResMut<Sim>, mut gizmos: Gizmos) 
     let outer = Color::srgba(0.45, 0.85, 0.55, 0.55);
     let inner = Color::srgba(0.6, 1.0, 0.75, 0.95);
 
-    let mut q = world.query::<&ConstructionSite>();
-    for site in q.iter(world) {
+    for site in sites_q.iter() {
         let (x, y) = site.position;
         let center = Vec3::new(x * SCALE_FACTOR, 0.4, y * SCALE_FACTOR);
         // Outer scaffold ring — constant radius. Bevy 0.15+ Gizmos
@@ -188,36 +186,29 @@ pub(super) fn draw_selection_rings(
 /// stand apart from stations so the player can navigate
 /// inter-system jump routes. Read-only per-frame; one gizmo circle
 /// per gate is effectively free at the scales we see (<30 gates).
-pub(super) fn draw_gate_rings(mut sim: ResMut<Sim>, mut gizmos: Gizmos) {
-    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
-    use sim_core::agents::facility::FacilityIdentity;
-
-    let world = &mut sim.store.world;
-
+pub(super) fn draw_gate_rings(
+    bodies_q: Query<(&BodyIdentity, &BodyOrbit)>,
+    facilities_q: Query<&FacilityIdentity>,
+    mut gizmos: Gizmos,
+) {
     // Resolve body_id → universe position once up front; facility
     // orbit centre is just the body centre for visualisation
     // purposes (the small 0.15 offset doesn't matter at this
     // scale).
-    let body_positions: std::collections::HashMap<String, (f32, f32)> = {
-        let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
-        q.iter(world)
-            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
-            .collect()
-    };
+    let body_positions: std::collections::HashMap<String, (f32, f32)> = bodies_q
+        .iter()
+        .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+        .collect();
 
     // Amber, slightly translucent. Matches the "caution: traverse
     // here" connotation stations don't carry.
     let color = Color::srgba(0.95, 0.75, 0.35, 0.85);
 
-    let gate_bodies: Vec<String> = {
-        let mut q = world.query::<&FacilityIdentity>();
-        q.iter(world)
-            .filter(|id| id.facility_type == "gate")
-            .map(|id| id.body_id.clone())
-            .collect()
-    };
-    for body_id in gate_bodies {
-        let Some(&(x, y)) = body_positions.get(&body_id) else {
+    for id in facilities_q.iter() {
+        if id.facility_type != "gate" {
+            continue;
+        }
+        let Some(&(x, y)) = body_positions.get(&id.body_id) else {
             continue;
         };
         let center = Vec3::new(x * SCALE_FACTOR, 0.5, y * SCALE_FACTOR);
@@ -236,13 +227,14 @@ pub(super) fn draw_gate_rings(mut sim: ResMut<Sim>, mut gizmos: Gizmos) {
 /// orbital path, the geometry shows it immediately. Single source
 /// of truth for "where is body X right now" (the orbit ring) makes
 /// any sim/render coordinate divergence visible.
-pub(super) fn draw_orbit_rings(mut sim: ResMut<Sim>, mut gizmos: Gizmos) {
-    let world = &mut sim.store.world;
+pub(super) fn draw_orbit_rings(
+    bodies_q: Query<&BodyOrbit>,
+    mut gizmos: Gizmos,
+) {
     // Cool blue, low alpha so 35 rings don't crowd the view.
     let color = Color::srgba(0.40, 0.65, 0.85, 0.18);
 
-    let mut q = world.query::<&BodyOrbit>();
-    for orbit in q.iter(world) {
+    for orbit in bodies_q.iter() {
         if orbit.orbit_radius < 0.01 {
             // Effectively the system primary — no ring to draw.
             continue;
@@ -299,31 +291,24 @@ pub(super) fn trail_max_len_for(base_scale: f32) -> usize {
 /// Drops history for ships that no longer exist.
 #[allow(clippy::type_complexity)]
 pub(super) fn update_ship_trails(
-    mut sim: ResMut<Sim>,
     mut trails: ResMut<ShipTrails>,
-    ships: Query<(&ShipEntity, &Transform), (Without<FacilityEntity>, Without<BodyEntity>)>,
+    ships: Query<
+        (&ShipEntity, &Transform, &ShipTransit),
+        (Without<FacilityEntity>, Without<BodyEntity>),
+    >,
 ) {
-    let world = &mut sim.store.world;
-
-    // Build the in-transit set once so the per-ship inner loop is a
-    // hashmap lookup, not a hecs scan. Same approach `sync_positions`
-    // uses for ship state.
-    let in_transit: std::collections::HashSet<String> = {
-        let mut q = world.query::<(&ShipIdentity, &ShipTransit)>();
-        q.iter(world)
-            .filter(|(_, t)| t.transit.is_some())
-            .map(|(id, _)| id.id.clone())
-            .collect()
-    };
+    // Phase B: ShipTransit lives on the same entity as ShipEntity,
+    // so we can read the transit flag in-place rather than building
+    // a separate HashMap. Saves one whole-world query per frame.
 
     // Live-ship set so we can drop trails for despawned ships.
     let mut live: std::collections::HashSet<String> =
         std::collections::HashSet::with_capacity(ships.iter().count());
 
-    for (ship, xf) in ships.iter() {
+    for (ship, xf, transit) in ships.iter() {
         live.insert(ship.sim_id.clone());
         let history = trails.history.entry(ship.sim_id.clone()).or_default();
-        if !in_transit.contains(&ship.sim_id) {
+        if transit.transit.is_none() {
             // Not moving — drop history so the trail disappears.
             history.clear();
             continue;
@@ -344,39 +329,38 @@ pub(super) fn update_ship_trails(
 /// Dashes are evenly spaced so long inter-system runs and short
 /// intra-system hops both read consistently. Brighter alpha for
 /// the currently selected ship, dim for the rest.
-pub(super) fn draw_transit_intent_lines(mut sim: ResMut<Sim>, selected_ship: Res<SelectedShip>, mut gizmos: Gizmos) {
-    let world = &mut sim.store.world;
-
+pub(super) fn draw_transit_intent_lines(
+    bodies_q: Query<(&BodyIdentity, &BodyOrbit)>,
+    facilities_q: Query<(&FacilityIdentity, &FacilityLocation)>,
+    ships_q: Query<(&ShipIdentity, &ShipTransit, &ShipPosition)>,
+    selected_ship: Res<SelectedShip>,
+    mut gizmos: Gizmos,
+) {
     // Build location_name → world destination (body universe pos +
     // facility offset, matching what the sim aimed the transit at).
     // Many facilities share a location, so this dedups by name —
     // first-write wins; sim ships travel to the location, not a
     // specific facility id, so any facility at the location is
     // a valid endpoint marker.
-    let body_positions: std::collections::HashMap<String, (f32, f32)> = {
-        let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
-        q.iter(world)
-            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
-            .collect()
-    };
+    let body_positions: std::collections::HashMap<String, (f32, f32)> = bodies_q
+        .iter()
+        .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+        .collect();
     let mut loc_to_world: std::collections::HashMap<String, Vec3> =
         std::collections::HashMap::new();
-    {
-        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
-        for (fac_id, loc) in q.iter(world) {
-            if loc_to_world.contains_key(&loc.location_name) {
-                continue;
-            }
-            let Some(body_center) = body_positions.get(&fac_id.body_id).copied() else {
-                continue;
-            };
-            let (fx, fy) =
-                sim_core::agents::facility::facility_offset_position(body_center, &fac_id.id);
-            loc_to_world.insert(
-                loc.location_name.clone(),
-                Vec3::new(fx * SCALE_FACTOR, 0.0, fy * SCALE_FACTOR),
-            );
+    for (fac_id, loc) in facilities_q.iter() {
+        if loc_to_world.contains_key(&loc.location_name) {
+            continue;
         }
+        let Some(body_center) = body_positions.get(&fac_id.body_id).copied() else {
+            continue;
+        };
+        let (fx, fy) =
+            sim_core::agents::facility::facility_offset_position(body_center, &fac_id.id);
+        loc_to_world.insert(
+            loc.location_name.clone(),
+            Vec3::new(fx * SCALE_FACTOR, 0.0, fy * SCALE_FACTOR),
+        );
     }
 
     // Faint indigo for the all-ships pass; punchier blue for the
@@ -389,8 +373,7 @@ pub(super) fn draw_transit_intent_lines(mut sim: ResMut<Sim>, selected_ship: Res
     // visual density — short and long runs both look the same.
     const DASH_SEGMENTS: usize = 24;
 
-    let mut q = world.query::<(&ShipIdentity, &ShipTransit, &ShipPosition)>();
-    for (id, transit, pos) in q.iter(world) {
+    for (id, transit, pos) in ships_q.iter() {
         let Some(t) = &transit.transit else { continue };
         let Some(end) = loc_to_world.get(&t.to).copied() else {
             continue;

@@ -77,11 +77,15 @@ struct PopRow {
 
 pub(super) fn populations_panel(
     mut ctx: EguiContexts,
-    mut sim: ResMut<Sim>,
+    _sim: Res<Sim>,
     mut state: ResMut<PopulationsState>,
+    pops_q: Query<(
+        &sim_core::agents::population::PopIdentity,
+        &sim_core::agents::population::PopDemographics,
+        &sim_core::agents::population::PopEconomy,
+        &sim_core::agents::population::PopSentiment,
+    )>,
 ) {
-    use sim_core::agents::population::{PopDemographics, PopEconomy, PopIdentity, PopSentiment};
-
     let mut open = state.open;
     let mut sort = state.sort;
     let mut descending = state.descending;
@@ -92,11 +96,8 @@ pub(super) fn populations_panel(
     }
 
     let rows: Vec<PopRow> = {
-        let mut q = sim
-            .store
-            .world
-            .query::<(&PopIdentity, &PopDemographics, &PopEconomy, &PopSentiment)>();
-        q.iter(&sim.store.world)
+        pops_q
+            .iter()
             .map(|(id, demo, econ, sent)| PopRow {
                 label: id.label.clone(),
                 demographic: id.demographic.clone(),

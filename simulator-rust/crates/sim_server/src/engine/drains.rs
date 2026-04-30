@@ -34,6 +34,7 @@
 //!
 //! Extracted from `engine.rs` in the Phase-21 god-module split.
 
+use bevy_ecs::prelude::World;
 use sim_core::simulation::spawner::AgentStore;
 use sim_core::world::registry::WorldRegistry;
 use sim_db::persistence::DbWrite;
@@ -46,6 +47,7 @@ use super::admin::{admin_remove_ship, admin_spawn_ship};
 /// `FacilityIdentity.db_id`, and queue a `ConstructionSiteDelete` so
 /// the source site row is cleaned up in the same persistence sweep.
 pub(super) async fn drain_pending_materializations(
+    world: &mut World,
     store: &mut AgentStore,
     pool: &sqlx::SqlitePool,
     persist_tx: &mpsc::Sender<DbWrite>,
@@ -83,7 +85,7 @@ pub(super) async fn drain_pending_materializations(
         match insert {
             Ok(r) => {
                 let db_id = r.last_insert_rowid();
-                if let Some(mut fid) = store.world.get_mut::<FacilityIdentity>(req.entity) {
+                if let Some(mut fid) = world.get_mut::<FacilityIdentity>(req.entity) {
                     fid.db_id = db_id;
                 }
             }
@@ -116,6 +118,7 @@ pub(super) async fn drain_pending_materializations(
 /// hundred base-ticks out so fleet size recovers gradually rather than
 /// instantly.
 pub(super) async fn drain_pending_decommissions(
+    world: &mut World,
     store: &mut AgentStore,
     tick: u64,
     events: &mut Vec<serde_json::Value>,
@@ -131,7 +134,7 @@ pub(super) async fn drain_pending_decommissions(
         // Snapshot the ship's faction + id BEFORE despawn so the
         // respawn can prefer the same faction (losses register as
         // pressure before the weighted pick redistributes).
-        let (ship_id, faction_id) = match store.world.get::<ShipIdentity>(req.entity) {
+        let (ship_id, faction_id) = match world.get::<ShipIdentity>(req.entity) {
             Some(id) => (id.id.clone(), id.faction_id.clone()),
             None => continue,
         };
@@ -140,7 +143,7 @@ pub(super) async fn drain_pending_decommissions(
         // ledger tag. admin_remove_ship sets reason = "admin" by
         // default — we patch the event afterwards so the reason
         // matches the strike trigger ("bankruptcy" / "stagnation").
-        admin_remove_ship(store, &ship_id, tick, events, persist_tx).await;
+        admin_remove_ship(world, store, &ship_id, tick, events, persist_tx).await;
         // Patch the most recent ship_decommissioned event's reason.
         if let Some(last) = events.last_mut() {
             if last.get("kind").and_then(|k| k.as_str()) == Some("ship_decommissioned") {
@@ -169,6 +172,7 @@ pub(super) async fn drain_pending_decommissions(
 /// the current world state so the replacement reads as an organic new
 /// captain commissioning, not a dev-console injection.
 pub(super) async fn drain_pending_respawns(
+    world: &mut World,
     store: &mut AgentStore,
     registry: &WorldRegistry,
     tick: u64,
@@ -187,7 +191,7 @@ pub(super) async fn drain_pending_respawns(
         return;
     }
     for req in ready {
-        if let Err(e) = spawn_replacement_ship(store, registry, pool, persist_tx, tick, &req, events)
+        if let Err(e) = spawn_replacement_ship(world, store, registry, pool, persist_tx, tick, &req, events)
             .await
         {
             events.push(serde_json::json!({
@@ -203,7 +207,9 @@ pub(super) async fn drain_pending_respawns(
 /// starting location from the live world; mirrors the admin HTTP
 /// spawn path (same JOIN + INSERT + AdminSpawnShipPayload) so
 /// persistence + snapshot stay consistent.
+#[allow(clippy::too_many_arguments)]
 async fn spawn_replacement_ship(
+    world: &mut World,
     store: &mut AgentStore,
     registry: &WorldRegistry,
     pool: &sqlx::SqlitePool,
@@ -244,10 +250,8 @@ async fn spawn_replacement_ship(
     } else {
         let mut counts: std::collections::HashMap<String, u32> =
             std::collections::HashMap::new();
-        let mut q = store
-            .world
-            .query::<&sim_core::agents::ship::ShipIdentity>();
-        for id in q.iter(&store.world) {
+        let mut q = world.query::<&sim_core::agents::ship::ShipIdentity>();
+        for id in q.iter(&world) {
             if !id.faction_id.is_empty() {
                 *counts.entry(id.faction_id.clone()).or_insert(0) += 1;
             }
@@ -266,10 +270,9 @@ async fn spawn_replacement_ship(
     // Location: prefer a dockable faction-owned station; fall back to
     // any dockable station if the faction has none left.
     let station_candidates: Vec<(String, String)> = {
-        let mut q = store
-            .world
-            .query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>();
-        q.iter(&store.world)
+        let mut q =
+            world.query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>();
+        q.iter(&world)
             .filter(|(id, _, ops)| {
                 id.facility_type != "gate" && ops.docking_capacity > 0
             })
@@ -366,7 +369,7 @@ async fn spawn_replacement_ship(
         position: (body_x, body_y),
         credits,
     };
-    admin_spawn_ship(store, registry, payload, events);
+    admin_spawn_ship(world, store, registry, payload, events);
     events.push(serde_json::json!({
         "kind": "ship_spawned",
         "id": agent_id,
@@ -407,6 +410,7 @@ pub fn random_ship_name(seed: u64) -> String {
 /// db_id so subsequent per-tick Facility flushes land on a real row.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn materialize_facility(
+    world: &mut World,
     store: &mut AgentStore,
     source_site_id: &str,
     display_name: &str,
@@ -442,16 +446,14 @@ pub(super) fn materialize_facility(
     // Pull location_id from an existing facility at the same location
     // so the new entity slots into the same row.
     let location_id = {
-        let mut q = store
-            .world
-            .query::<(&FacilityIdentity, &FacilityLocation)>();
-        q.iter(&store.world)
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(&world)
             .find(|(_, loc)| loc.location_name == location_name)
             .map(|(_, loc)| loc.location_id)
             .unwrap_or(0)
     };
 
-    let entity = store.world.spawn((
+    let entity = world.spawn((
         FacilityIdentity {
             db_id: 0, // runtime-only for now
             id: agent_id.clone(),

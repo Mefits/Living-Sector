@@ -104,14 +104,17 @@ struct FacilityRow {
 
 pub(super) fn facility_list_panel(
     mut ctx: EguiContexts,
-    mut sim: ResMut<Sim>,
+    _sim: Res<Sim>,
     mut state: ResMut<FacilityListState>,
     mut selected: ResMut<SelectedFacility>,
+    facilities_q: Query<(
+        &sim_core::agents::facility::FacilityIdentity,
+        &sim_core::agents::facility::FacilityLocation,
+        &sim_core::agents::facility::FacilityOperations,
+        &sim_core::agents::facility::FacilityStorage,
+        &sim_core::agents::facility::FacilityLifecycle,
+    )>,
 ) {
-    use sim_core::agents::facility::{
-        FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations, FacilityStorage,
-    };
-
     let mut open = state.open;
     let mut sort = state.sort;
     let mut descending = state.descending;
@@ -121,32 +124,21 @@ pub(super) fn facility_list_panel(
         return;
     }
 
-    let rows: Vec<FacilityRow> = {
-        let mut q = sim
-            .store
-            .world
-            .query::<(
-                &FacilityIdentity,
-                &FacilityLocation,
-                &FacilityOperations,
-                &FacilityStorage,
-                &FacilityLifecycle,
-            )>();
-        q.iter(&sim.store.world)
-            .map(|(id, loc, ops, stor, life)| FacilityRow {
-                id: id.id.clone(),
-                name: id.name.clone(),
-                facility_type: id.facility_type.clone(),
-                faction: id.faction_id.clone(),
-                location: loc.location_name.clone(),
-                credits: ops.credits,
-                docked: stor.docked_ships.len() as u32,
-                capacity: ops.docking_capacity,
-                level: life.level,
-                abandoned: life.abandoned,
-            })
-            .collect()
-    };
+    let rows: Vec<FacilityRow> = facilities_q
+        .iter()
+        .map(|(id, loc, ops, stor, life)| FacilityRow {
+            id: id.id.clone(),
+            name: id.name.clone(),
+            facility_type: id.facility_type.clone(),
+            faction: id.faction_id.clone(),
+            location: loc.location_name.clone(),
+            credits: ops.credits,
+            docked: stor.docked_ships.len() as u32,
+            capacity: ops.docking_capacity,
+            level: life.level,
+            abandoned: life.abandoned,
+        })
+        .collect();
 
     let filter_lc = filter.to_lowercase();
     let mut filtered: Vec<&FacilityRow> = rows
@@ -302,17 +294,31 @@ fn fac_sort_header(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn facility_details_panel(
     mut ctx: EguiContexts,
-    mut sim: ResMut<Sim>,
+    sim: Res<Sim>,
     mut selected: ResMut<SelectedFacility>,
     mut focus_req: ResMut<CameraFocusRequest>,
     mut ship_sel: ResMut<SelectedShip>,
+    bodies_q: Query<(
+        &sim_core::agents::celestial_body::BodyIdentity,
+        &sim_core::agents::celestial_body::BodyOrbit,
+    )>,
+    fitting_q: Query<&sim_core::agents::facility::FacilityFitting>,
+    crew_q: Query<&sim_core::agents::facility::FacilityCrew>,
+    base_q: Query<(
+        &sim_core::agents::facility::FacilityIdentity,
+        &sim_core::agents::facility::FacilityLocation,
+        &sim_core::agents::facility::FacilityOperations,
+        &sim_core::agents::facility::FacilityStorage,
+        &sim_core::agents::facility::FacilityLifecycle,
+    )>,
+    mut storage_mut_q: Query<&mut sim_core::agents::facility::FacilityStorage>,
+    ships_id_q: Query<&sim_core::agents::ship::ShipIdentity>,
 ) {
-    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
     use sim_core::agents::facility::{
-        FacilityCrew, FacilityFitting, FacilityIdentity, FacilityLifecycle, FacilityLocation,
-        FacilityOperations, FacilityStorage,
+        FacilityCrew, FacilityFitting,
     };
 
     let Some(fac_id) = selected.0.clone() else {
@@ -341,50 +347,22 @@ pub(super) fn facility_details_panel(
         .default_height(640.0)
         .open(&mut still_open)
         .show(ctx.ctx_mut().unwrap(), |ui| {
-            // Pre-compute body positions before borrowing components
-            // from the world (bevy_ecs requires &mut World for query<>,
-            // which conflicts with subsequent shared component refs).
-            let body_positions: std::collections::HashMap<String, (f32, f32)> = {
-                let mut q = sim.store.world.query::<(&BodyIdentity, &BodyOrbit)>();
-                q.iter(&sim.store.world)
-                    .map(|(b, o)| (b.body_id.clone(), o.universe_position()))
-                    .collect()
-            };
+            // Phase B: queries are passed as system params, so the
+            // bevy_ecs &mut-World conflict the old code worked around
+            // is gone. Body positions still come from a precomputed
+            // HashMap because the Reserves grid below iterates them
+            // by body_id, not by entity.
+            let body_positions: std::collections::HashMap<String, (f32, f32)> = bodies_q
+                .iter()
+                .map(|(b, o)| (b.body_id.clone(), o.universe_position()))
+                .collect();
             // Clone optional components — gates don't have fitting/crew.
-            let fitting: Option<FacilityFitting> = sim
-                .store
-                .world
-                .get::<FacilityFitting>(entity)
-                .map(|f| f.clone());
-            let crew: Option<FacilityCrew> = sim
-                .store
-                .world
-                .get::<FacilityCrew>(entity)
-                .map(|c| c.clone());
+            let fitting: Option<FacilityFitting> = fitting_q.get(entity).ok().cloned();
+            let crew: Option<FacilityCrew> = crew_q.get(entity).ok().cloned();
 
-            let (id, loc, ops, storage, life) = {
-                let world = &sim.store.world;
-                let Some(id) = world.get::<FacilityIdentity>(entity) else {
-                    ui.label("(facility entity missing components)");
-                    return;
-                };
-                let Some(loc) = world.get::<FacilityLocation>(entity) else {
-                    ui.label("(facility entity missing components)");
-                    return;
-                };
-                let Some(ops) = world.get::<FacilityOperations>(entity) else {
-                    ui.label("(facility entity missing components)");
-                    return;
-                };
-                let Some(storage) = world.get::<FacilityStorage>(entity) else {
-                    ui.label("(facility entity missing components)");
-                    return;
-                };
-                let Some(life) = world.get::<FacilityLifecycle>(entity) else {
-                    ui.label("(facility entity missing components)");
-                    return;
-                };
-                (id, loc, ops, storage, life)
+            let Ok((id, loc, ops, storage, life)) = base_q.get(entity) else {
+                ui.label("(facility entity missing components)");
+                return;
             };
 
             // Toolbar: focus camera + admin actions. Focus writes a
@@ -616,17 +594,14 @@ pub(super) fn facility_details_panel(
                     // Cheap even at Haven's 45-capacity — 45 hecs
                     // query_ones per facility click, maybe once a
                     // second when the user is browsing.
-                    use sim_core::agents::ship::ShipIdentity;
                     // Resolve a docked / queued entity back to
                     // (id, label). id is the sim_id we use for
                     // selection; label is "<name> (<class>)".
                     let resolve = |e| {
-                        sim.store
-                            .world
-                            .get::<ShipIdentity>(e)
-                            .map(|id| {
-                                (id.id.clone(), format!("{} ({})", id.name, id.class))
-                            })
+                        ships_id_q
+                            .get(e)
+                            .ok()
+                            .map(|id| (id.id.clone(), format!("{} ({})", id.name, id.class)))
                     };
 
                     if !storage.docked_ships.is_empty() {
@@ -680,9 +655,8 @@ pub(super) fn facility_details_panel(
         });
 
     if refill_requested {
-        use sim_core::agents::facility::FacilityStorage;
         use sim_core::economy::commodities::Commodity;
-        if let Some(mut storage) = sim.store.world.get_mut::<FacilityStorage>(entity) {
+        if let Ok(mut storage) = storage_mut_q.get_mut(entity) {
             // Floor each commodity's reserve at 500. Don't downgrade
             // a richer facility — admins use this to recover from
             // crisis, not to nuke a healthy stockpile.
@@ -699,8 +673,7 @@ pub(super) fn facility_details_panel(
     // Apply per-commodity reserve deltas + new-commodity inserts
     // captured by the buttons inside the read-only render closure.
     if !reserves_deltas.is_empty() || add_commodity.is_some() {
-        use sim_core::agents::facility::FacilityStorage;
-        if let Some(mut storage) = sim.store.world.get_mut::<FacilityStorage>(entity) {
+        if let Ok(mut storage) = storage_mut_q.get_mut(entity) {
             for (c, d) in reserves_deltas {
                 let entry = storage.reserves.entry(c).or_insert(0.0);
                 *entry = (*entry + d).max(0.0);

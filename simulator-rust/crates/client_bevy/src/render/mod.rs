@@ -94,7 +94,13 @@ use gizmos::{
     draw_construction_sites, draw_gate_rings, draw_orbit_rings, draw_selection_rings,
     draw_ship_trails, draw_transit_intent_lines, update_ship_trails, ShipTrails,
 };
-pub use particles::{EngineTrailEffect, EngineTrailFor, ExplosionEffect, ExplosionLifetime};
+pub use particles::{EngineTrailEffect, EngineTrailFor};
+// Phase B: ExplosionEffect / ExplosionLifetime were exposed at the
+// crate boundary for the old `cleanup_stale_ships` system. With that
+// system gone (sim entity == render entity now, no separate mirror
+// despawn pass), the explosion path runs only via the
+// event_driven_flashes hook in particles.rs and the types stay
+// crate-private.
 use particles::{
     build_engine_trail_effect, build_explosion_effect, build_gate_flash_effect,
     cleanup_stale_engine_trails, event_driven_flashes, sync_engine_trails,
@@ -153,9 +159,19 @@ impl Plugin for RenderPlugin {
             // render's spawn pass would sometimes run before sim
             // had populated the AgentStore, so bodies / suns came
             // up empty until you bounced back to the main menu.
+            // Phase B (bevy_ecs migration): the old mirror-layer
+            // spawn (`spawn_mirror_entities`) is gone. Sim entities
+            // now live in Bevy's app World, so we just decorate them
+            // with render components (Transform, Mesh3d, SceneRoot,
+            // InterpPos, GameWorld marker) the first time we see
+            // them via the `Without<Transform>` filter. The decorate
+            // systems handle BOTH the initial-load case (running
+            // right after load_world populates the World) AND the
+            // admin-spawn case (newly-added sim entities show up
+            // mid-session).
             .add_systems(
                 bevy::prelude::OnEnter(crate::AppState::InGame),
-                (spawn_mirror_entities, spawn_system_suns, reset_camera_for_game)
+                (spawn_system_suns, reset_camera_for_game)
                     .after(crate::sim::load_world),
             )
             .add_systems(
@@ -167,12 +183,15 @@ impl Plugin for RenderPlugin {
             // mechanical (no ordering constraints between them).
             //
             // Both gated on `AppState::InGame` so menu scene doesn't
-            // run sync / raycast / reconcile work — also stops
-            // `reconcile_new_ships` from re-spawning ship entities
+            // run sync / raycast / decorate work — also stops
+            // `decorate_new_ships` from re-decorating sim entities
             // immediately after `cleanup_game_world` despawns them.
             .add_systems(
                 Update,
                 (
+                    decorate_new_ships,
+                    decorate_new_facilities,
+                    decorate_new_bodies,
                     sync_positions,
                     follow_facilities_to_bodies,
                     rotate_spinners,
@@ -186,9 +205,6 @@ impl Plugin for RenderPlugin {
                     draw_orbit_rings,
                     draw_construction_sites,
                     raycast_select,
-                    cleanup_stale_ships,
-                    reconcile_new_ships,
-                    reconcile_new_facilities,
                 )
                     .run_if(in_state(crate::AppState::InGame)),
             )
@@ -380,18 +396,9 @@ impl InterpPos {
     }
 }
 
-/// Shared body sphere + fallback material for the celestial-body
-/// renderer. Ships used to share a placeholder pool here too; that
-/// path was deleted in favour of authored GLBs (`ShipModels`).
-#[derive(Resource)]
-struct PlaceholderAssets {
-    body_mesh: Handle<Mesh>,
-    /// Kept around so the loop that builds it stays valid; bodies
-    /// now use `PlanetMaterial` (per-body procedural) so this isn't
-    /// referenced post-spawn.
-    #[allow(dead_code)]
-    body_mat: Handle<StandardMaterial>,
-}
+// Phase B: `PlaceholderAssets` Resource removed — replaced by the
+// `BodyAssetCache` struct that `decorate_new_bodies` lazily builds
+// the first time it sees an undecorated body entity.
 
 /// Multiplier applied to the per-class cuboid based on the ship's
 /// `ShipIdentity.size` tier. Layered on top of `ship_dimensions` so
@@ -511,47 +518,41 @@ fn reset_camera_for_game(
     *xf = orbit.transform();
 }
 
-#[allow(clippy::too_many_arguments)]
-fn spawn_mirror_entities(
+/// Lazy-initialized asset cache for body geometry. Replaces the old
+/// `PlaceholderAssets` Resource that `spawn_mirror_entities` used to
+/// build once at startup. We can't insert this from inside a per-
+/// frame system without explicit ordering against the first
+/// invocation, so it goes through `Local<Option<...>>` and is built
+/// on the first `decorate_new_bodies` call.
+struct BodyAssetCache {
+    body_mesh: Handle<Mesh>,
+}
+
+impl BodyAssetCache {
+    fn build(meshes: &mut Assets<Mesh>) -> Self {
+        Self {
+            body_mesh: meshes.add(Sphere::new(BODY_SIZE * 0.5)),
+        }
+    }
+}
+
+/// Phase B (bevy_ecs migration): decorate every newly-loaded sim
+/// ship entity with the render components the renderer reads
+/// (Transform, SceneRoot for the GLB, ShipEntity tag for downstream
+/// queries, InterpPos for the per-tick interpolation buffer). The
+/// `Without<Transform>` filter targets sim entities that haven't
+/// been decorated yet, so this single system handles both the
+/// initial-load case (everything that load_world spawned) and the
+/// admin-spawn case (new ships materialized mid-session by
+/// process_spawn_ship). Replaces the old `spawn_mirror_entities` +
+/// `reconcile_new_ships` pair.
+fn decorate_new_ships(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut planet_materials: ResMut<Assets<PlanetMaterial>>,
-    mut cloud_materials: ResMut<Assets<CloudMaterial>>,
-    mut sim: ResMut<Sim>,
-    stations: Res<StationModels>,
-    ships: Res<ShipModels>,
+    new_ships: Query<(Entity, &ShipIdentity, &ShipPosition), Without<Transform>>,
+    ships_models: Res<ShipModels>,
     engine_trail: Option<Res<EngineTrailEffect>>,
 ) {
-    // Ships now use authored GLBs (per-class scenes streamed via
-    // ShipModels). The placeholder cuboid + faction-emissive material
-    // pool was deleted with the rest of Bundle 4a's procedural ship
-    // path. Bodies still use shared sphere mesh + StandardMaterial.
-    let assets = PlaceholderAssets {
-        body_mesh: meshes.add(Sphere::new(BODY_SIZE * 0.5)),
-        body_mat: materials.add(StandardMaterial {
-            base_color: Color::srgb(0.45, 0.55, 0.75),
-            metallic: 0.0,
-            perceptual_roughness: 0.95,
-            ..default()
-        }),
-    };
-
-    let world = &mut sim.store.world;
-    let mut ship_count = 0;
-    let mut facility_count = 0;
-    let mut body_count = 0;
-
-    // Ships. Spawn one Bevy entity per hecs ship; the per-frame sync
-    // copies position across each tick. We grab the full universe
-    // position (system offset + local position) from `ShipPosition`.
-    let ship_iter: Vec<(ShipIdentity, ShipPosition)> = {
-        let mut q = world.query::<(&ShipIdentity, &ShipPosition)>();
-        q.iter(world)
-            .map(|(id, pos)| (id.clone(), pos.clone()))
-            .collect()
-    };
-    for (id, pos) in &ship_iter {
+    for (entity, id, pos) in new_ships.iter() {
         let (x, y) = pos.position;
         // GLB hulls are ~10 native units; SHIP_GLB_SCALE brings them
         // to ~0.25 wu, then size_multiplier layers tier scale.
@@ -567,10 +568,11 @@ fn spawn_mirror_entities(
                 Name::new(format!("EngineTrail::{}", id.id)),
             ));
         }
-        commands.spawn((
-            SceneRoot(ships.for_class(&id.class)),
+        commands.entity(entity).insert((
+            SceneRoot(ships_models.for_class(&id.class)),
             Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
                 .with_scale(Vec3::splat(base_scale)),
+            Visibility::Visible,
             ShipEntity {
                 sim_id: id.id.clone(),
                 base_scale,
@@ -579,27 +581,103 @@ fn spawn_mirror_entities(
             GameWorld,
             Name::new(format!("Ship::{}", id.id)),
         ));
-        ship_count += 1;
     }
+}
 
-    // Bodies — always at their orbit's current universe position.
-    // Two render paths split on `body_type`:
-    //   - `asteroid` / `belt`: lumpy displaced UV-sphere mesh +
-    //     planet shader with rocky palette + multi-axis Tumble.
-    //   - everything else (planet, moon, gas-giant): smooth ico
-    //     sphere + PlanetMaterial + optional rings + cloud shell.
-    //
-    // Children inherit the parent's Transform via Bevy's
-    // GlobalTransform propagation, so rings / clouds orbit with
-    // their planet for free.
+/// Phase B: decorate every newly-loaded facility sim entity with
+/// render components (SceneRoot, Transform, FacilityEntity tag,
+/// FacilityLocationRef). Mirrors `decorate_new_ships`. Body position
+/// for the orbital-offset math comes from a sub-query rather than a
+/// HashMap snapshot — at <30 bodies the lookup cost is negligible
+/// and the code stays simpler.
+fn decorate_new_facilities(
+    mut commands: Commands,
+    new_facilities: Query<(Entity, &FacilityIdentity, &FacilityLocation), Without<Transform>>,
+    bodies: Query<(&BodyIdentity, &BodyOrbit)>,
+    stations: Res<StationModels>,
+) {
+    if new_facilities.is_empty() {
+        return;
+    }
+    let body_positions: std::collections::HashMap<String, (f32, f32)> = bodies
+        .iter()
+        .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+        .collect();
+    for (entity, id, loc) in new_facilities.iter() {
+        // Bundle 4a: GLB station models replace the cylinder
+        // placeholder. Mapping mirrors the Godot client's
+        // `facility.gd::TYPE_MODELS`. Gates use the ring model and
+        // get a wider scale (they're navigation waypoints the
+        // player needs to spot at mid-zoom). Other types use one of
+        // the box/dome silhouettes scaled to fit alongside body
+        // spheres.
+        let body_center = body_positions
+            .get(&id.body_id)
+            .copied()
+            .unwrap_or((0.0, 0.0));
+        // Authoritative dock-point offset: same helper the sim
+        // uses to pin docked ships, so render coords agree with
+        // sim coords every tick.
+        let (fx, fy) = sim_core::agents::facility::facility_offset_position(body_center, &id.id);
+        let y_offset = 0.5; // tiny vertical so facilities don't z-fight w/ bodies
+        let is_gate = id.facility_type == "gate";
+        let scale = if is_gate { GATE_SCALE } else { STATION_SCALE };
+        let mut transform = Transform::from_xyz(fx * SCALE_FACTOR, y_offset, fy * SCALE_FACTOR)
+            .with_scale(Vec3::splat(scale));
+        if is_gate {
+            // Ring model's source axis is +X; rotating 90° around Y
+            // puts the hole along +Z so the ring reads as an
+            // upright portal a ship flies into. Same trick as
+            // facility.gd's `rotation_degrees = Vector3(0, 90, 0)`.
+            transform.rotate_y(std::f32::consts::FRAC_PI_2);
+        }
+        commands.entity(entity).insert((
+            SceneRoot(stations.for_type(&id.facility_type)),
+            transform,
+            Visibility::Visible,
+            FacilityEntity {
+                sim_id: id.id.clone(),
+                base_scale: scale,
+                body_id: id.body_id.clone(),
+            },
+            FacilityLocationRef(loc.location_name.clone()),
+            GameWorld,
+            Name::new(format!("Facility::{}", id.id)),
+        ));
+    }
+}
+
+/// Phase B: decorate every newly-loaded body sim entity with render
+/// components. Two paths split on `body_type` exactly as the old
+/// `spawn_mirror_entities` did:
+///   - `asteroid` / `belt`: lumpy displaced UV-sphere mesh + planet
+///     shader with rocky palette + multi-axis Tumble. Asteroid
+///     bodies also accrete a halo of baby rocks as Bevy children.
+///   - everything else (planet, moon, gas-giant): smooth ico-sphere
+///     + PlanetMaterial + optional rings + cloud shell.
+///
+/// The asset cache is built lazily on first call so we don't have
+/// to schedule an explicit init system upstream. `Local<Option<...>>`
+/// is the canonical Bevy pattern for "build once on first use."
+#[allow(clippy::too_many_arguments)]
+fn decorate_new_bodies(
+    mut commands: Commands,
+    mut cache: Local<Option<BodyAssetCache>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut planet_materials: ResMut<Assets<PlanetMaterial>>,
+    mut cloud_materials: ResMut<Assets<CloudMaterial>>,
+    new_bodies: Query<(Entity, &BodyIdentity, &BodyOrbit, &BodyBiome), Without<Transform>>,
+) {
+    if new_bodies.is_empty() {
+        return;
+    }
+    if cache.is_none() {
+        *cache = Some(BodyAssetCache::build(&mut meshes));
+    }
+    let assets = cache.as_ref().unwrap();
     let body_radius = BODY_SIZE * 0.5;
-    let body_iter: Vec<(BodyIdentity, BodyOrbit, BodyBiome)> = {
-        let mut q = world.query::<(&BodyIdentity, &BodyOrbit, &BodyBiome)>();
-        q.iter(world)
-            .map(|(id, orbit, biome)| (id.clone(), orbit.clone(), biome.clone()))
-            .collect()
-    };
-    for (id, orbit, biome) in &body_iter {
+    for (entity, id, orbit, biome) in new_bodies.iter() {
         let (x, y) = orbit.universe_position();
         let xf = Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR);
         let is_rock = matches!(id.body_type.as_str(), "asteroid" | "belt");
@@ -631,43 +709,39 @@ fn spawn_mirror_entities(
             let baby_mat_handle =
                 planet_materials.add(material_for_asteroid(&cfg, &id.body_id));
 
-            // Parent: the body's transform anchor. For asteroid
-            // bodies the parent also carries the lead-rock mesh;
-            // for belt bodies the parent is just a Transform +
-            // Visibility holder (Bevy 0.15+ Required Components
-            // auto-insert GlobalTransform and the Inherited /
-            // ViewVisibility pair) and only the children have
-            // geometry.
-            let mut parent_cmd = if is_belt {
-                commands.spawn((
+            // Decorate the sim entity with body-level transform +
+            // tag + InterpPos. For asteroid bodies the parent also
+            // carries the lead-rock mesh; for belt bodies the
+            // parent is just a Transform / Visibility holder and
+            // only the children have geometry.
+            let mut entity_cmd = commands.entity(entity);
+            if is_belt {
+                entity_cmd.insert((
                     xf,
                     Visibility::default(),
-                    BodyEntity {
-                        sim_id: id.body_id.clone(),
-                    },
+                    BodyEntity { sim_id: id.body_id.clone() },
                     InterpPos::at((x, y)),
                     GameWorld,
                     Name::new(format!("Body::{}", id.body_id)),
-                ))
+                ));
             } else {
                 let lead_mesh = meshes.add(build_asteroid_mesh(seed, body_radius, &cfg));
                 let lead_mat = planet_materials.add(material_for_asteroid(&cfg, &id.body_id));
-                commands.spawn((
+                entity_cmd.insert((
                     Mesh3d(lead_mesh),
                     MeshMaterial3d::<PlanetMaterial>(lead_mat),
                     xf,
-                    BodyEntity {
-                        sim_id: id.body_id.clone(),
-                    },
+                    Visibility::Visible,
+                    BodyEntity { sim_id: id.body_id.clone() },
                     InterpPos::at((x, y)),
                     Tumble(cfg.tumble),
                     GameWorld,
                     Name::new(format!("Body::{}", id.body_id)),
-                ))
-            };
+                ));
+            }
 
             let field = build_asteroid_field(&id.body_id, &id.body_type, body_radius);
-            parent_cmd.with_children(|parent| {
+            commands.entity(entity).with_children(|parent| {
                 for (idx, rock) in field.iter().enumerate() {
                     let mut t = Transform::from_translation(rock.position);
                     t.rotation = rock.rotation;
@@ -682,7 +756,6 @@ fn spawn_mirror_entities(
                 }
             });
 
-            body_count += 1;
             continue;
         }
 
@@ -692,13 +765,13 @@ fn spawn_mirror_entities(
         let rings = rings_for_body(&id.body_id, &biome.biome);
         let cloud = cloud_for_body(&id.body_id, &biome.biome);
         commands
-            .spawn((
+            .entity(entity)
+            .insert((
                 Mesh3d(assets.body_mesh.clone()),
                 MeshMaterial3d::<PlanetMaterial>(mat),
                 xf,
-                BodyEntity {
-                    sim_id: id.body_id.clone(),
-                },
+                Visibility::Visible,
+                BodyEntity { sim_id: id.body_id.clone() },
                 InterpPos::at((x, y)),
                 GameWorld,
                 Name::new(format!("Body::{}", id.body_id)),
@@ -767,74 +840,9 @@ fn spawn_mirror_entities(
                     ));
                 }
             });
-        body_count += 1;
     }
-
-    // Facilities — follow their parent body, so compute body_pos from
-    // the body's orbit, then apply the facility's small orbital offset
-    // (same math the Godot side + sim_server use).
-    let body_positions: std::collections::HashMap<String, (f32, f32)> = {
-        let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
-        q.iter(world)
-            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
-            .collect()
-    };
-
-    let facility_iter: Vec<(FacilityIdentity, FacilityLocation)> = {
-        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
-        q.iter(world)
-            .map(|(id, loc)| (id.clone(), loc.clone()))
-            .collect()
-    };
-    for (id, loc) in &facility_iter {
-        // Bundle 4a: GLB station models replace the cylinder
-        // placeholder. Mapping mirrors the Godot client's
-        // `facility.gd::TYPE_MODELS`. Gates use the ring model and
-        // get a wider scale (they're navigation waypoints the
-        // player needs to spot at mid-zoom). Other types use one of
-        // the box/dome silhouettes scaled to fit alongside body
-        // spheres.
-        let body_center = body_positions
-            .get(&id.body_id)
-            .copied()
-            .unwrap_or((0.0, 0.0));
-        // Authoritative dock-point offset: same helper the sim
-        // uses to pin docked ships, so render coords agree with
-        // sim coords every tick.
-        let (fx, fy) = sim_core::agents::facility::facility_offset_position(body_center, &id.id);
-        let y_offset = 0.5; // tiny vertical so facilities don't z-fight w/ bodies
-        let is_gate = id.facility_type == "gate";
-        let scale = if is_gate { GATE_SCALE } else { STATION_SCALE };
-        let mut transform = Transform::from_xyz(fx * SCALE_FACTOR, y_offset, fy * SCALE_FACTOR)
-            .with_scale(Vec3::splat(scale));
-        if is_gate {
-            // Ring model's source axis is +X; rotating 90° around Y
-            // puts the hole along +Z so the ring reads as an
-            // upright portal a ship flies into. Same trick as
-            // facility.gd's `rotation_degrees = Vector3(0, 90, 0)`.
-            transform.rotate_y(std::f32::consts::FRAC_PI_2);
-        }
-        commands.spawn((
-            SceneRoot(stations.for_type(&id.facility_type)),
-            transform,
-            FacilityEntity {
-                sim_id: id.id.clone(),
-                base_scale: scale,
-                body_id: id.body_id.clone(),
-            },
-            FacilityLocationRef(loc.location_name.clone()),
-            GameWorld,
-            Name::new(format!("Facility::{}", id.id)),
-        ));
-        facility_count += 1;
-    }
-
-    commands.insert_resource(assets);
-    info!(
-        "client_bevy: spawned {} ships, {} bodies, {} facilities as placeholder meshes",
-        ship_count, body_count, facility_count
-    );
 }
+
 
 /// Kept as a component so the facility's location name is queryable
 /// later (click-to-select / inspector panels). Unused in 2c — the
@@ -861,38 +869,19 @@ struct FacilityLocationRef(pub String);
 /// them using the fixed-update overstep.
 #[allow(clippy::type_complexity)]
 fn snapshot_tick_positions(
-    mut sim: ResMut<Sim>,
-    mut ships: Query<(&ShipEntity, &mut InterpPos), Without<BodyEntity>>,
-    mut bodies: Query<(&BodyEntity, &mut InterpPos), Without<ShipEntity>>,
+    mut ships: Query<(&ShipPosition, &mut InterpPos), (With<ShipEntity>, Without<BodyEntity>)>,
+    mut bodies: Query<(&BodyOrbit, &mut InterpPos), (With<BodyEntity>, Without<ShipEntity>)>,
 ) {
-    let world = &mut sim.store.world;
-
-    let ship_pos: std::collections::HashMap<String, (f32, f32)> = {
-        let mut ship_query = world.query::<(&ShipIdentity, &ShipPosition)>();
-        ship_query
-            .iter(world)
-            .map(|(id, p)| (id.id.clone(), p.position))
-            .collect()
-    };
-    for (ship, mut interp) in ships.iter_mut() {
-        if let Some(&p) = ship_pos.get(ship.sim_id.as_str()) {
-            interp.prev = interp.curr;
-            interp.curr = p;
-        }
+    // Phase B: ShipPosition + BodyOrbit live on the SAME entity as
+    // the render decoration components, so we can read them directly
+    // via Bevy queries. Replaces the old HashMap-by-sim_id lookup.
+    for (pos, mut interp) in ships.iter_mut() {
+        interp.prev = interp.curr;
+        interp.curr = pos.position;
     }
-
-    let body_pos: std::collections::HashMap<String, (f32, f32)> = {
-        let mut body_query = world.query::<(&BodyIdentity, &BodyOrbit)>();
-        body_query
-            .iter(world)
-            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
-            .collect()
-    };
-    for (body, mut interp) in bodies.iter_mut() {
-        if let Some(&p) = body_pos.get(body.sim_id.as_str()) {
-            interp.prev = interp.curr;
-            interp.curr = p;
-        }
+    for (orbit, mut interp) in bodies.iter_mut() {
+        interp.prev = interp.curr;
+        interp.curr = orbit.universe_position();
     }
 }
 
@@ -902,52 +891,36 @@ fn snapshot_tick_positions(
 // of disabling the lint crate-wide.
 #[allow(clippy::type_complexity)]
 fn sync_positions(
-    mut sim: ResMut<Sim>,
     fixed: Res<Time<Fixed>>,
-    mut ships: Query<(&ShipEntity, &InterpPos, &mut Transform), Without<BodyEntity>>,
+    mut ships: Query<
+        (&InterpPos, &ShipTransit, &mut Transform),
+        (With<ShipEntity>, Without<BodyEntity>),
+    >,
     mut bodies: Query<
         (&InterpPos, &mut Transform),
         (With<BodyEntity>, Without<ShipEntity>, Without<FacilityEntity>),
     >,
 ) {
     let alpha = fixed.overstep_fraction();
-    let world = &mut sim.store.world;
 
-    // Heading lookup is still per-tick (we only update direction
-    // when the sim says transit data changed). No alloc on the
-    // headed-set for idle ships — ShipTransit's transit is None.
-    let ship_heading: std::collections::HashMap<String, Option<Vec3>> = {
-        let mut ship_query = world.query::<(&ShipIdentity, &ShipTransit)>();
-        ship_query
-            .iter(world)
-            .map(|(id, transit)| {
-                let heading = transit.transit.as_ref().and_then(|t| {
-                    let (dx, dy) = t.departure_position?;
-                    // Heading is end-of-transit minus start. Use the
-                    // current InterpPos.curr later — read direction
-                    // from the sim's current target so it doesn't
-                    // wobble during the lerp toward each tick.
-                    let _ = (dx, dy);
-                    Some((dx, dy))
-                });
-                (id.id.clone(), heading.map(|(dx, dy)| Vec3::new(dx, 0.0, dy)))
-            })
-            .collect()
-    };
-
-    for (ship, interp, mut xf) in ships.iter_mut() {
+    // Phase B: ShipTransit lives on the sim entity directly, so
+    // heading comes straight off each ship's transit field — no
+    // HashMap lookup required.
+    for (interp, transit, mut xf) in ships.iter_mut() {
         let (x, z) = interp.lerp(alpha);
         xf.translation.x = x * SCALE_FACTOR;
         xf.translation.z = z * SCALE_FACTOR;
-        if let Some(Some(departure)) = ship_heading.get(ship.sim_id.as_str()) {
-            // Face travel direction (+Z is local nose). Compute
-            // from current curr-pos minus departure rather than
-            // the lerped value so heading stays stable during the
-            // fractional-tick interpolation.
-            let dx = interp.curr.0 - departure.x;
-            let dz = interp.curr.1 - departure.z;
-            if dx * dx + dz * dz > 1e-6 {
-                xf.rotation = Quat::from_rotation_y(dx.atan2(dz));
+        if let Some(t) = &transit.transit {
+            if let Some((dpx, dpz)) = t.departure_position {
+                // Face travel direction (+Z is local nose). Compute
+                // from current curr-pos minus departure rather than
+                // the lerped value so heading stays stable during the
+                // fractional-tick interpolation.
+                let dx = interp.curr.0 - dpx;
+                let dz = interp.curr.1 - dpz;
+                if dx * dx + dz * dz > 1e-6 {
+                    xf.rotation = Quat::from_rotation_y(dx.atan2(dz));
+                }
             }
         }
         // Docked / idle ships keep their last rotation.
@@ -1301,166 +1274,6 @@ fn spawn_nebulae(
     );
 }
 
-/// Cleanup pass — despawn Bevy ship render entities whose sim_id is
-/// no longer in `sim.store.ship_by_id`. Runs each frame; at typical
-/// scale that's 1600 dict lookups, trivial. Kicks in after an admin
-/// Delete Ship (Bundle 3x) so ghost ships don't linger in the scene.
-/// Does not currently handle facility or body deletes because nothing
-/// in the client deletes those yet; add parallel cleanup systems when
-/// those admin actions land.
-fn cleanup_stale_ships(
-    mut commands: Commands,
-    sim: Res<Sim>,
-    explosion: Option<Res<ExplosionEffect>>,
-    ships: Query<(Entity, &ShipEntity, &Transform)>,
-) {
-    for (e, ship, xf) in ships.iter() {
-        if !sim.store.ship_by_id.contains_key(&ship.sim_id) {
-            // Spawn a one-shot explosion at the ship's last known
-            // position before we yank the entity. ExplosionLifetime
-            // timer cleans up the particle entity 1.5 s later.
-            if let Some(ref ex) = explosion {
-                commands.spawn((
-                    ParticleEffect::new(ex.0.clone()),
-                    Transform::from_translation(xf.translation),
-                    ExplosionLifetime(Timer::from_seconds(1.5, TimerMode::Once)),
-                    Name::new(format!("Explosion::{}", ship.sim_id)),
-                ));
-            }
-            commands.entity(e).despawn();
-        }
-    }
-}
-
-/// Reconcile newly-spawned sim ships into the Bevy scene. Mirror of
-/// [`cleanup_stale_ships`]: iterate sim.store.ship_by_id and spawn a
-/// render entity for any sim_id not yet present in the Bevy ships
-/// query. Runs every frame; membership check is a HashSet build +
-/// lookup so the cost scales with live ship count, not spawn-rate.
-/// Kicks in after admin Spawn Ship — the sim spawn path only
-/// touches hecs, so this bridge surfaces new ships visually.
-/// Mirror of `reconcile_new_ships` for facilities. The Add Facility
-/// admin dialog spawns a hecs FacilityEntity post-startup; without
-/// this system there'd be no Bevy render entity for it. Iterates
-/// hecs facilities, spawns a SceneBundle for any that don't already
-/// have a matching Bevy `FacilityEntity`. Same StationModels lookup
-/// + STATION_SCALE / GATE_SCALE handling as the startup spawn.
-fn reconcile_new_facilities(
-    mut commands: Commands,
-    mut sim: ResMut<Sim>,
-    stations: Option<Res<StationModels>>,
-    facilities: Query<&FacilityEntity>,
-) {
-    let Some(stations) = stations else { return };
-    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
-    use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
-
-    let known: std::collections::HashSet<String> =
-        facilities.iter().map(|f| f.sim_id.clone()).collect();
-
-    // Body positions for offset math — same approach the startup
-    // path uses. Cheap at <30 bodies.
-    let body_positions: std::collections::HashMap<String, (f32, f32)> = {
-        let mut q = sim.store.world.query::<(&BodyIdentity, &BodyOrbit)>();
-        q.iter(&sim.store.world)
-            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
-            .collect()
-    };
-
-    let facility_iter: Vec<(FacilityIdentity, FacilityLocation)> = {
-        let mut q = sim.store.world.query::<(&FacilityIdentity, &FacilityLocation)>();
-        q.iter(&sim.store.world)
-            .map(|(id, loc)| (id.clone(), loc.clone()))
-            .collect()
-    };
-    for (id, loc) in &facility_iter {
-        if known.contains(id.id.as_str()) {
-            continue;
-        }
-        let body_center = body_positions
-            .get(&id.body_id)
-            .copied()
-            .unwrap_or((0.0, 0.0));
-        let (fx, fy) =
-            sim_core::agents::facility::facility_offset_position(body_center, &id.id);
-        let y_offset = 0.5;
-        let is_gate = id.facility_type == "gate";
-        let scale = if is_gate { GATE_SCALE } else { STATION_SCALE };
-        let mut transform =
-            Transform::from_xyz(fx * SCALE_FACTOR, y_offset, fy * SCALE_FACTOR)
-                .with_scale(Vec3::splat(scale));
-        if is_gate {
-            transform.rotate_y(std::f32::consts::FRAC_PI_2);
-        }
-        commands.spawn((
-            SceneRoot(stations.for_type(&id.facility_type)),
-            transform,
-            FacilityEntity {
-                sim_id: id.id.clone(),
-                base_scale: scale,
-                body_id: id.body_id.clone(),
-            },
-            FacilityLocationRef(loc.location_name.clone()),
-            GameWorld,
-            Name::new(format!("Facility::{}", id.id)),
-        ));
-    }
-}
-
-fn reconcile_new_ships(
-    mut commands: Commands,
-    sim: ResMut<Sim>,
-    ship_models: Option<Res<ShipModels>>,
-    engine_trail: Option<Res<EngineTrailEffect>>,
-    ships: Query<&ShipEntity>,
-) {
-    let Some(ship_models) = ship_models else { return };
-    let Some(engine_trail) = engine_trail else { return };
-    // Build set of known sim_ids as &str — avoids 1604 String
-    // allocations every render frame (was a hot allocation source
-    // at fleet scale on M1).
-    let known: std::collections::HashSet<&str> = ships.iter().map(|s| s.sim_id.as_str()).collect();
-
-    // Collect (sim_id, entity, ShipIdentity, ShipPosition) snapshots
-    // outside the spawn loop so we don't hold a borrow on
-    // sim.store.world while issuing commands.spawn.
-    let to_spawn: Vec<(String, ShipIdentity, ShipPosition)> = sim
-        .store
-        .ship_by_id
-        .iter()
-        .filter_map(|(sim_id, &entity)| {
-            if known.contains(sim_id.as_str()) {
-                return None;
-            }
-            let id = sim.store.world.get::<ShipIdentity>(entity)?;
-            let pos = sim.store.world.get::<ShipPosition>(entity)?;
-            Some((sim_id.clone(), id.clone(), pos.clone()))
-        })
-        .collect();
-    for (sim_id, id, pos) in &to_spawn {
-        let sim_id = sim_id.clone();
-        let (x, y) = pos.position;
-        let base_scale = SHIP_GLB_SCALE * ship_size_multiplier(id.size);
-        commands.spawn((
-            ParticleEffect::new(engine_trail.0.clone()),
-            EngineTrailFor(sim_id.clone()),
-            GameWorld,
-            Name::new(format!("EngineTrail::{sim_id}")),
-        ));
-        commands.spawn((
-            SceneRoot(ship_models.for_class(&id.class)),
-            Transform::from_xyz(x * SCALE_FACTOR, 0.0, y * SCALE_FACTOR)
-                .with_scale(Vec3::splat(base_scale)),
-            ShipEntity {
-                sim_id: sim_id.clone(),
-                base_scale,
-            },
-            InterpPos::at((x, y)),
-            GameWorld,
-            Name::new(format!("Ship::{sim_id}")),
-        ));
-    }
-}
 
 /// Read `CameraFollow` each frame; if a target is set, look up the
 /// matching ShipEntity / FacilityEntity Bevy transform and write its

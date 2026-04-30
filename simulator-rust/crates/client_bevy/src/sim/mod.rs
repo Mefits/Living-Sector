@@ -247,11 +247,18 @@ pub struct SelectedSavePath(pub Option<std::path::PathBuf>);
 /// and a user-picked save snapshot — letting different sessions
 /// boot from different worlds without restart. The save-list's
 /// Load button writes this resource before transitioning state.
-pub(crate) fn load_world(
-    mut sim: ResMut<Sim>,
-    mut retirements: ResMut<Retirements>,
-    selected: Res<SelectedSavePath>,
-) {
+///
+/// Phase B (bevy_ecs migration): exclusive `&mut World` system. The
+/// sim entities now live in Bevy's app `World`; we take Sim +
+/// Retirements + SelectedSavePath out via `remove_resource`, run the
+/// async load against the app World, and reinsert the resources at
+/// the end. Pattern mirrors the take/insert dance `tick_sim` uses so
+/// we can hold `&mut World` alongside `&mut AgentStore`.
+pub(crate) fn load_world(world: &mut World) {
+    let mut sim = world.remove_resource::<Sim>().unwrap();
+    let mut retirements = world.remove_resource::<Retirements>().unwrap();
+    let selected = world.remove_resource::<SelectedSavePath>().unwrap();
+
     let db_path = match &selected.0 {
         Some(p) => p.to_string_lossy().to_string(),
         None => resolve_db_path(),
@@ -262,11 +269,14 @@ pub(crate) fn load_world(
         Ok(rt) => rt,
         Err(e) => {
             error!("client_bevy: failed to build tokio runtime: {e}");
+            world.insert_resource(sim);
+            world.insert_resource(retirements);
+            world.insert_resource(selected);
             return;
         }
     };
 
-    let load = async move {
+    let setup = async {
         let pool = sim_db::pool::create_pool(&db_path).await?;
         sim_db::pool::run_migrations(&pool).await?;
         info!("client_bevy: migrations done");
@@ -287,17 +297,12 @@ pub(crate) fn load_world(
         };
         WorldTuning::set(tuning);
 
-        let config = TickConfig::DEFAULT;
         // Step-by-step timing for the load freeze investigation.
         // Whatever step is dominant during a 5-10s freeze on a
         // saved DB, this surfaces it in the terminal logs.
         let t_reg = std::time::Instant::now();
         let registry = sim_db::spawner::load_registry(&pool).await?;
         info!("client_bevy: load_registry done in {:.0}ms", t_reg.elapsed().as_secs_f32() * 1000.0);
-
-        let t_agents = std::time::Instant::now();
-        let store = sim_db::spawner::load_agents(&pool, &registry, &config).await?;
-        info!("client_bevy: load_agents done in {:.0}ms", t_agents.elapsed().as_secs_f32() * 1000.0);
 
         let t_seed = std::time::Instant::now();
         let world_seed = sim_db::persistence::load_or_init_world_seed(&pool).await;
@@ -308,7 +313,7 @@ pub(crate) fn load_world(
         // yet, so surface the load error as a warning rather than
         // failing startup.
         let t_retired = std::time::Instant::now();
-        let retirements = sim_db::persistence::load_retirements(&pool, 200)
+        let retired = sim_db::persistence::load_retirements(&pool, 200)
             .await
             .unwrap_or_else(|e| {
                 warn!("client_bevy: retirements load failed (DB probably fresh): {e}");
@@ -316,11 +321,33 @@ pub(crate) fn load_world(
             });
         info!("client_bevy: load_retirements done in {:.0}ms", t_retired.elapsed().as_secs_f32() * 1000.0);
 
-        Ok::<_, anyhow::Error>((store, registry, world_seed, resumed_tick, retirements))
+        Ok::<_, anyhow::Error>((pool, registry, world_seed, resumed_tick, retired))
     };
 
-    match rt.block_on(load) {
-        Ok((store, registry, world_seed, resumed_tick, retired)) => {
+    let (pool, registry, world_seed, resumed_tick, retired) = match rt.block_on(setup) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("client_bevy: world setup failed: {e}");
+            world.insert_resource(sim);
+            world.insert_resource(retirements);
+            world.insert_resource(selected);
+            return;
+        }
+    };
+
+    let config = TickConfig::DEFAULT;
+    let t_agents = std::time::Instant::now();
+    // load_agents takes &mut World — pass the Bevy app World directly.
+    let load_result = rt.block_on(async {
+        sim_db::spawner::load_agents(world, &pool, &registry, &config).await
+    });
+    info!(
+        "client_bevy: load_agents done in {:.0}ms",
+        t_agents.elapsed().as_secs_f32() * 1000.0
+    );
+
+    match load_result {
+        Ok(store) => {
             let summary = store.summary();
             info!(
                 "client_bevy: world loaded: {} ships, {} facilities, {} bodies, {} factions, {} pops; world_seed={}, resume tick={}",
@@ -339,7 +366,7 @@ pub(crate) fn load_world(
             // Mirror sim_server's post-load step: build the gate-pair
             // lookup so ships can gate-jump. Required for any transit
             // through a gate to pick the right paired endpoint.
-            sim.store.rebuild_gate_pairs();
+            sim.store.rebuild_gate_pairs(world);
             let retired_count = retired.len();
             retirements.0 = retired;
             info!("client_bevy: loaded {retired_count} historical retirements");
@@ -350,6 +377,10 @@ pub(crate) fn load_world(
     }
     // rt drops here — Bundle 2b.3 keeps a long-lived one for
     // persistence worker + future async work.
+
+    world.insert_resource(sim);
+    world.insert_resource(retirements);
+    world.insert_resource(selected);
 }
 
 /// `OnExit(InGame)` system: blow away the in-memory world. Mirrors
@@ -358,21 +389,89 @@ pub(crate) fn load_world(
 /// builds a fresh world from whatever DB it picks. Also clears
 /// `SelectedSavePath` so the next plain Start defaults back to
 /// sim.db rather than silently re-using the picked save.
-fn teardown_world(
-    mut sim: ResMut<Sim>,
-    mut retirements: ResMut<Retirements>,
-    mut events: ResMut<EventsLog>,
-    mut selected: ResMut<SelectedSavePath>,
-) {
+///
+/// Phase B (bevy_ecs migration): exclusive `&mut World` system.
+/// Despawns every sim entity (Bevy entities matching any sim
+/// component-marker) so the world isn't carrying stale ECS state
+/// when the next universe loads. Render components get freed
+/// alongside since they live on the same entities now (no separate
+/// mirror layer to clean up — that's the win of Phase B).
+fn teardown_world(world: &mut World) {
+    use sim_core::agents::{
+        celestial_body::BodyIdentity,
+        construction::ConstructionSite,
+        facility::FacilityIdentity,
+        faction::FactionData,
+        market::MarketIdentity,
+        population::PopIdentity,
+        ship::ShipIdentity,
+    };
+
+    let mut sim = world.remove_resource::<Sim>().unwrap();
+    let mut retirements = world.remove_resource::<Retirements>().unwrap();
+    let mut events = world.remove_resource::<EventsLog>().unwrap();
+    let mut selected = world.remove_resource::<SelectedSavePath>().unwrap();
+
     let summary = sim.store.summary();
     info!(
         "client_bevy: tearing down world ({} ships, {} facilities, {} bodies)",
         summary.ships, summary.facilities, summary.bodies
     );
-    *sim = Sim::default();
+
+    // Collect every sim-tagged entity in one pass per kind, then
+    // despawn. Can't combine into a single `Or<...>` query because
+    // Bevy's QueryFilter Or only supports archetype-level filters
+    // (With/Without), and the sim component marker types don't share
+    // a common tag — we do per-kind passes. Each iter is bounded by
+    // the live agent count for that kind so total work is O(n).
+    let mut to_despawn: Vec<Entity> = Vec::new();
+    {
+        let mut q = world.query_filtered::<Entity, With<ShipIdentity>>();
+        to_despawn.extend(q.iter(world));
+    }
+    {
+        let mut q = world.query_filtered::<Entity, With<FacilityIdentity>>();
+        to_despawn.extend(q.iter(world));
+    }
+    {
+        let mut q = world.query_filtered::<Entity, With<BodyIdentity>>();
+        to_despawn.extend(q.iter(world));
+    }
+    {
+        let mut q = world.query_filtered::<Entity, With<MarketIdentity>>();
+        to_despawn.extend(q.iter(world));
+    }
+    {
+        let mut q = world.query_filtered::<Entity, With<PopIdentity>>();
+        to_despawn.extend(q.iter(world));
+    }
+    {
+        let mut q = world.query_filtered::<Entity, With<FactionData>>();
+        to_despawn.extend(q.iter(world));
+    }
+    {
+        let mut q = world.query_filtered::<Entity, With<ConstructionSite>>();
+        to_despawn.extend(q.iter(world));
+    }
+
+    for e in to_despawn {
+        let _ = world.despawn(e);
+    }
+
+    sim.store = AgentStore::new();
+    sim.registry = Arc::new(WorldRegistry::default());
+    sim.tick = 0;
+    sim.running = false;
+    sim.tick_mult = 1;
+    sim.world_seed = 0;
     retirements.0.clear();
     events.0.clear();
     selected.0 = None;
+
+    world.insert_resource(sim);
+    world.insert_resource(retirements);
+    world.insert_resource(events);
+    world.insert_resource(selected);
 }
 
 /// Tick system — runs on Bevy's `FixedUpdate` at
@@ -394,16 +493,28 @@ fn teardown_world(
 /// chain. Bundle 2b.4 extracts `apply_ship_commands` + the other
 /// phase helpers into a shared `sim_engine` crate and wires the
 /// full tick in.
-pub(crate) fn tick_sim(
-    mut sim: ResMut<Sim>,
-    mut events_log: ResMut<EventsLog>,
-    mut perf: ResMut<TickPerf>,
-    mut phase_perf: ResMut<PhasePerf>,
-    mut retirements: ResMut<Retirements>,
-) {
-    if !sim.running {
+///
+/// Phase B (bevy_ecs migration): exclusive `&mut World` system. The
+/// sim entities now live in Bevy's app `World`; we take Sim +
+/// EventsLog + TickPerf + PhasePerf + Retirements out via
+/// `remove_resource`, run the tick body against the app World, and
+/// reinsert at the end. Lets us hold `&mut World` and `&mut Sim`
+/// simultaneously without violating Bevy's borrow rules.
+pub(crate) fn tick_sim(world: &mut World) {
+    // Read `running` without consuming the resource — most ticks the
+    // sim is paused (main menu) and we want to bail without paying
+    // the take/insert cost.
+    let running = world.get_resource::<Sim>().map(|s| s.running).unwrap_or(false);
+    if !running {
         return;
     }
+
+    let mut sim = world.remove_resource::<Sim>().unwrap();
+    let mut events_log = world.remove_resource::<EventsLog>().unwrap();
+    let mut perf = world.remove_resource::<TickPerf>().unwrap();
+    let mut phase_perf = world.remove_resource::<PhasePerf>().unwrap();
+    let mut retirements = world.remove_resource::<Retirements>().unwrap();
+
     let t_start = std::time::Instant::now();
 
     let config = TickConfig::DEFAULT;
@@ -419,7 +530,7 @@ pub(crate) fn tick_sim(
     for _ in 0..tick_mult {
         sim.tick += 1;
         let tick = sim.tick;
-        let Sim { store, registry, .. } = &mut *sim;
+        let Sim { store, registry, .. } = &mut sim;
 
         let mut commands = CommandBuffer::new();
         // `events` collects per-tick event values that every phase
@@ -468,14 +579,14 @@ pub(crate) fn tick_sim(
         // Bodies first so anything reading orbit positions later
         // this tick sees today's orbit.
         time!(t_bodies, {
-            sim_server::engine::tick_bodies(store, tick_scale);
+            sim_server::engine::tick_bodies(world, store, tick_scale);
         });
 
         // Ships — AI decides + transits advance + commands get
         // emitted into the CommandBuffer.
         time!(t_ships, {
             ship::tick_ships(
-                &mut store.world,
+                world,
                 registry,
                 &store.gate_pairs,
                 &store.contracts,
@@ -490,6 +601,7 @@ pub(crate) fn tick_sim(
         // cargo buys/sells, credit transfers.
         time!(t_apply1, {
             sim_server::engine::apply_ship_commands(
+                world,
                 store,
                 &mut commands,
                 &mut events,
@@ -499,11 +611,11 @@ pub(crate) fn tick_sim(
         // Drain organic retirements (3-strike ship deaths) +
         // adaptive respawns.
         time!(t_drains, {
-            drain_decommissions(store, &mut retirements.0, &mut events, tick);
-            drain_respawns(store, registry, &mut events, tick);
+            drain_decommissions(world, store, &mut retirements.0, &mut events, tick);
+            drain_respawns(world, store, registry, &mut events, tick);
         });
         time!(t_dock_queue, {
-            sim_server::engine::tick_dock_queue_advance(store);
+            sim_server::engine::tick_dock_queue_advance(world, store);
         });
 
         // Facilities: recipes, condition degrade, crew food draw,
@@ -511,7 +623,7 @@ pub(crate) fn tick_sim(
         // abandonment countdown, level-up on XP.
         time!(t_facilities, {
             facility::tick_facilities(
-                &mut store.world,
+                world,
                 &mut store.contracts,
                 &mut events,
                 tick,
@@ -523,7 +635,7 @@ pub(crate) fn tick_sim(
         // passenger-contract posting, migration pressure.
         time!(t_pops, {
             population::tick_populations(
-                &mut store.world,
+                world,
                 &mut store.contracts,
                 &mut events,
                 tick,
@@ -533,13 +645,14 @@ pub(crate) fn tick_sim(
         });
         // Markets: the 8-phase pricing engine.
         time!(t_markets, {
-            market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
+            market::tick_markets(world, &mut commands, tick, tick_mult);
         });
 
         // Second apply pass — market TransferCredits + anything the
         // facility/pop phases emitted.
         time!(t_apply2, {
             sim_server::engine::apply_ship_commands(
+                world,
                 store,
                 &mut commands,
                 &mut events,
@@ -549,18 +662,18 @@ pub(crate) fn tick_sim(
 
         time!(t_regen, {
             celestial_body::tick_bodies_regen(
-                &mut store.world,
+                world,
                 tick,
                 tick_scale,
                 tick_mult,
             );
         });
         time!(t_crisis, {
-            sim_server::engine::scan_crisis_events(&mut store.world, &mut events);
+            sim_server::engine::scan_crisis_events(world, &mut events);
         });
         time!(t_factions, {
             faction::tick_factions(
-                &mut store.world,
+                world,
                 &mut store.contracts,
                 &mut events,
                 &mut store.system_control,
@@ -574,7 +687,7 @@ pub(crate) fn tick_sim(
 
         // Last-tick wins; over tick_mult > 1 the relative
         // proportions are what matter, not absolute totals.
-        *phase_perf = PhasePerf {
+        phase_perf = PhasePerf {
             bodies_us: t_bodies,
             ships_us: t_ships,
             apply1_us: t_apply1,
@@ -673,6 +786,12 @@ pub(crate) fn tick_sim(
             breakdown.join(" "),
         );
     }
+
+    world.insert_resource(sim);
+    world.insert_resource(events_log);
+    world.insert_resource(perf);
+    world.insert_resource(phase_perf);
+    world.insert_resource(retirements);
 }
 
 /// Sync version of `sim_server::drain_pending_decommissions` for the
@@ -690,6 +809,7 @@ pub(crate) fn tick_sim(
 /// grows during play instead of staying frozen at the load-time
 /// snapshot.
 fn drain_decommissions(
+    world: &mut World,
     store: &mut AgentStore,
     retirements_log: &mut Vec<RetirementRow>,
     events: &mut Vec<serde_json::Value>,
@@ -708,17 +828,17 @@ fn drain_decommissions(
     for req in pending {
         let entity = req.entity;
         // Snapshot ship state for the retirement row before despawn.
-        let id_clone = match store.world.get::<ShipIdentity>(entity) {
+        let id_clone = match world.get::<ShipIdentity>(entity) {
             Some(id) => id.id.clone(),
             None => continue,
         };
         let row = {
-            let identity = store.world.get::<ShipIdentity>(entity);
-            let position = store.world.get::<ShipPosition>(entity);
-            let econ = store.world.get::<ShipEconomy>(entity);
-            let crew = store.world.get::<ShipCrew>(entity);
-            let fuel = store.world.get::<ShipFuel>(entity);
-            let life = store.world.get::<ShipLifecycle>(entity);
+            let identity = world.get::<ShipIdentity>(entity);
+            let position = world.get::<ShipPosition>(entity);
+            let econ = world.get::<ShipEconomy>(entity);
+            let crew = world.get::<ShipCrew>(entity);
+            let fuel = world.get::<ShipFuel>(entity);
+            let life = world.get::<ShipLifecycle>(entity);
             identity.map(|id_ref| RetirementRow {
                 agent_id: id_ref.id.clone(),
                 name: id_ref.name.clone(),
@@ -753,8 +873,8 @@ fn drain_decommissions(
         // Pop from any facility's docked + queue lists so a despawned
         // entity doesn't wedge a queue head forever.
         {
-            let mut q = store.world.query::<&mut FacilityStorage>();
-            for mut storage in q.iter_mut(&mut store.world) {
+            let mut q = world.query::<&mut FacilityStorage>();
+            for mut storage in q.iter_mut(world) {
                 storage.docked_ships.retain(|&e| e != entity);
                 storage.dock_queue.retain(|&e| e != entity);
             }
@@ -778,7 +898,7 @@ fn drain_decommissions(
                 "ship_id": id_clone.clone(),
             }));
         }
-        let _ = store.world.despawn(entity);
+        let _ = world.despawn(entity);
         store.ship_by_id.remove(&id_clone);
 
         events.push(serde_json::json!({
@@ -802,6 +922,7 @@ fn drain_decommissions(
 /// (tick, prefer_faction) hash; faction is 70%-prefer the lost
 /// ship's faction, else the underdog (fewest active ships).
 fn drain_respawns(
+    world: &mut World,
     store: &mut AgentStore,
     registry: &WorldRegistry,
     events: &mut Vec<serde_json::Value>,
@@ -849,8 +970,8 @@ fn drain_respawns(
         } else {
             let mut counts: std::collections::HashMap<String, u32> =
                 std::collections::HashMap::new();
-            let mut q = store.world.query::<&ShipIdentity>();
-            for id in q.iter(&store.world) {
+            let mut q = world.query::<&ShipIdentity>();
+            for id in q.iter(world) {
                 if !id.faction_id.is_empty() {
                     *counts.entry(id.faction_id.clone()).or_insert(0) += 1;
                 }
@@ -869,8 +990,8 @@ fn drain_respawns(
         // Pick a dockable station — prefer the chosen faction's,
         // fall back to any.
         let candidates: Vec<(String, String, String)> = {
-            let mut q = store.world.query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>();
-            q.iter(&store.world)
+            let mut q = world.query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>();
+            q.iter(world)
                 .filter(|(id, _, ops)| {
                     id.facility_type != "gate" && ops.docking_capacity > 0
                 })
@@ -897,8 +1018,8 @@ fn drain_respawns(
 
         // Resolve body position from the hecs world — no DB hop.
         let body_pos = {
-            let mut q = store.world.query::<(&BodyIdentity, &BodyOrbit)>();
-            q.iter(&store.world)
+            let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
+            q.iter(world)
                 .find(|(b, _)| b.body_id == body_id)
                 .map(|(_, o)| o.universe_position())
                 .unwrap_or((0.0, 0.0))
@@ -917,7 +1038,7 @@ fn drain_respawns(
             position: body_pos,
             credits: 5_000,
         };
-        sim_server::engine::admin_spawn_ship(store, registry, payload, events);
+        sim_server::engine::admin_spawn_ship(world, store, registry, payload, events);
         events.push(serde_json::json!({
             "kind": "ship_spawned",
             "id": agent_id,
@@ -1070,8 +1191,25 @@ fn process_save_as(mut req: ResMut<SaveAsRequest>) {
 /// freighter-at-earth-station preset for the quick-spawn path. The
 /// new hecs entity becomes a Bevy render entity on the next frame
 /// via `reconcile_new_ships` in render/.
-fn process_spawn_ship(mut req: ResMut<SpawnShipRequest>, mut sim: ResMut<Sim>) {
-    let Some(params) = req.0.take() else { return };
+///
+/// Phase B (bevy_ecs migration): exclusive `&mut World` system —
+/// admin_spawn_ship now takes `&mut World`. Take/insert the Sim
+/// resource so we can hold the World mut and the AgentStore mut at
+/// the same time.
+fn process_spawn_ship(world: &mut World) {
+    let req_present = world
+        .get_resource::<SpawnShipRequest>()
+        .map(|r| r.0.is_some())
+        .unwrap_or(false);
+    if !req_present {
+        return;
+    }
+    let mut req = world.remove_resource::<SpawnShipRequest>().unwrap();
+    let Some(params) = req.0.take() else {
+        world.insert_resource(req);
+        return;
+    };
+    let mut sim = world.remove_resource::<Sim>().unwrap();
 
     use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
     use sim_core::agents::facility::{FacilityIdentity, FacilityLocation};
@@ -1095,11 +1233,8 @@ fn process_spawn_ship(mut req: ResMut<SpawnShipRequest>, mut sim: ResMut<Sim>) {
     // share a location (a station + a refinery on the same body); we
     // only need the body_id, which is consistent across them.
     let body_id_for_location: Option<String> = {
-        let mut q = sim
-            .store
-            .world
-            .query::<(&FacilityIdentity, &FacilityLocation)>();
-        q.iter(&sim.store.world)
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(world)
             .find(|(_id, loc)| loc.location_name == params.location_name)
             .map(|(id, _loc)| id.body_id.clone())
     };
@@ -1107,11 +1242,8 @@ fn process_spawn_ship(mut req: ResMut<SpawnShipRequest>, mut sim: ResMut<Sim>) {
     let body_pos = body_id_for_location
         .as_deref()
         .and_then(|bid| {
-            let mut q = sim
-                .store
-                .world
-                .query::<(&BodyIdentity, &BodyOrbit)>();
-            q.iter(&sim.store.world)
+            let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
+            q.iter(world)
                 .find(|(b, _)| b.body_id == bid)
                 .map(|(_, o)| o.universe_position())
         })
@@ -1129,13 +1261,16 @@ fn process_spawn_ship(mut req: ResMut<SpawnShipRequest>, mut sim: ResMut<Sim>) {
         credits: params.credits,
     };
 
-    let Sim { store, registry, .. } = &mut *sim;
+    let Sim { store, registry, .. } = &mut sim;
     let mut events: Vec<serde_json::Value> = Vec::new();
-    sim_server::engine::admin_spawn_ship(store, registry, payload, &mut events);
+    sim_server::engine::admin_spawn_ship(world, store, registry, payload, &mut events);
     info!(
         "client_bevy admin: spawned {} {} at {} ({} cr)",
         params.class, agent_id, params.location_name, params.credits
     );
+
+    world.insert_resource(sim);
+    world.insert_resource(req);
 }
 
 /// Consume a pending [`SpawnFacilityRequest`] and call sim_server's
@@ -1144,8 +1279,20 @@ fn process_spawn_ship(mut req: ResMut<SpawnShipRequest>, mut sim: ResMut<Sim>) {
 /// `facility-{location}-{slug}` agent_id pattern). location_id=0
 /// is fine — embedded client doesn't persist these, so the DB FK
 /// would only matter on next boot.
-fn process_spawn_facility(mut req: ResMut<SpawnFacilityRequest>, mut sim: ResMut<Sim>) {
-    let Some(params) = req.0.take() else { return };
+fn process_spawn_facility(world: &mut World) {
+    let req_present = world
+        .get_resource::<SpawnFacilityRequest>()
+        .map(|r| r.0.is_some())
+        .unwrap_or(false);
+    if !req_present {
+        return;
+    }
+    let mut req = world.remove_resource::<SpawnFacilityRequest>().unwrap();
+    let Some(params) = req.0.take() else {
+        world.insert_resource(req);
+        return;
+    };
+    let mut sim = world.remove_resource::<Sim>().unwrap();
 
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1178,13 +1325,16 @@ fn process_spawn_facility(mut req: ResMut<SpawnFacilityRequest>, mut sim: ResMut
         credits: params.credits,
     };
 
-    let Sim { store, .. } = &mut *sim;
+    let Sim { store, .. } = &mut sim;
     let mut events: Vec<serde_json::Value> = Vec::new();
-    sim_server::engine::admin_spawn_facility(store, payload, &mut events);
+    sim_server::engine::admin_spawn_facility(world, store, payload, &mut events);
     info!(
         "client_bevy admin: spawned facility {} ({}) at body={}",
         agent_id, params.facility_type, params.body_id
     );
+
+    world.insert_resource(sim);
+    world.insert_resource(req);
 }
 
 /// Consume a pending [`DeleteShipRequest`]. Cleanup mirrors the
@@ -1192,23 +1342,39 @@ fn process_spawn_facility(mut req: ResMut<SpawnFacilityRequest>, mut sim: ResMut
 /// facility's docked_ships / dock_queue, release its contract
 /// holdings, despawn the hecs entity, drop the index entry. Render
 /// cleanup happens in `cleanup_stale_ships`.
-fn process_delete_ship(mut req: ResMut<DeleteShipRequest>, mut sim: ResMut<Sim>) {
-    let Some(ship_id) = req.0.take() else { return };
-    use sim_core::agents::facility::FacilityStorage;
-    let Some(&entity) = sim.store.ship_by_id.get(&ship_id) else {
+fn process_delete_ship(world: &mut World) {
+    let req_present = world
+        .get_resource::<DeleteShipRequest>()
+        .map(|r| r.0.is_some())
+        .unwrap_or(false);
+    if !req_present {
+        return;
+    }
+    let mut req = world.remove_resource::<DeleteShipRequest>().unwrap();
+    let Some(ship_id) = req.0.take() else {
+        world.insert_resource(req);
         return;
     };
-    {
-        let mut q = sim.store.world.query::<&mut FacilityStorage>();
-        for mut storage in q.iter_mut(&mut sim.store.world) {
-            storage.docked_ships.retain(|&e| e != entity);
-            storage.dock_queue.retain(|&e| e != entity);
+    let mut sim = world.remove_resource::<Sim>().unwrap();
+
+    use sim_core::agents::facility::FacilityStorage;
+    let entity_opt = sim.store.ship_by_id.get(&ship_id).copied();
+    if let Some(entity) = entity_opt {
+        {
+            let mut q = world.query::<&mut FacilityStorage>();
+            for mut storage in q.iter_mut(world) {
+                storage.docked_ships.retain(|&e| e != entity);
+                storage.dock_queue.retain(|&e| e != entity);
+            }
         }
+        let _ = sim.store.contracts.drop_ship_holdings(&ship_id);
+        let _ = world.despawn(entity);
+        sim.store.ship_by_id.remove(&ship_id);
+        info!("client_bevy admin: deleted ship {}", ship_id);
     }
-    let _ = sim.store.contracts.drop_ship_holdings(&ship_id);
-    let _ = sim.store.world.despawn(entity);
-    sim.store.ship_by_id.remove(&ship_id);
-    info!("client_bevy admin: deleted ship {}", ship_id);
+
+    world.insert_resource(sim);
+    world.insert_resource(req);
 }
 
 /// Consume a pending [`DeleteFacilityRequest`]. Cleanup mirrors
@@ -1219,35 +1385,47 @@ fn process_delete_ship(mut req: ResMut<DeleteShipRequest>, mut sim: ResMut<Sim>)
 /// cleanup is the responsibility of any future
 /// `cleanup_stale_facilities` system; today the Bevy entity lingers
 /// until restart, same trade-off the existing ship cascade lives with.
-fn process_delete_facility(
-    mut req: ResMut<DeleteFacilityRequest>,
-    mut sim: ResMut<Sim>,
-) {
-    let Some(fac_id) = req.0.take() else { return };
-    use sim_core::agents::ship::ShipPosition;
-    let Some(&entity) = sim.store.facility_by_id.get(&fac_id) else {
+fn process_delete_facility(world: &mut World) {
+    let req_present = world
+        .get_resource::<DeleteFacilityRequest>()
+        .map(|r| r.0.is_some())
+        .unwrap_or(false);
+    if !req_present {
+        return;
+    }
+    let mut req = world.remove_resource::<DeleteFacilityRequest>().unwrap();
+    let Some(fac_id) = req.0.take() else {
+        world.insert_resource(req);
         return;
     };
+    let mut sim = world.remove_resource::<Sim>().unwrap();
 
-    // Clear docked_at on any ship pointing at this facility entity —
-    // without this they'd hold a stale Entity reference. Same shape
-    // as sim_server's admin_remove_facility ship-cleanup pass.
-    {
-        let mut q = sim.store.world.query::<&mut ShipPosition>();
-        for mut pos in q.iter_mut(&mut sim.store.world) {
-            if pos.docked_at == Some(entity) {
-                pos.docked_at = None;
+    use sim_core::agents::ship::ShipPosition;
+    let entity_opt = sim.store.facility_by_id.get(&fac_id).copied();
+    if let Some(entity) = entity_opt {
+        // Clear docked_at on any ship pointing at this facility entity —
+        // without this they'd hold a stale Entity reference. Same shape
+        // as sim_server's admin_remove_facility ship-cleanup pass.
+        {
+            let mut q = world.query::<&mut ShipPosition>();
+            for mut pos in q.iter_mut(world) {
+                if pos.docked_at == Some(entity) {
+                    pos.docked_at = None;
+                }
             }
         }
+
+        // Cancel contracts requested by this facility. The sim will
+        // re-post anything still relevant on the next economy cycle.
+        sim.store
+            .contracts
+            .cancel_for_facility(Some(&fac_id), None, None);
+
+        let _ = world.despawn(entity);
+        sim.store.facility_by_id.remove(&fac_id);
+        info!("client_bevy admin: deleted facility {}", fac_id);
     }
 
-    // Cancel contracts requested by this facility. The sim will
-    // re-post anything still relevant on the next economy cycle.
-    sim.store
-        .contracts
-        .cancel_for_facility(Some(&fac_id), None, None);
-
-    let _ = sim.store.world.despawn(entity);
-    sim.store.facility_by_id.remove(&fac_id);
-    info!("client_bevy admin: deleted facility {}", fac_id);
+    world.insert_resource(sim);
+    world.insert_resource(req);
 }

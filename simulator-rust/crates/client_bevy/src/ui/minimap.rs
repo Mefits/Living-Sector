@@ -28,14 +28,16 @@ pub(super) struct MinimapState {
 
 pub(super) fn minimap_panel(
     mut ctx: EguiContexts,
-    mut sim: ResMut<Sim>,
+    _sim: Res<Sim>,
     mut state: ResMut<MinimapState>,
     camera_q: Query<&OrbitCamera>,
     mut focus_req: ResMut<CameraFocusRequest>,
+    bodies_q: Query<(
+        &sim_core::agents::celestial_body::BodyIdentity,
+        &sim_core::agents::celestial_body::BodyOrbit,
+    )>,
+    ships_q: Query<&sim_core::agents::ship::ShipPosition, With<sim_core::agents::ship::ShipIdentity>>,
 ) {
-    use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
-    use sim_core::agents::ship::{ShipIdentity, ShipPosition};
-
     let mut open = state.open;
     if !open {
         return;
@@ -44,18 +46,11 @@ pub(super) fn minimap_panel(
     // Fit to body extents; bodies are the stable anchors. Ships can
     // drift off-map (distant explorers) but the minimap is about the
     // galactic structure, not ship tracking.
-    let body_positions: Vec<(String, (f32, f32))> = {
-        let mut q = sim.store.world.query::<(&BodyIdentity, &BodyOrbit)>();
-        q.iter(&sim.store.world)
-            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
-            .collect()
-    };
-    let ship_positions: Vec<(f32, f32)> = {
-        let mut q = sim.store.world.query::<(&ShipIdentity, &ShipPosition)>();
-        q.iter(&sim.store.world)
-            .map(|(_, pos)| pos.position)
-            .collect()
-    };
+    let body_positions: Vec<(String, (f32, f32))> = bodies_q
+        .iter()
+        .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+        .collect();
+    let ship_positions: Vec<(f32, f32)> = ships_q.iter().map(|pos| pos.position).collect();
 
     if body_positions.is_empty() {
         state.open = open;

@@ -116,11 +116,16 @@ async fn main() -> Result<()> {
 
     // Load world
     let registry = sim_db::spawner::load_registry(&pool).await?;
-    let mut store = sim_db::spawner::load_agents(&pool, &registry, &config).await?;
+    // ECS storage. After Phase B of the bevy_ecs migration, the World
+    // is owned alongside the AgentStore (no longer inside it). The
+    // tick loop takes both by value so the loop body can pass them
+    // through to per-phase helpers.
+    let mut world = bevy_ecs::world::World::new();
+    let mut store = sim_db::spawner::load_agents(&mut world, &pool, &registry, &config).await?;
     // Pump the contract board on a fresh seed so the first client to
     // connect isn't looking at an empty ledger. No-op when the board
     // was hydrated from DB by the loader.
-    engine::run_contract_pump(&mut store, 5);
+    engine::run_contract_pump(&mut world, &mut store, 5);
     let registry = Arc::new(registry);
 
     let summary = store.summary();
@@ -247,6 +252,7 @@ async fn main() -> Result<()> {
         let broadcast_tx = broadcast_tx.clone();
         tokio::spawn(async move {
             engine::run_tick_loop(
+                world,
                 store,
                 registry,
                 config,

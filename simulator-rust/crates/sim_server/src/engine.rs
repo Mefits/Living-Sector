@@ -94,6 +94,7 @@ pub type LodCounters = (
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_tick_loop(
+    mut world: World,
     mut store: AgentStore,
     registry: Arc<WorldRegistry>,
     mut tick_config: TickConfig,
@@ -136,7 +137,7 @@ pub async fn run_tick_loop(
         "Engine: tick loop started at {}ms/tick ({} tps, world_speed={}, mult={})",
         timer_interval, tick_config.ticks_per_second, tick_config.world_speed, tick_mult,
     );
-    log_sample_market(&mut store, "initial");
+    log_sample_market(&mut world, &mut store, "initial");
 
     loop {
         timer.tick().await;
@@ -203,11 +204,12 @@ pub async fn run_tick_loop(
                     info!("Engine: queued {} step-debug ticks", ticks);
                 }
                 ControlCommand::AdminSpawnShip(payload) => {
-                    admin_spawn_ship(&mut store, &registry, payload, &mut events);
+                    admin_spawn_ship(&mut world, &mut store, &registry, payload, &mut events);
                 }
                 ControlCommand::AdminRemoveShip { id } => {
                     let tick_now = tick_counter.load(Ordering::Relaxed);
                     admin_remove_ship(
+                        &mut world,
                         &mut store,
                         &id,
                         tick_now,
@@ -217,22 +219,23 @@ pub async fn run_tick_loop(
                     .await;
                 }
                 ControlCommand::AdminSpawnFacility(payload) => {
-                    admin_spawn_facility(&mut store, payload, &mut events);
+                    admin_spawn_facility(&mut world, &mut store, payload, &mut events);
                 }
                 ControlCommand::AdminRemoveFacility { id } => {
-                    admin_remove_facility(&mut store, &id, &mut events, &persist_tx).await;
+                    admin_remove_facility(&mut world, &mut store, &id, &mut events, &persist_tx).await;
                 }
                 ControlCommand::AdminMarketSupplyDelta { location, deltas } => {
-                    admin_market_supply_delta(&mut store, &location, &deltas, &mut events);
+                    admin_market_supply_delta(&mut world, &mut store, &location, &deltas, &mut events);
                 }
                 ControlCommand::AdminGrantShipXp { id, amount } => {
-                    admin_grant_ship_xp(&mut store, &id, amount, &mut events);
+                    admin_grant_ship_xp(&mut world, &mut store, &id, amount, &mut events);
                 }
                 ControlCommand::AdminRefitFacility { id, slot, slug } => {
-                    admin_refit_facility(&mut store, &id, slot, slug.as_deref(), &mut events);
+                    admin_refit_facility(&mut world, &mut store, &id, slot, slug.as_deref(), &mut events);
                 }
                 ControlCommand::AdminRefitShip { id, slot, slug, via_shipyard } => {
                     admin_refit_ship(
+                        &mut world,
                         &mut store,
                         &id,
                         slot,
@@ -271,9 +274,9 @@ pub async fn run_tick_loop(
         let t_start = std::time::Instant::now();
 
         // Tick phases
-        tick_bodies(&mut store, tick_scale);
+        tick_bodies(&mut world, &mut store, tick_scale);
         sim_core::agents::celestial_body::tick_bodies_regen(
-            &mut store.world,
+            &mut world,
             tick,
             tick_scale,
             tick_mult,
@@ -285,7 +288,7 @@ pub async fn run_tick_loop(
         let lod_interval = sim_core::simulation::lod::LOD_RECOMPUTE_INTERVAL_BASE
             * tick_mult as u64;
         if lod_interval > 0 && tick % lod_interval == 0 {
-            let stats = recompute_lod(&mut store, &observers, tick);
+            let stats = recompute_lod(&mut world, &mut store, &observers, tick);
             // Publish counters so the perf HUD can read tier distribution.
             lod_counters.0.store(stats.d1 as u64, Ordering::Relaxed);
             lod_counters.1.store(stats.d2 as u64, Ordering::Relaxed);
@@ -299,7 +302,7 @@ pub async fn run_tick_loop(
         // updated when gates spawn/despawn (admin operations).
         let gate_pairs_snapshot = store.gate_pairs.clone();
         ship::tick_ships(
-            &mut store.world,
+            &mut world,
             &registry,
             &gate_pairs_snapshot,
             &store.contracts,
@@ -309,19 +312,19 @@ pub async fn run_tick_loop(
             tick_scale,
             tick_mult,
         );
-        record_command_trace(&mut store, &commands, tick, &command_trace);
-        apply_ship_commands(&mut store, &mut commands, &mut events, tick);
+        record_command_trace(&mut world, &mut store, &commands, tick, &command_trace);
+        apply_ship_commands(&mut world, &mut store, &mut commands, &mut events, tick);
         // Per-tick queue advance: admits any queue heads that have
         // space and credits, independent of whether the ship at the
         // head is currently emitting RequestDock. Prevents LOD'd-out
         // ships from indefinitely holding queue slots they can't
         // actively poll for.
-        tick_dock_queue_advance(&mut store);
-        drain_pending_materializations(&mut store, &pool, &persist_tx, &mut events).await;
-        drain_pending_decommissions(&mut store, tick, &mut events, &persist_tx).await;
-        drain_pending_respawns(&mut store, &registry, tick, &mut events, &persist_tx, &pool).await;
+        tick_dock_queue_advance(&mut world, &mut store);
+        drain_pending_materializations(&mut world, &mut store, &pool, &persist_tx, &mut events).await;
+        drain_pending_decommissions(&mut world, &mut store, tick, &mut events, &persist_tx).await;
+        drain_pending_respawns(&mut world, &mut store, &registry, tick, &mut events, &persist_tx, &pool).await;
         facility::tick_facilities(
-            &mut store.world,
+            &mut world,
             &mut store.contracts,
             &mut events,
             tick,
@@ -329,28 +332,28 @@ pub async fn run_tick_loop(
             tick_mult,
         );
         population::tick_populations(
-            &mut store.world,
+            &mut world,
             &mut store.contracts,
             &mut events,
             tick,
             tick_scale,
             tick_mult,
         );
-        market::tick_markets(&mut store.world, &mut commands, tick, tick_mult);
+        market::tick_markets(&mut world, &mut commands, tick, tick_mult);
         // Bundle (S): after markets + facilities tick, emit
         // structural-warning events on threshold crossings so
         // Godot can surface "5 markets in crisis" / "2 facilities
         // starving" without polling every panel. Hysteresis
         // windows inside `scan_crisis_events` prevent flapping.
-        scan_crisis_events(&mut store.world, &mut events);
+        scan_crisis_events(&mut world, &mut events);
         // Market emits TransferCredits (spread revenue) — apply before clearing
-        record_command_trace(&mut store, &commands, tick, &command_trace);
-        apply_ship_commands(&mut store, &mut commands, &mut events, tick);
-        drain_pending_materializations(&mut store, &pool, &persist_tx, &mut events).await;
-        drain_pending_decommissions(&mut store, tick, &mut events, &persist_tx).await;
-        drain_pending_respawns(&mut store, &registry, tick, &mut events, &persist_tx, &pool).await;
+        record_command_trace(&mut world, &mut store, &commands, tick, &command_trace);
+        apply_ship_commands(&mut world, &mut store, &mut commands, &mut events, tick);
+        drain_pending_materializations(&mut world, &mut store, &pool, &persist_tx, &mut events).await;
+        drain_pending_decommissions(&mut world, &mut store, tick, &mut events, &persist_tx).await;
+        drain_pending_respawns(&mut world, &mut store, &registry, tick, &mut events, &persist_tx, &pool).await;
         faction::tick_factions(
-            &mut store.world,
+            &mut world,
             &mut store.contracts,
             &mut events,
             &mut store.system_control,
@@ -383,11 +386,11 @@ pub async fn run_tick_loop(
         }
 
         // Snapshot write
-        snapshots.update_from(&mut store, tick);
+        snapshots.update_from(&mut world, &mut store, tick);
         let total_us = t_start.elapsed().as_micros() as u64;
 
         // Emit dirty-state writes for the persistence worker (cheap: try_send + mark clean)
-        emit_persist_writes(&mut store, tick, &persist_tx);
+        emit_persist_writes(&mut world, &mut store, tick, &persist_tx);
 
         // Broadcasts (cadences match the protocol spec)
         publish_positions(tick, timer_interval, &snapshots, &broadcast_tx);
@@ -418,10 +421,10 @@ pub async fn run_tick_loop(
                 tick_compute_us,
                 total_us,
             );
-            log_sample_market(&mut store, &format!("tick={tick}"));
-            log_sample_ships(&mut store, tick);
+            log_sample_market(&mut world, &mut store, &format!("tick={tick}"));
+            log_sample_ships(&mut world, &mut store, tick);
             log_contract_board(&store, tick);
-            log_factions(&mut store, tick);
+            log_factions(&mut world, &mut store, tick);
         } else if tick % (8 * 5) == 0 {
             debug!(tick, tick_compute_us, total_us, "Engine: tick");
         }
@@ -445,19 +448,19 @@ pub async fn run_tick_loop(
 /// came online" moment. Each posting function's own throttles (one
 /// active crew mission per facility, etc.) keep the board from
 /// exploding across multiple passes.
-pub fn run_contract_pump(store: &mut AgentStore, passes: u32) {
+pub fn run_contract_pump(world: &mut World, store: &mut AgentStore, passes: u32) {
     if !store.contracts.is_empty() {
         return;
     }
     for _ in 0..passes {
         sim_core::agents::facility::tick_post_contracts(
-            &mut store.world,
+            world,
             &mut store.contracts,
             0,
             1,
         );
         sim_core::agents::facility::tick_post_crew_missions(
-            &mut store.world,
+            world,
             &mut store.contracts,
             0,
             1,
@@ -468,7 +471,7 @@ pub fn run_contract_pump(store: &mut AgentStore, passes: u32) {
         // events to, so we feed a throwaway buffer.
         let mut pump_events: Vec<serde_json::Value> = Vec::new();
         sim_core::agents::population::tick_populations(
-            &mut store.world,
+            world,
             &mut store.contracts,
             &mut pump_events,
             0,
@@ -476,7 +479,7 @@ pub fn run_contract_pump(store: &mut AgentStore, passes: u32) {
             1,
         );
         sim_core::agents::faction::tick_factions(
-            &mut store.world,
+            world,
             &mut store.contracts,
             &mut pump_events,
             &mut store.system_control,
@@ -498,7 +501,8 @@ pub fn run_contract_pump(store: &mut AgentStore, passes: u32) {
 /// (divisor > 1) — useful for spotting "everyone's at d=50 because
 /// Godot never sent MoveObserver" config bugs.
 fn recompute_lod(
-    store: &mut AgentStore,
+    world: &mut World,
+    _store: &mut AgentStore,
     observers: &Arc<std::sync::RwLock<Vec<Observer>>>,
     tick: u64,
 ) -> sim_core::simulation::lod::LodStats {
@@ -522,8 +526,8 @@ fn recompute_lod(
 
     // Ships — live positions.
     {
-        let mut q = store.world.query::<(Entity, &AgentLod, &ShipPosition)>();
-        for (e, _lod, pos) in q.iter(&store.world) {
+        let mut q = world.query::<(Entity, &AgentLod, &ShipPosition)>();
+        for (e, _lod, pos) in q.iter(world) {
             pos_by_entity.insert(e, pos.position);
         }
     }
@@ -531,18 +535,17 @@ fn recompute_lod(
     // Facilities + populations — look up by their facility location →
     // body position. Build body position map once.
     let body_pos: std::collections::HashMap<String, (f32, f32)> = {
-        let mut q = store.world.query::<(&BodyIdentity, &BodyOrbit)>();
-        q.iter(&store.world)
+        let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
+        q.iter(world)
             .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
             .collect()
     };
 
     // Facilities.
     let facility_info: Vec<(Entity, String, String)> = {
-        let mut q = store
-            .world
+        let mut q = world
             .query::<(Entity, &AgentLod, &FacilityIdentity, &FacilityLocation)>();
-        q.iter(&store.world)
+        q.iter(world)
             .map(|(e, _lod, id, _loc)| (e, id.body_id.clone(), id.id.clone()))
             .collect()
     };
@@ -557,17 +560,16 @@ fn recompute_lod(
     // the parent facility isn't necessary; body center is plenty for
     // LOD bucketing).
     let pop_info: Vec<(Entity, String)> = {
-        let mut q = store.world.query::<(Entity, &AgentLod, &PopIdentity)>();
-        q.iter(&store.world)
+        let mut q = world.query::<(Entity, &AgentLod, &PopIdentity)>();
+        q.iter(world)
             .map(|(e, _lod, id)| (e, id.facility_location.clone()))
             .collect()
     };
     // location → body_id
     let loc_to_body: std::collections::HashMap<String, String> = {
-        let mut q = store
-            .world
+        let mut q = world
             .query::<(&FacilityLocation, &FacilityIdentity)>();
-        q.iter(&store.world)
+        q.iter(world)
             .map(|(loc, fid)| (loc.location_name.clone(), fid.body_id.clone()))
             .collect()
     };
@@ -579,7 +581,7 @@ fn recompute_lod(
         }
     }
 
-    let stats = tick_lod_recompute(&mut store.world, &pos_by_entity, &obs_snapshot, tick);
+    let stats = tick_lod_recompute(world, &pos_by_entity, &obs_snapshot, tick);
     if stats.total() > 0 && stats.d1 < stats.total() {
         debug!(
             tick,
@@ -596,9 +598,9 @@ fn recompute_lod(
     stats
 }
 
-pub fn tick_bodies(store: &mut AgentStore, tick_scale: f32) {
-    let mut q = store.world.query::<&mut BodyOrbit>();
-    for mut orbit in q.iter_mut(&mut store.world) {
+pub fn tick_bodies(world: &mut World, _store: &mut AgentStore, tick_scale: f32) {
+    let mut q = world.query::<&mut BodyOrbit>();
+    for mut orbit in q.iter_mut(world) {
         orbit.advance(tick_scale);
     }
 }
@@ -703,7 +705,8 @@ pub fn tick_relations_pass(
 /// shared across all ships to keep the insertion path cheap (one
 /// write-lock per tick, not per-ship).
 fn record_command_trace(
-    store: &mut AgentStore,
+    world: &mut World,
+    _store: &mut AgentStore,
     commands: &CommandBuffer,
     tick: u64,
     trace: &std::sync::Arc<
@@ -719,8 +722,8 @@ fn record_command_trace(
     let mut id_by_entity: std::collections::HashMap<Entity, String> =
         std::collections::HashMap::new();
     {
-        let mut q = store.world.query::<(Entity, &ShipIdentity)>();
-        for (e, id) in q.iter(&store.world) {
+        let mut q = world.query::<(Entity, &ShipIdentity)>();
+        for (e, id) in q.iter(world) {
             id_by_entity.insert(e, id.id.clone());
         }
     }
@@ -743,7 +746,7 @@ fn record_command_trace(
 #[cfg(test)]
 mod tests {
     use super::admin_refit_ship;
-    use bevy_ecs::prelude::Entity;
+    use bevy_ecs::prelude::{Entity, World};
     use sim_core::{
         agents::{
             facility::{
@@ -760,8 +763,8 @@ mod tests {
         simulation::spawner::AgentStore,
     };
 
-    fn make_shipyard(store: &mut AgentStore, stock_slug: &str, stock_qty: u32) -> Entity {
-        let entity = store.world.spawn((
+    fn make_shipyard(world: &mut World, store: &mut AgentStore, stock_slug: &str, stock_qty: u32) -> Entity {
+        let entity = world.spawn((
             FacilityIdentity {
                 db_id: 100,
                 id: "facility-test-shipyard".into(),
@@ -799,11 +802,12 @@ mod tests {
     }
 
     fn make_ship(
+        world: &mut World,
         store: &mut AgentStore,
         docked_at: Option<Entity>,
         credits: i64,
     ) -> Entity {
-        let entity = store.world.spawn((
+        let entity = world.spawn((
             ShipIdentity {
                 db_id: 1,
                 id: "ship-test".into(),
@@ -849,7 +853,7 @@ mod tests {
                 last_plan_tick: 0,
             },
         )).id();
-        store.world.entity_mut(entity).insert((
+        world.entity_mut(entity).insert((
             ShipMemory {
                 price_knowledge: Default::default(),
                 visited: vec![],
@@ -871,27 +875,28 @@ mod tests {
 
     #[test]
     fn shipyard_refit_happy_path_consumes_stock_and_credits() {
+        let mut world = World::new();
         let mut store = AgentStore::new();
-        let yard = make_shipyard(&mut store, "engine_t2", 2);
-        let ship = make_ship(&mut store, Some(yard), 50_000);
+        let yard = make_shipyard(&mut world, &mut store, "engine_t2", 2);
+        let ship = make_ship(&mut world, &mut store, Some(yard), 50_000);
         let mut events: Vec<serde_json::Value> = Vec::new();
 
-        admin_refit_ship(&mut store, "ship-test", Slot::Engine, Some("engine_t2"), true, &mut events);
+        admin_refit_ship(&mut world, &mut store, "ship-test", Slot::Engine, Some("engine_t2"), true, &mut events);
 
         // Fitting now carries the new slug + rebaked speed_modifier.
-        let fit = store.world.get::<ShipFitting>(ship).unwrap();
+        let fit = world.get::<ShipFitting>(ship).unwrap();
         assert_eq!(fit.slot_slug(Slot::Engine), Some("engine_t2"));
-        let fuel = store.world.get::<ShipFuel>(ship).unwrap();
+        let fuel = world.get::<ShipFuel>(ship).unwrap();
         assert!((fuel.speed_modifier - 1.15).abs() < 1e-5);
 
         // Shipyard stock decremented by 1; shipyard credits +8000.
-        let stock = store.world.get::<ModuleStock>(yard).unwrap();
+        let stock = world.get::<ModuleStock>(yard).unwrap();
         assert_eq!(stock.count("engine_t2"), 1);
-        let ops = store.world.get::<FacilityOperations>(yard).unwrap();
+        let ops = world.get::<FacilityOperations>(yard).unwrap();
         assert_eq!(ops.credits, 8000);
 
         // Ship paid the cost.
-        let econ = store.world.get::<ShipEconomy>(ship).unwrap();
+        let econ = world.get::<ShipEconomy>(ship).unwrap();
         assert_eq!(econ.credits, 50_000 - 8_000);
 
         // Refit event carries the shipyard context.
@@ -902,60 +907,64 @@ mod tests {
 
     #[test]
     fn shipyard_refit_rejects_when_not_docked() {
+        let mut world = World::new();
         let mut store = AgentStore::new();
-        make_shipyard(&mut store, "cargo_bay_t2", 3);
-        let ship = make_ship(&mut store, None, 50_000); // docked_at = None
+        make_shipyard(&mut world, &mut store, "cargo_bay_t2", 3);
+        let ship = make_ship(&mut world, &mut store, None, 50_000); // docked_at = None
         let mut events = Vec::new();
 
-        admin_refit_ship(&mut store, "ship-test", Slot::CargoBay, Some("cargo_bay_t2"), true, &mut events);
+        admin_refit_ship(&mut world, &mut store, "ship-test", Slot::CargoBay, Some("cargo_bay_t2"), true, &mut events);
 
         // No refit happened — slot is still the tier-1 default.
-        let fit = store.world.get::<ShipFitting>(ship).unwrap();
+        let fit = world.get::<ShipFitting>(ship).unwrap();
         assert_eq!(fit.slot_slug(Slot::CargoBay), Some("cargo_bay_t1"));
-        let econ = store.world.get::<ShipEconomy>(ship).unwrap();
+        let econ = world.get::<ShipEconomy>(ship).unwrap();
         assert_eq!(econ.credits, 50_000, "credits shouldn't move on rejected refit");
     }
 
     #[test]
     fn shipyard_refit_rejects_when_stock_empty() {
+        let mut world = World::new();
         let mut store = AgentStore::new();
-        let yard = make_shipyard(&mut store, "engine_t2", 0);
-        let _ship = make_ship(&mut store, Some(yard), 50_000);
+        let yard = make_shipyard(&mut world, &mut store, "engine_t2", 0);
+        let _ship = make_ship(&mut world, &mut store, Some(yard), 50_000);
         let mut events = Vec::new();
 
-        admin_refit_ship(&mut store, "ship-test", Slot::Engine, Some("engine_t2"), true, &mut events);
+        admin_refit_ship(&mut world, &mut store, "ship-test", Slot::Engine, Some("engine_t2"), true, &mut events);
 
-        let ops = store.world.get::<FacilityOperations>(yard).unwrap();
+        let ops = world.get::<FacilityOperations>(yard).unwrap();
         assert_eq!(ops.credits, 0, "empty stock should not be saleable");
     }
 
     #[test]
     fn shipyard_refit_rejects_when_ship_broke() {
+        let mut world = World::new();
         let mut store = AgentStore::new();
-        let yard = make_shipyard(&mut store, "reactor_t3", 1);
-        let ship = make_ship(&mut store, Some(yard), 100); // well below 28k cost
+        let yard = make_shipyard(&mut world, &mut store, "reactor_t3", 1);
+        let ship = make_ship(&mut world, &mut store, Some(yard), 100); // well below 28k cost
         let mut events = Vec::new();
 
-        admin_refit_ship(&mut store, "ship-test", Slot::Reactor, Some("reactor_t3"), true, &mut events);
+        admin_refit_ship(&mut world, &mut store, "ship-test", Slot::Reactor, Some("reactor_t3"), true, &mut events);
 
-        let fit = store.world.get::<ShipFitting>(ship).unwrap();
+        let fit = world.get::<ShipFitting>(ship).unwrap();
         assert_eq!(fit.slot_slug(Slot::Reactor), Some("reactor_t1"));
-        let stock = store.world.get::<ModuleStock>(yard).unwrap();
+        let stock = world.get::<ModuleStock>(yard).unwrap();
         assert_eq!(stock.count("reactor_t3"), 1, "stock should not decrement");
     }
 
     #[test]
     fn admin_override_refit_bypasses_shipyard_checks() {
         // via_shipyard=false: pure admin swap, no cost, no dock requirement.
+        let mut world = World::new();
         let mut store = AgentStore::new();
-        let ship = make_ship(&mut store, None, 0); // broke + not docked
+        let ship = make_ship(&mut world, &mut store, None, 0); // broke + not docked
         let mut events = Vec::new();
 
-        admin_refit_ship(&mut store, "ship-test", Slot::Engine, Some("engine_t3"), false, &mut events);
+        admin_refit_ship(&mut world, &mut store, "ship-test", Slot::Engine, Some("engine_t3"), false, &mut events);
 
-        let fit = store.world.get::<ShipFitting>(ship).unwrap();
+        let fit = world.get::<ShipFitting>(ship).unwrap();
         assert_eq!(fit.slot_slug(Slot::Engine), Some("engine_t3"));
-        let econ = store.world.get::<ShipEconomy>(ship).unwrap();
+        let econ = world.get::<ShipEconomy>(ship).unwrap();
         assert_eq!(econ.credits, 0, "admin override does not charge");
     }
 }

@@ -1,11 +1,19 @@
-//! AgentStore: hecs::World wrapper with string-id lookup indexes.
+//! AgentStore: world-side index of agent state, paired with an external `bevy_ecs::World`.
 //!
-//! Entity storage is delegated to hecs (archetype-based, cache-friendly for
-//! component queries). On top we maintain HashMap indexes that let us go from
-//! a human-readable string id ("ship-artemis-7") to a hecs::Entity in O(1).
+//! The ECS storage itself is **not** owned here anymore (Phase B of the
+//! bevy_ecs migration). The caller passes the `World` alongside the store
+//! into tick functions and admin helpers; this lets `client_bevy` use
+//! Bevy's app `World` directly so render components can attach to sim
+//! entities without a mirror layer.
 //!
-//! The tick loop owns AgentStore and writes directly. HTTP/WS handlers read
-//! from the separate SnapshotCache (DashMap), not this.
+//! AgentStore now carries:
+//! - the contract board, faction-relations matrix, system-control rollup
+//! - the pending materialization / decommission / respawn queues
+//! - the string-id and location-keyed entity indexes
+//!
+//! `sim_server` constructs its own `World` next to the store inside
+//! `AppState`. `client_bevy` makes the Bevy app world the single ECS
+//! storage and exposes `AgentStore` as a Bevy `Resource`.
 
 use crate::agents::faction_relations::FactionRelations;
 use crate::economy::contracts::ContractBoard;
@@ -64,9 +72,6 @@ pub struct PendingMaterialization {
 }
 
 pub struct AgentStore {
-    /// The ECS world holding all entity components.
-    pub world: World,
-
     /// Contract board — directed demand signals between populations/facilities and ships.
     pub contracts: ContractBoard,
 
@@ -131,7 +136,6 @@ impl Default for AgentStore {
 impl AgentStore {
     pub fn new() -> Self {
         Self {
-            world: World::new(),
             contracts: ContractBoard::new(),
             relations: FactionRelations::new(),
             system_control: HashMap::new(),
@@ -153,15 +157,15 @@ impl AgentStore {
     /// Rebuild the gate-pairs lookup from live `GateLink` components.
     /// Call after all gate facilities have been spawned (post-loader)
     /// and after any admin spawn that added/removed a gate.
-    pub fn rebuild_gate_pairs(&mut self) {
+    pub fn rebuild_gate_pairs(&mut self, world: &mut World) {
         use crate::agents::facility::{FacilityIdentity, GateLink};
         let mut pairs = HashMap::new();
         // location → (facility_agent_id, paired_agent_id)
         let mut by_fac_id: HashMap<String, String> = HashMap::new();
         // Collect gate (facility_id, paired_facility_id) tuples.
         let gates: Vec<(String, String, String)> = {
-            let mut q = self.world.query::<(&FacilityIdentity, &GateLink)>();
-            q.iter(&self.world)
+            let mut q = world.query::<(&FacilityIdentity, &GateLink)>();
+            q.iter(&*world)
                 .map(|(id, link)| {
                     (
                         id.id.clone(),
@@ -174,10 +178,9 @@ impl AgentStore {
         };
         // Build facility_id → location.
         let fac_id_to_loc: HashMap<String, String> = {
-            let mut q = self
-                .world
-                .query::<(&FacilityIdentity, &crate::agents::facility::FacilityLocation)>();
-            q.iter(&self.world)
+            let mut q =
+                world.query::<(&FacilityIdentity, &crate::agents::facility::FacilityLocation)>();
+            q.iter(&*world)
                 .map(|(id, loc)| (id.id.clone(), loc.location_name.clone()))
                 .collect()
         };

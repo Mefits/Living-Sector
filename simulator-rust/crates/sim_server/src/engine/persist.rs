@@ -32,7 +32,7 @@
 //!
 //! Extracted from `engine.rs` in the Phase-21 god-module split.
 
-use bevy_ecs::prelude::Entity;
+use bevy_ecs::prelude::{Entity, World};
 use sim_db::persistence::DbWrite;
 use sim_core::simulation::spawner::AgentStore;
 use tokio::sync::mpsc;
@@ -79,6 +79,7 @@ pub(crate) fn facility_fitting_to_json(
 }
 
 pub(super) fn emit_persist_writes(
+    world: &mut World,
     store: &mut AgentStore,
     tick: u64,
     tx: &mpsc::Sender<DbWrite>,
@@ -102,7 +103,7 @@ pub(super) fn emit_persist_writes(
     let mut ship_writes: Vec<DbWrite> = Vec::new();
     let mut dirty_ships: Vec<Entity> = Vec::new();
     {
-        let mut q = store.world.query::<(
+        let mut q = world.query::<(
             Entity,
             &ShipIdentity,
             &ShipPosition,
@@ -113,9 +114,9 @@ pub(super) fn emit_persist_writes(
         )>();
         // Snapshot the per-ship data we need so we can do nested
         // optional-component reads (ShipProgression, ShipFitting) on
-        // `&store.world` without holding the QueryState's borrow.
+        // `&world` without holding the QueryState's borrow.
         let rows: Vec<(Entity, DbWrite, bool)> = q
-            .iter(&store.world)
+            .iter(&world)
             .map(|(e, identity, pos, cargo, fuel, econ, life)| {
                 let cargo_json: serde_json::Map<String, serde_json::Value> = cargo
                     .cargo
@@ -149,21 +150,18 @@ pub(super) fn emit_persist_writes(
             // dirties. Fitting is mutated through the refit apply, which
             // also marks lifecycle dirty, so we don't track it separately
             // here.
-            let prog_dirty = store
-                .world
+            let prog_dirty = world
                 .get::<ShipProgression>(e)
                 .map(|p| p.dirty)
                 .unwrap_or(false);
             if !life_dirty && !prog_dirty {
                 continue;
             }
-            let fitting_json = store
-                .world
+            let fitting_json = world
                 .get::<ShipFitting>(e)
                 .map(|f| ship_fitting_to_json(f))
                 .unwrap_or_else(|| ship_fitting_to_json(&ShipFitting::new_default()));
-            let progression_json = store
-                .world
+            let progression_json = world
                 .get::<ShipProgression>(e)
                 .map(|p| ship_progression_to_json(p))
                 .unwrap_or_else(|| ship_progression_to_json(&ShipProgression::new()));
@@ -184,19 +182,17 @@ pub(super) fn emit_persist_writes(
         let _ = tx.try_send(write);
     }
     for e in dirty_ships {
-        if let Some(mut life) = store.world.get_mut::<ShipLifecycle>(e) {
+        if let Some(mut life) = world.get_mut::<ShipLifecycle>(e) {
             life.dirty = false;
         }
-        if let Some(mut prog) = store.world.get_mut::<ShipProgression>(e) {
+        if let Some(mut prog) = world.get_mut::<ShipProgression>(e) {
             prog.dirty = false;
         }
     }
 
     // Markets
-    let mut market_q = store
-        .world
-        .query::<(&MarketIdentity, &MarketPricing, &mut MarketHistory)>();
-    for (identity, pricing, mut hist) in market_q.iter_mut(&mut store.world) {
+    let mut market_q = world.query::<(&MarketIdentity, &MarketPricing, &mut MarketHistory)>();
+    for (identity, pricing, mut hist) in market_q.iter_mut(world) {
         if !hist.dirty {
             continue;
         }
@@ -256,8 +252,8 @@ pub(super) fn emit_persist_writes(
     }
 
     // Factions
-    let mut faction_q = store.world.query::<&mut FactionData>();
-    for mut data in faction_q.iter_mut(&mut store.world) {
+    let mut faction_q = world.query::<&mut FactionData>();
+    for mut data in faction_q.iter_mut(world) {
         if !data.dirty {
             continue;
         }
@@ -289,16 +285,15 @@ pub(super) fn emit_persist_writes(
         use sim_core::agents::facility::FacilityCrew;
         let mut dirty: Vec<Entity> = Vec::new();
         {
-            let mut q = store.world.query::<(Entity, &FacilityOperations)>();
+            let mut q = world.query::<(Entity, &FacilityOperations)>();
             let entities: Vec<(Entity, bool)> =
-                q.iter(&store.world).map(|(e, ops)| (e, ops.dirty)).collect();
+                q.iter(&world).map(|(e, ops)| (e, ops.dirty)).collect();
             for (e, ops_dirty) in entities {
                 if ops_dirty {
                     dirty.push(e);
                     continue;
                 }
-                let stock_dirty = store
-                    .world
+                let stock_dirty = world
                     .get::<ModuleStock>(e)
                     .map(|s| s.dirty)
                     .unwrap_or(false);
@@ -306,8 +301,7 @@ pub(super) fn emit_persist_writes(
                     dirty.push(e);
                     continue;
                 }
-                let fit_dirty = store
-                    .world
+                let fit_dirty = world
                     .get::<FacilityFitting>(e)
                     .map(|f| f.dirty)
                     .unwrap_or(false);
@@ -315,8 +309,7 @@ pub(super) fn emit_persist_writes(
                     dirty.push(e);
                     continue;
                 }
-                let crew_dirty = store
-                    .world
+                let crew_dirty = world
                     .get::<FacilityCrew>(e)
                     .map(|c| c.dirty)
                     .unwrap_or(false);
@@ -328,13 +321,13 @@ pub(super) fn emit_persist_writes(
 
         for entity in dirty {
             let (db_id, credits, condition, reserves_json) = {
-                let Some(fid) = store.world.get::<FacilityIdentity>(entity) else {
+                let Some(fid) = world.get::<FacilityIdentity>(entity) else {
                     continue;
                 };
-                let Some(ops) = store.world.get::<FacilityOperations>(entity) else {
+                let Some(ops) = world.get::<FacilityOperations>(entity) else {
                     continue;
                 };
-                let Some(storage) = store.world.get::<FacilityStorage>(entity) else {
+                let Some(storage) = world.get::<FacilityStorage>(entity) else {
                     continue;
                 };
                 let reserves_json: serde_json::Map<String, serde_json::Value> = storage
@@ -349,7 +342,7 @@ pub(super) fn emit_persist_writes(
                     serde_json::Value::Object(reserves_json).to_string(),
                 )
             };
-            let module_stock_json = match store.world.get::<ModuleStock>(entity) {
+            let module_stock_json = match world.get::<ModuleStock>(entity) {
                 Some(stock) => {
                     let obj: serde_json::Map<String, serde_json::Value> = stock
                         .stock
@@ -360,11 +353,11 @@ pub(super) fn emit_persist_writes(
                 }
                 None => "{}".to_string(),
             };
-            let fitting_json = match store.world.get::<FacilityFitting>(entity) {
+            let fitting_json = match world.get::<FacilityFitting>(entity) {
                 Some(f) => facility_fitting_to_json(f),
                 None => "{}".to_string(),
             };
-            let crew_state_json = match store.world.get::<FacilityCrew>(entity) {
+            let crew_state_json = match world.get::<FacilityCrew>(entity) {
                 Some(c) => {
                     let snap = sim_core::agents::facility::FacilityCrewSnapshot::from(&*c);
                     serde_json::to_string(&snap).unwrap_or_else(|_| "{}".to_string())
@@ -380,16 +373,16 @@ pub(super) fn emit_persist_writes(
                 fitting_json,
                 crew_state_json,
             });
-            if let Some(mut ops) = store.world.get_mut::<FacilityOperations>(entity) {
+            if let Some(mut ops) = world.get_mut::<FacilityOperations>(entity) {
                 ops.dirty = false;
             }
-            if let Some(mut stock) = store.world.get_mut::<ModuleStock>(entity) {
+            if let Some(mut stock) = world.get_mut::<ModuleStock>(entity) {
                 stock.dirty = false;
             }
-            if let Some(mut fit) = store.world.get_mut::<FacilityFitting>(entity) {
+            if let Some(mut fit) = world.get_mut::<FacilityFitting>(entity) {
                 fit.dirty = false;
             }
-            if let Some(mut crew) = store.world.get_mut::<FacilityCrew>(entity) {
+            if let Some(mut crew) = world.get_mut::<FacilityCrew>(entity) {
                 crew.dirty = false;
             }
         }
@@ -401,15 +394,15 @@ pub(super) fn emit_persist_writes(
     if flush_facility {
         use sim_core::agents::construction::ConstructionSite;
         let dirty: Vec<Entity> = {
-            let mut q = store.world.query::<(Entity, &ConstructionSite)>();
-            q.iter(&store.world)
+            let mut q = world.query::<(Entity, &ConstructionSite)>();
+            q.iter(&world)
                 .filter(|(_, s)| s.dirty)
                 .map(|(e, _)| e)
                 .collect()
         };
         for entity in dirty {
             let row_opt = {
-                let Some(site) = store.world.get::<ConstructionSite>(entity) else {
+                let Some(site) = world.get::<ConstructionSite>(entity) else {
                     continue;
                 };
                 Some(sim_db::persistence::ConstructionSiteRow {
@@ -431,7 +424,7 @@ pub(super) fn emit_persist_writes(
             if let Some(row) = row_opt {
                 let _ = tx.try_send(DbWrite::ConstructionSiteUpsert { row });
             }
-            if let Some(mut site) = store.world.get_mut::<ConstructionSite>(entity) {
+            if let Some(mut site) = world.get_mut::<ConstructionSite>(entity) {
                 site.dirty = false;
             }
         }
@@ -441,10 +434,9 @@ pub(super) fn emit_persist_writes(
         use sim_core::agents::population::{
             PopDemographics, PopEconomy, PopIdentity, PopSentiment,
         };
-        let mut q = store
-            .world
-            .query::<(&PopIdentity, &PopDemographics, &PopEconomy, &mut PopSentiment)>();
-        for (pid, demo, econ, mut sent) in q.iter_mut(&mut store.world) {
+        let mut q =
+            world.query::<(&PopIdentity, &PopDemographics, &PopEconomy, &mut PopSentiment)>();
+        for (pid, demo, econ, mut sent) in q.iter_mut(world) {
             if !sent.dirty {
                 continue;
             }
@@ -461,10 +453,8 @@ pub(super) fn emit_persist_writes(
 
     if flush_body {
         use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit, BodyResources};
-        let mut q = store
-            .world
-            .query::<(&BodyIdentity, &mut BodyOrbit, &BodyResources)>();
-        for (bid, mut orbit, resources) in q.iter_mut(&mut store.world) {
+        let mut q = world.query::<(&BodyIdentity, &mut BodyOrbit, &BodyResources)>();
+        for (bid, mut orbit, resources) in q.iter_mut(world) {
             if !orbit.dirty {
                 continue;
             }

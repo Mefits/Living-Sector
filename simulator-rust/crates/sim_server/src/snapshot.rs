@@ -4,7 +4,7 @@
 //! logic runs). HTTP handlers read from here without touching the live
 //! AgentStore. This is the ETS-snapshots equivalent from the Elixir design.
 
-use bevy_ecs::prelude::Entity;
+use bevy_ecs::prelude::{Entity, World};
 use dashmap::DashMap;
 use sim_core::{
     agents::{
@@ -89,20 +89,20 @@ impl SnapshotCache {
     /// - Factions: **every 16 ticks** (factions touch their state
     ///   only on tax / subsidy cycles that are much slower than
     ///   this).
-    pub fn update_from(&self, store: &mut AgentStore, tick: u64) {
+    pub fn update_from(&self, world: &mut World, store: &mut AgentStore, tick: u64) {
         // Hot path — every tick.
-        self.update_ships(store);
-        self.update_construction_sites(store);
-        self.update_body_positions(store);
-        self.update_facility_positions(store);
+        self.update_ships(world, store);
+        self.update_construction_sites(world, store);
+        self.update_body_positions(world, store);
+        self.update_facility_positions(world, store);
 
         // Mid-cadence (4 ticks). Full snapshots rebuild; positions
         // stay fresh via the always-on helpers above.
         if tick % 4 == 0 {
-            self.update_bodies(store);
-            self.update_markets(store);
-            self.update_facilities(store);
-            self.update_populations(store);
+            self.update_bodies(world, store);
+            self.update_markets(world, store);
+            self.update_facilities(world, store);
+            self.update_populations(world, store);
             self.update_contracts(store);
         }
 
@@ -113,7 +113,7 @@ impl SnapshotCache {
         // `RELATIONS_TICK_INTERVAL_BASE` so a 16-tick refresh here
         // is plenty.
         if tick % 16 == 0 {
-            self.update_factions(store);
+            self.update_factions(world, store);
             self.update_relations(store);
         }
     }
@@ -145,10 +145,10 @@ impl SnapshotCache {
     /// full BodySnapshot rebuild. Called every tick so Godot sees
     /// smooth orbits; the full body snapshot (biome, resources,
     /// etc.) rolls over on the 4-tick throttle.
-    fn update_body_positions(&self, store: &mut AgentStore) {
+    fn update_body_positions(&self, world: &mut World, _store: &mut AgentStore) {
         use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
-        let mut q = store.world.query::<(&BodyIdentity, &BodyOrbit)>();
-        for (id, orbit) in q.iter(&store.world) {
+        let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
+        for (id, orbit) in q.iter(&world) {
             self.positions
                 .insert(id.body_id.clone(), orbit.universe_position());
         }
@@ -159,18 +159,18 @@ impl SnapshotCache {
     /// without the `FacilitySnapshot::build` call or the optional-
     /// component queries (crew, fitting, module_stock). The full
     /// facility snapshot rolls over on the 4-tick throttle.
-    fn update_facility_positions(&self, store: &mut AgentStore) {
+    fn update_facility_positions(&self, world: &mut World, _store: &mut AgentStore) {
         use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
         let mut body_pos: std::collections::HashMap<String, (f32, f32)> =
             std::collections::HashMap::new();
         {
-            let mut q = store.world.query::<(&BodyIdentity, &BodyOrbit)>();
-            for (id, orbit) in q.iter(&store.world) {
+            let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
+            for (id, orbit) in q.iter(&world) {
                 body_pos.insert(id.body_id.clone(), orbit.universe_position());
             }
         }
-        let mut q = store.world.query::<&FacilityIdentity>();
-        for id in q.iter(&store.world) {
+        let mut q = world.query::<&FacilityIdentity>();
+        for id in q.iter(&world) {
             let center = body_pos.get(&id.body_id).copied().unwrap_or((0.0, 0.0));
             let pos = facility_offset_position(center, &id.id);
             self.positions.insert(id.id.clone(), pos);
@@ -180,10 +180,10 @@ impl SnapshotCache {
     /// Phase 19c: refresh the construction-sites cache each tick +
     /// publish their positions so Godot's positions broadcast picks
     /// them up alongside ships / bodies / facilities.
-    fn update_construction_sites(&self, store: &mut AgentStore) {
+    fn update_construction_sites(&self, world: &mut World, _store: &mut AgentStore) {
         let mut live: std::collections::HashSet<String> = Default::default();
-        let mut q = store.world.query::<&ConstructionSite>();
-        for site in q.iter(&store.world) {
+        let mut q = world.query::<&ConstructionSite>();
+        for site in q.iter(&world) {
             live.insert(site.id.clone());
             self.construction_sites
                 .insert(site.id.clone(), ConstructionSiteSnapshot::from(site));
@@ -208,9 +208,9 @@ impl SnapshotCache {
         self.contracts.retain(|k, _| live.contains(k));
     }
 
-    fn update_ships(&self, store: &mut AgentStore) {
+    fn update_ships(&self, world: &mut World, _store: &mut AgentStore) {
         let mut live: std::collections::HashSet<String> = Default::default();
-        let mut q = store.world.query::<(
+        let mut q = world.query::<(
             Entity,
             &ShipIdentity,
             &ShipPosition,
@@ -222,15 +222,15 @@ impl SnapshotCache {
             &ShipLifecycle,
         )>();
         for (e, identity, position, transit, cargo, fuel, economy, ai, lifecycle) in
-            q.iter(&store.world)
+            q.iter(&world)
         {
             // ShipCrew is optional since we only added it in Phase 8d.
             // ShipCrewSkills came in Phase 11b; also optional on older saves.
             // ShipFitting came in Phase 18a; also optional on older saves.
-            let crew = store.world.get::<ShipCrew>(e);
-            let skills = store.world.get::<ShipCrewSkills>(e);
-            let fitting = store.world.get::<ShipFitting>(e);
-            let progression = store.world.get::<ShipProgression>(e);
+            let crew = world.get::<ShipCrew>(e);
+            let skills = world.get::<ShipCrewSkills>(e);
+            let fitting = world.get::<ShipFitting>(e);
+            let progression = world.get::<ShipProgression>(e);
             let snap = ShipSnapshot::build(
                 identity,
                 position,
@@ -258,25 +258,23 @@ impl SnapshotCache {
         self.positions.retain(|k, _| !k.starts_with("ship-") || live.contains(k));
     }
 
-    fn update_markets(&self, store: &mut AgentStore) {
-        let mut q = store
-            .world
-            .query::<(&MarketIdentity, &MarketPricing, &MarketHistory)>();
-        for (identity, pricing, history) in q.iter(&store.world) {
+    fn update_markets(&self, world: &mut World, _store: &mut AgentStore) {
+        let mut q = world.query::<(&MarketIdentity, &MarketPricing, &MarketHistory)>();
+        for (identity, pricing, history) in q.iter(&world) {
             let snap = MarketSnapshot::build(identity, pricing, history);
             self.markets.insert(identity.id.clone(), snap);
         }
     }
 
-    fn update_facilities(&self, store: &mut AgentStore) {
+    fn update_facilities(&self, world: &mut World, _store: &mut AgentStore) {
         // Build body_id → universe_position map first so each facility can
         // inherit its body's position without a second world query.
         use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
         let mut body_pos: std::collections::HashMap<String, (f32, f32)> =
             std::collections::HashMap::new();
         {
-            let mut q = store.world.query::<(&BodyIdentity, &BodyOrbit)>();
-            for (id, orbit) in q.iter(&store.world) {
+            let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
+            for (id, orbit) in q.iter(&world) {
                 body_pos.insert(id.body_id.clone(), orbit.universe_position());
             }
         }
@@ -284,40 +282,40 @@ impl SnapshotCache {
         // Build ship_entity → ship_id map so FacilityStorage.docked_ships
         // (Vec<Entity>) can be resolved to the string-id shape Godot reads.
         let ship_id_by_entity: std::collections::HashMap<Entity, String> = {
-            let mut q = store.world.query::<(Entity, &ShipIdentity)>();
-            q.iter(&store.world)
+            let mut q = world.query::<(Entity, &ShipIdentity)>();
+            q.iter(&world)
                 .map(|(e, id)| (e, id.id.clone()))
                 .collect()
         };
 
         // Snapshot the facility-entity rows up front so we can do nested
-        // optional-component reads on `&store.world` afterwards without
+        // optional-component reads on `&world` afterwards without
         // holding the QueryState's borrow. The base components are cheap
         // to clone as references, so we collect (Entity, position, docked,
         // queue) tuples plus indexable handles to the components.
         let entities: Vec<Entity> = {
-            let mut q = store.world.query::<(
+            let mut q = world.query::<(
                 Entity,
                 &FacilityIdentity,
                 &FacilityLocation,
                 &FacilityOperations,
                 &FacilityStorage,
             )>();
-            q.iter(&store.world).map(|(e, _, _, _, _)| e).collect()
+            q.iter(&world).map(|(e, _, _, _, _)| e).collect()
         };
 
         let mut live: std::collections::HashSet<String> = Default::default();
         for e in entities {
-            let Some(identity) = store.world.get::<FacilityIdentity>(e) else {
+            let Some(identity) = world.get::<FacilityIdentity>(e) else {
                 continue;
             };
-            let Some(location) = store.world.get::<FacilityLocation>(e) else {
+            let Some(location) = world.get::<FacilityLocation>(e) else {
                 continue;
             };
-            let Some(ops) = store.world.get::<FacilityOperations>(e) else {
+            let Some(ops) = world.get::<FacilityOperations>(e) else {
                 continue;
             };
-            let Some(storage) = store.world.get::<FacilityStorage>(e) else {
+            let Some(storage) = world.get::<FacilityStorage>(e) else {
                 continue;
             };
             let body_center = body_pos
@@ -340,17 +338,11 @@ impl SnapshotCache {
                 .iter()
                 .filter_map(|e| ship_id_by_entity.get(e).cloned())
                 .collect();
-            let lifecycle = store.world.get::<FacilityLifecycle>(e);
-            let gate = store.world.get::<GateLink>(e);
-            let module_stock = store
-                .world
-                .get::<sim_core::agents::facility::ModuleStock>(e);
-            let fitting = store
-                .world
-                .get::<sim_core::agents::facility::FacilityFitting>(e);
-            let crew = store
-                .world
-                .get::<sim_core::agents::facility::FacilityCrew>(e);
+            let lifecycle = world.get::<FacilityLifecycle>(e);
+            let gate = world.get::<GateLink>(e);
+            let module_stock = world.get::<sim_core::agents::facility::ModuleStock>(e);
+            let fitting = world.get::<sim_core::agents::facility::FacilityFitting>(e);
+            let crew = world.get::<sim_core::agents::facility::FacilityCrew>(e);
             let snap = FacilitySnapshot::build(
                 &identity,
                 &location,
@@ -378,25 +370,23 @@ impl SnapshotCache {
         self.positions.retain(|k, _| !k.starts_with("facility-") || live.contains(k));
     }
 
-    fn update_populations(&self, store: &mut AgentStore) {
-        let mut q = store
-            .world
-            .query::<(&PopIdentity, &PopDemographics, &PopEconomy, &PopSentiment)>();
-        for (identity, demo, econ, sent) in q.iter(&store.world) {
+    fn update_populations(&self, world: &mut World, _store: &mut AgentStore) {
+        let mut q =
+            world.query::<(&PopIdentity, &PopDemographics, &PopEconomy, &PopSentiment)>();
+        for (identity, demo, econ, sent) in q.iter(&world) {
             let snap = PopSnapshot::build(identity, demo, econ, sent);
             self.populations.insert(identity.id.clone(), snap);
         }
     }
 
-    fn update_bodies(&self, store: &mut AgentStore) {
+    fn update_bodies(&self, world: &mut World, _store: &mut AgentStore) {
         // Bundle D: BodyTerritory is optional — newly-spawned bodies that
         // haven't been through `derive_territorial_control` yet won't
         // carry one. The snapshot defaults those to `None / not contested`,
         // matching the `BodyTerritory::default()` behaviour at boot.
-        let mut q = store
-            .world
-            .query::<(&BodyIdentity, &BodyOrbit, &BodyBiome, Option<&BodyTerritory>)>();
-        for (identity, orbit, biome, territory) in q.iter(&store.world) {
+        let mut q =
+            world.query::<(&BodyIdentity, &BodyOrbit, &BodyBiome, Option<&BodyTerritory>)>();
+        for (identity, orbit, biome, territory) in q.iter(&world) {
             let snap = BodySnapshot::build(identity, orbit, biome, territory);
             self.positions
                 .insert(identity.body_id.clone(), (snap.universe_position.x, snap.universe_position.y));
@@ -404,9 +394,9 @@ impl SnapshotCache {
         }
     }
 
-    fn update_factions(&self, store: &mut AgentStore) {
-        let mut q = store.world.query::<&FactionData>();
-        for data in q.iter(&store.world) {
+    fn update_factions(&self, world: &mut World, _store: &mut AgentStore) {
+        let mut q = world.query::<&FactionData>();
+        for data in q.iter(&world) {
             self.factions
                 .insert(data.id.clone(), FactionSnapshot::build(data));
         }

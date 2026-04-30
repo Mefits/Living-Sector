@@ -54,12 +54,15 @@ impl Default for MarketsState {
 
 pub(super) fn markets_panel(
     mut ctx: EguiContexts,
-    mut sim: ResMut<Sim>,
+    _sim: Res<Sim>,
     mut state: ResMut<MarketsState>,
+    markets_q: Query<(
+        &sim_core::agents::market::MarketIdentity,
+        &sim_core::agents::market::MarketPricing,
+        &sim_core::agents::market::MarketHistory,
+    )>,
 ) {
-    use sim_core::agents::market::{
-        MarketHistory, MarketIdentity, MarketPricing, MARKET_CRISIS_SHORTAGE_TICKS,
-    };
+    use sim_core::agents::market::MARKET_CRISIS_SHORTAGE_TICKS;
     use sim_core::economy::commodities::Commodity;
     // Phase 20d: trend sparkline rendering — see `draw_sparkline`
     // helper below the panel function.
@@ -91,26 +94,8 @@ pub(super) fn markets_panel(
     }
 
     let mut rows: Vec<MarketRow> = Vec::new();
-    let entities: Vec<(Entity, String)> = {
-        let mut q = sim.store.world.query::<(Entity, &MarketIdentity)>();
-        q.iter(&sim.store.world)
-            .map(|(e, id)| (e, id.facility_location.clone()))
-            .collect()
-    };
-    for (entity, location) in entities {
-        let pricing = sim
-            .store
-            .world
-            .get::<MarketPricing>(entity)
-            .map(|p| p.clone());
-        let history = sim
-            .store
-            .world
-            .get::<MarketHistory>(entity)
-            .map(|h| h.clone());
-        let (Some(pricing), Some(history)) = (pricing, history) else {
-            continue;
-        };
+    for (id, pricing, history) in markets_q.iter() {
+        let location = id.facility_location.clone();
 
         let mut prices: Vec<(Commodity, f32)> =
             pricing.prices.iter().map(|(c, v)| (*c, *v)).collect();
