@@ -1,17 +1,22 @@
-//! `simulator` binary — boots the sim, runs the tick loop, serves HTTP + WS.
+//! Headless-server runtime — `pub async fn run()` is what the
+//! `client_bevy --headless` entry point ultimately invokes (and what
+//! the now-deleted `simulator` binary used to call directly).
 //!
 //! ## Startup sequence
-//! 1. Initialize tracing with `RUST_LOG` filter (stderr)
-//! 2. Open SQLite pool (WAL, single writer) and run migrations
-//! 3. Seed DB from `priv/data/*.json` if empty (idempotent upserts)
-//! 4. Load `WorldRegistry` and `AgentStore` from DB
-//! 5. Spawn `engine::run_tick_loop` and `axum::serve` as sibling tokio tasks
-//! 6. Print `sim:ready ws=... http=...` to stdout so Godot can connect
-//! 7. Wait for SIGINT/SIGTERM; on signal, flip the running flag and let the
+//! 1. Open SQLite pool (WAL, single writer) and run migrations
+//! 2. Seed DB from `priv/data/*.json` if empty (idempotent upserts)
+//! 3. Load `WorldRegistry` and `AgentStore` from DB
+//! 4. Spawn `engine::run_tick_loop` and `axum::serve` as sibling tokio tasks
+//! 5. Print `sim:ready ws=... http=...` to stdout so external clients
+//!    (smoke scripts, legacy Godot harness) can detect readiness
+//! 6. Wait for SIGINT/SIGTERM; on signal, flip the running flag and let the
 //!    tick loop settle before exiting
 //!
+//! Tracing is configured by the caller. `client_bevy --headless` sets
+//! up its tracing-subscriber (or its bevy-log fallback) before
+//! invoking this — no double-init.
+//!
 //! ## Env vars
-//! - `RUST_LOG` — tracing filter (default: `simulator=info,sim_core=info`)
 //! - `WORLD_SPEED` — game-time multiplier (default 0.25; `4.0` for demos)
 //! - `BIND_ADDR` — HTTP/WS bind (default `127.0.0.1:8080`)
 //! - `DATABASE_PATH` — SQLite path (default next to binary)
@@ -27,12 +32,12 @@ use axum::{
     Router,
 };
 use sim_core::simulation::config::TickConfig;
-use sim_server::app_state::{self, AppState};
-use sim_server::control::ControlCommand;
-use sim_server::engine::{self, RunningFlag, TickCounter};
-use sim_server::http;
-use sim_server::snapshot::SnapshotCache;
-use sim_server::ws;
+use crate::app_state::{self, AppState};
+use crate::control::ControlCommand;
+use crate::engine::{self, RunningFlag, TickCounter};
+use crate::http;
+use crate::snapshot::SnapshotCache;
+use crate::ws;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, AtomicU64},
     Arc,
@@ -40,19 +45,14 @@ use std::sync::{
 use std::io::Write;
 use tokio::sync::{broadcast, mpsc};
 use tracing::info;
-use tracing_subscriber::{fmt, EnvFilter};
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // Logging
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("simulator=info,sim_core=info,tower_http=warn"));
-    fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .with_target(true)
-        .init();
-
+/// Boot the headless server (DB → AgentStore → tick loop + axum +
+/// persistence worker → wait for shutdown signal).
+///
+/// Caller installs the tracing subscriber before invoking. Returns
+/// when the shutdown signal fires (SIGINT / SIGTERM / parent
+/// disappears).
+pub async fn run() -> Result<()> {
     info!("Simulator starting...");
 
     // Phase C: bevy_ecs's `Query::par_iter_mut` (used by sim_core's ship

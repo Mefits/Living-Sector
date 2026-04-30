@@ -2066,6 +2066,7 @@ dependencies = [
  "sim_server",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

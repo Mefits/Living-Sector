@@ -61,6 +61,38 @@ pub enum InGameView {
 }
 
 fn main() {
+    // Phase D: `--headless` retires the standalone `simulator` binary.
+    // It boots a tokio runtime and runs `sim_server::runtime::run()`
+    // (the same code the old binary called) instead of the Bevy app.
+    // Without `--headless`, the regular Bevy windowed client runs
+    // exactly as before. Same binary, two modes.
+    if std::env::args().any(|a| a == "--headless") {
+        // Install the same tracing subscriber sim_server's binary
+        // used to set up. We do it here rather than inside `runtime`
+        // so the windowed branch can keep its bevy::log::LogPlugin
+        // ownership of the subscriber slot.
+        use tracing_subscriber::{fmt, EnvFilter};
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| {
+                EnvFilter::new("simulator=info,sim_core=info,sim_server=info,tower_http=warn")
+            });
+        fmt()
+            .with_env_filter(filter)
+            .with_writer(std::io::stderr)
+            .with_target(true)
+            .init();
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+        if let Err(e) = rt.block_on(sim_server::runtime::run()) {
+            eprintln!("headless server error: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     // Let Bevy's LogPlugin own the global tracing subscriber — it
     // already installs one and fights ours for the slot otherwise
     // ("Could not set global logger" error on startup). We configure

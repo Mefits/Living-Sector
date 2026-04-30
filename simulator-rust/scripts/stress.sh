@@ -31,11 +31,11 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== building ==="
-cargo build --bin simulator 2>&1 | tail -3
+cargo build -p client_bevy --bin client_bevy 2>&1 | tail -3
 
 echo ""
 echo "=== launching (db=$DB, waves=$WAVES, settle=${SETTLE}s, tps=$TPS) ==="
-RUST_LOG=warn DATABASE_PATH="$DB" ./target/debug/simulator > "$LOG" 2>&1 &
+RUST_LOG=warn DATABASE_PATH="$DB" ./target/debug/client_bevy --headless > "$LOG" 2>&1 &
 SIM_PID=$!
 
 # Wait for ready

@@ -37,6 +37,10 @@ sim_server = { path = "../sim_server" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+# tracing-subscriber: only used by the `--headless` branch in main.rs
+# to install its own EnvFilter-backed subscriber (the windowed branch
+# defers to bevy::log::LogPlugin).
+tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 rand = { workspace = true }
 # Tokio for the one-shot Startup runtime that runs async sqlx

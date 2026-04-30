@@ -7,9 +7,11 @@ edition.workspace = true
 name = "sim_server"
 path = "src/lib.rs"
 
-[[bin]]
-name = "simulator"
-path = "src/main.rs"
+# Phase D: the standalone `simulator` binary is retired. The headless
+# server lives in `sim_server::runtime::run()` and is launched by
+# `client_bevy --headless` (see crates/client_bevy/src/main.rs). The
+# sim_server crate stays as a [lib] until a future Phase D-tail folds
+# its HTTP/WS/engine modules into client_bevy directly.
 
 [dependencies]
 sim_core = { path = "../sim_core" }

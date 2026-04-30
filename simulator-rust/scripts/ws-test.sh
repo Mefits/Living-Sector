@@ -9,15 +9,15 @@ DB=$(mktemp -t simrust-ws-XXXXXX.db)
 LOG=$(mktemp -t simrust-ws-XXXXXX.log)
 
 echo "=== building ==="
-cargo build --bin simulator 2>&1 | tail -3
+cargo build -p client_bevy --bin client_bevy 2>&1 | tail -3
 
 echo ""
 echo "=== launching sim ==="
-RUST_LOG="${RUST_LOG:-simulator=info,sim_core=info,tower_http=warn}" \
+RUST_LOG="${RUST_LOG:-client_bevy=info,sim_server=info,sim_core=info,tower_http=warn}" \
     WORLD_SPEED="${WORLD_SPEED:-2.0}" \
     DATABASE_PATH="$DB" \
     BIND_ADDR="127.0.0.1:8080" \
-    ./target/debug/simulator > "$LOG" 2>&1 &
+    ./target/debug/client_bevy --headless > "$LOG" 2>&1 &
 SIM_PID=$!
 
 # Wait for ready

@@ -13,15 +13,15 @@ LOG1=$(mktemp -t simrust-persist-XXXXXX.log)
 LOG2=$(mktemp -t simrust-persist-XXXXXX.log)
 
 echo "=== building ==="
-cargo build --bin simulator 2>&1 | tail -3
+cargo build -p client_bevy --bin client_bevy 2>&1 | tail -3
 
 echo ""
 echo "=== Run 1 (seed + run 15s) ==="
-RUST_LOG=simulator=info,sim_core=info \
+RUST_LOG=client_bevy=info,sim_server=info,sim_core=info \
   WORLD_SPEED=6.0 \
   DATABASE_PATH="$DB" \
   BIND_ADDR="127.0.0.1:8090" \
-  ./target/debug/simulator > "$LOG1" 2>&1 &
+  ./target/debug/client_bevy --headless > "$LOG1" 2>&1 &
 PID=$!
 # Wait for ready
 for i in $(seq 1 30); do
@@ -60,11 +60,11 @@ fi
 
 echo ""
 echo "=== Run 2 (same DB, should resume) ==="
-RUST_LOG=simulator=info,sim_core=info \
+RUST_LOG=client_bevy=info,sim_server=info,sim_core=info \
   WORLD_SPEED=6.0 \
   DATABASE_PATH="$DB" \
   BIND_ADDR="127.0.0.1:8090" \
-  ./target/debug/simulator > "$LOG2" 2>&1 &
+  ./target/debug/client_bevy --headless > "$LOG2" 2>&1 &
 PID=$!
 for i in $(seq 1 30); do
     if grep -q "sim:ready" "$LOG2" 2>/dev/null; then

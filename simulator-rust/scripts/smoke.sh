@@ -10,13 +10,13 @@ DB=$(mktemp -t simrust-smoke-XXXXXX.db)
 LOG=$(mktemp -t simrust-smoke-XXXXXX.log)
 
 echo "=== building ==="
-cargo build --bin simulator 2>&1 | tail -5
+cargo build -p client_bevy --bin client_bevy 2>&1 | tail -5
 
 echo ""
 echo "=== launching (db=$DB, duration=${SECS}s) ==="
-RUST_LOG="${RUST_LOG:-simulator=info,sim_core=info}" \
+RUST_LOG="${RUST_LOG:-client_bevy=info,sim_server=info,sim_core=info}" \
     DATABASE_PATH="$DB" \
-    ./target/debug/simulator > "$LOG" 2>&1 &
+    ./target/debug/client_bevy --headless > "$LOG" 2>&1 &
 SIM_PID=$!
 
 # Wait for sim:ready or timeout
