@@ -25,7 +25,7 @@
 //! contested zones).
 
 use crate::economy::commodities::Commodity;
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, Entity, World};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -149,22 +149,25 @@ pub struct BodyTerritory {
 /// Returns `system_name → controlling_faction` map for the system-level
 /// rollup. Caller stores it on `AgentStore.system_control` (live data,
 /// not persisted — re-derived every cycle from the current world state).
-pub fn derive_territorial_control(world: &mut hecs::World) -> HashMap<String, Option<String>> {
+pub fn derive_territorial_control(world: &mut World) -> HashMap<String, Option<String>> {
     use crate::agents::facility::{FacilityIdentity, FacilityOperations};
 
     // Tally per body: body_id → faction_id → (facility_count, total_credits).
     let mut tally: HashMap<String, HashMap<String, (u32, i64)>> = HashMap::new();
-    for (_e, (id, ops)) in world.query::<(&FacilityIdentity, &FacilityOperations)>().iter() {
-        if id.faction_id.is_empty() || id.facility_type == "gate" {
-            continue;
+    {
+        let mut q = world.query::<(&FacilityIdentity, &FacilityOperations)>();
+        for (id, ops) in q.iter(&world) {
+            if id.faction_id.is_empty() || id.facility_type == "gate" {
+                continue;
+            }
+            let entry = tally
+                .entry(id.body_id.clone())
+                .or_default()
+                .entry(id.faction_id.clone())
+                .or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 = entry.1.saturating_add(ops.credits);
         }
-        let entry = tally
-            .entry(id.body_id.clone())
-            .or_default()
-            .entry(id.faction_id.clone())
-            .or_insert((0, 0));
-        entry.0 += 1;
-        entry.1 = entry.1.saturating_add(ops.credits);
     }
 
     // Resolve per-body controller + contested flag. body_id → derived state.
@@ -193,21 +196,23 @@ pub fn derive_territorial_control(world: &mut hecs::World) -> HashMap<String, Op
     // Map body_id → system_name once so we can build the per-system
     // rollup without re-querying. Body identities are tiny so this is
     // a couple-of-microseconds operation at any reasonable fleet scale.
-    let body_to_system: HashMap<String, String> = world
-        .query::<&BodyIdentity>()
-        .iter()
-        .map(|(_, id)| (id.body_id.clone(), id.system_name.clone()))
-        .collect();
+    let body_to_system: HashMap<String, String> = {
+        let mut q = world.query::<&BodyIdentity>();
+        q.iter(&world)
+            .map(|id| (id.body_id.clone(), id.system_name.clone()))
+            .collect()
+    };
 
     // Write the per-body component back. Insert if missing (newly-
     // spawned bodies that didn't have a BodyTerritory yet); update if
     // the derived state changed. Idempotent — running twice on the
     // same world produces the same components.
-    let entities: Vec<(hecs::Entity, String)> = world
-        .query::<&BodyIdentity>()
-        .iter()
-        .map(|(e, id)| (e, id.body_id.clone()))
-        .collect();
+    let entities: Vec<(Entity, String)> = {
+        let mut q = world.query::<(Entity, &BodyIdentity)>();
+        q.iter(&world)
+            .map(|(e, id)| (e, id.body_id.clone()))
+            .collect()
+    };
     for (entity, body_id) in entities {
         let derived = by_body.remove(&body_id).unwrap_or_default();
         // The Result<RefMut> guard from `world.get` outlives the
@@ -216,7 +221,7 @@ pub fn derive_territorial_control(world: &mut hecs::World) -> HashMap<String, Op
         // `else` arm. Scoping the guard's lifetime + a flag for the
         // miss path side-steps the issue without a second pass.
         let updated = {
-            if let Ok(mut current) = world.get::<&mut BodyTerritory>(entity) {
+            if let Some(mut current) = world.get_mut::<BodyTerritory>(entity) {
                 *current = derived.clone();
                 true
             } else {
@@ -224,7 +229,7 @@ pub fn derive_territorial_control(world: &mut hecs::World) -> HashMap<String, Op
             }
         };
         if !updated {
-            let _ = world.insert_one(entity, derived);
+            world.entity_mut(entity).insert(derived);
         }
     }
 
@@ -235,18 +240,18 @@ pub fn derive_territorial_control(world: &mut hecs::World) -> HashMap<String, Op
     // posture is a coarser signal that should only point one way when
     // the answer is clear.
     let mut system_body_counts: HashMap<String, HashMap<Option<String>, u32>> = HashMap::new();
-    for (entity, body_id) in world
-        .query::<&BodyIdentity>()
-        .iter()
-        .map(|(e, id)| (e, id.body_id.clone()))
-        .collect::<Vec<_>>()
-    {
+    let body_entities: Vec<(Entity, String)> = {
+        let mut q = world.query::<(Entity, &BodyIdentity)>();
+        q.iter(&world)
+            .map(|(e, id)| (e, id.body_id.clone()))
+            .collect()
+    };
+    for (entity, body_id) in body_entities {
         let Some(system) = body_to_system.get(&body_id).cloned() else {
             continue;
         };
         let controller = world
-            .get::<&BodyTerritory>(entity)
-            .ok()
+            .get::<BodyTerritory>(entity)
             .and_then(|t| t.controlling_faction.clone());
         *system_body_counts
             .entry(system)
@@ -294,7 +299,7 @@ pub const BODY_REGEN_INTERVAL_BASE: u64 = 5;
 /// resources toward `max_resources`. Food biome multipliers are read by
 /// `tick_populations` directly from `BodyBiome` — no broadcast needed.
 pub fn tick_bodies_regen(
-    world: &mut hecs::World,
+    world: &mut World,
     tick: u64,
     tick_scale: f32,
     tick_multiplier: u32,
@@ -304,7 +309,9 @@ pub fn tick_bodies_regen(
         return;
     }
     let rate = BODY_RESOURCE_REGEN_RATE * tick_scale * interval as f32;
-    for (_e, resources) in world.query_mut::<&mut BodyResources>() {
+    let mut q = world.query::<&mut BodyResources>();
+    for mut resources in q.iter_mut(world) {
+        let resources = resources.as_mut();
         for (commodity, current) in resources.resources.iter_mut() {
             if let Some(&max) = resources.max_resources.get(commodity) {
                 let bumped = *current + rate * max;
@@ -409,20 +416,21 @@ mod tests {
     #[test]
     fn territorial_majority_wins_with_no_tie() {
         // 3 X facilities + 1 Y facility on body "earth" → controller=X, contested=true.
-        let mut world = hecs::World::new();
+        let mut world = World::new();
         world.spawn((body_id("earth", "sol"),));
         world.spawn((fac_id("a", "x", "earth"), fac_ops(100)));
         world.spawn((fac_id("b", "x", "earth"), fac_ops(100)));
         world.spawn((fac_id("c", "x", "earth"), fac_ops(100)));
         world.spawn((fac_id("d", "y", "earth"), fac_ops(100)));
         let _systems = derive_territorial_control(&mut world);
-        let entity = world
-            .query::<&BodyIdentity>()
-            .iter()
-            .find(|(_, id)| id.body_id == "earth")
-            .map(|(e, _)| e)
-            .unwrap();
-        let t = world.get::<&BodyTerritory>(entity).unwrap().clone();
+        let entity = {
+            let mut q = world.query::<(Entity, &BodyIdentity)>();
+            q.iter(&world)
+                .find(|(_, id)| id.body_id == "earth")
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        let t = world.get::<BodyTerritory>(entity).unwrap().clone();
         assert_eq!(t.controlling_faction.as_deref(), Some("x"));
         assert!(t.contested);
     }
@@ -430,16 +438,17 @@ mod tests {
     #[test]
     fn territorial_unsettled_body_has_no_controller() {
         // A body with no facilities → controlling_faction None, not contested.
-        let mut world = hecs::World::new();
+        let mut world = World::new();
         world.spawn((body_id("pluto", "sol"),));
         derive_territorial_control(&mut world);
-        let entity = world
-            .query::<&BodyIdentity>()
-            .iter()
-            .find(|(_, id)| id.body_id == "pluto")
-            .map(|(e, _)| e)
-            .unwrap();
-        let t = world.get::<&BodyTerritory>(entity).unwrap().clone();
+        let entity = {
+            let mut q = world.query::<(Entity, &BodyIdentity)>();
+            q.iter(&world)
+                .find(|(_, id)| id.body_id == "pluto")
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        let t = world.get::<BodyTerritory>(entity).unwrap().clone();
         assert_eq!(t.controlling_faction, None);
         assert!(!t.contested);
     }
@@ -448,18 +457,19 @@ mod tests {
     fn territorial_count_tie_breaks_on_credits() {
         // 1 X facility worth 1000 + 1 Y facility worth 5000 on body "mars"
         // → controller = Y (richer presence wins the tie), still contested.
-        let mut world = hecs::World::new();
+        let mut world = World::new();
         world.spawn((body_id("mars", "sol"),));
         world.spawn((fac_id("a", "x", "mars"), fac_ops(1000)));
         world.spawn((fac_id("b", "y", "mars"), fac_ops(5000)));
         derive_territorial_control(&mut world);
-        let entity = world
-            .query::<&BodyIdentity>()
-            .iter()
-            .find(|(_, id)| id.body_id == "mars")
-            .map(|(e, _)| e)
-            .unwrap();
-        let t = world.get::<&BodyTerritory>(entity).unwrap().clone();
+        let entity = {
+            let mut q = world.query::<(Entity, &BodyIdentity)>();
+            q.iter(&world)
+                .find(|(_, id)| id.body_id == "mars")
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        let t = world.get::<BodyTerritory>(entity).unwrap().clone();
         assert_eq!(t.controlling_faction.as_deref(), Some("y"));
         assert!(t.contested);
     }
@@ -468,20 +478,21 @@ mod tests {
     fn territorial_gate_facilities_are_excluded_from_count() {
         // 1 station of X + 1 GATE of Y at the same body → not contested:
         // gates don't count toward territorial control, so X is sole owner.
-        let mut world = hecs::World::new();
+        let mut world = World::new();
         world.spawn((body_id("haven", "haven_system"),));
         world.spawn((fac_id("a", "x", "haven"), fac_ops(500)));
         let mut gate = fac_id("g", "y", "haven");
         gate.facility_type = "gate".into();
         world.spawn((gate, fac_ops(0)));
         derive_territorial_control(&mut world);
-        let entity = world
-            .query::<&BodyIdentity>()
-            .iter()
-            .find(|(_, id)| id.body_id == "haven")
-            .map(|(e, _)| e)
-            .unwrap();
-        let t = world.get::<&BodyTerritory>(entity).unwrap().clone();
+        let entity = {
+            let mut q = world.query::<(Entity, &BodyIdentity)>();
+            q.iter(&world)
+                .find(|(_, id)| id.body_id == "haven")
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        let t = world.get::<BodyTerritory>(entity).unwrap().clone();
         assert_eq!(t.controlling_faction.as_deref(), Some("x"));
         assert!(!t.contested, "gate of rival faction must not flag contested");
     }
@@ -490,19 +501,20 @@ mod tests {
     fn territorial_idempotent_runs() {
         // Running the derivation twice on the same world produces the
         // same components (no extra inserts, no field drift).
-        let mut world = hecs::World::new();
+        let mut world = World::new();
         world.spawn((body_id("earth", "sol"),));
         world.spawn((fac_id("a", "x", "earth"), fac_ops(100)));
         let s1 = derive_territorial_control(&mut world);
         let s2 = derive_territorial_control(&mut world);
         assert_eq!(s1, s2);
-        let entity = world
-            .query::<&BodyIdentity>()
-            .iter()
-            .find(|(_, id)| id.body_id == "earth")
-            .map(|(e, _)| e)
-            .unwrap();
-        let t = world.get::<&BodyTerritory>(entity).unwrap().clone();
+        let entity = {
+            let mut q = world.query::<(Entity, &BodyIdentity)>();
+            q.iter(&world)
+                .find(|(_, id)| id.body_id == "earth")
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        let t = world.get::<BodyTerritory>(entity).unwrap().clone();
         assert_eq!(t.controlling_faction.as_deref(), Some("x"));
         assert!(!t.contested);
     }
@@ -511,7 +523,7 @@ mod tests {
     fn system_rollup_picks_majority_body_controller() {
         // Sol system: earth + mars controlled by X, pluto unsettled.
         // System controller should be X.
-        let mut world = hecs::World::new();
+        let mut world = World::new();
         world.spawn((body_id("earth", "sol"),));
         world.spawn((body_id("mars", "sol"),));
         world.spawn((body_id("pluto", "sol"),));
@@ -524,7 +536,7 @@ mod tests {
     #[test]
     fn system_rollup_tie_yields_no_controller() {
         // Sol: earth → X, mars → Y. Tie at the system level → None.
-        let mut world = hecs::World::new();
+        let mut world = World::new();
         world.spawn((body_id("earth", "sol"),));
         world.spawn((body_id("mars", "sol"),));
         world.spawn((fac_id("a", "x", "earth"), fac_ops(100)));
@@ -535,24 +547,24 @@ mod tests {
 
     #[test]
     fn body_resources_regen_toward_max() {
-        use hecs::World;
         let mut world = World::new();
         let mut resources = HashMap::new();
         resources.insert(Commodity::Ore, 0.3);
         let mut max_resources = HashMap::new();
         max_resources.insert(Commodity::Ore, 1.0);
-        let _e = world.spawn((BodyResources {
+        world.spawn((BodyResources {
             resources,
             max_resources,
         },));
         // Interval-aligned tick: regen kicks in.
         tick_bodies_regen(&mut world, BODY_REGEN_INTERVAL_BASE, 1.0, 1);
-        let post = world
-            .query::<&BodyResources>()
-            .iter()
-            .map(|(_, r)| r.resources.get(&Commodity::Ore).copied().unwrap_or(0.0))
-            .next()
-            .unwrap();
+        let post = {
+            let mut q = world.query::<&BodyResources>();
+            q.iter(&world)
+                .map(|r| r.resources.get(&Commodity::Ore).copied().unwrap_or(0.0))
+                .next()
+                .unwrap()
+        };
         assert!(post > 0.3, "expected regen, got {}", post);
         assert!(post <= 1.0);
     }

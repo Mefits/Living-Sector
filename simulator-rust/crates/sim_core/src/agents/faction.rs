@@ -4,7 +4,7 @@
 //! Single combined component is fine — no cache-locality benefit to splitting.
 
 use crate::ai::personality::Personality;
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, Entity, World};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -185,7 +185,7 @@ pub const TERRITORIAL_RECOMPUTE_INTERVAL_BASE: u64 = 50;
 pub const SUBSIDY_CONTESTED_MULTIPLIER: f32 = 1.4;
 
 pub fn tick_factions(
-    world: &mut hecs::World,
+    world: &mut World,
     contracts: &mut ContractBoard,
     events: &mut Vec<serde_json::Value>,
     system_control: &mut std::collections::HashMap<String, Option<String>>,
@@ -266,38 +266,40 @@ pub const FACILITY_BAILOUT_TARGET: i64 = 2_000;
 /// `FACILITY_BAILOUT_TARGET`. Faction won't spend below a 2000-credit
 /// treasury floor of its own — if a faction is itself broke, let the
 /// facility fail.
-fn run_bailout_cycle(world: &mut hecs::World) {
+fn run_bailout_cycle(world: &mut World) {
     // Pass 1: collect deficits per faction.
     #[derive(Clone)]
     struct Need {
-        entity: hecs::Entity,
+        entity: Entity,
         faction_id: String,
         deficit: i64,
     }
-    let needs: Vec<Need> = world
-        .query::<(&FacilityIdentity, &FacilityOperations)>()
-        .iter()
-        .filter_map(|(e, (id, ops))| {
-            if id.faction_id.is_empty() || ops.credits >= FACILITY_BAILOUT_FLOOR {
-                return None;
-            }
-            Some(Need {
-                entity: e,
-                faction_id: id.faction_id.clone(),
-                deficit: FACILITY_BAILOUT_TARGET - ops.credits,
+    let needs: Vec<Need> = {
+        let mut q = world.query::<(Entity, &FacilityIdentity, &FacilityOperations)>();
+        q.iter(&world)
+            .filter_map(|(e, id, ops)| {
+                if id.faction_id.is_empty() || ops.credits >= FACILITY_BAILOUT_FLOOR {
+                    return None;
+                }
+                Some(Need {
+                    entity: e,
+                    faction_id: id.faction_id.clone(),
+                    deficit: FACILITY_BAILOUT_TARGET - ops.credits,
+                })
             })
-        })
-        .collect();
+            .collect()
+    };
     if needs.is_empty() {
         return;
     }
 
     // Pass 2: faction treasury by id.
-    let mut treasury: std::collections::HashMap<String, i64> = world
-        .query::<&FactionData>()
-        .iter()
-        .map(|(_, d)| (d.id.clone(), d.treasury))
-        .collect();
+    let mut treasury: std::collections::HashMap<String, i64> = {
+        let mut q = world.query::<&FactionData>();
+        q.iter(&world)
+            .map(|d| (d.id.clone(), d.treasury))
+            .collect()
+    };
 
     // Pass 3: disburse — walk needs, subtract from treasury where the
     // faction can afford (keeping its own floor), and remember which
@@ -305,7 +307,7 @@ fn run_bailout_cycle(world: &mut hecs::World) {
     // Bailouts honour the shared working-capital floor — same rule
     // that subsidy + construction posts observe.
     const FACTION_TREASURY_FLOOR: i64 = FACTION_WORKING_CAPITAL_FLOOR;
-    let mut paid: Vec<(hecs::Entity, String, i64)> = Vec::new();
+    let mut paid: Vec<(Entity, String, i64)> = Vec::new();
     for need in needs {
         let t = treasury.entry(need.faction_id.clone()).or_insert(0);
         let affordable = (*t - FACTION_TREASURY_FLOOR).max(0);
@@ -322,11 +324,12 @@ fn run_bailout_cycle(world: &mut hecs::World) {
 
     // Apply: credit facility, debit faction treasury.
     for (entity, fac_id, amount) in paid {
-        if let Ok(mut ops) = world.get::<&mut FacilityOperations>(entity) {
+        if let Some(mut ops) = world.get_mut::<FacilityOperations>(entity) {
             ops.credits += amount;
             ops.dirty = true;
         }
-        for (_, data) in world.query_mut::<&mut FactionData>() {
+        let mut q = world.query::<&mut FactionData>();
+        for mut data in q.iter_mut(world) {
             if data.id == fac_id {
                 data.treasury -= amount;
                 data.dirty = true;
@@ -342,37 +345,38 @@ fn run_bailout_cycle(world: &mut hecs::World) {
 /// location has no facilities or the body's territory hasn't been
 /// derived yet (defensive — `BodyTerritory::default().contested`
 /// would also be false, just less obviously).
-fn dest_is_contested(world: &hecs::World, location_name: &str) -> bool {
+fn dest_is_contested(world: &mut World, location_name: &str) -> bool {
     use crate::agents::celestial_body::{BodyIdentity, BodyTerritory};
-    let body_id = world
-        .query::<(&FacilityIdentity, &crate::agents::facility::FacilityLocation)>()
-        .iter()
-        .find(|(_, (_, loc))| loc.location_name == location_name)
-        .map(|(_, (id, _))| id.body_id.clone());
+    let body_id = {
+        let mut q = world
+            .query::<(&FacilityIdentity, &crate::agents::facility::FacilityLocation)>();
+        q.iter(&world)
+            .find(|(_, loc)| loc.location_name == location_name)
+            .map(|(id, _)| id.body_id.clone())
+    };
     let Some(body_id) = body_id else { return false };
-    world
-        .query::<(&BodyIdentity, &BodyTerritory)>()
-        .iter()
-        .find(|(_, (id, _))| id.body_id == body_id)
-        .map(|(_, (_, t))| t.contested)
+    let mut q = world.query::<(&BodyIdentity, &BodyTerritory)>();
+    q.iter(&world)
+        .find(|(id, _)| id.body_id == body_id)
+        .map(|(_, t)| t.contested)
         .unwrap_or(false)
 }
 
-fn run_tax_cycle(world: &mut hecs::World) {
+fn run_tax_cycle(world: &mut World) {
     let mut owed_by_faction: std::collections::HashMap<String, i64> =
         std::collections::HashMap::new();
-    for (_e, (identity, ops)) in world
-        .query::<(&FacilityIdentity, &mut FacilityOperations)>()
-        .iter()
     {
-        if identity.faction_id.is_empty() || ops.credits <= FACILITY_TAX_BUFFER {
-            continue;
-        }
-        let taxable = ops.credits - FACILITY_TAX_BUFFER;
-        let tax = ((taxable as f64) * FACTION_TAX_RATE) as i64;
-        if tax > 0 {
-            ops.credits -= tax;
-            *owed_by_faction.entry(identity.faction_id.clone()).or_insert(0) += tax;
+        let mut q = world.query::<(&FacilityIdentity, &mut FacilityOperations)>();
+        for (identity, mut ops) in q.iter_mut(world) {
+            if identity.faction_id.is_empty() || ops.credits <= FACILITY_TAX_BUFFER {
+                continue;
+            }
+            let taxable = ops.credits - FACILITY_TAX_BUFFER;
+            let tax = ((taxable as f64) * FACTION_TAX_RATE) as i64;
+            if tax > 0 {
+                ops.credits -= tax;
+                *owed_by_faction.entry(identity.faction_id.clone()).or_insert(0) += tax;
+            }
         }
     }
 
@@ -380,7 +384,8 @@ fn run_tax_cycle(world: &mut hecs::World) {
         return;
     }
 
-    for (_e, data) in world.query_mut::<&mut FactionData>() {
+    let mut q = world.query::<&mut FactionData>();
+    for mut data in q.iter_mut(world) {
         if let Some(&amount) = owed_by_faction.get(&data.id) {
             data.treasury += amount;
             data.dirty = true;
@@ -392,7 +397,7 @@ fn run_tax_cycle(world: &mut hecs::World) {
 /// subsidy contracts (high-paying delivery contracts) to pull in supply.
 /// Matches Elixir's `maybe_post_subsidy_contract` flow.
 fn run_subsidy_cycle(
-    world: &mut hecs::World,
+    world: &mut World,
     contracts: &mut ContractBoard,
     tick: u64,
     tick_multiplier: u32,
@@ -413,36 +418,37 @@ fn run_subsidy_cycle(
     let market_shortage_by_loc: std::collections::HashMap<
         String,
         std::collections::HashMap<Commodity, u32>,
-    > = world
-        .query::<(&MarketIdentity, &MarketHistory)>()
-        .iter()
-        .map(|(_e, (id, hist))| (id.facility_location.clone(), hist.shortage_ticks.clone()))
-        .collect();
+    > = {
+        let mut q = world.query::<(&MarketIdentity, &MarketHistory)>();
+        q.iter(&world)
+            .map(|(id, hist)| (id.facility_location.clone(), hist.shortage_ticks.clone()))
+            .collect()
+    };
 
-    for (_e, (fac_id, fac_loc)) in world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
-        .iter()
     {
-        if fac_id.faction_id.is_empty() {
-            continue;
-        }
-        let loc = &fac_loc.location_name;
-        let entry = shortage_by_faction
-            .entry(fac_id.faction_id.clone())
-            .or_default();
-        if !entry.member_locations.contains(loc) {
-            entry.member_locations.push(loc.clone());
-        }
-        if let Some(short_map) = market_shortage_by_loc.get(loc) {
-            for (&commodity, &shortage) in short_map {
-                if shortage < SUBSIDY_TRIGGER_TICKS {
-                    continue;
-                }
-                let slot = entry.by_commodity.entry(commodity).or_default();
-                slot.0 += 1;
-                if shortage > slot.1 {
-                    slot.1 = shortage;
-                    slot.2 = loc.clone();
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        for (fac_id, fac_loc) in q.iter(&world) {
+            if fac_id.faction_id.is_empty() {
+                continue;
+            }
+            let loc = &fac_loc.location_name;
+            let entry = shortage_by_faction
+                .entry(fac_id.faction_id.clone())
+                .or_default();
+            if !entry.member_locations.contains(loc) {
+                entry.member_locations.push(loc.clone());
+            }
+            if let Some(short_map) = market_shortage_by_loc.get(loc) {
+                for (&commodity, &shortage) in short_map {
+                    if shortage < SUBSIDY_TRIGGER_TICKS {
+                        continue;
+                    }
+                    let slot = entry.by_commodity.entry(commodity).or_default();
+                    slot.0 += 1;
+                    if shortage > slot.1 {
+                        slot.1 = shortage;
+                        slot.2 = loc.clone();
+                    }
                 }
             }
         }
@@ -461,11 +467,12 @@ fn run_subsidy_cycle(
 
     // Source = highest-supply location OUTSIDE the faction's own member set.
     // If none, fall back to any highest-supply location.
-    let supply_by_loc: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> = world
-        .query::<(&MarketIdentity, &crate::agents::market::MarketPricing)>()
-        .iter()
-        .map(|(_e, (id, pricing))| (id.facility_location.clone(), pricing.supply.clone()))
-        .collect();
+    let supply_by_loc: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> = {
+        let mut q = world.query::<(&MarketIdentity, &crate::agents::market::MarketPricing)>();
+        q.iter(&world)
+            .map(|(id, pricing)| (id.facility_location.clone(), pricing.supply.clone()))
+            .collect()
+    };
 
     // location → system_id. Used to prefer a same-system source on the
     // first post so subsidies don't default to cross-system runs that
@@ -474,15 +481,15 @@ fn run_subsidy_cycle(
     // haulers afterward if no local ship bites.
     let location_to_system: std::collections::HashMap<String, String> = {
         use crate::agents::celestial_body::BodyIdentity;
-        let body_to_system: std::collections::HashMap<String, String> = world
-            .query::<&BodyIdentity>()
-            .iter()
-            .map(|(_, id)| (id.body_id.clone(), id.system_name.clone()))
-            .collect();
-        world
-            .query::<(&FacilityIdentity, &FacilityLocation)>()
-            .iter()
-            .filter_map(|(_, (id, loc))| {
+        let body_to_system: std::collections::HashMap<String, String> = {
+            let mut q = world.query::<&BodyIdentity>();
+            q.iter(&world)
+                .map(|id| (id.body_id.clone(), id.system_name.clone()))
+                .collect()
+        };
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(&world)
+            .filter_map(|(id, loc)| {
                 let sys = body_to_system.get(&id.body_id)?.clone();
                 Some((loc.location_name.clone(), sys))
             })
@@ -619,27 +626,22 @@ fn run_subsidy_cycle(
     let lifespan = SUBSIDY_LIFESPAN_BASE * tick_multiplier as u64;
     for plan in plans {
         // Check + debit treasury.
-        let afford = {
-            let mut q = world
-                .query::<&mut FactionData>()
-                .iter()
-                .find(|(_, d)| d.id == plan.faction_id)
-                .map(|(e, _)| e);
-            // Keep a working-capital floor so subsidies can't drain
-            // a faction to zero — mirrors the same floor bailouts
-            // observe. Without this guard a busy faction could
-            // post 2 subsidies at a multiplier spike and go broke
-            // before the next tax cycle replenishes.
-            q = q.filter(|e| {
-                world
-                    .get::<&FactionData>(*e)
-                    .map(|d| d.treasury.saturating_sub(FACTION_SUBSIDY_FLOOR) >= plan.payment)
-                    .unwrap_or(false)
-            });
-            q
+        // Keep a working-capital floor so subsidies can't drain
+        // a faction to zero — mirrors the same floor bailouts
+        // observe. Without this guard a busy faction could
+        // post 2 subsidies at a multiplier spike and go broke
+        // before the next tax cycle replenishes.
+        let afford: Option<Entity> = {
+            let mut q = world.query::<(Entity, &FactionData)>();
+            q.iter(&world)
+                .find(|(_, d)| {
+                    d.id == plan.faction_id
+                        && d.treasury.saturating_sub(FACTION_SUBSIDY_FLOOR) >= plan.payment
+                })
+                .map(|(e, _)| e)
         };
         let Some(entity) = afford else { continue };
-        if let Ok(mut data) = world.get::<&mut FactionData>(entity) {
+        if let Some(mut data) = world.get_mut::<FactionData>(entity) {
             data.treasury -= plan.payment;
             data.active_subsidies = data.active_subsidies.saturating_add(1);
             data.dirty = true;
@@ -674,7 +676,7 @@ fn run_subsidy_cycle(
 ///   warrant re-posting on the next interval if nothing took the
 ///   contract
 fn run_construction_cycle(
-    world: &mut hecs::World,
+    world: &mut World,
     contracts: &mut ContractBoard,
     events: &mut Vec<serde_json::Value>,
     tick: u64,
@@ -693,36 +695,37 @@ fn run_construction_cycle(
     let market_shortage_by_loc: std::collections::HashMap<
         String,
         std::collections::HashMap<Commodity, u32>,
-    > = world
-        .query::<(&MarketIdentity, &MarketHistory)>()
-        .iter()
-        .map(|(_e, (id, hist))| (id.facility_location.clone(), hist.shortage_ticks.clone()))
-        .collect();
+    > = {
+        let mut q = world.query::<(&MarketIdentity, &MarketHistory)>();
+        q.iter(&world)
+            .map(|(id, hist)| (id.facility_location.clone(), hist.shortage_ticks.clone()))
+            .collect()
+    };
 
-    for (_e, (fac_id, fac_loc)) in world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
-        .iter()
     {
-        if fac_id.faction_id.is_empty() {
-            continue;
-        }
-        let loc = &fac_loc.location_name;
-        let entry = shortage_by_faction
-            .entry(fac_id.faction_id.clone())
-            .or_default();
-        if !entry.member_locations.contains(loc) {
-            entry.member_locations.push(loc.clone());
-        }
-        if let Some(short_map) = market_shortage_by_loc.get(loc) {
-            for (&commodity, &shortage) in short_map {
-                if shortage < CONSTRUCTION_TRIGGER_TICKS {
-                    continue;
-                }
-                let slot = entry.by_commodity.entry(commodity).or_default();
-                slot.0 += 1;
-                if shortage > slot.1 {
-                    slot.1 = shortage;
-                    slot.2 = loc.clone();
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        for (fac_id, fac_loc) in q.iter(&world) {
+            if fac_id.faction_id.is_empty() {
+                continue;
+            }
+            let loc = &fac_loc.location_name;
+            let entry = shortage_by_faction
+                .entry(fac_id.faction_id.clone())
+                .or_default();
+            if !entry.member_locations.contains(loc) {
+                entry.member_locations.push(loc.clone());
+            }
+            if let Some(short_map) = market_shortage_by_loc.get(loc) {
+                for (&commodity, &shortage) in short_map {
+                    if shortage < CONSTRUCTION_TRIGGER_TICKS {
+                        continue;
+                    }
+                    let slot = entry.by_commodity.entry(commodity).or_default();
+                    slot.0 += 1;
+                    if shortage > slot.1 {
+                        slot.1 = shortage;
+                        slot.2 = loc.clone();
+                    }
                 }
             }
         }
@@ -737,11 +740,12 @@ fn run_construction_cycle(
         payment: i64,
     }
 
-    let supply_by_loc: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> = world
-        .query::<(&MarketIdentity, &crate::agents::market::MarketPricing)>()
-        .iter()
-        .map(|(_e, (id, pricing))| (id.facility_location.clone(), pricing.supply.clone()))
-        .collect();
+    let supply_by_loc: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> = {
+        let mut q = world.query::<(&MarketIdentity, &crate::agents::market::MarketPricing)>();
+        q.iter(&world)
+            .map(|(id, pricing)| (id.facility_location.clone(), pricing.supply.clone()))
+            .collect()
+    };
 
     let faction_ids: Vec<String> = shortage_by_faction.keys().cloned().collect();
     let mut plans: Vec<Plan> = Vec::new();
@@ -822,13 +826,16 @@ fn run_construction_cycle(
     // Apply plans: treasury debit, spawn site if missing, post contract.
     let lifespan = CONSTRUCTION_LIFESPAN_BASE * tick_multiplier as u64;
     for plan in plans {
-        let afford = world
-            .query::<&FactionData>()
-            .iter()
-            .find(|(_, d)| d.id == plan.faction_id && d.treasury >= CONSTRUCTION_MIN_TREASURY)
-            .map(|(e, _)| e);
+        let afford: Option<Entity> = {
+            let mut q = world.query::<(Entity, &FactionData)>();
+            q.iter(&world)
+                .find(|(_, d)| {
+                    d.id == plan.faction_id && d.treasury >= CONSTRUCTION_MIN_TREASURY
+                })
+                .map(|(e, _)| e)
+        };
         let Some(entity) = afford else { continue };
-        if let Ok(mut data) = world.get::<&mut FactionData>(entity) {
+        if let Some(mut data) = world.get_mut::<FactionData>(entity) {
             data.treasury -= plan.payment;
             data.dirty = true;
         }
@@ -865,7 +872,7 @@ fn run_construction_cycle(
 /// the same `facility_offset_position` hash so the site visually
 /// sits where the real facility will materialise.
 fn ensure_site_spawned(
-    world: &mut hecs::World,
+    world: &mut World,
     events: &mut Vec<serde_json::Value>,
     faction_id: &str,
     commodity: Commodity,
@@ -885,19 +892,19 @@ fn ensure_site_spawned(
     // we can't place the site; skip.
     let body_id = {
         use crate::agents::facility::{FacilityIdentity, FacilityLocation};
-        world
-            .query::<(&FacilityIdentity, &FacilityLocation)>()
-            .iter()
-            .find(|(_, (_, loc))| loc.location_name == destination)
-            .map(|(_, (id, _))| id.body_id.clone())
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(&world)
+            .find(|(_, loc)| loc.location_name == destination)
+            .map(|(id, _)| id.body_id.clone())
     };
     let Some(body_id) = body_id else { return };
 
-    let body_center = world
-        .query::<(&BodyIdentity, &BodyOrbit)>()
-        .iter()
-        .find(|(_, (id, _))| id.body_id == body_id)
-        .map(|(_, (_, orbit))| orbit.universe_position());
+    let body_center = {
+        let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
+        q.iter(&world)
+            .find(|(id, _)| id.body_id == body_id)
+            .map(|(_, orbit)| orbit.universe_position())
+    };
     let Some(body_center) = body_center else { return };
 
     let site_id = format!("site-{}-{}-{}", commodity.as_str(), destination, tick);
@@ -959,7 +966,7 @@ fn human_prefix(slug: &str) -> String {
 /// Recount each faction's active-subsidy count from the live contract board.
 /// Runs after subsidy posting so the count reflects any deliveries that
 /// closed (Paid) or timed out (Expired) since last cycle.
-fn refresh_active_subsidy_counts(world: &mut hecs::World, contracts: &ContractBoard) {
+fn refresh_active_subsidy_counts(world: &mut World, contracts: &ContractBoard) {
     use crate::economy::contracts::ContractStatus;
     let mut counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     for c in contracts.iter() {
@@ -970,7 +977,8 @@ fn refresh_active_subsidy_counts(world: &mut hecs::World, contracts: &ContractBo
             *counts.entry(c.requestor_id.clone()).or_insert(0) += 1;
         }
     }
-    for (_e, data) in world.query_mut::<&mut FactionData>() {
+    let mut q = world.query::<&mut FactionData>();
+    for mut data in q.iter_mut(world) {
         let n = counts.get(&data.id).copied().unwrap_or(0);
         if data.active_subsidies != n {
             data.active_subsidies = n;

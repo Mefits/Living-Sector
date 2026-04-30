@@ -19,6 +19,8 @@
 //! ));
 //! ```
 
+use bevy_ecs::prelude::{Entity, World};
+
 use crate::{
     ai::behavior_tree::{Blackboard, BtStatus},
     economy::commodities::Commodity,
@@ -312,7 +314,7 @@ pub const CREW_HUNGER_MEAL_REDUCTION: f32 = 25.0;
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 pub fn tick_ships(
-    world: &mut hecs::World,
+    world: &mut World,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
     contracts: &crate::economy::contracts::ContractBoard,
@@ -334,16 +336,15 @@ pub fn tick_ships(
     // population LOD gates downstream because their cursors would
     // already have been advanced this tick.
     use crate::simulation::lod::AgentLod;
-    let ship_entities: std::collections::HashSet<hecs::Entity> = world
-        .query::<(&ShipIdentity, &AgentLod)>()
-        .iter()
-        .map(|(e, _)| e)
-        .collect();
-    let mut active: std::collections::HashMap<hecs::Entity, u32> =
+    let ship_entities: std::collections::HashSet<Entity> = {
+        let mut q = world.query::<(Entity, &ShipIdentity, &AgentLod)>();
+        q.iter(&world).map(|(e, _, _)| e).collect()
+    };
+    let mut active: std::collections::HashMap<Entity, u32> =
         std::collections::HashMap::new();
     {
-        let mut lod_q = world.query::<&mut AgentLod>();
-        for (e, lod) in lod_q.iter() {
+        let mut lod_q = world.query::<(Entity, &mut AgentLod)>();
+        for (e, mut lod) in lod_q.iter_mut(world) {
             if !ship_entities.contains(&e) {
                 continue;
             }
@@ -353,19 +354,17 @@ pub fn tick_ships(
         }
     }
     // Any ship without an AgentLod component runs every tick.
-    let ids_with_lod: std::collections::HashSet<hecs::Entity> = {
-        world
-            .query::<&AgentLod>()
-            .iter()
+    let ids_with_lod: std::collections::HashSet<Entity> = {
+        let mut q = world.query::<(Entity, &AgentLod)>();
+        q.iter(&world).map(|(e, _)| e).collect()
+    };
+    let no_lod_ships: Vec<Entity> = {
+        let mut q = world.query::<(Entity, &ShipIdentity)>();
+        q.iter(&world)
             .map(|(e, _)| e)
+            .filter(|e| !ids_with_lod.contains(e))
             .collect()
     };
-    let no_lod_ships: Vec<hecs::Entity> = world
-        .query::<&ShipIdentity>()
-        .iter()
-        .map(|(e, _)| e)
-        .filter(|e| !ids_with_lod.contains(e))
-        .collect();
     for e in no_lod_ships {
         active.insert(e, 1);
     }
@@ -389,7 +388,7 @@ pub fn tick_ships(
 /// Type alias for the LOD gate table shared across ship tick phases.
 /// Maps `entity → skipped_ticks_since_last_fire`. Entities not in the
 /// map skip this round entirely.
-type ShipLodGate = std::collections::HashMap<hecs::Entity, u32>;
+type ShipLodGate = std::collections::HashMap<Entity, u32>;
 
 /// Crew tick — matches Elixir `CrewComplement.tick` behavior:
 ///   1. Decay: hunger rises, fatigue rises (active) or falls (resting/idle)
@@ -404,7 +403,7 @@ type ShipLodGate = std::collections::HashMap<hecs::Entity, u32>;
 /// old `rest_crew` goal path still works — it now simply picks
 /// `CrewTask::Resting` via the same auto-manage logic.
 fn tick_crew(
-    world: &mut hecs::World,
+    world: &mut World,
     tick: u64,
     tick_scale: f32,
     tick_multiplier: u32,
@@ -419,26 +418,28 @@ fn tick_crew(
     // over static data without hecs borrow conflicts.
     #[derive(Clone)]
     struct CrewCtx {
-        entity: hecs::Entity,
+        entity: Entity,
         roles: &'static [&'static str],
         in_transit: bool,
         docked: bool,
     }
-    let contexts: Vec<CrewCtx> = world
-        .query::<(&ShipIdentity, &ShipTransit, &ShipPosition, &ShipCrew)>()
-        .iter()
-        .map(|(e, (id, transit, position, _crew))| {
-            let roles = crate::simulation::config::ship_class(&id.class)
-                .map(|c| c.crew_roles)
-                .unwrap_or(&[]);
-            CrewCtx {
-                entity: e,
-                roles,
-                in_transit: transit.transit.is_some(),
-                docked: position.docked_at.is_some(),
-            }
-        })
-        .collect();
+    let contexts: Vec<CrewCtx> = {
+        let mut q = world
+            .query::<(Entity, &ShipIdentity, &ShipTransit, &ShipPosition, &ShipCrew)>();
+        q.iter(&world)
+            .map(|(e, id, transit, position, _crew)| {
+                let roles = crate::simulation::config::ship_class(&id.class)
+                    .map(|c| c.crew_roles)
+                    .unwrap_or(&[]);
+                CrewCtx {
+                    entity: e,
+                    roles,
+                    in_transit: transit.transit.is_some(),
+                    docked: position.docked_at.is_some(),
+                }
+            })
+            .collect()
+    };
 
     for ctx in contexts {
         // LOD gate — skipped_ticks scales the crew rates so a ship that
@@ -451,15 +452,10 @@ fn tick_crew(
         let effective_scale = tick_scale * skipped as f32;
 
         // Read-mutate ShipCrew + ShipEconomy + ShipCargo via query_one.
-        let mut q = match world.query_one::<(&mut ShipCrew, &mut ShipEconomy, &mut ShipCargo)>(
-            ctx.entity,
-        ) {
-            Ok(q) => q,
+        let mut q = world.query::<(&mut ShipCrew, &mut ShipEconomy, &mut ShipCargo)>();
+        let (mut crew, mut economy, mut cargo) = match q.get_mut(world, ctx.entity) {
+            Ok(t) => t,
             Err(_) => continue,
-        };
-        let (crew, economy, cargo) = match q.get() {
-            Some(t) => t,
-            None => continue,
         };
 
         // --- 1. Decay ---
@@ -618,7 +614,7 @@ fn primary_task(roles: &[&str], in_transit: bool) -> CrewTask {
 
 /// Pass 1: advance transit clocks, interpolate position, consume fuel.
 fn advance_transits(
-    world: &mut hecs::World,
+    world: &mut World,
     registry: &WorldRegistry,
     tick: u64,
     tick_scale: f32,
@@ -630,14 +626,15 @@ fn advance_transits(
     };
 
     // Snapshot body positions for location→position lookups.
-    let body_positions: std::collections::HashMap<i64, (f32, f32)> = world
-        .query::<(
+    let body_positions: std::collections::HashMap<i64, (f32, f32)> = {
+        let mut q = world.query::<(
             &crate::agents::celestial_body::BodyIdentity,
             &crate::agents::celestial_body::BodyOrbit,
-        )>()
-        .iter()
-        .map(|(_e, (id, orbit))| (id.db_id, orbit.universe_position()))
-        .collect();
+        )>();
+        q.iter(&world)
+            .map(|(id, orbit)| (id.db_id, orbit.universe_position()))
+            .collect()
+    };
 
     // Pick one "primary" facility id per location — the highest-capacity
     // dockable facility there. Ships aim at this facility's offset
@@ -654,19 +651,20 @@ fn advance_transits(
     // main station.
     let mut primary_facility_by_location: std::collections::HashMap<String, (String, u32)> =
         std::collections::HashMap::new();
-    for (_e, (fac_id, fac_loc, ops)) in world
-        .query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>()
-        .iter()
     {
-        let cap = ops.docking_capacity;
-        if cap == 0 {
-            continue;
-        }
-        let entry = primary_facility_by_location
-            .entry(fac_loc.location_name.clone())
-            .or_insert_with(|| (fac_id.id.clone(), cap));
-        if cap > entry.1 {
-            *entry = (fac_id.id.clone(), cap);
+        let mut q = world
+            .query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>();
+        for (fac_id, fac_loc, ops) in q.iter(&world) {
+            let cap = ops.docking_capacity;
+            if cap == 0 {
+                continue;
+            }
+            let entry = primary_facility_by_location
+                .entry(fac_loc.location_name.clone())
+                .or_insert_with(|| (fac_id.id.clone(), cap));
+            if cap > entry.1 {
+                *entry = (fac_id.id.clone(), cap);
+            }
         }
     }
 
@@ -683,14 +681,16 @@ fn advance_transits(
         }
     };
 
-    for (entity, (position, transit, fuel, memory, lifecycle)) in world
-        .query_mut::<(
-            &mut ShipPosition,
-            &mut ShipTransit,
-            &mut ShipFuel,
-            &mut ShipMemory,
-            &mut ShipLifecycle,
-        )>()
+    let mut transit_q = world.query::<(
+        Entity,
+        &mut ShipPosition,
+        &mut ShipTransit,
+        &mut ShipFuel,
+        &mut ShipMemory,
+        &mut ShipLifecycle,
+    )>();
+    for (entity, mut position, mut transit, mut fuel, mut memory, mut lifecycle) in
+        transit_q.iter_mut(world)
     {
         // LOD gate: skip ships whose divisor cursor hasn't fired this
         // round. Ships that do fire scale their fuel burn by skipped
@@ -833,7 +833,7 @@ pub const SHIP_ARRIVAL_THRESHOLD: f32 = 0.01;
 /// planning, PriceMemory.tick is the hook (currently unused by
 /// planners beyond "is this entry present at all").
 fn observe_prices(
-    world: &mut hecs::World,
+    world: &mut World,
     tick: u64,
     active: &ShipLodGate,
     gate_pairs: &StdHashMap<String, String>,
@@ -846,21 +846,23 @@ fn observe_prices(
     let market_prices: std::collections::HashMap<
         String,
         std::collections::HashMap<Commodity, f32>,
-    > = world
-        .query::<(
+    > = {
+        let mut q = world.query::<(
             &crate::agents::market::MarketIdentity,
             &crate::agents::market::MarketPricing,
-        )>()
-        .iter()
-        .map(|(_e, (id, pricing))| (id.facility_location.clone(), pricing.prices.clone()))
-        .collect();
+        )>();
+        q.iter(&world)
+            .map(|(id, pricing)| (id.facility_location.clone(), pricing.prices.clone()))
+            .collect()
+    };
 
     // location -> body_id (the string body id like "earth" or "frostheim")
-    let loc_to_body: std::collections::HashMap<String, String> = world
-        .query::<(&FacilityIdentity, &FacilityLocation)>()
-        .iter()
-        .map(|(_, (id, loc))| (loc.location_name.clone(), id.body_id.clone()))
-        .collect();
+    let loc_to_body: std::collections::HashMap<String, String> = {
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        q.iter(&world)
+            .map(|(id, loc)| (loc.location_name.clone(), id.body_id.clone()))
+            .collect()
+    };
 
     // body_id -> locations on that body
     let mut body_to_locs: std::collections::HashMap<String, Vec<String>> =
@@ -873,11 +875,12 @@ fn observe_prices(
     }
 
     // location -> system name (via body -> system via registry)
-    let body_db_to_system: std::collections::HashMap<i64, String> = world
-        .query::<&BodyIdentity>()
-        .iter()
-        .map(|(_, id)| (id.db_id, id.system_name.clone()))
-        .collect();
+    let body_db_to_system: std::collections::HashMap<i64, String> = {
+        let mut q = world.query::<&BodyIdentity>();
+        q.iter(&world)
+            .map(|id| (id.db_id, id.system_name.clone()))
+            .collect()
+    };
     let location_to_system: std::collections::HashMap<String, String> = registry
         .locations
         .iter()
@@ -920,9 +923,8 @@ fn observe_prices(
         }
     }
 
-    for (e, (position, fitting, memory)) in
-        world.query_mut::<(&ShipPosition, &ShipFitting, &mut ShipMemory)>()
-    {
+    let mut ship_q = world.query::<(Entity, &ShipPosition, &ShipFitting, &mut ShipMemory)>();
+    for (e, position, fitting, mut memory) in ship_q.iter_mut(world) {
         if !active.contains_key(&e) {
             continue;
         }

@@ -1,7 +1,7 @@
 //! Population components.
 
 use crate::economy::commodities::Commodity;
-use bevy_ecs::prelude::{Component, Entity};
+use bevy_ecs::prelude::{Component, Entity, World};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -200,7 +200,7 @@ pub const PASSENGER_BATCH_SIZE: u32 = 50;
 pub const PASSENGER_PAYMENT_PER_HEAD: i64 = 80;
 
 pub fn tick_populations(
-    world: &mut hecs::World,
+    world: &mut World,
     contracts: &mut crate::economy::contracts::ContractBoard,
     events: &mut Vec<serde_json::Value>,
     tick: u64,
@@ -221,16 +221,15 @@ pub fn tick_populations(
     // now off-screen pops consume less (proportional to LOD divisor),
     // which matches the player's "these worlds are idling" expectation.
     use crate::simulation::lod::AgentLod;
-    let pop_with_lod: std::collections::HashSet<hecs::Entity> = world
-        .query::<(&PopIdentity, &AgentLod)>()
-        .iter()
-        .map(|(e, _)| e)
-        .collect();
-    let mut pop_lod_gate: std::collections::HashMap<hecs::Entity, u32> =
+    let pop_with_lod: std::collections::HashSet<Entity> = {
+        let mut q = world.query::<(Entity, &PopIdentity, &AgentLod)>();
+        q.iter(&world).map(|(e, _, _)| e).collect()
+    };
+    let mut pop_lod_gate: std::collections::HashMap<Entity, u32> =
         std::collections::HashMap::new();
     {
-        let mut lod_q = world.query::<&mut AgentLod>();
-        for (e, lod) in lod_q.iter() {
+        let mut lod_q = world.query::<(Entity, &mut AgentLod)>();
+        for (e, mut lod) in lod_q.iter_mut(world) {
             if !pop_with_lod.contains(&e) {
                 continue;
             }
@@ -240,30 +239,29 @@ pub fn tick_populations(
         }
     }
     // Pops without AgentLod fire every tick.
-    let pop_no_lod: Vec<hecs::Entity> = world
-        .query::<&PopIdentity>()
-        .iter()
-        .map(|(e, _)| e)
-        .filter(|e| !pop_with_lod.contains(e))
-        .collect();
+    let pop_no_lod: Vec<Entity> = {
+        let mut q = world.query::<(Entity, &PopIdentity)>();
+        q.iter(&world)
+            .map(|(e, _)| e)
+            .filter(|e| !pop_with_lod.contains(e))
+            .collect()
+    };
     for e in pop_no_lod {
         pop_lod_gate.insert(e, 1);
     }
     let _ = tick_scale; // reserved for sentiment inertia scaling below
 
     // Index markets by location
-    let market_at_location: std::collections::HashMap<String, hecs::Entity> = world
-        .query::<&MarketIdentity>()
-        .iter()
-        .map(|(e, id)| (id.facility_location.clone(), e))
-        .collect();
+    let market_at_location: std::collections::HashMap<String, Entity> = {
+        let mut q = world.query::<(Entity, &MarketIdentity)>();
+        q.iter(&world).map(|(e, id)| (id.facility_location.clone(), e)).collect()
+    };
 
     // Pre-collect population entity list to avoid aliasing
-    let pop_entities: Vec<hecs::Entity> = world
-        .query::<&PopIdentity>()
-        .iter()
-        .map(|(e, _)| e)
-        .collect();
+    let pop_entities: Vec<Entity> = {
+        let mut q = world.query::<(Entity, &PopIdentity)>();
+        q.iter(&world).map(|(e, _)| e).collect()
+    };
 
     // Sentiment inertia exponent: slower world_speed = slower drift.
     let inertia_factor = SENTIMENT_INERTIA_BASE.powf(tick_scale.max(0.01));
@@ -275,23 +273,16 @@ pub fn tick_populations(
             continue;
         }
         let (location, consumption, production_commodity, production_amount, pop_size, current_food_sat) = {
-            let mut q = match world
-                .query_one::<(&PopIdentity, &PopEconomy, &PopDemographics, &PopSentiment)>(entity)
-            {
-                Ok(q) => q,
-                Err(_) => continue,
-            };
-            match q.get() {
-                Some((id, econ, demo, sent)) => (
-                    id.facility_location.clone(),
-                    econ.consumption.clone(),
-                    econ.production_commodity,
-                    econ.production_amount,
-                    demo.population_count,
-                    sent.food_satisfaction,
-                ),
-                None => continue,
-            }
+            let mut q = world.query::<(&PopIdentity, &PopEconomy, &PopDemographics, &PopSentiment)>();
+            let Ok((id, econ, demo, sent)) = q.get(world, entity) else { continue };
+            (
+                id.facility_location.clone(),
+                econ.consumption.clone(),
+                econ.production_commodity,
+                econ.production_amount,
+                demo.population_count,
+                sent.food_satisfaction,
+            )
         };
 
         let market_entity = match market_at_location.get(&location) {
@@ -309,7 +300,7 @@ pub fn tick_populations(
 
         // Consume
         if tick % consumption_interval == 0 {
-            if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
+            if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
                 // Snapshot prices for wealth-accounting; cheap
                 // (13-entry HashMap) and keeps the supply borrow.
                 let prices_snap = pricing.prices.clone();
@@ -354,7 +345,7 @@ pub fn tick_populations(
         if tick % production_interval == 0 {
             if let Some(commodity) = production_commodity {
                 if production_amount > 0.0 {
-                    if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
+                    if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
                         *pricing.supply.entry(commodity).or_insert(0.0) += production_amount;
                         // Bundle (K): wealth inflow — market absorbs
                         // the production at current price (partial
@@ -376,7 +367,7 @@ pub fn tick_populations(
         // value is turning a previously-static field into a
         // real-time signal.
         if wealth_delta != 0 {
-            if let Ok(mut econ) = world.get::<&mut PopEconomy>(entity) {
+            if let Some(mut econ) = world.get_mut::<PopEconomy>(entity) {
                 econ.total_wealth = (econ.total_wealth + wealth_delta).max(0);
             }
         }
@@ -384,7 +375,7 @@ pub fn tick_populations(
         // Update sentiment based on food supply — apply inertia so the
         // overall_sentiment value doesn't swing ±50 on a single frame.
         if tick % consumption_interval == 0 {
-            if let Ok(mut sentiment) = world.get::<&mut PopSentiment>(entity) {
+            if let Some(mut sentiment) = world.get_mut::<PopSentiment>(entity) {
                 if any_shortage {
                     sentiment.food_satisfaction =
                         (sentiment.food_satisfaction - FOOD_SAT_DROP_ON_SHORTAGE).max(0);
@@ -412,10 +403,10 @@ pub fn tick_populations(
         // check + transfer happens on the migration cadence below.
         if tick % consumption_interval == 0 {
             let cur_sentiment = world
-                .get::<&PopSentiment>(entity)
+                .get::<PopSentiment>(entity)
                 .map(|s| s.overall_sentiment)
                 .unwrap_or(50);
-            if let Ok(mut demo) = world.get::<&mut PopDemographics>(entity) {
+            if let Some(mut demo) = world.get_mut::<PopDemographics>(entity) {
                 let delta = if cur_sentiment < MIGRATION_SENTIMENT_FLOOR {
                     MIGRATION_PRESSURE_RISE * tick_scale
                 } else {
@@ -495,13 +486,13 @@ pub fn tick_populations(
 /// re-accumulate a full cycle of discontent before migrating again.
 /// Emits `population_migrated` for the ticker.
 fn run_population_migration(
-    world: &mut hecs::World,
+    world: &mut World,
     events: &mut Vec<serde_json::Value>,
 ) {
     // Collect (entity, id, pop, sentiment, pressure) for every pop.
     #[derive(Clone)]
     struct PopRef {
-        entity: hecs::Entity,
+        entity: Entity,
         id: String,
         label: String,
         location: String,
@@ -510,19 +501,19 @@ fn run_population_migration(
         pressure: f32,
     }
     let mut pops: Vec<PopRef> = Vec::new();
-    for (e, (identity, demo, sentiment)) in world
-        .query::<(&PopIdentity, &PopDemographics, &PopSentiment)>()
-        .iter()
     {
-        pops.push(PopRef {
-            entity: e,
-            id: identity.id.clone(),
-            label: identity.label.clone(),
-            location: identity.facility_location.clone(),
-            population: demo.population_count,
-            sentiment: sentiment.overall_sentiment,
-            pressure: demo.migration_pressure,
-        });
+        let mut q = world.query::<(Entity, &PopIdentity, &PopDemographics, &PopSentiment)>();
+        for (e, identity, demo, sentiment) in q.iter(&world) {
+            pops.push(PopRef {
+                entity: e,
+                id: identity.id.clone(),
+                label: identity.label.clone(),
+                location: identity.facility_location.clone(),
+                population: demo.population_count,
+                sentiment: sentiment.overall_sentiment,
+                pressure: demo.migration_pressure,
+            });
+        }
     }
 
     // Pick the unhappiest pop with pressure over trigger as the
@@ -553,11 +544,11 @@ fn run_population_migration(
         return;
     }
 
-    if let Ok(mut demo) = world.get::<&mut PopDemographics>(source.entity) {
+    if let Some(mut demo) = world.get_mut::<PopDemographics>(source.entity) {
         demo.population_count = demo.population_count.saturating_sub(moved);
         demo.migration_pressure = 0.0;
     }
-    if let Ok(mut demo) = world.get::<&mut PopDemographics>(destination.entity) {
+    if let Some(mut demo) = world.get_mut::<PopDemographics>(destination.entity) {
         demo.population_count = demo.population_count.saturating_add(moved);
     }
 
@@ -576,7 +567,7 @@ fn run_population_migration(
 }
 
 fn post_passenger_contracts(
-    world: &mut hecs::World,
+    world: &mut World,
     contracts: &mut crate::economy::contracts::ContractBoard,
     tick: u64,
     tick_multiplier: u64,
@@ -586,28 +577,28 @@ fn post_passenger_contracts(
         origin: String,
         faction_id: String,
     }
-    let candidates: Vec<Candidate> = world
-        .query::<(&PopIdentity, &PopSentiment, &PopDemographics)>()
-        .iter()
-        .filter(|(_, (_, sent, demo))| {
-            sent.overall_sentiment >= PASSENGER_MIN_SENTIMENT
-                && demo.population_count >= PASSENGER_MIN_POPULATION
-        })
-        .map(|(_, (id, _, _))| Candidate {
-            pop_id: id.id.clone(),
-            origin: id.facility_location.clone(),
-            faction_id: id.faction_id.clone(),
-        })
-        .collect();
+    let candidates: Vec<Candidate> = {
+        let mut q = world.query::<(&PopIdentity, &PopSentiment, &PopDemographics)>();
+        q.iter(&world)
+            .filter(|(_, sent, demo)| {
+                sent.overall_sentiment >= PASSENGER_MIN_SENTIMENT
+                    && demo.population_count >= PASSENGER_MIN_POPULATION
+            })
+            .map(|(id, _, _)| Candidate {
+                pop_id: id.id.clone(),
+                origin: id.facility_location.clone(),
+                faction_id: id.faction_id.clone(),
+            })
+            .collect()
+    };
     if candidates.is_empty() {
         return;
     }
 
-    let all_destinations: Vec<String> = world
-        .query::<&PopIdentity>()
-        .iter()
-        .map(|(_, id)| id.facility_location.clone())
-        .collect();
+    let all_destinations: Vec<String> = {
+        let mut q = world.query::<&PopIdentity>();
+        q.iter(&world).map(|id| id.facility_location.clone()).collect()
+    };
 
     for cand in candidates {
         let Some(destination) = all_destinations
@@ -654,7 +645,7 @@ fn post_passenger_contracts(
 /// richest known food source. Skips pops that already have a posted
 /// contract in-flight (one contract per destination at a time).
 fn post_food_contracts(
-    world: &mut hecs::World,
+    world: &mut World,
     contracts: &mut crate::economy::contracts::ContractBoard,
     tick: u64,
     tick_multiplier: u64,
@@ -662,16 +653,17 @@ fn post_food_contracts(
     use crate::economy::commodities::Commodity;
 
     // Snapshot: location → food supply (for picking source)
-    let food_supply_by_loc: std::collections::HashMap<String, f32> = world
-        .query::<(&MarketIdentity, &MarketPricing)>()
-        .iter()
-        .map(|(_, (id, pricing))| {
-            (
-                id.facility_location.clone(),
-                pricing.supply.get(&Commodity::Food).copied().unwrap_or(0.0),
-            )
-        })
-        .collect();
+    let food_supply_by_loc: std::collections::HashMap<String, f32> = {
+        let mut q = world.query::<(&MarketIdentity, &MarketPricing)>();
+        q.iter(&world)
+            .map(|(id, pricing)| {
+                (
+                    id.facility_location.clone(),
+                    pricing.supply.get(&Commodity::Food).copied().unwrap_or(0.0),
+                )
+            })
+            .collect()
+    };
 
     // Collect pop → decision info
     struct PopDecision {
@@ -681,17 +673,18 @@ fn post_food_contracts(
         population_count: i64,
         faction_id: String,
     }
-    let decisions: Vec<PopDecision> = world
-        .query::<(&PopIdentity, &PopSentiment, &PopDemographics)>()
-        .iter()
-        .map(|(_, (id, sent, demo))| PopDecision {
-            pop_id: id.id.clone(),
-            destination: id.facility_location.clone(),
-            satisfaction: sent.food_satisfaction,
-            population_count: demo.population_count,
-            faction_id: id.faction_id.clone(),
-        })
-        .collect();
+    let decisions: Vec<PopDecision> = {
+        let mut q = world.query::<(&PopIdentity, &PopSentiment, &PopDemographics)>();
+        q.iter(&world)
+            .map(|(id, sent, demo)| PopDecision {
+                pop_id: id.id.clone(),
+                destination: id.facility_location.clone(),
+                satisfaction: sent.food_satisfaction,
+                population_count: demo.population_count,
+                faction_id: id.faction_id.clone(),
+            })
+            .collect()
+    };
 
     for dec in decisions {
         if dec.satisfaction >= CONTRACT_FOOD_THRESHOLD {

@@ -10,7 +10,7 @@ mod components;
 pub use components::*;
 
 use crate::economy::commodities::Commodity;
-use hecs::Entity;
+use bevy_ecs::prelude::{Entity, World};
 
 // ============================================================================
 // Facility tick
@@ -223,7 +223,7 @@ pub const FACILITY_ABANDON_THRESHOLD_TICKS: u32 = 200;
 /// Type alias for the facility LOD gate — matches the ship-side one
 /// (`ShipLodGate`). `Entity → skipped_ticks`. Entities not in the
 /// map should skip this tick's heaviest sub-phases.
-pub type FacilityLodGate = std::collections::HashMap<hecs::Entity, u32>;
+pub type FacilityLodGate = std::collections::HashMap<Entity, u32>;
 
 /// Bundle 1.5: build the facility LOD gate for this tick. Advances
 /// each facility's own `AgentLod` cursor (ship-side passes are now
@@ -231,17 +231,16 @@ pub type FacilityLodGate = std::collections::HashMap<hecs::Entity, u32>;
 /// here). Facilities without an `AgentLod` default to "fires every
 /// tick, skipped=1" so missing-component fallback matches the ship
 /// behaviour.
-fn build_facility_lod_gate(world: &mut hecs::World, tick: u64) -> FacilityLodGate {
+fn build_facility_lod_gate(world: &mut World, tick: u64) -> FacilityLodGate {
     use crate::simulation::lod::AgentLod;
-    let fac_with_lod: std::collections::HashSet<hecs::Entity> = world
-        .query::<(&FacilityIdentity, &AgentLod)>()
-        .iter()
-        .map(|(e, _)| e)
-        .collect();
+    let fac_with_lod: std::collections::HashSet<Entity> = {
+        let mut q = world.query::<(Entity, &FacilityIdentity, &AgentLod)>();
+        q.iter(&world).map(|(e, _, _)| e).collect()
+    };
     let mut gate: FacilityLodGate = std::collections::HashMap::new();
     {
-        let mut lod_q = world.query::<&mut AgentLod>();
-        for (e, lod) in lod_q.iter() {
+        let mut lod_q = world.query::<(Entity, &mut AgentLod)>();
+        for (e, mut lod) in lod_q.iter_mut(world) {
             if !fac_with_lod.contains(&e) {
                 continue;
             }
@@ -251,12 +250,13 @@ fn build_facility_lod_gate(world: &mut hecs::World, tick: u64) -> FacilityLodGat
         }
     }
     // Fallback: facilities without an AgentLod fire every tick.
-    let fac_no_lod: Vec<hecs::Entity> = world
-        .query::<&FacilityIdentity>()
-        .iter()
-        .map(|(e, _)| e)
-        .filter(|e| !fac_with_lod.contains(e))
-        .collect();
+    let fac_no_lod: Vec<Entity> = {
+        let mut q = world.query::<(Entity, &FacilityIdentity)>();
+        q.iter(&world)
+            .map(|(e, _)| e)
+            .filter(|e| !fac_with_lod.contains(e))
+            .collect()
+    };
     for e in fac_no_lod {
         gate.insert(e, 1);
     }
@@ -264,7 +264,7 @@ fn build_facility_lod_gate(world: &mut hecs::World, tick: u64) -> FacilityLodGat
 }
 
 pub fn tick_facilities(
-    world: &mut hecs::World,
+    world: &mut World,
     contracts: &mut crate::economy::contracts::ContractBoard,
     events: &mut Vec<serde_json::Value>,
     tick: u64,
@@ -355,11 +355,10 @@ pub fn tick_facilities(
 
 /// Phase 1: condition drifts down every tick. Abandoned facilities are
 /// already dead and skip this.
-fn tick_degrade_condition(world: &mut hecs::World, tick_scale: f32) {
+fn tick_degrade_condition(world: &mut World, tick_scale: f32) {
     let delta = CONDITION_DEGRADE_PER_TICK * tick_scale;
-    for (_e, (ops, life)) in world
-        .query_mut::<(&mut FacilityOperations, &FacilityLifecycle)>()
-    {
+    let mut q = world.query::<(&mut FacilityOperations, &FacilityLifecycle)>();
+    for (mut ops, life) in q.iter_mut(world) {
         if life.abandoned {
             continue;
         }
@@ -403,32 +402,33 @@ fn tick_degrade_condition(world: &mut hecs::World, tick_scale: f32) {
 /// luna-base with 0 docked and 2 queued against capacity 25 — pure
 /// phantoms. Real ships can't get in because the queue head isn't
 /// actually trying to dock anymore.
-fn tick_dock_queue_sweep(world: &mut hecs::World) {
+fn tick_dock_queue_sweep(world: &mut World) {
     use crate::agents::ship::{ShipEconomy, ShipPosition};
     // Collect facility (entity, location_string) up front so we can
     // check ship positions without double-borrowing the world.
-    let facilities: Vec<(hecs::Entity, String)> = world
-        .query::<(&FacilityLocation, &FacilityStorage)>()
-        .iter()
-        .filter(|(_, (_, s))| !s.dock_queue.is_empty())
-        .map(|(e, (loc, _))| (e, loc.location_name.clone()))
-        .collect();
+    let facilities: Vec<(Entity, String)> = {
+        let mut q = world.query::<(Entity, &FacilityLocation, &FacilityStorage)>();
+        q.iter(&world)
+            .filter(|(_, _, s)| !s.dock_queue.is_empty())
+            .map(|(e, loc, _)| (e, loc.location_name.clone()))
+            .collect()
+    };
     for (entity, loc_name) in facilities {
-        let queue_snapshot = match world.get::<&FacilityStorage>(entity) {
-            Ok(s) => s.dock_queue.clone(),
-            Err(_) => continue,
+        let queue_snapshot = match world.get::<FacilityStorage>(entity) {
+            Some(s) => s.dock_queue.clone(),
+            None => continue,
         };
         let mut keep: Vec<Entity> = Vec::with_capacity(queue_snapshot.len());
         for e in queue_snapshot {
             let still_here = world
-                .get::<&ShipPosition>(e)
+                .get::<ShipPosition>(e)
                 .map(|p| p.location_name.as_deref() == Some(loc_name.as_str()))
                 .unwrap_or(false);
             if !still_here {
                 continue;
             }
             let still_trying = world
-                .get::<&ShipEconomy>(e)
+                .get::<ShipEconomy>(e)
                 .map(|econ| econ.dock_attempt_start_tick.is_some())
                 .unwrap_or(false);
             if !still_trying {
@@ -436,7 +436,7 @@ fn tick_dock_queue_sweep(world: &mut hecs::World) {
             }
             keep.push(e);
         }
-        if let Ok(mut storage) = world.get::<&mut FacilityStorage>(entity) {
+        if let Some(mut storage) = world.get_mut::<FacilityStorage>(entity) {
             if storage.dock_queue.len() != keep.len() {
                 storage.dock_queue = keep;
             }
@@ -445,7 +445,7 @@ fn tick_dock_queue_sweep(world: &mut hecs::World) {
 }
 
 fn tick_facility_crew(
-    world: &mut hecs::World,
+    world: &mut World,
     events: &mut Vec<serde_json::Value>,
     tick_scale: f32,
     tick_multiplier: u32,
@@ -455,13 +455,14 @@ fn tick_facility_crew(
 
     // Need the identity/location for starving events — collect here
     // rather than querying again later so we don't fight hecs borrows.
-    for (_e, (identity, loc, crew, storage, life)) in world.query_mut::<(
+    let mut q = world.query::<(
         &FacilityIdentity,
         &FacilityLocation,
         &mut FacilityCrew,
         &mut FacilityStorage,
         &FacilityLifecycle,
-    )>() {
+    )>();
+    for (identity, loc, mut crew, mut storage, life) in q.iter_mut(world) {
         if life.abandoned || crew.crew_count == 0 {
             continue;
         }
@@ -538,14 +539,13 @@ fn tick_facility_crew(
 /// Phase 2: consume one Tool to bump condition. Only if condition is
 /// already below REPAIR_THRESHOLD and reserves[Tools] > 0. Matches Elixir
 /// `facility_agent.ex:maybe_self_repair`.
-fn tick_self_repair(world: &mut hecs::World) {
-    for (_e, (ops, storage, life)) in world
-        .query_mut::<(
-            &mut FacilityOperations,
-            &mut FacilityStorage,
-            &mut FacilityLifecycle,
-        )>()
-    {
+fn tick_self_repair(world: &mut World) {
+    let mut q = world.query::<(
+        &mut FacilityOperations,
+        &mut FacilityStorage,
+        &mut FacilityLifecycle,
+    )>();
+    for (mut ops, mut storage, mut life) in q.iter_mut(world) {
         if life.abandoned || ops.condition >= CONDITION_REPAIR_THRESHOLD {
             continue;
         }
@@ -565,18 +565,17 @@ fn tick_self_repair(world: &mut hecs::World) {
 /// for ABANDON_THRESHOLD_TICKS and it flips to `abandoned`. Any recovery
 /// (tools restock, credits returning, repair) resets the counter.
 fn tick_abandonment(
-    world: &mut hecs::World,
+    world: &mut World,
     events: &mut Vec<serde_json::Value>,
 ) {
-    for (_e, (identity, loc, ops, storage, life)) in world
-        .query_mut::<(
-            &FacilityIdentity,
-            &FacilityLocation,
-            &FacilityOperations,
-            &FacilityStorage,
-            &mut FacilityLifecycle,
-        )>()
-    {
+    let mut q = world.query::<(
+        &FacilityIdentity,
+        &FacilityLocation,
+        &FacilityOperations,
+        &FacilityStorage,
+        &mut FacilityLifecycle,
+    )>();
+    for (identity, loc, ops, storage, mut life) in q.iter_mut(world) {
         if life.abandoned {
             continue;
         }
@@ -613,27 +612,29 @@ fn tick_abandonment(
 /// Deducts market supply, pays the facility's credits out, adds to reserves.
 /// This is in-process (facility + market in same world), so we can do it
 /// directly rather than via SimCommand.
-fn tick_restock(world: &mut hecs::World) {
+fn tick_restock(world: &mut World) {
     // Collect facility entities + their locations first to avoid borrow
     // conflicts while reading both facility and market components.
-    let facility_entries: Vec<(hecs::Entity, String)> = world
-        .query::<(&FacilityLocation, &FacilityLifecycle)>()
-        .iter()
-        .filter_map(|(e, (loc, life))| {
-            if life.abandoned {
-                None
-            } else {
-                Some((e, loc.location_name.clone()))
-            }
-        })
-        .collect();
+    let facility_entries: Vec<(Entity, String)> = {
+        let mut q = world.query::<(Entity, &FacilityLocation, &FacilityLifecycle)>();
+        q.iter(&world)
+            .filter_map(|(e, loc, life)| {
+                if life.abandoned {
+                    None
+                } else {
+                    Some((e, loc.location_name.clone()))
+                }
+            })
+            .collect()
+    };
 
     // Build location → market_entity map once.
-    let market_at_location: std::collections::HashMap<String, hecs::Entity> = world
-        .query::<&MarketIdentity>()
-        .iter()
-        .map(|(e, id)| (id.facility_location.clone(), e))
-        .collect();
+    let market_at_location: std::collections::HashMap<String, Entity> = {
+        let mut q = world.query::<(Entity, &MarketIdentity)>();
+        q.iter(&world)
+            .map(|(e, id)| (id.facility_location.clone(), e))
+            .collect()
+    };
 
     for (fac_entity, loc) in facility_entries {
         let market_entity = match market_at_location.get(&loc) {
@@ -643,9 +644,9 @@ fn tick_restock(world: &mut hecs::World) {
 
         // Snapshot the market's prices + supply (read).
         let prices: std::collections::HashMap<Commodity, (f32, f32)> = match world
-            .get::<&MarketPricing>(market_entity)
+            .get::<MarketPricing>(market_entity)
         {
-            Ok(p) => RESTOCK_COMMODITIES
+            Some(p) => RESTOCK_COMMODITIES
                 .iter()
                 .filter_map(|&c| {
                     let price = p.prices.get(&c).copied().unwrap_or(0.0);
@@ -657,7 +658,7 @@ fn tick_restock(world: &mut hecs::World) {
                     }
                 })
                 .collect(),
-            Err(_) => continue,
+            None => continue,
         };
         if prices.is_empty() {
             continue;
@@ -672,13 +673,13 @@ fn tick_restock(world: &mut hecs::World) {
         }
         let purchases: Vec<Buy> = {
             let mut out: Vec<Buy> = Vec::new();
-            let storage = match world.get::<&FacilityStorage>(fac_entity) {
-                Ok(s) => s,
-                Err(_) => continue,
+            let storage = match world.get::<FacilityStorage>(fac_entity) {
+                Some(s) => s,
+                None => continue,
             };
-            let ops = match world.get::<&FacilityOperations>(fac_entity) {
-                Ok(o) => o,
-                Err(_) => continue,
+            let ops = match world.get::<FacilityOperations>(fac_entity) {
+                Some(o) => o,
+                None => continue,
             };
             let mut remaining = ops.credits;
             for (commodity, (price, market_supply)) in prices.iter() {
@@ -712,19 +713,19 @@ fn tick_restock(world: &mut hecs::World) {
 
         // Apply: debit facility credits, increment reserves, debit market supply.
         let total_cost: i64 = purchases.iter().map(|b| b.cost).sum();
-        if let Ok(mut ops) = world.get::<&mut FacilityOperations>(fac_entity) {
+        if let Some(mut ops) = world.get_mut::<FacilityOperations>(fac_entity) {
             if ops.credits < total_cost {
                 continue;
             }
             ops.credits -= total_cost;
             ops.dirty = true;
         }
-        if let Ok(mut storage) = world.get::<&mut FacilityStorage>(fac_entity) {
+        if let Some(mut storage) = world.get_mut::<FacilityStorage>(fac_entity) {
             for buy in &purchases {
                 *storage.reserves.entry(buy.commodity).or_insert(0.0) += buy.qty;
             }
         }
-        if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
+        if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
             for buy in &purchases {
                 let s = pricing.supply.entry(buy.commodity).or_insert(0.0);
                 *s = (*s - buy.qty).max(0.0);
@@ -739,7 +740,7 @@ fn tick_restock(world: &mut hecs::World) {
 /// `FACILITY_LEVEL_CAP`) and boosts `max_batches` future runs via the
 /// `level_scaled_max_batches` helper.
 fn tick_recipes_and_mining(
-    world: &mut hecs::World,
+    world: &mut World,
     tick: u64,
     tick_multiplier: u32,
     lod_gate: &FacilityLodGate,
@@ -749,39 +750,42 @@ fn tick_recipes_and_mining(
     let mining_interval = MINING_INTERVAL_BASE * mult;
 
     // Location → market_entity and body_id → body_entity indexes.
-    let market_at_location: std::collections::HashMap<String, hecs::Entity> = world
-        .query::<&MarketIdentity>()
-        .iter()
-        .map(|(e, id)| (id.facility_location.clone(), e))
-        .collect();
-    let body_by_string_id: std::collections::HashMap<String, hecs::Entity> = world
-        .query::<&BodyIdentity>()
-        .iter()
-        .map(|(e, id)| (id.body_id.clone(), e))
-        .collect();
+    let market_at_location: std::collections::HashMap<String, Entity> = {
+        let mut q = world.query::<(Entity, &MarketIdentity)>();
+        q.iter(&world)
+            .map(|(e, id)| (id.facility_location.clone(), e))
+            .collect()
+    };
+    let body_by_string_id: std::collections::HashMap<String, Entity> = {
+        let mut q = world.query::<(Entity, &BodyIdentity)>();
+        q.iter(&world)
+            .map(|(e, id)| (id.body_id.clone(), e))
+            .collect()
+    };
 
     // Facility snapshot — include entity so we can update XP in place.
     #[derive(Clone)]
     struct FacilityInfo {
-        entity: hecs::Entity,
+        entity: Entity,
         facility_type: String,
         location_name: String,
         body_id: String,
         level: u8,
         abandoned: bool,
     }
-    let facilities: Vec<FacilityInfo> = world
-        .query::<(&FacilityIdentity, &FacilityLocation, &FacilityLifecycle)>()
-        .iter()
-        .map(|(e, (id, loc, life))| FacilityInfo {
-            entity: e,
-            facility_type: id.facility_type.clone(),
-            location_name: loc.location_name.clone(),
-            body_id: id.body_id.clone(),
-            level: life.level,
-            abandoned: life.abandoned,
-        })
-        .collect();
+    let facilities: Vec<FacilityInfo> = {
+        let mut q = world.query::<(Entity, &FacilityIdentity, &FacilityLocation, &FacilityLifecycle)>();
+        q.iter(&world)
+            .map(|(e, id, loc, life)| FacilityInfo {
+                entity: e,
+                facility_type: id.facility_type.clone(),
+                location_name: loc.location_name.clone(),
+                body_id: id.body_id.clone(),
+                level: life.level,
+                abandoned: life.abandoned,
+            })
+            .collect()
+    };
 
     if tick % recipe_interval == 0 {
         for fac in &facilities {
@@ -806,15 +810,13 @@ fn tick_recipes_and_mining(
             // but defend against hand-rolled DB rows) fall back to
             // neutral stats.
             let (output_mult_fitting, batches_bonus) = world
-                .get::<&FacilityFitting>(fac.entity)
-                .ok()
+                .get::<FacilityFitting>(fac.entity)
                 .map(|f| (f.derived.recipe_output_mult, f.derived.max_batches_bonus))
                 .unwrap_or((1.0, 0));
             // Phase 19a: crew efficiency multiplies into the output
             // mult alongside fitting. Starving crew → half production.
             let crew_efficiency = world
-                .get::<&FacilityCrew>(fac.entity)
-                .ok()
+                .get::<FacilityCrew>(fac.entity)
                 .map(|c| c.efficiency())
                 .unwrap_or(1.0);
             let output_mult = output_mult_fitting * crew_efficiency;
@@ -823,7 +825,7 @@ fn tick_recipes_and_mining(
             // when real work happens. Elixir increments XP by the number
             // of recipes that ran successfully each cycle.
             let mut recipes_run: u32 = 0;
-            if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
+            if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
                 // Bundle (H): snapshot prices for the profitability
                 // gate. Clone is cheap (HashMap<Commodity, f32>,
                 // ~13 entries) and lets us keep the mutable supply
@@ -866,26 +868,24 @@ fn tick_recipes_and_mining(
                 None => continue,
             };
             let body_resources: Vec<(Commodity, f32)> =
-                match world.get::<&BodyResources>(body_entity) {
-                    Ok(r) => r.resources.iter().map(|(&c, &v)| (c, v)).collect(),
-                    Err(_) => continue,
+                match world.get::<BodyResources>(body_entity) {
+                    Some(r) => r.resources.iter().map(|(&c, &v)| (c, v)).collect(),
+                    None => continue,
                 };
             // Mining rigs honour the Production slot too — a tier-3
             // production module boosts extracted yield 1.3×. Phase 19a
             // also folds crew efficiency in: a starved mining crew
             // extracts half as much per cycle.
             let yield_fitting = world
-                .get::<&FacilityFitting>(fac.entity)
-                .ok()
+                .get::<FacilityFitting>(fac.entity)
                 .map(|f| f.derived.recipe_output_mult)
                 .unwrap_or(1.0);
             let crew_efficiency = world
-                .get::<&FacilityCrew>(fac.entity)
-                .ok()
+                .get::<FacilityCrew>(fac.entity)
                 .map(|c| c.efficiency())
                 .unwrap_or(1.0);
             let yield_mult = yield_fitting * crew_efficiency;
-            if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
+            if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
                 for (commodity, richness) in body_resources {
                     if richness <= 0.0 {
                         continue;
@@ -907,8 +907,8 @@ pub fn level_scaled_max_batches(level: u8) -> u32 {
 }
 
 /// Grant XP to a facility; level up when `xp >= next_level_threshold`.
-pub fn grant_facility_xp(world: &mut hecs::World, entity: hecs::Entity, batches: u32) {
-    if let Ok(mut life) = world.get::<&mut FacilityLifecycle>(entity) {
+pub fn grant_facility_xp(world: &mut World, entity: Entity, batches: u32) {
+    if let Some(mut life) = world.get_mut::<FacilityLifecycle>(entity) {
         if life.abandoned {
             return;
         }
@@ -933,7 +933,7 @@ pub fn grant_facility_xp(world: &mut hecs::World, entity: hecs::Entity, batches:
 /// per tick keeps a single shipyard from hoovering the local
 /// electronics/metals/components supply in a single phase — slower
 /// cadence, more elastic market prices, retrofit stays a scarce event.
-fn tick_produce_modules(world: &mut hecs::World) {
+fn tick_produce_modules(world: &mut World) {
     use crate::economy::module_production::{
         consume_inputs, inputs_available, MODULE_RECIPES, SHIPYARD_STOCK_TARGET,
     };
@@ -942,31 +942,33 @@ fn tick_produce_modules(world: &mut hecs::World) {
     // as tick_recipes_and_mining. Shipyards pull from their local
     // market's supply, NOT their own reserves, matching refinery/factory
     // behavior.
-    let market_at_location: std::collections::HashMap<String, hecs::Entity> = world
-        .query::<&MarketIdentity>()
-        .iter()
-        .map(|(e, id)| (id.facility_location.clone(), e))
-        .collect();
+    let market_at_location: std::collections::HashMap<String, Entity> = {
+        let mut q = world.query::<(Entity, &MarketIdentity)>();
+        q.iter(&world)
+            .map(|(e, id)| (id.facility_location.clone(), e))
+            .collect()
+    };
 
     // Collect the shipyard (entity, location, abandoned) tuple so we can
     // mutate components without the query's borrow hanging around.
     struct ShipyardRef {
-        entity: hecs::Entity,
+        entity: Entity,
         location: String,
     }
-    let shipyards: Vec<ShipyardRef> = world
-        .query::<(&FacilityIdentity, &FacilityLocation, &FacilityLifecycle)>()
-        .iter()
-        .filter_map(|(e, (id, loc, life))| {
-            if life.abandoned || id.facility_type != "shipyard" {
-                return None;
-            }
-            Some(ShipyardRef {
-                entity: e,
-                location: loc.location_name.clone(),
+    let shipyards: Vec<ShipyardRef> = {
+        let mut q = world.query::<(Entity, &FacilityIdentity, &FacilityLocation, &FacilityLifecycle)>();
+        q.iter(&world)
+            .filter_map(|(e, id, loc, life)| {
+                if life.abandoned || id.facility_type != "shipyard" {
+                    return None;
+                }
+                Some(ShipyardRef {
+                    entity: e,
+                    location: loc.location_name.clone(),
+                })
             })
-        })
-        .collect();
+            .collect()
+    };
 
     for yard in shipyards {
         let market_entity = match market_at_location.get(&yard.location) {
@@ -977,21 +979,21 @@ fn tick_produce_modules(world: &mut hecs::World) {
         // Ensure the shipyard actually has a ModuleStock component.
         // We'd expect one on every shipyard (seeder/admin-spawn attach
         // it), but defend against hand-rolled DB rows that didn't.
-        if world.get::<&ModuleStock>(yard.entity).is_err() {
-            world.insert_one(yard.entity, ModuleStock::default()).ok();
+        if world.get::<ModuleStock>(yard.entity).is_none() {
+            world.entity_mut(yard.entity).insert(ModuleStock::default());
         }
 
         // Find the first under-stock recipe whose inputs are covered.
         // Walk recipes in catalog order so production distribution is
         // deterministic run-over-run.
         let chosen_slug: Option<&'static str> = {
-            let pricing = match world.get::<&MarketPricing>(market_entity) {
-                Ok(p) => p,
-                Err(_) => continue,
+            let pricing = match world.get::<MarketPricing>(market_entity) {
+                Some(p) => p,
+                None => continue,
             };
-            let stock = match world.get::<&ModuleStock>(yard.entity) {
-                Ok(s) => s,
-                Err(_) => continue,
+            let stock = match world.get::<ModuleStock>(yard.entity) {
+                Some(s) => s,
+                None => continue,
             };
             MODULE_RECIPES.iter().find_map(|recipe| {
                 if stock.count(recipe.slug) >= SHIPYARD_STOCK_TARGET {
@@ -1012,10 +1014,10 @@ fn tick_produce_modules(world: &mut hecs::World) {
         };
 
         // Consume inputs from the market and bump stock.
-        if let Ok(mut pricing) = world.get::<&mut MarketPricing>(market_entity) {
+        if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
             consume_inputs(recipe, &mut pricing.supply);
         }
-        if let Ok(mut stock) = world.get::<&mut ModuleStock>(yard.entity) {
+        if let Some(mut stock) = world.get_mut::<ModuleStock>(yard.entity) {
             stock.add(slug, 1);
         }
     }
@@ -1026,7 +1028,7 @@ fn tick_produce_modules(world: &mut hecs::World) {
 /// contracts at a time. Source is left open (the ship planner looks at
 /// price memory to pick where to buy). Payment scales with quantity.
 pub fn tick_post_contracts(
-    world: &mut hecs::World,
+    world: &mut World,
     contracts: &mut crate::economy::contracts::ContractBoard,
     tick: u64,
     tick_multiplier: u32,
@@ -1065,24 +1067,24 @@ pub fn tick_post_contracts(
 
     // location → market_history for shortage lookup. Elixir's
     // shortage_ticks is a tick counter; we use u32 to match `MarketHistory`.
-    let shortage_by_location: std::collections::HashMap<String, std::collections::HashMap<Commodity, u32>> =
-        world
-            .query::<(&MarketIdentity, &MarketHistory)>()
-            .iter()
-            .map(|(_e, (id, hist))| (id.facility_location.clone(), hist.shortage_ticks.clone()))
-            .collect();
-    let supply_by_location: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> =
-        world
-            .query::<(&MarketIdentity, &MarketPricing)>()
-            .iter()
-            .map(|(_e, (id, pricing))| (id.facility_location.clone(), pricing.supply.clone()))
-            .collect();
-    let price_by_location: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> =
-        world
-            .query::<(&MarketIdentity, &MarketPricing)>()
-            .iter()
-            .map(|(_e, (id, pricing))| (id.facility_location.clone(), pricing.prices.clone()))
-            .collect();
+    let shortage_by_location: std::collections::HashMap<String, std::collections::HashMap<Commodity, u32>> = {
+        let mut q = world.query::<(&MarketIdentity, &MarketHistory)>();
+        q.iter(&world)
+            .map(|(id, hist)| (id.facility_location.clone(), hist.shortage_ticks.clone()))
+            .collect()
+    };
+    let supply_by_location: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> = {
+        let mut q = world.query::<(&MarketIdentity, &MarketPricing)>();
+        q.iter(&world)
+            .map(|(id, pricing)| (id.facility_location.clone(), pricing.supply.clone()))
+            .collect()
+    };
+    let price_by_location: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> = {
+        let mut q = world.query::<(&MarketIdentity, &MarketPricing)>();
+        q.iter(&world)
+            .map(|(id, pricing)| (id.facility_location.clone(), pricing.prices.clone()))
+            .collect()
+    };
 
     // Pick a fallback source location per commodity: the location with the
     // highest current supply for that commodity.
@@ -1122,16 +1124,15 @@ pub fn tick_post_contracts(
     };
 
     let mut plans: Vec<Plan> = Vec::new();
-    for (_e, (id, loc, life, storage, ops)) in world
-        .query::<(
-            &FacilityIdentity,
-            &FacilityLocation,
-            &FacilityLifecycle,
-            &FacilityStorage,
-            &FacilityOperations,
-        )>()
-        .iter()
     {
+    let mut fac_q = world.query::<(
+        &FacilityIdentity,
+        &FacilityLocation,
+        &FacilityLifecycle,
+        &FacilityStorage,
+        &FacilityOperations,
+    )>();
+    for (id, loc, life, storage, ops) in fac_q.iter(&world) {
         if life.abandoned {
             continue;
         }
@@ -1282,6 +1283,7 @@ pub fn tick_post_contracts(
             }
         }
     }
+    }
 
     // Bundle (J): merge plans whose (destination, commodity) match
     // into a single larger contract. Multiple co-located facilities
@@ -1291,11 +1293,12 @@ pub fn tick_post_contracts(
     // facility fronts the combined payment. Plans whose lead can't
     // cover the combined payment fall back to unbundled.
     let plans = {
-        let credits_by_fac_id: std::collections::HashMap<String, i64> = world
-            .query::<(&FacilityIdentity, &FacilityOperations)>()
-            .iter()
-            .map(|(_, (id, ops))| (id.id.clone(), ops.credits))
-            .collect();
+        let credits_by_fac_id: std::collections::HashMap<String, i64> = {
+            let mut q = world.query::<(&FacilityIdentity, &FacilityOperations)>();
+            q.iter(&world)
+                .map(|(id, ops)| (id.id.clone(), ops.credits))
+                .collect()
+        };
         bundle_convoy_plans(plans, |fid| credits_by_fac_id.get(fid).copied().unwrap_or(0))
     };
 
@@ -1303,13 +1306,14 @@ pub fn tick_post_contracts(
     // Iterate plans, resolve requestor facility entity, deduct payment.
     for plan in plans {
         // Find facility by requestor_id (= FacilityIdentity.id).
-        let fac_entity = world
-            .query::<&FacilityIdentity>()
-            .iter()
-            .find(|(_, id)| id.id == plan.requestor_id)
-            .map(|(e, _)| e);
+        let fac_entity = {
+            let mut q = world.query::<(Entity, &FacilityIdentity)>();
+            q.iter(&world)
+                .find(|(_, id)| id.id == plan.requestor_id)
+                .map(|(e, _)| e)
+        };
         let Some(fac_entity) = fac_entity else { continue };
-        if let Ok(mut ops) = world.get::<&mut FacilityOperations>(fac_entity) {
+        if let Some(mut ops) = world.get_mut::<FacilityOperations>(fac_entity) {
             if ops.credits < plan.payment {
                 continue;
             }
@@ -1423,7 +1427,7 @@ trait ConvoyPlan {
 /// quantity field, and the category slug rides along in
 /// `Contract.mission_category` so the apply phase can look it back up.
 pub fn tick_post_crew_missions(
-    world: &mut hecs::World,
+    world: &mut World,
     contracts: &mut crate::economy::contracts::ContractBoard,
     tick: u64,
     tick_multiplier: u32,
@@ -1450,26 +1454,27 @@ pub fn tick_post_crew_missions(
         roll < prob
     }
 
-    let candidates: Vec<Candidate> = world
-        .query::<(
+    let candidates: Vec<Candidate> = {
+        let mut q = world.query::<(
             &FacilityIdentity,
             &FacilityLocation,
             &FacilityLifecycle,
             &FacilityOperations,
-        )>()
-        .iter()
-        .filter(|(_, (_, _, life, _))| !life.abandoned)
-        .filter_map(|(_, (id, loc, _, ops))| {
-            missions::for_facility_type(&id.facility_type).next()?;
-            Some(Candidate {
-                fac_id: id.id.clone(),
-                faction_id: id.faction_id.clone(),
-                facility_type: id.facility_type.clone(),
-                location: loc.location_name.clone(),
-                credits: ops.credits,
+        )>();
+        q.iter(&world)
+            .filter(|(_, _, life, _)| !life.abandoned)
+            .filter_map(|(id, loc, _, ops)| {
+                missions::for_facility_type(&id.facility_type).next()?;
+                Some(Candidate {
+                    fac_id: id.id.clone(),
+                    faction_id: id.faction_id.clone(),
+                    facility_type: id.facility_type.clone(),
+                    location: loc.location_name.clone(),
+                    credits: ops.credits,
+                })
             })
-        })
-        .collect();
+            .collect()
+    };
 
     let lifespan = 200 * tick_multiplier as u64; // short-lived gigs
 
@@ -1508,13 +1513,14 @@ pub fn tick_post_crew_missions(
         }
 
         // Debit credits and post the mission.
-        if let Some(e) = world
-            .query::<&FacilityIdentity>()
-            .iter()
-            .find(|(_, id)| id.id == cand.fac_id)
-            .map(|(e, _)| e)
-        {
-            if let Ok(mut ops) = world.get::<&mut FacilityOperations>(e) {
+        let fac_e = {
+            let mut q = world.query::<(Entity, &FacilityIdentity)>();
+            q.iter(&world)
+                .find(|(_, id)| id.id == cand.fac_id)
+                .map(|(e, _)| e)
+        };
+        if let Some(e) = fac_e {
+            if let Some(mut ops) = world.get_mut::<FacilityOperations>(e) {
                 if ops.credits < template.base_payment {
                     continue;
                 }
@@ -1726,24 +1732,24 @@ mod tests {
 
     #[test]
     fn grant_xp_levels_up_and_resets_xp() {
-        use hecs::World;
+        use bevy_ecs::prelude::World;
         let mut world = World::new();
-        let e = world.spawn((FacilityLifecycle::new(),));
+        let e = world.spawn((FacilityLifecycle::new(),)).id();
         // 150 XP → level to 2 (spend 100), leftover 50.
         grant_facility_xp(&mut world, e, 150);
-        let life = world.get::<&FacilityLifecycle>(e).unwrap();
+        let life = world.get::<FacilityLifecycle>(e).unwrap();
         assert_eq!(life.level, 2);
         assert_eq!(life.xp, 50);
     }
 
     #[test]
     fn grant_xp_caps_at_facility_level_cap() {
-        use hecs::World;
+        use bevy_ecs::prelude::World;
         let mut world = World::new();
-        let e = world.spawn((FacilityLifecycle::new(),));
+        let e = world.spawn((FacilityLifecycle::new(),)).id();
         // Dump 1M XP — should hit FACILITY_LEVEL_CAP and stop leveling.
         grant_facility_xp(&mut world, e, 1_000_000);
-        let life = world.get::<&FacilityLifecycle>(e).unwrap();
+        let life = world.get::<FacilityLifecycle>(e).unwrap();
         assert_eq!(life.level, FACILITY_LEVEL_CAP);
     }
 
@@ -1768,7 +1774,7 @@ mod tests {
         use crate::agents::facility::tick_produce_modules;
         use crate::agents::market::{MarketFlow, MarketHistory, MarketIdentity, MarketOrders, MarketPricing};
         use crate::economy::commodities::Commodity;
-        use hecs::World;
+        use bevy_ecs::prelude::World;
 
         let mut world = World::new();
 
@@ -1778,7 +1784,7 @@ mod tests {
             MarketIdentity {
                 db_id: 1,
                 id: "market-earth-station".into(),
-                facility: hecs::Entity::from_bits(1).unwrap_or(hecs::Entity::DANGLING),
+                facility: Entity::PLACEHOLDER,
                 facility_location: "earth-station".into(),
             },
             {
@@ -1818,7 +1824,7 @@ mod tests {
                 dirty: false,
                 crisis_notified: Default::default(),
             },
-        ));
+        )).id();
         let _ = market_entity;
 
         // Spawn a shipyard at the same location with an empty module stock.
@@ -1837,19 +1843,19 @@ mod tests {
             },
             FacilityLifecycle::new(),
             ModuleStock::default(),
-        ));
+        )).id();
 
         // Run the production phase — it should pick engine_t2 (first
         // under-stocked recipe whose inputs are covered) and mint 1.
         tick_produce_modules(&mut world);
 
-        let stock = world.get::<&ModuleStock>(shipyard_entity).unwrap();
+        let stock = world.get::<ModuleStock>(shipyard_entity).unwrap();
         assert_eq!(
             stock.count("engine_t2"),
             1,
             "shipyard should mint one engine_t2 on the first pass",
         );
-        let pricing = world.get::<&MarketPricing>(market_entity).unwrap();
+        let pricing = world.get::<MarketPricing>(market_entity).unwrap();
         // 20 − 3 metals consumed by engine_t2 recipe.
         assert!((pricing.supply[&Commodity::Metals] - 17.0).abs() < 0.001);
     }
@@ -1858,7 +1864,7 @@ mod tests {
     fn tick_produce_modules_skips_when_inputs_missing() {
         use crate::agents::facility::tick_produce_modules;
         use crate::agents::market::{MarketFlow, MarketHistory, MarketIdentity, MarketOrders, MarketPricing};
-        use hecs::World;
+        use bevy_ecs::prelude::World;
 
         let mut world = World::new();
         // Market has no supply at all.
@@ -1866,7 +1872,7 @@ mod tests {
             MarketIdentity {
                 db_id: 1,
                 id: "market-empty".into(),
-                facility: hecs::Entity::DANGLING,
+                facility: Entity::PLACEHOLDER,
                 facility_location: "empty".into(),
             },
             MarketPricing {
@@ -1915,10 +1921,10 @@ mod tests {
             },
             FacilityLifecycle::new(),
             ModuleStock::default(),
-        ));
+        )).id();
 
         tick_produce_modules(&mut world);
-        let stock = world.get::<&ModuleStock>(yard).unwrap();
+        let stock = world.get::<ModuleStock>(yard).unwrap();
         assert!(
             stock.stock.is_empty(),
             "shipyard should mint nothing when the market can't cover any recipe",

@@ -46,6 +46,7 @@ use crate::ai::behavior_tree::BtNode;
 use crate::economy::commodities::Commodity;
 use crate::simulation::commands::{CommandBuffer, SimCommand};
 use crate::world::registry::WorldRegistry;
+use bevy_ecs::prelude::{Entity, World};
 use std::collections::HashMap as StdHashMap;
 
 use super::actions::ShipAction;
@@ -191,7 +192,7 @@ pub fn best_trade_route(
 /// Pass 3: decide + act on each ship.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn decide_and_act(
-    world: &mut hecs::World,
+    world: &mut World,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
     contracts: &crate::economy::contracts::ContractBoard,
@@ -211,11 +212,12 @@ pub(super) fn decide_and_act(
     // - cross-system contract gating in try_plan_contract
     let location_to_system: std::collections::HashMap<String, String> = {
         use crate::agents::celestial_body::BodyIdentity;
-        let body_db_to_system: std::collections::HashMap<i64, String> = world
-            .query::<&BodyIdentity>()
-            .iter()
-            .map(|(_, id)| (id.db_id, id.system_name.clone()))
-            .collect();
+        let body_db_to_system: std::collections::HashMap<i64, String> = {
+            let mut q = world.query::<&BodyIdentity>();
+            q.iter(world)
+                .map(|id| (id.db_id, id.system_name.clone()))
+                .collect()
+        };
         registry
             .locations
             .iter()
@@ -236,19 +238,19 @@ pub(super) fn decide_and_act(
     let contested_destinations: std::collections::HashSet<String> = {
         use crate::agents::celestial_body::{BodyIdentity, BodyTerritory};
         use crate::agents::facility::{FacilityIdentity, FacilityLocation};
-        let contested_body_ids: std::collections::HashSet<String> = world
-            .query::<(&BodyIdentity, &BodyTerritory)>()
-            .iter()
-            .filter(|(_, (_, t))| t.contested)
-            .map(|(_, (id, _))| id.body_id.clone())
-            .collect();
+        let contested_body_ids: std::collections::HashSet<String> = {
+            let mut q = world.query::<(&BodyIdentity, &BodyTerritory)>();
+            q.iter(world)
+                .filter(|(_, t)| t.contested)
+                .map(|(id, _)| id.body_id.clone())
+                .collect()
+        };
         if contested_body_ids.is_empty() {
             std::collections::HashSet::new()
         } else {
-            world
-                .query::<(&FacilityIdentity, &FacilityLocation)>()
-                .iter()
-                .filter_map(|(_, (id, loc))| {
+            let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+            q.iter(world)
+                .filter_map(|(id, loc)| {
                     if contested_body_ids.contains(&id.body_id) {
                         Some(loc.location_name.clone())
                     } else {
@@ -282,14 +284,13 @@ pub(super) fn decide_and_act(
         };
         let mut out: std::collections::HashMap<String, (u32, u32, u32)> =
             std::collections::HashMap::new();
-        for (_e, (id, loc, ops, storage)) in world
-            .query::<(
-                &FacilityIdentity,
-                &FacilityLocation,
-                &FacilityOperations,
-                &FacilityStorage,
-            )>()
-            .iter()
+        let mut q = world.query::<(
+            &FacilityIdentity,
+            &FacilityLocation,
+            &FacilityOperations,
+            &FacilityStorage,
+        )>();
+        for (id, loc, ops, storage) in q.iter(world)
         {
             if id.facility_type == "gate" || ops.docking_capacity == 0 {
                 continue;
@@ -315,9 +316,8 @@ pub(super) fn decide_and_act(
         use crate::agents::facility::{FacilityIdentity, FacilityLocation};
         let mut counts: std::collections::HashMap<String, std::collections::HashMap<String, u32>> =
             std::collections::HashMap::new();
-        for (_e, (id, loc)) in world
-            .query::<(&FacilityIdentity, &FacilityLocation)>()
-            .iter()
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        for (id, loc) in q.iter(world)
         {
             if id.faction_id.is_empty() {
                 continue;
@@ -351,11 +351,11 @@ pub(super) fn decide_and_act(
         use crate::agents::facility::{
             FacilityIdentity, FacilityLifecycle, FacilityLocation, ModuleStock,
         };
-        world
-            .query::<(&FacilityIdentity, &FacilityLocation, &FacilityLifecycle, &ModuleStock)>()
-            .iter()
-            .filter(|(_, (id, _, life, _))| id.facility_type == "shipyard" && !life.abandoned)
-            .map(|(_, (_, loc, _, stock))| {
+        let mut q = world
+            .query::<(&FacilityIdentity, &FacilityLocation, &FacilityLifecycle, &ModuleStock)>();
+        q.iter(world)
+            .filter(|(id, _, life, _)| id.facility_type == "shipyard" && !life.abandoned)
+            .map(|(_, loc, _, stock)| {
                 let system = location_to_system
                     .get(&loc.location_name)
                     .cloned()
@@ -365,11 +365,10 @@ pub(super) fn decide_and_act(
             .collect()
     };
 
-    let entities: Vec<hecs::Entity> = world
-        .query::<&ShipIdentity>()
-        .iter()
-        .map(|(e, _)| e)
-        .collect();
+    let entities: Vec<Entity> = {
+        let mut q = world.query::<(Entity, &ShipIdentity)>();
+        q.iter(world).map(|(e, _)| e).collect()
+    };
 
     for entity in entities {
         // LOD gate — LOD'd-out ships don't replan or execute BT steps
@@ -381,15 +380,14 @@ pub(super) fn decide_and_act(
         // Fetch ship's string id (used for contract acceptance) +
         // faction id (used by Bundle B's treaty-implied rep floor).
         let (ship_id, ship_faction): (String, String) =
-            match world.get::<&ShipIdentity>(entity) {
-                Ok(id) => (id.id.clone(), id.faction_id.clone()),
-                Err(_) => continue,
+            match world.get::<ShipIdentity>(entity) {
+                Some(id) => (id.id.clone(), id.faction_id.clone()),
+                None => continue,
             };
 
         // Snapshot crew state before the main mut borrow (needed for the planner).
         let crew_snapshot: Option<ShipCrew> = world
-            .get::<&ShipCrew>(entity)
-            .ok()
+            .get::<ShipCrew>(entity)
             .map(|c| (*c).clone());
 
         // Phase 18d: compute a retrofit opportunity before the main mut
@@ -397,17 +395,17 @@ pub(super) fn decide_and_act(
         // fitting + credits + stock gates. None if any check fails —
         // the ship will plan normally.
         let retrofit_plan: Option<RetrofitPlan> = (|| {
-            let prog = world.get::<&ShipProgression>(entity).ok()?;
+            let prog = world.get::<ShipProgression>(entity)?;
             if prog.retrofit_points == 0 {
                 return None;
             }
-            let fitting = world.get::<&ShipFitting>(entity).ok()?;
-            let economy = world.get::<&ShipEconomy>(entity).ok()?;
-            let position = world.get::<&ShipPosition>(entity).ok()?;
+            let fitting = world.get::<ShipFitting>(entity)?;
+            let economy = world.get::<ShipEconomy>(entity)?;
+            let position = world.get::<ShipPosition>(entity)?;
             let ship_location = position.location_name.clone().unwrap_or_default();
             let ship_system = position.system_id.clone();
             find_retrofit_opportunity(
-                &fitting,
+                fitting,
                 &shipyard_inventory,
                 economy.credits,
                 &ship_location,
@@ -421,11 +419,11 @@ pub(super) fn decide_and_act(
         // to the fitting. Default to 0.0 for pre-18f ships (they'll
         // be treated as myopic and skip cross-system contracts).
         let sensor_range_au: f32 = world
-            .get::<&ShipFitting>(entity)
+            .get::<ShipFitting>(entity)
             .map(|f| f.derived.sensor_range_au)
             .unwrap_or(0.0);
 
-        let mut q = match world.query_one::<(
+        let mut q = world.query::<(
             &mut ShipPosition,
             &mut ShipTransit,
             &mut ShipCargo,
@@ -435,14 +433,21 @@ pub(super) fn decide_and_act(
             &mut ShipMemory,
             &mut ShipLifecycle,
             &mut ShipCrew,
-        )>(entity) {
-            Ok(q) => q,
-            Err(_) => continue,
-        };
-        let (position, transit, cargo, fuel, economy, ai, memory, lifecycle, crew) = match q.get() {
-            Some(t) => t,
-            None => continue,
-        };
+        )>();
+        let (mut position, mut transit, mut cargo, mut fuel, mut economy, mut ai, mut memory, mut lifecycle, mut crew) =
+            match q.get_mut(world, entity) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+        let position = &mut *position;
+        let transit = &mut *transit;
+        let cargo = &mut *cargo;
+        let fuel = &mut *fuel;
+        let economy = &mut *economy;
+        let ai = &mut *ai;
+        let memory = &mut *memory;
+        let lifecycle = &mut *lifecycle;
+        let crew = &mut *crew;
 
         if transit.transit.is_some() {
             // Keep `current_goal` as whatever the plan picked (e.g.

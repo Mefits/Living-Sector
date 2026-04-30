@@ -93,7 +93,7 @@ pub enum ShipAction {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn execute_ship_action(
     action: &ShipAction,
-    entity: hecs::Entity,
+    entity: bevy_ecs::prelude::Entity,
     ship_id: &str,
     ship_faction: &str,
     crew: &mut ShipCrew,

@@ -25,7 +25,7 @@
 //! something visible happening at the starved location.
 
 use crate::economy::commodities::Commodity;
-use bevy_ecs::prelude::{Component, Entity};
+use bevy_ecs::prelude::{Component, Entity, World};
 use serde::Serialize;
 
 /// Units of commodity needed to finish a construction site. Sized so
@@ -152,14 +152,13 @@ impl From<&ConstructionSite> for ConstructionSiteSnapshot {
 /// Is there already a site for this commodity at this location?
 /// Prevents the demand analyzer from double-spawning.
 pub fn site_exists_for(
-    world: &hecs::World,
+    world: &mut World,
     location_name: &str,
     commodity: Commodity,
 ) -> bool {
-    world
-        .query::<&ConstructionSite>()
-        .iter()
-        .any(|(_, s)| s.location_name == location_name && s.commodity == commodity)
+    let mut q = world.query::<&ConstructionSite>();
+    q.iter(world)
+        .any(|s| s.location_name == location_name && s.commodity == commodity)
 }
 
 /// Find the site at `location` accepting deliveries of `commodity`.
@@ -167,13 +166,12 @@ pub fn site_exists_for(
 /// right site. Returns the entity + a clone of the site state so the
 /// caller can mutate without borrow conflicts.
 pub fn find_site(
-    world: &hecs::World,
+    world: &mut World,
     location_name: &str,
     commodity: Commodity,
 ) -> Option<Entity> {
-    world
-        .query::<&ConstructionSite>()
-        .iter()
+    let mut q = world.query::<(Entity, &ConstructionSite)>();
+    q.iter(world)
         .find(|(_, s)| {
             s.location_name == location_name && s.commodity == commodity && !s.completed
         })

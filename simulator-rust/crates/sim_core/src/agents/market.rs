@@ -1,7 +1,7 @@
 //! Market components.
 
 use crate::economy::{commodities::Commodity, order_book::Order};
-use bevy_ecs::prelude::{Component, Entity};
+use bevy_ecs::prelude::{Component, Entity, World};
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 
@@ -242,7 +242,7 @@ fn essential_commodities() -> &'static [(_Commodity, f32, u32, f32)] {
 /// Tick all markets in the world. Serial iteration — 23 markets is trivial.
 /// Phase 3 implementation. Adds to `commands` for cross-agent effects.
 pub fn tick_markets(
-    world: &mut hecs::World,
+    world: &mut World,
     commands: &mut CommandBuffer,
     tick: u64,
     tick_multiplier: u32,
@@ -255,11 +255,10 @@ pub fn tick_markets(
     let reserve_expiry = RESERVE_EXPIRY_BASE * mult;
 
     // Collect entity IDs first to avoid aliasing issues while we iterate.
-    let market_entities: Vec<hecs::Entity> = world
-        .query::<&MarketIdentity>()
-        .iter()
-        .map(|(e, _)| e)
-        .collect();
+    let market_entities: Vec<Entity> = {
+        let mut q = world.query::<(Entity, &MarketIdentity)>();
+        q.iter(&world).map(|(e, _)| e).collect()
+    };
 
     for entity in market_entities {
         tick_one_market(
@@ -278,8 +277,8 @@ pub fn tick_markets(
 
 #[allow(clippy::too_many_arguments)]
 fn tick_one_market(
-    world: &mut hecs::World,
-    entity: hecs::Entity,
+    world: &mut World,
+    entity: Entity,
     commands: &mut CommandBuffer,
     tick: u64,
     prod_interval: u64,
@@ -290,19 +289,16 @@ fn tick_one_market(
 ) {
     // Pull all the components we'll mutate. hecs's query_one_mut is ideal for
     // operating on a single entity with multiple component refs.
-    let mut query = world
-        .query_one::<(
-            &MarketIdentity,
-            &mut MarketPricing,
-            &mut MarketFlow,
-            &mut MarketOrders,
-            &mut MarketHistory,
-        )>(entity)
-        .expect("market entity should have all 5 components");
-
-    let (identity, pricing, flow, orders, history) = match query.get() {
-        Some(tuple) => tuple,
-        None => return,
+    let mut q = world.query::<(
+        &MarketIdentity,
+        &mut MarketPricing,
+        &mut MarketFlow,
+        &mut MarketOrders,
+        &mut MarketHistory,
+    )>();
+    let Ok((identity, mut pricing, mut flow, mut orders, mut history)) = q.get_mut(world, entity)
+    else {
+        return;
     };
 
     // Initialize spawned_at_tick on first tick
@@ -327,7 +323,7 @@ fn tick_one_market(
         for (&commodity, &amount) in &flow.consumption.clone() {
             let entry = pricing.supply.entry(commodity).or_insert(0.0);
             *entry = (*entry - amount).max(0.0);
-            record_consumption(flow, commodity, amount, tick);
+            record_consumption(&mut flow, commodity, amount, tick);
         }
     }
 
@@ -346,8 +342,9 @@ fn tick_one_market(
                     let base_price = pricing.prices.get(commodity).copied().unwrap_or(50.0);
                     let price = base_price * premium;
                     orders.next_order_id += 1;
+                    let order_id = orders.next_order_id;
                     orders.pending_buys.push(crate::economy::order_book::Order {
-                        id: orders.next_order_id,
+                        id: order_id,
                         agent_id: "market-emergency".into(),
                         order_type: OrderType::Buy,
                         commodity: *commodity,
@@ -381,8 +378,9 @@ fn tick_one_market(
                     let qty = ((excess * 0.2).min(500.0) as u32).max(1);
                     if qty > 0 {
                         orders.next_order_id += 1;
+                        let order_id = orders.next_order_id;
                         orders.pending_sells.push(crate::economy::order_book::Order {
-                            id: orders.next_order_id,
+                            id: order_id,
                             agent_id: "market-surplus".into(),
                             order_type: OrderType::Sell,
                             commodity,
@@ -427,7 +425,7 @@ fn tick_one_market(
                 // Normal buyer — supply goes down, record as real consumption signal
                 let entry = pricing.supply.entry(*commodity).or_insert(0.0);
                 *entry = (*entry - trade.quantity as f32).max(0.0);
-                record_consumption(flow, *commodity, trade.quantity as f32, tick);
+                record_consumption(&mut flow, *commodity, trade.quantity as f32, tick);
             }
 
             // Spread revenue to owning facility (via command buffer for deterministic timing)
