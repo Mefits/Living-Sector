@@ -25,10 +25,12 @@
 //! can plumb rate scaling into the recipe / sentiment / condition
 //! paths if we need it.
 
+use bevy_ecs::prelude::{Component, Entity, World};
+
 /// Per-agent LOD cursor. `divisor` ∈ {1, 2, 5, 10, 20, 50}. `next_tick`
 /// is the next real-tick value at which the agent should run its per-
 /// tick phases.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct AgentLod {
     pub divisor: u8,
     pub next_tick: u64,
@@ -182,13 +184,14 @@ impl LodStats {
 /// This keeps `sim_core::simulation::lod` free of agent-module
 /// dependencies — the caller does the lookup.
 pub fn tick_lod_recompute(
-    world: &mut hecs::World,
-    pos_by_entity: &std::collections::HashMap<hecs::Entity, (f32, f32)>,
+    world: &mut World,
+    pos_by_entity: &std::collections::HashMap<Entity, (f32, f32)>,
     observers: &[(f32, f32, f32)],
     tick: u64,
 ) -> LodStats {
     let mut stats = LodStats::default();
-    for (e, lod) in world.query_mut::<&mut AgentLod>() {
+    let mut q = world.query::<(Entity, &mut AgentLod)>();
+    for (e, mut lod) in q.iter_mut(world) {
         let pos = match pos_by_entity.get(&e) {
             Some(&p) => p,
             None => continue, // no position known → leave divisor alone

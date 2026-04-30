@@ -1,12 +1,12 @@
 //! Market components.
 
 use crate::economy::{commodities::Commodity, order_book::Order};
-use hecs::Entity;
+use bevy_ecs::prelude::{Component, Entity};
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 
 /// Stable identity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct MarketIdentity {
     pub db_id: i64,
     pub id: String,                   // "market-earth-station"
@@ -15,7 +15,7 @@ pub struct MarketIdentity {
 }
 
 /// Pricing parameters and current prices.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct MarketPricing {
     pub price_elasticity: f32,
     pub spread: f32,
@@ -31,7 +31,7 @@ impl MarketPricing {
 }
 
 /// Production & consumption rates plus rolling window for demand estimation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct MarketFlow {
     pub production: HashMap<Commodity, f32>,
     pub consumption: HashMap<Commodity, f32>,
@@ -43,7 +43,7 @@ pub struct MarketFlow {
 }
 
 /// Pending orders and escrowed reservations. Touched every market tick.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Component)]
 pub struct MarketOrders {
     pub pending_buys: Vec<Order>,
     pub pending_sells: Vec<Order>,
@@ -70,7 +70,7 @@ pub struct MarketTrendSample {
 }
 
 /// Historical/telemetry data — rarely touched by core logic.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Component)]
 pub struct MarketHistory {
     /// Phase 20d: rolling time-series ring of `MarketTrendSample`s.
     /// Sampled every `MARKET_TREND_SAMPLE_INTERVAL_BASE` base ticks

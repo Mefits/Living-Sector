@@ -9,7 +9,7 @@
 
 use crate::agents::faction_relations::FactionRelations;
 use crate::economy::contracts::ContractBoard;
-use hecs::{Entity, World};
+use bevy_ecs::prelude::{Entity, World};
 use std::collections::HashMap;
 
 /// Adaptive-fleet retirement request. Ships hitting 3 broke/hoard
@@ -159,26 +159,28 @@ impl AgentStore {
         // location → (facility_agent_id, paired_agent_id)
         let mut by_fac_id: HashMap<String, String> = HashMap::new();
         // Collect gate (facility_id, paired_facility_id) tuples.
-        let gates: Vec<(String, String, String)> = self
-            .world
-            .query::<(&FacilityIdentity, &GateLink)>()
-            .iter()
-            .map(|(_e, (id, link))| {
-                (
-                    id.id.clone(),
-                    link.paired_gate_id.clone(),
-                    // location lookup via facility_by_id + facilities_at_location
-                    String::new(),
-                )
-            })
-            .collect();
+        let gates: Vec<(String, String, String)> = {
+            let mut q = self.world.query::<(&FacilityIdentity, &GateLink)>();
+            q.iter(&self.world)
+                .map(|(id, link)| {
+                    (
+                        id.id.clone(),
+                        link.paired_gate_id.clone(),
+                        // location lookup via facility_by_id + facilities_at_location
+                        String::new(),
+                    )
+                })
+                .collect()
+        };
         // Build facility_id → location.
-        let fac_id_to_loc: HashMap<String, String> = self
-            .world
-            .query::<(&FacilityIdentity, &crate::agents::facility::FacilityLocation)>()
-            .iter()
-            .map(|(_e, (id, loc))| (id.id.clone(), loc.location_name.clone()))
-            .collect();
+        let fac_id_to_loc: HashMap<String, String> = {
+            let mut q = self
+                .world
+                .query::<(&FacilityIdentity, &crate::agents::facility::FacilityLocation)>();
+            q.iter(&self.world)
+                .map(|(id, loc)| (id.id.clone(), loc.location_name.clone()))
+                .collect()
+        };
         for (gate_id, paired_id, _) in gates {
             by_fac_id.insert(gate_id, paired_id);
         }

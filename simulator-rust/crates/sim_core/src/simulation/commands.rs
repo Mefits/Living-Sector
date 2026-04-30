@@ -1,5 +1,5 @@
 use crate::economy::{commodities::Commodity, order_book::Order};
-use hecs::Entity;
+use bevy_ecs::prelude::Entity;
 
 /// Unified command buffer for all cross-phase effects.
 ///

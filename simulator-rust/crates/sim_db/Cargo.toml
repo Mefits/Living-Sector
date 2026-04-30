@@ -12,7 +12,7 @@ edition.workspace = true
 # Modules:
 #   pool        — sqlx pool construction + migrations
 #   seeder      — JSON world.json → SQLite first-boot seeding
-#   spawner     — SQLite → AgentStore (hecs::World) load
+#   spawner     — SQLite → AgentStore (bevy_ecs::World) load
 #   persistence — mpsc-driven async worker that flushes state
 #                 changes back to SQLite on a 5s cadence
 
@@ -23,7 +23,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 sqlx = { workspace = true }
-hecs = { workspace = true }
+bevy_ecs = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }

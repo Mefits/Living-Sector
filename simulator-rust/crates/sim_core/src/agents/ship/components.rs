@@ -36,7 +36,7 @@ use crate::ai::{
     personality::Personality,
 };
 use crate::economy::commodities::{Cargo, Commodity, PriceKnowledge};
-use hecs::Entity;
+use bevy_ecs::prelude::{Component, Entity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -68,7 +68,7 @@ pub struct Transit {
 
 
 /// Stable identity — set at spawn, rarely mutated.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipIdentity {
     pub db_id: i64,
     /// Human-readable agent id, e.g. "ship-artemis-7".
@@ -83,7 +83,7 @@ pub struct ShipIdentity {
 }
 
 /// Spatial state — changes every tick while in transit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipPosition {
     pub location_name: Option<String>, // None while in transit
     pub docked_at: Option<Entity>,      // facility entity if docked
@@ -93,13 +93,13 @@ pub struct ShipPosition {
 }
 
 /// Transit state. `None` when the ship is stationary (docked or idle at a location).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipTransit {
     pub transit: Option<Transit>,
 }
 
 /// Cargo hold.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipCargo {
     pub cargo: Cargo,
     pub capacity: u32,
@@ -122,7 +122,7 @@ impl ShipCargo {
 }
 
 /// Fuel and propulsion.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipFuel {
     pub fuel: f32,
     pub fuel_capacity: f32,
@@ -137,7 +137,7 @@ impl ShipFuel {
 }
 
 /// Economic state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipEconomy {
     pub credits: i64,
     pub efficiency: f32,
@@ -163,7 +163,7 @@ pub struct ShipEconomy {
 }
 
 /// AI: personality + current goal + BT state (parameterized over ShipAction).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipAI {
     pub personality: Personality,
     pub current_goal: String,
@@ -183,7 +183,7 @@ pub struct ShipAI {
 
 /// Learned memory — price knowledge, visited locations.
 /// Rarely loaded except during trade decisions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipMemory {
     pub price_knowledge: PriceKnowledge,
     pub visited: Vec<String>,
@@ -291,7 +291,7 @@ pub const HOARD_CREDITS_THRESHOLD: i64 = 200_000;
 pub const HOARD_IDLE_THRESHOLD: u32 = 500;
 
 /// Lifecycle counters and dirty flag for persistence.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipLifecycle {
     pub broke_strikes: u8,
     pub hoard_strikes: u8,
@@ -315,7 +315,7 @@ pub struct ShipLifecycle {
 /// (hunger / fatigue rates, wage interval, etc.) live in `ship/mod.rs`
 /// alongside the tick code that consumes them — these two are here
 /// because the impl methods on `ShipCrew` reference them directly.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipCrew {
     pub size: u32,
     /// 0–100. Rises every tick; `> 55` triggers `Eating` when food is
@@ -396,7 +396,7 @@ pub const CREW_SHORE_LEAVE_TARGET: f32 = 100.0;
 /// Skill ratings (0–100) aggregated over the crew. Granted as XP through
 /// `SimCommand::GrantCrewXp` after missions, deliveries, and trades.
 /// Matches Elixir `crew.skills: %{navigation, engineering, trading, combat}`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipCrewSkills {
     pub navigation: u8,
     pub engineering: u8,
@@ -452,7 +452,7 @@ impl ShipCrewSkills {
 /// level-1 ship needs ~5 deliveries of XP to level up once, and it
 /// still needs credits + a reachable shipyard with stock before any
 /// swap happens.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipProgression {
     pub level: u8,
     pub xp: u32,
@@ -528,7 +528,7 @@ impl ShipProgression {
 /// still live on `ShipCargo` / `ShipFuel` — they get *baked* with the
 /// fitting's multipliers at spawn / refit time, so tick-loop code reads
 /// the same field it always did.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ShipFitting {
     /// Chosen module in each slot. Indexed by [`crate::modules::Slot::index`];
     /// array length is [`crate::modules::NUM_SLOTS`].

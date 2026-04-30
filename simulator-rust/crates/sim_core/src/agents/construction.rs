@@ -25,7 +25,7 @@
 //! something visible happening at the starved location.
 
 use crate::economy::commodities::Commodity;
-use hecs::Entity;
+use bevy_ecs::prelude::{Component, Entity};
 use serde::Serialize;
 
 /// Units of commodity needed to finish a construction site. Sized so
@@ -57,7 +57,7 @@ pub fn facility_type_for_commodity(c: Commodity) -> &'static str {
 
 /// Flat ECS component for the construction site entity. Kept
 /// deliberately small so rendering + progress-update passes are cheap.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct ConstructionSite {
     /// Stable agent-id. Format: `site-<commodity>-<location>-<tick>`.
     pub id: String,

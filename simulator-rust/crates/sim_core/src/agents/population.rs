@@ -1,12 +1,12 @@
 //! Population components.
 
 use crate::economy::commodities::Commodity;
-use hecs::Entity;
+use bevy_ecs::prelude::{Component, Entity};
 use serde::Serialize;
 use std::collections::HashMap;
 
 /// Stable identity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct PopIdentity {
     pub db_id: i64,
     pub id: String,                  // "pop-earth-workers"
@@ -18,7 +18,7 @@ pub struct PopIdentity {
 }
 
 /// Population size and demographic dynamics.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct PopDemographics {
     pub population_count: i64,
     pub growth_rate: f32,
@@ -27,7 +27,7 @@ pub struct PopDemographics {
 }
 
 /// Economic activity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct PopEconomy {
     pub total_wealth: i64,
     pub spending_rate: f32,
@@ -37,7 +37,7 @@ pub struct PopEconomy {
 }
 
 /// Sentiment / satisfaction axes. Touched less often than economy.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct PopSentiment {
     pub overall_sentiment: i32,
     pub unrest: i32,

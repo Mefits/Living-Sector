@@ -25,11 +25,12 @@
 //! contested zones).
 
 use crate::economy::commodities::Commodity;
+use bevy_ecs::prelude::Component;
 use serde::Serialize;
 use std::collections::HashMap;
 
 /// Stable identity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct BodyIdentity {
     pub db_id: i64,
     pub body_id: String,     // "earth"
@@ -40,7 +41,7 @@ pub struct BodyIdentity {
 }
 
 /// Orbital parameters and current angle. Advanced every tick (or every Nth).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct BodyOrbit {
     pub orbit_radius: f32,
     pub orbit_period: u32,
@@ -74,7 +75,7 @@ impl BodyOrbit {
 
 /// Resource richness — set at spawn, decreases via mining, regens toward
 /// `max_resources` each biome-tick.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Component)]
 pub struct BodyResources {
     /// Commodity → current richness (0.0–1.0).
     pub resources: HashMap<Commodity, f32>,
@@ -86,7 +87,7 @@ pub struct BodyResources {
 /// Biome classification and food-availability modifier. Populations at
 /// this body read `food_multiplier` to scale their growth rate. Matches
 /// Elixir's `body_agent.ex` biome → food_availability_multiplier table.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct BodyBiome {
     pub biome: String,
     /// 0.5–1.5 multiplier applied to pop growth rate. Temperate/terrestrial
@@ -125,7 +126,7 @@ impl BodyBiome {
 /// bodies have a stable initial state before the first derivation
 /// pass runs. Always present on every body entity once
 /// [`derive_territorial_control`] has been called at least once.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Component)]
 pub struct BodyTerritory {
     /// Faction with the most non-gate facilities at this body.
     /// `None` for unsettled bodies (no facilities, or every facility

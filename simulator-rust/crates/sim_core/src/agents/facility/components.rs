@@ -23,12 +23,12 @@
 //! Extracted from `facility.rs` in the Phase-21 god-module split.
 
 use crate::economy::commodities::Commodity;
-use hecs::Entity;
+use bevy_ecs::prelude::{Component, Entity};
 use serde::Serialize;
 use std::collections::HashMap;
 
 /// Stable identity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct FacilityIdentity {
     pub db_id: i64,
     pub id: String,                  // "facility-earth-station"
@@ -39,14 +39,14 @@ pub struct FacilityIdentity {
 }
 
 /// Spatial anchor.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct FacilityLocation {
     pub location_id: i64,
     pub location_name: String,
 }
 
 /// Operations — docking, condition, finances.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct FacilityOperations {
     pub docking_capacity: u32,
     pub services: Vec<String>,
@@ -86,7 +86,7 @@ impl FacilityOperations {
 ///
 /// Matches Elixir `FacilityAgent` state fields:
 ///   `level`, `xp`, `abandoned`, `abandon_counter`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct FacilityLifecycle {
     /// 1..=FACILITY_LEVEL_CAP. Higher level → more recipe batches per cycle.
     pub level: u8,
@@ -116,7 +116,7 @@ pub struct FacilityLifecycle {
 /// A queue (Phase 18+) will back up when saturated; MVP drops the cap
 /// so a popular trade lane has traffic delays. Today the field is
 /// stored but the queue logic is deferred.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct GateLink {
     /// Agent-id of the paired gate on the other side. Mirror-paired —
     /// both entries point at each other.
@@ -154,7 +154,7 @@ impl Default for FacilityLifecycle {
 }
 
 /// Storage: resource reserves + currently docked ships + pending deliveries.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Component)]
 pub struct FacilityStorage {
     pub reserves: HashMap<Commodity, f32>,
     pub docked_ships: Vec<Entity>,
@@ -182,7 +182,7 @@ impl FacilityStorage {
 ///
 /// Gates skip it because they don't run recipes — the loader and
 /// admin spawn paths filter by facility type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct FacilityFitting {
     pub slots: [Option<&'static str>; crate::facility_modules::NUM_FACILITY_SLOTS],
     pub derived: crate::facility_modules::FacilityDerivedStats,
@@ -276,7 +276,7 @@ impl FacilityFitting {
 /// - `efficiency() = 0.5 + 0.5 × (morale/100)` — full morale = 1.0×
 ///   production, zero morale = 0.5× production. Never zero; a
 ///   skeleton crew keeps the lights on.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct FacilityCrew {
     /// Number of crew members. Seeded from facility type at spawn.
     /// Doesn't change during play yet (no hiring / firing mechanic);
@@ -399,7 +399,7 @@ impl From<FacilityCrewSnapshot> for FacilityCrew {
 /// Absent on every non-shipyard facility — the facility tick keys on
 /// `facility_type == "shipyard"` before querying for it, and the refit
 /// apply phase treats a missing component the same as empty stock.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Component)]
 pub struct ModuleStock {
     /// Module slug (from [`crate::modules::CATALOG`]) → units on hand.
     pub stock: HashMap<String, u32>,

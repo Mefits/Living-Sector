@@ -4,6 +4,7 @@
 //! Single combined component is fine — no cache-locality benefit to splitting.
 
 use crate::ai::personality::Personality;
+use bevy_ecs::prelude::Component;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -12,7 +13,7 @@ pub struct FactionColors {
     pub secondary: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct FactionData {
     pub id: String,
     pub name: String,
