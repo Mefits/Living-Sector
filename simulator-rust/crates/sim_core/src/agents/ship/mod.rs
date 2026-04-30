@@ -313,6 +313,36 @@ pub const CREW_HUNGER_MEAL_REDUCTION: f32 = 25.0;
 /// Tick all ships in 4 passes to keep hecs borrows clean.
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
+/// Per-tick last-sample microseconds for the four ship sub-phases.
+/// Updated by [`tick_ships`] each call. Read by sim_server's
+/// `/api/health.perf.phase_us.ships_breakdown` so the stress harness
+/// can localize which sub-phase dominates the headline `ships=` cost.
+///
+/// Single sample, last-write-wins — average over a window for stable
+/// readings. Values are 0 until the first `tick_ships` invocation.
+#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
+pub struct ShipPhaseBreakdownUs {
+    pub lod_gate: u64,
+    pub advance_transits: u64,
+    pub observe_prices: u64,
+    pub tick_crew: u64,
+    pub decide_and_act: u64,
+}
+
+/// Atomic-ish snapshot of the most recent [`tick_ships`] sub-phase
+/// breakdown. Stashed in a `RwLock` rather than spread across atomics
+/// so the whole struct round-trips through serde in one shot for the
+/// `/api/health` payload. Lock contention is single-write per tick +
+/// occasional reads from /api/health, so an `RwLock` is plenty.
+pub static SHIP_PHASE_BREAKDOWN: std::sync::RwLock<ShipPhaseBreakdownUs> =
+    std::sync::RwLock::new(ShipPhaseBreakdownUs {
+        lod_gate: 0,
+        advance_transits: 0,
+        observe_prices: 0,
+        tick_crew: 0,
+        decide_and_act: 0,
+    });
+
 pub fn tick_ships(
     world: &mut World,
     registry: &WorldRegistry,
@@ -324,6 +354,8 @@ pub fn tick_ships(
     tick_scale: f32,
     tick_multiplier: u32,
 ) {
+    let mut bd = ShipPhaseBreakdownUs::default();
+    let t_lod = std::time::Instant::now();
     // Pass 1: LOD gate. Fire each ship's cursor once, collect the set
     // of entities that should tick this round with their rate multiplier
     // (skipped-ticks since last fire). Subsequent phases filter on this
@@ -368,10 +400,21 @@ pub fn tick_ships(
     for e in no_lod_ships {
         active.insert(e, 1);
     }
+    bd.lod_gate = t_lod.elapsed().as_micros() as u64;
 
+    let t = std::time::Instant::now();
     advance_transits(world, registry, tick, tick_scale, tick_multiplier, &active);
+    bd.advance_transits = t.elapsed().as_micros() as u64;
+
+    let t = std::time::Instant::now();
     observe_prices(world, tick, &active, gate_pairs, registry);
+    bd.observe_prices = t.elapsed().as_micros() as u64;
+
+    let t = std::time::Instant::now();
     tick_crew(world, tick, tick_scale, tick_multiplier, &active);
+    bd.tick_crew = t.elapsed().as_micros() as u64;
+
+    let t = std::time::Instant::now();
     decide_and_act(
         world,
         registry,
@@ -383,6 +426,11 @@ pub fn tick_ships(
         tick_multiplier,
         &active,
     );
+    bd.decide_and_act = t.elapsed().as_micros() as u64;
+
+    if let Ok(mut slot) = SHIP_PHASE_BREAKDOWN.write() {
+        *slot = bd;
+    }
 }
 
 /// Type alias for the LOD gate table shared across ship tick phases.

@@ -99,17 +99,21 @@ probe() {
     sleep "$SETTLE"
     local health=$(curl -s http://127.0.0.1:8080/api/health)
     local ship_count=$(curl -s http://127.0.0.1:8080/api/ships | python3 -c "import json,sys; print(len(json.load(sys.stdin)['data']))")
-    # Sample phase breakdown 8 times over 1 second so noisy single-tick
-    # numbers stabilize. Total samples averaged below.
+    # Sample phase + ship-sub breakdowns 8× over 1s so noisy single-tick
+    # numbers stabilize. Both averaged below.
     local samples=()
+    local sub_samples=()
     for i in 1 2 3 4 5 6 7 8; do
-        samples+=("$(curl -s http://127.0.0.1:8080/api/health | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["perf"]["phase_us"]))')")
+        local resp=$(curl -s http://127.0.0.1:8080/api/health)
+        samples+=("$(echo "$resp" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["perf"]["phase_us"]))')")
+        sub_samples+=("$(echo "$resp" | python3 -c 'import json,sys; d=json.load(sys.stdin)["perf"].get("ships_breakdown_us",{}); print(json.dumps(d))')")
         sleep 0.125
     done
     local samples_json=$(printf '%s\n' "${samples[@]}" | python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in sys.stdin if l.strip()]))')
-    python3 - "$label" "$added" "$ship_count" "$tick_before" "$SETTLE" "$BUDGET_MS" "$samples_json" <<EOF
+    local sub_json=$(printf '%s\n' "${sub_samples[@]}" | python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in sys.stdin if l.strip()]))')
+    python3 - "$label" "$added" "$ship_count" "$tick_before" "$SETTLE" "$BUDGET_MS" "$samples_json" "$sub_json" <<EOF
 import json, sys
-label, added, ships, tick_before, settle, budget, samples_json = sys.argv[1:]
+label, added, ships, tick_before, settle, budget, samples_json, sub_json = sys.argv[1:]
 ships = int(ships); tick_before = int(tick_before); settle = float(settle); budget = float(budget)
 h = json.loads('''$health''')
 tick_now = int(h['tick'])
@@ -127,8 +131,17 @@ if samples:
         phases_avg[k] = sum(s.get(k, 0) for s in samples) / len(samples)
 top3 = sorted(phases_avg.items(), key=lambda kv: kv[1], reverse=True)[:3]
 top_str = '  '.join(f'{k}={v/1000:.2f}ms' for k,v in top3)
-total = sum(phases_avg.values()) / 1000
-print(f"{flag} {label:>3}  +{added:>4} = {ships:>5}  p50={p50:6.2f}ms p99={p99:6.2f}ms tps={tps_obs:4.1f} bud={budget_pct:3.0f}%  top: {top_str}")
+# Ship sub-phase breakdown — same average, only print non-zeros sorted.
+subs = json.loads(sub_json)
+sub_avg = {}
+if subs:
+    keys = subs[0].keys()
+    for k in keys:
+        sub_avg[k] = sum(s.get(k, 0) for s in subs) / len(subs)
+sub_str = '  '.join(f'{k}={v/1000:.2f}ms' for k,v in sorted(sub_avg.items(), key=lambda kv: kv[1], reverse=True) if v > 0)
+print(f"{flag} {label:>3}  +{added:>4} = {ships:>5}  p50={p50:6.2f} p99={p99:6.2f} tps={tps_obs:4.1f} bud={budget_pct:3.0f}%")
+print(f"        top: {top_str}")
+print(f"        ships: {sub_str}")
 EOF
 }
 

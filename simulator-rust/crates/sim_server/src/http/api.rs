@@ -38,6 +38,15 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
                 .ok()
                 .map(|bd| serde_json::to_value(*bd).unwrap_or(serde_json::Value::Null))
                 .unwrap_or(serde_json::Value::Null),
+            // Sub-breakdown of the `ships` phase: which of advance_transits /
+            // observe_prices / tick_crew / decide_and_act dominates inside
+            // the heavy phase. Populated by sim_core's tick_ships.
+            "ships_breakdown_us": serde_json::to_value(
+                sim_core::agents::ship::SHIP_PHASE_BREAKDOWN
+                    .read()
+                    .map(|g| *g)
+                    .unwrap_or_default()
+            ).unwrap_or(serde_json::Value::Null),
             // Spatial-LOD tier distribution (updated every 50 base-ticks by
             // the LOD recompute phase). Counts agents that carry an
             // AgentLod — ships always, facilities/populations carry the
