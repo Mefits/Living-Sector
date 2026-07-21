@@ -7,8 +7,7 @@
 # Editor / IDE
 *.swp
 *~
-.vscode/settings.json
-.vscode/*.code-workspace
+.vscode/
 .idea/
 
 # Claude Code harness — local settings are machine-specific.
@@ -18,13 +17,28 @@
 **/.claude/settings.json
 **/.claude/settings.local.json
 **/.claude/projects/
+**/.claude/worktrees/
 
-# Any top-level scratch files / one-off archives
+# Rust build artifacts
+/target/
+**/*.rs.bk
+dist/
+
+# SQLite databases (generated at runtime)
+*.db
+*.db-shm
+*.db-wal
+
+# sqlx offline query cache (only commit if using SQLX_OFFLINE=true in CI)
+.sqlx/
+
+# Environment overrides
+.env
+.env.local
+
+# Scratch files / one-off archives
 *.tar.gz
 /backup/
 
-# Rust (simulator-rust/ — remove these lines if you want to track that project)
-simulator-rust/target/
-
-
-Screenshot**.png
+# Raw, unprocessed screenshots (commit the processed docs/screenshots/*.png instead)
+Screenshot*.png
