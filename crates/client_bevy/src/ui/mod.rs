@@ -38,6 +38,7 @@ mod panel_stack;
 mod perf;
 mod populations;
 mod retirements;
+mod sector_map;
 mod ship_details;
 mod ship_list;
 mod spawn_dialogs;
@@ -69,6 +70,7 @@ use panel_stack::{close_top_panel, keyboard_shortcuts, reconcile_panel_stack};
 use perf::{perf_overlay, track_fps, PerfStats};
 use populations::{populations_panel, PopulationsState};
 use retirements::{retirements_panel, RetirementsState};
+use sector_map::{sector_map_panel, SectorMapState};
 use ship_details::ship_details_panel;
 pub use ship_list::SelectedShip;
 use ship_list::{ship_list, ShipListState};
@@ -104,6 +106,7 @@ impl Plugin for UiPlugin {
             .init_resource::<RetirementsState>()
             .init_resource::<ConstructionState>()
             .init_resource::<MinimapState>()
+            .init_resource::<SectorMapState>()
             .init_resource::<BodyLabelsState>()
             .init_resource::<EventsState>()
             .init_resource::<PauseMenuState>()
@@ -183,6 +186,7 @@ impl Plugin for UiPlugin {
                     add_facility_dialog,
                     context_menu,
                     help_panel,
+                    sector_map_panel,
                     construction_labels_panel,
                     facility_labels_panel,
                     ship_labels_panel,

@@ -43,6 +43,7 @@ use super::minimap::MinimapState;
 use super::perf::PerfStats;
 use super::populations::PopulationsState;
 use super::retirements::RetirementsState;
+use super::sector_map::SectorMapState;
 use super::ship_list::{SelectedShip, ShipListState};
 use super::spawn_dialogs::{AddFacilityDialogState, AddShipDialogState};
 use super::{icons, theme};
@@ -366,6 +367,7 @@ pub(super) struct PanelStates<'w> {
     retired_state: ResMut<'w, RetirementsState>,
     construction: ResMut<'w, ConstructionState>,
     minimap: ResMut<'w, MinimapState>,
+    sector_map: ResMut<'w, SectorMapState>,
     body_labels: ResMut<'w, BodyLabelsState>,
     events_state: ResMut<'w, EventsState>,
 }
@@ -392,6 +394,7 @@ pub(super) fn top_bar(
     let retired_state = &mut *panels.retired_state;
     let construction = &mut *panels.construction;
     let minimap = &mut *panels.minimap;
+    let sector_map = &mut *panels.sector_map;
     let body_labels = &mut *panels.body_labels;
     let events_state = &mut *panels.events_state;
     // Count construction sites via an ECS query — the sim store
@@ -507,6 +510,13 @@ pub(super) fn top_bar(
                 .clicked()
             {
                 minimap.open = !minimap.open;
+            }
+            if ui
+                .selectable_label(sector_map.open, "Sector")
+                .on_hover_text("Living Sector: political star map with faction control and actual gate links.")
+                .clicked()
+            {
+                sector_map.open = !sector_map.open;
             }
             if ui
                 .selectable_label(body_labels.show, "Labels")
