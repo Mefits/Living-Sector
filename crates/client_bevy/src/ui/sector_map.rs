@@ -233,7 +233,7 @@ pub(super) fn sector_map_panel(
                         egui::Stroke::new(1.5, theme::WARN),
                     );
                 }
-                if selected.as_deref() == Some(&node.name) {
+                if selected.as_deref() == Some(node.name.as_str()) {
                     painter.circle_stroke(
                         pos,
                         15.0,
