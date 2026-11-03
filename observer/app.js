@@ -1,5 +1,5 @@
 import {
-  list, number, point, buildIndex, ownership, factionColor, factionName,
+  list, number, point, key, buildIndex, factionColor, factionName,
   systemByName, positionOf, approximateShipsNear, shortageCount, sortedCargo
 } from "/observer/model.js";
 
@@ -270,6 +270,20 @@ function renderInspector() {
     if (entity.gate_link) inspectorRow(content, "Связанные врата", entity.gate_link.paired_gate_id);
     detailGroup(content, "Запасы");
     chips(content, Object.entries(entity.reserves ?? {}).filter(([,v])=>number(v)>0).map(([k,v])=>k + ": " + fnum(v)));
+    // Show the actual commodity market attached to this facility location.
+    const market = list(s.report.markets).find(m => key(m.facility_location) === key(entity.location));
+    if (market) {
+      detailGroup(content, "Рынок — товары");
+      const commodities = [...new Set([
+        ...Object.keys(market.prices ?? {}), ...Object.keys(market.supply ?? {})
+      ])].sort((a,b) => number(market.shortage_ticks?.[b]) - number(market.shortage_ticks?.[a]));
+      for (const commodity of commodities.slice(0, 16)) {
+        inspectorRow(content, commodity,
+          "Цена " + fnum(market.prices?.[commodity]) +
+          " · запас " + fnum(market.supply?.[commodity]) +
+          " · спрос " + fnum(market.demand?.[commodity]));
+      }
+    }
   } else if (type === "body") {
     inspectorRow(content, "Тип", entity.type);
     inspectorRow(content, "Биом", entity.biome ?? "—");
