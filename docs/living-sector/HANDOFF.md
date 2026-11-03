@@ -4,7 +4,7 @@
 
 - https://github.com/Mefits/Living-Sector
 - Исходный репозиторий: https://github.com/Kalcode/spaceprojectsim
-- Рабочая ветка: `living-sector-dev`.
+- Основная рабочая ветка: `living-sector-dev`. Реализация первого 2D-клиента — в `feature/strategy-observer-mvp`, см. `docs/living-sector/OBSERVER_MVP.md`.
 - Технологический стек **уже существующего проекта**: Rust + Bevy (+ SQLite/egui/API). Не создавать вместо него отдельный Godot-каркас.
 
 ## Принятый общий вектор

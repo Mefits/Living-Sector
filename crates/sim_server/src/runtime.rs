@@ -471,6 +471,12 @@ fn build_router(state: AppState) -> Router {
         .allow_headers(Any);
 
     Router::new()
+        // Independent 2D Strategy/Observer client, backed by the real API.
+        .route("/observer", get(api::observer_page))
+        .route("/observer/", get(api::observer_page))
+        .route("/observer/styles.css", get(api::observer_styles))
+        .route("/observer/app.js", get(api::observer_app_js))
+        .route("/observer/model.js", get(api::observer_model_js))
         .route("/ws", get(ws::handler::ws_upgrade))
         .route("/api/health", get(api::health))
         .route("/api/report", get(api::report))

@@ -196,26 +196,14 @@ fn build_systems_with_bodies(state: &AppState) -> Vec<serde_json::Value> {
         .map(|e| (e.key().clone(), e.value().clone()))
         .collect();
 
-    // We don't track body→system cleanly yet — each body's star_system_id
-    // is on BodyIdentity (in hecs world), not on the snapshot. The
-    // registry's locations carry celestial_body_id → body, but we need the
-    // inverse (body → system). For now, group every body under every
-    // system by matching universe_offset, which is deterministic enough
-    // for the 3-system seed (Sol=0,0; AC=20,5; Tau Ceti=40,-10).
-    //
-    // Tolerance-based match handles f32 jitter.
-    fn matches_offset(body_universe: (f32, f32), body_local: (f32, f32), sys_offset: (f32, f32)) -> bool {
-        let expected = (body_local.0 + sys_offset.0, body_local.1 + sys_offset.1);
-        (expected.0 - body_universe.0).abs() < 0.01 && (expected.1 - body_universe.1).abs() < 0.01
-    }
+    // BodySnapshot now carries the canonical BodyIdentity.system_name.
+    // Use it directly; offset-based matching silently misclassified bodies.
 
     let mut systems = Vec::new();
     for sys in state.registry.systems.values() {
         let mut bodies_in_sys: Vec<serde_json::Value> = Vec::new();
         for (body_id, snap) in &body_snaps {
-            let universe = (snap.universe_position.x, snap.universe_position.y);
-            let local = (snap.position.x, snap.position.y);
-            if matches_offset(universe, local, sys.universe_offset) {
+            if snap.system_name == sys.name {
                 bodies_in_sys.push(json!({
                     "id": body_id,
                     "name": snap.name,
@@ -581,4 +569,71 @@ pub async fn sim_speed(
             "interval_ms": state.interval_ms.load(Ordering::Relaxed),
         }
     }))
+}
+
+
+// Living Sector strategy UI: prefer optional files next to the executable.
+// A single native build can then accept unlimited HTML/CSS/JS iterations.
+// Only these four fixed filenames can be loaded; never accept a request path
+// from the browser. Embedded assets remain a safe fallback.
+fn observer_asset(filename: &str, embedded: &'static str) -> String {
+    let root = std::env::var_os("LIVING_SECTOR_UI_DIR")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()?
+                .parent()
+                .map(|parent| parent.join("observer"))
+        });
+    root.and_then(|dir| std::fs::read_to_string(dir.join(filename)).ok())
+        .unwrap_or_else(|| embedded.to_owned())
+}
+
+pub async fn observer_page() -> impl IntoResponse {
+    (
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        axum::response::Html(observer_asset(
+            "index.html",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/index.html")),
+        )),
+    )
+}
+
+pub async fn observer_styles() -> impl IntoResponse {
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        observer_asset(
+            "styles.css",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/styles.css")),
+        ),
+    )
+}
+
+pub async fn observer_app_js() -> impl IntoResponse {
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        observer_asset(
+            "app.js",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/app.js")),
+        ),
+    )
+}
+
+pub async fn observer_model_js() -> impl IntoResponse {
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        observer_asset(
+            "model.js",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/model.js")),
+        ),
+    )
 }
