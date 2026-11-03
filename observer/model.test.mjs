@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildIndex, ownership, factionColor, positionOf, shortageCount,
-  systemAtPosition, approximateShipsNear
+  systemAtPosition, approximateShipsNear,
+  panForCursorZoom, clusterMarkers, shipSystem
 } from "./model.js";
 
 const report = {
@@ -68,6 +69,39 @@ test("body ids ambiguous between two systems cannot establish a gate",()=>{
   clone.systems[1].bodies[0].id="earth";
   const i=buildIndex(clone);
   assert.deepEqual(i.gateLinks,[]);
+});
+
+test("zooming around cursor does not move the selected world point on screen",()=>{
+  const viewport={w:1000,h:700}, cursor={x:750,y:170};
+  const pan={x:115,y:-38};
+  const before={x:cursor.x-viewport.w/2-pan.x,y:cursor.y-viewport.h/2-pan.y};
+  const result=panForCursorZoom(pan,cursor,viewport,1,1.4);
+  const after={x:cursor.x-viewport.w/2-result.x,y:cursor.y-viewport.h/2-result.y};
+  assert.ok(Math.abs(before.x*1.4-after.x)<1e-9);
+  assert.ok(Math.abs(before.y*1.4-after.y)<1e-9);
+  assert.deepEqual(panForCursorZoom(pan,cursor,viewport,1,1),pan);
+  const restored=panForCursorZoom(result,cursor,viewport,1.4,1);
+  assert.ok(Math.abs(restored.x-pan.x)<1e-9);
+  assert.ok(Math.abs(restored.y-pan.y)<1e-9);
+});
+test("marker clustering preserves all real entities without multiplication",()=>{
+  const markers=[
+    {id:"a",x:10,y:10},{id:"b",x:11,y:11},{id:"c",x:88,y:10}
+  ];
+  const groups=clusterMarkers(markers,34);
+  assert.equal(groups.length,2);
+  assert.equal(groups[0].members.length,2);
+  assert.equal(groups[1].members.length,1);
+  assert.deepEqual(groups.flatMap(g=>g.members.map(m=>m.id)).sort(),["a","b","c"]);
+});
+test("ship system membership is based on exact location, not map proximity",()=>{
+  const i=buildIndex(report);
+  assert.equal(shipSystem({location:"earth-station"},i),"Sol");
+  assert.equal(shipSystem({location:"earth"},i),"Sol");
+  assert.equal(shipSystem({location:"tau-gate"},i),"Tau Ceti");
+  assert.equal(shipSystem({location:"unknown",position:{x:0,y:0}},i),null);
+  assert.equal(shipSystem({transit:{from:"earth-gate",to:"tau-gate"}},i),null);
+  assert.equal(shipSystem({transit:{from:"earth-station",to:"earth-gate"}},i),"Sol");
 });
 
 test("UI ids referenced by the code exist in the actual HTML", async () => {
