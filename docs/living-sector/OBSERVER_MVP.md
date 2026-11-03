@@ -21,7 +21,7 @@
 | Позиции кораблей | /api/report → ships[].position + WS positions.entities[] | Приоритет WS; плавное приближение к полученной позиции, без придуманного маршрута |
 | Корабль: задача, груз, топливо | ships[].current_goal, cargo, fuel, transit, crew | Не называть «конвоем» без механики конвоя |
 | Станции | facilities[]: position, type, condition, faction_id, reserves, abandoned | Показываем только там, где определена система по body_id |
-| Экономика | markets[]: supply, demand, shortage_ticks, prices | Количество нехваток — только позиции с shortage_ticks > 0 |
+| Экономика | markets[]: supply, demand, shortage_ticks, prices | В инспекторе станции показываются фактические price/supply/demand; количество нехваток — только позиции с shortage_ticks > 0 |
 | Население | populations[].facility_location, population_count | Привязка через facilities[].location |
 | Фракции | factions[]: id, name, colors.primary | Оригинальные цвета из исходного JSON |
 | Журнал | WS type=events → events[] | Только настоящие события из потока; нет заглушек и сгенерированных историй |

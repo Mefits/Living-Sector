@@ -30,7 +30,7 @@ function setOnline(isOnline, statusText) {
   s.live = isOnline;
   els.connection.classList.toggle("online", isOnline);
   els.connection.lastChild.textContent = statusText;
-  els.mapError.hidden = isOnline || Boolean(s.report);
+  els.mapError.hidden = isOnline;
   els.pauseBtn.disabled = !isOnline;
   els.speedSelect.disabled = !isOnline;
 }

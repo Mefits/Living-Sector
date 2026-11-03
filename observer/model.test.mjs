@@ -69,3 +69,14 @@ test("body ids ambiguous between two systems cannot establish a gate",()=>{
   const i=buildIndex(clone);
   assert.deepEqual(i.gateLinks,[]);
 });
+
+test("UI ids referenced by the code exist in the actual HTML", async () => {
+  const { readFileSync } = await import("node:fs");
+  const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const match = app.match(/const els = Object\.fromEntries\(\[([\s\S]*?)\]\.map/);
+  assert.ok(match, "UI id binding block should be present");
+  const ids = [...match[1].matchAll(/"([a-z][a-z0-9-]+)"/g)].map(m => m[1]);
+  assert.ok(ids.length > 25, "expected all mapped UI controls");
+  for (const id of ids) assert.ok(html.includes('id="' + id + '"'), "missing HTML id: " + id);
+});
