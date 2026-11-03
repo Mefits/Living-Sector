@@ -41,6 +41,30 @@ export function buildIndex(report) {
     }
   }
   for (const id of bodyIdCollisions) bodySystem.delete(id);
+  // Resolve ship locations without projecting a ship onto the nearest
+  // star. Ambiguous location slugs are deliberately left unresolved.
+  const locationSystem = new Map();
+  const ambiguousLocations = new Set();
+  const registerLocation = (loc, sys) => {
+    const id = key(loc);
+    if (!id || !sys) return;
+    if (locationSystem.has(id) && locationSystem.get(id) !== sys) {
+      ambiguousLocations.add(id);
+    } else {
+      locationSystem.set(id, sys);
+    }
+  };
+  for (const sys of systems) {
+    for (const body of sys.bodies) {
+      registerLocation(body.id, sys.name);
+      registerLocation(body.name, sys.name);
+    }
+  }
+  for (const facility of list(report?.facilities)) {
+    registerLocation(facility.location, bodySystem.get(key(facility.body_id)));
+  }
+  for (const id of ambiguousLocations) locationSystem.delete(id);
+
 
   const factions = list(report?.factions);
   const factionById = new Map(factions.map(f => [f.id, f]));
@@ -83,7 +107,7 @@ export function buildIndex(report) {
 
   return {
     systems, factions, factionById, facilities, facilityById,
-    bodySystem, facilityByLocation,
+    bodySystem, locationSystem, facilityByLocation,
     systemFacilities, systemMarkets, systemPopulations, gateLinks
   };
 }
@@ -123,6 +147,49 @@ export function approximateShipsNear(system, ships, positions, radius) {
     const p = positionOf(ship, positions);
     return p && (p.x - system.x) ** 2 + (p.y - system.y) ** 2 <= r2;
   });
+}
+
+// Preserve the world point below the cursor while the camera zoom changes.
+// Screen transform is: viewport centre + worldDelta * scale + pan.
+export function panForCursorZoom(pan, cursor, viewport, oldZoom, newZoom) {
+  if (!(oldZoom > 0) || !(newZoom > 0)) return {...pan};
+  const ratio = newZoom / oldZoom;
+  const dx = cursor.x - viewport.w / 2;
+  const dy = cursor.y - viewport.h / 2;
+  return {
+    x: dx - (dx - pan.x) * ratio,
+    y: dy - (dy - pan.y) * ratio
+  };
+}
+
+// Group real map markers occupying the same screen region. This does
+// not create or delete simulation agents; the group retains every member.
+export function clusterMarkers(markers, cellSize = 34) {
+  const buckets = new Map();
+  for (const marker of list(markers)) {
+    if (!Number.isFinite(marker.x) || !Number.isFinite(marker.y)) continue;
+    const cell = Math.floor(marker.x / cellSize) + ":" + Math.floor(marker.y / cellSize);
+    if (!buckets.has(cell)) buckets.set(cell, []);
+    buckets.get(cell).push(marker);
+  }
+  return [...buckets].map(([id, members]) => ({
+    id,
+    x: members.reduce((n, m) => n + m.x, 0) / members.length,
+    y: members.reduce((n, m) => n + m.y, 0) / members.length,
+    members
+  }));
+}
+
+// Exact location matching only; never infer system membership from a
+// ship's nearest star or coincidental 2D position.
+export function shipSystem(ship, index) {
+  const resolve = loc => index?.locationSystem?.get(key(loc)) ?? null;
+  if (ship?.transit) {
+    const from = resolve(ship.transit.from);
+    const to = resolve(ship.transit.to);
+    return from && from === to ? from : null;
+  }
+  return resolve(ship?.location);
 }
 
 export function shortageCount(markets) {
