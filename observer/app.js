@@ -219,7 +219,12 @@ function chips(parent, entries, max = 8) {
   for (const item of items) parent.appendChild(textEl("span", item, "chip"));
 }
 
+let lastInspectorSelection = "";
 function renderInspector() {
+  const selectionKey = s.selection ? s.selection.type + ":" + s.selection.id : "";
+  const previousScroll = selectionKey && selectionKey === lastInspectorSelection
+    ? els.inspectorBody.scrollTop : 0;
+  lastInspectorSelection = selectionKey;
   els.inspectorBody.replaceChildren();
   const entity = selectionEntity();
   document.body.classList.toggle("has-selection", Boolean(entity));
@@ -318,6 +323,7 @@ function renderInspector() {
     inspectorRow(content, "Спорная", entity.contested ? "Да" : "Нет");
     inspectorRow(content, "Радиус орбиты", entity.orbit_radius);
   }
+  els.inspectorBody.scrollTop = previousScroll;
 }
 
 const eventNames = {
