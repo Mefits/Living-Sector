@@ -3,6 +3,7 @@ name: Strategy Observer
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     branches: [living-sector-dev]
     paths:
       - ".github/workflows/strategy-observer.yml"
@@ -68,7 +69,7 @@ jobs:
           if-no-files-found: error
 
   rust:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'native-build')
     name: Simulation tests and embedded UI compile
     runs-on: ubuntu-24.04
     timeout-minutes: 50
@@ -93,7 +94,7 @@ jobs:
         run: cargo check --locked -p client_bevy
 
   windows:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'native-build')
     name: Portable Observer for Windows x64
     needs: [observer-tests, rust]
     runs-on: windows-2022
