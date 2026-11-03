@@ -1,0 +1,83 @@
+# Build a downloadable Windows preview. Separate from the fast Linux checks.
+# Trigger on relevant code/this workflow only; not on documentation changes.
+name: Windows preview
+
+on:
+  pull_request:
+    branches: [living-sector-dev]
+    paths:
+      - ".github/workflows/windows-preview.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "crates/**"
+      - "priv/data/**"
+      - "crates/client_bevy/assets/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Windows x64 portable preview
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      # This is an ephemeral test preview, so skip expensive link-time
+      # optimization while keeping release-sized output.
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build Windows binary
+        run: cargo build --locked --release -p client_bevy
+
+      - name: Assemble portable game folder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "dist/Living-Sector-preview"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Copy-Item "target/release/client_bevy.exe" "$root/Living-Sector.exe"
+          Copy-Item "crates/client_bevy/assets" "$root/assets" -Recurse
+          Copy-Item "priv" "$root/priv" -Recurse
+          Copy-Item "LICENSE" "$root/LICENSE"
+          @"
+          Living Sector — UNTESTED prototype preview
+
+          Unzip the full archive, keeping all subfolders.
+          Run Living-Sector.exe on Windows 10/11.
+          Select Start / New Universe, then choose Sector in the top bar.
+          Test pan/zoom, faction labels and 3D camera focus.
+          WARNING: upstream embedded client has incomplete live-state persistence.
+          Do not use this as a reliable saved game.
+          This artifact comes from an experimental pull request, not a release.
+          "@ | Set-Content "$root/README-PREVIEW.txt" -Encoding utf8
+          Compress-Archive -Path $root -DestinationPath "dist/Living-Sector-preview-Windows-x64.zip" -CompressionLevel Optimal -Force
+          Write-Output "Created portable ZIP:"
+          Get-Item "dist/Living-Sector-preview-Windows-x64.zip" | Select-Object FullName,Length
+
+      - name: Upload downloadable preview (7 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Windows-x64
+          path: dist/Living-Sector-preview-Windows-x64.zip
+          retention-days: 7
+          if-no-files-found: error
