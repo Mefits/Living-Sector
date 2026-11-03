@@ -582,3 +582,40 @@ pub async fn sim_speed(
         }
     }))
 }
+
+
+// Living Sector's own lightweight strategy UI. These assets are compiled
+// into the existing headless binary. No second web server, no JS toolchain,
+// no separate source of simulation state.
+pub async fn observer_page() -> axum::response::Html<&'static str> {
+    axum::response::Html(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"), "/../../observer/index.html"
+    )))
+}
+
+pub async fn observer_styles() -> impl IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"), "/../../observer/styles.css"
+        )),
+    )
+}
+
+pub async fn observer_app_js() -> impl IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"), "/../../observer/app.js"
+        )),
+    )
+}
+
+pub async fn observer_model_js() -> impl IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"), "/../../observer/model.js"
+        )),
+    )
+}
