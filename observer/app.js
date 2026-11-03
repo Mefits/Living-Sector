@@ -10,7 +10,7 @@ const els = Object.fromEntries([
   "ships-toggle","links-toggle","labels-toggle","fit-btn","map","canvas-holder","hover-label",
   "map-error","data-tick","event-feed","clear-events","inspector-body","clear-selection",
   "ship-total","facility-total","market-total"
-].map(id => [id, byId(id)]));
+].map(id => [id.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase()), byId(id)]));
 
 const s = {
   report: null, index: null, ships: [], health: null, positions: new Map(),
