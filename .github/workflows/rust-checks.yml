@@ -1,0 +1,62 @@
+# Living Sector: budget-conscious checks for Rust simulation and Bevy UI.
+# PR-only to avoid double billing on both push and pull_request.
+# No CI on documentation-only edits. Windows packaging is a separate milestone.
+name: Rust checks
+
+on:
+  pull_request:
+    branches: [living-sector-dev]
+    paths:
+      - ".github/workflows/rust-checks.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "crates/**"
+      - "priv/data/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Simulation tests + Bevy compile check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install Bevy Linux build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            g++ pkg-config \
+            libx11-dev libasound2-dev libudev-dev \
+            libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
+
+      - name: Show toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Test simulation core
+        run: cargo test --locked -p sim_core
+
+      - name: Check Bevy application (includes political map)
+        run: cargo check --locked -p client_bevy

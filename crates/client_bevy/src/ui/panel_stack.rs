@@ -47,6 +47,7 @@ use super::markets::MarketsState;
 use super::menus::{OptionsState, PauseMenuState};
 use super::populations::PopulationsState;
 use super::retirements::RetirementsState;
+use super::sector_map::SectorMapState;
 use super::perf::PerfStats;
 use super::ship_list::ShipListState;
 use super::spawn_dialogs::{AddFacilityDialogState, AddShipDialogState};
@@ -67,6 +68,7 @@ pub enum PanelKind {
     FacilityList,
     Retirements,
     Construction,
+    SectorMap,
     Events,
     Help,
     Options,
@@ -103,6 +105,7 @@ pub(super) fn reconcile_panel_stack(
     facility_list: Res<FacilityListState>,
     retirements: Res<RetirementsState>,
     construction: Res<ConstructionState>,
+    sector_map: Res<SectorMapState>,
     events: Res<EventsState>,
     help: Res<HelpState>,
     options: Res<OptionsState>,
@@ -119,6 +122,7 @@ pub(super) fn reconcile_panel_stack(
         (PanelKind::FacilityList, facility_list.open),
         (PanelKind::Retirements, retirements.open),
         (PanelKind::Construction, construction.open),
+        (PanelKind::SectorMap, sector_map.open),
         (PanelKind::Events, events.open),
         (PanelKind::Help, help.open),
         (PanelKind::Options, options.open),
@@ -209,6 +213,7 @@ pub(super) fn close_top_panel(
     mut facility_list: ResMut<FacilityListState>,
     mut retirements: ResMut<RetirementsState>,
     mut construction: ResMut<ConstructionState>,
+    mut sector_map: ResMut<SectorMapState>,
     mut events: ResMut<EventsState>,
     mut help: ResMut<HelpState>,
     mut options: ResMut<OptionsState>,
@@ -228,6 +233,7 @@ pub(super) fn close_top_panel(
         PanelKind::FacilityList => facility_list.open = false,
         PanelKind::Retirements => retirements.open = false,
         PanelKind::Construction => construction.open = false,
+        PanelKind::SectorMap => sector_map.open = false,
         PanelKind::Events => events.open = false,
         PanelKind::Help => help.open = false,
         PanelKind::Options => options.open = false,
