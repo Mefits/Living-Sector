@@ -9,7 +9,7 @@ const els = Object.fromEntries([
   "world-subtitle","tick","agent-count","pause-btn","speed-select","sector-tab","system-tab",
   "ships-toggle","links-toggle","labels-toggle","fit-btn","map","canvas-holder","hover-label",
   "map-error","data-tick","event-feed","clear-events","inspector-body","clear-selection",
-  "ship-total","facility-total","market-total"
+  "ship-total","facility-total","market-total","first-run-guide","start-system-btn","dismiss-guide-btn"
 ].map(id => [id.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase()), byId(id)]));
 
 const s = {
@@ -18,11 +18,11 @@ const s = {
   view: "sector", systemName: null, selection: null,
   zoom: 1, pan: {x: 0, y: 0}, dragging: null, hover: null,
   targets: [], visualPositions: new Map(),
-  lastReportAt: 0, fetching: false, error: null
+  lastReportAt: 0, fetching: false, error: null, guideDismissed: false
 };
 const fmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
 const q = value => value == null ? "—" : String(value);
-const fnum = value => fmt.format(number(value));
+const fnum = value => value == null ? "—" : fmt.format(number(value));
 const ctx = els.map.getContext("2d");
 let pixels = { w: 0, h: 0 };
 
@@ -73,6 +73,7 @@ function saveReport(report) {
   renderSidebar();
   renderInspector();
   refreshToolbar();
+  renderStartGuide();
 }
 
 async function fetchReport() {
@@ -160,19 +161,29 @@ function renderSidebar() {
   }
 }
 
+function renderStartGuide() {
+  const system = s.index?.systems.find(x => x.name === "Sol") ?? s.index?.systems[0];
+  const visible = Boolean(system && !s.guideDismissed && !s.selection && s.view === "sector");
+  els.firstRunGuide.hidden = !visible;
+  els.startSystemBtn.disabled = !system;
+  els.startSystemBtn.textContent = system ? "Открыть " + system.name : "Нет доступных систем";
+}
+
 function chooseSystem(name, enter) {
   if (!s.index || !systemByName(name, s.index)) return;
   const changed = s.systemName !== name || (enter && s.view !== "system");
   s.systemName = name;
   s.selection = { type: "system", id: name };
-  if (enter) s.view = "system";
+  s.guideDismissed = true;
+  if (enter) { s.view = "system"; els.shipsToggle.checked = true; }
   if (changed) resetCamera();
-  renderSidebar(); renderInspector(); refreshToolbar();
+  renderSidebar(); renderInspector(); refreshToolbar(); renderStartGuide();
 }
 
 function sectorMode() {
   s.view = "sector";
-  resetCamera(); renderSidebar(); refreshToolbar();
+  els.shipsToggle.checked = false;
+  resetCamera(); renderSidebar(); refreshToolbar(); renderStartGuide();
 }
 function resetCamera() {
   s.zoom = 1;
@@ -211,6 +222,8 @@ function chips(parent, entries, max = 8) {
 function renderInspector() {
   els.inspectorBody.replaceChildren();
   const entity = selectionEntity();
+  document.body.classList.toggle("has-selection", Boolean(entity));
+  renderStartGuide();
   if (!entity) {
     els.inspectorBody.appendChild(textEl("div", "◎", "placeholder-icon"));
     els.inspectorBody.appendChild(textEl("h2", "Выберите объект"));
@@ -244,6 +257,7 @@ function renderInspector() {
     chips(content, markets.map(m => m.facility_location), 16);
   } else if (type === "ship") {
     inspectorRow(content, "Класс", entity.class);
+    inspectorRow(content, "Размер", entity.size ?? "—");
     inspectorRow(content, "Фракция", factionName(entity.faction_id, s.index));
     inspectorRow(content, "Цель ИИ", entity.current_goal);
     inspectorRow(content, "Действие", entity.current_bt ?? "—");
@@ -258,6 +272,19 @@ function renderInspector() {
     inspectorRow(content, "Экипаж", entity.crew?.size ?? "—");
     detailGroup(content, "Груз");
     chips(content, sortedCargo(entity.cargo).map(([name,amount]) => name + ": " + amount));
+    if (entity.progression) {
+      detailGroup(content, "Развитие");
+      inspectorRow(content, "Уровень", entity.progression.level ?? "—");
+      inspectorRow(content, "Очки модернизации", entity.progression.retrofit_points ?? "—");
+    }
+    if (entity.fitting?.modules) {
+      detailGroup(content, "Установленные модули");
+      const slotNames = {engine:"Двигатель",cargo_bay:"Трюм",sensors:"Сенсоры",reactor:"Реактор",comms:"Связь"};
+      for (const slot of ["engine","cargo_bay","sensors","reactor","comms"]) {
+        const slug = entity.fitting.modules[slot];
+        inspectorRow(content, slotNames[slot], slug ? String(slug).replace(/.*_t([123])$/, "T$1") : "Нет данных");
+      }
+    }
   } else if (type === "facility") {
     inspectorRow(content, "Тип", entity.type);
     inspectorRow(content, "Фракция", factionName(entity.faction_id, s.index));
@@ -293,15 +320,28 @@ function renderInspector() {
   }
 }
 
+const eventNames = {
+  ship_docked: "Корабль пристыковался", ship_undocked: "Корабль отстыковался",
+  ship_refitted: "Модернизация корабля", ship_decommissioned: "Корабль списан",
+  construction_completed: "Строительство завершено", construction_started: "Строительство началось",
+  contract_posted: "Опубликован контракт", contract_renewed: "Контракт продлён",
+  contract_expired: "Срок контракта истёк", contract_completed: "Контракт выполнен",
+  ship_spawned: "Создан корабль", faction_control_changed: "Изменение территории"
+};
 function eventLabel(event) {
-  if (typeof event === "string") return {kind:"EVENT",detail:event};
-  const kind = event?.event_type ?? event?.kind ?? event?.type ?? "event";
+  if (typeof event === "string") return {kind:"Событие",detail:event};
+  const raw = String(event?.event_type ?? event?.kind ?? event?.type ?? "event");
+  const kind = eventNames[raw] ?? raw.replaceAll("_", " ");
   const detail = event?.message ?? event?.description ?? event?.detail ?? event?.text;
   if (typeof detail === "string") return {kind,detail};
-  if (detail && typeof detail === "object") return {kind,detail:JSON.stringify(detail).slice(0,190)};
-  const copy = {...event};
-  for (const k of ["kind","event_type","type","tick"]) delete copy[k];
-  return {kind, detail:JSON.stringify(copy).slice(0,190)};
+  const names = [
+    ["ship_name","Корабль"],["ship_id","Корабль"],["facility_name","Объект"],
+    ["facility_id","Объект"],["location","Место"],["destination","Куда"],
+    ["commodity","Товар"],["quantity","Количество"],["faction_id","Фракция"]
+  ];
+  const summary = names.filter(([field]) => event?.[field] != null)
+    .slice(0,3).map(([field,label]) => label + ": " + event[field]).join(" · ");
+  return {kind,detail:summary || "Изменение в симуляции"};
 }
 function renderEvents() {
   els.eventFeed.replaceChildren();
@@ -315,8 +355,14 @@ function renderEvents() {
     row.appendChild(textEl("time","t " + fnum(tick)));
     const body = document.createElement("div");
     const parsed = eventLabel(event);
-    body.appendChild(textEl("span", String(parsed.kind).replaceAll("_"," ").toUpperCase(), "event-kind"));
+    body.appendChild(textEl("span", parsed.kind, "event-kind"));
     body.appendChild(textEl("span", parsed.detail));
+    if (event && typeof event === "object") {
+      const details = document.createElement("details"); details.className = "event-raw";
+      details.appendChild(textEl("summary", "Технические данные"));
+      const raw = textEl("pre", JSON.stringify(event, null, 2));
+      details.appendChild(raw); body.appendChild(details);
+    }
     row.appendChild(body);
     els.eventFeed.appendChild(row);
   }
@@ -621,6 +667,7 @@ function installCanvasHandlers(){
       if(target){
         s.selection={type:target.type,id:target.id};
         if(target.type==="system")s.systemName=target.id;
+        s.guideDismissed = true;
         renderInspector();refreshToolbar();renderSidebar();
       }
     }
@@ -652,6 +699,11 @@ function wireControls() {
   els.systemSearch.addEventListener("input",renderSidebar);
   els.clearEvents.addEventListener("click",()=>{s.events=[];renderEvents();});
   els.clearSelection.addEventListener("click",()=>{s.selection=null;renderInspector();});
+  els.startSystemBtn.addEventListener("click",()=>{
+    const chosen = s.index?.systems.find(x => x.name === "Sol") ?? s.index?.systems[0];
+    if (chosen) chooseSystem(chosen.name, true);
+  });
+  els.dismissGuideBtn.addEventListener("click",()=>{s.guideDismissed=true;renderStartGuide();});
   installCanvasHandlers();
 }
 
