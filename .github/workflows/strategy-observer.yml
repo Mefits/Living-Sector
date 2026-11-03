@@ -35,7 +35,40 @@ jobs:
       - name: API adapter tests
         run: node --test observer/model.test.mjs
 
+  ui-package:
+    name: Quick UI bundle (no Rust compilation)
+    needs: observer-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create UI-only ZIP
+        run: |
+          python3 - <<'PY'
+          from zipfile import ZipFile, ZIP_DEFLATED
+          from pathlib import Path
+          Path("dist").mkdir(exist_ok=True)
+          items = ["index.html", "styles.css", "app.js", "model.js"]
+          with ZipFile("dist/Living-Sector-UI-Only.zip", "w", ZIP_DEFLATED) as z:
+              for f in items:
+                  z.write("observer/" + f, "observer/" + f)
+              z.writestr("HOW-TO-UPDATE-UI.txt",
+                  "Requires a Living Sector executable with external Observer UI support.\n"
+                  "Unzip this archive into the folder containing Living-Sector.exe.\n"
+                  "Replace the existing observer/*.html, *.css, *.js files.\n"
+                  "Refresh the browser page (Ctrl+F5). No restart/rebuild needed.\n"
+                  "An older Windows executable with only embedded UI will NOT load these files.\n"
+                  "Do not unzip into the priv/data folder or overwrite your SQLite saves.\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-UI-Only
+          path: dist/Living-Sector-UI-Only.zip
+          retention-days: 7
+          if-no-files-found: error
+
   rust:
+    if: github.event_name == 'workflow_dispatch'
     name: Simulation tests and embedded UI compile
     runs-on: ubuntu-24.04
     timeout-minutes: 50
@@ -60,6 +93,7 @@ jobs:
         run: cargo check --locked -p client_bevy
 
   windows:
+    if: github.event_name == 'workflow_dispatch'
     name: Portable Observer for Windows x64
     needs: [observer-tests, rust]
     runs-on: windows-2022
@@ -87,6 +121,7 @@ jobs:
           Copy-Item "priv" "$folder/priv" -Recurse
           Copy-Item "crates/client_bevy/assets" "$folder/assets" -Recurse
           Copy-Item "observer/Start-Living-Sector.cmd" "$folder/Start-Living-Sector.cmd"
+          Copy-Item "observer" "$folder/observer" -Recurse
           Copy-Item "LICENSE" "$folder/LICENSE"
           @(
             "Living Sector / Strategy Observer - experimental build"
@@ -94,6 +129,7 @@ jobs:
             "2. Double-click Start-Living-Sector.cmd."
             "3. Browser opens http://127.0.0.1:8080/observer."
             "4. Close the simulator console with Ctrl+C for graceful SQLite flush."
+            "UI files load from observer/ next to the executable, so HTML/CSS/JS patches require no rebuild."
             "No demo data: everything shown comes from the original Rust simulation."
             "Unverified Windows runtime. Do not use valuable saves."
           ) | Set-Content -Path "$folder/README.txt" -Encoding UTF8
