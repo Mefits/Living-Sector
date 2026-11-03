@@ -1,6 +1,7 @@
 import {
   list, number, point, key, buildIndex, factionColor, factionName,
-  systemByName, positionOf, approximateShipsNear, shortageCount, sortedCargo
+  systemByName, positionOf, approximateShipsNear, shortageCount, sortedCargo,
+  panForCursorZoom, clusterMarkers, shipSystem
 } from "/observer/model.js";
 
 const byId = id => document.getElementById(id);
@@ -103,7 +104,8 @@ function refreshToolbar() {
   els.marketTotal.textContent = fnum(list(s.report.markets).length);
   els.systemCount.textContent = fnum(s.index?.systems.length);
   els.factionCount.textContent = fnum(list(s.report.factions).length);
-  els.worldSubtitle.textContent = s.view === "system" ? s.systemName : "Сектор · живые данные";
+  const largeWorld = s.ships.length > 20 ? " · большой исходный мир" : "";
+  els.worldSubtitle.textContent = (s.view === "system" ? s.systemName : "Сектор · живые данные") + largeWorld;
   els.sectorTab.classList.toggle("active", s.view === "sector");
   els.systemTab.classList.toggle("active", s.view === "system");
   els.systemTab.disabled = !s.systemName;
@@ -193,6 +195,15 @@ function resetCamera() {
 function selectionEntity() {
   if (!s.selection || !s.report) return null;
   const {type, id} = s.selection;
+  if (type === "ship_group") return {
+    name: "Корабли в одной области",
+    members: (s.selection.ids ?? []).map(shipId => s.ships.find(x => x.id === shipId)).filter(Boolean)
+  };
+  if (type === "facility_group") return {
+    name: "Объекты в одной области",
+    members: (s.selection.ids ?? []).map(facId =>
+      list(s.report.facilities).find(x => x.id === facId)).filter(Boolean)
+  };
   if (type === "system") return systemByName(id, s.index);
   if (type === "ship") return s.ships.find(x => x.id === id) ?? null;
   if (type === "facility") return list(s.report.facilities).find(x => x.id === id) ?? null;
@@ -236,10 +247,41 @@ function renderInspector() {
     return;
   }
   const type = s.selection.type;
-  const typeNames = {system:"ЗВЁЗДНАЯ СИСТЕМА",ship:"КОРАБЛЬ",facility:"ОБЪЕКТ",body:"НЕБЕСНОЕ ТЕЛО"};
+  const typeNames = {
+    system:"ЗВЁЗДНАЯ СИСТЕМА",ship:"КОРАБЛЬ",facility:"ОБЪЕКТ",body:"НЕБЕСНОЕ ТЕЛО",
+    ship_group:"ГРУППА КОРАБЛЕЙ", facility_group:"ГРУППА ОБЪЕКТОВ"
+  };
   els.inspectorBody.appendChild(textEl("div", typeNames[type], "kind"));
   els.inspectorBody.appendChild(textEl("h2", entity.name ?? entity.id));
   const content = els.inspectorBody;
+  if (type === "ship_group" || type === "facility_group") {
+    const isShip = type === "ship_group";
+    const members = entity.members;
+    inspectorRow(content, "Всего", members.length);
+    content.appendChild(textEl("p",
+      "Несколько реальных объектов отображаются одним значком, чтобы карта не превращалась в стену символов. Выберите нужный объект из списка.",
+      "small-note"));
+    for (const member of members.slice(0, 140)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "group-member";
+      button.appendChild(textEl("span", member.name ?? member.id));
+      button.appendChild(textEl("span", isShip ? (member.current_goal ?? member.class ?? "") :
+        (member.type ?? ""), "group-member-note"));
+      button.addEventListener("click", () => {
+        s.selection = {type: isShip ? "ship" : "facility", id: member.id};
+        renderInspector();
+      });
+      content.appendChild(button);
+    }
+    if (members.length > 140) {
+      content.appendChild(textEl("p",
+        "Показаны первые 140 объектов; для остальных приблизьте карту или откройте их через другой район.",
+        "small-note"));
+    }
+    els.inspectorBody.scrollTop = previousScroll;
+    return;
+  }
   if (type === "system") {
     const own = entity.ownership;
     const ownLabel = own.kind === "single"
@@ -529,8 +571,22 @@ function label(pos,text,color="#bdceda",font=11) {
 function isSelected(type,id) {
   return s.selection?.type===type && s.selection.id===id;
 }
-function addTarget(type,id,x,y,r,name) {
-  s.targets.push({type,id,x,y,r,name});
+function addTarget(type,id,x,y,r,name,ids=null) {
+  s.targets.push({type,id,x,y,r,name,ids});
+}
+function drawCluster(at, count, isShip, selected=false) {
+  ctx.lineWidth = selected ? 2.2 : 1.4;
+  circle(at.x,at.y,16,isShip ? "#244e59" : "#514a35");
+  circle(at.x,at.y,16,selected ? "#e4fbf5" : (isShip ? "#76c4c2" : "#d0ae78"),false);
+  label({x:at.x,y:at.y+4}, String(count), "#eff8fa",count > 99 ? 10 : 12);
+}
+function changeZoomAt(cursor, factor) {
+  const oldZoom = s.zoom;
+  const newZoom = Math.max(0.35, Math.min(30, oldZoom * factor));
+  if (newZoom === oldZoom) return;
+  const r = els.map.getBoundingClientRect();
+  s.pan = panForCursorZoom(s.pan,cursor,{w:r.width,h:r.height},oldZoom,newZoom);
+  s.zoom = newZoom;
 }
 function smoothPosition(ship, target) {
   if(!target)return null;
@@ -602,26 +658,56 @@ function renderMap() {
         if(showLabels)label({x:screen.x,y:screen.y+r+13},body.name,"#b7ccdd",10);
         addTarget("body",body.id,screen.x,screen.y,Math.max(9,r+3),body.name);
       }
-      for(const fac of s.index.systemFacilities.get(sys.name)??[]){
-        const p=point(fac.position);if(!p)continue;const sc=toScreen(p);
-        if(!visible(sc,12))continue;
-        const color=factionColor(fac.faction_id,s.index);
-        ctx.fillStyle=fac.abandoned?"#6b7582":color;
-        ctx.fillRect(sc.x-2.7,sc.y-2.7,5.4,5.4);
-        if(isSelected("facility",fac.id)){ctx.lineWidth=1.3;circle(sc.x,sc.y,8,"#d2efe9",false);}
-        addTarget("facility",fac.id,sc.x,sc.y,6,fac.name);
+      const facilityMarkers = [];
+      for (const fac of s.index.systemFacilities.get(sys.name) ?? []) {
+        const p=point(fac.position);if(!p)continue;
+        const sc=toScreen(p);
+        if(visible(sc,20)) facilityMarkers.push({...sc,fac});
+      }
+      for (const group of clusterMarkers(facilityMarkers,32)) {
+        if (group.members.length > 1) {
+          const ids=group.members.map(m => m.fac.id);
+          drawCluster(group,ids.length,false,
+            ids.includes(s.selection?.id) || (s.selection?.type === "facility_group" &&
+              s.selection.ids?.some(id => ids.includes(id))));
+          addTarget("facility_group",group.id,group.x,group.y,18,
+            ids.length + " объектов · открыть список",ids);
+        } else {
+          const {fac,x,y}=group.members[0];
+          const color=factionColor(fac.faction_id,s.index);
+          ctx.fillStyle=fac.abandoned?"#6b7582":color;
+          ctx.fillRect(x-3.2,y-3.2,6.4,6.4);
+          if(isSelected("facility",fac.id)){ctx.lineWidth=1.5;circle(x,y,9,"#d2efe9",false);}
+          addTarget("facility",fac.id,x,y,8,fac.name);
+        }
       }
     }
   }
   if(showShips){
-    for(const ship of s.ships){
+    const shipMarkers=[];
+    for (const ship of s.ships) {
+      // The system view must not include ships from other systems.
+      if (s.view === "system" && shipSystem(ship,s.index) !== s.systemName) continue;
       const target=positionOf(ship,s.positions);
       const p=smoothPosition(ship,target);
       if(!p)continue;
       const sc=toScreen(p);if(!visible(sc,20))continue;
-      const selected=isSelected("ship",ship.id);
-      drawShip(ship,sc,factionColor(ship.faction_id,s.index),selected);
-      addTarget("ship",ship.id,sc.x,sc.y,selected?10:6,ship.name);
+      shipMarkers.push({...sc,ship});
+    }
+    for (const group of clusterMarkers(shipMarkers,36)) {
+      if (group.members.length > 1) {
+        const ids=group.members.map(m => m.ship.id);
+        drawCluster(group,ids.length,true,
+          ids.includes(s.selection?.id) || (s.selection?.type === "ship_group" &&
+            s.selection.ids?.some(id => ids.includes(id))));
+        addTarget("ship_group",group.id,group.x,group.y,18,
+          ids.length + " кораблей · открыть список",ids);
+      } else {
+        const {ship,x,y}=group.members[0];
+        const selected=isSelected("ship",ship.id);
+        drawShip(ship,{x,y},factionColor(ship.faction_id,s.index),selected);
+        addTarget("ship",ship.id,x,y,selected?10:7,ship.name);
+      }
     }
   }
   window.requestAnimationFrame(renderMap);
@@ -630,7 +716,7 @@ function renderMap() {
 function nearestTarget(x,y) {
   const hits=s.targets.filter(p=>(p.x-x)**2+(p.y-y)**2<=p.r*p.r)
     .sort((a,b)=>{
-      const priority={ship:0,facility:1,body:2,system:3};
+      const priority={ship:0,ship_group:0,facility:1,facility_group:1,body:2,system:3};
       return priority[a.type]-priority[b.type] ||
         ((a.x-x)**2+(a.y-y)**2)-((b.x-x)**2+(b.y-y)**2);
     });
@@ -671,7 +757,7 @@ function installCanvasHandlers(){
     if(!moved){
       const p=toLocal(e),target=nearestTarget(p.x,p.y);
       if(target){
-        s.selection={type:target.type,id:target.id};
+        s.selection={type:target.type,id:target.id,ids:target.ids};
         if(target.type==="system")s.systemName=target.id;
         s.guideDismissed = true;
         renderInspector();refreshToolbar();renderSidebar();
@@ -683,9 +769,12 @@ function installCanvasHandlers(){
   els.map.addEventListener("dblclick",e=>{
     const p=toLocal(e),target=nearestTarget(p.x,p.y);
     if(target?.type==="system")chooseSystem(target.id,true);
+    else if(target?.type==="ship_group" || target?.type==="facility_group") changeZoomAt(p,2);
   });
   els.map.addEventListener("wheel",e=>{
-    e.preventDefault();s.zoom=Math.max(0.35,Math.min(18,s.zoom*(e.deltaY<0?1.16:1/1.16)));
+    e.preventDefault();
+    const pointer=toLocal(e);
+    changeZoomAt(pointer,e.deltaY<0?1.18:1/1.18);
   },{passive:false});
   els.map.addEventListener("keydown",e=>{
     if(e.key==="Escape"){sectorMode();els.map.blur();}
