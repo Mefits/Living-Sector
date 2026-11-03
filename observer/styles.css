@@ -130,3 +130,9 @@ body.has-selection .inspector{display:flex}
 @media(max-width:1250px){.shell{grid-template-columns:210px minmax(0,1fr)}.overview-counts{gap:6px}.toolbar{gap:8px;padding:10px 13px}.inspector{width:305px}}
 @media(max-width:960px){.shell{grid-template-columns:185px minmax(0,1fr)}.inspector{display:none}.inspector-body{padding:12px}.overview-counts{display:none}.timeline{height:135px}body.has-selection .inspector{display:flex;width:min(310px,calc(100vw - 200px))}}
 @media(max-width:640px){.shell{grid-template-columns:minmax(0,1fr)}body.has-selection .inspector{display:flex;width:min(350px,calc(100vw - 30px));right:15px;top:auto;bottom:115px;max-height:55vh}.first-run-guide{top:47%}.toolbar{padding:10px}.timeline{height:110px}}
+
+/* Readable drill-down for real ship / facility groups. */
+.group-member{width:100%;display:flex;flex-direction:column;text-align:left;gap:3px;color:var(--txt);padding:10px 9px;background:#122330;border:1px solid #293d4c;border-radius:5px;margin:5px 0;overflow-wrap:anywhere}
+.group-member:hover,.group-member:focus-visible{border-color:#61bdb7;background:#193443}
+.group-member-note{color:var(--muted);font-size:10px}
+.map-help{letter-spacing:0;font-size:10px}
