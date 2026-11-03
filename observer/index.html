@@ -11,7 +11,7 @@
 <div class="shell">
   <aside class="sidebar">
     <header class="identity">
-      <div class="brand"><span class="brand-mark">◈</span><span>LIVING <strong>SECTOR</strong><small>STRATEGIC OBSERVER · 0.1</small></span></div>
+      <div class="brand"><span class="brand-mark">◈</span><span>LIVING <strong>SECTOR</strong><small>OBSERVER · FIRST-USE PREVIEW</small></span></div>
       <div id="connection" class="status" role="status"><span class="status-dot"></span>Подключение…</div>
     </header>
     <div class="sidebar-content">
@@ -38,6 +38,7 @@
       <div class="controls">
         <div class="readout"><span>ТИК</span><strong id="tick">—</strong></div>
         <div class="readout"><span>АГЕНТЫ</span><strong id="agent-count">—</strong></div>
+        <div class="overview-counts" aria-label="Масштаб текущего мира"><span>Корабли <b id="ship-total">—</b></span><span>Объекты <b id="facility-total">—</b></span><span>Рынки <b id="market-total">—</b></span></div>
         <button id="pause-btn" class="control-button" disabled aria-label="Пауза или продолжение">⏯ Пауза</button>
         <label for="speed-select" class="sr-only">Скорость симуляции</label>
         <select id="speed-select" class="control-button" disabled>
@@ -57,7 +58,7 @@
           <button id="system-tab" class="tab" disabled>СИСТЕМА</button>
         </div>
         <div class="map-tools">
-          <label class="toggle"><input id="ships-toggle" type="checkbox" checked> Корабли</label>
+          <label class="toggle"><input id="ships-toggle" type="checkbox"> Корабли</label>
           <label class="toggle"><input id="links-toggle" type="checkbox" checked> Врата</label>
           <label class="toggle"><input id="labels-toggle" type="checkbox" checked> Подписи</label>
           <button id="fit-btn" class="small-button" title="Сброс масштаба и сдвига">Сброс вида</button>
@@ -68,6 +69,13 @@
         <div class="map-stamp">SYSTEM DATA <span id="data-tick">—</span> · LIVE COORDINATES</div>
         <div id="hover-label" class="hover-label" hidden></div>
         <div id="map-error" class="map-error" hidden>Нет прямого соединения с симулятором. Показаны только ранее полученные данные.</div>
+        <div id="first-run-guide" class="first-run-guide" hidden>
+          <span class="guide-eyebrow">С ЧЕГО НАЧАТЬ</span>
+          <h2>Начни с одной системы</h2>
+          <p>Карта показывает настоящий мир симуляции. Выбери систему, затем станцию или корабль, чтобы увидеть их работу.</p>
+          <div class="guide-actions"><button id="start-system-btn" class="guide-primary" disabled>Открыть систему</button><button id="dismiss-guide-btn" class="small-button">Показать карту</button></div>
+          <p class="guide-note">Время уже идёт. Для спокойного осмотра можно поставить симуляцию на паузу в верхней панели.</p>
+        </div>
         <div class="map-help">Колесо — масштаб · Перетаскивание — сдвиг · Клик — детали · Двойной клик — система</div>
       </div>
     </section>
@@ -92,15 +100,7 @@
       <h2>Выберите объект</h2>
       <p>Звёздную систему, планету, станцию или корабль. Параметры берутся из текущего состояния симуляции.</p>
     </div>
-    <div class="inspector-bottom">
-      <div class="detail-caption">СЕКТОР В РЕАЛЬНОМ ВРЕМЕНИ</div>
-      <div class="metrics">
-        <div><span>Корабли</span><strong id="ship-total">—</strong></div>
-        <div><span>Станции</span><strong id="facility-total">—</strong></div>
-        <div><span>Рынки</span><strong id="market-total">—</strong></div>
-      </div>
-      <div class="detail-caption note">Сейчас: чтение существующей симуляции. Конвои и войны как отдельные механики ещё не добавлены.</div>
-    </div>
+
   </aside>
 </div>
 <script type="module" src="/observer/app.js"></script>
