@@ -505,6 +505,20 @@ impl Sim {
         self.elapsed = 0.0;
         self.phase = match self.phase {
             Phase::Loading => {
+                // With independent freighters, stock may have been taken by
+                // another vessel since this loading operation started. Never
+                // allow unsigned underflow or a duplicated cargo pickup.
+                let available = if self.mars_route {
+                    self.construction.mars_ore >= SHIPMENT
+                } else {
+                    self.belt_ore >= SHIPMENT
+                };
+                if (self.fuel_order && self.belt_fuel < FUEL_SHIPMENT)
+                    || (!self.fuel_order && !available)
+                {
+                    self.phase = Phase::Waiting;
+                    return;
+                }
                 let cost = if self.outbound_plan.1 > 0 {
                     self.route_duration = self.outbound_plan.0;
                     self.outbound_plan.1
