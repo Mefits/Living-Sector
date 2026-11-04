@@ -296,12 +296,16 @@ pub async fn run_tick_loop(
         // Tick phases
         phase!(bodies, { tick_bodies(&mut world, &mut store, tick_scale); });
         phase!(bodies_regen, {
-            sim_core::agents::celestial_body::tick_bodies_regen(
-                &mut world,
-                tick,
-                tick_scale,
-                tick_mult,
-            );
+            if sim_core::simulation::tuning::WorldTuning::current()
+                .regenerate_body_resources
+            {
+                sim_core::agents::celestial_body::tick_bodies_regen(
+                    &mut world,
+                    tick,
+                    tick_scale,
+                    tick_mult,
+                );
+            }
         });
 
         // LOD recompute — gated by interval so we're not rebuilding the
