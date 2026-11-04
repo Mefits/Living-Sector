@@ -75,6 +75,9 @@ pub struct ShipSnapshot {
     pub name: String,
     pub class: String,
     pub faction_id: String,
+    /// Authoritative star-system identifier for UI filtering, including
+    /// ships in transit where location is None.
+    pub system_id: String,
     /// Scale tier (Phase 18f). Snake-case name (e.g. `"large"`).
     /// Godot renders this alongside class in the details panel.
     pub size: &'static str,
