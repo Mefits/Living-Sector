@@ -180,6 +180,54 @@ export function clusterMarkers(markers, cellSize = 34) {
   }));
 }
 
+// Buildings sharing a real location represent one map hub. Group by
+// location ID, not proximity: zoom must never split a station into five
+// overlaid symbols or accidentally combine two distinct stations.
+export function groupFacilitiesByLocation(facilities) {
+  const groups = new Map();
+  for (const fac of list(facilities)) {
+    const id = key(fac.location) || key(fac.id);
+    if (!id) continue;
+    if (!groups.has(id)) groups.set(id, {id, location: fac.location, members: []});
+    groups.get(id).members.push(fac);
+  }
+  return [...groups.values()];
+}
+
+// Place compact labels around real map markers without covering each
+// other. Keep stable priority ordering; lower-priority labels disappear
+// at cramped zoom levels, but hover and clicks remain available.
+export function layoutMapLabels(items, viewport, obstacles = []) {
+  const intersects = (a,b) => a.x < b.x+b.w && a.x+a.w > b.x &&
+    a.y < b.y+b.h && a.y+a.h > b.y;
+  const placed=[], used=[...obstacles];
+  const ordered=[...list(items)].sort((a,b)=>
+    a.priority-b.priority || String(a.id).localeCompare(String(b.id)));
+  for (const item of ordered) {
+    const w=item.w, h=item.h??20;
+    if (!(w>0) || !(h>0) || !Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
+    const offset=Math.max(16,item.radius??17)+5;
+    const choices=[
+      {x:item.x+offset,y:item.y-h-6},
+      {x:item.x+offset,y:item.y+5},
+      {x:item.x-offset-w,y:item.y-h-6},
+      {x:item.x-offset-w,y:item.y+5},
+      {x:item.x-w/2,y:item.y-offset-h},
+      {x:item.x-w/2,y:item.y+offset}
+    ];
+    for(const p of choices) {
+      const rect={x:p.x,y:p.y,w,h};
+      if(rect.x<8 || rect.y<8 ||
+         rect.x+w>viewport.w-8 || rect.y+h>viewport.h-8)continue;
+      if(used.some(box=>intersects(rect,box)))continue;
+      used.push(rect);
+      placed.push({...item,x:p.x,y:p.y});
+      break;
+    }
+  }
+  return placed;
+}
+
 // Exact location matching only; never infer system membership from a
 // ship's nearest star or coincidental 2D position.
 export function shipSystem(ship, index) {
