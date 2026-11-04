@@ -36,12 +36,12 @@ if not errorlevel 1 (
 
 set "BIND_ADDR=127.0.0.1:8080"
 set "DATA_DIR=%~dp0priv\genesis\data"
-set "DATABASE_PATH=%~dp0genesis-core-v1.db"
+set "DATABASE_PATH=%~dp0genesis-faction-economy-v1.db"
 set "LIVING_SECTOR_UI_DIR=%~dp0observer"
 set "WORLD_SPEED=1.0"
 
 echo Living Sector Genesis: ORIGINAL sim_core, 2D Observer, finite ships.
-echo Database: genesis-core-v1.db. Older saves remain untouched.
+echo Database: genesis-faction-economy-v1.db. Older saves remain untouched.
 echo Use Ctrl+C in the Genesis Server console for a graceful save.
 start "Living Sector - Genesis Core" /D "%~dp0" "%~dp0Genesis-Server.exe"
 
