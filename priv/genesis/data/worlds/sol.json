@@ -88,6 +88,21 @@
         "ore": 0.78,
         "ice": 0.65
       }
+    },
+    {
+      "id": "jupiter-wreckage",
+      "name": "Поле обломков у пиратской базы",
+      "type": "belt",
+      "orbit_radius": 5.26,
+      "orbit_period": 4300,
+      "current_angle": 316,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.5,
+        "ice": 0.3,
+        "gas": 0.25,
+        "metals": 0.12
+      }
     }
   ],
   "travel_routes": [
@@ -115,6 +130,16 @@
       "from": "jupiter-gas-field",
       "to": "belt-outpost",
       "distance": 200
+    },
+    {
+      "from": "pirate-outpost",
+      "to": "pirate-wreckage",
+      "distance": 50
+    },
+    {
+      "from": "pirate-wreckage",
+      "to": "jupiter-gas-field",
+      "distance": 70
     }
   ],
   "facilities": [
@@ -300,6 +325,20 @@
       "body": "callisto",
       "type": "mining_rig",
       "docking_capacity": 16,
+      "services": [
+        "refuel",
+        "market"
+      ],
+      "reserves": {}
+    },
+    {
+      "id": "facility-pirate-salvage",
+      "name": "Пиратские сборщики обломков",
+      "faction_id": "pirates",
+      "location": "pirate-wreckage",
+      "body": "jupiter-wreckage",
+      "type": "salvage_field",
+      "docking_capacity": 10,
       "services": [
         "refuel",
         "market"
@@ -519,6 +558,43 @@
       },
       "production": {},
       "consumption": {}
+    },
+    {
+      "id": "market-pirate-wreckage",
+      "facility_id": "pirate-wreckage",
+      "price_elasticity": 0.02,
+      "prices": {
+        "ore": 12,
+        "ice": 12,
+        "gas": 15,
+        "metals": 32,
+        "water": 40,
+        "fuel": 43,
+        "food": 68,
+        "tools": 100,
+        "components": 140,
+        "polymers": 80
+      },
+      "supply": {
+        "ore": 0,
+        "ice": 0,
+        "gas": 0,
+        "metals": 0,
+        "water": 8,
+        "fuel": 60,
+        "food": 30,
+        "tools": 6,
+        "components": 0
+      },
+      "demand": {
+        "fuel": 15,
+        "food": 12,
+        "water": 8,
+        "tools": 5,
+        "components": 4
+      },
+      "consumption": {},
+      "production": {}
     }
   ],
   "ships": [
@@ -584,6 +660,16 @@
       "location": "callisto-mine",
       "class": "freighter",
       "credits": 15000,
+      "faction_id": "pirates",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "Сборщик обломков",
+      "location": "pirate-wreckage",
+      "class": "freighter",
+      "credits": 13000,
       "faction_id": "pirates",
       "fitting": {
         "comms": "comms_t2"
