@@ -2,7 +2,8 @@ import {
   list, number, point, key, buildIndex, factionColor, factionName,
   systemByName, positionOf, approximateShipsNear, shortageCount, sortedCargo,
   panForCursorZoom, clusterMarkers, shipSystem, worldGridStep, mapIconScale,
-  groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub
+  groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub,
+  liveEntityPoint, approachWorldPoint
 } from "/observer/model.js";
 
 const byId = id => document.getElementById(id);
@@ -20,6 +21,7 @@ const s = {
   view: "sector", systemName: null, selection: null,
   zoom: 1, pan: {x: 0, y: 0}, dragging: null, hover: null,
   targets: [], visualPositions: new Map(), shipMotion: new Map(),
+  mapWorldPositions: new Map(),
   lastReportAt: 0, fetching: false, error: null, guideDismissed: false
 };
 const fmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
@@ -737,6 +739,15 @@ function drawFacilityHub(at,kind,selected) {
   ctx.restore();
 }
 
+function liveWorldPoint(entity) {
+  const target=liveEntityPoint(entity,s.positions);
+  if(!target)return null;
+  const id=String(entity.id??entity.body_id??"unknown");
+  const old=s.mapWorldPositions.get(id);
+  const next=approachWorldPoint(old,target);
+  s.mapWorldPositions.set(id,next);
+  return next;
+}
 function isSelected(type,id) {
   return s.selection?.type===type && s.selection.id===id;
 }
@@ -818,6 +829,7 @@ function renderMap() {
   const sysMap=new Map(s.index.systems.map(system => [system.name,system]));
   const showLabels=els.labelsToggle.checked;
   const showShips=els.shipsToggle.checked;
+  const hubAnchors=new Map();
   const labelRequests=[];
   const markerObstacles=[];
   const markGlyph=(p,r)=>markerObstacles.push({
@@ -864,7 +876,7 @@ function renderMap() {
       markGlyph(center,15*iconScale);
       askLabel("sun-"+sys.name,center,sys.name+" · звезда","#eed09a",50,17,140);
       for(const body of sys.bodies){
-        const p=point(body);if(!p)continue;const screen=toScreen(p);
+        const p=liveWorldPoint(body);if(!p)continue;const screen=toScreen(p);
         if(!visible(screen,26))continue;
         withMapScale(screen,iconScale,()=>drawBody(body,screen,isSelected("body",body.id)));
         markGlyph(screen,14*iconScale);
@@ -880,7 +892,7 @@ function renderMap() {
         const prefer=members.find(x=>x.type==="station") ??
           members.find(x=>x.type==="mining_rig") ??
           members.find(x=>x.type==="shipyard") ?? members[0];
-        const p=point(prefer.position);
+        const p=liveWorldPoint(prefer);
         if(!p)continue;
         const at=toScreen(p);
         if(!visible(at,30))continue;
@@ -891,12 +903,12 @@ function renderMap() {
         withMapScale(at,iconScale,()=>drawFacilityHub(at,prefer.type,selected));
         markGlyph(at,14*iconScale);
         const parked=showShips?shipsAtHub(s.ships,hub.location):[];
-        const hubCaption=parked.length
-          ? prefer.name+" · "+parked.length+" на месте"
-          : prefer.name;
-        askLabel("hub-"+hub.id,at,hubCaption,
+        // The label stays short: each parked vessel gets its own
+        // anchored, selectable icon drawn below in the ships layer.
+        askLabel("hub-"+hub.id,at,prefer.name,
           prefer.type==="mining_rig"?"#d5b275":"#84c4c7",
           selected?1:15,17,205);
+        hubAnchors.set(key(hub.location),{at,parked});
         const targetType=members.length>1?"facility_group":"facility";
         addTarget(targetType,members.length>1?hub.id:members[0].id,
           at.x,at.y,Math.max(15,15*iconScale),prefer.name,
@@ -906,49 +918,80 @@ function renderMap() {
   }
   if(showShips){
     const shipMarkers=[];
-    for (const ship of s.ships) {
-      if (s.view === "system" && s.index.systems.length !== 1 &&
-          shipSystem(ship,s.index) !== s.systemName) continue;
-      // Docked and parked ships belong to their real station. Do not
-      // interpolate their world positions: station/orbit motion would
-      // look like the ships fly around it when they are not in transit.
-      if (shipMapState(ship) !== "in_transit") {
+    const visibleShips=s.ships.filter(ship=>
+      s.view!=="system" || s.index.systems.length===1 ||
+      shipSystem(ship,s.index)===s.systemName);
+    const anchoredShips=new Set();
+    if(s.view==="system"){
+      // Parked vessels are visible as individual SMALL dock icons at the
+      // station. The offsets are static screen-layout slots tied to the
+      // hub's real coordinate; they do not orbit, interpolate or wander.
+      for(const [loc,hub] of hubAnchors){
+        const parked=[...hub.parked].sort((a,b)=>
+          String(a.id).localeCompare(String(b.id)));
+        for(let i=0;i<parked.length;i++){
+          const ship=parked[i];
+          anchoredShips.add(ship.id);
+          s.visualPositions.delete(ship.id);
+          s.shipMotion.delete(ship.id);
+          const col=i%3,row=Math.floor(i/3);
+          const at={
+            x:hub.at.x+(31+col*20)*iconScale,
+            y:hub.at.y+(10+row*21)*iconScale
+          };
+          if(!visible(at,20))continue;
+          const selected=isSelected("ship",ship.id);
+          withMapScale(at,Math.min(iconScale,1.8),()=>drawShip(ship,at,
+            factionColor(ship.faction_id,s.index),selected,0));
+          markGlyph(at,10*iconScale);
+          askLabel("parked-"+ship.id,at,ship.name??ship.class,
+            "#c2dce4",selected?0:5,13,140);
+          addTarget("ship",ship.id,at.x,at.y,Math.max(12,12*iconScale),
+            (ship.name??ship.id)+" · у станции");
+        }
+      }
+    }
+    // In-flight ships always use their own real coordinates, never
+    // the location of a nearby facility. Unknown/idle ships without
+    // a known hub remain visible at their own reported coordinates.
+    for(const ship of visibleShips){
+      if(anchoredShips.has(ship.id))continue;
+      const state=shipMapState(ship);
+      if(state!=="in_transit"){
         s.visualPositions.delete(ship.id);
         s.shipMotion.delete(ship.id);
-        continue;
       }
       const target=positionOf(ship,s.positions);
-      const p=smoothPosition(ship,target);
+      const p=state==="in_transit" ? smoothPosition(ship,target) : target;
       if(!p)continue;
       const sc=toScreen(p);
       if(!visible(sc,20))continue;
-      shipMarkers.push({...sc,ship});
+      shipMarkers.push({...sc,ship,state});
     }
-    // At low zoom, visually overlapping real flights share a selectable
-    // group. No phantom offsets, ring arrangements or orbit animation.
-    for (const group of clusterMarkers(shipMarkers,34)) {
+    for(const group of clusterMarkers(shipMarkers,34)){
       if(group.members.length>1){
         const ids=group.members.map(m=>m.ship.id);
         const selected=ids.includes(s.selection?.id);
-        withMapScale(group,iconScale,()=>drawShip(group.members[0].ship,
-          group,"#84b9c5",selected,scale));
-        markGlyph(group,13*iconScale);
-        askLabel("flightgroup-"+group.id,group,
-          ids.length+" корабля в пути","#c2dce4",selected?0:4,16,130);
+        withMapScale(group,Math.min(iconScale,1.8),()=>
+          drawShip(group.members[0].ship,group,"#84b9c5",
+            selected,group.members[0].state==="in_transit"?scale:0));
+        markGlyph(group,12*iconScale);
+        askLabel("ships-"+group.id,group,ids.length+" корабля",
+          "#c2dce4",selected?0:5,16,118);
         addTarget("ship_group",group.id,group.x,group.y,
-          Math.max(17,16*iconScale),ids.length+" кораблей в пути",ids);
-        continue;
+          Math.max(17,16*iconScale),ids.length+" кораблей",ids);
+      }else{
+        const {ship,x,y,state}=group.members[0];
+        const at={x,y},selected=isSelected("ship",ship.id);
+        withMapScale(at,iconScale,()=>drawShip(ship,at,
+          factionColor(ship.faction_id,s.index),selected,
+          state==="in_transit"?scale:0));
+        markGlyph(at,11*iconScale);
+        askLabel("ship-"+ship.id,at,ship.name??ship.class,
+          "#c2dce4",selected?0:3,16,145);
+        addTarget("ship",ship.id,at.x,at.y,
+          Math.max(selected?15:12,12*iconScale),ship.name);
       }
-      const {ship,x,y}=group.members[0];
-      const at={x,y};
-      const selected=isSelected("ship",ship.id);
-      withMapScale(at,iconScale,()=>drawShip(ship,at,
-        factionColor(ship.faction_id,s.index),selected,scale));
-      markGlyph(at,11*iconScale);
-      askLabel("flight-"+ship.id,at,ship.name??ship.class,
-        "#c2dce4",selected?0:3,16,145);
-      addTarget("ship",ship.id,at.x,at.y,
-        Math.max(selected?15:12,12*iconScale),ship.name);
     }
   }
   // Labels are a UI overlay, not physical objects. Move or drop only
