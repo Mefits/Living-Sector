@@ -1,3 +1,5 @@
+mod conflict;
+mod construction;
 mod governance;
 mod sim;
 mod view;
@@ -86,7 +88,7 @@ fn load_sim(path: &Path) -> io::Result<Sim> {
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             let mut sim = Sim::default();
-            if env::var("GENESIS_LEADER").as_deref() == Ok("industrial") {
+            if env::var("GENESIS_LEADER").as_deref() != Ok("cautious") {
                 sim.governance.leader = governance::Leader::Industrial;
             }
             Ok(sim)

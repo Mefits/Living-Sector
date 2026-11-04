@@ -1,3 +1,7 @@
+use crate::conflict::{
+    Conflict, PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, PIRATE_SEED_METAL, Patrol,
+};
+use crate::construction::{COMMISSION_FUEL, Construction, Project, SHIP_METAL, YARD_METAL};
 use crate::governance::Governance;
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +15,12 @@ const MINE_INTERVAL: f64 = 2.0;
 const BELT_CAPACITY: u32 = 100;
 const SMELT_INTERVAL: f64 = 5.0;
 pub const METAL_CAPACITY: u32 = 80;
+const SEED_ORE: u32 = 500;
+
+fn seed_ore() -> u32 {
+    SEED_ORE
+}
+
 const QUANTUM: f64 = 0.25;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -59,6 +69,12 @@ pub struct Sim {
     pending: f64,
     #[serde(default)]
     pub governance: Governance,
+    #[serde(default)]
+    pub construction: Construction,
+    #[serde(default = "seed_ore")]
+    pub deposit: u32,
+    #[serde(default)]
+    pub conflict: Conflict,
 }
 
 #[derive(Clone, Serialize)]
@@ -94,6 +110,9 @@ impl Default for Sim {
             smelting_elapsed: 0.0,
             pending: 0.0,
             governance: Governance::default(),
+            construction: Construction::default(),
+            deposit: SEED_ORE,
+            conflict: Conflict::default(),
         }
     }
 }
@@ -104,7 +123,11 @@ impl Sim {
         self.seconds.is_finite()
             && self.seconds >= 0.0
             && (0.0..self.phase.duration()).contains(&self.elapsed)
-            && self.cargo == if has_cargo { SHIPMENT } else { 0 }
+            && (if has_cargo {
+                (SHIPMENT - 10..=SHIPMENT).contains(&self.cargo)
+            } else {
+                self.cargo == 0
+            })
             && self.belt_ore <= BELT_CAPACITY
             && (self.phase != Phase::Loading || self.belt_ore >= SHIPMENT)
             && self.fuel <= TANK
@@ -119,6 +142,12 @@ impl Sim {
                     && self.station_fuel > 0
                     && self.metal + 8 <= METAL_CAPACITY))
             && (0.0..QUANTUM).contains(&self.pending)
+            && self.conflict.raider_cargo <= 10
+            && self.conflict.patrol_fuel <= PATROL_SEED_FUEL
+            && self.deposit <= SEED_ORE
+            && self.construction.parked_fuel <= TANK
+            && (0.0..self.construction.duration()).contains(&self.construction.elapsed)
+            && (!self.construction.active_second || self.construction.phase == Project::Complete)
             && self.tick < u64::MAX
     }
 
@@ -174,6 +203,9 @@ impl Sim {
     pub fn ship_status(&self) -> String {
         match self.phase {
             Phase::Waiting if !self.governance.ore_requested => "Нет заявки".into(),
+            Phase::Waiting if self.deposit == 0 && self.belt_ore < SHIPMENT => {
+                "Залежи исчерпаны".into()
+            }
             Phase::Waiting => format!("Ждёт руду — {} из {SHIPMENT}", self.belt_ore.min(SHIPMENT)),
             Phase::Loading => "Загружает руду".into(),
             Phase::Outbound => format!("В пути — {} руды", self.cargo),
@@ -193,6 +225,8 @@ impl Sim {
             self.plan(&mut events);
             self.run_facilities(&mut events);
             self.move_ship(&mut events);
+            self.construct(&mut events);
+            self.run_conflict(&mut events);
         }
         events
     }
@@ -227,11 +261,16 @@ impl Sim {
     }
 
     fn run_facilities(&mut self, events: &mut Vec<Event>) {
-        if self.governance.ore_requested && !self.delivery_active() && self.belt_ore < SHIPMENT {
+        if self.governance.ore_requested
+            && !self.delivery_active()
+            && self.belt_ore < SHIPMENT
+            && self.deposit > 0
+        {
             self.mining_elapsed += QUANTUM;
             if self.mining_elapsed >= MINE_INTERVAL {
                 self.mining_elapsed = 0.0;
-                let quantity = 10.min(BELT_CAPACITY - self.belt_ore);
+                let quantity = 10.min(BELT_CAPACITY - self.belt_ore).min(self.deposit);
+                self.deposit -= quantity;
                 self.belt_ore += quantity;
                 events.push(event(
                     "ore_extracted",
@@ -304,7 +343,7 @@ impl Sim {
                     BELT,
                     SHIPMENT,
                     self.belt_ore,
-                    Some(SHIP),
+                    Some(self.freighter_name()),
                 ));
                 Phase::Outbound
             }
@@ -317,7 +356,7 @@ impl Sim {
                     EARTH,
                     self.cargo,
                     self.station_ore,
-                    Some(SHIP),
+                    Some(self.freighter_name()),
                 ));
                 self.cargo = 0;
                 self.governance.ore_requested = false;
@@ -335,7 +374,220 @@ impl Sim {
                     Phase::NoFuelAtEarth
                 }
             }
-            Phase::Returning => Phase::Waiting,
+            Phase::Returning => {
+                if self.construction.phase == Project::Complete {
+                    self.rotate_freighters();
+                }
+                Phase::Waiting
+            }
+            _ => unreachable!(),
+        };
+    }
+    fn run_conflict(&mut self, events: &mut Vec<Event>) {
+        let threat_seen = self.conflict.pirate_loot > 0 || self.conflict.raider_cargo > 0;
+        let war = &mut self.conflict;
+        if war.base_progress < 40.0 {
+            war.base_progress += QUANTUM;
+            if war.base_progress == 36.0 {
+                war.base_ready = true;
+                events.push(decision(
+                    "pirate_base_built",
+                    "Пиратская экспедиция",
+                    format!(
+                        "Собрала базу из половины стартового груза в {PIRATE_SEED_METAL} металла."
+                    ),
+                ));
+            }
+            if war.base_progress == 40.0 {
+                war.raider_fuel = 6;
+                events.push(decision(
+                    "raider_built",
+                    "Пиратская экспедиция",
+                    "Собрала рейдер из оставшихся 8 металла и заправила его из стартового запаса."
+                        .into(),
+                ));
+            }
+        }
+        if war.raider_return > 0.0 {
+            war.raider_return += QUANTUM;
+            if war.raider_return >= 6.0 {
+                let landed = std::mem::take(&mut war.raider_cargo);
+                war.pirate_loot += landed;
+                war.raider_return = 0.0;
+                if landed > 0 {
+                    events.push(event(
+                        "raid_delivered",
+                        "ore",
+                        PIRATE_BASE,
+                        landed,
+                        war.pirate_loot,
+                        None,
+                    ));
+                }
+            }
+        }
+        if self.phase != Phase::Outbound {
+            war.patrol_home_earth |= war.escorted;
+            war.escorted = false;
+            war.intercepted = false;
+        } else {
+            if self.elapsed == 0.0 && war.patrol == Patrol::Ready && war.patrol_fuel >= 2 {
+                war.patrol_fuel -= 2;
+                war.escorted = true;
+            }
+            if self.elapsed >= 8.0
+                && !war.intercepted
+                && war.base_ready
+                && war.raider_fuel >= 2
+                && war.raider_return == 0.0
+            {
+                war.intercepted = true;
+                war.raider_fuel -= 2;
+                war.raider_return = QUANTUM;
+                if war.escorted {
+                    events.push(decision(
+                        "raid_deflected",
+                        "Патруль-001",
+                        "Сопровождение сорвало перехват.".into(),
+                    ));
+                } else {
+                    self.cargo -= 10;
+                    war.raider_cargo = 10;
+                    events.push(event(
+                        "raid_stolen",
+                        "ore",
+                        PIRATE_BASE,
+                        10,
+                        self.cargo,
+                        None,
+                    ));
+                }
+            }
+        }
+        match war.patrol {
+            Patrol::None
+                if threat_seen
+                    && self.construction.phase == Project::Complete
+                    && self.metal >= PATROL_METAL =>
+            {
+                self.metal -= PATROL_METAL;
+                war.patrol = Patrol::Delivering;
+                events.push(decision(
+                    "patrol_order",
+                    "Глава фракции",
+                    format!("После потери груза выделено {PATROL_METAL} металла на патруль."),
+                ));
+            }
+            Patrol::Delivering | Patrol::Building => {
+                war.patrol_elapsed += QUANTUM;
+                if war.patrol == Patrol::Delivering && war.patrol_elapsed >= 4.0 {
+                    war.patrol_elapsed = 0.0;
+                    war.patrol = Patrol::Building;
+                    events.push(decision(
+                        "patrol_inputs",
+                        "Строитель-001",
+                        "Материалы патруля доставлены на верфь.".into(),
+                    ));
+                } else if war.patrol == Patrol::Building && war.patrol_elapsed >= 8.0 {
+                    war.patrol_elapsed = 0.0;
+                    war.patrol = Patrol::Ready;
+                    war.patrol_fuel = PATROL_SEED_FUEL;
+                    events.push(decision(
+                        "patrol_ready",
+                        "Орбитальная верфь",
+                        "Патруль-001 готов к сопровождению.".into(),
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn freighter_name(&self) -> &'static str {
+        if self.construction.active_second {
+            "Грузовой-002"
+        } else {
+            SHIP
+        }
+    }
+
+    fn rotate_freighters(&mut self) {
+        self.construction.active_second = !self.construction.active_second;
+        std::mem::swap(&mut self.fuel, &mut self.construction.parked_fuel);
+    }
+
+    fn construct(&mut self, events: &mut Vec<Event>) {
+        match self.construction.phase {
+            Project::WaitingMaterials => {
+                if self.metal >= YARD_METAL + SHIP_METAL {
+                    self.metal -= YARD_METAL + SHIP_METAL;
+                    self.construction.phase = Project::Hauling;
+                    events.push(decision(
+                        "yard_dispatched",
+                        "Строитель-001",
+                        format!("Загрузил металл со станции Земли: {YARD_METAL} для верфи и {SHIP_METAL} для корпуса."),
+                    ));
+                }
+                return;
+            }
+            Project::WaitingShip => {
+                self.construction.parked_fuel = COMMISSION_FUEL;
+                self.construction.phase = Project::BuildingShip;
+                events.push(decision(
+                    "ship_order",
+                    "Глава фракции",
+                    format!(
+                        "Резервный грузовик: выделено {SHIP_METAL} металла из доставленного груза."
+                    ),
+                ));
+                return;
+            }
+            Project::Complete => return,
+            _ => {}
+        }
+        self.construction.elapsed += QUANTUM;
+        if self.construction.elapsed < self.construction.duration() {
+            return;
+        }
+        self.construction.elapsed = 0.0;
+        self.construction.phase = match self.construction.phase {
+            Project::Hauling => {
+                events.push(decision(
+                    "yard_assembly",
+                    "Строитель-001",
+                    format!("Доставил металл на площадку: {YARD_METAL} для верфи и {SHIP_METAL} для корпуса."),
+                ));
+                Project::Assembling
+            }
+            Project::Assembling => {
+                events.push(decision(
+                    "yard_completed",
+                    "Строитель-001",
+                    "Верфь введена в строй.".into(),
+                ));
+                Project::Returning
+            }
+            Project::Returning => Project::WaitingShip,
+            Project::BuildingShip => {
+                self.construction.parked_fuel -= FLIGHT_FUEL;
+                events.push(decision(
+                    "ship_completed",
+                    "Орбитальная верфь",
+                    "Грузовой-002 собран и вылетел к добывающей установке.".into(),
+                ));
+                Project::TransferringShip
+            }
+            Project::TransferringShip => {
+                if self.phase == Phase::Waiting {
+                    self.rotate_freighters();
+                }
+                events.push(decision(
+                    "ship_commissioned",
+                    "Снабженец",
+                    "Грузовой-002 доступен для рейсов.".into(),
+                ));
+                Project::Complete
+            }
             _ => unreachable!(),
         };
     }

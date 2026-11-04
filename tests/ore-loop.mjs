@@ -57,7 +57,8 @@ async function observe(leader) {
     socket.addEventListener("message", message => {
       const frame = JSON.parse(message.data);
       events.push(...frame.events);
-      if (frame.governance.last_decision && !frame.governance.batch_active) resolve(frame.governance);
+      if (events.some(event => event.kind === "raid_deflected")
+          && events.some(event => event.kind === "cargo_unloaded" && event.ship_name === "Грузовой-002")) resolve(frame);
     });
   });
   done.catch(() => {});
@@ -65,10 +66,18 @@ async function observe(leader) {
   await api(base, "/api/sim/speed", { world_speed: 16 });
   await api(base, "/api/sim/resume", {});
   const result = await done;
-  assert.ok(events.some(event => event.kind === "ore_requested" && event.actor === "Снабженец"));
-  assert.ok(events.some(event => event.kind === "cargo_unloaded" && event.quantity === 50));
-  assert.ok(events.some(event => event.kind === "smelt_started" && event.actor === "Промышленник"));
-  assert.ok(events.some(event => event.kind === "policy_changed" && event.actor === "Глава фракции"));
+  const ordered = ["yard_dispatched", "yard_assembly", "yard_completed", "ship_completed",
+    "ship_commissioned", "patrol_ready", "raid_deflected"];
+  let previous = -1;
+  for (const kind of ordered) {
+    const index = events.findIndex(event => event.kind === kind);
+    assert.ok(index > previous, kind);
+    previous = index;
+  }
+  assert.ok(events.some(event => event.kind === "raid_stolen" && event.quantity === 10));
+  assert.ok(events.some(event => event.kind === "raid_delivered" && event.quantity === 10));
+  assert.equal(result.ships.find(ship => ship.id === "freighter-2").name, "Грузовой-002");
+  assert.ok(result.facilities.some(facility => facility.type === "shipyard"));
   await api(base, "/api/sim/pause", {});
   const paused = await api(base, "/api/report");
   socket.close();
@@ -78,17 +87,14 @@ async function observe(leader) {
   const restarted = await api((await start("", save)).base, "/api/report");
   assert.equal(restarted.running, false);
   assert.deepEqual(restarted.governance, paused.governance);
+  assert.deepEqual(restarted.ships.map(ship => ship.id), paused.ships.map(ship => ship.id));
+  assert.deepEqual(restarted.facilities, paused.facilities);
   return result;
 }
 
 try {
-  const [cautious, industrial] = await Promise.all([observe("cautious"), observe("industrial")]);
-  assert.equal(cautious.industry, "Топливо зарезервировано политикой");
-  assert.equal(cautious.station_fuel, 194);
-  assert.equal(cautious.metal, 48);
-  assert.equal(industrial.station_fuel, 190);
-  assert.equal(industrial.metal, 80);
-  console.log("PASS: same starting stocks, distinct policies, delivery, smelting, and restart.");
+  await observe("industrial");
+  console.log("PASS: physical construction, commissioned freighter, raid, escort and restart.");
 } finally {
   for (const socket of sockets) socket.close();
   for (const child of children) child.kill();

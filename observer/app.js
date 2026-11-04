@@ -429,6 +429,9 @@ function renderInspector() {
     inspectorRow(content, "Тип", facilityNames[entity.type] ?? entity.type);
     inspectorRow(content, "Фракция", factionName(entity.faction_id, s.index));
     inspectorRow(content, "Расположение", locationLabel(entity.location, entity.id));
+    if (entity.project) inspectorRow(content, "Проект", entity.project);
+    if (entity.progress != null) inspectorRow(content, "Готовность", Math.floor(entity.progress * 100) + "%");
+    if (entity.deposit != null) inspectorRow(content, "Руда в залежи", fnum(entity.deposit));
     showHubShips(content, entity.location);
     inspectorRow(content, "Резерв топлива", fnum(entity.reserves.fuel));
     showMarket(content, entity.location);
@@ -441,6 +444,8 @@ function renderInspector() {
 }
 
 const facilityNames = {
+  "pirate-station":"Пиратская база",
+  construction_site:"Строительная площадка",
   station:"Станция", mining_rig:"Добыча", farm:"Ферма",
   refinery:"Переработка", factory:"Завод", shipyard:"Верфь", gate:"Врата"
 };
@@ -466,6 +471,20 @@ function showMarket(content, location) {
 
 const eventNames = {
   ore_extracted: "Руда добыта", cargo_loaded: "Руда погружена", cargo_unloaded: "Руда доставлена",
+  pirate_base_built: "Пиратская база собрана",
+  raider_built: "Рейдер собран",
+  raid_delivered: "Трофеи доставлены пиратам",
+  raid_deflected: "Перехват сорван",
+  raid_stolen: "Пираты захватили руду",
+  patrol_order: "Заказан патрульный корабль",
+  patrol_inputs: "Материалы доставлены на верфь",
+  patrol_ready: "Патрульный корабль готов",
+  yard_dispatched: "Материалы в пути",
+  yard_assembly: "Начат монтаж верфи",
+  yard_completed: "Верфь готова",
+  ship_order: "Заказан грузовик",
+  ship_completed: "Грузовик собран",
+  ship_commissioned: "Грузовик принят во флот",
   policy_changed: "Смена курса",
   smelt_started: "Запущена плавка",
   ore_cancelled: "Заявка закрыта",
@@ -532,9 +551,7 @@ function handleWs(message) {
   s.report.ships = s.ships;
   s.report.markets = list(message.markets);
   s.report.governance = message.governance;
-  for (const facility of s.report.facilities) {
-    facility.reserves.fuel = message.reserves[facility.id];
-  }
+  s.report.facilities = message.facilities;
   s.index = buildIndex(s.report);
   if (s.health) s.health.tick = message.tick;
   renderOreFlow();
@@ -827,8 +844,8 @@ function drawFacilityHub(at, kind, selected) {
   const accent = mine ? "#dab27a" : "#8dd0d0";
   ctx.save();
   ctx.translate(at.x, at.y);
-  const hasSprite = (mine || kind === "station") &&
-    drawMapSprite(mine ? "mining-rig" : "station", 0, 0, 14);
+  const hasSprite = (mine || kind === "station" || kind === "shipyard" || kind === "pirate-station") &&
+    drawMapSprite(mine ? "mining-rig" : kind, 0, 0, kind === "shipyard" ? 21 : 14);
   ctx.lineWidth = .85;
   ctx.lineJoin = "round";
   ctx.strokeStyle = "#b0c6ce";
@@ -938,7 +955,7 @@ function drawShip(ship,at,color,selected,scale=1) {
   }
   ctx.rotate(move?.heading ?? 0);
   const hull = key(ship.class);
-  if ((hull === "courier" || hull === "freighter") && drawMapSprite(hull, 0, 0, hull === "courier" ? 10 : 12)) {
+  if (drawMapSprite(hull, 0, 0, hull === "courier" ? 10 : 12)) {
     circle(0, 5.5, 1, color);
   } else {
     ctx.beginPath();
