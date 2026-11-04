@@ -1,6 +1,6 @@
 import {
   list, number, point, key, buildIndex, factionColor, factionName,
-  systemByName, positionOf, approximateShipsNear, shortageCount, sortedCargo,
+  systemByName, positionOf, shortageCount, sortedCargo,
   panForCursorZoom, clusterMarkers, shipSystem, worldGridStep, mapIconScale,
   groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub,
   liveEntityPoint, approachWorldPoint,
@@ -9,21 +9,21 @@ import {
 
 const byId = id => document.getElementById(id);
 const els = Object.fromEntries([
-  "connection","system-count","system-search","system-list","faction-count","faction-legend",
-  "world-subtitle","tick","agent-count","pause-btn","speed-select","sector-tab","system-tab",
+  "connection","connection-text","system-picker","system-search","system-list","faction-legend",
+  "map-title","map-summary","pause-btn","speed-select","sector-tab","system-tab","map-layers",
   "ships-toggle","links-toggle","labels-toggle","fit-btn","map","canvas-holder","hover-label",
-  "map-error","data-tick","event-feed","clear-events","inspector-body","clear-selection",
-  "ship-total","facility-total","market-total","first-run-guide","start-system-btn","dismiss-guide-btn"
+  "map-error","map-legend","events-toggle","event-count","timeline","event-feed","clear-events",
+  "inspector","inspector-body","inspector-back","clear-selection","fleet-strip"
 ].map(id => [id.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase()), byId(id)]));
 
 const s = {
   report: null, index: null, ships: [], health: null, positions: new Map(),
   ws: null, wsUp: false, live: false, events: [],
-  view: "sector", systemName: null, selection: null,
+  view: "sector", systemName: null, selection: null, selectionHistory: [],
   zoom: 1, pan: {x: 0, y: 0}, dragging: null, hover: null,
   targets: [], visualPositions: new Map(), shipMotion: new Map(),
   mapWorldPositions: new Map(),
-  lastReportAt: 0, fetching: false, error: null, guideDismissed: false
+  lastReportAt: 0, fetching: false, error: null
 };
 const fmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
 const q = value => value == null ? "—" : String(value);
@@ -34,8 +34,10 @@ let pixels = { w: 0, h: 0 };
 function setOnline(isOnline, statusText) {
   s.live = isOnline;
   els.connection.classList.toggle("online", isOnline);
-  els.connection.lastChild.textContent = statusText;
-  els.mapError.hidden = isOnline;
+  if (!isOnline || !s.health) els.connectionText.textContent = statusText;
+  els.connection.classList.toggle("paused", isOnline && s.health?.running === false);
+  els.mapError.hidden = isOnline || !s.report;
+  refreshToolbar();
   els.pauseBtn.disabled = !isOnline;
   els.speedSelect.disabled = !isOnline;
 }
@@ -73,23 +75,20 @@ function saveReport(report) {
   s.ships = list(report.ships);
   s.index = buildIndex(report);
   s.lastReportAt = Date.now();
-  // Genesis has no reason to open on an empty sector map with a guide
-  // telling the user to open its one and only system.
-  if (firstReport && s.index.systems.length === 1 && s.ships.length <= 8) {
+  // In a one-system world, open the system directly.
+  if (firstReport && s.index.systems.length === 1) {
     s.systemName = s.index.systems[0].name;
     s.view = "system";
     s.selection = null;
-    s.guideDismissed = true;
     els.shipsToggle.checked = true;
     resetCamera();
   }
   if (s.systemName && !systemByName(s.systemName, s.index)) {
-    s.view = "sector"; s.systemName = null; s.selection = null;
+    s.view = "sector"; s.systemName = null; s.selection = null; s.selectionHistory = [];
   }
   renderSidebar();
   renderInspector();
   refreshToolbar();
-  renderStartGuide();
 }
 
 async function fetchReport() {
@@ -107,34 +106,41 @@ async function fetchReport() {
 }
 
 function refreshToolbar() {
-  if (!s.report) return;
   const h = s.health ?? s.report;
-  const running = Boolean(h.running);
-  els.tick.textContent = fnum(h.tick);
-  els.dataTick.textContent = fnum(s.report.tick);
-  els.agentCount.textContent = h.agent_count != null ? fnum(h.agent_count) : "—";
-  els.pauseBtn.textContent = running ? "⏸ Пауза" : "▶ Продолжить";
-  els.shipTotal.textContent = fnum(s.ships.length);
-  els.facilityTotal.textContent = fnum(list(s.report.facilities).length);
-  els.marketTotal.textContent = fnum(list(s.report.markets).length);
-  els.systemCount.textContent = fnum(s.index?.systems.length);
-  els.factionCount.textContent = fnum(list(s.report.factions).length);
-  const largeWorld = s.ships.length > 20 ? " · большой исходный мир" : "";
-  const smallStart = s.index?.systems.length === 1 && s.ships.length <= 8;
-  els.worldSubtitle.textContent = smallStart
-    ? "Малый старт · " + (s.view === "system" ? s.systemName : "сектор")
-    : (s.view === "system" ? s.systemName : "Сектор · живые данные") + largeWorld;
-  els.sectorTab.classList.toggle("active", s.view === "sector");
-  els.systemTab.classList.toggle("active", s.view === "system");
-  els.systemTab.disabled = !s.systemName;
+  if (!h) return;
+  const running = h.running === true;
+  if (s.live && typeof h.running === "boolean") {
+    const status = running ? "Симуляция идёт" : "На паузе";
+    if (els.connectionText.textContent !== status) els.connectionText.textContent = status;
+    els.connection.classList.toggle("paused", !running);
+  }
+  els.pauseBtn.textContent = running ? "Ⅱ Пауза" : "▶ Продолжить";
+  if (s.index) {
+    const inSystem = s.view === "system";
+    const system = inSystem ? systemByName(s.systemName, s.index) : null;
+    const systemCount = s.index.systems.length;
+    els.mapTitle.textContent = system?.name ?? "Сектор";
+    els.mapSummary.textContent = system
+      ? "Тела " + list(system.bodies).length + " · Объекты " + (s.index.systemFacilities.get(system.name)?.length ?? 0)
+      : "Системы " + systemCount;
+    els.systemTab.disabled = !s.systemName;
+    els.sectorTab.classList.toggle("active", !inSystem);
+    els.systemTab.classList.toggle("active", inSystem);
+    els.sectorTab.setAttribute("aria-pressed", String(!inSystem));
+    els.systemTab.setAttribute("aria-pressed", String(inSystem));
+    els.mapLegend.hidden = !inSystem;
+    els.linksToggle.closest("label").hidden = inSystem;
+    els.systemPicker.hidden = inSystem && systemCount === 1;
+    if (els.systemPicker.hidden) els.systemPicker.open = false;
+  }
   const speed = h.world_speed ?? h.config?.world_speed;
   if (speed != null && !els.speedSelect.matches(":focus")) {
     const closest = [...els.speedSelect.options].reduce((best, opt) =>
       Math.abs(Number(opt.value) - speed) < Math.abs(Number(best.value) - speed) ? opt : best,
       els.speedSelect.options[0]);
     els.speedSelect.value = closest.value;
-    els.speedSelect.title = "Текущий world_speed: " + speed;
   }
+  renderFleet();
 }
 
 function marker(parent, className, color) {
@@ -164,7 +170,7 @@ function renderSidebar() {
     marker(item, "dot", color);
     item.appendChild(textEl("span", system.name, "sys-name"));
     item.appendChild(textEl("span", list(system.bodies).length, "sys-count"));
-    item.addEventListener("click", () => chooseSystem(system.name, true));
+    item.addEventListener("click", () => chooseSystem(system.name));
     els.systemList.appendChild(item);
   }
   if (!els.systemList.childNodes.length) {
@@ -181,30 +187,74 @@ function renderSidebar() {
   }
 }
 
-function renderStartGuide() {
-  const system = s.index?.systems.find(x => x.name === "Sol") ?? s.index?.systems[0];
-  const visible = Boolean(system && !s.guideDismissed && !s.selection && s.view === "sector");
-  els.firstRunGuide.hidden = !visible;
-  els.startSystemBtn.disabled = !system;
-  els.startSystemBtn.textContent = system ? "Открыть " + system.name : "Нет доступных систем";
+function setSelection(selection, drillDown = false) {
+  if (drillDown) s.selectionHistory.push(s.selection);
+  else s.selectionHistory = [];
+  s.selection = selection;
+  renderInspector();
+  renderFleet();
 }
 
-function chooseSystem(name, enter) {
+function chooseSystem(name) {
   if (!s.index || !systemByName(name, s.index)) return;
-  const changed = s.systemName !== name || (enter && s.view !== "system");
+  const changed = s.systemName !== name || s.view !== "system";
   s.systemName = name;
-  s.selection = { type: "system", id: name };
-  s.guideDismissed = true;
-  if (enter) { s.view = "system"; els.shipsToggle.checked = true; }
+  if (s.view !== "system") {
+    s.view = "system";
+    els.shipsToggle.checked = true;
+  }
   if (changed) resetCamera();
-  renderSidebar(); renderInspector(); refreshToolbar(); renderStartGuide();
+  els.systemPicker.open = false;
+  setSelection(null);
+  renderSidebar();
+  refreshToolbar();
 }
 
 function sectorMode() {
+  if (s.view === "sector") return;
   s.view = "sector";
   els.shipsToggle.checked = false;
-  resetCamera(); renderSidebar(); refreshToolbar(); renderStartGuide();
+  setSelection(null);
+  resetCamera();
+  renderSidebar();
+  refreshToolbar();
 }
+
+function shipStatus(ship) {
+  const state = shipMapState(ship);
+  if (state === "in_transit") return "В пути";
+  if (state === "docked") return "У причала";
+  return state === "at_location" ? "На месте" : "Положение не указано";
+}
+
+function renderFleet() {
+  // Keep this a quick selector for Genesis-sized rosters. Larger worlds
+  // can still use the ship layer and the location's existing ship list.
+  const ships = s.view === "system" && s.ships.length <= 8 ? s.ships.filter(ship =>
+    s.index.systems.length === 1 || shipSystem(ship, s.index) === s.systemName) : [];
+  els.fleetStrip.hidden = ships.length === 0;
+  const ids = ships.map(ship => String(ship.id));
+  const buttons = [...els.fleetStrip.children];
+  if (buttons.length !== ids.length || buttons.some((button, i) => button.dataset.shipId !== ids[i])) {
+    els.fleetStrip.replaceChildren(...ships.map(ship => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "fleet-ship";
+      button.dataset.shipId = String(ship.id);
+      button.append(textEl("span", ship.name ?? ship.id), textEl("span", "", "fleet-status"));
+      button.addEventListener("click", () => setSelection({type:"ship", id:ship.id}));
+      return button;
+    }));
+  }
+  ships.forEach((ship, i) => {
+    const button = els.fleetStrip.children[i];
+    const status = shipStatus(ship);
+    if (button.lastChild.textContent !== status) button.lastChild.textContent = status;
+    button.lastChild.dataset.transit = String(shipMapState(ship) === "in_transit");
+    button.setAttribute("aria-pressed", String(s.selection?.type === "ship" && s.selection.id === ship.id));
+  });
+}
+
 function resetCamera() {
   s.zoom = 1;
   s.pan = {x: 0, y: 0};
@@ -242,9 +292,9 @@ function inspectorRow(parent, label, value) {
   parent.appendChild(row);
 }
 function detailGroup(parent, title) { parent.appendChild(textEl("div", title, "group-title")); }
-function chips(parent, entries, max = 8) {
+function chips(parent, entries, max = 8, emptyLabel = "Нет данных") {
   const items = list(entries).slice(0, max);
-  if (!items.length) return parent.appendChild(textEl("p", "Нет данных"));
+  if (!items.length) return parent.appendChild(textEl("p", emptyLabel, "small-note"));
   for (const item of items) parent.appendChild(textEl("span", item, "chip"));
 }
 function showHubShips(content, location) {
@@ -256,10 +306,10 @@ function showHubShips(content, location) {
     button.type="button";button.className="group-member";
     button.appendChild(textEl("span",ship.name??ship.id));
     button.appendChild(textEl("span",
-      shipMapState(ship)==="docked"?"Пристыкован": "На месте / без перелёта",
+      shipStatus(ship),
       "group-member-note"));
     button.addEventListener("click",()=>{
-      s.selection={type:"ship",id:ship.id};renderInspector();
+      setSelection({type:"ship",id:ship.id}, true);
     });
     content.appendChild(button);
   }
@@ -269,23 +319,20 @@ function showHubShips(content, location) {
 let lastInspectorSelection = "";
 function renderInspector() {
   const selectionKey = s.selection ? s.selection.type + ":" + s.selection.id : "";
-  const previousScroll = selectionKey && selectionKey === lastInspectorSelection
-    ? els.inspectorBody.scrollTop : 0;
+  const sameSelection = selectionKey === lastInspectorSelection;
+  const previousScroll = sameSelection ? els.inspectorBody.scrollTop : 0;
+  const openDetails = sameSelection && Boolean(els.inspectorBody.querySelector("details[open]"));
+  const focusDetails = sameSelection && document.activeElement === els.inspectorBody.querySelector("summary");
   lastInspectorSelection = selectionKey;
   els.inspectorBody.replaceChildren();
   const entity = selectionEntity();
-  document.body.classList.toggle("has-selection", Boolean(entity));
-  renderStartGuide();
-  if (!entity) {
-    els.inspectorBody.appendChild(textEl("div", "◎", "placeholder-icon"));
-    els.inspectorBody.appendChild(textEl("h2", "Выберите объект"));
-    els.inspectorBody.appendChild(textEl("p", "Нажмите на систему, планету, станцию или корабль. Здесь появится его настоящее состояние."));
-    return;
-  }
+  els.inspector.hidden = !entity;
+  els.inspectorBack.hidden = s.selectionHistory.length === 0;
+  if (!entity) return;
   const type = s.selection.type;
   const typeNames = {
     system:"ЗВЁЗДНАЯ СИСТЕМА",ship:"КОРАБЛЬ",facility:"ОБЪЕКТ",body:"НЕБЕСНОЕ ТЕЛО",
-    ship_group:"ГРУППА КОРАБЛЕЙ", facility_group:"ГРУППА ОБЪЕКТОВ"
+    ship_group:"ГРУППА КОРАБЛЕЙ", facility_group:"ЛОГИСТИЧЕСКИЙ ХАБ"
   };
   els.inspectorBody.appendChild(textEl("div", typeNames[type], "kind"));
   els.inspectorBody.appendChild(textEl("h2", entity.name ?? entity.id));
@@ -293,20 +340,16 @@ function renderInspector() {
   if (type === "ship_group" || type === "facility_group") {
     const isShip = type === "ship_group";
     const members = entity.members;
-    inspectorRow(content, "Всего", members.length);
-    content.appendChild(textEl("p",
-      "Несколько реальных объектов отображаются одним значком, чтобы карта не превращалась в стену символов. Выберите нужный объект из списка.",
-      "small-note"));
+    if (!isShip && members.length) showHubShips(content, members[0].location);
+    detailGroup(content, (isShip ? "Корабли" : "Инфраструктура") + " · " + members.length);
     for (const member of members.slice(0, 140)) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "group-member";
       button.appendChild(textEl("span", member.name ?? member.id));
-      button.appendChild(textEl("span", isShip ? (member.current_goal ?? member.class ?? "") :
-        (member.type ?? ""), "group-member-note"));
+      button.appendChild(textEl("span", isShip ? shipStatus(member) : (facilityNames[member.type] ?? member.type ?? ""), "group-member-note"));
       button.addEventListener("click", () => {
-        s.selection = {type: isShip ? "ship" : "facility", id: member.id};
-        renderInspector();
+        setSelection({type: isShip ? "ship" : "facility", id: member.id}, true);
       });
       content.appendChild(button);
     }
@@ -315,8 +358,7 @@ function renderInspector() {
         "Показаны первые 140 объектов; для остальных приблизьте карту или откройте их через другой район.",
         "small-note"));
     }
-    if(type==="facility_group" && members.length)
-      showHubShips(content,members[0].location);
+    if (!isShip && members.length) showMarket(content, members[0].location);
     els.inspectorBody.scrollTop = previousScroll;
     return;
   }
@@ -335,68 +377,78 @@ function renderInspector() {
     inspectorRow(content, "Рынки", markets.length);
     inspectorRow(content, "Популяции", pops.length);
     inspectorRow(content, "Нехватки", shortageCount(markets) + " позиций");
-    content.appendChild(textEl("p", "Принадлежность рассчитана по владельцам небесных тел. Это не официальный system_control.", "small-note"));
+    if (s.view === "sector") {
+      const openSystem = textEl("button", "Открыть систему", "small-button");
+      openSystem.addEventListener("click", () => chooseSystem(entity.name));
+      content.appendChild(openSystem);
+    }
     detailGroup(content, "Объекты системы");
     chips(content, facilities.map(f => f.name), 16);
     detailGroup(content, "Доступные рынки");
     chips(content, markets.map(m => m.facility_location), 16);
   } else if (type === "ship") {
-    inspectorRow(content, "Класс", entity.class);
-    inspectorRow(content, "Размер", entity.size ?? "—");
-    inspectorRow(content, "Фракция", factionName(entity.faction_id, s.index));
-    inspectorRow(content, "Цель ИИ", entity.current_goal);
-    inspectorRow(content, "Действие", entity.current_bt ?? "—");
-    inspectorRow(content, "Положение", entity.location ?? (entity.transit ? "В пути" : "Неизвестно"));
+    const status = document.createElement("div");
+    status.className = "ship-status";
+    status.appendChild(textEl("strong", shipStatus(entity)));
     if (entity.transit) {
-      inspectorRow(content, "Из", entity.transit.from);
-      inspectorRow(content, "В", entity.transit.to);
-      inspectorRow(content, "Пройдено", fnum(entity.transit.distance_travelled) + " / " + fnum(entity.transit.distance_total));
+      const {from, to, distance_travelled, distance_total} = entity.transit;
+      status.appendChild(textEl("span", locationLabel(from) + " → " + locationLabel(to)));
+      if (distance_total > 0 && Number.isFinite(distance_travelled)) {
+        const progress = document.createElement("progress");
+        progress.max = distance_total;
+        progress.value = distance_travelled;
+        progress.setAttribute("aria-label", "Прогресс перелёта");
+        status.appendChild(progress);
+      }
+    } else if (entity.location) {
+      status.appendChild(textEl("span", locationLabel(entity.location)));
     }
+    content.appendChild(status);
+    detailGroup(content, "Груз");
+    chips(content, sortedCargo(entity.cargo).map(([name, amount]) =>
+      commodityLabel(name) + " · " + fnum(amount)), 8, "Трюм пуст");
     inspectorRow(content, "Топливо", fnum(entity.fuel) + " / " + fnum(entity.fuel_capacity));
     inspectorRow(content, "Кредиты", fnum(entity.credits));
-    inspectorRow(content, "Экипаж", entity.crew?.size ?? "—");
-    detailGroup(content, "Груз");
-    chips(content, sortedCargo(entity.cargo).map(([name,amount]) => commodityLabel(name) + ": " + amount));
+
+    const technical = document.createElement("details");
+    technical.className = "inspector-details";
+    technical.open = openDetails;
+    technical.appendChild(textEl("summary", "Экипаж, оснащение и данные ИИ"));
+    inspectorRow(technical, "Класс", shipClasses[entity.class] ?? entity.class);
+    inspectorRow(technical, "Размер", entity.size);
+    inspectorRow(technical, "Фракция", factionName(entity.faction_id, s.index));
+    inspectorRow(technical, "Экипаж", entity.crew?.size);
+    inspectorRow(technical, "Цель ИИ", entity.current_goal);
+    inspectorRow(technical, "Действие", entity.current_bt);
     if (entity.progression) {
-      detailGroup(content, "Развитие");
-      inspectorRow(content, "Уровень", entity.progression.level ?? "—");
-      inspectorRow(content, "Очки модернизации", entity.progression.retrofit_points ?? "—");
+      inspectorRow(technical, "Уровень", entity.progression.level);
+      inspectorRow(technical, "Очки модернизации", entity.progression.retrofit_points);
     }
     if (entity.fitting?.modules) {
-      detailGroup(content, "Установленные модули");
       const slotNames = {engine:"Двигатель",cargo_bay:"Трюм",sensors:"Сенсоры",reactor:"Реактор",comms:"Связь"};
-      for (const slot of ["engine","cargo_bay","sensors","reactor","comms"]) {
+      for (const [slot, name] of Object.entries(slotNames)) {
         const slug = entity.fitting.modules[slot];
-        inspectorRow(content, slotNames[slot], slug ? String(slug).replace(/.*_t([123])$/, "T$1") : "Нет данных");
+        if (slug) inspectorRow(technical, name, String(slug).replace(/.*_t([123])$/, "T$1"));
       }
     }
+    content.appendChild(technical);
+    if (focusDetails) technical.firstElementChild.focus({preventScroll:true});
   } else if (type === "facility") {
-    inspectorRow(content, "Тип", entity.type);
+    inspectorRow(content, "Тип", facilityNames[entity.type] ?? entity.type);
     inspectorRow(content, "Фракция", factionName(entity.faction_id, s.index));
-    inspectorRow(content, "Расположение", entity.location);
-    inspectorRow(content, "Состояние", Math.round(number(entity.condition) * 100) + "%");
+    inspectorRow(content, "Расположение", locationLabel(entity.location, entity.id));
+    inspectorRow(content, "Состояние", entity.condition == null ? "—" : fnum(number(entity.condition) * 100) + "%");
     inspectorRow(content, "Уровень", entity.level);
     inspectorRow(content, "Кредиты", fnum(entity.credits));
-    inspectorRow(content, "Корабли у причала", list(entity.docked_ships).length);
-    inspectorRow(content, "Заброшен", entity.abandoned ? "Да" : "Нет");
+    if (entity.abandoned) inspectorRow(content, "Статус", "Заброшен");
     if (entity.gate_link) inspectorRow(content, "Связанные врата", entity.gate_link.paired_gate_id);
-    detailGroup(content, "Запасы");
-    chips(content, Object.entries(entity.reserves ?? {}).filter(([,v])=>number(v)>0).map(([k,v])=>k + ": " + fnum(v)));
-    // Show the actual commodity market attached to this facility location.
-    const market = list(s.report.markets).find(m => key(m.facility_location) === key(entity.location));
-    if (market) {
-      detailGroup(content, "Рынок — товары");
-      const commodities = [...new Set([
-        ...Object.keys(market.prices ?? {}), ...Object.keys(market.supply ?? {})
-      ])].sort((a,b) => number(market.shortage_ticks?.[b]) - number(market.shortage_ticks?.[a]));
-      for (const commodity of commodities.slice(0, 16)) {
-        inspectorRow(content, commodityLabel(commodity),
-          "Цена " + fnum(market.prices?.[commodity]) +
-          " · запас " + fnum(market.supply?.[commodity]) +
-          " · спрос " + fnum(market.demand?.[commodity]));
-      }
+    showHubShips(content, entity.location);
+    const reserves = Object.entries(entity.reserves ?? {}).filter(([,v]) => number(v) > 0);
+    if (reserves.length) {
+      detailGroup(content, "Резерв объекта");
+      chips(content, reserves.map(([k,v]) => commodityLabel(k) + " · " + fnum(v)));
     }
-    showHubShips(content,entity.location);
+    showMarket(content, entity.location);
   } else if (type === "body") {
     inspectorRow(content, "Тип", entity.type);
     inspectorRow(content, "Биом", entity.biome ?? "—");
@@ -407,12 +459,57 @@ function renderInspector() {
   els.inspectorBody.scrollTop = previousScroll;
 }
 
+const shipClasses = {freighter:"Грузовик", courier:"Курьер"};
+const facilityNames = {
+  station:"Станция", mining_rig:"Добыча", farm:"Ферма",
+  refinery:"Переработка", factory:"Завод", shipyard:"Верфь", gate:"Врата"
+};
+
+function locationLabel(location, exceptId) {
+  if (location == null) return "—";
+  const facilities = list(s.report?.facilities).filter(f => key(f.location) === key(location));
+  const hub = facilities.find(f => f.type === "station" || f.type === "mining_rig") ?? facilities[0];
+  return hub?.id === exceptId ? location : (hub?.name ?? location);
+}
+
+function showMarket(content, location) {
+  const market = list(s.report.markets).find(m => key(m.facility_location) === key(location));
+  if (!market) return;
+  const commodities = [...new Set([
+    ...Object.keys(market.prices ?? {}), ...Object.keys(market.supply ?? {}), ...Object.keys(market.demand ?? {})
+  ])].sort((a,b) => number(market.shortage_ticks?.[b]) - number(market.shortage_ticks?.[a]));
+  if (!commodities.length) return;
+  detailGroup(content, "Местный рынок");
+  const table = document.createElement("table");
+  table.className = "market-table";
+  table.setAttribute("aria-label", "Местный рынок");
+  const header = table.createTHead().insertRow();
+  for (const label of ["Товар", "Запас", "Спрос", "Цена"]) {
+    const cell = textEl("th", label);
+    cell.scope = "col";
+    header.appendChild(cell);
+  }
+  const body = table.createTBody();
+  for (const commodity of commodities) {
+    const row = body.insertRow();
+    const shortage = number(market.shortage_ticks?.[commodity]) > 0;
+    row.classList.toggle("shortage", shortage);
+    row.insertCell().textContent = commodityLabel(commodity) + (shortage ? " · дефицит" : "");
+    row.insertCell().textContent = fnum(market.supply?.[commodity]);
+    row.insertCell().textContent = fnum(market.demand?.[commodity]);
+    row.insertCell().textContent = fnum(market.prices?.[commodity]);
+  }
+  content.appendChild(table);
+}
+
 const eventNames = {
   ship_docked: "Корабль пристыковался", ship_undocked: "Корабль отстыковался",
   ship_refitted: "Модернизация корабля", ship_decommissioned: "Корабль списан",
   construction_completed: "Строительство завершено", construction_started: "Строительство началось",
   contract_posted: "Опубликован контракт", contract_renewed: "Контракт продлён",
   contract_expired: "Срок контракта истёк", contract_completed: "Контракт выполнен",
+  contract_accepted: "Контракт принят", contract_delivered: "Контракт выполнен",
+  passengers_arrived: "Пассажиры прибыли",
   ship_spawned: "Создан корабль", faction_control_changed: "Изменение территории"
 };
 function eventLabel(event) {
@@ -428,22 +525,32 @@ function eventLabel(event) {
   for(const [field,label] of [
     ["ship_name","Корабль"],["ship_id","Корабль"],
     ["facility_name","Объект"],["facility_id","Объект"],
-    ["location","Место"],["source_location","Откуда"],
+    ["location","Место"],[event?.source_location == null ? "source" : "source_location","Откуда"],
     ["destination","Куда"],["quantity","Количество"]
   ]){
-    if(event?.[field] != null) parts.push(label + ": " + event[field]);
+    if (event?.[field] != null) {
+      const value = ["location", "source_location", "source", "destination"].includes(field)
+        ? locationLabel(event[field]) : event[field];
+      parts.push(label + ": " + value);
+    }
   }
-  if(cargo)parts.push("Груз: "+cargo);
-  if(event?.kind==="contract_expired")parts.push("Исполнитель не принял заявку");
+  if (cargo) parts.unshift("Груз: " + cargo);
+  if (raw === "contract_expired") parts.push("Исполнитель не принял заявку");
   return {kind,detail:parts.slice(0,5).join(" · ") || "Изменение в симуляции"};
 }
+const eventRows = new WeakMap();
 function renderEvents() {
-  els.eventFeed.replaceChildren();
+  els.eventCount.textContent = fnum(s.events.length);
+  if (els.timeline.hidden) return;
   if (!s.events.length) {
-    els.eventFeed.appendChild(textEl("div","События появятся по мере работы симуляции","empty"));
+    els.eventFeed.replaceChildren(textEl("div", "События появятся по мере работы симуляции", "empty"));
     return;
   }
-  for (const {tick,event} of s.events.slice(0,70)) {
+  els.eventFeed.querySelector(".empty")?.remove();
+  const visible = s.events.slice(0, 70);
+  for (const entry of visible.slice().reverse()) {
+    if (eventRows.get(entry)?.isConnected) continue;
+    const {tick, event} = entry;
     const row = document.createElement("div");
     row.className = "event-row";
     row.appendChild(textEl("time","t " + fnum(tick)));
@@ -458,8 +565,10 @@ function renderEvents() {
       details.appendChild(raw); body.appendChild(details);
     }
     row.appendChild(body);
-    els.eventFeed.appendChild(row);
+    eventRows.set(entry, row);
+    els.eventFeed.prepend(row);
   }
+  while (els.eventFeed.childElementCount > visible.length) els.eventFeed.lastElementChild.remove();
 }
 function handleEvents(tick, events) {
   for (const event of list(events)) s.events.unshift({tick,event});
@@ -1027,6 +1136,7 @@ function nearestTarget(x,y) {
 }
 
 function installCanvasHandlers(){
+  let lastPick = null;
   const toLocal=e=>{const r=els.map.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};
   els.map.addEventListener("pointerdown",e=>{
     if(e.button!==0)return;
@@ -1058,20 +1168,28 @@ function installCanvasHandlers(){
     const moved=s.dragging.moved;
     s.dragging=null;els.map.classList.remove("grabbing");
     if(!moved){
-      const p=toLocal(e),target=nearestTarget(p.x,p.y);
+      const p = toLocal(e);
+      const sameSpot = lastPick && e.timeStamp - lastPick.time < 500 &&
+        Math.hypot(p.x - lastPick.x, p.y - lastPick.y) < 5;
+      // Opening the dock can move the map before the second click.
+      if (sameSpot) return;
+      const target = nearestTarget(p.x, p.y);
+      lastPick = target ? {...p, time:e.timeStamp, target} : null;
       if(target){
-        s.selection={type:target.type,id:target.id,ids:target.ids,name:target.name};
-        if(target.type==="system")s.systemName=target.id;
-        s.guideDismissed = true;
-        renderInspector();refreshToolbar();renderSidebar();
+        if (target.type === "system") s.systemName = target.id;
+        setSelection({type:target.type,id:target.id,ids:target.ids,name:target.name});
+        refreshToolbar();
+        renderSidebar();
       }
     }
   });
   els.map.addEventListener("pointercancel",()=>{s.dragging=null;els.map.classList.remove("grabbing");});
   els.map.addEventListener("pointerleave",()=>{els.hoverLabel.hidden=true;});
   els.map.addEventListener("dblclick",e=>{
-    const p=toLocal(e),target=nearestTarget(p.x,p.y);
-    if(target?.type==="system")chooseSystem(target.id,true);
+    const p = toLocal(e);
+    const target = lastPick?.target ?? nearestTarget(p.x, p.y);
+    lastPick = null;
+    if(target?.type==="system")chooseSystem(target.id);
     else if(target?.type==="ship_group" || target?.type==="facility_group") changeZoomAt(p,2);
   });
   els.map.addEventListener("wheel",e=>{
@@ -1079,9 +1197,6 @@ function installCanvasHandlers(){
     const pointer=toLocal(e);
     changeZoomAt(pointer,e.deltaY<0?1.18:1/1.18);
   },{passive:false});
-  els.map.addEventListener("keydown",e=>{
-    if(e.key==="Escape"){sectorMode();els.map.blur();}
-  });
 }
 
 function wireControls() {
@@ -1092,16 +1207,38 @@ function wireControls() {
     world_speed:Number(els.speedSelect.value)
   }));
   els.sectorTab.addEventListener("click",sectorMode);
-  els.systemTab.addEventListener("click",()=>{if(s.systemName)chooseSystem(s.systemName,true);});
+  els.systemTab.addEventListener("click",()=>{if(s.systemName)chooseSystem(s.systemName);});
   els.fitBtn.addEventListener("click",resetCamera);
   els.systemSearch.addEventListener("input",renderSidebar);
-  els.clearEvents.addEventListener("click",()=>{s.events=[];renderEvents();});
-  els.clearSelection.addEventListener("click",()=>{s.selection=null;renderInspector();});
-  els.startSystemBtn.addEventListener("click",()=>{
-    const chosen = s.index?.systems.find(x => x.name === "Sol") ?? s.index?.systems[0];
-    if (chosen) chooseSystem(chosen.name, true);
+  els.eventsToggle.addEventListener("click", () => {
+    els.timeline.hidden = !els.timeline.hidden;
+    els.eventsToggle.setAttribute("aria-expanded", String(!els.timeline.hidden));
+    renderEvents();
   });
-  els.dismissGuideBtn.addEventListener("click",()=>{s.guideDismissed=true;renderStartGuide();});
+  els.clearEvents.addEventListener("click", () => { s.events = []; renderEvents(); });
+  els.clearSelection.addEventListener("click", () => {
+    setSelection(null);
+    els.map.focus({preventScroll:true});
+  });
+  els.inspectorBack.addEventListener("click", () => {
+    s.selection = s.selectionHistory.pop() ?? null;
+    renderInspector();
+    renderFleet();
+  });
+  const popovers = [els.systemPicker, els.mapLayers];
+  document.addEventListener("click", event => {
+    for (const popover of popovers) {
+      if (!popover.contains(event.target)) popover.open = false;
+    }
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || event.target.matches("input, select")) return;
+    const opened = popovers.find(popover => popover.open);
+    if (opened) opened.open = false;
+    else if (s.selection) setSelection(null);
+    else if (!els.timeline.hidden) els.eventsToggle.click();
+    else sectorMode();
+  });
   installCanvasHandlers();
 }
 
@@ -1110,5 +1247,9 @@ renderMap();
 fetchReport().then(()=>{connectWs();fetchHealth();});
 window.setInterval(fetchReport,18000);
 window.setInterval(fetchHealth,2500);
-window.setInterval(()=>{refreshToolbar();renderInspector();},2200);
+window.setInterval(() => {
+  refreshToolbar();
+  // Keep a focused inspector control attached while the user navigates it.
+  if (!els.inspectorBody.contains(document.activeElement) || document.activeElement.matches("summary")) renderInspector();
+}, 2200);
 window.addEventListener("beforeunload",()=>s.ws?.close());

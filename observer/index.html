@@ -9,100 +9,86 @@
 </head>
 <body>
 <div class="shell">
-  <aside class="sidebar">
-    <header class="identity">
-      <div class="brand"><span class="brand-mark">◈</span><span>LIVING <strong>SECTOR</strong><small>OBSERVER · FIRST-USE PREVIEW</small></span></div>
-      <div id="connection" class="status" role="status"><span class="status-dot"></span>Подключение…</div>
-    </header>
-    <div class="sidebar-content">
-      <div class="section-heading"><span>ЗВЁЗДНЫЕ СИСТЕМЫ</span><span id="system-count">—</span></div>
-      <label class="sr-only" for="system-search">Поиск системы</label>
-      <input id="system-search" class="search" type="search" placeholder="Поиск системы…" autocomplete="off">
-      <div id="system-list" class="system-list"><div class="empty">Ожидание данных симуляции</div></div>
-      <div class="section-heading shift"><span>ФРАКЦИИ</span><span id="faction-count">—</span></div>
-      <div id="faction-legend" class="faction-list"><div class="empty">—</div></div>
+  <header class="toolbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">◈</span><span>LIVING SECTOR</span></div>
+    <div class="view-tabs" aria-label="Масштаб карты">
+      <button id="sector-tab" class="tab active" aria-pressed="true">Сектор</button>
+      <button id="system-tab" class="tab" aria-pressed="false" disabled>Система</button>
     </div>
-    <footer class="sidebar-footer">
-      <span>Источник: The Space Project / Rust</span>
-      <span>Данные — только из работающего симулятора</span>
-    </footer>
-  </aside>
+    <div class="controls">
+      <div id="connection" class="status" role="status"><span class="status-dot"></span><span id="connection-text">Подключение…</span></div>
+      <button id="pause-btn" class="control-button primary" disabled>Продолжить</button>
+      <label for="speed-select" class="sr-only">Скорость симуляции</label>
+      <select id="speed-select" class="control-button" disabled>
+        <option value="0.25">0,25×</option>
+        <option value="1">1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+        <option value="8">8×</option>
+        <option value="16">16×</option>
+      </select>
+    </div>
+  </header>
 
-  <main class="main">
-    <header class="toolbar">
-      <div class="title-group">
-        <span class="overline">SIMULATION</span>
-        <span class="world-title">Обзор сектора</span>
-        <span id="world-subtitle" class="sub-title">—</span>
-      </div>
-      <div class="controls">
-        <div class="readout"><span>ТИК</span><strong id="tick">—</strong></div>
-        <div class="readout"><span>АГЕНТЫ</span><strong id="agent-count">—</strong></div>
-        <div class="overview-counts" aria-label="Масштаб текущего мира"><span>Корабли <b id="ship-total">—</b></span><span>Объекты <b id="facility-total">—</b></span><span>Рынки <b id="market-total">—</b></span></div>
-        <button id="pause-btn" class="control-button" disabled aria-label="Пауза или продолжение">⏯ Пауза</button>
-        <label for="speed-select" class="sr-only">Скорость симуляции</label>
-        <select id="speed-select" class="control-button" disabled>
-          <option value="0.25">0.25×</option>
-          <option value="1">1×</option>
-          <option value="2">2×</option>
-          <option value="4">4×</option>
-          <option value="8">8×</option>
-        </select>
-      </div>
-    </header>
+  <div class="workspace">
+    <main class="main">
+      <section class="map-section" aria-label="Карта">
+        <div class="map-top">
+          <div class="map-title">
+            <h1 id="map-title">Сектор</h1>
+            <span id="map-summary"></span>
+          </div>
+          <div class="map-tools">
+            <details id="system-picker" class="popover">
+              <summary>Системы</summary>
+              <div class="popover-panel">
+                <label class="sr-only" for="system-search">Поиск системы</label>
+                <input id="system-search" class="search" type="search" placeholder="Поиск системы…" autocomplete="off">
+                <div id="system-list" class="system-list"><div class="empty">Ожидание данных</div></div>
+                <div id="faction-legend" class="faction-list" aria-label="Фракции"></div>
+              </div>
+            </details>
+            <details id="map-layers" class="popover">
+              <summary>Слои</summary>
+              <div class="popover-panel layer-options">
+                <label class="toggle"><input id="ships-toggle" type="checkbox"> Корабли</label>
+                <label class="toggle"><input id="links-toggle" type="checkbox" checked> Врата</label>
+                <label class="toggle"><input id="labels-toggle" type="checkbox" checked> Подписи</label>
+              </div>
+            </details>
+            <button id="fit-btn" class="small-button" title="Сброс масштаба и сдвига">Сброс вида</button>
+          </div>
+        </div>
+        <div id="canvas-holder" class="canvas-holder">
+          <canvas id="map" tabindex="0" aria-label="Карта. Колесо меняет масштаб, перетаскивание сдвигает карту."></canvas>
+          <div id="hover-label" class="hover-label" hidden></div>
+          <div id="map-error" class="map-error" hidden>Связь потеряна. Показано последнее полученное состояние.</div>
+          <div id="map-legend" class="map-legend" aria-label="Условные обозначения" hidden>
+            <span><i class="legend-body"></i> Тело</span><span><i class="legend-hub"></i> Хаб</span><span><i class="legend-ship"></i> Корабль</span>
+          </div>
+        </div>
+      </section>
 
-    <section class="map-section" aria-label="Карта живого сектора">
-      <div class="map-top">
-        <div class="view-tabs">
-          <button id="sector-tab" class="tab active">СЕКТОР</button>
-          <button id="system-tab" class="tab" disabled>СИСТЕМА</button>
+      <section class="activity" aria-label="Флот и события">
+        <div class="activity-bar">
+          <div id="fleet-strip" class="fleet-strip" aria-label="Корабли системы" hidden></div>
+          <button id="events-toggle" class="small-button events-toggle" aria-expanded="false" aria-controls="timeline">Журнал <span id="event-count">0</span></button>
         </div>
-        <div class="map-tools">
-          <label class="toggle"><input id="ships-toggle" type="checkbox"> Корабли</label>
-          <label class="toggle"><input id="links-toggle" type="checkbox" checked> Врата</label>
-          <label class="toggle"><input id="labels-toggle" type="checkbox" checked> Подписи</label>
-          <button id="fit-btn" class="small-button" title="Сброс масштаба и сдвига">Сброс вида</button>
+        <div id="timeline" class="timeline" hidden>
+          <header class="timeline-title"><strong>Последние события</strong><button id="clear-events" class="flat-button">Очистить</button></header>
+          <div id="event-feed" class="event-feed"><div class="empty">События появятся по мере работы симуляции</div></div>
         </div>
-      </div>
-      <div id="canvas-holder" class="canvas-holder">
-        <canvas id="map" tabindex="0" aria-label="Интерактивная карта; колесо — масштаб, перетаскивание — сдвиг, клик — выбрать объект"></canvas>
-        <div class="map-stamp">SYSTEM DATA <span id="data-tick">—</span> · LIVE COORDINATES</div>
-        <div id="hover-label" class="hover-label" hidden></div>
-        <div id="map-error" class="map-error" hidden>Нет прямого соединения с симулятором. Показаны только ранее полученные данные.</div>
-        <div id="first-run-guide" class="first-run-guide" hidden>
-          <span class="guide-eyebrow">С ЧЕГО НАЧАТЬ</span>
-          <h2>Начни с одной системы</h2>
-          <p>Карта показывает настоящий мир симуляции. Выбери систему, затем станцию или корабль, чтобы увидеть их работу.</p>
-          <div class="guide-actions"><button id="start-system-btn" class="guide-primary" disabled>Открыть систему</button><button id="dismiss-guide-btn" class="small-button">Показать карту</button></div>
-          <p class="guide-note">Состояние симуляции показано сверху. Для спокойного осмотра можно нажать «Пауза».</p>
-        </div>
-        <div class="map-legend" aria-label="Условные обозначения"><span><i class="legend-body"></i> Планеты</span><span><i class="legend-hub"></i> Станции и добыча</span><span><i class="legend-ship"></i> Корабли в пути</span></div>
-        <div class="map-help">У станции — корабли на стоянке · На карте — только перелёты · Колесо — масштаб к курсору</div>
-      </div>
-    </section>
+      </section>
+    </main>
 
-    <section class="timeline" aria-label="Реальные события симуляции">
-      <header class="timeline-title">
-        <span>СОБЫТИЯ МИРА</span>
-        <span class="hint">WebSocket · без сгенерированных событий</span>
-        <button id="clear-events" class="flat-button">Очистить экран</button>
+    <aside id="inspector" class="inspector" aria-label="Карточка объекта" hidden>
+      <header class="inspector-header">
+        <button id="inspector-back" class="flat-button" hidden>← Назад</button>
+        <button id="clear-selection" class="flat-button close-button" aria-label="Закрыть карточку">✕</button>
       </header>
-      <div id="event-feed" class="event-feed"><div class="empty">События появятся по мере работы симуляции</div></div>
-    </section>
-  </main>
-
-  <aside class="inspector">
-    <header class="inspector-header">
-      <span>ИНСПЕКТОР</span>
-      <button id="clear-selection" class="flat-button">Сброс</button>
-    </header>
-    <div id="inspector-body" class="inspector-body">
-      <div class="placeholder-icon">◎</div>
-      <h2>Выберите объект</h2>
-      <p>Звёздную систему, планету, станцию или корабль. Параметры берутся из текущего состояния симуляции.</p>
-    </div>
-
-  </aside>
+      <div id="inspector-body" class="inspector-body"></div>
+    </aside>
+  </div>
 </div>
 <script type="module" src="/observer/app.js"></script>
 </body>
