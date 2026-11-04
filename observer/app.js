@@ -607,12 +607,12 @@ async function control(path, value) {
 function boundsOf(view) {
   const sys = systemByName(s.systemName, s.index);
   if (view === "system" && sys) {
-    const bodies = sys.bodies.map(b => point(b)).filter(Boolean);
-    const coords = [{x:sys.x,y:sys.y},...bodies];
-    const minX = Math.min(...coords.map(p => p.x)), maxX = Math.max(...coords.map(p=>p.x));
-    const minY = Math.min(...coords.map(p => p.y)), maxY = Math.max(...coords.map(p=>p.y));
-    const radius = Math.max(1, maxX-minX, maxY-minY);
-    return { cx:(minX+maxX)/2, cy:(minY+maxY)/2, sx: Math.max(radius*1.4,3), sy:Math.max(radius*1.4,3) };
+    const orbit = Math.max(1, ...sys.bodies.map(body => {
+      const pos = point(body);
+      return pos ? Math.hypot(pos.x - sys.x, pos.y - sys.y) : 0;
+    }));
+    const span = (orbit + 0.45) * 2;
+    return {cx:sys.x,cy:sys.y,sx:span,sy:span};
   }
   const systems = s.index?.systems ?? [];
   if (!systems.length) return {cx:0,cy:0,sx:60,sy:60};
@@ -754,6 +754,8 @@ function bodyColor(body){
   return "#8eb0c7";
 }
 function bodyRadius(body) {
+  if (bodyBiome(body) === "gas_giant") return 16;
+  if (body.id === "mars") return 7;
   return body.type === "moon" ? 5 : body.type === "belt" || body.type === "asteroid" ? 8 : 10;
 }
 

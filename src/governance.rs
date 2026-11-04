@@ -18,8 +18,8 @@ impl Leader {
 
     pub fn reserve(self) -> u32 {
         match self {
-            Self::Cautious => 194,
-            Self::Industrial => 190,
+            Self::Cautious => 48,
+            Self::Industrial => 24,
         }
     }
 }

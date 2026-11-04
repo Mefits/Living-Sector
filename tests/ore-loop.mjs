@@ -49,6 +49,11 @@ async function observe(leader) {
   const initial = await api(base, "/api/report");
   assert.equal(initial.governance.station_fuel, 200);
   assert.equal(initial.governance.metal, 0);
+  assert.ok(["venus", "mars", "jupiter"].every(id => initial.systems[0].bodies.some(body => body.id === id)));
+  const baseSite = initial.facilities.find(f => f.id === "pirate-outpost");
+  const rig = initial.facilities.find(f => f.id === "belt-outpost");
+  assert.equal(baseSite.body_id, "jupiter");
+  assert.ok(Math.hypot(baseSite.x - rig.x, baseSite.y - rig.y) > 2);
   const socket = new WebSocket(base.replace("http:", "ws:") + "/ws");
   sockets.push(socket);
   const events = [];
@@ -84,7 +89,15 @@ async function observe(leader) {
   child.kill();
   await closed;
 
-  const restarted = await api((await start("", save)).base, "/api/report");
+  const restartedBase = (await start("", save)).base;
+  const restarted = await api(restartedBase, "/api/report");
+  const diagnosticResponse = await fetch(restartedBase + "/api/diagnostics", {signal: timeout});
+  assert.match(diagnosticResponse.headers.get("content-disposition"), /Living-Sector-diagnostics.json/);
+  const diagnostics = await diagnosticResponse.json();
+  assert.equal(diagnostics.version, "0.5.1");
+  assert.equal(diagnostics.state.tick, restarted.tick);
+  assert.ok(diagnostics.events.some(event => event.details.kind === "raid_deflected"));
+  assert.ok(diagnostics.events.some(event => event.kind === "operations"));
   assert.equal(restarted.running, false);
   assert.deepEqual(restarted.governance, paused.governance);
   assert.deepEqual(restarted.ships.map(ship => ship.id), paused.ships.map(ship => ship.id));

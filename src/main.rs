@@ -14,10 +14,11 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sim::Sim;
 use std::{
+    collections::VecDeque,
     env, fs,
     io::{self, Write},
     net::Ipv4Addr,
@@ -31,6 +32,7 @@ use tokio::{
     time::MissedTickBehavior,
 };
 
+const LOG_LIMIT: usize = 400;
 const STEP: Duration = Duration::from_millis(250);
 type Shared = Arc<Mutex<Engine>>;
 
@@ -41,6 +43,7 @@ struct Engine {
     save: PathBuf,
     updates: broadcast::Sender<String>,
     save_error: Option<String>,
+    history: VecDeque<Value>,
 }
 
 impl Engine {
@@ -55,11 +58,40 @@ impl Engine {
         }
         let mut next = self.sim.clone();
         let events = next.step(STEP.as_secs_f64() * self.speed);
-        if (next.phase != self.sim.phase || next.tick.is_multiple_of(4))
-            && let Err(error) = save_sim(&self.save, &next)
-        {
-            self.fail_save(error);
-            return;
+        let mut entries = Vec::new();
+        for event in &events {
+            entries.push(log_entry(&next, "simulation", event));
+        }
+        let previous = (
+            self.sim.phase,
+            self.sim.smelting_status(),
+            self.sim.delivery_status(),
+        );
+        if previous != (next.phase, next.smelting_status(), next.delivery_status()) {
+            entries.push(log_entry(
+                &next,
+                "operations",
+                json!({
+                    "ship_phase": next.phase,
+                    "delivery": next.delivery_status(),
+                    "smelting": next.smelting_status(),
+                    "station_fuel": next.station_fuel,
+                    "belt_fuel": next.belt_fuel,
+                    "metal": next.metal,
+                    "deposit": next.deposit,
+                }),
+            ));
+        }
+        if !entries.is_empty() || next.tick.is_multiple_of(4) {
+            let mut history = self.history.clone();
+            for entry in entries {
+                push_log(&mut history, entry);
+            }
+            if let Err(error) = save_sim(&self.save, &next, &history) {
+                self.fail_save(error);
+                return;
+            }
+            self.history = history;
         }
         self.sim = next;
         let _ = self
@@ -71,35 +103,77 @@ impl Engine {
         eprintln!("Save failed: {error}");
         self.running = false;
         self.save_error = Some(error.to_string());
+        self.record(
+            "save_error",
+            json!({"kind": format!("{:?}", error.kind()), "os_code": error.raw_os_error()}),
+        );
+    }
+
+    fn record(&mut self, kind: &str, details: Value) {
+        push_log(&mut self.history, log_entry(&self.sim, kind, details));
     }
 }
 
-fn load_sim(path: &Path) -> io::Result<Sim> {
+fn push_log(history: &mut VecDeque<Value>, entry: Value) {
+    while history.len() >= LOG_LIMIT {
+        history.pop_front();
+    }
+    history.push_back(entry);
+}
+
+fn log_entry(sim: &Sim, kind: &str, details: impl Serialize) -> Value {
+    json!({"tick": sim.tick, "world_seconds": sim.seconds, "kind": kind, "details": details})
+}
+
+#[derive(Deserialize)]
+struct SaveFile {
+    #[serde(flatten)]
+    sim: Sim,
+    #[serde(default)]
+    diagnostic_history: VecDeque<Value>,
+}
+
+fn load_sim(path: &Path) -> io::Result<SaveFile> {
     match fs::read(path) {
         Ok(bytes) => {
-            let sim: Sim = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
-            if !sim.valid() {
+            let mut loaded: SaveFile = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+            if !loaded.sim.valid() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "invalid simulation state",
                 ));
             }
-            Ok(sim)
+            let skip = loaded.diagnostic_history.len().saturating_sub(LOG_LIMIT);
+            loaded.diagnostic_history.drain(..skip);
+            Ok(loaded)
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             let mut sim = Sim::default();
             if env::var("GENESIS_LEADER").as_deref() != Ok("cautious") {
                 sim.governance.leader = governance::Leader::Industrial;
             }
-            Ok(sim)
+            Ok(SaveFile {
+                sim,
+                diagnostic_history: VecDeque::new(),
+            })
         }
         Err(error) => Err(error),
     }
 }
 
-fn save_sim(path: &Path, sim: &Sim) -> io::Result<()> {
+fn save_sim(path: &Path, sim: &Sim, history: &VecDeque<Value>) -> io::Result<()> {
+    #[derive(Serialize)]
+    struct Save<'a> {
+        #[serde(flatten)]
+        sim: &'a Sim,
+        diagnostic_history: &'a VecDeque<Value>,
+    }
     let tmp = path.with_extension("json.tmp");
-    let bytes = serde_json::to_vec(sim).map_err(io::Error::other)?;
+    let bytes = serde_json::to_vec(&Save {
+        sim,
+        diagnostic_history: history,
+    })
+    .map_err(io::Error::other)?;
     let mut file = fs::File::create(&tmp)?;
     file.write_all(&bytes)?;
     file.sync_all()?;
@@ -116,10 +190,35 @@ async fn report(State(state): State<Shared>) -> Json<Value> {
     Json(view::report(&engine.sim, engine.running, engine.speed))
 }
 
+async fn diagnostics(State(state): State<Shared>) -> impl IntoResponse {
+    let engine = state.lock().await;
+    let report = json!({
+        "format": "living-sector-diagnostics-v1",
+        "version": env!("CARGO_PKG_VERSION"),
+        "os": env::consts::OS,
+        "runtime": {"running": engine.running, "speed": engine.speed, "save_failed": engine.save_error.is_some()},
+        "state": engine.sim,
+        "observer": view::report(&engine.sim, engine.running, engine.speed),
+        "events": engine.history,
+    });
+    (
+        [
+            (header::CONTENT_TYPE, "application/json; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=Living-Sector-diagnostics.json",
+            ),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        serde_json::to_string_pretty(&report).expect("JSON value serializes"),
+    )
+}
+
 async fn pause(State(state): State<Shared>, Json(_): Json<Value>) -> Json<Value> {
     let mut engine = state.lock().await;
     engine.running = false;
-    if let Err(error) = save_sim(&engine.save, &engine.sim) {
+    engine.record("paused", json!({}));
+    if let Err(error) = save_sim(&engine.save, &engine.sim, &engine.history) {
         engine.fail_save(error);
     }
     Json(engine.health())
@@ -129,6 +228,7 @@ async fn resume(State(state): State<Shared>, Json(_): Json<Value>) -> Json<Value
     let mut engine = state.lock().await;
     engine.save_error = None;
     engine.running = true;
+    engine.record("resumed", json!({}));
     Json(engine.health())
 }
 
@@ -146,6 +246,7 @@ async fn set_speed(
     }
     let mut engine = state.lock().await;
     engine.speed = speed.world_speed;
+    engine.record("speed", json!({"world_speed": speed.world_speed}));
     Ok(Json(engine.health()))
 }
 
@@ -214,11 +315,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(path) => PathBuf::from(path),
         None => env::current_exe()?.with_file_name("genesis-clean-v1.json"),
     };
-    let sim = load_sim(&save)
+    let loaded = load_sim(&save)
         .map_err(|error| io::Error::new(error.kind(), format!("{}: {error}", save.display())))?;
     let (updates, _) = broadcast::channel(32);
     let state = Arc::new(Mutex::new(Engine {
-        sim,
+        sim: loaded.sim,
+        history: loaded.diagnostic_history,
         running: false,
         speed: 1.0,
         save,
@@ -242,6 +344,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/api/health", get(health))
         .route("/api/report", get(report))
+        .route("/api/diagnostics", get(diagnostics))
         .route("/api/sim/pause", post(pause))
         .route("/api/sim/resume", post(resume))
         .route("/api/sim/speed", post(set_speed))
@@ -271,7 +374,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ = tokio::signal::ctrl_c() => {
             task.abort();
             let engine = state.lock().await;
-            if engine.sim.tick > 0 { save_sim(&engine.save, &engine.sim)?; }
+            if engine.sim.tick > 0 { save_sim(&engine.save, &engine.sim, &engine.history)?; }
         }
     }
     Ok(())

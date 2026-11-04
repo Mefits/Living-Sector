@@ -42,6 +42,9 @@ struct Scene {
     ship: Point,
     yard: Point,
     pirate: Point,
+    venus: Point,
+    mars: Point,
+    jupiter: Point,
 }
 
 impl Scene {
@@ -55,7 +58,10 @@ impl Scene {
             x: earth.x + offset.x,
             y: earth.y + offset.y,
         };
-        let pirate = location(belt, 4.5 + TAU * sim.seconds / 141.0);
+        let venus = orbit(0.72, 1.2 + TAU * sim.seconds / 225.0);
+        let mars = orbit(1.52, -0.8 + TAU * sim.seconds / 687.0);
+        let jupiter = orbit(5.20, -2.3 + TAU * sim.seconds / 4333.0);
+        let pirate = location(jupiter, 0.9 + TAU * sim.seconds / 180.0);
         let progress = sim.elapsed / sim.phase.duration();
         let ship = match sim.phase {
             Phase::Outbound => interpolate(rig, station, progress),
@@ -72,6 +78,9 @@ impl Scene {
             ship,
             yard,
             pirate,
+            venus,
+            mars,
+            jupiter,
         }
     }
 }
@@ -270,7 +279,7 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
     facilities.push(json!({
         "id": PIRATE_BASE, "name": if war.base_ready { "Пиратская база" } else { "Площадка пиратов" },
         "type": if war.base_ready { "pirate-station" } else { "construction_site" },
-        "location": PIRATE_BASE, "body_id": "belt", "x": scene.pirate.x, "y": scene.pirate.y,
+        "location": PIRATE_BASE, "body_id": "jupiter", "x": scene.pirate.x, "y": scene.pirate.y,
         "faction_id": "pirates", "reserves": {"fuel": 0},
         "project": if war.base_ready { format!("Трофейная руда: {}", war.pirate_loot) } else { "Экспедиция собирает базу".into() },
         "progress": (!war.base_ready).then_some(war.base_progress / 36.0),
@@ -320,6 +329,12 @@ pub fn report(sim: &Sim, running: bool, speed: f64) -> Value {
              "x": scene.earth.x, "y": scene.earth.y, "controlling_faction": FACTION},
             {"id": "belt", "name": "Пояс астероидов", "type": "belt", "orbit_radius": 2.7,
              "x": scene.belt.x, "y": scene.belt.y, "controlling_faction": FACTION},
+            {"id":"venus","name":"Венера","type":"planet","biome":"molten","orbit_radius":0.72,
+             "x":scene.venus.x,"y":scene.venus.y},
+            {"id":"mars","name":"Марс","type":"planet","biome":"desert","orbit_radius":1.52,
+             "x":scene.mars.x,"y":scene.mars.y},
+            {"id":"jupiter","name":"Юпитер","type":"planet","biome":"gas_giant","orbit_radius":5.20,
+             "x":scene.jupiter.x,"y":scene.jupiter.y,"controlling_faction":"pirates"},
         ]}],
         "facilities": facilities(sim, &scene),
         "ships": ships(sim, &scene), "markets": markets(sim),
@@ -333,6 +348,7 @@ pub fn update(sim: &Sim, events: &[Event]) -> Value {
         "type": "genesis_update", "tick": sim.tick, "events": events, "governance": governance(sim),
         "entities": [
             position("earth", scene.earth), position("belt", scene.belt),
+            position("venus", scene.venus), position("mars", scene.mars), position("jupiter", scene.jupiter),
             position(EARTH, scene.station), position(BELT, scene.rig), position(SITE, scene.yard),
         ],
         "ships": ships(sim, &scene), "markets": markets(sim), "facilities": facilities(sim, &scene),

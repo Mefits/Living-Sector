@@ -154,3 +154,5 @@ canvas.grabbing { cursor: grabbing }
   #system-picker .popover-panel { top: calc(100% + 4px); right: 8px }
   .activity-bar { padding-inline: 8px; gap: 6px }
 }
+
+.log-download { text-decoration: none; white-space: nowrap }
