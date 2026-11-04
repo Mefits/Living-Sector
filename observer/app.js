@@ -695,12 +695,6 @@ function isSelected(type,id) {
 function addTarget(type,id,x,y,r,name,ids=null) {
   s.targets.push({type,id,x,y,r,name,ids});
 }
-function drawCluster(at, count, isShip, selected=false) {
-  ctx.lineWidth = selected ? 2.2 : 1.4;
-  circle(at.x,at.y,16,isShip ? "#244e59" : "#514a35");
-  circle(at.x,at.y,16,selected ? "#e4fbf5" : (isShip ? "#76c4c2" : "#d0ae78"),false);
-  label({x:at.x,y:at.y+4}, String(count), "#eff8fa",count > 99 ? 10 : 12);
-}
 function changeZoomAt(cursor, factor) {
   const oldZoom = s.zoom;
   const newZoom = Math.max(0.35, Math.min(30, oldZoom * factor));
