@@ -227,6 +227,8 @@ mod tests {
         sim.belt_ore = SHIPMENT;
         sim.second_freighter = Some(Freighter::new(20));
         let first_cargo = sim.cargo;
+        let initial_ore_source = sim.belt_ore;
+        let initial_deposit = sim.deposit;
         let mut events = vec![];
         for _ in 0..20 {
             events.extend(sim.step(0.25));
@@ -240,7 +242,9 @@ mod tests {
         assert_eq!(sim.cargo, first_cargo);
         assert_eq!(second.phase, FreightPhase::Outbound);
         assert_eq!(second.cargo, SHIPMENT);
-        assert_eq!(sim.belt_ore, 0, "second cargo removed once from source");
+        assert_eq!(sim.belt_ore + second.cargo,
+            initial_ore_source + (initial_deposit - sim.deposit),
+            "all freshly mined ore is either at source or in second hold");
         assert!(events.iter().any(|e| {
             let record = serde_json::to_value(e).unwrap();
             record["ship_name"] == "Грузовой-002" && record["kind"] == "cargo_loaded"
