@@ -7,6 +7,7 @@ use crate::construction::{
     YARD_METAL,
 };
 use crate::governance::Governance;
+use crate::freight::Freighter;
 use crate::planning::{self, Kind, Program, Site as BuildSite};
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +83,8 @@ pub struct Sim {
     pub governance: Governance,
     #[serde(default)]
     pub construction: Construction,
+    #[serde(default)]
+    pub second_freighter: Option<Freighter>,
     #[serde(default = "seed_ore")]
     pub deposit: u32,
     #[serde(default)]
@@ -140,6 +143,7 @@ impl Default for Sim {
             pending: 0.0,
             governance: Governance::default(),
             construction: Construction::default(),
+            second_freighter: None,
             deposit: SEED_ORE,
             mars_route: false,
             genesis_program: Program::default(),
@@ -212,6 +216,7 @@ impl Sim {
             && self.construction.parked_fuel <= TANK
             && (0.0..self.construction.duration()).contains(&self.construction.elapsed)
             && (!self.construction.active_second || self.construction.phase == Project::Complete)
+            && self.second_freighter.as_ref().is_none_or(Freighter::valid)
             && self.tick < u64::MAX
     }
 
@@ -320,6 +325,7 @@ impl Sim {
     }
 
     pub fn step(&mut self, delta: f64) -> Vec<Event> {
+        self.migrate_fleet();
         self.tick += 1;
         self.pending += delta;
         let mut events = Vec::new();
@@ -329,7 +335,13 @@ impl Sim {
             self.plan(&mut events);
             self.run_facilities(&mut events);
             self.move_ship(&mut events);
+            self.migrate_fleet();
+            if let Some(mut second) = self.second_freighter.take() {
+                second.advance(self, &mut events);
+                self.second_freighter = Some(second);
+            }
             self.construct(&mut events);
+            self.migrate_fleet();
             self.run_conflict(&mut events);
             self.expand(&mut events);
             self.plan_builds(&mut events);
@@ -366,14 +378,15 @@ impl Sim {
     }
 
     fn run_facilities(&mut self, events: &mut Vec<Event>) {
-        if self.governance.ore_requested && !self.delivery_active() {
+        if self.governance.ore_requested
+            && (!self.delivery_active() || self.second_freighter.is_some()) {
             let mars = self.prefer_mars();
             self.mining_elapsed += QUANTUM;
             if self.mining_elapsed >= MINE_INTERVAL {
                 self.mining_elapsed = 0.0;
                 let (stock, quantity, location) = if mars {
                     let quantity = 10
-                        .min(SHIPMENT - self.construction.mars_ore)
+                        .min(SHIPMENT.saturating_sub(self.construction.mars_ore))
                         .min(MARS_ORE - self.construction.mars_extracted);
                     self.construction.mars_extracted += quantity;
                     (&mut self.construction.mars_ore, quantity, MARS_SITE)
@@ -589,8 +602,10 @@ impl Sim {
             Phase::Returning => {
                 self.mars_route = false;
                 self.outbound_plan = (0.0, 0);
+                // Do not rotate the two ships through the same global
+                // Phase/fuel/cargo ledger. The secondary now acts independently.
                 if self.construction.phase == Project::Complete {
-                    self.rotate_freighters();
+                    self.migrate_fleet();
                 }
                 Phase::Waiting
             }
@@ -1127,6 +1142,22 @@ impl Sim {
         }
     }
 
+    /// Upgrade 0.8.x saves without deleting the stored world or cargo.
+    /// If old Freighter-002 is flying, wait until it returns before
+    /// splitting the two ledgers: an in-flight state cannot be safely
+    /// transferred to an unrelated position.
+    pub fn migrate_fleet(&mut self) {
+        if self.second_freighter.is_some()
+            || self.construction.phase != Project::Complete
+        { return; }
+        if self.construction.active_second {
+            if self.phase != Phase::Waiting { return; }
+            self.rotate_freighters();
+        }
+        self.second_freighter = Some(Freighter::new(self.construction.parked_fuel));
+        self.construction.parked_fuel = 0;
+    }
+
     pub fn freighter_name(&self) -> &'static str {
         if self.construction.active_second {
             "Грузовой-002"
@@ -1191,9 +1222,6 @@ impl Sim {
                 Project::TransferringShip
             }
             Project::TransferringShip => {
-                if self.phase == Phase::Waiting {
-                    self.rotate_freighters();
-                }
                 events.push(decision(
                     "ship_commissioned",
                     "Снабженец",
@@ -1236,13 +1264,13 @@ fn approve(
     events.push(decision("building_approved", faction, message));
 }
 
-fn leg(sim: &Sim, from: &str, to: &str) -> (f64, u32) {
+pub(crate) fn leg(sim: &Sim, from: &str, to: &str) -> (f64, u32) {
     let distance = crate::view::route_distance(sim, from, to);
     let duration = (distance / 0.46 / QUANTUM).ceil().max(24.0) * QUANTUM;
     (duration, (distance * 1.15).ceil().max(2.0) as u32)
 }
 
-fn event(
+pub(crate) fn event(
     kind: &'static str,
     commodity: &'static str,
     location: &'static str,
