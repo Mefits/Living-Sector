@@ -1,10 +1,10 @@
 import {
   list, number, point, key, buildIndex, factionColor, factionName,
-  systemByName, positionOf, shortageCount, sortedCargo,
+  systemByName, positionOf, sortedCargo,
   panForCursorZoom, clusterMarkers, shipSystem, worldGridStep, mapIconScale,
   groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub,
   liveEntityPoint, approachWorldPoint,
-  commodityLabel, contractLabel, contractCargoLabel
+  commodityLabel
 } from "/observer/model.js";
 
 const byId = id => document.getElementById(id);
@@ -58,18 +58,9 @@ async function postJSON(path, value) {
   return response.json();
 }
 
-function mergeById(previous, incoming, identifier = "id") {
-  const map = new Map(list(previous).map(x => [x[identifier], x]));
-  for (const entity of list(incoming)) {
-    if (entity && entity[identifier] != null) {
-      map.set(entity[identifier], { ...map.get(entity[identifier]), ...entity });
-    }
-  }
-  return [...map.values()];
-}
-
 function saveReport(report) {
   if (!Array.isArray(report?.systems)) throw new Error("Нет systems[] в /api/report");
+  if (s.report && report.tick < s.report.tick) return;
   const firstReport = !s.report;
   s.report = report;
   s.ships = list(report.ships);
@@ -110,7 +101,8 @@ function refreshToolbar() {
   if (!h) return;
   const running = h.running === true;
   if (s.live && typeof h.running === "boolean") {
-    const status = running ? "Симуляция идёт" : "На паузе";
+    const status = h.save_error ? "Ошибка сохранения" : running ? "Симуляция идёт" : "На паузе";
+    if (h.save_error) els.connection.title = h.save_error;
     if (els.connectionText.textContent !== status) els.connectionText.textContent = status;
     els.connection.classList.toggle("paused", !running);
   }
@@ -231,6 +223,7 @@ function sectorMode() {
 }
 
 function shipStatus(ship) {
+  if (ship.status_label) return ship.status_label;
   const state = shipMapState(ship);
   if (state === "in_transit") return "В пути";
   if (state === "docked") return "У причала";
@@ -331,8 +324,6 @@ function renderInspector() {
   const selectionKey = s.selection ? s.selection.type + ":" + s.selection.id : "";
   const sameSelection = selectionKey === lastInspectorSelection;
   const previousScroll = sameSelection ? els.inspectorBody.scrollTop : 0;
-  const openDetails = sameSelection && Boolean(els.inspectorBody.querySelector("details[open]"));
-  const focusDetails = sameSelection && document.activeElement === els.inspectorBody.querySelector("summary");
   lastInspectorSelection = selectionKey;
   els.inspectorBody.replaceChildren();
   const entity = selectionEntity();
@@ -382,11 +373,8 @@ function renderInspector() {
     inspectorRow(content, "Тел", list(entity.bodies).length);
     const facilities = s.index.systemFacilities.get(entity.name) ?? [];
     const markets = s.index.systemMarkets.get(entity.name) ?? [];
-    const pops = s.index.systemPopulations.get(entity.name) ?? [];
     inspectorRow(content, "Инфраструктура", facilities.length);
-    inspectorRow(content, "Рынки", markets.length);
-    inspectorRow(content, "Популяции", pops.length);
-    inspectorRow(content, "Нехватки", shortageCount(markets) + " позиций");
+    inspectorRow(content, "Склады", markets.length);
     if (s.view === "sector") {
       const openSystem = textEl("button", "Открыть систему", "small-button");
       openSystem.addEventListener("click", () => chooseSystem(entity.name));
@@ -394,7 +382,7 @@ function renderInspector() {
     }
     detailGroup(content, "Объекты системы");
     chips(content, facilities.map(f => f.name), 16);
-    detailGroup(content, "Доступные рынки");
+    detailGroup(content, "Склады");
     chips(content, markets.map(m => m.facility_location), 16);
   } else if (type === "ship") {
     const status = document.createElement("div");
@@ -418,62 +406,21 @@ function renderInspector() {
     chips(content, sortedCargo(entity.cargo).map(([name, amount]) =>
       commodityLabel(name) + " · " + fnum(amount)), 8, "Трюм пуст");
     inspectorRow(content, "Топливо", fnum(entity.fuel) + " / " + fnum(entity.fuel_capacity));
-    inspectorRow(content, "Кредиты", fnum(entity.credits));
-    if (!s.report.genesis_ore_loop) {
-
-      const technical = document.createElement("details");
-      technical.className = "inspector-details";
-      technical.open = openDetails;
-      technical.appendChild(textEl("summary", "Экипаж, оснащение и данные ИИ"));
-      inspectorRow(technical, "Класс", shipClasses[entity.class] ?? entity.class);
-      inspectorRow(technical, "Размер", entity.size);
-      inspectorRow(technical, "Фракция", factionName(entity.faction_id, s.index));
-      inspectorRow(technical, "Экипаж", entity.crew?.size);
-      inspectorRow(technical, "Цель ИИ", entity.current_goal);
-      inspectorRow(technical, "Действие", entity.current_bt);
-      if (entity.progression) {
-        inspectorRow(technical, "Уровень", entity.progression.level);
-        inspectorRow(technical, "Очки модернизации", entity.progression.retrofit_points);
-      }
-      if (entity.fitting?.modules) {
-        const slotNames = {engine:"Двигатель",cargo_bay:"Трюм",sensors:"Сенсоры",reactor:"Реактор",comms:"Связь"};
-        for (const [slot, name] of Object.entries(slotNames)) {
-          const slug = entity.fitting.modules[slot];
-          if (slug) inspectorRow(technical, name, String(slug).replace(/.*_t([123])$/, "T$1"));
-        }
-      }
-      content.appendChild(technical);
-      if (focusDetails) technical.firstElementChild.focus({preventScroll:true});
-    }
   } else if (type === "facility") {
     inspectorRow(content, "Тип", facilityNames[entity.type] ?? entity.type);
     inspectorRow(content, "Фракция", factionName(entity.faction_id, s.index));
     inspectorRow(content, "Расположение", locationLabel(entity.location, entity.id));
-    if (!s.report.genesis_ore_loop) {
-      inspectorRow(content, "Состояние", entity.condition == null ? "—" : fnum(number(entity.condition) * 100) + "%");
-      inspectorRow(content, "Уровень", entity.level);
-      inspectorRow(content, "Кредиты", fnum(entity.credits));
-    }
-    if (entity.abandoned) inspectorRow(content, "Статус", "Заброшен");
-    if (entity.gate_link) inspectorRow(content, "Связанные врата", entity.gate_link.paired_gate_id);
     showHubShips(content, entity.location);
-    const reserves = Object.entries(entity.reserves ?? {}).filter(([,v]) => number(v) > 0);
-    if (reserves.length) {
-      detailGroup(content, "Резерв объекта");
-      chips(content, reserves.map(([k,v]) => commodityLabel(k) + " · " + fnum(v)));
-    }
+    inspectorRow(content, "Резерв топлива", fnum(entity.reserves.fuel));
     showMarket(content, entity.location);
   } else if (type === "body") {
     inspectorRow(content, "Тип", entity.type);
-    inspectorRow(content, "Биом", entity.biome ?? "—");
     inspectorRow(content, "Фракция", factionName(entity.controlling_faction, s.index));
-    inspectorRow(content, "Спорная", entity.contested ? "Да" : "Нет");
     inspectorRow(content, "Радиус орбиты", entity.orbit_radius);
   }
   els.inspectorBody.scrollTop = previousScroll;
 }
 
-const shipClasses = {freighter:"Грузовик", courier:"Курьер"};
 const facilityNames = {
   station:"Станция", mining_rig:"Добыча", farm:"Ферма",
   refinery:"Переработка", factory:"Завод", shipyard:"Верфь", gate:"Врата"
@@ -489,69 +436,21 @@ function locationLabel(location, exceptId) {
 function showMarket(content, location) {
   const market = list(s.report.markets).find(m => key(m.facility_location) === key(location));
   if (!market) return;
-  const commodities = [...new Set([
-    ...Object.keys(market.prices ?? {}), ...Object.keys(market.supply ?? {}), ...Object.keys(market.demand ?? {})
-  ])].sort((a,b) => number(market.shortage_ticks?.[b]) - number(market.shortage_ticks?.[a]));
-  if (!commodities.length) return;
-  detailGroup(content, "Местный рынок");
-  const table = document.createElement("table");
-  table.className = "market-table";
-  table.setAttribute("aria-label", "Местный рынок");
-  const header = table.createTHead().insertRow();
-  for (const label of ["Товар", "Запас", "Спрос", "Цена"]) {
-    const cell = textEl("th", label);
-    cell.scope = "col";
-    header.appendChild(cell);
-  }
-  const body = table.createTBody();
-  for (const commodity of commodities) {
-    const row = body.insertRow();
-    const shortage = number(market.shortage_ticks?.[commodity]) > 0;
-    row.classList.toggle("shortage", shortage);
-    row.insertCell().textContent = commodityLabel(commodity) + (shortage ? " · дефицит" : "");
-    row.insertCell().textContent = fnum(market.supply?.[commodity]);
-    row.insertCell().textContent = fnum(market.demand?.[commodity]);
-    row.insertCell().textContent = fnum(market.prices?.[commodity]);
-  }
-  content.appendChild(table);
+  detailGroup(content, "Склад");
+  inspectorRow(content, "Руда", fnum(market.supply.ore));
 }
 
 const eventNames = {
   ore_extracted: "Руда добыта", cargo_loaded: "Руда погружена", cargo_unloaded: "Руда доставлена",
-  ship_docked: "Корабль пристыковался", ship_undocked: "Корабль отстыковался",
-  ship_refitted: "Модернизация корабля", ship_decommissioned: "Корабль списан",
-  construction_completed: "Строительство завершено", construction_started: "Строительство началось",
-  contract_posted: "Опубликован контракт", contract_renewed: "Контракт продлён",
-  contract_expired: "Срок контракта истёк", contract_completed: "Контракт выполнен",
-  contract_accepted: "Контракт принят", contract_delivered: "Контракт выполнен",
-  passengers_arrived: "Пассажиры прибыли",
-  ship_spawned: "Создан корабль", faction_control_changed: "Изменение территории"
 };
 function eventLabel(event) {
-  if (typeof event === "string") return {kind:"Событие",detail:event};
-  const raw = String(event?.event_type ?? event?.kind ?? event?.type ?? "event");
-  const kind = eventNames[raw] ?? raw.replaceAll("_", " ");
-  const detail = event?.message ?? event?.description ?? event?.detail ?? event?.text;
-  if (typeof detail === "string") return {kind,detail};
-  const contractType = event?.contract_type;
-  const cargo = contractCargoLabel(event?.commodity, contractType);
-  const parts = [];
-  if (contractType) parts.push("Тип: " + contractLabel(contractType));
-  for(const [field,label] of [
-    ["ship_name","Корабль"],["ship_id","Корабль"],
-    ["facility_name","Объект"],["facility_id","Объект"],
-    ["location","Место"],[event?.source_location == null ? "source" : "source_location","Откуда"],
-    ["destination","Куда"],["quantity","Количество"],["stock","Остаток на складе"]
-  ]){
-    if (event?.[field] != null) {
-      const value = ["location", "source_location", "source", "destination"].includes(field)
-        ? locationLabel(event[field]) : ["quantity","stock"].includes(field) ? fnum(event[field]) : event[field];
-      parts.push(label + ": " + value);
-    }
-  }
-  if (cargo) parts.unshift("Груз: " + cargo);
-  if (raw === "contract_expired") parts.push("Исполнитель не принял заявку");
-  return {kind,detail:parts.slice(0,5).join(" · ") || "Изменение в симуляции"};
+  const parts = [
+    locationLabel(event.location),
+    commodityLabel(event.commodity) + " · " + fnum(event.quantity),
+    "На складе " + fnum(event.stock),
+  ];
+  if (event.ship_name) parts.unshift(event.ship_name);
+  return {kind: eventNames[event.kind], detail: parts.join(" · ")};
 }
 const eventRows = new WeakMap();
 function renderEvents() {
@@ -592,43 +491,22 @@ function handleEvents(tick, events) {
 }
 
 function handleWs(message) {
-  const m = message;
-  if (m.tick != null && s.health) s.health.tick = m.tick;
-  switch (m.type) {
-    case "positions":
-      for (const e of list(m.entities)) {
-        if (e?.id && Number.isFinite(e.x) && Number.isFinite(e.y))
-          s.positions.set(e.id, {x: e.x, y: e.y});
-      }
-      break;
-    case "ship_states":
-      s.ships = mergeById(s.ships, m.ships);
-      if (s.report) s.report.ships = s.ships;
-      renderOreFlow();
-      break;
-    case "market_states":
-      if (s.report) { s.report.markets = mergeById(s.report.markets, m.markets); s.index = buildIndex(s.report); }
-      renderOreFlow();
-      break;
-    case "facility_states":
-      if (s.report) { s.report.facilities = mergeById(s.report.facilities, m.facilities); s.index = buildIndex(s.report); }
-      break;
-    case "faction_states":
-      if (s.report) { s.report.factions = mergeById(s.report.factions, m.factions); s.index = buildIndex(s.report); }
-      break;
-    case "population_states":
-      if (s.report) { s.report.populations = mergeById(s.report.populations, m.populations); s.index = buildIndex(s.report); }
-      break;
-    case "events": handleEvents(m.tick, m.events); break;
-    case "server_hello":
-    case "sim_control_ack":
-      if (s.health) {
-        s.health.running = m.running;
-        s.health.world_speed = m.world_speed;
-      }
-      break;
-    default: break;
+  if (message.type !== "genesis_update" || !s.report) return;
+  if (list(message.events).length) handleEvents(message.tick, message.events);
+  if (message.tick < s.report.tick) return;
+  s.report.tick = message.tick;
+  for (const entity of list(message.entities)) {
+    s.positions.set(entity.id, {x: entity.x, y: entity.y});
   }
+  s.ships = list(message.ships);
+  s.report.ships = s.ships;
+  s.report.markets = list(message.markets);
+  for (const facility of s.report.facilities) {
+    facility.reserves.fuel = message.reserves[facility.id];
+  }
+  s.index = buildIndex(s.report);
+  if (s.health) s.health.tick = message.tick;
+  renderOreFlow();
 }
 
 function connectWs() {

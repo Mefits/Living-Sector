@@ -1,8 +1,0 @@
-{
-  "name": "living-sector-observer",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node --test model.test.mjs"
-  }
-}

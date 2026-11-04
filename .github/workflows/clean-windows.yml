@@ -1,0 +1,36 @@
+name: Genesis Clean for Windows
+
+on:
+  push:
+    branches: [codex/genesis-clean]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: cargo build --locked --release
+      - run: node tests/ore-loop.mjs ./target/release/genesis-clean.exe
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist
+          Copy-Item target/release/genesis-clean.exe dist/Genesis-Clean.exe
+          Copy-Item Start-Genesis.cmd,README.md,LICENSE dist
+          Compress-Archive -Path 'dist/*' -DestinationPath Living-Sector-Genesis-Clean-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Genesis-Clean-Windows
+          path: Living-Sector-Genesis-Clean-Windows.zip
+          if-no-files-found: error
+          retention-days: 14

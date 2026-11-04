@@ -1,44 +1,4 @@
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
-
-# Editor / IDE
-*.swp
-*~
-.vscode/
-.idea/
-
-# Claude Code harness — local settings are machine-specific.
-# `settings.json` captures per-session permission grants (bare PIDs,
-# absolute user paths, etc.), so it's as local as settings.local.json.
-# `skills/` dirs stay trackable — those are shared agent definitions.
-**/.claude/settings.json
-**/.claude/settings.local.json
-**/.claude/projects/
-**/.claude/worktrees/
-
-# Rust build artifacts
 /target/
-**/*.rs.bk
-dist/
-
-# SQLite databases (generated at runtime)
-*.db
-*.db-shm
-*.db-wal
-
-# sqlx offline query cache (only commit if using SQLX_OFFLINE=true in CI)
-.sqlx/
-
-# Environment overrides
-.env
-.env.local
-
-# Scratch files / one-off archives
-*.tar.gz
-/backup/
-
-# Raw, unprocessed screenshots (commit the processed docs/screenshots/*.png instead)
-Screenshot*.png
+/dist/
+/genesis-clean-v1.json
+/genesis-clean-v1.json.tmp
