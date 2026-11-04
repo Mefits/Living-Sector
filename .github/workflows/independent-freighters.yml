@@ -1,0 +1,51 @@
+name: Genesis Independent Freighters Preview
+
+on:
+  push:
+    branches: [feature/genesis-independent-freighters]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+      - name: Test independent freighters and save migration
+        run: cargo test --locked -- --nocapture
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.95.0'
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Release executable
+        run: cargo build --locked --release
+      - name: Existing end-to-end ore loop
+        run: node tests/ore-loop.mjs ./target/release/genesis-clean.exe
+      - name: Package ready-to-run Windows preview
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/genesis-clean.exe dist/Genesis-Clean.exe
+          Copy-Item Start-Genesis.cmd,README.md,LICENSE dist
+          Compress-Archive -Path 'dist/*' -DestinationPath Living-Sector-Genesis-Independent-Freighters-Windows.zip -CompressionLevel Optimal -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Genesis-Independent-Freighters-Windows
+          path: Living-Sector-Genesis-Independent-Freighters-Windows.zip
+          retention-days: 10
+          if-no-files-found: error
