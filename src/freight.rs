@@ -1,4 +1,5 @@
 use crate::builds::Faction;
+use crate::security::{Sortie, Spoils};
 use crate::sim::{Event, Sim};
 use serde::{Deserialize, Serialize};
 pub use sim_core::economy::commodities::Commodity;
@@ -29,6 +30,16 @@ pub struct Ship {
     #[serde(default)]
     pub owner: Faction,
     #[serde(default)]
+    pub damage: u32,
+    #[serde(default)]
+    pub weapon_wait: u32,
+    #[serde(default)]
+    pub duty_wait: u32,
+    #[serde(default)]
+    pub sortie: Option<Sortie>,
+    #[serde(default)]
+    pub spoils: Option<Spoils>,
+    #[serde(default)]
     pub role: ShipRole,
     pub name: String,
     pub location: String,
@@ -46,13 +57,21 @@ pub enum ShipRole {
     #[default]
     Freighter,
     Constructor,
+    Patrol,
+    Raider,
 }
 
 impl ShipRole {
+    pub fn is_combat(self) -> bool {
+        matches!(self, Self::Patrol | Self::Raider)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Freighter => "Грузовой",
             Self::Constructor => "Строитель",
+            Self::Patrol => "Патруль",
+            Self::Raider => "Рейдер",
         }
     }
 }
@@ -105,14 +124,21 @@ impl Ship {
     ) -> Self {
         Self {
             owner,
+            damage: 0,
+            weapon_wait: 0,
+            duty_wait: 0,
+            sortie: None,
+            spoils: None,
             role,
             name: name.into(),
             location: location.into(),
             fuel,
-            tank: 100,
+            tank: if role.is_combat() { 36 } else { 100 },
             capacity: match role {
                 ShipRole::Freighter => 50,
                 ShipRole::Constructor => 40,
+                ShipRole::Patrol => 0,
+                ShipRole::Raider => 12,
             },
             task: None,
             leg: None,
@@ -186,6 +212,20 @@ impl Fleet {
             .all(|id| id.parse::<u64>().is_ok_and(|id| id < self.next_order))
             && self.ships.values().all(|ship| {
                 ship.fuel <= ship.tank
+                    && ship.damage < ship.role.loadout().hull
+                    && ship.spoils.is_none_or(|spoils| {
+                        spoils.quantity > 0 && spoils.quantity <= ship.capacity
+                    })
+                    && ship.sortie.as_ref().is_none_or(|flight| {
+                        ship.role.is_combat()
+                            && ship.leg.is_none()
+                            && ship.task.is_none()
+                            && flight.point.x.is_finite()
+                            && flight.point.y.is_finite()
+                            && (0.0..1.0).contains(&flight.fuel_fraction)
+                            && flight.prepaid_fuel.is_finite()
+                            && flight.prepaid_fuel >= 0.0
+                    })
                     && ship
                         .leg
                         .as_ref()
@@ -217,6 +257,9 @@ impl Fleet {
                 ship.location = std::mem::take(&mut leg.destination);
                 ship.leg = None;
             }
+            return;
+        }
+        if ship.role.is_combat() {
             return;
         }
         if ship.task.is_none() {

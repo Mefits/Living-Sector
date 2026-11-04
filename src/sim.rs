@@ -1,17 +1,15 @@
 use crate::builds::{Builds, Faction, HullOrder, Journey, SiteJob, Stage};
-use crate::conflict::{
-    Conflict, PATROL_DURATION, PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, PIRATE_SEED_METAL,
-    Patrol,
-};
+use crate::conflict::{Conflict, PIRATE_BASE};
 use crate::construction::{
     COMMISSION_FUEL, Construction, MARS_ORE, MARS_SITE, MarsProject, Project, SHIP_METAL, SITE,
     YARD_METAL,
 };
 use crate::freight::{Assignment, Commodity, Fleet, Leg, Ship, ShipRole};
-use crate::governance::Governance;
+use crate::governance::{Assessment, Governance};
 use crate::industry::{Batch, Deposit, Industry, Operation, Plant};
 use crate::legacy_freight::{FreightPhase, Freighter};
 use crate::planning::{self, Choice, Kind, Program, Site as BuildSite};
+use crate::security::Security;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
@@ -97,6 +95,8 @@ pub struct Sim {
     deposit: u32,
     #[serde(default)]
     pub conflict: Conflict,
+    #[serde(default)]
+    pub security: Security,
     #[serde(default, skip_serializing)]
     pub mars_route: bool,
     #[serde(default)]
@@ -129,7 +129,7 @@ pub struct Warehouse {
 pub struct Event {
     kind: &'static str,
     commodity: &'static str,
-    location: String,
+    pub(crate) location: String,
     quantity: u32,
     stock: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -175,6 +175,7 @@ impl Default for Sim {
             outpost_site: None,
             route_duration: 0.0,
             return_duration: 0.0,
+            security: Security::default(),
             conflict: Conflict {
                 pirate_fuel_stock: 18,
                 pirate_metal: 24,
@@ -212,6 +213,12 @@ impl Sim {
             && self.warehouses.values().all(Warehouse::valid)
             && self.industry.valid(self)
             && self.builds.valid(self)
+            && self.warehouses.contains_key(PIRATE_BASE)
+            && self.fleet.ships.values().all(|ship| {
+                ship.sortie
+                    .as_ref()
+                    .is_none_or(|sortie| self.available_location(&sortie.home))
+            })
     }
 
     pub fn delivery_active(&self) -> bool {
@@ -285,9 +292,9 @@ impl Sim {
             fleet.advance(self, &mut events);
             self.fleet = fleet;
             self.construct(&mut events);
-            self.run_conflict(&mut events);
+            self.run_security(&mut events);
             self.expand(&mut events);
-            self.plan_builds();
+            self.plan_builds(&mut events);
             self.sync_industry();
         }
         events
@@ -399,7 +406,7 @@ impl Sim {
         self.warehouses
             .keys()
             .map(String::as_str)
-            .chain(self.conflict.base_ready.then_some(PIRATE_BASE))
+            .filter(|id| *id != PIRATE_BASE || self.conflict.base_ready)
     }
 
     pub fn available_location(&self, id: &str) -> bool {
@@ -432,7 +439,7 @@ impl Sim {
             ) || !matches!(
                 self.construction.mars,
                 MarsProject::Proposed | MarsProject::Ready
-            ) || matches!(self.conflict.patrol, Patrol::Delivering | Patrol::Building))
+            ))
     }
 
     pub fn has_build(&self, owner: Faction, kind: Kind) -> bool {
@@ -457,9 +464,6 @@ impl Sim {
     }
 
     pub fn stock(&self, id: &str, resource: Commodity) -> u32 {
-        if id == PIRATE_BASE {
-            return self.conflict.stock(resource);
-        }
         self.warehouses
             .get(id)
             .and_then(|warehouse| warehouse.stock.get(&resource))
@@ -468,15 +472,6 @@ impl Sim {
     }
 
     pub fn room(&self, id: &str, resource: Commodity) -> u32 {
-        if id == PIRATE_BASE {
-            let capacity: u32 = match resource {
-                Commodity::Ore if self.has_build(Faction::Pirates, Kind::Warehouse) => 60,
-                Commodity::Ore => 20,
-                Commodity::Metals | Commodity::Fuel => 200,
-                _ => 0,
-            };
-            return capacity.saturating_sub(self.stock(id, resource));
-        }
         self.warehouses
             .get(id)
             .map_or(0, |warehouse| warehouse.room(resource))
@@ -514,15 +509,6 @@ impl Sim {
     }
 
     pub fn withdraw(&mut self, id: &str, resource: Commodity, quantity: u32) -> bool {
-        if id == PIRATE_BASE {
-            return self.conflict.stock_mut(resource).is_some_and(|stock| {
-                if *stock < quantity {
-                    return false;
-                }
-                *stock -= quantity;
-                true
-            });
-        }
         self.warehouses
             .get_mut(id)
             .is_some_and(|warehouse| warehouse.withdraw(resource, quantity))
@@ -532,20 +518,13 @@ impl Sim {
         if quantity == 0 {
             return;
         }
-        if id == PIRATE_BASE {
-            *self
-                .conflict
-                .stock_mut(resource)
-                .expect("validated destination") += quantity;
-        } else {
-            *self
-                .warehouses
-                .get_mut(id)
-                .expect("validated destination")
-                .stock
-                .entry(resource)
-                .or_default() += quantity;
-        }
+        *self
+            .warehouses
+            .get_mut(id)
+            .expect("validated destination")
+            .stock
+            .entry(resource)
+            .or_default() += quantity;
     }
 
     pub fn freight_event(
@@ -703,6 +682,7 @@ impl Sim {
         self.migrate_fleet();
         if self.industry.initialized {
             self.migrate_builds();
+            self.migrate_security();
             return;
         }
         self.industry.initialized = true;
@@ -766,6 +746,7 @@ impl Sim {
             self.import_batch(EARTH, self.smelting_elapsed);
         }
         self.migrate_builds();
+        self.migrate_security();
     }
 
     fn import_batch(&mut self, id: &str, elapsed: f64) {
@@ -777,6 +758,37 @@ impl Sim {
             .and_then(|plant| plant.batch.as_mut())
         {
             batch.remaining = batch.duration.saturating_sub((elapsed / QUANTUM) as u32);
+        }
+    }
+
+    pub(crate) fn import_pirate_stock(&mut self) {
+        let war = &self.conflict;
+        let slots = Commodity::ALL.iter().map(|&resource| {
+            let initial = match resource {
+                Commodity::Ore => war.pirate_loot,
+                Commodity::Metals => war.pirate_metal,
+                Commodity::Fuel => war.pirate_fuel_stock,
+                _ => 0,
+            };
+            (
+                resource,
+                initial,
+                initial.max(match resource {
+                    Commodity::Ore if self.pirate_program.has(Kind::Warehouse) => 60,
+                    Commodity::Ore => 24,
+                    Commodity::Fuel | Commodity::Metals => 200,
+                    _ => 24,
+                }),
+            )
+        });
+        self.warehouses
+            .entry(PIRATE_BASE.into())
+            .or_insert_with(|| Warehouse::dedicated_for("Пиратская база", Faction::Pirates, slots));
+        if self.pirate_program.has(Kind::Smelter) {
+            self.industry
+                .plants
+                .entry(PIRATE_BASE.into())
+                .or_insert_with(|| Plant::process(PIRATE_BASE, 20, "smelt_metals"));
         }
     }
 
@@ -946,17 +958,27 @@ impl Sim {
         }
     }
 
-    fn missing_freighters(&self, owner: Faction) -> u64 {
-        let demand: u64 = self
-            .fleet
+    fn cargo_demand(&self, owner: Faction, available_only: bool) -> u64 {
+        self.fleet
             .orders
             .values()
             .filter(|order| {
                 self.location_owner(&order.destination) == owner
                     && !self.builds.yards.contains_key(&order.destination)
+                    && (!available_only
+                        || self.locations().any(|source| {
+                            source != order.destination
+                                && self.location_owner(source) == owner
+                                && (self.freight_supply(source, order.resource) > 0
+                                    || self.extractable(source, order.resource) > 0)
+                        })
+                        || self.fleet.incoming(&order.destination, order.resource) > 0)
             })
             .map(|order| u64::from(order.remaining))
-            .sum();
+            .sum()
+    }
+
+    fn missing_freighters(&self, owner: Faction, demand: u64) -> u64 {
         let capacity: u64 = self
             .fleet
             .ships
@@ -983,29 +1005,144 @@ impl Sim {
             .saturating_sub(committed)
     }
 
-    fn plan_builds(&mut self) {
-        if !self.tick.is_multiple_of(4) || self.pending >= QUANTUM {
+    fn assess_faction(&self, owner: Faction) -> Assessment {
+        let home = owner.home();
+        let open_cargo = self.cargo_demand(owner, false);
+        let transportable_cargo = self.cargo_demand(owner, true);
+        let damage = self
+            .fleet
+            .ships
+            .values()
+            .filter(|ship| ship.owner == owner)
+            .map(|ship| ship.damage)
+            .sum();
+        let threat = self.alert(owner);
+        let military = if owner == Faction::Genesis {
+            ShipRole::Patrol
+        } else {
+            ShipRole::Raider
+        };
+        let military_demand = !self
+            .fleet
+            .ships
+            .values()
+            .any(|ship| ship.owner == owner && ship.role == military)
+            && !self.builds.yards.iter().any(|(id, yard)| {
+                self.location_owner(id) == owner
+                    && yard
+                        .order
+                        .as_ref()
+                        .is_some_and(|order| order.role == military)
+            })
+            && !self
+                .security
+                .legacy_orders
+                .iter()
+                .any(|order| order.owner == owner)
+            && if owner == Faction::Genesis {
+                threat
+            } else {
+                self.sees_raiding_opportunity(owner)
+            };
+        let reserve = self.safety_stock(home, Commodity::Fuel);
+        let fuel = self.stock(home, Commodity::Fuel);
+        let missing_freighters = self.missing_freighters(owner, transportable_cargo);
+        let storage_blocked = self.room(home, Commodity::Metals) < 8;
+        let priority = if fuel <= reserve + 4 {
+            "Сберечь топливо"
+        } else if military_demand {
+            if owner == Faction::Genesis {
+                "Защитить поставки"
+            } else {
+                "Восстановить рейдовую группу"
+            }
+        } else if damage >= 18 {
+            "Восстановить корпуса"
+        } else if missing_freighters > 0 {
+            "Увеличить провозную ёмкость"
+        } else if open_cargo > 0 && transportable_cargo == 0 {
+            "Найти источник ресурсов"
+        } else if storage_blocked {
+            "Освободить место для выпуска"
+        } else {
+            "Поддерживать снабжение"
+        };
+        Assessment {
+            open_cargo,
+            missing_freighters,
+            damage,
+            threat,
+            military_demand,
+            ore_need: self.fleet.orders.values().any(|order| {
+                order.resource == Commodity::Ore && self.location_owner(&order.destination) == owner
+            }),
+            ore_stock: self.stock(home, Commodity::Ore),
+            metal_stock: self.stock(home, Commodity::Metals),
+            fuel_stock: fuel,
+            storage_blocked,
+            reserve_fuel: reserve,
+            priority: priority.into(),
+        }
+    }
+
+    fn plan_builds(&mut self, events: &mut Vec<Event>) {
+        if !((self.seconds / QUANTUM) as u64).is_multiple_of(16) {
             return;
         }
         for owner in [Faction::Genesis, Faction::Pirates] {
             if !self.faction_ready(owner) {
                 continue;
             }
-            let missing = self.missing_freighters(owner);
+            let assessment = self.assess_faction(owner);
+            if self
+                .governance
+                .assessments
+                .get(&owner)
+                .is_none_or(|last| last.priority != assessment.priority)
+            {
+                events.push(decision(
+                    "faction_priority",
+                    owner.label(),
+                    format!(
+                        "{}. Открытый груз {}, повреждения {}, топливо {} при резерве {}.",
+                        assessment.priority,
+                        assessment.open_cargo,
+                        assessment.damage,
+                        assessment.fuel_stock,
+                        assessment.reserve_fuel
+                    ),
+                ));
+            }
+            let military = if owner == Faction::Genesis {
+                ShipRole::Patrol
+            } else {
+                ShipRole::Raider
+            };
+            let mut demand = assessment.missing_freighters;
+            let mut security = assessment.military_demand;
             let available_yards: Vec<_> = self
                 .builds
                 .yards
                 .iter()
                 .filter(|(id, yard)| self.location_owner(id) == owner && yard.order.is_none())
                 .map(|(id, _)| id.clone())
-                .take(missing.try_into().unwrap_or(usize::MAX))
                 .collect();
-            let pressure = missing > available_yards.len() as u64;
-            for id in available_yards {
-                self.builds.yards.get_mut(&id).unwrap().order = Some(HullOrder {
-                    role: ShipRole::Freighter,
-                    remaining: None,
-                });
+            if assessment.fuel_stock > assessment.reserve_fuel + 4 {
+                for id in available_yards {
+                    let role = if security {
+                        security = false;
+                        military
+                    } else if demand > 0 {
+                        demand -= 1;
+                        ShipRole::Freighter
+                    } else {
+                        break;
+                    };
+                    self.builds.yards.get_mut(&id).unwrap().order = Some(HullOrder {
+                        role,
+                        remaining: None,
+                    });
+                }
             }
             let available = self.fleet.ships.iter().filter(|(id, ship)| {
                 ship.owner == owner
@@ -1026,16 +1163,26 @@ impl Sim {
                             .saturating_sub(crate::builds::SITE_ENERGY)
                             .saturating_add(builder.fuel)
                             .min(builder.tank),
-                        |kind, site| self.construction_need(owner, kind, site, pressure),
+                        |kind, site| {
+                            self.construction_need(
+                                owner,
+                                kind,
+                                site,
+                                &assessment,
+                                demand > 0,
+                                security,
+                            )
+                        },
                         |site| crate::view::build_distance(self, &builder.location, site),
                     )
                 })
                 .next();
             if let Some(choice) = candidate {
                 let message = format!(
-                    "{} · {}. Ищет исполнителя.",
+                    "{} · {}. Приоритет: {}.",
                     choice.kind.spec().name,
-                    choice.site.label()
+                    choice.site.label(),
+                    assessment.priority
                 );
                 match owner {
                     Faction::Genesis => self.genesis_program.decision = Some(message),
@@ -1043,6 +1190,7 @@ impl Sim {
                 }
                 self.enqueue_project(owner, choice);
             }
+            self.governance.assessments.insert(owner, assessment);
         }
     }
 
@@ -1051,463 +1199,52 @@ impl Sim {
         owner: Faction,
         kind: Kind,
         site: BuildSite,
-        pressure: bool,
+        state: &Assessment,
+        freight: bool,
+        security: bool,
     ) -> f64 {
-        if self.builds.has_pending(owner, kind) || self.has_build(owner, kind) {
+        if self.builds.has_pending(owner, kind)
+            || self.has_build(owner, kind)
+            || state.fuel_stock <= state.reserve_fuel + 4
+        {
             return 0.0;
         }
-        if owner == Faction::Pirates {
-            if !matches!(site, BuildSite::Jupiter | BuildSite::Outer) {
-                return 0.0;
-            }
-            return match kind {
-                Kind::Yard if self.conflict.raider_destroyed || pressure => 27.0,
-                Kind::Repair if self.conflict.raider_damaged => 18.0,
-                Kind::Observation if self.conflict.intercepted_raids > 0 => 12.0,
-                Kind::Smelter if self.conflict.pirate_loot >= 20 => 15.0,
-                Kind::Warehouse if self.conflict.pirate_loot >= 20 => 14.0,
-                _ => 0.0,
-            };
-        }
+        let port_has_yard = self
+            .builds
+            .yards
+            .keys()
+            .any(|id| self.location_owner(id) == owner);
         match kind {
+            Kind::Yard if !port_has_yard && security => 42.0,
             Kind::Yard
-                if pressure
-                    && self.deposit() < SEED_ORE - SHIPMENT
-                    && !self
-                        .builds
-                        .yards
-                        .keys()
-                        .any(|id| self.location_owner(id) == owner) =>
+                if !port_has_yard
+                    && freight
+                    && (owner != Faction::Genesis || self.deposit() < SEED_ORE - SHIPMENT) =>
             {
                 26.0
             }
             Kind::Mine
-                if self
-                    .construction_deposit(site)
-                    .is_some_and(|id| self.deposit_remaining(id) > 0) =>
+                if state.ore_need
+                    && self
+                        .construction_deposit(site)
+                        .is_some_and(|id| self.deposit_remaining(id) > 0) =>
             {
-                let shortage = if self.deposit() < 140 { 26.0 } else { 0.0 };
-                shortage + self.conflict.lost_ore.min(60) as f64 * 0.8
-            }
-            Kind::Warehouse
-                if site == BuildSite::Earth
-                    && self.room(EARTH, Commodity::Metals) < 8
-                    && self.station_ore() >= 10 =>
-            {
-                14.0
-            }
-            Kind::Smelter
-                if site == BuildSite::Earth
-                    && self.station_ore() >= 40
-                    && self.room(EARTH, Commodity::Metals) > 16 =>
-            {
-                14.0
-            }
-            Kind::Repair if site == BuildSite::Earth && self.conflict.patrol_damage >= 18 => 20.0,
-            Kind::Observation if site == BuildSite::Earth && self.conflict.heightened_alert() => {
-                12.0
-            }
-            _ => 0.0,
-        }
-    }
-
-    fn run_conflict(&mut self, events: &mut Vec<Event>) {
-        let threat_seen = self.conflict.lost_ore > 0
-            || self.conflict.pirate_loot > 0
-            || self.conflict.raider_cargo > 0;
-        let target = self.fleet.ships.iter().find_map(|(id, ship)| {
-            if ship.owner != Faction::Genesis {
-                return None;
-            }
-            let task = ship.task.as_ref()?;
-            let order = self.fleet.orders.get(&task.order)?;
-            let leg = ship.leg.as_ref()?;
-            (task.loaded
-                && task.quantity >= 10
-                && order.resource == Commodity::Ore
-                && leg.elapsed == 0)
-                .then(|| (id.clone(), ship.location.clone(), task.order.clone()))
-        });
-        let raid_distance = crate::view::route_distance(
-            self,
-            PIRATE_BASE,
-            target
-                .as_ref()
-                .map_or(BELT, |(_, source, _)| source.as_str()),
-        );
-        let raid_cost = (raid_distance * 0.42).ceil().clamp(2.0, 6.0) as u32;
-        let free_metal = self.production_supply(EARTH, Commodity::Metals);
-        let free_fuel = self.production_supply(EARTH, Commodity::Fuel);
-        let pirate_warehouse = self.has_build(Faction::Pirates, Kind::Warehouse);
-        let pirate_yard = self.has_build(Faction::Pirates, Kind::Yard);
-        let pirate_repair = self.has_build(Faction::Pirates, Kind::Repair);
-        let pirate_smelter = self.pirate_program.has(Kind::Smelter);
-        let genesis_observation = self.has_build(Faction::Genesis, Kind::Observation);
-        let pirate_observation = self.has_build(Faction::Pirates, Kind::Observation);
-        let patrol_builder_available = self
-            .fleet
-            .ships
-            .get("builder-1")
-            .is_none_or(|ship| ship.task.is_none() && ship.leg.is_none());
-        let genesis_has_yard = self
-            .builds
-            .yards
-            .keys()
-            .any(|id| self.location_owner(id) == Faction::Genesis);
-        let reserved_pirate_fuel = self.fleet.reserved(PIRATE_BASE, Commodity::Fuel);
-        let reserved_pirate_metal = self.fleet.reserved(PIRATE_BASE, Commodity::Metals);
-        let reserved_pirate_ore = self.fleet.reserved(PIRATE_BASE, Commodity::Ore);
-        let earth = self.warehouses.get_mut(EARTH).expect("station inventory");
-        let war = &mut self.conflict;
-        if war.base_progress < 40.0 {
-            war.base_progress += QUANTUM;
-            if war.base_progress == 36.0 {
-                war.base_ready = true;
-                events.push(decision(
-                    "pirate_base_built",
-                    "Пиратская экспедиция",
-                    format!(
-                        "Собрала базу из половины стартового груза в {PIRATE_SEED_METAL} металла."
-                    ),
-                ));
-            }
-            if war.base_progress == 40.0 {
-                war.raider_fuel = 6;
-                events.push(decision(
-                    "raider_built",
-                    "Пиратская экспедиция",
-                    "Собрала рейдер из оставшихся 8 металла и заправила его из стартового запаса."
-                        .into(),
-                ));
-            }
-        }
-        if war.raider_return > 0.0 {
-            war.raider_return += QUANTUM;
-            if war.raider_return >= war.return_duration() {
-                let landed = std::mem::take(&mut war.raider_cargo);
-                war.pirate_loot += landed;
-                war.raider_return = 0.0;
-                if landed > 0 {
-                    events.push(event(
-                        "raid_delivered",
-                        "ore",
-                        PIRATE_BASE,
-                        landed,
-                        war.pirate_loot,
-                        None,
-                    ));
-                }
-            }
-        }
-        if war.base_progress >= 40.0 && war.raider_return == 0.0 && war.raid_elapsed == 0.0 {
-            if (war.raider_damaged || war.raider_destroyed || pirate_smelter)
-                && war.pirate_metal < if war.raider_destroyed { 8 } else { 2 }
-                && war.pirate_loot.saturating_sub(reserved_pirate_ore) >= 10
-                && war.pirate_fuel_stock.saturating_sub(reserved_pirate_fuel) >= 1
-            {
-                war.pirate_loot -= 10;
-                war.pirate_fuel_stock -= 1;
-                war.pirate_metal += 8;
-                events.push(event(
-                    "pirate_smelting",
-                    "metals",
-                    PIRATE_BASE,
-                    8,
-                    war.pirate_metal,
-                    None,
-                ));
-            }
-            if war.raider_destroyed {
-                if pirate_yard
-                    && war.rebuild_elapsed == 0.0
-                    && war.pirate_metal.saturating_sub(reserved_pirate_metal) >= 8
-                    && war.pirate_fuel_stock.saturating_sub(reserved_pirate_fuel) >= 2
-                {
-                    war.pirate_metal -= 8;
-                    war.pirate_fuel_stock -= 2;
-                    war.rebuild_elapsed = QUANTUM;
-                    events.push(decision(
-                        "raider_rebuild",
-                        "Пираты",
-                        "Заложен новый рейдер из 8 металла.".into(),
-                    ));
-                } else if war.rebuild_elapsed > 0.0 {
-                    war.rebuild_elapsed += QUANTUM;
-                    if war.rebuild_elapsed >= 16.0 {
-                        war.rebuild_elapsed = 0.0;
-                        war.raider_damage = 0;
-                        war.raider_destroyed = false;
-                        war.raider_generation += 1;
-                        war.raider_fuel = 2;
-                        events.push(decision(
-                            "raider_built",
-                            "Пираты",
-                            "Новый рейдер введён в строй.".into(),
-                        ));
-                    }
-                }
-            }
-            if war.raider_damaged
-                && !war.raider_destroyed
-                && war.pirate_metal.saturating_sub(reserved_pirate_metal) >= 2
-            {
-                war.pirate_metal -= if pirate_repair { 1 } else { 2 };
-                war.raider_damaged = false;
-                war.raider_damage = 0;
-                events.push(decision(
-                    "raider_repaired",
-                    "Пираты",
-                    "Рейдер отремонтирован трофейным металлом.".into(),
-                ));
-            }
-            if !war.raider_destroyed
-                && war.raider_fuel < raid_cost
-                && war.pirate_fuel_stock > reserved_pirate_fuel
-            {
-                let quantity = (6 - war.raider_fuel)
-                    .min(war.pirate_fuel_stock.saturating_sub(reserved_pirate_fuel));
-                war.pirate_fuel_stock -= quantity;
-                war.raider_fuel += quantity;
-                events.push(event(
-                    "refueled",
-                    "fuel",
-                    PIRATE_BASE,
-                    quantity,
-                    war.pirate_fuel_stock,
-                    Some("Пиратский рейдер"),
-                ));
-            }
-            if let Some((id, source, order)) = target
-                && war.pirate_loot < if pirate_warehouse { 60 } else { 20 }
-                && !war.raider_destroyed
-                && !war.raider_damaged
-                && war.raider_fuel >= raid_cost
-            {
-                war.raid_target = Some(id);
-                war.raid_source = Some(source);
-                war.raid_order = Some(order);
-                war.raider_fuel -= raid_cost;
-                war.raid_approach = (raid_distance / 1.2).clamp(5.0, 13.0);
-                war.raid_return_time = war.raid_approach * 1.3;
-                war.raid_elapsed = QUANTUM;
-                war.contact = 0.0;
-            }
-        }
-        if war.raid_elapsed > 0.0 {
-            war.raid_elapsed += QUANTUM;
-            let approach = war.approach_duration();
-            if war.raid_elapsed
-                >= approach
-                    * if genesis_observation {
-                        0.35
-                    } else if pirate_observation {
-                        0.57
-                    } else {
-                        0.48
-                    }
-                && war.near_intercept()
-                && war.patrol == Patrol::Ready
-            {
-                war.contact += QUANTUM;
-                if war.contact >= 0.75 && ((war.contact / QUANTUM) as u32).is_multiple_of(3) {
-                    war.raider_damage += 32;
-                    war.patrol_damage += 9;
-                    events.push(decision(
-                        "combat_hit",
-                        "Патруль-001",
-                        "Огонь в секторе: рейдер потерял 32 прочности, патруль — 9.".into(),
-                    ));
-                }
-            }
-            if war.raider_damage >= 60 {
-                war.raider_destroyed = true;
-                war.raider_damaged = false;
-                war.raider_fuel = 0;
-                war.raid_elapsed = 0.0;
-                war.intercepted_raids += 1;
-                events.push(decision(
-                    "raider_destroyed",
-                    "Патруль-001",
-                    "Рейдер уничтожен до захвата груза.".into(),
-                ));
-            } else if war.patrol_damage >= 100 && war.patrol == Patrol::Ready {
-                war.patrol = Patrol::Destroyed;
-                war.patrol_cycle = 0.0;
-                war.patrol_fuel = 0;
-                events.push(decision(
-                    "patrol_destroyed",
-                    "Пираты",
-                    "Патрульный корабль уничтожен.".into(),
-                ));
-            } else if war.raid_elapsed >= approach {
-                war.retreat_from = 1.0;
-                war.raid_elapsed = 0.0;
-                war.raider_return = QUANTUM;
-                if war.raider_damage > 0 {
-                    war.raider_damaged = true;
-                    war.intercepted_raids += 1;
-                    events.push(decision(
-                        "raid_deflected",
-                        "Патруль-001",
-                        "Повреждённый рейдер прервал налёт и ушёл.".into(),
-                    ));
-                    return;
-                }
-                if let Some(task) = war
-                    .raid_target
-                    .as_ref()
-                    .and_then(|id| self.fleet.ships.get_mut(id))
-                    .filter(|ship| ship.leg.is_some())
-                    .and_then(|ship| ship.task.as_mut())
-                    .filter(|task| {
-                        task.loaded
-                            && task.quantity >= 10
-                            && war.raid_order.as_ref() == Some(&task.order)
-                    })
-                {
-                    task.quantity -= 10;
-                    war.raider_cargo = 10;
-                    war.lost_ore += 10;
-                    events.push(event(
-                        "raid_stolen",
-                        "ore",
-                        PIRATE_BASE,
-                        10,
-                        war.raider_cargo,
-                        None,
-                    ));
-                    events.push(decision(
-                        "patrol_missed",
-                        "Служба охраны",
-                        if war.patrol_cycle > 0.0 {
-                            "Патруль не успел войти в зону перехвата."
-                        } else {
-                            "На маршруте не было патруля."
-                        }
-                        .into(),
-                    ));
-                }
-            }
-        }
-        match war.patrol {
-            Patrol::None
-                if threat_seen
-                    && patrol_builder_available
-                    && !self.builds.projects.values().any(|job| {
-                        job.journey
-                            .as_ref()
-                            .is_some_and(|trip| trip.builder == "builder-1")
-                    })
-                    && matches!(
-                        self.construction.mars,
-                        MarsProject::Proposed | MarsProject::Ready
-                    )
-                    && (self.construction.phase == Project::Complete || genesis_has_yard)
-                    && free_metal >= PATROL_METAL =>
-            {
-                assert!(earth.withdraw(Commodity::Metals, PATROL_METAL));
-                war.patrol = Patrol::Delivering;
-                events.push(decision(
-                    "patrol_order",
-                    "Глава фракции",
-                    format!("После потери груза выделено {PATROL_METAL} металла на самостоятельный патруль."),
-                ));
-            }
-            Patrol::Delivering | Patrol::Building => {
-                war.patrol_elapsed += QUANTUM;
-                if war.patrol == Patrol::Delivering && war.patrol_elapsed >= 4.0 {
-                    war.patrol_elapsed = 0.0;
-                    war.patrol = Patrol::Building;
-                    events.push(decision(
-                        "patrol_inputs",
-                        "Строитель-001",
-                        "Материалы патруля доставлены на верфь.".into(),
-                    ));
-                } else if war.patrol == Patrol::Building && war.patrol_elapsed >= 8.0 {
-                    war.patrol_elapsed = 0.0;
-                    war.patrol = Patrol::Ready;
-                    war.patrol_fuel = PATROL_SEED_FUEL;
-                    events.push(decision(
-                        "patrol_ready",
-                        "Орбитальная верфь",
-                        "Патруль-001 готов к обходу сектора.".into(),
-                    ));
-                }
-            }
-            Patrol::Destroyed
-                if free_metal >= PATROL_METAL && free_fuel >= PATROL_SEED_FUEL + 1 =>
-            {
-                assert!(earth.withdraw(Commodity::Metals, PATROL_METAL));
-                assert!(earth.withdraw(Commodity::Fuel, PATROL_SEED_FUEL));
-                war.patrol = Patrol::Rebuilding;
-                war.patrol_elapsed = 0.0;
-                events.push(decision(
-                    "patrol_rebuild",
-                    "Глава фракции",
-                    "Выделены металл и топливо на замену патрульного корабля.".into(),
-                ));
-            }
-            Patrol::Rebuilding => {
-                war.patrol_elapsed += QUANTUM;
-                if war.patrol_elapsed >= 16.0 {
-                    war.patrol_generation += 1;
-                    war.patrol_elapsed = 0.0;
-                    war.patrol_damage = 0;
-                    war.patrol_fuel = PATROL_SEED_FUEL;
-                    war.patrol = Patrol::Ready;
-                    events.push(decision(
-                        "patrol_ready",
-                        "Верфь",
-                        "Новый патрульный корабль введён в строй.".into(),
-                    ));
-                }
-            }
-            Patrol::Ready => {
-                if war.patrol_cycle > 0.0 {
-                    war.patrol_cycle += QUANTUM;
-                    if war.patrol_cycle >= PATROL_DURATION {
-                        war.patrol_cycle = 0.0;
-                        war.patrol_cooldown = if war.heightened_alert() { 5.0 } else { 14.0 };
-                    }
-                } else if war.patrol_cooldown > 0.0 {
-                    war.patrol_cooldown = (war.patrol_cooldown - QUANTUM).max(0.0);
+                if self.deposit() < 140 || state.threat {
+                    31.0
                 } else {
-                    if war.patrol_fuel < 2 {
-                        let quantity = (PATROL_SEED_FUEL - war.patrol_fuel).min(free_fuel);
-                        if quantity > 0 {
-                            assert!(earth.withdraw(Commodity::Fuel, quantity));
-                            war.patrol_fuel += quantity;
-                            events.push(event(
-                                "refueled",
-                                "fuel",
-                                EARTH,
-                                quantity,
-                                earth.quantity(Commodity::Fuel),
-                                Some("Патруль-001"),
-                            ));
-                        }
-                    }
-                    let maintenance =
-                        war.patrol_sorties > 0 && war.patrol_sorties.is_multiple_of(2);
-                    if war.patrol_fuel >= 2 && (!maintenance || free_metal >= 4) {
-                        if maintenance {
-                            assert!(earth.withdraw(Commodity::Metals, 4));
-                            events.push(event(
-                                "patrol_maintenance",
-                                "metals",
-                                EARTH,
-                                4,
-                                earth.quantity(Commodity::Metals),
-                                Some("Патруль-001"),
-                            ));
-                        }
-                        war.patrol_fuel -= 2;
-                        war.patrol_cycle = QUANTUM;
-                        war.patrol_sorties += 1;
-                    }
+                    0.0
                 }
             }
-            _ => {}
+            Kind::Warehouse if state.storage_blocked && state.ore_stock >= 10 => 16.0,
+            Kind::Smelter
+                if state.ore_stock >= if owner == Faction::Genesis { 40 } else { 10 }
+                    && state.metal_stock < if owner == Faction::Genesis { 64 } else { 40 } =>
+            {
+                17.0
+            }
+            Kind::Repair if state.damage >= 18 => 24.0,
+            Kind::Observation if state.threat => 16.0,
+            _ => 0.0,
         }
     }
 
@@ -1772,25 +1509,23 @@ impl Warehouse {
         Self::dedicated_for(name, Faction::Genesis, slots)
     }
 
-    pub(crate) fn dedicated_for<const N: usize>(
+    pub(crate) fn dedicated_for(
         name: &str,
         owner: Faction,
-        slots: [(Commodity, u32, u32); N],
+        slots: impl IntoIterator<Item = (Commodity, u32, u32)>,
     ) -> Self {
+        let (stock, limits) = slots
+            .into_iter()
+            .map(|(resource, quantity, capacity)| ((resource, quantity), (resource, capacity)))
+            .unzip();
         Self {
             owner,
             name: name.into(),
             x: 0.0,
             y: 0.0,
             capacity: 0,
-            stock: slots
-                .iter()
-                .map(|&(item, quantity, _)| (item, quantity))
-                .collect(),
-            limits: slots
-                .into_iter()
-                .map(|(item, _, capacity)| (item, capacity))
-                .collect(),
+            stock,
+            limits,
         }
     }
 

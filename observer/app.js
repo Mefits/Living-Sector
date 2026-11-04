@@ -156,6 +156,10 @@ function renderGovernance() {
   inspectorRow(panel, "Перехваты", fnum(gov.intercepted_raids));
   if (gov.fuel_cargo) inspectorRow(panel, "Топливо в пути", fnum(gov.fuel_cargo));
   if (gov.pirate_expansion) inspectorRow(panel, "Проект пиратов", gov.pirate_expansion);
+  for (const plan of list(gov.faction_plans)) {
+    inspectorRow(panel, plan.name, plan.priority);
+    inspectorRow(panel, "Груз к доставке · топливо", fnum(plan.open_cargo) + " · " + fnum(plan.fuel_stock) + " / резерв " + fnum(plan.reserve_fuel));
+  }
   for (const order of list(gov.orders).slice(0, 5)) {
     inspectorRow(panel, "Заказ №" + order.id + " · " + commodityLabel(order.resource),
       fnum(order.assigned) + " назначено / " + fnum(order.remaining) + " осталось");
@@ -538,7 +542,11 @@ const eventNames = {
   raider_rebuild: "Заложен новый рейдер",
   patrol_rebuild: "Заказана замена патруля",
   raid_deflected: "Перехват сорван",
-  raid_stolen: "Пираты захватили руду",
+  raid_stolen: "Захвачен груз",
+  raid_departed: "Рейдер выбрал цель",
+  ship_destroyed: "Корабль уничтожен",
+  ship_repaired: "Корпус отремонтирован",
+  faction_priority: "Фракция пересмотрела приоритет",
   patrol_order: "Заказан патрульный корабль",
   patrol_inputs: "Материалы доставлены на верфь",
   patrol_ready: "Патрульный корабль готов",

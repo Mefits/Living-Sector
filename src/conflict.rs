@@ -1,10 +1,6 @@
-use crate::freight::Commodity;
 use serde::{Deserialize, Serialize};
 
 pub const PIRATE_BASE: &str = "pirate-outpost";
-pub const PATROL_METAL: u32 = 8;
-pub const PIRATE_SEED_METAL: u32 = 16;
-pub const PATROL_SEED_FUEL: u32 = 4;
 pub const PATROL_DURATION: f64 = 28.0;
 pub const RAID_APPROACH: f64 = 9.0;
 pub const RAID_RETURN: f64 = 12.0;
@@ -26,56 +22,65 @@ pub enum Patrol {
 pub struct Conflict {
     pub base_ready: bool,
     pub base_progress: f64,
+    #[serde(skip_serializing)]
     pub pirate_loot: u32,
+    #[serde(skip_serializing)]
     pub raider_cargo: u32,
+    #[serde(skip_serializing)]
     pub raider_return: f64,
+    #[serde(skip_serializing)]
     pub raider_fuel: u32,
+    #[serde(skip_serializing)]
     pub patrol: Patrol,
+    #[serde(skip_serializing)]
     pub patrol_elapsed: f64,
+    #[serde(skip_serializing)]
     pub patrol_fuel: u32,
+    #[serde(skip_serializing)]
     pub pirate_fuel_stock: u32,
+    #[serde(skip_serializing)]
     pub pirate_metal: u32,
+    #[serde(skip_serializing)]
     pub raider_damaged: bool,
+    #[serde(skip_serializing)]
     pub raid_elapsed: f64,
+    #[serde(skip_serializing)]
     pub contact: f64,
+    #[serde(skip_serializing)]
     pub patrol_cycle: f64,
+    #[serde(skip_serializing)]
     pub patrol_cooldown: f64,
+    #[serde(skip_serializing)]
     pub patrol_sorties: u32,
     pub lost_ore: u32,
     pub intercepted_raids: u32,
+    #[serde(skip_serializing)]
     pub retreat_from: f64,
+    #[serde(skip_serializing)]
     pub raider_destroyed: bool,
+    #[serde(skip_serializing)]
     pub raider_damage: u32,
+    #[serde(skip_serializing)]
     pub patrol_damage: u32,
+    #[serde(skip_serializing)]
     pub rebuild_elapsed: f64,
+    #[serde(skip_serializing)]
     pub raid_approach: f64,
+    #[serde(skip_serializing)]
     pub raid_return_time: f64,
+    #[serde(skip_serializing)]
     pub raid_target: Option<String>,
+    #[serde(skip_serializing)]
     pub raid_source: Option<String>,
+    #[serde(skip_serializing)]
     pub raid_order: Option<String>,
+    #[serde(skip_serializing)]
     pub patrol_generation: u32,
+    #[serde(skip_serializing)]
     pub raider_generation: u32,
 }
 
 impl Conflict {
-    pub(crate) fn stock(&self, resource: Commodity) -> u32 {
-        match resource {
-            Commodity::Ore => self.pirate_loot,
-            Commodity::Fuel => self.pirate_fuel_stock,
-            Commodity::Metals => self.pirate_metal,
-            _ => 0,
-        }
-    }
-
-    pub(crate) fn stock_mut(&mut self, resource: Commodity) -> Option<&mut u32> {
-        match resource {
-            Commodity::Ore => Some(&mut self.pirate_loot),
-            Commodity::Fuel => Some(&mut self.pirate_fuel_stock),
-            Commodity::Metals => Some(&mut self.pirate_metal),
-            _ => None,
-        }
-    }
-
     pub fn approach_duration(&self) -> f64 {
         if self.raid_approach > 0.0 {
             self.raid_approach
@@ -94,13 +99,5 @@ impl Conflict {
 
     pub fn patrol_progress(&self) -> f64 {
         self.patrol_cycle / PATROL_DURATION
-    }
-
-    pub fn near_intercept(&self) -> bool {
-        (0.31..=0.74).contains(&self.patrol_progress())
-    }
-
-    pub fn heightened_alert(&self) -> bool {
-        self.lost_ore > self.intercepted_raids.saturating_mul(10)
     }
 }

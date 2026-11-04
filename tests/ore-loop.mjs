@@ -68,10 +68,11 @@ async function fleetCase(initial, count) {
   Object.assign(state, {
     station_ore: 100, belt_ore: 0, deposit: 0, metal: 80, station_fuel: 200,
     industry: undefined,
+    security: undefined,
     warehouses: {north: warehouse("Север", 2, 45), south: warehouse("Юг", 3, 45), client: warehouse("Получатель", 5, 0)},
   });
   state.construction.phase = "complete";
-  Object.assign(state.conflict, { base_ready: true, base_progress: 40, pirate_fuel_stock: 0 });
+  Object.assign(state.conflict, { base_ready: true, base_progress: 40, pirate_fuel_stock: 0, raider_destroyed: true });
   state.fleet = { initialized: true, next_order: 2,
     orders: {1: {destination: "client", resource: "water", remaining: 110, priority: 100}},
     ships: Object.fromEntries(Array.from({length: count}, (_, i) => [
@@ -205,7 +206,7 @@ async function constructionCase(initial) {
   await pause(server);
   const paid = (await diag(server)).state;
   assert.equal(paid.warehouses["earth-station"].stock.metals, 16);
-  assert.equal(paid.conflict.pirate_metal, 8);
+  assert.equal(paid.warehouses["pirate-outpost"].stock.metals, 8);
   assert.equal(paid.builds.projects["site-73"].journey, null);
   assert.notEqual(paid.builds.projects[yards[0]].journey.builder, paid.builds.projects[yards[1]].journey.builder);
   await stop(server);
@@ -261,6 +262,106 @@ async function legacyConstructionCase(initial) {
   await stop(server);
 }
 
+function militaryShip(owner, role, location, fields = {}) {
+  return {name: role, owner, role, location, fuel: 36, tank: 36, capacity: role === "raider" ? 12 : 0,
+    status: "", task: null, leg: null, ...fields};
+}
+
+async function raidCase(initial, piratePoint) {
+  const state = structuredClone(initial);
+  Object.assign(state.conflict, {base_ready: true, base_progress: 40});
+  state.industry.plants = {};
+  const port = (name, x, y) => ({name, x, y, stock: {}, capacity: 100});
+  state.warehouses.sender = port("Source", piratePoint.x + 0.4, piratePoint.y);
+  state.warehouses.receiver = port("Destination", piratePoint.x + 2.5, piratePoint.y);
+  const freighter = (name, order, quantity) => ({name, location: "sender", fuel: 20, tank: 100, capacity: 50, status: "",
+    task: {order, quantity, source: "sender", loaded: true, handling: 0},
+    leg: {destination: "receiver", duration: 100, elapsed: 0}});
+  state.fleet.ships = {
+    "low-value": freighter("Low", "1", 5),
+    "valuable-alt": freighter("Valuable", "2", 25),
+    "test-raider": militaryShip("pirates", "raider", "pirate-outpost"),
+  };
+  state.fleet.orders = {
+    1: {destination: "receiver", resource: "ore", remaining: 5, priority: 10},
+    2: {destination: "receiver", resource: "metals", remaining: 25, priority: 10},
+  };
+  state.fleet.next_order = 3;
+  const save = join(dir, "raid.json");
+  await writeFile(save, JSON.stringify(state));
+  const server = await start(save);
+  await resume(server);
+  const result = await until(server, d => d.events.some(event => event.details?.kind === "raid_delivered"));
+  assert.ok(result.events.find(event => event.details?.kind === "raid_departed").details.reason.includes("valuable-alt"));
+  assert.equal(result.state.security.intel.pirates.loot_taken, 12);
+  assert.equal(result.state.warehouses["pirate-outpost"].stock.metals, 36);
+  assert.equal(result.state.fleet.ships["valuable-alt"].task.quantity, 13);
+  assert.equal(result.state.fleet.orders[2].remaining, 25);
+  await stop(server);
+}
+
+async function battleCase(initial, earthPoint) {
+  const state = structuredClone(initial);
+  Object.assign(state.conflict, {base_ready: true, base_progress: 40});
+  state.industry.plants = {};
+  const inFlight = (home, kind, destination, dx) => ({
+    home, duty: {kind, ...(destination && {destination})},
+    point: {x: earthPoint.x + dx, y: earthPoint.y + 0.7}, left: 100, fuel_fraction: 0,
+  });
+  state.fleet.ships = {
+    "guard-a": militaryShip("genesis", "patrol", "earth-station", {name: "Guard A", sortie: inFlight("earth-station", "patrol", "belt-outpost", 0)}),
+    "guard-b": militaryShip("genesis", "patrol", "earth-station", {name: "Guard B", sortie: inFlight("earth-station", "patrol", "belt-outpost", 0.05)}),
+    "raider-x": militaryShip("pirates", "raider", "pirate-outpost", {damage: 42, sortie: inFlight("pirate-outpost", "return", null, 0.18)}),
+    "damaged-hauler": {...state.fleet.ships["freighter-1"], location: "repair-stock", damage: 12},
+  };
+  state.warehouses["repair-stock"] = {name: "Repair stocks", x: 3, y: 2, capacity: 50, stock: {metals: 1, fuel: 1}};
+  const save = join(dir, "battle.json");
+  await writeFile(save, JSON.stringify(state));
+  let server = await start(save);
+  await resume(server);
+  const result = await until(server, d => !d.state.fleet.ships["raider-x"] && d.state.fleet.ships["damaged-hauler"].damage === 0);
+  const shots = result.events.filter(event => event.details?.kind === "combat_hit").map(event => event.details.reason);
+  assert.ok(shots.some(event => event.startsWith("Guard A")));
+  assert.ok(shots.some(event => event.startsWith("Guard B")));
+  assert.equal(result.state.security.intel.pirates.casualties, 1);
+  assert.deepEqual(result.state.warehouses["repair-stock"].stock, {metals: 0, fuel: 0});
+  assert.ok(result.events.some(event => event.details?.kind === "faction_priority"));
+  await pause(server);
+  const saved = (await diag(server)).state;
+  await stop(server);
+  server = await start(save);
+  const reloaded = (await diag(server)).state;
+  assert.deepEqual(reloaded.fleet, saved.fleet);
+  assert.deepEqual(reloaded.security, saved.security);
+  await stop(server);
+}
+
+async function legacyRaidCase(initial) {
+  const state = structuredClone(initial);
+  delete state.security;
+  delete state.warehouses["pirate-outpost"];
+  Object.assign(state.conflict, {
+    base_ready: true, base_progress: 40, raider_fuel: 0, raider_cargo: 6, raider_return: 4,
+    raid_return_time: 12, retreat_from: 1, raider_damage: 11,
+    pirate_loot: 7, pirate_metal: 20, pirate_fuel_stock: 14,
+    patrol: "building", patrol_elapsed: 3,
+  });
+  const save = join(dir, "old-raid.json");
+  await writeFile(save, JSON.stringify(state));
+  const server = await start(save);
+  const imported = (await diag(server)).state;
+  assert.deepEqual(imported.fleet.ships["raider-1"].spoils, {resource: "ore", quantity: 6});
+  assert.equal(imported.fleet.ships["raider-1"].damage, 11);
+  assert.equal(imported.fleet.ships["raider-1"].sortie.duty.kind, "return");
+  assert.equal(imported.warehouses["pirate-outpost"].stock.ore, 7);
+  assert.equal(imported.security.legacy_orders[0].remaining, 20);
+  await resume(server);
+  const returned = await until(server, d => d.state.warehouses["pirate-outpost"].stock.ore === 13);
+  assert.equal(returned.state.fleet.ships["raider-1"].sortie, null);
+  assert.equal(returned.state.fleet.ships["raider-1"].fuel, 0);
+  await stop(server);
+}
+
 async function verifyImportedLog(logPath) {
   const log = JSON.parse(await readFile(logPath, "utf8"));
   const save = join(dir, "imported-log.json");
@@ -278,17 +379,20 @@ async function verifyImportedLog(logPath) {
 try {
   const origin = await start(join(dir, "new.json"));
   const initial = await diag(origin);
-  assert.equal(initial.version, "0.12.0");
+  assert.equal(initial.version, "0.13.0");
+  const report = await api(origin, "/api/report");
+  const point = id => report.facilities.find(facility => facility.id === id);
   await resume(origin);
   await Promise.all([
     legacyCase(initial.state), legacyCase(initial.state, true), industryCase(initial.state),
     constructionCase(initial.state), legacyConstructionCase(initial.state),
+    raidCase(initial.state, point("pirate-outpost")), battleCase(initial.state, point("earth-station")), legacyRaidCase(initial.state),
     ...(process.argv[3] ? [verifyImportedLog(process.argv[3])] : []),
     ...[1, 2, 5].map(count => fleetCase(initial.state, count)),
     until(origin, d => d.state.warehouses["earth-station"].stock.metals > 0),
   ]);
   await stop(origin);
-  console.log("PASS: fleet, industry, independent projects and yards, paid hulls, migration and reload.");
+  console.log("PASS: fleet, industry, construction, raid decisions, combat, repair, migration and reload.");
 } finally {
   await Promise.all([...children].map(async child => {
     const closed = once(child, "close");

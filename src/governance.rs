@@ -1,4 +1,6 @@
+use crate::builds::Faction;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -56,6 +58,7 @@ pub struct Governance {
     pub ore_requested: bool,
     pub last_decision: Option<String>,
     pressure: f64,
+    pub assessments: BTreeMap<Faction, Assessment>,
 }
 
 impl Governance {
@@ -87,4 +90,20 @@ impl Governance {
             Policy::Reserve => self.leader.reserve(),
         }
     }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct Assessment {
+    pub open_cargo: u64,
+    pub missing_freighters: u64,
+    pub damage: u32,
+    pub threat: bool,
+    pub military_demand: bool,
+    pub ore_need: bool,
+    pub ore_stock: u32,
+    pub metal_stock: u32,
+    pub fuel_stock: u32,
+    pub storage_blocked: bool,
+    pub reserve_fuel: u32,
+    pub priority: String,
 }

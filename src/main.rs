@@ -6,6 +6,7 @@ mod governance;
 mod industry;
 mod legacy_freight;
 mod planning;
+mod security;
 mod sim;
 mod view;
 
@@ -72,7 +73,7 @@ impl Engine {
                 .fleet
                 .ships
                 .values()
-                .filter(|ship| ship.leg.is_some())
+                .filter(|ship| ship.leg.is_some() || ship.sortie.is_some())
                 .count(),
             self.sim.smelting_status(),
             self.sim.delivery_status(),
@@ -82,7 +83,7 @@ impl Engine {
                 next.fleet
                     .ships
                     .values()
-                    .filter(|ship| ship.leg.is_some())
+                    .filter(|ship| ship.leg.is_some() || ship.sortie.is_some())
                     .count(),
                 next.smelting_status(),
                 next.delivery_status(),
@@ -92,7 +93,7 @@ impl Engine {
                 &next,
                 "operations",
                 json!({
-                    "ships_in_transit": next.fleet.ships.values().filter(|ship| ship.leg.is_some()).count(),
+                    "ships_in_transit": next.fleet.ships.values().filter(|ship| ship.leg.is_some() || ship.sortie.is_some()).count(),
                     "delivery": next.delivery_status(),
                     "smelting": next.smelting_status(),
                     "station_fuel": next.station_fuel(),

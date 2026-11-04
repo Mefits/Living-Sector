@@ -1,12 +1,13 @@
-use crate::builds::Stage;
-use crate::conflict::{PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, Patrol};
+use crate::builds::{Faction, Stage};
+use crate::conflict::PIRATE_BASE;
 
 use crate::construction::{
     MARS_METAL, MARS_SITE, MarsProject, Project, SHIP_METAL, SITE, YARD_METAL,
 };
-use crate::freight::{Commodity, ShipRole};
+use crate::freight::{Commodity, Ship, ShipRole};
 use crate::industry::Operation;
 use crate::planning::{Choice, Kind, Program, Site as BuildSite};
+use crate::security::{Duty, Point as WorldPoint};
 use crate::sim::{BELT, EARTH, Event, Sim, TANK};
 use serde_json::{Value, json};
 use std::f64::consts::TAU;
@@ -224,6 +225,33 @@ fn local_point(sim: &Sim, scene: &Scene, id: &str) -> Point {
     }
 }
 
+pub(crate) fn location_point(sim: &Sim, id: &str) -> WorldPoint {
+    let point = local_point(sim, &Scene::at(sim), id);
+    WorldPoint {
+        x: point.x,
+        y: point.y,
+    }
+}
+
+pub(crate) fn vessel_point(sim: &Sim, ship: &Ship) -> WorldPoint {
+    if let Some(flight) = &ship.sortie {
+        return flight.point;
+    }
+    let scene = Scene::at(sim);
+    let from = local_point(sim, &scene, &ship.location);
+    let point = ship.leg.as_ref().map_or(from, |leg| {
+        interpolate(
+            from,
+            local_point(sim, &scene, &leg.destination),
+            leg.progress(),
+        )
+    });
+    WorldPoint {
+        x: point.x,
+        y: point.y,
+    }
+}
+
 pub fn route_distance(sim: &Sim, from: &str, to: &str) -> f64 {
     let scene = Scene::at(sim);
     let a = local_point(sim, &scene, from);
@@ -238,6 +266,8 @@ fn freight_ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
             ShipRole::Freighter => "freighter",
             ShipRole::Constructor if ship.owner.id() == "pirates" => "pirate-builder",
             ShipRole::Constructor => "constructor",
+            ShipRole::Patrol => "patrol",
+            ShipRole::Raider => "raider",
         };
         if let Some((target, job, trip)) = sim.builds.builder_job(id) {
             let site = local_point(sim, scene, target);
@@ -256,18 +286,31 @@ fn freight_ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
                 "transit":transit.map(|(from,to)| json!({"from":from,"to":to,"distance_travelled":elapsed,"distance_total":trip.travel}))
             });
         }
-        let point = ship.leg.as_ref().map_or(start, |leg| interpolate(start, local_point(sim, scene, &leg.destination), leg.progress()));
+        let position_world = vessel_point(sim, ship);
+        let point = Point { x: position_world.x, y: position_world.y };
         let mut cargo = serde_json::Map::new();
         if let Some(task) = ship.task.as_ref().filter(|task| task.loaded) {
             cargo.insert(sim.fleet.orders[&task.order].resource.as_str().into(), json!(task.quantity));
         }
+        if let Some(spoils) = ship.spoils {
+            cargo.insert(spoils.resource.as_str().into(), json!(spoils.quantity));
+        }
+        let docked = ship.leg.is_none() && ship.sortie.is_none();
+        let transit = if let Some(flight) = &ship.sortie {
+            Some(json!({"from":ship.location, "to":match &flight.duty {
+                Duty::Patrol(anchor) => anchor, Duty::Raid(target) => target, Duty::Return => &flight.home,
+            }}))
+        } else {
+            ship.leg.as_ref().map(|leg| json!({"from":ship.location, "to":leg.destination,
+                "distance_travelled":leg.elapsed, "distance_total":leg.duration}))
+        };
+        let hull = ship.role.loadout().hull;
         json!({
             "id":id, "name":ship.name, "class":class, "faction_id":ship.owner.id(),
-            "docked":ship.leg.is_none(), "location":ship.leg.is_none().then_some(&ship.location),
+            "docked":docked, "location":docked.then_some(&ship.location),
             "position":position(id, point), "cargo":cargo, "fuel":ship.fuel, "fuel_capacity":ship.tank,
             "status_label":ship.status, "task_id":ship.task.as_ref().map(|task| &task.order),
-            "transit":ship.leg.as_ref().map(|leg| json!({"from":ship.location, "to":leg.destination,
-                "distance_travelled":leg.elapsed, "distance_total":leg.duration})),
+            "transit":transit, "hull":hull - ship.damage, "max_hull":hull,
         })
     }).collect()
 }
@@ -277,7 +320,6 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
     let phase = sim.construction.phase;
     let progress = sim.construction.elapsed / sim.construction.duration();
     if sim.legacy_builder_busy("builder-1") {
-        let delivering_patrol = sim.conflict.patrol == Patrol::Delivering;
         let mars = sim.construction.mars;
         let mars_flight = matches!(
             mars,
@@ -288,8 +330,6 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
                 sim.construction.mars_elapsed,
                 sim.construction.mars_duration,
             )
-        } else if delivering_patrol {
-            (sim.conflict.patrol_elapsed, 4.0)
         } else {
             (sim.construction.elapsed, sim.construction.duration())
         };
@@ -301,17 +341,13 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
             _ if mars == MarsProject::Returning => {
                 Some((MARS_SITE, EARTH, scene.mars_site, scene.station))
             }
-            _ if delivering_patrol => Some((EARTH, SITE, scene.station, scene.yard)),
             Project::Hauling => Some((EARTH, SITE, scene.station, scene.yard)),
             Project::Returning => Some((SITE, EARTH, scene.yard, scene.station)),
             _ => None,
         };
         let dock = if mars == MarsProject::Building {
             (MARS_SITE, scene.mars_site)
-        } else if phase == Project::Assembling
-            || matches!(sim.conflict.patrol, Patrol::Building | Patrol::Ready)
-                && mars != MarsProject::Ready
-        {
+        } else if phase == Project::Assembling {
             (SITE, scene.yard)
         } else {
             (EARTH, scene.station)
@@ -323,13 +359,13 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
         "id": "builder-1", "name": "Строитель-001", "class": "constructor",
         "faction_id": FACTION, "docked": builder_route.is_none(),
         "location": if builder_route.is_some() { None } else { Some(dock.0) },
-        "fuel": sim.construction.builder_fuel() + if sim.conflict.patrol == Patrol::None { 4 } else { 0 }, "fuel_capacity": 12,
+        "fuel": sim.construction.builder_fuel(), "fuel_capacity": 12,
         "position": position("builder-1", builder),
         "cargo": {
-            "metals": if mars == MarsProject::Hauling { MARS_METAL } else if delivering_patrol { PATROL_METAL } else if phase == Project::Hauling { YARD_METAL + SHIP_METAL } else { 0 },
-            "fuel": if delivering_patrol { PATROL_SEED_FUEL } else if phase == Project::Hauling { 8 } else { 0 }
+            "metals": if mars == MarsProject::Hauling { MARS_METAL } else if phase == Project::Hauling { YARD_METAL + SHIP_METAL } else { 0 },
+            "fuel": if phase == Project::Hauling { 8 } else { 0 }
         },
-        "status_label": if mars == MarsProject::Positioning { "Летит за материалами" } else if mars == MarsProject::Hauling { "Везёт материалы на Марс" } else if mars == MarsProject::Building { "Собирает аванпост" } else if mars == MarsProject::Returning { "Возвращается с Марса" } else if delivering_patrol { "Везёт материалы для патруля" } else { match phase {
+        "status_label": if mars == MarsProject::Positioning { "Летит за материалами" } else if mars == MarsProject::Hauling { "Везёт материалы на Марс" } else if mars == MarsProject::Building { "Собирает аванпост" } else if mars == MarsProject::Returning { "Возвращается с Марса" } else { match phase {
             Project::WaitingMaterials => "Ждёт металл",
             Project::Hauling => "Везёт стройматериалы",
             Project::Assembling => "Собирает верфь",
@@ -349,74 +385,6 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
             "fuel":sim.construction.parked_fuel, "fuel_capacity":TANK, "cargo":{},
             "transit":{"from":SITE, "to":BELT, "distance_travelled":sim.construction.elapsed,
                 "distance_total":sim.construction.duration()}
-        }));
-    }
-    let war = &sim.conflict;
-    let crossing = interpolate(
-        local_point(sim, scene, war.raid_source.as_deref().unwrap_or(BELT)),
-        scene.station,
-        0.5,
-    );
-    let chasing = war.raid_elapsed > 0.0;
-    let returning = war.raider_return > 0.0;
-    let raider_point = if returning {
-        interpolate(
-            interpolate(scene.pirate, crossing, war.retreat_from),
-            scene.pirate,
-            war.raider_return / war.return_duration(),
-        )
-    } else if chasing {
-        interpolate(
-            scene.pirate,
-            crossing,
-            war.raid_elapsed / war.approach_duration(),
-        )
-    } else {
-        scene.pirate
-    };
-    if war.base_progress >= 40.0 && !war.raider_destroyed {
-        let id = format!("raider-{}", war.raider_generation + 1);
-        ships.push(json!({
-            "id": id, "name": "Пиратский рейдер", "class": "pirate-patrol",
-            "faction_id": "pirates", "docked": !(returning || chasing),
-            "location": if returning || chasing { None } else { Some(PIRATE_BASE) },
-            "position": position(&id, raider_point), "cargo": {"ore": war.raider_cargo},
-            "fuel": war.raider_fuel, "fuel_capacity": 6, "hull": 60u32.saturating_sub(war.raider_damage), "max_hull": 60,
-            "transit": (returning || chasing).then(|| json!({
-                "from": if returning { BELT } else { PIRATE_BASE },
-                "to": if returning { PIRATE_BASE } else { EARTH },
-            })),
-        }));
-    }
-    if war.patrol == Patrol::Ready {
-        let id = format!("patrol-{}", war.patrol_generation + 1);
-        let progress = war.patrol_progress();
-        let sweeping = progress > 0.0;
-        let mut center = crossing;
-        center.y += 0.15;
-        let point = if progress < 0.31 {
-            interpolate(scene.station, center, progress / 0.31)
-        } else if progress <= 0.74 {
-            let angle = TAU * (progress - 0.31) / (0.74 - 0.31);
-            Point {
-                x: center.x + 0.18 * angle.sin(),
-                y: center.y + 0.18 * (1.0 - angle.cos()),
-            }
-        } else {
-            interpolate(center, scene.station, (progress - 0.74) / 0.26)
-        };
-        ships.push(json!({
-            "id": id, "name": "Патруль-001", "class": "patrol", "faction_id": FACTION,
-            "docked": !sweeping, "location": (!sweeping).then_some(EARTH),
-            "position": position(&id, point), "cargo": {}, "fuel": war.patrol_fuel, "fuel_capacity": PATROL_SEED_FUEL,
-            "hull": 100u32.saturating_sub(war.patrol_damage), "max_hull": 100,
-            "status_label": if war.near_intercept() { "Патрулирует сектор" }
-                else if sweeping && progress < 0.31 { "Летит в сектор" }
-                else if sweeping { "Возвращается на базу" }
-                else if war.patrol_cooldown > 0.0 { "На обслуживании" }
-                else if war.patrol_fuel < 2 { "Ждёт топлива" }
-                else { "Ждёт ремонта" },
-            "transit": sweeping.then(|| json!({"from": EARTH, "to": "Патрульный сектор"})),
         }));
     }
     ships
@@ -452,12 +420,6 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
     let id = facility["id"].as_str().unwrap_or_default();
     let kind = facility["type"].as_str().unwrap_or_default();
     let pirates = facility["faction_id"] == "pirates";
-    let war = &sim.conflict;
-    let program = if pirates {
-        &sim.pirate_program
-    } else {
-        &sim.genesis_program
-    };
     if let Some(job) = sim.builds.projects.get(id).filter(|job| !job.done) {
         let spec = job.choice.kind.spec();
         let progress = job.journey.as_ref().map_or(0.0, |trip| match trip.stage {
@@ -504,7 +466,11 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
     } else {
         id
     };
-    if let Some(warehouse) = sim.warehouses.get(stock_id) {
+    if let Some(warehouse) = sim
+        .warehouses
+        .get(stock_id)
+        .filter(|_| kind != "construction_site")
+    {
         let plants: Vec<_> = sim
             .industry
             .plants
@@ -598,127 +564,43 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
             note = "Расширяет общий склад металла станции Земли.".into();
             "Склад подключён"
         }
-        (PIRATE_BASE, "pirate-station") | (_, "cargo_warehouse") | (_, "smelter") if pirates => {
-            let cap = if program.has(Kind::Warehouse) { 60 } else { 20 };
+        (SITE, "shipyard") if sim.construction.phase == Project::BuildingShip => {
             meters.push(gauge(
-                "Трофейная руда на базе",
-                war.pirate_loot as f64,
-                cap as f64,
-                "ед.",
+                "Сборка ранее оплаченного корпуса",
+                sim.construction.elapsed,
+                sim.construction.duration(),
+                "с",
             ));
-            resources.extend([
-                stock("Металл на базе", war.pirate_metal),
-                stock("Топливо на базе", war.pirate_fuel_stock),
-            ]);
-            note = if kind == "smelter" {
-                "Перерабатывает трофейную руду в металл для ремонта и стройки.".into()
-            } else {
-                "Запасы используются для снабжения рейдера и строительства.".into()
-            };
-            if kind == "smelter" && war.pirate_loot < 10 {
-                "Ждёт партию трофейной руды"
-            } else if kind == "smelter" && war.pirate_fuel_stock == 0 {
-                "Ждёт топливо"
-            } else if kind == "smelter" && war.raider_return > 0.0 {
-                "Ждёт возвращения рейдера"
-            } else if kind == "smelter" {
-                "Партия доступна"
-            } else if war.raider_destroyed {
-                "Рейдер потерян"
-            } else if war.raid_elapsed > 0.0 {
-                "Рейдер на вылете"
-            } else if war.raider_return > 0.0 {
-                "Рейдер возвращается"
-            } else {
-                "База в работе"
-            }
-        }
-        (_, "shipyard") if pirates => {
-            resources.extend([
-                stock("Металл на базе", war.pirate_metal),
-                stock("Топливо на базе", war.pirate_fuel_stock),
-            ]);
-            note = "Новый рейдер требует 8 металла и 2 топлива со склада базы.".into();
-            if war.rebuild_elapsed > 0.0 {
-                meters.push(gauge("Новый рейдер", war.rebuild_elapsed, 16.0, "с"));
-                "Собирает рейдер"
-            } else if war.raider_destroyed {
-                "Ждёт материалы для замены"
-            } else {
-                "Свободна"
-            }
-        }
-        (SITE, "shipyard") => {
-            resources.extend([
-                stock("Металл на Земле", sim.metal()),
-                stock("Топливо на Земле", sim.station_fuel()),
-            ]);
-            if sim.construction.phase == Project::BuildingShip {
-                meters.push(gauge(
-                    "Сборка грузовика",
-                    sim.construction.elapsed,
-                    sim.construction.duration(),
-                    "с",
-                ));
-                "Собирает грузовик"
-            } else if matches!(war.patrol, Patrol::Building | Patrol::Rebuilding) {
-                meters.push(gauge(
-                    "Сборка патруля",
-                    war.patrol_elapsed,
-                    if war.patrol == Patrol::Building {
-                        8.0
-                    } else {
-                        16.0
-                    },
-                    "с",
-                ));
-                "Собирает патруль"
-            } else {
-                "Свободна"
-            }
+            "Собирает грузовик"
         }
         (_, "repair_dock") => {
-            let (metal, damage, hull): (u32, u32, u32) = if pirates {
-                (war.pirate_metal, war.raider_damage, 60)
+            let owner = if pirates {
+                Faction::Pirates
             } else {
-                (sim.metal(), war.patrol_damage, 100)
+                Faction::Genesis
             };
-            resources.push(stock(
-                if pirates {
-                    "Металл на базе"
-                } else {
-                    "Металл на Земле"
-                },
-                metal,
-            ));
-            if (pirates && war.raider_destroyed) || (!pirates && war.patrol != Patrol::Ready) {
-                "Ждёт корабль"
-            } else {
-                meters.push(gauge(
-                    "Корпус корабля",
-                    hull.saturating_sub(damage) as f64,
-                    hull as f64,
-                    "ед.",
-                ));
-                if damage == 0 {
-                    "Ремонт не требуется"
-                } else if metal < if pirates { 2 } else { 4 } {
-                    "Ждёт металл"
-                } else {
-                    "Ремонт доступен на базе"
-                }
-            }
+            let damaged = sim
+                .fleet
+                .ships
+                .values()
+                .filter(|ship| ship.owner == owner && ship.damage > 0)
+                .count();
+            resources.push(stock("Повреждённых кораблей", damaged as u32));
+            "Ремонт"
         }
         (_, "observation_station") => {
-            resources.extend([
-                stock("Перехваты", war.intercepted_raids),
-                stock("Потери руды", war.lost_ore),
-            ]);
-            note = if pirates {
-                "Помогает рейдеру позже попасть под обнаружение.".into()
+            let owner = if pirates {
+                Faction::Pirates
             } else {
-                "Даёт патрулю больше времени обнаружить рейдер в секторе.".into()
+                Faction::Genesis
             };
+            let hits = sim
+                .security
+                .intel
+                .get(&owner)
+                .map_or(0, |intel| intel.attacks_suffered);
+            resources.push(stock("Зафиксировано попаданий", hits));
+            note = "Расширяет дальность обнаружения кораблей фракции.".into();
             "Наблюдает за маршрутом"
         }
         (_, "construction_site") => {
@@ -729,7 +611,10 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
             if id == PIRATE_BASE {
                 resources.extend([
                     stock("Металл у экспедиции", 16),
-                    stock("Топливо экспедиции", war.pirate_fuel_stock),
+                    stock(
+                        "Топливо экспедиции",
+                        sim.stock(PIRATE_BASE, Commodity::Fuel),
+                    ),
                 ]);
             }
             "Строительство"
@@ -786,8 +671,8 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
         "id": PIRATE_BASE, "name": if war.base_ready { "Пиратская база" } else { "Площадка пиратов" },
         "type": if war.base_ready { "pirate-station" } else { "construction_site" },
         "location": PIRATE_BASE, "body_id": "jupiter", "x": scene.pirate.x, "y": scene.pirate.y,
-        "faction_id": "pirates", "reserves": {"fuel": war.pirate_fuel_stock},
-        "project": if war.base_ready { format!("Трофеи: {} руды, {} металла", war.pirate_loot, war.pirate_metal) } else { "Экспедиция собирает базу".into() },
+        "faction_id": "pirates", "reserves": {"fuel": sim.stock(PIRATE_BASE, Commodity::Fuel)},
+        "project": if war.base_ready { format!("Трофеи: {} руды, {} металла", sim.stock(PIRATE_BASE, Commodity::Ore), sim.stock(PIRATE_BASE, Commodity::Metals)) } else { "Экспедиция собирает базу".into() },
         "progress": (!war.base_ready).then_some(war.base_progress / 36.0),
     }));
     facilities.extend(program_facilities(sim, scene, &sim.genesis_program, false));
@@ -801,7 +686,7 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
             "faction_id":job.owner.id(), "reserves":{"fuel":sim.stock(id,Commodity::Fuel)}}));
     }
     for (id, warehouse) in &sim.warehouses {
-        if matches!(id.as_str(), EARTH | BELT | MARS_SITE | SITE)
+        if matches!(id.as_str(), EARTH | BELT | MARS_SITE | SITE | PIRATE_BASE)
             || sim.builds.projects.contains_key(id)
             || sim
                 .pirate_program
@@ -862,7 +747,11 @@ fn governance(sim: &Sim) -> Value {
         "ship": sim.delivery_status(),
         "lost_ore": sim.conflict.lost_ore,
         "intercepted_raids": sim.conflict.intercepted_raids,
-        "patrol_alert": if sim.conflict.heightened_alert() { "Повышенная готовность" } else { "Штатное патрулирование" },
+        "faction_plans": gov.assessments.iter().map(|(owner, assessment)| json!({
+            "name":owner.label(), "priority":assessment.priority, "damage":assessment.damage,
+            "fuel_stock":assessment.fuel_stock, "reserve_fuel":assessment.reserve_fuel, "open_cargo":assessment.open_cargo,
+        })).collect::<Vec<_>>(),
+        "patrol_alert": if sim.alert(Faction::Genesis) { "Повышенная готовность" } else { "Штатное патрулирование" },
         "fuel_cargo": sim.fleet.ships.values().filter_map(|ship| ship.task.as_ref()).filter(|task| task.loaded && sim.fleet.orders[&task.order].resource == crate::freight::Commodity::Fuel).map(|task| task.quantity).sum::<u32>(),
         "orders": sim.fleet.orders.iter().map(|(id, order)| json!({
             "id":id, "destination":order.destination, "resource":order.resource, "remaining":order.remaining,

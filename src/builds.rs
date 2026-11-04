@@ -5,7 +5,7 @@ use crate::sim::{Event, Sim, Warehouse, decision};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Faction {
     #[default]
@@ -416,6 +416,8 @@ impl Sim {
             let metal = match role {
                 ShipRole::Freighter => FREIGHTER_METAL,
                 ShipRole::Constructor => CONSTRUCTOR_METAL,
+                ShipRole::Patrol => 14,
+                ShipRole::Raider => 10,
             };
             let mut supplied = true;
             for (resource, amount) in [
