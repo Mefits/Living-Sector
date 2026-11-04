@@ -271,6 +271,24 @@ pub fn tick_facilities(
     tick_scale: f32,
     tick_multiplier: u32,
 ) {
+    tick_facilities_with_relations(
+        world, contracts, events,
+        &crate::agents::faction_relations::FactionRelations::new(),
+        tick, tick_scale, tick_multiplier,
+    );
+}
+
+/// Used by the live server; ordinary contracts may trade with neutral
+/// factions, never with a Hostile or War faction.
+pub fn tick_facilities_with_relations(
+    world: &mut World,
+    contracts: &mut crate::economy::contracts::ContractBoard,
+    events: &mut Vec<serde_json::Value>,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    tick: u64,
+    tick_scale: f32,
+    tick_multiplier: u32,
+) {
     let mult = tick_multiplier as u64;
     let recipe_interval = RECIPE_INTERVAL_BASE * mult;
     let mining_interval = MINING_INTERVAL_BASE * mult;
@@ -334,7 +352,7 @@ pub fn tick_facilities(
 
     // Phase 6: post delivery + courier contracts (every 50×mult ticks).
     if contract_interval > 0 && tick % contract_interval == 0 {
-        tick_post_contracts(world, contracts, tick, tick_multiplier);
+        tick_post_contracts_with_relations(world, contracts, relations, tick, tick_multiplier);
     }
 
     // Phase 6b (Phase 18c): shipyards mint modules from local market
@@ -1033,6 +1051,19 @@ pub fn tick_post_contracts(
     tick: u64,
     tick_multiplier: u32,
 ) {
+    tick_post_contracts_with_relations(
+        world, contracts, &crate::agents::faction_relations::FactionRelations::new(),
+        tick, tick_multiplier,
+    );
+}
+
+pub fn tick_post_contracts_with_relations(
+    world: &mut World,
+    contracts: &mut crate::economy::contracts::ContractBoard,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    tick: u64,
+    tick_multiplier: u32,
+) {
     use crate::agents::market::MarketHistory;
     let lifespan = FACILITY_DELIVERY_LIFESPAN_BASE * tick_multiplier as u64;
 
@@ -1086,15 +1117,36 @@ pub fn tick_post_contracts(
             .collect()
     };
 
-    // Pick a fallback source location per commodity: the location with the
-    // highest current supply for that commodity.
-    let source_for_commodity = |commodity: Commodity| -> Option<String> {
-        supply_by_location
+    let source_owners = crate::agents::faction_relations::market_controllers(world);
+    // Real stock must cover the planned delivery. Prefer own depots,
+    // then any neutral/allied owner. At War/Hostile: no trade.
+    let source_for_commodity = |commodity: Commodity,
+                                destination: &str,
+                                faction_id: &str,
+                                qty: u32| -> Option<String> {
+        let mut options: Vec<(&String, f32, bool)> = supply_by_location
             .iter()
-            .map(|(loc, sup)| (loc, sup.get(&commodity).copied().unwrap_or(0.0)))
-            .filter(|(_, s)| *s > 50.0)
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(loc, _)| loc.clone())
+            .filter_map(|(loc, sup)| {
+                if loc == destination {
+                    return None;
+                }
+                let owner = source_owners.get(loc).map(String::as_str).unwrap_or("");
+                if !crate::agents::faction_relations::commerce_allowed(
+                    relations, faction_id, owner,
+                ) {
+                    return None;
+                }
+                let stock = sup.get(&commodity).copied().unwrap_or(0.0);
+                if !stock.is_finite() || stock < qty as f32 {
+                    return None;
+                }
+                Some((loc, stock, owner == faction_id && !faction_id.is_empty()))
+            })
+            .collect();
+        options.sort_by(|a,b| b.2.cmp(&a.2)
+            .then_with(|| b.1.total_cmp(&a.1))
+            .then_with(|| a.0.cmp(b.0)));
+        options.first().map(|(loc,_,_)| (*loc).clone())
     };
 
     // Compute the payment the facility offers for a delivery contract.
@@ -1193,16 +1245,14 @@ pub fn tick_post_contracts(
                 if !urgent_tools && shortage < 30 {
                     continue;
                 }
-                let Some(source) = source_for_commodity(commodity) else {
+                // Quote against the actual quantity rather than a
+                // nominal minimum: don't post an undeliverable convoy.
+                let qty = delivery_qty_for_shortage(shortage);
+                let Some(source) = source_for_commodity(
+                    commodity, &loc.location_name, &id.faction_id, qty,
+                ) else {
                     continue;
                 };
-                if source == loc.location_name {
-                    continue;
-                }
-                // Bundle 1.3: scale qty by how long this market has been
-                // short. Urgent-tools path bypasses the 30-tick wait but
-                // still gets the base qty (shortage may be 0).
-                let qty = delivery_qty_for_shortage(shortage);
                 let payment = compute_delivery_payment(commodity, &source, ops.credits, qty);
                 if payment <= 0 {
                     continue;
@@ -1250,15 +1300,12 @@ pub fn tick_post_contracts(
                 if shortage < RECIPE_INPUT_SHORTAGE_THRESHOLD {
                     continue;
                 }
-                let Some(source) = source_for_commodity(commodity) else {
+                let qty = delivery_qty_for_shortage(shortage);
+                let Some(source) = source_for_commodity(
+                    commodity, &loc.location_name, &id.faction_id, qty,
+                ) else {
                     continue;
                 };
-                if source == loc.location_name {
-                    continue;
-                }
-                // Bundle 1.3: scale qty by shortage persistence, same
-                // policy as crew-essentials above.
-                let qty = delivery_qty_for_shortage(shortage);
                 let payment = compute_delivery_payment(commodity, &source, ops.credits, qty);
                 if payment <= 0 {
                     continue;
