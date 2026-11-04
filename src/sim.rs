@@ -1,5 +1,6 @@
 use crate::conflict::{
-    Conflict, PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, PIRATE_SEED_METAL, Patrol,
+    Conflict, PATROL_DURATION, PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, PIRATE_SEED_METAL,
+    Patrol, RAID_APPROACH, RAID_RETURN,
 };
 use crate::construction::{COMMISSION_FUEL, Construction, Project, SHIP_METAL, YARD_METAL};
 use crate::governance::Governance;
@@ -11,6 +12,7 @@ pub const BELT: &str = "belt-outpost";
 pub const EARTH: &str = "earth-station";
 pub const SHIP: &str = "Грузовой-001";
 const FLIGHT_FUEL: u32 = 8;
+const FUEL_SHIPMENT: u32 = 24;
 const MINE_INTERVAL: f64 = 2.0;
 const BELT_CAPACITY: u32 = 100;
 const SMELT_INTERVAL: f64 = 5.0;
@@ -56,6 +58,10 @@ pub struct Sim {
     pub belt_ore: u32,
     pub station_ore: u32,
     pub cargo: u32,
+    #[serde(default)]
+    pub fuel_cargo: u32,
+    #[serde(default)]
+    fuel_order: bool,
     pub fuel: u32,
     pub belt_fuel: u32,
     pub station_fuel: u32,
@@ -102,6 +108,8 @@ impl Default for Sim {
             belt_ore: 0,
             station_ore: 0,
             cargo: 0,
+            fuel_cargo: 0,
+            fuel_order: false,
             fuel: TANK,
             belt_fuel: 200,
             station_fuel: 200,
@@ -112,7 +120,10 @@ impl Default for Sim {
             governance: Governance::default(),
             construction: Construction::default(),
             deposit: SEED_ORE,
-            conflict: Conflict::default(),
+            conflict: Conflict {
+                pirate_fuel_stock: 18,
+                ..Conflict::default()
+            },
         }
     }
 }
@@ -124,12 +135,13 @@ impl Sim {
             && self.seconds >= 0.0
             && (0.0..self.phase.duration()).contains(&self.elapsed)
             && (if has_cargo {
-                (SHIPMENT - 10..=SHIPMENT).contains(&self.cargo)
+                (self.fuel_cargo == FUEL_SHIPMENT && self.cargo == 0 && self.fuel_order)
+                    || (self.fuel_cargo == 0 && (SHIPMENT - 10..=SHIPMENT).contains(&self.cargo))
             } else {
-                self.cargo == 0
+                self.cargo == 0 && self.fuel_cargo == 0
             })
             && self.belt_ore <= BELT_CAPACITY
-            && (self.phase != Phase::Loading || self.belt_ore >= SHIPMENT)
+            && (self.phase != Phase::Loading || self.fuel_order || self.belt_ore >= SHIPMENT)
             && self.fuel <= TANK
             && self.station_fuel <= 200
             && self.belt_fuel <= 200
@@ -144,6 +156,10 @@ impl Sim {
             && (0.0..QUANTUM).contains(&self.pending)
             && self.conflict.raider_cargo <= 10
             && self.conflict.patrol_fuel <= PATROL_SEED_FUEL
+            && (0.0..RAID_APPROACH).contains(&self.conflict.raid_elapsed)
+            && (0.0..RAID_RETURN).contains(&self.conflict.raider_return)
+            && (0.0..PATROL_DURATION).contains(&self.conflict.patrol_cycle)
+            && (0.0..=1.0).contains(&self.conflict.retreat_from)
             && self.deposit <= SEED_ORE
             && self.construction.parked_fuel <= TANK
             && (0.0..self.construction.duration()).contains(&self.construction.elapsed)
@@ -207,8 +223,13 @@ impl Sim {
                 "Залежи исчерпаны".into()
             }
             Phase::Waiting => format!("Ждёт руду — {} из {SHIPMENT}", self.belt_ore.min(SHIPMENT)),
+            Phase::Loading if self.fuel_order => "Загружает топливо".into(),
             Phase::Loading => "Загружает руду".into(),
+            Phase::Outbound if self.fuel_cargo > 0 => {
+                format!("В пути — {} топлива", self.fuel_cargo)
+            }
             Phase::Outbound => format!("В пути — {} руды", self.cargo),
+            Phase::Unloading if self.fuel_order => "Разгружает топливо".into(),
             Phase::Unloading => "Разгружает руду".into(),
             Phase::Returning => "Возвращается в пояс".into(),
             Phase::NoFuelAtBelt | Phase::NoFuelAtEarth => "Нет топлива на рейс".into(),
@@ -305,7 +326,9 @@ impl Sim {
 
     fn move_ship(&mut self, events: &mut Vec<Event>) {
         if self.phase == Phase::Waiting {
-            if self.governance.ore_requested && self.belt_ore >= SHIPMENT {
+            self.fuel_order = self.station_fuel <= self.governance.leader.reserve() + 12
+                && self.belt_fuel >= FUEL_SHIPMENT + 2 * FLIGHT_FUEL;
+            if self.fuel_order || (self.governance.ore_requested && self.belt_ore >= SHIPMENT) {
                 self.phase = if self.fuel + self.belt_fuel >= FLIGHT_FUEL * 2 {
                     Phase::Loading
                 } else {
@@ -335,6 +358,20 @@ impl Sim {
                     return;
                 }
                 self.fuel -= FLIGHT_FUEL;
+                if self.fuel_order {
+                    self.belt_fuel -= FUEL_SHIPMENT;
+                    self.fuel_cargo = FUEL_SHIPMENT;
+                    events.push(event(
+                        "fuel_loaded",
+                        "fuel",
+                        BELT,
+                        FUEL_SHIPMENT,
+                        self.belt_fuel,
+                        Some(self.freighter_name()),
+                    ));
+                    self.phase = Phase::Outbound;
+                    return;
+                }
                 self.belt_ore -= SHIPMENT;
                 self.cargo = SHIPMENT;
                 events.push(event(
@@ -349,17 +386,30 @@ impl Sim {
             }
             Phase::Outbound => Phase::Unloading,
             Phase::Unloading => {
-                self.station_ore += self.cargo;
-                events.push(event(
-                    "cargo_unloaded",
-                    "ore",
-                    EARTH,
-                    self.cargo,
-                    self.station_ore,
-                    Some(self.freighter_name()),
-                ));
-                self.cargo = 0;
-                self.governance.ore_requested = false;
+                if self.fuel_order {
+                    self.station_fuel += std::mem::take(&mut self.fuel_cargo);
+                    self.fuel_order = false;
+                    events.push(event(
+                        "fuel_unloaded",
+                        "fuel",
+                        EARTH,
+                        FUEL_SHIPMENT,
+                        self.station_fuel,
+                        Some(self.freighter_name()),
+                    ));
+                } else {
+                    self.station_ore += self.cargo;
+                    events.push(event(
+                        "cargo_unloaded",
+                        "ore",
+                        EARTH,
+                        self.cargo,
+                        self.station_ore,
+                        Some(self.freighter_name()),
+                    ));
+                    self.cargo = 0;
+                    self.governance.ore_requested = false;
+                }
                 // Older saves can contain a freighter without return fuel in transit.
                 let available = self
                     .station_fuel
@@ -384,7 +434,9 @@ impl Sim {
         };
     }
     fn run_conflict(&mut self, events: &mut Vec<Event>) {
-        let threat_seen = self.conflict.pirate_loot > 0 || self.conflict.raider_cargo > 0;
+        let threat_seen = self.conflict.lost_ore > 0
+            || self.conflict.pirate_loot > 0
+            || self.conflict.raider_cargo > 0;
         let war = &mut self.conflict;
         if war.base_progress < 40.0 {
             war.base_progress += QUANTUM;
@@ -410,7 +462,7 @@ impl Sim {
         }
         if war.raider_return > 0.0 {
             war.raider_return += QUANTUM;
-            if war.raider_return >= 6.0 {
+            if war.raider_return >= RAID_RETURN {
                 let landed = std::mem::take(&mut war.raider_cargo);
                 war.pirate_loot += landed;
                 war.raider_return = 0.0;
@@ -426,40 +478,98 @@ impl Sim {
                 }
             }
         }
-        if self.phase != Phase::Outbound {
-            war.patrol_home_earth |= war.escorted;
-            war.escorted = false;
-            war.intercepted = false;
-        } else {
-            if self.elapsed == 0.0 && war.patrol == Patrol::Ready && war.patrol_fuel >= 2 {
-                war.patrol_fuel -= 2;
-                war.escorted = true;
-            }
-            if self.elapsed >= 8.0
-                && !war.intercepted
-                && war.base_ready
-                && war.raider_fuel >= 2
-                && war.raider_return == 0.0
+        if war.base_progress >= 40.0 && war.raider_return == 0.0 && war.raid_elapsed == 0.0 {
+            if war.raider_damaged
+                && war.pirate_metal < 2
+                && war.pirate_loot >= 10
+                && war.pirate_fuel_stock >= 1
             {
-                war.intercepted = true;
+                war.pirate_loot -= 10;
+                war.pirate_fuel_stock -= 1;
+                war.pirate_metal += 8;
+                events.push(event(
+                    "pirate_smelting",
+                    "metals",
+                    PIRATE_BASE,
+                    8,
+                    war.pirate_metal,
+                    None,
+                ));
+            }
+            if war.raider_damaged && war.pirate_metal >= 2 {
+                war.pirate_metal -= 2;
+                war.raider_damaged = false;
+                events.push(decision(
+                    "raider_repaired",
+                    "Пираты",
+                    "Рейдер отремонтирован трофейным металлом.".into(),
+                ));
+            }
+            if war.raider_fuel < 2 && war.pirate_fuel_stock > 0 {
+                let quantity = (6 - war.raider_fuel).min(war.pirate_fuel_stock);
+                war.pirate_fuel_stock -= quantity;
+                war.raider_fuel += quantity;
+                events.push(event(
+                    "refueled",
+                    "fuel",
+                    PIRATE_BASE,
+                    quantity,
+                    war.pirate_fuel_stock,
+                    Some("Пиратский рейдер"),
+                ));
+            }
+            if self.phase == Phase::Outbound
+                && self.elapsed == 0.0
+                && self.cargo >= 10
+                && !war.raider_damaged
+                && war.raider_fuel >= 2
+            {
                 war.raider_fuel -= 2;
+                war.raid_elapsed = QUANTUM;
+                war.contact = 0.0;
+            }
+        }
+        if war.raid_elapsed > 0.0 {
+            war.raid_elapsed += QUANTUM;
+            if war.raid_elapsed >= 5.0 && war.near_intercept() {
+                war.contact += QUANTUM;
+            }
+            if war.contact >= 1.25 {
+                war.retreat_from = (war.raid_elapsed / RAID_APPROACH).min(1.0);
+                war.raid_elapsed = 0.0;
                 war.raider_return = QUANTUM;
-                if war.escorted {
-                    events.push(decision(
-                        "raid_deflected",
-                        "Патруль-001",
-                        "Сопровождение сорвало перехват.".into(),
-                    ));
-                } else {
+                war.raider_damaged = true;
+                war.intercepted_raids += 1;
+                events.push(decision(
+                    "raid_deflected",
+                    "Патруль-001",
+                    "Рейдер обнаружен в зоне патруля. Перехват завершился до захвата груза.".into(),
+                ));
+            } else if war.raid_elapsed >= RAID_APPROACH {
+                war.retreat_from = (war.raid_elapsed / RAID_APPROACH).min(1.0);
+                war.raid_elapsed = 0.0;
+                war.raider_return = QUANTUM;
+                if self.phase == Phase::Outbound && self.cargo >= 10 {
                     self.cargo -= 10;
                     war.raider_cargo = 10;
+                    war.lost_ore += 10;
                     events.push(event(
                         "raid_stolen",
                         "ore",
                         PIRATE_BASE,
                         10,
-                        self.cargo,
+                        war.raider_cargo,
                         None,
+                    ));
+                    events.push(decision(
+                        "patrol_missed",
+                        "Служба охраны",
+                        if war.patrol_cycle > 0.0 {
+                            "Патруль не успел войти в зону перехвата."
+                        } else {
+                            "На маршруте не было патруля."
+                        }
+                        .into(),
                     ));
                 }
             }
@@ -475,7 +585,7 @@ impl Sim {
                 events.push(decision(
                     "patrol_order",
                     "Глава фракции",
-                    format!("После потери груза выделено {PATROL_METAL} металла на патруль."),
+                    format!("После потери груза выделено {PATROL_METAL} металла на самостоятельный патруль."),
                 ));
             }
             Patrol::Delivering | Patrol::Building => {
@@ -495,8 +605,57 @@ impl Sim {
                     events.push(decision(
                         "patrol_ready",
                         "Орбитальная верфь",
-                        "Патруль-001 готов к сопровождению.".into(),
+                        "Патруль-001 готов к обходу сектора.".into(),
                     ));
+                }
+            }
+            Patrol::Ready => {
+                if war.patrol_cycle > 0.0 {
+                    war.patrol_cycle += QUANTUM;
+                    if war.patrol_cycle >= PATROL_DURATION {
+                        war.patrol_cycle = 0.0;
+                        war.patrol_cooldown = if war.heightened_alert() { 5.0 } else { 14.0 };
+                    }
+                } else if war.patrol_cooldown > 0.0 {
+                    war.patrol_cooldown = (war.patrol_cooldown - QUANTUM).max(0.0);
+                } else {
+                    if war.patrol_fuel < 2 {
+                        let available = self.station_fuel.saturating_sub(
+                            self.governance.leader.reserve()
+                                + u32::from(self.smelting_elapsed > 0.0),
+                        );
+                        let quantity = (PATROL_SEED_FUEL - war.patrol_fuel).min(available);
+                        if quantity > 0 {
+                            self.station_fuel -= quantity;
+                            war.patrol_fuel += quantity;
+                            events.push(event(
+                                "refueled",
+                                "fuel",
+                                EARTH,
+                                quantity,
+                                self.station_fuel,
+                                Some("Патруль-001"),
+                            ));
+                        }
+                    }
+                    let maintenance =
+                        war.patrol_sorties > 0 && war.patrol_sorties.is_multiple_of(2);
+                    if war.patrol_fuel >= 2 && (!maintenance || self.metal >= 4) {
+                        if maintenance {
+                            self.metal -= 4;
+                            events.push(event(
+                                "patrol_maintenance",
+                                "metals",
+                                EARTH,
+                                4,
+                                self.metal,
+                                Some("Патруль-001"),
+                            ));
+                        }
+                        war.patrol_fuel -= 2;
+                        war.patrol_cycle = QUANTUM;
+                        war.patrol_sorties += 1;
+                    }
                 }
             }
             _ => {}

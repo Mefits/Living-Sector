@@ -1,4 +1,6 @@
-use crate::conflict::{PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, Patrol};
+use crate::conflict::{
+    PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, Patrol, RAID_APPROACH, RAID_RETURN,
+};
 use crate::construction::{Project, SHIP_METAL, SITE, YARD_METAL};
 use crate::sim::{BELT, EARTH, Event, METAL_CAPACITY, Phase, Sim, TANK};
 use serde_json::{Value, json};
@@ -97,7 +99,7 @@ fn ship(sim: &Sim, scene: &Scene) -> Value {
         "id": freighter_id(sim.construction.active_second), "name": sim.freighter_name(), "class": "freighter", "faction_id": FACTION,
         "docked": transit.is_none(), "location": location, "fuel": sim.fuel, "fuel_capacity": TANK,
         "status_label": sim.ship_status(),
-        "position": {"x": scene.ship.x, "y": scene.ship.y}, "cargo": {"ore": sim.cargo},
+        "position": {"x": scene.ship.x, "y": scene.ship.y}, "cargo": {"ore": sim.cargo, "fuel": sim.fuel_cargo},
         "transit": transit.map(|(from, to)| json!({
             "from": from, "to": to, "distance_travelled": sim.elapsed, "distance_total": sim.phase.duration(),
         }))
@@ -190,16 +192,16 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
     }
     let war = &sim.conflict;
     let crossing = interpolate(scene.rig, scene.station, 0.5);
-    let chasing = war.base_ready
-        && war.raider_fuel >= 2
-        && !war.intercepted
-        && war.raider_return == 0.0
-        && sim.phase == Phase::Outbound;
+    let chasing = war.raid_elapsed > 0.0;
     let returning = war.raider_return > 0.0;
     let raider_point = if returning {
-        interpolate(crossing, scene.pirate, war.raider_return / 6.0)
+        interpolate(
+            interpolate(scene.pirate, crossing, war.retreat_from),
+            scene.pirate,
+            war.raider_return / RAID_RETURN,
+        )
     } else if chasing {
-        interpolate(scene.pirate, crossing, (sim.elapsed / 8.0).min(1.0))
+        interpolate(scene.pirate, crossing, war.raid_elapsed / RAID_APPROACH)
     } else {
         scene.pirate
     };
@@ -224,24 +226,32 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
         }));
     }
     if war.patrol == Patrol::Ready {
-        let home = if war.patrol_home_earth {
-            scene.station
+        let progress = war.patrol_progress();
+        let sweeping = progress > 0.0;
+        let mut center = crossing;
+        center.y += 0.15;
+        let point = if progress < 0.31 {
+            interpolate(scene.station, center, progress / 0.31)
+        } else if progress <= 0.74 {
+            let angle = TAU * (progress - 0.31) / (0.74 - 0.31);
+            Point {
+                x: center.x + 0.18 * angle.sin(),
+                y: center.y + 0.18 * (1.0 - angle.cos()),
+            }
         } else {
-            scene.yard
-        };
-        let point = if war.escorted && sim.elapsed < 8.0 {
-            interpolate(home, crossing, sim.elapsed / 8.0)
-        } else if war.escorted {
-            scene.ship
-        } else {
-            home
+            interpolate(center, scene.station, (progress - 0.74) / 0.26)
         };
         ships.push(json!({
             "id": "patrol-1", "name": "Патруль-001", "class": "patrol", "faction_id": FACTION,
-            "docked": !war.escorted, "location": if war.escorted { None } else if war.patrol_home_earth { Some(EARTH) } else { Some(SITE) },
+            "docked": !sweeping, "location": (!sweeping).then_some(EARTH),
             "position": position("patrol-1", point), "cargo": {}, "fuel": war.patrol_fuel, "fuel_capacity": PATROL_SEED_FUEL,
-            "status_label": if war.escorted { "Сопровождает грузовик" } else { "Ждёт рейс" },
-            "transit": war.escorted.then(|| json!({"from": SITE, "to": EARTH})),
+            "status_label": if war.near_intercept() { "Патрулирует сектор" }
+                else if sweeping && progress < 0.31 { "Летит в сектор" }
+                else if sweeping { "Возвращается на базу" }
+                else if war.patrol_cooldown > 0.0 { "На обслуживании" }
+                else if war.patrol_fuel < 2 { "Ждёт топлива" }
+                else { "Ждёт ремонта" },
+            "transit": sweeping.then(|| json!({"from": EARTH, "to": "Патрульный сектор"})),
         }));
     }
     ships
@@ -280,8 +290,8 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
         "id": PIRATE_BASE, "name": if war.base_ready { "Пиратская база" } else { "Площадка пиратов" },
         "type": if war.base_ready { "pirate-station" } else { "construction_site" },
         "location": PIRATE_BASE, "body_id": "jupiter", "x": scene.pirate.x, "y": scene.pirate.y,
-        "faction_id": "pirates", "reserves": {"fuel": 0},
-        "project": if war.base_ready { format!("Трофейная руда: {}", war.pirate_loot) } else { "Экспедиция собирает базу".into() },
+        "faction_id": "pirates", "reserves": {"fuel": war.pirate_fuel_stock},
+        "project": if war.base_ready { format!("Трофеи: {} руды, {} металла", war.pirate_loot, war.pirate_metal) } else { "Экспедиция собирает базу".into() },
         "progress": (!war.base_ready).then_some(war.base_progress / 36.0),
     }));
     facilities
@@ -313,6 +323,10 @@ fn governance(sim: &Sim) -> Value {
         "metal": sim.metal,
         "cargo": sim.cargo,
         "ship": sim.ship_status(),
+        "lost_ore": sim.conflict.lost_ore,
+        "intercepted_raids": sim.conflict.intercepted_raids,
+        "patrol_alert": if sim.conflict.heightened_alert() { "Повышенная готовность" } else { "Штатное патрулирование" },
+        "fuel_cargo": sim.fuel_cargo,
     })
 }
 

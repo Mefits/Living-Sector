@@ -151,6 +151,10 @@ function renderGovernance() {
   inspectorRow(panel, "Снабженец", gov.logistics);
   inspectorRow(panel, "Промышленник", gov.industry);
   inspectorRow(panel, "Грузовик", gov.ship);
+  inspectorRow(panel, "Охрана", gov.patrol_alert);
+  inspectorRow(panel, "Потери руды", fnum(gov.lost_ore));
+  inspectorRow(panel, "Перехваты", fnum(gov.intercepted_raids));
+  if (gov.fuel_cargo) inspectorRow(panel, "Топливо в пути", fnum(gov.fuel_cargo));
   if (gov.last_decision) inspectorRow(panel, "Решение главы", gov.last_decision);
 }
 
@@ -474,6 +478,13 @@ const eventNames = {
   pirate_base_built: "Пиратская база собрана",
   raider_built: "Рейдер собран",
   raid_delivered: "Трофеи доставлены пиратам",
+  refueled: "Заправка",
+  fuel_loaded: "Топливо загружено",
+  fuel_unloaded: "Топливо доставлено",
+  patrol_missed: "Патруль опоздал",
+  patrol_maintenance: "Обслуживание патруля",
+  pirate_smelting: "Переработаны трофеи",
+  raider_repaired: "Рейдер отремонтирован",
   raid_deflected: "Перехват сорван",
   raid_stolen: "Пираты захватили руду",
   patrol_order: "Заказан патрульный корабль",

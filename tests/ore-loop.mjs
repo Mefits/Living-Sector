@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 const dir = await mkdtemp(join(tmpdir(), "genesis-ore-loop-"));
-const timeout = AbortSignal.timeout(25000);
+const timeout = AbortSignal.timeout(36000);
 const processClosed = [];
 const children = [];
 const sockets = [];
@@ -94,7 +94,7 @@ async function observe(leader) {
   const diagnosticResponse = await fetch(restartedBase + "/api/diagnostics", {signal: timeout});
   assert.match(diagnosticResponse.headers.get("content-disposition"), /Living-Sector-diagnostics.json/);
   const diagnostics = await diagnosticResponse.json();
-  assert.equal(diagnostics.version, "0.5.1");
+  assert.equal(diagnostics.version, "0.6.0");
   assert.equal(diagnostics.state.tick, restarted.tick);
   assert.ok(diagnostics.events.some(event => event.details.kind === "raid_deflected"));
   assert.ok(diagnostics.events.some(event => event.kind === "operations"));
@@ -102,12 +102,34 @@ async function observe(leader) {
   assert.deepEqual(restarted.governance, paused.governance);
   assert.deepEqual(restarted.ships.map(ship => ship.id), paused.ships.map(ship => ship.id));
   assert.deepEqual(restarted.facilities, paused.facilities);
-  return result;
+  const supplySave = join(dir, "fuel-supply.json");
+  const supplyState = diagnostics.state;
+  supplyState.station_fuel = 30;
+  await writeFile(supplySave, JSON.stringify(supplyState));
+  const { base: supplyBase } = await start("", supplySave);
+  const fuelSocket = new WebSocket(supplyBase.replace("http:", "ws:") + "/ws");
+  sockets.push(fuelSocket);
+  let loaded = false;
+  const delivered = new Promise((resolve, reject) => {
+    timeout.addEventListener("abort", () => reject(timeout.reason), { once: true });
+    fuelSocket.addEventListener("message", message => {
+      for (const event of JSON.parse(message.data).events) {
+        if (event.kind === "fuel_loaded") loaded = event.quantity === 24;
+        if (event.kind === "fuel_unloaded") resolve(event);
+      }
+    });
+  });
+  delivered.catch(() => {});
+  await once(fuelSocket, "open", { signal: timeout });
+  await api(supplyBase, "/api/sim/speed", { world_speed: 16 });
+  await api(supplyBase, "/api/sim/resume", {});
+  assert.equal((await delivered).quantity, 24);
+  assert.ok(loaded);
 }
 
 try {
   await observe("industrial");
-  console.log("PASS: physical construction, commissioned freighter, raid, escort and restart.");
+  console.log("PASS: physical construction, commissioned freighter, raid, independent patrol, fuel delivery and restart.");
 } finally {
   for (const socket of sockets) socket.close();
   for (const child of children) child.kill();
