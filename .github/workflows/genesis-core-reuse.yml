@@ -1,0 +1,113 @@
+name: Genesis Core - original engine without 3D
+
+on:
+  push:
+    branches: [feature/genesis-core-reuse]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-core:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify small seed, real engine boundary and Observer
+        shell: pwsh
+        run: |
+          node --check observer/model.js
+          node --check observer/app.js
+          node --test tests/genesis-seed.test.mjs observer/model.test.mjs
+      - name: Test physical ship-loss policy while preserving legacy defaults
+        shell: pwsh
+        run: cargo test --locked -p sim_core genesis_disables_unfunded_respawns_without_changing_other_worlds -- --nocapture
+      - name: Compile original headless ECS and SQLite runtime without Bevy 3D client
+        shell: pwsh
+        run: cargo build --locked --release -p sim_server --bin genesis_server
+      - name: Smoke-test original headless server, real small world, two markets and pause
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:DATABASE_PATH = Join-Path (Get-Location) "genesis-core-smoke.db"
+          $env:DATA_DIR = (Resolve-Path "priv/genesis/data").Path
+          $env:LIVING_SECTOR_UI_DIR = (Resolve-Path "observer").Path
+          $env:BIND_ADDR = "127.0.0.1:18086"
+          $env:WORLD_SPEED = "16.0"
+          $process = Start-Process -FilePath (Resolve-Path "target/release/genesis_server.exe").Path -PassThru
+          try {
+            $seenWorld = $false
+            $departed = $false
+            for ($i=0; $i -lt 110; $i++) {
+              if ($process.HasExited) { throw "Genesis Core server exited at startup: $($process.ExitCode)" }
+              try {
+                $report = Invoke-RestMethod -Uri "http://127.0.0.1:18086/api/report" -TimeoutSec 3
+                $seenWorld = $true
+                if ($report.systems.Count -ne 1) { throw "Expected exactly one system" }
+                if ($report.factions.Count -ne 1) { throw "Expected exactly one faction" }
+                if ($report.ships.Count -ne 3) { throw "Expected exactly three real ship agents" }
+                if ($report.facilities.Count -ne 6) { throw "Expected six original facility agents" }
+                if ($report.markets.Count -ne 2) { throw "Expected two independent market locations" }
+                if (@($report.ships | Where-Object { $null -ne $_.transit }).Count -gt 0) {
+                  $departed = $true
+                  break
+                }
+              } catch {
+                if ($seenWorld) { throw }
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $seenWorld) { throw "Original Genesis ECS world did not start" }
+            if (-not $departed) { throw "No real autonomous ship transit observed" }
+            $page = Invoke-WebRequest -Uri "http://127.0.0.1:18086/observer" -UseBasicParsing -TimeoutSec 5
+            $script = Invoke-WebRequest -Uri "http://127.0.0.1:18086/observer/app.js" -UseBasicParsing -TimeoutSec 5
+            if ($page.StatusCode -ne 200 -or $script.StatusCode -ne 200) { throw "Observer not served" }
+            Invoke-RestMethod -Uri "http://127.0.0.1:18086/api/sim/pause" -Method Post -ContentType "application/json" -Body '{}' -TimeoutSec 5 | Out-Null
+            Write-Host "PASS: existing ECS + original AI made a real departure with local markets. 2D Observer served."
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Package original core only - no legacy models, music or 3D client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "dist/Living-Sector-Genesis-Core"
+          New-Item -ItemType Directory -Force -Path "$root/observer" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$root/priv/genesis/data" | Out-Null
+          Copy-Item "target/release/genesis_server.exe" "$root/Genesis-Server.exe"
+          Copy-Item "Start-Genesis.cmd" "$root/Start-Genesis.cmd"
+          Copy-Item "LICENSE" "$root/LICENSE"
+          Copy-Item "observer/index.html","observer/styles.css","observer/app.js","observer/model.js" "$root/observer/"
+          Copy-Item "priv/genesis/data/*" "$root/priv/genesis/data/" -Recurse
+          @(
+            "LIVING SECTOR GENESIS — ORIGINAL ENGINE PREVIEW"
+            ""
+            "Run Start-Genesis.cmd. Do NOT launch Genesis-Server.exe without the environment."
+            "The executable uses the original sim_core + sim_db + sim_server (Rust ECS, contracts, markets, persistence)."
+            "The 2D Observer is separate from the engine. There are no Bevy/3D assets."
+            "Uses its own genesis-core-v1.db; existing Genesis Clean JSON and older databases are untouched."
+            "Finite-world rule: retired ships are not automatically replaced with free hulls."
+            "NOT YET IMPLEMENTED: ship-hull production, local power grid, faction executive planner."
+            "This preview intentionally starts with one faction and three ships; pirates are not yet present in this seed."
+            "See docs/living-sector/GENESIS_CORE_REUSE.md in the branch for implementation plan."
+            "Close the Genesis Server console via Ctrl+C to flush pending SQLite changes."
+          ) | Set-Content "$root/README.txt" -Encoding UTF8
+          Compress-Archive -Path "$root" -DestinationPath "dist/Living-Sector-Genesis-Core-Windows.zip" -CompressionLevel Optimal -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Genesis-Core-Windows
+          path: dist/Living-Sector-Genesis-Core-Windows.zip
+          if-no-files-found: error
+          retention-days: 10
