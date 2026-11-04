@@ -31,6 +31,13 @@ pub struct Construction {
     pub elapsed: f64,
     pub active_second: bool,
     pub parked_fuel: u32,
+    pub mars: MarsProject,
+    pub mars_elapsed: f64,
+    pub mars_duration: f64,
+    pub mars_return: f64,
+    pub mars_outbound: f64,
+    pub mars_ore: u32,
+    pub mars_extracted: u32,
 }
 
 impl Construction {
@@ -62,4 +69,20 @@ impl Construction {
                 | Project::Complete
         )
     }
+}
+
+pub const MARS_SITE: &str = "mars-outpost";
+pub const MARS_METAL: u32 = 32;
+pub const MARS_ORE: u32 = 350;
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarsProject {
+    #[default]
+    Proposed,
+    Positioning,
+    Hauling,
+    Building,
+    Returning,
+    Ready,
 }

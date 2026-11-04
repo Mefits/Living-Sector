@@ -27,10 +27,10 @@ jobs:
           New-Item -ItemType Directory dist
           Copy-Item target/release/genesis-clean.exe dist/Genesis-Clean.exe
           Copy-Item Start-Genesis.cmd,README.md,LICENSE dist
-          Compress-Archive -Path 'dist/*' -DestinationPath Living-Sector-Genesis-Clean-0.6-Windows.zip
+          Compress-Archive -Path 'dist/*' -DestinationPath Living-Sector-Genesis-Clean-0.7-Windows.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: Living-Sector-Genesis-Clean-0.6-Windows
-          path: Living-Sector-Genesis-Clean-0.6-Windows.zip
+          name: Living-Sector-Genesis-Clean-0.7-Windows
+          path: Living-Sector-Genesis-Clean-0.7-Windows.zip
           if-no-files-found: error
           retention-days: 14

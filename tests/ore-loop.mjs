@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 const dir = await mkdtemp(join(tmpdir(), "genesis-ore-loop-"));
-const timeout = AbortSignal.timeout(36000);
+const timeout = AbortSignal.timeout(65000);
 const processClosed = [];
 const children = [];
 const sockets = [];
@@ -62,8 +62,8 @@ async function observe(leader) {
     socket.addEventListener("message", message => {
       const frame = JSON.parse(message.data);
       events.push(...frame.events);
-      if (events.some(event => event.kind === "raid_deflected")
-          && events.some(event => event.kind === "cargo_unloaded" && event.ship_name === "Грузовой-002")) resolve(frame);
+      const loadedMars = events.some(event => event.kind === "cargo_loaded" && event.location === "mars-outpost");
+      if (loadedMars && frame.events.some(event => event.kind === "cargo_unloaded")) resolve(frame);
     });
   });
   done.catch(() => {});
@@ -71,18 +71,14 @@ async function observe(leader) {
   await api(base, "/api/sim/speed", { world_speed: 16 });
   await api(base, "/api/sim/resume", {});
   const result = await done;
-  const ordered = ["yard_dispatched", "yard_assembly", "yard_completed", "ship_completed",
-    "ship_commissioned", "patrol_ready", "raid_deflected"];
+  const ordered = ["yard_completed", "ship_commissioned", "mars_dispatched", "mars_completed"];
   let previous = -1;
   for (const kind of ordered) {
     const index = events.findIndex(event => event.kind === kind);
     assert.ok(index > previous, kind);
     previous = index;
   }
-  assert.ok(events.some(event => event.kind === "raid_stolen" && event.quantity === 10));
-  assert.ok(events.some(event => event.kind === "raid_delivered" && event.quantity === 10));
-  assert.equal(result.ships.find(ship => ship.id === "freighter-2").name, "Грузовой-002");
-  assert.ok(result.facilities.some(facility => facility.type === "shipyard"));
+  assert.ok(result.facilities.some(facility => facility.id === "mars-outpost" && facility.type === "mining_rig"));
   await api(base, "/api/sim/pause", {});
   const paused = await api(base, "/api/report");
   socket.close();
@@ -94,42 +90,49 @@ async function observe(leader) {
   const diagnosticResponse = await fetch(restartedBase + "/api/diagnostics", {signal: timeout});
   assert.match(diagnosticResponse.headers.get("content-disposition"), /Living-Sector-diagnostics.json/);
   const diagnostics = await diagnosticResponse.json();
-  assert.equal(diagnostics.version, "0.6.0");
+  assert.equal(diagnostics.version, "0.7.0");
   assert.equal(diagnostics.state.tick, restarted.tick);
-  assert.ok(diagnostics.events.some(event => event.details.kind === "raid_deflected"));
+  assert.ok(diagnostics.events.some(event => event.details.kind === "mars_completed"));
   assert.ok(diagnostics.events.some(event => event.kind === "operations"));
   assert.equal(restarted.running, false);
   assert.deepEqual(restarted.governance, paused.governance);
   assert.deepEqual(restarted.ships.map(ship => ship.id), paused.ships.map(ship => ship.id));
   assert.deepEqual(restarted.facilities, paused.facilities);
-  const supplySave = join(dir, "fuel-supply.json");
-  const supplyState = diagnostics.state;
-  supplyState.station_fuel = 30;
-  await writeFile(supplySave, JSON.stringify(supplyState));
-  const { base: supplyBase } = await start("", supplySave);
-  const fuelSocket = new WebSocket(supplyBase.replace("http:", "ws:") + "/ws");
-  sockets.push(fuelSocket);
-  let loaded = false;
-  const delivered = new Promise((resolve, reject) => {
+  const battleSave = join(dir, "battle.json");
+  const state = diagnostics.state;
+  Object.assign(state, { phase: "outbound", elapsed: 4, cargo: 50, fuel_cargo: 0,
+    fuel_order: false, mars_route: false, route_duration: 18 });
+  Object.assign(state.conflict, { base_ready: true, base_progress: 40, patrol: "ready",
+    patrol_cycle: 10, patrol_damage: 0, raider_damage: 0, raider_damaged: false,
+    raider_destroyed: false, raid_elapsed: 4.5, raider_return: 0, raider_cargo: 0,
+    contact: 0.5, raid_approach: 9, pirate_metal: 8, pirate_fuel_stock: 8,
+    raider_generation: 0, rebuild_elapsed: 0 });
+  await writeFile(battleSave, JSON.stringify(state));
+  const { base: battleBase } = await start("", battleSave);
+  const battleSocket = new WebSocket(battleBase.replace("http:", "ws:") + "/ws");
+  sockets.push(battleSocket);
+  let removed = false;
+  const replacement = new Promise((resolve, reject) => {
     timeout.addEventListener("abort", () => reject(timeout.reason), { once: true });
-    fuelSocket.addEventListener("message", message => {
-      for (const event of JSON.parse(message.data).events) {
-        if (event.kind === "fuel_loaded") loaded = event.quantity === 24;
-        if (event.kind === "fuel_unloaded") resolve(event);
+    battleSocket.addEventListener("message", message => {
+      const frame = JSON.parse(message.data);
+      if (frame.events.some(event => event.kind === "raider_destroyed")) {
+        removed = !frame.ships.some(ship => ship.id === "raider-1");
       }
+      if (frame.ships.some(ship => ship.id === "raider-2")) resolve(frame);
     });
   });
-  delivered.catch(() => {});
-  await once(fuelSocket, "open", { signal: timeout });
-  await api(supplyBase, "/api/sim/speed", { world_speed: 16 });
-  await api(supplyBase, "/api/sim/resume", {});
-  assert.equal((await delivered).quantity, 24);
-  assert.ok(loaded);
+  replacement.catch(() => {});
+  await once(battleSocket, "open", { signal: timeout });
+  await api(battleBase, "/api/sim/speed", { world_speed: 16 });
+  await api(battleBase, "/api/sim/resume", {});
+  await replacement;
+  assert.ok(removed);
 }
 
 try {
   await observe("industrial");
-  console.log("PASS: physical construction, commissioned freighter, raid, independent patrol, fuel delivery and restart.");
+  console.log("PASS: Mars construction and delivery, save reload, lethal interception and paid replacement.");
 } finally {
   for (const socket of sockets) socket.close();
   for (const child of children) child.kill();

@@ -16,6 +16,8 @@ pub enum Patrol {
     Delivering,
     Building,
     Ready,
+    Destroyed,
+    Rebuilding,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -41,9 +43,33 @@ pub struct Conflict {
     pub lost_ore: u32,
     pub intercepted_raids: u32,
     pub retreat_from: f64,
+    pub raider_destroyed: bool,
+    pub raider_damage: u32,
+    pub patrol_damage: u32,
+    pub rebuild_elapsed: f64,
+    pub raid_approach: f64,
+    pub raid_return_time: f64,
+    pub patrol_generation: u32,
+    pub raider_generation: u32,
 }
 
 impl Conflict {
+    pub fn approach_duration(&self) -> f64 {
+        if self.raid_approach > 0.0 {
+            self.raid_approach
+        } else {
+            RAID_APPROACH
+        }
+    }
+
+    pub fn return_duration(&self) -> f64 {
+        if self.raid_return_time > 0.0 {
+            self.raid_return_time
+        } else {
+            RAID_RETURN
+        }
+    }
+
     pub fn patrol_progress(&self) -> f64 {
         self.patrol_cycle / PATROL_DURATION
     }

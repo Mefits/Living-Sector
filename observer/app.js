@@ -155,6 +155,7 @@ function renderGovernance() {
   inspectorRow(panel, "Потери руды", fnum(gov.lost_ore));
   inspectorRow(panel, "Перехваты", fnum(gov.intercepted_raids));
   if (gov.fuel_cargo) inspectorRow(panel, "Топливо в пути", fnum(gov.fuel_cargo));
+  if (gov.expansion) inspectorRow(panel, "Экспансия", gov.expansion);
   if (gov.last_decision) inspectorRow(panel, "Решение главы", gov.last_decision);
 }
 
@@ -428,6 +429,7 @@ function renderInspector() {
     detailGroup(content, "Груз");
     chips(content, sortedCargo(entity.cargo).map(([name, amount]) =>
       commodityLabel(name) + " · " + fnum(amount)), 8, "Трюм пуст");
+    if (entity.max_hull != null) inspectorRow(content, "Корпус", fnum(entity.hull) + " / " + fnum(entity.max_hull));
     inspectorRow(content, "Топливо", fnum(entity.fuel) + " / " + fnum(entity.fuel_capacity));
   } else if (type === "facility") {
     inspectorRow(content, "Тип", facilityNames[entity.type] ?? entity.type);
@@ -485,6 +487,13 @@ const eventNames = {
   patrol_maintenance: "Обслуживание патруля",
   pirate_smelting: "Переработаны трофеи",
   raider_repaired: "Рейдер отремонтирован",
+  mars_dispatched: "Начато освоение Марса",
+  mars_completed: "Аванпост Марса построен",
+  combat_hit: "Обмен огнём",
+  raider_destroyed: "Рейдер уничтожен",
+  patrol_destroyed: "Патруль уничтожен",
+  raider_rebuild: "Заложен новый рейдер",
+  patrol_rebuild: "Заказана замена патруля",
   raid_deflected: "Перехват сорван",
   raid_stolen: "Пираты захватили руду",
   patrol_order: "Заказан патрульный корабль",

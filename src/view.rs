@@ -1,10 +1,16 @@
-use crate::conflict::{
-    PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, Patrol, RAID_APPROACH, RAID_RETURN,
+use crate::conflict::{PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, Patrol};
+use crate::construction::{
+    MARS_METAL, MARS_ORE, MARS_SITE, MarsProject, Project, SHIP_METAL, SITE, YARD_METAL,
 };
-use crate::construction::{Project, SHIP_METAL, SITE, YARD_METAL};
 use crate::sim::{BELT, EARTH, Event, METAL_CAPACITY, Phase, Sim, TANK};
 use serde_json::{Value, json};
 use std::f64::consts::TAU;
+
+const VENUS_ORBIT: f64 = 1.15;
+const EARTH_ORBIT: f64 = 2.1;
+const MARS_ORBIT: f64 = 3.5;
+const BELT_ORBIT: f64 = 5.4;
+const JUPITER_ORBIT: f64 = 9.0;
 
 const FACTION: &str = "genesis";
 
@@ -46,13 +52,14 @@ struct Scene {
     pirate: Point,
     venus: Point,
     mars: Point,
+    mars_site: Point,
     jupiter: Point,
 }
 
 impl Scene {
     fn at(sim: &Sim) -> Self {
-        let earth = orbit(1.0, TAU * sim.seconds / 365.0);
-        let belt = orbit(2.7, 2.1 + TAU * sim.seconds / 1680.0);
+        let earth = orbit(EARTH_ORBIT, TAU * sim.seconds / 365.0);
+        let belt = orbit(BELT_ORBIT, 2.1 + TAU * sim.seconds / 1680.0);
         let station = location(earth, 0.4 + TAU * sim.seconds / 90.0);
         let rig = location(belt, 2.0 + TAU * sim.seconds / 140.0);
         let offset = orbit(0.36, 2.8 + TAU * sim.seconds / 112.0);
@@ -60,13 +67,17 @@ impl Scene {
             x: earth.x + offset.x,
             y: earth.y + offset.y,
         };
-        let venus = orbit(0.72, 1.2 + TAU * sim.seconds / 225.0);
-        let mars = orbit(1.52, -0.8 + TAU * sim.seconds / 687.0);
-        let jupiter = orbit(5.20, -2.3 + TAU * sim.seconds / 4333.0);
+        let venus = orbit(VENUS_ORBIT, 1.2 + TAU * sim.seconds / 225.0);
+        let mars = orbit(MARS_ORBIT, -0.8 + TAU * sim.seconds / 687.0);
+        let jupiter = orbit(JUPITER_ORBIT, -2.3 + TAU * sim.seconds / 4333.0);
         let pirate = location(jupiter, 0.9 + TAU * sim.seconds / 180.0);
-        let progress = sim.elapsed / sim.phase.duration();
+        let mars_site = location(mars, 1.2 + TAU * sim.seconds / 121.0);
+        let source = if sim.mars_route { mars_site } else { rig };
+        let progress = sim.elapsed / sim.freight_duration();
         let ship = match sim.phase {
-            Phase::Outbound => interpolate(rig, station, progress),
+            Phase::Relocating => interpolate(rig, mars_site, progress),
+            Phase::Outbound => interpolate(source, station, progress),
+            Phase::Loading => source,
             Phase::Returning => interpolate(station, rig, progress),
             Phase::Unloading => station,
             Phase::NoFuelAtEarth => station,
@@ -82,14 +93,32 @@ impl Scene {
             pirate,
             venus,
             mars,
+            mars_site,
             jupiter,
         }
     }
 }
 
+pub fn route_distance(sim: &Sim, from: &str, to: &str) -> f64 {
+    let scene = Scene::at(sim);
+    let position = |id| match id {
+        BELT => scene.rig,
+        MARS_SITE => scene.mars_site,
+        SITE => scene.yard,
+        PIRATE_BASE => scene.pirate,
+        _ => scene.station,
+    };
+    let a = position(from);
+    let b = position(to);
+    (a.x - b.x).hypot(a.y - b.y)
+}
+
 fn ship(sim: &Sim, scene: &Scene) -> Value {
+    let source = if sim.mars_route { MARS_SITE } else { BELT };
     let (location, transit) = match sim.phase {
-        Phase::Outbound => (None, Some((BELT, EARTH))),
+        Phase::Relocating => (None, Some((BELT, MARS_SITE))),
+        Phase::Outbound => (None, Some((source, EARTH))),
+        Phase::Loading => (Some(source), None),
         Phase::Returning => (None, Some((EARTH, BELT))),
         Phase::Unloading => (Some(EARTH), None),
         Phase::NoFuelAtEarth => (Some(EARTH), None),
@@ -101,7 +130,7 @@ fn ship(sim: &Sim, scene: &Scene) -> Value {
         "status_label": sim.ship_status(),
         "position": {"x": scene.ship.x, "y": scene.ship.y}, "cargo": {"ore": sim.cargo, "fuel": sim.fuel_cargo},
         "transit": transit.map(|(from, to)| json!({
-            "from": from, "to": to, "distance_travelled": sim.elapsed, "distance_total": sim.phase.duration(),
+            "from": from, "to": to, "distance_travelled": sim.elapsed, "distance_total": sim.freight_duration(),
         }))
     })
 }
@@ -115,50 +144,58 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
     let phase = sim.construction.phase;
     let progress = sim.construction.elapsed / sim.construction.duration();
     let delivering_patrol = sim.conflict.patrol == Patrol::Delivering;
+    let mars = sim.construction.mars;
+    let mars_flight = matches!(
+        mars,
+        MarsProject::Positioning | MarsProject::Hauling | MarsProject::Returning
+    );
+    let (builder_elapsed, builder_duration) = if mars_flight {
+        (
+            sim.construction.mars_elapsed,
+            sim.construction.mars_duration,
+        )
+    } else if delivering_patrol {
+        (sim.conflict.patrol_elapsed, 4.0)
+    } else {
+        (sim.construction.elapsed, sim.construction.duration())
+    };
     let builder_route = match phase {
+        _ if mars == MarsProject::Positioning => Some((SITE, EARTH, scene.yard, scene.station)),
+        _ if mars == MarsProject::Hauling => {
+            Some((EARTH, MARS_SITE, scene.station, scene.mars_site))
+        }
+        _ if mars == MarsProject::Returning => {
+            Some((MARS_SITE, EARTH, scene.mars_site, scene.station))
+        }
         _ if delivering_patrol => Some((EARTH, SITE, scene.station, scene.yard)),
         Project::Hauling => Some((EARTH, SITE, scene.station, scene.yard)),
         Project::Returning => Some((SITE, EARTH, scene.yard, scene.station)),
         _ => None,
     };
-    let builder = builder_route.map_or_else(
-        || {
-            if phase == Project::Assembling {
-                scene.yard
-            } else {
-                scene.station
-            }
-        },
-        |(_, _, from, to)| {
-            interpolate(
-                from,
-                to,
-                if delivering_patrol {
-                    sim.conflict.patrol_elapsed / 4.0
-                } else {
-                    progress
-                },
-            )
-        },
-    );
-    let builder_at_yard = phase == Project::Assembling
-        || matches!(sim.conflict.patrol, Patrol::Building | Patrol::Ready);
-    let builder = if builder_route.is_none() && builder_at_yard {
-        scene.yard
+    let dock = if mars == MarsProject::Building {
+        (MARS_SITE, scene.mars_site)
+    } else if phase == Project::Assembling
+        || matches!(sim.conflict.patrol, Patrol::Building | Patrol::Ready)
+            && mars != MarsProject::Ready
+    {
+        (SITE, scene.yard)
     } else {
-        builder
+        (EARTH, scene.station)
     };
+    let builder = builder_route.map_or(dock.1, |(_, _, from, to)| {
+        interpolate(from, to, builder_elapsed / builder_duration)
+    });
     ships.push(json!({
         "id": "builder-1", "name": "Строитель-001", "class": "constructor",
         "faction_id": FACTION, "docked": builder_route.is_none(),
-        "location": if builder_route.is_some() { None } else if builder_at_yard { Some(SITE) } else { Some(EARTH) },
+        "location": if builder_route.is_some() { None } else { Some(dock.0) },
         "fuel": sim.construction.builder_fuel() + if sim.conflict.patrol == Patrol::None { 4 } else { 0 }, "fuel_capacity": 12,
         "position": position("builder-1", builder),
         "cargo": {
-            "metals": if delivering_patrol { PATROL_METAL } else if phase == Project::Hauling { YARD_METAL + SHIP_METAL } else { 0 },
+            "metals": if mars == MarsProject::Hauling { MARS_METAL } else if delivering_patrol { PATROL_METAL } else if phase == Project::Hauling { YARD_METAL + SHIP_METAL } else { 0 },
             "fuel": if delivering_patrol { PATROL_SEED_FUEL } else if phase == Project::Hauling { 8 } else { 0 }
         },
-        "status_label": if delivering_patrol { "Везёт материалы для патруля" } else { match phase {
+        "status_label": if mars == MarsProject::Positioning { "Летит за материалами" } else if mars == MarsProject::Hauling { "Везёт материалы на Марс" } else if mars == MarsProject::Building { "Собирает аванпост" } else if mars == MarsProject::Returning { "Возвращается с Марса" } else if delivering_patrol { "Везёт материалы для патруля" } else { match phase {
             Project::WaitingMaterials => "Ждёт металл",
             Project::Hauling => "Везёт стройматериалы",
             Project::Assembling => "Собирает верфь",
@@ -166,8 +203,8 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
             _ => "У причала",
         } },
         "transit": builder_route.map(|(from, to, _, _)| json!({
-            "from": from, "to": to, "distance_travelled": if delivering_patrol { sim.conflict.patrol_elapsed } else { sim.construction.elapsed },
-            "distance_total": if delivering_patrol { 4.0 } else { sim.construction.duration() },
+            "from": from, "to": to, "distance_travelled": builder_elapsed,
+            "distance_total": builder_duration,
         })),
     }));
     if matches!(phase, Project::TransferringShip | Project::Complete) {
@@ -198,10 +235,14 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
         interpolate(
             interpolate(scene.pirate, crossing, war.retreat_from),
             scene.pirate,
-            war.raider_return / RAID_RETURN,
+            war.raider_return / war.return_duration(),
         )
     } else if chasing {
-        interpolate(scene.pirate, crossing, war.raid_elapsed / RAID_APPROACH)
+        interpolate(
+            scene.pirate,
+            crossing,
+            war.raid_elapsed / war.approach_duration(),
+        )
     } else {
         scene.pirate
     };
@@ -212,13 +253,14 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
         "cargo": {"metals": if !war.base_ready { 16 } else if war.base_progress < 40.0 { 8 } else { 0 }},
         "status_label": if !war.base_ready { "Собирает базу" } else if war.base_progress < 40.0 { "Собирает рейдер" } else { "У причала" },
     }));
-    if war.base_progress >= 40.0 {
+    if war.base_progress >= 40.0 && !war.raider_destroyed {
+        let id = format!("raider-{}", war.raider_generation + 1);
         ships.push(json!({
-            "id": "raider-1", "name": "Пиратский рейдер", "class": "pirate-patrol",
+            "id": id, "name": "Пиратский рейдер", "class": "pirate-patrol",
             "faction_id": "pirates", "docked": !(returning || chasing),
             "location": if returning || chasing { None } else { Some(PIRATE_BASE) },
-            "position": position("raider-1", raider_point), "cargo": {"ore": war.raider_cargo},
-            "fuel": war.raider_fuel, "fuel_capacity": 6,
+            "position": position(&id, raider_point), "cargo": {"ore": war.raider_cargo},
+            "fuel": war.raider_fuel, "fuel_capacity": 6, "hull": 60u32.saturating_sub(war.raider_damage), "max_hull": 60,
             "transit": (returning || chasing).then(|| json!({
                 "from": if returning { BELT } else { PIRATE_BASE },
                 "to": if returning { PIRATE_BASE } else { EARTH },
@@ -226,6 +268,7 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
         }));
     }
     if war.patrol == Patrol::Ready {
+        let id = format!("patrol-{}", war.patrol_generation + 1);
         let progress = war.patrol_progress();
         let sweeping = progress > 0.0;
         let mut center = crossing;
@@ -242,9 +285,10 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
             interpolate(center, scene.station, (progress - 0.74) / 0.26)
         };
         ships.push(json!({
-            "id": "patrol-1", "name": "Патруль-001", "class": "patrol", "faction_id": FACTION,
+            "id": id, "name": "Патруль-001", "class": "patrol", "faction_id": FACTION,
             "docked": !sweeping, "location": (!sweeping).then_some(EARTH),
-            "position": position("patrol-1", point), "cargo": {}, "fuel": war.patrol_fuel, "fuel_capacity": PATROL_SEED_FUEL,
+            "position": position(&id, point), "cargo": {}, "fuel": war.patrol_fuel, "fuel_capacity": PATROL_SEED_FUEL,
+            "hull": 100u32.saturating_sub(war.patrol_damage), "max_hull": 100,
             "status_label": if war.near_intercept() { "Патрулирует сектор" }
                 else if sweeping && progress < 0.31 { "Летит в сектор" }
                 else if sweeping { "Возвращается на базу" }
@@ -285,6 +329,18 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
             _ => None,
         },
     }));
+    let mars = sim.construction.mars;
+    if mars != MarsProject::Proposed {
+        let ready = matches!(mars, MarsProject::Returning | MarsProject::Ready);
+        facilities.push(json!({
+            "id": MARS_SITE, "name": if ready { "Рудный аванпост Марса" } else { "Площадка Марса" },
+            "type": if ready { "mining_rig" } else { "construction_site" },
+            "location": MARS_SITE, "body_id": "mars", "x": scene.mars_site.x, "y": scene.mars_site.y,
+            "faction_id": FACTION, "reserves": {"fuel": 0},
+            "deposit": MARS_ORE - sim.construction.mars_extracted,
+            "project": format!("Затраты {MARS_METAL} металла · Руда на складе: {}", sim.construction.mars_ore),
+        }));
+    }
     let war = &sim.conflict;
     facilities.push(json!({
         "id": PIRATE_BASE, "name": if war.base_ready { "Пиратская база" } else { "Площадка пиратов" },
@@ -327,6 +383,7 @@ fn governance(sim: &Sim) -> Value {
         "intercepted_raids": sim.conflict.intercepted_raids,
         "patrol_alert": if sim.conflict.heightened_alert() { "Повышенная готовность" } else { "Штатное патрулирование" },
         "fuel_cargo": sim.fuel_cargo,
+        "expansion": sim.mars_status(),
     })
 }
 
@@ -339,15 +396,15 @@ pub fn report(sim: &Sim, running: bool, speed: f64) -> Value {
     json!({
         "tick": sim.tick, "running": running, "world_speed": speed, "genesis_ore_loop": true, "governance": governance(sim),
         "systems": [{"id": "sol", "name": "Sol", "offset_x": 0, "offset_y": 0, "bodies": [
-            {"id": "earth", "name": "Земля", "type": "planet", "orbit_radius": 1.0,
+            {"id": "earth", "name": "Земля", "type": "planet", "orbit_radius": EARTH_ORBIT,
              "x": scene.earth.x, "y": scene.earth.y, "controlling_faction": FACTION},
-            {"id": "belt", "name": "Пояс астероидов", "type": "belt", "orbit_radius": 2.7,
+            {"id": "belt", "name": "Пояс астероидов", "type": "belt", "orbit_radius": BELT_ORBIT,
              "x": scene.belt.x, "y": scene.belt.y, "controlling_faction": FACTION},
-            {"id":"venus","name":"Венера","type":"planet","biome":"molten","orbit_radius":0.72,
+            {"id":"venus","name":"Венера","type":"planet","biome":"molten","orbit_radius":VENUS_ORBIT,
              "x":scene.venus.x,"y":scene.venus.y},
-            {"id":"mars","name":"Марс","type":"planet","biome":"desert","orbit_radius":1.52,
+            {"id":"mars","name":"Марс","type":"planet","biome":"desert","orbit_radius":MARS_ORBIT,
              "x":scene.mars.x,"y":scene.mars.y},
-            {"id":"jupiter","name":"Юпитер","type":"planet","biome":"gas_giant","orbit_radius":5.20,
+            {"id":"jupiter","name":"Юпитер","type":"planet","biome":"gas_giant","orbit_radius":JUPITER_ORBIT,
              "x":scene.jupiter.x,"y":scene.jupiter.y,"controlling_faction":"pirates"},
         ]}],
         "facilities": facilities(sim, &scene),
@@ -362,7 +419,7 @@ pub fn update(sim: &Sim, events: &[Event]) -> Value {
         "type": "genesis_update", "tick": sim.tick, "events": events, "governance": governance(sim),
         "entities": [
             position("earth", scene.earth), position("belt", scene.belt),
-            position("venus", scene.venus), position("mars", scene.mars), position("jupiter", scene.jupiter),
+            position("venus", scene.venus), position("mars", scene.mars), position(MARS_SITE, scene.mars_site), position("jupiter", scene.jupiter),
             position(EARTH, scene.station), position(BELT, scene.rig), position(SITE, scene.yard),
         ],
         "ships": ships(sim, &scene), "markets": markets(sim), "facilities": facilities(sim, &scene),
