@@ -128,6 +128,27 @@ export function positionOf(ship, positions) {
   return point(positions.get(ship.id)) ?? point(ship.position);
 }
 
+// Body/facility snapshots contain slower-changing metadata, while the WS
+// positions stream carries fresh coordinates each tick. Use one source for
+// visible positions across all entity kinds; fall back for offline viewing.
+export function liveEntityPoint(entity, livePositions) {
+  const id=entity?.id ?? entity?.body_id;
+  return (id != null ? point(livePositions?.get(String(id))) : null) ??
+    point(entity) ?? point(entity?.universe_position) ?? point(entity?.position);
+}
+
+// Cosmetic interpolation only. Never change ECS state or move a map marker
+// to another entity's coordinate. Snap on large discontinuities/teleports.
+export function approachWorldPoint(current,target,rate=0.18,snapDistance=12) {
+  const wanted=point(target);
+  if(!wanted)return null;
+  const old=point(current);
+  if(!old)return wanted;
+  const d=Math.hypot(wanted.x-old.x,wanted.y-old.y);
+  if(d>snapDistance)return wanted;
+  return {x:old.x+(wanted.x-old.x)*rate,y:old.y+(wanted.y-old.y)*rate};
+}
+
 export function systemAtPosition(pos, systems) {
   if (!pos || !systems?.length) return null;
   let found = null, best = Infinity;
