@@ -1,0 +1,107 @@
+# Living Sector: validate standalone Observer and package a Windows preview.
+name: Strategy Observer
+
+on:
+  pull_request:
+    branches: [living-sector-dev]
+    paths:
+      - ".github/workflows/strategy-observer.yml"
+      - "observer/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "priv/data/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: observer-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  observer-tests:
+    name: Browser code / real-data adapter tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: JS syntax (no dependencies)
+        run: |
+          node --check observer/model.js
+          node --check observer/app.js
+      - name: API adapter tests
+        run: node --test observer/model.test.mjs
+
+  rust:
+    name: Simulation tests and embedded UI compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Linux Bevy prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends g++ pkg-config \
+            libx11-dev libasound2-dev libudev-dev \
+            libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
+      - name: Test simulation core
+        run: cargo test --locked -p sim_core
+      - name: Check headless and Bevy client
+        run: cargo check --locked -p client_bevy
+
+  windows:
+    name: Portable Observer for Windows x64
+    needs: [observer-tests, rust]
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Build existing Rust engine
+        run: cargo build --locked --release -p client_bevy
+      - name: Assemble self-contained preview
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $folder = "dist/Living-Sector-Observer"
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          Copy-Item "target/release/client_bevy.exe" "$folder/Living-Sector.exe"
+          Copy-Item "priv" "$folder/priv" -Recurse
+          Copy-Item "crates/client_bevy/assets" "$folder/assets" -Recurse
+          Copy-Item "observer/Start-Living-Sector.cmd" "$folder/Start-Living-Sector.cmd"
+          Copy-Item "LICENSE" "$folder/LICENSE"
+          @(
+            "Living Sector / Strategy Observer - experimental build"
+            "1. Unzip the whole folder."
+            "2. Double-click Start-Living-Sector.cmd."
+            "3. Browser opens http://127.0.0.1:8080/observer."
+            "4. Close the simulator console with Ctrl+C for graceful SQLite flush."
+            "No demo data: everything shown comes from the original Rust simulation."
+            "Unverified Windows runtime. Do not use valuable saves."
+          ) | Set-Content -Path "$folder/README.txt" -Encoding UTF8
+          Compress-Archive -Path $folder -DestinationPath "dist/Living-Sector-Observer-Windows.zip" -CompressionLevel Optimal -Force
+      - name: Upload 7-day portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Observer-Windows
+          path: dist/Living-Sector-Observer-Windows.zip
+          retention-days: 7
+          if-no-files-found: error

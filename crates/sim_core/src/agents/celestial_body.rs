@@ -325,6 +325,8 @@ pub fn tick_bodies_regen(
 #[derive(Debug, Clone, Serialize)]
 pub struct BodySnapshot {
     pub body_id: String,
+    /// Canonical system name, directly from BodyIdentity (no coordinate matching).
+    pub system_name: String,
     pub name: String,
     pub body_type: String,
     pub position: super::Position,
@@ -354,6 +356,7 @@ impl BodySnapshot {
     ) -> Self {
         Self {
             body_id: identity.body_id.clone(),
+            system_name: identity.system_name.clone(),
             name: identity.name.clone(),
             body_type: identity.body_type.clone(),
             position: super::Position::from(orbit.position()),
