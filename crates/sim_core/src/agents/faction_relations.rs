@@ -349,6 +349,34 @@ pub fn treaty_rep_floors(
     out
 }
 
+/// Physical commerce requires a non-hostile relationship between the
+/// buyer's faction and the market controller. Unowned markets stay public.
+/// Same-faction traffic is always allowed; neutral, trade-pact, allied and
+/// tense relationships may trade, while Hostile/War may not.
+pub fn commerce_allowed(
+    relations: &FactionRelations,
+    from_faction: &str,
+    market_owner: &str,
+) -> bool {
+    if from_faction.is_empty() || market_owner.is_empty() || from_faction == market_owner {
+        return true;
+    }
+    !matches!(
+        relations.state_or_default(from_faction, market_owner).treaty,
+        TreatyKind::Hostile | TreatyKind::War
+    )
+}
+
+/// Own markets are preferred, but not exclusive. Neutral and allied
+/// destinations remain available; the planner scores them normally.
+pub fn own_market_priority(from_faction: &str, market_owner: &str) -> f32 {
+    if !from_faction.is_empty() && from_faction == market_owner {
+        1.25
+    } else {
+        1.0
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Bundle C: market-posture price multipliers. Applied at the
 // transaction point in `ShipAction::Buy` / `Sell` / `SellAll` —
@@ -575,6 +603,11 @@ fn next_treaty(
     trade_pact_sustain: u64,
     allied_sustain: u64,
 ) -> TreatyKind {
+    // War is an explicit conflict. Never turn it into Hostile merely
+    // because standing is below -70; ending a war needs a deliberate act.
+    if current == TreatyKind::War {
+        return TreatyKind::War;
+    }
     // Negative side dominates — a pair that crashes from TradePact
     // straight through to Hostile should land on Hostile, not walk
     // back through Neutral.
@@ -880,5 +913,33 @@ mod tests {
         let s = r.state("a", "b").unwrap();
         assert_eq!(s.standing, RelationState::STANDING_MAX);
         assert_eq!(s.treaty, TreatyKind::Allied);
+    }
+}
+
+#[cfg(test)]
+mod genesis_commerce_tests {
+    use super::*;
+
+    #[test]
+    fn own_neutral_and_allied_can_trade_but_hostile_and_war_cannot() {
+        let mut relations = FactionRelations::new();
+        assert!(commerce_allowed(&relations, "civilian", "civilian"));
+        assert!(commerce_allowed(&relations, "civilian", "neutral"));
+        assert!(commerce_allowed(&relations, "civilian", ""));
+        relations.set_state("civilian", "neutral", -80, TreatyKind::Hostile, 0);
+        assert!(!commerce_allowed(&relations, "civilian", "neutral"));
+        assert!(!commerce_allowed(&relations, "neutral", "civilian"));
+        relations.set_state("civilian", "neutral", -100, TreatyKind::War, 0);
+        assert!(!commerce_allowed(&relations, "civilian", "neutral"));
+        let _ = tick_relations(&mut relations, 50_000, 1);
+        assert_eq!(relations.state("civilian", "neutral").unwrap().treaty, TreatyKind::War);
+        relations.set_state("civilian", "neutral", 60, TreatyKind::TradePact, 50_001);
+        assert!(commerce_allowed(&relations, "civilian", "neutral"));
+    }
+
+    #[test]
+    fn own_market_preference_does_not_block_neutral_trade() {
+        assert_eq!(own_market_priority("p", "p"), 1.25);
+        assert_eq!(own_market_priority("p", "other"), 1.0);
     }
 }
