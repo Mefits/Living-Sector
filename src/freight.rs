@@ -1,3 +1,4 @@
+use crate::builds::Faction;
 use crate::sim::{Event, Sim};
 use serde::{Deserialize, Serialize};
 pub use sim_core::economy::commodities::Commodity;
@@ -25,6 +26,10 @@ impl Default for Fleet {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Ship {
+    #[serde(default)]
+    pub owner: Faction,
+    #[serde(default)]
+    pub role: ShipRole,
     pub name: String,
     pub location: String,
     pub fuel: u32,
@@ -33,6 +38,23 @@ pub struct Ship {
     pub task: Option<Assignment>,
     pub leg: Option<Leg>,
     pub status: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShipRole {
+    #[default]
+    Freighter,
+    Constructor,
+}
+
+impl ShipRole {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Freighter => "Грузовой",
+            Self::Constructor => "Строитель",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -71,12 +93,27 @@ pub struct Assignment {
 
 impl Ship {
     pub fn freighter(name: impl Into<String>, location: &str, fuel: u32) -> Self {
+        Self::new(name, location, fuel, Faction::Genesis, ShipRole::Freighter)
+    }
+
+    pub fn new(
+        name: impl Into<String>,
+        location: &str,
+        fuel: u32,
+        owner: Faction,
+        role: ShipRole,
+    ) -> Self {
         Self {
+            owner,
+            role,
             name: name.into(),
             location: location.into(),
             fuel,
             tank: 100,
-            capacity: 50,
+            capacity: match role {
+                ShipRole::Freighter => 50,
+                ShipRole::Constructor => 40,
+            },
             task: None,
             leg: None,
             status: "Ждёт задание".into(),
@@ -163,6 +200,9 @@ impl Fleet {
         // One deterministic commit sequence. Reservation, pickup and delivery all see prior changes.
         let ids: Vec<_> = self.ships.keys().cloned().collect();
         for id in ids {
+            if sim.builds.builder_job(&id).is_some() || sim.legacy_builder_busy(&id) {
+                continue;
+            }
             let mut ship = self.ships.remove(&id).expect("known ship");
             self.advance_ship(sim, events, &mut ship);
             self.ships.insert(id, ship);
@@ -283,6 +323,17 @@ impl Fleet {
     fn assign(&mut self, sim: &mut Sim, ship: &mut Ship) {
         let mut best = None;
         for (id, order) in &self.orders {
+            if ship.role == ShipRole::Constructor
+                && order.priority < 35
+                && self.ships.values().any(|candidate| {
+                    candidate.owner == ship.owner && candidate.role == ShipRole::Freighter
+                })
+            {
+                continue;
+            }
+            if sim.location_owner(&order.destination) != ship.owner {
+                continue;
+            }
             let demand = order
                 .remaining
                 .saturating_sub(self.incoming(&order.destination, order.resource));
@@ -290,7 +341,10 @@ impl Fleet {
                 continue;
             }
             for source in sim.locations() {
-                if source == order.destination || !sim.available_location(source) {
+                if source == order.destination
+                    || sim.location_owner(source) != ship.owner
+                    || !sim.available_location(source)
+                {
                     continue;
                 }
                 let available = sim

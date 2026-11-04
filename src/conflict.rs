@@ -1,3 +1,4 @@
+use crate::freight::Commodity;
 use serde::{Deserialize, Serialize};
 
 pub const PIRATE_BASE: &str = "pirate-outpost";
@@ -57,6 +58,24 @@ pub struct Conflict {
 }
 
 impl Conflict {
+    pub(crate) fn stock(&self, resource: Commodity) -> u32 {
+        match resource {
+            Commodity::Ore => self.pirate_loot,
+            Commodity::Fuel => self.pirate_fuel_stock,
+            Commodity::Metals => self.pirate_metal,
+            _ => 0,
+        }
+    }
+
+    pub(crate) fn stock_mut(&mut self, resource: Commodity) -> Option<&mut u32> {
+        match resource {
+            Commodity::Ore => Some(&mut self.pirate_loot),
+            Commodity::Fuel => Some(&mut self.pirate_fuel_stock),
+            Commodity::Metals => Some(&mut self.pirate_metal),
+            _ => None,
+        }
+    }
+
     pub fn approach_duration(&self) -> f64 {
         if self.raid_approach > 0.0 {
             self.raid_approach

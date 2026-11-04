@@ -1,11 +1,12 @@
+use crate::builds::Stage;
 use crate::conflict::{PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, Patrol};
 
 use crate::construction::{
     MARS_METAL, MARS_SITE, MarsProject, Project, SHIP_METAL, SITE, YARD_METAL,
 };
-use crate::freight::Commodity;
+use crate::freight::{Commodity, ShipRole};
 use crate::industry::Operation;
-use crate::planning::{Choice, Kind, Program, Site as BuildSite, Work};
+use crate::planning::{Choice, Kind, Program, Site as BuildSite};
 use crate::sim::{BELT, EARTH, Event, Sim, TANK};
 use serde_json::{Value, json};
 use std::f64::consts::TAU;
@@ -136,14 +137,14 @@ fn chosen_point(scene: &Scene, choice: Choice, seconds: f64) -> Point {
     }
 }
 
-pub fn build_distance(sim: &Sim, pirates: bool, site: BuildSite) -> f64 {
+pub fn build_distance(sim: &Sim, origin: &str, site: BuildSite) -> f64 {
     let scene = Scene::at(sim);
-    let home = if pirates { scene.pirate } else { scene.station };
+    let home = local_point(sim, &scene, origin);
     let target = build_point(&scene, site, sim.seconds);
     (home.x - target.x).hypot(home.y - target.y)
 }
 
-fn build_id(pirates: bool, choice: Choice) -> String {
+pub(crate) fn build_id(pirates: bool, choice: Choice) -> String {
     if !pirates {
         match choice.kind {
             Kind::Mine => return MARS_SITE.into(),
@@ -158,82 +159,58 @@ fn build_id(pirates: bool, choice: Choice) -> String {
     )
 }
 
-fn build_flight(sim: &Sim, scene: &Scene, pirates: bool, work: Work) -> Value {
-    let (id, name, class, faction, home_id, home) = if pirates {
-        (
-            "pirate-builder-1",
-            "Пиратский строитель",
-            "pirate-builder",
-            "pirates",
-            PIRATE_BASE,
-            scene.pirate,
-        )
-    } else {
-        (
-            "builder-1",
-            "Строитель-001",
-            "constructor",
-            FACTION,
-            EARTH,
-            scene.station,
-        )
+fn site_body(site: BuildSite) -> Option<&'static str> {
+    match site {
+        BuildSite::Earth => Some("earth"),
+        BuildSite::Mars => Some("mars"),
+        BuildSite::Belt => Some("belt"),
+        BuildSite::Jupiter => Some("jupiter"),
+        _ => None,
+    }
+}
+
+fn project_point(scene: &Scene, id: &str, choice: Choice, seconds: f64) -> Point {
+    let point = chosen_point(scene, choice, seconds);
+    let Some(index) = id
+        .strip_prefix("site-")
+        .and_then(|value| value.parse::<u64>().ok())
+    else {
+        return point;
     };
-    let target_id = build_id(pirates, work.choice);
-    let site = chosen_point(scene, work.choice, sim.seconds);
-    let spec = work.choice.kind.spec();
-    let returning = work.finished_assembly();
-    let assembling = work.on_site() && !returning;
-    let progress = if returning {
-        1.0 - work.remaining / work.travel
-    } else {
-        2.0 + (spec.seconds - work.remaining) / work.travel
-    };
-    let point = if assembling {
-        site
-    } else if returning {
-        interpolate(site, home, progress)
-    } else {
-        interpolate(home, site, progress)
-    };
-    json!({
-        "id": id, "name": name, "class": class, "faction_id": faction, "docked": assembling,
-        "location": assembling.then_some(&target_id), "position": position(id, point),
-        "cargo": {"metals": if work.on_site() { 0 } else { spec.metal }},
-        "fuel": if returning { 0 } else { work.fuel / 2 }, "fuel_capacity": work.fuel,
-        "status_label": if assembling { "Монтирует сооружение" } else if returning { "Возвращается на базу" } else { "Везёт материалы" },
-        "transit": (!assembling).then(|| json!({
-            "from": if returning { &target_id } else { home_id },
-            "to": if returning { home_id } else { &target_id },
-            "distance_total": work.travel, "distance_travelled": progress * work.travel
-        })),
-    })
+    let offset = orbit(0.26, index as f64 * 2.39996);
+    Point {
+        x: point.x + offset.x,
+        y: point.y + offset.y,
+    }
 }
 
 fn program_facilities(sim: &Sim, scene: &Scene, program: &Program, pirates: bool) -> Vec<Value> {
-    let active = program.active;
-    program.built.iter().map(|choice| (*choice, true, None))
-        .chain(active.map(|work| (work.choice, false, Some(work))))
-        .filter(|(choice, _, work)| pirates || !matches!(choice.kind, Kind::Mine | Kind::Yard) || work.is_some())
-        .map(|(choice, ready, work)| {
+    program.built.iter().copied()
+        .filter(|choice| pirates || !matches!(choice.kind, Kind::Mine | Kind::Yard))
+        .filter_map(|choice| {
             let id = build_id(pirates, choice);
+            if sim.builds.projects.contains_key(&id) { return None; }
             let p = chosen_point(scene, choice, sim.seconds);
-            let spec = choice.kind.spec();
-            let body = match choice.site {
-                BuildSite::Earth => Some("earth"), BuildSite::Mars => Some("mars"),
-                BuildSite::Belt => Some("belt"), BuildSite::Jupiter => Some("jupiter"),
-                _ => None,
-            };
-            json!({"id": id, "name": if ready {spec.name.to_string()} else {format!("Площадка · {}",spec.name)},
-                "type": if ready {choice.kind.id()} else {"construction_site"},
-                "location":id, "body_id":body, "system_id":"sol", "x":p.x,"y":p.y,
-                "faction_id":if pirates {"pirates"} else {FACTION}, "reserves":{"fuel":0},
-                "project":work.map(|_| format!("{} · {} металла", choice.site.label(),spec.metal)),
-                "progress":work.map(|w| ((w.travel+spec.seconds-w.remaining)/spec.seconds).clamp(0.0,1.0)),
-            })
+            Some(json!({"id": id, "name": choice.kind.spec().name,
+                "type": choice.kind.id(), "location": id, "body_id":site_body(choice.site),
+                "system_id":"sol", "x":p.x,"y":p.y,
+                "faction_id":if pirates {"pirates"} else {FACTION}, "reserves":{"fuel":sim.stock(&id, Commodity::Fuel)},
+            }))
         }).collect()
 }
 
 fn local_point(sim: &Sim, scene: &Scene, id: &str) -> Point {
+    if let Some(job) = sim.builds.projects.get(id) {
+        return project_point(scene, id, job.choice, sim.seconds);
+    }
+    if let Some(choice) = sim
+        .pirate_program
+        .built
+        .iter()
+        .find(|choice| build_id(true, **choice) == id)
+    {
+        return chosen_point(scene, *choice, sim.seconds);
+    }
     match id {
         BELT => scene.rig,
         MARS_SITE => scene.mars_site,
@@ -255,15 +232,37 @@ pub fn route_distance(sim: &Sim, from: &str, to: &str) -> f64 {
 }
 
 fn freight_ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
-    sim.fleet.ships.iter().map(|(id, ship)| {
+    sim.fleet.ships.iter().filter(|(id, _)| !sim.legacy_builder_busy(id)).map(|(id, ship)| {
         let start = local_point(sim, scene, &ship.location);
+        let class = match ship.role {
+            ShipRole::Freighter => "freighter",
+            ShipRole::Constructor if ship.owner.id() == "pirates" => "pirate-builder",
+            ShipRole::Constructor => "constructor",
+        };
+        if let Some((target, job, trip)) = sim.builds.builder_job(id) {
+            let site = local_point(sim, scene, target);
+            let elapsed = trip.travel.saturating_sub(trip.left);
+            let progress = f64::from(elapsed) / f64::from(trip.travel);
+            let (point, transit) = match trip.stage {
+                Stage::Outbound => (interpolate(start, site, progress), Some((&*ship.location, target))),
+                Stage::Assembly => (site, None),
+                Stage::Returning => (interpolate(site, start, progress), Some((target, &*ship.location))),
+            };
+            return json!({"id":id, "name":ship.name, "class":class, "faction_id":ship.owner.id(),
+                "docked":transit.is_none(), "location":transit.is_none().then_some(target),
+                "position":position(id,point), "fuel":ship.fuel + if trip.stage == Stage::Returning { 0 } else { trip.return_fuel },
+                "fuel_capacity":ship.tank, "status_label":job.status(),
+                "cargo":{"metals":if trip.stage == Stage::Outbound { job.choice.kind.spec().metal } else { 0 }},
+                "transit":transit.map(|(from,to)| json!({"from":from,"to":to,"distance_travelled":elapsed,"distance_total":trip.travel}))
+            });
+        }
         let point = ship.leg.as_ref().map_or(start, |leg| interpolate(start, local_point(sim, scene, &leg.destination), leg.progress()));
         let mut cargo = serde_json::Map::new();
         if let Some(task) = ship.task.as_ref().filter(|task| task.loaded) {
             cargo.insert(sim.fleet.orders[&task.order].resource.as_str().into(), json!(task.quantity));
         }
         json!({
-            "id":id, "name":ship.name, "class":"freighter", "faction_id":FACTION,
+            "id":id, "name":ship.name, "class":class, "faction_id":ship.owner.id(),
             "docked":ship.leg.is_none(), "location":ship.leg.is_none().then_some(&ship.location),
             "position":position(id, point), "cargo":cargo, "fuel":ship.fuel, "fuel_capacity":ship.tank,
             "status_label":ship.status, "task_id":ship.task.as_ref().map(|task| &task.order),
@@ -277,49 +276,50 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
     let mut ships = freight_ships(sim, scene);
     let phase = sim.construction.phase;
     let progress = sim.construction.elapsed / sim.construction.duration();
-    let delivering_patrol = sim.conflict.patrol == Patrol::Delivering;
-    let mars = sim.construction.mars;
-    let mars_flight = matches!(
-        mars,
-        MarsProject::Positioning | MarsProject::Hauling | MarsProject::Returning
-    );
-    let (builder_elapsed, builder_duration) = if mars_flight {
-        (
-            sim.construction.mars_elapsed,
-            sim.construction.mars_duration,
-        )
-    } else if delivering_patrol {
-        (sim.conflict.patrol_elapsed, 4.0)
-    } else {
-        (sim.construction.elapsed, sim.construction.duration())
-    };
-    let builder_route = match phase {
-        _ if mars == MarsProject::Positioning => Some((SITE, EARTH, scene.yard, scene.station)),
-        _ if mars == MarsProject::Hauling => {
-            Some((EARTH, MARS_SITE, scene.station, scene.mars_site))
-        }
-        _ if mars == MarsProject::Returning => {
-            Some((MARS_SITE, EARTH, scene.mars_site, scene.station))
-        }
-        _ if delivering_patrol => Some((EARTH, SITE, scene.station, scene.yard)),
-        Project::Hauling => Some((EARTH, SITE, scene.station, scene.yard)),
-        Project::Returning => Some((SITE, EARTH, scene.yard, scene.station)),
-        _ => None,
-    };
-    let dock = if mars == MarsProject::Building {
-        (MARS_SITE, scene.mars_site)
-    } else if phase == Project::Assembling
-        || matches!(sim.conflict.patrol, Patrol::Building | Patrol::Ready)
-            && mars != MarsProject::Ready
-    {
-        (SITE, scene.yard)
-    } else {
-        (EARTH, scene.station)
-    };
-    let builder = builder_route.map_or(dock.1, |(_, _, from, to)| {
-        interpolate(from, to, builder_elapsed / builder_duration)
-    });
-    ships.push(json!({
+    if sim.legacy_builder_busy("builder-1") {
+        let delivering_patrol = sim.conflict.patrol == Patrol::Delivering;
+        let mars = sim.construction.mars;
+        let mars_flight = matches!(
+            mars,
+            MarsProject::Positioning | MarsProject::Hauling | MarsProject::Returning
+        );
+        let (builder_elapsed, builder_duration) = if mars_flight {
+            (
+                sim.construction.mars_elapsed,
+                sim.construction.mars_duration,
+            )
+        } else if delivering_patrol {
+            (sim.conflict.patrol_elapsed, 4.0)
+        } else {
+            (sim.construction.elapsed, sim.construction.duration())
+        };
+        let builder_route = match phase {
+            _ if mars == MarsProject::Positioning => Some((SITE, EARTH, scene.yard, scene.station)),
+            _ if mars == MarsProject::Hauling => {
+                Some((EARTH, MARS_SITE, scene.station, scene.mars_site))
+            }
+            _ if mars == MarsProject::Returning => {
+                Some((MARS_SITE, EARTH, scene.mars_site, scene.station))
+            }
+            _ if delivering_patrol => Some((EARTH, SITE, scene.station, scene.yard)),
+            Project::Hauling => Some((EARTH, SITE, scene.station, scene.yard)),
+            Project::Returning => Some((SITE, EARTH, scene.yard, scene.station)),
+            _ => None,
+        };
+        let dock = if mars == MarsProject::Building {
+            (MARS_SITE, scene.mars_site)
+        } else if phase == Project::Assembling
+            || matches!(sim.conflict.patrol, Patrol::Building | Patrol::Ready)
+                && mars != MarsProject::Ready
+        {
+            (SITE, scene.yard)
+        } else {
+            (EARTH, scene.station)
+        };
+        let builder = builder_route.map_or(dock.1, |(_, _, from, to)| {
+            interpolate(from, to, builder_elapsed / builder_duration)
+        });
+        ships.push(json!({
         "id": "builder-1", "name": "Строитель-001", "class": "constructor",
         "faction_id": FACTION, "docked": builder_route.is_none(),
         "location": if builder_route.is_some() { None } else { Some(dock.0) },
@@ -341,6 +341,7 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
             "distance_total": builder_duration,
         })),
     }));
+    }
     if phase == Project::TransferringShip {
         ships.push(json!({
             "id":"freighter-2", "name":"Грузовой-002", "class":"freighter", "faction_id":FACTION,
@@ -373,13 +374,6 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
     } else {
         scene.pirate
     };
-    ships.push(json!({
-        "id": "pirate-builder-1", "name": "Пиратский строитель", "class": "pirate-builder",
-        "faction_id": "pirates", "docked": true, "location": PIRATE_BASE,
-        "position": position("pirate-builder-1", scene.pirate), "fuel": 0, "fuel_capacity": 0,
-        "cargo": {"metals": if !war.base_ready { 16 } else if war.base_progress < 40.0 { 8 } else { 0 }},
-        "status_label": if !war.base_ready { "Собирает базу" } else if war.base_progress < 40.0 { "Собирает рейдер" } else { "У причала" },
-    }));
     if war.base_progress >= 40.0 && !war.raider_destroyed {
         let id = format!("raider-{}", war.raider_generation + 1);
         ships.push(json!({
@@ -425,16 +419,6 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
             "transit": sweeping.then(|| json!({"from": EARTH, "to": "Патрульный сектор"})),
         }));
     }
-    for (pirates, program, id) in [
-        (false, &sim.genesis_program, "builder-1"),
-        (true, &sim.pirate_program, "pirate-builder-1"),
-    ] {
-        if let Some(work) = program.active {
-            if let Some(entry) = ships.iter_mut().find(|ship| ship["id"] == id) {
-                *entry = build_flight(sim, scene, pirates, work);
-            }
-        }
-    }
     ships
 }
 
@@ -474,6 +458,47 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
     } else {
         &sim.genesis_program
     };
+    if let Some(job) = sim.builds.projects.get(id).filter(|job| !job.done) {
+        let spec = job.choice.kind.spec();
+        let progress = job.journey.as_ref().map_or(0.0, |trip| match trip.stage {
+            Stage::Outbound => 0.0,
+            Stage::Assembly => (spec.seconds - f64::from(trip.left) / 4.0).max(0.0),
+            Stage::Returning => spec.seconds,
+        });
+        let builder = job
+            .journey
+            .as_ref()
+            .and_then(|trip| sim.fleet.ships.get(&trip.builder));
+        return json!({"status":job.status(), "note":format!("{} · {}. {}", spec.name, job.choice.site.label(),
+            builder.map_or("Исполнитель ещё не назначен.", |ship| ship.name.as_str())),
+            "resources":[stock("Металл на проект", spec.metal)],
+            "meters":[gauge("Монтаж",progress,spec.seconds,"с")]});
+    }
+    if let Some(yard) = sim.builds.yards.get(id).filter(|_| {
+        id != SITE
+            || !matches!(
+                sim.construction.phase,
+                Project::WaitingShip | Project::BuildingShip | Project::TransferringShip
+            )
+    }) {
+        let (status, note, meters) = yard.order.as_ref().map_or(
+            ("Верфь готова", String::new(), Vec::new()),
+            |order| {
+                let (status, meters) = order.remaining.map_or(
+                    ("Ждёт материалы и топливо", Vec::new()),
+                    |left| {
+                        (
+                            "Собирает корпус",
+                            vec![gauge("Сборка", 8.0 - f64::from(left) / 4.0, 8.0, "с")],
+                        )
+                    },
+                );
+                (status, order.role.label().to_string(), meters)
+            },
+        );
+        return json!({"status":status, "note":note, "meters":meters,
+            "resources":[stock("Металл на верфи",sim.stock(id,Commodity::Metals)),stock("Топливо на верфи",sim.stock(id,Commodity::Fuel))]});
+    }
     let stock_id = if kind == "smelter" && !pirates && !sim.warehouses.contains_key(id) {
         EARTH
     } else {
@@ -562,27 +587,6 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
     let mut resources = Vec::new();
     let mut meters = Vec::new();
     let mut note = String::new();
-    if let Some(work) = program
-        .active
-        .filter(|work| build_id(pirates, work.choice) == id)
-    {
-        let spec = work.choice.kind.spec();
-        let progress =
-            ((work.travel + spec.seconds - work.remaining) / spec.seconds).clamp(0.0, 1.0);
-        let status = if work.finished_assembly() {
-            "Строитель возвращается · ждёт ввода в строй"
-        } else if work.on_site() {
-            "Идёт монтаж"
-        } else {
-            "Материалы в пути"
-        };
-        return json!({
-            "status":status,
-            "note":format!("{} · {}. Топливо выделено на рейс строителя: {}.", spec.name, work.choice.site.label(), work.fuel),
-            "resources":[stock(if work.on_site() {"Металл доставлен"} else {"Металл в трюме строителя"}, spec.metal)],
-            "meters":[gauge("Монтаж", progress * 100.0, 100.0, "%")],
-        });
-    }
     let status = match (id, kind) {
         (_, "cargo_warehouse") if !pirates => {
             meters.push(gauge(
@@ -745,7 +749,7 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
     ];
     let phase = sim.construction.phase;
     let ready = sim.construction.yard_ready();
-    if phase != Project::WaitingMaterials {
+    if phase != Project::WaitingMaterials && !sim.builds.projects.contains_key(SITE) {
         facilities.push(json!({
         "id": SITE, "name": if ready { "Орбитальная верфь" } else { "Площадка верфи" },
         "type": if ready { "shipyard" } else { "construction_site" }, "location": SITE, "body_id": "earth",
@@ -766,7 +770,7 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
     }));
     }
     let mars = sim.construction.mars;
-    if mars != MarsProject::Proposed {
+    if mars != MarsProject::Proposed && !sim.builds.projects.contains_key(MARS_SITE) {
         let ready = matches!(mars, MarsProject::Returning | MarsProject::Ready);
         facilities.push(json!({
             "id": MARS_SITE, "name": if ready { "Рудный аванпост" } else { "Площадка Марса" },
@@ -788,21 +792,39 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
     }));
     facilities.extend(program_facilities(sim, scene, &sim.genesis_program, false));
     facilities.extend(program_facilities(sim, scene, &sim.pirate_program, true));
+    for (id, job) in &sim.builds.projects {
+        let point = local_point(sim, scene, id);
+        let name = job.choice.kind.spec().name;
+        facilities.push(json!({"id":id, "name":if job.done {name.into()} else {format!("Площадка · {name}")},
+            "type":if job.done {job.choice.kind.id()} else {"construction_site"},
+            "location":id, "body_id":site_body(job.choice.site), "system_id":"sol", "x":point.x,"y":point.y,
+            "faction_id":job.owner.id(), "reserves":{"fuel":sim.stock(id,Commodity::Fuel)}}));
+    }
     for (id, warehouse) in &sim.warehouses {
-        if matches!(id.as_str(), EARTH | BELT | MARS_SITE) {
+        if matches!(id.as_str(), EARTH | BELT | MARS_SITE | SITE)
+            || sim.builds.projects.contains_key(id)
+            || sim
+                .pirate_program
+                .built
+                .iter()
+                .any(|choice| build_id(true, *choice) == *id)
+        {
             continue;
         }
-        let kind = sim
-            .industry
-            .plants
-            .values()
-            .find(|plant| &plant.location == id)
-            .map_or("cargo_warehouse", |plant| match plant.operation {
-                Operation::Extract { .. } => "mining_rig",
-                Operation::Process { .. } => "smelter",
-            });
+        let kind = if sim.builds.yards.contains_key(id) {
+            "shipyard"
+        } else {
+            sim.industry
+                .plants
+                .values()
+                .find(|plant| &plant.location == id)
+                .map_or("cargo_warehouse", |plant| match plant.operation {
+                    Operation::Extract { .. } => "mining_rig",
+                    Operation::Process { .. } => "smelter",
+                })
+        };
         facilities.push(json!({"id":id, "name":warehouse.name, "location":id, "type":kind,
-            "system_id":"sol", "x":warehouse.x, "y":warehouse.y, "faction_id":FACTION,
+            "system_id":"sol", "x":warehouse.x, "y":warehouse.y, "faction_id":warehouse.owner.id(),
             "reserves":{"fuel":warehouse.stock.get(&crate::freight::Commodity::Fuel).copied().unwrap_or(0)},
             "stock":warehouse.stock, "capacity":warehouse.capacity}));
     }

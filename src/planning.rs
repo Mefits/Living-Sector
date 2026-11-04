@@ -184,11 +184,6 @@ pub struct Work {
 }
 
 impl Work {
-    pub fn advance(&mut self, step: f64) -> bool {
-        self.remaining = (self.remaining - step).max(0.0);
-        self.remaining == 0.0
-    }
-
     pub fn on_site(self) -> bool {
         self.remaining <= self.travel + self.choice.kind.spec().seconds
     }
@@ -210,44 +205,27 @@ impl Program {
     pub fn has(&self, kind: Kind) -> bool {
         self.built.iter().any(|build| build.kind == kind)
     }
-
-    pub fn advance(&mut self, step: f64) -> Option<Choice> {
-        if self.active.as_mut().is_some_and(|work| work.advance(step)) {
-            let build = self.active.take().unwrap().choice;
-            self.built.push(build);
-            Some(build)
-        } else {
-            None
-        }
-    }
 }
 
 pub fn choose(
-    program: &Program,
     metal: u32,
     fuel: u32,
     need: impl Fn(Kind, Site) -> f64,
     distance: impl Fn(Site) -> f64,
-) -> Option<Work> {
+) -> Option<Choice> {
     CATALOG
         .iter()
-        .filter(|spec| spec.enabled && spec.metal <= metal && !program.has(spec.kind))
+        .filter(|spec| spec.enabled && spec.metal <= metal)
         .flat_map(|spec| spec.sites.iter().map(move |&site| (spec, site)))
         .filter_map(|(spec, site)| {
             let distance = distance(site);
-            let travel = (distance / 0.46).max(2.0);
-            let cost = (distance * 2.3).ceil().max(2.0) as u32;
+            let cost = (distance * 1.15).ceil().max(2.0) as u32 * 2;
             let score = need(spec.kind, site) - distance * 1.8 - spec.metal as f64 * 0.16;
             (cost <= fuel && score > 0.0).then_some((
                 score,
-                Work {
-                    choice: Choice {
-                        kind: spec.kind,
-                        site,
-                    },
-                    remaining: travel * 2.0 + spec.seconds,
-                    travel,
-                    fuel: cost,
+                Choice {
+                    kind: spec.kind,
+                    site,
                 },
             ))
         })
