@@ -349,6 +349,31 @@ pub fn treaty_rep_floors(
     out
 }
 
+/// Shared map of actual market-control factions, based on the majority
+/// of facility owners at each dock/location. This is the same location
+/// concept that the ship AI uses, not a separate pirate-only ownership map.
+pub fn market_controllers(
+    world: &mut bevy_ecs::prelude::World,
+) -> HashMap<String, String> {
+    use crate::agents::facility::{FacilityIdentity, FacilityLocation};
+    let mut counts: HashMap<String, HashMap<String, usize>> = HashMap::new();
+    let mut query = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+    for (id, loc) in query.iter(world) {
+        if !id.faction_id.is_empty() {
+            *counts
+                .entry(loc.location_name.clone())
+                .or_default()
+                .entry(id.faction_id.clone())
+                .or_default() += 1;
+        }
+    }
+    counts.into_iter().filter_map(|(loc, owners)| {
+        owners.into_iter()
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+            .map(|(owner, _)| (loc, owner))
+    }).collect()
+}
+
 /// Physical commerce requires a non-hostile relationship between the
 /// buyer's faction and the market controller. Unowned markets stay public.
 /// Same-faction traffic is always allowed; neutral, trade-pact, allied and
