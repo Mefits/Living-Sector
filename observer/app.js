@@ -1,7 +1,8 @@
 import {
   list, number, point, key, buildIndex, factionColor, factionName,
   systemByName, positionOf, approximateShipsNear, shortageCount, sortedCargo,
-  panForCursorZoom, clusterMarkers, shipSystem, worldGridStep, mapIconScale
+  panForCursorZoom, clusterMarkers, shipSystem, worldGridStep, mapIconScale,
+  groupFacilitiesByLocation, layoutMapLabels
 } from "/observer/model.js";
 
 const byId = id => document.getElementById(id);
@@ -681,28 +682,38 @@ function drawBody(body,p,selected=false){
   }
   ctx.restore();
 }
-function drawFacilityHub(at,kind,selected,caption) {
-  ctx.save();
+function drawFacilityHub(at,kind,selected) {
+  // Purposeful silhouettes instead of a hexagon with multiple tiny
+  // squares that became an unintelligible 'skull' when scaled.
   const mine=kind==="mining_rig";
-  const line=mine?"#d2b078":"#81c2c6";
-  ctx.strokeStyle=selected?"#d9fff5":line;ctx.lineWidth=selected?2:1.6;
+  const line=selected?"#e9fff7":mine?"#d5b275":"#84c4c7";
+  ctx.save();
+  ctx.translate(at.x,at.y);
+  ctx.lineWidth=selected?2:1.6;
+  ctx.lineJoin="round";
+  ctx.fillStyle="rgba(10,30,43,.94)";
+  ctx.strokeStyle=line;
   ctx.beginPath();
-  for(let i=0;i<6;i++){
-    const angle=Math.PI/3*i-Math.PI/6;
-    const x=at.x+Math.cos(angle)*12,y=at.y+Math.sin(angle)*12;
-    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  if(mine) {
+    ctx.moveTo(0,-11);ctx.lineTo(12,0);
+    ctx.lineTo(0,11);ctx.lineTo(-12,0);ctx.closePath();
+  } else {
+    ctx.roundRect(-12,-9,24,18,4);
   }
-  ctx.closePath();ctx.fillStyle="rgba(11,30,40,.92)";ctx.fill();ctx.stroke();
-  if(mine){
-    ctx.beginPath();ctx.moveTo(at.x-5,at.y+4);ctx.lineTo(at.x-1,at.y-5);
-    ctx.lineTo(at.x+5,at.y+4);ctx.moveTo(at.x-4,at.y+1);ctx.lineTo(at.x+4,at.y+1);ctx.stroke();
-  }else{
-    ctx.strokeRect(at.x-4,at.y-4,8,8);
-    ctx.beginPath();ctx.moveTo(at.x-6,at.y);ctx.lineTo(at.x+6,at.y);
-    ctx.moveTo(at.x,at.y-6);ctx.lineTo(at.x,at.y+6);ctx.stroke();
+  ctx.fill();ctx.stroke();
+  // A single legible feature at normal zoom: docking bar or ore seam.
+  ctx.beginPath();
+  if(mine) {
+    ctx.moveTo(-5,4);ctx.lineTo(0,-4);ctx.lineTo(5,4);
+  } else {
+    ctx.moveTo(-6,0);ctx.lineTo(6,0);
+  }
+  ctx.stroke();
+  if(selected) {
+    ctx.strokeStyle="rgba(177,238,221,.45)";
+    ctx.beginPath();ctx.arc(0,0,16,0,2*Math.PI);ctx.stroke();
   }
   ctx.restore();
-  if(caption)textChip(at.x+18,at.y-2,caption,line,175);
 }
 
 function isSelected(type,id) {
@@ -786,6 +797,20 @@ function renderMap() {
   const sysMap=new Map(s.index.systems.map(system => [system.name,system]));
   const showLabels=els.labelsToggle.checked;
   const showShips=els.shipsToggle.checked;
+  const labelRequests=[];
+  const markerObstacles=[];
+  const markGlyph=(p,r)=>markerObstacles.push({
+    x:p.x-r,y:p.y-r,w:r*2,h:r*2
+  });
+  const askLabel=(id,p,name,color,priority,radius=15,max=165,plain=false)=>{
+    if(!showLabels)return;
+    const text=String(name??"").slice(0,42);
+    ctx.save();ctx.font="11px Segoe UI, sans-serif";
+    const width=Math.min(max,ctx.measureText(text).width+(plain?8:16));
+    ctx.restore();
+    labelRequests.push({id,x:p.x,y:p.y,w:width,h:plain?16:20,
+      text,color,priority,radius:radius*iconScale,plain,max});
+  };
 
   if(s.view==="sector"){
     if(els.linksToggle.checked){
@@ -815,36 +840,41 @@ function renderMap() {
       const center=toScreen({x:sys.x,y:sys.y});
       drawOrbits(sys,toScreen,scale,w,h);
       withMapScale(center,iconScale,()=>drawSun(center));
-      if(showLabels)textChip(center.x+18*iconScale,center.y+1,sys.name+" · звезда","#eed09a",140);
+      markGlyph(center,15*iconScale);
+      askLabel("sun-"+sys.name,center,sys.name+" · звезда","#eed09a",50,17,140);
       for(const body of sys.bodies){
         const p=point(body);if(!p)continue;const screen=toScreen(p);
         if(!visible(screen,26))continue;
         withMapScale(screen,iconScale,()=>drawBody(body,screen,isSelected("body",body.id)));
-        if(showLabels)label({x:screen.x,y:screen.y+23*iconScale},body.name,"#bdcfdc",11);
+        markGlyph(screen,14*iconScale);
+        askLabel("body-"+body.id,screen,body.name,"#bdcfdc",40,14,135,true);
         addTarget("body",body.id,screen.x,screen.y,Math.max(13,13*iconScale),body.name);
       }
-      const facilityMarkers = [];
-      for (const fac of s.index.systemFacilities.get(sys.name) ?? []) {
-        const p=point(fac.position);if(!p)continue;
-        const sc=toScreen(p);
-        if(visible(sc,20)) facilityMarkers.push({...sc,fac});
-      }
-      // The hub is a physical location; its separate buildings are shown
-      // on click, not as overlapping numbered disks on the map.
-      for(const group of clusterMarkers(facilityMarkers,32)){
-        const members=group.members.map(m=>m.fac);
+      // A spaceport is one place, regardless of how many factories,
+      // stations and shipyards share its location. Their full list is
+      // available in the inspector after clicking the hub.
+      for(const hub of groupFacilitiesByLocation(
+        s.index.systemFacilities.get(sys.name)??[])){
+        const members=hub.members;
         const prefer=members.find(x=>x.type==="station") ??
           members.find(x=>x.type==="mining_rig") ??
           members.find(x=>x.type==="shipyard") ?? members[0];
+        const p=point(prefer.position);
+        if(!p)continue;
+        const at=toScreen(p);
+        if(!visible(at,30))continue;
         const ids=members.map(x=>x.id);
         const selected=ids.includes(s.selection?.id) ||
-          (s.selection?.type==="facility_group" && s.selection.ids?.some(id=>ids.includes(id)));
-        withMapScale(group,iconScale,()=>drawFacilityHub(group,prefer.type,selected,null));
-        if(showLabels)textChip(group.x+18*iconScale,group.y-2,prefer.name,
-          prefer.type==="mining_rig"?"#d2b078":"#81c2c6",175);
+          (s.selection?.type==="facility_group" &&
+          s.selection.ids?.some(id=>ids.includes(id)));
+        withMapScale(at,iconScale,()=>drawFacilityHub(at,prefer.type,selected));
+        markGlyph(at,14*iconScale);
+        askLabel("hub-"+hub.id,at,prefer.name,
+          prefer.type==="mining_rig"?"#d5b275":"#84c4c7",
+          selected?1:15,17,170);
         const targetType=members.length>1?"facility_group":"facility";
-        addTarget(targetType,members.length>1?group.id:members[0].id,
-          group.x,group.y,Math.max(15,15*iconScale),prefer.name,
+        addTarget(targetType,members.length>1?hub.id:members[0].id,
+          at.x,at.y,Math.max(15,15*iconScale),prefer.name,
           members.length>1?ids:null);
       }
     }
@@ -869,8 +899,12 @@ function renderMap() {
         // number and members are available on hover/click.
         withMapScale(group,iconScale,()=>drawShip(group.members[0].ship,group,
           "#84b9c5",ids.includes(s.selection?.id),scale));
+        markGlyph(group,13*iconScale);
         ctx.save();ctx.lineWidth=1;ctx.strokeStyle="#668994";
-        ctx.strokeRect(group.x-12,group.y-12,24,24);ctx.restore();
+        ctx.strokeRect(group.x-12*iconScale,group.y-12*iconScale,
+          24*iconScale,24*iconScale);ctx.restore();
+        askLabel("shipgroup-"+group.id,group,ids.length+" кораблей",
+          "#c2dce4",4,16,120);
         addTarget("ship_group",group.id,group.x,group.y,Math.max(17,16*iconScale),
           ids.length+" кораблей · открыть список",ids);
         continue;
@@ -890,12 +924,24 @@ function renderMap() {
         const selected=isSelected("ship",ship.id);
         withMapScale(at,iconScale,()=>drawShip(ship,at,
           factionColor(ship.faction_id,s.index),selected,scale));
-        if(showLabels && (smallFleet || selected)){
-          textChip(at.x+12*iconScale,at.y-13*iconScale,
-            ship.name??ship.class,"#c2dce4",125);
+        markGlyph(at,11*iconScale);
+        if(smallFleet || selected){
+          askLabel("ship-"+ship.id,at,ship.name??ship.class,
+            "#c2dce4",selected?0:3,16,128);
         }
         addTarget("ship",ship.id,at.x,at.y,Math.max(selected?15:12,12*iconScale),ship.name);
       }
+    }
+  }
+  // Labels are a UI overlay, not physical objects. Move or drop only
+  // labels when space is tight; never move the actual simulated positions.
+  for(const item of layoutMapLabels(labelRequests,{w,h},markerObstacles)){
+    if(item.plain){
+      ctx.save();ctx.fillStyle=item.color;
+      ctx.textAlign="left";ctx.font="11px Segoe UI, sans-serif";
+      ctx.fillText(item.text,item.x+4,item.y+12,item.w-8);ctx.restore();
+    }else{
+      textChip(item.x,item.y+10,item.text,item.color,item.max);
     }
   }
   window.requestAnimationFrame(renderMap);
