@@ -228,6 +228,24 @@ export function layoutMapLabels(items, viewport, obstacles = []) {
   return placed;
 }
 
+// A ship parked at a named location is not a free-floating map marker.
+// In-transit ships are the only ones rendered as moving ship silhouettes.
+// Classification uses authoritative server fields; no speed/nearby guesses.
+export function shipMapState(ship) {
+  if (ship?.transit != null) return "in_transit";
+  if (typeof ship?.location === "string" && ship.location.trim()) {
+    return ship.docked === true ? "docked" : "at_location";
+  }
+  return "unknown";
+}
+
+export function shipsAtHub(ships, location) {
+  const loc=key(location);
+  if(!loc)return [];
+  return list(ships).filter(ship=>
+    shipMapState(ship)!=="in_transit" && key(ship.location)===loc);
+}
+
 // Exact location matching only; never infer system membership from a
 // ship's nearest star or coincidental 2D position.
 export function shipSystem(ship, index) {
