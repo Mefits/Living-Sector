@@ -183,6 +183,13 @@ export function clusterMarkers(markers, cellSize = 34) {
 // Exact location matching only; never infer system membership from a
 // ship's nearest star or coincidental 2D position.
 export function shipSystem(ship, index) {
+  // The server now exposes the actual ShipPosition.system_id.
+  // This is needed while ships travel (ship.location becomes null).
+  const actual = index?.systems?.find(
+    sys => sys.id === ship?.system_id || sys.name === ship?.system_id
+  );
+  if (actual) return actual.name;
+  // Compatibility with older Windows servers that don't expose it yet.
   const resolve = loc => index?.locationSystem?.get(key(loc)) ?? null;
   if (ship?.transit) {
     const from = resolve(ship.transit.from);
@@ -190,6 +197,22 @@ export function shipSystem(ship, index) {
     return from && from === to ? from : null;
   }
   return resolve(ship?.location);
+}
+
+// Convert a fixed world grid interval into a screen-space pitch.
+// Candidate world steps follow a 1/2/5/10 progression; the chosen
+// interval is stable for any given zoom and does not depend on panning.
+export function worldGridStep(scale, targetPixels = 90) {
+  if (!(scale > 0) || !Number.isFinite(scale)) return 1;
+  const wanted = targetPixels / scale;
+  const power = 10 ** Math.floor(Math.log10(wanted));
+  const multiples = [1, 2, 5, 10];
+  const multiple = multiples.find(m => m * power >= wanted) ?? 10;
+  return power * multiple;
+}
+
+export function mapIconScale(zoom) {
+  return Math.min(2.7, Math.max(0.62, Math.sqrt(Math.max(0.1, zoom))));
 }
 
 export function shortageCount(markets) {
