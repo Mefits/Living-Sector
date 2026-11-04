@@ -77,3 +77,14 @@ test("Genesis freighters have system-range communications and a profitable real 
     (r.from==="earth-station"&&r.to==="belt-outpost") ||
     (r.from==="belt-outpost"&&r.to==="earth-station")));
 });
+
+test("Genesis runs the original shared simulation core with finite ships",()=>{
+  const tuning=JSON.parse(readFileSync(new URL("../priv/genesis/data/tuning.json",import.meta.url),"utf8"));
+  assert.equal(tuning.auto_replace_retired_ships,false,
+    "ship losses must not be silently replaced in the finite economy");
+  assert.equal(tuning.regenerate_body_resources,false,
+    "depleted mineral bodies must not refill from hidden timed regeneration");
+  const nativeEntry=readFileSync(new URL("../crates/sim_server/src/bin/genesis_server.rs",import.meta.url),"utf8");
+  assert.match(nativeEntry,/sim_server::runtime::run\(\)/,
+    "Genesis must reuse the original server/AI/economy, not its own simulation");
+});

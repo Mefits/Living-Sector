@@ -47,6 +47,15 @@ use std::sync::OnceLock;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct WorldTuning {
+    /// Legacy stress worlds replace retired ships for steady population.
+    /// Genesis is a finite economy: a retired hull stays lost until an
+    /// actual shipyard builds a new one. Configured per-world via tuning.json.
+    pub auto_replace_retired_ships: bool,
+
+    /// Legacy worlds regenerate depleted celestial resource richness.
+    /// In finite-economy Genesis, depleted bodies never replenish from
+    /// a timer; new ore must come from actual remaining deposits.
+    pub regenerate_body_resources: bool,
     // --- Bundle (H): recipe profitability gate ---
     /// Recipes skip production when
     /// `output_value < input_value × min_recipe_margin_ratio`
@@ -94,6 +103,8 @@ pub struct WorldTuning {
 impl Default for WorldTuning {
     fn default() -> Self {
         Self {
+            auto_replace_retired_ships: true,
+            regenerate_body_resources: true,
             min_recipe_margin_ratio: 0.5,
             dock_fee_burn_pct: 0.30,
             market_crisis_shortage_ticks: 200,
@@ -134,6 +145,8 @@ mod tests {
     #[test]
     fn default_values_are_sane() {
         let t = WorldTuning::default();
+        assert!(t.auto_replace_retired_ships, "legacy worlds keep replacement behavior");
+        assert!(t.regenerate_body_resources, "legacy worlds keep body regeneration");
         assert!(t.min_recipe_margin_ratio > 0.0 && t.min_recipe_margin_ratio <= 1.0);
         assert!(t.dock_fee_burn_pct >= 0.0 && t.dock_fee_burn_pct < 1.0);
         assert!(t.market_crisis_recovery_ticks < t.market_crisis_shortage_ticks);
@@ -172,5 +185,19 @@ mod tests {
         assert!((t.dock_fee_burn_pct - 0.5).abs() < 1e-6);
         // Everything else should be default.
         assert_eq!(t.market_crisis_shortage_ticks, 200);
+        assert!(t.auto_replace_retired_ships);
+        assert!(t.regenerate_body_resources);
+    }
+
+    #[test]
+    fn genesis_disables_unfunded_respawns_without_changing_other_worlds() {
+        let config: WorldTuning = serde_json::from_str(
+            r#"{ "auto_replace_retired_ships": false, "regenerate_body_resources": false }"#
+        ).unwrap();
+        assert!(!config.auto_replace_retired_ships);
+        assert!(!config.regenerate_body_resources);
+        let legacy: WorldTuning = serde_json::from_str("{}").unwrap();
+        assert!(legacy.auto_replace_retired_ships);
+        assert!(legacy.regenerate_body_resources);
     }
 }
