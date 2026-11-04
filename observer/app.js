@@ -3,7 +3,8 @@ import {
   systemByName, positionOf, approximateShipsNear, shortageCount, sortedCargo,
   panForCursorZoom, clusterMarkers, shipSystem, worldGridStep, mapIconScale,
   groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub,
-  liveEntityPoint, approachWorldPoint
+  liveEntityPoint, approachWorldPoint,
+  commodityLabel, contractLabel, contractCargoLabel
 } from "/observer/model.js";
 
 const byId = id => document.getElementById(id);
@@ -355,7 +356,7 @@ function renderInspector() {
     inspectorRow(content, "Кредиты", fnum(entity.credits));
     inspectorRow(content, "Экипаж", entity.crew?.size ?? "—");
     detailGroup(content, "Груз");
-    chips(content, sortedCargo(entity.cargo).map(([name,amount]) => name + ": " + amount));
+    chips(content, sortedCargo(entity.cargo).map(([name,amount]) => commodityLabel(name) + ": " + amount));
     if (entity.progression) {
       detailGroup(content, "Развитие");
       inspectorRow(content, "Уровень", entity.progression.level ?? "—");
@@ -389,7 +390,7 @@ function renderInspector() {
         ...Object.keys(market.prices ?? {}), ...Object.keys(market.supply ?? {})
       ])].sort((a,b) => number(market.shortage_ticks?.[b]) - number(market.shortage_ticks?.[a]));
       for (const commodity of commodities.slice(0, 16)) {
-        inspectorRow(content, commodity,
+        inspectorRow(content, commodityLabel(commodity),
           "Цена " + fnum(market.prices?.[commodity]) +
           " · запас " + fnum(market.supply?.[commodity]) +
           " · спрос " + fnum(market.demand?.[commodity]));
@@ -420,14 +421,21 @@ function eventLabel(event) {
   const kind = eventNames[raw] ?? raw.replaceAll("_", " ");
   const detail = event?.message ?? event?.description ?? event?.detail ?? event?.text;
   if (typeof detail === "string") return {kind,detail};
-  const names = [
-    ["ship_name","Корабль"],["ship_id","Корабль"],["facility_name","Объект"],
-    ["facility_id","Объект"],["location","Место"],["destination","Куда"],
-    ["commodity","Товар"],["quantity","Количество"],["faction_id","Фракция"]
-  ];
-  const summary = names.filter(([field]) => event?.[field] != null)
-    .slice(0,3).map(([field,label]) => label + ": " + event[field]).join(" · ");
-  return {kind,detail:summary || "Изменение в симуляции"};
+  const contractType = event?.contract_type;
+  const cargo = contractCargoLabel(event?.commodity, contractType);
+  const parts = [];
+  if (contractType) parts.push("Тип: " + contractLabel(contractType));
+  for(const [field,label] of [
+    ["ship_name","Корабль"],["ship_id","Корабль"],
+    ["facility_name","Объект"],["facility_id","Объект"],
+    ["location","Место"],["source_location","Откуда"],
+    ["destination","Куда"],["quantity","Количество"]
+  ]){
+    if(event?.[field] != null) parts.push(label + ": " + event[field]);
+  }
+  if(cargo)parts.push("Груз: "+cargo);
+  if(event?.kind==="contract_expired")parts.push("Исполнитель не принял заявку");
+  return {kind,detail:parts.slice(0,5).join(" · ") || "Изменение в симуляции"};
 }
 function renderEvents() {
   els.eventFeed.replaceChildren();
