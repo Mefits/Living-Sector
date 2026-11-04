@@ -1,0 +1,284 @@
+{
+  "system": {
+    "id": "system-sol",
+    "name": "Sol",
+    "universe_offset": [
+      0,
+      0
+    ],
+    "star_type": "G"
+  },
+  "bodies": [
+    {
+      "id": "earth",
+      "name": "Earth",
+      "type": "planet",
+      "orbit_radius": 1,
+      "orbit_period": 365,
+      "current_angle": 0,
+      "biome": "terrestrial",
+      "resources": {
+        "ice": 0.3,
+        "gas": 0.1
+      }
+    },
+    {
+      "id": "luna",
+      "name": "Luna",
+      "type": "moon",
+      "orbit_radius": 1.05,
+      "orbit_period": 365,
+      "current_angle": 10,
+      "biome": "lifeless",
+      "resources": {
+        "ore": 0.3,
+        "ice": 0.4
+      }
+    },
+    {
+      "id": "mars",
+      "name": "Mars",
+      "type": "planet",
+      "orbit_radius": 1.52,
+      "orbit_period": 687,
+      "current_angle": 45,
+      "biome": "desert",
+      "resources": {
+        "ore": 0.4,
+        "ice": 0.5,
+        "gas": 0.2
+      }
+    },
+    {
+      "id": "belt",
+      "name": "Asteroid Belt",
+      "type": "belt",
+      "orbit_radius": 2.7,
+      "orbit_period": 1680,
+      "current_angle": 120,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.9,
+        "ice": 0.3,
+        "gas": 0.1
+      }
+    }
+  ],
+  "travel_routes": [
+    {
+      "from": "earth-station",
+      "to": "belt-outpost",
+      "distance": 150
+    }
+  ],
+  "facilities": [
+    {
+      "id": "facility-earth-station",
+      "name": "Genesis Station",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "station",
+      "docking_capacity": 50,
+      "services": [
+        "refuel",
+        "repair",
+        "medical",
+        "market",
+        "passenger_terminal"
+      ],
+      "reserves": {}
+    },
+    {
+      "id": "facility-earth-farm",
+      "name": "Genesis Hydroponics",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "farm",
+      "docking_capacity": 10,
+      "services": [
+        "market"
+      ],
+      "reserves": {}
+    },
+    {
+      "id": "facility-earth-shipyard",
+      "name": "Genesis Shipyard",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "shipyard",
+      "docking_capacity": 20,
+      "services": [
+        "refuel",
+        "repair",
+        "market",
+        "shipyard"
+      ],
+      "reserves": {},
+      "fitting": {},
+      "module_stock": {}
+    },
+    {
+      "id": "facility-belt-outpost",
+      "name": "Belt Extraction",
+      "faction_id": "terran-authority",
+      "location": "belt-outpost",
+      "body": "belt",
+      "type": "mining_rig",
+      "docking_capacity": 30,
+      "services": [
+        "refuel",
+        "market"
+      ],
+      "reserves": {}
+    },
+    {
+      "id": "facility-earth-factory",
+      "name": "Genesis Assembly",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "factory",
+      "docking_capacity": 12,
+      "services": [
+        "market"
+      ],
+      "reserves": {}
+    },
+    {
+      "id": "facility-earth-refinery",
+      "name": "Genesis Refinery",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "refinery",
+      "docking_capacity": 12,
+      "services": [
+        "market"
+      ],
+      "reserves": {}
+    }
+  ],
+  "markets": [
+    {
+      "id": "market-earth-station",
+      "facility_id": "earth-station",
+      "prices": {
+        "ore": 48,
+        "ice": 30,
+        "gas": 50,
+        "metals": 55,
+        "fuel": 22,
+        "polymers": 50,
+        "water": 10,
+        "components": 90,
+        "electronics": 130,
+        "tools": 100,
+        "food": 8,
+        "medical": 110,
+        "luxury": 160
+      },
+      "supply": {
+        "ore": 4,
+        "ice": 12,
+        "gas": 10,
+        "metals": 35,
+        "fuel": 650,
+        "polymers": 35,
+        "water": 320,
+        "components": 18,
+        "electronics": 15,
+        "tools": 15,
+        "food": 360,
+        "medical": 12
+      },
+      "demand": {
+        "ore": 70,
+        "ice": 5,
+        "fuel": 18,
+        "food": 20,
+        "metals": 18,
+        "water": 14,
+        "components": 12,
+        "electronics": 5,
+        "tools": 4
+      },
+      "consumption": {},
+      "production": {},
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-belt-outpost",
+      "facility_id": "belt-outpost",
+      "prices": {
+        "ore": 9,
+        "ice": 8,
+        "gas": 12,
+        "metals": 50,
+        "fuel": 30,
+        "polymers": 42,
+        "water": 20,
+        "components": 75,
+        "electronics": 125,
+        "tools": 85,
+        "food": 55,
+        "medical": 120,
+        "luxury": 180
+      },
+      "supply": {
+        "ore": 250,
+        "ice": 90,
+        "gas": 30,
+        "metals": 1,
+        "fuel": 260,
+        "polymers": 4,
+        "water": 20,
+        "components": 0,
+        "electronics": 0,
+        "tools": 4,
+        "food": 45
+      },
+      "demand": {
+        "food": 28,
+        "fuel": 8,
+        "metals": 12,
+        "water": 7
+      },
+      "consumption": {},
+      "price_elasticity": 0.02,
+      "production": {}
+    }
+  ],
+  "ships": [
+    {
+      "name": "Грузовой-001",
+      "location": "belt-outpost",
+      "class": "freighter",
+      "credits": 18000,
+      "faction_id": "terran-authority",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "Грузовой-002",
+      "location": "earth-station",
+      "class": "freighter",
+      "credits": 14000,
+      "faction_id": "terran-authority",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "Курьер-001",
+      "location": "earth-station",
+      "class": "courier",
+      "credits": 7500,
+      "faction_id": "terran-authority"
+    }
+  ],
+  "populations": []
+}

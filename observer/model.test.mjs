@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import {
   buildIndex, ownership, factionColor, positionOf, shortageCount,
   systemAtPosition, approximateShipsNear,
-  panForCursorZoom, clusterMarkers, shipSystem
+  panForCursorZoom, clusterMarkers, shipSystem,
+  groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub,
+  liveEntityPoint, approachWorldPoint
 } from "./model.js";
 
 const report = {
@@ -102,6 +104,106 @@ test("ship system membership is based on exact location, not map proximity",()=>
   assert.equal(shipSystem({location:"unknown",position:{x:0,y:0}},i),null);
   assert.equal(shipSystem({transit:{from:"earth-gate",to:"tau-gate"}},i),null);
   assert.equal(shipSystem({transit:{from:"earth-station",to:"earth-gate"}},i),"Sol");
+});
+
+
+test("facility icons represent actual physical locations, not every building",()=>{
+  const facilities=[
+    {id:"a",location:"earth-station",name:"Genesis Station"},
+    {id:"b",location:"earth-station",name:"Genesis Shipyard"},
+    {id:"c",location:"belt-outpost",name:"Belt Extraction"}
+  ];
+  const groups=groupFacilitiesByLocation(facilities);
+  assert.equal(groups.length,2);
+  assert.equal(groups[0].members.length,2);
+  assert.equal(groups[1].members.length,1);
+  assert.deepEqual(groups.flatMap(g=>g.members.map(x=>x.id)).sort(),["a","b","c"]);
+});
+test("labels avoid overlapping other labels and real map glyphs",()=>{
+  const labels=[
+    {id:"ship1",x:150,y:150,text:"Cargo 1",w:100,h:20,radius:16,priority:0},
+    {id:"ship2",x:150,y:150,text:"Cargo 2",w:100,h:20,radius:16,priority:1},
+    {id:"hub",x:150,y:150,text:"Station",w:90,h:20,radius:16,priority:2}
+  ];
+  const obstacle={x:140,y:140,w:20,h:20};
+  const placed=layoutMapLabels(labels,{w:450,h:300},[obstacle]);
+  assert.equal(placed.length,3);
+  const intersects=(a,b)=>a.x < b.x+b.w && a.x+a.w > b.x &&
+    a.y < b.y+b.h && a.y+a.h > b.y;
+  for(const p of placed)assert.equal(intersects(p,obstacle),false);
+  for(let i=0;i<placed.length;i++){
+    for(let j=i+1;j<placed.length;j++)assert.equal(intersects(placed[i],placed[j]),false);
+  }
+  assert.ok(placed.every(p=>p.x>=8&&p.y>=8));
+});
+test("too many labels never overlap or move actual map markers",()=>{
+  const glyph={x:25,y:25,w:20,h:20};
+  const labels=Array.from({length:25},(_,i)=>({
+    id:"object"+i,x:35,y:35,w:110,h:20,radius:16,priority:i
+  }));
+  const before=structuredClone(labels);
+  const placed=layoutMapLabels(labels,{w:190,h:120},[glyph]);
+  assert.ok(placed.length<labels.length);
+  assert.deepEqual(labels,before);
+});
+
+test("only explicit transit draws a moving ship, never a docked/parked one",()=>{
+  const inTransit={id:"f",location:null,transit:{from:"earth-station",to:"belt-outpost"},docked:false};
+  const docked={id:"d",location:"earth-station",transit:null,docked:true};
+  const parked={id:"p",location:"earth-station",transit:null,docked:false};
+  const lost={id:"x",location:null,transit:null,docked:false};
+  assert.equal(shipMapState(inTransit),"in_transit");
+  assert.equal(shipMapState(docked),"docked");
+  assert.equal(shipMapState(parked),"at_location");
+  assert.equal(shipMapState(lost),"unknown");
+  assert.equal(shipMapState({docked:true,location:"earth-station",
+    transit:{from:"earth-station",to:"belt-outpost"}}),"in_transit");
+});
+test("station ship list contains real docked/parked ships by exact location only",()=>{
+  const ships=[
+    {id:"d",location:"earth-station",docked:true,transit:null},
+    {id:"p",location:"EARTH-STATION",docked:false,transit:null},
+    {id:"f",location:"earth-station",docked:false,
+      transit:{from:"earth-station",to:"belt-outpost"}},
+    {id:"o",location:"belt-outpost",docked:true,transit:null}
+  ];
+  assert.deepEqual(shipsAtHub(ships,"earth-station").map(s=>s.id),["d","p"]);
+  assert.deepEqual(shipsAtHub(ships,"belt-outpost").map(s=>s.id),["o"]);
+  assert.equal(shipsAtHub(ships,"unknown").length,0);
+  assert.equal(shipsAtHub(ships,"").length,0);
+});
+
+test("map bodies and stations prioritize live server WS positions over older snapshots",()=>{
+  const body={id:"earth",x:10,y:0,position:{x:10,y:0}};
+  const facility={id:"facility-genesis",position:{x:10.1,y:0.2}};
+  const positions=new Map([
+    ["earth",{x:3,y:8}],
+    ["facility-genesis",{x:3.1,y:8.2}]
+  ]);
+  assert.deepEqual(liveEntityPoint(body,positions),{x:3,y:8});
+  assert.deepEqual(liveEntityPoint(facility,positions),{x:3.1,y:8.2});
+  assert.deepEqual(liveEntityPoint(facility,new Map()),{x:10.1,y:0.2});
+  assert.deepEqual(liveEntityPoint(body,new Map()),{x:10,y:0});
+});
+test("visual orbital interpolation follows live coordinates without altering source or overshooting",()=>{
+  const original={x:0,y:0},newPos={x:4,y:0};
+  const result=approachWorldPoint(original,newPos,0.25,12);
+  assert.deepEqual(result,{x:1,y:0});
+  assert.deepEqual(original,{x:0,y:0});
+  assert.deepEqual(newPos,{x:4,y:0});
+  assert.deepEqual(approachWorldPoint(null,newPos),newPos);
+  assert.deepEqual(approachWorldPoint(original,{x:200,y:0}),{x:200,y:0});
+  assert.equal(approachWorldPoint(original,null),null);
+});
+test("regression: no hidden parked ships or fake circular vessel placement in map renderer",async()=>{
+  const {readFileSync}=await import("node:fs");
+  const app=readFileSync(new URL("./app.js",import.meta.url),"utf8");
+  assert.ok(app.includes("hubAnchors.set(key(hub.location)"));
+  assert.ok(app.includes("anchoredShips.add(ship.id)"));
+  assert.ok(app.includes("drawShip(ship,at"));
+  assert.ok(app.includes("liveWorldPoint(prefer)"));
+  assert.ok(app.includes("liveWorldPoint(body)"));
+  assert.ok(!app.includes("const angle=-Math.PI/2+(2*Math.PI*i/group.members.length)"));
 });
 
 test("UI ids referenced by the code exist in the actual HTML", async () => {

@@ -138,6 +138,13 @@ pub async fn run_tick_loop(
         "Engine: tick loop started at {}ms/tick ({} tps, world_speed={}, mult={})",
         timer_interval, tick_config.ticks_per_second, tick_config.world_speed, tick_mult,
     );
+    // Prime all snapshot categories before the first timer tick. In the
+    // small Genesis scenario the launcher pauses almost immediately, and a
+    // restored tick counter can land between the 4/16-tick refreshes.
+    // Without this, /api/report contains ships but 0 bodies/facilities/
+    // markets/factions until the simulation resumes long enough.
+    // Using tick 0 intentionally forces every cache cadence.
+    snapshots.update_from(&mut world, &mut store, 0);
     log_sample_market(&mut world, &mut store, "initial");
 
     loop {

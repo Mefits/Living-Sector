@@ -10,6 +10,36 @@ export const key = (value) => String(value ?? "").trim().toLowerCase();
 export const safeHex = (value, fallback = "#8da3b9") =>
   typeof value === "string" && /^#[a-fA-F0-9]{6}$/.test(value) ? value : fallback;
 
+// Display names for existing commodity IDs. These are labels only:
+// no new recipes or inventory state are introduced in Observer.
+const COMMODITY_NAMES = {
+  ore:"Руда", ice:"Лёд", gas:"Газ", metals:"Металлы",
+  fuel:"Топливо", polymers:"Полимеры", water:"Вода",
+  components:"Компоненты", electronics:"Электроника",
+  tools:"Инструменты", food:"Продовольствие",
+  medical:"Медикаменты", luxury:"Предметы роскоши"
+};
+export function commodityLabel(id) {
+  return COMMODITY_NAMES[key(id)] ?? String(id ?? "Неизвестный товар");
+}
+const CONTRACT_NAMES = {
+  delivery:"Доставка товаров", subsidy:"Субсидируемая доставка",
+  construction:"Снабжение строительства", supply:"Поставка",
+  courier:"Курьерская доставка", passenger:"Перевозка пассажиров",
+  crew_mission:"Задание экипажа"
+};
+export function contractLabel(id) {
+  return CONTRACT_NAMES[key(id)] ?? (id ? String(id) : "Контракт");
+}
+// Upstream uses Food as a placeholder for Passenger, and Tools as a
+// placeholder for CrewMission. Never present them as physical cargo.
+export function contractCargoLabel(commodity,contractType) {
+  const kind=key(contractType);
+  if(kind==="passenger")return null;
+  if(kind==="crew_mission")return null;
+  return commodity == null ? null : commodityLabel(commodity);
+}
+
 export function ownership(system) {
   const bodies = list(system.bodies);
   const ids = [...new Set(bodies.map(b => b.controlling_faction).filter(Boolean))];
@@ -128,6 +158,27 @@ export function positionOf(ship, positions) {
   return point(positions.get(ship.id)) ?? point(ship.position);
 }
 
+// Body/facility snapshots contain slower-changing metadata, while the WS
+// positions stream carries fresh coordinates each tick. Use one source for
+// visible positions across all entity kinds; fall back for offline viewing.
+export function liveEntityPoint(entity, livePositions) {
+  const id=entity?.id ?? entity?.body_id;
+  return (id != null ? point(livePositions?.get(String(id))) : null) ??
+    point(entity) ?? point(entity?.universe_position) ?? point(entity?.position);
+}
+
+// Cosmetic interpolation only. Never change ECS state or move a map marker
+// to another entity's coordinate. Snap on large discontinuities/teleports.
+export function approachWorldPoint(current,target,rate=0.18,snapDistance=12) {
+  const wanted=point(target);
+  if(!wanted)return null;
+  const old=point(current);
+  if(!old)return wanted;
+  const d=Math.hypot(wanted.x-old.x,wanted.y-old.y);
+  if(d>snapDistance)return wanted;
+  return {x:old.x+(wanted.x-old.x)*rate,y:old.y+(wanted.y-old.y)*rate};
+}
+
 export function systemAtPosition(pos, systems) {
   if (!pos || !systems?.length) return null;
   let found = null, best = Infinity;
@@ -180,9 +231,82 @@ export function clusterMarkers(markers, cellSize = 34) {
   }));
 }
 
+// Buildings sharing a real location represent one map hub. Group by
+// location ID, not proximity: zoom must never split a station into five
+// overlaid symbols or accidentally combine two distinct stations.
+export function groupFacilitiesByLocation(facilities) {
+  const groups = new Map();
+  for (const fac of list(facilities)) {
+    const id = key(fac.location) || key(fac.id);
+    if (!id) continue;
+    if (!groups.has(id)) groups.set(id, {id, location: fac.location, members: []});
+    groups.get(id).members.push(fac);
+  }
+  return [...groups.values()];
+}
+
+// Place compact labels around real map markers without covering each
+// other. Keep stable priority ordering; lower-priority labels disappear
+// at cramped zoom levels, but hover and clicks remain available.
+export function layoutMapLabels(items, viewport, obstacles = []) {
+  const intersects = (a,b) => a.x < b.x+b.w && a.x+a.w > b.x &&
+    a.y < b.y+b.h && a.y+a.h > b.y;
+  const placed=[], used=[...obstacles];
+  const ordered=[...list(items)].sort((a,b)=>
+    a.priority-b.priority || String(a.id).localeCompare(String(b.id)));
+  for (const item of ordered) {
+    const w=item.w, h=item.h??20;
+    if (!(w>0) || !(h>0) || !Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
+    const offset=Math.max(16,item.radius??17)+5;
+    const choices=[
+      {x:item.x+offset,y:item.y-h-6},
+      {x:item.x+offset,y:item.y+5},
+      {x:item.x-offset-w,y:item.y-h-6},
+      {x:item.x-offset-w,y:item.y+5},
+      {x:item.x-w/2,y:item.y-offset-h},
+      {x:item.x-w/2,y:item.y+offset}
+    ];
+    for(const p of choices) {
+      const rect={x:p.x,y:p.y,w,h};
+      if(rect.x<8 || rect.y<8 ||
+         rect.x+w>viewport.w-8 || rect.y+h>viewport.h-8)continue;
+      if(used.some(box=>intersects(rect,box)))continue;
+      used.push(rect);
+      placed.push({...item,x:p.x,y:p.y});
+      break;
+    }
+  }
+  return placed;
+}
+
+// A ship parked at a named location is not a free-floating map marker.
+// In-transit ships are the only ones rendered as moving ship silhouettes.
+// Classification uses authoritative server fields; no speed/nearby guesses.
+export function shipMapState(ship) {
+  if (ship?.transit != null) return "in_transit";
+  if (typeof ship?.location === "string" && ship.location.trim()) {
+    return ship.docked === true ? "docked" : "at_location";
+  }
+  return "unknown";
+}
+
+export function shipsAtHub(ships, location) {
+  const loc=key(location);
+  if(!loc)return [];
+  return list(ships).filter(ship=>
+    shipMapState(ship)!=="in_transit" && key(ship.location)===loc);
+}
+
 // Exact location matching only; never infer system membership from a
 // ship's nearest star or coincidental 2D position.
 export function shipSystem(ship, index) {
+  // The server now exposes the actual ShipPosition.system_id.
+  // This is needed while ships travel (ship.location becomes null).
+  const actual = index?.systems?.find(
+    sys => sys.id === ship?.system_id || sys.name === ship?.system_id
+  );
+  if (actual) return actual.name;
+  // Compatibility with older Windows servers that don't expose it yet.
   const resolve = loc => index?.locationSystem?.get(key(loc)) ?? null;
   if (ship?.transit) {
     const from = resolve(ship.transit.from);
@@ -190,6 +314,22 @@ export function shipSystem(ship, index) {
     return from && from === to ? from : null;
   }
   return resolve(ship?.location);
+}
+
+// Convert a fixed world grid interval into a screen-space pitch.
+// Candidate world steps follow a 1/2/5/10 progression; the chosen
+// interval is stable for any given zoom and does not depend on panning.
+export function worldGridStep(scale, targetPixels = 90) {
+  if (!(scale > 0) || !Number.isFinite(scale)) return 1;
+  const wanted = targetPixels / scale;
+  const power = 10 ** Math.floor(Math.log10(wanted));
+  const multiples = [1, 2, 5, 10];
+  const multiple = multiples.find(m => m * power >= wanted) ?? 10;
+  return power * multiple;
+}
+
+export function mapIconScale(zoom) {
+  return Math.min(2.7, Math.max(0.62, Math.sqrt(Math.max(0.1, zoom))));
 }
 
 export function shortageCount(markets) {

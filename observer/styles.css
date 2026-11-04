@@ -136,3 +136,14 @@ body.has-selection .inspector{display:flex}
 .group-member:hover,.group-member:focus-visible{border-color:#61bdb7;background:#193443}
 .group-member-note{color:var(--muted);font-size:10px}
 .map-help{letter-spacing:0;font-size:10px}
+
+/* Genesis map: bodies, facilities and ships have distinct silhouettes. */
+.map-legend{position:absolute;right:17px;bottom:14px;display:flex;align-items:center;flex-wrap:wrap;gap:15px;z-index:2;background:#071524e8;border:1px solid #273e4e;border-radius:5px;padding:9px 12px;font-size:10px;color:#b5cbd6;pointer-events:none}
+.map-legend span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.map-legend i{display:inline-block;flex:none}
+.legend-body{width:10px;height:10px;background:#4b9cc4;border-radius:50%}
+.legend-hub{width:10px;height:10px;border:1.5px solid #84c0c6;transform:rotate(45deg)}
+.legend-ship{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:11px solid #b7d9e3}
+.map-help{bottom:14px;max-width:58%;padding:6px 10px}
+@media(max-width:1050px){.map-legend{font-size:9px;gap:8px;padding:7px}.map-help{display:none}}
+@media(max-width:640px){.map-legend{bottom:8px;right:8px}}
