@@ -1,0 +1,44 @@
+name: Genesis small-seed preview
+
+on:
+  push:
+    branches: [feature/genesis-0-1]
+    paths:
+      - "Start-Genesis.cmd"
+      - "priv/genesis/**"
+      - "tests/genesis-seed.test.mjs"
+      - ".github/workflows/genesis-seed.yml"
+  pull_request:
+    branches: [feature/observer-focused-ui]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seed-preview:
+    name: Genesis data checks and lightweight Windows overlay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate isolated world topology, economy inputs, ship count
+        run: node --test tests/genesis-seed.test.mjs
+      - name: Package seed without native compilation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          Path("dist").mkdir(exist_ok=True)
+          with ZipFile("dist/Genesis-Seed-Preview.zip", "w", ZIP_DEFLATED) as z:
+              z.write("Start-Genesis.cmd")
+              for p in Path("priv/genesis/data").rglob("*.json"):
+                  z.write(p, p.as_posix())
+              z.write("docs/living-sector/GENESIS_0_1_STATUS.md", "GENESIS-README.md")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Genesis-Seed-Preview
+          path: dist/Genesis-Seed-Preview.zip
+          retention-days: 7
+          if-no-files-found: error
