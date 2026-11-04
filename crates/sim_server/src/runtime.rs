@@ -133,6 +133,26 @@ pub async fn run() -> Result<()> {
     // through to per-phase helpers.
     let mut world = bevy_ecs::world::World::new();
     let mut store = sim_db::spawner::load_agents(&mut world, &pool, &registry, &config).await?;
+    // World-data faction policy: any faction seeded as `outlaw`
+    // begins at War with all other factions. Uses the shared diplomacy
+    // matrix, not a private pirate scenario or hard-coded faction ID.
+    {
+        use sim_core::agents::{
+            faction::FactionData,
+            faction_relations::TreatyKind,
+        };
+        let mut query = world.query::<&FactionData>();
+        let factions: Vec<(String, bool)> = query.iter(&world)
+            .map(|data| (data.id.clone(), data.faction_type == "outlaw"))
+            .collect();
+        for (i, (left, outlaw_left)) in factions.iter().enumerate() {
+            for (right, outlaw_right) in factions.iter().skip(i + 1) {
+                if *outlaw_left || *outlaw_right {
+                    store.relations.set_state(left, right, -100, TreatyKind::War, 0);
+                }
+            }
+        }
+    }
     // Pump the contract board on a fresh seed so the first client to
     // connect isn't looking at an empty ledger. No-op when the board
     // was hydrated from DB by the loader.
