@@ -1,6 +1,7 @@
 mod conflict;
 mod construction;
 mod governance;
+mod freight;
 mod planning;
 mod sim;
 mod view;
@@ -138,6 +139,7 @@ fn load_sim(path: &Path) -> io::Result<SaveFile> {
     match fs::read(path) {
         Ok(bytes) => {
             let mut loaded: SaveFile = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+            loaded.sim.migrate_fleet();
             if !loaded.sim.valid() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
