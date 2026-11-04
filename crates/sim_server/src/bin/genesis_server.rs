@@ -15,6 +15,6 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .with_target(true)
-        .try_init()?;
+        .init();
     sim_server::runtime::run().await
 }
