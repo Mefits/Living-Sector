@@ -81,7 +81,7 @@ jobs:
             if ($report.markets.Count -ne 2) { throw "Expected 2 markets, got $($report.markets.Count)" }
             function Get-StationOffset($snapshot) {
               $earth = $snapshot.systems[0].bodies | Where-Object id -eq "earth"
-              $station = $snapshot.facilities | Where-Object id -eq "facility-earth-station"
+              $station = $snapshot.facilities | Where-Object name -eq "Genesis Station"
               if ($null -eq $earth -or $null -eq $station) { throw "Missing Earth or Genesis Station" }
               $dx = [double]$station.position.x - [double]$earth.x
               $dy = [double]$station.position.y - [double]$earth.y
@@ -97,7 +97,7 @@ jobs:
               $offset = Get-StationOffset $updated
               $dx = $offset.X - $initialOffset.X
               $dy = $offset.Y - $initialOffset.Y
-              if ($dx * $dx + $dy * $dy -gt 0.000001) { $orbitMoved = $true; break }
+              if (($dx * $dx + $dy * $dy) -gt 0.000001) { $orbitMoved = $true; break }
             }
             if (-not $orbitMoved) { throw "Genesis Station did not move relative to Earth" }
             Write-Host "PASS: Genesis Station moves on its own orbit around Earth."
