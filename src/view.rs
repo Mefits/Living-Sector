@@ -1,4 +1,4 @@
-use crate::sim::{BELT, EARTH, Event, Phase, SHIP, Sim, TANK};
+use crate::sim::{BELT, EARTH, Event, METAL_CAPACITY, Phase, SHIP, Sim, TANK};
 use serde_json::{Value, json};
 use std::f64::consts::TAU;
 
@@ -75,7 +75,7 @@ fn ship(sim: &Sim, scene: &Scene) -> Value {
     json!({
         "id": "freighter-1", "name": SHIP, "class": "freighter", "faction_id": FACTION,
         "docked": transit.is_none(), "location": location, "fuel": sim.fuel, "fuel_capacity": TANK,
-        "status_label": if matches!(sim.phase, Phase::NoFuelAtBelt | Phase::NoFuelAtEarth) { Some("Нет топлива") } else { None },
+        "status_label": sim.ship_status(),
         "position": {"x": scene.ship.x, "y": scene.ship.y}, "cargo": {"ore": sim.cargo},
         "transit": transit.map(|(from, to)| json!({
             "from": from, "to": to, "distance_travelled": sim.elapsed, "distance_total": sim.phase.duration(),
@@ -86,7 +86,10 @@ fn ship(sim: &Sim, scene: &Scene) -> Value {
 fn markets(sim: &Sim) -> Value {
     json!([
         {"id": BELT, "facility_location": BELT, "supply": {"ore": sim.belt_ore}},
-        {"id": EARTH, "facility_location": EARTH, "supply": {"ore": sim.station_ore}},
+        {"id": EARTH, "facility_location": EARTH,
+         "supply": {"ore": sim.station_ore, "metals": sim.metal},
+         "metal_capacity": METAL_CAPACITY,
+         "delivery_status": sim.delivery_status(), "smelting_status": sim.smelting_status()},
     ])
 }
 

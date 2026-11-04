@@ -139,10 +139,11 @@ function refreshToolbar() {
 function renderOreFlow() {
   if (!s.report?.genesis_ore_loop || s.view !== "system") return;
   const markets = list(s.report.markets);
-  const stockAt = location => markets.find(m => m.facility_location === location)?.supply?.ore;
+  const stockAt = location => markets.find(m => m.facility_location === location)?.supply;
   const cargo = s.ships.reduce((sum, ship) => sum + (ship.cargo?.ore ?? 0), 0);
-  els.mapSummary.textContent = "Руда · Пояс " + fnum(stockAt("belt-outpost")) +
-    " → Трюм " + fnum(cargo) + " → Станция " + fnum(stockAt("earth-station"));
+  els.mapSummary.textContent = "Руда · Пояс " + fnum(stockAt("belt-outpost")?.ore) +
+    " → Трюм " + fnum(cargo) + " → Станция " + fnum(stockAt("earth-station")?.ore) +
+    " · Металл " + fnum(stockAt("earth-station")?.metals);
 }
 
 function marker(parent, className, color) {
@@ -438,10 +439,17 @@ function showMarket(content, location) {
   if (!market) return;
   detailGroup(content, "Склад");
   inspectorRow(content, "Руда", fnum(market.supply.ore));
+  if (market.metal_capacity != null) {
+    inspectorRow(content, "Металл", fnum(market.supply.metals) + " / " + fnum(market.metal_capacity));
+    inspectorRow(content, "Доставка", market.delivery_status);
+    inspectorRow(content, "Плавка", market.smelting_status);
+  }
 }
 
 const eventNames = {
   ore_extracted: "Руда добыта", cargo_loaded: "Руда погружена", cargo_unloaded: "Руда доставлена",
+  ore_requested: "Станция запросила руду",
+  metal_smelted: "Металл выплавлен",
 };
 function eventLabel(event) {
   const parts = [

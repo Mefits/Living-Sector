@@ -13,7 +13,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sim::{Phase, Sim};
+use sim::Sim;
 use std::{
     env, fs,
     io::{self, Write},
@@ -59,9 +59,6 @@ impl Engine {
             return;
         }
         self.sim = next;
-        if matches!(self.sim.phase, Phase::NoFuelAtBelt | Phase::NoFuelAtEarth) {
-            self.running = false;
-        }
         let _ = self
             .updates
             .send(view::update(&self.sim, &events).to_string());
@@ -121,10 +118,8 @@ async fn pause(State(state): State<Shared>, Json(_): Json<Value>) -> Json<Value>
 
 async fn resume(State(state): State<Shared>, Json(_): Json<Value>) -> Json<Value> {
     let mut engine = state.lock().await;
-    if !matches!(engine.sim.phase, Phase::NoFuelAtBelt | Phase::NoFuelAtEarth) {
-        engine.save_error = None;
-        engine.running = true;
-    }
+    engine.save_error = None;
+    engine.running = true;
     Json(engine.health())
 }
 

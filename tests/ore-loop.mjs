@@ -8,7 +8,7 @@ import { createInterface } from "node:readline";
 
 const dir = await mkdtemp(join(tmpdir(), "genesis-ore-loop-"));
 const save = join(dir, "save.json");
-const timeout = AbortSignal.timeout(15000);
+const timeout = AbortSignal.timeout(25000);
 const processClosed = [];
 const children = [];
 let socket;
@@ -50,40 +50,47 @@ try {
   assert.deepEqual(initial.markets.map(market => market.supply.ore), [0, 0]);
 
   socket = new WebSocket(base.replace("http:", "ws:") + "/ws");
-  const received = [];
-  let inFlight = false;
-  let frame;
-  const delivery = new Promise((resolve, reject) => {
+  let waitedForOre = false;
+  let minedInFlight = false;
+  let delivered = 0;
+  let nextRequest = false;
+  let firstSmelt;
+  const cycle = new Promise((resolve, reject) => {
     timeout.addEventListener("abort", () => reject(timeout.reason), { once: true });
     socket.addEventListener("message", message => {
-      frame = JSON.parse(message.data);
-      inFlight ||= frame.ships[0].transit !== null && frame.ships[0].cargo.ore === 50;
-      received.push(...frame.events);
-      if (frame.events.some(event => event.kind === "cargo_unloaded")) resolve(frame);
+      const frame = JSON.parse(message.data);
+      const ship = frame.ships[0];
+      const station = frame.markets[1];
+      waitedForOre ||= ship.docked && ship.status_label.startsWith("Ждёт руду");
+      minedInFlight ||= ship.transit !== null && frame.events.some(event => event.kind === "ore_extracted");
+      delivered += frame.events.filter(event => event.kind === "cargo_unloaded").reduce((sum, event) => sum + event.quantity, 0);
+      if (!firstSmelt && frame.events.some(event => event.kind === "metal_smelted")) firstSmelt = frame;
+      nextRequest ||= delivered === 50 && frame.events.some(event => event.kind === "ore_requested");
+      if (station.supply.metals === station.metal_capacity && ship.status_label === "Нет заявки") resolve(frame);
     });
   });
+  cycle.catch(() => {});
   await once(socket, "open", { signal: timeout });
-  await api(base, "/api/sim/speed", { world_speed: 8 });
+  await api(base, "/api/sim/speed", { world_speed: 16 });
   await api(base, "/api/sim/resume", {});
-  const arrival = await delivery;
-  assert.deepEqual(received.map(event => [event.kind, event.quantity]), [
-    ["ore_extracted", 50], ["cargo_loaded", 50], ["cargo_unloaded", 50],
-  ]);
-  assert.ok(inFlight);
-  assert.deepEqual(arrival.markets.map(market => market.supply.ore), [0, 50]);
-  assert.equal(arrival.ships[0].cargo.ore, 0);
-  assert.ok(arrival.ships[0].fuel < initial.ships[0].fuel);
+  const full = await cycle;
+  assert.ok(waitedForOre && minedInFlight && nextRequest);
+  assert.ok(delivered >= 100);
+  assert.equal(firstSmelt.markets[1].supply.ore, 40);
+  assert.equal(firstSmelt.markets[1].supply.metals, 8);
+  assert.equal(firstSmelt.reserves["earth-station"], 199);
+  assert.equal(full.markets[1].smelting_status, "Склад металла заполнен");
 
   await api(base, "/api/sim/pause", {});
-  assert.equal(JSON.parse(await readFile(save, "utf8")).station_ore, 50);
+  assert.equal(JSON.parse(await readFile(save, "utf8")).metal, 80);
   socket.close();
   children[0].kill();
   await processClosed[0];
 
   const restarted = await api(await start(), "/api/report");
   assert.equal(restarted.running, false);
-  assert.equal(restarted.markets[1].supply.ore, 50);
-  console.log("PASS: 50 ore mined, loaded, flown, unloaded, and restored on restart.");
+  assert.equal(restarted.markets[1].supply.metals, 80);
+  console.log("PASS: demand, independent mining, delivery, smelting, full storage, and restart.");
 } finally {
   socket?.close();
   for (const child of children) child.kill();
