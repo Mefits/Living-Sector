@@ -43,6 +43,36 @@ pub const RECIPE_MAX_BATCHES: u32 = 20;
 /// Units of commodity added to market supply per cycle.
 pub const MINING_YIELD_PER_CYCLE: f32 = 80.0;
 
+/// Salvage fields are slower but can recycle ore, ice, gas and scrap
+/// metals from a finite cache of wreckage. Their output multiplier is
+/// one third of a normal extractor operating at equal richness.
+pub const SALVAGE_SPEED_DIVISOR: f32 = 3.0;
+/// Physical stock units represented by one unit of salvage richness.
+/// A field starts with a fractional richness per material; every
+/// salvaged unit reduces that stored richness, which is persisted in
+/// the existing celestial-body resources column.
+pub const SALVAGE_UNITS_PER_RICHNESS: f32 = 8_000.0;
+
+/// Calculate one finite salvage draw from body richness. No input stock
+/// means no output; the returned richness only decreases.
+pub fn salvage_extraction(richness: f32, efficiency: f32) -> (f32, f32) {
+    let available = richness.clamp(0.0, 1.0) * SALVAGE_UNITS_PER_RICHNESS;
+    if available <= 0.0 || efficiency <= 0.0 {
+        return (0.0, available / SALVAGE_UNITS_PER_RICHNESS);
+    }
+    let mut extracted = (MINING_YIELD_PER_CYCLE / SALVAGE_SPEED_DIVISOR)
+        * richness.max(0.0) * efficiency;
+    extracted = extracted.min(available);
+    let remainder = available - extracted;
+    // Sweep the last fractional unit rather than leaving an immortal
+    // vanishingly small deposit at floating-point precision.
+    if remainder < 1.0 {
+        extracted = available;
+    }
+    let remaining = (available - extracted) / SALVAGE_UNITS_PER_RICHNESS;
+    (extracted, remaining.max(0.0))
+}
+
 // --- Phase 11c: condition / restock / contracts / leveling / abandonment ---
 
 /// Per-tick condition loss. Matches Elixir `0.0002 * tick_scale`.
@@ -870,7 +900,10 @@ fn tick_recipes_and_mining(
 
     if tick % mining_interval == 0 {
         for fac in &facilities {
-            if fac.abandoned || fac.facility_type != "mining_rig" {
+            if fac.abandoned
+                || (fac.facility_type != "mining_rig"
+                    && fac.facility_type != "salvage_field")
+            {
                 continue;
             }
             // Bundle 1.5: LOD gate for mining too.
@@ -903,13 +936,33 @@ fn tick_recipes_and_mining(
                 .map(|c| c.efficiency())
                 .unwrap_or(1.0);
             let yield_mult = yield_fitting * crew_efficiency;
+            let is_salvage = fac.facility_type == "salvage_field";
+            let mut depleted: Vec<(Commodity, f32)> = Vec::new();
             if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
                 for (commodity, richness) in body_resources {
                     if richness <= 0.0 {
                         continue;
                     }
-                    let extracted = MINING_YIELD_PER_CYCLE * richness * yield_mult;
+                    let extracted = if is_salvage {
+                        let (qty, new_richness) = salvage_extraction(richness, yield_mult);
+                        depleted.push((commodity, new_richness));
+                        qty
+                    } else {
+                        MINING_YIELD_PER_CYCLE * richness * yield_mult
+                    };
                     *pricing.supply.entry(commodity).or_insert(0.0) += extracted;
+                }
+            }
+            // Unlike legacy mining rigs, a salvage field owns a finite
+            // physical cache. Only the removed units become market supply.
+            // Body orbital writes persist the reduced resource fractions.
+            if is_salvage {
+                if let Some(mut body) = world.get_mut::<BodyResources>(body_entity) {
+                    for (commodity, new_richness) in depleted {
+                        if let Some(r) = body.resources.get_mut(&commodity) {
+                            *r = r.min(new_richness).max(0.0);
+                        }
+                    }
                 }
             }
         }
@@ -1976,5 +2029,35 @@ mod tests {
             stock.stock.is_empty(),
             "shipyard should mint nothing when the market can't cover any recipe",
         );
+    }
+}
+
+#[cfg(test)]
+mod salvage_field_tests {
+    use super::*;
+
+    #[test]
+    fn salvage_is_three_times_slower_at_equal_richness() {
+        let richness = 0.6;
+        let (scrap, _) = salvage_extraction(richness, 1.0);
+        let mine = MINING_YIELD_PER_CYCLE * richness;
+        assert!((scrap * SALVAGE_SPEED_DIVISOR - mine).abs() < 0.0001);
+    }
+
+    #[test]
+    fn finite_wreck_field_cannot_duplicate_resources() {
+        let mut richness = 0.8;
+        let starting_stock = richness * SALVAGE_UNITS_PER_RICHNESS;
+        let mut extracted_total = 0.0;
+        for _ in 0..100_000 {
+            let (qty, remaining) = salvage_extraction(richness, 1.0);
+            extracted_total += qty;
+            assert!(remaining <= richness);
+            richness = remaining;
+            if richness == 0.0 { break; }
+        }
+        assert!(richness == 0.0, "salvage must deplete completely");
+        assert!((extracted_total - starting_stock).abs() < 2.0);
+        assert_eq!(salvage_extraction(0.0, 1.0), (0.0, 0.0));
     }
 }
