@@ -984,7 +984,7 @@ pub fn apply_release_dock(
 ) {
     use sim_core::agents::{
         celestial_body::{BodyIdentity, BodyOrbit},
-        facility::{facility_offset_position, FacilityIdentity, FacilityStorage},
+        facility::{facility_orbit_position, FacilityIdentity, FacilityStorage},
         ship::ShipPosition,
     };
     let facility = match primary_dock_at_location(world, store, location) {
@@ -995,10 +995,7 @@ pub fn apply_release_dock(
         storage.docked_ships.retain(|&e| e != ship);
     }
 
-    // Resolve the facility's world position: body center + the same
-    // stable offset facility_offset_position() uses. Computing it here
-    // avoids a dependency on the snapshot-side facility position,
-    // which isn't written until after the tick's apply phase.
+    // Use the current orbit before the snapshot is published.
     let facility_pos = {
         let id = match world.get::<FacilityIdentity>(facility) {
             Some(id) => id.clone(),
@@ -1008,12 +1005,12 @@ pub fn apply_release_dock(
             let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
             q.iter(&world)
                 .find(|(bid, _)| bid.body_id == id.body_id)
-                .map(|(_, orbit)| orbit.universe_position())
+                .map(|(_, orbit)| (orbit.universe_position(), orbit.current_angle))
         };
-        let Some(body_center) = body_center else {
+        let Some((body_center, angle)) = body_center else {
             return;
         };
-        facility_offset_position(body_center, &id.id)
+        facility_orbit_position(body_center, angle, &id.id)
     };
 
     if let Some(mut pos) = world.get_mut::<ShipPosition>(ship) {
@@ -1227,11 +1224,11 @@ pub fn apply_gate_jump(
             let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
             q.iter(&world)
                 .find(|(bid, _)| bid.body_id == body_id)
-                .map(|(_, orbit)| orbit.universe_position())
+                .map(|(_, orbit)| (orbit.universe_position(), orbit.current_angle))
         };
-        let body_pos = body_pos?;
-        Some(sim_core::agents::facility::facility_offset_position(
-            body_pos, &id,
+        let (body_pos, angle) = body_pos?;
+        Some(sim_core::agents::facility::facility_orbit_position(
+            body_pos, angle, &id,
         ))
     });
     if let Some(mut pos) = world.get_mut::<ShipPosition>(ship) {

@@ -353,7 +353,7 @@ pub struct FacilityEntity {
     pub base_scale: f32,
     /// Body the facility orbits. Per-frame the follow system reads
     /// this body's current `BodyOrbit` position and offsets it via
-    /// `sim_core::agents::facility::facility_offset_position` — the
+    /// `sim_core::agents::facility::facility_orbit_position` — the
     /// SAME helper the sim uses to pin docked ships and aim transit
     /// arrivals. Single source of truth = no station/ship drift.
     pub body_id: String,
@@ -599,9 +599,9 @@ fn decorate_new_facilities(
     if new_facilities.is_empty() {
         return;
     }
-    let body_positions: std::collections::HashMap<String, (f32, f32)> = bodies
+    let body_positions: std::collections::HashMap<String, ((f32, f32), f32)> = bodies
         .iter()
-        .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+        .map(|(id, orbit)| (id.body_id.clone(), (orbit.universe_position(), orbit.current_angle)))
         .collect();
     for (entity, id, loc) in new_facilities.iter() {
         // Bundle 4a: GLB station models replace the cylinder
@@ -611,14 +611,14 @@ fn decorate_new_facilities(
         // player needs to spot at mid-zoom). Other types use one of
         // the box/dome silhouettes scaled to fit alongside body
         // spheres.
-        let body_center = body_positions
+        let (body_center, angle) = body_positions
             .get(&id.body_id)
             .copied()
-            .unwrap_or((0.0, 0.0));
+            .unwrap_or_default();
         // Authoritative dock-point offset: same helper the sim
         // uses to pin docked ships, so render coords agree with
         // sim coords every tick.
-        let (fx, fy) = sim_core::agents::facility::facility_offset_position(body_center, &id.id);
+        let (fx, fy) = sim_core::agents::facility::facility_orbit_position(body_center, angle, &id.id);
         let y_offset = 0.5; // tiny vertical so facilities don't z-fight w/ bodies
         let is_gate = id.facility_type == "gate";
         let scale = if is_gate { GATE_SCALE } else { STATION_SCALE };
@@ -938,7 +938,7 @@ fn sync_positions(
 /// stations stay at their spawn-time position while bodies orbit out
 /// from underneath them.
 ///
-/// Critically, this calls `sim_core::agents::facility::facility_offset_position`
+/// Critically, this calls `sim_core::agents::facility::facility_orbit_position`
 /// — the SAME helper the sim uses to (a) pin docked ships to the
 /// station, (b) aim ship transit arrivals. One source of truth for
 /// "where is the station?", so docked ships never drift away from
@@ -946,7 +946,7 @@ fn sync_positions(
 #[allow(clippy::type_complexity)]
 fn follow_facilities_to_bodies(
     fixed: Res<Time<Fixed>>,
-    bodies: Query<(&BodyEntity, &InterpPos), Without<FacilityEntity>>,
+    bodies: Query<(&BodyEntity, &BodyOrbit, &InterpPos), Without<FacilityEntity>>,
     mut facilities: Query<
         (&FacilityEntity, &mut Transform),
         (Without<ShipEntity>, Without<BodyEntity>),
@@ -958,15 +958,16 @@ fn follow_facilities_to_bodies(
     // sync_positions so a station stays glued to its planet
     // through the lerp — otherwise stations would orbit at the
     // tick cadence while planets glided smoothly past them.
-    let body_positions: std::collections::HashMap<&str, (f32, f32)> = bodies
+    let body_positions: std::collections::HashMap<&str, ((f32, f32), f32)> = bodies
         .iter()
-        .map(|(b, ip)| (b.sim_id.as_str(), ip.lerp(alpha)))
+        .map(|(b, orbit, ip)| (b.sim_id.as_str(), (ip.lerp(alpha), orbit.current_angle)))
         .collect();
 
     for (fac, mut xf) in facilities.iter_mut() {
-        if let Some(&body_center) = body_positions.get(fac.body_id.as_str()) {
-            let (fx, fy) = sim_core::agents::facility::facility_offset_position(
+        if let Some(&(body_center, angle)) = body_positions.get(fac.body_id.as_str()) {
+            let (fx, fy) = sim_core::agents::facility::facility_orbit_position(
                 body_center,
+                angle,
                 fac.sim_id.as_str(),
             );
             // Y stays at spawn (the small z-fight offset).

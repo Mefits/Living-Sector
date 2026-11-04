@@ -1052,27 +1052,28 @@ fn resolve_location_world_pos(
 ) -> Option<(f32, f32)> {
     use sim_core::agents::{
         celestial_body::{BodyIdentity, BodyOrbit},
-        facility::{facility_offset_position, FacilityIdentity, FacilityLocation},
+        facility::{facility_orbit_position, FacilityIdentity, FacilityLocation, FacilityOperations},
     };
     let loc_info = registry.locations.get(location_name)?;
     let body_db_id = loc_info.celestial_body_id;
     // Find the body by db_id and compute its universe position.
-    let body_pos = {
+    let (body_pos, body_angle) = {
         let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
         q.iter(world)
             .find(|(id, _)| id.db_id == body_db_id)
-            .map(|(_, orbit)| orbit.universe_position())?
+            .map(|(_, orbit)| (orbit.universe_position(), orbit.current_angle))?
     };
     // If there's a facility at this location, use its offset so the ship
     // starts at the dock rather than the body center.
     let fac_id = {
-        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>();
         q.iter(world)
-            .find(|(_, loc)| loc.location_name == location_name)
-            .map(|(id, _)| id.id.clone())
+            .filter(|(_, loc, ops)| loc.location_name == location_name && ops.docking_capacity > 0)
+            .max_by_key(|(_, _, ops)| ops.docking_capacity)
+            .map(|(id, _, _)| id.id.clone())
     };
     Some(if let Some(id) = fac_id {
-        facility_offset_position(body_pos, &id)
+        facility_orbit_position(body_pos, body_angle, &id)
     } else {
         body_pos
     })

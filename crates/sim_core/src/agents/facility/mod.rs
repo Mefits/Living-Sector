@@ -1551,6 +1551,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn facility_position_orbits_and_is_continuous_at_parent_wrap() {
+        let center = (4.0, -2.0);
+        let station = "genesis-station";
+        let start = facility_orbit_position(center, 0.0, station);
+        let quarter = facility_orbit_position(center, 30.0, station);
+        let wrapped = facility_orbit_position(center, 360.0, station);
+        let radius = |p: (f32, f32)| (p.0 - center.0).hypot(p.1 - center.1);
+
+        assert!((radius(start) - FACILITY_ORBIT_RADIUS).abs() < 1e-5);
+        assert!((radius(quarter) - FACILITY_ORBIT_RADIUS).abs() < 1e-5);
+        assert!((start.0 - quarter.0).hypot(start.1 - quarter.1) > FACILITY_ORBIT_RADIUS);
+        assert!((start.0 - wrapped.0).hypot(start.1 - wrapped.1) < 1e-5);
+    }
+
+    #[test]
     fn docking_fee_scales_with_occupancy() {
         // Empty station, perfect condition → base fee.
         assert_eq!(docking_fee(50, 0, 4, 1.0), 50);

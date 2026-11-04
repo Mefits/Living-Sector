@@ -581,10 +581,10 @@ fn recompute_lod(
 
     // Facilities + populations — look up by their facility location →
     // body position. Build body position map once.
-    let body_pos: std::collections::HashMap<String, (f32, f32)> = {
+    let body_pos: std::collections::HashMap<String, ((f32, f32), f32)> = {
         let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
         q.iter(world)
-            .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+            .map(|(id, orbit)| (id.body_id.clone(), (orbit.universe_position(), orbit.current_angle)))
             .collect()
     };
 
@@ -597,8 +597,8 @@ fn recompute_lod(
             .collect()
     };
     for (e, body_id, fac_id) in facility_info {
-        if let Some(&center) = body_pos.get(&body_id) {
-            let pos = sim_core::agents::facility::facility_offset_position(center, &fac_id);
+        if let Some(&(center, angle)) = body_pos.get(&body_id) {
+            let pos = sim_core::agents::facility::facility_orbit_position(center, angle, &fac_id);
             pos_by_entity.insert(e, pos);
         }
     }
@@ -622,7 +622,7 @@ fn recompute_lod(
     };
     for (e, loc) in pop_info {
         if let Some(body_id) = loc_to_body.get(&loc) {
-            if let Some(&center) = body_pos.get(body_id) {
+            if let Some(&(center, _)) = body_pos.get(body_id) {
                 pos_by_entity.insert(e, center);
             }
         }

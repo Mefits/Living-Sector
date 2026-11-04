@@ -263,18 +263,18 @@ pub(super) fn facility_labels_panel(
     }
 
     // Resolve each facility's world position via its body orbit +
-    // facility_offset_position helper — same math the renderer
+    // facility_orbit_position helper — same math the renderer
     // uses to plant facility scenes.
-    let body_pos: std::collections::HashMap<String, (f32, f32)> = bodies_q
+    let body_pos: std::collections::HashMap<String, ((f32, f32), f32)> = bodies_q
         .iter()
-        .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+        .map(|(id, orbit)| (id.body_id.clone(), (orbit.universe_position(), orbit.current_angle)))
         .collect();
 
     let entries: Vec<(String, Vec3)> = facilities_q
         .iter()
         .filter_map(|(id, _loc)| {
-            let body = body_pos.get(&id.body_id).copied()?;
-            let (fx, fy) = sim_core::agents::facility::facility_offset_position(body, &id.id);
+            let (body, angle) = body_pos.get(&id.body_id).copied()?;
+            let (fx, fy) = sim_core::agents::facility::facility_orbit_position(body, angle, &id.id);
             Some((
                 id.name.clone(),
                 Vec3::new(fx * SCALE_FACTOR, 0.5, fy * SCALE_FACTOR),

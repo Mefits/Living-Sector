@@ -161,18 +161,18 @@ impl SnapshotCache {
     /// facility snapshot rolls over on the 4-tick throttle.
     fn update_facility_positions(&self, world: &mut World, _store: &mut AgentStore) {
         use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
-        let mut body_pos: std::collections::HashMap<String, (f32, f32)> =
+        let mut body_pos: std::collections::HashMap<String, ((f32, f32), f32)> =
             std::collections::HashMap::new();
         {
             let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
             for (id, orbit) in q.iter(&world) {
-                body_pos.insert(id.body_id.clone(), orbit.universe_position());
+                body_pos.insert(id.body_id.clone(), (orbit.universe_position(), orbit.current_angle));
             }
         }
         let mut q = world.query::<&FacilityIdentity>();
         for id in q.iter(&world) {
-            let center = body_pos.get(&id.body_id).copied().unwrap_or((0.0, 0.0));
-            let pos = facility_offset_position(center, &id.id);
+            let (center, angle) = body_pos.get(&id.body_id).copied().unwrap_or_default();
+            let pos = facility_orbit_position(center, angle, &id.id);
             self.positions.insert(id.id.clone(), pos);
         }
     }
@@ -270,12 +270,12 @@ impl SnapshotCache {
         // Build body_id → universe_position map first so each facility can
         // inherit its body's position without a second world query.
         use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit};
-        let mut body_pos: std::collections::HashMap<String, (f32, f32)> =
+        let mut body_pos: std::collections::HashMap<String, ((f32, f32), f32)> =
             std::collections::HashMap::new();
         {
             let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
             for (id, orbit) in q.iter(&world) {
-                body_pos.insert(id.body_id.clone(), orbit.universe_position());
+                body_pos.insert(id.body_id.clone(), (orbit.universe_position(), orbit.current_angle));
             }
         }
 
@@ -318,16 +318,11 @@ impl SnapshotCache {
             let Some(storage) = world.get::<FacilityStorage>(e) else {
                 continue;
             };
-            let body_center = body_pos
+            let (body_center, angle) = body_pos
                 .get(&identity.body_id)
                 .copied()
-                .unwrap_or((0.0, 0.0));
-            // Offset from body center so co-located facilities don't stack
-            // on top of the planet or each other. Angle comes from a stable
-            // hash of the facility id so the same facility always lands at
-            // the same spot around its body. Matches the Elixir sim's
-            // `:erlang.phash2(id, 360)` offset pattern at radius 0.15.
-            let pos = facility_offset_position(body_center, &identity.id);
+                .unwrap_or_default();
+            let pos = facility_orbit_position(body_center, angle, &identity.id);
             let docked_ship_ids: Vec<String> = storage
                 .docked_ships
                 .iter()
@@ -406,4 +401,4 @@ impl SnapshotCache {
 // Facility offset logic moved to sim_core so sim_core::agents::ship can use
 // the same function for transit endpoints (ships aim at the station's
 // actual offset, not the body center).
-use sim_core::agents::facility::facility_offset_position;
+use sim_core::agents::facility::facility_orbit_position;

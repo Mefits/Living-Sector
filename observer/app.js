@@ -803,56 +803,126 @@ function bodyColor(body){
   if(biome==="gas_giant")return "#c4ae85";
   return "#8eb0c7";
 }
-function drawBody(body,p,selected=false){
-  const tint=bodyColor(body);
-  const belt=body.type==="belt"||body.type==="asteroid";
-  const r=belt?8:body.type==="moon"?5:9;
+function bodyRadius(body) {
+  return body.type === "moon" ? 5 : body.type === "belt" || body.type === "asteroid" ? 8 : 10;
+}
+
+function drawBody(body, p, selected = false) {
+  const tint = bodyColor(body);
+  const belt = body.type === "belt" || body.type === "asteroid";
+  const r = bodyRadius(body);
   ctx.save();
-  if(belt){
-    ctx.strokeStyle="rgba(210,174,113,.58)";ctx.lineWidth=1;
-    ctx.beginPath();ctx.ellipse(p.x,p.y,13,7,-.4,0,Math.PI*2);ctx.stroke();
-    circle(p.x-5,p.y+1,3.3,tint);circle(p.x+3,p.y-3,4,tint);circle(p.x+6,p.y+3,2.4,tint);
-  }else{
-    circle(p.x,p.y,r,tint);
-    ctx.fillStyle="rgba(255,255,255,.24)";
-    ctx.beginPath();ctx.arc(p.x-r*.28,p.y-r*.3,Math.max(1.4,r*.35),0,Math.PI*2);ctx.fill();
+  if (belt) {
+    ctx.strokeStyle = "rgba(210,174,113,.40)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, 13, 7, -.4, 0, Math.PI * 2);
+    ctx.stroke();
+    for (const [x, y, radius] of [[-6,1,3.2],[2,-3,4],[6,3,2.3],[-2,4,1.3]]) {
+      ctx.fillStyle = tint;
+      ctx.beginPath();
+      ctx.moveTo(p.x+x-radius, p.y+y-radius*.3);
+      ctx.lineTo(p.x+x-radius*.3, p.y+y-radius);
+      ctx.lineTo(p.x+x+radius, p.y+y-radius*.4);
+      ctx.lineTo(p.x+x+radius*.65, p.y+y+radius);
+      ctx.lineTo(p.x+x-radius*.65, p.y+y+radius*.55);
+      ctx.fill();
+    }
+  } else {
+    ctx.translate(p.x, p.y);
+    ctx.scale(r, r);
+    ctx.beginPath();
+    ctx.arc(0, 0, 1, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = tint;
+    ctx.fillRect(-1, -1, 2, 2);
+    if (body.biome === "terrestrial") {
+      ctx.fillStyle = "#739b7c";
+      ctx.beginPath();
+      ctx.moveTo(-.78,-.45); ctx.lineTo(-.45,-.69); ctx.lineTo(.02,-.53);
+      ctx.lineTo(-.12,-.27); ctx.lineTo(-.32,-.19); ctx.lineTo(-.25,.03);
+      ctx.lineTo(-.53,.36); ctx.lineTo(-.63,.09); ctx.lineTo(-.53,-.18);
+      ctx.moveTo(.16,-.17); ctx.lineTo(.54,-.43); ctx.lineTo(.88,-.21);
+      ctx.lineTo(.69,.08); ctx.lineTo(.41,.13); ctx.lineTo(.37,.43); ctx.lineTo(.18,.24);
+      ctx.fill();
+      ctx.strokeStyle = "#d0e4e5a0";
+      ctx.lineWidth = .09;
+      ctx.beginPath();
+      ctx.ellipse(-.15, -.52, .74, .13, -.21, Math.PI, Math.PI * 1.88);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(.25, .39, .74, .13, -.2, .15, Math.PI);
+      ctx.stroke();
+    } else {
+      for (const [x,y,radius] of [[-.32,-.35,.24],[.33,-.19,.19],[-.18,.44,.30],[.58,.35,.12]]) {
+        circle(x,y,radius,"rgba(37,30,39,.19)");
+        circle(x-.025,y-.035,radius*.57,"rgba(221,198,187,.13)");
+      }
+    }
+    const shade = ctx.createLinearGradient(-.9,-.9,.85,.85);
+    shade.addColorStop(0,"rgba(225,244,255,.36)");
+    shade.addColorStop(.46,"rgba(10,22,34,0)");
+    shade.addColorStop(1,"rgba(5,12,22,.82)");
+    ctx.fillStyle = shade;
+    ctx.fillRect(-1,-1,2,2);
+    ctx.restore();
+    ctx.save();
+    ctx.lineWidth = .55;
+    circle(p.x,p.y,r,"rgba(191,219,232,.42)",false);
   }
-  if(selected||body.contested){
-    ctx.lineWidth=1.4;circle(p.x,p.y,r+7,selected?"#bce8df":"#dfb472",false);
+  if (selected || body.contested) {
+    ctx.lineWidth = 1.2;
+    circle(p.x,p.y,r+5,selected?"#bce8df":"#dfb472",false);
   }
   ctx.restore();
 }
-function drawFacilityHub(at,kind,selected) {
-  // Purposeful silhouettes instead of a hexagon with multiple tiny
-  // squares that became an unintelligible 'skull' when scaled.
-  const mine=kind==="mining_rig";
-  const line=selected?"#e9fff7":mine?"#d5b275":"#84c4c7";
+
+function drawFacilityHub(at, kind, selected) {
+  const mine = kind === "mining_rig";
+  const accent = mine ? "#dab27a" : "#8dd0d0";
   ctx.save();
-  ctx.translate(at.x,at.y);
-  ctx.lineWidth=selected?2:1.6;
-  ctx.lineJoin="round";
-  ctx.fillStyle="rgba(10,30,43,.94)";
-  ctx.strokeStyle=line;
-  ctx.beginPath();
-  if(mine) {
-    ctx.moveTo(0,-11);ctx.lineTo(12,0);
-    ctx.lineTo(0,11);ctx.lineTo(-12,0);ctx.closePath();
+  ctx.translate(at.x, at.y);
+  ctx.lineWidth = .85;
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "#b0c6ce";
+  if (mine) {
+    ctx.fillStyle = "#554735";
+    ctx.beginPath();
+    ctx.moveTo(-5, 2); ctx.lineTo(-2, -4); ctx.lineTo(3, -4);
+    ctx.lineTo(5, 1); ctx.lineTo(2, 4); ctx.lineTo(-4, 4);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = accent;
+    ctx.fillRect(-.8,-5.5,1.7,6);
+    ctx.fillRect(-6,1,2.6,1.6);
   } else {
-    ctx.roundRect(-12,-9,24,18,4);
+    ctx.fillStyle = "#2f5269";
+    ctx.fillRect(-6,-3,3,6);
+    ctx.fillRect(3,-3,3,6);
+    ctx.strokeRect(-6,-3,3,6);
+    ctx.strokeRect(3,-3,3,6);
+    ctx.fillStyle = "#405565";
+    ctx.fillRect(-3,-1,6,2);
+    ctx.fillStyle = "#879ca6";
+    ctx.fillRect(-2.1,-4.5,4.2,9);
+    ctx.fillStyle = "#d7e6e8";
+    ctx.fillRect(-1.7,-4,1,7);
+    ctx.fillStyle = accent;
+    ctx.fillRect(.25,-2,1,3);
   }
-  ctx.fill();ctx.stroke();
-  // A single legible feature at normal zoom: docking bar or ore seam.
-  ctx.beginPath();
-  if(mine) {
-    ctx.moveTo(-5,4);ctx.lineTo(0,-4);ctx.lineTo(5,4);
-  } else {
-    ctx.moveTo(-6,0);ctx.lineTo(6,0);
+  if (selected) {
+    ctx.lineWidth = 1;
+    circle(0,0,8,"#b0eddd",false);
   }
-  ctx.stroke();
-  if(selected) {
-    ctx.strokeStyle="rgba(177,238,221,.45)";
-    ctx.beginPath();ctx.arc(0,0,16,0,2*Math.PI);ctx.stroke();
-  }
+  ctx.restore();
+}
+
+function drawFacilityOrbit(center, station, bodySize) {
+  const radius = Math.hypot(station.x - center.x, station.y - center.y);
+  if (radius < bodySize + 4) return;
+  ctx.save();
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 4]);
+  circle(center.x, center.y, radius, "rgba(131,185,196,.29)", false);
   ctx.restore();
 }
 
@@ -911,25 +981,32 @@ function drawShip(ship,at,color,selected,scale=1) {
     const trail=ctx.createLinearGradient(0,0,-unitX*20,-unitY*20);
     trail.addColorStop(0,"rgba(112,210,221,.6)");
     trail.addColorStop(1,"rgba(112,210,221,0)");
-    ctx.strokeStyle=trail;ctx.lineWidth=2.1;ctx.beginPath();
-    ctx.moveTo(-unitX*5,-unitY*5);ctx.lineTo(-unitX*20,-unitY*20);ctx.stroke();
+    ctx.strokeStyle=trail;ctx.lineWidth=1.35;ctx.beginPath();
+    ctx.moveTo(-unitX*4,-unitY*4);ctx.lineTo(-unitX*16,-unitY*16);ctx.stroke();
     ctx.rotate(Math.atan2(my,mx)+Math.PI/2);
   }
-  const r=selected?8.5:7;
-  const hull=String(ship.class??"").toLowerCase();
-  if(hull==="courier"){
-    ctx.beginPath();ctx.moveTo(0,-r*1.3);ctx.lineTo(r*.7,r*.88);
-    ctx.lineTo(0,r*.25);ctx.lineTo(-r*.7,r*.88);ctx.closePath();
-  }else if(hull==="freighter"||hull==="hauler"||hull==="tanker"){
-    ctx.beginPath();ctx.moveTo(0,-r*1.15);ctx.lineTo(r*.92,-r*.12);
-    ctx.lineTo(r*.8,r*.95);ctx.lineTo(-r*.8,r*.95);
-    ctx.lineTo(-r*.92,-r*.12);ctx.closePath();
-  }else{
-    ctx.beginPath();ctx.moveTo(0,-r*1.2);ctx.lineTo(r,r);
-    ctx.lineTo(0,r*.35);ctx.lineTo(-r,r);ctx.closePath();
+  const hull = String(ship.class ?? "").toLowerCase();
+  ctx.beginPath();
+  if (hull === "courier") {
+    ctx.moveTo(0,-5); ctx.lineTo(3.1,3.6);
+    ctx.lineTo(0,2.1); ctx.lineTo(-3.1,3.6);
+  } else {
+    ctx.moveTo(0,-4.5); ctx.lineTo(2.2,-3);
+    ctx.lineTo(3.4,-1); ctx.lineTo(3.4,3.7);
+    ctx.lineTo(-3.4,3.7); ctx.lineTo(-3.4,-1); ctx.lineTo(-2.2,-3);
   }
-  ctx.fillStyle=color;ctx.fill();ctx.lineWidth=1.3;ctx.strokeStyle="#dbeef1";ctx.stroke();
-  if(selected){ctx.lineWidth=1.2;circle(0,0,r+8,"#b0eddd",false);}
+  ctx.closePath();
+  ctx.fillStyle = "#70828f";
+  ctx.fill();
+  ctx.lineWidth = .7;
+  ctx.strokeStyle = "#c5d7e3";
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.fillRect(-.9,-2.5,1.8,3.5);
+  ctx.fillStyle = "#b0d2da";
+  ctx.fillRect(-2,2.8,1.1,1.1);
+  ctx.fillRect(.9,2.8,1.1,1.1);
+  if (selected) { ctx.lineWidth = 1; circle(0,0,7,"#b0eddd",false); }
   ctx.restore();
 }
 
@@ -946,7 +1023,6 @@ function renderMap() {
   const sysMap=new Map(s.index.systems.map(system => [system.name,system]));
   const showLabels=els.labelsToggle.checked;
   const showShips=els.shipsToggle.checked;
-  const hubAnchors=new Map();
   const labelRequests=[];
   const markerObstacles=[];
   const markGlyph=(p,r)=>markerObstacles.push({
@@ -992,8 +1068,10 @@ function renderMap() {
       withMapScale(center,iconScale,()=>drawSun(center));
       markGlyph(center,15*iconScale);
       askLabel("sun-"+sys.name,center,sys.name+" · звезда","#eed09a",50,17,140);
+      const bodyScreens = new Map();
       for(const body of sys.bodies){
         const p=liveWorldPoint(body);if(!p)continue;const screen=toScreen(p);
+        bodyScreens.set(key(body.id), {screen, radius:bodyRadius(body)*iconScale});
         if(!visible(screen,26))continue;
         withMapScale(screen,iconScale,()=>drawBody(body,screen,isSelected("body",body.id)));
         markGlyph(screen,14*iconScale);
@@ -1017,18 +1095,16 @@ function renderMap() {
         const selected=ids.includes(s.selection?.id) ||
           (s.selection?.type==="facility_group" &&
           s.selection.ids?.some(id=>ids.includes(id)));
+        const anchor = bodyScreens.get(key(prefer.body_id));
+        if (anchor) drawFacilityOrbit(anchor.screen, at, anchor.radius);
         withMapScale(at,iconScale,()=>drawFacilityHub(at,prefer.type,selected));
-        markGlyph(at,14*iconScale);
-        const parked=showShips?shipsAtHub(s.ships,hub.location):[];
-        // The label stays short: each parked vessel gets its own
-        // anchored, selectable icon drawn below in the ships layer.
+        markGlyph(at,8*iconScale);
         askLabel("hub-"+hub.id,at,prefer.name,
           prefer.type==="mining_rig"?"#d5b275":"#84c4c7",
-          selected?1:15,17,205);
-        hubAnchors.set(key(hub.location),{at,parked});
+          selected?1:15,9,205);
         const targetType=members.length>1?"facility_group":"facility";
         addTarget(targetType,members.length>1?hub.id:members[0].id,
-          at.x,at.y,Math.max(15,15*iconScale),prefer.name,
+          at.x,at.y,Math.max(10,8*iconScale),prefer.name,
           members.length>1?ids:null);
       }
     }
@@ -1038,52 +1114,19 @@ function renderMap() {
     const visibleShips=s.ships.filter(ship=>
       s.view!=="system" || s.index.systems.length===1 ||
       shipSystem(ship,s.index)===s.systemName);
-    const anchoredShips=new Set();
-    if(s.view==="system"){
-      // Parked vessels are visible as individual SMALL dock icons at the
-      // station. The offsets are static screen-layout slots tied to the
-      // hub's real coordinate; they do not orbit, interpolate or wander.
-      for(const [loc,hub] of hubAnchors){
-        const parked=[...hub.parked].sort((a,b)=>
-          String(a.id).localeCompare(String(b.id)));
-        for(let i=0;i<parked.length;i++){
-          const ship=parked[i];
-          anchoredShips.add(ship.id);
-          s.visualPositions.delete(ship.id);
-          s.shipMotion.delete(ship.id);
-          const col=i%3,row=Math.floor(i/3);
-          const at={
-            x:hub.at.x+(31+col*20)*iconScale,
-            y:hub.at.y+(10+row*21)*iconScale
-          };
-          if(!visible(at,20))continue;
-          const selected=isSelected("ship",ship.id);
-          withMapScale(at,Math.min(iconScale,1.8),()=>drawShip(ship,at,
-            factionColor(ship.faction_id,s.index),selected,0));
-          markGlyph(at,10*iconScale);
-          askLabel("parked-"+ship.id,at,ship.name??ship.class,
-            "#c2dce4",selected?0:5,13,140);
-          addTarget("ship",ship.id,at.x,at.y,Math.max(12,12*iconScale),
-            (ship.name??ship.id)+" · у станции");
-        }
-      }
-    }
-    // In-flight ships always use their own real coordinates, never
-    // the location of a nearby facility. Unknown/idle ships without
-    // a known hub remain visible at their own reported coordinates.
-    for(const ship of visibleShips){
-      if(anchoredShips.has(ship.id))continue;
-      const state=shipMapState(ship);
-      if(state!=="in_transit"){
+    // Parked ships are available in the hub and fleet strip; only actual
+    // transit gets an independent hull on the map.
+    for (const ship of visibleShips) {
+      if (shipMapState(ship) !== "in_transit") {
         s.visualPositions.delete(ship.id);
         s.shipMotion.delete(ship.id);
+        continue;
       }
-      const target=positionOf(ship,s.positions);
-      const p=state==="in_transit" ? smoothPosition(ship,target) : target;
+      const p = smoothPosition(ship, positionOf(ship, s.positions));
       if(!p)continue;
       const sc=toScreen(p);
       if(!visible(sc,20))continue;
-      shipMarkers.push({...sc,ship,state});
+      shipMarkers.push({...sc,ship});
     }
     for(const group of clusterMarkers(shipMarkers,34)){
       if(group.members.length>1){
@@ -1091,23 +1134,22 @@ function renderMap() {
         const selected=ids.includes(s.selection?.id);
         withMapScale(group,Math.min(iconScale,1.8),()=>
           drawShip(group.members[0].ship,group,"#84b9c5",
-            selected,group.members[0].state==="in_transit"?scale:0));
-        markGlyph(group,12*iconScale);
+            selected,scale));
+        markGlyph(group,8*iconScale);
         askLabel("ships-"+group.id,group,ids.length+" корабля",
-          "#c2dce4",selected?0:5,16,118);
+          "#c2dce4",selected?0:5,9,118);
         addTarget("ship_group",group.id,group.x,group.y,
           Math.max(17,16*iconScale),ids.length+" кораблей",ids);
       }else{
-        const {ship,x,y,state}=group.members[0];
+        const {ship,x,y}=group.members[0];
         const at={x,y},selected=isSelected("ship",ship.id);
         withMapScale(at,iconScale,()=>drawShip(ship,at,
-          factionColor(ship.faction_id,s.index),selected,
-          state==="in_transit"?scale:0));
-        markGlyph(at,11*iconScale);
+          factionColor(ship.faction_id,s.index),selected,scale));
+        markGlyph(at,7*iconScale);
         askLabel("ship-"+ship.id,at,ship.name??ship.class,
-          "#c2dce4",selected?0:3,16,145);
+          "#c2dce4",selected?0:3,8,145);
         addTarget("ship",ship.id,at.x,at.y,
-          Math.max(selected?15:12,12*iconScale),ship.name);
+          Math.max(9,7*iconScale),ship.name);
       }
     }
   }

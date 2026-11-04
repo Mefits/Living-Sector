@@ -12,6 +12,11 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
+  pull_request:
+    branches: [feature/genesis-0-1]
+    paths:
+      - ".github/workflows/genesis-windows.yml"
+      - "crates/**"
   workflow_dispatch:
 
 permissions:
@@ -74,6 +79,28 @@ jobs:
             if ($report.ships.Count -ne 3) { throw "Expected 3 ships, got $($report.ships.Count)" }
             if ($report.facilities.Count -ne 6) { throw "Expected 6 facilities, got $($report.facilities.Count)" }
             if ($report.markets.Count -ne 2) { throw "Expected 2 markets, got $($report.markets.Count)" }
+            function Get-StationOffset($snapshot) {
+              $earth = $snapshot.systems[0].bodies | Where-Object id -eq "earth"
+              $station = $snapshot.facilities | Where-Object id -eq "facility-earth-station"
+              if ($null -eq $earth -or $null -eq $station) { throw "Missing Earth or Genesis Station" }
+              $dx = [double]$station.position.x - [double]$earth.x
+              $dy = [double]$station.position.y - [double]$earth.y
+              $radius = [Math]::Sqrt($dx * $dx + $dy * $dy)
+              if ([Math]::Abs($radius - 0.15) -gt 0.005) { throw "Unexpected station orbit radius: $radius" }
+              return @{ X = $dx; Y = $dy }
+            }
+            $initialOffset = Get-StationOffset $report
+            $orbitMoved = $false
+            for ($i=0; $i -lt 12; $i++) {
+              Start-Sleep -Milliseconds 500
+              $updated = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/report" -TimeoutSec 5
+              $offset = Get-StationOffset $updated
+              $dx = $offset.X - $initialOffset.X
+              $dy = $offset.Y - $initialOffset.Y
+              if ($dx * $dx + $dy * $dy -gt 0.000001) { $orbitMoved = $true; break }
+            }
+            if (-not $orbitMoved) { throw "Genesis Station did not move relative to Earth" }
+            Write-Host "PASS: Genesis Station moves on its own orbit around Earth."
             # Verify a pause cannot erase slow-cadence caches.
             Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/sim/pause" -Method Post -ContentType "application/json" -Body '{}' -TimeoutSec 5 | Out-Null
             Start-Sleep -Seconds 2

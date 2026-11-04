@@ -195,15 +195,14 @@ test("visual orbital interpolation follows live coordinates without altering sou
   assert.deepEqual(approachWorldPoint(original,{x:200,y:0}),{x:200,y:0});
   assert.equal(approachWorldPoint(original,null),null);
 });
-test("regression: no hidden parked ships or fake circular vessel placement in map renderer",async()=>{
-  const {readFileSync}=await import("node:fs");
-  const app=readFileSync(new URL("./app.js",import.meta.url),"utf8");
-  assert.ok(app.includes("hubAnchors.set(key(hub.location)"));
-  assert.ok(app.includes("anchoredShips.add(ship.id)"));
-  assert.ok(app.includes("drawShip(ship,at"));
-  assert.ok(app.includes("liveWorldPoint(prefer)"));
-  assert.ok(app.includes("liveWorldPoint(body)"));
-  assert.ok(!app.includes("const angle=-Math.PI/2+(2*Math.PI*i/group.members.length)"));
+test("map uses engine positions and keeps parked ships in the hub inspector", async () => {
+  const {readFileSync} = await import("node:fs");
+  const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+  assert.match(app, /shipMapState\(ship\) !== "in_transit"\) \{[^}]*continue;/);
+  assert.match(app, /const members=shipsAtHub\(s.ships,location\);/);
+  assert.match(app, /liveWorldPoint\(prefer\)/);
+  assert.match(app, /liveWorldPoint\(body\)/);
+  assert.doesNotMatch(app, /addTarget\("ship",ship.id,at.x,at.y.*у станции/s);
 });
 
 test("UI ids referenced by the code exist in the actual HTML", async () => {

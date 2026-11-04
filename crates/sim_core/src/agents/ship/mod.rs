@@ -673,17 +673,17 @@ fn advance_transits(
     active: &ShipLodGate,
 ) {
     use crate::agents::facility::{
-        facility_offset_position, FacilityIdentity, FacilityLocation, FacilityOperations,
+        facility_orbit_position, FacilityIdentity, FacilityLocation, FacilityOperations,
     };
 
     // Snapshot body positions for location→position lookups.
-    let body_positions: std::collections::HashMap<i64, (f32, f32)> = {
+    let body_positions: std::collections::HashMap<i64, ((f32, f32), f32)> = {
         let mut q = world.query::<(
             &crate::agents::celestial_body::BodyIdentity,
             &crate::agents::celestial_body::BodyOrbit,
         )>();
         q.iter(&world)
-            .map(|(id, orbit)| (id.db_id, orbit.universe_position()))
+            .map(|(id, orbit)| (id.db_id, (orbit.universe_position(), orbit.current_angle)))
             .collect()
     };
 
@@ -692,7 +692,7 @@ fn advance_transits(
     // position so they visually arrive at the station they'll actually
     // try to dock at (matches the server-side `primary_dock_at_location`
     // heuristic). The snapshot layer uses the same
-    // `facility_offset_position` function so ship and station agree on
+    // `facility_orbit_position` function so ship and station agree on
     // where the "dock" is.
     //
     // Pre-18M this picked by hecs iteration order, which at co-located
@@ -721,12 +721,12 @@ fn advance_transits(
 
     let location_to_pos = |loc: &str| -> Option<(f32, f32)> {
         let info = registry.locations.get(loc)?;
-        let body_pos = body_positions.get(&info.celestial_body_id).copied()?;
+        let (body_pos, body_angle) = body_positions.get(&info.celestial_body_id).copied()?;
         // If there's a facility at this location, target its offset position
         // (where the client renders the station). Otherwise fall back to
         // body center (locations with no facility still need a position).
         if let Some((fac_id, _)) = primary_facility_by_location.get(loc) {
-            Some(facility_offset_position(body_pos, fac_id))
+            Some(facility_orbit_position(body_pos, body_angle, fac_id))
         } else {
             Some(body_pos)
         }

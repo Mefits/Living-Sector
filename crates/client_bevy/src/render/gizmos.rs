@@ -342,9 +342,9 @@ pub(super) fn draw_transit_intent_lines(
     // first-write wins; sim ships travel to the location, not a
     // specific facility id, so any facility at the location is
     // a valid endpoint marker.
-    let body_positions: std::collections::HashMap<String, (f32, f32)> = bodies_q
+    let body_positions: std::collections::HashMap<String, ((f32, f32), f32)> = bodies_q
         .iter()
-        .map(|(id, orbit)| (id.body_id.clone(), orbit.universe_position()))
+        .map(|(id, orbit)| (id.body_id.clone(), (orbit.universe_position(), orbit.current_angle)))
         .collect();
     let mut loc_to_world: std::collections::HashMap<String, Vec3> =
         std::collections::HashMap::new();
@@ -352,11 +352,11 @@ pub(super) fn draw_transit_intent_lines(
         if loc_to_world.contains_key(&loc.location_name) {
             continue;
         }
-        let Some(body_center) = body_positions.get(&fac_id.body_id).copied() else {
+        let Some((body_center, angle)) = body_positions.get(&fac_id.body_id).copied() else {
             continue;
         };
         let (fx, fy) =
-            sim_core::agents::facility::facility_offset_position(body_center, &fac_id.id);
+            sim_core::agents::facility::facility_orbit_position(body_center, angle, &fac_id.id);
         loc_to_world.insert(
             loc.location_name.clone(),
             Vec3::new(fx * SCALE_FACTOR, 0.0, fy * SCALE_FACTOR),
