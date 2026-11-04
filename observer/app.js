@@ -1,7 +1,7 @@
 import {
   list, number, point, key, buildIndex, factionColor, factionName,
   systemByName, positionOf, approximateShipsNear, shortageCount, sortedCargo,
-  panForCursorZoom, clusterMarkers, shipSystem
+  panForCursorZoom, clusterMarkers, shipSystem, worldGridStep, mapIconScale
 } from "/observer/model.js";
 
 const byId = id => document.getElementById(id);
@@ -567,14 +567,30 @@ function camera(w,h) {
 function inCanvas(p,w,h,pad=15) {
   return p.x >= -pad && p.y >= -pad && p.x <= w+pad && p.y <= h+pad;
 }
-function drawGrid(w,h) {
-  // This is a navigation grid, not a fabricated 100 ly galaxy tile.
-  // Galactic 100 ly sectors belong in a separate large-scale layer.
-  ctx.strokeStyle = s.view === "sector" ? "rgba(85,120,149,.08)" : "rgba(85,120,149,.035)";
+function drawGrid(w,h,cam) {
+  // World-anchored grid. It moves with the map, rather than staying
+  // fixed to the viewer's screen while planets slide over it.
+  if (!cam || !(cam.scale>0)) return;
+  const step=worldGridStep(cam.scale,92);
+  const pitch=step*cam.scale;
+  if (!(pitch>=20) || !Number.isFinite(pitch)) return;
+  const zero=cam.toScreen({x:0,y:0});
+  const offset=(value)=>((value%pitch)+pitch)%pitch;
+  ctx.save();
+  ctx.strokeStyle=s.view==="sector"?"rgba(85,120,149,.10)":"rgba(85,120,149,.065)";
   ctx.lineWidth=1;
-  const step=80;
-  for(let x=0;x<w;x+=step){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
-  for(let y=0;y<h;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+  for(let x=offset(zero.x);x<w;x+=pitch){
+    ctx.beginPath();ctx.moveTo(Math.round(x)+.5,0);ctx.lineTo(Math.round(x)+.5,h);ctx.stroke();
+  }
+  for(let y=offset(zero.y);y<h;y+=pitch){
+    ctx.beginPath();ctx.moveTo(0,Math.round(y)+.5);ctx.lineTo(w,Math.round(y)+.5);ctx.stroke();
+  }
+  ctx.restore();
+}
+function withMapScale(at,scale,draw) {
+  if (scale===1) {draw();return;}
+  ctx.save();ctx.translate(at.x,at.y);ctx.scale(scale,scale);
+  ctx.translate(-at.x,-at.y);draw();ctx.restore();
 }
 function drawBackdrop(w,h) {
   const bg=ctx.createRadialGradient(w*.5,h*.4,10,w*.5,h*.4,Math.max(w,h)*.9);
@@ -759,10 +775,13 @@ function drawShip(ship,at,color,selected,scale=1) {
 
 function renderMap() {
   const {w,h}=resizeCanvas();
-  ctx.clearRect(0,0,w,h);drawBackdrop(w,h);drawGrid(w,h);
+  ctx.clearRect(0,0,w,h);drawBackdrop(w,h);
   s.targets=[];
   if(!s.index){window.requestAnimationFrame(renderMap);return;}
-  const {toScreen,scale} = camera(w,h);
+  const cam=camera(w,h);
+  drawGrid(w,h,cam);
+  const {toScreen,scale} = cam;
+  const iconScale=mapIconScale(s.zoom);
   const visible = (p,pad=12) => inCanvas(p,w,h,pad);
   const sysMap=new Map(s.index.systems.map(system => [system.name,system]));
   const showLabels=els.labelsToggle.checked;
@@ -795,14 +814,14 @@ function renderMap() {
     if(sys){
       const center=toScreen({x:sys.x,y:sys.y});
       drawOrbits(sys,toScreen,scale,w,h);
-      drawSun(center);
-      if(showLabels)textChip(center.x+18,center.y+1,sys.name+" · звезда","#eed09a",140);
+      withMapScale(center,iconScale,()=>drawSun(center));
+      if(showLabels)textChip(center.x+18*iconScale,center.y+1,sys.name+" · звезда","#eed09a",140);
       for(const body of sys.bodies){
         const p=point(body);if(!p)continue;const screen=toScreen(p);
         if(!visible(screen,26))continue;
-        drawBody(body,screen,isSelected("body",body.id));
-        if(showLabels)label({x:screen.x,y:screen.y+23},body.name,"#bdcfdc",11);
-        addTarget("body",body.id,screen.x,screen.y,13,body.name);
+        withMapScale(screen,iconScale,()=>drawBody(body,screen,isSelected("body",body.id)));
+        if(showLabels)label({x:screen.x,y:screen.y+23*iconScale},body.name,"#bdcfdc",11);
+        addTarget("body",body.id,screen.x,screen.y,Math.max(13,13*iconScale),body.name);
       }
       const facilityMarkers = [];
       for (const fac of s.index.systemFacilities.get(sys.name) ?? []) {
@@ -820,10 +839,13 @@ function renderMap() {
         const ids=members.map(x=>x.id);
         const selected=ids.includes(s.selection?.id) ||
           (s.selection?.type==="facility_group" && s.selection.ids?.some(id=>ids.includes(id)));
-        drawFacilityHub(group,prefer.type,selected,showLabels?prefer.name:null);
+        withMapScale(group,iconScale,()=>drawFacilityHub(group,prefer.type,selected,null));
+        if(showLabels)textChip(group.x+18*iconScale,group.y-2,prefer.name,
+          prefer.type==="mining_rig"?"#d2b078":"#81c2c6",175);
         const targetType=members.length>1?"facility_group":"facility";
         addTarget(targetType,members.length>1?group.id:members[0].id,
-          group.x,group.y,15,prefer.name, members.length>1?ids:null);
+          group.x,group.y,Math.max(15,15*iconScale),prefer.name,
+          members.length>1?ids:null);
       }
     }
   }
@@ -831,7 +853,8 @@ function renderMap() {
     const shipMarkers=[];
     for (const ship of s.ships) {
       // The system view must not include ships from other systems.
-      if (s.view === "system" && shipSystem(ship,s.index) !== s.systemName) continue;
+      if (s.view === "system" && s.index.systems.length !== 1 &&
+          shipSystem(ship,s.index) !== s.systemName) continue;
       const target=positionOf(ship,s.positions);
       const p=smoothPosition(ship,target);
       if(!p)continue;
@@ -844,11 +867,11 @@ function renderMap() {
         const ids=group.members.map(m=>m.ship.id);
         // Show a fleet silhouette, not a numeric badge. The exact
         // number and members are available on hover/click.
-        drawShip(group.members[0].ship,group,
-          "#84b9c5",ids.includes(s.selection?.id),scale);
+        withMapScale(group,iconScale,()=>drawShip(group.members[0].ship,group,
+          "#84b9c5",ids.includes(s.selection?.id),scale));
         ctx.save();ctx.lineWidth=1;ctx.strokeStyle="#668994";
         ctx.strokeRect(group.x-12,group.y-12,24,24);ctx.restore();
-        addTarget("ship_group",group.id,group.x,group.y,17,
+        addTarget("ship_group",group.id,group.x,group.y,Math.max(17,16*iconScale),
           ids.length+" кораблей · открыть список",ids);
         continue;
       }
@@ -865,11 +888,13 @@ function renderMap() {
           ctx.strokeStyle="rgba(122,181,188,.25)";ctx.lineWidth=1;ctx.stroke();
         }
         const selected=isSelected("ship",ship.id);
-        drawShip(ship,at,factionColor(ship.faction_id,s.index),selected,scale);
+        withMapScale(at,iconScale,()=>drawShip(ship,at,
+          factionColor(ship.faction_id,s.index),selected,scale));
         if(showLabels && (smallFleet || selected)){
-          textChip(at.x+12,at.y-13,ship.name??ship.class,"#c2dce4",125);
+          textChip(at.x+12*iconScale,at.y-13*iconScale,
+            ship.name??ship.class,"#c2dce4",125);
         }
-        addTarget("ship",ship.id,at.x,at.y,selected?15:12,ship.name);
+        addTarget("ship",ship.id,at.x,at.y,Math.max(selected?15:12,12*iconScale),ship.name);
       }
     }
   }
