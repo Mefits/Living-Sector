@@ -2,7 +2,7 @@ import {
   list, number, point, key, buildIndex, factionColor, factionName,
   systemByName, positionOf, approximateShipsNear, shortageCount, sortedCargo,
   panForCursorZoom, clusterMarkers, shipSystem, worldGridStep, mapIconScale,
-  groupFacilitiesByLocation, layoutMapLabels
+  groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub
 } from "/observer/model.js";
 
 const byId = id => document.getElementById(id);
@@ -215,7 +215,7 @@ function selectionEntity() {
     members: (s.selection.ids ?? []).map(shipId => s.ships.find(x => x.id === shipId)).filter(Boolean)
   };
   if (type === "facility_group") return {
-    name: "Объекты в одной области",
+    name: s.selection.name ?? "Объекты в одном хабе",
     members: (s.selection.ids ?? []).map(facId =>
       list(s.report.facilities).find(x => x.id === facId)).filter(Boolean)
   };
@@ -244,6 +244,24 @@ function chips(parent, entries, max = 8) {
   if (!items.length) return parent.appendChild(textEl("p", "Нет данных"));
   for (const item of items) parent.appendChild(textEl("span", item, "chip"));
 }
+function showHubShips(content, location) {
+  const members=shipsAtHub(s.ships,location);
+  if(!members.length)return;
+  detailGroup(content,"Корабли у станции");
+  for(const ship of members.slice(0,100)){
+    const button=document.createElement("button");
+    button.type="button";button.className="group-member";
+    button.appendChild(textEl("span",ship.name??ship.id));
+    button.appendChild(textEl("span",
+      shipMapState(ship)==="docked"?"Пристыкован": "На месте / без перелёта",
+      "group-member-note"));
+    button.addEventListener("click",()=>{
+      s.selection={type:"ship",id:ship.id};renderInspector();
+    });
+    content.appendChild(button);
+  }
+}
+
 
 let lastInspectorSelection = "";
 function renderInspector() {
@@ -294,6 +312,8 @@ function renderInspector() {
         "Показаны первые 140 объектов; для остальных приблизьте карту или откройте их через другой район.",
         "small-note"));
     }
+    if(type==="facility_group" && members.length)
+      showHubShips(content,members[0].location);
     els.inspectorBody.scrollTop = previousScroll;
     return;
   }
@@ -373,6 +393,7 @@ function renderInspector() {
           " · спрос " + fnum(market.demand?.[commodity]));
       }
     }
+    showHubShips(content,entity.location);
   } else if (type === "body") {
     inspectorRow(content, "Тип", entity.type);
     inspectorRow(content, "Биом", entity.biome ?? "—");
@@ -869,9 +890,13 @@ function renderMap() {
           s.selection.ids?.some(id=>ids.includes(id)));
         withMapScale(at,iconScale,()=>drawFacilityHub(at,prefer.type,selected));
         markGlyph(at,14*iconScale);
-        askLabel("hub-"+hub.id,at,prefer.name,
+        const parked=showShips?shipsAtHub(s.ships,hub.location):[];
+        const hubCaption=parked.length
+          ? prefer.name+" · "+parked.length+" на месте"
+          : prefer.name;
+        askLabel("hub-"+hub.id,at,hubCaption,
           prefer.type==="mining_rig"?"#d5b275":"#84c4c7",
-          selected?1:15,17,170);
+          selected?1:15,17,205);
         const targetType=members.length>1?"facility_group":"facility";
         addTarget(targetType,members.length>1?hub.id:members[0].id,
           at.x,at.y,Math.max(15,15*iconScale),prefer.name,
@@ -882,55 +907,48 @@ function renderMap() {
   if(showShips){
     const shipMarkers=[];
     for (const ship of s.ships) {
-      // The system view must not include ships from other systems.
       if (s.view === "system" && s.index.systems.length !== 1 &&
           shipSystem(ship,s.index) !== s.systemName) continue;
+      // Docked and parked ships belong to their real station. Do not
+      // interpolate their world positions: station/orbit motion would
+      // look like the ships fly around it when they are not in transit.
+      if (shipMapState(ship) !== "in_transit") {
+        s.visualPositions.delete(ship.id);
+        s.shipMotion.delete(ship.id);
+        continue;
+      }
       const target=positionOf(ship,s.positions);
       const p=smoothPosition(ship,target);
       if(!p)continue;
-      const sc=toScreen(p);if(!visible(sc,20))continue;
+      const sc=toScreen(p);
+      if(!visible(sc,20))continue;
       shipMarkers.push({...sc,ship});
     }
-    const smallFleet=shipMarkers.length<=8;
-    for (const group of clusterMarkers(shipMarkers,36)) {
-      if (!smallFleet && group.members.length>1) {
+    // At low zoom, visually overlapping real flights share a selectable
+    // group. No phantom offsets, ring arrangements or orbit animation.
+    for (const group of clusterMarkers(shipMarkers,34)) {
+      if(group.members.length>1){
         const ids=group.members.map(m=>m.ship.id);
-        // Show a fleet silhouette, not a numeric badge. The exact
-        // number and members are available on hover/click.
-        withMapScale(group,iconScale,()=>drawShip(group.members[0].ship,group,
-          "#84b9c5",ids.includes(s.selection?.id),scale));
+        const selected=ids.includes(s.selection?.id);
+        withMapScale(group,iconScale,()=>drawShip(group.members[0].ship,
+          group,"#84b9c5",selected,scale));
         markGlyph(group,13*iconScale);
-        ctx.save();ctx.lineWidth=1;ctx.strokeStyle="#668994";
-        ctx.strokeRect(group.x-12*iconScale,group.y-12*iconScale,
-          24*iconScale,24*iconScale);ctx.restore();
-        askLabel("shipgroup-"+group.id,group,ids.length+" кораблей",
-          "#c2dce4",4,16,120);
-        addTarget("ship_group",group.id,group.x,group.y,Math.max(17,16*iconScale),
-          ids.length+" кораблей · открыть список",ids);
+        askLabel("flightgroup-"+group.id,group,
+          ids.length+" корабля в пути","#c2dce4",selected?0:4,16,130);
+        addTarget("ship_group",group.id,group.x,group.y,
+          Math.max(17,16*iconScale),ids.length+" кораблей в пути",ids);
         continue;
       }
-      for (let i=0;i<group.members.length;i++) {
-        const {ship,x,y}=group.members[i];
-        const stacked=group.members.length>1;
-        // Visual separation of coincident ship icons. World coordinates
-        // and selection data are never moved or fabricated.
-        const angle=-Math.PI/2+(2*Math.PI*i/group.members.length);
-        const spread=stacked?Math.min(23,14+group.members.length*2):0;
-        const at={x:x+Math.cos(angle)*spread,y:y+Math.sin(angle)*spread};
-        if(stacked){
-          ctx.beginPath();ctx.moveTo(group.x,group.y);ctx.lineTo(at.x,at.y);
-          ctx.strokeStyle="rgba(122,181,188,.25)";ctx.lineWidth=1;ctx.stroke();
-        }
-        const selected=isSelected("ship",ship.id);
-        withMapScale(at,iconScale,()=>drawShip(ship,at,
-          factionColor(ship.faction_id,s.index),selected,scale));
-        markGlyph(at,11*iconScale);
-        if(smallFleet || selected){
-          askLabel("ship-"+ship.id,at,ship.name??ship.class,
-            "#c2dce4",selected?0:3,16,128);
-        }
-        addTarget("ship",ship.id,at.x,at.y,Math.max(selected?15:12,12*iconScale),ship.name);
-      }
+      const {ship,x,y}=group.members[0];
+      const at={x,y};
+      const selected=isSelected("ship",ship.id);
+      withMapScale(at,iconScale,()=>drawShip(ship,at,
+        factionColor(ship.faction_id,s.index),selected,scale));
+      markGlyph(at,11*iconScale);
+      askLabel("flight-"+ship.id,at,ship.name??ship.class,
+        "#c2dce4",selected?0:3,16,145);
+      addTarget("ship",ship.id,at.x,at.y,
+        Math.max(selected?15:12,12*iconScale),ship.name);
     }
   }
   // Labels are a UI overlay, not physical objects. Move or drop only
@@ -991,7 +1009,7 @@ function installCanvasHandlers(){
     if(!moved){
       const p=toLocal(e),target=nearestTarget(p.x,p.y);
       if(target){
-        s.selection={type:target.type,id:target.id,ids:target.ids};
+        s.selection={type:target.type,id:target.id,ids:target.ids,name:target.name};
         if(target.type==="system")s.systemName=target.id;
         s.guideDismissed = true;
         renderInspector();refreshToolbar();renderSidebar();
