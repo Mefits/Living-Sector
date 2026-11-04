@@ -10,6 +10,36 @@ export const key = (value) => String(value ?? "").trim().toLowerCase();
 export const safeHex = (value, fallback = "#8da3b9") =>
   typeof value === "string" && /^#[a-fA-F0-9]{6}$/.test(value) ? value : fallback;
 
+// Display names for existing commodity IDs. These are labels only:
+// no new recipes or inventory state are introduced in Observer.
+const COMMODITY_NAMES = {
+  ore:"Руда", ice:"Лёд", gas:"Газ", metals:"Металлы",
+  fuel:"Топливо", polymers:"Полимеры", water:"Вода",
+  components:"Компоненты", electronics:"Электроника",
+  tools:"Инструменты", food:"Продовольствие",
+  medical:"Медикаменты", luxury:"Предметы роскоши"
+};
+export function commodityLabel(id) {
+  return COMMODITY_NAMES[key(id)] ?? String(id ?? "Неизвестный товар");
+}
+const CONTRACT_NAMES = {
+  delivery:"Доставка товаров", subsidy:"Субсидируемая доставка",
+  construction:"Снабжение строительства", supply:"Поставка",
+  courier:"Курьерская доставка", passenger:"Перевозка пассажиров",
+  crew_mission:"Задание экипажа"
+};
+export function contractLabel(id) {
+  return CONTRACT_NAMES[key(id)] ?? (id ? String(id) : "Контракт");
+}
+// Upstream uses Food as a placeholder for Passenger, and Tools as a
+// placeholder for CrewMission. Never present them as physical cargo.
+export function contractCargoLabel(commodity,contractType) {
+  const kind=key(contractType);
+  if(kind==="passenger")return null;
+  if(kind==="crew_mission")return null;
+  return commodity == null ? null : commodityLabel(commodity);
+}
+
 export function ownership(system) {
   const bodies = list(system.bodies);
   const ids = [...new Set(bodies.map(b => b.controlling_faction).filter(Boolean))];
