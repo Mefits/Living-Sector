@@ -1,3 +1,4 @@
 {
-  "auto_replace_retired_ships": false
+  "auto_replace_retired_ships": false,
+  "regenerate_body_resources": false
 }
