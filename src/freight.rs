@@ -160,7 +160,8 @@ impl Fleet {
             .iter_mut()
             .find(|(_, order)| order.resource == resource && order.destination == destination)
         {
-            order.priority = priority;
+            order.priority = order.priority.max(priority);
+            order.remaining = order.remaining.max(amount);
             return id.clone();
         }
         let id = self.next_order.to_string();
@@ -175,6 +176,17 @@ impl Fleet {
             },
         );
         id
+    }
+
+    pub(crate) fn fulfill_local(&mut self, destination: &str, resource: Commodity, quantity: u32) {
+        let assigned = self.incoming(destination, resource);
+        if let Some(order) = self
+            .orders
+            .values_mut()
+            .find(|order| order.destination == destination && order.resource == resource)
+        {
+            order.remaining -= quantity.min(order.remaining.saturating_sub(assigned));
+        }
     }
 
     pub fn incoming(&self, destination: &str, resource: Commodity) -> u32 {
@@ -241,6 +253,9 @@ impl Fleet {
         let ids: Vec<_> = self.ships.keys().cloned().collect();
         for id in ids {
             if sim.builds.builder_job(&id).is_some() || sim.legacy_builder_busy(&id) {
+                continue;
+            }
+            if !sim.faction_ready(self.ships[&id].owner) {
                 continue;
             }
             let mut ship = self.ships.remove(&id).expect("known ship");

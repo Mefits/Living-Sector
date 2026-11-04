@@ -1,23 +1,24 @@
 use crate::construction::SITE;
 use crate::freight::{Commodity, Ship, ShipRole};
 use crate::planning::{Choice, Kind, Site};
-use crate::sim::{Event, Sim, Warehouse, decision};
+use crate::sim::{Event, Sim, Warehouse, decision_at};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
-#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Faction {
     #[default]
     Genesis,
     Pirates,
+    Independent(u16),
 }
 
 impl Faction {
-    pub fn id(self) -> &'static str {
+    pub fn id(self) -> Cow<'static, str> {
         match self {
-            Self::Genesis => "genesis",
-            Self::Pirates => "pirates",
+            Self::Genesis => Cow::Borrowed("genesis"),
+            Self::Pirates => Cow::Borrowed("pirates"),
+            Self::Independent(id) => Cow::Owned(format!("faction-{id}")),
         }
     }
 
@@ -25,13 +26,36 @@ impl Faction {
         match self {
             Self::Genesis => "Genesis",
             Self::Pirates => "Пираты",
+            Self::Independent(_) => "Независимая фракция",
         }
     }
 
-    pub fn home(self) -> &'static str {
+    pub fn legacy_home(self) -> &'static str {
         match self {
             Self::Genesis => crate::sim::EARTH,
             Self::Pirates => crate::conflict::PIRATE_BASE,
+            Self::Independent(_) => "",
+        }
+    }
+}
+
+impl Serialize for Faction {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.id())
+    }
+}
+
+impl<'de> Deserialize<'de> for Faction {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let id = String::deserialize(deserializer)?;
+        match id.as_str() {
+            "genesis" => Ok(Self::Genesis),
+            "pirates" => Ok(Self::Pirates),
+            _ => id
+                .strip_prefix("faction-")
+                .and_then(|number| number.parse::<u16>().ok())
+                .map(Self::Independent)
+                .ok_or_else(|| serde::de::Error::custom("invalid faction ID")),
         }
     }
 }
@@ -55,6 +79,8 @@ pub struct SiteJob {
     pub journey: Option<Journey>,
     #[serde(default)]
     pub legacy: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supply_port: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -94,6 +120,21 @@ pub(crate) const SITE_ENERGY: u32 = 2;
 const HULL_ENERGY: u32 = 2;
 const HULL_TIME: u32 = 32;
 
+impl HullOrder {
+    pub(crate) fn materials(&self) -> [(Commodity, u32); 2] {
+        let metal = match self.role {
+            ShipRole::Freighter => FREIGHTER_METAL,
+            ShipRole::Constructor => CONSTRUCTOR_METAL,
+            ShipRole::Patrol => 14,
+            ShipRole::Raider => 10,
+        };
+        [
+            (Commodity::Metals, metal),
+            (Commodity::Fuel, HULL_FUEL + HULL_ENERGY),
+        ]
+    }
+}
+
 impl SiteJob {
     pub fn status(&self) -> &'static str {
         match self.journey.as_ref().map(|journey| journey.stage) {
@@ -127,6 +168,9 @@ impl Builds {
                 id.as_str(),
                 crate::sim::EARTH | crate::sim::BELT | crate::conflict::PIRATE_BASE
             ) && job.choice.kind.spec().sites.contains(&job.choice.site)
+                && job.supply_port.as_ref().is_none_or(|port| {
+                    sim.warehouses.contains_key(port) && sim.location_owner(port) == job.owner
+                })
                 && job.journey.as_ref().is_none_or(|trip| {
                     trip.left > 0
                         && trip.travel > 0
@@ -151,7 +195,7 @@ impl Builds {
 }
 
 impl Sim {
-    pub(crate) fn enqueue_project(&mut self, owner: Faction, choice: Choice) {
+    pub(crate) fn enqueue_project(&mut self, owner: Faction, choice: Choice, supply_port: String) {
         let id = loop {
             self.builds.next_id += 1;
             let id = format!("site-{}", self.builds.next_id);
@@ -167,6 +211,7 @@ impl Sim {
                 done: false,
                 journey: None,
                 legacy: false,
+                supply_port: Some(supply_port),
             },
         );
     }
@@ -199,9 +244,10 @@ impl Sim {
                         job.journey = None;
                         job.done = true;
                         self.activate_structure(&id, owner, choice, legacy);
-                        events.push(decision(
+                        events.push(decision_at(
                             "building_completed",
-                            owner.label(),
+                            owner,
+                            &id,
                             format!(
                                 "{} введён в строй · {} · {}.",
                                 choice.kind.spec().name,
@@ -225,7 +271,11 @@ impl Sim {
         }
         let metal = job.choice.kind.spec().metal;
         let candidate = self.fleet.ships.iter().find_map(|(ship_id, ship)| {
-            if ship.owner != owner
+            if job
+                .supply_port
+                .as_ref()
+                .is_some_and(|port| port != &ship.location)
+                || ship.owner != owner
                 || ship.role != ShipRole::Constructor
                 || ship.capacity < metal
                 || ship.task.is_some()
@@ -254,6 +304,39 @@ impl Sim {
             ))
         });
         let Some((builder, origin, travel, one_way, fuel, refill)) = candidate else {
+            let waiting = self.fleet.ships.iter().find_map(|(ship_id, ship)| {
+                if job
+                    .supply_port
+                    .as_ref()
+                    .is_some_and(|port| port != &ship.location)
+                    || ship.owner != owner
+                    || ship.role != ShipRole::Constructor
+                    || ship.capacity < metal
+                    || ship.task.is_some()
+                    || ship.leg.is_some()
+                    || self.builds.builder_job(ship_id).is_some()
+                    || self.legacy_builder_busy(ship_id)
+                {
+                    return None;
+                }
+                let required = self.travel(&ship.location, id).1.saturating_mul(2);
+                let fuel = required.saturating_sub(ship.fuel) + SITE_ENERGY;
+                (required <= ship.tank
+                    && self.construction_budget(&ship.location, Commodity::Metals) >= metal
+                    && self.construction_budget(&ship.location, Commodity::Fuel) >= fuel)
+                    .then_some((ship.location.clone(), fuel))
+            });
+            if let Some((port, fuel)) = waiting {
+                self.builds.projects.get_mut(id).unwrap().supply_port = Some(port.clone());
+                for (resource, required) in [(Commodity::Metals, metal), (Commodity::Fuel, fuel)] {
+                    let deficit = required
+                        .saturating_sub(self.production_supply(&port, resource))
+                        .min(self.room(&port, resource));
+                    if deficit > 0 {
+                        self.fleet.request(&port, resource, deficit, 35);
+                    }
+                }
+            }
             return;
         };
         assert!(self.withdraw(&origin, Commodity::Metals, metal));
@@ -269,9 +352,9 @@ impl Sim {
             travel,
             return_fuel: one_way,
         });
-        events.push(decision(
+        events.push(decision_at(
             "building_approved",
-            owner.label(),
+            owner, id,
             format!(
                 "{} · {}. Погружено {} металла, на рейс выделено {} топлива, на монтаж — {SITE_ENERGY}.",
                 id, origin, metal, fuel
@@ -279,13 +362,22 @@ impl Sim {
         ));
     }
 
-    fn activate_structure(&mut self, id: &str, owner: Faction, choice: Choice, legacy: bool) {
+    pub(crate) fn activate_structure(
+        &mut self,
+        id: &str,
+        owner: Faction,
+        choice: Choice,
+        legacy: bool,
+    ) {
         if legacy {
             let program = match owner {
-                Faction::Genesis => &mut self.genesis_program,
-                Faction::Pirates => &mut self.pirate_program,
+                Faction::Genesis => Some(&mut self.genesis_program),
+                Faction::Pirates => Some(&mut self.pirate_program),
+                Faction::Independent(_) => None,
             };
-            program.built.push(choice);
+            if let Some(program) = program {
+                program.built.push(choice);
+            }
             if choice.kind == Kind::Mine && owner == Faction::Genesis {
                 self.construction.mars = crate::construction::MarsProject::Ready;
                 self.outpost_site = Some(choice.site);
@@ -294,38 +386,35 @@ impl Sim {
         match choice.kind {
             Kind::Yard => self.register_yard(id, owner),
             Kind::Warehouse if !legacy => {
+                self.warehouses
+                    .entry(id.into())
+                    .or_insert_with(|| Warehouse::shared(choice.kind.spec().name, owner, 140));
+            }
+            Kind::Smelter | Kind::Refinery if !legacy => {
+                let (recipe, input, output) = if choice.kind == Kind::Smelter {
+                    ("smelt_metals", Commodity::Ore, Commodity::Metals)
+                } else {
+                    ("crack_fuel", Commodity::Gas, Commodity::Fuel)
+                };
                 self.warehouses.entry(id.into()).or_insert_with(|| {
                     Warehouse::dedicated_for(
                         choice.kind.spec().name,
                         owner,
-                        [(Commodity::Metals, 0, 140), (Commodity::Fuel, 0, 100)],
+                        [(input, 0, 100), (Commodity::Fuel, 0, 80), (output, 0, 80)],
                     )
                 });
+                self.industry
+                    .plants
+                    .insert(id.into(), crate::industry::Plant::process(id, 14, recipe));
             }
-            Kind::Smelter if !legacy => {
-                self.warehouses.entry(id.into()).or_insert_with(|| {
-                    Warehouse::dedicated_for(
-                        choice.kind.spec().name,
-                        owner,
-                        [
-                            (Commodity::Ore, 0, 100),
-                            (Commodity::Fuel, 0, 80),
-                            (Commodity::Metals, 0, 80),
-                        ],
-                    )
-                });
-                self.industry.plants.insert(
-                    id.into(),
-                    crate::industry::Plant::process(id, 14, "smelt_metals"),
-                );
-            }
-            Kind::Mine if !legacy => {
-                if let Some(deposit) = self.construction_deposit(choice.site) {
+            Kind::Mine | Kind::Gas if !legacy => {
+                if let Some(deposit) = self.construction_source(choice.site, choice.kind) {
+                    let resource = self.industry.deposits[deposit].resource;
                     self.warehouses.entry(id.into()).or_insert_with(|| {
                         Warehouse::dedicated_for(
                             choice.kind.spec().name,
                             owner,
-                            [(Commodity::Ore, 0, 100)],
+                            [(resource, 0, 100)],
                         )
                     });
                     let mut plant = crate::industry::Plant::extract(id, 8, 10);
@@ -349,6 +438,22 @@ impl Sim {
             )
         });
         self.builds.yards.entry(id.into()).or_default();
+    }
+
+    pub(crate) fn construction_source(&self, site: Site, kind: Kind) -> Option<&'static str> {
+        if kind == Kind::Gas {
+            return (site == Site::Jupiter && self.industry.deposits.contains_key("jupiter-gas"))
+                .then_some("jupiter-gas");
+        }
+        if site == Site::Jupiter {
+            return self
+                .industry
+                .deposits
+                .contains_key("jupiter-vein")
+                .then_some("jupiter-vein");
+        }
+        self.construction_deposit(site)
+            .filter(|deposit| self.industry.deposits.contains_key(*deposit))
     }
 
     pub(crate) fn construction_deposit(&self, site: Site) -> Option<&'static str> {
@@ -402,28 +507,24 @@ impl Sim {
                 };
                 let name = format!("{} {}", role.label(), self.builds.next_id);
                 self.fleet.ships.insert(
-                    ship_id,
+                    ship_id.clone(),
                     Ship::new(name.clone(), &id, HULL_FUEL, owner, role),
                 );
                 self.builds.yards.get_mut(&id).unwrap().order = None;
-                events.push(decision(
+                let mut entry = decision_at(
                     "ship_commissioned",
-                    owner.label(),
+                    owner,
+                    &id,
                     format!("{name} введён в строй на верфи {id}."),
-                ));
+                );
+                entry.ship_id = Some(ship_id);
+                entry.quantity = 1;
+                events.push(entry);
                 continue;
             }
-            let metal = match role {
-                ShipRole::Freighter => FREIGHTER_METAL,
-                ShipRole::Constructor => CONSTRUCTOR_METAL,
-                ShipRole::Patrol => 14,
-                ShipRole::Raider => 10,
-            };
+            let materials = order.materials();
             let mut supplied = true;
-            for (resource, amount) in [
-                (Commodity::Metals, metal),
-                (Commodity::Fuel, HULL_FUEL + HULL_ENERGY),
-            ] {
+            for (resource, amount) in materials {
                 let available = self.production_supply(&id, resource);
                 if available < amount {
                     supplied = false;
@@ -434,8 +535,10 @@ impl Sim {
                 }
             }
             if supplied {
-                assert!(self.withdraw(&id, Commodity::Metals, metal));
-                assert!(self.withdraw(&id, Commodity::Fuel, HULL_FUEL + HULL_ENERGY));
+                for (resource, amount) in materials {
+                    assert!(self.withdraw(&id, resource, amount));
+                }
+                let metal = materials[0].1;
                 self.builds
                     .yards
                     .get_mut(&id)
@@ -444,9 +547,9 @@ impl Sim {
                     .as_mut()
                     .unwrap()
                     .remaining = Some(HULL_TIME);
-                events.push(decision(
+                events.push(decision_at(
                     "ship_order",
-                    owner.label(),
+                    owner, &id,
                     format!(
                         "Верфь {id} начала сборку. Списано {metal} металла, {HULL_FUEL} топлива на заправку и {HULL_ENERGY} на сборку."
                     ),

@@ -159,10 +159,11 @@ function renderGovernance() {
   for (const plan of list(gov.faction_plans)) {
     inspectorRow(panel, plan.name, plan.priority);
     inspectorRow(panel, "Груз к доставке · топливо", fnum(plan.open_cargo) + " · " + fnum(plan.fuel_stock) + " / резерв " + fnum(plan.reserve_fuel));
+    for (const blocker of list(plan.blockers).slice(0, 3)) inspectorRow(panel, "Снабжение", blocker);
   }
   for (const order of list(gov.orders).slice(0, 5)) {
     inspectorRow(panel, "Заказ №" + order.id + " · " + commodityLabel(order.resource),
-      fnum(order.assigned) + " назначено / " + fnum(order.remaining) + " осталось");
+      fnum(order.assigned) + " назначено / " + fnum(order.remaining) + " осталось" + (order.status ? " · " + order.status : ""));
   }
   if (gov.expansion) inspectorRow(panel, "Экспансия", gov.expansion);
   if (gov.last_decision) inspectorRow(panel, "Решение главы", gov.last_decision);

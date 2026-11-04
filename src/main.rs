@@ -1,6 +1,7 @@
 mod builds;
 mod conflict;
 mod construction;
+mod economy;
 mod freight;
 mod governance;
 mod industry;
@@ -175,6 +176,7 @@ fn load_sim(path: &Path) -> io::Result<SaveFile> {
                 sim.governance.leader = governance::Leader::Industrial;
             }
             sim.migrate();
+            sim.seed_starting_industry();
             Ok(SaveFile {
                 sim,
                 diagnostic_history: VecDeque::new(),

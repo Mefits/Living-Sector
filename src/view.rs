@@ -477,6 +477,28 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
             .values()
             .filter(|plant| plant.location == stock_id)
             .collect();
+        let orders: Vec<_> = sim
+            .fleet
+            .orders
+            .values()
+            .filter(|order| order.destination == stock_id && order.remaining > 0)
+            .collect();
+        let relevant = |resource| {
+            warehouse.quantity(resource) > 0
+                || orders.iter().any(|order| order.resource == resource)
+                || plants.iter().any(|plant| match &plant.operation {
+                    Operation::Extract { deposit, .. } => {
+                        sim.industry.deposits[deposit].resource == resource
+                    }
+                    Operation::Process { .. } => plant.recipe().is_some_and(|recipe| {
+                        recipe
+                            .inputs
+                            .iter()
+                            .chain(recipe.outputs)
+                            .any(|&(item, _)| item == resource)
+                    }),
+                })
+        };
         let mut meters = Vec::new();
         let mut notes = Vec::new();
         if warehouse.limits.is_empty() {
@@ -488,7 +510,11 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
             ));
         } else {
             for &resource in Commodity::ALL {
-                if let Some(&capacity) = warehouse.limits.get(&resource) {
+                if let Some(&capacity) = warehouse
+                    .limits
+                    .get(&resource)
+                    .filter(|_| relevant(resource))
+                {
                     meters.push(gauge(
                         resource_label(resource),
                         warehouse.quantity(resource) as f64,
@@ -509,6 +535,11 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
             }
             if let Operation::Extract { deposit, .. } = &plant.operation {
                 let source = &sim.industry.deposits[deposit];
+                notes.push(format!(
+                    "Добыча {} · {}.",
+                    resource_label(source.resource),
+                    plant.status(sim)
+                ));
                 meters.push(gauge(
                     "Остаток залежи",
                     source.remaining as f64,
@@ -534,6 +565,14 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
                 ));
             }
         }
+        for order in &orders {
+            notes.push(format!(
+                "Нужно {} ед. [{}] · {}.",
+                order.remaining,
+                resource_label(order.resource),
+                sim.order_status(order)
+            ));
+        }
         if stock_id != id {
             notes.push("Использует склад станции Земли.".into());
         }
@@ -546,7 +585,7 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
             |plant| plant.status(sim),
         );
         return json!({"status":status, "note":notes.join(" "),
-            "resources":Commodity::ALL.iter().filter(|item| warehouse.stock.contains_key(item))
+            "resources":Commodity::ALL.iter().filter(|&&item| warehouse.quantity(item) > 0)
                 .map(|&item| stock(resource_label(item), warehouse.quantity(item))).collect::<Vec<_>>(),
             "meters":meters});
     }
@@ -748,14 +787,16 @@ fn governance(sim: &Sim) -> Value {
         "lost_ore": sim.conflict.lost_ore,
         "intercepted_raids": sim.conflict.intercepted_raids,
         "faction_plans": gov.assessments.iter().map(|(owner, assessment)| json!({
-            "name":owner.label(), "priority":assessment.priority, "damage":assessment.damage,
+            "name":if matches!(owner, Faction::Independent(_)) { owner.id().into_owned() } else { owner.label().to_owned() }, "priority":assessment.priority, "damage":assessment.damage,
+            "blockers":assessment.blockers,
             "fuel_stock":assessment.fuel_stock, "reserve_fuel":assessment.reserve_fuel, "open_cargo":assessment.open_cargo,
         })).collect::<Vec<_>>(),
         "patrol_alert": if sim.alert(Faction::Genesis) { "Повышенная готовность" } else { "Штатное патрулирование" },
         "fuel_cargo": sim.fleet.ships.values().filter_map(|ship| ship.task.as_ref()).filter(|task| task.loaded && sim.fleet.orders[&task.order].resource == crate::freight::Commodity::Fuel).map(|task| task.quantity).sum::<u32>(),
         "orders": sim.fleet.orders.iter().map(|(id, order)| json!({
             "id":id, "destination":order.destination, "resource":order.resource, "remaining":order.remaining,
-            "assigned":sim.fleet.incoming(&order.destination,order.resource)
+            "assigned":sim.fleet.incoming(&order.destination,order.resource), "status":sim.order_status(order),
+            "owner":sim.location_owner(&order.destination).id()
         })).collect::<Vec<_>>(),
         "expansion": sim.mars_status(),
         "pirate_expansion": sim.pirate_program.decision,
@@ -788,7 +829,10 @@ pub fn report(sim: &Sim, running: bool, speed: f64) -> Value {
         ]}],
         "facilities": facilities(sim, &scene),
         "ships": ships(sim, &scene), "markets": markets(sim),
-        "factions": [{"id": FACTION, "name": "Genesis", "colors": {"primary": "#6fb6d9"}}, {"id":"pirates", "name":"Пираты", "colors":{"primary":"#e06a58"}}],
+        "factions": sim.economic_owners().map(|owner| json!({"id":owner.id(),
+            "name":if matches!(owner, Faction::Independent(_)) { owner.id().into_owned() } else { owner.label().to_owned() },
+            "colors":{"primary": match owner { Faction::Genesis => "#6fb6d9", Faction::Pirates => "#e06a58", Faction::Independent(_) => "#76c08c" }}
+        })).collect::<Vec<_>>(),
     })
 }
 

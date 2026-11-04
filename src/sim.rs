@@ -129,8 +129,15 @@ pub struct Warehouse {
 pub struct Event {
     kind: &'static str,
     commodity: &'static str,
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub(crate) location: String,
-    quantity: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) faction_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) ship_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) target_id: Option<String>,
+    pub(crate) quantity: u32,
     stock: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     ship_name: Option<String>,
@@ -305,37 +312,15 @@ impl Sim {
         if let Some(reason) = self.governance.review(fuel, QUANTUM) {
             events.push(decision("policy_changed", "Глава фракции", reason));
         }
-        if fuel <= self.governance.leader.reserve() + 16 {
-            self.fleet
-                .request(EARTH, Commodity::Fuel, FUEL_SHIPMENT, 20);
-        }
-    }
-
-    fn plan_storage(&mut self) {
-        if self.room(EARTH, Commodity::Metals) >= 8 {
-            return;
-        }
-        let spare = self
-            .production_supply(EARTH, Commodity::Metals)
-            .saturating_sub(32);
-        let destination = self.builds.projects.iter().find_map(|(id, job)| {
-            let quantity = self.room(id, Commodity::Metals).min(spare).min(40);
-            (job.owner == Faction::Genesis
-                && job.done
-                && job.choice.kind == Kind::Warehouse
-                && quantity > 0)
-                .then(|| (id.clone(), quantity))
-        });
-        if let Some((id, quantity)) = destination {
-            self.fleet.request(&id, Commodity::Metals, quantity, 8);
-        }
+        self.plan_fuel();
     }
 
     fn safety_stock(&self, id: &str, resource: Commodity) -> u32 {
-        match (id, resource) {
-            (EARTH, Commodity::Fuel) => self.governance.leader.reserve(),
-            (PIRATE_BASE, Commodity::Fuel) => 2,
-            _ => 0,
+        let owner = self.location_owner(id);
+        if resource == Commodity::Fuel && id == self.home_port(owner) {
+            self.economic_policy(owner).0
+        } else {
+            0
         }
     }
 
@@ -361,8 +346,24 @@ impl Sim {
             .filter(|&&(item, _)| item == resource)
             .map(|&(_, amount)| self.restock_trigger(id, resource, amount))
             .fold(0u32, u32::saturating_add);
-        self.stock(id, resource)
-            .saturating_sub(self.safety_stock(id, resource).saturating_add(local_inputs))
+        let yard_inputs = self
+            .builds
+            .yards
+            .get(id)
+            .and_then(|yard| yard.order.as_ref())
+            .filter(|order| order.remaining.is_none())
+            .and_then(|order| {
+                order
+                    .materials()
+                    .into_iter()
+                    .find(|&(item, _)| item == resource)
+            })
+            .map_or(0, |(_, amount)| amount);
+        self.stock(id, resource).saturating_sub(
+            self.safety_stock(id, resource)
+                .saturating_add(local_inputs)
+                .saturating_add(yard_inputs),
+        )
     }
 
     fn restock_trigger(&self, id: &str, resource: Commodity, batch: u32) -> u32 {
@@ -377,7 +378,6 @@ impl Sim {
         self.fleet.orders.values().any(|order| {
             order.resource == resource
                 && self.location_owner(&order.destination) == self.location_owner(id)
-                && order.destination != id
                 && order.remaining > self.fleet.incoming(&order.destination, resource)
         })
     }
@@ -428,7 +428,7 @@ impl Sim {
     }
 
     pub(crate) fn faction_ready(&self, owner: Faction) -> bool {
-        owner == Faction::Genesis || self.conflict.base_progress >= 40.0
+        owner != Faction::Pirates || self.conflict.base_progress >= 40.0
     }
 
     pub(crate) fn legacy_builder_busy(&self, id: &str) -> bool {
@@ -443,11 +443,12 @@ impl Sim {
     }
 
     pub fn has_build(&self, owner: Faction, kind: Kind) -> bool {
-        let program = match owner {
-            Faction::Genesis => &self.genesis_program,
-            Faction::Pirates => &self.pirate_program,
+        let legacy = match owner {
+            Faction::Genesis => self.genesis_program.has(kind),
+            Faction::Pirates => self.pirate_program.has(kind),
+            Faction::Independent(_) => false,
         };
-        program.has(kind)
+        legacy
             || self
                 .builds
                 .projects
@@ -549,6 +550,7 @@ impl Sim {
             None,
         );
         entry.location = location.into();
+        entry.faction_id = Some(self.location_owner(location).id().into_owned());
         entry.ship_name = Some(ship.into());
         entry
     }
@@ -557,6 +559,9 @@ impl Sim {
         let ids: Vec<_> = self.industry.plants.keys().cloned().collect();
         for id in ids {
             let location = self.industry.plants[&id].location.clone();
+            if !self.faction_ready(self.location_owner(&location)) {
+                continue;
+            }
             if let Some(batch) = self.industry.plants.get_mut(&id).unwrap().batch.as_mut() {
                 batch.remaining = batch.remaining.saturating_sub(1);
                 if batch.remaining == 0
@@ -571,6 +576,7 @@ impl Sim {
                     let extraction = matches!(plant.operation, Operation::Extract { .. });
                     for (resource, quantity) in batch.output {
                         self.deposit_cargo(&location, resource, quantity);
+                        self.fleet.fulfill_local(&location, resource, quantity);
                         let kind = match (extraction, resource) {
                             (true, Commodity::Ore) => "ore_extracted",
                             (true, _) => "resource_extracted",
@@ -580,12 +586,12 @@ impl Sim {
                         let mut entry = event(
                             kind,
                             resource.as_str(),
-                            EARTH,
+                            &location,
                             quantity,
                             self.stock(&location, resource),
                             None,
                         );
-                        entry.location = location.clone();
+                        entry.faction_id = Some(self.location_owner(&location).id().into_owned());
                         entry.facility = Some(id.clone());
                         events.push(entry);
                     }
@@ -598,7 +604,10 @@ impl Sim {
                         let on_hand = self.production_supply(&location, resource);
                         let trigger = self.restock_trigger(&location, resource, amount);
                         if on_hand < trigger {
-                            let target = if location == EARTH && resource == Commodity::Ore {
+                            let target = if location
+                                == self.home_port(self.location_owner(&location))
+                                && resource == Commodity::Ore
+                            {
                                 SHIPMENT
                             } else {
                                 trigger.saturating_mul(2)
@@ -903,13 +912,13 @@ impl Sim {
             (Faction::Genesis, "builder-1", "Строитель-001"),
             (Faction::Pirates, "pirate-builder-1", "Пиратский строитель"),
         ] {
-            self.fleet
-                .ships
-                .entry(builder.into())
-                .or_insert_with(|| Ship::new(name, owner.home(), 0, owner, ShipRole::Constructor));
+            self.fleet.ships.entry(builder.into()).or_insert_with(|| {
+                Ship::new(name, owner.legacy_home(), 0, owner, ShipRole::Constructor)
+            });
             let program = match owner {
                 Faction::Genesis => &mut self.genesis_program,
                 Faction::Pirates => &mut self.pirate_program,
+                Faction::Independent(_) => continue,
             };
             let yard = program.has(Kind::Yard);
             if let Some(work) = program.active.take() {
@@ -932,6 +941,7 @@ impl Sim {
                         choice: work.choice,
                         done: false,
                         legacy: true,
+                        supply_port: None,
                         journey: Some(Journey {
                             builder: builder.into(),
                             stage,
@@ -1006,7 +1016,7 @@ impl Sim {
     }
 
     fn assess_faction(&self, owner: Faction) -> Assessment {
-        let home = owner.home();
+        let home = self.home_port(owner);
         let open_cargo = self.cargo_demand(owner, false);
         let transportable_cargo = self.cargo_demand(owner, true);
         let damage = self
@@ -1017,37 +1027,66 @@ impl Sim {
             .map(|ship| ship.damage)
             .sum();
         let threat = self.alert(owner);
-        let military = if owner == Faction::Genesis {
-            ShipRole::Patrol
-        } else {
-            ShipRole::Raider
-        };
-        let military_demand = !self
-            .fleet
-            .ships
-            .values()
-            .any(|ship| ship.owner == owner && ship.role == military)
-            && !self.builds.yards.iter().any(|(id, yard)| {
-                self.location_owner(id) == owner
-                    && yard
-                        .order
-                        .as_ref()
-                        .is_some_and(|order| order.role == military)
-            })
-            && !self
-                .security
-                .legacy_orders
-                .iter()
-                .any(|order| order.owner == owner)
-            && if owner == Faction::Genesis {
-                threat
-            } else {
-                self.sees_raiding_opportunity(owner)
-            };
+        let military_demand = self.economic_policy(owner).2.is_some_and(|military| {
+            !self
+                .fleet
+                .ships
+                .values()
+                .any(|ship| ship.owner == owner && ship.role == military)
+                && !self.builds.yards.iter().any(|(id, yard)| {
+                    self.location_owner(id) == owner
+                        && yard
+                            .order
+                            .as_ref()
+                            .is_some_and(|order| order.role == military)
+                })
+                && !self
+                    .security
+                    .legacy_orders
+                    .iter()
+                    .any(|order| order.owner == owner)
+                && match military {
+                    ShipRole::Patrol => threat,
+                    ShipRole::Raider => self.sees_raiding_opportunity(owner),
+                    _ => false,
+                }
+        });
         let reserve = self.safety_stock(home, Commodity::Fuel);
         let fuel = self.stock(home, Commodity::Fuel);
         let missing_freighters = self.missing_freighters(owner, transportable_cargo);
-        let storage_blocked = self.room(home, Commodity::Metals) < 8;
+        let storage_blocked = self.industry.plants.values().any(|plant| {
+            self.location_owner(&plant.location) == owner
+                && plant.recipe().is_some_and(|recipe| {
+                    recipe.outputs.iter().any(|&(resource, amount)| {
+                        resource == Commodity::Metals
+                            && self.room(&plant.location, resource) < amount
+                    })
+                })
+        });
+        let mut blockers = self.port_blockers(owner);
+        let mut builders = self
+            .fleet
+            .ships
+            .iter()
+            .filter(|(_, ship)| ship.owner == owner && ship.role == ShipRole::Constructor)
+            .peekable();
+        if builders.peek().is_none() {
+            blockers.push("Нет строительного корабля".into());
+        } else {
+            for (_, ship) in builders.filter(|(id, ship)| {
+                ship.task.is_none()
+                    && ship.leg.is_none()
+                    && self.builds.builder_job(id).is_none()
+                    && !self.legacy_builder_busy(id)
+            }) {
+                let fuel_for_project = self.production_supply(&ship.location, Commodity::Fuel);
+                if fuel_for_project < crate::builds::SITE_ENERGY
+                    || fuel_for_project.saturating_add(ship.fuel) < crate::builds::SITE_ENERGY + 4
+                {
+                    blockers.push(format!("{} · {} топлива в баке и {} доступно на складе. Местный строительный рейс с монтажом требует минимум 6.", ship.name, ship.fuel, fuel_for_project));
+                }
+            }
+        }
         let priority = if fuel <= reserve + 4 {
             "Сберечь топливо"
         } else if military_demand {
@@ -1082,6 +1121,7 @@ impl Sim {
             storage_blocked,
             reserve_fuel: reserve,
             priority: priority.into(),
+            blockers,
         }
     }
 
@@ -1089,35 +1129,21 @@ impl Sim {
         if !((self.seconds / QUANTUM) as u64).is_multiple_of(16) {
             return;
         }
-        for owner in [Faction::Genesis, Faction::Pirates] {
+        for owner in self.economic_owners().collect::<Vec<_>>() {
             if !self.faction_ready(owner) {
                 continue;
             }
             let assessment = self.assess_faction(owner);
-            if self
-                .governance
-                .assessments
-                .get(&owner)
-                .is_none_or(|last| last.priority != assessment.priority)
-            {
-                events.push(decision(
-                    "faction_priority",
-                    owner.label(),
-                    format!(
-                        "{}. Открытый груз {}, повреждения {}, топливо {} при резерве {}.",
-                        assessment.priority,
-                        assessment.open_cargo,
-                        assessment.damage,
-                        assessment.fuel_stock,
-                        assessment.reserve_fuel
-                    ),
+            if self.governance.assessments.get(&owner).is_none_or(|last| {
+                last.priority != assessment.priority || last.blockers != assessment.blockers
+            }) {
+                events.push(self.record_priority(
+                    owner,
+                    &assessment.priority,
+                    &assessment.blockers,
                 ));
             }
-            let military = if owner == Faction::Genesis {
-                ShipRole::Patrol
-            } else {
-                ShipRole::Raider
-            };
+            let military = self.economic_policy(owner).2;
             let mut demand = assessment.missing_freighters;
             let mut security = assessment.military_demand;
             let available_yards: Vec<_> = self
@@ -1127,22 +1153,40 @@ impl Sim {
                 .filter(|(id, yard)| self.location_owner(id) == owner && yard.order.is_none())
                 .map(|(id, _)| id.clone())
                 .collect();
-            if assessment.fuel_stock > assessment.reserve_fuel + 4 {
-                for id in available_yards {
-                    let role = if security {
-                        security = false;
-                        military
-                    } else if demand > 0 {
-                        demand -= 1;
-                        ShipRole::Freighter
-                    } else {
-                        break;
-                    };
-                    self.builds.yards.get_mut(&id).unwrap().order = Some(HullOrder {
-                        role,
-                        remaining: None,
-                    });
-                }
+            let mut need_builder = self
+                .builds
+                .projects
+                .values()
+                .any(|project| project.owner == owner && !project.done)
+                && !self
+                    .fleet
+                    .ships
+                    .values()
+                    .any(|ship| ship.owner == owner && ship.role == ShipRole::Constructor)
+                && !self.builds.yards.iter().any(|(id, yard)| {
+                    self.location_owner(id) == owner
+                        && yard
+                            .order
+                            .as_ref()
+                            .is_some_and(|order| order.role == ShipRole::Constructor)
+                });
+            for id in available_yards {
+                let role = if security {
+                    security = false;
+                    military.expect("security demand has a military role")
+                } else if need_builder {
+                    need_builder = false;
+                    ShipRole::Constructor
+                } else if demand > 0 {
+                    demand -= 1;
+                    ShipRole::Freighter
+                } else {
+                    break;
+                };
+                self.builds.yards.get_mut(&id).unwrap().order = Some(HullOrder {
+                    role,
+                    remaining: None,
+                });
             }
             let available = self.fleet.ships.iter().filter(|(id, ship)| {
                 ship.owner == owner
@@ -1151,15 +1195,13 @@ impl Sim {
                     && ship.leg.is_none()
                     && self.builds.builder_job(id).is_none()
                     && !self.legacy_builder_busy(id)
-                    && self.production_supply(&ship.location, Commodity::Fuel)
-                        >= crate::builds::SITE_ENERGY
             });
             let candidate = available
                 .filter_map(|(_, builder)| {
                     planning::choose(
-                        self.production_supply(&builder.location, Commodity::Metals)
+                        self.construction_budget(&builder.location, Commodity::Metals)
                             .min(builder.capacity),
-                        self.production_supply(&builder.location, Commodity::Fuel)
+                        self.construction_budget(&builder.location, Commodity::Fuel)
                             .saturating_sub(crate::builds::SITE_ENERGY)
                             .saturating_add(builder.fuel)
                             .min(builder.tank),
@@ -1175,9 +1217,10 @@ impl Sim {
                         },
                         |site| crate::view::build_distance(self, &builder.location, site),
                     )
+                    .map(|choice| (choice, builder.location.clone()))
                 })
                 .next();
-            if let Some(choice) = candidate {
+            if let Some((choice, port)) = candidate {
                 let message = format!(
                     "{} · {}. Приоритет: {}.",
                     choice.kind.spec().name,
@@ -1187,8 +1230,9 @@ impl Sim {
                 match owner {
                     Faction::Genesis => self.genesis_program.decision = Some(message),
                     Faction::Pirates => self.pirate_program.decision = Some(message),
+                    Faction::Independent(_) => {}
                 }
-                self.enqueue_project(owner, choice);
+                self.enqueue_project(owner, choice, port);
             }
             self.governance.assessments.insert(owner, assessment);
         }
@@ -1203,10 +1247,7 @@ impl Sim {
         freight: bool,
         security: bool,
     ) -> f64 {
-        if self.builds.has_pending(owner, kind)
-            || self.has_build(owner, kind)
-            || state.fuel_stock <= state.reserve_fuel + 4
-        {
+        if self.builds.has_pending(owner, kind) {
             return 0.0;
         }
         let port_has_yard = self
@@ -1214,36 +1255,60 @@ impl Sim {
             .yards
             .keys()
             .any(|id| self.location_owner(id) == owner);
+        let home = self.home_port(owner);
+        let fuel_need = state.fuel_stock < self.economic_policy(owner).1;
+        let demand_gas = self.fleet.orders.values().any(|order| {
+            order.resource == Commodity::Gas && self.location_owner(&order.destination) == owner
+        });
+        let usable_source = |kind| {
+            self.construction_source(site, kind)
+                .is_some_and(|id| self.deposit_remaining(id) > 0)
+        };
         match kind {
             Kind::Yard if !port_has_yard && security => 42.0,
-            Kind::Yard
-                if !port_has_yard
-                    && freight
-                    && (owner != Faction::Genesis || self.deposit() < SEED_ORE - SHIPMENT) =>
-            {
-                26.0
-            }
+            Kind::Yard if !port_has_yard && freight => 26.0,
             Kind::Mine
                 if state.ore_need
-                    && self
-                        .construction_deposit(site)
-                        .is_some_and(|id| self.deposit_remaining(id) > 0) =>
+                    && !self.has_producer(owner, Commodity::Ore)
+                    && usable_source(Kind::Mine) =>
             {
-                if self.deposit() < 140 || state.threat {
-                    31.0
-                } else {
-                    0.0
-                }
+                31.0
             }
-            Kind::Warehouse if state.storage_blocked && state.ore_stock >= 10 => 16.0,
+            Kind::Gas
+                if demand_gas
+                    && !self.has_producer(owner, Commodity::Gas)
+                    && usable_source(Kind::Gas) =>
+            {
+                40.0
+            }
+            Kind::Refinery
+                if fuel_need
+                    && !self.has_producer(owner, Commodity::Fuel)
+                    && (self.has_producer(owner, Commodity::Gas)
+                        || self.deposit_remaining("jupiter-gas") > 0
+                        || self.stock(home, Commodity::Gas) >= 6) =>
+            {
+                36.0
+            }
+            Kind::Warehouse
+                if state.storage_blocked
+                    && !self.builds.projects.iter().any(|(id, job)| {
+                        job.owner == owner
+                            && job.done
+                            && job.choice.kind == Kind::Warehouse
+                            && self.room(id, Commodity::Metals) >= 8
+                    }) =>
+            {
+                20.0
+            }
             Kind::Smelter
-                if state.ore_stock >= if owner == Faction::Genesis { 40 } else { 10 }
-                    && state.metal_stock < if owner == Faction::Genesis { 64 } else { 40 } =>
+                if !self.has_producer(owner, Commodity::Metals)
+                    && (state.ore_stock >= 10 || self.has_producer(owner, Commodity::Ore)) =>
             {
-                17.0
+                23.0
             }
-            Kind::Repair if state.damage >= 18 => 24.0,
-            Kind::Observation if state.threat => 16.0,
+            Kind::Repair if state.damage >= 18 && !self.has_build(owner, kind) => 24.0,
+            Kind::Observation if state.threat && !self.has_build(owner, kind) => 16.0,
             _ => 0.0,
         }
     }
@@ -1479,7 +1544,7 @@ pub(crate) fn leg(sim: &Sim, from: &str, to: &str) -> (f64, u32) {
 pub(crate) fn event(
     kind: &'static str,
     commodity: &'static str,
-    location: &'static str,
+    location: &str,
     quantity: u32,
     stock: u32,
     ship_name: Option<&'static str>,
@@ -1488,6 +1553,9 @@ pub(crate) fn event(
         kind,
         commodity,
         location: location.into(),
+        faction_id: None,
+        ship_id: None,
+        target_id: None,
         quantity,
         stock,
         ship_name: ship_name.map(str::to_owned),
@@ -1498,13 +1566,37 @@ pub(crate) fn event(
 }
 
 pub(crate) fn decision(kind: &'static str, actor: &'static str, reason: String) -> Event {
-    let mut entry = event(kind, "ore", EARTH, 0, 0, None);
+    let mut entry = event(kind, "", "", 0, 0, None);
     entry.actor = Some(actor);
     entry.reason = Some(reason);
     entry
 }
 
+pub(crate) fn decision_at(
+    kind: &'static str,
+    owner: Faction,
+    location: &str,
+    reason: String,
+) -> Event {
+    let mut entry = decision(kind, owner.label(), reason);
+    entry.location = location.to_owned();
+    entry.faction_id = Some(owner.id().into_owned());
+    entry
+}
+
 impl Warehouse {
+    pub(crate) fn shared(name: &str, owner: Faction, capacity: u32) -> Self {
+        Self {
+            name: name.into(),
+            owner,
+            capacity,
+            x: 0.0,
+            y: 0.0,
+            stock: HashMap::new(),
+            limits: HashMap::new(),
+        }
+    }
+
     fn dedicated<const N: usize>(name: &str, slots: [(Commodity, u32, u32); N]) -> Self {
         Self::dedicated_for(name, Faction::Genesis, slots)
     }
@@ -1517,14 +1609,17 @@ impl Warehouse {
         let (stock, limits) = slots
             .into_iter()
             .map(|(resource, quantity, capacity)| ((resource, quantity), (resource, capacity)))
-            .unzip();
+            .unzip::<_, _, HashMap<_, _>, HashMap<_, _>>();
         Self {
             owner,
             name: name.into(),
             x: 0.0,
             y: 0.0,
             capacity: 0,
-            stock,
+            stock: stock
+                .into_iter()
+                .filter(|&(_, quantity)| quantity > 0)
+                .collect(),
             limits,
         }
     }

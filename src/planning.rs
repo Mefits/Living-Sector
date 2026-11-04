@@ -59,7 +59,7 @@ pub const CATALOG: &[Spec] = &[
         name: "Рудный аванпост",
         metal: 32,
         seconds: 16.0,
-        sites: &[Mars, Belt],
+        sites: &[Mars, Belt, Jupiter],
         enabled: true,
     },
     Spec {
@@ -108,7 +108,7 @@ pub const CATALOG: &[Spec] = &[
         metal: 32,
         seconds: 18.0,
         sites: &[Jupiter],
-        enabled: false,
+        enabled: true,
     },
     Spec {
         kind: Refinery,
@@ -116,7 +116,7 @@ pub const CATALOG: &[Spec] = &[
         metal: 32,
         seconds: 18.0,
         sites: LOCAL,
-        enabled: false,
+        enabled: true,
     },
     Spec {
         kind: Solar,

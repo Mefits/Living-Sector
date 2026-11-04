@@ -2,7 +2,7 @@ use crate::builds::Faction;
 use crate::conflict::{PIRATE_BASE, Patrol};
 use crate::freight::{Commodity, Ship, ShipRole};
 use crate::planning::Kind;
-use crate::sim::{EARTH, Event, Sim, decision, event};
+use crate::sim::{EARTH, Event, Sim, decision_at, event};
 use crate::view::{location_point, vessel_point};
 use serde::{Deserialize, Serialize};
 use sim_core::agents::faction_relations::TreatyKind;
@@ -199,7 +199,10 @@ impl Sim {
     }
 
     fn hostile(&self, a: Faction, b: Faction) -> bool {
-        a != b && matches!(self.security.treaty, TreatyKind::Hostile | TreatyKind::War)
+        matches!(
+            (a, b),
+            (Faction::Genesis, Faction::Pirates) | (Faction::Pirates, Faction::Genesis)
+        ) && matches!(self.security.treaty, TreatyKind::Hostile | TreatyKind::War)
     }
 
     fn contacts(&self) -> Vec<Contact> {
@@ -225,7 +228,7 @@ impl Sim {
                     flying: ship.sortie.is_some() || ship.leg.is_some(),
                     cargo,
                     lane: ship.leg.as_ref().map(|leg| {
-                        if ship.location == ship.owner.home() {
+                        if ship.location == self.home_port(ship.owner) {
                             leg.destination.clone()
                         } else {
                             ship.location.clone()
@@ -254,7 +257,7 @@ impl Sim {
     }
 
     pub(crate) fn sees_raiding_opportunity(&self, owner: Faction) -> bool {
-        let home = location_point(self, owner.home());
+        let home = location_point(self, self.home_port(owner));
         self.contacts().iter().any(|target| {
             self.hostile(owner, target.owner)
                 && target.flying
@@ -276,7 +279,7 @@ impl Sim {
             .collect();
         for id in ids {
             let mut ship = self.fleet.ships.remove(&id).unwrap();
-            self.advance_sortie(&mut ship, &contacts, events);
+            self.advance_sortie(&id, &mut ship, &contacts, events);
             self.fleet.ships.insert(id, ship);
         }
         let contacts = self.contacts();
@@ -289,11 +292,14 @@ impl Sim {
             self.conflict.base_progress += STEP;
             if self.conflict.base_progress >= 36.0 && !self.conflict.base_ready {
                 self.conflict.base_ready = true;
-                events.push(decision(
+                let mut entry = decision_at(
                     "pirate_base_built",
-                    "Пираты",
+                    Faction::Pirates,
+                    PIRATE_BASE,
                     "Экспедиция развернула стартовую базу.".into(),
-                ));
+                );
+                entry.quantity = 1;
+                events.push(entry);
             }
             if self.conflict.base_progress >= 40.0 {
                 self.fleet
@@ -308,11 +314,16 @@ impl Sim {
                             ShipRole::Raider,
                         )
                     });
-                events.push(decision(
+                let mut entry = decision_at(
                     "raider_built",
-                    "Пираты",
-                    "В строй введён корпус из стартового комплекта экспедиции.".into(),
-                ));
+                    Faction::Pirates,
+                    PIRATE_BASE,
+                    "В строй введён корпус с 6 ед. топлива из стартового комплекта экспедиции."
+                        .into(),
+                );
+                entry.ship_id = Some("raider-1".into());
+                entry.quantity = 1;
+                events.push(entry);
             }
         }
         for order in &mut self.security.legacy_orders {
@@ -326,17 +337,21 @@ impl Sim {
         for order in finished {
             let ship = Ship::new(
                 order.role.label(),
-                order.owner.home(),
+                self.home_port(order.owner),
                 order.fuel,
                 order.owner,
                 order.role,
             );
-            self.fleet.ships.entry(order.id).or_insert(ship);
-            events.push(decision(
+            let mut entry = decision_at(
                 "ship_commissioned",
-                order.owner.label(),
+                order.owner,
+                self.home_port(order.owner),
                 "Ранее оплаченный боевой корпус введён в строй.".into(),
-            ));
+            );
+            entry.ship_id = Some(order.id.clone());
+            entry.quantity = 1;
+            self.fleet.ships.entry(order.id).or_insert(ship);
+            events.push(entry);
         }
     }
 
@@ -365,6 +380,10 @@ impl Sim {
                         None,
                     );
                     entry.location = location.clone();
+                    entry.faction_id = Some(self.location_owner(&location).id().into_owned());
+                    entry.ship_id = Some(id.clone());
+                    self.fleet
+                        .fulfill_local(&location, spoils.resource, quantity);
                     events.push(entry);
                     let remainder = spoils.quantity - quantity;
                     self.fleet.ships.get_mut(&id).unwrap().spoils =
@@ -393,18 +412,31 @@ impl Sim {
                 let ship = self.fleet.ships.get_mut(&id).unwrap();
                 let amount = ship.damage.min(repair);
                 ship.damage -= amount;
-                events.push(decision(
+                let mut entry = decision_at(
                     "ship_repaired",
-                    ship.owner.label(),
-                    format!("{} восстановил {amount} корпуса в {}.", ship.name, location),
-                ));
+                    ship.owner,
+                    &location,
+                    format!(
+                        "{} восстановил {amount} корпуса. Списано 1 ед. металла и 1 ед. топлива.",
+                        ship.name
+                    ),
+                );
+                entry.ship_id = Some(id.clone());
+                entry.quantity = amount;
+                events.push(entry);
             }
         }
     }
 
-    fn advance_sortie(&mut self, ship: &mut Ship, contacts: &[Contact], events: &mut Vec<Event>) {
+    fn advance_sortie(
+        &mut self,
+        id: &str,
+        ship: &mut Ship,
+        contacts: &[Contact],
+        events: &mut Vec<Event>,
+    ) {
         let Some(mut flight) = ship.sortie.take() else {
-            self.launch_sortie(ship, contacts, events);
+            self.launch_sortie(id, ship, contacts, events);
             return;
         };
         let profile = ship.role.loadout();
@@ -508,7 +540,13 @@ impl Sim {
         }
     }
 
-    fn launch_sortie(&mut self, ship: &mut Ship, contacts: &[Contact], events: &mut Vec<Event>) {
+    fn launch_sortie(
+        &mut self,
+        id: &str,
+        ship: &mut Ship,
+        contacts: &[Contact],
+        events: &mut Vec<Event>,
+    ) {
         if ship.duty_wait > 0 || !self.faction_ready(ship.owner) {
             return;
         }
@@ -522,7 +560,7 @@ impl Sim {
             return;
         }
         let point = location_point(self, &ship.location);
-        let home = ship.owner.home();
+        let home = self.home_port(ship.owner).to_owned();
         let profile = ship.role.loadout();
         let available = ship
             .fuel
@@ -530,7 +568,7 @@ impl Sim {
             .min(ship.tank);
         let (duty, fuel, left) = if ship.location != home {
             let fuel =
-                (point.distance(location_point(self, home)) * profile.fuel_rate).ceil() as u32 + 2;
+                (point.distance(location_point(self, &home)) * profile.fuel_rate).ceil() as u32 + 2;
             (Duty::Return, fuel, 120)
         } else if ship.role == ShipRole::Raider {
             let target = contacts
@@ -541,13 +579,13 @@ impl Sim {
                     if !target.flying
                         || !self.hostile(ship.owner, target.owner)
                         || distance > self.sensor_range(ship.owner, ship.role)
-                        || self.room(home, cargo.resource) == 0
+                        || self.room(&home, cargo.resource) == 0
                     {
                         return None;
                     }
                     let meeting = target.intercept(point, profile.speed)?;
                     let trip_distance =
-                        point.distance(meeting) + meeting.distance(location_point(self, home));
+                        point.distance(meeting) + meeting.distance(location_point(self, &home));
                     let fuel = (trip_distance * profile.fuel_rate).ceil() as u32 + 3;
                     let defenders = contacts
                         .iter()
@@ -576,14 +614,18 @@ impl Sim {
                 return;
             };
             if fuel <= available {
-                events.push(decision(
+                let mut entry = decision_at(
                     "raid_departed",
-                    ship.owner.label(),
+                    ship.owner,
+                    &ship.location,
                     format!(
                         "{} выбрал {}. Оценка добычи с учётом расстояния, топлива и охраны {:.1}.",
                         ship.name, target.id, score
                     ),
-                ));
+                );
+                entry.ship_id = Some(id.into());
+                entry.target_id = Some(target.id.clone());
+                events.push(entry);
             }
             (Duty::Raid(target.id.clone()), fuel, 100)
         } else {
@@ -593,7 +635,7 @@ impl Sim {
                     target.owner == ship.owner && target.flying && target.cargo.is_some()
                 })
                 .filter_map(|target| target.lane.as_ref())
-                .find(|lane| lane.as_str() != home);
+                .find(|lane| lane.as_str() != home.as_str());
             let anchor = route
                 .cloned()
                 .or_else(|| self.alert(ship.owner).then(|| crate::sim::BELT.into()));
@@ -626,7 +668,7 @@ impl Sim {
         ship.status = "Начинает вылет".into();
         ship.sortie = Some(Sortie {
             point,
-            home: home.into(),
+            home,
             duty,
             left,
             fuel_fraction: 0.0,
@@ -669,14 +711,19 @@ impl Sim {
                 intel.last_threat = Some(self.seconds);
                 *hits.entry(target.id.clone()).or_default() += profile.damage;
                 shooters.push((attacker.id.clone(), profile.cooldown));
-                events.push(decision(
+                let mut entry = decision_at(
                     "combat_hit",
-                    ship.owner.label(),
+                    ship.owner,
+                    "",
                     format!(
                         "{} → {}. Урон {}.",
                         ship.name, self.fleet.ships[&target.id].name, profile.damage
                     ),
-                ));
+                );
+                entry.ship_id = Some(attacker.id.clone());
+                entry.target_id = Some(target.id.clone());
+                entry.quantity = profile.damage;
+                events.push(entry);
             }
         }
         for (id, delay) in shooters {
@@ -700,14 +747,18 @@ impl Sim {
                 .filter(|task| task.loaded)
                 .map_or(0, |task| task.quantity)
                 + ship.spoils.map_or(0, |cargo| cargo.quantity);
-            events.push(decision(
+            let mut entry = decision_at(
                 "ship_destroyed",
-                ship.owner.label(),
+                ship.owner,
+                "",
                 format!(
                     "{} уничтожен. Потеряно {lost} ед. груза. Недопоставка остаётся открытой.",
                     ship.name
                 ),
-            ));
+            );
+            entry.ship_id = Some(id);
+            entry.quantity = 1;
+            events.push(entry);
         }
     }
 
@@ -744,7 +795,7 @@ impl Sim {
                 continue;
             }
             let Some(cargo) = contact.cargo else { continue };
-            let room = self.room(owner.home(), cargo.resource);
+            let room = self.room(self.home_port(owner), cargo.resource);
             let Some(task) = self
                 .fleet
                 .ships
@@ -772,16 +823,24 @@ impl Sim {
             if cargo.resource == Commodity::Ore && contact.owner == Faction::Genesis {
                 self.conflict.lost_ore += quantity;
             }
-            events.push(decision(
+            let mut entry = event(
                 "raid_stolen",
-                owner.label(),
-                format!(
-                    "{} захватил {quantity} ед. {} с {}.",
-                    ship.name,
-                    cargo.resource.as_str(),
-                    target
-                ),
+                cargo.resource.as_str(),
+                "",
+                quantity,
+                quantity,
+                None,
+            );
+            entry.faction_id = Some(owner.id().into_owned());
+            entry.ship_id = Some(raider);
+            entry.target_id = Some(target.clone());
+            entry.reason = Some(format!(
+                "{} захватил {quantity} ед. {} с {}.",
+                ship.name,
+                cargo.resource.as_str(),
+                target
             ));
+            events.push(entry);
         }
     }
 
@@ -842,7 +901,7 @@ impl Sim {
             if !spawn {
                 continue;
             }
-            let mut ship = Ship::new(role.label(), owner.home(), fuel, owner, role);
+            let mut ship = Ship::new(role.label(), self.home_port(owner), fuel, owner, role);
             ship.damage = damage.min(role.loadout().hull - 1);
             if owner == Faction::Pirates && war.raider_cargo > 0 {
                 ship.spoils = Some(Spoils {
@@ -870,7 +929,7 @@ impl Sim {
                 };
                 ship.sortie = Some(Sortie {
                     point,
-                    home: owner.home().into(),
+                    home: self.home_port(owner).into(),
                     duty,
                     left: 80,
                     fuel_fraction: 0.0,

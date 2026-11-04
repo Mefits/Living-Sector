@@ -217,8 +217,8 @@ async function constructionCase(initial) {
   await pause(server);
   const built = (await diag(server)).state;
   for (const id of yards) {
-    assert.equal(built.warehouses[id].stock.metals, 0);
-    assert.equal(built.warehouses[id].stock.fuel, 0);
+    assert.equal(built.warehouses[id].stock.metals ?? 0, 0);
+    assert.equal(built.warehouses[id].stock.fuel ?? 0, 0);
     built.warehouses[id].stock = {metals: 8, fuel: 10};
     built.builds.yards[id].order = {role: "freighter"};
   }
@@ -362,6 +362,47 @@ async function legacyRaidCase(initial) {
   await stop(server);
 }
 
+
+async function ownerEconomyCase(initial) {
+  const state = structuredClone(initial);
+  Object.assign(state.conflict, {base_ready: true, base_progress: 40});
+  state.security.treaty = "Neutral";
+  state.industry.plants = {};
+  state.builds.projects = {};
+  state.fleet.ships = {};
+  const owners = ["genesis", "pirates", "faction-3"];
+  for (const [index, owner] of owners.entries()) {
+    const home = "test-port-" + index;
+    const mine = "test-mine-" + index;
+    const position = 2 + index * 0.4;
+    state.governance.economies[owner] = {home, fuel_reserve: 2, fuel_target: 18};
+    state.warehouses[home] = {owner, name: home, x: position, y: 0, capacity: 0, stock: {metals: 16, fuel: 24},
+      limits: {ore: 40, metals: 32, fuel: 70, gas: 30}};
+    state.warehouses[mine] = {owner, name: mine, x: position + 0.3, y: 0.6, capacity: 100, stock: {}};
+    state.industry.deposits[mine] = {resource: "ore", initial: 100, remaining: 100};
+    state.industry.deposits[home] = {resource: "gas", initial: 120, remaining: 120};
+    state.industry.plants[mine] = {location: mine, period: 8, operation: {kind: "extract", deposit: mine, amount: 10}};
+    state.industry.plants[home] = {location: home, period: 8, operation: {kind: "process", recipe: "smelt_metals"}};
+    state.industry.plants[home + "-fuel"] = {location: home, period: 8, operation: {kind: "process", recipe: "crack_fuel"}};
+    state.industry.plants[home + "-gas"] = {location: home, period: 8, operation: {kind: "extract", deposit: home, amount: 12}};
+    state.fleet.ships[home + "-hauler"] = {name: home + " Hauler", owner, role: "freighter", location: home, fuel: 16, tank: 100, capacity: 50, status: ""};
+    state.fleet.ships[home + "-builder"] = {name: home + " Builder", owner, role: "constructor", location: home, fuel: 0, tank: 100, capacity: 40, status: ""};
+  }
+  const save = join(dir, "owner-economy.json");
+  await writeFile(save, JSON.stringify(state));
+  const server = await start(save);
+  await resume(server);
+  const result = await until(server, d => owners.every(owner => Object.values(d.state.builds.projects).some(job => job.owner === owner && job.done)));
+  for (const [index, owner] of owners.entries()) {
+    const records = result.events.map(event => event.details).filter(entry => entry?.faction_id === owner);
+    assert.ok(records.some(entry => entry.kind === "metal_smelted" && entry.location === "test-port-" + index && entry.quantity === 8));
+    assert.ok(records.some(entry => entry.kind === "cargo_unloaded" && entry.location === "test-port-" + index && entry.commodity === "ore"));
+    assert.ok(records.some(entry => entry.kind === "production_completed" && entry.commodity === "fuel"));
+    assert.ok(records.some(entry => entry.kind === "building_completed"));
+  }
+  await stop(server);
+}
+
 async function verifyImportedLog(logPath) {
   const log = JSON.parse(await readFile(logPath, "utf8"));
   const save = join(dir, "imported-log.json");
@@ -369,27 +410,50 @@ async function verifyImportedLog(logPath) {
   const server = await start(save);
   const state = (await diag(server)).state;
   assert.deepEqual(state.fleet, log.state.fleet);
-  assert.equal(state.warehouses["earth-station"].stock.metals, log.state.metal);
-  assert.equal(state.warehouses["earth-station"].stock.fuel, log.state.station_fuel);
-  assert.equal(state.warehouses["mars-outpost"].stock.ore, log.state.construction.mars_ore);
-  assert.equal(state.industry.deposits["belt-outpost"].remaining, log.state.deposit);
+  assert.deepEqual(state.warehouses["pirate-outpost"].stock, log.state.warehouses["pirate-outpost"].stock);
+  assert.equal(state.industry.plants["jupiter-refinery"], undefined);
+  await resume(server);
+  const continued = await until(server, d => d.state.seconds >= state.seconds + 8);
+  const pirate = continued.state.governance.assessments.pirates;
+  assert.ok(pirate.blockers.some(blocker => blocker.includes("Нет доступного источника")));
+  assert.ok(pirate.blockers.some(blocker => blocker.includes("строительный рейс")));
+  const inspection = continued.observer.facilities.find(facility => facility.id === "pirate-outpost").inspection;
+  assert.equal(inspection.resources.length, 3);
+  assert.ok(inspection.note.includes("Нет доступного источника"));
   await stop(server);
 }
 
 try {
   const origin = await start(join(dir, "new.json"));
   const initial = await diag(origin);
-  assert.equal(initial.version, "0.13.0");
+  assert.equal(initial.version, "0.14.0");
+  const fixtures = structuredClone(initial.state);
+  for (const id of ["jupiter-vein", "jupiter-gas"]) delete fixtures.industry.deposits[id];
+  for (const id of ["jupiter-mining", "jupiter-smelter", "jupiter-refinery", "jupiter-collector"]) delete fixtures.industry.plants[id];
+  delete fixtures.warehouses["jupiter-mining"];
+  delete fixtures.builds.projects["jupiter-mining"];
+  delete fixtures.fleet.ships["jupiter-freighter"];
   const report = await api(origin, "/api/report");
   const point = id => report.facilities.find(facility => facility.id === id);
   await resume(origin);
   await Promise.all([
-    legacyCase(initial.state), legacyCase(initial.state, true), industryCase(initial.state),
-    constructionCase(initial.state), legacyConstructionCase(initial.state),
-    raidCase(initial.state, point("pirate-outpost")), battleCase(initial.state, point("earth-station")), legacyRaidCase(initial.state),
+    legacyCase(fixtures), legacyCase(fixtures, true), industryCase(fixtures),
+    constructionCase(fixtures), legacyConstructionCase(fixtures),
+    raidCase(fixtures, point("pirate-outpost")), battleCase(fixtures, point("earth-station")), legacyRaidCase(fixtures),
     ...(process.argv[3] ? [verifyImportedLog(process.argv[3])] : []),
-    ...[1, 2, 5].map(count => fleetCase(initial.state, count)),
-    until(origin, d => d.state.warehouses["earth-station"].stock.metals > 0),
+    ...[1, 2, 5].map(count => fleetCase(fixtures, count)),
+    ownerEconomyCase(fixtures),
+    until(origin, d => {
+      const records = d.events.map(event => event.details);
+      const base = records.find(entry => entry?.kind === "pirate_base_built");
+      const raider = records.find(entry => entry?.kind === "raider_built");
+      if (!base || !raider) return false;
+      assert.equal(base.location, "pirate-outpost");
+      assert.equal(raider.location, "pirate-outpost");
+      assert.equal(raider.ship_id, "raider-1");
+      return ["genesis", "pirates"].every(owner =>
+        records.some(entry => entry?.kind === "metal_smelted" && entry.faction_id === owner));
+    }),
   ]);
   await stop(origin);
   console.log("PASS: fleet, industry, construction, raid decisions, combat, repair, migration and reload.");

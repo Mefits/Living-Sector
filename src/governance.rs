@@ -1,4 +1,5 @@
 use crate::builds::Faction;
+use crate::freight::ShipRole;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -59,6 +60,7 @@ pub struct Governance {
     pub last_decision: Option<String>,
     pressure: f64,
     pub assessments: BTreeMap<Faction, Assessment>,
+    pub economies: BTreeMap<Faction, EconomyPolicy>,
 }
 
 impl Governance {
@@ -92,7 +94,17 @@ impl Governance {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct EconomyPolicy {
+    pub home: String,
+    pub fuel_reserve: u32,
+    pub fuel_target: u32,
+    #[serde(default)]
+    pub military: Option<ShipRole>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
 pub struct Assessment {
     pub open_cargo: u64,
     pub missing_freighters: u64,
@@ -106,4 +118,5 @@ pub struct Assessment {
     pub storage_blocked: bool,
     pub reserve_fuel: u32,
     pub priority: String,
+    pub blockers: Vec<String>,
 }
