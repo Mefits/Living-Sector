@@ -201,6 +201,10 @@ pub fn tick_factions(
         *system_control = updated;
     }
 
+    if crate::simulation::tuning::WorldTuning::current().genesis_ore_loop {
+        return;
+    }
+
     // --- Tax collection ---
     let tax_interval = FACTION_INTERVAL_BASE * tick_multiplier as u64;
     if tax_interval > 0 && tick % tax_interval == 0 {

@@ -25,6 +25,7 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
         // put across restarts. Minted on first boot, round-tripped
         // through `simulation_state.world_seed` thereafter.
         "world_seed": state.world_seed,
+        "genesis_ore_loop": sim_core::simulation::tuning::WorldTuning::current().genesis_ore_loop,
         // Rolling perf window (updated every 8 ticks by the engine).
         "perf": {
             "tick_compute_p50_us": state.tick_compute_p50_us.load(Ordering::Relaxed),
@@ -155,6 +156,7 @@ pub async fn report(State(state): State<AppState>) -> impl IntoResponse {
         "running": state.running.load(Ordering::Relaxed),
         "interval_ms": interval,
         "world_seed": state.world_seed,
+        "genesis_ore_loop": sim_core::simulation::tuning::WorldTuning::current().genesis_ore_loop,
         "config": {
             "ticks_per_second": tps,
             "world_speed": ws,

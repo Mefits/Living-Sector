@@ -475,7 +475,7 @@ async fn load_facilities(world: &mut World, pool: &SqlitePool, store: &mut Agent
                 .expect("just-spawned facility has identity");
             id_ref.facility_type.clone()
         };
-        if !is_gate {
+        if !is_gate && !sim_core::simulation::tuning::WorldTuning::current().genesis_ore_loop {
             let fitting_json: String = r.try_get("fitting").unwrap_or_default();
             let fitting = parse_facility_fitting(&fitting_json);
             world.entity_mut(entity).insert(fitting);

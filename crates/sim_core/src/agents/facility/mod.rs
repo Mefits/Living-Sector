@@ -290,6 +290,14 @@ pub fn tick_facilities(
     // isn't looking.
     let facility_lod_gate = build_facility_lod_gate(world, tick);
 
+    let ore_loop = crate::simulation::tuning::WorldTuning::current().genesis_ore_loop;
+    if ore_loop {
+        if tick % mining_interval == 0 {
+            tick_recipes_and_mining(world, tick, tick_multiplier, &facility_lod_gate, Some(events));
+        }
+        return;
+    }
+
     // Phase 1: condition degrade (every tick; cheap — one field write).
     tick_degrade_condition(world, tick_scale);
 
@@ -329,7 +337,7 @@ pub fn tick_facilities(
 
     // Phase 5: recipes + mining + XP (every 5×mult ticks).
     if tick % recipe_interval == 0 || tick % mining_interval == 0 {
-        tick_recipes_and_mining(world, tick, tick_multiplier, &facility_lod_gate);
+        tick_recipes_and_mining(world, tick, tick_multiplier, &facility_lod_gate, None);
     }
 
     // Phase 6: post delivery + courier contracts (every 50×mult ticks).
@@ -744,6 +752,7 @@ fn tick_recipes_and_mining(
     tick: u64,
     tick_multiplier: u32,
     lod_gate: &FacilityLodGate,
+    mut mining_events: Option<&mut Vec<serde_json::Value>>,
 ) {
     let mult = tick_multiplier as u64;
     let recipe_interval = RECIPE_INTERVAL_BASE * mult;
@@ -891,7 +900,14 @@ fn tick_recipes_and_mining(
                         continue;
                     }
                     let extracted = MINING_YIELD_PER_CYCLE * richness * yield_mult;
-                    *pricing.supply.entry(commodity).or_insert(0.0) += extracted;
+                    let supply = pricing.supply.entry(commodity).or_insert(0.0);
+                    *supply += extracted;
+                    if let Some(events) = mining_events.as_deref_mut() {
+                        events.push(serde_json::json!({
+                            "kind": "ore_extracted", "commodity": commodity.as_str(),
+                            "location": fac.location_name, "quantity": extracted, "stock": *supply,
+                        }));
+                    }
                 }
             }
         }

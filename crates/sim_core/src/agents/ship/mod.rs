@@ -411,7 +411,9 @@ pub fn tick_ships(
     bd.observe_prices = t.elapsed().as_micros() as u64;
 
     let t = std::time::Instant::now();
-    tick_crew(world, tick, tick_scale, tick_multiplier, &active);
+    if !crate::simulation::tuning::WorldTuning::current().genesis_ore_loop {
+        tick_crew(world, tick, tick_scale, tick_multiplier, &active);
+    }
     bd.tick_crew = t.elapsed().as_micros() as u64;
 
     let t = std::time::Instant::now();

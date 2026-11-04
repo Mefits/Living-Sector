@@ -496,7 +496,9 @@ pub async fn run_tick_loop(
 /// active crew mission per facility, etc.) keep the board from
 /// exploding across multiple passes.
 pub fn run_contract_pump(world: &mut World, store: &mut AgentStore, passes: u32) {
-    if !store.contracts.is_empty() {
+    if !store.contracts.is_empty()
+        || sim_core::simulation::tuning::WorldTuning::current().genesis_ore_loop
+    {
         return;
     }
     for _ in 0..passes {

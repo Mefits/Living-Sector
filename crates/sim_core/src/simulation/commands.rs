@@ -144,11 +144,12 @@ pub enum SimCommand {
         commodity: Commodity,
         quantity: f32,
     },
-    /// Symmetric to AddSupplyAtShipLocation — ship buys remove supply locally.
-    RemoveSupplyAtShipLocation {
+    /// Purchase is settled against the current market stock before loading cargo.
+    BuyCargo {
         ship: Entity,
         commodity: Commodity,
-        quantity: f32,
+        quantity: u32,
+        unit_price: f32,
     },
     /// Direct supply adjustment at a specific market entity (facility recipes).
     AddSupply {
@@ -201,7 +202,7 @@ impl SimCommand {
             | SimCommand::AcceptContract { ship, .. }
             | SimCommand::DeliverContract { ship, .. }
             | SimCommand::AddSupplyAtShipLocation { ship, .. }
-            | SimCommand::RemoveSupplyAtShipLocation { ship, .. }
+            | SimCommand::BuyCargo { ship, .. }
             | SimCommand::DecommissionShip { ship, .. }
             | SimCommand::RequestRefit { ship, .. } => Some(*ship),
             SimCommand::ExecuteTrade { buyer, .. } => Some(*buyer),
@@ -242,7 +243,7 @@ impl SimCommand {
             SimCommand::ReleaseContract { .. } => "release_contract",
             SimCommand::TransferCredits { .. } => "transfer_credits",
             SimCommand::AddSupplyAtShipLocation { .. } => "add_supply_at_ship_loc",
-            SimCommand::RemoveSupplyAtShipLocation { .. } => "remove_supply_at_ship_loc",
+            SimCommand::BuyCargo { .. } => "buy_cargo",
             SimCommand::AddSupply { .. } => "add_supply",
             SimCommand::RemoveSupply { .. } => "remove_supply",
             SimCommand::DecommissionShip { .. } => "decommission_ship",
@@ -290,8 +291,8 @@ impl SimCommand {
                 format!("{contract_id} ({reason})")
             }
             SimCommand::TransferCredits { amount, .. } => format!("{amount} cr"),
+            SimCommand::BuyCargo { commodity, quantity, .. } => format!("{} {}", c(commodity), quantity),
             SimCommand::AddSupplyAtShipLocation { commodity, quantity, .. }
-            | SimCommand::RemoveSupplyAtShipLocation { commodity, quantity, .. }
             | SimCommand::AddSupply { commodity, quantity, .. }
             | SimCommand::RemoveSupply { commodity, quantity, .. } => {
                 format!("{} {:.1}", c(commodity), quantity)

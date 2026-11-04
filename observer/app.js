@@ -133,6 +133,7 @@ function refreshToolbar() {
     els.systemPicker.hidden = inSystem && systemCount === 1;
     if (els.systemPicker.hidden) els.systemPicker.open = false;
   }
+  renderOreFlow();
   const speed = h.world_speed ?? h.config?.world_speed;
   if (speed != null && !els.speedSelect.matches(":focus")) {
     const closest = [...els.speedSelect.options].reduce((best, opt) =>
@@ -141,6 +142,15 @@ function refreshToolbar() {
     els.speedSelect.value = closest.value;
   }
   renderFleet();
+}
+
+function renderOreFlow() {
+  if (!s.report?.genesis_ore_loop || s.view !== "system") return;
+  const markets = list(s.report.markets);
+  const stockAt = location => markets.find(m => m.facility_location === location)?.supply?.ore;
+  const cargo = s.ships.reduce((sum, ship) => sum + (ship.cargo?.ore ?? 0), 0);
+  els.mapSummary.textContent = "Руда · Пояс " + fnum(stockAt("belt-outpost")) +
+    " → Трюм " + fnum(cargo) + " → Станция " + fnum(stockAt("earth-station"));
 }
 
 function marker(parent, className, color) {
@@ -409,37 +419,41 @@ function renderInspector() {
       commodityLabel(name) + " · " + fnum(amount)), 8, "Трюм пуст");
     inspectorRow(content, "Топливо", fnum(entity.fuel) + " / " + fnum(entity.fuel_capacity));
     inspectorRow(content, "Кредиты", fnum(entity.credits));
+    if (!s.report.genesis_ore_loop) {
 
-    const technical = document.createElement("details");
-    technical.className = "inspector-details";
-    technical.open = openDetails;
-    technical.appendChild(textEl("summary", "Экипаж, оснащение и данные ИИ"));
-    inspectorRow(technical, "Класс", shipClasses[entity.class] ?? entity.class);
-    inspectorRow(technical, "Размер", entity.size);
-    inspectorRow(technical, "Фракция", factionName(entity.faction_id, s.index));
-    inspectorRow(technical, "Экипаж", entity.crew?.size);
-    inspectorRow(technical, "Цель ИИ", entity.current_goal);
-    inspectorRow(technical, "Действие", entity.current_bt);
-    if (entity.progression) {
-      inspectorRow(technical, "Уровень", entity.progression.level);
-      inspectorRow(technical, "Очки модернизации", entity.progression.retrofit_points);
-    }
-    if (entity.fitting?.modules) {
-      const slotNames = {engine:"Двигатель",cargo_bay:"Трюм",sensors:"Сенсоры",reactor:"Реактор",comms:"Связь"};
-      for (const [slot, name] of Object.entries(slotNames)) {
-        const slug = entity.fitting.modules[slot];
-        if (slug) inspectorRow(technical, name, String(slug).replace(/.*_t([123])$/, "T$1"));
+      const technical = document.createElement("details");
+      technical.className = "inspector-details";
+      technical.open = openDetails;
+      technical.appendChild(textEl("summary", "Экипаж, оснащение и данные ИИ"));
+      inspectorRow(technical, "Класс", shipClasses[entity.class] ?? entity.class);
+      inspectorRow(technical, "Размер", entity.size);
+      inspectorRow(technical, "Фракция", factionName(entity.faction_id, s.index));
+      inspectorRow(technical, "Экипаж", entity.crew?.size);
+      inspectorRow(technical, "Цель ИИ", entity.current_goal);
+      inspectorRow(technical, "Действие", entity.current_bt);
+      if (entity.progression) {
+        inspectorRow(technical, "Уровень", entity.progression.level);
+        inspectorRow(technical, "Очки модернизации", entity.progression.retrofit_points);
       }
+      if (entity.fitting?.modules) {
+        const slotNames = {engine:"Двигатель",cargo_bay:"Трюм",sensors:"Сенсоры",reactor:"Реактор",comms:"Связь"};
+        for (const [slot, name] of Object.entries(slotNames)) {
+          const slug = entity.fitting.modules[slot];
+          if (slug) inspectorRow(technical, name, String(slug).replace(/.*_t([123])$/, "T$1"));
+        }
+      }
+      content.appendChild(technical);
+      if (focusDetails) technical.firstElementChild.focus({preventScroll:true});
     }
-    content.appendChild(technical);
-    if (focusDetails) technical.firstElementChild.focus({preventScroll:true});
   } else if (type === "facility") {
     inspectorRow(content, "Тип", facilityNames[entity.type] ?? entity.type);
     inspectorRow(content, "Фракция", factionName(entity.faction_id, s.index));
     inspectorRow(content, "Расположение", locationLabel(entity.location, entity.id));
-    inspectorRow(content, "Состояние", entity.condition == null ? "—" : fnum(number(entity.condition) * 100) + "%");
-    inspectorRow(content, "Уровень", entity.level);
-    inspectorRow(content, "Кредиты", fnum(entity.credits));
+    if (!s.report.genesis_ore_loop) {
+      inspectorRow(content, "Состояние", entity.condition == null ? "—" : fnum(number(entity.condition) * 100) + "%");
+      inspectorRow(content, "Уровень", entity.level);
+      inspectorRow(content, "Кредиты", fnum(entity.credits));
+    }
     if (entity.abandoned) inspectorRow(content, "Статус", "Заброшен");
     if (entity.gate_link) inspectorRow(content, "Связанные врата", entity.gate_link.paired_gate_id);
     showHubShips(content, entity.location);
@@ -503,6 +517,7 @@ function showMarket(content, location) {
 }
 
 const eventNames = {
+  ore_extracted: "Руда добыта", cargo_loaded: "Руда погружена", cargo_unloaded: "Руда доставлена",
   ship_docked: "Корабль пристыковался", ship_undocked: "Корабль отстыковался",
   ship_refitted: "Модернизация корабля", ship_decommissioned: "Корабль списан",
   construction_completed: "Строительство завершено", construction_started: "Строительство началось",
@@ -526,11 +541,11 @@ function eventLabel(event) {
     ["ship_name","Корабль"],["ship_id","Корабль"],
     ["facility_name","Объект"],["facility_id","Объект"],
     ["location","Место"],[event?.source_location == null ? "source" : "source_location","Откуда"],
-    ["destination","Куда"],["quantity","Количество"]
+    ["destination","Куда"],["quantity","Количество"],["stock","Остаток на складе"]
   ]){
     if (event?.[field] != null) {
       const value = ["location", "source_location", "source", "destination"].includes(field)
-        ? locationLabel(event[field]) : event[field];
+        ? locationLabel(event[field]) : ["quantity","stock"].includes(field) ? fnum(event[field]) : event[field];
       parts.push(label + ": " + value);
     }
   }
@@ -589,9 +604,11 @@ function handleWs(message) {
     case "ship_states":
       s.ships = mergeById(s.ships, m.ships);
       if (s.report) s.report.ships = s.ships;
+      renderOreFlow();
       break;
     case "market_states":
       if (s.report) { s.report.markets = mergeById(s.report.markets, m.markets); s.index = buildIndex(s.report); }
+      renderOreFlow();
       break;
     case "facility_states":
       if (s.report) { s.report.facilities = mergeById(s.report.facilities, m.facilities); s.index = buildIndex(s.report); }
