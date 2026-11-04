@@ -1,4 +1,5 @@
 use crate::conflict::{PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, Patrol};
+use crate::freight::{Freighter, FreightPhase};
 use crate::construction::{
     MARS_METAL, MARS_ORE, MARS_SITE, MarsProject, Project, SHIP_METAL, SITE, YARD_METAL,
 };
@@ -283,6 +284,33 @@ fn freighter_id(second: bool) -> &'static str {
     if second { "freighter-2" } else { "freighter-1" }
 }
 
+fn second_ship(ship: &Freighter, scene: &Scene) -> Value {
+    let fraction = (ship.elapsed / ship.duration()).clamp(0.0, 1.0);
+    let (location, transit, point) = match ship.phase {
+        FreightPhase::Outbound => (
+            None, Some((BELT, EARTH)), interpolate(scene.rig, scene.station, fraction)
+        ),
+        FreightPhase::Returning => (
+            None, Some((EARTH, BELT)), interpolate(scene.station, scene.rig, fraction)
+        ),
+        FreightPhase::Unloading | FreightPhase::NoFuelAtEarth =>
+            (Some(EARTH), None, scene.station),
+        _ => (Some(BELT), None, scene.rig),
+    };
+    json!({
+        "id":"freighter-2", "name":"Грузовой-002", "class":"freighter", "faction_id":FACTION,
+        "docked":transit.is_none(), "location":location,
+        "position":position("freighter-2",point),
+        "fuel":ship.fuel, "fuel_capacity":TANK,
+        "cargo":{"ore":ship.cargo, "fuel":ship.fuel_cargo},
+        "status_label":ship.status(),
+        "transit": transit.map(|(from,to)| json!({
+            "from":from, "to":to, "distance_travelled":ship.elapsed,
+            "distance_total":ship.duration()
+        }))
+    })
+}
+
 fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
     let mut ships = vec![ship(sim, scene)];
     let phase = sim.construction.phase;
@@ -351,24 +379,28 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
             "distance_total": builder_duration,
         })),
     }));
-    if matches!(phase, Project::TransferringShip | Project::Complete) {
-        let in_transfer = phase == Project::TransferringShip;
+    if let Some(freighter) = sim.second_freighter.as_ref() {
+        ships.push(second_ship(freighter,scene));
+    } else if matches!(phase, Project::TransferringShip | Project::Complete) {
+        // Legacy save in the middle of its old rotating-freighter model;
+        // preserve the old representation until safely migrated on return.
+        let transferring = phase == Project::TransferringShip;
         let id = freighter_id(!sim.construction.active_second);
-        let point = if in_transfer {
-            interpolate(scene.yard, scene.rig, progress)
-        } else {
-            scene.rig
-        };
+        let point = if transferring {
+            interpolate(scene.yard,scene.rig,progress)
+        } else { scene.rig };
         ships.push(json!({
-            "id": id, "name": if sim.construction.active_second { "Грузовой-001" } else { "Грузовой-002" },
-            "class": "freighter", "faction_id": FACTION,
-            "docked": !in_transfer, "location": if in_transfer { None } else { Some(BELT) },
-            "fuel": sim.construction.parked_fuel, "fuel_capacity": TANK, "position": position(id, point),
-            "cargo": {"ore": 0},
-            "transit": in_transfer.then(|| json!({
-                "from": SITE, "to": BELT, "distance_travelled": sim.construction.elapsed,
-                "distance_total": sim.construction.duration(),
-            })),
+            "id":id, "name":if sim.construction.active_second { "Грузовой-001" } else { "Грузовой-002" },
+            "class":"freighter", "faction_id":FACTION,
+            "docked":!transferring, "location":if transferring {None} else {Some(BELT)},
+            "fuel":sim.construction.parked_fuel, "fuel_capacity":TANK,
+            "cargo":{"ore":0},
+            "position":position(id,point),
+            "transit":transferring.then(||json!({
+                "from":SITE, "to":BELT,
+                "distance_travelled":sim.construction.elapsed,
+                "distance_total":sim.construction.duration()
+            }))
         }));
     }
     let war = &sim.conflict;
