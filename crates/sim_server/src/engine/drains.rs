@@ -35,7 +35,7 @@
 //! Extracted from `engine.rs` in the Phase-21 god-module split.
 
 use bevy_ecs::prelude::World;
-use sim_core::simulation::spawner::AgentStore;
+use sim_core::simulation::{spawner::AgentStore, tuning::WorldTuning};
 use sim_core::world::registry::WorldRegistry;
 use sim_db::persistence::DbWrite;
 use tokio::sync::mpsc;
@@ -155,15 +155,27 @@ pub(super) async fn drain_pending_decommissions(
                 }
             }
         }
-        // Schedule a replacement 300–600 base ticks out so the fleet
-        // doesn't teleport a new captain into the slot.
-        let delay = 300 + (tick % 300); // deterministic 300..=599 jitter
-        store
-            .pending_respawns
-            .push(sim_core::simulation::spawner::PendingRespawn {
-                spawn_at_tick: tick + delay,
-                prefer_faction: Some(faction_id),
-            });
+        if WorldTuning::current().auto_replace_retired_ships {
+            // Preserve legacy stress-world steady-state fleet behavior.
+            let delay = 300 + (tick % 300); // deterministic 300..=599 jitter
+            store
+                .pending_respawns
+                .push(sim_core::simulation::spawner::PendingRespawn {
+                    spawn_at_tick: tick + delay,
+                    prefer_faction: Some(faction_id),
+                });
+        } else {
+            // In Genesis ships are finite assets. This is deliberately NOT
+            // a new ship-building mechanism: a hull must be constructed by
+            // a real yard from real materials before it can join the fleet.
+            events.push(serde_json::json!({
+                "kind": "fleet_loss_unreplaced",
+                "ship_id": ship_id,
+                "faction_id": faction_id,
+                "reason": req.reason,
+                "tick": tick,
+            }));
+        }
     }
 }
 
@@ -180,6 +192,20 @@ pub(super) async fn drain_pending_respawns(
     persist_tx: &mpsc::Sender<DbWrite>,
     pool: &sqlx::SqlitePool,
 ) {
+    if !WorldTuning::current().auto_replace_retired_ships {
+        // Also suppress a queued replacement if world policy changes to
+        // finite ships (or the queue was created before the rule loaded).
+        // Never silently convert a retirement into a free new hull.
+        for req in std::mem::take(&mut store.pending_respawns) {
+            events.push(serde_json::json!({
+                "kind": "free_respawn_suppressed",
+                "faction_id": req.prefer_faction,
+                "scheduled_at_tick": req.spawn_at_tick,
+                "tick": tick,
+            }));
+        }
+        return;
+    }
     let ready: Vec<sim_core::simulation::spawner::PendingRespawn> = {
         let mut pending = std::mem::take(&mut store.pending_respawns);
         let (due, keep): (Vec<_>, Vec<_>) =
