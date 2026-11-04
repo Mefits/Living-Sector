@@ -98,13 +98,13 @@ pub struct Sim {
     #[serde(default)]
     pub outpost_site: Option<BuildSite>,
     #[serde(default)]
-    route_duration: f64,
+    pub(crate) route_duration: f64,
     #[serde(default)]
-    return_duration: f64,
+    pub(crate) return_duration: f64,
     #[serde(default)]
-    return_fuel: u32,
+    pub(crate) return_fuel: u32,
     #[serde(default)]
-    outbound_plan: (f64, u32),
+    pub(crate) outbound_plan: (f64, u32),
 }
 
 #[derive(Clone, Serialize)]
