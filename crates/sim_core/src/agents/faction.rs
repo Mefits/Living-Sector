@@ -85,6 +85,9 @@ fn choose_logistics_source(
         std::collections::HashMap<Commodity, f32>,
     >,
     member_locations: &[String],
+    source_owners: &std::collections::HashMap<String, String>,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    faction_id: &str,
     destination: &str,
     commodity: Commodity,
     minimum_available: f32,
@@ -92,7 +95,13 @@ fn choose_logistics_source(
     let mut candidates: Vec<(&String, f32, bool)> = supply_by_loc
         .iter()
         .filter_map(|(location, supply)| {
-            if location == destination {
+            if location == destination
+                || !crate::agents::faction_relations::commerce_allowed(
+                    relations,
+                    faction_id,
+                    source_owners.get(location).map(String::as_str).unwrap_or(""),
+                )
+            {
                 return None;
             }
             let available = supply.get(&commodity).copied().unwrap_or(0.0);
@@ -240,6 +249,7 @@ pub fn tick_factions(
     contracts: &mut ContractBoard,
     events: &mut Vec<serde_json::Value>,
     system_control: &mut std::collections::HashMap<String, Option<String>>,
+    relations: &crate::agents::faction_relations::FactionRelations,
     tick: u64,
     tick_multiplier: u32,
 ) {
@@ -267,7 +277,7 @@ pub fn tick_factions(
     // --- Subsidy posting ---
     let subsidy_interval = SUBSIDY_CHECK_INTERVAL_BASE * tick_multiplier as u64;
     if subsidy_interval > 0 && tick % subsidy_interval == 0 {
-        run_subsidy_cycle(world, contracts, tick, tick_multiplier);
+        run_subsidy_cycle(world, contracts, relations, tick, tick_multiplier);
     }
 
     // --- Construction demand analyzer (Phase 19c) ---
@@ -278,7 +288,7 @@ pub fn tick_factions(
     let construction_interval =
         CONSTRUCTION_CHECK_INTERVAL_BASE * tick_multiplier as u64;
     if construction_interval > 0 && tick % construction_interval == 0 {
-        run_construction_cycle(world, contracts, events, tick, tick_multiplier);
+        run_construction_cycle(world, contracts, events, relations, tick, tick_multiplier);
     }
 
     // Keep snapshot `active_subsidies` in sync — recalc from the board so
@@ -450,6 +460,7 @@ fn run_tax_cycle(world: &mut World) {
 fn run_subsidy_cycle(
     world: &mut World,
     contracts: &mut ContractBoard,
+    relations: &crate::agents::faction_relations::FactionRelations,
     tick: u64,
     tick_multiplier: u32,
 ) {
@@ -527,6 +538,7 @@ fn run_subsidy_cycle(
             .map(|(id, pricing)| (id.facility_location.clone(), pricing.supply.clone()))
             .collect()
     };
+    let source_owners = crate::agents::faction_relations::market_controllers(world);
     let faction_profiles: std::collections::HashMap<String, Personality> = {
         let mut q = world.query::<&FactionData>();
         q.iter(&world).map(|d| (d.id.clone(), d.personality.clone())).collect()
@@ -590,6 +602,9 @@ fn run_subsidy_cycle(
         let source = choose_logistics_source(
             &supply_by_loc,
             &info.member_locations,
+            &source_owners,
+            relations,
+            &faction_id,
             &destination,
             commodity,
             SUBSIDY_QUANTITY as f32,
@@ -681,6 +696,7 @@ fn run_construction_cycle(
     world: &mut World,
     contracts: &mut ContractBoard,
     events: &mut Vec<serde_json::Value>,
+    relations: &crate::agents::faction_relations::FactionRelations,
     tick: u64,
     tick_multiplier: u32,
 ) {
@@ -752,6 +768,7 @@ fn run_construction_cycle(
             .collect()
     };
 
+    let source_owners = crate::agents::faction_relations::market_controllers(world);
     let faction_profiles: std::collections::HashMap<String, Personality> = {
         let mut q = world.query::<&FactionData>();
         q.iter(&world).map(|d| (d.id.clone(), d.personality.clone())).collect()
@@ -816,6 +833,9 @@ fn run_construction_cycle(
         let source = choose_logistics_source(
             &supply_by_loc,
             &info.member_locations,
+            &source_owners,
+            relations,
+            &faction_id,
             &destination,
             commodity,
             CONSTRUCTION_QUANTITY as f32,
@@ -1008,8 +1028,14 @@ mod genesis_faction_logistics_tests {
         markets.insert("rival-mine".into(), HashMap::from([(Commodity::Gas, 900.0)]));
         markets.insert("own-base".into(), HashMap::from([(Commodity::Gas, 8.0)]));
         let members = vec!["own-mine".into(), "own-base".into()];
+        let owners = HashMap::from([
+            ("own-mine".into(), "own".into()),
+            ("own-base".into(), "own".into()),
+            ("rival-mine".into(), "rival".into()),
+        ]);
+        let relations = crate::agents::faction_relations::FactionRelations::new();
         assert_eq!(
-            choose_logistics_source(&markets, &members, "own-base", Commodity::Gas, 200.0),
+            choose_logistics_source(&markets, &members, &owners, &relations, "own", "own-base", Commodity::Gas, 200.0),
             Some("own-mine".to_string())
         );
     }
@@ -1020,12 +1046,18 @@ mod genesis_faction_logistics_tests {
         markets.insert("own-mine".into(), HashMap::from([(Commodity::Gas, 199.0)]));
         markets.insert("rival-mine".into(), HashMap::from([(Commodity::Gas, 240.0)]));
         let members = vec!["own-mine".into(), "own-base".into()];
+        let owners = HashMap::from([
+            ("own-mine".into(), "own".into()),
+            ("own-base".into(), "own".into()),
+            ("rival-mine".into(), "rival".into()),
+        ]);
+        let relations = crate::agents::faction_relations::FactionRelations::new();
         assert_eq!(
-            choose_logistics_source(&markets, &members, "own-base", Commodity::Gas, 200.0),
+            choose_logistics_source(&markets, &members, &owners, &relations, "own", "own-base", Commodity::Gas, 200.0),
             Some("rival-mine".to_string())
         );
         assert_eq!(
-            choose_logistics_source(&markets, &members, "rival-mine", Commodity::Gas, 200.0),
+            choose_logistics_source(&markets, &members, &owners, &relations, "own", "rival-mine", Commodity::Gas, 200.0),
             None
         );
     }
@@ -1035,8 +1067,30 @@ mod genesis_faction_logistics_tests {
         let mut markets = HashMap::new();
         markets.insert("mine".into(), HashMap::from([(Commodity::Gas, 0.0)]));
         assert_eq!(
-            choose_logistics_source(&markets, &[], "base", Commodity::Gas, 200.0),
+            choose_logistics_source(&markets, &[], &HashMap::new(), &crate::agents::faction_relations::FactionRelations::new(), "own", "base", Commodity::Gas, 200.0),
             None
+        );
+    }
+
+    #[test]
+    fn hostile_sources_are_excluded_even_when_they_are_richer() {
+        let markets = HashMap::from([
+            ("own-depot".into(), HashMap::from([(Commodity::Ore, 180.0)])),
+            ("enemy-depot".into(), HashMap::from([(Commodity::Ore, 3000.0)])),
+            ("neutral-depot".into(), HashMap::from([(Commodity::Ore, 250.0)])),
+        ]);
+        let owners = HashMap::from([
+            ("own-depot".into(), "own".into()),
+            ("enemy-depot".into(), "enemy".into()),
+            ("neutral-depot".into(), "neutral".into()),
+        ]);
+        let mut relations = crate::agents::faction_relations::FactionRelations::new();
+        relations.set_state("own", "enemy", -100,
+            crate::agents::faction_relations::TreatyKind::War, 0);
+        assert_eq!(
+            choose_logistics_source(&markets, &["own-depot".into()], &owners, &relations,
+                "own", "home", Commodity::Ore, 200.0),
+            Some("neutral-depot".to_string())
         );
     }
 
