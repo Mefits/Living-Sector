@@ -86,6 +86,51 @@ jobs:
           } finally {
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
           }
+      - name: Verify real autonomous cargo ship departure at 16x world speed
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:DATABASE_PATH = Join-Path (Get-Location) "genesis-logistics-smoke.db"
+          $env:DATA_DIR = (Resolve-Path "priv/genesis/data").Path
+          $env:BIND_ADDR = "127.0.0.1:18081"
+          $env:WORLD_SPEED = "16.0"
+          $process = Start-Process -FilePath (Resolve-Path "target/release/client_bevy.exe").Path -ArgumentList "--headless" -PassThru
+          try {
+            $departed = $false
+            $last = $null
+            for ($i = 0; $i -lt 85; $i++) {
+              if ($process.HasExited) { throw "Genesis logistics engine exited before departure" }
+              try {
+                $last = Invoke-RestMethod -Uri "http://127.0.0.1:18081/api/report" -TimeoutSec 3
+                if ($last.ships.Count -eq 3) {
+                  $freighters = @($last.ships | Where-Object { $_.class -eq "freighter" })
+                  if ($freighters.Count -ne 2) { throw "Expected 2 freight ships" }
+                  $comms = @($freighters | ForEach-Object { $_.fitting.modules.comms })
+                  if (($comms | Where-Object { $_ -ne "comms_t2" }).Count -gt 0) {
+                    throw "Genesis freighter fitting invalid: $($comms -join ',')"
+                  }
+                  if (@($freighters | Where-Object { $null -ne $_.transit }).Count -gt 0) {
+                    $departed = $true
+                    Write-Host "PASS: a real freighter initiated transit via its autonomous planner"
+                    break
+                  }
+                }
+              } catch {
+                if ($_.Exception.Message -match "Expected 2|fitting invalid") { throw }
+              }
+              Start-Sleep -Milliseconds 1500
+            }
+            if (-not $departed) {
+              $goals = if ($last) {
+                @($last.ships | ForEach-Object {
+                  "$($_.name): $($_.current_goal), action=$($_.current_bt), location=$($_.location)"
+                }) -join " | "
+              } else { "No report" }
+              throw "No autonomous ship departure observed: $goals"
+            }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          }
       - name: Create ready-to-run Genesis distribution
         shell: pwsh
         run: |
@@ -105,8 +150,8 @@ jobs:
             "2. Launch Start-Genesis.cmd (NOT Living-Sector.exe directly)."
             "3. The Observer opens in your web browser."
             "4. If an older simulator is still running on port 8080, stop it with Ctrl+C."
-            "5. This build uses genesis.db only; it does not touch your original sim.db."
-            "6. To keep progress from an earlier Genesis, copy genesis.db into this new folder only after a clean shutdown."
+            "5. This build uses genesis-logistics-v1.db; previous genesis.db and sim.db remain untouched."
+            "6. The logistics test intentionally starts a new save to apply the corrected freighter fittings."
             ""
             "Implemented: small isolated Sol, physical market shipping, existing mining facilities, Observer, world-grid zoom, startup snapshots."
             "NOT implemented yet: multiple ore species, power-grid model, ship hull production, faction executive/administrator planners."
