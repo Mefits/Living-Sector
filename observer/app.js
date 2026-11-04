@@ -18,7 +18,7 @@ const s = {
   ws: null, wsUp: false, live: false, events: [],
   view: "sector", systemName: null, selection: null,
   zoom: 1, pan: {x: 0, y: 0}, dragging: null, hover: null,
-  targets: [], visualPositions: new Map(),
+  targets: [], visualPositions: new Map(), shipMotion: new Map(),
   lastReportAt: 0, fetching: false, error: null, guideDismissed: false
 };
 const fmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
@@ -64,10 +64,21 @@ function mergeById(previous, incoming, identifier = "id") {
 
 function saveReport(report) {
   if (!Array.isArray(report?.systems)) throw new Error("Нет systems[] в /api/report");
+  const firstReport = !s.report;
   s.report = report;
   s.ships = list(report.ships);
   s.index = buildIndex(report);
   s.lastReportAt = Date.now();
+  // Genesis has no reason to open on an empty sector map with a guide
+  // telling the user to open its one and only system.
+  if (firstReport && s.index.systems.length === 1 && s.ships.length <= 8) {
+    s.systemName = s.index.systems[0].name;
+    s.view = "system";
+    s.selection = null;
+    s.guideDismissed = true;
+    els.shipsToggle.checked = true;
+    resetCamera();
+  }
   if (s.systemName && !systemByName(s.systemName, s.index)) {
     s.view = "sector"; s.systemName = null; s.selection = null;
   }
@@ -105,7 +116,10 @@ function refreshToolbar() {
   els.systemCount.textContent = fnum(s.index?.systems.length);
   els.factionCount.textContent = fnum(list(s.report.factions).length);
   const largeWorld = s.ships.length > 20 ? " · большой исходный мир" : "";
-  els.worldSubtitle.textContent = (s.view === "system" ? s.systemName : "Сектор · живые данные") + largeWorld;
+  const smallStart = s.index?.systems.length === 1 && s.ships.length <= 8;
+  els.worldSubtitle.textContent = smallStart
+    ? "Малый старт · " + (s.view === "system" ? s.systemName : "сектор")
+    : (s.view === "system" ? s.systemName : "Сектор · живые данные") + largeWorld;
   els.sectorTab.classList.toggle("active", s.view === "sector");
   els.systemTab.classList.toggle("active", s.view === "system");
   els.systemTab.disabled = !s.systemName;
@@ -554,11 +568,29 @@ function inCanvas(p,w,h,pad=15) {
   return p.x >= -pad && p.y >= -pad && p.x <= w+pad && p.y <= h+pad;
 }
 function drawGrid(w,h) {
-  ctx.strokeStyle = "rgba(68,106,128,.12)";
+  // This is a navigation grid, not a fabricated 100 ly galaxy tile.
+  // Galactic 100 ly sectors belong in a separate large-scale layer.
+  ctx.strokeStyle = s.view === "sector" ? "rgba(85,120,149,.08)" : "rgba(85,120,149,.035)";
   ctx.lineWidth=1;
-  const step=48;
-  for(let x=24;x<w;x+=step){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
-  for(let y=24;y<h;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+  const step=80;
+  for(let x=0;x<w;x+=step){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
+  for(let y=0;y<h;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+}
+function drawBackdrop(w,h) {
+  const bg=ctx.createRadialGradient(w*.5,h*.4,10,w*.5,h*.4,Math.max(w,h)*.9);
+  bg.addColorStop(0,"#102336");
+  bg.addColorStop(.55,"#0a1725");
+  bg.addColorStop(1,"#06101b");
+  ctx.fillStyle=bg;ctx.fillRect(0,0,w,h);
+  // Purely decorative distant specks; never interactable or simulated stars.
+  // Deterministic per screen size so the stars don't flicker across frames.
+  for(let i=1;i<=88;i++){
+    const sx=((Math.sin(i*127.1)*43758.5453)%1+1)%1*w;
+    const sy=((Math.sin(i*311.7)*23421.123)%1+1)%1*h;
+    const a=.06+.13*((Math.sin(i*72.8)*2654)%1+1)%1;
+    ctx.fillStyle="rgba(177,204,223,"+a+")";
+    ctx.fillRect(sx,sy,i%13===0?1.8:1,i%13===0?1.8:1);
+  }
 }
 function circle(x,y,r,color,fill=true) {
   ctx.beginPath();ctx.arc(x,y,r,0,2*Math.PI);
@@ -568,6 +600,95 @@ function label(pos,text,color="#bdceda",font=11) {
   ctx.fillStyle=color;ctx.font=font+"px Segoe UI, sans-serif";
   ctx.textAlign="center";ctx.fillText(String(text),pos.x,pos.y);
 }
+function textChip(x,y,text,accent="#a5c0d0",max=170) {
+  ctx.save();
+  ctx.font="11px Segoe UI, sans-serif";
+  const labelText=String(text ?? "").slice(0,42);
+  const ww=Math.min(max,ctx.measureText(labelText).width+16);
+  ctx.fillStyle="rgba(6,17,28,.88)";
+  ctx.strokeStyle="rgba(74,106,123,.28)";
+  ctx.lineWidth=1;
+  ctx.beginPath();ctx.roundRect(x,y-10,ww,20,4);ctx.fill();ctx.stroke();
+  ctx.fillStyle=accent;ctx.textAlign="left";ctx.textBaseline="middle";
+  ctx.fillText(labelText,x+8,y,ww-14);
+  ctx.restore();
+}
+function drawOrbits(sys,toScreen,scale,w,h) {
+  const center=toScreen(sys);
+  const radii=[...new Set(sys.bodies.map(body=>{
+    const p=point(body);
+    return p ? Math.round(Math.hypot(p.x-sys.x,p.y-sys.y)*scale) : 0;
+  }).filter(r=>r>12&&r<Math.max(w,h)*2))].sort((a,b)=>a-b);
+  ctx.save();ctx.lineWidth=1;
+  for(const radius of radii.slice(0,12)){
+    ctx.beginPath();ctx.setLineDash([2,8]);
+    ctx.strokeStyle="rgba(108,145,164,.13)";
+    ctx.arc(center.x,center.y,radius,0,Math.PI*2);ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawSun(at) {
+  ctx.save();
+  const glow=ctx.createRadialGradient(at.x,at.y,1,at.x,at.y,35);
+  glow.addColorStop(0,"rgba(236,191,112,.35)");
+  glow.addColorStop(1,"rgba(236,191,112,0)");
+  ctx.fillStyle=glow;ctx.beginPath();ctx.arc(at.x,at.y,35,0,Math.PI*2);ctx.fill();
+  circle(at.x,at.y,12,"#e7bf78");
+  circle(at.x,at.y,13,"rgba(255,222,165,.55)",false);
+  ctx.restore();
+}
+function bodyColor(body){
+  const biome=String(body.biome??"").toLowerCase();
+  if(body.type==="moon" || biome==="lifeless")return "#a8b5c9";
+  if(body.type==="belt" || body.type==="asteroid" || biome==="asteroid")return "#cba16c";
+  if(biome==="terrestrial")return "#4b9cc4";
+  if(biome==="desert" || biome==="molten")return "#bd8066";
+  if(biome==="gas_giant")return "#c4ae85";
+  return "#8eb0c7";
+}
+function drawBody(body,p,selected=false){
+  const tint=bodyColor(body);
+  const belt=body.type==="belt"||body.type==="asteroid";
+  const r=belt?8:body.type==="moon"?5:9;
+  ctx.save();
+  if(belt){
+    ctx.strokeStyle="rgba(210,174,113,.58)";ctx.lineWidth=1;
+    ctx.beginPath();ctx.ellipse(p.x,p.y,13,7,-.4,0,Math.PI*2);ctx.stroke();
+    circle(p.x-5,p.y+1,3.3,tint);circle(p.x+3,p.y-3,4,tint);circle(p.x+6,p.y+3,2.4,tint);
+  }else{
+    circle(p.x,p.y,r,tint);
+    ctx.fillStyle="rgba(255,255,255,.24)";
+    ctx.beginPath();ctx.arc(p.x-r*.28,p.y-r*.3,Math.max(1.4,r*.35),0,Math.PI*2);ctx.fill();
+  }
+  if(selected||body.contested){
+    ctx.lineWidth=1.4;circle(p.x,p.y,r+7,selected?"#bce8df":"#dfb472",false);
+  }
+  ctx.restore();
+}
+function drawFacilityHub(at,kind,selected,caption) {
+  ctx.save();
+  const mine=kind==="mining_rig";
+  const line=mine?"#d2b078":"#81c2c6";
+  ctx.strokeStyle=selected?"#d9fff5":line;ctx.lineWidth=selected?2:1.6;
+  ctx.beginPath();
+  for(let i=0;i<6;i++){
+    const angle=Math.PI/3*i-Math.PI/6;
+    const x=at.x+Math.cos(angle)*12,y=at.y+Math.sin(angle)*12;
+    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  }
+  ctx.closePath();ctx.fillStyle="rgba(11,30,40,.92)";ctx.fill();ctx.stroke();
+  if(mine){
+    ctx.beginPath();ctx.moveTo(at.x-5,at.y+4);ctx.lineTo(at.x-1,at.y-5);
+    ctx.lineTo(at.x+5,at.y+4);ctx.moveTo(at.x-4,at.y+1);ctx.lineTo(at.x+4,at.y+1);ctx.stroke();
+  }else{
+    ctx.strokeRect(at.x-4,at.y-4,8,8);
+    ctx.beginPath();ctx.moveTo(at.x-6,at.y);ctx.lineTo(at.x+6,at.y);
+    ctx.moveTo(at.x,at.y-6);ctx.lineTo(at.x,at.y+6);ctx.stroke();
+  }
+  ctx.restore();
+  if(caption)textChip(at.x+18,at.y-2,caption,line,175);
+}
+
 function isSelected(type,id) {
   return s.selection?.type===type && s.selection.id===id;
 }
@@ -591,28 +712,63 @@ function changeZoomAt(cursor, factor) {
 function smoothPosition(ship, target) {
   if(!target)return null;
   const old=s.visualPositions.get(ship.id);
-  if(!old) { s.visualPositions.set(ship.id,{...target}); return target; }
+  if(!old) {
+    s.visualPositions.set(ship.id,{...target});
+    s.shipMotion.set(ship.id,{dx:0,dy:0});
+    return target;
+  }
   const dist=Math.hypot(target.x-old.x,target.y-old.y);
-  // Never draw a fictitious long-distance flight across a gate teleport.
-  if(dist>5) {s.visualPositions.set(ship.id,{...target});return target;}
-  old.x+=(target.x-old.x)*0.17; old.y+=(target.y-old.y)*0.17;
+  // No artificial flight trails across gates / large simulation teleports.
+  if(dist>5){
+    s.visualPositions.set(ship.id,{...target});
+    s.shipMotion.set(ship.id,{dx:0,dy:0});
+    return target;
+  }
+  const oldX=old.x,oldY=old.y;
+  old.x+=(target.x-old.x)*0.17;
+  old.y+=(target.y-old.y)*0.17;
+  s.shipMotion.set(ship.id,{dx:old.x-oldX,dy:old.y-oldY});
   return old;
 }
-function drawShip(ship,at,color,selected) {
+function drawShip(ship,at,color,selected,scale=1) {
   ctx.save();ctx.translate(at.x,at.y);
-  const r=selected?7:4.2;
-  ctx.beginPath();ctx.moveTo(0,-r*1.2);ctx.lineTo(r*.88,r);ctx.lineTo(0,r*.4);ctx.lineTo(-r*.88,r);ctx.closePath();
-  ctx.fillStyle=color;ctx.fill();
-  if(selected){ctx.strokeStyle="#dff9ec";ctx.lineWidth=1.5;ctx.stroke();}
+  const move=s.shipMotion.get(ship.id);
+  const mx=(move?.dx??0)*scale,my=-(move?.dy??0)*scale;
+  const speed=Math.hypot(mx,my);
+  if(speed>.08){
+    // Only visible when the real current position changes.
+    const unitX=mx/speed,unitY=my/speed;
+    const trail=ctx.createLinearGradient(0,0,-unitX*20,-unitY*20);
+    trail.addColorStop(0,"rgba(112,210,221,.6)");
+    trail.addColorStop(1,"rgba(112,210,221,0)");
+    ctx.strokeStyle=trail;ctx.lineWidth=2.1;ctx.beginPath();
+    ctx.moveTo(-unitX*5,-unitY*5);ctx.lineTo(-unitX*20,-unitY*20);ctx.stroke();
+    ctx.rotate(Math.atan2(my,mx)+Math.PI/2);
+  }
+  const r=selected?8.5:7;
+  const hull=String(ship.class??"").toLowerCase();
+  if(hull==="courier"){
+    ctx.beginPath();ctx.moveTo(0,-r*1.3);ctx.lineTo(r*.7,r*.88);
+    ctx.lineTo(0,r*.25);ctx.lineTo(-r*.7,r*.88);ctx.closePath();
+  }else if(hull==="freighter"||hull==="hauler"||hull==="tanker"){
+    ctx.beginPath();ctx.moveTo(0,-r*1.15);ctx.lineTo(r*.92,-r*.12);
+    ctx.lineTo(r*.8,r*.95);ctx.lineTo(-r*.8,r*.95);
+    ctx.lineTo(-r*.92,-r*.12);ctx.closePath();
+  }else{
+    ctx.beginPath();ctx.moveTo(0,-r*1.2);ctx.lineTo(r,r);
+    ctx.lineTo(0,r*.35);ctx.lineTo(-r,r);ctx.closePath();
+  }
+  ctx.fillStyle=color;ctx.fill();ctx.lineWidth=1.3;ctx.strokeStyle="#dbeef1";ctx.stroke();
+  if(selected){ctx.lineWidth=1.2;circle(0,0,r+8,"#b0eddd",false);}
   ctx.restore();
 }
 
 function renderMap() {
   const {w,h}=resizeCanvas();
-  ctx.clearRect(0,0,w,h);drawGrid(w,h);
+  ctx.clearRect(0,0,w,h);drawBackdrop(w,h);drawGrid(w,h);
   s.targets=[];
   if(!s.index){window.requestAnimationFrame(renderMap);return;}
-  const {toScreen} = camera(w,h);
+  const {toScreen,scale} = camera(w,h);
   const visible = (p,pad=12) => inCanvas(p,w,h,pad);
   const sysMap=new Map(s.index.systems.map(system => [system.name,system]));
   const showLabels=els.labelsToggle.checked;
@@ -644,19 +800,15 @@ function renderMap() {
     const sys=systemByName(s.systemName,s.index);
     if(sys){
       const center=toScreen({x:sys.x,y:sys.y});
-      ctx.lineWidth=1.3;circle(center.x,center.y,11,"#d8b76e");
-      circle(center.x,center.y,18,"#d8b76e55",false);
-      if(showLabels)label({x:center.x,y:center.y+30},sys.name+" ★","#e6d09f",12);
+      drawOrbits(sys,toScreen,scale,w,h);
+      drawSun(center);
+      if(showLabels)textChip(center.x+18,center.y+1,sys.name+" · звезда","#eed09a",140);
       for(const body of sys.bodies){
         const p=point(body);if(!p)continue;const screen=toScreen(p);
         if(!visible(screen,26))continue;
-        const r=body.type==="planet"?5.5:body.type==="moon"?3.5:3;
-        const color=body.controlling_faction?factionColor(body.controlling_faction,s.index):"#7f9cba";
-        circle(screen.x,screen.y,r,color);
-        if(body.contested){ctx.lineWidth=1.3;circle(screen.x,screen.y,r+5,"#dbad70",false);}
-        if(isSelected("body",body.id)){ctx.lineWidth=2;circle(screen.x,screen.y,r+8,"#d1efe7",false);}
-        if(showLabels)label({x:screen.x,y:screen.y+r+13},body.name,"#b7ccdd",10);
-        addTarget("body",body.id,screen.x,screen.y,Math.max(9,r+3),body.name);
+        drawBody(body,screen,isSelected("body",body.id));
+        if(showLabels)label({x:screen.x,y:screen.y+23},body.name,"#bdcfdc",11);
+        addTarget("body",body.id,screen.x,screen.y,13,body.name);
       }
       const facilityMarkers = [];
       for (const fac of s.index.systemFacilities.get(sys.name) ?? []) {
@@ -664,22 +816,20 @@ function renderMap() {
         const sc=toScreen(p);
         if(visible(sc,20)) facilityMarkers.push({...sc,fac});
       }
-      for (const group of clusterMarkers(facilityMarkers,32)) {
-        if (group.members.length > 1) {
-          const ids=group.members.map(m => m.fac.id);
-          drawCluster(group,ids.length,false,
-            ids.includes(s.selection?.id) || (s.selection?.type === "facility_group" &&
-              s.selection.ids?.some(id => ids.includes(id))));
-          addTarget("facility_group",group.id,group.x,group.y,18,
-            ids.length + " объектов · открыть список",ids);
-        } else {
-          const {fac,x,y}=group.members[0];
-          const color=factionColor(fac.faction_id,s.index);
-          ctx.fillStyle=fac.abandoned?"#6b7582":color;
-          ctx.fillRect(x-3.2,y-3.2,6.4,6.4);
-          if(isSelected("facility",fac.id)){ctx.lineWidth=1.5;circle(x,y,9,"#d2efe9",false);}
-          addTarget("facility",fac.id,x,y,8,fac.name);
-        }
+      // The hub is a physical location; its separate buildings are shown
+      // on click, not as overlapping numbered disks on the map.
+      for(const group of clusterMarkers(facilityMarkers,32)){
+        const members=group.members.map(m=>m.fac);
+        const prefer=members.find(x=>x.type==="station") ??
+          members.find(x=>x.type==="mining_rig") ??
+          members.find(x=>x.type==="shipyard") ?? members[0];
+        const ids=members.map(x=>x.id);
+        const selected=ids.includes(s.selection?.id) ||
+          (s.selection?.type==="facility_group" && s.selection.ids?.some(id=>ids.includes(id)));
+        drawFacilityHub(group,prefer.type,selected,showLabels?prefer.name:null);
+        const targetType=members.length>1?"facility_group":"facility";
+        addTarget(targetType,members.length>1?group.id:members[0].id,
+          group.x,group.y,15,prefer.name, members.length>1?ids:null);
       }
     }
   }
@@ -694,19 +844,38 @@ function renderMap() {
       const sc=toScreen(p);if(!visible(sc,20))continue;
       shipMarkers.push({...sc,ship});
     }
+    const smallFleet=shipMarkers.length<=8;
     for (const group of clusterMarkers(shipMarkers,36)) {
-      if (group.members.length > 1) {
-        const ids=group.members.map(m => m.ship.id);
-        drawCluster(group,ids.length,true,
-          ids.includes(s.selection?.id) || (s.selection?.type === "ship_group" &&
-            s.selection.ids?.some(id => ids.includes(id))));
-        addTarget("ship_group",group.id,group.x,group.y,18,
-          ids.length + " кораблей · открыть список",ids);
-      } else {
-        const {ship,x,y}=group.members[0];
+      if (!smallFleet && group.members.length>1) {
+        const ids=group.members.map(m=>m.ship.id);
+        // Show a fleet silhouette, not a numeric badge. The exact
+        // number and members are available on hover/click.
+        drawShip(group.members[0].ship,group,
+          "#84b9c5",ids.includes(s.selection?.id),scale);
+        ctx.save();ctx.lineWidth=1;ctx.strokeStyle="#668994";
+        ctx.strokeRect(group.x-12,group.y-12,24,24);ctx.restore();
+        addTarget("ship_group",group.id,group.x,group.y,17,
+          ids.length+" кораблей · открыть список",ids);
+        continue;
+      }
+      for (let i=0;i<group.members.length;i++) {
+        const {ship,x,y}=group.members[i];
+        const stacked=group.members.length>1;
+        // Visual separation of coincident ship icons. World coordinates
+        // and selection data are never moved or fabricated.
+        const angle=-Math.PI/2+(2*Math.PI*i/group.members.length);
+        const spread=stacked?Math.min(23,14+group.members.length*2):0;
+        const at={x:x+Math.cos(angle)*spread,y:y+Math.sin(angle)*spread};
+        if(stacked){
+          ctx.beginPath();ctx.moveTo(group.x,group.y);ctx.lineTo(at.x,at.y);
+          ctx.strokeStyle="rgba(122,181,188,.25)";ctx.lineWidth=1;ctx.stroke();
+        }
         const selected=isSelected("ship",ship.id);
-        drawShip(ship,{x,y},factionColor(ship.faction_id,s.index),selected);
-        addTarget("ship",ship.id,x,y,selected?10:7,ship.name);
+        drawShip(ship,at,factionColor(ship.faction_id,s.index),selected,scale);
+        if(showLabels && (smallFleet || selected)){
+          textChip(at.x+12,at.y-13,ship.name??ship.class,"#c2dce4",125);
+        }
+        addTarget("ship",ship.id,at.x,at.y,selected?15:12,ship.name);
       }
     }
   }
