@@ -241,8 +241,10 @@ mod tests {
         assert_eq!(second.phase, FreightPhase::Outbound);
         assert_eq!(second.cargo, SHIPMENT);
         assert_eq!(sim.belt_ore, 0, "second cargo removed once from source");
-        assert!(events.iter().any(|e| e.ship_name == Some("Грузовой-002")
-            && e.kind == "cargo_loaded"));
+        assert!(events.iter().any(|e| {
+            let record = serde_json::to_value(e).unwrap();
+            record["ship_name"] == "Грузовой-002" && record["kind"] == "cargo_loaded"
+        }));
         assert!(sim.valid(), "both independent ship ledgers must be valid");
         let restored: Sim = serde_json::from_str(
             &serde_json::to_string(&sim).unwrap()).unwrap();
