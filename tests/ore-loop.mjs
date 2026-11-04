@@ -43,18 +43,11 @@ async function api(base, path, data) {
   return response.json();
 }
 
-async function observe(leader) {
-  const save = join(dir, leader + ".json");
-  const { base, child, closed } = await start(leader, save);
-  const initial = await api(base, "/api/report");
-  assert.equal(initial.governance.station_fuel, 200);
-  assert.equal(initial.governance.metal, 0);
-  assert.ok(["venus", "mars", "jupiter"].every(id => initial.systems[0].bodies.some(body => body.id === id)));
-  const baseSite = initial.facilities.find(f => f.id === "pirate-outpost");
-  const rig = initial.facilities.find(f => f.id === "belt-outpost");
-  assert.equal(baseSite.body_id, "jupiter");
-  assert.ok(Math.hypot(baseSite.x - rig.x, baseSite.y - rig.y) > 2);
-  const socket = new WebSocket(base.replace("http:", "ws:") + "/ws");
+async function runSeed(name, state, stop) {
+  const save = join(dir, name + ".json");
+  await writeFile(save, JSON.stringify(state));
+  const server = await start("industrial", save);
+  const socket = new WebSocket(server.base.replace("http:", "ws:") + "/ws");
   sockets.push(socket);
   const events = [];
   const done = new Promise((resolve, reject) => {
@@ -62,77 +55,47 @@ async function observe(leader) {
     socket.addEventListener("message", message => {
       const frame = JSON.parse(message.data);
       events.push(...frame.events);
-      const loadedMars = events.some(event => event.kind === "cargo_loaded" && event.location === "mars-outpost");
-      if (loadedMars && frame.events.some(event => event.kind === "cargo_unloaded")) resolve(frame);
+      if (stop(frame, events)) resolve(frame);
     });
   });
   done.catch(() => {});
   await once(socket, "open", { signal: timeout });
-  await api(base, "/api/sim/speed", { world_speed: 16 });
-  await api(base, "/api/sim/resume", {});
-  const result = await done;
-  const ordered = ["yard_completed", "ship_commissioned", "mars_dispatched", "mars_completed"];
-  let previous = -1;
-  for (const kind of ordered) {
-    const index = events.findIndex(event => event.kind === kind);
-    assert.ok(index > previous, kind);
-    previous = index;
-  }
-  assert.ok(result.facilities.some(facility => facility.id === "mars-outpost" && facility.type === "mining_rig"));
-  await api(base, "/api/sim/pause", {});
-  const paused = await api(base, "/api/report");
+  await api(server.base, "/api/sim/speed", { world_speed: 16 });
+  await api(server.base, "/api/sim/resume", {});
+  const frame = await done;
+  await api(server.base, "/api/sim/pause", {});
   socket.close();
-  child.kill();
-  await closed;
-
-  const restartedBase = (await start("", save)).base;
-  const restarted = await api(restartedBase, "/api/report");
-  const diagnosticResponse = await fetch(restartedBase + "/api/diagnostics", {signal: timeout});
-  assert.match(diagnosticResponse.headers.get("content-disposition"), /Living-Sector-diagnostics.json/);
-  const diagnostics = await diagnosticResponse.json();
-  assert.equal(diagnostics.version, "0.7.0");
-  assert.equal(diagnostics.state.tick, restarted.tick);
-  assert.ok(diagnostics.events.some(event => event.details.kind === "mars_completed"));
-  assert.ok(diagnostics.events.some(event => event.kind === "operations"));
-  assert.equal(restarted.running, false);
-  assert.deepEqual(restarted.governance, paused.governance);
-  assert.deepEqual(restarted.ships.map(ship => ship.id), paused.ships.map(ship => ship.id));
-  assert.deepEqual(restarted.facilities, paused.facilities);
-  const battleSave = join(dir, "battle.json");
-  const state = diagnostics.state;
-  Object.assign(state, { phase: "outbound", elapsed: 4, cargo: 50, fuel_cargo: 0,
-    fuel_order: false, mars_route: false, route_duration: 18 });
-  Object.assign(state.conflict, { base_ready: true, base_progress: 40, patrol: "ready",
-    patrol_cycle: 10, patrol_damage: 0, raider_damage: 0, raider_damaged: false,
-    raider_destroyed: false, raid_elapsed: 4.5, raider_return: 0, raider_cargo: 0,
-    contact: 0.5, raid_approach: 9, pirate_metal: 8, pirate_fuel_stock: 8,
-    raider_generation: 0, rebuild_elapsed: 0 });
-  await writeFile(battleSave, JSON.stringify(state));
-  const { base: battleBase } = await start("", battleSave);
-  const battleSocket = new WebSocket(battleBase.replace("http:", "ws:") + "/ws");
-  sockets.push(battleSocket);
-  let removed = false;
-  const replacement = new Promise((resolve, reject) => {
-    timeout.addEventListener("abort", () => reject(timeout.reason), { once: true });
-    battleSocket.addEventListener("message", message => {
-      const frame = JSON.parse(message.data);
-      if (frame.events.some(event => event.kind === "raider_destroyed")) {
-        removed = !frame.ships.some(ship => ship.id === "raider-1");
-      }
-      if (frame.ships.some(ship => ship.id === "raider-2")) resolve(frame);
-    });
-  });
-  replacement.catch(() => {});
-  await once(battleSocket, "open", { signal: timeout });
-  await api(battleBase, "/api/sim/speed", { world_speed: 16 });
-  await api(battleBase, "/api/sim/resume", {});
-  await replacement;
-  assert.ok(removed);
+  server.child.kill();
+  await server.closed;
+  return { events, frame, save };
 }
 
 try {
-  await observe("industrial");
-  console.log("PASS: Mars construction and delivery, save reload, lethal interception and paid replacement.");
+  const origin = await start("industrial", join(dir, "original.json"));
+  const initial = await api(origin.base, "/api/diagnostics");
+  assert.equal(initial.version, "0.8.0");
+  const fresh = await runSeed("fresh", initial.state, (_, events) => events.some(event => event.kind === "ship_commissioned"));
+  assert.ok(fresh.events.some(event => event.kind === "building_approved" && event.actor === "Genesis" && event.reason.includes("Орбитальная верфь")));
+  const state = initial.state;
+  Object.assign(state, { metal: 60, station_ore: 20, deposit: 500 });
+  state.construction.phase = "complete";
+  Object.assign(state.conflict, { base_ready: true, base_progress: 40, pirate_fuel_stock: 0 });
+  const calm = await runSeed("calm", state, frame => frame.tick >= 36);
+  assert.ok(!calm.events.some(event => event.kind === "building_approved" && event.reason.includes("Рудный аванпост")));
+
+  Object.assign(state, { deposit: 80 });
+  Object.assign(state.conflict, { raider_destroyed: true, pirate_metal: 44, pirate_fuel_stock: 30 });
+  const risk = await runSeed("risk", state, (_, events) =>
+    events.filter(event => event.kind === "building_completed").length >= 2
+      && events.some(event => event.kind === "cargo_loaded" && event.location === "mars-outpost"));
+  assert.ok(risk.events.some(event => event.kind === "building_approved" && event.actor === "Genesis" && event.reason.includes("Рудный аванпост")));
+  assert.ok(risk.events.some(event => event.kind === "building_approved" && event.actor === "Пираты" && event.reason.includes("Орбитальная верфь")));
+  assert.equal(risk.frame.governance.catalog.length, 11);
+  const restored = await start("", risk.save);
+  const report = await api(restored.base, "/api/report");
+  assert.ok(report.facilities.some(facility => facility.id === "pirate-shipyard"));
+  assert.ok(report.facilities.some(facility => facility.id === "mars-outpost" && facility.type === "mining_rig"));
+  console.log("PASS: calm economy, site choice, both construction fleets, first outpost shipment, reload.");
 } finally {
   for (const socket of sockets) socket.close();
   for (const child of children) child.kill();

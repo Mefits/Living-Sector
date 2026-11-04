@@ -90,8 +90,10 @@ export function buildIndex(report) {
       registerLocation(body.name, sys.name);
     }
   }
+  const facilitySystem = facility => bodySystem.get(key(facility.body_id))
+    ?? systems.find(system => system.id === facility.system_id)?.name;
   for (const facility of list(report?.facilities)) {
-    registerLocation(facility.location, bodySystem.get(key(facility.body_id)));
+    registerLocation(facility.location, facilitySystem(facility));
   }
   for (const id of ambiguousLocations) locationSystem.delete(id);
 
@@ -105,7 +107,7 @@ export function buildIndex(report) {
   const systemMarkets = new Map(systems.map(s => [s.name, []]));
   const systemPopulations = new Map(systems.map(s => [s.name, []]));
   for (const f of facilities) {
-    const sys = bodySystem.get(key(f.body_id));
+    const sys = facilitySystem(f);
     if (sys) systemFacilities.get(sys)?.push(f);
   }
   for (const m of list(report?.markets)) {

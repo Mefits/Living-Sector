@@ -1,6 +1,7 @@
 mod conflict;
 mod construction;
 mod governance;
+mod planning;
 mod sim;
 mod view;
 

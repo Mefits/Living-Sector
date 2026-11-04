@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "genesis-clean"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "axum",
  "serde",

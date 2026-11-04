@@ -155,6 +155,7 @@ function renderGovernance() {
   inspectorRow(panel, "Потери руды", fnum(gov.lost_ore));
   inspectorRow(panel, "Перехваты", fnum(gov.intercepted_raids));
   if (gov.fuel_cargo) inspectorRow(panel, "Топливо в пути", fnum(gov.fuel_cargo));
+  if (gov.pirate_expansion) inspectorRow(panel, "Проект пиратов", gov.pirate_expansion);
   if (gov.expansion) inspectorRow(panel, "Экспансия", gov.expansion);
   if (gov.last_decision) inspectorRow(panel, "Решение главы", gov.last_decision);
 }
@@ -450,6 +451,7 @@ function renderInspector() {
 }
 
 const facilityNames = {
+  cargo_warehouse:"Грузовой склад", smelter:"Плавильня", repair_dock:"Ремонтный док", observation_station:"Станция наблюдения",
   "pirate-station":"Пиратская база",
   construction_site:"Строительная площадка",
   station:"Станция", mining_rig:"Добыча", farm:"Ферма",
@@ -487,6 +489,8 @@ const eventNames = {
   patrol_maintenance: "Обслуживание патруля",
   pirate_smelting: "Переработаны трофеи",
   raider_repaired: "Рейдер отремонтирован",
+  building_approved: "Утверждено строительство",
+  building_completed: "Объект введён в строй",
   mars_dispatched: "Начато освоение Марса",
   mars_completed: "Аванпост Марса построен",
   combat_hit: "Обмен огнём",

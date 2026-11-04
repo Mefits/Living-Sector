@@ -3,10 +3,11 @@ use crate::conflict::{
     Patrol,
 };
 use crate::construction::{
-    COMMISSION_FUEL, Construction, MARS_METAL, MARS_ORE, MARS_SITE, MarsProject, Project,
-    SHIP_METAL, SITE, YARD_METAL,
+    COMMISSION_FUEL, Construction, MARS_ORE, MARS_SITE, MarsProject, Project, SHIP_METAL,
+    YARD_METAL,
 };
 use crate::governance::Governance;
+use crate::planning::{self, Kind, Program, Site as BuildSite};
 use serde::{Deserialize, Serialize};
 
 pub const SHIPMENT: u32 = 50;
@@ -88,6 +89,12 @@ pub struct Sim {
     #[serde(default)]
     pub mars_route: bool,
     #[serde(default)]
+    pub genesis_program: Program,
+    #[serde(default)]
+    pub pirate_program: Program,
+    #[serde(default)]
+    pub outpost_site: Option<BuildSite>,
+    #[serde(default)]
     route_duration: f64,
     #[serde(default)]
     return_duration: f64,
@@ -135,12 +142,16 @@ impl Default for Sim {
             construction: Construction::default(),
             deposit: SEED_ORE,
             mars_route: false,
+            genesis_program: Program::default(),
+            pirate_program: Program::default(),
+            outpost_site: None,
             route_duration: 0.0,
             return_duration: 0.0,
             return_fuel: 0,
             outbound_plan: (0.0, 0),
             conflict: Conflict {
                 pirate_fuel_stock: 18,
+                pirate_metal: 24,
                 ..Conflict::default()
             },
         }
@@ -168,13 +179,13 @@ impl Sim {
             && self.station_fuel <= 200
             && self.belt_fuel <= 200
             && self.station_ore <= 5_000
-            && self.metal <= METAL_CAPACITY
+            && self.metal <= self.metal_capacity()
             && (0.0..MINE_INTERVAL).contains(&self.mining_elapsed)
             && (0.0..SMELT_INTERVAL).contains(&self.smelting_elapsed)
             && (!self.batch_active()
                 || (self.station_ore >= 10
                     && self.station_fuel > 0
-                    && self.metal + 8 <= METAL_CAPACITY))
+                    && self.metal + 8 <= self.metal_capacity()))
             && (0.0..QUANTUM).contains(&self.pending)
             && self.conflict.raider_cargo <= 10
             && self.conflict.patrol_fuel <= PATROL_SEED_FUEL
@@ -228,7 +239,8 @@ impl Sim {
     }
 
     fn has_ore_use(&self) -> bool {
-        self.metal + 8 <= METAL_CAPACITY && self.station_fuel > self.governance.leader.reserve()
+        self.metal + 8 <= self.metal_capacity()
+            && self.station_fuel > self.governance.leader.reserve()
     }
 
     pub fn batch_active(&self) -> bool {
@@ -238,7 +250,7 @@ impl Sim {
     pub fn smelting_status(&self) -> &'static str {
         if self.batch_active() {
             "Плавит руду"
-        } else if self.metal + 8 > METAL_CAPACITY {
+        } else if self.metal + 8 > self.metal_capacity() {
             "Склад металла заполнен"
         } else if self.station_fuel == 0 {
             "Ждёт топливо"
@@ -287,6 +299,7 @@ impl Sim {
             self.construct(&mut events);
             self.run_conflict(&mut events);
             self.expand(&mut events);
+            self.plan_builds(&mut events);
         }
         events
     }
@@ -360,7 +373,13 @@ impl Sim {
                 ));
             }
             self.smelting_elapsed += QUANTUM;
-            if self.smelting_elapsed >= SMELT_INTERVAL {
+            if self.smelting_elapsed
+                >= if self.genesis_program.has(Kind::Smelter) {
+                    3.5
+                } else {
+                    SMELT_INTERVAL
+                }
+            {
                 self.smelting_elapsed = 0.0;
                 self.station_ore -= 10;
                 self.station_fuel -= 1;
@@ -551,62 +570,28 @@ impl Sim {
             _ => unreachable!(),
         };
     }
-    pub fn mars_status(&self) -> &'static str {
-        match self.construction.mars {
-            MarsProject::Proposed if self.construction.phase != Project::Complete => {
-                "Марс: ждёт завершения программы верфи"
-            }
-            MarsProject::Proposed if self.metal < MARS_METAL => "Марс: ждёт 32 металла",
-            MarsProject::Proposed => "Марс: ждёт строителя или топливо",
-            MarsProject::Positioning => "Марс: строитель летит за материалами",
-            MarsProject::Hauling => "Марс: материалы в пути",
-            MarsProject::Building => "Марс: монтаж аванпоста",
-            MarsProject::Returning | MarsProject::Ready => "Марс: аванпост введён в строй",
+    pub fn metal_capacity(&self) -> u32 {
+        if self.genesis_program.has(Kind::Warehouse) {
+            140
+        } else {
+            METAL_CAPACITY
         }
     }
 
+    pub fn mars_status(&self) -> &str {
+        self.genesis_program
+            .decision
+            .as_deref()
+            .unwrap_or("Администраторы оценивают потребности")
+    }
+
+    // Finish any project that was already in transit in a pre-catalogue save.
     fn expand(&mut self, events: &mut Vec<Event>) {
-        match self.construction.mars {
-            MarsProject::Proposed => {
-                if self.construction.phase != Project::Complete
-                    || self.metal < MARS_METAL
-                    || matches!(self.conflict.patrol, Patrol::Delivering | Patrol::Building)
-                {
-                    return;
-                }
-                let (positioning, extra) = if self.conflict.patrol == Patrol::Ready {
-                    leg(self, SITE, EARTH)
-                } else {
-                    (0.0, 0)
-                };
-                let (duration, fuel) = leg(self, EARTH, MARS_SITE);
-                let (back, reserve) = leg(self, MARS_SITE, EARTH);
-                if self.station_fuel < self.governance.leader.reserve() + fuel + reserve + extra + 1
-                {
-                    return;
-                }
-                self.metal -= MARS_METAL;
-                self.station_fuel -= fuel + reserve + extra;
-                self.construction.mars = if extra > 0 {
-                    MarsProject::Positioning
-                } else {
-                    MarsProject::Hauling
-                };
-                self.construction.mars_duration = if extra > 0 { positioning } else { duration };
-                self.construction.mars_outbound = duration;
-                self.construction.mars_return = back;
-                events.push(event(
-                    "mars_dispatched",
-                    "metals",
-                    EARTH,
-                    MARS_METAL,
-                    self.metal,
-                    Some("Строитель-001"),
-                ));
-                return;
-            }
-            MarsProject::Ready => return,
-            _ => {}
+        if matches!(
+            self.construction.mars,
+            MarsProject::Proposed | MarsProject::Ready
+        ) {
+            return;
         }
         self.construction.mars_elapsed += QUANTUM;
         if self.construction.mars_elapsed < self.construction.mars_duration {
@@ -634,6 +619,132 @@ impl Sim {
             MarsProject::Returning => MarsProject::Ready,
             _ => unreachable!(),
         };
+    }
+
+    fn plan_builds(&mut self, events: &mut Vec<Event>) {
+        if let Some(choice) = self.genesis_program.advance(QUANTUM) {
+            if choice.kind == Kind::Yard && self.construction.phase == Project::WaitingMaterials {
+                self.construction.phase = Project::WaitingShip;
+            }
+            if choice.kind == Kind::Mine {
+                self.construction.mars = MarsProject::Ready;
+                self.outpost_site = Some(choice.site);
+            }
+            events.push(decision(
+                "building_completed",
+                "Строитель Genesis",
+                format!(
+                    "{} введён в строй. Площадка: {}.",
+                    choice.kind.spec().name,
+                    choice.site.label()
+                ),
+            ));
+        }
+        if let Some(choice) = self.pirate_program.advance(QUANTUM) {
+            events.push(decision(
+                "building_completed",
+                "Пиратский строитель",
+                format!(
+                    "{} введён в строй. Площадка: {}.",
+                    choice.kind.spec().name,
+                    choice.site.label()
+                ),
+            ));
+        }
+        if !self.tick.is_multiple_of(4) || self.pending >= QUANTUM {
+            return;
+        }
+        let legacy_mars = self.construction.mars;
+        let free = matches!(
+            self.construction.phase,
+            Project::Complete | Project::WaitingMaterials
+        ) && matches!(legacy_mars, MarsProject::Proposed | MarsProject::Ready)
+            && !matches!(self.conflict.patrol, Patrol::Delivering | Patrol::Building);
+        if free && self.genesis_program.active.is_none() {
+            let need = |kind, site| match kind {
+                Kind::Yard
+                    if site == BuildSite::Earth
+                        && self.construction.phase == Project::WaitingMaterials
+                        && self.deposit < SEED_ORE - SHIPMENT
+                        && self.station_ore < 30 =>
+                {
+                    22.0
+                }
+                Kind::Mine if legacy_mars == MarsProject::Proposed => {
+                    let pressure = self.conflict.lost_ore.min(60) as f64 * 0.8
+                        + if self.deposit < 140 { 26.0 } else { 0.0 };
+                    if site == BuildSite::Belt {
+                        pressure * 0.6
+                    } else {
+                        pressure
+                    }
+                }
+                Kind::Warehouse
+                    if site == BuildSite::Earth
+                        && self.metal + 8 > self.metal_capacity()
+                        && self.station_ore >= 10 =>
+                {
+                    14.0
+                }
+                Kind::Smelter
+                    if site == BuildSite::Earth
+                        && self.station_ore >= 40
+                        && self.metal + 16 < self.metal_capacity() =>
+                {
+                    14.0
+                }
+                Kind::Repair if site == BuildSite::Earth && self.conflict.patrol_damage >= 18 => {
+                    20.0
+                }
+                Kind::Observation
+                    if site == BuildSite::Earth && self.conflict.heightened_alert() =>
+                {
+                    12.0
+                }
+                _ => 0.0,
+            };
+            let work = planning::choose(
+                &self.genesis_program,
+                self.metal,
+                self.station_fuel.saturating_sub(
+                    self.governance.leader.reserve() + u32::from(self.batch_active()),
+                ),
+                need,
+                |site| crate::view::build_distance(self, false, site),
+            );
+            if let Some(work) = work {
+                self.metal -= work.choice.kind.spec().metal;
+                self.station_fuel -= work.fuel;
+                approve(&mut self.genesis_program, work, "Genesis", events);
+            }
+        }
+        if self.conflict.base_progress >= 40.0 && self.pirate_program.active.is_none() {
+            let need = |kind, site| {
+                if !matches!(site, BuildSite::Jupiter | BuildSite::Outer) {
+                    return 0.0;
+                }
+                match kind {
+                    Kind::Yard if self.conflict.raider_destroyed => 27.0,
+                    Kind::Repair if self.conflict.raider_damaged => 18.0,
+                    Kind::Observation if self.conflict.intercepted_raids > 0 => 12.0,
+                    Kind::Smelter if self.conflict.pirate_loot >= 20 => 15.0,
+                    Kind::Warehouse if self.conflict.pirate_loot >= 20 => 14.0,
+                    _ => 0.0,
+                }
+            };
+            let work = planning::choose(
+                &self.pirate_program,
+                self.conflict.pirate_metal,
+                self.conflict.pirate_fuel_stock.saturating_sub(2),
+                need,
+                |site| crate::view::build_distance(self, true, site),
+            );
+            if let Some(work) = work {
+                self.conflict.pirate_metal -= work.choice.kind.spec().metal;
+                self.conflict.pirate_fuel_stock -= work.fuel;
+                approve(&mut self.pirate_program, work, "Пираты", events);
+            }
+        }
     }
 
     fn run_conflict(&mut self, events: &mut Vec<Event>) {
@@ -684,7 +795,9 @@ impl Sim {
             }
         }
         if war.base_progress >= 40.0 && war.raider_return == 0.0 && war.raid_elapsed == 0.0 {
-            if (war.raider_damaged || war.raider_destroyed)
+            if (war.raider_damaged
+                || war.raider_destroyed
+                || self.pirate_program.has(Kind::Smelter))
                 && war.pirate_metal < if war.raider_destroyed { 8 } else { 2 }
                 && war.pirate_loot >= 10
                 && war.pirate_fuel_stock >= 1
@@ -702,7 +815,10 @@ impl Sim {
                 ));
             }
             if war.raider_destroyed {
-                if war.rebuild_elapsed == 0.0 && war.pirate_metal >= 8 && war.pirate_fuel_stock >= 2
+                if self.pirate_program.has(Kind::Yard)
+                    && war.rebuild_elapsed == 0.0
+                    && war.pirate_metal >= 8
+                    && war.pirate_fuel_stock >= 2
                 {
                     war.pirate_metal -= 8;
                     war.pirate_fuel_stock -= 2;
@@ -729,7 +845,11 @@ impl Sim {
                 }
             }
             if war.raider_damaged && !war.raider_destroyed && war.pirate_metal >= 2 {
-                war.pirate_metal -= 2;
+                war.pirate_metal -= if self.pirate_program.has(Kind::Repair) {
+                    1
+                } else {
+                    2
+                };
                 war.raider_damaged = false;
                 war.raider_damage = 0;
                 events.push(decision(
@@ -755,6 +875,12 @@ impl Sim {
                 && self.elapsed == 0.0
                 && self.cargo >= 10
                 && !self.mars_route
+                && war.pirate_loot
+                    < if self.pirate_program.has(Kind::Warehouse) {
+                        60
+                    } else {
+                        20
+                    }
                 && !war.raider_destroyed
                 && !war.raider_damaged
                 && war.raider_fuel >= raid_cost
@@ -769,7 +895,15 @@ impl Sim {
         if war.raid_elapsed > 0.0 {
             war.raid_elapsed += QUANTUM;
             let approach = war.approach_duration();
-            if war.raid_elapsed >= approach * 0.48
+            if war.raid_elapsed
+                >= approach
+                    * if self.genesis_program.has(Kind::Observation) {
+                        0.35
+                    } else if self.pirate_program.has(Kind::Observation) {
+                        0.57
+                    } else {
+                        0.48
+                    }
                 && war.near_intercept()
                 && war.patrol == Patrol::Ready
             {
@@ -846,6 +980,7 @@ impl Sim {
         match war.patrol {
             Patrol::None
                 if threat_seen
+                    && self.genesis_program.active.is_none()
                     && matches!(
                         self.construction.mars,
                         MarsProject::Proposed | MarsProject::Ready
@@ -980,18 +1115,7 @@ impl Sim {
 
     fn construct(&mut self, events: &mut Vec<Event>) {
         match self.construction.phase {
-            Project::WaitingMaterials => {
-                if self.metal >= YARD_METAL + SHIP_METAL {
-                    self.metal -= YARD_METAL + SHIP_METAL;
-                    self.construction.phase = Project::Hauling;
-                    events.push(decision(
-                        "yard_dispatched",
-                        "Строитель-001",
-                        format!("Загрузил металл со станции Земли: {YARD_METAL} для верфи и {SHIP_METAL} для корпуса."),
-                    ));
-                }
-                return;
-            }
+            Project::WaitingMaterials => return,
             Project::WaitingShip => {
                 self.construction.parked_fuel = COMMISSION_FUEL;
                 self.construction.phase = Project::BuildingShip;
@@ -1053,6 +1177,36 @@ impl Sim {
             _ => unreachable!(),
         };
     }
+}
+
+fn approve(
+    program: &mut Program,
+    work: planning::Work,
+    faction: &'static str,
+    events: &mut Vec<Event>,
+) {
+    let spec = work.choice.kind.spec();
+    let reason = match work.choice.kind {
+        Kind::Mine => "риск поставок или истощение действующей залежи",
+        Kind::Warehouse => "не хватает складской ёмкости",
+        Kind::Smelter => "накапливается необработанная руда",
+        Kind::Repair => "повреждения кораблей",
+        Kind::Observation => "потери на маршруте или сорванные налёты",
+        Kind::Yard if faction == "Пираты" => "нужна замена потерянному корпусу",
+        Kind::Yard => "снабжению нужен резервный грузовик",
+        _ => unreachable!(),
+    };
+    let message = format!(
+        "{} · {} · {}. Выделено {} металла и {} топлива.",
+        spec.name,
+        work.choice.site.label(),
+        reason,
+        spec.metal,
+        work.fuel
+    );
+    program.decision = Some(message.clone());
+    program.active = Some(work);
+    events.push(decision("building_approved", faction, message));
 }
 
 fn leg(sim: &Sim, from: &str, to: &str) -> (f64, u32) {
