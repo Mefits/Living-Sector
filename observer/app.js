@@ -813,6 +813,16 @@ function bodyRadius(body) {
   return body.type === "moon" ? 5 : body.type === "belt" || body.type === "asteroid" ? 8 : 10;
 }
 
+function drawMapSprite(name, x, y, size) {
+  const sprite = byId("map-sprite-" + name);
+  if (!sprite?.complete || !sprite.naturalWidth) return false;
+  const scale = size / Math.max(sprite.naturalWidth, sprite.naturalHeight);
+  const width = sprite.naturalWidth * scale;
+  const height = sprite.naturalHeight * scale;
+  ctx.drawImage(sprite, x - width / 2, y - height / 2, width, height);
+  return true;
+}
+
 function drawBody(body, p, selected = false) {
   const tint = bodyColor(body);
   const belt = body.type === "belt" || body.type === "asteroid";
@@ -824,7 +834,9 @@ function drawBody(body, p, selected = false) {
     ctx.beginPath();
     ctx.ellipse(p.x, p.y, 13, 7, -.4, 0, Math.PI * 2);
     ctx.stroke();
-    for (const [x, y, radius] of [[-6,1,3.2],[2,-3,4],[6,3,2.3],[-2,4,1.3]]) {
+    const rocks = [[-6,1,3.2],[2,-3,4],[6,3,2.3],[-2,4,1.3]];
+    for (const [index, [x, y, radius]] of rocks.entries()) {
+      if (drawMapSprite("rock-" + (index % 3 + 1), p.x+x, p.y+y, radius*2)) continue;
       ctx.fillStyle = tint;
       ctx.beginPath();
       ctx.moveTo(p.x+x-radius, p.y+y-radius*.3);
@@ -834,7 +846,7 @@ function drawBody(body, p, selected = false) {
       ctx.lineTo(p.x+x-radius*.65, p.y+y+radius*.55);
       ctx.fill();
     }
-  } else {
+  } else if (!drawMapSprite("body-" + key(body.id), p.x, p.y, r * 2)) {
     ctx.translate(p.x, p.y);
     ctx.scale(r, r);
     ctx.beginPath();
@@ -888,10 +900,12 @@ function drawFacilityHub(at, kind, selected) {
   const accent = mine ? "#dab27a" : "#8dd0d0";
   ctx.save();
   ctx.translate(at.x, at.y);
+  const hasSprite = (mine || kind === "station") &&
+    drawMapSprite(mine ? "mining-rig" : "station", 0, 0, 14);
   ctx.lineWidth = .85;
   ctx.lineJoin = "round";
   ctx.strokeStyle = "#b0c6ce";
-  if (mine) {
+  if (!hasSprite && mine) {
     ctx.fillStyle = "#554735";
     ctx.beginPath();
     ctx.moveTo(-5, 2); ctx.lineTo(-2, -4); ctx.lineTo(3, -4);
@@ -900,7 +914,7 @@ function drawFacilityHub(at, kind, selected) {
     ctx.fillStyle = accent;
     ctx.fillRect(-.8,-5.5,1.7,6);
     ctx.fillRect(-6,1,2.6,1.6);
-  } else {
+  } else if (!hasSprite) {
     ctx.fillStyle = "#2f5269";
     ctx.fillRect(-6,-3,3,6);
     ctx.fillRect(3,-3,3,6);
@@ -973,7 +987,12 @@ function smoothPosition(ship, target) {
   const oldX=old.x,oldY=old.y;
   old.x+=(target.x-old.x)*0.17;
   old.y+=(target.y-old.y)*0.17;
-  s.shipMotion.set(ship.id,{dx:old.x-oldX,dy:old.y-oldY});
+  const dx = old.x - oldX;
+  const dy = old.y - oldY;
+  const heading = Math.hypot(dx, dy) > 0.0001
+    ? Math.atan2(-dy, dx) + Math.PI / 2
+    : s.shipMotion.get(ship.id)?.heading ?? 0;
+  s.shipMotion.set(ship.id,{dx,dy,heading});
   return old;
 }
 function drawShip(ship,at,color,selected,scale=1) {
@@ -989,29 +1008,33 @@ function drawShip(ship,at,color,selected,scale=1) {
     trail.addColorStop(1,"rgba(112,210,221,0)");
     ctx.strokeStyle=trail;ctx.lineWidth=1.35;ctx.beginPath();
     ctx.moveTo(-unitX*4,-unitY*4);ctx.lineTo(-unitX*16,-unitY*16);ctx.stroke();
-    ctx.rotate(Math.atan2(my,mx)+Math.PI/2);
   }
-  const hull = String(ship.class ?? "").toLowerCase();
-  ctx.beginPath();
-  if (hull === "courier") {
-    ctx.moveTo(0,-5); ctx.lineTo(3.1,3.6);
-    ctx.lineTo(0,2.1); ctx.lineTo(-3.1,3.6);
+  ctx.rotate(move?.heading ?? 0);
+  const hull = key(ship.class);
+  if ((hull === "courier" || hull === "freighter") && drawMapSprite(hull, 0, 0, hull === "courier" ? 10 : 12)) {
+    circle(0, 5.5, 1, color);
   } else {
-    ctx.moveTo(0,-4.5); ctx.lineTo(2.2,-3);
-    ctx.lineTo(3.4,-1); ctx.lineTo(3.4,3.7);
-    ctx.lineTo(-3.4,3.7); ctx.lineTo(-3.4,-1); ctx.lineTo(-2.2,-3);
+    ctx.beginPath();
+    if (hull === "courier") {
+      ctx.moveTo(0,-5); ctx.lineTo(3.1,3.6);
+      ctx.lineTo(0,2.1); ctx.lineTo(-3.1,3.6);
+    } else {
+      ctx.moveTo(0,-4.5); ctx.lineTo(2.2,-3);
+      ctx.lineTo(3.4,-1); ctx.lineTo(3.4,3.7);
+      ctx.lineTo(-3.4,3.7); ctx.lineTo(-3.4,-1); ctx.lineTo(-2.2,-3);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "#70828f";
+    ctx.fill();
+    ctx.lineWidth = .7;
+    ctx.strokeStyle = "#c5d7e3";
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.fillRect(-.9,-2.5,1.8,3.5);
+    ctx.fillStyle = "#b0d2da";
+    ctx.fillRect(-2,2.8,1.1,1.1);
+    ctx.fillRect(.9,2.8,1.1,1.1);
   }
-  ctx.closePath();
-  ctx.fillStyle = "#70828f";
-  ctx.fill();
-  ctx.lineWidth = .7;
-  ctx.strokeStyle = "#c5d7e3";
-  ctx.stroke();
-  ctx.fillStyle = color;
-  ctx.fillRect(-.9,-2.5,1.8,3.5);
-  ctx.fillStyle = "#b0d2da";
-  ctx.fillRect(-2,2.8,1.1,1.1);
-  ctx.fillRect(.9,2.8,1.1,1.1);
   if (selected) { ctx.lineWidth = 1; circle(0,0,7,"#b0eddd",false); }
   ctx.restore();
 }
