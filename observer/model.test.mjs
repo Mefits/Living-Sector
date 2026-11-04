@@ -4,7 +4,7 @@ import {
   buildIndex, ownership, factionColor, positionOf, shortageCount,
   systemAtPosition, approximateShipsNear,
   panForCursorZoom, clusterMarkers, shipSystem,
-  groupFacilitiesByLocation, layoutMapLabels
+  groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub
 } from "./model.js";
 
 const report = {
@@ -144,6 +144,32 @@ test("too many labels never overlap or move actual map markers",()=>{
   const placed=layoutMapLabels(labels,{w:190,h:120},[glyph]);
   assert.ok(placed.length<labels.length);
   assert.deepEqual(labels,before);
+});
+
+test("only explicit transit draws a moving ship, never a docked/parked one",()=>{
+  const inTransit={id:"f",location:null,transit:{from:"earth-station",to:"belt-outpost"},docked:false};
+  const docked={id:"d",location:"earth-station",transit:null,docked:true};
+  const parked={id:"p",location:"earth-station",transit:null,docked:false};
+  const lost={id:"x",location:null,transit:null,docked:false};
+  assert.equal(shipMapState(inTransit),"in_transit");
+  assert.equal(shipMapState(docked),"docked");
+  assert.equal(shipMapState(parked),"at_location");
+  assert.equal(shipMapState(lost),"unknown");
+  assert.equal(shipMapState({docked:true,location:"earth-station",
+    transit:{from:"earth-station",to:"belt-outpost"}}),"in_transit");
+});
+test("station ship list contains real docked/parked ships by exact location only",()=>{
+  const ships=[
+    {id:"d",location:"earth-station",docked:true,transit:null},
+    {id:"p",location:"EARTH-STATION",docked:false,transit:null},
+    {id:"f",location:"earth-station",docked:false,
+      transit:{from:"earth-station",to:"belt-outpost"}},
+    {id:"o",location:"belt-outpost",docked:true,transit:null}
+  ];
+  assert.deepEqual(shipsAtHub(ships,"earth-station").map(s=>s.id),["d","p"]);
+  assert.deepEqual(shipsAtHub(ships,"belt-outpost").map(s=>s.id),["o"]);
+  assert.equal(shipsAtHub(ships,"unknown").length,0);
+  assert.equal(shipsAtHub(ships,"").length,0);
 });
 
 test("UI ids referenced by the code exist in the actual HTML", async () => {
