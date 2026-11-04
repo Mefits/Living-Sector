@@ -51,3 +51,29 @@ test("resource and commodity locations are genuinely separated",()=>{
   assert.ok(earth.prices.ore>belt.prices.ore);
   assert.ok(earth.demand.ore>0);
 });
+
+test("Genesis freighters have system-range communications and a profitable real trade lane",()=>{
+  const freighters=world.ships.filter(s=>s.class==="freighter");
+  assert.equal(freighters.length,2);
+  for(const ship of freighters){
+    assert.equal(ship.fitting.comms,"comms_t2",
+      ship.name+" needs both local market prices to form an autonomous trade route");
+    assert.ok(ship.credits>=10000);
+  }
+  const courier=world.ships.find(s=>s.class==="courier");
+  assert.ok(courier);
+  assert.equal(courier.fitting?.comms??"comms_t1","comms_t1",
+    "Genesis keeps a meaningful progression path for the courier");
+  const earth=world.markets.find(m=>m.facility_id==="earth-station");
+  const belt=world.markets.find(m=>m.facility_id==="belt-outpost");
+  assert.ok(earth&&belt);
+  assert.ok(earth.prices.food<belt.prices.food,
+    "Earth can supply actual provisions to the belt");
+  assert.ok(belt.prices.ore<earth.prices.ore,
+    "Belt has an attractive ore delivery to Earth");
+  assert.ok(earth.supply.food>=50);
+  assert.ok(belt.supply.ore>=50);
+  assert.ok(world.travel_routes.some(r=>
+    (r.from==="earth-station"&&r.to==="belt-outpost") ||
+    (r.from==="belt-outpost"&&r.to==="earth-station")));
+});
