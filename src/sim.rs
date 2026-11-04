@@ -8,6 +8,7 @@ use crate::construction::{
 };
 use crate::freight::{Assignment, Commodity, Fleet, Leg, Ship};
 use crate::governance::Governance;
+use crate::industry::{Batch, Deposit, Industry, Operation, Plant};
 use crate::legacy_freight::{FreightPhase, Freighter};
 use crate::planning::{self, Kind, Program, Site as BuildSite};
 use serde::{Deserialize, Serialize};
@@ -20,9 +21,7 @@ pub const EARTH: &str = "earth-station";
 pub const SHIP: &str = "Грузовой-001";
 const FLIGHT_FUEL: u32 = 8;
 const FUEL_SHIPMENT: u32 = 24;
-const MINE_INTERVAL: f64 = 2.0;
 const BELT_CAPACITY: u32 = 100;
-const SMELT_INTERVAL: f64 = 5.0;
 pub const METAL_CAPACITY: u32 = 80;
 const SEED_ORE: u32 = 500;
 
@@ -59,8 +58,12 @@ pub struct Sim {
     pub fleet: Fleet,
     #[serde(default)]
     pub warehouses: BTreeMap<String, Warehouse>,
-    pub belt_ore: u32,
-    pub station_ore: u32,
+    #[serde(default)]
+    pub industry: Industry,
+    #[serde(default, skip_serializing)]
+    belt_ore: u32,
+    #[serde(default, skip_serializing)]
+    station_ore: u32,
     #[serde(default, skip_serializing)]
     pub cargo: u32,
     #[serde(default, skip_serializing)]
@@ -69,13 +72,15 @@ pub struct Sim {
     fuel_order: bool,
     #[serde(default, skip_serializing)]
     pub fuel: u32,
-    pub belt_fuel: u32,
-    pub station_fuel: u32,
-    #[serde(default)]
-    pub metal: u32,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
+    belt_fuel: u32,
+    #[serde(default, skip_serializing)]
+    station_fuel: u32,
+    #[serde(default, skip_serializing)]
+    metal: u32,
+    #[serde(default, skip_serializing)]
     mining_elapsed: f64,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     smelting_elapsed: f64,
     #[serde(default)]
     pending: f64,
@@ -85,8 +90,8 @@ pub struct Sim {
     pub construction: Construction,
     #[serde(default, skip_serializing)]
     pub second_freighter: Option<Freighter>,
-    #[serde(default = "seed_ore")]
-    pub deposit: u32,
+    #[serde(default = "seed_ore", skip_serializing)]
+    deposit: u32,
     #[serde(default)]
     pub conflict: Conflict,
     #[serde(default, skip_serializing)]
@@ -111,6 +116,8 @@ pub struct Warehouse {
     pub capacity: u32,
     #[serde(default)]
     pub stock: HashMap<Commodity, u32>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub limits: HashMap<Commodity, u32>,
 }
 
 #[derive(Clone, Serialize)]
@@ -125,6 +132,8 @@ pub struct Event {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub actor: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    facility: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
 
@@ -137,6 +146,7 @@ impl Default for Sim {
             tick: 0,
             fleet: Fleet::default(),
             warehouses: BTreeMap::new(),
+            industry: Industry::default(),
             belt_ore: 0,
             station_ore: 0,
             cargo: 0,
@@ -190,19 +200,11 @@ impl Sim {
                 .orders
                 .values()
                 .all(|order| self.available_location(&order.destination))
-            && self.warehouses.values().all(|stock| {
-                stock.x.is_finite()
-                    && stock.y.is_finite()
-                    && stock.stock.values().map(|&q| u64::from(q)).sum::<u64>()
-                        <= u64::from(stock.capacity)
-            })
-            && self.metal <= self.metal_capacity()
-            && self.station_fuel <= 200
-            && self.belt_fuel <= 200
-            && self.deposit <= SEED_ORE
-            && self.construction.mars_extracted <= MARS_ORE
-            && self.construction.mars_ore <= SHIPMENT
-            && self.belt_ore <= BELT_CAPACITY
+            && [EARTH, BELT]
+                .iter()
+                .all(|id| self.warehouses.contains_key(*id))
+            && self.warehouses.values().all(Warehouse::valid)
+            && self.industry.valid(self)
     }
 
     pub fn delivery_active(&self) -> bool {
@@ -219,65 +221,48 @@ impl Sim {
         }
     }
 
-    fn has_ore_use(&self) -> bool {
-        self.metal + 8 <= self.metal_capacity()
-            && self.station_fuel > self.governance.leader.reserve()
+    pub fn station_ore(&self) -> u32 {
+        self.stock(EARTH, Commodity::Ore)
     }
-
-    pub fn smelting_cycle(&self) -> (f64, f64) {
-        let duration = if self.genesis_program.has(Kind::Smelter) {
-            3.5
-        } else {
-            SMELT_INTERVAL
-        };
-        (self.smelting_elapsed, duration)
+    pub fn station_fuel(&self) -> u32 {
+        self.stock(EARTH, Commodity::Fuel)
     }
-
-    pub fn mining_cycle(&self, source: &str) -> (f64, &'static str) {
-        let mars = source == MARS_SITE;
-        let (stock, deposit) = if mars {
-            (
-                self.construction.mars_ore,
-                MARS_ORE - self.construction.mars_extracted,
-            )
-        } else {
-            (self.belt_ore, self.deposit)
-        };
-        if stock >= SHIPMENT {
-            (0.0, "Партия готова к погрузке")
-        } else if deposit == 0 {
-            (0.0, "Залежь исчерпана")
-        } else if self.governance.ore_requested && self.prefer_mars() == mars {
-            (self.mining_elapsed / MINE_INTERVAL, "Добывает руду")
-        } else {
-            (0.0, "Ждёт заявку снабженца")
-        }
+    pub fn belt_ore(&self) -> u32 {
+        self.stock(BELT, Commodity::Ore)
+    }
+    pub fn belt_fuel(&self) -> u32 {
+        self.stock(BELT, Commodity::Fuel)
+    }
+    pub fn metal(&self) -> u32 {
+        self.stock(EARTH, Commodity::Metals)
+    }
+    pub fn deposit(&self) -> u32 {
+        self.deposit_remaining(BELT)
+    }
+    pub fn deposit_remaining(&self, id: &str) -> u32 {
+        self.industry
+            .deposits
+            .get(id)
+            .map_or(0, |deposit| deposit.remaining)
     }
 
     pub fn batch_active(&self) -> bool {
-        self.smelting_elapsed > 0.0
+        self.industry
+            .plants
+            .get(EARTH)
+            .is_some_and(|plant| plant.batch.is_some())
     }
 
     pub fn smelting_status(&self) -> &'static str {
-        if self.batch_active() {
-            "Плавит руду"
-        } else if self.metal + 8 > self.metal_capacity() {
-            "Склад металла заполнен"
-        } else if self.station_fuel == 0 {
-            "Ждёт топливо"
-        } else if self.station_fuel <= self.governance.fuel_floor() {
-            "Топливо зарезервировано политикой"
-        } else if self.station_fuel <= self.governance.leader.reserve() {
-            "Глава пересматривает курс"
-        } else if self.station_ore < 10 {
-            "Ждёт руду"
-        } else {
-            "Готовит плавку"
-        }
+        self.industry
+            .plants
+            .get(EARTH)
+            .map_or("Плавильня отсутствует", |plant| {
+                plant.status(self)
+            })
     }
 
     pub fn step(&mut self, delta: f64) -> Vec<Event> {
-        self.migrate_fleet();
         self.tick += 1;
         self.pending += delta;
         let mut events = Vec::new();
@@ -293,67 +278,98 @@ impl Sim {
             self.run_conflict(&mut events);
             self.expand(&mut events);
             self.plan_builds(&mut events);
+            self.sync_industry();
         }
         events
     }
 
     fn plan(&mut self, events: &mut Vec<Event>) {
-        if let Some(reason) = self.governance.review(self.station_fuel, QUANTUM) {
+        let fuel = self.station_fuel();
+        if let Some(reason) = self.governance.review(fuel, QUANTUM) {
             events.push(decision("policy_changed", "Глава фракции", reason));
         }
-        let ore = self
-            .station_ore
-            .saturating_sub(10 * u32::from(self.batch_active()));
-        if ore < self.governance.policy.ore_target() {
-            self.fleet.request(EARTH, Commodity::Ore, SHIPMENT, 10);
-        }
-        if self.station_fuel <= self.governance.leader.reserve() + 16 {
+        if fuel <= self.governance.leader.reserve() + 16 {
             self.fleet
                 .request(EARTH, Commodity::Fuel, FUEL_SHIPMENT, 20);
         }
-        self.governance.ore_requested = self
-            .fleet
-            .orders
-            .values()
-            .any(|order| order.destination == EARTH && order.resource == Commodity::Ore);
     }
 
-    pub fn refuel_supply(&self, id: &str) -> u32 {
-        let reserve = if id == EARTH {
-            self.governance.leader.reserve() + u32::from(self.batch_active())
+    fn safety_stock(&self, id: &str, resource: Commodity) -> u32 {
+        if id == EARTH && resource == Commodity::Fuel {
+            self.governance.leader.reserve()
         } else {
             0
-        };
-        self.stock(id, Commodity::Fuel).saturating_sub(reserve)
-    }
-
-    pub fn freight_supply(&self, id: &str, resource: Commodity) -> u32 {
-        match (id, resource) {
-            (_, Commodity::Fuel) => self.refuel_supply(id),
-            (EARTH, Commodity::Ore) => self.station_ore.saturating_sub(
-                self.governance.policy.ore_target() + 10 * u32::from(self.batch_active()),
-            ),
-            _ => self.stock(id, resource),
         }
     }
 
-    pub fn accumulating_ore(&self, id: &str) -> bool {
-        self.governance.ore_requested
-            && if self.prefer_mars() {
-                id == MARS_SITE && self.construction.mars_extracted < MARS_ORE
-            } else {
-                id == BELT && self.deposit > 0
-            }
+    pub fn production_supply(&self, id: &str, resource: Commodity) -> u32 {
+        self.stock(id, resource).saturating_sub(
+            self.safety_stock(id, resource)
+                .saturating_add(self.fleet.reserved(id, resource)),
+        )
+    }
+
+    pub fn refuel_supply(&self, id: &str) -> u32 {
+        self.freight_supply(id, Commodity::Fuel)
+    }
+
+    pub fn freight_supply(&self, id: &str, resource: Commodity) -> u32 {
+        let local_inputs = self
+            .industry
+            .plants
+            .values()
+            .filter(|plant| plant.location == id)
+            .filter_map(Plant::recipe)
+            .flat_map(|recipe| recipe.inputs)
+            .filter(|&&(item, _)| item == resource)
+            .map(|&(_, amount)| self.restock_trigger(id, resource, amount))
+            .fold(0u32, u32::saturating_add);
+        self.stock(id, resource)
+            .saturating_sub(self.safety_stock(id, resource).saturating_add(local_inputs))
+    }
+
+    fn restock_trigger(&self, id: &str, resource: Commodity, batch: u32) -> u32 {
+        if id == EARTH && resource == Commodity::Ore {
+            self.governance.policy.ore_target().max(batch)
+        } else {
+            batch.saturating_mul(2)
+        }
+    }
+
+    pub fn wants_output(&self, id: &str, resource: Commodity) -> bool {
+        self.fleet.orders.values().any(|order| {
+            order.resource == resource
+                && order.destination != id
+                && order.remaining > self.fleet.incoming(&order.destination, resource)
+        })
+    }
+
+    pub fn extractable(&self, id: &str, resource: Commodity) -> u32 {
+        self.industry
+            .plants
+            .values()
+            .filter(|plant| plant.location == id)
+            .filter_map(|plant| {
+                let Operation::Extract { deposit, .. } = &plant.operation else {
+                    return None;
+                };
+                let deposit = &self.industry.deposits[deposit];
+                if deposit.resource != resource {
+                    return None;
+                }
+                let work = plant.batch.as_ref().map_or(0, |batch| batch.output[0].1);
+                Some(deposit.remaining.saturating_add(work))
+            })
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn locations(&self) -> impl Iterator<Item = &str> {
-        [EARTH, BELT, MARS_SITE]
-            .into_iter()
-            .chain(self.warehouses.keys().map(String::as_str))
+        self.warehouses.keys().map(String::as_str)
     }
 
     pub fn available_location(&self, id: &str) -> bool {
-        matches!(id, EARTH | BELT | SITE)
+        id == SITE
             || (id == MARS_SITE && self.construction.mars != MarsProject::Proposed)
             || self.warehouses.contains_key(id)
     }
@@ -367,67 +383,65 @@ impl Sim {
     }
 
     pub fn stock(&self, id: &str, resource: Commodity) -> u32 {
-        match (id, resource) {
-            (EARTH, Commodity::Ore) => self.station_ore,
-            (EARTH, Commodity::Fuel) => self.station_fuel,
-            (EARTH, Commodity::Metals) => self.metal,
-            (BELT, Commodity::Ore) => self.belt_ore,
-            (BELT, Commodity::Fuel) => self.belt_fuel,
-            (MARS_SITE, Commodity::Ore) => self.construction.mars_ore,
-            _ => self
-                .warehouses
-                .get(id)
-                .and_then(|warehouse| warehouse.stock.get(&resource))
-                .copied()
-                .unwrap_or(0),
-        }
+        self.warehouses
+            .get(id)
+            .and_then(|warehouse| warehouse.stock.get(&resource))
+            .copied()
+            .unwrap_or(0)
     }
 
     pub fn room(&self, id: &str, resource: Commodity) -> u32 {
-        if let Some(stock) = self.warehouses.get(id) {
-            return stock
-                .capacity
-                .saturating_sub(stock.stock.values().copied().sum());
-        }
-        let capacity: u32 = match (id, resource) {
-            (EARTH, Commodity::Ore) => 5000,
-            (EARTH, Commodity::Fuel) | (BELT, Commodity::Fuel) => 200,
-            (EARTH, Commodity::Metals) => self.metal_capacity(),
-            (BELT, Commodity::Ore) => 100,
-            (MARS_SITE, Commodity::Ore) => SHIPMENT,
-            _ => 0,
-        };
-        capacity.saturating_sub(self.stock(id, resource))
+        self.warehouses
+            .get(id)
+            .map_or(0, |warehouse| warehouse.room(resource))
     }
 
-    fn stock_mut(&mut self, id: &str, resource: Commodity) -> Option<&mut u32> {
-        match (id, resource) {
-            (EARTH, Commodity::Ore) => Some(&mut self.station_ore),
-            (EARTH, Commodity::Fuel) => Some(&mut self.station_fuel),
-            (EARTH, Commodity::Metals) => Some(&mut self.metal),
-            (BELT, Commodity::Ore) => Some(&mut self.belt_ore),
-            (BELT, Commodity::Fuel) => Some(&mut self.belt_fuel),
-            (MARS_SITE, Commodity::Ore) => Some(&mut self.construction.mars_ore),
-            _ => self
-                .warehouses
-                .get_mut(id)
-                .map(|warehouse| warehouse.stock.entry(resource).or_default()),
-        }
+    pub fn can_store_after(
+        &self,
+        id: &str,
+        output: &[(Commodity, u32)],
+        consumed: &[(Commodity, u32)],
+    ) -> bool {
+        self.warehouses.get(id).is_some_and(|warehouse| {
+            let mut planned = HashMap::<Commodity, u64>::new();
+            for &(resource, quantity) in output {
+                *planned.entry(resource).or_default() += u64::from(quantity);
+            }
+            if warehouse.limits.is_empty() {
+                let released = consumed
+                    .iter()
+                    .map(|&(item, amount)| amount.min(warehouse.quantity(item)) as u64)
+                    .sum::<u64>();
+                planned.values().sum::<u64>()
+                    <= u64::from(warehouse.capacity.saturating_sub(warehouse.used())) + released
+            } else {
+                planned.iter().all(|(&resource, &quantity)| {
+                    let released = consumed
+                        .iter()
+                        .filter(|&&(item, _)| item == resource)
+                        .map(|&(_, amount)| amount.min(warehouse.quantity(resource)) as u64)
+                        .sum::<u64>();
+                    quantity <= u64::from(warehouse.room(resource)) + released
+                })
+            }
+        })
     }
 
     pub fn withdraw(&mut self, id: &str, resource: Commodity, quantity: u32) -> bool {
-        self.stock_mut(id, resource).is_some_and(|stock| {
-            if *stock < quantity {
-                return false;
-            }
-            *stock -= quantity;
-            true
-        })
+        self.warehouses
+            .get_mut(id)
+            .is_some_and(|warehouse| warehouse.withdraw(resource, quantity))
     }
 
     pub fn deposit_cargo(&mut self, id: &str, resource: Commodity, quantity: u32) {
         if quantity > 0 {
-            *self.stock_mut(id, resource).expect("validated destination") += quantity;
+            *self
+                .warehouses
+                .get_mut(id)
+                .expect("validated destination")
+                .stock
+                .entry(resource)
+                .or_default() += quantity;
         }
     }
 
@@ -457,73 +471,244 @@ impl Sim {
         entry
     }
 
-    fn prefer_mars(&self) -> bool {
-        self.construction.mars == MarsProject::Ready
-            && self.construction.mars_extracted < MARS_ORE
-            && (self.conflict.lost_ore > 0
-                || self.deposit < SHIPMENT
-                || crate::view::route_distance(self, MARS_SITE, EARTH)
-                    < crate::view::route_distance(self, BELT, EARTH))
-    }
-
     fn run_facilities(&mut self, events: &mut Vec<Event>) {
-        if self.governance.ore_requested {
-            let mars = self.prefer_mars();
-            self.mining_elapsed += QUANTUM;
-            if self.mining_elapsed >= MINE_INTERVAL {
-                self.mining_elapsed = 0.0;
-                let (stock, quantity, location) = if mars {
-                    let quantity = 10
-                        .min(SHIPMENT.saturating_sub(self.construction.mars_ore))
-                        .min(MARS_ORE - self.construction.mars_extracted);
-                    self.construction.mars_extracted += quantity;
-                    (&mut self.construction.mars_ore, quantity, MARS_SITE)
-                } else {
-                    let quantity = 10
-                        .min(SHIPMENT.saturating_sub(self.belt_ore))
-                        .min(self.deposit);
-                    self.deposit -= quantity;
-                    (&mut self.belt_ore, quantity, BELT)
-                };
-                *stock += quantity;
-                if quantity > 0 {
-                    events.push(event(
-                        "ore_extracted",
-                        "ore",
-                        location,
-                        quantity,
-                        *stock,
-                        None,
-                    ));
+        let ids: Vec<_> = self.industry.plants.keys().cloned().collect();
+        for id in ids {
+            let location = self.industry.plants[&id].location.clone();
+            if let Some(batch) = self.industry.plants.get_mut(&id).unwrap().batch.as_mut() {
+                batch.remaining = batch.remaining.saturating_sub(1);
+                if batch.remaining == 0
+                    && self.can_store_after(
+                        &location,
+                        &self.industry.plants[&id].batch.as_ref().unwrap().output,
+                        &[],
+                    )
+                {
+                    let plant = self.industry.plants.get_mut(&id).unwrap();
+                    let batch = plant.batch.take().unwrap();
+                    let extraction = matches!(plant.operation, Operation::Extract { .. });
+                    for (resource, quantity) in batch.output {
+                        self.deposit_cargo(&location, resource, quantity);
+                        let kind = match (extraction, resource) {
+                            (true, Commodity::Ore) => "ore_extracted",
+                            (true, _) => "resource_extracted",
+                            (false, Commodity::Metals) => "metal_smelted",
+                            (false, _) => "production_completed",
+                        };
+                        let mut entry = event(
+                            kind,
+                            resource.as_str(),
+                            EARTH,
+                            quantity,
+                            self.stock(&location, resource),
+                            None,
+                        );
+                        entry.location = location.clone();
+                        entry.facility = Some(id.clone());
+                        events.push(entry);
+                    }
+                }
+                continue;
+            }
+            if let Some(recipe) = self.industry.plants[&id].recipe() {
+                if self.can_store_after(&location, recipe.outputs, recipe.inputs) {
+                    for &(resource, amount) in recipe.inputs {
+                        let on_hand = self.production_supply(&location, resource);
+                        let trigger = self.restock_trigger(&location, resource, amount);
+                        if on_hand < trigger {
+                            let target = if location == EARTH && resource == Commodity::Ore {
+                                SHIPMENT
+                            } else {
+                                trigger.saturating_mul(2)
+                            };
+                            let quantity = target
+                                .saturating_sub(on_hand)
+                                .min(self.room(&location, resource));
+                            if quantity > 0 {
+                                self.fleet.request(&location, resource, quantity, 10);
+                            }
+                        }
+                    }
                 }
             }
+            self.start_batch(&id, false);
         }
-        if self.batch_active() || (self.has_ore_use() && self.station_ore >= 10) {
-            if !self.batch_active() {
-                events.push(decision(
-                    "smelt_started",
-                    "Промышленник",
-                    "Под партию выделены 10 руды и 1 топливо.".into(),
-                ));
+    }
+
+    fn start_batch(&mut self, id: &str, importing: bool) {
+        let plant = &self.industry.plants[id];
+        let duration = plant.period;
+        let location = plant.location.clone();
+        let output = match &plant.operation {
+            Operation::Extract { deposit, amount } => {
+                if !importing
+                    && !self.wants_output(&location, self.industry.deposits[deposit].resource)
+                {
+                    return;
+                }
+                let key = deposit.clone();
+                let source = &self.industry.deposits[&key];
+                let resource = source.resource;
+                let quantity = (*amount)
+                    .min(source.remaining)
+                    .min(self.room(&location, resource));
+                if quantity == 0 {
+                    return;
+                }
+                self.industry.deposits.get_mut(&key).unwrap().remaining -= quantity;
+                vec![(resource, quantity)]
             }
-            self.smelting_elapsed += QUANTUM;
-            if self.smelting_elapsed >= self.smelting_cycle().1 {
-                self.smelting_elapsed = 0.0;
-                self.station_ore -= 10;
-                self.station_fuel -= 1;
-                self.metal += 8;
-                let mut completed = event("metal_smelted", "metals", EARTH, 8, self.metal, None);
-                completed.actor = Some("Промышленник");
-                events.push(completed);
+            Operation::Process { .. } => {
+                let recipe = plant.recipe().expect("validated recipe");
+                if !importing && !self.can_store_after(&location, recipe.outputs, recipe.inputs) {
+                    return;
+                }
+                if recipe.inputs.iter().any(|&(resource, amount)| {
+                    let stock = if importing {
+                        self.stock(&location, resource)
+                    } else {
+                        self.production_supply(&location, resource)
+                    };
+                    stock < amount
+                }) {
+                    return;
+                }
+                for &(resource, amount) in recipe.inputs {
+                    assert!(self.withdraw(&location, resource, amount));
+                }
+                recipe.outputs.to_vec()
             }
-        }
+        };
+        self.industry.plants.get_mut(id).unwrap().batch = Some(Batch {
+            remaining: duration,
+            duration,
+            output,
+        });
     }
 
     pub fn metal_capacity(&self) -> u32 {
-        if self.genesis_program.has(Kind::Warehouse) {
-            140
-        } else {
-            METAL_CAPACITY
+        self.warehouses.get(EARTH).map_or(0, |warehouse| {
+            warehouse
+                .limits
+                .get(&Commodity::Metals)
+                .copied()
+                .unwrap_or(warehouse.capacity)
+        })
+    }
+
+    pub fn migrate(&mut self) {
+        self.migrate_fleet();
+        if self.industry.initialized {
+            return;
+        }
+        self.industry.initialized = true;
+        self.warehouses.insert(
+            EARTH.into(),
+            Warehouse::dedicated(
+                "Genesis Station",
+                [
+                    (Commodity::Ore, self.station_ore, 5000),
+                    (Commodity::Fuel, self.station_fuel, 200),
+                    (
+                        Commodity::Metals,
+                        self.metal,
+                        if self.genesis_program.has(Kind::Warehouse) {
+                            140
+                        } else {
+                            METAL_CAPACITY
+                        },
+                    ),
+                ],
+            ),
+        );
+        self.warehouses.insert(
+            BELT.into(),
+            Warehouse::dedicated(
+                "Добывающая установка",
+                [
+                    (Commodity::Ore, self.belt_ore, BELT_CAPACITY),
+                    (Commodity::Fuel, self.belt_fuel, 200),
+                ],
+            ),
+        );
+        self.industry.deposits.insert(
+            BELT.into(),
+            Deposit {
+                resource: Commodity::Ore,
+                initial: SEED_ORE,
+                remaining: self.deposit,
+            },
+        );
+        self.industry
+            .plants
+            .insert(BELT.into(), Plant::extract(BELT, 8, 10));
+        self.industry
+            .plants
+            .insert(EARTH.into(), Plant::process(EARTH, 20, "smelt_metals"));
+        self.sync_industry();
+        if self.mining_elapsed > 0.0 {
+            let prefer_mars = self.construction.mars == MarsProject::Ready
+                && self.deposit_remaining(MARS_SITE) > 0
+                && (self.conflict.lost_ore > 0
+                    || self.deposit < SHIPMENT
+                    || crate::view::route_distance(self, MARS_SITE, EARTH)
+                        < crate::view::route_distance(self, BELT, EARTH));
+            self.import_batch(
+                if prefer_mars { MARS_SITE } else { BELT },
+                self.mining_elapsed,
+            );
+        }
+        if self.smelting_elapsed > 0.0 {
+            self.import_batch(EARTH, self.smelting_elapsed);
+        }
+    }
+
+    fn import_batch(&mut self, id: &str, elapsed: f64) {
+        self.start_batch(id, true);
+        if let Some(batch) = self
+            .industry
+            .plants
+            .get_mut(id)
+            .and_then(|plant| plant.batch.as_mut())
+        {
+            batch.remaining = batch.duration.saturating_sub((elapsed / QUANTUM) as u32);
+        }
+    }
+
+    fn sync_industry(&mut self) {
+        if let Some(earth) = self.warehouses.get_mut(EARTH) {
+            if self.genesis_program.has(Kind::Warehouse) && !earth.limits.is_empty() {
+                earth
+                    .limits
+                    .entry(Commodity::Metals)
+                    .and_modify(|cap| *cap = (*cap).max(140));
+            }
+        }
+        if let Some(plant) = self.industry.plants.get_mut(EARTH) {
+            if self.genesis_program.has(Kind::Smelter) {
+                plant.period = 14;
+            }
+        }
+        if self.construction.mars == MarsProject::Ready
+            && !self.industry.deposits.contains_key(MARS_SITE)
+        {
+            self.warehouses.entry(MARS_SITE.into()).or_insert_with(|| {
+                Warehouse::dedicated(
+                    "Рудный аванпост",
+                    [(Commodity::Ore, self.construction.mars_ore, SHIPMENT)],
+                )
+            });
+            self.industry.deposits.insert(
+                MARS_SITE.into(),
+                Deposit {
+                    resource: Commodity::Ore,
+                    initial: MARS_ORE,
+                    remaining: MARS_ORE.saturating_sub(self.construction.mars_extracted),
+                },
+            );
+            self.industry
+                .plants
+                .insert(MARS_SITE.into(), Plant::extract(MARS_SITE, 8, 10));
         }
     }
 
@@ -614,14 +799,14 @@ impl Sim {
                 Kind::Yard
                     if site == BuildSite::Earth
                         && self.construction.phase == Project::WaitingMaterials
-                        && self.deposit < SEED_ORE - SHIPMENT
-                        && self.station_ore < 30 =>
+                        && self.deposit() < SEED_ORE - SHIPMENT
+                        && self.station_ore() < 30 =>
                 {
                     22.0
                 }
                 Kind::Mine if legacy_mars == MarsProject::Proposed => {
                     let pressure = self.conflict.lost_ore.min(60) as f64 * 0.8
-                        + if self.deposit < 140 { 26.0 } else { 0.0 };
+                        + if self.deposit() < 140 { 26.0 } else { 0.0 };
                     if site == BuildSite::Belt {
                         pressure * 0.6
                     } else {
@@ -630,15 +815,15 @@ impl Sim {
                 }
                 Kind::Warehouse
                     if site == BuildSite::Earth
-                        && self.metal + 8 > self.metal_capacity()
-                        && self.station_ore >= 10 =>
+                        && self.room(EARTH, Commodity::Metals) < 8
+                        && self.station_ore() >= 10 =>
                 {
                     14.0
                 }
                 Kind::Smelter
                     if site == BuildSite::Earth
-                        && self.station_ore >= 40
-                        && self.metal + 16 < self.metal_capacity() =>
+                        && self.station_ore() >= 40
+                        && self.room(EARTH, Commodity::Metals) > 16 =>
                 {
                     14.0
                 }
@@ -654,16 +839,14 @@ impl Sim {
             };
             let work = planning::choose(
                 &self.genesis_program,
-                self.metal,
-                self.station_fuel.saturating_sub(
-                    self.governance.leader.reserve() + u32::from(self.batch_active()),
-                ),
+                self.production_supply(EARTH, Commodity::Metals),
+                self.production_supply(EARTH, Commodity::Fuel),
                 need,
                 |site| crate::view::build_distance(self, false, site),
             );
             if let Some(work) = work {
-                self.metal -= work.choice.kind.spec().metal;
-                self.station_fuel -= work.fuel;
+                assert!(self.withdraw(EARTH, Commodity::Metals, work.choice.kind.spec().metal));
+                assert!(self.withdraw(EARTH, Commodity::Fuel, work.fuel));
                 approve(&mut self.genesis_program, work, "Genesis", events);
             }
         }
@@ -718,6 +901,9 @@ impl Sim {
                 .map_or(BELT, |(_, source, _)| source.as_str()),
         );
         let raid_cost = (raid_distance * 0.42).ceil().clamp(2.0, 6.0) as u32;
+        let free_metal = self.production_supply(EARTH, Commodity::Metals);
+        let free_fuel = self.production_supply(EARTH, Commodity::Fuel);
+        let earth = self.warehouses.get_mut(EARTH).expect("station inventory");
         let war = &mut self.conflict;
         if war.base_progress < 40.0 {
             war.base_progress += QUANTUM;
@@ -962,9 +1148,9 @@ impl Sim {
                         MarsProject::Proposed | MarsProject::Ready
                     )
                     && self.construction.phase == Project::Complete
-                    && self.metal >= PATROL_METAL =>
+                    && free_metal >= PATROL_METAL =>
             {
-                self.metal -= PATROL_METAL;
+                assert!(earth.withdraw(Commodity::Metals, PATROL_METAL));
                 war.patrol = Patrol::Delivering;
                 events.push(decision(
                     "patrol_order",
@@ -994,12 +1180,10 @@ impl Sim {
                 }
             }
             Patrol::Destroyed
-                if self.metal >= PATROL_METAL
-                    && self.station_fuel
-                        >= self.governance.leader.reserve() + PATROL_SEED_FUEL + 1 =>
+                if free_metal >= PATROL_METAL && free_fuel >= PATROL_SEED_FUEL + 1 =>
             {
-                self.metal -= PATROL_METAL;
-                self.station_fuel -= PATROL_SEED_FUEL;
+                assert!(earth.withdraw(Commodity::Metals, PATROL_METAL));
+                assert!(earth.withdraw(Commodity::Fuel, PATROL_SEED_FUEL));
                 war.patrol = Patrol::Rebuilding;
                 war.patrol_elapsed = 0.0;
                 events.push(decision(
@@ -1034,35 +1218,31 @@ impl Sim {
                     war.patrol_cooldown = (war.patrol_cooldown - QUANTUM).max(0.0);
                 } else {
                     if war.patrol_fuel < 2 {
-                        let available = self.station_fuel.saturating_sub(
-                            self.governance.leader.reserve()
-                                + u32::from(self.smelting_elapsed > 0.0),
-                        );
-                        let quantity = (PATROL_SEED_FUEL - war.patrol_fuel).min(available);
+                        let quantity = (PATROL_SEED_FUEL - war.patrol_fuel).min(free_fuel);
                         if quantity > 0 {
-                            self.station_fuel -= quantity;
+                            assert!(earth.withdraw(Commodity::Fuel, quantity));
                             war.patrol_fuel += quantity;
                             events.push(event(
                                 "refueled",
                                 "fuel",
                                 EARTH,
                                 quantity,
-                                self.station_fuel,
+                                earth.quantity(Commodity::Fuel),
                                 Some("Патруль-001"),
                             ));
                         }
                     }
                     let maintenance =
                         war.patrol_sorties > 0 && war.patrol_sorties.is_multiple_of(2);
-                    if war.patrol_fuel >= 2 && (!maintenance || self.metal >= 4) {
+                    if war.patrol_fuel >= 2 && (!maintenance || free_metal >= 4) {
                         if maintenance {
-                            self.metal -= 4;
+                            assert!(earth.withdraw(Commodity::Metals, 4));
                             events.push(event(
                                 "patrol_maintenance",
                                 "metals",
                                 EARTH,
                                 4,
-                                self.metal,
+                                earth.quantity(Commodity::Metals),
                                 Some("Патруль-001"),
                             ));
                         }
@@ -1350,6 +1530,7 @@ pub(crate) fn event(
         stock,
         ship_name: ship_name.map(str::to_owned),
         actor: None,
+        facility: None,
         reason: None,
     }
 }
@@ -1359,4 +1540,69 @@ fn decision(kind: &'static str, actor: &'static str, reason: String) -> Event {
     entry.actor = Some(actor);
     entry.reason = Some(reason);
     entry
+}
+
+impl Warehouse {
+    fn dedicated<const N: usize>(name: &str, slots: [(Commodity, u32, u32); N]) -> Self {
+        Self {
+            name: name.into(),
+            x: 0.0,
+            y: 0.0,
+            capacity: 0,
+            stock: slots
+                .iter()
+                .map(|&(item, quantity, _)| (item, quantity))
+                .collect(),
+            limits: slots
+                .into_iter()
+                .map(|(item, _, capacity)| (item, capacity))
+                .collect(),
+        }
+    }
+
+    fn valid(&self) -> bool {
+        self.x.is_finite()
+            && self.y.is_finite()
+            && if self.limits.is_empty() {
+                self.stock
+                    .values()
+                    .map(|&amount| u64::from(amount))
+                    .sum::<u64>()
+                    <= u64::from(self.capacity)
+            } else {
+                self.stock.iter().all(|(&resource, &amount)| {
+                    amount <= self.limits.get(&resource).copied().unwrap_or(0)
+                })
+            }
+    }
+
+    pub fn used(&self) -> u32 {
+        self.stock.values().copied().fold(0u32, u32::saturating_add)
+    }
+
+    pub fn quantity(&self, resource: Commodity) -> u32 {
+        self.stock.get(&resource).copied().unwrap_or(0)
+    }
+
+    fn room(&self, resource: Commodity) -> u32 {
+        if self.limits.is_empty() {
+            self.capacity.saturating_sub(self.used())
+        } else {
+            self.limits
+                .get(&resource)
+                .copied()
+                .unwrap_or(0)
+                .saturating_sub(self.quantity(resource))
+        }
+    }
+
+    fn withdraw(&mut self, resource: Commodity, amount: u32) -> bool {
+        self.stock.get_mut(&resource).is_some_and(|stock| {
+            if *stock < amount {
+                return false;
+            }
+            *stock -= amount;
+            true
+        })
+    }
 }

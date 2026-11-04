@@ -2,6 +2,7 @@ mod conflict;
 mod construction;
 mod freight;
 mod governance;
+mod industry;
 mod legacy_freight;
 mod planning;
 mod sim;
@@ -93,10 +94,10 @@ impl Engine {
                     "ships_in_transit": next.fleet.ships.values().filter(|ship| ship.leg.is_some()).count(),
                     "delivery": next.delivery_status(),
                     "smelting": next.smelting_status(),
-                    "station_fuel": next.station_fuel,
-                    "belt_fuel": next.belt_fuel,
-                    "metal": next.metal,
-                    "deposit": next.deposit,
+                    "station_fuel": next.station_fuel(),
+                    "belt_fuel": next.belt_fuel(),
+                    "metal": next.metal(),
+                    "deposit": next.deposit(),
                 }),
             ));
         }
@@ -155,7 +156,7 @@ fn load_sim(path: &Path) -> io::Result<SaveFile> {
     match fs::read(path) {
         Ok(bytes) => {
             let mut loaded: SaveFile = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
-            loaded.sim.migrate_fleet();
+            loaded.sim.migrate();
             if !loaded.sim.valid() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -171,7 +172,7 @@ fn load_sim(path: &Path) -> io::Result<SaveFile> {
             if env::var("GENESIS_LEADER").as_deref() != Ok("cautious") {
                 sim.governance.leader = governance::Leader::Industrial;
             }
-            sim.migrate_fleet();
+            sim.migrate();
             Ok(SaveFile {
                 sim,
                 diagnostic_history: VecDeque::new(),

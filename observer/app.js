@@ -553,6 +553,8 @@ const eventNames = {
   ore_cancelled: "Заявка закрыта",
   ore_requested: "Станция запросила руду",
   metal_smelted: "Металл выплавлен",
+  production_completed: "Партия готова",
+  resource_extracted: "Сырьё добыто",
 };
 function eventLabel(event) {
   if (event.reason) return {kind: eventNames[event.kind], detail: event.actor + " · " + event.reason};

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -67,6 +67,7 @@ async function fleetCase(initial, count) {
   const state = structuredClone(initial);
   Object.assign(state, {
     station_ore: 100, belt_ore: 0, deposit: 0, metal: 80, station_fuel: 200,
+    industry: undefined,
     warehouses: {north: warehouse("Север", 2, 45), south: warehouse("Юг", 3, 45), client: warehouse("Получатель", 5, 0)},
   });
   state.construction.phase = "complete";
@@ -103,7 +104,8 @@ async function fleetCase(initial, count) {
 async function legacyCase(initial, independent = false) {
   const state = structuredClone(initial);
   delete state.fleet;
-  Object.assign(state, {phase: "outbound", elapsed: 7.5, route_duration: 16, fuel: 23, cargo: 40});
+  delete state.industry;
+  Object.assign(state, {station_ore: 18, station_fuel: 100, metal: 8, smelting_elapsed: 2, phase: "outbound", elapsed: 7.5, route_duration: 16, fuel: 23, cargo: 40});
   Object.assign(state.construction, {phase: "complete", active_second: true, parked_fuel: 55});
   if (independent) {
     state.construction.active_second = false;
@@ -116,6 +118,8 @@ async function legacyCase(initial, independent = false) {
   const server = await start(save);
   const imported = await diag(server);
   const ships = imported.state.fleet.ships;
+  assert.deepEqual(imported.state.warehouses["earth-station"].stock, {ore: 8, fuel: 99, metals: 8});
+  assert.equal(imported.state.industry.plants["earth-station"].batch.remaining, 12);
   const active = ships[independent ? "freighter-1" : "freighter-2"];
   assert.equal(active.fuel, 23);
   assert.equal(active.leg.elapsed, 30);
@@ -132,18 +136,77 @@ async function legacyCase(initial, independent = false) {
   await stop(server);
 }
 
+async function industryCase(initial) {
+  const state = structuredClone(initial);
+  const {warehouses, industry} = state;
+  warehouses["earth-station"].stock.metals = 80;
+  industry.deposits["belt-outpost"].remaining = 0;
+  state.construction.phase = "complete";
+  Object.assign(state.conflict, {base_ready: true, base_progress: 40, pirate_fuel_stock: 0, raider_destroyed: true});
+  const site = (name, x, capacity, stock) => ({name, x, y: 0, capacity, stock});
+  warehouses.north = site("Северная плавильня", 2, 11, {ore: 10, fuel: 1});
+  warehouses.south = site("Южная плавильня", 3, 40, {fuel: 2});
+  const smelter = (location, period) => ({location, period, operation: {kind: "process", recipe: "smelt_metals"}});
+  industry.plants.north = smelter("north", 40);
+  industry.plants.south = smelter("south", 8);
+  for (const [id, x] of [["mine-a", 4], ["mine-b", 5]]) {
+    warehouses[id] = site(id, x, 10, {});
+    industry.deposits[id] = {resource: "ore", initial: 10, remaining: 10};
+    industry.plants[id] = {location: id, period: 8, operation: {kind: "extract", deposit: id, amount: 10}};
+  }
+  state.fleet.ships["freighter-1"].location = "mine-a";
+  state.fleet.ships["freighter-2"] = {...state.fleet.ships["freighter-1"], location: "mine-b", name: "Грузовой-002"};
+  const save = join(dir, "industry.json");
+  await writeFile(save, JSON.stringify(state));
+  let server = await start(save);
+  await resume(server);
+  await until(server, d => d.state.industry.plants.north.batch);
+  await pause(server);
+  const paused = (await diag(server)).state;
+  assert.equal(paused.warehouses.north.stock.ore, 0);
+  assert.equal(paused.warehouses.north.stock.fuel, 0);
+  await stop(server);
+  server = await start(save);
+  const restored = (await diag(server)).state;
+  assert.deepEqual(restored.industry, paused.industry);
+  assert.deepEqual(restored.warehouses, paused.warehouses);
+  await resume(server);
+  const result = (await until(server, d => d.state.warehouses.south.stock.metals === 16)).state;
+  assert.equal(result.warehouses.north.stock.metals, 8);
+  for (const id of ["mine-a", "mine-b"]) {
+    assert.equal(result.industry.deposits[id].remaining, 0);
+    assert.equal(result.warehouses[id].stock.ore, 0);
+  }
+  await stop(server);
+}
+
+async function verifyImportedLog(logPath) {
+  const log = JSON.parse(await readFile(logPath, "utf8"));
+  const save = join(dir, "imported-log.json");
+  await writeFile(save, JSON.stringify(log.state));
+  const server = await start(save);
+  const state = (await diag(server)).state;
+  assert.deepEqual(state.fleet, log.state.fleet);
+  assert.equal(state.warehouses["earth-station"].stock.metals, log.state.metal);
+  assert.equal(state.warehouses["earth-station"].stock.fuel, log.state.station_fuel);
+  assert.equal(state.warehouses["mars-outpost"].stock.ore, log.state.construction.mars_ore);
+  assert.equal(state.industry.deposits["belt-outpost"].remaining, log.state.deposit);
+  await stop(server);
+}
+
 try {
   const origin = await start(join(dir, "new.json"));
   const initial = await diag(origin);
-  assert.equal(initial.version, "0.10.0");
+  assert.equal(initial.version, "0.11.0");
   await resume(origin);
   await Promise.all([
-    legacyCase(initial.state), legacyCase(initial.state, true),
+    legacyCase(initial.state), legacyCase(initial.state, true), industryCase(initial.state),
+    ...(process.argv[3] ? [verifyImportedLog(process.argv[3])] : []),
     ...[1, 2, 5].map(count => fleetCase(initial.state, count)),
-    until(origin, d => d.state.station_ore > 0 && d.state.metal > 0),
+    until(origin, d => d.state.warehouses["earth-station"].stock.metals > 0),
   ]);
   await stop(origin);
-  console.log("PASS: independent fleet 1/2/5, competing reservations, two sources, partial delivery, restart and old save.");
+  console.log("PASS: independent fleet, two mines and two smelters, local stocks, in-flight and in-process reload, legacy migration.");
 } finally {
   await Promise.all([...children].map(async child => {
     const closed = once(child, "close");

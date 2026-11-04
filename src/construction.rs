@@ -36,7 +36,9 @@ pub struct Construction {
     pub mars_duration: f64,
     pub mars_return: f64,
     pub mars_outbound: f64,
+    #[serde(skip_serializing)]
     pub mars_ore: u32,
+    #[serde(skip_serializing)]
     pub mars_extracted: u32,
 }
 

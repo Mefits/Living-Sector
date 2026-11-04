@@ -313,15 +313,16 @@ impl Fleet {
                             0
                         },
                     ));
-                let room = sim.room(&order.destination, order.resource);
-                let waiting_for_batch = order.resource == Commodity::Ore
-                    && sim.accumulating_ore(source)
-                    && quantity
-                        < ship
-                            .capacity
-                            .min(demand)
-                            .min(room)
-                            .min(crate::sim::SHIPMENT);
+                let lot = ship
+                    .capacity
+                    .min(demand)
+                    .min(sim.room(&order.destination, order.resource))
+                    .min(crate::sim::SHIPMENT);
+                let extractable = sim.extractable(source, order.resource);
+                let waiting_for_batch = extractable > 0
+                    && quantity < lot
+                    && quantity.saturating_add(extractable) >= lot
+                    && quantity.saturating_add(sim.room(source, order.resource)) >= lot;
                 if quantity == 0 || waiting_for_batch || cost > ship.tank || refill > local_fuel {
                     continue;
                 }

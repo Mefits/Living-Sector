@@ -1,10 +1,12 @@
 use crate::conflict::{PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, Patrol};
 
 use crate::construction::{
-    MARS_METAL, MARS_ORE, MARS_SITE, MarsProject, Project, SHIP_METAL, SITE, YARD_METAL,
+    MARS_METAL, MARS_SITE, MarsProject, Project, SHIP_METAL, SITE, YARD_METAL,
 };
+use crate::freight::Commodity;
+use crate::industry::Operation;
 use crate::planning::{Choice, Kind, Program, Site as BuildSite, Work};
-use crate::sim::{BELT, EARTH, Event, SHIPMENT, Sim, TANK};
+use crate::sim::{BELT, EARTH, Event, Sim, TANK};
 use serde_json::{Value, json};
 use std::f64::consts::TAU;
 
@@ -444,6 +446,24 @@ fn stock(label: &str, amount: u32) -> Value {
     json!({"label":label, "value":amount})
 }
 
+fn resource_label(resource: Commodity) -> &'static str {
+    match resource {
+        Commodity::Ore => "Руда",
+        Commodity::Fuel => "Топливо",
+        Commodity::Metals => "Металл",
+        Commodity::Ice => "Лёд",
+        Commodity::Gas => "Газ",
+        Commodity::Polymers => "Полимеры",
+        Commodity::Water => "Вода",
+        Commodity::Components => "Компоненты",
+        Commodity::Electronics => "Электроника",
+        Commodity::Tools => "Инструменты",
+        Commodity::Food => "Продовольствие",
+        Commodity::Medical => "Медикаменты",
+        Commodity::Luxury => "Предметы роскоши",
+    }
+}
+
 fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
     let id = facility["id"].as_str().unwrap_or_default();
     let kind = facility["type"].as_str().unwrap_or_default();
@@ -454,11 +474,90 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
     } else {
         &sim.genesis_program
     };
-    if let Some(warehouse) = sim.warehouses.get(id) {
-        let used = warehouse.stock.values().copied().sum::<u32>();
-        return json!({"status": if used == warehouse.capacity { "Заполнен" } else { "Готов принимать груз" },
-            "resources":warehouse.stock.iter().map(|(item, &amount)| stock(item.as_str(), amount)).collect::<Vec<_>>(),
-            "meters":[gauge("Заполнение",used as f64,warehouse.capacity as f64,"ед.")]});
+    let stock_id = if kind == "smelter" && !pirates && !sim.warehouses.contains_key(id) {
+        EARTH
+    } else {
+        id
+    };
+    if let Some(warehouse) = sim.warehouses.get(stock_id) {
+        let plants: Vec<_> = sim
+            .industry
+            .plants
+            .values()
+            .filter(|plant| plant.location == stock_id)
+            .collect();
+        let mut meters = Vec::new();
+        let mut notes = Vec::new();
+        if warehouse.limits.is_empty() {
+            meters.push(gauge(
+                "Заполнение склада",
+                warehouse.used() as f64,
+                warehouse.capacity as f64,
+                "ед.",
+            ));
+        } else {
+            for &resource in Commodity::ALL {
+                if let Some(&capacity) = warehouse.limits.get(&resource) {
+                    meters.push(gauge(
+                        resource_label(resource),
+                        warehouse.quantity(resource) as f64,
+                        capacity as f64,
+                        "ед.",
+                    ));
+                }
+            }
+        }
+        for plant in &plants {
+            if let Some(batch) = &plant.batch {
+                meters.push(gauge(
+                    "Партия",
+                    (batch.duration - batch.remaining) as f64 / 4.0,
+                    batch.duration as f64 / 4.0,
+                    "с",
+                ));
+            }
+            if let Operation::Extract { deposit, .. } = &plant.operation {
+                let source = &sim.industry.deposits[deposit];
+                meters.push(gauge(
+                    "Остаток залежи",
+                    source.remaining as f64,
+                    source.initial as f64,
+                    "ед.",
+                ));
+            }
+            if let Some(recipe) = plant.recipe() {
+                let format = |items: &[(Commodity, u32)]| {
+                    items
+                        .iter()
+                        .map(|&(resource, amount)| {
+                            format!("{amount} × {}", resource_label(resource))
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" + ")
+                };
+                notes.push(format!(
+                    "{} → {}. {}",
+                    format(recipe.inputs),
+                    format(recipe.outputs),
+                    plant.status(sim)
+                ));
+            }
+        }
+        if stock_id != id {
+            notes.push("Использует склад станции Земли.".into());
+        }
+        let status = plants.first().map_or(
+            if warehouse.used() == warehouse.capacity && warehouse.limits.is_empty() {
+                "Склад заполнен"
+            } else {
+                "Готов принимать груз"
+            },
+            |plant| plant.status(sim),
+        );
+        return json!({"status":status, "note":notes.join(" "),
+            "resources":Commodity::ALL.iter().filter(|item| warehouse.stock.contains_key(item))
+                .map(|&item| stock(resource_label(item), warehouse.quantity(item))).collect::<Vec<_>>(),
+            "meters":meters});
     }
     let mut resources = Vec::new();
     let mut meters = Vec::new();
@@ -485,71 +584,10 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
         });
     }
     let status = match (id, kind) {
-        (EARTH, _) | (_, "smelter") if !pirates => {
-            let (elapsed, duration) = sim.smelting_cycle();
-            meters.push(gauge(
-                "Металл на складе станции",
-                sim.metal as f64,
-                sim.metal_capacity() as f64,
-                "ед.",
-            ));
-            if sim.batch_active() {
-                meters.push(gauge("Плавка партии", elapsed, duration, "с"));
-            }
-            resources.extend([
-                stock("Руда на станции", sim.station_ore),
-                stock("Топливо на станции", sim.station_fuel),
-            ]);
-            note = format!(
-                "Партия: 10 руды + 1 топливо → 8 металла. Снабжение: {}.",
-                sim.delivery_status()
-            );
-            if sim.metal_capacity() - sim.metal < 8 && !sim.batch_active() {
-                note.push_str(&format!(
-                    " Свободно {} мест, для партии нужно 8.",
-                    sim.metal_capacity() - sim.metal
-                ));
-            }
-            sim.smelting_status()
-        }
-        (_, "mining_rig") => {
-            let original = id == BELT;
-            let ore = if original {
-                sim.belt_ore
-            } else {
-                sim.construction.mars_ore
-            };
-            let deposit = if original {
-                sim.deposit
-            } else {
-                MARS_ORE - sim.construction.mars_extracted
-            };
-            let (cycle, status) = sim.mining_cycle(id);
-            resources.push(stock("Руда на складе", ore));
-            if original {
-                resources.push(stock("Топливо на складе", sim.belt_fuel));
-            }
-            meters.push(gauge(
-                "Руда к погрузке",
-                ore.min(SHIPMENT) as f64,
-                SHIPMENT as f64,
-                "ед.",
-            ));
-            meters.push(gauge(
-                "Остаток залежи",
-                deposit as f64,
-                if original { 500.0 } else { MARS_ORE as f64 },
-                "ед.",
-            ));
-            if status == "Добывает руду" {
-                meters.push(gauge("Добыча партии", cycle * 100.0, 100.0, "%"));
-            }
-            status
-        }
         (_, "cargo_warehouse") if !pirates => {
             meters.push(gauge(
                 "Металл в общей ёмкости",
-                sim.metal as f64,
+                sim.metal() as f64,
                 sim.metal_capacity() as f64,
                 "ед.",
             ));
@@ -608,8 +646,8 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
         }
         (SITE, "shipyard") => {
             resources.extend([
-                stock("Металл на Земле", sim.metal),
-                stock("Топливо на Земле", sim.station_fuel),
+                stock("Металл на Земле", sim.metal()),
+                stock("Топливо на Земле", sim.station_fuel()),
             ]);
             if sim.construction.phase == Project::BuildingShip {
                 meters.push(gauge(
@@ -639,7 +677,7 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
             let (metal, damage, hull): (u32, u32, u32) = if pirates {
                 (war.pirate_metal, war.raider_damage, 60)
             } else {
-                (sim.metal, war.patrol_damage, 100)
+                (sim.metal(), war.patrol_damage, 100)
             };
             resources.push(stock(
                 if pirates {
@@ -700,10 +738,10 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
 fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
     let mut facilities = vec![
         json!({"id": EARTH, "name": "Станция Земли", "type": "station", "location": EARTH, "body_id": "earth",
-               "x": scene.station.x, "y": scene.station.y, "faction_id": FACTION, "reserves": {"fuel": sim.station_fuel}}),
+               "x": scene.station.x, "y": scene.station.y, "faction_id": FACTION, "reserves": {"fuel": sim.station_fuel()}}),
         json!({"id": BELT, "name": "Добывающая установка", "type": "mining_rig", "location": BELT, "body_id": "belt",
-               "x": scene.rig.x, "y": scene.rig.y, "faction_id": FACTION, "reserves": {"fuel": sim.belt_fuel},
-               "deposit": sim.deposit}),
+               "x": scene.rig.x, "y": scene.rig.y, "faction_id": FACTION, "reserves": {"fuel": sim.belt_fuel()},
+               "deposit": sim.deposit()}),
     ];
     let phase = sim.construction.phase;
     let ready = sim.construction.yard_ready();
@@ -735,8 +773,8 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
             "type": if ready { "mining_rig" } else { "construction_site" },
             "location": MARS_SITE, "body_id": if sim.outpost_site == Some(BuildSite::Belt) { "belt" } else { "mars" }, "x": scene.mars_site.x, "y": scene.mars_site.y,
             "faction_id": FACTION, "reserves": {"fuel": 0},
-            "deposit": MARS_ORE - sim.construction.mars_extracted,
-            "project": format!("Затраты {MARS_METAL} металла · Руда на складе: {}", sim.construction.mars_ore),
+            "deposit": sim.deposit_remaining(MARS_SITE),
+            "project": format!("Затраты {MARS_METAL} металла · Руда на складе: {}", sim.stock(MARS_SITE, Commodity::Ore)),
         }));
     }
     let war = &sim.conflict;
@@ -751,7 +789,19 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
     facilities.extend(program_facilities(sim, scene, &sim.genesis_program, false));
     facilities.extend(program_facilities(sim, scene, &sim.pirate_program, true));
     for (id, warehouse) in &sim.warehouses {
-        facilities.push(json!({"id":id, "name":warehouse.name, "location":id, "type":"cargo_warehouse",
+        if matches!(id.as_str(), EARTH | BELT | MARS_SITE) {
+            continue;
+        }
+        let kind = sim
+            .industry
+            .plants
+            .values()
+            .find(|plant| &plant.location == id)
+            .map_or("cargo_warehouse", |plant| match plant.operation {
+                Operation::Extract { .. } => "mining_rig",
+                Operation::Process { .. } => "smelter",
+            });
+        facilities.push(json!({"id":id, "name":warehouse.name, "location":id, "type":kind,
             "system_id":"sol", "x":warehouse.x, "y":warehouse.y, "faction_id":FACTION,
             "reserves":{"fuel":warehouse.stock.get(&crate::freight::Commodity::Fuel).copied().unwrap_or(0)},
             "stock":warehouse.stock, "capacity":warehouse.capacity}));
@@ -764,9 +814,9 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
 
 fn markets(sim: &Sim) -> Value {
     json!([
-        {"id": BELT, "facility_location": BELT, "supply": {"ore": sim.belt_ore}},
+        {"id": BELT, "facility_location": BELT, "supply": {"ore": sim.belt_ore()}},
         {"id": EARTH, "facility_location": EARTH,
-         "supply": {"ore": sim.station_ore, "metals": sim.metal},
+         "supply": {"ore": sim.station_ore(), "metals": sim.metal()},
          "metal_capacity": sim.metal_capacity(),
          "delivery_status": sim.delivery_status(), "smelting_status": sim.smelting_status()},
     ])
@@ -783,9 +833,9 @@ fn governance(sim: &Sim) -> Value {
         "logistics": sim.delivery_status(),
         "industry": sim.smelting_status(),
         "batch_active": sim.batch_active(),
-        "station_ore": sim.station_ore,
-        "station_fuel": sim.station_fuel,
-        "metal": sim.metal,
+        "station_ore": sim.station_ore(),
+        "station_fuel": sim.station_fuel(),
+        "metal": sim.metal(),
         "cargo": sim.fleet.ships.values().filter_map(|ship| ship.task.as_ref()).filter(|task| task.loaded && sim.fleet.orders[&task.order].resource == crate::freight::Commodity::Ore).map(|task| task.quantity).sum::<u32>(),
         "ship": sim.delivery_status(),
         "lost_ore": sim.conflict.lost_ore,
