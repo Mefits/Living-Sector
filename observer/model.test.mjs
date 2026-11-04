@@ -4,7 +4,8 @@ import {
   buildIndex, ownership, factionColor, positionOf, shortageCount,
   systemAtPosition, approximateShipsNear,
   panForCursorZoom, clusterMarkers, shipSystem,
-  groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub
+  groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub,
+  liveEntityPoint, approachWorldPoint
 } from "./model.js";
 
 const report = {
@@ -170,6 +171,39 @@ test("station ship list contains real docked/parked ships by exact location only
   assert.deepEqual(shipsAtHub(ships,"belt-outpost").map(s=>s.id),["o"]);
   assert.equal(shipsAtHub(ships,"unknown").length,0);
   assert.equal(shipsAtHub(ships,"").length,0);
+});
+
+test("map bodies and stations prioritize live server WS positions over older snapshots",()=>{
+  const body={id:"earth",x:10,y:0,position:{x:10,y:0}};
+  const facility={id:"facility-genesis",position:{x:10.1,y:0.2}};
+  const positions=new Map([
+    ["earth",{x:3,y:8}],
+    ["facility-genesis",{x:3.1,y:8.2}]
+  ]);
+  assert.deepEqual(liveEntityPoint(body,positions),{x:3,y:8});
+  assert.deepEqual(liveEntityPoint(facility,positions),{x:3.1,y:8.2});
+  assert.deepEqual(liveEntityPoint(facility,new Map()),{x:10.1,y:0.2});
+  assert.deepEqual(liveEntityPoint(body,new Map()),{x:10,y:0});
+});
+test("visual orbital interpolation follows live coordinates without altering source or overshooting",()=>{
+  const original={x:0,y:0},newPos={x:4,y:0};
+  const result=approachWorldPoint(original,newPos,0.25,12);
+  assert.deepEqual(result,{x:1,y:0});
+  assert.deepEqual(original,{x:0,y:0});
+  assert.deepEqual(newPos,{x:4,y:0});
+  assert.deepEqual(approachWorldPoint(null,newPos),newPos);
+  assert.deepEqual(approachWorldPoint(original,{x:200,y:0}),{x:200,y:0});
+  assert.equal(approachWorldPoint(original,null),null);
+});
+test("regression: no hidden parked ships or fake circular vessel placement in map renderer",async()=>{
+  const {readFileSync}=await import("node:fs");
+  const app=readFileSync(new URL("./app.js",import.meta.url),"utf8");
+  assert.ok(app.includes("hubAnchors.set(key(hub.location)"));
+  assert.ok(app.includes("anchoredShips.add(ship.id)"));
+  assert.ok(app.includes("drawShip(ship,at"));
+  assert.ok(app.includes("liveWorldPoint(prefer)"));
+  assert.ok(app.includes("liveWorldPoint(body)"));
+  assert.ok(!app.includes("const angle=-Math.PI/2+(2*Math.PI*i/group.members.length)"));
 });
 
 test("UI ids referenced by the code exist in the actual HTML", async () => {
