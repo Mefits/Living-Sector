@@ -1,30 +1,30 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 const dir = await mkdtemp(join(tmpdir(), "genesis-ore-loop-"));
-const save = join(dir, "save.json");
 const timeout = AbortSignal.timeout(25000);
 const processClosed = [];
 const children = [];
-let socket;
+const sockets = [];
 
-async function start() {
+async function start(leader, save) {
   const child = spawn(process.argv[2], [], {
-    env: { ...process.env, GENESIS_PORT: "0", GENESIS_SAVE_PATH: save, GENESIS_NO_BROWSER: "1" },
+    env: { ...process.env, GENESIS_PORT: "0", GENESIS_SAVE_PATH: save, GENESIS_NO_BROWSER: "1", GENESIS_LEADER: leader },
     stdio: ["ignore", "pipe", "inherit"],
   });
   children.push(child);
-  processClosed.push(new Promise(resolve => child.once("close", resolve)));
+  const closed = new Promise(resolve => child.once("close", resolve));
+  processClosed.push(closed);
   const lines = createInterface({ input: child.stdout });
   try {
     const [line] = await once(lines, "line", { signal: timeout });
     assert.match(line, /^Genesis Clean: http:\/\/127\.0\.0\.1:\d+\/observer$/);
-    return new URL(line.split(" ").at(-1)).origin;
+    return { base: new URL(line.split(" ").at(-1)).origin, child, closed };
   } finally {
     lines.close();
   }
@@ -43,56 +43,54 @@ async function api(base, path, data) {
   return response.json();
 }
 
-try {
-  const base = await start();
+async function observe(leader) {
+  const save = join(dir, leader + ".json");
+  const { base, child, closed } = await start(leader, save);
   const initial = await api(base, "/api/report");
-  assert.equal(initial.running, false);
-  assert.deepEqual(initial.markets.map(market => market.supply.ore), [0, 0]);
-
-  socket = new WebSocket(base.replace("http:", "ws:") + "/ws");
-  let waitedForOre = false;
-  let minedInFlight = false;
-  let delivered = 0;
-  let nextRequest = false;
-  let firstSmelt;
-  const cycle = new Promise((resolve, reject) => {
+  assert.equal(initial.governance.station_fuel, 200);
+  assert.equal(initial.governance.metal, 0);
+  const socket = new WebSocket(base.replace("http:", "ws:") + "/ws");
+  sockets.push(socket);
+  const events = [];
+  const done = new Promise((resolve, reject) => {
     timeout.addEventListener("abort", () => reject(timeout.reason), { once: true });
     socket.addEventListener("message", message => {
       const frame = JSON.parse(message.data);
-      const ship = frame.ships[0];
-      const station = frame.markets[1];
-      waitedForOre ||= ship.docked && ship.status_label.startsWith("Ждёт руду");
-      minedInFlight ||= ship.transit !== null && frame.events.some(event => event.kind === "ore_extracted");
-      delivered += frame.events.filter(event => event.kind === "cargo_unloaded").reduce((sum, event) => sum + event.quantity, 0);
-      if (!firstSmelt && frame.events.some(event => event.kind === "metal_smelted")) firstSmelt = frame;
-      nextRequest ||= delivered === 50 && frame.events.some(event => event.kind === "ore_requested");
-      if (station.supply.metals === station.metal_capacity && ship.status_label === "Нет заявки") resolve(frame);
+      events.push(...frame.events);
+      if (frame.governance.last_decision && !frame.governance.batch_active) resolve(frame.governance);
     });
   });
-  cycle.catch(() => {});
+  done.catch(() => {});
   await once(socket, "open", { signal: timeout });
   await api(base, "/api/sim/speed", { world_speed: 16 });
   await api(base, "/api/sim/resume", {});
-  const full = await cycle;
-  assert.ok(waitedForOre && minedInFlight && nextRequest);
-  assert.ok(delivered >= 100);
-  assert.equal(firstSmelt.markets[1].supply.ore, 40);
-  assert.equal(firstSmelt.markets[1].supply.metals, 8);
-  assert.equal(firstSmelt.reserves["earth-station"], 199);
-  assert.equal(full.markets[1].smelting_status, "Склад металла заполнен");
-
+  const result = await done;
+  assert.ok(events.some(event => event.kind === "ore_requested" && event.actor === "Снабженец"));
+  assert.ok(events.some(event => event.kind === "cargo_unloaded" && event.quantity === 50));
+  assert.ok(events.some(event => event.kind === "smelt_started" && event.actor === "Промышленник"));
+  assert.ok(events.some(event => event.kind === "policy_changed" && event.actor === "Глава фракции"));
   await api(base, "/api/sim/pause", {});
-  assert.equal(JSON.parse(await readFile(save, "utf8")).metal, 80);
+  const paused = await api(base, "/api/report");
   socket.close();
-  children[0].kill();
-  await processClosed[0];
+  child.kill();
+  await closed;
 
-  const restarted = await api(await start(), "/api/report");
+  const restarted = await api((await start("", save)).base, "/api/report");
   assert.equal(restarted.running, false);
-  assert.equal(restarted.markets[1].supply.metals, 80);
-  console.log("PASS: demand, independent mining, delivery, smelting, full storage, and restart.");
+  assert.deepEqual(restarted.governance, paused.governance);
+  return result;
+}
+
+try {
+  const [cautious, industrial] = await Promise.all([observe("cautious"), observe("industrial")]);
+  assert.equal(cautious.industry, "Топливо зарезервировано политикой");
+  assert.equal(cautious.station_fuel, 194);
+  assert.equal(cautious.metal, 48);
+  assert.equal(industrial.station_fuel, 190);
+  assert.equal(industrial.metal, 80);
+  console.log("PASS: same starting stocks, distinct policies, delivery, smelting, and restart.");
 } finally {
-  socket?.close();
+  for (const socket of sockets) socket.close();
   for (const child of children) child.kill();
   await Promise.all(processClosed);
   await rm(dir, { recursive: true, force: true });

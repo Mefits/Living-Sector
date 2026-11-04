@@ -126,6 +126,7 @@ function refreshToolbar() {
     if (els.systemPicker.hidden) els.systemPicker.open = false;
   }
   renderOreFlow();
+  renderGovernance();
   const speed = h.world_speed ?? h.config?.world_speed;
   if (speed != null && !els.speedSelect.matches(":focus")) {
     const closest = [...els.speedSelect.options].reduce((best, opt) =>
@@ -134,6 +135,23 @@ function refreshToolbar() {
     els.speedSelect.value = closest.value;
   }
   renderFleet();
+}
+
+function renderGovernance() {
+  const gov = s.report?.governance;
+  if (!gov) return;
+  const panel = document.getElementById("faction-policy");
+  panel.replaceChildren();
+  inspectorRow(panel, "Глава", gov.leader);
+  inspectorRow(panel, "Курс", gov.policy);
+  inspectorRow(panel, "Резерв топлива", fnum(gov.fuel_floor) + " из " + fnum(gov.station_fuel));
+  inspectorRow(panel, "Руда на станции", fnum(gov.station_ore) + " · цель " + fnum(gov.ore_target));
+  inspectorRow(panel, "Груз в трюме", fnum(gov.cargo));
+  inspectorRow(panel, "Металл", fnum(gov.metal));
+  inspectorRow(panel, "Снабженец", gov.logistics);
+  inspectorRow(panel, "Промышленник", gov.industry);
+  inspectorRow(panel, "Грузовик", gov.ship);
+  if (gov.last_decision) inspectorRow(panel, "Решение главы", gov.last_decision);
 }
 
 function renderOreFlow() {
@@ -448,16 +466,20 @@ function showMarket(content, location) {
 
 const eventNames = {
   ore_extracted: "Руда добыта", cargo_loaded: "Руда погружена", cargo_unloaded: "Руда доставлена",
+  policy_changed: "Смена курса",
+  smelt_started: "Запущена плавка",
+  ore_cancelled: "Заявка закрыта",
   ore_requested: "Станция запросила руду",
   metal_smelted: "Металл выплавлен",
 };
 function eventLabel(event) {
+  if (event.reason) return {kind: eventNames[event.kind], detail: event.actor + " · " + event.reason};
   const parts = [
     locationLabel(event.location),
     commodityLabel(event.commodity) + " · " + fnum(event.quantity),
     "На складе " + fnum(event.stock),
   ];
-  if (event.ship_name) parts.unshift(event.ship_name);
+  if (event.ship_name || event.actor) parts.unshift(event.ship_name || event.actor);
   return {kind: eventNames[event.kind], detail: parts.join(" · ")};
 }
 const eventRows = new WeakMap();
@@ -509,12 +531,14 @@ function handleWs(message) {
   s.ships = list(message.ships);
   s.report.ships = s.ships;
   s.report.markets = list(message.markets);
+  s.report.governance = message.governance;
   for (const facility of s.report.facilities) {
     facility.reserves.fuel = message.reserves[facility.id];
   }
   s.index = buildIndex(s.report);
   if (s.health) s.health.tick = message.tick;
   renderOreFlow();
+  renderGovernance();
 }
 
 function connectWs() {
@@ -1199,7 +1223,7 @@ function wireControls() {
     renderInspector();
     renderFleet();
   });
-  const popovers = [els.systemPicker, els.mapLayers];
+  const popovers = [els.systemPicker, els.mapLayers, document.getElementById("faction-menu")];
   document.addEventListener("click", event => {
     for (const popover of popovers) {
       if (!popover.contains(event.target)) popover.open = false;

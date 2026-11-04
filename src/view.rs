@@ -93,6 +93,25 @@ fn markets(sim: &Sim) -> Value {
     ])
 }
 
+fn governance(sim: &Sim) -> Value {
+    let gov = &sim.governance;
+    json!({
+        "leader": gov.leader.label(),
+        "policy": gov.policy.label(),
+        "last_decision": gov.last_decision,
+        "ore_target": gov.policy.ore_target(),
+        "fuel_floor": gov.fuel_floor(),
+        "logistics": sim.delivery_status(),
+        "industry": sim.smelting_status(),
+        "batch_active": sim.batch_active(),
+        "station_ore": sim.station_ore,
+        "station_fuel": sim.station_fuel,
+        "metal": sim.metal,
+        "cargo": sim.cargo,
+        "ship": sim.ship_status(),
+    })
+}
+
 fn position(id: &str, point: Point) -> Value {
     json!({"id": id, "x": point.x, "y": point.y})
 }
@@ -100,7 +119,7 @@ fn position(id: &str, point: Point) -> Value {
 pub fn report(sim: &Sim, running: bool, speed: f64) -> Value {
     let scene = Scene::at(sim);
     json!({
-        "tick": sim.tick, "running": running, "world_speed": speed, "genesis_ore_loop": true,
+        "tick": sim.tick, "running": running, "world_speed": speed, "genesis_ore_loop": true, "governance": governance(sim),
         "systems": [{"id": "sol", "name": "Sol", "offset_x": 0, "offset_y": 0, "bodies": [
             {"id": "earth", "name": "Земля", "type": "planet", "orbit_radius": 1.0,
              "x": scene.earth.x, "y": scene.earth.y, "controlling_faction": FACTION},
@@ -121,7 +140,7 @@ pub fn report(sim: &Sim, running: bool, speed: f64) -> Value {
 pub fn update(sim: &Sim, events: &[Event]) -> Value {
     let scene = Scene::at(sim);
     json!({
-        "type": "genesis_update", "tick": sim.tick, "events": events,
+        "type": "genesis_update", "tick": sim.tick, "events": events, "governance": governance(sim),
         "entities": [
             position("earth", scene.earth), position("belt", scene.belt),
             position(EARTH, scene.station), position(BELT, scene.rig), position("freighter-1", scene.ship),
