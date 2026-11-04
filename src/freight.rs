@@ -106,8 +106,10 @@ impl Freighter {
         if self.phase == FreightPhase::Waiting {
             // A second freighter may accept a different task even while
             // Freighter-001 is executing its own flight.
-            let food_for_plant = sim.station_fuel <= sim.governance.leader.reserve() + 12;
-            let refuel_job = food_for_plant && sim.belt_fuel >= FUEL_SHIPMENT + 2;
+            // Do not send a full fuel load to a nearly-full (200-unit)
+            // depot: unlike ore, storage fuel is explicitly capped.
+            let fuel_shortfall = sim.station_fuel <= 200 - FUEL_SHIPMENT;
+            let refuel_job = fuel_shortfall && sim.belt_fuel >= FUEL_SHIPMENT + 2;
             let ore_job = sim.governance.ore_requested && sim.belt_ore >= SHIPMENT;
             if !refuel_job && !ore_job { return; }
             let (out_time, out_cost) = leg(sim, BELT, EARTH);
@@ -166,6 +168,12 @@ impl Freighter {
             }
             FreightPhase::Unloading => {
                 if self.fuel_order {
+                    // Fuel produced/returned while en route might fill
+                    // depot capacity. Wait instead of creating fuel out
+                    // of bounds or silently deleting remaining cargo.
+                    if sim.station_fuel > 200u32.saturating_sub(self.fuel_cargo) {
+                        return;
+                    }
                     sim.station_fuel += self.fuel_cargo;
                     events.push(event("fuel_unloaded", "fuel", EARTH,
                         self.fuel_cargo, sim.station_fuel, Some("Грузовой-002")));
@@ -195,5 +203,100 @@ impl Freighter {
             FreightPhase::NoFuelAtBelt | FreightPhase::NoFuelAtEarth |
             FreightPhase::Waiting => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::construction::Project;
+    use crate::sim::Phase;
+
+    #[test]
+    fn two_freighters_can_be_in_flight_at_the_same_time() {
+        let mut sim = Sim::default();
+        sim.construction.phase = Project::Complete;
+        sim.phase = Phase::Outbound;
+        sim.cargo = SHIPMENT;
+        sim.fuel = 65;
+        sim.route_duration = 80.0;
+        sim.return_duration = 80.0;
+        sim.return_fuel = 8;
+        sim.outbound_plan = (80.0, 8);
+        sim.governance.ore_requested = true;
+        sim.belt_ore = SHIPMENT;
+        sim.second_freighter = Some(Freighter::new(20));
+        let first_cargo = sim.cargo;
+        let mut events = vec![];
+        for _ in 0..20 {
+            events.extend(sim.step(0.25));
+            if sim.second_freighter.as_ref().is_some_and(|f|
+                f.phase == FreightPhase::Outbound) {
+                break;
+            }
+        }
+        let second = sim.second_freighter.as_ref().unwrap();
+        assert_eq!(sim.phase, Phase::Outbound, "first still in flight");
+        assert_eq!(sim.cargo, first_cargo);
+        assert_eq!(second.phase, FreightPhase::Outbound);
+        assert_eq!(second.cargo, SHIPMENT);
+        assert_eq!(sim.belt_ore, 0, "second cargo removed once from source");
+        assert!(events.iter().any(|e| e.ship_name == Some("Грузовой-002")
+            && e.kind == "cargo_loaded"));
+        assert!(sim.valid(), "both independent ship ledgers must be valid");
+        let restored: Sim = serde_json::from_str(
+            &serde_json::to_string(&sim).unwrap()).unwrap();
+        assert_eq!(restored.second_freighter.unwrap().phase,
+            FreightPhase::Outbound, "second survives save and reload");
+    }
+
+    #[test]
+    fn old_rotating_save_migrates_without_losing_fuel() {
+        let mut sim = Sim::default();
+        sim.construction.phase = Project::Complete;
+        sim.construction.active_second = true;
+        sim.fuel = 18;
+        sim.construction.parked_fuel = 27;
+        sim.migrate_fleet();
+        assert_eq!(sim.fuel, 27, "legacy freighter-1 fuel");
+        assert_eq!(sim.second_freighter.as_ref().unwrap().fuel, 18);
+        assert!(!sim.construction.active_second);
+        assert_eq!(sim.construction.parked_fuel, 0);
+        sim.migrate_fleet();
+        assert_eq!(sim.second_freighter.as_ref().unwrap().fuel, 18,
+            "conversion is idempotent");
+    }
+
+    #[test]
+    fn legacy_in_flight_cargo_is_not_transferred_or_teleported() {
+        let mut sim = Sim::default();
+        sim.construction.phase = Project::Complete;
+        sim.construction.active_second = true;
+        sim.phase = Phase::Outbound;
+        sim.cargo = SHIPMENT;
+        sim.route_duration = 20.0;
+        sim.migrate_fleet();
+        assert!(sim.second_freighter.is_none());
+        assert_eq!(sim.cargo, SHIPMENT);
+        assert!(sim.construction.active_second);
+    }
+
+    #[test]
+    fn fuel_restock_waits_for_real_depot_capacity() {
+        let mut sim=Sim::default();
+        sim.station_fuel=199;
+        let mut second=Freighter {
+            phase: FreightPhase::Unloading,
+            elapsed: 2.75,
+            fuel_order: true,
+            fuel_cargo: FUEL_SHIPMENT,
+            return_cost: 2,
+            fuel: 2,
+            ..Freighter::default()
+        };
+        second.advance(&mut sim, &mut Vec::new());
+        assert_eq!(sim.station_fuel,199);
+        assert_eq!(second.fuel_cargo,FUEL_SHIPMENT);
+        assert_eq!(second.phase,FreightPhase::Unloading);
     }
 }
