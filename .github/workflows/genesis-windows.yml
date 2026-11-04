@@ -77,7 +77,7 @@ jobs:
             if ($null -eq $report) { throw "Genesis did not expose API report" }
             # Assert every category while the engine is initially running.
             if ($report.systems.Count -ne 1) { throw "Expected 1 system, got $($report.systems.Count)" }
-            if ($report.systems[0].bodies.Count -ne 4) { throw "Expected 4 bodies, got $($report.systems[0].bodies.Count)" }
+            if ($report.systems[0].bodies.Count -ne 2) { throw "Expected 2 bodies, got $($report.systems[0].bodies.Count)" }
             if ($report.factions.Count -ne 1) { throw "Expected 1 faction, got $($report.factions.Count)" }
             if ($report.ships.Count -ne 1) { throw "Expected 1 ship, got $($report.ships.Count)" }
             if ($report.facilities.Count -ne 2) { throw "Expected 2 facilities, got $($report.facilities.Count)" }
@@ -108,11 +108,11 @@ jobs:
             Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/sim/pause" -Method Post -ContentType "application/json" -Body '{}' -TimeoutSec 5 | Out-Null
             Start-Sleep -Seconds 2
             $paused = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/report" -TimeoutSec 5
-            if ($paused.systems[0].bodies.Count -ne 4 -or $paused.factions.Count -ne 1 -or
+            if ($paused.systems[0].bodies.Count -ne 2 -or $paused.factions.Count -ne 1 -or
                 $paused.facilities.Count -ne 2 -or $paused.markets.Count -ne 2) {
               throw "Paused snapshot lost one or more categories"
             }
-            Write-Host "PASS: Sol + 4 bodies + 1 faction + 1 ship + 2 facilities + 2 markets; pause preserved state."
+            Write-Host "PASS: Sol + 2 bodies + 1 faction + 1 ship + 2 facilities + 2 markets; pause preserved state."
           } finally {
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
           }

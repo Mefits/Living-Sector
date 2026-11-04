@@ -8,6 +8,7 @@ const factions = readSeed("factions.json");
 
 test("Genesis starts with one faction, one freighter and two working facilities", () => {
   assert.equal(world.system.name, "Sol");
+  assert.deepEqual(world.bodies.map(body => body.id), ["earth", "belt"]);
   assert.equal(readSeed("tuning.json").genesis_ore_loop, true);
   assert.equal(factions.length, 1);
   assert.equal(world.ships.length, 1);

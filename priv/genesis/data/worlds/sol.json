@@ -20,26 +20,6 @@
       "resources": {}
     },
     {
-      "id": "luna",
-      "name": "Luna",
-      "type": "moon",
-      "orbit_radius": 1.05,
-      "orbit_period": 365,
-      "current_angle": 10,
-      "biome": "lifeless",
-      "resources": {}
-    },
-    {
-      "id": "mars",
-      "name": "Mars",
-      "type": "planet",
-      "orbit_radius": 1.52,
-      "orbit_period": 687,
-      "current_angle": 45,
-      "biome": "desert",
-      "resources": {}
-    },
-    {
       "id": "belt",
       "name": "Asteroid Belt",
       "type": "belt",
