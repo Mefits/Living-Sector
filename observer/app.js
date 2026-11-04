@@ -794,8 +794,14 @@ function drawSun(at) {
   circle(at.x,at.y,13,"rgba(255,222,165,.55)",false);
   ctx.restore();
 }
+function bodyBiome(body) {
+  const biome = key(body.biome);
+  // Older snapshots can omit the biome. Keep the two known Sol planets
+  // recognizable without altering their simulated properties.
+  return biome || ({earth:"terrestrial", mars:"desert"}[key(body.id)] ?? "");
+}
 function bodyColor(body){
-  const biome=String(body.biome??"").toLowerCase();
+  const biome=bodyBiome(body);
   if(body.type==="moon" || biome==="lifeless")return "#a8b5c9";
   if(body.type==="belt" || body.type==="asteroid" || biome==="asteroid")return "#cba16c";
   if(biome==="terrestrial")return "#4b9cc4";
@@ -836,7 +842,7 @@ function drawBody(body, p, selected = false) {
     ctx.clip();
     ctx.fillStyle = tint;
     ctx.fillRect(-1, -1, 2, 2);
-    if (body.biome === "terrestrial") {
+    if (bodyBiome(body) === "terrestrial") {
       ctx.fillStyle = "#739b7c";
       ctx.beginPath();
       ctx.moveTo(-.78,-.45); ctx.lineTo(-.45,-.69); ctx.lineTo(.02,-.53);
