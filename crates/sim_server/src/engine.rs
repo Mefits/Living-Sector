@@ -358,10 +358,11 @@ pub async fn run_tick_loop(
         drain_pending_respawns(&mut world, &mut store, &registry, tick, &mut events, &persist_tx, &pool).await;
         breakdown.drains = t_drains.elapsed().as_micros() as u64;
         phase!(facilities, {
-            facility::tick_facilities(
+            facility::tick_facilities_with_relations(
                 &mut world,
                 &mut store.contracts,
                 &mut events,
+                &store.relations,
                 tick,
                 tick_scale,
                 tick_mult,
@@ -400,6 +401,7 @@ pub async fn run_tick_loop(
                 &mut store.contracts,
                 &mut events,
                 &mut store.system_control,
+                &store.relations,
                 tick,
                 tick_mult,
             );
@@ -504,9 +506,10 @@ pub fn run_contract_pump(world: &mut World, store: &mut AgentStore, passes: u32)
         return;
     }
     for _ in 0..passes {
-        sim_core::agents::facility::tick_post_contracts(
+        sim_core::agents::facility::tick_post_contracts_with_relations(
             world,
             &mut store.contracts,
+            &store.relations,
             0,
             1,
         );
@@ -534,6 +537,7 @@ pub fn run_contract_pump(world: &mut World, store: &mut AgentStore, passes: u32)
             &mut store.contracts,
             &mut pump_events,
             &mut store.system_control,
+            &store.relations,
             0,
             1,
         );
