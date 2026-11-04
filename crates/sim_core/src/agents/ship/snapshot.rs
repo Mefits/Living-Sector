@@ -222,6 +222,7 @@ impl ShipSnapshot {
             name: identity.name.clone(),
             class: identity.class.clone(),
             faction_id: identity.faction_id.clone(),
+            system_id: position.system_id.clone(),
             size: identity.size.as_str(),
             size_tier: identity.size.tier(),
             location_name: position.location_name.clone(),
