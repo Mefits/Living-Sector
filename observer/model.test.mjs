@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {
   buildIndex, ownership, factionColor, positionOf, shortageCount,
   systemAtPosition, approximateShipsNear,
-  panForCursorZoom, clusterMarkers, shipSystem
+  panForCursorZoom, clusterMarkers, shipSystem,
+  groupFacilitiesByLocation, layoutMapLabels
 } from "./model.js";
 
 const report = {
@@ -102,6 +103,47 @@ test("ship system membership is based on exact location, not map proximity",()=>
   assert.equal(shipSystem({location:"unknown",position:{x:0,y:0}},i),null);
   assert.equal(shipSystem({transit:{from:"earth-gate",to:"tau-gate"}},i),null);
   assert.equal(shipSystem({transit:{from:"earth-station",to:"earth-gate"}},i),"Sol");
+});
+
+
+test("facility icons represent actual physical locations, not every building",()=>{
+  const facilities=[
+    {id:"a",location:"earth-station",name:"Genesis Station"},
+    {id:"b",location:"earth-station",name:"Genesis Shipyard"},
+    {id:"c",location:"belt-outpost",name:"Belt Extraction"}
+  ];
+  const groups=groupFacilitiesByLocation(facilities);
+  assert.equal(groups.length,2);
+  assert.equal(groups[0].members.length,2);
+  assert.equal(groups[1].members.length,1);
+  assert.deepEqual(groups.flatMap(g=>g.members.map(x=>x.id)).sort(),["a","b","c"]);
+});
+test("labels avoid overlapping other labels and real map glyphs",()=>{
+  const labels=[
+    {id:"ship1",x:150,y:150,text:"Cargo 1",w:100,h:20,radius:16,priority:0},
+    {id:"ship2",x:150,y:150,text:"Cargo 2",w:100,h:20,radius:16,priority:1},
+    {id:"hub",x:150,y:150,text:"Station",w:90,h:20,radius:16,priority:2}
+  ];
+  const obstacle={x:140,y:140,w:20,h:20};
+  const placed=layoutMapLabels(labels,{w:450,h:300},[obstacle]);
+  assert.equal(placed.length,3);
+  const intersects=(a,b)=>a.x < b.x+b.w && a.x+a.w > b.x &&
+    a.y < b.y+b.h && a.y+a.h > b.y;
+  for(const p of placed)assert.equal(intersects(p,obstacle),false);
+  for(let i=0;i<placed.length;i++){
+    for(let j=i+1;j<placed.length;j++)assert.equal(intersects(placed[i],placed[j]),false);
+  }
+  assert.ok(placed.every(p=>p.x>=8&&p.y>=8));
+});
+test("too many labels never overlap or move actual map markers",()=>{
+  const glyph={x:25,y:25,w:20,h:20};
+  const labels=Array.from({length:25},(_,i)=>({
+    id:"object"+i,x:35,y:35,w:110,h:20,radius:16,priority:i
+  }));
+  const before=structuredClone(labels);
+  const placed=layoutMapLabels(labels,{w:190,h:120},[glyph]);
+  assert.ok(placed.length<labels.length);
+  assert.deepEqual(labels,before);
 });
 
 test("UI ids referenced by the code exist in the actual HTML", async () => {
