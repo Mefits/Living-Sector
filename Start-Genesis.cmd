@@ -24,12 +24,12 @@ if not errorlevel 1 (
 rem A separate database preserves the old 284-ship stress-test world.
 set "BIND_ADDR=127.0.0.1:8080"
 set "DATA_DIR=%~dp0priv\genesis\data"
-set "DATABASE_PATH=%~dp0genesis-logistics-v1.db"
+set "DATABASE_PATH=%~dp0genesis-ore-v1.db"
 set "LIVING_SECTOR_UI_DIR=%~dp0observer"
 set "WORLD_SPEED=1.0"
 
-echo Genesis small-world preview: 1 system, 1 faction, 3 ships.
-echo Database: genesis-logistics-v1.db (older genesis.db and sim.db remain untouched).
+echo Genesis small-world preview: ore extraction, 1 freighter, 1 receiving station.
+echo Database: genesis-ore-v1.db (new scenario save).
 start "Living Sector - Genesis" /D "%~dp0" "%~dp0Living-Sector.exe" --headless
 
 rem Wait for headless server readiness, then pause before opening the UI.

@@ -3,7 +3,7 @@
     "id": "terran-authority",
     "name": "Genesis Initiative",
     "type": "government",
-    "description": "Initial Genesis trial faction: bootstrap local resource extraction and industry.",
+    "description": "Initial Genesis trial faction: run the first local ore delivery.",
     "home_system": "system-sol",
     "personality": {
       "profit": 0.4,

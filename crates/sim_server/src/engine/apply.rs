@@ -66,21 +66,25 @@ pub fn apply_ship_commands(
 
     for cmd in drained {
         match cmd {
-            SimCommand::AddSupplyAtShipLocation { ship, commodity, quantity }
-            | SimCommand::RemoveSupplyAtShipLocation { ship, commodity, quantity } => {
-                let adding = matches!(&cmd, SimCommand::AddSupplyAtShipLocation { .. });
+            SimCommand::BuyCargo { ship, commodity, quantity, unit_price } => {
+                if !buy_cargo(world, store, ship, commodity, quantity, unit_price, tick, events) {
+                    // The next BT step must not depart with an empty hold.
+                    if let Some(mut ai) = world.get_mut::<sim_core::agents::ship::ShipAI>(ship) {
+                        ai.current_bt = None;
+                    }
+                }
+            }
+            SimCommand::AddSupplyAtShipLocation { ship, commodity, quantity } => {
                 let location = world
                     .get::<ShipPosition>(ship)
                     .and_then(|p| p.location_name.clone());
                 if let Some(loc) = location {
                     if let Some(&market_entity) = store.market_at_location.get(&loc) {
                         if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
-                            let entry = pricing.supply.entry(commodity).or_insert(0.0);
-                            if adding {
-                                *entry += quantity;
-                            } else {
-                                *entry = (*entry - quantity).max(0.0);
-                            }
+                            let supply = pricing.supply.entry(commodity).or_insert(0.0);
+                            *supply += quantity;
+                            let stock = *supply;
+                            record_cargo_transfer(world, events, ship, "cargo_unloaded", commodity, quantity, &loc, stock);
                         }
                     }
                 }
@@ -592,6 +596,73 @@ pub fn apply_ship_commands(
 
 /// Pick the primary dockable facility at a location.
 ///
+/// Settle both sides in the command phase, where buyers see current stock.
+fn buy_cargo(
+    world: &mut World,
+    store: &AgentStore,
+    ship: Entity,
+    commodity: sim_core::economy::commodities::Commodity,
+    requested: u32,
+    unit_price: f32,
+    tick: u64,
+    events: &mut Vec<serde_json::Value>,
+) -> bool {
+    use sim_core::agents::ship::{actions::affordable_quantity, ShipCargo, ShipCrewSkills, ShipEconomy};
+    let Some(location) = world.get::<ShipPosition>(ship).and_then(|p| p.location_name.clone()) else {
+        return false;
+    };
+    let Some(&market) = store.market_at_location.get(&location) else {
+        return false;
+    };
+    let mut cargo_query = world.query::<(&ShipCargo, &ShipEconomy)>();
+    let Ok((cargo, economy)) = cargo_query.get(world, ship) else {
+        return false;
+    };
+    let Some(stock) = world.get::<MarketPricing>(market).and_then(|p| p.supply.get(&commodity).copied()) else {
+        return false;
+    };
+    let quantity = affordable_quantity(economy.credits, unit_price, cargo.free())
+        .min(requested).min(stock.floor() as u32);
+    if quantity == 0 || (economy.active_contract_id.is_some() && quantity < requested) {
+        return false;
+    }
+    let stock = stock - quantity as f32;
+    world.get_mut::<MarketPricing>(market).unwrap().supply.insert(commodity, stock);
+    world.get_mut::<ShipEconomy>(ship).unwrap().credits -= (unit_price * quantity as f32) as i64;
+    let mut cargo = world.get_mut::<ShipCargo>(ship).unwrap();
+    *cargo.cargo.entry(commodity).or_default() += quantity;
+    cargo.cargo_age.insert(commodity, tick);
+    cargo.cargo_origin.insert(commodity, (location.clone(), unit_price));
+    if let Some(mut skills) = world.get_mut::<ShipCrewSkills>(ship) {
+        skills.grant("trading", 1);
+    }
+    record_cargo_transfer(world, events, ship, "cargo_loaded", commodity, quantity as f32, &location, stock);
+    true
+}
+
+fn record_cargo_transfer(
+    world: &mut World,
+    events: &mut Vec<serde_json::Value>,
+    ship: Entity,
+    kind: &str,
+    commodity: sim_core::economy::commodities::Commodity,
+    quantity: f32,
+    location: &str,
+    stock: f32,
+) {
+    use sim_core::agents::ship::{ShipIdentity, ShipLifecycle};
+    if let Some(mut life) = world.get_mut::<ShipLifecycle>(ship) {
+        life.dirty = true;
+    }
+    if sim_core::simulation::tuning::WorldTuning::current().genesis_ore_loop {
+        events.push(serde_json::json!({
+            "kind": kind, "commodity": commodity.as_str(), "quantity": quantity,
+            "location": location, "stock": stock,
+            "ship_name": world.get::<ShipIdentity>(ship).map(|id| id.name.as_str()),
+        }));
+    }
+}
+
 /// "Primary" = highest docking_capacity (farms/mining_rigs have capacity 0
 /// and aren't candidates). Ties broken by first-seen hecs iteration order.
 /// Returns None if no dockable facility exists at the location, in which
@@ -984,7 +1055,7 @@ pub fn apply_release_dock(
 ) {
     use sim_core::agents::{
         celestial_body::{BodyIdentity, BodyOrbit},
-        facility::{facility_offset_position, FacilityIdentity, FacilityStorage},
+        facility::{facility_orbit_position, FacilityIdentity, FacilityStorage},
         ship::ShipPosition,
     };
     let facility = match primary_dock_at_location(world, store, location) {
@@ -995,10 +1066,7 @@ pub fn apply_release_dock(
         storage.docked_ships.retain(|&e| e != ship);
     }
 
-    // Resolve the facility's world position: body center + the same
-    // stable offset facility_offset_position() uses. Computing it here
-    // avoids a dependency on the snapshot-side facility position,
-    // which isn't written until after the tick's apply phase.
+    // Use the current orbit before the snapshot is published.
     let facility_pos = {
         let id = match world.get::<FacilityIdentity>(facility) {
             Some(id) => id.clone(),
@@ -1008,12 +1076,12 @@ pub fn apply_release_dock(
             let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
             q.iter(&world)
                 .find(|(bid, _)| bid.body_id == id.body_id)
-                .map(|(_, orbit)| orbit.universe_position())
+                .map(|(_, orbit)| (orbit.universe_position(), orbit.current_angle))
         };
-        let Some(body_center) = body_center else {
+        let Some((body_center, angle)) = body_center else {
             return;
         };
-        facility_offset_position(body_center, &id.id)
+        facility_orbit_position(body_center, angle, &id.id)
     };
 
     if let Some(mut pos) = world.get_mut::<ShipPosition>(ship) {
@@ -1227,11 +1295,11 @@ pub fn apply_gate_jump(
             let mut q = world.query::<(&BodyIdentity, &BodyOrbit)>();
             q.iter(&world)
                 .find(|(bid, _)| bid.body_id == body_id)
-                .map(|(_, orbit)| orbit.universe_position())
+                .map(|(_, orbit)| (orbit.universe_position(), orbit.current_angle))
         };
-        let body_pos = body_pos?;
-        Some(sim_core::agents::facility::facility_offset_position(
-            body_pos, &id,
+        let (body_pos, angle) = body_pos?;
+        Some(sim_core::agents::facility::facility_orbit_position(
+            body_pos, angle, &id,
         ))
     });
     if let Some(mut pos) = world.get_mut::<ShipPosition>(ship) {

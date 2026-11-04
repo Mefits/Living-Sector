@@ -1,6 +1,6 @@
 import {
   list, number, point, key, buildIndex, factionColor, factionName,
-  systemByName, positionOf, approximateShipsNear, shortageCount, sortedCargo,
+  systemByName, positionOf, shortageCount, sortedCargo,
   panForCursorZoom, clusterMarkers, shipSystem, worldGridStep, mapIconScale,
   groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub,
   liveEntityPoint, approachWorldPoint,
@@ -9,21 +9,21 @@ import {
 
 const byId = id => document.getElementById(id);
 const els = Object.fromEntries([
-  "connection","system-count","system-search","system-list","faction-count","faction-legend",
-  "world-subtitle","tick","agent-count","pause-btn","speed-select","sector-tab","system-tab",
+  "connection","connection-text","system-picker","system-search","system-list","faction-legend",
+  "map-title","map-summary","pause-btn","speed-select","sector-tab","system-tab","map-layers",
   "ships-toggle","links-toggle","labels-toggle","fit-btn","map","canvas-holder","hover-label",
-  "map-error","data-tick","event-feed","clear-events","inspector-body","clear-selection",
-  "ship-total","facility-total","market-total","first-run-guide","start-system-btn","dismiss-guide-btn"
+  "map-error","map-legend","events-toggle","event-count","timeline","event-feed","clear-events",
+  "inspector","inspector-body","inspector-back","clear-selection","fleet-strip"
 ].map(id => [id.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase()), byId(id)]));
 
 const s = {
   report: null, index: null, ships: [], health: null, positions: new Map(),
   ws: null, wsUp: false, live: false, events: [],
-  view: "sector", systemName: null, selection: null,
+  view: "sector", systemName: null, selection: null, selectionHistory: [],
   zoom: 1, pan: {x: 0, y: 0}, dragging: null, hover: null,
   targets: [], visualPositions: new Map(), shipMotion: new Map(),
   mapWorldPositions: new Map(),
-  lastReportAt: 0, fetching: false, error: null, guideDismissed: false
+  lastReportAt: 0, fetching: false, error: null
 };
 const fmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
 const q = value => value == null ? "—" : String(value);
@@ -34,8 +34,10 @@ let pixels = { w: 0, h: 0 };
 function setOnline(isOnline, statusText) {
   s.live = isOnline;
   els.connection.classList.toggle("online", isOnline);
-  els.connection.lastChild.textContent = statusText;
-  els.mapError.hidden = isOnline;
+  if (!isOnline || !s.health) els.connectionText.textContent = statusText;
+  els.connection.classList.toggle("paused", isOnline && s.health?.running === false);
+  els.mapError.hidden = isOnline || !s.report;
+  refreshToolbar();
   els.pauseBtn.disabled = !isOnline;
   els.speedSelect.disabled = !isOnline;
 }
@@ -73,23 +75,20 @@ function saveReport(report) {
   s.ships = list(report.ships);
   s.index = buildIndex(report);
   s.lastReportAt = Date.now();
-  // Genesis has no reason to open on an empty sector map with a guide
-  // telling the user to open its one and only system.
-  if (firstReport && s.index.systems.length === 1 && s.ships.length <= 8) {
+  // In a one-system world, open the system directly.
+  if (firstReport && s.index.systems.length === 1) {
     s.systemName = s.index.systems[0].name;
     s.view = "system";
     s.selection = null;
-    s.guideDismissed = true;
     els.shipsToggle.checked = true;
     resetCamera();
   }
   if (s.systemName && !systemByName(s.systemName, s.index)) {
-    s.view = "sector"; s.systemName = null; s.selection = null;
+    s.view = "sector"; s.systemName = null; s.selection = null; s.selectionHistory = [];
   }
   renderSidebar();
   renderInspector();
   refreshToolbar();
-  renderStartGuide();
 }
 
 async function fetchReport() {
@@ -107,34 +106,51 @@ async function fetchReport() {
 }
 
 function refreshToolbar() {
-  if (!s.report) return;
   const h = s.health ?? s.report;
-  const running = Boolean(h.running);
-  els.tick.textContent = fnum(h.tick);
-  els.dataTick.textContent = fnum(s.report.tick);
-  els.agentCount.textContent = h.agent_count != null ? fnum(h.agent_count) : "—";
-  els.pauseBtn.textContent = running ? "⏸ Пауза" : "▶ Продолжить";
-  els.shipTotal.textContent = fnum(s.ships.length);
-  els.facilityTotal.textContent = fnum(list(s.report.facilities).length);
-  els.marketTotal.textContent = fnum(list(s.report.markets).length);
-  els.systemCount.textContent = fnum(s.index?.systems.length);
-  els.factionCount.textContent = fnum(list(s.report.factions).length);
-  const largeWorld = s.ships.length > 20 ? " · большой исходный мир" : "";
-  const smallStart = s.index?.systems.length === 1 && s.ships.length <= 8;
-  els.worldSubtitle.textContent = smallStart
-    ? "Малый старт · " + (s.view === "system" ? s.systemName : "сектор")
-    : (s.view === "system" ? s.systemName : "Сектор · живые данные") + largeWorld;
-  els.sectorTab.classList.toggle("active", s.view === "sector");
-  els.systemTab.classList.toggle("active", s.view === "system");
-  els.systemTab.disabled = !s.systemName;
+  if (!h) return;
+  const running = h.running === true;
+  if (s.live && typeof h.running === "boolean") {
+    const status = running ? "Симуляция идёт" : "На паузе";
+    if (els.connectionText.textContent !== status) els.connectionText.textContent = status;
+    els.connection.classList.toggle("paused", !running);
+  }
+  els.pauseBtn.textContent = running ? "Ⅱ Пауза" : "▶ Продолжить";
+  if (s.index) {
+    const inSystem = s.view === "system";
+    const system = inSystem ? systemByName(s.systemName, s.index) : null;
+    const systemCount = s.index.systems.length;
+    els.mapTitle.textContent = system?.name ?? "Сектор";
+    els.mapSummary.textContent = system
+      ? "Тела " + list(system.bodies).length + " · Объекты " + (s.index.systemFacilities.get(system.name)?.length ?? 0)
+      : "Системы " + systemCount;
+    els.systemTab.disabled = !s.systemName;
+    els.sectorTab.classList.toggle("active", !inSystem);
+    els.systemTab.classList.toggle("active", inSystem);
+    els.sectorTab.setAttribute("aria-pressed", String(!inSystem));
+    els.systemTab.setAttribute("aria-pressed", String(inSystem));
+    els.mapLegend.hidden = !inSystem;
+    els.linksToggle.closest("label").hidden = inSystem;
+    els.systemPicker.hidden = inSystem && systemCount === 1;
+    if (els.systemPicker.hidden) els.systemPicker.open = false;
+  }
+  renderOreFlow();
   const speed = h.world_speed ?? h.config?.world_speed;
   if (speed != null && !els.speedSelect.matches(":focus")) {
     const closest = [...els.speedSelect.options].reduce((best, opt) =>
       Math.abs(Number(opt.value) - speed) < Math.abs(Number(best.value) - speed) ? opt : best,
       els.speedSelect.options[0]);
     els.speedSelect.value = closest.value;
-    els.speedSelect.title = "Текущий world_speed: " + speed;
   }
+  renderFleet();
+}
+
+function renderOreFlow() {
+  if (!s.report?.genesis_ore_loop || s.view !== "system") return;
+  const markets = list(s.report.markets);
+  const stockAt = location => markets.find(m => m.facility_location === location)?.supply?.ore;
+  const cargo = s.ships.reduce((sum, ship) => sum + (ship.cargo?.ore ?? 0), 0);
+  els.mapSummary.textContent = "Руда · Пояс " + fnum(stockAt("belt-outpost")) +
+    " → Трюм " + fnum(cargo) + " → Станция " + fnum(stockAt("earth-station"));
 }
 
 function marker(parent, className, color) {
@@ -164,7 +180,7 @@ function renderSidebar() {
     marker(item, "dot", color);
     item.appendChild(textEl("span", system.name, "sys-name"));
     item.appendChild(textEl("span", list(system.bodies).length, "sys-count"));
-    item.addEventListener("click", () => chooseSystem(system.name, true));
+    item.addEventListener("click", () => chooseSystem(system.name));
     els.systemList.appendChild(item);
   }
   if (!els.systemList.childNodes.length) {
@@ -181,30 +197,74 @@ function renderSidebar() {
   }
 }
 
-function renderStartGuide() {
-  const system = s.index?.systems.find(x => x.name === "Sol") ?? s.index?.systems[0];
-  const visible = Boolean(system && !s.guideDismissed && !s.selection && s.view === "sector");
-  els.firstRunGuide.hidden = !visible;
-  els.startSystemBtn.disabled = !system;
-  els.startSystemBtn.textContent = system ? "Открыть " + system.name : "Нет доступных систем";
+function setSelection(selection, drillDown = false) {
+  if (drillDown) s.selectionHistory.push(s.selection);
+  else s.selectionHistory = [];
+  s.selection = selection;
+  renderInspector();
+  renderFleet();
 }
 
-function chooseSystem(name, enter) {
+function chooseSystem(name) {
   if (!s.index || !systemByName(name, s.index)) return;
-  const changed = s.systemName !== name || (enter && s.view !== "system");
+  const changed = s.systemName !== name || s.view !== "system";
   s.systemName = name;
-  s.selection = { type: "system", id: name };
-  s.guideDismissed = true;
-  if (enter) { s.view = "system"; els.shipsToggle.checked = true; }
+  if (s.view !== "system") {
+    s.view = "system";
+    els.shipsToggle.checked = true;
+  }
   if (changed) resetCamera();
-  renderSidebar(); renderInspector(); refreshToolbar(); renderStartGuide();
+  els.systemPicker.open = false;
+  setSelection(null);
+  renderSidebar();
+  refreshToolbar();
 }
 
 function sectorMode() {
+  if (s.view === "sector") return;
   s.view = "sector";
   els.shipsToggle.checked = false;
-  resetCamera(); renderSidebar(); refreshToolbar(); renderStartGuide();
+  setSelection(null);
+  resetCamera();
+  renderSidebar();
+  refreshToolbar();
 }
+
+function shipStatus(ship) {
+  const state = shipMapState(ship);
+  if (state === "in_transit") return "В пути";
+  if (state === "docked") return "У причала";
+  return state === "at_location" ? "На месте" : "Положение не указано";
+}
+
+function renderFleet() {
+  // Keep this a quick selector for Genesis-sized rosters. Larger worlds
+  // can still use the ship layer and the location's existing ship list.
+  const ships = s.view === "system" && s.ships.length <= 8 ? s.ships.filter(ship =>
+    s.index.systems.length === 1 || shipSystem(ship, s.index) === s.systemName) : [];
+  els.fleetStrip.hidden = ships.length === 0;
+  const ids = ships.map(ship => String(ship.id));
+  const buttons = [...els.fleetStrip.children];
+  if (buttons.length !== ids.length || buttons.some((button, i) => button.dataset.shipId !== ids[i])) {
+    els.fleetStrip.replaceChildren(...ships.map(ship => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "fleet-ship";
+      button.dataset.shipId = String(ship.id);
+      button.append(textEl("span", ship.name ?? ship.id), textEl("span", "", "fleet-status"));
+      button.addEventListener("click", () => setSelection({type:"ship", id:ship.id}));
+      return button;
+    }));
+  }
+  ships.forEach((ship, i) => {
+    const button = els.fleetStrip.children[i];
+    const status = shipStatus(ship);
+    if (button.lastChild.textContent !== status) button.lastChild.textContent = status;
+    button.lastChild.dataset.transit = String(shipMapState(ship) === "in_transit");
+    button.setAttribute("aria-pressed", String(s.selection?.type === "ship" && s.selection.id === ship.id));
+  });
+}
+
 function resetCamera() {
   s.zoom = 1;
   s.pan = {x: 0, y: 0};
@@ -242,9 +302,9 @@ function inspectorRow(parent, label, value) {
   parent.appendChild(row);
 }
 function detailGroup(parent, title) { parent.appendChild(textEl("div", title, "group-title")); }
-function chips(parent, entries, max = 8) {
+function chips(parent, entries, max = 8, emptyLabel = "Нет данных") {
   const items = list(entries).slice(0, max);
-  if (!items.length) return parent.appendChild(textEl("p", "Нет данных"));
+  if (!items.length) return parent.appendChild(textEl("p", emptyLabel, "small-note"));
   for (const item of items) parent.appendChild(textEl("span", item, "chip"));
 }
 function showHubShips(content, location) {
@@ -256,10 +316,10 @@ function showHubShips(content, location) {
     button.type="button";button.className="group-member";
     button.appendChild(textEl("span",ship.name??ship.id));
     button.appendChild(textEl("span",
-      shipMapState(ship)==="docked"?"Пристыкован": "На месте / без перелёта",
+      shipStatus(ship),
       "group-member-note"));
     button.addEventListener("click",()=>{
-      s.selection={type:"ship",id:ship.id};renderInspector();
+      setSelection({type:"ship",id:ship.id}, true);
     });
     content.appendChild(button);
   }
@@ -269,23 +329,20 @@ function showHubShips(content, location) {
 let lastInspectorSelection = "";
 function renderInspector() {
   const selectionKey = s.selection ? s.selection.type + ":" + s.selection.id : "";
-  const previousScroll = selectionKey && selectionKey === lastInspectorSelection
-    ? els.inspectorBody.scrollTop : 0;
+  const sameSelection = selectionKey === lastInspectorSelection;
+  const previousScroll = sameSelection ? els.inspectorBody.scrollTop : 0;
+  const openDetails = sameSelection && Boolean(els.inspectorBody.querySelector("details[open]"));
+  const focusDetails = sameSelection && document.activeElement === els.inspectorBody.querySelector("summary");
   lastInspectorSelection = selectionKey;
   els.inspectorBody.replaceChildren();
   const entity = selectionEntity();
-  document.body.classList.toggle("has-selection", Boolean(entity));
-  renderStartGuide();
-  if (!entity) {
-    els.inspectorBody.appendChild(textEl("div", "◎", "placeholder-icon"));
-    els.inspectorBody.appendChild(textEl("h2", "Выберите объект"));
-    els.inspectorBody.appendChild(textEl("p", "Нажмите на систему, планету, станцию или корабль. Здесь появится его настоящее состояние."));
-    return;
-  }
+  els.inspector.hidden = !entity;
+  els.inspectorBack.hidden = s.selectionHistory.length === 0;
+  if (!entity) return;
   const type = s.selection.type;
   const typeNames = {
     system:"ЗВЁЗДНАЯ СИСТЕМА",ship:"КОРАБЛЬ",facility:"ОБЪЕКТ",body:"НЕБЕСНОЕ ТЕЛО",
-    ship_group:"ГРУППА КОРАБЛЕЙ", facility_group:"ГРУППА ОБЪЕКТОВ"
+    ship_group:"ГРУППА КОРАБЛЕЙ", facility_group:"ЛОГИСТИЧЕСКИЙ ХАБ"
   };
   els.inspectorBody.appendChild(textEl("div", typeNames[type], "kind"));
   els.inspectorBody.appendChild(textEl("h2", entity.name ?? entity.id));
@@ -293,20 +350,16 @@ function renderInspector() {
   if (type === "ship_group" || type === "facility_group") {
     const isShip = type === "ship_group";
     const members = entity.members;
-    inspectorRow(content, "Всего", members.length);
-    content.appendChild(textEl("p",
-      "Несколько реальных объектов отображаются одним значком, чтобы карта не превращалась в стену символов. Выберите нужный объект из списка.",
-      "small-note"));
+    if (!isShip && members.length) showHubShips(content, members[0].location);
+    detailGroup(content, (isShip ? "Корабли" : "Инфраструктура") + " · " + members.length);
     for (const member of members.slice(0, 140)) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "group-member";
       button.appendChild(textEl("span", member.name ?? member.id));
-      button.appendChild(textEl("span", isShip ? (member.current_goal ?? member.class ?? "") :
-        (member.type ?? ""), "group-member-note"));
+      button.appendChild(textEl("span", isShip ? shipStatus(member) : (facilityNames[member.type] ?? member.type ?? ""), "group-member-note"));
       button.addEventListener("click", () => {
-        s.selection = {type: isShip ? "ship" : "facility", id: member.id};
-        renderInspector();
+        setSelection({type: isShip ? "ship" : "facility", id: member.id}, true);
       });
       content.appendChild(button);
     }
@@ -315,8 +368,7 @@ function renderInspector() {
         "Показаны первые 140 объектов; для остальных приблизьте карту или откройте их через другой район.",
         "small-note"));
     }
-    if(type==="facility_group" && members.length)
-      showHubShips(content,members[0].location);
+    if (!isShip && members.length) showMarket(content, members[0].location);
     els.inspectorBody.scrollTop = previousScroll;
     return;
   }
@@ -335,68 +387,82 @@ function renderInspector() {
     inspectorRow(content, "Рынки", markets.length);
     inspectorRow(content, "Популяции", pops.length);
     inspectorRow(content, "Нехватки", shortageCount(markets) + " позиций");
-    content.appendChild(textEl("p", "Принадлежность рассчитана по владельцам небесных тел. Это не официальный system_control.", "small-note"));
+    if (s.view === "sector") {
+      const openSystem = textEl("button", "Открыть систему", "small-button");
+      openSystem.addEventListener("click", () => chooseSystem(entity.name));
+      content.appendChild(openSystem);
+    }
     detailGroup(content, "Объекты системы");
     chips(content, facilities.map(f => f.name), 16);
     detailGroup(content, "Доступные рынки");
     chips(content, markets.map(m => m.facility_location), 16);
   } else if (type === "ship") {
-    inspectorRow(content, "Класс", entity.class);
-    inspectorRow(content, "Размер", entity.size ?? "—");
-    inspectorRow(content, "Фракция", factionName(entity.faction_id, s.index));
-    inspectorRow(content, "Цель ИИ", entity.current_goal);
-    inspectorRow(content, "Действие", entity.current_bt ?? "—");
-    inspectorRow(content, "Положение", entity.location ?? (entity.transit ? "В пути" : "Неизвестно"));
+    const status = document.createElement("div");
+    status.className = "ship-status";
+    status.appendChild(textEl("strong", shipStatus(entity)));
     if (entity.transit) {
-      inspectorRow(content, "Из", entity.transit.from);
-      inspectorRow(content, "В", entity.transit.to);
-      inspectorRow(content, "Пройдено", fnum(entity.transit.distance_travelled) + " / " + fnum(entity.transit.distance_total));
+      const {from, to, distance_travelled, distance_total} = entity.transit;
+      status.appendChild(textEl("span", locationLabel(from) + " → " + locationLabel(to)));
+      if (distance_total > 0 && Number.isFinite(distance_travelled)) {
+        const progress = document.createElement("progress");
+        progress.max = distance_total;
+        progress.value = distance_travelled;
+        progress.setAttribute("aria-label", "Прогресс перелёта");
+        status.appendChild(progress);
+      }
+    } else if (entity.location) {
+      status.appendChild(textEl("span", locationLabel(entity.location)));
     }
+    content.appendChild(status);
+    detailGroup(content, "Груз");
+    chips(content, sortedCargo(entity.cargo).map(([name, amount]) =>
+      commodityLabel(name) + " · " + fnum(amount)), 8, "Трюм пуст");
     inspectorRow(content, "Топливо", fnum(entity.fuel) + " / " + fnum(entity.fuel_capacity));
     inspectorRow(content, "Кредиты", fnum(entity.credits));
-    inspectorRow(content, "Экипаж", entity.crew?.size ?? "—");
-    detailGroup(content, "Груз");
-    chips(content, sortedCargo(entity.cargo).map(([name,amount]) => commodityLabel(name) + ": " + amount));
-    if (entity.progression) {
-      detailGroup(content, "Развитие");
-      inspectorRow(content, "Уровень", entity.progression.level ?? "—");
-      inspectorRow(content, "Очки модернизации", entity.progression.retrofit_points ?? "—");
-    }
-    if (entity.fitting?.modules) {
-      detailGroup(content, "Установленные модули");
-      const slotNames = {engine:"Двигатель",cargo_bay:"Трюм",sensors:"Сенсоры",reactor:"Реактор",comms:"Связь"};
-      for (const slot of ["engine","cargo_bay","sensors","reactor","comms"]) {
-        const slug = entity.fitting.modules[slot];
-        inspectorRow(content, slotNames[slot], slug ? String(slug).replace(/.*_t([123])$/, "T$1") : "Нет данных");
+    if (!s.report.genesis_ore_loop) {
+
+      const technical = document.createElement("details");
+      technical.className = "inspector-details";
+      technical.open = openDetails;
+      technical.appendChild(textEl("summary", "Экипаж, оснащение и данные ИИ"));
+      inspectorRow(technical, "Класс", shipClasses[entity.class] ?? entity.class);
+      inspectorRow(technical, "Размер", entity.size);
+      inspectorRow(technical, "Фракция", factionName(entity.faction_id, s.index));
+      inspectorRow(technical, "Экипаж", entity.crew?.size);
+      inspectorRow(technical, "Цель ИИ", entity.current_goal);
+      inspectorRow(technical, "Действие", entity.current_bt);
+      if (entity.progression) {
+        inspectorRow(technical, "Уровень", entity.progression.level);
+        inspectorRow(technical, "Очки модернизации", entity.progression.retrofit_points);
       }
+      if (entity.fitting?.modules) {
+        const slotNames = {engine:"Двигатель",cargo_bay:"Трюм",sensors:"Сенсоры",reactor:"Реактор",comms:"Связь"};
+        for (const [slot, name] of Object.entries(slotNames)) {
+          const slug = entity.fitting.modules[slot];
+          if (slug) inspectorRow(technical, name, String(slug).replace(/.*_t([123])$/, "T$1"));
+        }
+      }
+      content.appendChild(technical);
+      if (focusDetails) technical.firstElementChild.focus({preventScroll:true});
     }
   } else if (type === "facility") {
-    inspectorRow(content, "Тип", entity.type);
+    inspectorRow(content, "Тип", facilityNames[entity.type] ?? entity.type);
     inspectorRow(content, "Фракция", factionName(entity.faction_id, s.index));
-    inspectorRow(content, "Расположение", entity.location);
-    inspectorRow(content, "Состояние", Math.round(number(entity.condition) * 100) + "%");
-    inspectorRow(content, "Уровень", entity.level);
-    inspectorRow(content, "Кредиты", fnum(entity.credits));
-    inspectorRow(content, "Корабли у причала", list(entity.docked_ships).length);
-    inspectorRow(content, "Заброшен", entity.abandoned ? "Да" : "Нет");
-    if (entity.gate_link) inspectorRow(content, "Связанные врата", entity.gate_link.paired_gate_id);
-    detailGroup(content, "Запасы");
-    chips(content, Object.entries(entity.reserves ?? {}).filter(([,v])=>number(v)>0).map(([k,v])=>k + ": " + fnum(v)));
-    // Show the actual commodity market attached to this facility location.
-    const market = list(s.report.markets).find(m => key(m.facility_location) === key(entity.location));
-    if (market) {
-      detailGroup(content, "Рынок — товары");
-      const commodities = [...new Set([
-        ...Object.keys(market.prices ?? {}), ...Object.keys(market.supply ?? {})
-      ])].sort((a,b) => number(market.shortage_ticks?.[b]) - number(market.shortage_ticks?.[a]));
-      for (const commodity of commodities.slice(0, 16)) {
-        inspectorRow(content, commodityLabel(commodity),
-          "Цена " + fnum(market.prices?.[commodity]) +
-          " · запас " + fnum(market.supply?.[commodity]) +
-          " · спрос " + fnum(market.demand?.[commodity]));
-      }
+    inspectorRow(content, "Расположение", locationLabel(entity.location, entity.id));
+    if (!s.report.genesis_ore_loop) {
+      inspectorRow(content, "Состояние", entity.condition == null ? "—" : fnum(number(entity.condition) * 100) + "%");
+      inspectorRow(content, "Уровень", entity.level);
+      inspectorRow(content, "Кредиты", fnum(entity.credits));
     }
-    showHubShips(content,entity.location);
+    if (entity.abandoned) inspectorRow(content, "Статус", "Заброшен");
+    if (entity.gate_link) inspectorRow(content, "Связанные врата", entity.gate_link.paired_gate_id);
+    showHubShips(content, entity.location);
+    const reserves = Object.entries(entity.reserves ?? {}).filter(([,v]) => number(v) > 0);
+    if (reserves.length) {
+      detailGroup(content, "Резерв объекта");
+      chips(content, reserves.map(([k,v]) => commodityLabel(k) + " · " + fnum(v)));
+    }
+    showMarket(content, entity.location);
   } else if (type === "body") {
     inspectorRow(content, "Тип", entity.type);
     inspectorRow(content, "Биом", entity.biome ?? "—");
@@ -407,12 +473,58 @@ function renderInspector() {
   els.inspectorBody.scrollTop = previousScroll;
 }
 
+const shipClasses = {freighter:"Грузовик", courier:"Курьер"};
+const facilityNames = {
+  station:"Станция", mining_rig:"Добыча", farm:"Ферма",
+  refinery:"Переработка", factory:"Завод", shipyard:"Верфь", gate:"Врата"
+};
+
+function locationLabel(location, exceptId) {
+  if (location == null) return "—";
+  const facilities = list(s.report?.facilities).filter(f => key(f.location) === key(location));
+  const hub = facilities.find(f => f.type === "station" || f.type === "mining_rig") ?? facilities[0];
+  return hub?.id === exceptId ? location : (hub?.name ?? location);
+}
+
+function showMarket(content, location) {
+  const market = list(s.report.markets).find(m => key(m.facility_location) === key(location));
+  if (!market) return;
+  const commodities = [...new Set([
+    ...Object.keys(market.prices ?? {}), ...Object.keys(market.supply ?? {}), ...Object.keys(market.demand ?? {})
+  ])].sort((a,b) => number(market.shortage_ticks?.[b]) - number(market.shortage_ticks?.[a]));
+  if (!commodities.length) return;
+  detailGroup(content, "Местный рынок");
+  const table = document.createElement("table");
+  table.className = "market-table";
+  table.setAttribute("aria-label", "Местный рынок");
+  const header = table.createTHead().insertRow();
+  for (const label of ["Товар", "Запас", "Спрос", "Цена"]) {
+    const cell = textEl("th", label);
+    cell.scope = "col";
+    header.appendChild(cell);
+  }
+  const body = table.createTBody();
+  for (const commodity of commodities) {
+    const row = body.insertRow();
+    const shortage = number(market.shortage_ticks?.[commodity]) > 0;
+    row.classList.toggle("shortage", shortage);
+    row.insertCell().textContent = commodityLabel(commodity) + (shortage ? " · дефицит" : "");
+    row.insertCell().textContent = fnum(market.supply?.[commodity]);
+    row.insertCell().textContent = fnum(market.demand?.[commodity]);
+    row.insertCell().textContent = fnum(market.prices?.[commodity]);
+  }
+  content.appendChild(table);
+}
+
 const eventNames = {
+  ore_extracted: "Руда добыта", cargo_loaded: "Руда погружена", cargo_unloaded: "Руда доставлена",
   ship_docked: "Корабль пристыковался", ship_undocked: "Корабль отстыковался",
   ship_refitted: "Модернизация корабля", ship_decommissioned: "Корабль списан",
   construction_completed: "Строительство завершено", construction_started: "Строительство началось",
   contract_posted: "Опубликован контракт", contract_renewed: "Контракт продлён",
   contract_expired: "Срок контракта истёк", contract_completed: "Контракт выполнен",
+  contract_accepted: "Контракт принят", contract_delivered: "Контракт выполнен",
+  passengers_arrived: "Пассажиры прибыли",
   ship_spawned: "Создан корабль", faction_control_changed: "Изменение территории"
 };
 function eventLabel(event) {
@@ -428,22 +540,32 @@ function eventLabel(event) {
   for(const [field,label] of [
     ["ship_name","Корабль"],["ship_id","Корабль"],
     ["facility_name","Объект"],["facility_id","Объект"],
-    ["location","Место"],["source_location","Откуда"],
-    ["destination","Куда"],["quantity","Количество"]
+    ["location","Место"],[event?.source_location == null ? "source" : "source_location","Откуда"],
+    ["destination","Куда"],["quantity","Количество"],["stock","Остаток на складе"]
   ]){
-    if(event?.[field] != null) parts.push(label + ": " + event[field]);
+    if (event?.[field] != null) {
+      const value = ["location", "source_location", "source", "destination"].includes(field)
+        ? locationLabel(event[field]) : ["quantity","stock"].includes(field) ? fnum(event[field]) : event[field];
+      parts.push(label + ": " + value);
+    }
   }
-  if(cargo)parts.push("Груз: "+cargo);
-  if(event?.kind==="contract_expired")parts.push("Исполнитель не принял заявку");
+  if (cargo) parts.unshift("Груз: " + cargo);
+  if (raw === "contract_expired") parts.push("Исполнитель не принял заявку");
   return {kind,detail:parts.slice(0,5).join(" · ") || "Изменение в симуляции"};
 }
+const eventRows = new WeakMap();
 function renderEvents() {
-  els.eventFeed.replaceChildren();
+  els.eventCount.textContent = fnum(s.events.length);
+  if (els.timeline.hidden) return;
   if (!s.events.length) {
-    els.eventFeed.appendChild(textEl("div","События появятся по мере работы симуляции","empty"));
+    els.eventFeed.replaceChildren(textEl("div", "События появятся по мере работы симуляции", "empty"));
     return;
   }
-  for (const {tick,event} of s.events.slice(0,70)) {
+  els.eventFeed.querySelector(".empty")?.remove();
+  const visible = s.events.slice(0, 70);
+  for (const entry of visible.slice().reverse()) {
+    if (eventRows.get(entry)?.isConnected) continue;
+    const {tick, event} = entry;
     const row = document.createElement("div");
     row.className = "event-row";
     row.appendChild(textEl("time","t " + fnum(tick)));
@@ -458,8 +580,10 @@ function renderEvents() {
       details.appendChild(raw); body.appendChild(details);
     }
     row.appendChild(body);
-    els.eventFeed.appendChild(row);
+    eventRows.set(entry, row);
+    els.eventFeed.prepend(row);
   }
+  while (els.eventFeed.childElementCount > visible.length) els.eventFeed.lastElementChild.remove();
 }
 function handleEvents(tick, events) {
   for (const event of list(events)) s.events.unshift({tick,event});
@@ -480,9 +604,11 @@ function handleWs(message) {
     case "ship_states":
       s.ships = mergeById(s.ships, m.ships);
       if (s.report) s.report.ships = s.ships;
+      renderOreFlow();
       break;
     case "market_states":
       if (s.report) { s.report.markets = mergeById(s.report.markets, m.markets); s.index = buildIndex(s.report); }
+      renderOreFlow();
       break;
     case "facility_states":
       if (s.report) { s.report.facilities = mergeById(s.report.facilities, m.facilities); s.index = buildIndex(s.report); }
@@ -685,8 +811,14 @@ function drawSun(at) {
   circle(at.x,at.y,13,"rgba(255,222,165,.55)",false);
   ctx.restore();
 }
+function bodyBiome(body) {
+  const biome = key(body.biome);
+  // Older snapshots can omit the biome. Keep the two known Sol planets
+  // recognizable without altering their simulated properties.
+  return biome || ({earth:"terrestrial", mars:"desert"}[key(body.id)] ?? "");
+}
 function bodyColor(body){
-  const biome=String(body.biome??"").toLowerCase();
+  const biome=bodyBiome(body);
   if(body.type==="moon" || biome==="lifeless")return "#a8b5c9";
   if(body.type==="belt" || body.type==="asteroid" || biome==="asteroid")return "#cba16c";
   if(biome==="terrestrial")return "#4b9cc4";
@@ -694,56 +826,140 @@ function bodyColor(body){
   if(biome==="gas_giant")return "#c4ae85";
   return "#8eb0c7";
 }
-function drawBody(body,p,selected=false){
-  const tint=bodyColor(body);
-  const belt=body.type==="belt"||body.type==="asteroid";
-  const r=belt?8:body.type==="moon"?5:9;
+function bodyRadius(body) {
+  return body.type === "moon" ? 5 : body.type === "belt" || body.type === "asteroid" ? 8 : 10;
+}
+
+function drawMapSprite(name, x, y, size) {
+  const sprite = byId("map-sprite-" + name);
+  if (!sprite?.complete || !sprite.naturalWidth) return false;
+  const scale = size / Math.max(sprite.naturalWidth, sprite.naturalHeight);
+  const width = sprite.naturalWidth * scale;
+  const height = sprite.naturalHeight * scale;
+  ctx.drawImage(sprite, x - width / 2, y - height / 2, width, height);
+  return true;
+}
+
+function drawBody(body, p, selected = false) {
+  const tint = bodyColor(body);
+  const belt = body.type === "belt" || body.type === "asteroid";
+  const r = bodyRadius(body);
   ctx.save();
-  if(belt){
-    ctx.strokeStyle="rgba(210,174,113,.58)";ctx.lineWidth=1;
-    ctx.beginPath();ctx.ellipse(p.x,p.y,13,7,-.4,0,Math.PI*2);ctx.stroke();
-    circle(p.x-5,p.y+1,3.3,tint);circle(p.x+3,p.y-3,4,tint);circle(p.x+6,p.y+3,2.4,tint);
-  }else{
-    circle(p.x,p.y,r,tint);
-    ctx.fillStyle="rgba(255,255,255,.24)";
-    ctx.beginPath();ctx.arc(p.x-r*.28,p.y-r*.3,Math.max(1.4,r*.35),0,Math.PI*2);ctx.fill();
+  if (belt) {
+    ctx.strokeStyle = "rgba(210,174,113,.40)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, 13, 7, -.4, 0, Math.PI * 2);
+    ctx.stroke();
+    const rocks = [[-6,1,3.2],[2,-3,4],[6,3,2.3],[-2,4,1.3]];
+    for (const [index, [x, y, radius]] of rocks.entries()) {
+      if (drawMapSprite("rock-" + (index % 3 + 1), p.x+x, p.y+y, radius*2)) continue;
+      ctx.fillStyle = tint;
+      ctx.beginPath();
+      ctx.moveTo(p.x+x-radius, p.y+y-radius*.3);
+      ctx.lineTo(p.x+x-radius*.3, p.y+y-radius);
+      ctx.lineTo(p.x+x+radius, p.y+y-radius*.4);
+      ctx.lineTo(p.x+x+radius*.65, p.y+y+radius);
+      ctx.lineTo(p.x+x-radius*.65, p.y+y+radius*.55);
+      ctx.fill();
+    }
+  } else if (!drawMapSprite("body-" + key(body.id), p.x, p.y, r * 2)) {
+    ctx.translate(p.x, p.y);
+    ctx.scale(r, r);
+    ctx.beginPath();
+    ctx.arc(0, 0, 1, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = tint;
+    ctx.fillRect(-1, -1, 2, 2);
+    if (bodyBiome(body) === "terrestrial") {
+      ctx.fillStyle = "#739b7c";
+      ctx.beginPath();
+      ctx.moveTo(-.78,-.45); ctx.lineTo(-.45,-.69); ctx.lineTo(.02,-.53);
+      ctx.lineTo(-.12,-.27); ctx.lineTo(-.32,-.19); ctx.lineTo(-.25,.03);
+      ctx.lineTo(-.53,.36); ctx.lineTo(-.63,.09); ctx.lineTo(-.53,-.18);
+      ctx.moveTo(.16,-.17); ctx.lineTo(.54,-.43); ctx.lineTo(.88,-.21);
+      ctx.lineTo(.69,.08); ctx.lineTo(.41,.13); ctx.lineTo(.37,.43); ctx.lineTo(.18,.24);
+      ctx.fill();
+      ctx.strokeStyle = "#d0e4e5a0";
+      ctx.lineWidth = .09;
+      ctx.beginPath();
+      ctx.ellipse(-.15, -.52, .74, .13, -.21, Math.PI, Math.PI * 1.88);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(.25, .39, .74, .13, -.2, .15, Math.PI);
+      ctx.stroke();
+    } else {
+      for (const [x,y,radius] of [[-.32,-.35,.24],[.33,-.19,.19],[-.18,.44,.30],[.58,.35,.12]]) {
+        circle(x,y,radius,"rgba(37,30,39,.19)");
+        circle(x-.025,y-.035,radius*.57,"rgba(221,198,187,.13)");
+      }
+    }
+    const shade = ctx.createLinearGradient(-.9,-.9,.85,.85);
+    shade.addColorStop(0,"rgba(225,244,255,.36)");
+    shade.addColorStop(.46,"rgba(10,22,34,0)");
+    shade.addColorStop(1,"rgba(5,12,22,.82)");
+    ctx.fillStyle = shade;
+    ctx.fillRect(-1,-1,2,2);
+    ctx.restore();
+    ctx.save();
+    ctx.lineWidth = .55;
+    circle(p.x,p.y,r,"rgba(191,219,232,.42)",false);
   }
-  if(selected||body.contested){
-    ctx.lineWidth=1.4;circle(p.x,p.y,r+7,selected?"#bce8df":"#dfb472",false);
+  if (selected || body.contested) {
+    ctx.lineWidth = 1.2;
+    circle(p.x,p.y,r+5,selected?"#bce8df":"#dfb472",false);
   }
   ctx.restore();
 }
-function drawFacilityHub(at,kind,selected) {
-  // Purposeful silhouettes instead of a hexagon with multiple tiny
-  // squares that became an unintelligible 'skull' when scaled.
-  const mine=kind==="mining_rig";
-  const line=selected?"#e9fff7":mine?"#d5b275":"#84c4c7";
+
+function drawFacilityHub(at, kind, selected) {
+  const mine = kind === "mining_rig";
+  const accent = mine ? "#dab27a" : "#8dd0d0";
   ctx.save();
-  ctx.translate(at.x,at.y);
-  ctx.lineWidth=selected?2:1.6;
-  ctx.lineJoin="round";
-  ctx.fillStyle="rgba(10,30,43,.94)";
-  ctx.strokeStyle=line;
-  ctx.beginPath();
-  if(mine) {
-    ctx.moveTo(0,-11);ctx.lineTo(12,0);
-    ctx.lineTo(0,11);ctx.lineTo(-12,0);ctx.closePath();
-  } else {
-    ctx.roundRect(-12,-9,24,18,4);
+  ctx.translate(at.x, at.y);
+  const hasSprite = (mine || kind === "station") &&
+    drawMapSprite(mine ? "mining-rig" : "station", 0, 0, 14);
+  ctx.lineWidth = .85;
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "#b0c6ce";
+  if (!hasSprite && mine) {
+    ctx.fillStyle = "#554735";
+    ctx.beginPath();
+    ctx.moveTo(-5, 2); ctx.lineTo(-2, -4); ctx.lineTo(3, -4);
+    ctx.lineTo(5, 1); ctx.lineTo(2, 4); ctx.lineTo(-4, 4);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = accent;
+    ctx.fillRect(-.8,-5.5,1.7,6);
+    ctx.fillRect(-6,1,2.6,1.6);
+  } else if (!hasSprite) {
+    ctx.fillStyle = "#2f5269";
+    ctx.fillRect(-6,-3,3,6);
+    ctx.fillRect(3,-3,3,6);
+    ctx.strokeRect(-6,-3,3,6);
+    ctx.strokeRect(3,-3,3,6);
+    ctx.fillStyle = "#405565";
+    ctx.fillRect(-3,-1,6,2);
+    ctx.fillStyle = "#879ca6";
+    ctx.fillRect(-2.1,-4.5,4.2,9);
+    ctx.fillStyle = "#d7e6e8";
+    ctx.fillRect(-1.7,-4,1,7);
+    ctx.fillStyle = accent;
+    ctx.fillRect(.25,-2,1,3);
   }
-  ctx.fill();ctx.stroke();
-  // A single legible feature at normal zoom: docking bar or ore seam.
-  ctx.beginPath();
-  if(mine) {
-    ctx.moveTo(-5,4);ctx.lineTo(0,-4);ctx.lineTo(5,4);
-  } else {
-    ctx.moveTo(-6,0);ctx.lineTo(6,0);
+  if (selected) {
+    ctx.lineWidth = 1;
+    circle(0,0,8,"#b0eddd",false);
   }
-  ctx.stroke();
-  if(selected) {
-    ctx.strokeStyle="rgba(177,238,221,.45)";
-    ctx.beginPath();ctx.arc(0,0,16,0,2*Math.PI);ctx.stroke();
-  }
+  ctx.restore();
+}
+
+function drawFacilityOrbit(center, station, bodySize) {
+  const radius = Math.hypot(station.x - center.x, station.y - center.y);
+  if (radius < bodySize + 4) return;
+  ctx.save();
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 4]);
+  circle(center.x, center.y, radius, "rgba(131,185,196,.29)", false);
   ctx.restore();
 }
 
@@ -788,7 +1004,12 @@ function smoothPosition(ship, target) {
   const oldX=old.x,oldY=old.y;
   old.x+=(target.x-old.x)*0.17;
   old.y+=(target.y-old.y)*0.17;
-  s.shipMotion.set(ship.id,{dx:old.x-oldX,dy:old.y-oldY});
+  const dx = old.x - oldX;
+  const dy = old.y - oldY;
+  const heading = Math.hypot(dx, dy) > 0.0001
+    ? Math.atan2(-dy, dx) + Math.PI / 2
+    : s.shipMotion.get(ship.id)?.heading ?? 0;
+  s.shipMotion.set(ship.id,{dx,dy,heading});
   return old;
 }
 function drawShip(ship,at,color,selected,scale=1) {
@@ -802,25 +1023,36 @@ function drawShip(ship,at,color,selected,scale=1) {
     const trail=ctx.createLinearGradient(0,0,-unitX*20,-unitY*20);
     trail.addColorStop(0,"rgba(112,210,221,.6)");
     trail.addColorStop(1,"rgba(112,210,221,0)");
-    ctx.strokeStyle=trail;ctx.lineWidth=2.1;ctx.beginPath();
-    ctx.moveTo(-unitX*5,-unitY*5);ctx.lineTo(-unitX*20,-unitY*20);ctx.stroke();
-    ctx.rotate(Math.atan2(my,mx)+Math.PI/2);
+    ctx.strokeStyle=trail;ctx.lineWidth=1.35;ctx.beginPath();
+    ctx.moveTo(-unitX*4,-unitY*4);ctx.lineTo(-unitX*16,-unitY*16);ctx.stroke();
   }
-  const r=selected?8.5:7;
-  const hull=String(ship.class??"").toLowerCase();
-  if(hull==="courier"){
-    ctx.beginPath();ctx.moveTo(0,-r*1.3);ctx.lineTo(r*.7,r*.88);
-    ctx.lineTo(0,r*.25);ctx.lineTo(-r*.7,r*.88);ctx.closePath();
-  }else if(hull==="freighter"||hull==="hauler"||hull==="tanker"){
-    ctx.beginPath();ctx.moveTo(0,-r*1.15);ctx.lineTo(r*.92,-r*.12);
-    ctx.lineTo(r*.8,r*.95);ctx.lineTo(-r*.8,r*.95);
-    ctx.lineTo(-r*.92,-r*.12);ctx.closePath();
-  }else{
-    ctx.beginPath();ctx.moveTo(0,-r*1.2);ctx.lineTo(r,r);
-    ctx.lineTo(0,r*.35);ctx.lineTo(-r,r);ctx.closePath();
+  ctx.rotate(move?.heading ?? 0);
+  const hull = key(ship.class);
+  if ((hull === "courier" || hull === "freighter") && drawMapSprite(hull, 0, 0, hull === "courier" ? 10 : 12)) {
+    circle(0, 5.5, 1, color);
+  } else {
+    ctx.beginPath();
+    if (hull === "courier") {
+      ctx.moveTo(0,-5); ctx.lineTo(3.1,3.6);
+      ctx.lineTo(0,2.1); ctx.lineTo(-3.1,3.6);
+    } else {
+      ctx.moveTo(0,-4.5); ctx.lineTo(2.2,-3);
+      ctx.lineTo(3.4,-1); ctx.lineTo(3.4,3.7);
+      ctx.lineTo(-3.4,3.7); ctx.lineTo(-3.4,-1); ctx.lineTo(-2.2,-3);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "#70828f";
+    ctx.fill();
+    ctx.lineWidth = .7;
+    ctx.strokeStyle = "#c5d7e3";
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.fillRect(-.9,-2.5,1.8,3.5);
+    ctx.fillStyle = "#b0d2da";
+    ctx.fillRect(-2,2.8,1.1,1.1);
+    ctx.fillRect(.9,2.8,1.1,1.1);
   }
-  ctx.fillStyle=color;ctx.fill();ctx.lineWidth=1.3;ctx.strokeStyle="#dbeef1";ctx.stroke();
-  if(selected){ctx.lineWidth=1.2;circle(0,0,r+8,"#b0eddd",false);}
+  if (selected) { ctx.lineWidth = 1; circle(0,0,7,"#b0eddd",false); }
   ctx.restore();
 }
 
@@ -837,7 +1069,6 @@ function renderMap() {
   const sysMap=new Map(s.index.systems.map(system => [system.name,system]));
   const showLabels=els.labelsToggle.checked;
   const showShips=els.shipsToggle.checked;
-  const hubAnchors=new Map();
   const labelRequests=[];
   const markerObstacles=[];
   const markGlyph=(p,r)=>markerObstacles.push({
@@ -883,8 +1114,10 @@ function renderMap() {
       withMapScale(center,iconScale,()=>drawSun(center));
       markGlyph(center,15*iconScale);
       askLabel("sun-"+sys.name,center,sys.name+" · звезда","#eed09a",50,17,140);
+      const bodyScreens = new Map();
       for(const body of sys.bodies){
         const p=liveWorldPoint(body);if(!p)continue;const screen=toScreen(p);
+        bodyScreens.set(key(body.id), {screen, radius:bodyRadius(body)*iconScale});
         if(!visible(screen,26))continue;
         withMapScale(screen,iconScale,()=>drawBody(body,screen,isSelected("body",body.id)));
         markGlyph(screen,14*iconScale);
@@ -908,18 +1141,16 @@ function renderMap() {
         const selected=ids.includes(s.selection?.id) ||
           (s.selection?.type==="facility_group" &&
           s.selection.ids?.some(id=>ids.includes(id)));
+        const anchor = bodyScreens.get(key(prefer.body_id));
+        if (anchor) drawFacilityOrbit(anchor.screen, at, anchor.radius);
         withMapScale(at,iconScale,()=>drawFacilityHub(at,prefer.type,selected));
-        markGlyph(at,14*iconScale);
-        const parked=showShips?shipsAtHub(s.ships,hub.location):[];
-        // The label stays short: each parked vessel gets its own
-        // anchored, selectable icon drawn below in the ships layer.
+        markGlyph(at,8*iconScale);
         askLabel("hub-"+hub.id,at,prefer.name,
           prefer.type==="mining_rig"?"#d5b275":"#84c4c7",
-          selected?1:15,17,205);
-        hubAnchors.set(key(hub.location),{at,parked});
+          selected?1:15,9,205);
         const targetType=members.length>1?"facility_group":"facility";
         addTarget(targetType,members.length>1?hub.id:members[0].id,
-          at.x,at.y,Math.max(15,15*iconScale),prefer.name,
+          at.x,at.y,Math.max(10,8*iconScale),prefer.name,
           members.length>1?ids:null);
       }
     }
@@ -929,52 +1160,19 @@ function renderMap() {
     const visibleShips=s.ships.filter(ship=>
       s.view!=="system" || s.index.systems.length===1 ||
       shipSystem(ship,s.index)===s.systemName);
-    const anchoredShips=new Set();
-    if(s.view==="system"){
-      // Parked vessels are visible as individual SMALL dock icons at the
-      // station. The offsets are static screen-layout slots tied to the
-      // hub's real coordinate; they do not orbit, interpolate or wander.
-      for(const [loc,hub] of hubAnchors){
-        const parked=[...hub.parked].sort((a,b)=>
-          String(a.id).localeCompare(String(b.id)));
-        for(let i=0;i<parked.length;i++){
-          const ship=parked[i];
-          anchoredShips.add(ship.id);
-          s.visualPositions.delete(ship.id);
-          s.shipMotion.delete(ship.id);
-          const col=i%3,row=Math.floor(i/3);
-          const at={
-            x:hub.at.x+(31+col*20)*iconScale,
-            y:hub.at.y+(10+row*21)*iconScale
-          };
-          if(!visible(at,20))continue;
-          const selected=isSelected("ship",ship.id);
-          withMapScale(at,Math.min(iconScale,1.8),()=>drawShip(ship,at,
-            factionColor(ship.faction_id,s.index),selected,0));
-          markGlyph(at,10*iconScale);
-          askLabel("parked-"+ship.id,at,ship.name??ship.class,
-            "#c2dce4",selected?0:5,13,140);
-          addTarget("ship",ship.id,at.x,at.y,Math.max(12,12*iconScale),
-            (ship.name??ship.id)+" · у станции");
-        }
-      }
-    }
-    // In-flight ships always use their own real coordinates, never
-    // the location of a nearby facility. Unknown/idle ships without
-    // a known hub remain visible at their own reported coordinates.
-    for(const ship of visibleShips){
-      if(anchoredShips.has(ship.id))continue;
-      const state=shipMapState(ship);
-      if(state!=="in_transit"){
+    // Parked ships are available in the hub and fleet strip; only actual
+    // transit gets an independent hull on the map.
+    for (const ship of visibleShips) {
+      if (shipMapState(ship) !== "in_transit") {
         s.visualPositions.delete(ship.id);
         s.shipMotion.delete(ship.id);
+        continue;
       }
-      const target=positionOf(ship,s.positions);
-      const p=state==="in_transit" ? smoothPosition(ship,target) : target;
+      const p = smoothPosition(ship, positionOf(ship, s.positions));
       if(!p)continue;
       const sc=toScreen(p);
       if(!visible(sc,20))continue;
-      shipMarkers.push({...sc,ship,state});
+      shipMarkers.push({...sc,ship});
     }
     for(const group of clusterMarkers(shipMarkers,34)){
       if(group.members.length>1){
@@ -982,23 +1180,22 @@ function renderMap() {
         const selected=ids.includes(s.selection?.id);
         withMapScale(group,Math.min(iconScale,1.8),()=>
           drawShip(group.members[0].ship,group,"#84b9c5",
-            selected,group.members[0].state==="in_transit"?scale:0));
-        markGlyph(group,12*iconScale);
+            selected,scale));
+        markGlyph(group,8*iconScale);
         askLabel("ships-"+group.id,group,ids.length+" корабля",
-          "#c2dce4",selected?0:5,16,118);
+          "#c2dce4",selected?0:5,9,118);
         addTarget("ship_group",group.id,group.x,group.y,
           Math.max(17,16*iconScale),ids.length+" кораблей",ids);
       }else{
-        const {ship,x,y,state}=group.members[0];
+        const {ship,x,y}=group.members[0];
         const at={x,y},selected=isSelected("ship",ship.id);
         withMapScale(at,iconScale,()=>drawShip(ship,at,
-          factionColor(ship.faction_id,s.index),selected,
-          state==="in_transit"?scale:0));
-        markGlyph(at,11*iconScale);
+          factionColor(ship.faction_id,s.index),selected,scale));
+        markGlyph(at,7*iconScale);
         askLabel("ship-"+ship.id,at,ship.name??ship.class,
-          "#c2dce4",selected?0:3,16,145);
+          "#c2dce4",selected?0:3,8,145);
         addTarget("ship",ship.id,at.x,at.y,
-          Math.max(selected?15:12,12*iconScale),ship.name);
+          Math.max(9,7*iconScale),ship.name);
       }
     }
   }
@@ -1027,6 +1224,7 @@ function nearestTarget(x,y) {
 }
 
 function installCanvasHandlers(){
+  let lastPick = null;
   const toLocal=e=>{const r=els.map.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};
   els.map.addEventListener("pointerdown",e=>{
     if(e.button!==0)return;
@@ -1058,20 +1256,28 @@ function installCanvasHandlers(){
     const moved=s.dragging.moved;
     s.dragging=null;els.map.classList.remove("grabbing");
     if(!moved){
-      const p=toLocal(e),target=nearestTarget(p.x,p.y);
+      const p = toLocal(e);
+      const sameSpot = lastPick && e.timeStamp - lastPick.time < 500 &&
+        Math.hypot(p.x - lastPick.x, p.y - lastPick.y) < 5;
+      // Opening the dock can move the map before the second click.
+      if (sameSpot) return;
+      const target = nearestTarget(p.x, p.y);
+      lastPick = target ? {...p, time:e.timeStamp, target} : null;
       if(target){
-        s.selection={type:target.type,id:target.id,ids:target.ids,name:target.name};
-        if(target.type==="system")s.systemName=target.id;
-        s.guideDismissed = true;
-        renderInspector();refreshToolbar();renderSidebar();
+        if (target.type === "system") s.systemName = target.id;
+        setSelection({type:target.type,id:target.id,ids:target.ids,name:target.name});
+        refreshToolbar();
+        renderSidebar();
       }
     }
   });
   els.map.addEventListener("pointercancel",()=>{s.dragging=null;els.map.classList.remove("grabbing");});
   els.map.addEventListener("pointerleave",()=>{els.hoverLabel.hidden=true;});
   els.map.addEventListener("dblclick",e=>{
-    const p=toLocal(e),target=nearestTarget(p.x,p.y);
-    if(target?.type==="system")chooseSystem(target.id,true);
+    const p = toLocal(e);
+    const target = lastPick?.target ?? nearestTarget(p.x, p.y);
+    lastPick = null;
+    if(target?.type==="system")chooseSystem(target.id);
     else if(target?.type==="ship_group" || target?.type==="facility_group") changeZoomAt(p,2);
   });
   els.map.addEventListener("wheel",e=>{
@@ -1079,9 +1285,6 @@ function installCanvasHandlers(){
     const pointer=toLocal(e);
     changeZoomAt(pointer,e.deltaY<0?1.18:1/1.18);
   },{passive:false});
-  els.map.addEventListener("keydown",e=>{
-    if(e.key==="Escape"){sectorMode();els.map.blur();}
-  });
 }
 
 function wireControls() {
@@ -1092,16 +1295,38 @@ function wireControls() {
     world_speed:Number(els.speedSelect.value)
   }));
   els.sectorTab.addEventListener("click",sectorMode);
-  els.systemTab.addEventListener("click",()=>{if(s.systemName)chooseSystem(s.systemName,true);});
+  els.systemTab.addEventListener("click",()=>{if(s.systemName)chooseSystem(s.systemName);});
   els.fitBtn.addEventListener("click",resetCamera);
   els.systemSearch.addEventListener("input",renderSidebar);
-  els.clearEvents.addEventListener("click",()=>{s.events=[];renderEvents();});
-  els.clearSelection.addEventListener("click",()=>{s.selection=null;renderInspector();});
-  els.startSystemBtn.addEventListener("click",()=>{
-    const chosen = s.index?.systems.find(x => x.name === "Sol") ?? s.index?.systems[0];
-    if (chosen) chooseSystem(chosen.name, true);
+  els.eventsToggle.addEventListener("click", () => {
+    els.timeline.hidden = !els.timeline.hidden;
+    els.eventsToggle.setAttribute("aria-expanded", String(!els.timeline.hidden));
+    renderEvents();
   });
-  els.dismissGuideBtn.addEventListener("click",()=>{s.guideDismissed=true;renderStartGuide();});
+  els.clearEvents.addEventListener("click", () => { s.events = []; renderEvents(); });
+  els.clearSelection.addEventListener("click", () => {
+    setSelection(null);
+    els.map.focus({preventScroll:true});
+  });
+  els.inspectorBack.addEventListener("click", () => {
+    s.selection = s.selectionHistory.pop() ?? null;
+    renderInspector();
+    renderFleet();
+  });
+  const popovers = [els.systemPicker, els.mapLayers];
+  document.addEventListener("click", event => {
+    for (const popover of popovers) {
+      if (!popover.contains(event.target)) popover.open = false;
+    }
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || event.target.matches("input, select")) return;
+    const opened = popovers.find(popover => popover.open);
+    if (opened) opened.open = false;
+    else if (s.selection) setSelection(null);
+    else if (!els.timeline.hidden) els.eventsToggle.click();
+    else sectorMode();
+  });
   installCanvasHandlers();
 }
 
@@ -1110,5 +1335,9 @@ renderMap();
 fetchReport().then(()=>{connectWs();fetchHealth();});
 window.setInterval(fetchReport,18000);
 window.setInterval(fetchHealth,2500);
-window.setInterval(()=>{refreshToolbar();renderInspector();},2200);
+window.setInterval(() => {
+  refreshToolbar();
+  // Keep a focused inspector control attached while the user navigates it.
+  if (!els.inspectorBody.contains(document.activeElement) || document.activeElement.matches("summary")) renderInspector();
+}, 2200);
 window.addEventListener("beforeunload",()=>s.ws?.close());

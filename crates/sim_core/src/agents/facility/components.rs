@@ -600,24 +600,23 @@ pub fn docking_fee(
     ((base as f32) * occupancy_mult * condition_mult).round() as i64
 }
 
-/// Deterministic facility position around a body center.
-///
-/// Angle comes from a stable hash of the facility's agent id, so the same
-/// facility always lands at the same spot relative to its body. Multiple
-/// facilities at the same body spread out around it instead of stacking.
-///
-/// Shared by:
-/// - `sim_server::snapshot::update_facilities` (for the published position)
-/// - `sim_core::agents::ship::advance_transits` (so ships aim at the same spot)
-///
-/// The two callers MUST use this same function so ship transit endpoints
-/// match where the client renders facilities — otherwise ships visually
-/// overshoot/undershoot the station by ~0.15 units.
+/// Stable body-relative offset used when placing a construction site.
 pub fn facility_offset_position(body_center: (f32, f32), facility_id: &str) -> (f32, f32) {
+    facility_orbit_position(body_center, 0.0, facility_id)
+}
+
+/// Authoritative facility coordinates shared by transit, docking and rendering.
+/// The hash gives each facility a stable phase. A whole-number ratio keeps
+/// the orbit continuous when the parent body's persisted angle wraps to zero.
+pub fn facility_orbit_position(
+    body_center: (f32, f32),
+    body_angle: f32,
+    facility_id: &str,
+) -> (f32, f32) {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     facility_id.hash(&mut h);
-    let angle_deg = (h.finish() % 360) as f32;
+    let angle_deg = (h.finish() % 360) as f32 + body_angle * 3.0;
     let angle = angle_deg.to_radians();
     (
         body_center.0 + FACILITY_ORBIT_RADIUS * angle.cos(),

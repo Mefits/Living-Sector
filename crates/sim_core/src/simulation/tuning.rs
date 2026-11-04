@@ -47,6 +47,8 @@ use std::sync::OnceLock;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct WorldTuning {
+    /// Genesis runs extraction and transport before enabling upkeep or contracts.
+    pub genesis_ore_loop: bool,
     // --- Bundle (H): recipe profitability gate ---
     /// Recipes skip production when
     /// `output_value < input_value × min_recipe_margin_ratio`
@@ -94,6 +96,7 @@ pub struct WorldTuning {
 impl Default for WorldTuning {
     fn default() -> Self {
         Self {
+            genesis_ore_loop: false,
             min_recipe_margin_ratio: 0.5,
             dock_fee_burn_pct: 0.30,
             market_crisis_shortage_ticks: 200,

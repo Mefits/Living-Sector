@@ -389,29 +389,11 @@ pub(super) fn execute_ship_action(
                 controller,
             );
             let price = base_price * posture;
-            let want = affordable_quantity(economy.credits, price, cargo.free()).min(*qty);
-            if want == 0 {
-                return BtStatus::Failure;
-            }
-            let cost = (price * want as f32) as i64;
-            economy.credits -= cost;
-            *cargo.cargo.entry(*commodity).or_insert(0) += want;
-            cargo.cargo_age.insert(*commodity, tick);
-            // Phase 20: remember origin + unit price so the Sell arm
-            // can compute realised profit and feed route_performance.
-            // Store the posture-adjusted price so the realised-profit
-            // calc at Sell time compares apples-to-apples.
-            cargo.cargo_origin.insert(*commodity, (at.clone(), price));
-            commands.push(SimCommand::RemoveSupplyAtShipLocation {
+            commands.push(SimCommand::BuyCargo {
                 ship: entity,
                 commodity: *commodity,
-                quantity: want as f32,
-            });
-            // A successful trade grows the crew's trading skill by 1 (cap 100).
-            commands.push(SimCommand::GrantCrewXp {
-                ship: entity,
-                skill: "trading",
-                amount: 1,
+                quantity: *qty,
+                unit_price: price,
             });
             crew.current_task = CrewTask::Loading;
             BtStatus::Success
@@ -655,7 +637,7 @@ pub(super) fn execute_ship_action(
     }
 }
 
-pub(super) fn affordable_quantity(credits: i64, price: f32, capacity: u32) -> u32 {
+pub fn affordable_quantity(credits: i64, price: f32, capacity: u32) -> u32 {
     if price <= 0.0 || credits <= 0 {
         return 0;
     }
