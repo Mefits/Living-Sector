@@ -257,14 +257,20 @@
       "location": "belt-outpost",
       "class": "freighter",
       "credits": 18000,
-      "faction_id": "terran-authority"
+      "faction_id": "terran-authority",
+      "fitting": {
+        "comms": "comms_t2"
+      }
     },
     {
       "name": "Грузовой-002",
       "location": "earth-station",
       "class": "freighter",
       "credits": 14000,
-      "faction_id": "terran-authority"
+      "faction_id": "terran-authority",
+      "fitting": {
+        "comms": "comms_t2"
+      }
     },
     {
       "name": "Курьер-001",
