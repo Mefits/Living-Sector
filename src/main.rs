@@ -1,7 +1,8 @@
 mod conflict;
 mod construction;
-mod governance;
 mod freight;
+mod governance;
+mod legacy_freight;
 mod planning;
 mod sim;
 mod view;
@@ -65,16 +66,31 @@ impl Engine {
             entries.push(log_entry(&next, "simulation", event));
         }
         let previous = (
-            self.sim.phase,
+            self.sim
+                .fleet
+                .ships
+                .values()
+                .filter(|ship| ship.leg.is_some())
+                .count(),
             self.sim.smelting_status(),
             self.sim.delivery_status(),
         );
-        if previous != (next.phase, next.smelting_status(), next.delivery_status()) {
+        if previous
+            != (
+                next.fleet
+                    .ships
+                    .values()
+                    .filter(|ship| ship.leg.is_some())
+                    .count(),
+                next.smelting_status(),
+                next.delivery_status(),
+            )
+        {
             entries.push(log_entry(
                 &next,
                 "operations",
                 json!({
-                    "ship_phase": next.phase,
+                    "ships_in_transit": next.fleet.ships.values().filter(|ship| ship.leg.is_some()).count(),
                     "delivery": next.delivery_status(),
                     "smelting": next.smelting_status(),
                     "station_fuel": next.station_fuel,
@@ -155,6 +171,7 @@ fn load_sim(path: &Path) -> io::Result<SaveFile> {
             if env::var("GENESIS_LEADER").as_deref() != Ok("cautious") {
                 sim.governance.leader = governance::Leader::Industrial;
             }
+            sim.migrate_fleet();
             Ok(SaveFile {
                 sim,
                 diagnostic_history: VecDeque::new(),

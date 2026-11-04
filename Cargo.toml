@@ -1,9 +1,10 @@
 [package]
 name = "genesis-clean"
-version = "0.8.1"
+version = "0.10.0"
 edition = "2024"
 
 [dependencies]
+sim_core = { git = "https://github.com/Kalcode/spaceprojectsim.git", rev = "967b9b6fe75710b8a6cd32f99af5cc3743bbbd9d" }
 axum = { version = "0.8", features = ["ws"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

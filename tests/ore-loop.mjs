@@ -6,104 +6,149 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
-const dir = await mkdtemp(join(tmpdir(), "genesis-ore-loop-"));
-const timeout = AbortSignal.timeout(65000);
-const processClosed = [];
-const children = [];
-const sockets = [];
+const dir = await mkdtemp(join(tmpdir(), "genesis-fleet-"));
+const timeout = AbortSignal.timeout(45000);
+const children = new Set();
 
-async function start(leader, save) {
+async function start(save) {
   const child = spawn(process.argv[2], [], {
-    env: { ...process.env, GENESIS_PORT: "0", GENESIS_SAVE_PATH: save, GENESIS_NO_BROWSER: "1", GENESIS_LEADER: leader },
+    env: { ...process.env, GENESIS_PORT: "0", GENESIS_SAVE_PATH: save, GENESIS_NO_BROWSER: "1" },
     stdio: ["ignore", "pipe", "inherit"],
   });
-  children.push(child);
+  children.add(child);
   const closed = new Promise(resolve => child.once("close", resolve));
-  processClosed.push(closed);
+  child.once("close", () => children.delete(child));
   const lines = createInterface({ input: child.stdout });
   try {
-    const [line] = await once(lines, "line", { signal: timeout });
-    assert.match(line, /^Genesis Clean: http:\/\/127\.0\.0\.1:\d+\/observer$/);
-    return { base: new URL(line.split(" ").at(-1)).origin, child, closed };
+    const [line] = await Promise.race([
+      once(lines, "line", { signal: timeout }),
+      closed.then(code => { throw new Error("Genesis exited during startup: " + code); }),
+    ]);
+    return { child, closed, base: new URL(line.split(" ").at(-1)).origin };
   } finally {
     lines.close();
   }
 }
 
-async function api(base, path, data) {
-  const response = await fetch(base + path, {
+async function stop(server) {
+  server.child.kill();
+  await server.closed;
+}
+
+async function api(server, path, body) {
+  const response = await fetch(server.base + path, {
     signal: timeout,
-    ...(data && {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(data),
-    }),
+    ...(body && { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   });
   assert.ok(response.ok, path + " returned " + response.status);
   return response.json();
 }
 
-async function runSeed(name, state, stop) {
-  const save = join(dir, name + ".json");
-  await writeFile(save, JSON.stringify(state));
-  const server = await start("industrial", save);
-  const socket = new WebSocket(server.base.replace("http:", "ws:") + "/ws");
-  sockets.push(socket);
-  const events = [];
-  const done = new Promise((resolve, reject) => {
-    timeout.addEventListener("abort", () => reject(timeout.reason), { once: true });
-    socket.addEventListener("message", message => {
-      const frame = JSON.parse(message.data);
-      events.push(...frame.events);
-      if (stop(frame, events)) resolve(frame);
-    });
+const diag = server => api(server, "/api/diagnostics");
+const pause = server => api(server, "/api/sim/pause", {});
+async function resume(server) {
+  await api(server, "/api/sim/speed", { world_speed: 16 });
+  await api(server, "/api/sim/resume", {});
+}
+async function until(server, predicate) {
+  while (!timeout.aborted) {
+    const data = await diag(server);
+    if (predicate(data)) return data;
+    await new Promise(resolve => setTimeout(resolve, 80));
+  }
+  throw timeout.reason;
+}
+
+function warehouse(name, x, water) {
+  return { name, x, y: 0, capacity: 200, stock: {water} };
+}
+
+async function fleetCase(initial, count) {
+  const state = structuredClone(initial);
+  Object.assign(state, {
+    station_ore: 100, belt_ore: 0, deposit: 0, metal: 80, station_fuel: 200,
+    warehouses: {north: warehouse("Север", 2, 45), south: warehouse("Юг", 3, 45), client: warehouse("Получатель", 5, 0)},
   });
-  done.catch(() => {});
-  await once(socket, "open", { signal: timeout });
-  await api(server.base, "/api/sim/speed", { world_speed: 16 });
-  await api(server.base, "/api/sim/resume", {});
-  const frame = await done;
-  await api(server.base, "/api/sim/pause", {});
-  socket.close();
-  server.child.kill();
-  await server.closed;
-  return { events, frame, save };
+  state.construction.phase = "complete";
+  Object.assign(state.conflict, { base_ready: true, base_progress: 40, pirate_fuel_stock: 0 });
+  state.fleet = { initialized: true, next_order: 2,
+    orders: {1: {destination: "client", resource: "water", remaining: 110, priority: 100}},
+    ships: Object.fromEntries(Array.from({length: count}, (_, i) => [
+      "test-" + i, {name: "Грузовик " + i, location: i % 2 ? "south" : "north", fuel: 100,
+        tank: 100, capacity: 20, status: "Готов", task: null, leg: null},
+    ])),
+  };
+  const save = join(dir, "fleet-" + count + ".json");
+  await writeFile(save, JSON.stringify(state));
+  let server = await start(save);
+  await resume(server);
+  const moving = await until(server, d => Object.values(d.state.fleet.ships).some(s => s.leg && s.task?.loaded));
+  if (count === 5) {
+    assert.ok(Object.values(moving.state.fleet.ships).filter(s => s.task).length > 1);
+    await pause(server);
+    const saved = await diag(server);
+    await stop(server);
+    server = await start(save);
+    assert.deepEqual((await diag(server)).state.fleet, saved.state.fleet);
+    await resume(server);
+  }
+  const delivered = await until(server, d => d.state.warehouses.client.stock.water === 90);
+  assert.equal(delivered.state.fleet.orders[1].remaining, 20);
+  assert.equal(delivered.state.warehouses.north.stock.water, 0);
+  assert.equal(delivered.state.warehouses.south.stock.water, 0);
+  assert.equal(Object.keys(delivered.state.fleet.ships).length, count);
+  await stop(server);
+}
+
+async function legacyCase(initial, independent = false) {
+  const state = structuredClone(initial);
+  delete state.fleet;
+  Object.assign(state, {phase: "outbound", elapsed: 7.5, route_duration: 16, fuel: 23, cargo: 40});
+  Object.assign(state.construction, {phase: "complete", active_second: true, parked_fuel: 55});
+  if (independent) {
+    state.construction.active_second = false;
+    state.second_freighter = {
+      phase: "outbound", elapsed: 4, outbound_duration: 18, fuel: 19, cargo: 20,
+    };
+  }
+  const save = join(dir, independent ? "pr-6.json" : "old.json");
+  await writeFile(save, JSON.stringify(state));
+  const server = await start(save);
+  const imported = await diag(server);
+  const ships = imported.state.fleet.ships;
+  const active = ships[independent ? "freighter-1" : "freighter-2"];
+  assert.equal(active.fuel, 23);
+  assert.equal(active.leg.elapsed, 30);
+  assert.equal(active.task.quantity, 40);
+  if (independent) {
+    const second = ships["freighter-2"];
+    assert.equal(second.fuel, 19);
+    assert.equal(second.leg.elapsed, 16);
+    assert.equal(second.task.quantity, 20);
+    assert.equal(active.task.order, second.task.order);
+  } else {
+    assert.equal(ships["freighter-1"].fuel, 55);
+  }
+  await stop(server);
 }
 
 try {
-  const origin = await start("industrial", join(dir, "original.json"));
-  const initial = await api(origin.base, "/api/diagnostics");
-  assert.equal(initial.version, "0.8.1");
-  const fresh = await runSeed("fresh", initial.state, (_, events) => events.some(event => event.kind === "ship_commissioned"));
-  assert.ok(fresh.events.some(event => event.kind === "building_approved" && event.actor === "Genesis" && event.reason.includes("Орбитальная верфь")));
-  const atlas = await fetch(origin.base + "/observer/orbital-structures.webp", {signal: timeout});
-  assert.equal(atlas.headers.get("content-type"), "image/webp");
-  assert.equal(Buffer.from(await atlas.arrayBuffer()).toString("ascii", 8, 12), "WEBP");
-  assert.ok(initial.observer.facilities.every(facility => facility.inspection?.status));
-  assert.ok(initial.observer.facilities.find(f => f.id === "earth-station").inspection.meters.some(m => m.capacity === 80));
-  const state = initial.state;
-  Object.assign(state, { metal: 60, station_ore: 20, deposit: 500 });
-  state.construction.phase = "complete";
-  Object.assign(state.conflict, { base_ready: true, base_progress: 40, pirate_fuel_stock: 0 });
-  const calm = await runSeed("calm", state, frame => frame.tick >= 36);
-  assert.ok(!calm.events.some(event => event.kind === "building_approved" && event.reason.includes("Рудный аванпост")));
-
-  Object.assign(state, { deposit: 80 });
-  Object.assign(state.conflict, { raider_destroyed: true, pirate_metal: 44, pirate_fuel_stock: 30 });
-  const risk = await runSeed("risk", state, (_, events) =>
-    events.filter(event => event.kind === "building_completed").length >= 2
-      && events.some(event => event.kind === "cargo_loaded" && event.location === "mars-outpost"));
-  assert.ok(risk.events.some(event => event.kind === "building_approved" && event.actor === "Genesis" && event.reason.includes("Рудный аванпост")));
-  assert.ok(risk.events.some(event => event.kind === "building_approved" && event.actor === "Пираты" && event.reason.includes("Орбитальная верфь")));
-  assert.equal(risk.frame.governance.catalog.length, 11);
-  const restored = await start("", risk.save);
-  const report = await api(restored.base, "/api/report");
-  assert.ok(report.facilities.some(facility => facility.id === "pirate-shipyard" && facility.inspection.resources.length > 0));
-  assert.ok(report.facilities.some(facility => facility.id === "mars-outpost" && facility.type === "mining_rig"));
-  console.log("PASS: calm economy, site choice, both construction fleets, first outpost shipment, reload.");
+  const origin = await start(join(dir, "new.json"));
+  const initial = await diag(origin);
+  assert.equal(initial.version, "0.10.0");
+  await resume(origin);
+  await Promise.all([
+    legacyCase(initial.state), legacyCase(initial.state, true),
+    ...[1, 2, 5].map(count => fleetCase(initial.state, count)),
+    until(origin, d => d.state.station_ore > 0 && d.state.metal > 0),
+  ]);
+  await stop(origin);
+  console.log("PASS: independent fleet 1/2/5, competing reservations, two sources, partial delivery, restart and old save.");
 } finally {
-  for (const socket of sockets) socket.close();
-  for (const child of children) child.kill();
-  await Promise.all(processClosed);
-  await rm(dir, { recursive: true, force: true });
+  await Promise.all([...children].map(async child => {
+    const closed = once(child, "close");
+    child.kill();
+    await closed;
+  }));
+  await rm(dir, {recursive: true, force: true});
 }

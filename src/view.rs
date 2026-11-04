@@ -1,10 +1,10 @@
 use crate::conflict::{PATROL_METAL, PATROL_SEED_FUEL, PIRATE_BASE, Patrol};
-use crate::freight::{Freighter, FreightPhase};
+
 use crate::construction::{
     MARS_METAL, MARS_ORE, MARS_SITE, MarsProject, Project, SHIP_METAL, SITE, YARD_METAL,
 };
 use crate::planning::{Choice, Kind, Program, Site as BuildSite, Work};
-use crate::sim::{BELT, EARTH, Event, Phase, SHIPMENT, Sim, TANK};
+use crate::sim::{BELT, EARTH, Event, SHIPMENT, Sim, TANK};
 use serde_json::{Value, json};
 use std::f64::consts::TAU;
 
@@ -49,7 +49,6 @@ struct Scene {
     belt: Point,
     station: Point,
     rig: Point,
-    ship: Point,
     yard: Point,
     pirate: Point,
     venus: Point,
@@ -97,23 +96,11 @@ impl Scene {
         } else {
             location(mars, 1.2 + TAU * sim.seconds / 121.0)
         };
-        let source = if sim.mars_route { mars_site } else { rig };
-        let progress = sim.elapsed / sim.freight_duration();
-        let ship = match sim.phase {
-            Phase::Relocating => interpolate(rig, mars_site, progress),
-            Phase::Outbound => interpolate(source, station, progress),
-            Phase::Loading => source,
-            Phase::Returning => interpolate(station, rig, progress),
-            Phase::Unloading => station,
-            Phase::NoFuelAtEarth => station,
-            _ => rig,
-        };
         Self {
             earth,
             belt,
             station,
             rig,
-            ship,
             yard,
             pirate,
             venus,
@@ -244,75 +231,48 @@ fn program_facilities(sim: &Sim, scene: &Scene, program: &Program, pirates: bool
         }).collect()
 }
 
-pub fn route_distance(sim: &Sim, from: &str, to: &str) -> f64 {
-    let scene = Scene::at(sim);
-    let position = |id| match id {
+fn local_point(sim: &Sim, scene: &Scene, id: &str) -> Point {
+    match id {
         BELT => scene.rig,
         MARS_SITE => scene.mars_site,
         SITE => scene.yard,
         PIRATE_BASE => scene.pirate,
-        _ => scene.station,
-    };
-    let a = position(from);
-    let b = position(to);
+        EARTH => scene.station,
+        _ => sim.warehouses.get(id).map_or(scene.station, |stock| Point {
+            x: stock.x,
+            y: stock.y,
+        }),
+    }
+}
+
+pub fn route_distance(sim: &Sim, from: &str, to: &str) -> f64 {
+    let scene = Scene::at(sim);
+    let a = local_point(sim, &scene, from);
+    let b = local_point(sim, &scene, to);
     (a.x - b.x).hypot(a.y - b.y)
 }
 
-fn ship(sim: &Sim, scene: &Scene) -> Value {
-    let source = if sim.mars_route { MARS_SITE } else { BELT };
-    let (location, transit) = match sim.phase {
-        Phase::Relocating => (None, Some((BELT, MARS_SITE))),
-        Phase::Outbound => (None, Some((source, EARTH))),
-        Phase::Loading => (Some(source), None),
-        Phase::Returning => (None, Some((EARTH, BELT))),
-        Phase::Unloading => (Some(EARTH), None),
-        Phase::NoFuelAtEarth => (Some(EARTH), None),
-        _ => (Some(BELT), None),
-    };
-    json!({
-        "id": freighter_id(sim.construction.active_second), "name": sim.freighter_name(), "class": "freighter", "faction_id": FACTION,
-        "docked": transit.is_none(), "location": location, "fuel": sim.fuel, "fuel_capacity": TANK,
-        "status_label": sim.ship_status(),
-        "position": {"x": scene.ship.x, "y": scene.ship.y}, "cargo": {"ore": sim.cargo, "fuel": sim.fuel_cargo},
-        "transit": transit.map(|(from, to)| json!({
-            "from": from, "to": to, "distance_travelled": sim.elapsed, "distance_total": sim.freight_duration(),
-        }))
-    })
-}
-
-fn freighter_id(second: bool) -> &'static str {
-    if second { "freighter-2" } else { "freighter-1" }
-}
-
-fn second_ship(ship: &Freighter, scene: &Scene) -> Value {
-    let fraction = (ship.elapsed / ship.duration()).clamp(0.0, 1.0);
-    let (location, transit, point) = match ship.phase {
-        FreightPhase::Outbound => (
-            None, Some((BELT, EARTH)), interpolate(scene.rig, scene.station, fraction)
-        ),
-        FreightPhase::Returning => (
-            None, Some((EARTH, BELT)), interpolate(scene.station, scene.rig, fraction)
-        ),
-        FreightPhase::Unloading | FreightPhase::NoFuelAtEarth =>
-            (Some(EARTH), None, scene.station),
-        _ => (Some(BELT), None, scene.rig),
-    };
-    json!({
-        "id":"freighter-2", "name":"Грузовой-002", "class":"freighter", "faction_id":FACTION,
-        "docked":transit.is_none(), "location":location,
-        "position":position("freighter-2",point),
-        "fuel":ship.fuel, "fuel_capacity":TANK,
-        "cargo":{"ore":ship.cargo, "fuel":ship.fuel_cargo},
-        "status_label":ship.status(),
-        "transit": transit.map(|(from,to)| json!({
-            "from":from, "to":to, "distance_travelled":ship.elapsed,
-            "distance_total":ship.duration()
-        }))
-    })
+fn freight_ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
+    sim.fleet.ships.iter().map(|(id, ship)| {
+        let start = local_point(sim, scene, &ship.location);
+        let point = ship.leg.as_ref().map_or(start, |leg| interpolate(start, local_point(sim, scene, &leg.destination), leg.progress()));
+        let mut cargo = serde_json::Map::new();
+        if let Some(task) = ship.task.as_ref().filter(|task| task.loaded) {
+            cargo.insert(sim.fleet.orders[&task.order].resource.as_str().into(), json!(task.quantity));
+        }
+        json!({
+            "id":id, "name":ship.name, "class":"freighter", "faction_id":FACTION,
+            "docked":ship.leg.is_none(), "location":ship.leg.is_none().then_some(&ship.location),
+            "position":position(id, point), "cargo":cargo, "fuel":ship.fuel, "fuel_capacity":ship.tank,
+            "status_label":ship.status, "task_id":ship.task.as_ref().map(|task| &task.order),
+            "transit":ship.leg.as_ref().map(|leg| json!({"from":ship.location, "to":leg.destination,
+                "distance_travelled":leg.elapsed, "distance_total":leg.duration})),
+        })
+    }).collect()
 }
 
 fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
-    let mut ships = vec![ship(sim, scene)];
+    let mut ships = freight_ships(sim, scene);
     let phase = sim.construction.phase;
     let progress = sim.construction.elapsed / sim.construction.duration();
     let delivering_patrol = sim.conflict.patrol == Patrol::Delivering;
@@ -379,32 +339,21 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
             "distance_total": builder_duration,
         })),
     }));
-    if let Some(freighter) = sim.second_freighter.as_ref() {
-        ships.push(second_ship(freighter,scene));
-    } else if matches!(phase, Project::TransferringShip | Project::Complete) {
-        // Legacy save in the middle of its old rotating-freighter model;
-        // preserve the old representation until safely migrated on return.
-        let transferring = phase == Project::TransferringShip;
-        let id = freighter_id(!sim.construction.active_second);
-        let point = if transferring {
-            interpolate(scene.yard,scene.rig,progress)
-        } else { scene.rig };
+    if phase == Project::TransferringShip {
         ships.push(json!({
-            "id":id, "name":if sim.construction.active_second { "Грузовой-001" } else { "Грузовой-002" },
-            "class":"freighter", "faction_id":FACTION,
-            "docked":!transferring, "location":if transferring {None} else {Some(BELT)},
-            "fuel":sim.construction.parked_fuel, "fuel_capacity":TANK,
-            "cargo":{"ore":0},
-            "position":position(id,point),
-            "transit":transferring.then(||json!({
-                "from":SITE, "to":BELT,
-                "distance_travelled":sim.construction.elapsed,
-                "distance_total":sim.construction.duration()
-            }))
+            "id":"freighter-2", "name":"Грузовой-002", "class":"freighter", "faction_id":FACTION,
+            "docked":false, "position":position("freighter-2", interpolate(scene.yard,scene.rig,progress)),
+            "fuel":sim.construction.parked_fuel, "fuel_capacity":TANK, "cargo":{},
+            "transit":{"from":SITE, "to":BELT, "distance_travelled":sim.construction.elapsed,
+                "distance_total":sim.construction.duration()}
         }));
     }
     let war = &sim.conflict;
-    let crossing = interpolate(scene.rig, scene.station, 0.5);
+    let crossing = interpolate(
+        local_point(sim, scene, war.raid_source.as_deref().unwrap_or(BELT)),
+        scene.station,
+        0.5,
+    );
     let chasing = war.raid_elapsed > 0.0;
     let returning = war.raider_return > 0.0;
     let raider_point = if returning {
@@ -505,6 +454,12 @@ fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
     } else {
         &sim.genesis_program
     };
+    if let Some(warehouse) = sim.warehouses.get(id) {
+        let used = warehouse.stock.values().copied().sum::<u32>();
+        return json!({"status": if used == warehouse.capacity { "Заполнен" } else { "Готов принимать груз" },
+            "resources":warehouse.stock.iter().map(|(item, &amount)| stock(item.as_str(), amount)).collect::<Vec<_>>(),
+            "meters":[gauge("Заполнение",used as f64,warehouse.capacity as f64,"ед.")]});
+    }
     let mut resources = Vec::new();
     let mut meters = Vec::new();
     let mut note = String::new();
@@ -795,6 +750,12 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
     }));
     facilities.extend(program_facilities(sim, scene, &sim.genesis_program, false));
     facilities.extend(program_facilities(sim, scene, &sim.pirate_program, true));
+    for (id, warehouse) in &sim.warehouses {
+        facilities.push(json!({"id":id, "name":warehouse.name, "location":id, "type":"cargo_warehouse",
+            "system_id":"sol", "x":warehouse.x, "y":warehouse.y, "faction_id":FACTION,
+            "reserves":{"fuel":warehouse.stock.get(&crate::freight::Commodity::Fuel).copied().unwrap_or(0)},
+            "stock":warehouse.stock, "capacity":warehouse.capacity}));
+    }
     for facility in &mut facilities {
         facility["inspection"] = facility_inspection(sim, facility);
     }
@@ -825,12 +786,16 @@ fn governance(sim: &Sim) -> Value {
         "station_ore": sim.station_ore,
         "station_fuel": sim.station_fuel,
         "metal": sim.metal,
-        "cargo": sim.cargo,
-        "ship": sim.ship_status(),
+        "cargo": sim.fleet.ships.values().filter_map(|ship| ship.task.as_ref()).filter(|task| task.loaded && sim.fleet.orders[&task.order].resource == crate::freight::Commodity::Ore).map(|task| task.quantity).sum::<u32>(),
+        "ship": sim.delivery_status(),
         "lost_ore": sim.conflict.lost_ore,
         "intercepted_raids": sim.conflict.intercepted_raids,
         "patrol_alert": if sim.conflict.heightened_alert() { "Повышенная готовность" } else { "Штатное патрулирование" },
-        "fuel_cargo": sim.fuel_cargo,
+        "fuel_cargo": sim.fleet.ships.values().filter_map(|ship| ship.task.as_ref()).filter(|task| task.loaded && sim.fleet.orders[&task.order].resource == crate::freight::Commodity::Fuel).map(|task| task.quantity).sum::<u32>(),
+        "orders": sim.fleet.orders.iter().map(|(id, order)| json!({
+            "id":id, "destination":order.destination, "resource":order.resource, "remaining":order.remaining,
+            "assigned":sim.fleet.incoming(&order.destination,order.resource)
+        })).collect::<Vec<_>>(),
         "expansion": sim.mars_status(),
         "pirate_expansion": sim.pirate_program.decision,
         "catalog": crate::planning::CATALOG.iter().map(|spec| json!({

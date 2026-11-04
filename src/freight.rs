@@ -1,308 +1,364 @@
-//! Second freighter: its own persisted state machine and fuel/cargo ledger.
-//! Transitional Genesis slice: Freighter-001 still uses Sim's legacy state,
-//! Freighter-002 does not borrow/swap that state. Later an agent registry can
-//! give *all* ships the same implementation.
-
+use crate::sim::{Event, Sim};
 use serde::{Deserialize, Serialize};
-use crate::sim::{event, leg, Event, Sim, BELT, EARTH, SHIPMENT, TANK};
+pub use sim_core::economy::commodities::Commodity;
+use std::collections::BTreeMap;
 
-const FUEL_SHIPMENT: u32 = 24;
-const LOADING_SECONDS: f64 = 3.0;
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Fleet {
+    #[serde(default)]
+    pub initialized: bool,
+    pub ships: BTreeMap<String, Ship>,
+    pub orders: BTreeMap<String, Order>,
+    pub next_order: u64,
+}
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FreightPhase {
-    #[default]
-    Waiting,
-    Loading,
-    Outbound,
-    Unloading,
-    Returning,
-    NoFuelAtBelt,
-    NoFuelAtEarth,
+impl Default for Fleet {
+    fn default() -> Self {
+        Self {
+            initialized: false,
+            ships: BTreeMap::new(),
+            orders: BTreeMap::new(),
+            next_order: 1,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Freighter {
-    pub phase: FreightPhase,
-    pub elapsed: f64,
+pub struct Ship {
+    pub name: String,
+    pub location: String,
     pub fuel: u32,
-    pub cargo: u32,
-    pub fuel_cargo: u32,
-    pub fuel_order: bool,
-    pub outbound_duration: f64,
-    pub return_duration: f64,
-    pub outbound_cost: u32,
-    pub return_cost: u32,
+    pub tank: u32,
+    pub capacity: u32,
+    pub task: Option<Assignment>,
+    pub leg: Option<Leg>,
+    pub status: String,
 }
 
-impl Default for Freighter {
-    fn default() -> Self {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Leg {
+    pub destination: String,
+    pub duration: u32,
+    pub elapsed: u32,
+}
+
+impl Leg {
+    pub fn progress(&self) -> f64 {
+        sim_core::world::travel::transit_progress(
+            u64::from(self.elapsed),
+            0,
+            u64::from(self.duration),
+        ) as f64
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Order {
+    pub destination: String,
+    pub resource: Commodity,
+    pub remaining: u32,
+    pub priority: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Assignment {
+    pub order: String,
+    pub source: String,
+    pub quantity: u32,
+    pub loaded: bool,
+    pub handling: u32,
+}
+
+impl Ship {
+    pub fn freighter(name: impl Into<String>, location: &str, fuel: u32) -> Self {
         Self {
-            phase: FreightPhase::Waiting, elapsed: 0.0, fuel: 0,
-            cargo: 0, fuel_cargo: 0, fuel_order: false,
-            outbound_duration: 0.0, return_duration: 0.0,
-            outbound_cost: 0, return_cost: 0,
+            name: name.into(),
+            location: location.into(),
+            fuel,
+            tank: 100,
+            capacity: 50,
+            task: None,
+            leg: None,
+            status: "Ждёт задание".into(),
         }
     }
 }
 
-impl Freighter {
-    pub fn new(fuel: u32) -> Self { Self { fuel, ..Self::default() } }
-
-    pub fn duration(&self) -> f64 {
-        match self.phase {
-            FreightPhase::Loading | FreightPhase::Unloading => LOADING_SECONDS,
-            FreightPhase::Outbound => self.outbound_duration.max(0.25),
-            FreightPhase::Returning => self.return_duration.max(0.25),
-            _ => f64::INFINITY,
+impl Fleet {
+    pub fn request(
+        &mut self,
+        destination: &str,
+        resource: Commodity,
+        amount: u32,
+        priority: u32,
+    ) -> String {
+        if let Some((id, order)) = self
+            .orders
+            .iter_mut()
+            .find(|(_, order)| order.resource == resource && order.destination == destination)
+        {
+            order.priority = priority;
+            return id.clone();
         }
+        let id = self.next_order.to_string();
+        self.next_order += 1;
+        self.orders.insert(
+            id.clone(),
+            Order {
+                destination: destination.into(),
+                resource,
+                remaining: amount,
+                priority,
+            },
+        );
+        id
+    }
+
+    pub fn incoming(&self, destination: &str, resource: Commodity) -> u32 {
+        self.ships
+            .values()
+            .filter_map(|ship| ship.task.as_ref())
+            .filter(|task| {
+                self.orders.get(&task.order).is_some_and(|order| {
+                    order.destination == destination && order.resource == resource
+                })
+            })
+            .map(|task| task.quantity)
+            .sum()
+    }
+
+    pub fn reserved(&self, source: &str, resource: Commodity) -> u32 {
+        self.ships
+            .values()
+            .filter_map(|ship| ship.task.as_ref())
+            .filter(|task| {
+                !task.loaded
+                    && task.source == source
+                    && self
+                        .orders
+                        .get(&task.order)
+                        .is_some_and(|order| order.resource == resource)
+            })
+            .map(|task| task.quantity)
+            .sum()
     }
 
     pub fn valid(&self) -> bool {
-        self.elapsed.is_finite() && self.elapsed >= 0.0 &&
-            self.elapsed < self.duration() &&
-            self.outbound_duration.is_finite() && self.outbound_duration >= 0.0 &&
-            self.return_duration.is_finite() && self.return_duration >= 0.0 &&
-            self.fuel <= TANK && self.cargo <= SHIPMENT &&
-            self.fuel_cargo <= FUEL_SHIPMENT &&
-            !(self.cargo > 0 && self.fuel_cargo > 0) &&
-            (self.cargo == 0 && self.fuel_cargo == 0 ||
-                matches!(self.phase, FreightPhase::Outbound | FreightPhase::Unloading))
-    }
-
-    pub fn status(&self) -> String {
-        match self.phase {
-            FreightPhase::Waiting => "Ожидает задание на доставку".into(),
-            FreightPhase::Loading if self.fuel_order => "Загружает топливо".into(),
-            FreightPhase::Loading => "Загружает руду".into(),
-            FreightPhase::Outbound if self.fuel_cargo > 0 => {
-                format!("Везёт {} топлива на станцию", self.fuel_cargo)
-            }
-            FreightPhase::Outbound => format!("Везёт {} руды на станцию", self.cargo),
-            FreightPhase::Unloading => "Разгружается на станции".into(),
-            FreightPhase::Returning => "Возвращается к добыче".into(),
-            FreightPhase::NoFuelAtBelt => "Ждёт топливо в поясе".into(),
-            FreightPhase::NoFuelAtEarth => "Ждёт топливо на станции".into(),
-        }
+        self.orders
+            .keys()
+            .all(|id| id.parse::<u64>().is_ok_and(|id| id < self.next_order))
+            && self.ships.values().all(|ship| {
+                ship.fuel <= ship.tank
+                    && ship
+                        .leg
+                        .as_ref()
+                        .is_none_or(|leg| leg.duration > 0 && leg.elapsed < leg.duration)
+                    && ship.task.as_ref().is_none_or(|task| {
+                        task.quantity <= ship.capacity && self.orders.contains_key(&task.order)
+                    })
+            })
     }
 
     pub fn advance(&mut self, sim: &mut Sim, events: &mut Vec<Event>) {
-        if self.phase == FreightPhase::NoFuelAtBelt {
-            self.phase = FreightPhase::Waiting;
+        // One deterministic commit sequence. Reservation, pickup and delivery all see prior changes.
+        let ids: Vec<_> = self.ships.keys().cloned().collect();
+        for id in ids {
+            let mut ship = self.ships.remove(&id).expect("known ship");
+            self.advance_ship(sim, events, &mut ship);
+            self.ships.insert(id, ship);
         }
-        if self.phase == FreightPhase::NoFuelAtEarth {
-            let available = sim.station_fuel.saturating_sub(u32::from(sim.batch_active()));
-            let refill = self.return_cost.saturating_sub(self.fuel).min(available);
-            sim.station_fuel -= refill;
-            self.fuel += refill;
-            if self.fuel < self.return_cost { return; }
-            self.fuel -= self.return_cost;
-            self.phase = FreightPhase::Returning;
-            self.elapsed = 0.0;
+        self.orders.retain(|_, order| order.remaining > 0);
+    }
+
+    fn advance_ship(&mut self, sim: &mut Sim, events: &mut Vec<Event>, ship: &mut Ship) {
+        if let Some(leg) = &mut ship.leg {
+            leg.elapsed += 1;
+            if leg.elapsed == leg.duration {
+                ship.location = std::mem::take(&mut leg.destination);
+                ship.leg = None;
+            }
             return;
         }
-        if self.phase == FreightPhase::Waiting {
-            // A second freighter may accept a different task even while
-            // Freighter-001 is executing its own flight.
-            // Do not send a full fuel load to a nearly-full (200-unit)
-            // depot: unlike ore, storage fuel is explicitly capped.
-            let fuel_shortfall = sim.station_fuel <= 200 - FUEL_SHIPMENT;
-            let refuel_job = fuel_shortfall && sim.belt_fuel >= FUEL_SHIPMENT + 2;
-            let ore_job = sim.governance.ore_requested && sim.belt_ore >= SHIPMENT;
-            if !refuel_job && !ore_job { return; }
-            let (out_time, out_cost) = leg(sim, BELT, EARTH);
-            let (back_time, back_cost) = leg(sim, EARTH, BELT);
-            let total = out_cost + back_cost;
-            let reserve = if refuel_job { FUEL_SHIPMENT } else { 0 };
-            let available = sim.belt_fuel.saturating_sub(reserve);
-            let add = total.saturating_sub(self.fuel).min(available);
-            if self.fuel + add < total {
-                self.phase = FreightPhase::NoFuelAtBelt;
+        if ship.task.is_none() {
+            self.assign(sim, ship);
+        }
+        let Some(mut task) = ship.task.take() else {
+            return;
+        };
+        let order = self.orders[&task.order].clone();
+        let destination = if task.loaded {
+            &order.destination
+        } else {
+            &task.source
+        };
+        if &ship.location != destination {
+            let fuel = sim.travel(&ship.location, destination).1;
+            if ship.fuel < fuel {
+                let refill = fuel - ship.fuel;
+                let cargo_reserve = if !task.loaded
+                    && order.resource == Commodity::Fuel
+                    && ship.location == task.source
+                {
+                    task.quantity
+                } else {
+                    0
+                };
+                let available = sim.refuel_supply(&ship.location).saturating_sub(
+                    self.reserved(&ship.location, Commodity::Fuel)
+                        .saturating_add(cargo_reserve),
+                );
+                if refill <= available
+                    && fuel <= ship.tank
+                    && sim.withdraw(&ship.location, Commodity::Fuel, refill)
+                {
+                    ship.fuel += refill;
+                }
+            }
+            if ship.fuel < fuel {
+                // Empty assignments can release stock; loaded cargo stays on the ship.
+                if task.loaded {
+                    ship.task = Some(task);
+                }
+                ship.status = "Ждёт топливо".into();
                 return;
             }
-            self.fuel += add;
-            sim.belt_fuel -= add;
-            self.outbound_duration = out_time;
-            self.return_duration = back_time;
-            self.outbound_cost = out_cost;
-            self.return_cost = back_cost;
-            self.fuel_order = refuel_job;
-            self.phase = FreightPhase::Loading;
-            self.elapsed = 0.0;
+            self.depart(sim, ship, destination);
+            ship.task = Some(task);
             return;
         }
-
-        self.elapsed += 0.25;
-        if self.elapsed < self.duration() { return; }
-        self.elapsed = 0.0;
-        match self.phase {
-            FreightPhase::Loading => {
-                // Actual pickup occurs once, when loading completes, using
-                // the *current* shared stock. Never use an unverified promise.
-                if self.fuel_order {
-                    if sim.belt_fuel < FUEL_SHIPMENT {
-                        self.phase = FreightPhase::Waiting;
-                        return;
-                    }
-                    sim.belt_fuel -= FUEL_SHIPMENT;
-                    self.fuel_cargo = FUEL_SHIPMENT;
-                    events.push(event("fuel_loaded", "fuel", BELT,
-                        FUEL_SHIPMENT, sim.belt_fuel, Some("Грузовой-002")));
-                } else {
-                    if sim.belt_ore < SHIPMENT {
-                        self.phase = FreightPhase::Waiting;
-                        return;
-                    }
-                    sim.belt_ore -= SHIPMENT;
-                    self.cargo = SHIPMENT;
-                    events.push(event("cargo_loaded", "ore", BELT,
-                        SHIPMENT, sim.belt_ore, Some("Грузовой-002")));
-                }
-                self.fuel -= self.outbound_cost;
-                self.phase = FreightPhase::Outbound;
+        task.handling += 1;
+        if task.handling < 12 {
+            ship.status = if task.loaded {
+                "Разгрузка"
+            } else {
+                "Погрузка"
             }
-            FreightPhase::Outbound => {
-                self.phase = FreightPhase::Unloading;
+            .into();
+            ship.task = Some(task);
+            return;
+        }
+        task.handling = 0;
+        if !task.loaded {
+            if sim.freight_supply(&task.source, order.resource) >= task.quantity
+                && sim.withdraw(&task.source, order.resource, task.quantity)
+            {
+                task.loaded = true;
+                events.push(sim.freight_event(
+                    "loaded",
+                    order.resource,
+                    &task.source,
+                    task.quantity,
+                    &ship.name,
+                ));
+                ship.task = Some(task);
+            } else {
+                ship.status = "Товар больше недоступен".into();
             }
-            FreightPhase::Unloading => {
-                if self.fuel_order {
-                    // Fuel produced/returned while en route might fill
-                    // depot capacity. Wait instead of creating fuel out
-                    // of bounds or silently deleting remaining cargo.
-                    if sim.station_fuel > 200u32.saturating_sub(self.fuel_cargo) {
-                        return;
-                    }
-                    sim.station_fuel += self.fuel_cargo;
-                    events.push(event("fuel_unloaded", "fuel", EARTH,
-                        self.fuel_cargo, sim.station_fuel, Some("Грузовой-002")));
-                    self.fuel_cargo = 0;
-                } else {
-                    sim.station_ore += self.cargo;
-                    events.push(event("cargo_unloaded", "ore", EARTH,
-                        self.cargo, sim.station_ore, Some("Грузовой-002")));
-                    self.cargo = 0;
-                    sim.governance.ore_requested = false;
-                }
-                self.fuel_order = false;
-                let available = sim.station_fuel.saturating_sub(u32::from(sim.batch_active()));
-                let refill = self.return_cost.saturating_sub(self.fuel).min(available);
-                sim.station_fuel -= refill;
-                self.fuel += refill;
-                if self.fuel >= self.return_cost {
-                    self.fuel -= self.return_cost;
-                    self.phase = FreightPhase::Returning;
-                } else {
-                    self.phase = FreightPhase::NoFuelAtEarth;
-                }
+        } else {
+            let quantity = task
+                .quantity
+                .min(sim.room(&order.destination, order.resource));
+            sim.deposit_cargo(&order.destination, order.resource, quantity);
+            self.orders.get_mut(&task.order).unwrap().remaining =
+                order.remaining.saturating_sub(quantity);
+            task.quantity -= quantity;
+            if quantity > 0 {
+                events.push(sim.freight_event(
+                    "unloaded",
+                    order.resource,
+                    &order.destination,
+                    quantity,
+                    &ship.name,
+                ));
             }
-            FreightPhase::Returning => {
-                self.phase = FreightPhase::Waiting;
+            if task.quantity > 0 {
+                ship.status = "Ждёт место на складе".into();
+                ship.task = Some(task);
+            } else {
+                ship.status = "Ждёт задание".into();
             }
-            FreightPhase::NoFuelAtBelt | FreightPhase::NoFuelAtEarth |
-            FreightPhase::Waiting => {}
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::construction::Project;
-    use crate::sim::Phase;
-
-    #[test]
-    fn two_freighters_can_be_in_flight_at_the_same_time() {
-        let mut sim = Sim::default();
-        sim.construction.phase = Project::Complete;
-        sim.phase = Phase::Outbound;
-        sim.cargo = SHIPMENT;
-        sim.fuel = 65;
-        sim.route_duration = 80.0;
-        sim.return_duration = 80.0;
-        sim.return_fuel = 8;
-        sim.outbound_plan = (80.0, 8);
-        sim.governance.ore_requested = true;
-        sim.belt_ore = SHIPMENT;
-        sim.second_freighter = Some(Freighter::new(20));
-        let first_cargo = sim.cargo;
-        let initial_ore_source = sim.belt_ore;
-        let initial_deposit = sim.deposit;
-        let mut events = vec![];
-        for _ in 0..20 {
-            events.extend(sim.step(0.25));
-            if sim.second_freighter.as_ref().is_some_and(|f|
-                f.phase == FreightPhase::Outbound) {
-                break;
+    fn assign(&mut self, sim: &mut Sim, ship: &mut Ship) {
+        let mut best = None;
+        for (id, order) in &self.orders {
+            let demand = order
+                .remaining
+                .saturating_sub(self.incoming(&order.destination, order.resource));
+            if demand == 0 {
+                continue;
+            }
+            for source in sim.locations() {
+                if source == order.destination || !sim.available_location(source) {
+                    continue;
+                }
+                let available = sim
+                    .freight_supply(source, order.resource)
+                    .saturating_sub(self.reserved(source, order.resource));
+                let cost =
+                    sim.travel(&ship.location, source).1 + sim.travel(source, &order.destination).1;
+                let local_fuel = sim
+                    .refuel_supply(&ship.location)
+                    .saturating_sub(self.reserved(&ship.location, Commodity::Fuel));
+                let refill = cost.saturating_sub(ship.fuel);
+                let quantity = ship
+                    .capacity
+                    .min(demand)
+                    .min(sim.room(&order.destination, order.resource))
+                    .min(available.saturating_sub(
+                        if source == ship.location && order.resource == Commodity::Fuel {
+                            refill
+                        } else {
+                            0
+                        },
+                    ));
+                let room = sim.room(&order.destination, order.resource);
+                let waiting_for_batch = order.resource == Commodity::Ore
+                    && sim.accumulating_ore(source)
+                    && quantity
+                        < ship
+                            .capacity
+                            .min(demand)
+                            .min(room)
+                            .min(crate::sim::SHIPMENT);
+                if quantity == 0 || waiting_for_batch || cost > ship.tank || refill > local_fuel {
+                    continue;
+                }
+                let score = (order.priority, std::cmp::Reverse(cost), quantity);
+                if best
+                    .as_ref()
+                    .is_none_or(|(previous, _, _, _)| score > *previous)
+                {
+                    best = Some((score, id.clone(), source.to_string(), refill));
+                }
             }
         }
-        let second = sim.second_freighter.as_ref().unwrap();
-        assert_eq!(sim.phase, Phase::Outbound, "first still in flight");
-        assert_eq!(sim.cargo, first_cargo);
-        assert_eq!(second.phase, FreightPhase::Outbound);
-        assert_eq!(second.cargo, SHIPMENT);
-        assert_eq!(sim.belt_ore + second.cargo,
-            initial_ore_source + (initial_deposit - sim.deposit),
-            "all freshly mined ore is either at source or in second hold");
-        assert!(events.iter().any(|e| {
-            let record = serde_json::to_value(e).unwrap();
-            record["ship_name"] == "Грузовой-002" && record["kind"] == "cargo_loaded"
-        }));
-        assert!(sim.valid(), "both independent ship ledgers must be valid");
-        let restored: Sim = serde_json::from_str(
-            &serde_json::to_string(&sim).unwrap()).unwrap();
-        assert_eq!(restored.second_freighter.unwrap().phase,
-            FreightPhase::Outbound, "second survives save and reload");
+        if let Some(((_, _, quantity), id, source, refill)) = best {
+            if refill > 0 {
+                assert!(sim.withdraw(&ship.location, Commodity::Fuel, refill));
+                ship.fuel += refill;
+            }
+            ship.task = Some(Assignment {
+                order: id,
+                source: source.into(),
+                quantity,
+                loaded: false,
+                handling: 0,
+            });
+        } else {
+            ship.status = "Ждёт доступное задание, маршрут или топливо".into();
+        }
     }
 
-    #[test]
-    fn old_rotating_save_migrates_without_losing_fuel() {
-        let mut sim = Sim::default();
-        sim.construction.phase = Project::Complete;
-        sim.construction.active_second = true;
-        sim.fuel = 18;
-        sim.construction.parked_fuel = 27;
-        sim.migrate_fleet();
-        assert_eq!(sim.fuel, 27, "legacy freighter-1 fuel");
-        assert_eq!(sim.second_freighter.as_ref().unwrap().fuel, 18);
-        assert!(!sim.construction.active_second);
-        assert_eq!(sim.construction.parked_fuel, 0);
-        sim.migrate_fleet();
-        assert_eq!(sim.second_freighter.as_ref().unwrap().fuel, 18,
-            "conversion is idempotent");
-    }
-
-    #[test]
-    fn legacy_in_flight_cargo_is_not_transferred_or_teleported() {
-        let mut sim = Sim::default();
-        sim.construction.phase = Project::Complete;
-        sim.construction.active_second = true;
-        sim.phase = Phase::Outbound;
-        sim.cargo = SHIPMENT;
-        sim.route_duration = 20.0;
-        sim.migrate_fleet();
-        assert!(sim.second_freighter.is_none());
-        assert_eq!(sim.cargo, SHIPMENT);
-        assert!(sim.construction.active_second);
-    }
-
-    #[test]
-    fn fuel_restock_waits_for_real_depot_capacity() {
-        let mut sim=Sim::default();
-        sim.station_fuel=199;
-        let mut second=Freighter {
-            phase: FreightPhase::Unloading,
-            elapsed: 2.75,
-            fuel_order: true,
-            fuel_cargo: FUEL_SHIPMENT,
-            return_cost: 2,
-            fuel: 2,
-            ..Freighter::default()
-        };
-        second.advance(&mut sim, &mut Vec::new());
-        assert_eq!(sim.station_fuel,199);
-        assert_eq!(second.fuel_cargo,FUEL_SHIPMENT);
-        assert_eq!(second.phase,FreightPhase::Unloading);
+    fn depart(&self, sim: &Sim, ship: &mut Ship, destination: &str) {
+        let (duration, cost) = sim.travel(&ship.location, destination);
+        ship.fuel -= cost;
+        ship.leg = Some(Leg {
+            destination: destination.into(),
+            duration,
+            elapsed: 0,
+        });
+        ship.status = "В пути".into();
     }
 }

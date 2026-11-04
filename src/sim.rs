@@ -3,13 +3,15 @@ use crate::conflict::{
     Patrol,
 };
 use crate::construction::{
-    COMMISSION_FUEL, Construction, MARS_ORE, MARS_SITE, MarsProject, Project, SHIP_METAL,
+    COMMISSION_FUEL, Construction, MARS_ORE, MARS_SITE, MarsProject, Project, SHIP_METAL, SITE,
     YARD_METAL,
 };
+use crate::freight::{Assignment, Commodity, Fleet, Leg, Ship};
 use crate::governance::Governance;
-use crate::freight::Freighter;
+use crate::legacy_freight::{FreightPhase, Freighter};
 use crate::planning::{self, Kind, Program, Site as BuildSite};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 
 pub const SHIPMENT: u32 = 50;
 pub const TANK: u32 = 100;
@@ -45,29 +47,27 @@ pub enum Phase {
     NoFuelAtEarth,
 }
 
-impl Phase {
-    pub fn duration(self) -> f64 {
-        match self {
-            Self::Loading | Self::Unloading => 3.0,
-            Self::Outbound | Self::Returning | Self::Relocating => 16.0,
-            Self::Waiting | Self::NoFuelAtBelt | Self::NoFuelAtEarth => f64::INFINITY,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Sim {
+    #[serde(default, skip_serializing)]
     pub phase: Phase,
+    #[serde(default, skip_serializing)]
     pub elapsed: f64,
     pub seconds: f64,
     pub tick: u64,
+    #[serde(default)]
+    pub fleet: Fleet,
+    #[serde(default)]
+    pub warehouses: BTreeMap<String, Warehouse>,
     pub belt_ore: u32,
     pub station_ore: u32,
+    #[serde(default, skip_serializing)]
     pub cargo: u32,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub fuel_cargo: u32,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     fuel_order: bool,
+    #[serde(default, skip_serializing)]
     pub fuel: u32,
     pub belt_fuel: u32,
     pub station_fuel: u32,
@@ -83,13 +83,13 @@ pub struct Sim {
     pub governance: Governance,
     #[serde(default)]
     pub construction: Construction,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub second_freighter: Option<Freighter>,
     #[serde(default = "seed_ore")]
     pub deposit: u32,
     #[serde(default)]
     pub conflict: Conflict,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub mars_route: bool,
     #[serde(default)]
     pub genesis_program: Program,
@@ -97,25 +97,31 @@ pub struct Sim {
     pub pirate_program: Program,
     #[serde(default)]
     pub outpost_site: Option<BuildSite>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub(crate) route_duration: f64,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub(crate) return_duration: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Warehouse {
+    pub name: String,
+    pub x: f64,
+    pub y: f64,
+    pub capacity: u32,
     #[serde(default)]
-    pub(crate) return_fuel: u32,
-    #[serde(default)]
-    pub(crate) outbound_plan: (f64, u32),
+    pub stock: HashMap<Commodity, u32>,
 }
 
 #[derive(Clone, Serialize)]
 pub struct Event {
     kind: &'static str,
     commodity: &'static str,
-    location: &'static str,
+    location: String,
     quantity: u32,
     stock: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    ship_name: Option<&'static str>,
+    ship_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub actor: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -129,6 +135,8 @@ impl Default for Sim {
             elapsed: 0.0,
             seconds: 0.0,
             tick: 0,
+            fleet: Fleet::default(),
+            warehouses: BTreeMap::new(),
             belt_ore: 0,
             station_ore: 0,
             cargo: 0,
@@ -151,8 +159,6 @@ impl Default for Sim {
             outpost_site: None,
             route_duration: 0.0,
             return_duration: 0.0,
-            return_fuel: 0,
-            outbound_plan: (0.0, 0),
             conflict: Conflict {
                 pirate_fuel_stock: 18,
                 pirate_metal: 24,
@@ -164,82 +170,52 @@ impl Default for Sim {
 
 impl Sim {
     pub fn valid(&self) -> bool {
-        let has_cargo = matches!(self.phase, Phase::Outbound | Phase::Unloading);
         self.seconds.is_finite()
             && self.seconds >= 0.0
-            && (0.0..self.freight_duration()).contains(&self.elapsed)
-            && (if has_cargo {
-                (self.fuel_cargo == FUEL_SHIPMENT && self.cargo == 0 && self.fuel_order)
-                    || (self.fuel_cargo == 0 && (SHIPMENT - 10..=SHIPMENT).contains(&self.cargo))
-            } else {
-                self.cargo == 0 && self.fuel_cargo == 0
+            && (0.0..QUANTUM).contains(&self.pending)
+            && self.fleet.valid()
+            && self.fleet.ships.values().all(|ship| {
+                self.available_location(&ship.location)
+                    && ship
+                        .leg
+                        .as_ref()
+                        .is_none_or(|leg| self.available_location(&leg.destination))
+                    && ship
+                        .task
+                        .as_ref()
+                        .is_none_or(|task| self.available_location(&task.source))
             })
-            && self.belt_ore <= BELT_CAPACITY
-            && (self.phase != Phase::Loading
-                || self.fuel_order
-                || self.mars_route
-                || self.belt_ore >= SHIPMENT)
-            && self.fuel <= TANK
+            && self
+                .fleet
+                .orders
+                .values()
+                .all(|order| self.available_location(&order.destination))
+            && self.warehouses.values().all(|stock| {
+                stock.x.is_finite()
+                    && stock.y.is_finite()
+                    && stock.stock.values().map(|&q| u64::from(q)).sum::<u64>()
+                        <= u64::from(stock.capacity)
+            })
+            && self.metal <= self.metal_capacity()
             && self.station_fuel <= 200
             && self.belt_fuel <= 200
-            && self.station_ore <= 5_000
-            && self.metal <= self.metal_capacity()
-            && (0.0..MINE_INTERVAL).contains(&self.mining_elapsed)
-            && (0.0..SMELT_INTERVAL).contains(&self.smelting_elapsed)
-            && (!self.batch_active()
-                || (self.station_ore >= 10
-                    && self.station_fuel > 0
-                    && self.metal + 8 <= self.metal_capacity()))
-            && (0.0..QUANTUM).contains(&self.pending)
-            && self.conflict.raider_cargo <= 10
-            && self.conflict.patrol_fuel <= PATROL_SEED_FUEL
-            && (0.0..self.conflict.approach_duration()).contains(&self.conflict.raid_elapsed)
-            && (0.0..self.conflict.return_duration()).contains(&self.conflict.raider_return)
-            && (0.0..PATROL_DURATION).contains(&self.conflict.patrol_cycle)
-            && (0.0..=1.0).contains(&self.conflict.retreat_from)
-            && self.outbound_plan.1 <= TANK
-            && self.return_fuel <= TANK
-            && self.route_duration >= 0.0
-            && self.route_duration.is_finite()
-            && self.return_duration >= 0.0
-            && self.return_duration.is_finite()
-            && self.outbound_plan.0 >= 0.0
-            && self.outbound_plan.0.is_finite()
-            && (!self.mars_route
-                || self.phase != Phase::Loading
-                || self.construction.mars_ore >= SHIPMENT)
-            && (self.phase != Phase::Loading || self.fuel >= self.outbound_plan.1)
-            && (!self.fuel_order || self.phase != Phase::Loading || self.belt_fuel >= FUEL_SHIPMENT)
-            && self.construction.mars_ore <= SHIPMENT
-            && self.construction.mars_extracted <= MARS_ORE
             && self.deposit <= SEED_ORE
-            && self.construction.parked_fuel <= TANK
-            && (0.0..self.construction.duration()).contains(&self.construction.elapsed)
-            && (!self.construction.active_second || self.construction.phase == Project::Complete)
-            && self.second_freighter.as_ref().is_none_or(Freighter::valid)
-            && self.tick < u64::MAX
+            && self.construction.mars_extracted <= MARS_ORE
+            && self.construction.mars_ore <= SHIPMENT
+            && self.belt_ore <= BELT_CAPACITY
     }
 
     pub fn delivery_active(&self) -> bool {
-        matches!(
-            self.phase,
-            Phase::Relocating | Phase::Loading | Phase::Outbound | Phase::Unloading
-        )
+        self.fleet.ships.values().any(|ship| ship.task.is_some())
     }
 
     pub fn delivery_status(&self) -> &'static str {
         if self.delivery_active() {
-            "Выполняется"
-        } else if self.governance.ore_requested {
-            if matches!(self.phase, Phase::NoFuelAtBelt | Phase::NoFuelAtEarth) {
-                "Ждёт топливо для рейса"
-            } else {
-                "Ожидает грузовик"
-            }
-        } else if !self.has_ore_use() {
-            "Плавка ограничена"
+            "В работе"
+        } else if !self.fleet.orders.is_empty() {
+            "Ждёт ресурс, корабль или топливо"
         } else {
-            "Запас достаточный"
+            "Нет открытых заказов"
         }
     }
 
@@ -271,10 +247,7 @@ impl Sim {
             (0.0, "Партия готова к погрузке")
         } else if deposit == 0 {
             (0.0, "Залежь исчерпана")
-        } else if self.governance.ore_requested
-            && !self.delivery_active()
-            && self.prefer_mars() == mars
-        {
+        } else if self.governance.ore_requested && self.prefer_mars() == mars {
             (self.mining_elapsed / MINE_INTERVAL, "Добывает руду")
         } else {
             (0.0, "Ждёт заявку снабженца")
@@ -303,27 +276,6 @@ impl Sim {
         }
     }
 
-    pub fn ship_status(&self) -> String {
-        match self.phase {
-            Phase::Waiting if !self.governance.ore_requested => "Нет заявки".into(),
-            Phase::Waiting if self.deposit == 0 && self.belt_ore < SHIPMENT => {
-                "Залежи исчерпаны".into()
-            }
-            Phase::Waiting => format!("Ждёт руду — {} из {SHIPMENT}", self.belt_ore.min(SHIPMENT)),
-            Phase::Relocating => "Летит за рудой к Марсу".into(),
-            Phase::Loading if self.fuel_order => "Загружает топливо".into(),
-            Phase::Loading => "Загружает руду".into(),
-            Phase::Outbound if self.fuel_cargo > 0 => {
-                format!("В пути — {} топлива", self.fuel_cargo)
-            }
-            Phase::Outbound => format!("В пути — {} руды", self.cargo),
-            Phase::Unloading if self.fuel_order => "Разгружает топливо".into(),
-            Phase::Unloading => "Разгружает руду".into(),
-            Phase::Returning => "Возвращается в пояс".into(),
-            Phase::NoFuelAtBelt | Phase::NoFuelAtEarth => "Нет топлива на рейс".into(),
-        }
-    }
-
     pub fn step(&mut self, delta: f64) -> Vec<Event> {
         self.migrate_fleet();
         self.tick += 1;
@@ -334,14 +286,10 @@ impl Sim {
             self.seconds += QUANTUM;
             self.plan(&mut events);
             self.run_facilities(&mut events);
-            self.move_ship(&mut events);
-            self.migrate_fleet();
-            if let Some(mut second) = self.second_freighter.take() {
-                second.advance(self, &mut events);
-                self.second_freighter = Some(second);
-            }
+            let mut fleet = std::mem::take(&mut self.fleet);
+            fleet.advance(self, &mut events);
+            self.fleet = fleet;
             self.construct(&mut events);
-            self.migrate_fleet();
             self.run_conflict(&mut events);
             self.expand(&mut events);
             self.plan_builds(&mut events);
@@ -353,33 +301,173 @@ impl Sim {
         if let Some(reason) = self.governance.review(self.station_fuel, QUANTUM) {
             events.push(decision("policy_changed", "Глава фракции", reason));
         }
-        // A dispatched order owns its shipment until arrival.
-        if self.delivery_active() {
-            return;
+        let ore = self
+            .station_ore
+            .saturating_sub(10 * u32::from(self.batch_active()));
+        if ore < self.governance.policy.ore_target() {
+            self.fleet.request(EARTH, Commodity::Ore, SHIPMENT, 10);
         }
-        let target = self.governance.policy.ore_target();
-        let reserved = u32::from(self.batch_active());
-        let expected_stock = self.station_ore.saturating_sub(10 * reserved);
-        let requested = self.station_fuel > self.governance.leader.reserve() + reserved
-            && expected_stock < target;
-        if requested != self.governance.ore_requested {
-            self.governance.ore_requested = requested;
-            if requested {
-                events.push(decision("ore_requested", "Снабженец",
-                    format!("Ожидаемый запас руды {expected_stock} при цели {target}. Заказано {SHIPMENT}.")));
-            } else {
-                events.push(decision(
-                    "ore_cancelled",
-                    "Снабженец",
-                    self.delivery_status().into(),
-                ));
-            }
+        if self.station_fuel <= self.governance.leader.reserve() + 16 {
+            self.fleet
+                .request(EARTH, Commodity::Fuel, FUEL_SHIPMENT, 20);
+        }
+        self.governance.ore_requested = self
+            .fleet
+            .orders
+            .values()
+            .any(|order| order.destination == EARTH && order.resource == Commodity::Ore);
+    }
+
+    pub fn refuel_supply(&self, id: &str) -> u32 {
+        let reserve = if id == EARTH {
+            self.governance.leader.reserve() + u32::from(self.batch_active())
+        } else {
+            0
+        };
+        self.stock(id, Commodity::Fuel).saturating_sub(reserve)
+    }
+
+    pub fn freight_supply(&self, id: &str, resource: Commodity) -> u32 {
+        match (id, resource) {
+            (_, Commodity::Fuel) => self.refuel_supply(id),
+            (EARTH, Commodity::Ore) => self.station_ore.saturating_sub(
+                self.governance.policy.ore_target() + 10 * u32::from(self.batch_active()),
+            ),
+            _ => self.stock(id, resource),
         }
     }
 
+    pub fn accumulating_ore(&self, id: &str) -> bool {
+        self.governance.ore_requested
+            && if self.prefer_mars() {
+                id == MARS_SITE && self.construction.mars_extracted < MARS_ORE
+            } else {
+                id == BELT && self.deposit > 0
+            }
+    }
+
+    pub fn locations(&self) -> impl Iterator<Item = &str> {
+        [EARTH, BELT, MARS_SITE]
+            .into_iter()
+            .chain(self.warehouses.keys().map(String::as_str))
+    }
+
+    pub fn available_location(&self, id: &str) -> bool {
+        matches!(id, EARTH | BELT | SITE)
+            || (id == MARS_SITE && self.construction.mars != MarsProject::Proposed)
+            || self.warehouses.contains_key(id)
+    }
+
+    pub fn travel(&self, from: &str, to: &str) -> (u32, u32) {
+        if from == to {
+            return (0, 0);
+        }
+        let (seconds, fuel) = leg(self, from, to);
+        ((seconds / QUANTUM) as u32, fuel)
+    }
+
+    pub fn stock(&self, id: &str, resource: Commodity) -> u32 {
+        match (id, resource) {
+            (EARTH, Commodity::Ore) => self.station_ore,
+            (EARTH, Commodity::Fuel) => self.station_fuel,
+            (EARTH, Commodity::Metals) => self.metal,
+            (BELT, Commodity::Ore) => self.belt_ore,
+            (BELT, Commodity::Fuel) => self.belt_fuel,
+            (MARS_SITE, Commodity::Ore) => self.construction.mars_ore,
+            _ => self
+                .warehouses
+                .get(id)
+                .and_then(|warehouse| warehouse.stock.get(&resource))
+                .copied()
+                .unwrap_or(0),
+        }
+    }
+
+    pub fn room(&self, id: &str, resource: Commodity) -> u32 {
+        if let Some(stock) = self.warehouses.get(id) {
+            return stock
+                .capacity
+                .saturating_sub(stock.stock.values().copied().sum());
+        }
+        let capacity: u32 = match (id, resource) {
+            (EARTH, Commodity::Ore) => 5000,
+            (EARTH, Commodity::Fuel) | (BELT, Commodity::Fuel) => 200,
+            (EARTH, Commodity::Metals) => self.metal_capacity(),
+            (BELT, Commodity::Ore) => 100,
+            (MARS_SITE, Commodity::Ore) => SHIPMENT,
+            _ => 0,
+        };
+        capacity.saturating_sub(self.stock(id, resource))
+    }
+
+    fn stock_mut(&mut self, id: &str, resource: Commodity) -> Option<&mut u32> {
+        match (id, resource) {
+            (EARTH, Commodity::Ore) => Some(&mut self.station_ore),
+            (EARTH, Commodity::Fuel) => Some(&mut self.station_fuel),
+            (EARTH, Commodity::Metals) => Some(&mut self.metal),
+            (BELT, Commodity::Ore) => Some(&mut self.belt_ore),
+            (BELT, Commodity::Fuel) => Some(&mut self.belt_fuel),
+            (MARS_SITE, Commodity::Ore) => Some(&mut self.construction.mars_ore),
+            _ => self
+                .warehouses
+                .get_mut(id)
+                .map(|warehouse| warehouse.stock.entry(resource).or_default()),
+        }
+    }
+
+    pub fn withdraw(&mut self, id: &str, resource: Commodity, quantity: u32) -> bool {
+        self.stock_mut(id, resource).is_some_and(|stock| {
+            if *stock < quantity {
+                return false;
+            }
+            *stock -= quantity;
+            true
+        })
+    }
+
+    pub fn deposit_cargo(&mut self, id: &str, resource: Commodity, quantity: u32) {
+        if quantity > 0 {
+            *self.stock_mut(id, resource).expect("validated destination") += quantity;
+        }
+    }
+
+    pub fn freight_event(
+        &self,
+        action: &str,
+        resource: Commodity,
+        location: &str,
+        quantity: u32,
+        ship: &str,
+    ) -> Event {
+        let mut entry = event(
+            match (action, resource) {
+                ("loaded", Commodity::Fuel) => "fuel_loaded",
+                ("unloaded", Commodity::Fuel) => "fuel_unloaded",
+                ("loaded", _) => "cargo_loaded",
+                _ => "cargo_unloaded",
+            },
+            resource.as_str(),
+            EARTH,
+            quantity,
+            self.stock(location, resource),
+            None,
+        );
+        entry.location = location.into();
+        entry.ship_name = Some(ship.into());
+        entry
+    }
+
+    fn prefer_mars(&self) -> bool {
+        self.construction.mars == MarsProject::Ready
+            && self.construction.mars_extracted < MARS_ORE
+            && (self.conflict.lost_ore > 0
+                || self.deposit < SHIPMENT
+                || crate::view::route_distance(self, MARS_SITE, EARTH)
+                    < crate::view::route_distance(self, BELT, EARTH))
+    }
+
     fn run_facilities(&mut self, events: &mut Vec<Event>) {
-        if self.governance.ore_requested
-            && (!self.delivery_active() || self.second_freighter.is_some()) {
+        if self.governance.ore_requested {
             let mars = self.prefer_mars();
             self.mining_elapsed += QUANTUM;
             if self.mining_elapsed >= MINE_INTERVAL {
@@ -431,201 +519,6 @@ impl Sim {
         }
     }
 
-    pub fn freight_duration(&self) -> f64 {
-        match self.phase {
-            Phase::Outbound | Phase::Relocating if self.route_duration > 0.0 => self.route_duration,
-            Phase::Returning if self.return_duration > 0.0 => self.return_duration,
-            _ => self.phase.duration(),
-        }
-    }
-
-    fn prefer_mars(&self) -> bool {
-        self.construction.mars == MarsProject::Ready
-            && (self.construction.mars_ore + MARS_ORE - self.construction.mars_extracted
-                >= SHIPMENT)
-            && (self.conflict.lost_ore > 0
-                || self.belt_ore + self.deposit < SHIPMENT
-                || crate::view::route_distance(self, MARS_SITE, EARTH)
-                    < crate::view::route_distance(self, BELT, EARTH))
-    }
-
-    fn move_ship(&mut self, events: &mut Vec<Event>) {
-        if self.phase == Phase::Waiting {
-            self.mars_route = false;
-            let back = leg(self, EARTH, BELT);
-            self.fuel_order = self.station_fuel <= self.governance.leader.reserve() + 12
-                && self.belt_fuel >= FUEL_SHIPMENT + 2 * FLIGHT_FUEL;
-            let belt_ready = self.belt_ore >= SHIPMENT;
-            let mars_ready = self.prefer_mars() && self.construction.mars_ore >= SHIPMENT;
-            if !self.fuel_order && !(self.governance.ore_requested && (mars_ready || belt_ready)) {
-                return;
-            }
-            self.mars_route = !self.fuel_order && mars_ready;
-            let to_mars = if self.mars_route {
-                leg(self, BELT, MARS_SITE)
-            } else {
-                (0.0, 0)
-            };
-            let outbound = leg(self, if self.mars_route { MARS_SITE } else { BELT }, EARTH);
-            let required = to_mars.1 + outbound.1 + back.1;
-            let stock =
-                self.belt_fuel
-                    .saturating_sub(if self.fuel_order { FUEL_SHIPMENT } else { 0 });
-            let refill = required.saturating_sub(self.fuel).min(stock);
-            if self.fuel + refill < required {
-                self.phase = Phase::NoFuelAtBelt;
-                return;
-            }
-            self.belt_fuel -= refill;
-            self.fuel += refill;
-            self.fuel -= to_mars.1;
-            self.route_duration = if self.mars_route {
-                to_mars.0
-            } else {
-                outbound.0
-            };
-            self.return_duration = back.0;
-            self.return_fuel = back.1;
-            self.outbound_plan = outbound;
-            self.elapsed = 0.0;
-            self.phase = if self.mars_route {
-                Phase::Relocating
-            } else {
-                Phase::Loading
-            };
-            return;
-        }
-        if matches!(self.phase, Phase::NoFuelAtBelt | Phase::NoFuelAtEarth) {
-            return;
-        }
-        self.elapsed += QUANTUM;
-        if self.elapsed < self.freight_duration() {
-            return;
-        }
-        self.elapsed = 0.0;
-        self.phase = match self.phase {
-            Phase::Loading => {
-                // With independent freighters, stock may have been taken by
-                // another vessel since this loading operation started. Never
-                // allow unsigned underflow or a duplicated cargo pickup.
-                let available = if self.mars_route {
-                    self.construction.mars_ore >= SHIPMENT
-                } else {
-                    self.belt_ore >= SHIPMENT
-                };
-                if (self.fuel_order && self.belt_fuel < FUEL_SHIPMENT)
-                    || (!self.fuel_order && !available)
-                {
-                    self.phase = Phase::Waiting;
-                    return;
-                }
-                let cost = if self.outbound_plan.1 > 0 {
-                    self.route_duration = self.outbound_plan.0;
-                    self.outbound_plan.1
-                } else {
-                    let refill = (2 * FLIGHT_FUEL)
-                        .saturating_sub(self.fuel)
-                        .min(self.belt_fuel);
-                    self.fuel += refill;
-                    self.belt_fuel -= refill;
-                    if self.fuel < 2 * FLIGHT_FUEL {
-                        self.phase = Phase::NoFuelAtBelt;
-                        return;
-                    }
-                    FLIGHT_FUEL
-                };
-                self.fuel -= cost;
-                if self.fuel_order {
-                    self.belt_fuel -= FUEL_SHIPMENT;
-                    self.fuel_cargo = FUEL_SHIPMENT;
-                    events.push(event(
-                        "fuel_loaded",
-                        "fuel",
-                        BELT,
-                        FUEL_SHIPMENT,
-                        self.belt_fuel,
-                        Some(self.freighter_name()),
-                    ));
-                    self.phase = Phase::Outbound;
-                    return;
-                }
-                let (stock, source) = if self.mars_route {
-                    (&mut self.construction.mars_ore, MARS_SITE)
-                } else {
-                    (&mut self.belt_ore, BELT)
-                };
-                *stock -= SHIPMENT;
-                let remaining = *stock;
-                self.cargo = SHIPMENT;
-                events.push(event(
-                    "cargo_loaded",
-                    "ore",
-                    source,
-                    SHIPMENT,
-                    remaining,
-                    Some(self.freighter_name()),
-                ));
-                Phase::Outbound
-            }
-            Phase::Relocating => Phase::Loading,
-            Phase::Outbound => Phase::Unloading,
-            Phase::Unloading => {
-                if self.fuel_order {
-                    self.station_fuel += std::mem::take(&mut self.fuel_cargo);
-                    self.fuel_order = false;
-                    events.push(event(
-                        "fuel_unloaded",
-                        "fuel",
-                        EARTH,
-                        FUEL_SHIPMENT,
-                        self.station_fuel,
-                        Some(self.freighter_name()),
-                    ));
-                } else {
-                    self.station_ore += self.cargo;
-                    events.push(event(
-                        "cargo_unloaded",
-                        "ore",
-                        EARTH,
-                        self.cargo,
-                        self.station_ore,
-                        Some(self.freighter_name()),
-                    ));
-                    self.cargo = 0;
-                    self.governance.ore_requested = false;
-                }
-                // Older saves can contain a freighter without return fuel in transit.
-                let available = self
-                    .station_fuel
-                    .saturating_sub(u32::from(self.batch_active()));
-                let cost = if self.return_fuel > 0 {
-                    self.return_fuel
-                } else {
-                    FLIGHT_FUEL
-                };
-                let refill = cost.saturating_sub(self.fuel).min(available);
-                self.fuel += refill;
-                self.station_fuel -= refill;
-                if self.fuel >= cost {
-                    self.fuel -= cost;
-                    Phase::Returning
-                } else {
-                    Phase::NoFuelAtEarth
-                }
-            }
-            Phase::Returning => {
-                self.mars_route = false;
-                self.outbound_plan = (0.0, 0);
-                // Do not rotate the two ships through the same global
-                // Phase/fuel/cargo ledger. The secondary now acts independently.
-                if self.construction.phase == Project::Complete {
-                    self.migrate_fleet();
-                }
-                Phase::Waiting
-            }
-            _ => unreachable!(),
-        };
-    }
     pub fn metal_capacity(&self) -> u32 {
         if self.genesis_program.has(Kind::Warehouse) {
             140
@@ -807,7 +700,23 @@ impl Sim {
         let threat_seen = self.conflict.lost_ore > 0
             || self.conflict.pirate_loot > 0
             || self.conflict.raider_cargo > 0;
-        let raid_distance = crate::view::route_distance(self, PIRATE_BASE, BELT);
+        let target = self.fleet.ships.iter().find_map(|(id, ship)| {
+            let task = ship.task.as_ref()?;
+            let order = self.fleet.orders.get(&task.order)?;
+            let leg = ship.leg.as_ref()?;
+            (task.loaded
+                && task.quantity >= 10
+                && order.resource == Commodity::Ore
+                && leg.elapsed == 0)
+                .then(|| (id.clone(), ship.location.clone(), task.order.clone()))
+        });
+        let raid_distance = crate::view::route_distance(
+            self,
+            PIRATE_BASE,
+            target
+                .as_ref()
+                .map_or(BELT, |(_, source, _)| source.as_str()),
+        );
         let raid_cost = (raid_distance * 0.42).ceil().clamp(2.0, 6.0) as u32;
         let war = &mut self.conflict;
         if war.base_progress < 40.0 {
@@ -927,10 +836,7 @@ impl Sim {
                     Some("Пиратский рейдер"),
                 ));
             }
-            if self.phase == Phase::Outbound
-                && self.elapsed == 0.0
-                && self.cargo >= 10
-                && !self.mars_route
+            if let Some((id, source, order)) = target
                 && war.pirate_loot
                     < if self.pirate_program.has(Kind::Warehouse) {
                         60
@@ -941,6 +847,9 @@ impl Sim {
                 && !war.raider_damaged
                 && war.raider_fuel >= raid_cost
             {
+                war.raid_target = Some(id);
+                war.raid_source = Some(source);
+                war.raid_order = Some(order);
                 war.raider_fuel -= raid_cost;
                 war.raid_approach = (raid_distance / 1.2).clamp(5.0, 13.0);
                 war.raid_return_time = war.raid_approach * 1.3;
@@ -1008,8 +917,19 @@ impl Sim {
                     ));
                     return;
                 }
-                if self.phase == Phase::Outbound && self.cargo >= 10 {
-                    self.cargo -= 10;
+                if let Some(task) = war
+                    .raid_target
+                    .as_ref()
+                    .and_then(|id| self.fleet.ships.get_mut(id))
+                    .filter(|ship| ship.leg.is_some())
+                    .and_then(|ship| ship.task.as_mut())
+                    .filter(|task| {
+                        task.loaded
+                            && task.quantity >= 10
+                            && war.raid_order.as_ref() == Some(&task.order)
+                    })
+                {
+                    task.quantity -= 10;
                     war.raider_cargo = 10;
                     war.lost_ore += 10;
                     events.push(event(
@@ -1156,33 +1076,153 @@ impl Sim {
         }
     }
 
-    /// Upgrade 0.8.x saves without deleting the stored world or cargo.
-    /// If old Freighter-002 is flying, wait until it returns before
-    /// splitting the two ledgers: an in-flight state cannot be safely
-    /// transferred to an unrelated position.
     pub fn migrate_fleet(&mut self) {
-        if self.second_freighter.is_some()
-            || self.construction.phase != Project::Complete
-        { return; }
-        if self.construction.active_second {
-            if self.phase != Phase::Waiting { return; }
-            self.rotate_freighters();
+        if self.fleet.initialized {
+            return;
         }
-        self.second_freighter = Some(Freighter::new(self.construction.parked_fuel));
-        self.construction.parked_fuel = 0;
-    }
-
-    pub fn freighter_name(&self) -> &'static str {
-        if self.construction.active_second {
-            "Грузовой-002"
+        self.fleet.initialized = true;
+        if !self.fleet.ships.is_empty() {
+            return;
+        }
+        let (active, active_name, parked, parked_name) = if self.construction.active_second {
+            ("freighter-2", "Грузовой-002", "freighter-1", SHIP)
         } else {
-            SHIP
+            ("freighter-1", SHIP, "freighter-2", "Грузовой-002")
+        };
+        let source = if self.mars_route { MARS_SITE } else { BELT };
+        let mut ship = Ship::freighter(active_name, source, self.fuel);
+        self.import_legacy_trip(
+            &mut ship,
+            self.phase,
+            self.elapsed,
+            source,
+            self.cargo,
+            self.fuel_cargo,
+            self.fuel_order,
+            self.route_duration,
+            self.return_duration,
+        );
+        if self.conflict.raid_elapsed > 0.0 && self.phase == Phase::Outbound && self.cargo > 0 {
+            self.conflict.raid_target = Some(active.into());
+            self.conflict.raid_source = Some(source.into());
+            self.conflict.raid_order = ship.task.as_ref().map(|task| task.order.clone());
+        }
+        self.fleet.ships.insert(active.into(), ship);
+        if let Some(legacy) = self.second_freighter.take() {
+            let phase = match legacy.phase {
+                FreightPhase::Waiting | FreightPhase::NoFuelAtBelt => Phase::Waiting,
+                FreightPhase::NoFuelAtEarth => Phase::NoFuelAtEarth,
+                FreightPhase::Loading => Phase::Loading,
+                FreightPhase::Outbound => Phase::Outbound,
+                FreightPhase::Unloading => Phase::Unloading,
+                FreightPhase::Returning => Phase::Returning,
+            };
+            let mut second = Ship::freighter(parked_name, BELT, legacy.fuel);
+            self.import_legacy_trip(
+                &mut second,
+                phase,
+                legacy.elapsed,
+                BELT,
+                legacy.cargo,
+                legacy.fuel_cargo,
+                legacy.fuel_order,
+                legacy.outbound_duration,
+                legacy.return_duration,
+            );
+            self.fleet.ships.insert(parked.into(), second);
+        } else if self.construction.phase == Project::Complete {
+            self.fleet.ships.insert(
+                parked.into(),
+                Ship::freighter(parked_name, BELT, self.construction.parked_fuel),
+            );
+        }
+        if self.construction.phase == Project::Complete {
+            self.construction.parked_fuel = 0;
         }
     }
 
-    fn rotate_freighters(&mut self) {
-        self.construction.active_second = !self.construction.active_second;
-        std::mem::swap(&mut self.fuel, &mut self.construction.parked_fuel);
+    fn import_legacy_trip(
+        &mut self,
+        ship: &mut Ship,
+        phase: Phase,
+        elapsed: f64,
+        source: &str,
+        ore: u32,
+        fuel: u32,
+        fuel_order: bool,
+        outbound: f64,
+        returning: f64,
+    ) {
+        let passed = (elapsed / QUANTUM).floor() as u32;
+        let leg = |destination: &str, seconds: f64| {
+            let duration = if seconds > 0.0 {
+                (seconds / QUANTUM).ceil() as u32
+            } else {
+                64
+            };
+            Leg {
+                destination: destination.into(),
+                duration,
+                elapsed: passed.min(duration - 1),
+            }
+        };
+        if matches!(
+            phase,
+            Phase::Returning | Phase::Unloading | Phase::NoFuelAtEarth
+        ) {
+            ship.location = EARTH.into();
+        }
+        ship.leg = match phase {
+            Phase::Outbound => Some(leg(EARTH, outbound)),
+            Phase::Returning => Some(leg(BELT, returning)),
+            Phase::Relocating => {
+                ship.location = BELT.into();
+                Some(leg(source, outbound))
+            }
+            _ => None,
+        };
+        if matches!(
+            phase,
+            Phase::Loading | Phase::Relocating | Phase::Outbound | Phase::Unloading
+        ) {
+            let resource = if fuel_order || fuel > 0 {
+                Commodity::Fuel
+            } else {
+                Commodity::Ore
+            };
+            let cargo = if resource == Commodity::Fuel {
+                fuel
+            } else {
+                ore
+            };
+            let desired = if resource == Commodity::Fuel {
+                FUEL_SHIPMENT
+            } else {
+                SHIPMENT
+            };
+            let quantity = if matches!(phase, Phase::Loading | Phase::Relocating) {
+                desired
+            } else {
+                cargo
+            };
+            if quantity > 0 {
+                let already = self.fleet.incoming(EARTH, resource);
+                let id = self.fleet.request(EARTH, resource, already + desired, 10);
+                let order = self.fleet.orders.get_mut(&id).unwrap();
+                order.remaining = order.remaining.max(already + desired);
+                ship.task = Some(Assignment {
+                    order: id,
+                    source: source.into(),
+                    quantity,
+                    loaded: cargo > 0,
+                    handling: if matches!(phase, Phase::Unloading | Phase::Loading) {
+                        passed.min(11)
+                    } else {
+                        0
+                    },
+                });
+            }
+        }
     }
 
     fn construct(&mut self, events: &mut Vec<Event>) {
@@ -1236,6 +1276,16 @@ impl Sim {
                 Project::TransferringShip
             }
             Project::TransferringShip => {
+                self.fleet
+                    .ships
+                    .entry("freighter-2".into())
+                    .or_insert_with(|| {
+                        Ship::freighter(
+                            "Грузовой-002",
+                            BELT,
+                            std::mem::take(&mut self.construction.parked_fuel),
+                        )
+                    });
                 events.push(decision(
                     "ship_commissioned",
                     "Снабженец",
@@ -1295,10 +1345,10 @@ pub(crate) fn event(
     Event {
         kind,
         commodity,
-        location,
+        location: location.into(),
         quantity,
         stock,
-        ship_name,
+        ship_name: ship_name.map(str::to_owned),
         actor: None,
         reason: None,
     }

@@ -49,6 +49,9 @@ pub struct Conflict {
     pub rebuild_elapsed: f64,
     pub raid_approach: f64,
     pub raid_return_time: f64,
+    pub raid_target: Option<String>,
+    pub raid_source: Option<String>,
+    pub raid_order: Option<String>,
     pub patrol_generation: u32,
     pub raider_generation: u32,
 }

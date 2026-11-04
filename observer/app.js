@@ -156,6 +156,10 @@ function renderGovernance() {
   inspectorRow(panel, "Перехваты", fnum(gov.intercepted_raids));
   if (gov.fuel_cargo) inspectorRow(panel, "Топливо в пути", fnum(gov.fuel_cargo));
   if (gov.pirate_expansion) inspectorRow(panel, "Проект пиратов", gov.pirate_expansion);
+  for (const order of list(gov.orders).slice(0, 5)) {
+    inspectorRow(panel, "Заказ №" + order.id + " · " + commodityLabel(order.resource),
+      fnum(order.assigned) + " назначено / " + fnum(order.remaining) + " осталось");
+  }
   if (gov.expansion) inspectorRow(panel, "Экспансия", gov.expansion);
   if (gov.last_decision) inspectorRow(panel, "Решение главы", gov.last_decision);
 }
@@ -457,6 +461,14 @@ function renderInspector() {
       status.appendChild(textEl("span", locationLabel(entity.location)));
     }
     content.appendChild(status);
+    if (entity.task_id != null) {
+      const order = list(s.report.governance?.orders).find(order => order.id === entity.task_id);
+      if (order) {
+        inspectorRow(content, "Заказ №" + order.id, commodityLabel(order.resource));
+        inspectorRow(content, "Получатель", locationLabel(order.destination));
+        inspectorRow(content, "Осталось доставить", fnum(order.remaining));
+      }
+    }
     detailGroup(content, "Груз");
     chips(content, sortedCargo(entity.cargo).map(([name, amount]) =>
       commodityLabel(name) + " · " + fnum(amount)), 8, "Трюм пуст");
