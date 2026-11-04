@@ -73,9 +73,14 @@ async function runSeed(name, state, stop) {
 try {
   const origin = await start("industrial", join(dir, "original.json"));
   const initial = await api(origin.base, "/api/diagnostics");
-  assert.equal(initial.version, "0.8.0");
+  assert.equal(initial.version, "0.8.1");
   const fresh = await runSeed("fresh", initial.state, (_, events) => events.some(event => event.kind === "ship_commissioned"));
   assert.ok(fresh.events.some(event => event.kind === "building_approved" && event.actor === "Genesis" && event.reason.includes("Орбитальная верфь")));
+  const atlas = await fetch(origin.base + "/observer/orbital-structures.webp", {signal: timeout});
+  assert.equal(atlas.headers.get("content-type"), "image/webp");
+  assert.equal(Buffer.from(await atlas.arrayBuffer()).toString("ascii", 8, 12), "WEBP");
+  assert.ok(initial.observer.facilities.every(facility => facility.inspection?.status));
+  assert.ok(initial.observer.facilities.find(f => f.id === "earth-station").inspection.meters.some(m => m.capacity === 80));
   const state = initial.state;
   Object.assign(state, { metal: 60, station_ore: 20, deposit: 500 });
   state.construction.phase = "complete";
@@ -93,7 +98,7 @@ try {
   assert.equal(risk.frame.governance.catalog.length, 11);
   const restored = await start("", risk.save);
   const report = await api(restored.base, "/api/report");
-  assert.ok(report.facilities.some(facility => facility.id === "pirate-shipyard"));
+  assert.ok(report.facilities.some(facility => facility.id === "pirate-shipyard" && facility.inspection.resources.length > 0));
   assert.ok(report.facilities.some(facility => facility.id === "mars-outpost" && facility.type === "mining_rig"));
   console.log("PASS: calm economy, site choice, both construction fleets, first outpost shipment, reload.");
 } finally {

@@ -343,6 +343,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/observer/model.js",
             get(|| async { asset("text/javascript; charset=utf-8", MODEL) }),
         )
+        .route(
+            "/observer/orbital-structures.webp",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "image/webp")],
+                    include_bytes!("../observer/assets/orbital-structures.webp").as_slice(),
+                )
+            }),
+        )
         .route("/api/health", get(health))
         .route("/api/report", get(report))
         .route("/api/diagnostics", get(diagnostics))

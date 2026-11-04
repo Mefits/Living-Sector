@@ -319,6 +319,36 @@ function inspectorRow(parent, label, value) {
   row.appendChild(textEl("span", value, "value"));
   parent.appendChild(row);
 }
+function inspectorMeter(parent, {label, value, capacity, unit}) {
+  if (!Number.isFinite(value) || !(capacity > 0)) return;
+  const group = document.createElement("div");
+  group.className = "facility-meter";
+  const shown = unit === "%" ? Math.floor(value) + "%" : fnum(value) + " / " + fnum(capacity) + " " + unit;
+  inspectorRow(group, label, shown);
+  const bar = document.createElement("progress");
+  bar.max = capacity;
+  bar.value = value;
+  bar.setAttribute("aria-label", label);
+  group.appendChild(bar);
+  parent.appendChild(group);
+}
+
+function showFacilityInspection(parent, entity) {
+  const info = entity.inspection;
+  const status = document.createElement("section");
+  status.className = "facility-status";
+  status.appendChild(textEl("strong", info.status));
+  if (info.note) status.appendChild(textEl("p", info.note));
+  parent.appendChild(status);
+  if (info.meters.length) {
+    detailGroup(parent, "Ход работы и заполненность");
+    for (const meter of info.meters) inspectorMeter(parent, meter);
+  }
+  if (info.resources.length) {
+    detailGroup(parent, "Ресурсы");
+    for (const item of info.resources) inspectorRow(parent, item.label, fnum(item.value));
+  }
+}
 function detailGroup(parent, title) { parent.appendChild(textEl("div", title, "group-title")); }
 function chips(parent, entries, max = 8, emptyLabel = "Нет данных") {
   const items = list(entries).slice(0, max);
@@ -435,13 +465,10 @@ function renderInspector() {
   } else if (type === "facility") {
     inspectorRow(content, "Тип", facilityNames[entity.type] ?? entity.type);
     inspectorRow(content, "Фракция", factionName(entity.faction_id, s.index));
-    inspectorRow(content, "Расположение", locationLabel(entity.location, entity.id));
-    if (entity.project) inspectorRow(content, "Проект", entity.project);
-    if (entity.progress != null) inspectorRow(content, "Готовность", Math.floor(entity.progress * 100) + "%");
-    if (entity.deposit != null) inspectorRow(content, "Руда в залежи", fnum(entity.deposit));
+    const body = s.index.systems.flatMap(system => system.bodies).find(body => body.id === entity.body_id);
+    inspectorRow(content, "Расположение", body ? "Орбита · " + body.name : "Открытый космос");
+    if (entity.inspection) showFacilityInspection(content, entity);
     showHubShips(content, entity.location);
-    inspectorRow(content, "Резерв топлива", fnum(entity.reserves.fuel));
-    showMarket(content, entity.location);
   } else if (type === "body") {
     inspectorRow(content, "Тип", entity.type);
     inspectorRow(content, "Фракция", factionName(entity.controlling_faction, s.index));
@@ -580,6 +607,7 @@ function handleWs(message) {
   if (s.health) s.health.tick = message.tick;
   renderOreFlow();
   renderGovernance();
+  if (s.selection?.type === "facility" && !els.inspectorBody.contains(document.activeElement)) renderInspector();
 }
 
 function connectWs() {
@@ -865,12 +893,27 @@ function drawBody(body, p, selected = false) {
   ctx.restore();
 }
 
-function drawFacilityHub(at, kind, selected) {
+const orbitalAtlas = new Image();
+orbitalAtlas.src = "/observer/orbital-structures.webp";
+const orbitalTypes = ["cargo_warehouse", "fuel_depot", "fuel_refinery", "gas_harvester", "mining_outpost",
+  "observation_station", "patrol_base", "repair_dock", "smelter", "solar_power_station"];
+
+function drawOrbitalSprite(facility, size) {
+  const kind = facility.type === "mining_rig" && facility.id !== "belt-outpost" ? "mining_outpost" : facility.type;
+  const column = kind === "shipyard" && facility.faction_id === "pirates" ? orbitalTypes.length : orbitalTypes.indexOf(kind);
+  if (column < 0 || !orbitalAtlas.complete || !orbitalAtlas.naturalWidth) return false;
+  const row = facility.faction_id === "pirates" ? 1 : 0;
+  ctx.drawImage(orbitalAtlas, column * 128, row * 128, 128, 128, -size/2, -size/2, size, size);
+  return true;
+}
+
+function drawFacilityHub(at, facility, selected) {
+  const kind = facility.type;
   const mine = kind === "mining_rig";
-  const accent = mine ? "#dab27a" : "#8dd0d0";
+  const accent = facility.faction_id === "pirates" ? "#e06a58" : mine ? "#dab27a" : "#8dd0d0";
   ctx.save();
   ctx.translate(at.x, at.y);
-  const hasSprite = (mine || kind === "station" || kind === "shipyard" || kind === "pirate-station") &&
+  const hasSprite = drawOrbitalSprite(facility, 21) || (mine || kind === "station" || kind === "shipyard" || kind === "pirate-station") &&
     drawMapSprite(mine ? "mining-rig" : kind, 0, 0, kind === "shipyard" ? 21 : 14);
   ctx.lineWidth = .85;
   ctx.lineJoin = "round";
@@ -1096,10 +1139,10 @@ function renderMap() {
           s.selection.ids?.some(id=>ids.includes(id)));
         const anchor = bodyScreens.get(key(prefer.body_id));
         if (anchor) drawFacilityOrbit(anchor.screen, at, anchor.radius);
-        withMapScale(at,iconScale,()=>drawFacilityHub(at,prefer.type,selected));
+        withMapScale(at,iconScale,()=>drawFacilityHub(at,prefer,selected));
         markGlyph(at,8*iconScale);
         askLabel("hub-"+hub.id,at,prefer.name,
-          prefer.type==="mining_rig"?"#d5b275":"#84c4c7",
+          prefer.faction_id==="pirates"?"#e58171":prefer.type==="mining_rig"?"#d5b275":"#84c4c7",
           selected?1:15,9,205);
         const targetType=members.length>1?"facility_group":"facility";
         addTarget(targetType,members.length>1?hub.id:members[0].id,

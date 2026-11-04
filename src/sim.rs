@@ -243,6 +243,39 @@ impl Sim {
             && self.station_fuel > self.governance.leader.reserve()
     }
 
+    pub fn smelting_cycle(&self) -> (f64, f64) {
+        let duration = if self.genesis_program.has(Kind::Smelter) {
+            3.5
+        } else {
+            SMELT_INTERVAL
+        };
+        (self.smelting_elapsed, duration)
+    }
+
+    pub fn mining_cycle(&self, source: &str) -> (f64, &'static str) {
+        let mars = source == MARS_SITE;
+        let (stock, deposit) = if mars {
+            (
+                self.construction.mars_ore,
+                MARS_ORE - self.construction.mars_extracted,
+            )
+        } else {
+            (self.belt_ore, self.deposit)
+        };
+        if stock >= SHIPMENT {
+            (0.0, "Партия готова к погрузке")
+        } else if deposit == 0 {
+            (0.0, "Залежь исчерпана")
+        } else if self.governance.ore_requested
+            && !self.delivery_active()
+            && self.prefer_mars() == mars
+        {
+            (self.mining_elapsed / MINE_INTERVAL, "Добывает руду")
+        } else {
+            (0.0, "Ждёт заявку снабженца")
+        }
+    }
+
     pub fn batch_active(&self) -> bool {
         self.smelting_elapsed > 0.0
     }
@@ -373,13 +406,7 @@ impl Sim {
                 ));
             }
             self.smelting_elapsed += QUANTUM;
-            if self.smelting_elapsed
-                >= if self.genesis_program.has(Kind::Smelter) {
-                    3.5
-                } else {
-                    SMELT_INTERVAL
-                }
-            {
+            if self.smelting_elapsed >= self.smelting_cycle().1 {
                 self.smelting_elapsed = 0.0;
                 self.station_ore -= 10;
                 self.station_fuel -= 1;

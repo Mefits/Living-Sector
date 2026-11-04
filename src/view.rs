@@ -3,7 +3,7 @@ use crate::construction::{
     MARS_METAL, MARS_ORE, MARS_SITE, MarsProject, Project, SHIP_METAL, SITE, YARD_METAL,
 };
 use crate::planning::{Choice, Kind, Program, Site as BuildSite, Work};
-use crate::sim::{BELT, EARTH, Event, Phase, Sim, TANK};
+use crate::sim::{BELT, EARTH, Event, Phase, SHIPMENT, Sim, TANK};
 use serde_json::{Value, json};
 use std::f64::consts::TAU;
 
@@ -455,6 +455,261 @@ fn ships(sim: &Sim, scene: &Scene) -> Vec<Value> {
     ships
 }
 
+fn gauge(label: &str, value: f64, capacity: f64, unit: &str) -> Value {
+    json!({"label":label, "value":value, "capacity":capacity, "unit":unit})
+}
+
+fn stock(label: &str, amount: u32) -> Value {
+    json!({"label":label, "value":amount})
+}
+
+fn facility_inspection(sim: &Sim, facility: &Value) -> Value {
+    let id = facility["id"].as_str().unwrap_or_default();
+    let kind = facility["type"].as_str().unwrap_or_default();
+    let pirates = facility["faction_id"] == "pirates";
+    let war = &sim.conflict;
+    let program = if pirates {
+        &sim.pirate_program
+    } else {
+        &sim.genesis_program
+    };
+    let mut resources = Vec::new();
+    let mut meters = Vec::new();
+    let mut note = String::new();
+    if let Some(work) = program
+        .active
+        .filter(|work| build_id(pirates, work.choice) == id)
+    {
+        let spec = work.choice.kind.spec();
+        let progress =
+            ((work.travel + spec.seconds - work.remaining) / spec.seconds).clamp(0.0, 1.0);
+        let status = if work.finished_assembly() {
+            "Строитель возвращается · ждёт ввода в строй"
+        } else if work.on_site() {
+            "Идёт монтаж"
+        } else {
+            "Материалы в пути"
+        };
+        return json!({
+            "status":status,
+            "note":format!("{} · {}. Топливо выделено на рейс строителя: {}.", spec.name, work.choice.site.label(), work.fuel),
+            "resources":[stock(if work.on_site() {"Металл доставлен"} else {"Металл в трюме строителя"}, spec.metal)],
+            "meters":[gauge("Монтаж", progress * 100.0, 100.0, "%")],
+        });
+    }
+    let status = match (id, kind) {
+        (EARTH, _) | (_, "smelter") if !pirates => {
+            let (elapsed, duration) = sim.smelting_cycle();
+            meters.push(gauge(
+                "Металл на складе станции",
+                sim.metal as f64,
+                sim.metal_capacity() as f64,
+                "ед.",
+            ));
+            if sim.batch_active() {
+                meters.push(gauge("Плавка партии", elapsed, duration, "с"));
+            }
+            resources.extend([
+                stock("Руда на станции", sim.station_ore),
+                stock("Топливо на станции", sim.station_fuel),
+            ]);
+            note = format!(
+                "Партия: 10 руды + 1 топливо → 8 металла. Снабжение: {}.",
+                sim.delivery_status()
+            );
+            if sim.metal_capacity() - sim.metal < 8 && !sim.batch_active() {
+                note.push_str(&format!(
+                    " Свободно {} мест, для партии нужно 8.",
+                    sim.metal_capacity() - sim.metal
+                ));
+            }
+            sim.smelting_status()
+        }
+        (_, "mining_rig") => {
+            let original = id == BELT;
+            let ore = if original {
+                sim.belt_ore
+            } else {
+                sim.construction.mars_ore
+            };
+            let deposit = if original {
+                sim.deposit
+            } else {
+                MARS_ORE - sim.construction.mars_extracted
+            };
+            let (cycle, status) = sim.mining_cycle(id);
+            resources.push(stock("Руда на складе", ore));
+            if original {
+                resources.push(stock("Топливо на складе", sim.belt_fuel));
+            }
+            meters.push(gauge(
+                "Руда к погрузке",
+                ore.min(SHIPMENT) as f64,
+                SHIPMENT as f64,
+                "ед.",
+            ));
+            meters.push(gauge(
+                "Остаток залежи",
+                deposit as f64,
+                if original { 500.0 } else { MARS_ORE as f64 },
+                "ед.",
+            ));
+            if status == "Добывает руду" {
+                meters.push(gauge("Добыча партии", cycle * 100.0, 100.0, "%"));
+            }
+            status
+        }
+        (_, "cargo_warehouse") if !pirates => {
+            meters.push(gauge(
+                "Металл в общей ёмкости",
+                sim.metal as f64,
+                sim.metal_capacity() as f64,
+                "ед.",
+            ));
+            note = "Расширяет общий склад металла станции Земли.".into();
+            "Склад подключён"
+        }
+        (PIRATE_BASE, "pirate-station") | (_, "cargo_warehouse") | (_, "smelter") if pirates => {
+            let cap = if program.has(Kind::Warehouse) { 60 } else { 20 };
+            meters.push(gauge(
+                "Трофейная руда на базе",
+                war.pirate_loot as f64,
+                cap as f64,
+                "ед.",
+            ));
+            resources.extend([
+                stock("Металл на базе", war.pirate_metal),
+                stock("Топливо на базе", war.pirate_fuel_stock),
+            ]);
+            note = if kind == "smelter" {
+                "Перерабатывает трофейную руду в металл для ремонта и стройки.".into()
+            } else {
+                "Запасы используются для снабжения рейдера и строительства.".into()
+            };
+            if kind == "smelter" && war.pirate_loot < 10 {
+                "Ждёт партию трофейной руды"
+            } else if kind == "smelter" && war.pirate_fuel_stock == 0 {
+                "Ждёт топливо"
+            } else if kind == "smelter" && war.raider_return > 0.0 {
+                "Ждёт возвращения рейдера"
+            } else if kind == "smelter" {
+                "Партия доступна"
+            } else if war.raider_destroyed {
+                "Рейдер потерян"
+            } else if war.raid_elapsed > 0.0 {
+                "Рейдер на вылете"
+            } else if war.raider_return > 0.0 {
+                "Рейдер возвращается"
+            } else {
+                "База в работе"
+            }
+        }
+        (_, "shipyard") if pirates => {
+            resources.extend([
+                stock("Металл на базе", war.pirate_metal),
+                stock("Топливо на базе", war.pirate_fuel_stock),
+            ]);
+            note = "Новый рейдер требует 8 металла и 2 топлива со склада базы.".into();
+            if war.rebuild_elapsed > 0.0 {
+                meters.push(gauge("Новый рейдер", war.rebuild_elapsed, 16.0, "с"));
+                "Собирает рейдер"
+            } else if war.raider_destroyed {
+                "Ждёт материалы для замены"
+            } else {
+                "Свободна"
+            }
+        }
+        (SITE, "shipyard") => {
+            resources.extend([
+                stock("Металл на Земле", sim.metal),
+                stock("Топливо на Земле", sim.station_fuel),
+            ]);
+            if sim.construction.phase == Project::BuildingShip {
+                meters.push(gauge(
+                    "Сборка грузовика",
+                    sim.construction.elapsed,
+                    sim.construction.duration(),
+                    "с",
+                ));
+                "Собирает грузовик"
+            } else if matches!(war.patrol, Patrol::Building | Patrol::Rebuilding) {
+                meters.push(gauge(
+                    "Сборка патруля",
+                    war.patrol_elapsed,
+                    if war.patrol == Patrol::Building {
+                        8.0
+                    } else {
+                        16.0
+                    },
+                    "с",
+                ));
+                "Собирает патруль"
+            } else {
+                "Свободна"
+            }
+        }
+        (_, "repair_dock") => {
+            let (metal, damage, hull): (u32, u32, u32) = if pirates {
+                (war.pirate_metal, war.raider_damage, 60)
+            } else {
+                (sim.metal, war.patrol_damage, 100)
+            };
+            resources.push(stock(
+                if pirates {
+                    "Металл на базе"
+                } else {
+                    "Металл на Земле"
+                },
+                metal,
+            ));
+            if (pirates && war.raider_destroyed) || (!pirates && war.patrol != Patrol::Ready) {
+                "Ждёт корабль"
+            } else {
+                meters.push(gauge(
+                    "Корпус корабля",
+                    hull.saturating_sub(damage) as f64,
+                    hull as f64,
+                    "ед.",
+                ));
+                if damage == 0 {
+                    "Ремонт не требуется"
+                } else if metal < if pirates { 2 } else { 4 } {
+                    "Ждёт металл"
+                } else {
+                    "Ремонт доступен на базе"
+                }
+            }
+        }
+        (_, "observation_station") => {
+            resources.extend([
+                stock("Перехваты", war.intercepted_raids),
+                stock("Потери руды", war.lost_ore),
+            ]);
+            note = if pirates {
+                "Помогает рейдеру позже попасть под обнаружение.".into()
+            } else {
+                "Даёт патрулю больше времени обнаружить рейдер в секторе.".into()
+            };
+            "Наблюдает за маршрутом"
+        }
+        (_, "construction_site") => {
+            if let Some(progress) = facility["progress"].as_f64() {
+                meters.push(gauge("Строительство", progress * 100.0, 100.0, "%"));
+            }
+            note = facility["project"].as_str().unwrap_or_default().into();
+            if id == PIRATE_BASE {
+                resources.extend([
+                    stock("Металл у экспедиции", 16),
+                    stock("Топливо экспедиции", war.pirate_fuel_stock),
+                ]);
+            }
+            "Строительство"
+        }
+        _ => "В строю",
+    };
+    json!({"status":status, "note":note, "resources":resources, "meters":meters})
+}
+
 fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
     let mut facilities = vec![
         json!({"id": EARTH, "name": "Станция Земли", "type": "station", "location": EARTH, "body_id": "earth",
@@ -508,6 +763,9 @@ fn facilities(sim: &Sim, scene: &Scene) -> Vec<Value> {
     }));
     facilities.extend(program_facilities(sim, scene, &sim.genesis_program, false));
     facilities.extend(program_facilities(sim, scene, &sim.pirate_program, true));
+    for facility in &mut facilities {
+        facility["inspection"] = facility_inspection(sim, facility);
+    }
     facilities
 }
 
