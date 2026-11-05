@@ -139,6 +139,8 @@ impl ShipFuel {
 /// Economic state.
 #[derive(Debug, Clone, Component)]
 pub struct ShipEconomy {
+    /// In-flight request and apply acknowledgement; reset when loading/replanning.
+    pub transaction: super::TransactionSlot,
     pub credits: i64,
     pub efficiency: f32,
     pub active_contract_id: Option<String>,

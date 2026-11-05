@@ -980,6 +980,7 @@ async fn load_ships(
                 speed_modifier: fitted_speed_modifier,
             },
             ShipEconomy {
+                transaction: Default::default(),
                 credits,
                 efficiency: efficiency as f32,
                 active_contract_id,

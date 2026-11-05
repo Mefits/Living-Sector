@@ -51,11 +51,12 @@ use tracing::{debug, info};
 
 mod admin;
 mod apply;
+mod transactions;
 mod drains;
 mod persist;
 mod publish;
 pub use apply::{
-    apply_construction_delivery, apply_facility_refuel, apply_gate_jump, apply_release_dock,
+    apply_construction_delivery, apply_gate_jump, apply_release_dock,
     apply_request_dock_typed, apply_ship_commands, commit_dock, dockable_candidates_ordered,
     primary_dock_at_location, primary_dock_at_location_typed, prune_stale_dock_queue,
     tick_dock_queue_advance,
@@ -892,6 +893,7 @@ mod tests {
                 speed_modifier: 1.0,
             },
             ShipEconomy {
+                transaction: Default::default(),
                 credits,
                 efficiency: 1.0,
                 active_contract_id: None,

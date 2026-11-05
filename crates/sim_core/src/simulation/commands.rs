@@ -60,16 +60,8 @@ pub enum SimCommand {
         ship: Entity,
         facility_location: String,
     },
-    /// Ship is pulling fuel from a facility's reserves. Apply phase
-    /// decrements `reserves[Fuel]` (min 0) and credits the facility's
-    /// `credits` by `payment`. The ship already adjusted its own fuel and
-    /// credits when emitting — this command is the cross-entity half.
-    FacilityRefuel {
-        ship: Entity,
-        facility_location: String,
-        amount: f32,
-        payment: i64,
-    },
+    /// Apply the matching pending request in ShipEconomy exactly once.
+    RequestShipTransaction { ship: Entity, request_id: u64 },
     /// Grant crew XP to a specific skill after a successful trade, delivery,
     /// or completed crew mission. Apply phase bumps `ShipCrewSkills.<skill>`
     /// by `amount`, capped at 100. Unknown skills are a no-op.
@@ -97,15 +89,6 @@ pub enum SimCommand {
     AcceptContract {
         ship: Entity,
         ship_id: String,
-        contract_id: String,
-    },
-    /// Ship delivered contract cargo at destination. Apply phase:
-    /// - marks contract Paid
-    /// - credits ship the payment
-    /// - decrements ship cargo by contract quantity
-    /// - increases destination market supply by contract quantity
-    DeliverContract {
-        ship: Entity,
         contract_id: String,
     },
     ExpireContract { contract_id: String },
@@ -195,11 +178,10 @@ impl SimCommand {
             | SimCommand::ArriveAtLocation { ship, .. }
             | SimCommand::RequestDock { ship, .. }
             | SimCommand::ReleaseDock { ship, .. }
-            | SimCommand::FacilityRefuel { ship, .. }
+            | SimCommand::RequestShipTransaction { ship, .. }
             | SimCommand::GrantCrewXp { ship, .. }
             | SimCommand::RequestGateJump { ship, .. }
             | SimCommand::AcceptContract { ship, .. }
-            | SimCommand::DeliverContract { ship, .. }
             | SimCommand::AddSupplyAtShipLocation { ship, .. }
             | SimCommand::RemoveSupplyAtShipLocation { ship, .. }
             | SimCommand::DecommissionShip { ship, .. }
@@ -232,12 +214,11 @@ impl SimCommand {
             SimCommand::ArriveAtLocation { .. } => "arrive_at_location",
             SimCommand::RequestDock { .. } => "request_dock",
             SimCommand::ReleaseDock { .. } => "release_dock",
-            SimCommand::FacilityRefuel { .. } => "facility_refuel",
+            SimCommand::RequestShipTransaction { .. } => "ship_transaction",
             SimCommand::GrantCrewXp { .. } => "grant_crew_xp",
             SimCommand::RequestGateJump { .. } => "request_gate_jump",
             SimCommand::PostContract { .. } => "post_contract",
             SimCommand::AcceptContract { .. } => "accept_contract",
-            SimCommand::DeliverContract { .. } => "deliver_contract",
             SimCommand::ExpireContract { .. } => "expire_contract",
             SimCommand::ReleaseContract { .. } => "release_contract",
             SimCommand::TransferCredits { .. } => "transfer_credits",
@@ -275,8 +256,8 @@ impl SimCommand {
                 }
             }
             SimCommand::ReleaseDock { facility_location, .. } => facility_location.clone(),
-            SimCommand::FacilityRefuel { amount, payment, .. } => {
-                format!("{amount:.1} fuel for {payment} cr")
+            SimCommand::RequestShipTransaction { request_id, .. } => {
+                format!("request #{request_id}")
             }
             SimCommand::GrantCrewXp { skill, amount, .. } => format!("{skill} +{amount}"),
             SimCommand::RequestGateJump { src_gate_location, dest_gate_location, .. } => {
@@ -284,7 +265,6 @@ impl SimCommand {
             }
             SimCommand::PostContract { contract_id } => contract_id.clone(),
             SimCommand::AcceptContract { contract_id, .. } => contract_id.clone(),
-            SimCommand::DeliverContract { contract_id, .. } => contract_id.clone(),
             SimCommand::ExpireContract { contract_id } => contract_id.clone(),
             SimCommand::ReleaseContract { contract_id, reason, .. } => {
                 format!("{contract_id} ({reason})")

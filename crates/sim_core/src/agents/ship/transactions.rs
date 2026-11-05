@@ -1,0 +1,62 @@
+//! One outstanding economic request per ship, acknowledged by the apply phase.
+//!
+//! This mailbox is transient, like the BT it belongs to. Sequence numbers prevent
+//! duplicate commands within a running world; they are NOT a durable replay log.
+//! Replanning cancels the mailbox, without resetting its sequence counter.
+
+use crate::economy::commodities::Commodity;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShipTransaction {
+    Buy {
+        location: String,
+        commodity: Commodity,
+        quantity: u32,
+        max_unit_price: f32,
+    },
+    Refuel {
+        location: String,
+    },
+    Deliver {
+        contract_id: String,
+    },
+}
+
+impl ShipTransaction {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Buy { .. } => "buy",
+            Self::Refuel { .. } => "refuel",
+            Self::Deliver { .. } => "deliver",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingTransaction {
+    pub id: u64,
+    pub request: ShipTransaction,
+    /// None until the exclusive apply phase validates and commits/rejects it.
+    pub result: Option<Result<(), &'static str>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TransactionSlot {
+    pub sequence: u64,
+    pub pending: Option<PendingTransaction>,
+}
+
+impl TransactionSlot {
+    pub fn begin(&mut self, request: ShipTransaction) -> Option<u64> {
+        if self.pending.is_some() {
+            return None;
+        }
+        self.sequence = self.sequence.checked_add(1)?;
+        self.pending = Some(PendingTransaction {
+            id: self.sequence,
+            request,
+            result: None,
+        });
+        Some(self.sequence)
+    }
+}
