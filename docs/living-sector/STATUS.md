@@ -2,7 +2,38 @@
 
 # STATUS — фактическое состояние Living Sector
 
-**Последнее обновление документа:** 2026-11-03.
+**Последнее обновление документа:** 2026-11-05.
+
+## P0: аудит автономного стратегического слоя — 2026-11-05
+
+- База `feature/genesis-faction-economy` @ `41b25864ad069b616ce256938160cefc09f640e0`;
+  собственная ветка `feature/astra-strategy-architecture`. PR #7/#8 не сливались.
+- Подготовлены `ASTRA_ARCHITECTURE_REVIEW.md`, `ASTRA_DATA_CONTRACTS.md`,
+  `ASTRA_GOAL_CATALOG.md`, `ASTRA_VALIDATION_PLAN.md`. Обновлены ссылки в README
+  и ASTRA_START_HERE. DESIGN не менялся: инженерные предложения не объявлены
+  согласованными правилами.
+- Статически проверены AI utility/planner/BT/personality; faction/construction;
+  facility/recipes/modules; ship actions/behavior; contracts/market/relations;
+  server runtime/apply/persist/drains; DB spawner/persistence; seed и Observer.
+- Вывод: ядро сохраняем. Новый управляющий слой нуждается в общем арбитре ресурсов,
+  наблюдениях с источниками и подтверждении результата операции. Buy/Refuel/Deliver,
+  конечность обычной добычи и согласованные сохранения — первые технические риски.
+  Подробные 15 наблюдений с символами исходников — в аудите. Это статические выводы,
+  частота проблем в live run не измерена.
+- Уточнены устаревшие описания: GOAP уже ищет по стоимости и получает реальную
+  топливную корзину; стройплощадки имеют persistence/load. Полного главного AI нет.
+- Выполнено: `node --test tests/genesis-seed.test.mjs observer/model.test.mjs` —
+  **27 passed / 0 failed**. Проверена целостность ссылок новых документов и каталог
+  из 36 целей. Это не проверка замкнутой экономики.
+- Не выполнено: Rust tests, `make verify`, server/Windows run, soak и save/restart;
+  в среде нет `cargo`/`rustc`. Runtime, БД, seed и графика не изменены.
+- Текстуры: GitHub Observer уже использует Canvas-символы; отдельный UI 0.14 ZIP
+  не загружался и не проверялся. Восстановление его PNG не заявляется.
+- Следующий шаг: обзор предложенной архитектуры, затем узкое воспроизведение и
+  исправление атомарности Buy/Refuel/Deliver с ledger-тестами. Полная реализация
+  стратегического AI остаётся отдельным этапом по исходному поручению.
+
+## Исторические сведения предыдущих этапов
 
 ## Что реально есть
 

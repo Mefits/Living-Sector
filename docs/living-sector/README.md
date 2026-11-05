@@ -12,6 +12,10 @@
 
 ## Документы
 
+- **[ASTRA_ARCHITECTURE_REVIEW.md](ASTRA_ARCHITECTURE_REVIEW.md)** — результат P0 от 2026-11-05: аудит по SHA, расхождения и рекомендация стратегического слоя; предложение, не реализованный AI.
+- [ASTRA_DATA_CONTRACTS.md](ASTRA_DATA_CONTRACTS.md) — предлагаемые данные, полномочия, атомарные операции и сохранение.
+- [ASTRA_GOAL_CATALOG.md](ASTRA_GOAL_CATALOG.md) — 36 возможных целей с физическими результатами и готовностью доменов.
+- [ASTRA_VALIDATION_PLAN.md](ASTRA_VALIDATION_PLAN.md) — вертикальный срез, отрицательные тесты и восемь шагов внедрения.
 - [OBSERVER_MVP.md](OBSERVER_MVP.md) — первый самостоятельный 2D-клиент и точное соответствие экранных данных существующим API.
 - [VISION.md](VISION.md) — желания, референсы и главная ценность игры.
 - [DESIGN.md](DESIGN.md) — согласованные направления и границы согласования.
