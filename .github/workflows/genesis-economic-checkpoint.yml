@@ -1,7 +1,7 @@
 name: Genesis economic checkpoint checks
 on:
   push:
-    branches: [feature/genesis-economic-checkpoint, feature/genesis-lifecycle-checkpoint]
+    branches: [feature/genesis-economic-checkpoint, feature/genesis-lifecycle-checkpoint, feature/genesis-flight-recovery]
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,8 +18,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Two focused checkpoint tests
-        if: github.ref_name != 'feature/genesis-lifecycle-checkpoint'
+        if: github.ref_name == 'feature/genesis-economic-checkpoint'
         run: cargo test --locked -p sim_db -p sim_server --lib checkpoint_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
       - name: Two focused lifecycle tests
         if: github.ref_name == 'feature/genesis-lifecycle-checkpoint'
         run: cargo test --locked -p sim_db -p sim_server --lib lifecycle_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+      - name: Three focused flight recovery tests
+        if: github.ref_name == 'feature/genesis-flight-recovery'
+        run: cargo test --locked -p sim_core -p sim_db -p sim_server --lib flight_recovery_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0

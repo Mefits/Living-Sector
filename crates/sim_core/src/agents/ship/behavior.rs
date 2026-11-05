@@ -520,64 +520,35 @@ pub(super) fn decide_and_act(
             return;
         }
 
-        // Sanity-clean stale active_contract_id before planning.
-        // Covers three cases:
-        //   1. The contract finalised (Paid / Expired) but the Deliver
-        //      action never ran (BT ended before reaching it).
-        //   2. A speculative-accept race: the ship set its id locally
-        //      but another ship won the AcceptContract apply, so the
-        //      contract's fulfiller_id isn't us.
-        //   3. **Phase 19h**: ghost contract — status=Accepted, we're
-        //      the fulfiller, but `current_bt = None` (BT finished
-        //      early via Success without reaching Deliver). Without
-        //      this branch the ship sits idle holding a contract
-        //      nobody else can take. Release + clear so a re-planner
-        //      picks it up fresh next cycle.
-        //
-        // In cases 1 + 2 we just clear locally (the contract is either
-        // gone or not ours to release). Case 3 emits a
-        // `ReleaseContract` so the board moves Accepted → Posted and
-        // another ship can accept it.
+        // Rebuild missing execution from committed contract/cargo state. This
+        // also handles restart: accepting again would reserve a second reward
+        // or release the original agreement merely because BT is transient.
         if let Some(cid) = economy.active_contract_id.clone() {
-            enum StaleKind { Drop, Release, Keep }
-            let kind = match contracts.get(&cid) {
-                None => StaleKind::Drop,
-                Some(c) => {
-                    use crate::economy::contracts::ContractStatus;
-                    let finalized = matches!(
-                        c.status,
-                        ContractStatus::Paid | ContractStatus::Expired
-                    );
-                    let not_ours = c.fulfiller_id.as_deref() != Some(ship_id.as_str());
-                    let ghost = matches!(c.status, ContractStatus::Accepted)
-                        && !not_ours
-                        && ai.current_bt.is_none();
-                    if finalized || not_ours {
-                        StaleKind::Drop
-                    } else if ghost {
-                        StaleKind::Release
-                    } else {
-                        StaleKind::Keep
-                    }
-                }
-            };
-            match kind {
-                StaleKind::Drop => {
-                    economy.active_contract_id = None;
-                    ai.current_bt = None;
+            use crate::economy::contracts::ContractStatus;
+            let held = contracts.get(&cid).filter(|c|
+                c.fulfiller_id.as_deref() == Some(ship_id.as_str()) &&
+                matches!(c.status, ContractStatus::Accepted | ContractStatus::PickedUp));
+            if let Some(c) = held {
+                if ai.current_bt.is_none() {
+                    ai.current_bt = Some(resume_contract_bt(
+                        position.location_name.as_deref().unwrap_or(""),
+                        position.docked_at.is_some(), cargo, fuel, c, registry, gate_pairs,
+                    ).unwrap_or_else(|| BtNode::action(ShipAction::Idle)));
+                    ai.current_goal = match c.contract_type {
+                        crate::economy::contracts::ContractType::CrewMission => "do_crew_mission",
+                        crate::economy::contracts::ContractType::Passenger => "fulfill_passenger_transport",
+                        crate::economy::contracts::ContractType::Construction => "fulfill_construction",
+                        _ => "fulfill_delivery",
+                    }.into();
+                    ai.last_plan_tick = tick;
                     economy.transaction.pending = None;
+                    lifecycle.dirty = true;
                 }
-                StaleKind::Release => {
-                    economy.active_contract_id = None;
-                    ai.current_bt = None;
-                    economy.transaction.pending = None;
-                    commands.push(SimCommand::ReleaseContract {
-                        ship_id: ship_id.clone(),
-                        contract_id: cid,
-                        reason: "ghost_bt",
-                    });
-                }
-                StaleKind::Keep => {}
+            } else {
+                economy.active_contract_id = None;
+                ai.current_bt = None;
+                economy.transaction.pending = None;
+                lifecycle.dirty = true;
             }
         }
 
@@ -2491,6 +2462,50 @@ fn try_build_fulfill_delivery_bt_planned(
     Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
 }
 
+/// Resume a held contract without accepting it or purchasing cargo already
+/// present in the committed hold. No mutations to board, escrow or inventory.
+fn resume_contract_bt(
+    current: &str,
+    docked: bool,
+    cargo: &ShipCargo,
+    fuel: &ShipFuel,
+    c: &crate::economy::contracts::Contract,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, fuel_fraction_to_bucket, Loc, LocMap, Operator, WorldState};
+    use crate::economy::contracts::{ContractStatus, ContractType};
+    if current.is_empty() { return None; }
+    let physical = !matches!(c.contract_type, ContractType::Passenger | ContractType::CrewMission);
+    let have = cargo.cargo.get(&c.commodity).copied().unwrap_or(0);
+    // Courier has no legitimate Buy/pickup implementation. Never synthesize
+    // its cargo just to recover a save; wait for a valid physical load.
+    if c.contract_type == ContractType::Courier && have < c.quantity { return None; }
+    let cost = |to: &str| estimate_fuel_bucket_cost(current, to, registry, gate_pairs);
+    let map = LocMap::delivery(current.into(), c.source_location.clone(), c.destination_location.clone(),
+        c.commodity, c.quantity.saturating_sub(have), c.id.clone(),
+        cost(&c.source_location), estimate_fuel_bucket_cost(&c.source_location, &c.destination_location, registry, gate_pairs),
+        cost(&c.destination_location));
+    let at = if current == c.destination_location { Loc::Dest }
+        else if current == c.source_location { Loc::Source } else { Loc::Origin };
+    let mut initial = WorldState::new(at, fuel_fraction_to_bucket(
+        if fuel.fuel_capacity > 0.0 { fuel.fuel / fuel.fuel_capacity } else { 0.0 }));
+    initial.docked = docked;
+    initial.cargo_loaded = if physical { have >= c.quantity } else { c.status == ContractStatus::PickedUp };
+    let crew = c.contract_type == ContractType::CrewMission;
+    let catalog = if crew { Operator::crew_mission_catalog() }
+        else if c.contract_type == ContractType::Passenger { Operator::passenger_catalog() }
+        else { Operator::delivery_catalog() };
+    let synth = plan(initial, |s| s.delivered && (!crew || s.rested), catalog, &map, 20)?;
+    let mut bt = compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs);
+    if let BtNode::Sequence { children, .. } = &mut bt {
+        if matches!(children.first(), Some(BtNode::Action(ShipAction::AcceptContract { .. }))) {
+            children.remove(0);
+        }
+    }
+    Some(bt)
+}
+
 /// Expand a planner-emitted action sequence into a real BT. Abstract
 /// `Travel { destination }` steps get resolved to the actual multi-
 /// leg pathfinder output (gate jumps etc.); `Dock` / `DockAtShipyard` /
@@ -2633,4 +2648,36 @@ fn try_build_trade_run_with_retrofit_planned(
         28,
     )?;
     Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+#[cfg(test)]
+mod flight_recovery_tests {
+    use super::*;
+    #[test]
+    fn flight_recovery_rebuilds_only_remaining_work_without_accepting_again() {
+        use crate::economy::contracts::{ContractBoard, FundingSource};
+        let mut board = ContractBoard::new();
+        let id = board.post_delivery_for("issuer".into(), None, Commodity::Ore, 10,
+            "source".into(), "port".into(), 120, 0, 1000);
+        board.register_prepaid(&id, FundingSource::Facility);
+        assert!(board.accept(&id, "ship".into(), 1));
+        board.get_mut(&id).unwrap().funding.as_mut().unwrap().agreed_payment = Some(120);
+        let c = board.get(&id).unwrap();
+        let before = serde_json::to_string(c).unwrap();
+        let fuel = ShipFuel { fuel: 100.0, fuel_capacity: 100.0, fuel_consumption_rate: 0.05, speed_modifier: 1.0 };
+        for (have, expected_buy) in [(0, 10), (4, 6), (10, 0)] {
+            let cargo = ShipCargo { cargo: [(Commodity::Ore, have)].into(), capacity: 100,
+                cargo_age: Default::default(), cargo_origin: Default::default() };
+            let bt = resume_contract_bt("port", true, &cargo, &fuel, c,
+                &WorldRegistry::default(), &StdHashMap::new()).expect("resumable contract");
+            let BtNode::Sequence { children, .. } = bt else { panic!("sequence expected"); };
+            assert!(!children.iter().any(|n| matches!(n, BtNode::Action(ShipAction::AcceptContract { .. }))));
+            let bought: u32 = children.iter().filter_map(|n| match n {
+                BtNode::Action(ShipAction::Buy { qty, .. }) => Some(*qty), _ => None,
+            }).sum();
+            assert_eq!(bought, expected_buy);
+            assert!(children.iter().any(|n| matches!(n, BtNode::Action(ShipAction::DeliverCargo { contract_id }) if contract_id == &id)));
+            assert_eq!(serde_json::to_string(c).unwrap(), before);
+        }
+    }
 }

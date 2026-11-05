@@ -1103,3 +1103,40 @@ async fn lifecycle_removal_and_escrow_survive_backpressure_in_one_frame() {
         assert!(rx.try_recv().is_err());
     }
 }
+
+#[test]
+fn flight_recovery_emitter_captures_stable_dock_and_flight_progress() {
+    use sim_db::persistence::{DbWrite, ShipResumeState};
+    let mut f = Fixture::new(0.0, 0.0);
+    let ship = f.ships[0];
+    f.world.get_mut::<ShipLifecycle>(ship).unwrap().dirty = true;
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+    crate::engine::persist::emit_persist_writes(&mut f.world, &mut f.store, 40, &tx);
+    let DbWrite::EconomicFrame { writes } = rx.try_recv().unwrap() else { panic!("frame"); };
+    let resume = writes.iter().find_map(|w| match w {
+        DbWrite::Ship { db_id: 10, resume_json, .. } => Some(serde_json::from_str::<ShipResumeState>(resume_json).unwrap()),
+        _ => None,
+    }).unwrap();
+    assert_eq!(resume.docked_db_id, Some(1));
+    assert_eq!(resume.location_name.as_deref(), Some("port"));
+    assert!(resume.transit.is_none());
+    {
+        let mut pos = f.world.get_mut::<ShipPosition>(ship).unwrap();
+        pos.location_name = None;
+        pos.docked_at = None;
+    }
+    f.world.get_mut::<ShipTransit>(ship).unwrap().transit = Some(sim_core::agents::ship::Transit {
+        from: "port".into(), to: "next".into(), departure_tick: 40, arrival_tick: 90,
+        departure_position: Some((1.0, 2.0)), distance_total: 100.0, distance_travelled: 25.0,
+    });
+    f.world.get_mut::<ShipLifecycle>(ship).unwrap().dirty = true;
+    crate::engine::persist::emit_persist_writes(&mut f.world, &mut f.store, 50, &tx);
+    let DbWrite::EconomicFrame { writes } = rx.try_recv().unwrap() else { panic!("frame"); };
+    let resume = writes.iter().find_map(|w| match w {
+        DbWrite::Ship { db_id: 10, resume_json, .. } => Some(serde_json::from_str::<ShipResumeState>(resume_json).unwrap()),
+        _ => None,
+    }).unwrap();
+    assert_eq!(resume.docked_db_id, None);
+    assert_eq!(resume.location_name, None);
+    assert_eq!(resume.transit.unwrap().distance_travelled, 25.0);
+}

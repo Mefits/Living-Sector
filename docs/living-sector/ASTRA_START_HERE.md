@@ -1,6 +1,11 @@
 # ASTRA — START HERE · Living Sector / Genesis
 
-> **Текущий участок P1e (2026-11-05):** `feature/genesis-lifecycle-checkpoint` —
+> **Текущий участок P1f (2026-11-05):** `feature/genesis-flight-recovery` —
+> сохранение прогресса полёта/стыковки и восстановление удерживаемого контракта
+> без повторного Accept или покупки уже загруженного товара. **CI Linux:
+> компиляция и 3/3 точечных теста прошли**; границы — [STATUS.md](STATUS.md). Полного replay-state нет.
+
+> **Предыдущий участок P1e (2026-11-05):** `feature/genesis-lifecycle-checkpoint` —
 > удаления объектов/retirement включены в EconomicFrame, в том числе на паузе;
 > tombstone применяется после устаревшего upsert. **CI Linux: компиляция и
 > 2/2 точечных теста прошли.** Создание объектов и возобновление рейса ещё
