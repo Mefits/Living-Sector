@@ -77,8 +77,12 @@ fn try_plan_trade_run(
     gate_pairs: &StdHashMap<String, String>,
     current_tick: u64,
     fuel_bucket: u8,
+    ship_faction: &str,
+    controller_by_location: &StdHashMap<String, String>,
+    relations: &crate::agents::faction_relations::FactionRelations,
 ) -> Option<TradeRunCandidate> {
-    let (commodity, buy_loc, sell_loc, _margin) = best_trade_route(memory, current_tick)?;
+    let (commodity, buy_loc, sell_loc, _margin) =
+        best_trade_route_with_ownership(memory, current_tick, ship_faction, controller_by_location, relations)?;
     let buy_price = memory
         .price_knowledge
         .get(&buy_loc)
@@ -134,8 +138,28 @@ pub fn best_trade_route(
     memory: &ShipMemory,
     current_tick: u64,
 ) -> Option<(Commodity, String, String, f32)> {
+    best_trade_route_with_ownership(
+        memory, current_tick, "", &StdHashMap::new(),
+        &crate::agents::faction_relations::FactionRelations::new(),
+    )
+}
+
+/// Faction-neutral price discovery remains unchanged; the real ship
+/// planner also applies owner preference and rejects hostile markets.
+fn best_trade_route_with_ownership(
+    memory: &ShipMemory,
+    current_tick: u64,
+    ship_faction: &str,
+    controllers: &StdHashMap<String, String>,
+    relations: &crate::agents::faction_relations::FactionRelations,
+) -> Option<(Commodity, String, String, f32)> {
     let mut best: Option<(Commodity, String, String, f32)> = None;
-    let locs: Vec<_> = memory.price_knowledge.iter().collect();
+    let locs: Vec<_> = memory.price_knowledge.iter()
+        .filter(|(loc, _)| {
+            let owner = controllers.get(*loc).map(String::as_str).unwrap_or("");
+            crate::agents::faction_relations::commerce_allowed(relations, ship_faction, owner)
+        })
+        .collect();
     for (i, (loc_a, prices_a)) in locs.iter().enumerate() {
         for (loc_b, prices_b) in locs.iter().skip(i + 1) {
             for (commodity, pa) in prices_a.iter() {
@@ -178,8 +202,20 @@ pub fn best_trade_route(
                             }
                         })
                         .unwrap_or(1.0);
-                    let margin = raw_margin * learned_mult;
-                    if margin > MIN_TRADE_MARGIN && best.as_ref().is_none_or(|b| margin > b.3) {
+                    let real_margin = raw_margin * learned_mult;
+                    // Prefer internal commerce without forbidding neutral
+                    // trade. Both endpoints need to pass the relations filter.
+                    let owner_buy = controllers.get(&buy).map(String::as_str).unwrap_or("");
+                    let owner_sell = controllers.get(&sell).map(String::as_str).unwrap_or("");
+                    let boost = (crate::agents::faction_relations::own_market_priority(
+                        ship_faction, owner_buy,
+                    ) + crate::agents::faction_relations::own_market_priority(
+                        ship_faction, owner_sell,
+                    )) / 2.0;
+                    let margin = real_margin * boost;
+                    if real_margin > MIN_TRADE_MARGIN
+                        && best.as_ref().is_none_or(|b| margin > b.3)
+                    {
                         best = Some((*commodity, buy, sell, margin));
                     }
                 }
@@ -602,6 +638,9 @@ pub(super) fn decide_and_act(
                 contracts,
                 &effective_reputation,
                 &ship_id,
+                &ship_faction,
+                relations,
+                &controller_by_location,
                 registry,
                 gate_pairs,
                 retrofit_plan.as_ref(),
@@ -913,6 +952,9 @@ fn plan_goal(
     contracts: &crate::economy::contracts::ContractBoard,
     effective_reputation: &StdHashMap<String, u8>,
     ship_id: &str,
+    ship_faction: &str,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    controller_by_location: &StdHashMap<String, String>,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
     retrofit: Option<&RetrofitPlan>,
@@ -1020,6 +1062,9 @@ fn plan_goal(
         memory,
         contracts,
         ship_id,
+        ship_faction,
+        relations,
+        controller_by_location,
         registry,
         gate_pairs,
         sensor_range_au,
@@ -1033,7 +1078,9 @@ fn plan_goal(
         // .aggression > 0.5` gates the bonus inside `score_strategic`,
         // so cautious ships ignore it.
         let contested = contested_destinations.contains(&c.destination);
-        let score = score_strategic(c.profit, c.goal_name, personality, contested);
+        let owner = controller_by_location.get(&c.destination).map(String::as_str).unwrap_or("");
+        let score = score_strategic(c.profit, c.goal_name, personality, contested)
+            * crate::agents::faction_relations::own_market_priority(ship_faction, owner);
         // GOAP combined goal: if we have a retrofit plan AND the
         // contract is delivery-class, try to synthesise a single
         // BT that picks up cargo, detours through the shipyard,
@@ -1073,12 +1120,21 @@ fn plan_goal(
             bt: c.bt,
         });
     }
-    if let Some(t) = try_plan_trade_run(&at_loc, memory, registry, gate_pairs, current_tick, fuel_bucket) {
+    if let Some(t) = try_plan_trade_run(
+        &at_loc, memory, registry, gate_pairs, current_tick, fuel_bucket,
+        ship_faction, controller_by_location, relations,
+    ) {
         // Bundle D: trade run counts as contested when either endpoint
         // is — the ship is risking exposure on either leg of the run.
         let contested = contested_destinations.contains(&t.buy_loc)
             || contested_destinations.contains(&t.sell_loc);
-        let score = score_strategic(t.profit, "trade_run", personality, contested);
+        let owner_buy = controller_by_location.get(&t.buy_loc).map(String::as_str).unwrap_or("");
+        let owner_sell = controller_by_location.get(&t.sell_loc).map(String::as_str).unwrap_or("");
+        let preference = (
+            crate::agents::faction_relations::own_market_priority(ship_faction, owner_buy)
+            + crate::agents::faction_relations::own_market_priority(ship_faction, owner_sell)
+        ) / 2.0;
+        let score = score_strategic(t.profit, "trade_run", personality, contested) * preference;
         // GOAP combined goal: trade_run + retrofit. Same pattern as
         // delivery + retrofit. When the planner folds refit into
         // the trade-run path it wins on two fronts in one trip.
@@ -1426,6 +1482,9 @@ fn try_plan_contract(
     memory: &ShipMemory,
     contracts: &crate::economy::contracts::ContractBoard,
     _ship_id: &str,
+    ship_faction: &str,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    controllers: &StdHashMap<String, String>,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
     sensor_range_au: f32,
@@ -1465,6 +1524,21 @@ fn try_plan_contract(
     let mut best: Option<Candidate> = None;
 
     for c in contracts.posted_for_ship(effective_reputation) {
+        // The requesting faction AND both physical endpoints must be
+        // non-hostile. Reputation/aged-open contracts cannot bypass war.
+        if let Some(owner) = c.faction_id.as_deref() {
+            if !crate::agents::faction_relations::commerce_allowed(
+                relations, ship_faction, owner,
+            ) {
+                continue;
+            }
+        }
+        if [&c.source_location, &c.destination_location].iter().any(|location| {
+            let owner = controllers.get(*location).map(String::as_str).unwrap_or("");
+            !crate::agents::faction_relations::commerce_allowed(relations, ship_faction, owner)
+        }) {
+            continue;
+        }
         // Phase 18f: sensor-range gate for cross-system contracts.
         // If the contract's source and destination span different
         // systems (or leave the ship's system) and the ship's

@@ -364,6 +364,15 @@ pub(super) fn execute_ship_action(
                 Some(l) => l.clone(),
                 None => return BtStatus::Failure,
             };
+            // Enforce diplomatic embargo at the transaction point, not
+            // only in GOAP planning. An old in-flight order or loaded
+            // contract must never buy/sell at a newly hostile market.
+            let owner = controller_by_location.get(&at).map(String::as_str).unwrap_or("");
+            if !crate::agents::faction_relations::commerce_allowed(
+                relations, ship_faction, owner,
+            ) {
+                return BtStatus::Failure;
+            }
             let base_price = match memory.price_knowledge.get(&at).and_then(|m| m.get(commodity)) {
                 Some(pm) => pm.price,
                 None => return BtStatus::Failure,
@@ -422,6 +431,15 @@ pub(super) fn execute_ship_action(
                 Some(l) => l.clone(),
                 None => return BtStatus::Failure,
             };
+            // Enforce diplomatic embargo at the transaction point, not
+            // only in GOAP planning. An old in-flight order or loaded
+            // contract must never buy/sell at a newly hostile market.
+            let owner = controller_by_location.get(&at).map(String::as_str).unwrap_or("");
+            if !crate::agents::faction_relations::commerce_allowed(
+                relations, ship_faction, owner,
+            ) {
+                return BtStatus::Failure;
+            }
             let base_price = match memory.price_knowledge.get(&at).and_then(|m| m.get(commodity)) {
                 Some(pm) => pm.price,
                 None => return BtStatus::Failure,
@@ -494,6 +512,15 @@ pub(super) fn execute_ship_action(
                 Some(l) => l.clone(),
                 None => return BtStatus::Failure,
             };
+            // Enforce diplomatic embargo at the transaction point, not
+            // only in GOAP planning. An old in-flight order or loaded
+            // contract must never buy/sell at a newly hostile market.
+            let owner = controller_by_location.get(&at).map(String::as_str).unwrap_or("");
+            if !crate::agents::faction_relations::commerce_allowed(
+                relations, ship_faction, owner,
+            ) {
+                return BtStatus::Failure;
+            }
             let prices = match memory.price_knowledge.get(&at) {
                 Some(p) => p,
                 None => return BtStatus::Failure,

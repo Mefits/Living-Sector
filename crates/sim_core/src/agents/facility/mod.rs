@@ -43,6 +43,36 @@ pub const RECIPE_MAX_BATCHES: u32 = 20;
 /// Units of commodity added to market supply per cycle.
 pub const MINING_YIELD_PER_CYCLE: f32 = 80.0;
 
+/// Salvage fields are slower but can recycle ore, ice, gas and scrap
+/// metals from a finite cache of wreckage. Their output multiplier is
+/// one third of a normal extractor operating at equal richness.
+pub const SALVAGE_SPEED_DIVISOR: f32 = 3.0;
+/// Physical stock units represented by one unit of salvage richness.
+/// A field starts with a fractional richness per material; every
+/// salvaged unit reduces that stored richness, which is persisted in
+/// the existing celestial-body resources column.
+pub const SALVAGE_UNITS_PER_RICHNESS: f32 = 8_000.0;
+
+/// Calculate one finite salvage draw from body richness. No input stock
+/// means no output; the returned richness only decreases.
+pub fn salvage_extraction(richness: f32, efficiency: f32) -> (f32, f32) {
+    let available = richness.clamp(0.0, 1.0) * SALVAGE_UNITS_PER_RICHNESS;
+    if available <= 0.0 || efficiency <= 0.0 {
+        return (0.0, available / SALVAGE_UNITS_PER_RICHNESS);
+    }
+    let mut extracted = (MINING_YIELD_PER_CYCLE / SALVAGE_SPEED_DIVISOR)
+        * richness.max(0.0) * efficiency;
+    extracted = extracted.min(available);
+    let remainder = available - extracted;
+    // Sweep the last fractional unit rather than leaving an immortal
+    // vanishingly small deposit at floating-point precision.
+    if remainder < 1.0 {
+        extracted = available;
+    }
+    let remaining = (available - extracted) / SALVAGE_UNITS_PER_RICHNESS;
+    (extracted, remaining.max(0.0))
+}
+
 // --- Phase 11c: condition / restock / contracts / leveling / abandonment ---
 
 /// Per-tick condition loss. Matches Elixir `0.0002 * tick_scale`.
@@ -271,6 +301,24 @@ pub fn tick_facilities(
     tick_scale: f32,
     tick_multiplier: u32,
 ) {
+    tick_facilities_with_relations(
+        world, contracts, events,
+        &crate::agents::faction_relations::FactionRelations::new(),
+        tick, tick_scale, tick_multiplier,
+    );
+}
+
+/// Used by the live server; ordinary contracts may trade with neutral
+/// factions, never with a Hostile or War faction.
+pub fn tick_facilities_with_relations(
+    world: &mut World,
+    contracts: &mut crate::economy::contracts::ContractBoard,
+    events: &mut Vec<serde_json::Value>,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    tick: u64,
+    tick_scale: f32,
+    tick_multiplier: u32,
+) {
     let mult = tick_multiplier as u64;
     let recipe_interval = RECIPE_INTERVAL_BASE * mult;
     let mining_interval = MINING_INTERVAL_BASE * mult;
@@ -334,7 +382,7 @@ pub fn tick_facilities(
 
     // Phase 6: post delivery + courier contracts (every 50×mult ticks).
     if contract_interval > 0 && tick % contract_interval == 0 {
-        tick_post_contracts(world, contracts, tick, tick_multiplier);
+        tick_post_contracts_with_relations(world, contracts, relations, tick, tick_multiplier);
     }
 
     // Phase 6b (Phase 18c): shipyards mint modules from local market
@@ -852,7 +900,10 @@ fn tick_recipes_and_mining(
 
     if tick % mining_interval == 0 {
         for fac in &facilities {
-            if fac.abandoned || fac.facility_type != "mining_rig" {
+            if fac.abandoned
+                || (fac.facility_type != "mining_rig"
+                    && fac.facility_type != "salvage_field")
+            {
                 continue;
             }
             // Bundle 1.5: LOD gate for mining too.
@@ -885,13 +936,33 @@ fn tick_recipes_and_mining(
                 .map(|c| c.efficiency())
                 .unwrap_or(1.0);
             let yield_mult = yield_fitting * crew_efficiency;
+            let is_salvage = fac.facility_type == "salvage_field";
+            let mut depleted: Vec<(Commodity, f32)> = Vec::new();
             if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
                 for (commodity, richness) in body_resources {
                     if richness <= 0.0 {
                         continue;
                     }
-                    let extracted = MINING_YIELD_PER_CYCLE * richness * yield_mult;
+                    let extracted = if is_salvage {
+                        let (qty, new_richness) = salvage_extraction(richness, yield_mult);
+                        depleted.push((commodity, new_richness));
+                        qty
+                    } else {
+                        MINING_YIELD_PER_CYCLE * richness * yield_mult
+                    };
                     *pricing.supply.entry(commodity).or_insert(0.0) += extracted;
+                }
+            }
+            // Unlike legacy mining rigs, a salvage field owns a finite
+            // physical cache. Only the removed units become market supply.
+            // Body orbital writes persist the reduced resource fractions.
+            if is_salvage {
+                if let Some(mut body) = world.get_mut::<BodyResources>(body_entity) {
+                    for (commodity, new_richness) in depleted {
+                        if let Some(r) = body.resources.get_mut(&commodity) {
+                            *r = r.min(new_richness).max(0.0);
+                        }
+                    }
                 }
             }
         }
@@ -1033,6 +1104,19 @@ pub fn tick_post_contracts(
     tick: u64,
     tick_multiplier: u32,
 ) {
+    tick_post_contracts_with_relations(
+        world, contracts, &crate::agents::faction_relations::FactionRelations::new(),
+        tick, tick_multiplier,
+    );
+}
+
+pub fn tick_post_contracts_with_relations(
+    world: &mut World,
+    contracts: &mut crate::economy::contracts::ContractBoard,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    tick: u64,
+    tick_multiplier: u32,
+) {
     use crate::agents::market::MarketHistory;
     let lifespan = FACILITY_DELIVERY_LIFESPAN_BASE * tick_multiplier as u64;
 
@@ -1086,15 +1170,36 @@ pub fn tick_post_contracts(
             .collect()
     };
 
-    // Pick a fallback source location per commodity: the location with the
-    // highest current supply for that commodity.
-    let source_for_commodity = |commodity: Commodity| -> Option<String> {
-        supply_by_location
+    let source_owners = crate::agents::faction_relations::market_controllers(world);
+    // Real stock must cover the planned delivery. Prefer own depots,
+    // then any neutral/allied owner. At War/Hostile: no trade.
+    let source_for_commodity = |commodity: Commodity,
+                                destination: &str,
+                                faction_id: &str,
+                                qty: u32| -> Option<String> {
+        let mut options: Vec<(&String, f32, bool)> = supply_by_location
             .iter()
-            .map(|(loc, sup)| (loc, sup.get(&commodity).copied().unwrap_or(0.0)))
-            .filter(|(_, s)| *s > 50.0)
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(loc, _)| loc.clone())
+            .filter_map(|(loc, sup)| {
+                if loc == destination {
+                    return None;
+                }
+                let owner = source_owners.get(loc).map(String::as_str).unwrap_or("");
+                if !crate::agents::faction_relations::commerce_allowed(
+                    relations, faction_id, owner,
+                ) {
+                    return None;
+                }
+                let stock = sup.get(&commodity).copied().unwrap_or(0.0);
+                if !stock.is_finite() || stock < qty as f32 {
+                    return None;
+                }
+                Some((loc, stock, owner == faction_id && !faction_id.is_empty()))
+            })
+            .collect();
+        options.sort_by(|a,b| b.2.cmp(&a.2)
+            .then_with(|| b.1.total_cmp(&a.1))
+            .then_with(|| a.0.cmp(b.0)));
+        options.first().map(|(loc,_,_)| (*loc).clone())
     };
 
     // Compute the payment the facility offers for a delivery contract.
@@ -1193,16 +1298,14 @@ pub fn tick_post_contracts(
                 if !urgent_tools && shortage < 30 {
                     continue;
                 }
-                let Some(source) = source_for_commodity(commodity) else {
+                // Quote against the actual quantity rather than a
+                // nominal minimum: don't post an undeliverable convoy.
+                let qty = delivery_qty_for_shortage(shortage);
+                let Some(source) = source_for_commodity(
+                    commodity, &loc.location_name, &id.faction_id, qty,
+                ) else {
                     continue;
                 };
-                if source == loc.location_name {
-                    continue;
-                }
-                // Bundle 1.3: scale qty by how long this market has been
-                // short. Urgent-tools path bypasses the 30-tick wait but
-                // still gets the base qty (shortage may be 0).
-                let qty = delivery_qty_for_shortage(shortage);
                 let payment = compute_delivery_payment(commodity, &source, ops.credits, qty);
                 if payment <= 0 {
                     continue;
@@ -1250,15 +1353,12 @@ pub fn tick_post_contracts(
                 if shortage < RECIPE_INPUT_SHORTAGE_THRESHOLD {
                     continue;
                 }
-                let Some(source) = source_for_commodity(commodity) else {
+                let qty = delivery_qty_for_shortage(shortage);
+                let Some(source) = source_for_commodity(
+                    commodity, &loc.location_name, &id.faction_id, qty,
+                ) else {
                     continue;
                 };
-                if source == loc.location_name {
-                    continue;
-                }
-                // Bundle 1.3: scale qty by shortage persistence, same
-                // policy as crew-essentials above.
-                let qty = delivery_qty_for_shortage(shortage);
                 let payment = compute_delivery_payment(commodity, &source, ops.credits, qty);
                 if payment <= 0 {
                     continue;
@@ -1929,5 +2029,35 @@ mod tests {
             stock.stock.is_empty(),
             "shipyard should mint nothing when the market can't cover any recipe",
         );
+    }
+}
+
+#[cfg(test)]
+mod salvage_field_tests {
+    use super::*;
+
+    #[test]
+    fn salvage_is_three_times_slower_at_equal_richness() {
+        let richness = 0.6;
+        let (scrap, _) = salvage_extraction(richness, 1.0);
+        let mine = MINING_YIELD_PER_CYCLE * richness;
+        assert!((scrap * SALVAGE_SPEED_DIVISOR - mine).abs() < 0.0001);
+    }
+
+    #[test]
+    fn finite_wreck_field_cannot_duplicate_resources() {
+        let mut richness = 0.8;
+        let starting_stock = richness * SALVAGE_UNITS_PER_RICHNESS;
+        let mut extracted_total = 0.0;
+        for _ in 0..100_000 {
+            let (qty, remaining) = salvage_extraction(richness, 1.0);
+            extracted_total += qty;
+            assert!(remaining <= richness);
+            richness = remaining;
+            if richness == 0.0 { break; }
+        }
+        assert!(richness == 0.0, "salvage must deplete completely");
+        assert!((extracted_total - starting_stock).abs() < 2.0);
+        assert_eq!(salvage_extraction(0.0, 1.0), (0.0, 0.0));
     }
 }

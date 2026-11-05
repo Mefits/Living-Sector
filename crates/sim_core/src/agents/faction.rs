@@ -75,6 +75,66 @@ use crate::agents::market::{MarketHistory, MarketIdentity};
 use crate::economy::commodities::Commodity;
 use crate::economy::contracts::ContractBoard;
 
+/// Choose a real source market for any faction's delivery contract.
+/// Own infrastructure wins when it can supply a full shipment; otherwise
+/// fall back to trade with other factions. Never source from the destination.
+/// Sorting ensures deterministic tie-breaking independent of HashMap order.
+fn choose_logistics_source(
+    supply_by_loc: &std::collections::HashMap<
+        String,
+        std::collections::HashMap<Commodity, f32>,
+    >,
+    member_locations: &[String],
+    source_owners: &std::collections::HashMap<String, String>,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    faction_id: &str,
+    destination: &str,
+    commodity: Commodity,
+    minimum_available: f32,
+) -> Option<String> {
+    let mut candidates: Vec<(&String, f32, bool)> = supply_by_loc
+        .iter()
+        .filter_map(|(location, supply)| {
+            if location == destination
+                || !crate::agents::faction_relations::commerce_allowed(
+                    relations,
+                    faction_id,
+                    source_owners.get(location).map(String::as_str).unwrap_or(""),
+                )
+            {
+                return None;
+            }
+            let available = supply.get(&commodity).copied().unwrap_or(0.0);
+            if !available.is_finite() || available < minimum_available {
+                return None;
+            }
+            Some((location, available, member_locations.contains(location)))
+        })
+        .collect();
+    candidates.sort_by(|a, b| {
+        b.2.cmp(&a.2)
+            .then_with(|| b.1.total_cmp(&a.1))
+            .then_with(|| a.0.cmp(b.0))
+    });
+    candidates.first().map(|(location, _, _)| (*location).clone())
+}
+
+/// Personality only changes priorities, never the physical stock rules.
+/// Example: a frontier faction can value keeping its fuel supply alive,
+/// while a settled faction prioritises food and industrial materials.
+fn shortage_priority(
+    commodity: Commodity,
+    shortage_ticks: u32,
+    personality: Option<&Personality>,
+) -> f32 {
+    let preference = personality
+        .and_then(|p| p.prefer_goals.get(&format!("secure_{}", commodity.as_str())))
+        .copied()
+        .unwrap_or(0.0)
+        .clamp(0.0, 2.0);
+    shortage_ticks as f32 * (1.0 + preference)
+}
+
 /// Base-tick interval for faction accounting. Matches Elixir's
 /// `@tax_interval 200 * tick_multiplier()` in `faction_agent.ex`.
 pub const FACTION_INTERVAL_BASE: u64 = 200;
@@ -189,6 +249,7 @@ pub fn tick_factions(
     contracts: &mut ContractBoard,
     events: &mut Vec<serde_json::Value>,
     system_control: &mut std::collections::HashMap<String, Option<String>>,
+    relations: &crate::agents::faction_relations::FactionRelations,
     tick: u64,
     tick_multiplier: u32,
 ) {
@@ -216,7 +277,7 @@ pub fn tick_factions(
     // --- Subsidy posting ---
     let subsidy_interval = SUBSIDY_CHECK_INTERVAL_BASE * tick_multiplier as u64;
     if subsidy_interval > 0 && tick % subsidy_interval == 0 {
-        run_subsidy_cycle(world, contracts, tick, tick_multiplier);
+        run_subsidy_cycle(world, contracts, relations, tick, tick_multiplier);
     }
 
     // --- Construction demand analyzer (Phase 19c) ---
@@ -227,7 +288,7 @@ pub fn tick_factions(
     let construction_interval =
         CONSTRUCTION_CHECK_INTERVAL_BASE * tick_multiplier as u64;
     if construction_interval > 0 && tick % construction_interval == 0 {
-        run_construction_cycle(world, contracts, events, tick, tick_multiplier);
+        run_construction_cycle(world, contracts, events, relations, tick, tick_multiplier);
     }
 
     // Keep snapshot `active_subsidies` in sync — recalc from the board so
@@ -399,6 +460,7 @@ fn run_tax_cycle(world: &mut World) {
 fn run_subsidy_cycle(
     world: &mut World,
     contracts: &mut ContractBoard,
+    relations: &crate::agents::faction_relations::FactionRelations,
     tick: u64,
     tick_multiplier: u32,
 ) {
@@ -435,9 +497,12 @@ fn run_subsidy_cycle(
             let entry = shortage_by_faction
                 .entry(fac_id.faction_id.clone())
                 .or_default();
-            if !entry.member_locations.contains(loc) {
-                entry.member_locations.push(loc.clone());
+            // Several facilities at one dock still share ONE market.
+            // Count that shortage once, not once per station/yard/factory.
+            if entry.member_locations.contains(loc) {
+                continue;
             }
+            entry.member_locations.push(loc.clone());
             if let Some(short_map) = market_shortage_by_loc.get(loc) {
                 for (&commodity, &shortage) in short_map {
                     if shortage < SUBSIDY_TRIGGER_TICKS {
@@ -465,35 +530,18 @@ fn run_subsidy_cycle(
         payment: i64,
     }
 
-    // Source = highest-supply location OUTSIDE the faction's own member set.
-    // If none, fall back to any highest-supply location.
+    // Shared physical stock index. Factions may commission goods from
+    // rivals only when their own usable depots cannot meet the order.
     let supply_by_loc: std::collections::HashMap<String, std::collections::HashMap<Commodity, f32>> = {
         let mut q = world.query::<(&MarketIdentity, &crate::agents::market::MarketPricing)>();
         q.iter(&world)
             .map(|(id, pricing)| (id.facility_location.clone(), pricing.supply.clone()))
             .collect()
     };
-
-    // location → system_id. Used to prefer a same-system source on the
-    // first post so subsidies don't default to cross-system runs that
-    // only ~25% of the fleet (tier-2+ sensors) can even see. The expire-
-    // and-retry path (single renewal, min_rep→0) opens it to the long-
-    // haulers afterward if no local ship bites.
-    let location_to_system: std::collections::HashMap<String, String> = {
-        use crate::agents::celestial_body::BodyIdentity;
-        let body_to_system: std::collections::HashMap<String, String> = {
-            let mut q = world.query::<&BodyIdentity>();
-            q.iter(&world)
-                .map(|id| (id.body_id.clone(), id.system_name.clone()))
-                .collect()
-        };
-        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
-        q.iter(&world)
-            .filter_map(|(id, loc)| {
-                let sys = body_to_system.get(&id.body_id)?.clone();
-                Some((loc.location_name.clone(), sys))
-            })
-            .collect()
+    let source_owners = crate::agents::faction_relations::market_controllers(world);
+    let faction_profiles: std::collections::HashMap<String, Personality> = {
+        let mut q = world.query::<&FactionData>();
+        q.iter(&world).map(|d| (d.id.clone(), d.personality.clone())).collect()
     };
 
     let faction_ids: Vec<String> = shortage_by_faction.keys().cloned().collect();
@@ -524,7 +572,12 @@ fn run_subsidy_cycle(
             .by_commodity
             .iter()
             .filter(|(_, (cnt, _, _))| *cnt >= MIN_FACILITIES_SHORT)
-            .max_by_key(|(_, (_, max_short, _))| *max_short)
+            .max_by(|a, b| {
+                let profile = faction_profiles.get(&faction_id);
+                shortage_priority(*a.0, a.1.1, profile)
+                    .total_cmp(&shortage_priority(*b.0, b.1.1, profile))
+                    .then_with(|| a.0.as_str().cmp(b.0.as_str()))
+            })
             .map(|(c, (_, max_short, dest))| (*c, *max_short, dest.clone()));
         let Some((commodity, max_shortage, destination)) = pick else {
             continue;
@@ -546,52 +599,16 @@ fn run_subsidy_cycle(
             continue;
         }
 
-        // Source selection, 3 tiers:
-        //   1. same-system + non-member + enough supply — the ideal case;
-        //      most of the fleet (including tier-1-sensor ships) can
-        //      reach it without a gate jump.
-        //   2. any non-member location with enough supply — falls back
-        //      to cross-system when no same-system supplier exists.
-        //   3. any max-supply location — last resort, runs without
-        //      filtering on non-member.
-        // If the subsidy later expires unfulfilled, `sweep_expiring`
-        // renews it once with `min_reputation = 0`, opening it to every
-        // ship regardless of rep.
-        let dest_system = location_to_system.get(&destination).cloned();
-        let pick_max_supply = |pred: &dyn Fn(&String) -> bool| -> Option<String> {
-            supply_by_loc
-                .iter()
-                .filter(|(loc, supply)| {
-                    pred(loc) && supply.get(&commodity).copied().unwrap_or(0.0) > 100.0
-                })
-                .max_by(|(_, a), (_, b)| {
-                    let av = a.get(&commodity).copied().unwrap_or(0.0);
-                    let bv = b.get(&commodity).copied().unwrap_or(0.0);
-                    av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .map(|(loc, _)| loc.clone())
-        };
-        let same_system_source = dest_system.as_ref().and_then(|ds| {
-            pick_max_supply(&|loc| {
-                !info.member_locations.contains(loc)
-                    && location_to_system.get(loc) == Some(ds)
-            })
-        });
-        let any_non_member_source =
-            pick_max_supply(&|loc| !info.member_locations.contains(loc));
-        let source = same_system_source
-            .or(any_non_member_source)
-            .or_else(|| {
-                // Absolute fallback: most supply anywhere, no filter.
-                supply_by_loc
-                    .iter()
-                    .max_by(|(_, a), (_, b)| {
-                        let av = a.get(&commodity).copied().unwrap_or(0.0);
-                        let bv = b.get(&commodity).copied().unwrap_or(0.0);
-                        av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
-                    })
-                    .map(|(loc, _)| loc.clone())
-            });
+        let source = choose_logistics_source(
+            &supply_by_loc,
+            &info.member_locations,
+            &source_owners,
+            relations,
+            &faction_id,
+            &destination,
+            commodity,
+            SUBSIDY_QUANTITY as f32,
+        );
         let Some(source) = source else { continue };
         if source == destination {
             continue;
@@ -679,6 +696,7 @@ fn run_construction_cycle(
     world: &mut World,
     contracts: &mut ContractBoard,
     events: &mut Vec<serde_json::Value>,
+    relations: &crate::agents::faction_relations::FactionRelations,
     tick: u64,
     tick_multiplier: u32,
 ) {
@@ -712,9 +730,12 @@ fn run_construction_cycle(
             let entry = shortage_by_faction
                 .entry(fac_id.faction_id.clone())
                 .or_default();
-            if !entry.member_locations.contains(loc) {
-                entry.member_locations.push(loc.clone());
+            // Several facilities at one dock still share ONE market.
+            // Count that shortage once, not once per station/yard/factory.
+            if entry.member_locations.contains(loc) {
+                continue;
             }
+            entry.member_locations.push(loc.clone());
             if let Some(short_map) = market_shortage_by_loc.get(loc) {
                 for (&commodity, &shortage) in short_map {
                     if shortage < CONSTRUCTION_TRIGGER_TICKS {
@@ -747,6 +768,11 @@ fn run_construction_cycle(
             .collect()
     };
 
+    let source_owners = crate::agents::faction_relations::market_controllers(world);
+    let faction_profiles: std::collections::HashMap<String, Personality> = {
+        let mut q = world.query::<&FactionData>();
+        q.iter(&world).map(|d| (d.id.clone(), d.personality.clone())).collect()
+    };
     let faction_ids: Vec<String> = shortage_by_faction.keys().cloned().collect();
     let mut plans: Vec<Plan> = Vec::new();
 
@@ -776,7 +802,12 @@ fn run_construction_cycle(
             .by_commodity
             .iter()
             .filter(|(_, (cnt, _, _))| *cnt >= 1) // any facility short
-            .max_by_key(|(_, (_, max_short, _))| *max_short)
+            .max_by(|a, b| {
+                let profile = faction_profiles.get(&faction_id);
+                shortage_priority(*a.0, a.1.1, profile)
+                    .total_cmp(&shortage_priority(*b.0, b.1.1, profile))
+                    .then_with(|| a.0.as_str().cmp(b.0.as_str()))
+            })
             .map(|(c, (_, _, dest))| (*c, dest.clone()));
         let Some((commodity, destination)) = pick else {
             continue;
@@ -799,21 +830,17 @@ fn run_construction_cycle(
             continue;
         }
 
-        // Source = highest-supply location with >= 200 units available.
-        let source = supply_by_loc
-            .iter()
-            .filter(|(_, supply)| supply.get(&commodity).copied().unwrap_or(0.0) >= 200.0)
-            .max_by(|(_, a), (_, b)| {
-                let av = a.get(&commodity).copied().unwrap_or(0.0);
-                let bv = b.get(&commodity).copied().unwrap_or(0.0);
-                av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .map(|(loc, _)| loc.clone());
+        let source = choose_logistics_source(
+            &supply_by_loc,
+            &info.member_locations,
+            &source_owners,
+            relations,
+            &faction_id,
+            &destination,
+            commodity,
+            CONSTRUCTION_QUANTITY as f32,
+        );
         let Some(source) = source else { continue };
-        if source == destination {
-            continue;
-        }
-
         plans.push(Plan {
             faction_id,
             commodity,
@@ -984,5 +1011,102 @@ fn refresh_active_subsidy_counts(world: &mut World, contracts: &ContractBoard) {
             data.active_subsidies = n;
             data.dirty = true;
         }
+    }
+}
+
+// Genesis shared-economy guard: these rules apply equally to every faction
+// and never depend on a special pirate/Genesis identifier.
+#[cfg(test)]
+mod genesis_faction_logistics_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn prefers_owned_physical_stock_over_rival_even_when_rival_has_more() {
+        let mut markets = HashMap::new();
+        markets.insert("own-mine".into(), HashMap::from([(Commodity::Gas, 240.0)]));
+        markets.insert("rival-mine".into(), HashMap::from([(Commodity::Gas, 900.0)]));
+        markets.insert("own-base".into(), HashMap::from([(Commodity::Gas, 8.0)]));
+        let members = vec!["own-mine".into(), "own-base".into()];
+        let owners = HashMap::from([
+            ("own-mine".into(), "own".into()),
+            ("own-base".into(), "own".into()),
+            ("rival-mine".into(), "rival".into()),
+        ]);
+        let relations = crate::agents::faction_relations::FactionRelations::new();
+        assert_eq!(
+            choose_logistics_source(&markets, &members, &owners, &relations, "own", "own-base", Commodity::Gas, 200.0),
+            Some("own-mine".to_string())
+        );
+    }
+
+    #[test]
+    fn buys_from_rival_only_if_own_depots_cannot_fill_delivery() {
+        let mut markets = HashMap::new();
+        markets.insert("own-mine".into(), HashMap::from([(Commodity::Gas, 199.0)]));
+        markets.insert("rival-mine".into(), HashMap::from([(Commodity::Gas, 240.0)]));
+        let members = vec!["own-mine".into(), "own-base".into()];
+        let owners = HashMap::from([
+            ("own-mine".into(), "own".into()),
+            ("own-base".into(), "own".into()),
+            ("rival-mine".into(), "rival".into()),
+        ]);
+        let relations = crate::agents::faction_relations::FactionRelations::new();
+        assert_eq!(
+            choose_logistics_source(&markets, &members, &owners, &relations, "own", "own-base", Commodity::Gas, 200.0),
+            Some("rival-mine".to_string())
+        );
+        assert_eq!(
+            choose_logistics_source(&markets, &members, &owners, &relations, "own", "rival-mine", Commodity::Gas, 200.0),
+            None
+        );
+    }
+
+    #[test]
+    fn empty_or_unfunded_sources_never_spawn_free_goods() {
+        let mut markets = HashMap::new();
+        markets.insert("mine".into(), HashMap::from([(Commodity::Gas, 0.0)]));
+        assert_eq!(
+            choose_logistics_source(&markets, &[], &HashMap::new(), &crate::agents::faction_relations::FactionRelations::new(), "own", "base", Commodity::Gas, 200.0),
+            None
+        );
+    }
+
+    #[test]
+    fn hostile_sources_are_excluded_even_when_they_are_richer() {
+        let markets = HashMap::from([
+            ("own-depot".into(), HashMap::from([(Commodity::Ore, 180.0)])),
+            ("enemy-depot".into(), HashMap::from([(Commodity::Ore, 3000.0)])),
+            ("neutral-depot".into(), HashMap::from([(Commodity::Ore, 250.0)])),
+        ]);
+        let owners = HashMap::from([
+            ("own-depot".into(), "own".into()),
+            ("enemy-depot".into(), "enemy".into()),
+            ("neutral-depot".into(), "neutral".into()),
+        ]);
+        let mut relations = crate::agents::faction_relations::FactionRelations::new();
+        relations.set_state("own", "enemy", -100,
+            crate::agents::faction_relations::TreatyKind::War, 0);
+        assert_eq!(
+            choose_logistics_source(&markets, &["own-depot".into()], &owners, &relations,
+                "own", "home", Commodity::Ore, 200.0),
+            Some("neutral-depot".to_string())
+        );
+    }
+
+    #[test]
+    fn faction_preferences_change_goals_not_supply() {
+        let mut civilian = Personality::balanced_trader();
+        let mut frontier = Personality::balanced_trader();
+        civilian.prefer_goals.insert("secure_food".to_string(), 0.8);
+        frontier.prefer_goals.insert("secure_fuel".to_string(), 1.2);
+        assert!(
+            shortage_priority(Commodity::Food, 80, Some(&civilian))
+                > shortage_priority(Commodity::Fuel, 80, Some(&civilian))
+        );
+        assert!(
+            shortage_priority(Commodity::Fuel, 80, Some(&frontier))
+                > shortage_priority(Commodity::Food, 80, Some(&frontier))
+        );
     }
 }
