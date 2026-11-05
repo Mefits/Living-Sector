@@ -18,7 +18,9 @@
 - Изменены engine/admin, persist, paused loop, DB flush ordering; добавлены
   2 теста: корабль/станция с escrow при backpressure и удаление стройплощадки
   после устаревшего upsert. CI выполняет только `lifecycle_` для этой ветки.
-  Локально Rust отсутствует; `git diff --check` выполнен. CI результат — в PR.
+  Локально Rust отсутствует; `git diff --check` выполнен. **CI Linux: компиляция
+  и 2/2 теста lifecycle_ прошли** для `a5773b6`:
+  https://github.com/Mefits/Living-Sector/actions/runs/42090258777.
 - Проверка восстановления выявила отдельный дефект: Accepted-контракт после
   загрузки имеет current_bt=None и освобождается как ghost_bt; навигационный
   emit также не сохраняет полный transit/location/docked state. Это не исправлено
