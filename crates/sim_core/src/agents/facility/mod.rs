@@ -7,6 +7,7 @@
 //! drives each engine tick.
 
 mod components;
+mod restock;
 pub use components::*;
 
 use crate::economy::commodities::Commodity;
@@ -150,14 +151,14 @@ pub const RESTOCK_COMMODITIES: &[Commodity] = &[
 /// that need them, and the upper-tier supply chain collapses.
 ///
 /// Mining rigs aren't listed — they produce, not consume.
-pub fn recipe_input_commodities(facility_type: &str) -> &'static [Commodity] {
-    use Commodity::*;
-    match facility_type {
-        "refinery" => &[Ore, Gas, Fuel],
-        "factory" => &[Metals, Polymers, Ice],
-        "farm" => &[Water, Fuel],
-        _ => &[],
+pub fn recipe_input_commodities(facility_type: &str) -> Vec<Commodity> {
+    let mut inputs = Vec::new();
+    for recipe in recipes::for_facility_type(facility_type) {
+        for &(commodity, _) in recipe.inputs {
+            if !inputs.contains(&commodity) { inputs.push(commodity); }
+        }
     }
+    inputs
 }
 
 /// Interval (base-ticks) between contract-posting passes. Every 50×mult.
@@ -372,7 +373,7 @@ pub fn tick_facilities_with_relations(
 
     // Phase 4: restock reserves from local market (every 20×mult ticks).
     if restock_interval > 0 && tick % restock_interval == 0 {
-        tick_restock(world);
+        restock::tick_restock(world, relations);
     }
 
     // Phase 5: recipes + mining + XP (every 5×mult ticks).
@@ -650,134 +651,6 @@ fn tick_abandonment(
         } else if life.abandon_counter > 0 {
             life.abandon_counter = 0;
             life.dirty = true;
-        }
-    }
-}
-
-/// Phase 4: restock reserves from the local market. For each target
-/// commodity below RESERVE_RESTOCK_THRESHOLD, buy up to
-/// (RESTOCK_TARGET - current) at market price, capped by facility credits.
-/// Deducts market supply, pays the facility's credits out, adds to reserves.
-/// This is in-process (facility + market in same world), so we can do it
-/// directly rather than via SimCommand.
-fn tick_restock(world: &mut World) {
-    // Collect facility entities + their locations first to avoid borrow
-    // conflicts while reading both facility and market components.
-    let facility_entries: Vec<(Entity, String)> = {
-        let mut q = world.query::<(Entity, &FacilityLocation, &FacilityLifecycle)>();
-        q.iter(&world)
-            .filter_map(|(e, loc, life)| {
-                if life.abandoned {
-                    None
-                } else {
-                    Some((e, loc.location_name.clone()))
-                }
-            })
-            .collect()
-    };
-
-    // Build location → market_entity map once.
-    let market_at_location: std::collections::HashMap<String, Entity> = {
-        let mut q = world.query::<(Entity, &MarketIdentity)>();
-        q.iter(&world)
-            .map(|(e, id)| (id.facility_location.clone(), e))
-            .collect()
-    };
-
-    for (fac_entity, loc) in facility_entries {
-        let market_entity = match market_at_location.get(&loc) {
-            Some(&e) => e,
-            None => continue,
-        };
-
-        // Snapshot the market's prices + supply (read).
-        let prices: std::collections::HashMap<Commodity, (f32, f32)> = match world
-            .get::<MarketPricing>(market_entity)
-        {
-            Some(p) => RESTOCK_COMMODITIES
-                .iter()
-                .filter_map(|&c| {
-                    let price = p.prices.get(&c).copied().unwrap_or(0.0);
-                    let supply = p.supply.get(&c).copied().unwrap_or(0.0);
-                    if price > 0.0 {
-                        Some((c, (price, supply)))
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-            None => continue,
-        };
-        if prices.is_empty() {
-            continue;
-        }
-
-        // Compute each commodity's purchase for this facility.
-        #[derive(Clone)]
-        struct Buy {
-            commodity: Commodity,
-            qty: f32,
-            cost: i64,
-        }
-        let purchases: Vec<Buy> = {
-            let mut out: Vec<Buy> = Vec::new();
-            let storage = match world.get::<FacilityStorage>(fac_entity) {
-                Some(s) => s,
-                None => continue,
-            };
-            let ops = match world.get::<FacilityOperations>(fac_entity) {
-                Some(o) => o,
-                None => continue,
-            };
-            let mut remaining = ops.credits;
-            for (commodity, (price, market_supply)) in prices.iter() {
-                let current = storage.reserves.get(commodity).copied().unwrap_or(0.0);
-                if current >= RESERVE_RESTOCK_THRESHOLD {
-                    continue;
-                }
-                let need = RESERVE_RESTOCK_TARGET - current;
-                let max_affordable = (remaining as f32 / price).max(0.0);
-                let available = market_supply.max(0.0);
-                let qty = need.min(max_affordable).min(available).floor();
-                if qty < 1.0 {
-                    continue;
-                }
-                let cost = (price * qty).round() as i64;
-                if cost <= 0 || cost > remaining {
-                    continue;
-                }
-                remaining -= cost;
-                out.push(Buy {
-                    commodity: *commodity,
-                    qty,
-                    cost,
-                });
-            }
-            out
-        };
-        if purchases.is_empty() {
-            continue;
-        }
-
-        // Apply: debit facility credits, increment reserves, debit market supply.
-        let total_cost: i64 = purchases.iter().map(|b| b.cost).sum();
-        if let Some(mut ops) = world.get_mut::<FacilityOperations>(fac_entity) {
-            if ops.credits < total_cost {
-                continue;
-            }
-            ops.credits -= total_cost;
-            ops.dirty = true;
-        }
-        if let Some(mut storage) = world.get_mut::<FacilityStorage>(fac_entity) {
-            for buy in &purchases {
-                *storage.reserves.entry(buy.commodity).or_insert(0.0) += buy.qty;
-            }
-        }
-        if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
-            for buy in &purchases {
-                let s = pricing.supply.entry(buy.commodity).or_insert(0.0);
-                *s = (*s - buy.qty).max(0.0);
-            }
         }
     }
 }
@@ -1342,7 +1215,7 @@ pub fn tick_post_contracts_with_relations(
                 .get(&loc.location_name)
                 .cloned()
                 .unwrap_or_default();
-            for &commodity in recipe_input_commodities(&id.facility_type) {
+            for commodity in recipe_input_commodities(&id.facility_type) {
                 let on_market = local_supply.get(&commodity).copied().unwrap_or(0.0);
                 // "Short" is market supply well below a recipe-batch's
                 // worth, so buying only restores a few cycles of input.

@@ -78,7 +78,9 @@ pub const RECIPES: &[Recipe] = &[
 ];
 
 pub fn for_facility_type(facility_type: &str) -> impl Iterator<Item = &'static Recipe> + use<'_> {
-    RECIPES.iter().filter(move |r| r.facility_type == facility_type)
+    RECIPES
+        .iter()
+        .filter(move |r| r.facility_type == facility_type)
 }
 
 /// Bundle (H): profitability gate threshold (default). Recipes
@@ -107,35 +109,40 @@ pub fn execute(
     max_batches: u32,
     prices: Option<&HashMap<Commodity, f32>>,
 ) -> HashMap<Commodity, f32> {
-    // Find limiting factor
-    let scale = recipe
-        .inputs
-        .iter()
-        .map(|(commodity, needed)| {
-            let available = supply.get(commodity).copied().unwrap_or(0.0);
-            if *needed > 0 {
-                available / (*needed as f32)
-            } else {
-                999.0
-            }
-        })
-        .fold(f32::MAX, |acc, v| acc.min(v))
-        .min(max_batches as f32)
-        .max(0.0);
-
+    if !efficiency.is_finite()
+        || efficiency <= 0.0
+        || max_batches == 0
+        || recipe.inputs.is_empty()
+        || recipe.outputs.is_empty()
+    {
+        return HashMap::new();
+    }
+    // Markets store fractional quantities. Rounding an input such as 0.4 fuel
+    // to zero while emitting whole output used to make that input free.
+    let mut scale = max_batches as f64;
+    for &(commodity, needed) in recipe.inputs {
+        let available = supply.get(&commodity).copied().unwrap_or(0.0);
+        if needed == 0 || !available.is_finite() || available < 0.0 {
+            return HashMap::new();
+        }
+        scale = scale.min(available as f64 / needed as f64);
+    }
     if scale <= 0.0 {
         return HashMap::new();
     }
-
-    let effective_scale = scale * efficiency;
-
-    // Skip if any output would round to zero — don't waste inputs
-    let outputs_viable = recipe
-        .outputs
-        .iter()
-        .all(|(_, amount)| (*amount as f32 * effective_scale).round() > 0.0);
-    if !outputs_viable {
-        return HashMap::new();
+    let effective_scale = scale * efficiency as f64;
+    // Validate every output before consuming any input.
+    for &(commodity, amount) in recipe.outputs {
+        let current = supply.get(&commodity).copied().unwrap_or(0.0);
+        let out = (amount as f64 * effective_scale) as f32;
+        if !current.is_finite()
+            || current < 0.0
+            || !out.is_finite()
+            || out <= 0.0
+            || !(current + out).is_finite()
+        {
+            return HashMap::new();
+        }
     }
 
     // Bundle (H): profitability gate. When prices are supplied,
@@ -159,18 +166,20 @@ pub fn execute(
             .chain(recipe.outputs.iter())
             .any(|(c, _)| p.get(c).copied().unwrap_or(0.0) <= 0.0);
         if !any_unpriced {
-            let input_value: f32 = recipe
+            let input_value: f64 = recipe
                 .inputs
                 .iter()
-                .map(|(c, n)| p.get(c).copied().unwrap_or(0.0) * (*n as f32 * scale))
+                .map(|(c, n)| p.get(c).copied().unwrap_or(0.0) as f64 * (*n as f64 * scale))
                 .sum();
-            let output_value: f32 = recipe
+            let output_value: f64 = recipe
                 .outputs
                 .iter()
-                .map(|(c, n)| p.get(c).copied().unwrap_or(0.0) * (*n as f32 * effective_scale))
+                .map(|(c, n)| {
+                    p.get(c).copied().unwrap_or(0.0) as f64 * (*n as f64 * effective_scale)
+                })
                 .sum();
             let ratio = crate::simulation::tuning::WorldTuning::current().min_recipe_margin_ratio;
-            if input_value > 0.0 && output_value < input_value * ratio {
+            if input_value > 0.0 && output_value < input_value * ratio as f64 {
                 return HashMap::new();
             }
         }
@@ -178,15 +187,15 @@ pub fn execute(
 
     // Consume inputs
     for (commodity, needed) in recipe.inputs {
-        let consumed = (*needed as f32 * scale).round();
+        let consumed = (*needed as f64 * scale) as f32;
         let entry = supply.entry(*commodity).or_insert(0.0);
-        *entry = (*entry - consumed).max(0.0);
+        *entry -= consumed;
     }
 
     // Produce outputs
     let mut produced = HashMap::new();
     for (commodity, amount) in recipe.outputs {
-        let out = (*amount as f32 * effective_scale).round();
+        let out = (*amount as f64 * effective_scale) as f32;
         *supply.entry(*commodity).or_insert(0.0) += out;
         produced.insert(*commodity, out);
     }
@@ -199,9 +208,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn supply_flow_fractional_batches_consume_every_input_and_keep_fractional_output() {
+        let recipe = RECIPES.iter().find(|r| r.id == "smelt_metals").unwrap();
+        let mut supply = HashMap::from([(Commodity::Ore, 4.0), (Commodity::Fuel, 0.4)]);
+        let produced = execute(recipe, &mut supply, 1.0, 5, None);
+        assert!((produced[&Commodity::Metals] - 3.2).abs() < 0.00001);
+        assert_eq!(supply[&Commodity::Ore], 0.0);
+        assert!(supply[&Commodity::Fuel] < 0.00001);
+        assert!(execute(recipe, &mut supply, 1.0, 5, None).is_empty());
+
+        for efficiency in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            let mut supply = HashMap::from([(Commodity::Ore, 10.0), (Commodity::Fuel, 1.0)]);
+            let before = supply.clone();
+            assert!(execute(recipe, &mut supply, efficiency, 5, None).is_empty());
+            assert_eq!(supply, before);
+        }
+    }
+
+    #[test]
     fn refinery_recipes_exist() {
         let count = for_facility_type("refinery").count();
-        assert!(count >= 4, "refinery should have at least 4 recipes, got {count}");
+        assert!(
+            count >= 4,
+            "refinery should have at least 4 recipes, got {count}"
+        );
     }
 
     #[test]
