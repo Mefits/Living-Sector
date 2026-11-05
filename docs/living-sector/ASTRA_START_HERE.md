@@ -1,5 +1,10 @@
 # ASTRA — START HERE · Living Sector / Genesis
 
+> **Текущий участок P1b (2026-11-05):** `feature/genesis-production-supply` —
+> потребности из рецептов, расход дробных партий, оплата пополнения запасов и
+> обеспечение надбавок к контрактам. **10 адресных тестов прошли**; полного
+> escrow/ledger и нового стратегического AI пока нет. См. [STATUS.md](STATUS.md).
+
 > **Следующий реализованный участок P1a (2026-11-05):**
 > [подтверждаемые покупки, заправка и доставка](GENESIS_ATOMIC_TRANSACTIONS.md)
 > в ветке `feature/genesis-atomic-transactions`. 19 Rust-тестов, 27 Node-тестов,

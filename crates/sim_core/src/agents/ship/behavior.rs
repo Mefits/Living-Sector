@@ -748,6 +748,11 @@ pub(super) fn decide_and_act(
 
         // --- Execute one BT step ---
         if let Some(mut bt) = ai.current_bt.take() {
+            // A requestor that cannot pay is not a breach by the carrier.
+            // Capture the receipt before the action consumes its mailbox.
+            let issuer_funding_failure = economy.transaction.pending.as_ref().is_some_and(|p| {
+                matches!(p.result, Some(Err("insufficient_contract_funding" | "missing_contract_payer" | "invalid_prepaid_amount")))
+            });
             let mut bb = Blackboard::new();
             let status = {
                 let ship_id_ref = &ship_id;
@@ -808,7 +813,7 @@ pub(super) fn decide_and_act(
                         commands.push(SimCommand::ReleaseContract {
                             ship_id: ship_id.clone(),
                             contract_id: cid,
-                            reason: "bt_failure",
+                            reason: if issuer_funding_failure { "issuer_funding_failure" } else { "bt_failure" },
                         });
                     }
                 }

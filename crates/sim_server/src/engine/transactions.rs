@@ -413,7 +413,8 @@ fn deliver(
             )
         })
         .unwrap_or(1.0);
-    // Preserve existing reward policy; funding/escrow of bonuses is a separate migration.
+    // Preserve the reward formula; any increase above the prepaid base must
+    // be covered by the actual requestor before the delivery can commit.
     let payment = ((c.payment as f64) * (1.0 + bonus as f64) * treaty as f64).round();
     if !payment.is_finite() || payment < 0.0 || payment >= i64::MAX as f64 {
         return Err("invalid_payment");
@@ -466,18 +467,81 @@ fn deliver(
             destination_market = Some(market);
         }
     }
-    // Status changes only after recipient, ownership, cargo and payment pass.
+    let top_up = prepare_reward_top_up(world, store, &c.requestor_id, c.initial_payment, payment)?;
+    // Status changes only after recipient, ownership, cargo and funding pass.
     let c = store
         .contracts
         .mark_delivered(contract_id)
         .ok_or("inactive_contract")?;
     let quantity = c.quantity;
+    if let Some((payer, balance, amount)) = top_up {
+        match payer {
+            ContractPayer::Facility(entity) => {
+                let mut ops = world.get_mut::<FacilityOperations>(entity).unwrap();
+                ops.credits = balance;
+                ops.dirty = true;
+            }
+            ContractPayer::Faction(entity) => {
+                let mut data = world
+                    .get_mut::<sim_core::agents::faction::FactionData>(entity)
+                    .unwrap();
+                data.treasury = balance;
+                data.dirty = true;
+            }
+        }
+        events.push(serde_json::json!({
+            "kind": "contract_reward_funded", "contract_id": c.id,
+            "requestor_id": c.requestor_id, "amount": amount, "tick": tick,
+        }));
+    }
     super::apply::commit_contract_delivery(world, store, ship, c, payment, events, tick);
     if let Some(market) = destination_market {
         dirty_market(world, market);
     }
     crew_success(world, ship, CrewTask::Unloading, true);
     Ok((quantity as f32, payment))
+}
+
+enum ContractPayer {
+    Facility(Entity),
+    Faction(Entity),
+}
+
+/// Facility/faction posting paths already debit initial_payment. Never debit
+/// that base a second time. Age/renewal increases and fitting/treaty bonuses
+/// were previously paid without a corresponding debit; fund them at commit.
+/// This does not establish base escrow for legacy population contracts.
+fn prepare_reward_top_up(
+    world: &World,
+    store: &AgentStore,
+    requestor: &str,
+    initial_payment: i64,
+    payment: i64,
+) -> Result<Option<(ContractPayer, i64, i64)>, Rejection> {
+    if initial_payment < 0 {
+        return Err("invalid_prepaid_amount");
+    }
+    let amount = payment.saturating_sub(initial_payment).max(0);
+    if amount == 0 {
+        return Ok(None);
+    }
+    let (payer, credits) = if let Some(&entity) = store.facility_by_id.get(requestor) {
+        let ops = world
+            .get::<FacilityOperations>(entity)
+            .ok_or("missing_contract_payer")?;
+        (ContractPayer::Facility(entity), ops.credits)
+    } else if let Some(&entity) = store.faction_by_id.get(requestor) {
+        let data = world
+            .get::<sim_core::agents::faction::FactionData>(entity)
+            .ok_or("missing_contract_payer")?;
+        (ContractPayer::Faction(entity), data.treasury)
+    } else {
+        return Err("missing_contract_payer");
+    };
+    if credits < amount {
+        return Err("insufficient_contract_funding");
+    }
+    Ok(Some((payer, credits - amount, amount)))
 }
 
 #[cfg(test)]

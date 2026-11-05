@@ -194,7 +194,11 @@ pub fn apply_ship_commands(
                 // on the winning ship only. `release` clears
                 // fulfiller_id, so we need the snapshot up front.
                 let breach_info = store.contracts.get(&contract_id).and_then(|c| {
-                    c.faction_id.as_ref().map(|f| (f.clone(), c.payment))
+                    if reason == "issuer_funding_failure" {
+                        None
+                    } else {
+                        c.faction_id.as_ref().map(|f| (f.clone(), c.payment))
+                    }
                 });
                 let released = store
                     .contracts

@@ -251,6 +251,141 @@ fn purchase() -> ShipTransaction {
         max_unit_price: 10.0,
     }
 }
+
+#[test]
+fn supply_flow_reward_increases_are_funded_once_or_delivery_is_rejected() {
+    use sim_core::agents::{
+        faction::{FactionColors, FactionData},
+        ship::ShipFitting,
+    };
+    for case in [
+        "facility_age",
+        "faction_bonus",
+        "broke",
+        "missing_payer",
+        "missing_cargo",
+    ] {
+        let mut f = Fixture::new(0.0, 0.0);
+        let ship = f.ships[0];
+        let id = f.delivery(false);
+        // Opening balances: 1000 ship + 880 requestor + 120 prepaid contract = 2000.
+        let opening = if case == "broke" { 29 } else { 880 };
+        let faction = if case == "faction_bonus" {
+            let payer = f
+                .world
+                .spawn(FactionData {
+                    id: "sponsor".into(),
+                    name: "Sponsor".into(),
+                    faction_type: "civilian".into(),
+                    home_system: "sol".into(),
+                    treasury: opening,
+                    personality: sim_core::ai::personality::Personality::balanced_trader(),
+                    colors: FactionColors {
+                        primary: "blue".into(),
+                        secondary: "white".into(),
+                    },
+                    active_subsidies: 0,
+                    dirty: false,
+                })
+                .id();
+            f.store.faction_by_id.insert("sponsor".into(), payer);
+            f.store.contracts.get_mut(&id).unwrap().requestor_id = "sponsor".into();
+            let mut fitting = ShipFitting::new_default();
+            fitting.derived.comms_bonus = 0.25;
+            f.world.entity_mut(ship).insert(fitting);
+            Some(payer)
+        } else {
+            f.world
+                .get_mut::<FacilityOperations>(f.facility)
+                .unwrap()
+                .credits = opening;
+            f.store.contracts.get_mut(&id).unwrap().payment = 150; // aged offer, base still 120
+            None
+        };
+        if case == "missing_payer" {
+            f.store.contracts.get_mut(&id).unwrap().requestor_id = "removed".into();
+        }
+        if case == "missing_cargo" {
+            f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.clear();
+        }
+        let request = f.submit(ship, ShipTransaction::Deliver { contract_id: id });
+        let before = f.snapshot(ship);
+        f.apply(ship, request);
+        if matches!(case, "facility_age" | "faction_bonus") {
+            assert_eq!(f.result(ship), Ok(()));
+            let payer_remaining = match faction {
+                Some(e) => f.world.get::<FactionData>(e).unwrap().treasury,
+                None => {
+                    f.world
+                        .get::<FacilityOperations>(f.facility)
+                        .unwrap()
+                        .credits
+                }
+            };
+            assert_eq!(payer_remaining, 850);
+            assert_eq!(
+                f.world.get::<ShipEconomy>(ship).unwrap().credits + payer_remaining,
+                2000
+            );
+            assert_eq!(
+                f.events
+                    .iter()
+                    .filter(|e| e["kind"] == "contract_reward_funded")
+                    .count(),
+                1
+            );
+            let after = f.snapshot(ship);
+            f.apply(ship, request);
+            assert_eq!(f.snapshot(ship), after);
+            if let Some(e) = faction {
+                assert_eq!(f.world.get::<FactionData>(e).unwrap().treasury, 850);
+            }
+        } else {
+            assert!(f.result(ship).is_err(), "{case}");
+            assert_eq!(f.snapshot(ship), before, "{case}");
+            assert!(!f
+                .events
+                .iter()
+                .any(|e| e["kind"] == "contract_reward_funded"));
+            if case == "broke" {
+                let cid = f
+                    .world
+                    .get::<ShipEconomy>(ship)
+                    .unwrap()
+                    .active_contract_id
+                    .clone()
+                    .unwrap();
+                f.store.contracts.get_mut(&cid).unwrap().faction_id = Some("sponsor".into());
+                f.world
+                    .get_mut::<ShipEconomy>(ship)
+                    .unwrap()
+                    .faction_reputation
+                    .insert("sponsor".into(), 50);
+                let mut commands = CommandBuffer::new();
+                commands.push(SimCommand::ReleaseContract {
+                    ship_id: "ship-0".into(),
+                    contract_id: cid.clone(),
+                    reason: "issuer_funding_failure",
+                });
+                super::super::apply::apply_ship_commands(
+                    &mut f.world,
+                    &mut f.store,
+                    &mut commands,
+                    &mut f.events,
+                    11,
+                );
+                assert_eq!(
+                    f.world.get::<ShipEconomy>(ship).unwrap().faction_reputation["sponsor"],
+                    50
+                );
+                assert_eq!(
+                    f.store.contracts.get(&cid).unwrap().status,
+                    ContractStatus::Posted
+                );
+            }
+        }
+    }
+}
 fn fuel_request() -> ShipTransaction {
     ShipTransaction::Refuel {
         location: "port".into(),
