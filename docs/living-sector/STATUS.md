@@ -1,3 +1,5 @@
+> **Текущий handoff:** [ASTRA_START_HERE.md](ASTRA_START_HERE.md), составлен 2026-11-05 по `feature/genesis-faction-economy` (PR #8). Этот STATUS — **хронологический отчёт предыдущих этапов**, не перечень возможностей последней сборки. Не использовать старые цифры «1 фракция / 3 корабля» как описание PR #8. Текущий CI: https://github.com/Mefits/Living-Sector/actions/runs/41936463306 (успех на Windows; не soak-тест).
+
 # STATUS — фактическое состояние Living Sector
 
 **Последнее обновление документа:** 2026-11-03.
