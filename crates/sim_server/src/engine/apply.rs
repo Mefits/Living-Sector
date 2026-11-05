@@ -158,28 +158,9 @@ pub fn apply_ship_commands(
             }
 
             // --- Contracts ---
-            SimCommand::AcceptContract { contract_id, ship_id, .. } => {
-                // Best-effort: silently drop if the contract was already taken.
-                let tick_now = 0; // Apply phase doesn't know the tick; board records accepted_at separately.
-                let accepted = store.contracts.accept(&contract_id, ship_id.clone(), tick_now);
-                if accepted {
-                    // Ticker event so players can watch the contract
-                    // board churn in real time. Losing speculative
-                    // accepts return false from `accept()` and don't
-                    // emit (those ships will self-clean via the
-                    // sanity-check pass on next tick).
-                    if let Some(c) = store.contracts.get(&contract_id) {
-                        events.push(serde_json::json!({
-                            "kind": "contract_accepted",
-                            "contract_id": contract_id,
-                            "contract_type": c.contract_type.as_str(),
-                            "ship_id": ship_id,
-                            "commodity": c.commodity.as_str(),
-                            "source": c.source_location,
-                            "destination": c.destination_location,
-                            "payment": c.payment,
-                        }));
-                    }
+            SimCommand::AcceptContract { ship, contract_id, ship_id } => {
+                if world.get::<sim_core::agents::ship::ShipIdentity>(ship).is_some_and(|identity| identity.id == ship_id) {
+                    let _ = super::contract_funding::accept(world, store, ship, &contract_id, events, tick);
                 }
             }
             SimCommand::ReleaseContract { ship_id, contract_id, reason } => {
@@ -331,6 +312,7 @@ pub fn apply_ship_commands(
     }
 
     commands.commands.extend(leftover);
+    super::contract_funding::refund_closed(world, store, events, tick);
 }
 
 /// Pick the primary dockable facility at a location.
@@ -1251,7 +1233,7 @@ pub(super) fn commit_contract_delivery(
                         "category": cat,
                         "skill": template.required_skill,
                         "skill_gain": template.skill_gain,
-                        "payment": c.payment,
+                        "payment": effective_payment,
                     }));
                 }
             }
@@ -1274,7 +1256,7 @@ pub(super) fn commit_contract_delivery(
                 "contract_id": c.id,
                 "destination": c.destination_location,
                 "head_count": c.quantity,
-                "payment": c.payment,
+                "payment": effective_payment,
             }));
         }
         ContractType::Construction => {
@@ -1309,7 +1291,7 @@ pub(super) fn commit_contract_delivery(
                 "contract_type": c.contract_type.as_str(),
                 "commodity": c.commodity.as_str(),
                 "destination": c.destination_location,
-                "payment": c.payment,
+                "payment": effective_payment,
                 "faction_id": c.faction_id,
             }));
         }
@@ -1338,7 +1320,7 @@ pub(super) fn commit_contract_delivery(
                 "contract_type": c.contract_type.as_str(),
                 "commodity": c.commodity.as_str(),
                 "destination": c.destination_location,
-                "payment": c.payment,
+                "payment": effective_payment,
                 "faction_id": c.faction_id,
             }));
         }

@@ -252,6 +252,284 @@ fn purchase() -> ShipTransaction {
     }
 }
 
+fn escrow_offer(f: &mut Fixture) -> String {
+    use sim_core::economy::contracts::FundingSource;
+    let id = f.delivery(false);
+    assert!(f.store.contracts.release(&id, Some("ship-0")));
+    f.world
+        .get_mut::<ShipEconomy>(f.ships[0])
+        .unwrap()
+        .active_contract_id = None;
+    // A real publisher debits this advance before registering it.
+    f.world
+        .get_mut::<FacilityOperations>(f.facility)
+        .unwrap()
+        .credits = 880;
+    f.store
+        .contracts
+        .register_prepaid(&id, FundingSource::Facility);
+    f.store.contracts.get_mut(&id).unwrap().payment = 150;
+    id
+}
+
+#[test]
+fn escrow_acceptance_reserves_and_locks_reward_until_delivery() {
+    let mut f = Fixture::new(0.0, 0.0);
+    let ship = f.ships[0];
+    let id = escrow_offer(&mut f);
+    let accept = f.submit(
+        ship,
+        ShipTransaction::Accept {
+            contract_id: id.clone(),
+        },
+    );
+    f.apply(ship, accept);
+    assert_eq!(f.result(ship), Ok(()));
+    assert_eq!(
+        f.world
+            .get::<FacilityOperations>(f.facility)
+            .unwrap()
+            .credits,
+        850
+    );
+    let funding = f
+        .store
+        .contracts
+        .get(&id)
+        .unwrap()
+        .funding
+        .as_ref()
+        .unwrap();
+    assert_eq!((funding.reserved, funding.agreed_payment), (150, Some(150)));
+    f.apply(ship, accept); // duplicate acceptance cannot debit again
+    assert_eq!(
+        f.world
+            .get::<FacilityOperations>(f.facility)
+            .unwrap()
+            .credits,
+        850
+    );
+    f.world
+        .get_mut::<ShipEconomy>(ship)
+        .unwrap()
+        .transaction
+        .pending = None;
+    // Spend the requestor's remaining budget and change the current quote:
+    // neither can revoke the money already reserved for this carrier.
+    f.world
+        .get_mut::<FacilityOperations>(f.facility)
+        .unwrap()
+        .credits = 0;
+    f.store.contracts.get_mut(&id).unwrap().payment = 9999;
+    let deliver = f.submit(
+        ship,
+        ShipTransaction::Deliver {
+            contract_id: id.clone(),
+        },
+    );
+    f.apply(ship, deliver);
+    assert_eq!(f.result(ship), Ok(()));
+    assert_eq!(f.world.get::<ShipEconomy>(ship).unwrap().credits, 1150);
+    assert_eq!(
+        f.store
+            .contracts
+            .get(&id)
+            .unwrap()
+            .funding
+            .as_ref()
+            .unwrap()
+            .reserved,
+        0
+    );
+    assert_eq!(
+        f.store.contracts.get(&id).unwrap().status,
+        ContractStatus::Paid
+    );
+    let after = f.snapshot(ship);
+    f.apply(ship, deliver);
+    assert_eq!(f.snapshot(ship), after);
+}
+
+#[test]
+fn escrow_competing_acceptances_cannot_spend_the_same_budget() {
+    use sim_core::economy::contracts::FundingSource;
+    let mut f = Fixture::new(0.0, 0.0);
+    let a = escrow_offer(&mut f);
+    let b = f.store.contracts.post_delivery_for(
+        "station".into(),
+        None,
+        Commodity::Ore,
+        10,
+        "source".into(),
+        "port".into(),
+        120,
+        0,
+        1000,
+    );
+    f.world
+        .get_mut::<FacilityOperations>(f.facility)
+        .unwrap()
+        .credits -= 120;
+    f.store
+        .contracts
+        .register_prepaid(&b, FundingSource::Facility);
+    for id in [&a, &b] {
+        f.store.contracts.get_mut(id).unwrap().payment = 600;
+    }
+    let [first, second] = f.ships;
+    let ra = f.submit(
+        first,
+        ShipTransaction::Accept {
+            contract_id: a.clone(),
+        },
+    );
+    let rb = f.submit(
+        second,
+        ShipTransaction::Accept {
+            contract_id: b.clone(),
+        },
+    );
+    f.apply(first, ra);
+    assert_eq!(f.result(first), Ok(()));
+    let before = f.snapshot(second);
+    f.apply(second, rb);
+    assert_eq!(f.result(second), Err("insufficient_contract_funding"));
+    assert_eq!(f.snapshot(second), before);
+    assert_eq!(
+        f.store.contracts.get(&b).unwrap().status,
+        ContractStatus::Posted
+    );
+    assert!(f
+        .world
+        .get::<ShipEconomy>(second)
+        .unwrap()
+        .active_contract_id
+        .is_none());
+    let reserved: i64 = [&a, &b]
+        .iter()
+        .map(|id| {
+            f.store
+                .contracts
+                .get(id)
+                .unwrap()
+                .funding
+                .as_ref()
+                .unwrap()
+                .reserved
+        })
+        .sum();
+    assert_eq!(
+        reserved
+            + f.world
+                .get::<FacilityOperations>(f.facility)
+                .unwrap()
+                .credits,
+        1000
+    );
+}
+
+#[test]
+fn escrow_expiry_cancellation_and_loss_refund_once_but_release_keeps_reserve() {
+    for reason in ["expiry", "cancellation", "cargo_lost"] {
+        let mut f = Fixture::new(0.0, 0.0);
+        let ship = f.ships[0];
+        let id = escrow_offer(&mut f);
+        let request = f.submit(
+            ship,
+            ShipTransaction::Accept {
+                contract_id: id.clone(),
+            },
+        );
+        f.apply(ship, request);
+        if reason == "expiry" {
+            assert!(f.store.contracts.release(&id, Some("ship-0")));
+            f.apply(ship, request);
+            assert_eq!(
+                f.world
+                    .get::<FacilityOperations>(f.facility)
+                    .unwrap()
+                    .credits,
+                850
+            );
+            assert_eq!(
+                f.store
+                    .contracts
+                    .get(&id)
+                    .unwrap()
+                    .funding
+                    .as_ref()
+                    .unwrap()
+                    .agreed_payment,
+                None
+            );
+            let c = f.store.contracts.get_mut(&id).unwrap();
+            c.renewal_count = u8::MAX;
+            c.expires_at_tick = 0;
+            f.store.contracts.sweep_expiring(11, 10);
+        } else if reason == "cancellation" {
+            f.store
+                .contracts
+                .cancel_for_facility(None, None, Some("port"));
+        } else {
+            assert!(f.store.contracts.mark_picked_up(&id));
+            f.store.contracts.drop_ship_holdings("ship-0");
+        }
+        assert_eq!(
+            f.store.contracts.get(&id).unwrap().status,
+            ContractStatus::Expired
+        );
+        // An unavailable refund beneficiary must not make the reserve disappear.
+        f.store.facility_by_id.remove("station");
+        f.apply(ship, request);
+        assert_eq!(
+            f.store
+                .contracts
+                .get(&id)
+                .unwrap()
+                .funding
+                .as_ref()
+                .unwrap()
+                .reserved,
+            150
+        );
+        f.store.facility_by_id.insert("station".into(), f.facility);
+        f.apply(ship, request);
+        assert_eq!(
+            f.world
+                .get::<FacilityOperations>(f.facility)
+                .unwrap()
+                .credits,
+            1000
+        );
+        assert_eq!(
+            f.store
+                .contracts
+                .get(&id)
+                .unwrap()
+                .funding
+                .as_ref()
+                .unwrap()
+                .reserved,
+            0
+        );
+        f.apply(ship, request);
+        assert_eq!(
+            f.world
+                .get::<FacilityOperations>(f.facility)
+                .unwrap()
+                .credits,
+            1000
+        );
+        assert_eq!(
+            f.events
+                .iter()
+                .filter(|e| e["kind"] == "contract_escrow_refunded")
+                .count(),
+            1
+        );
+    }
+}
+
 #[test]
 fn supply_flow_reward_increases_are_funded_once_or_delivery_is_rejected() {
     use sim_core::agents::{

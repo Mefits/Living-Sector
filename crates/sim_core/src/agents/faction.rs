@@ -663,7 +663,7 @@ fn run_subsidy_cycle(
             data.active_subsidies = data.active_subsidies.saturating_add(1);
             data.dirty = true;
         }
-        contracts.post_subsidy(
+        let contract_id = contracts.post_subsidy(
             plan.faction_id,
             plan.commodity,
             SUBSIDY_QUANTITY,
@@ -673,6 +673,7 @@ fn run_subsidy_cycle(
             tick,
             lifespan,
         );
+        contracts.register_prepaid(&contract_id, crate::economy::contracts::FundingSource::Faction);
     }
 }
 
@@ -879,7 +880,7 @@ fn run_construction_cycle(
             &plan.destination,
             tick,
         );
-        contracts.post_construction(
+        let contract_id = contracts.post_construction(
             plan.faction_id.clone(),
             Some(plan.faction_id),
             plan.commodity,
@@ -890,6 +891,7 @@ fn run_construction_cycle(
             tick,
             lifespan,
         );
+        contracts.register_prepaid(&contract_id, crate::economy::contracts::FundingSource::Faction);
     }
 }
 

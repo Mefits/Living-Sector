@@ -52,6 +52,7 @@ use tracing::{debug, info};
 mod admin;
 mod apply;
 mod transactions;
+mod contract_funding;
 mod drains;
 mod persist;
 mod publish;

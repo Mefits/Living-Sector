@@ -94,7 +94,7 @@ pub enum ShipAction {
 pub(super) fn execute_ship_action(
     action: &ShipAction,
     entity: bevy_ecs::prelude::Entity,
-    ship_id: &str,
+    _ship_id: &str,
     ship_faction: &str,
     crew: &mut ShipCrew,
     position: &mut ShipPosition,
@@ -556,15 +556,13 @@ pub(super) fn execute_ship_action(
         }
 
         ShipAction::AcceptContract { contract_id } => {
-            // Set the ship's active contract (own state) and emit a command
-            // that the engine's apply phase will use to mutate the board.
-            economy.active_contract_id = Some(contract_id.clone());
-            commands.push(SimCommand::AcceptContract {
-                ship: entity,
-                ship_id: ship_id.to_string(),
+            if let Some(status) = poll_transaction(economy, |r| matches!(r,
+                ShipTransaction::Accept { contract_id: id } if id == contract_id)) {
+                return status;
+            }
+            request_transaction(economy, commands, entity, ShipTransaction::Accept {
                 contract_id: contract_id.clone(),
-            });
-            BtStatus::Success
+            })
         }
 
         ShipAction::PickupCargo { .. } => {
@@ -804,6 +802,20 @@ mod transaction_tests {
             assert_eq!(s.act(&action), BtStatus::Failure);
             assert!(s.economy.transaction.pending.is_none());
         }
+    }
+
+    #[test]
+    fn escrow_accept_action_waits_before_claiming_a_contract() {
+        let mut s = Ship::new();
+        s.economy.active_contract_id = None;
+        let action = ShipAction::AcceptContract { contract_id: "contract".into() };
+        assert_eq!(s.act(&action), BtStatus::Running);
+        assert!(s.economy.active_contract_id.is_none());
+        assert_eq!(s.act(&action), BtStatus::Running);
+        assert_eq!(s.commands.drain().count(), 1);
+        s.economy.transaction.pending.as_mut().unwrap().result = Some(Err("insufficient_contract_funding"));
+        assert_eq!(s.act(&action), BtStatus::Failure);
+        assert!(s.economy.active_contract_id.is_none());
     }
 
     #[test]
