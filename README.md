@@ -1,3 +1,5 @@
+> **Living Sector / Genesis handoff (2026-11-05):** This README describes the **upstream 3D simulator**, not the current headless Genesis build. For the active development branch `feature/genesis-faction-economy` and handoff to Astra, start at **[docs/living-sector/ASTRA_START_HERE.md](docs/living-sector/ASTRA_START_HERE.md)**. The polished 2D Observer 0.14 is currently distributed separately in a Windows ZIP and is not yet committed as frontend source on that branch.
+
 <div align="center">
 
 # 🚀 The Space Project
