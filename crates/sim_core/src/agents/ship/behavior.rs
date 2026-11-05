@@ -565,10 +565,12 @@ pub(super) fn decide_and_act(
                 StaleKind::Drop => {
                     economy.active_contract_id = None;
                     ai.current_bt = None;
+                    economy.transaction.pending = None;
                 }
                 StaleKind::Release => {
                     economy.active_contract_id = None;
                     ai.current_bt = None;
+                    economy.transaction.pending = None;
                     commands.push(SimCommand::ReleaseContract {
                         ship_id: ship_id.clone(),
                         contract_id: cid,
@@ -603,6 +605,7 @@ pub(super) fn decide_and_act(
             h % REPLAN_CHECK_INTERVAL_TICKS
         };
         let replan_check_due = !needs_plan
+            && economy.transaction.pending.is_none()
             && is_replan_eligible(&ai.current_goal)
             && elapsed_since_plan >= REPLAN_MIN_COMMIT_TICKS
             && (tick + ship_offset) % REPLAN_CHECK_INTERVAL_TICKS == 0;
@@ -672,6 +675,7 @@ pub(super) fn decide_and_act(
             let accept = needs_plan
                 || candidate.score >= ai.current_goal_score * effective_ratio;
             if accept {
+                economy.transaction.pending = None;
                 // Release any active contract we were committed to
                 // before swapping plans — otherwise the ship can end
                 // up with an active_contract_id that no current BT is
@@ -722,7 +726,7 @@ pub(super) fn decide_and_act(
                 lifecycle.broke_strikes = 0;
             }
             // Hoard strike: lots of credits, long idle window. Reset
-            // happens on DeliverContract apply (see engine.rs).
+            // happens on confirmed delivery apply (see engine.rs).
             if economy.credits > HOARD_CREDITS_THRESHOLD
                 && lifecycle.idle_ticks > HOARD_IDLE_THRESHOLD
             {
@@ -776,7 +780,7 @@ pub(super) fn decide_and_act(
             // Bundle 1.4: drift personality in response to BT events
             // surfaced via the blackboard. Only `rest_timed_out`
             // today; delivery-success drift happens in the engine
-            // apply phase (direct world access on DeliverContract).
+            // apply phase (direct world access on confirmed delivery).
             if bb.get_bool("rest_timed_out") {
                 ai.personality
                     .drift(crate::ai::personality::Axis::Safety, DRIFT_REST_TIMEOUT_SAFETY);
@@ -787,9 +791,11 @@ pub(super) fn decide_and_act(
                 BtStatus::Success => {
                     // Plan done — clear. Next tick replans.
                     ai.current_bt = None;
+                    economy.transaction.pending = None;
                 }
                 BtStatus::Failure => {
                     ai.current_bt = None;
+                    economy.transaction.pending = None;
                     // If the failing plan was a contract run, release
                     // the contract back to the board so another ship
                     // can pick it up (and we can re-plan freely). The

@@ -14,7 +14,8 @@
 //!   * **Gate jump** — [`apply_gate_jump`] charges fees, hops the
 //!     ship to the paired gate's universe coordinates, and emits a
 //!     `ship_gate_jumped` event for the trail effect.
-//!   * **Refuel** — [`apply_facility_refuel`] is multi-tick; the
+//!   * **Transactions** — `transactions::apply_transaction` validates and commits
+//!     purchases, deliveries, and each multi-tick refuel chunk. The
 //!     ship's Refuel action returns Running until tank full or
 //!     facility reserves dry, capturing the dwell. Drains
 //!     `FacilityStorage.reserves[Fuel]` and credits the facility.
@@ -59,7 +60,7 @@ pub fn apply_ship_commands(
     events: &mut Vec<serde_json::Value>,
     tick: u64,
 ) {
-    use sim_core::agents::ship::{ShipCargo, ShipEconomy};
+    use sim_core::agents::ship::ShipEconomy;
 
     let drained: Vec<SimCommand> = commands.drain().collect();
     let mut leftover: Vec<SimCommand> = Vec::with_capacity(drained.len());
@@ -132,13 +133,8 @@ pub fn apply_ship_commands(
             SimCommand::ReleaseDock { ship, facility_location } => {
                 apply_release_dock(world, store, ship, &facility_location);
             }
-            SimCommand::FacilityRefuel {
-                ship: _,
-                facility_location,
-                amount,
-                payment,
-            } => {
-                apply_facility_refuel(world, store, &facility_location, amount, payment);
+            SimCommand::RequestShipTransaction { ship, request_id } => {
+                super::transactions::apply_transaction(world, store, ship, request_id, events, tick);
             }
             SimCommand::GrantCrewXp { ship, skill, amount } => {
                 use sim_core::agents::ship::ShipCrewSkills;
@@ -267,263 +263,6 @@ pub fn apply_ship_commands(
                                     "reason": reason,
                                 }));
                             }
-                        }
-                    }
-                }
-            }
-            SimCommand::DeliverContract { ship, contract_id } => {
-                use sim_core::agents::population::PopDemographics;
-                use sim_core::economy::contracts::ContractType;
-                let delivered = store.contracts.mark_delivered(&contract_id);
-                if let Some(c) = delivered {
-                    // Pay the ship and bump faction reputation if the
-                    // contract was tagged with one. +1 per successful
-                    // delivery, capped at 100.
-                    //
-                    // Phase 18f: comms_bonus on the ship's fitting
-                    // multiplies payment. A tier-3 comms suite adds
-                    // 10% — reads the stat at apply time rather than
-                    // baking it in to avoid stale-fitting edge cases
-                    // after a refit mid-flight.
-                    let comms_bonus = world
-                        .get::<sim_core::agents::ship::ShipFitting>(ship)
-                        .map(|f| f.derived.comms_bonus)
-                        .unwrap_or(0.0);
-                    // Bundle A: read ship faction up front for the
-                    // relations-standing bump. Taking an immutable
-                    // borrow of ShipIdentity here and letting it drop
-                    // before the `&mut ShipEconomy` acquisition below
-                    // keeps hecs happy (one live component borrow per
-                    // entity).
-                    let ship_faction = world
-                        .get::<sim_core::agents::ship::ShipIdentity>(ship)
-                        .map(|i| i.faction_id.clone())
-                        .unwrap_or_default();
-                    // Bundle B: treaty-driven payment bonus applies on
-                    // top of Phase 18f's comms multiplier. TradePact =
-                    // +10%, Allied = +15%, anything else = 1.0 (same
-                    // as pre-Bundle-B behaviour).
-                    let treaty_mult = c
-                        .faction_id
-                        .as_deref()
-                        .map(|f| {
-                            sim_core::agents::faction_relations::trade_pact_payment_multiplier(
-                                &store.relations,
-                                &ship_faction,
-                                f,
-                            )
-                        })
-                        .unwrap_or(1.0);
-                    let effective_payment: i64 =
-                        ((c.payment as f32) * (1.0 + comms_bonus) * treaty_mult)
-                            .round() as i64;
-                    if let Some(mut econ) = world.get_mut::<ShipEconomy>(ship) {
-                        econ.credits += effective_payment;
-                        if let Some(faction) = c.faction_id.as_ref() {
-                            // Phase 19e: reputation gain scales with
-                            // payment so big contracts move rep faster
-                            // (otherwise a 1-off +1 makes faction-gated
-                            // work effectively unreachable). Matches
-                            // Elixir's `min(5 + payment/2000, 15)`.
-                            let gain: u8 = (5 + (effective_payment / 2000))
-                                .clamp(1, 15)
-                                as u8;
-                            let rep = econ
-                                .faction_reputation
-                                .entry(faction.clone())
-                                .or_insert(0);
-                            *rep = rep.saturating_add(gain).min(100);
-                        }
-                    }
-                    // Bundle A: faction-to-faction standing bump. Fires
-                    // when both sides are tagged and distinct. Small
-                    // per-delivery nudge so a healthy trade corridor
-                    // accumulates into a TradePact over hundreds of
-                    // deliveries, not dozens. `bump_standing` is a
-                    // no-op on empty or self-pairs.
-                    if let Some(requestor) = c.faction_id.as_deref() {
-                        if !ship_faction.is_empty()
-                            && !requestor.is_empty()
-                            && ship_faction != requestor
-                        {
-                            let new_standing = store.relations.bump_standing(
-                                &ship_faction,
-                                requestor,
-                                sim_core::agents::faction_relations::DELIVERY_STANDING_BUMP,
-                                tick,
-                            );
-                            events.push(serde_json::json!({
-                                "kind": "faction_standing_changed",
-                                "a": ship_faction,
-                                "b": requestor,
-                                "delta": sim_core::agents::faction_relations::DELIVERY_STANDING_BUMP,
-                                "new_standing": new_standing,
-                                "cause": "delivery",
-                            }));
-                        }
-                    }
-                    // Adaptive-fleet: clear hoard strikes on any
-                    // successful delivery. A ship that's been rich +
-                    // idle recovers toward "productive" the moment it
-                    // moves cargo, without waiting for idle_ticks to
-                    // drop below the threshold.
-                    if let Some(mut life) = world
-                        .get_mut::<sim_core::agents::ship::ShipLifecycle>(ship)
-                    {
-                        life.hoard_strikes = 0;
-                    }
-                    // Bundle 1.4: personality drift. A successful
-                    // delivery nudges the ship's `profit` axis up a
-                    // sliver. Invisible per-delivery; visible over
-                    // many deliveries as a character arc.
-                    if let Some(mut ai) = world
-                        .get_mut::<sim_core::agents::ship::ShipAI>(ship)
-                    {
-                        ai.personality.drift(
-                            sim_core::ai::personality::Axis::Profit,
-                            sim_core::agents::ship::DRIFT_DELIVERY_PROFIT,
-                        );
-                    }
-                    // Phase 18d: grant ship-level XP on every delivery.
-                    // Cascades level-ups + banks retrofit points when a
-                    // threshold crosses. Kept independent of crew skill
-                    // XP; ships and crews progress on separate tracks.
-                    {
-                        use sim_core::agents::ship::{
-                            ShipIdentity, ShipProgression, SHIP_XP_PER_DELIVERY,
-                        };
-                        let ship_agent_id = world
-                            .get::<ShipIdentity>(ship)
-                            .map(|i| i.id.clone())
-                            .unwrap_or_default();
-                        if let Some(mut prog) = world.get_mut::<ShipProgression>(ship) {
-                            let gained = prog.grant_xp(SHIP_XP_PER_DELIVERY);
-                            if gained > 0 {
-                                events.push(serde_json::json!({
-                                    "kind": "ship_leveled_up",
-                                    "id": ship_agent_id,
-                                    "new_level": prog.level,
-                                    "retrofit_points": prog.retrofit_points,
-                                    "levels_gained": gained,
-                                }));
-                            }
-                        }
-                    }
-
-                    match c.contract_type {
-                        ContractType::CrewMission => {
-                            use sim_core::agents::ship::ShipCrewSkills;
-                            use sim_core::economy::missions;
-                            // Look up the template so we know which skill
-                            // to grow and by how much. Missing template
-                            // (e.g. legacy data) → no XP, just payment.
-                            if let Some(cat) = c.mission_category.as_deref() {
-                                if let Some(template) = missions::get(cat) {
-                                    if let Some(mut skills) =
-                                        world.get_mut::<ShipCrewSkills>(ship)
-                                    {
-                                        skills.grant(
-                                            template.required_skill,
-                                            template.skill_gain,
-                                        );
-                                    }
-                                    events.push(serde_json::json!({
-                                        "kind": "crew_mission_completed",
-                                        "contract_id": c.id,
-                                        "category": cat,
-                                        "skill": template.required_skill,
-                                        "skill_gain": template.skill_gain,
-                                        "payment": c.payment,
-                                    }));
-                                }
-                            }
-                        }
-                        ContractType::Passenger => {
-                            // Disembark: increment destination population.
-                            // We treat the facility_location as the pop's
-                            // home; any pops there grow by the head count.
-                            let mut q = world
-                                .query::<(&sim_core::agents::population::PopIdentity, &mut PopDemographics)>();
-                            for (id, mut demo) in q.iter_mut(world) {
-                                if id.facility_location == c.destination_location {
-                                    demo.population_count += c.quantity as i64;
-                                }
-                            }
-                            events.push(serde_json::json!({
-                                "kind": "passengers_arrived",
-                                "contract_id": c.id,
-                                "destination": c.destination_location,
-                                "head_count": c.quantity,
-                                "payment": c.payment,
-                            }));
-                        }
-                        ContractType::Construction => {
-                            // Phase 19c-c: the delivered commodity goes
-                            // INTO the construction site, not the
-                            // destination market. Remove from the ship's
-                            // cargo hold the same way, then route
-                            // progress to the site at this
-                            // (location, commodity).
-                            if let Some(mut cargo) = world.get_mut::<ShipCargo>(ship) {
-                                let have = cargo.cargo.get(&c.commodity).copied().unwrap_or(0);
-                                let leftover = have.saturating_sub(c.quantity);
-                                if leftover == 0 {
-                                    cargo.cargo.remove(&c.commodity);
-                                    cargo.cargo_age.remove(&c.commodity);
-                                } else {
-                                    cargo.cargo.insert(c.commodity, leftover);
-                                }
-                            }
-                            apply_construction_delivery(
-                                world,
-                                store,
-                                &c.destination_location,
-                                c.commodity,
-                                c.quantity,
-                                events,
-                            );
-                            events.push(serde_json::json!({
-                                "kind": "contract_delivered",
-                                "contract_id": c.id,
-                                "contract_type": c.contract_type.as_str(),
-                                "commodity": c.commodity.as_str(),
-                                "destination": c.destination_location,
-                                "payment": c.payment,
-                                "faction_id": c.faction_id,
-                            }));
-                        }
-                        _ => {
-                            // Standard delivery / courier / subsidy: drop the
-                            // commodity into the destination market supply.
-                            if let Some(mut cargo) = world.get_mut::<ShipCargo>(ship) {
-                                let have = cargo.cargo.get(&c.commodity).copied().unwrap_or(0);
-                                let leftover = have.saturating_sub(c.quantity);
-                                if leftover == 0 {
-                                    cargo.cargo.remove(&c.commodity);
-                                    cargo.cargo_age.remove(&c.commodity);
-                                } else {
-                                    cargo.cargo.insert(c.commodity, leftover);
-                                }
-                            }
-                            if let Some(&market_entity) =
-                                store.market_at_location.get(&c.destination_location)
-                            {
-                                if let Some(mut pricing) =
-                                    world.get_mut::<MarketPricing>(market_entity)
-                                {
-                                    *pricing.supply.entry(c.commodity).or_insert(0.0) +=
-                                        c.quantity as f32;
-                                }
-                            }
-                            events.push(serde_json::json!({
-                                "kind": "contract_delivered",
-                                "contract_id": c.id,
-                                "contract_type": c.contract_type.as_str(),
-                                "commodity": c.commodity.as_str(),
-                                "destination": c.destination_location,
-                                "payment": c.payment,
-                                "faction_id": c.faction_id,
-                            }));
                         }
                     }
                 }
@@ -1294,34 +1033,6 @@ pub fn apply_gate_jump(
     }));
 }
 
-/// Apply `FacilityRefuel`: drain fuel from the facility's reserves and
-/// credit the facility's treasury. Ship-side fuel/credit updates already
-/// happened when the command was emitted.
-pub fn apply_facility_refuel(
-    world: &mut World,
-    store: &mut AgentStore,
-    location: &str,
-    amount: f32,
-    payment: i64,
-) {
-    use sim_core::{
-        agents::facility::{FacilityOperations, FacilityStorage},
-        economy::commodities::Commodity,
-    };
-    let facility = match primary_dock_at_location(world, store, location) {
-        Some(e) => e,
-        None => return,
-    };
-    if let Some(mut storage) = world.get_mut::<FacilityStorage>(facility) {
-        let entry = storage.reserves.entry(Commodity::Fuel).or_insert(0.0);
-        *entry = (*entry - amount).max(0.0);
-    }
-    if let Some(mut ops) = world.get_mut::<FacilityOperations>(facility) {
-        ops.credits += payment;
-        ops.dirty = true;
-    }
-}
-
 /// Phase 19c-c/d: route a Construction delivery into the matching
 /// site's progress. When progress hits 1.0, the site materialises
 /// into a real facility at the same position and the site entity is
@@ -1410,5 +1121,222 @@ pub fn apply_construction_delivery(
             position,
             events,
         );
+    }
+}
+
+/// Commit effects only after transactions::deliver has checked all prerequisites.
+pub(super) fn commit_contract_delivery(
+    world: &mut World,
+    store: &mut AgentStore,
+    ship: Entity,
+    c: sim_core::economy::contracts::Contract,
+    effective_payment: i64,
+    events: &mut Vec<serde_json::Value>,
+    tick: u64,
+) {
+    use sim_core::agents::population::PopDemographics;
+    use sim_core::agents::ship::{ShipCargo, ShipEconomy};
+    use sim_core::economy::contracts::ContractType;
+    // Pay the ship and bump faction reputation if the
+    // contract was tagged with one (scaled by payment, capped at 100).
+    //
+    // Phase 18f: comms_bonus on the ship's fitting
+    // multiplies payment. A tier-3 comms suite adds
+    // 10% — reads the stat at apply time rather than
+    // baking it in to avoid stale-fitting edge cases
+    // after a refit mid-flight.
+    let ship_faction = world
+        .get::<sim_core::agents::ship::ShipIdentity>(ship)
+        .map(|i| i.faction_id.clone())
+        .unwrap_or_default();
+    if let Some(mut econ) = world.get_mut::<ShipEconomy>(ship) {
+        econ.credits += effective_payment;
+        econ.active_contract_id = None;
+        if let Some(faction) = c.faction_id.as_ref() {
+            // Phase 19e: reputation gain scales with
+            // payment so big contracts move rep faster
+            // (otherwise a 1-off +1 makes faction-gated
+            // work effectively unreachable). Matches
+            // Elixir's `min(5 + payment/2000, 15)`.
+            let gain: u8 = (5 + (effective_payment / 2000)).clamp(1, 15) as u8;
+            let rep = econ.faction_reputation.entry(faction.clone()).or_insert(0);
+            *rep = rep.saturating_add(gain).min(100);
+        }
+    }
+    // Bundle A: faction-to-faction standing bump. Fires
+    // when both sides are tagged and distinct. Small
+    // per-delivery nudge so a healthy trade corridor
+    // accumulates into a TradePact over hundreds of
+    // deliveries, not dozens. `bump_standing` is a
+    // no-op on empty or self-pairs.
+    if let Some(requestor) = c.faction_id.as_deref() {
+        if !ship_faction.is_empty() && !requestor.is_empty() && ship_faction != requestor {
+            let new_standing = store.relations.bump_standing(
+                &ship_faction,
+                requestor,
+                sim_core::agents::faction_relations::DELIVERY_STANDING_BUMP,
+                tick,
+            );
+            events.push(serde_json::json!({
+                "kind": "faction_standing_changed",
+                "a": ship_faction,
+                "b": requestor,
+                "delta": sim_core::agents::faction_relations::DELIVERY_STANDING_BUMP,
+                "new_standing": new_standing,
+                "cause": "delivery",
+            }));
+        }
+    }
+    // Adaptive-fleet: clear hoard strikes on any
+    // successful delivery. A ship that's been rich +
+    // idle recovers toward "productive" the moment it
+    // moves cargo, without waiting for idle_ticks to
+    // drop below the threshold.
+    if let Some(mut life) = world.get_mut::<sim_core::agents::ship::ShipLifecycle>(ship) {
+        life.hoard_strikes = 0;
+    }
+    // Bundle 1.4: personality drift. A successful
+    // delivery nudges the ship's `profit` axis up a
+    // sliver. Invisible per-delivery; visible over
+    // many deliveries as a character arc.
+    if let Some(mut ai) = world.get_mut::<sim_core::agents::ship::ShipAI>(ship) {
+        ai.personality.drift(
+            sim_core::ai::personality::Axis::Profit,
+            sim_core::agents::ship::DRIFT_DELIVERY_PROFIT,
+        );
+    }
+    // Phase 18d: grant ship-level XP on every delivery.
+    // Cascades level-ups + banks retrofit points when a
+    // threshold crosses. Kept independent of crew skill
+    // XP; ships and crews progress on separate tracks.
+    {
+        use sim_core::agents::ship::{ShipIdentity, ShipProgression, SHIP_XP_PER_DELIVERY};
+        let ship_agent_id = world
+            .get::<ShipIdentity>(ship)
+            .map(|i| i.id.clone())
+            .unwrap_or_default();
+        if let Some(mut prog) = world.get_mut::<ShipProgression>(ship) {
+            let gained = prog.grant_xp(SHIP_XP_PER_DELIVERY);
+            if gained > 0 {
+                events.push(serde_json::json!({
+                    "kind": "ship_leveled_up",
+                    "id": ship_agent_id,
+                    "new_level": prog.level,
+                    "retrofit_points": prog.retrofit_points,
+                    "levels_gained": gained,
+                }));
+            }
+        }
+    }
+
+    match c.contract_type {
+        ContractType::CrewMission => {
+            use sim_core::agents::ship::ShipCrewSkills;
+            use sim_core::economy::missions;
+            // Look up the template so we know which skill
+            // to grow and by how much. Missing template
+            // (e.g. legacy data) → no XP, just payment.
+            if let Some(cat) = c.mission_category.as_deref() {
+                if let Some(template) = missions::get(cat) {
+                    if let Some(mut skills) = world.get_mut::<ShipCrewSkills>(ship) {
+                        skills.grant(template.required_skill, template.skill_gain);
+                    }
+                    events.push(serde_json::json!({
+                        "kind": "crew_mission_completed",
+                        "contract_id": c.id,
+                        "category": cat,
+                        "skill": template.required_skill,
+                        "skill_gain": template.skill_gain,
+                        "payment": c.payment,
+                    }));
+                }
+            }
+        }
+        ContractType::Passenger => {
+            // Disembark: increment destination population.
+            // We treat the facility_location as the pop's
+            // home; any pops there grow by the head count.
+            let mut q = world.query::<(
+                &sim_core::agents::population::PopIdentity,
+                &mut PopDemographics,
+            )>();
+            for (id, mut demo) in q.iter_mut(world) {
+                if id.facility_location == c.destination_location {
+                    demo.population_count += c.quantity as i64;
+                }
+            }
+            events.push(serde_json::json!({
+                "kind": "passengers_arrived",
+                "contract_id": c.id,
+                "destination": c.destination_location,
+                "head_count": c.quantity,
+                "payment": c.payment,
+            }));
+        }
+        ContractType::Construction => {
+            // Phase 19c-c: the delivered commodity goes
+            // INTO the construction site, not the
+            // destination market. Remove from the ship's
+            // cargo hold the same way, then route
+            // progress to the site at this
+            // (location, commodity).
+            if let Some(mut cargo) = world.get_mut::<ShipCargo>(ship) {
+                let have = cargo.cargo.get(&c.commodity).copied().unwrap_or(0);
+                let leftover = have - c.quantity;
+                if leftover == 0 {
+                    cargo.cargo.remove(&c.commodity);
+                    cargo.cargo_age.remove(&c.commodity);
+                    cargo.cargo_origin.remove(&c.commodity);
+                } else {
+                    cargo.cargo.insert(c.commodity, leftover);
+                }
+            }
+            apply_construction_delivery(
+                world,
+                store,
+                &c.destination_location,
+                c.commodity,
+                c.quantity,
+                events,
+            );
+            events.push(serde_json::json!({
+                "kind": "contract_delivered",
+                "contract_id": c.id,
+                "contract_type": c.contract_type.as_str(),
+                "commodity": c.commodity.as_str(),
+                "destination": c.destination_location,
+                "payment": c.payment,
+                "faction_id": c.faction_id,
+            }));
+        }
+        _ => {
+            // Standard delivery / courier / subsidy: drop the
+            // commodity into the destination market supply.
+            if let Some(mut cargo) = world.get_mut::<ShipCargo>(ship) {
+                let have = cargo.cargo.get(&c.commodity).copied().unwrap_or(0);
+                let leftover = have - c.quantity;
+                if leftover == 0 {
+                    cargo.cargo.remove(&c.commodity);
+                    cargo.cargo_age.remove(&c.commodity);
+                    cargo.cargo_origin.remove(&c.commodity);
+                } else {
+                    cargo.cargo.insert(c.commodity, leftover);
+                }
+            }
+            if let Some(&market_entity) = store.market_at_location.get(&c.destination_location) {
+                if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
+                    *pricing.supply.entry(c.commodity).or_insert(0.0) += c.quantity as f32;
+                }
+            }
+            events.push(serde_json::json!({
+                "kind": "contract_delivered",
+                "contract_id": c.id,
+                "contract_type": c.contract_type.as_str(),
+                "commodity": c.commodity.as_str(),
+                "destination": c.destination_location,
+                "payment": c.payment,
+                "faction_id": c.faction_id,
+            }));
+        }
     }
 }

@@ -174,6 +174,7 @@ mod tests {
     #[test]
     fn financial_pressure_broke_high() {
         let c = financial_pressure(&ShipEconomy {
+            transaction: Default::default(),
             credits: 0,
             efficiency: 1.0,
             active_contract_id: None,
@@ -188,6 +189,7 @@ mod tests {
     #[test]
     fn financial_pressure_wealthy_low() {
         let c = financial_pressure(&ShipEconomy {
+            transaction: Default::default(),
             credits: 100_000,
             efficiency: 1.0,
             active_contract_id: None,

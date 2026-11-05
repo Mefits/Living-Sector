@@ -23,6 +23,7 @@
 - [ARCHITECTURE.md](ARCHITECTURE.md) — устройство upstream, интеграция и риски.
 - [UPSTREAM.md](UPSTREAM.md) — как обновляться из The Space Project.
 - [ROADMAP.md](ROADMAP.md) — предлагаемые контрольные этапы.
+- [GENESIS_ATOMIC_TRANSACTIONS.md](GENESIS_ATOMIC_TRANSACTIONS.md) — реализованный участок P1a и граница гарантий.
 - [STATUS.md](STATUS.md) — факты проверок и текущее состояние.
 - **[ASTRA_START_HERE.md](ASTRA_START_HERE.md)** — актуальный технический handoff для новых агентов.
 - [HANDOFF.md](HANDOFF.md) — короткий указатель на актуальный handoff (историческая версия осталась в Git).

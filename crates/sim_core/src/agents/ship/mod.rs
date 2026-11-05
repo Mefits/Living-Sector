@@ -33,6 +33,9 @@ use actions::execute_ship_action;
 mod components;
 pub use components::*;
 
+mod transactions;
+pub use transactions::{PendingTransaction, ShipTransaction, TransactionSlot};
+
 mod behavior;
 pub use behavior::*;
 

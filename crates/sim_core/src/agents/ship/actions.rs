@@ -13,7 +13,7 @@
 
 use super::{
     CrewTask, ShipCargo, ShipCrew, ShipEconomy, ShipFuel, ShipMemory, ShipPosition,
-    ShipTransit, Transit, CREW_REST_TARGET, DOCK_WAIT_DEFAULT, DOCK_WAIT_LOW_MORALE,
+    ShipTransit, ShipTransaction, Transit, CREW_REST_TARGET, DOCK_WAIT_DEFAULT, DOCK_WAIT_LOW_MORALE,
     DOCK_WAIT_LOW_MORALE_THRESHOLD, DOCK_WAIT_WITH_CONTRACT, MAX_REST_TICKS_BASE,
 };
 use crate::ai::behavior_tree::{BbValue, Blackboard, BtStatus};
@@ -38,7 +38,7 @@ pub enum ShipAction {
     DockAtShipyard,
     /// Undock (clear docked_at).
     Undock,
-    /// Refill fuel to capacity (MVP: free refill at any location).
+    /// Request paid refuelling from the docked facility; wait for each receipt.
     Refuel,
     /// Buy up to `qty` units of `commodity` at the ship's current location.
     /// Returns Failure if no local price or ship can't afford any.
@@ -289,37 +289,14 @@ pub(super) fn execute_ship_action(
         }
 
         ShipAction::Refuel => {
-            // Multi-tick refuel. Each call drains one REFUEL_UNITS_PER_TICK
-            // chunk from the facility's fuel reserves and charges the ship.
-            // Returns Running until the tank is full, then Success. If the
-            // ship can't afford the next increment, returns Failure so the
-            // BT falls through to a different plan (station job, etc.).
-            use crate::agents::facility::{REFUEL_PRICE_PER_UNIT, REFUEL_UNITS_PER_TICK};
+            if let Some(status) = poll_transaction(economy, |r| matches!(r, ShipTransaction::Refuel { .. })) {
+                if status != BtStatus::Success { return status; }
+            }
             if fuel.fuel >= fuel.fuel_capacity - 0.001 {
                 return BtStatus::Success;
             }
-            let loc = match &position.location_name {
-                Some(l) => l.clone(),
-                None => return BtStatus::Failure,
-            };
-            let amount = REFUEL_UNITS_PER_TICK.min(fuel.fuel_capacity - fuel.fuel);
-            let payment = (amount.ceil() as i64) * REFUEL_PRICE_PER_UNIT;
-            if economy.credits < payment {
-                return BtStatus::Failure;
-            }
-            fuel.fuel += amount;
-            economy.credits -= payment;
-            commands.push(SimCommand::FacilityRefuel {
-                ship: entity,
-                facility_location: loc,
-                amount,
-                payment,
-            });
-            if fuel.fuel >= fuel.fuel_capacity - 0.001 {
-                BtStatus::Success
-            } else {
-                BtStatus::Running
-            }
+            let Some(location) = position.location_name.clone() else { return BtStatus::Failure; };
+            request_transaction(economy, commands, entity, ShipTransaction::Refuel { location })
         }
 
         ShipAction::Travel { destination } => {
@@ -360,6 +337,11 @@ pub(super) fn execute_ship_action(
         }
 
         ShipAction::Buy { commodity, qty } => {
+            if let Some(status) = poll_transaction(economy, |r| matches!(r,
+                ShipTransaction::Buy { commodity: c, .. } if c == commodity)) {
+                return status;
+            }
+
             let at = match &position.location_name {
                 Some(l) => l.clone(),
                 None => return BtStatus::Failure,
@@ -402,28 +384,9 @@ pub(super) fn execute_ship_action(
             if want == 0 {
                 return BtStatus::Failure;
             }
-            let cost = (price * want as f32) as i64;
-            economy.credits -= cost;
-            *cargo.cargo.entry(*commodity).or_insert(0) += want;
-            cargo.cargo_age.insert(*commodity, tick);
-            // Phase 20: remember origin + unit price so the Sell arm
-            // can compute realised profit and feed route_performance.
-            // Store the posture-adjusted price so the realised-profit
-            // calc at Sell time compares apples-to-apples.
-            cargo.cargo_origin.insert(*commodity, (at.clone(), price));
-            commands.push(SimCommand::RemoveSupplyAtShipLocation {
-                ship: entity,
-                commodity: *commodity,
-                quantity: want as f32,
-            });
-            // A successful trade grows the crew's trading skill by 1 (cap 100).
-            commands.push(SimCommand::GrantCrewXp {
-                ship: entity,
-                skill: "trading",
-                amount: 1,
-            });
-            crew.current_task = CrewTask::Loading;
-            BtStatus::Success
+            request_transaction(economy, commands, entity, ShipTransaction::Buy {
+                location: at, commodity: *commodity, quantity: want, max_unit_price: price,
+            })
         }
 
         ShipAction::Sell { commodity, qty } => {
@@ -654,38 +617,222 @@ pub(super) fn execute_ship_action(
         }
 
         ShipAction::DeliverCargo { contract_id } => {
-            // Ship must be at a location (destination) and must have cargo.
-            // The engine apply phase will: pay the ship, reduce cargo, add
-            // supply at the destination market, and mark the contract Paid.
-            if position.location_name.is_none() {
-                return BtStatus::Failure;
+            if let Some(status) = poll_transaction(economy, |r| matches!(r,
+                ShipTransaction::Deliver { contract_id: id } if id == contract_id)) {
+                return status;
             }
-            commands.push(SimCommand::DeliverContract {
-                ship: entity,
+            request_transaction(economy, commands, entity, ShipTransaction::Deliver {
                 contract_id: contract_id.clone(),
-            });
-            // Navigation + trading skill bumps for a successful delivery.
-            commands.push(SimCommand::GrantCrewXp {
-                ship: entity,
-                skill: "navigation",
-                amount: 1,
-            });
-            commands.push(SimCommand::GrantCrewXp {
-                ship: entity,
-                skill: "trading",
-                amount: 1,
-            });
-            economy.active_contract_id = None;
-            crew.current_task = CrewTask::Unloading;
-            BtStatus::Success
+            })
         }
     }
 }
 
+/// An action cannot advance its BT until the exclusive apply phase replies.
+fn poll_transaction(
+    economy: &mut ShipEconomy,
+    matches: impl FnOnce(&ShipTransaction) -> bool,
+) -> Option<BtStatus> {
+    let pending = economy.transaction.pending.as_ref()?;
+    if !matches(&pending.request) {
+        economy.transaction.pending = None;
+        return Some(BtStatus::Failure);
+    }
+    match pending.result {
+        None => Some(BtStatus::Running),
+        Some(result) => {
+            economy.transaction.pending = None;
+            Some(if result.is_ok() {
+                BtStatus::Success
+            } else {
+                BtStatus::Failure
+            })
+        }
+    }
+}
+
+fn request_transaction(
+    economy: &mut ShipEconomy,
+    commands: &mut CommandBuffer,
+    ship: bevy_ecs::prelude::Entity,
+    request: ShipTransaction,
+) -> BtStatus {
+    let Some(request_id) = economy.transaction.begin(request) else {
+        return BtStatus::Failure;
+    };
+    commands.push(SimCommand::RequestShipTransaction { ship, request_id });
+    BtStatus::Running
+}
+
 pub(super) fn affordable_quantity(credits: i64, price: f32, capacity: u32) -> u32 {
-    if price <= 0.0 || credits <= 0 {
+    if !price.is_finite() || price <= 0.0 || credits <= 0 {
         return 0;
     }
-    let by_credits = (credits as f32 / price) as u32;
+    let by_credits = (credits as f64 / price as f64).floor() as u32;
     by_credits.min(capacity)
+}
+
+#[cfg(test)]
+mod transaction_tests {
+    use super::*;
+    use crate::economy::commodities::PriceMemory;
+
+    struct Ship {
+        crew: ShipCrew,
+        position: ShipPosition,
+        transit: ShipTransit,
+        cargo: ShipCargo,
+        fuel: ShipFuel,
+        economy: ShipEconomy,
+        memory: ShipMemory,
+        commands: CommandBuffer,
+    }
+    impl Ship {
+        fn new() -> Self {
+            Self {
+                crew: ShipCrew {
+                    size: 4,
+                    hunger: 0.0,
+                    morale: 100.0,
+                    fatigue: 0.0,
+                    health: 100.0,
+                    wages_credits: 0,
+                    current_task: CrewTask::Idle,
+                    dirty: false,
+                },
+                position: ShipPosition {
+                    location_name: Some("port".into()),
+                    docked_at: None,
+                    system_id: "sol".into(),
+                    universe_offset: (0.0, 0.0),
+                    position: (0.0, 0.0),
+                },
+                transit: ShipTransit { transit: None },
+                cargo: ShipCargo {
+                    cargo: Default::default(),
+                    capacity: 100,
+                    cargo_age: Default::default(),
+                    cargo_origin: Default::default(),
+                },
+                fuel: ShipFuel {
+                    fuel: 10.0,
+                    fuel_capacity: 100.0,
+                    fuel_consumption_rate: 0.05,
+                    speed_modifier: 1.0,
+                },
+                economy: ShipEconomy {
+                    transaction: Default::default(),
+                    credits: 1000,
+                    efficiency: 1.0,
+                    active_contract_id: Some("contract".into()),
+                    faction_reputation: Default::default(),
+                    dock_dwell_start_tick: None,
+                    rest_start_tick: None,
+                    dock_attempt_start_tick: None,
+                },
+                memory: ShipMemory {
+                    price_knowledge: [(
+                        "port".into(),
+                        [(
+                            Commodity::Ore,
+                            PriceMemory {
+                                price: 10.0,
+                                tick: 1,
+                            },
+                        )]
+                        .into(),
+                    )]
+                    .into(),
+                    visited: vec![],
+                    recent_systems: Default::default(),
+                    route_performance: Default::default(),
+                },
+                commands: CommandBuffer::new(),
+            }
+        }
+        fn act(&mut self, action: &ShipAction) -> BtStatus {
+            execute_ship_action(
+                action,
+                bevy_ecs::prelude::Entity::PLACEHOLDER,
+                "ship",
+                "haulers",
+                &mut self.crew,
+                &mut self.position,
+                &mut self.transit,
+                &mut self.cargo,
+                &mut self.fuel,
+                &mut self.economy,
+                &mut self.memory,
+                &WorldRegistry::default(),
+                &Default::default(),
+                &Default::default(),
+                &mut self.commands,
+                1,
+                &crate::simulation::config::TickConfig::DEFAULT,
+                &mut Blackboard::new(),
+            )
+        }
+    }
+
+    #[test]
+    fn economic_actions_wait_for_apply_without_speculative_changes_or_duplicate_commands() {
+        for action in [
+            ShipAction::Buy {
+                commodity: Commodity::Ore,
+                qty: 10,
+            },
+            ShipAction::Refuel,
+            ShipAction::DeliverCargo {
+                contract_id: "contract".into(),
+            },
+        ] {
+            let mut s = Ship::new();
+            assert_eq!(s.act(&action), BtStatus::Running);
+            assert_eq!(s.act(&action), BtStatus::Running);
+            let commands: Vec<_> = s.commands.drain().collect();
+            assert_eq!(commands.len(), 1);
+            assert!(matches!(
+                commands[0],
+                SimCommand::RequestShipTransaction { .. }
+            ));
+            assert_eq!(s.economy.credits, 1000);
+            assert_eq!(s.fuel.fuel, 10.0);
+            assert_eq!(s.cargo.used(), 0);
+            assert_eq!(s.economy.active_contract_id.as_deref(), Some("contract"));
+            assert_eq!(s.crew.current_task, CrewTask::Idle);
+            s.economy.transaction.pending.as_mut().unwrap().result = Some(Err("rejected"));
+            assert_eq!(s.act(&action), BtStatus::Failure);
+            assert!(s.economy.transaction.pending.is_none());
+        }
+    }
+
+    #[test]
+    fn acknowledged_purchase_advances_without_rebuying_even_if_credits_are_now_zero() {
+        let mut s = Ship::new();
+        let action = ShipAction::Buy {
+            commodity: Commodity::Ore,
+            qty: 10,
+        };
+        assert_eq!(s.act(&action), BtStatus::Running);
+        s.economy.credits = 0;
+        s.economy.transaction.pending.as_mut().unwrap().result = Some(Ok(()));
+        assert_eq!(s.act(&action), BtStatus::Success);
+        assert_eq!(s.commands.drain().count(), 1);
+        assert!(s.economy.transaction.pending.is_none());
+    }
+
+    #[test]
+    fn refuel_waits_per_chunk_then_finishes_on_confirmed_full_tank() {
+        let mut s = Ship::new();
+        assert_eq!(s.act(&ShipAction::Refuel), BtStatus::Running);
+        let first = s.economy.transaction.pending.as_ref().unwrap().id;
+        s.fuel.fuel = 20.0;
+        s.economy.transaction.pending.as_mut().unwrap().result = Some(Ok(()));
+        assert_eq!(s.act(&ShipAction::Refuel), BtStatus::Running);
+        assert!(s.economy.transaction.pending.as_ref().unwrap().id > first);
+        s.fuel.fuel = 100.0;
+        s.economy.transaction.pending.as_mut().unwrap().result = Some(Ok(()));
+        assert_eq!(s.act(&ShipAction::Refuel), BtStatus::Success);
+        assert_eq!(s.commands.drain().count(), 2);
+    }
 }

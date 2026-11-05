@@ -131,6 +131,7 @@ pub fn admin_spawn_ship(
             speed_modifier: speed_mod,
         },
         ShipEconomy {
+            transaction: Default::default(),
             credits: payload.credits,
             efficiency: 1.0,
             active_contract_id: None,
