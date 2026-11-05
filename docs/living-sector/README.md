@@ -1,6 +1,8 @@
 # Living Sector — рабочая документация
 
-**Дата переноса:** 2026-11-03. **Основа:** публичный форк [The Space Project](https://github.com/Kalcode/spaceprojectsim) (Rust + Bevy). **Статус:** проектирование собственной игры/симулятора, без наших изменений механик.
+**Основа:** публичный форк [The Space Project](https://github.com/Kalcode/spaceprojectsim), Rust + ECS + SQLite. **Текущий Genesis на 2026-11-05:** отдельные draft PR #7 (оригинальный Core) и #8 (две фракции, логистика, конечный сбор обломков), **не слиты**. Ранние документы ниже содержат историю разработки, не всегда актуальную для PR #8.
+
+**Новая точка входа для Astra / любого нового разработчика — [ASTRA_START_HERE.md](ASTRA_START_HERE.md).** Здесь указаны ветка, подтверждённые проверки, архив UI 0.14, ограничения и маршруты по исходникам.
 
 ## Что мы делаем
 
@@ -18,7 +20,8 @@
 - [UPSTREAM.md](UPSTREAM.md) — как обновляться из The Space Project.
 - [ROADMAP.md](ROADMAP.md) — предлагаемые контрольные этапы.
 - [STATUS.md](STATUS.md) — факты проверок и текущее состояние.
-- [HANDOFF.md](HANDOFF.md) — контекст для другого чата/агента.
+- **[ASTRA_START_HERE.md](ASTRA_START_HERE.md)** — актуальный технический handoff для новых агентов.
+- [HANDOFF.md](HANDOFF.md) — короткий указатель на актуальный handoff (историческая версия осталась в Git).
 - [research/ARCHITECTURE_NOTES.md](research/ARCHITECTURE_NOTES.md) — выдержки из проведённого исследования и источники.
 - [../../AGENTS.md](../../AGENTS.md) — инструкции для Codex и других ИИ.
 
