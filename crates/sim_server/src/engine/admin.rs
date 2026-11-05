@@ -285,7 +285,7 @@ pub(super) async fn admin_remove_ship(
     id: &str,
     tick_now: u64,
     events: &mut Vec<serde_json::Value>,
-    persist_tx: &mpsc::Sender<DbWrite>,
+    _persist_tx: &mpsc::Sender<DbWrite>,
 ) {
     use sim_core::agents::{
         facility::FacilityStorage,
@@ -376,10 +376,10 @@ pub(super) async fn admin_remove_ship(
     // Snapshot cache is purged by `update_from` on the next tick (diffs
     // live entity ids against the cache and removes missing keys).
     if let Some(db_id) = db_id {
-        let _ = persist_tx.send(DbWrite::DeleteShip { db_id }).await;
+        super::persist::queue_lifecycle_write(world, DbWrite::DeleteShip { db_id });
     }
     if let Some(row) = retirement_row {
-        let _ = persist_tx.send(DbWrite::RetireShip { row }).await;
+        super::persist::queue_lifecycle_write(world, DbWrite::RetireShip { row });
     }
     events.push(serde_json::json!({
         "kind": "ship_decommissioned",
@@ -396,7 +396,7 @@ pub(super) async fn admin_remove_facility(
     store: &mut AgentStore,
     id: &str,
     events: &mut Vec<serde_json::Value>,
-    persist_tx: &mpsc::Sender<DbWrite>,
+    _persist_tx: &mpsc::Sender<DbWrite>,
 ) {
     use sim_core::agents::facility::{FacilityIdentity, FacilityLocation, GateLink};
     use sim_core::agents::ship::ShipPosition;
@@ -501,7 +501,7 @@ pub(super) async fn admin_remove_facility(
     world.despawn(entity);
     store.facility_by_id.remove(id);
     if let Some(db_id) = db_id {
-        let _ = persist_tx.send(DbWrite::DeleteFacility { db_id }).await;
+        super::persist::queue_lifecycle_write(world, DbWrite::DeleteFacility { db_id });
     }
     events.push(serde_json::json!({
         "kind": "facility_removed",

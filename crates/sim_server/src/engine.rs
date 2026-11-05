@@ -275,6 +275,13 @@ pub async fn run_tick_loop(
             if steps_remaining > 0 {
                 steps_remaining -= 1;
             } else {
+                // Admin deletions also checkpoint while paused. Admission
+                // failure retains the entire lifecycle queue for the next loop.
+                if persist::has_lifecycle_writes(&world) {
+                    let tick = tick_counter.load(Ordering::Relaxed);
+                    contract_funding::refund_closed(&mut world, &mut store, &mut events, tick);
+                    emit_persist_writes(&mut world, &mut store, tick, &persist_tx);
+                }
                 tokio::time::sleep(Duration::from_millis(50)).await;
                 continue;
             }

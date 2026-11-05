@@ -20,6 +20,21 @@ use sim_db::persistence::DbWrite;
 use sim_core::simulation::spawner::AgentStore;
 use tokio::sync::mpsc;
 
+/// Lifecycle effects must travel with the contract/balance state they changed.
+/// Retained in the World until an economic frame has a reserved channel slot.
+#[derive(Default, bevy_ecs::prelude::Resource)]
+pub(super) struct PendingLifecycleWrites(pub Vec<DbWrite>);
+
+pub(super) fn queue_lifecycle_write(world: &mut World, write: DbWrite) {
+    world.init_resource::<PendingLifecycleWrites>();
+    world.resource_mut::<PendingLifecycleWrites>().0.push(write);
+}
+
+pub(super) fn has_lifecycle_writes(world: &World) -> bool {
+    world.get_resource::<PendingLifecycleWrites>()
+        .is_some_and(|pending| !pending.0.is_empty())
+}
+
 /// Serialise a `ShipFitting` to the slot-name → slug-or-null JSON shape
 /// stored in the `ships.fitting` column. Parser: [`ship_fitting_from_json`].
 pub(crate) fn ship_fitting_to_json(fitting: &sim_core::agents::ship::ShipFitting) -> String {
@@ -456,6 +471,9 @@ pub(super) fn emit_persist_writes(
     let rows = store.contracts.iter()
         .map(sim_db::persistence::ContractRow::from).collect();
     writes.push(DbWrite::ContractBoardSnapshot { rows });
+    if let Some(mut pending) = world.get_resource_mut::<PendingLifecycleWrites>() {
+        writes.append(&mut pending.0);
+    }
     permit.send(DbWrite::EconomicFrame { writes });
 }
 

@@ -1,6 +1,12 @@
 # ASTRA — START HERE · Living Sector / Genesis
 
-> **Текущий участок P1d (2026-11-05):** `feature/genesis-economic-checkpoint` —
+> **Текущий участок P1e (2026-11-05):** `feature/genesis-lifecycle-checkpoint` —
+> удаления объектов/retirement включены в EconomicFrame, в том числе на паузе;
+> tombstone применяется после устаревшего upsert. Добавлены 2 точечных теста,
+> результат CI фиксируется в PR. Создание объектов и возобновление рейса ещё
+> требуют работы. См. [STATUS.md](STATUS.md).
+
+> **Предыдущий участок P1d (2026-11-05):** `feature/genesis-economic-checkpoint` —
 > единый пакет экономического тика, сохранение dirty при backpressure и повтор
 > записи после ошибки SQLite. Добавлены 2 точечных теста и узкий CI workflow;
 > **CI на Linux прошёл: компиляция и 2/2 теста checkpoint_** (локально нет Rust).
