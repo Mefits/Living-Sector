@@ -1054,3 +1054,52 @@ fn construction_accepts_only_material_that_a_live_site_can_absorb() {
         }
     }
 }
+
+#[tokio::test]
+async fn lifecycle_removal_and_escrow_survive_backpressure_in_one_frame() {
+    use sim_db::persistence::DbWrite;
+    use crate::engine::{admin, contract_funding, persist};
+    for remove_ship in [true, false] {
+        let mut f = Fixture::new(0.0, 0.0);
+        let ship = f.ships[0];
+        let id = escrow_offer(&mut f);
+        let request = f.submit(ship, ShipTransaction::Accept { contract_id: id.clone() });
+        f.apply(ship, request);
+        assert!(f.store.contracts.mark_picked_up(&id));
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        tx.try_send(DbWrite::Tick { tick: 9 }).unwrap();
+        if remove_ship {
+            admin::admin_remove_ship(&mut f.world, &mut f.store, "ship-0", 10, &mut f.events, &tx).await;
+        } else {
+            admin::admin_remove_facility(&mut f.world, &mut f.store, "station", &mut f.events, &tx).await;
+        }
+        // Removal never blocks on the full queue or exposes a standalone delete.
+        assert!(persist::has_lifecycle_writes(&f.world));
+        assert_eq!(rx.len(), 1);
+        contract_funding::refund_closed(&mut f.world, &mut f.store, &mut f.events, 10);
+        persist::emit_persist_writes(&mut f.world, &mut f.store, 10, &tx);
+        assert!(persist::has_lifecycle_writes(&f.world));
+        rx.try_recv().unwrap();
+        // Same tick models a paused engine retry: no simulation step required.
+        persist::emit_persist_writes(&mut f.world, &mut f.store, 10, &tx);
+        assert!(!persist::has_lifecycle_writes(&f.world));
+        let DbWrite::EconomicFrame { writes } = rx.try_recv().unwrap() else { panic!("missing frame"); };
+        let rows = writes.iter().find_map(|w| match w {
+            DbWrite::ContractBoardSnapshot { rows } => Some(rows), _ => None,
+        }).unwrap();
+        let row = rows.iter().find(|r| r.id == id).unwrap();
+        assert_eq!(row.status, "expired");
+        let funding: serde_json::Value = serde_json::from_str(row.funding_json.as_ref().unwrap()).unwrap();
+        if remove_ship {
+            assert_eq!(funding["reserved"], 0);
+            assert!(writes.iter().any(|w| matches!(w, DbWrite::Facility { db_id: 1, credits: 1000, .. })));
+            assert_eq!(writes.iter().filter(|w| matches!(w, DbWrite::DeleteShip { db_id: 10 })).count(), 1);
+            assert_eq!(writes.iter().filter(|w| matches!(w, DbWrite::RetireShip { .. })).count(), 1);
+        } else {
+            // A removed payer cannot receive a refund: preserve its escrow.
+            assert_eq!(funding["reserved"], 150);
+            assert_eq!(writes.iter().filter(|w| matches!(w, DbWrite::DeleteFacility { db_id: 1 })).count(), 1);
+        }
+        assert!(rx.try_recv().is_err());
+    }
+}

@@ -260,6 +260,27 @@ mod escrow_tests {
     use sim_core::simulation::spawner::AgentStore;
 
     #[tokio::test]
+    async fn lifecycle_tombstone_wins_over_stale_site_upsert() {
+        let pool = crate::pool::create_pool("sqlite::memory:").await.unwrap();
+        crate::pool::run_migrations(&pool).await.unwrap();
+        let row = ConstructionSiteRow {
+            agent_id: "site".into(), name: "Site".into(), facility_type: "factory".into(),
+            faction_id: "issuer".into(), body_id: "earth".into(), location_name: "port".into(),
+            commodity: "ore".into(), progress_delivered: 10, progress_required: 10,
+            position_x: 0.0, position_y: 0.0, spawned_at_tick: 1, completed: true,
+        };
+        // Force the formerly unsafe order: delete followed by an older upsert.
+        PersistenceWorker::flush(&pool, vec![
+            DbWrite::ConstructionSiteDelete { agent_id: "site".into() },
+            DbWrite::ConstructionSiteUpsert { row },
+        ]).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM construction_sites")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 0);
+        pool.close().await;
+    }
+
+    #[tokio::test]
     async fn checkpoint_rollback_retains_complete_frames_for_retry() {
         let pool = crate::pool::create_pool("sqlite::memory:").await.unwrap();
         crate::pool::run_migrations(&pool).await.unwrap();
@@ -534,7 +555,12 @@ impl PersistenceWorker {
         }
     }
 
-    async fn flush(pool: &SqlitePool, writes: Vec<DbWrite>) -> Result<()> {
+    async fn flush(pool: &SqlitePool, mut writes: Vec<DbWrite>) -> Result<()> {
+        // HashMap iteration is arbitrary. Tombstones must win over earlier
+        // queued updates/upserts in this same transaction (especially sites).
+        writes.sort_by_key(|write| matches!(write,
+            DbWrite::DeleteShip { .. } | DbWrite::DeleteFacility { .. }
+            | DbWrite::ConstructionSiteDelete { .. }));
         let mut tx = pool.begin().await?;
 
         for write in writes {
