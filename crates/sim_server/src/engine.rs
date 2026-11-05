@@ -444,7 +444,7 @@ pub async fn run_tick_loop(
         snapshots.update_from(&mut world, &mut store, tick);
         let total_us = t_start.elapsed().as_micros() as u64;
 
-        // Emit dirty-state writes for the persistence worker (cheap: try_send + mark clean)
+        // Admit a complete economic frame before clearing dirty state.
         emit_persist_writes(&mut world, &mut store, tick, &persist_tx);
 
         // Broadcasts (cadences match the protocol spec)

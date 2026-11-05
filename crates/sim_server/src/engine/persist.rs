@@ -1,26 +1,9 @@
 //! Persistence emit pass + per-component JSON serialisers.
 //!
-//! Once per tick the engine calls [`emit_persist_writes`] to push every
-//! `dirty` agent / contract-board snapshot through the persistence
-//! worker's bounded mpsc channel. Each agent kind owns its own dirty
-//! flag (`ShipLifecycle.dirty`, `FacilityLifecycle.dirty`,
-//! `PopDemographics.dirty`, etc.); when dirty we serialise via
-//! [`sim_db::persistence::DbWrite`] variants and `try_send` (drops on
-//! backpressure rather than blocking the tick).
-//!
-//! ## Cadences
-//!   * Ships — every tick (movement is the hot field; lots of dirty)
-//!   * Markets — every tick (price churn is the whole point of the sim)
-//!   * Factions — every tick when dirty, low write count anyway
-//!   * Facilities / populations — every 16 ticks (slow-changing state)
-//!   * Bodies — every 40 ticks (orbital angles only)
-//!   * Construction sites — every 16 ticks
-//!   * Tick counter — every 8 ticks
-//!   * Contract board snapshot — every 16 ticks (full replace)
-//!
-//! After emitting writes, dirty flags clear in-place. The persistence
-//! worker batches + dedups + flushes every 5 s on the other end of the
-//! channel.
+//! Each tick reserves one channel slot before collecting dirty state. All
+//! economic entities, the contract board and tick enter one indivisible frame.
+//! Backpressure leaves dirty flags untouched; the next admitted frame catches up.
+//! The worker merges complete frames without awaiting, then commits in SQLite.
 //!
 //! ## JSON serialisers
 //!
@@ -92,6 +75,10 @@ pub(super) fn emit_persist_writes(
             ShipPosition, ShipProgression,
         },
     };
+
+    // No dirty flag is cleared unless the entire frame can enter the queue.
+    let Ok(permit) = tx.try_reserve() else { return; };
+    let mut writes = Vec::new();
 
     // Ships
     //
@@ -179,7 +166,7 @@ pub(super) fn emit_persist_writes(
         }
     }
     for write in ship_writes {
-        let _ = tx.try_send(write);
+        writes.push(write);
     }
     for e in dirty_ships {
         if let Some(mut life) = world.get_mut::<ShipLifecycle>(e) {
@@ -211,7 +198,7 @@ pub(super) fn emit_persist_writes(
                 .collect();
             serde_json::Value::Object(map).to_string()
         };
-        let _ = tx.try_send(DbWrite::Market {
+        writes.push(DbWrite::Market {
             db_id: identity.db_id,
             prices_json: to_json(&pricing.prices),
             supply_json: to_json(&pricing.supply),
@@ -239,7 +226,7 @@ pub(super) fn emit_persist_writes(
                     })
                     .collect();
                 if !entries.is_empty() {
-                    let _ = tx.try_send(DbWrite::MarketTrendBatch {
+                    writes.push(DbWrite::MarketTrendBatch {
                         market_db_id: identity.db_id,
                         tick: tick as i64,
                         entries,
@@ -257,23 +244,16 @@ pub(super) fn emit_persist_writes(
         if !data.dirty {
             continue;
         }
-        let _ = tx.try_send(DbWrite::Faction {
+        writes.push(DbWrite::Faction {
             id: data.id.clone(),
             treasury: data.treasury,
         });
         data.dirty = false;
     }
 
-    // Facilities, populations, and bodies change a lot less frequently
-    // than ships — gate their flushes to every ~2 seconds (8 ticks × 2)
-    // so we don't overflow the persistence channel. The 5-second
-    // worker-side sweep would dedupe anyway, but this keeps the channel
-    // usage O(10) writes/sec instead of O(hundreds).
-    let flush_facility = tick.is_multiple_of(16);
-    let flush_population = tick.is_multiple_of(16);
-    let flush_body = tick.is_multiple_of(40);
-
-    if flush_facility {
+    // All economic state shares the contract/tick cadence. A partial cadence
+    // could persist the carrier payout without the payer debit or escrow.
+    {
         use sim_core::agents::facility::{
             FacilityFitting, FacilityIdentity, FacilityOperations, FacilityStorage, ModuleStock,
         };
@@ -364,7 +344,7 @@ pub(super) fn emit_persist_writes(
                 }
                 None => "{}".to_string(),
             };
-            let _ = tx.try_send(DbWrite::Facility {
+            writes.push(DbWrite::Facility {
                 db_id,
                 credits,
                 condition,
@@ -391,7 +371,7 @@ pub(super) fn emit_persist_writes(
     // Phase 19c-d: flush dirty construction sites on the same cadence
     // as facilities. Volume is low (one site per commodity-location)
     // so we push every dirty row directly — no further dedup needed.
-    if flush_facility {
+    {
         use sim_core::agents::construction::ConstructionSite;
         let dirty: Vec<Entity> = {
             let mut q = world.query::<(Entity, &ConstructionSite)>();
@@ -422,7 +402,7 @@ pub(super) fn emit_persist_writes(
                 })
             };
             if let Some(row) = row_opt {
-                let _ = tx.try_send(DbWrite::ConstructionSiteUpsert { row });
+                writes.push(DbWrite::ConstructionSiteUpsert { row });
             }
             if let Some(mut site) = world.get_mut::<ConstructionSite>(entity) {
                 site.dirty = false;
@@ -430,7 +410,7 @@ pub(super) fn emit_persist_writes(
         }
     }
 
-    if flush_population {
+    {
         use sim_core::agents::population::{
             PopDemographics, PopEconomy, PopIdentity, PopSentiment,
         };
@@ -440,7 +420,7 @@ pub(super) fn emit_persist_writes(
             if !sent.dirty {
                 continue;
             }
-            let _ = tx.try_send(DbWrite::Population {
+            writes.push(DbWrite::Population {
                 db_id: pid.db_id,
                 population_count: demo.population_count,
                 overall_sentiment: sent.overall_sentiment,
@@ -451,7 +431,7 @@ pub(super) fn emit_persist_writes(
         }
     }
 
-    if flush_body {
+    {
         use sim_core::agents::celestial_body::{BodyIdentity, BodyOrbit, BodyResources};
         let mut q = world.query::<(&BodyIdentity, &mut BodyOrbit, &BodyResources)>();
         for (bid, mut orbit, resources) in q.iter_mut(world) {
@@ -463,7 +443,7 @@ pub(super) fn emit_persist_writes(
                 .iter()
                 .map(|(c, &v)| (c.as_str().to_string(), serde_json::Value::from(v)))
                 .collect();
-            let _ = tx.try_send(DbWrite::Body {
+            writes.push(DbWrite::Body {
                 db_id: bid.db_id,
                 current_angle: orbit.current_angle,
                 resources_json: serde_json::Value::Object(resources_json).to_string(),
@@ -472,20 +452,43 @@ pub(super) fn emit_persist_writes(
         }
     }
 
-    // Tick counter every 8 ticks (≈1s)
-    if tick.is_multiple_of(8) {
-        let _ = tx.try_send(DbWrite::Tick { tick });
-    }
+    writes.push(DbWrite::Tick { tick });
+    let rows = store.contracts.iter()
+        .map(sim_db::persistence::ContractRow::from).collect();
+    writes.push(DbWrite::ContractBoardSnapshot { rows });
+    permit.send(DbWrite::EconomicFrame { writes });
+}
 
-    // Contract board snapshot every 16 ticks (≈2s). Full replace is
-    // cheap at our board size; keeps disk lockstep with RAM without
-    // needing per-contract dirty tracking.
-    if tick.is_multiple_of(16) {
-        let rows: Vec<sim_db::persistence::ContractRow> = store
-            .contracts
-            .iter()
-            .map(sim_db::persistence::ContractRow::from)
-            .collect();
-        let _ = tx.try_send(DbWrite::ContractBoardSnapshot { rows });
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+    use sim_core::agents::faction::{FactionColors, FactionData};
+    use sim_core::ai::personality::Personality;
+
+    #[test]
+    fn checkpoint_backpressure_keeps_dirty_state_until_whole_frame_is_admitted() {
+        let mut world = World::new();
+        let entity = world.spawn(FactionData {
+            id: "issuer".into(), name: "Issuer".into(), faction_type: "normal".into(),
+            home_system: String::new(), treasury: 850,
+            personality: Personality::balanced_trader(),
+            colors: FactionColors { primary: String::new(), secondary: String::new() },
+            active_subsidies: 0, dirty: true,
+        }).id();
+        let mut store = AgentStore::new();
+        let (tx, mut rx) = mpsc::channel(1);
+        tx.try_send(DbWrite::Tick { tick: 1 }).unwrap();
+        emit_persist_writes(&mut world, &mut store, 2, &tx);
+        assert!(world.get::<FactionData>(entity).unwrap().dirty);
+        assert_eq!(rx.len(), 1);
+        rx.try_recv().unwrap();
+        // Deliberately not a multiple of 16: no old contract cadence remains.
+        emit_persist_writes(&mut world, &mut store, 3, &tx);
+        assert!(!world.get::<FactionData>(entity).unwrap().dirty);
+        let DbWrite::EconomicFrame { writes } = rx.try_recv().unwrap() else { panic!("expected complete frame"); };
+        assert!(writes.iter().any(|w| matches!(w, DbWrite::Faction { treasury: 850, .. })));
+        assert!(writes.iter().any(|w| matches!(w, DbWrite::ContractBoardSnapshot { .. })));
+        assert!(writes.iter().any(|w| matches!(w, DbWrite::Tick { tick: 3 })));
+        assert!(rx.try_recv().is_err());
     }
 }

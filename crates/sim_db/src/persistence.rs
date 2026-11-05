@@ -24,6 +24,9 @@ use tracing::{debug, info, warn};
 /// batches + dedups before touching SQLite.
 #[derive(Debug, Clone)]
 pub enum DbWrite {
+    /// One admitted tick: merge all members synchronously before any flush.
+    /// Never deduplicate frames themselves: they contain incremental dirty rows.
+    EconomicFrame { writes: Vec<DbWrite> },
     Ship {
         db_id: i64,
         credits: i64,
@@ -111,8 +114,8 @@ pub enum DbWrite {
     /// Drop a site row by agent_id — fires when the site materialises
     /// into a real facility (or an admin deletes it).
     ConstructionSiteDelete { agent_id: String },
-    /// Full snapshot of the contract board. Emitted every 16 ticks
-    /// (same cadence as facility / population flushes). Applied as
+    /// Full snapshot of the contract board. Included in each admitted economic
+    /// frame together with dirty balances and tick. Applied as
     /// DELETE + bulk INSERT in one transaction so removals (paid /
     /// expired) land in the same sweep that upserts still-live
     /// contracts. `rows` is a pre-serialized list of
@@ -257,6 +260,56 @@ mod escrow_tests {
     use sim_core::simulation::spawner::AgentStore;
 
     #[tokio::test]
+    async fn checkpoint_rollback_retains_complete_frames_for_retry() {
+        let pool = crate::pool::create_pool("sqlite::memory:").await.unwrap();
+        crate::pool::run_migrations(&pool).await.unwrap();
+        sqlx::query("INSERT INTO factions (id, name, faction_type, treasury) VALUES ('issuer', 'Issuer', 'normal', 880)")
+            .execute(&pool).await.unwrap();
+        let mut board = ContractBoard::new();
+        let id = board.post_delivery_for("issuer".into(), None, Commodity::Ore,
+            10, "source".into(), "port".into(), 120, 0, 1000);
+        board.register_prepaid(&id, FundingSource::Faction);
+        PersistenceWorker::flush(&pool, vec![
+            DbWrite::ContractBoardSnapshot { rows: board.iter().map(ContractRow::from).collect() },
+            DbWrite::Tick { tick: 1 },
+        ]).await.unwrap();
+        board.get_mut(&id).unwrap().funding.as_mut().unwrap().reserved = 150;
+        let mut buffer = HashMap::new();
+        PersistenceWorker::buffer_write(&mut buffer, DbWrite::EconomicFrame { writes: vec![
+            DbWrite::Faction { id: "issuer".into(), treasury: 850 },
+            DbWrite::ContractBoardSnapshot { rows: board.iter().map(ContractRow::from).collect() },
+            DbWrite::Tick { tick: 2 },
+        ]});
+        // A later frame omits an unchanged payer. It must not discard that
+        // payer's still-uncommitted debit from the preceding frame.
+        PersistenceWorker::buffer_write(&mut buffer, DbWrite::EconomicFrame { writes: vec![
+            DbWrite::ContractBoardSnapshot { rows: board.iter().map(ContractRow::from).collect() },
+            DbWrite::Tick { tick: 3 },
+        ]});
+        sqlx::query("CREATE TRIGGER checkpoint_fail BEFORE INSERT ON contracts BEGIN SELECT RAISE(ABORT, 'injected checkpoint failure'); END")
+            .execute(&pool).await.unwrap();
+        assert!(PersistenceWorker::flush_buffer(&pool, &mut buffer).await.is_err());
+        assert_eq!(buffer.len(), 3);
+        let balance: i64 = sqlx::query_scalar("SELECT treasury FROM factions WHERE id='issuer'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(balance, 880);
+        let json: String = sqlx::query_scalar("SELECT funding_json FROM contracts")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&json).unwrap()["reserved"], 120);
+        assert_eq!(super::load_tick_counter(&pool).await, 1);
+        sqlx::query("DROP TRIGGER checkpoint_fail").execute(&pool).await.unwrap();
+        PersistenceWorker::flush_buffer(&pool, &mut buffer).await.unwrap();
+        assert!(buffer.is_empty());
+        let balance: i64 = sqlx::query_scalar("SELECT treasury FROM factions WHERE id='issuer'")
+            .fetch_one(&pool).await.unwrap();
+        let mut restored = AgentStore::new();
+        crate::spawner::load_contracts(&pool, &mut restored).await.unwrap();
+        assert_eq!(balance + restored.contracts.get(&id).unwrap().funding.as_ref().unwrap().reserved, 1000);
+        assert_eq!(super::load_tick_counter(&pool).await, 3);
+        pool.close().await;
+    }
+
+    #[tokio::test]
     async fn escrow_sqlite_roundtrip_preserves_reserved_spent_and_legacy_states() {
         let pool = crate::pool::create_pool("sqlite::memory:").await.unwrap();
         crate::pool::run_migrations(&pool).await.unwrap();
@@ -359,6 +412,7 @@ impl DbWrite {
     /// Dedup key — newer writes replace older ones for the same agent.
     fn key(&self) -> (&'static str, String) {
         match self {
+            DbWrite::EconomicFrame { .. } => unreachable!("frames must be unpacked before dedup"),
             DbWrite::Ship { db_id, .. } => ("ship", db_id.to_string()),
             DbWrite::Market { db_id, .. } => ("market", db_id.to_string()),
             DbWrite::Faction { id, .. } => ("faction", id.clone()),
@@ -415,65 +469,65 @@ impl PersistenceWorker {
         Self { pool, rx, flush_rx, sweep_interval }
     }
 
+    // No await while unpacking a frame: a sweep cannot observe half a tick.
+    fn buffer_write(buffer: &mut HashMap<(&'static str, String), DbWrite>, write: DbWrite) {
+        match write {
+            DbWrite::EconomicFrame { writes } => {
+                for write in writes { Self::buffer_write(buffer, write); }
+            }
+            write => { buffer.insert(write.key(), write); }
+        }
+    }
+
+    async fn flush_buffer(pool: &SqlitePool, buffer: &mut HashMap<(&'static str, String), DbWrite>) -> Result<()> {
+        // Keep the exact admitted state on errors. Clear only after COMMIT.
+        Self::flush(pool, buffer.values().cloned().collect()).await?;
+        buffer.clear();
+        Ok(())
+    }
+
     pub async fn run(mut self) {
         let mut sweep = tokio::time::interval(self.sweep_interval);
         sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        let mut buffer: HashMap<(&'static str, String), DbWrite> = HashMap::new();
-
-        info!(
-            "PersistenceWorker: sweep interval {}s",
-            self.sweep_interval.as_secs()
-        );
-
+        let mut buffer = HashMap::new();
+        let mut flush_open = true;
+        info!("PersistenceWorker: sweep interval {}s", self.sweep_interval.as_secs());
         loop {
             tokio::select! {
                 msg = self.rx.recv() => {
                     match msg {
-                        Some(write) => {
-                            buffer.insert(write.key(), write);
-                        }
+                        Some(write) => Self::buffer_write(&mut buffer, write),
                         None => {
-                            // Sender dropped — final flush and exit.
-                            if !buffer.is_empty() {
-                                let taken = std::mem::take(&mut buffer);
-                                if let Err(e) = Self::flush(&self.pool, taken.into_values().collect()).await {
-                                    warn!("PersistenceWorker final flush failed: {e}");
-                                }
+                            if let Err(e) = Self::flush_buffer(&self.pool, &mut buffer).await {
+                                warn!("PersistenceWorker final flush failed: {e}");
                             }
                             info!("PersistenceWorker: channel closed, exiting");
                             return;
                         }
                     }
                 }
-
-                req = self.flush_rx.recv() => {
-                    let Some(ack) = req else { continue; };
-                    let taken = std::mem::take(&mut buffer);
-                    let count = taken.len();
-                    let started = std::time::Instant::now();
-                    match Self::flush(&self.pool, taken.into_values().collect()).await {
-                        Ok(()) => debug!(
-                            "PersistenceWorker: on-demand flushed {} writes in {:?}",
-                            count, started.elapsed()
-                        ),
-                        Err(e) => warn!("PersistenceWorker on-demand flush failed: {e}"),
+                req = self.flush_rx.recv(), if flush_open => {
+                    let Some(ack) = req else { flush_open = false; continue; };
+                    // The flush request uses a separate channel. Drain the writes
+                    // already queued, bounded by the length at this boundary.
+                    let queued = self.rx.len();
+                    for _ in 0..queued {
+                        if let Ok(write) = self.rx.try_recv() {
+                            Self::buffer_write(&mut buffer, write);
+                        }
                     }
-                    // Send after the tx commits (or fails). The caller
-                    // only cares that we're done; if flush errored
-                    // they'll hit the VACUUM failure right after.
-                    let _ = ack.send(());
+                    match Self::flush_buffer(&self.pool, &mut buffer).await {
+                        Ok(()) => { let _ = ack.send(()); }
+                        // Dropping ack makes save-as fail rather than report a
+                        // successful export after a failed checkpoint.
+                        Err(e) => warn!("PersistenceWorker on-demand flush failed; retained for retry: {e}"),
+                    }
                 }
-
                 _ = sweep.tick() => {
-                    if buffer.is_empty() {
-                        continue;
-                    }
-                    let taken = std::mem::take(&mut buffer);
-                    let count = taken.len();
-                    let started = std::time::Instant::now();
-                    match Self::flush(&self.pool, taken.into_values().collect()).await {
-                        Ok(()) => debug!("PersistenceWorker: flushed {} writes in {:?}", count, started.elapsed()),
-                        Err(e) => warn!("PersistenceWorker flush failed: {e}"),
+                    if buffer.is_empty() { continue; }
+                    match Self::flush_buffer(&self.pool, &mut buffer).await {
+                        Ok(()) => debug!("PersistenceWorker: committed pending writes"),
+                        Err(e) => warn!("PersistenceWorker flush failed; retained for retry: {e}"),
                     }
                 }
             }
@@ -485,6 +539,7 @@ impl PersistenceWorker {
 
         for write in writes {
             match write {
+                DbWrite::EconomicFrame { .. } => anyhow::bail!("unpacked economic frame expected"),
                 DbWrite::Ship {
                     db_id,
                     credits,
