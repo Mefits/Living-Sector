@@ -1,6 +1,12 @@
 # ASTRA — START HERE · Living Sector / Genesis
 
-> **Текущий участок P1c (2026-11-05):** `feature/genesis-contract-escrow` —
+> **Текущий участок P1d (2026-11-05):** `feature/genesis-economic-checkpoint` —
+> единый пакет экономического тика, сохранение dirty при backpressure и повтор
+> записи после ошибки SQLite. Добавлены 2 точечных теста и узкий CI workflow;
+> **CI на Linux прошёл: компиляция и 2/2 теста checkpoint_** (локально нет Rust).
+> Полный checkpoint мира ещё не готов. Детали и ограничения — [STATUS.md](STATUS.md).
+
+> **Предыдущий участок P1c (2026-11-05):** `feature/genesis-contract-escrow` —
 > резервирование и фиксация оплаты при принятии новых предоплаченных контрактов,
 > возвраты и сохранение резерва в SQLite. **5 адресных тестов прошли**.
 > Согласованный checkpoint и финансирование населения ещё не готовы.
