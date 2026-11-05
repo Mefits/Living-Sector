@@ -39,6 +39,9 @@ pub(super) fn apply_transaction(
         return;
     };
     let outcome = match &request {
+        ShipTransaction::Accept { contract_id } => {
+            super::contract_funding::accept(world, store, ship, contract_id, events, tick)
+        }
         ShipTransaction::Buy {
             location,
             commodity,
@@ -82,7 +85,9 @@ pub(super) fn apply_transaction(
             Some(*quantity),
         ),
         ShipTransaction::Refuel { location } => (Some(location.as_str()), Some("fuel"), None, None),
-        ShipTransaction::Deliver { contract_id } => (None, None, Some(contract_id.as_str()), None),
+        ShipTransaction::Deliver { contract_id } | ShipTransaction::Accept { contract_id } => {
+            (None, None, Some(contract_id.as_str()), None)
+        }
     };
     events.push(serde_json::json!({
         "kind": if outcome.is_ok() { "ship_transaction_applied" } else { "ship_transaction_rejected" },
@@ -398,28 +403,18 @@ fn deliver(
     {
         return Err("embargo");
     }
-    let bonus = world
-        .get::<sim_core::agents::ship::ShipFitting>(ship)
-        .map(|f| f.derived.comms_bonus)
-        .unwrap_or(0.0);
-    let treaty = c
-        .faction_id
-        .as_deref()
-        .map(|f| {
-            sim_core::agents::faction_relations::trade_pact_payment_multiplier(
-                &store.relations,
-                &identity.faction_id,
-                f,
-            )
-        })
-        .unwrap_or(1.0);
-    // Preserve the reward formula; any increase above the prepaid base must
-    // be covered by the actual requestor before the delivery can commit.
-    let payment = ((c.payment as f64) * (1.0 + bonus as f64) * treaty as f64).round();
-    if !payment.is_finite() || payment < 0.0 || payment >= i64::MAX as f64 {
-        return Err("invalid_payment");
-    }
-    let payment = payment as i64;
+    let payment = if let Some(funding) = &c.funding {
+        let agreed = funding
+            .agreed_payment
+            .ok_or("contract_not_funded_for_ship")?;
+        if agreed < 0 || funding.reserved < agreed {
+            return Err("invalid_contract_escrow");
+        }
+        agreed
+    } else {
+        // Untracked legacy contracts retain P1b settlement; no base is invented.
+        super::contract_funding::quote(world, store, ship, &c)?
+    };
     economy
         .credits
         .checked_add(payment)
@@ -467,12 +462,25 @@ fn deliver(
             destination_market = Some(market);
         }
     }
-    let top_up = prepare_reward_top_up(world, store, &c.requestor_id, c.initial_payment, payment)?;
+    let top_up = if c.funding.is_none() {
+        prepare_reward_top_up(world, store, &c.requestor_id, c.initial_payment, payment)?
+    } else {
+        None
+    };
     // Status changes only after recipient, ownership, cargo and funding pass.
     let c = store
         .contracts
         .mark_delivered(contract_id)
         .ok_or("inactive_contract")?;
+    if let Some(funding) = store
+        .contracts
+        .get_mut(contract_id)
+        .unwrap()
+        .funding
+        .as_mut()
+    {
+        funding.reserved -= payment;
+    }
     let quantity = c.quantity;
     if let Some((payer, balance, amount)) = top_up {
         match payer {

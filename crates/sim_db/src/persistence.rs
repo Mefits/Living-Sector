@@ -194,6 +194,8 @@ pub struct ContractRow {
     pub destination_location: String,
     pub payment: i64,
     pub initial_payment: i64,
+    pub funding_json: Option<String>,
+    pub renewal_count: i64,
     pub faction_id: Option<String>,
     pub min_reputation: i64,
     pub initial_min_reputation: i64,
@@ -201,6 +203,156 @@ pub struct ContractRow {
     pub posted_at_tick: i64,
     pub accepted_at_tick: Option<i64>,
     pub expires_at_tick: i64,
+}
+
+impl From<&sim_core::economy::contracts::Contract> for ContractRow {
+    fn from(c: &sim_core::economy::contracts::Contract) -> Self {
+        Self {
+            id: c.id.clone(),
+            contract_type: c.contract_type.as_str().to_string(),
+            status: match c.status {
+                sim_core::economy::contracts::ContractStatus::Posted => "posted",
+                sim_core::economy::contracts::ContractStatus::Accepted => "accepted",
+                sim_core::economy::contracts::ContractStatus::PickedUp => "picked_up",
+                sim_core::economy::contracts::ContractStatus::Delivered => "delivered",
+                sim_core::economy::contracts::ContractStatus::Paid => "paid",
+                sim_core::economy::contracts::ContractStatus::Expired => "expired",
+            }
+            .to_string(),
+            requestor_id: c.requestor_id.clone(),
+            fulfiller_id: c.fulfiller_id.clone(),
+            commodity: c.commodity.as_str().to_string(),
+            quantity: c.quantity as i64,
+            source_location: c.source_location.clone(),
+            destination_location: c.destination_location.clone(),
+            payment: c.payment,
+            initial_payment: if c.initial_payment > 0 {
+                c.initial_payment
+            } else {
+                c.payment
+            },
+            funding_json: c
+                .funding
+                .as_ref()
+                .map(|f| serde_json::to_string(f).expect("integer contract funding")),
+            renewal_count: c.renewal_count as i64,
+            faction_id: c.faction_id.clone(),
+            min_reputation: c.min_reputation as i64,
+            initial_min_reputation: c.initial_min_reputation as i64,
+            mission_category: c.mission_category.clone(),
+            posted_at_tick: c.posted_at_tick as i64,
+            accepted_at_tick: c.accepted_at_tick.map(|t| t as i64),
+            expires_at_tick: c.expires_at_tick as i64,
+        }
+    }
+}
+
+#[cfg(test)]
+mod escrow_tests {
+    use super::*;
+    use sim_core::economy::{
+        commodities::Commodity,
+        contracts::{ContractBoard, ContractStatus, FundingSource},
+    };
+    use sim_core::simulation::spawner::AgentStore;
+
+    #[tokio::test]
+    async fn escrow_sqlite_roundtrip_preserves_reserved_spent_and_legacy_states() {
+        let pool = crate::pool::create_pool("sqlite::memory:").await.unwrap();
+        crate::pool::run_migrations(&pool).await.unwrap();
+        let mut board = ContractBoard::new();
+        let funded = board.post_delivery_for(
+            "issuer".into(),
+            None,
+            Commodity::Ore,
+            10,
+            "source".into(),
+            "port".into(),
+            120,
+            0,
+            1000,
+        );
+        board.register_prepaid(&funded, FundingSource::Faction);
+        board.accept(&funded, "ship".into(), 2);
+        let c = board.get_mut(&funded).unwrap();
+        c.renewal_count = 2;
+        c.funding.as_mut().unwrap().reserved = 150;
+        c.funding.as_mut().unwrap().agreed_payment = Some(150);
+        let legacy = board.post_delivery_for(
+            "old-issuer".into(),
+            None,
+            Commodity::Ore,
+            10,
+            "source".into(),
+            "port".into(),
+            120,
+            0,
+            1000,
+        );
+        PersistenceWorker::flush(
+            &pool,
+            vec![DbWrite::ContractBoardSnapshot {
+                rows: board.iter().map(ContractRow::from).collect(),
+            }],
+        )
+        .await
+        .unwrap();
+        let mut loaded = AgentStore::new();
+        crate::spawner::load_contracts(&pool, &mut loaded)
+            .await
+            .unwrap();
+        assert_eq!(
+            loaded.contracts.get(&funded).unwrap().funding,
+            board.get(&funded).unwrap().funding
+        );
+        assert_eq!(loaded.contracts.get(&funded).unwrap().renewal_count, 2);
+        assert_eq!(
+            loaded.contracts.get(&funded).unwrap().status,
+            ContractStatus::Accepted
+        );
+        assert!(loaded.contracts.get(&legacy).unwrap().funding.is_none());
+
+        loaded
+            .contracts
+            .cancel_for_facility(Some("issuer"), None, None);
+        loaded
+            .contracts
+            .get_mut(&funded)
+            .unwrap()
+            .funding
+            .as_mut()
+            .unwrap()
+            .reserved = 0;
+        PersistenceWorker::flush(
+            &pool,
+            vec![DbWrite::ContractBoardSnapshot {
+                rows: loaded.contracts.iter().map(ContractRow::from).collect(),
+            }],
+        )
+        .await
+        .unwrap();
+        let mut restored = AgentStore::new();
+        crate::spawner::load_contracts(&pool, &mut restored)
+            .await
+            .unwrap();
+        assert_eq!(
+            restored
+                .contracts
+                .get(&funded)
+                .unwrap()
+                .funding
+                .as_ref()
+                .unwrap()
+                .reserved,
+            0
+        );
+        assert_eq!(
+            restored.contracts.get(&funded).unwrap().status,
+            ContractStatus::Expired
+        );
+        assert!(restored.contracts.get(&legacy).unwrap().funding.is_none());
+        pool.close().await;
+    }
 }
 
 impl DbWrite {
@@ -593,7 +745,7 @@ impl PersistenceWorker {
                                 fulfiller_type, fulfiller_id,
                                 commodity, quantity, quantity_remaining,
                                 source_location, destination_location,
-                                payment, initial_payment,
+                                payment, initial_payment, funding_json, renewal_count,
                                 faction_id, min_reputation, initial_min_reputation,
                                 mission_category,
                                 posted_at_tick, accepted_at_tick, expires_at_tick
@@ -603,7 +755,7 @@ impl PersistenceWorker {
                                 CASE WHEN ?5 IS NULL THEN NULL ELSE 'ship' END, ?5,
                                 ?6, ?7, ?7,
                                 ?8, ?9,
-                                ?10, ?11,
+                                ?10, ?11, ?19, ?20,
                                 ?12, ?13, ?14,
                                 ?15,
                                 ?16, ?17, ?18
@@ -627,6 +779,8 @@ impl PersistenceWorker {
                         .bind(r.posted_at_tick)
                         .bind(r.accepted_at_tick)
                         .bind(r.expires_at_tick)
+                        .bind(r.funding_json.as_deref())
+                        .bind(r.renewal_count)
                         .execute(&mut *tx)
                         .await?;
                     }

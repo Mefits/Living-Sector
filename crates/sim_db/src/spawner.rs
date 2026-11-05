@@ -1288,13 +1288,13 @@ fn parse_cargo(json: &str) -> Cargo {
 /// with a warning rather than aborting the load. Fresh-seed runs land
 /// here with zero rows (the table was just created), so the boot-time
 /// contract pump runs afterward to populate the board.
-async fn load_contracts(pool: &SqlitePool, store: &mut AgentStore) -> Result<()> {
+pub(crate) async fn load_contracts(pool: &SqlitePool, store: &mut AgentStore) -> Result<()> {
     use sim_core::economy::contracts::{Contract, ContractStatus, ContractType};
 
     let rows = sqlx::query(
         "SELECT id, contract_type, status, requestor_id, fulfiller_id,
                 commodity, quantity, source_location, destination_location,
-                payment, initial_payment,
+                payment, initial_payment, funding_json, renewal_count,
                 faction_id, min_reputation, initial_min_reputation,
                 mission_category,
                 posted_at_tick, accepted_at_tick, expires_at_tick
@@ -1345,6 +1345,8 @@ async fn load_contracts(pool: &SqlitePool, store: &mut AgentStore) -> Result<()>
         let min_reputation: i64 = r.get("min_reputation");
         let initial_min_reputation_raw: i64 = r.get("initial_min_reputation");
 
+        let funding = r.get::<Option<String>, _>("funding_json")
+            .map(|json| serde_json::from_str(&json)).transpose()?;
         let contract = Contract {
             id: id.clone(),
             contract_type,
@@ -1357,6 +1359,7 @@ async fn load_contracts(pool: &SqlitePool, store: &mut AgentStore) -> Result<()>
             source_location: r.get("source_location"),
             destination_location: r.get("destination_location"),
             payment,
+            funding,
             initial_payment: if initial_payment_raw > 0 {
                 initial_payment_raw
             } else {
@@ -1375,11 +1378,7 @@ async fn load_contracts(pool: &SqlitePool, store: &mut AgentStore) -> Result<()>
                 .flatten(),
             min_reputation: min_reputation.clamp(0, 100) as u8,
             initial_min_reputation: initial_min_reputation_raw.clamp(0, 100) as u8,
-            // Not persisted — resets to 0 on restart. The next expiry
-            // will start the renewal ladder fresh, which is fine since
-            // the payment value round-tripped on disk already reflects
-            // prior escalations.
-            renewal_count: 0,
+            renewal_count: r.get::<i64, _>("renewal_count").clamp(0, u8::MAX as i64) as u8,
         };
         store.contracts.insert_loaded(contract);
         loaded += 1;

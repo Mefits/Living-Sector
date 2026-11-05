@@ -484,38 +484,7 @@ pub(super) fn emit_persist_writes(
         let rows: Vec<sim_db::persistence::ContractRow> = store
             .contracts
             .iter()
-            .map(|c| sim_db::persistence::ContractRow {
-                id: c.id.clone(),
-                contract_type: c.contract_type.as_str().to_string(),
-                status: match c.status {
-                    sim_core::economy::contracts::ContractStatus::Posted => "posted",
-                    sim_core::economy::contracts::ContractStatus::Accepted => "accepted",
-                    sim_core::economy::contracts::ContractStatus::PickedUp => "picked_up",
-                    sim_core::economy::contracts::ContractStatus::Delivered => "delivered",
-                    sim_core::economy::contracts::ContractStatus::Paid => "paid",
-                    sim_core::economy::contracts::ContractStatus::Expired => "expired",
-                }
-                .to_string(),
-                requestor_id: c.requestor_id.clone(),
-                fulfiller_id: c.fulfiller_id.clone(),
-                commodity: c.commodity.as_str().to_string(),
-                quantity: c.quantity as i64,
-                source_location: c.source_location.clone(),
-                destination_location: c.destination_location.clone(),
-                payment: c.payment,
-                initial_payment: if c.initial_payment > 0 {
-                    c.initial_payment
-                } else {
-                    c.payment
-                },
-                faction_id: c.faction_id.clone(),
-                min_reputation: c.min_reputation as i64,
-                initial_min_reputation: c.initial_min_reputation as i64,
-                mission_category: c.mission_category.clone(),
-                posted_at_tick: c.posted_at_tick as i64,
-                accepted_at_tick: c.accepted_at_tick.map(|t| t as i64),
-                expires_at_tick: c.expires_at_tick as i64,
-            })
+            .map(sim_db::persistence::ContractRow::from)
             .collect();
         let _ = tx.try_send(DbWrite::ContractBoardSnapshot { rows });
     }

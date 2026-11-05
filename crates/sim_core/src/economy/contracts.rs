@@ -32,7 +32,7 @@
 //! planner phase; populations/facilities post during theirs.
 
 use crate::economy::commodities::Commodity;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
 /// Reputation threshold used when a faction wants to restrict a contract
@@ -147,6 +147,20 @@ pub enum ContractStatus {
     Expired,
 }
 
+/// Account from which the posting agent actually debited the advance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FundingSource { Facility, Faction }
+
+/// Explicit escrow for newly funded facility/faction contracts. None on a
+/// contract means legacy/unverified funding, never an inferred new balance.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractFunding {
+    pub source: FundingSource,
+    pub reserved: i64,
+    pub agreed_payment: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Contract {
     pub id: String,
@@ -173,6 +187,8 @@ pub struct Contract {
     /// saves.
     #[serde(default)]
     pub initial_payment: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub funding: Option<ContractFunding>,
     pub posted_at_tick: u64,
     pub accepted_at_tick: Option<u64>,
     pub expires_at_tick: u64,
@@ -198,9 +214,7 @@ pub struct Contract {
     /// Phase 19b: how many times `expire()` has auto-renewed this
     /// contract at escalating price + relaxed rep gate. Caps at
     /// [`CONTRACT_MAX_RENEWALS`] — after that, the contract actually
-    /// expires. Not persisted (in-memory only) since it resets cleanly
-    /// on restart and the renew math is idempotent from any starting
-    /// payment.
+    /// expires. Persisted so restarting cannot reset the refund deadline.
     #[serde(default)]
     pub renewal_count: u8,
 }
@@ -276,6 +290,14 @@ pub struct ContractBoard {
 impl ContractBoard {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Call immediately after posting and debiting the requestor's account.
+    /// Register the existing advance; this method does not create/debit money.
+    pub fn register_prepaid(&mut self, id: &str, source: FundingSource) {
+        let c = self.contracts.get_mut(id).expect("newly posted contract");
+        assert!(c.status == ContractStatus::Posted && c.funding.is_none() && c.initial_payment >= 0);
+        c.funding = Some(ContractFunding { source, reserved: c.initial_payment, agreed_payment: None });
     }
 
     pub fn len(&self) -> usize {
@@ -650,6 +672,7 @@ impl ContractBoard {
             destination_location: destination_location.clone(),
             payment,
             initial_payment: payment,
+            funding: None,
             posted_at_tick,
             accepted_at_tick: None,
             expires_at_tick: posted_at_tick + lifespan_ticks,
@@ -868,6 +891,7 @@ impl ContractBoard {
             c.status = ContractStatus::Posted;
             c.fulfiller_id = None;
             c.accepted_at_tick = None;
+            if let Some(funding) = c.funding.as_mut() { funding.agreed_payment = None; }
             (
                 c.destination_location.clone(),
                 c.faction_id.clone(),
@@ -1070,6 +1094,7 @@ impl ContractBoard {
                         c.status = ContractStatus::Posted;
                         c.fulfiller_id = None;
                         c.accepted_at_tick = None;
+                        if let Some(funding) = c.funding.as_mut() { funding.agreed_payment = None; }
                     }
                     self.reindex_status(&id, ContractStatus::Accepted, ContractStatus::Posted);
                     let entry = self.posted_by_destination.entry(dest).or_default();

@@ -8,6 +8,9 @@ use crate::economy::commodities::Commodity;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShipTransaction {
+    Accept {
+        contract_id: String,
+    },
     Buy {
         location: String,
         commodity: Commodity,
@@ -25,6 +28,7 @@ pub enum ShipTransaction {
 impl ShipTransaction {
     pub fn kind(&self) -> &'static str {
         match self {
+            Self::Accept { .. } => "accept",
             Self::Buy { .. } => "buy",
             Self::Refuel { .. } => "refuel",
             Self::Deliver { .. } => "deliver",

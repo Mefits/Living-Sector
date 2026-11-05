@@ -1293,7 +1293,7 @@ pub fn tick_post_contracts_with_relations(
             ops.credits -= plan.payment;
             ops.dirty = true;
         }
-        contracts.post_delivery_for(
+        let contract_id = contracts.post_delivery_for(
             plan.requestor_id,
             plan.faction_id,
             plan.commodity,
@@ -1304,6 +1304,7 @@ pub fn tick_post_contracts_with_relations(
             tick,
             lifespan,
         );
+        contracts.register_prepaid(&contract_id, crate::economy::contracts::FundingSource::Facility);
     }
 }
 
@@ -1492,17 +1493,14 @@ pub fn tick_post_crew_missions(
                 .find(|(_, id)| id.id == cand.fac_id)
                 .map(|(e, _)| e)
         };
-        if let Some(e) = fac_e {
-            if let Some(mut ops) = world.get_mut::<FacilityOperations>(e) {
-                if ops.credits < template.base_payment {
-                    continue;
-                }
-                ops.credits -= template.base_payment;
-                ops.dirty = true;
-            }
-        }
+        let Some(e) = fac_e else { continue };
+        let Some(mut ops) = world.get_mut::<FacilityOperations>(e) else { continue };
+        if ops.credits < template.base_payment { continue; }
+        ops.credits -= template.base_payment;
+        ops.dirty = true;
 
-        contracts.post_crew_mission(
+
+        let contract_id = contracts.post_crew_mission(
             cand.fac_id,
             template.category.to_string(),
             template.duration_ticks as u32,
@@ -1516,6 +1514,7 @@ pub fn tick_post_crew_missions(
             tick,
             lifespan,
         );
+        contracts.register_prepaid(&contract_id, crate::economy::contracts::FundingSource::Facility);
     }
 }
 
