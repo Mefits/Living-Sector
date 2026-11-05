@@ -20,6 +20,18 @@ use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
 
+/// Stable IDs only: ECS Entity handles are resolved anew on load.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ShipResumeState {
+    pub location_name: Option<String>,
+    pub docked_db_id: Option<i64>,
+    pub system_id: String,
+    pub universe_offset: (f32, f32),
+    pub transit: Option<sim_core::agents::ship::Transit>,
+    pub cargo_age: HashMap<sim_core::economy::commodities::Commodity, u64>,
+    pub cargo_origin: HashMap<sim_core::economy::commodities::Commodity, (String, f32)>,
+}
+
 /// A single persist request. The engine emits these per-tick; the worker
 /// batches + dedups before touching SQLite.
 #[derive(Debug, Clone)]
@@ -34,6 +46,7 @@ pub enum DbWrite {
         position_x: f32,
         position_y: f32,
         cargo_json: String,
+        resume_json: String,
         current_goal: String,
         active_contract_id: Option<String>,
         broke_strikes: u8,
@@ -258,6 +271,61 @@ mod escrow_tests {
         contracts::{ContractBoard, ContractStatus, FundingSource},
     };
     use sim_core::simulation::spawner::AgentStore;
+
+    #[tokio::test]
+    async fn flight_recovery_sqlite_roundtrip_restores_transit_docks_and_cargo() {
+        use sim_core::agents::ship::{ShipPosition, ShipTransit, ShipCargo, ShipEconomy, ShipAI, Transit};
+        let pool = crate::pool::create_pool("sqlite::memory:").await.unwrap();
+        crate::pool::run_migrations(&pool).await.unwrap();
+        for sql in [
+            "INSERT INTO star_systems (id,name) VALUES (1,'sol')",
+            "INSERT INTO celestial_bodies (id,body_id,name,body_type,orbit_radius,orbit_period,current_angle,star_system_id) VALUES (1,'earth','Earth','planet',1,100,0,1)",
+            "INSERT INTO locations (id,name,loc_type,celestial_body_id) VALUES (1,'port','station',1)",
+            "INSERT INTO facilities (id,name,facility_type,location_id) VALUES (7,'Station','station',1)",
+            "INSERT INTO ships (id,name,docked_at,location_name,transit_from,transit_to,transit_departure_tick,transit_arrival_tick) VALUES (10,'Runner',7,'obsolete','old','stale',1,2)",
+        ] { sqlx::query(sql).execute(&pool).await.unwrap(); }
+        for mode in 0..3 {
+            let transit = (mode == 0).then(|| Transit { from: "source".into(), to: "port".into(),
+                departure_tick: 20, arrival_tick: 80, departure_position: Some((3.0, 4.0)),
+                distance_total: 100.0, distance_travelled: 45.0 });
+            let resume = ShipResumeState {
+                location_name: (mode != 0).then(|| "port".into()),
+                docked_db_id: (mode == 1).then_some(7), system_id: "sol".into(),
+                universe_offset: (12.0, 34.0), transit,
+                cargo_age: [(Commodity::Ore, 18)].into(),
+                cargo_origin: [(Commodity::Ore, ("source".into(), 3.5))].into(),
+            };
+            PersistenceWorker::flush(&pool, vec![DbWrite::Ship {
+                db_id: 10, credits: 900, fuel: 55.0, position_x: 8.0, position_y: 9.0,
+                cargo_json: "{\"ore\":10}".into(), resume_json: serde_json::to_string(&resume).unwrap(),
+                current_goal: "fulfill_delivery".into(), active_contract_id: Some("held".into()),
+                broke_strikes: 0, hoard_strikes: 0, idle_ticks: 0,
+                fitting_json: "{}".into(), progression_json: "{}".into(),
+            }]).await.unwrap();
+            let mut world = bevy_ecs::prelude::World::new();
+            let store = crate::spawner::load_agents(&mut world, &pool,
+                &sim_core::world::registry::WorldRegistry::default(),
+                &sim_core::simulation::config::TickConfig::DEFAULT).await.unwrap();
+            let ship = store.ship_by_id["ship-runner"];
+            let pos = world.get::<ShipPosition>(ship).unwrap();
+            assert_eq!(pos.location_name, resume.location_name);
+            assert_eq!(pos.position, (8.0, 9.0));
+            assert_eq!(pos.universe_offset, (12.0, 34.0));
+            assert_eq!(pos.docked_at.is_some(), mode == 1);
+            if let Some(dock) = pos.docked_at {
+                assert!(world.get::<sim_core::agents::facility::FacilityStorage>(dock).unwrap().docked_ships.contains(&ship));
+            }
+            assert_eq!(serde_json::to_value(&world.get::<ShipTransit>(ship).unwrap().transit).unwrap(),
+                serde_json::to_value(&resume.transit).unwrap());
+            let cargo = world.get::<ShipCargo>(ship).unwrap();
+            assert_eq!(cargo.cargo[&Commodity::Ore], 10);
+            assert_eq!(cargo.cargo_age[&Commodity::Ore], 18);
+            assert_eq!(cargo.cargo_origin[&Commodity::Ore], ("source".into(), 3.5));
+            assert_eq!(world.get::<ShipEconomy>(ship).unwrap().active_contract_id.as_deref(), Some("held"));
+            assert_eq!(world.get::<ShipAI>(ship).unwrap().current_goal, "fulfill_delivery");
+        }
+        pool.close().await;
+    }
 
     #[tokio::test]
     async fn lifecycle_tombstone_wins_over_stale_site_upsert() {
@@ -573,6 +641,7 @@ impl PersistenceWorker {
                     position_x,
                     position_y,
                     cargo_json,
+                    resume_json,
                     current_goal,
                     active_contract_id,
                     broke_strikes,
@@ -586,7 +655,7 @@ impl PersistenceWorker {
                            credits=?1, fuel=?2, position_x=?3, position_y=?4,
                            cargo=?5, current_goal=?6, active_contract_id=?7,
                            broke_strikes=?8, hoard_strikes=?9, idle_ticks=?10,
-                           fitting=?11, progression=?12,
+                           fitting=?11, progression=?12, resume_json=?14,
                            updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
                          WHERE id=?13",
                     )
@@ -603,6 +672,7 @@ impl PersistenceWorker {
                     .bind(fitting_json)
                     .bind(progression_json)
                     .bind(db_id)
+                    .bind(resume_json)
                     .execute(&mut *tx)
                     .await?;
                 }

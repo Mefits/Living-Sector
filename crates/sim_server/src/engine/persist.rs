@@ -134,7 +134,16 @@ pub(super) fn emit_persist_writes(
                         position_x: pos.position.0,
                         position_y: pos.position.1,
                         cargo_json: serde_json::Value::Object(cargo_json).to_string(),
-                        current_goal: String::new(), // ShipAI field; we don't have it in this query
+                        resume_json: serde_json::to_string(&sim_db::persistence::ShipResumeState {
+                            location_name: pos.location_name.clone(),
+                            docked_db_id: pos.docked_at.and_then(|e| world.get::<sim_core::agents::facility::FacilityIdentity>(e).map(|id| id.db_id)),
+                            system_id: pos.system_id.clone(),
+                            universe_offset: pos.universe_offset,
+                            transit: world.get::<sim_core::agents::ship::ShipTransit>(e).and_then(|t| t.transit.clone()),
+                            cargo_age: cargo.cargo_age.clone(),
+                            cargo_origin: cargo.cargo_origin.clone(),
+                        }).expect("serializable ship resume state"),
+                        current_goal: world.get::<sim_core::agents::ship::ShipAI>(e).map(|ai| ai.current_goal.clone()).unwrap_or_default(),
                         active_contract_id: econ.active_contract_id.clone(),
                         broke_strikes: life.broke_strikes,
                         hoard_strikes: life.hoard_strikes,

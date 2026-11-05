@@ -791,13 +791,15 @@ async fn load_ships(
                 cargo, cargo_age,
                 docked_at, transit_from, transit_to, transit_departure_tick, transit_arrival_tick,
                 current_goal, broke_strikes, hoard_strikes, idle_ticks,
-                active_contract_id, price_knowledge, visited, fitting, progression, size
+                active_contract_id, price_knowledge, visited, fitting, progression, size, resume_json
          FROM ships",
     )
     .fetch_all(pool)
     .await?;
 
     for r in rows {
+        let resume: Option<crate::persistence::ShipResumeState> = r.get::<Option<String>, _>("resume_json")
+            .map(|json| serde_json::from_str(&json)).transpose()?;
         let db_id: i64 = r.get("id");
         let name: String = r.get("name");
         let class: String = r.get("class");
@@ -926,6 +928,17 @@ async fn load_ships(
             _ => None,
         };
 
+        // New snapshots override obsolete legacy columns. Explicit None clears
+        // old docking/transit state rather than falling back to it.
+        let (location_name, system_id, ox, oy, docked_at, transit, cargo_age, cargo_origin) =
+            if let Some(state) = &resume {
+                (state.location_name.clone().unwrap_or_default(), state.system_id.clone(),
+                 state.universe_offset.0 as f64, state.universe_offset.1 as f64,
+                 state.docked_db_id, state.transit.clone(), state.cargo_age.clone(), state.cargo_origin.clone())
+            } else {
+                (location_name, system_id, ox, oy, docked_at, transit, cargo_age, HashMap::new())
+            };
+
         let visited: Vec<String> = serde_json::from_str(&visited_json).unwrap_or_default();
         let price_knowledge: PriceKnowledge =
             serde_json::from_str(&price_knowledge_json).unwrap_or_default();
@@ -938,7 +951,7 @@ async fn load_ships(
         // regardless of system. Resolve an initial position from the
         // ship's `location_name` via the body that location orbits. Falls
         // back to (0,0) only if the location or body can't be found.
-        let (init_px, init_py) = if px.abs() < f64::EPSILON && py.abs() < f64::EPSILON {
+        let (init_px, init_py) = if resume.is_none() && px.abs() < f64::EPSILON && py.abs() < f64::EPSILON {
             resolve_location_world_pos(world, registry, &location_name)
                 .map(|(x, y)| (x as f64, y as f64))
                 .unwrap_or((px, py))
@@ -971,7 +984,7 @@ async fn load_ships(
                 cargo,
                 capacity: fitted_cargo_capacity,
                 cargo_age,
-                cargo_origin: std::collections::HashMap::new(),
+                cargo_origin,
             },
             ShipFuel {
                 fuel: fuel as f32,
@@ -1034,6 +1047,11 @@ async fn load_ships(
         world
             .entity_mut(entity)
             .insert(sim_core::simulation::lod::AgentLod::new());
+        if let Some(facility) = docked_at_entity {
+            if let Some(mut storage) = world.get_mut::<FacilityStorage>(facility) {
+                storage.docked_ships.push(entity);
+            }
+        }
         store.index_ship(id, entity);
     }
     Ok(())
