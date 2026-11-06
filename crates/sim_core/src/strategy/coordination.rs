@@ -67,6 +67,9 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
     world.init_resource::<StrategyState>();
     if world.resource::<StrategyState>().last_coordinated_tick == Some(tick) { return; }
     let mode = world.resource::<StrategyState>().mode;
+    if mode == Mode::Execute {
+        sourcing::withdraw_unprofitable(world, board, relations, events, tick);
+    }
     world.resource_mut::<StrategyState>().mode = Mode::Shadow;
     super::run_cycle(world,board,relations,tick,mult);
     let mut preview_events = Vec::new();

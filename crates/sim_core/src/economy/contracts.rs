@@ -1044,26 +1044,35 @@ impl ContractBoard {
                     renewal_count: new_count,
                 });
                 // Stays in Posted — no reindex needed.
-            } else if let Some(c) = self.contracts.get_mut(&id) {
-                let summary = ExpiredSummary {
-                    id: id.clone(),
-                    commodity: c.commodity,
-                    destination: c.destination_location.clone(),
-                    contract_type: c.contract_type,
-                    final_payment: c.payment,
-                };
-                c.status = ContractStatus::Expired;
-                let dest = c.destination_location.clone();
-                let fac = c.faction_id.clone();
-                self.reindex_status(&id, ContractStatus::Posted, ContractStatus::Expired);
-                if let Some(list) = self.posted_by_destination.get_mut(&dest) {
-                    list.retain(|i| i != &id);
-                }
-                self.faction_bucket_remove(&id, &fac);
+            } else if let Some(summary) = self.expire_unclaimed(&id) {
                 result.expired.push(summary);
             }
         }
         result
+    }
+
+    /// Close a Posted offer and remove it from all planner indexes.
+    /// An accepted or loaded shipment is never withdrawn here.
+    pub(crate) fn expire_unclaimed(&mut self, id: &str) -> Option<ExpiredSummary> {
+        let contract = self.contracts.get_mut(id)?;
+        if contract.status != ContractStatus::Posted {
+            return None;
+        }
+        let summary = ExpiredSummary {
+            id: contract.id.clone(),
+            commodity: contract.commodity,
+            destination: contract.destination_location.clone(),
+            contract_type: contract.contract_type,
+            final_payment: contract.payment,
+        };
+        contract.status = ContractStatus::Expired;
+        let faction = contract.faction_id.clone();
+        self.reindex_status(id, ContractStatus::Posted, ContractStatus::Expired);
+        if let Some(list) = self.posted_by_destination.get_mut(&summary.destination) {
+            list.retain(|candidate| candidate != id);
+        }
+        self.faction_bucket_remove(id, &faction);
+        Some(summary)
     }
 
     /// Count-only variant for tests / callers that don't need the

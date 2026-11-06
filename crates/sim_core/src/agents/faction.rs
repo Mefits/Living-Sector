@@ -913,12 +913,31 @@ pub(crate) fn ensure_site_spawned(
     destination: &str,
     tick: u64,
 ) {
+    ensure_site_spawned_with_material(
+        world, events, faction_id, commodity, commodity,
+        crate::agents::construction::facility_type_for_commodity(commodity), destination, tick,
+    );
+}
+
+/// Keep the producer chosen for the shortage separate from the cargo that
+/// advances its site. The native delivery address remains (location, cargo).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn ensure_site_spawned_with_material(
+    world: &mut World,
+    events: &mut Vec<serde_json::Value>,
+    faction_id: &str,
+    target: Commodity,
+    material: Commodity,
+    facility_type: &str,
+    destination: &str,
+    tick: u64,
+) {
     use crate::agents::celestial_body::{BodyIdentity, BodyOrbit};
     use crate::agents::construction::{
         self, ConstructionSite, CONSTRUCTION_PROGRESS_REQUIRED,
     };
 
-    if construction::site_exists_for(world, destination, commodity) {
+    if construction::site_exists_for(world, destination, material) {
         return;
     }
 
@@ -941,15 +960,14 @@ pub(crate) fn ensure_site_spawned(
     };
     let Some(body_center) = body_center else { return };
 
-    let site_id = format!("site-{}-{}-{}", commodity.as_str(), destination, tick);
+    let site_id = format!("site-{}-{}-{}", target.as_str(), destination, tick);
     let position =
         crate::agents::facility::facility_offset_position(body_center, &site_id);
-    let facility_type = construction::facility_type_for_commodity(commodity);
 
     let name = format!(
         "{} {} Works (under construction)",
         human_prefix(destination),
-        commodity.as_str().to_ascii_uppercase()
+        target.as_str().to_ascii_uppercase()
     );
 
     let site = ConstructionSite {
@@ -959,7 +977,7 @@ pub(crate) fn ensure_site_spawned(
         faction_id: faction_id.to_string(),
         body_id,
         location_name: destination.to_string(),
-        commodity,
+        commodity: material,
         progress_delivered: 0,
         progress_required: CONSTRUCTION_PROGRESS_REQUIRED,
         position,
@@ -975,7 +993,8 @@ pub(crate) fn ensure_site_spawned(
         "name": name,
         "facility_type": facility_type,
         "location": destination,
-        "commodity": commodity.as_str(),
+        "commodity": material.as_str(),
+        "target_commodity": target.as_str(),
         "required": CONSTRUCTION_PROGRESS_REQUIRED,
     }));
 }
