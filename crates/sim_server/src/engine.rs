@@ -140,6 +140,11 @@ pub async fn run_tick_loop(
         "Engine: tick loop started at {}ms/tick ({} tps, world_speed={}, mult={})",
         timer_interval, tick_config.ticks_per_second, tick_config.world_speed, tick_mult,
     );
+    let mode = if std::env::var("LIVING_SECTOR_STRATEGY_MODE").as_deref() == Ok("execute") {
+        sim_core::strategy::Mode::Execute
+    } else { sim_core::strategy::Mode::Shadow };
+    world.insert_resource(sim_core::strategy::StrategyState { mode, ..Default::default() });
+    sim_core::strategy::refresh(&mut world, &store.contracts, tick_counter.load(Ordering::Relaxed));
     // Prime all snapshot categories before the first timer tick. In the
     // small Genesis scenario the launcher pauses almost immediately, and a
     // restored tick counter can land between the 4/16-tick refreshes.

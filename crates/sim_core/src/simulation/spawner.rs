@@ -47,8 +47,8 @@ pub struct PendingRespawn {
 /// Pending INSERT-then-backfill request for a facility that was just
 /// materialised from a construction site. The ECS entity is already
 /// spawned with `FacilityIdentity.db_id = 0`; the engine drains this
-/// queue asynchronously after each apply phase, runs the real INSERT,
-/// and updates the entity's db_id with the returned row id.
+/// queue after each apply phase and includes creation in the economic frame.
+/// Constructed entities already carry stable reserved DB IDs.
 ///
 /// Pure data (strings + numbers) so `sim_core` stays free of sqlx.
 #[derive(Debug, Clone)]

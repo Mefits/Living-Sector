@@ -1140,3 +1140,107 @@ fn flight_recovery_emitter_captures_stable_dock_and_flight_progress() {
     assert_eq!(resume.location_name, None);
     assert_eq!(resume.transit.unwrap().distance_travelled, 25.0);
 }
+
+#[test]
+fn strategy_block_head_to_logistics_to_native_delivery() {
+    use sim_core::{strategy::{self, Mode, StrategyState}, agents::faction::{FactionData, FactionColors}};
+    let mut f = Fixture::new(0.0, 100.0);
+    f.world.get_mut::<FacilityIdentity>(f.facility).unwrap().faction_id = "haulers".into();
+    let faction = f.world.spawn(FactionData { id: "haulers".into(), name: "Haulers".into(),
+        faction_type: "normal".into(), home_system: "sol".into(), treasury: 20_000,
+        personality: sim_core::ai::personality::Personality::balanced_trader(),
+        colors: FactionColors { primary: String::new(), secondary: String::new() },
+        active_subsidies: 0, dirty: false }).id();
+    f.store.faction_by_id.insert("haulers".into(), faction);
+    f.world.get_mut::<MarketHistory>(f.market).unwrap().shortage_ticks.insert(Commodity::Ore, 50);
+    let source = f.world.spawn((
+        FacilityIdentity { db_id: 5, id: "mine".into(), name: "Mine".into(), facility_type: "mining_rig".into(), faction_id: "haulers".into(), body_id: "earth".into() },
+        FacilityLocation { location_id: 2, location_name: "mine".into() },
+        FacilityOperations { docking_capacity: 4, services: vec![], condition: 1.0, reputation: 50, credits: 0, dirty: false, starving_notified: false },
+        FacilityStorage::default(), FacilityLifecycle::new(),
+    )).id();
+    f.store.facility_by_id.insert("mine".into(), source);
+    let source_market = f.world.spawn((MarketIdentity { db_id: 6, id: "mine-market".into(), facility: source, facility_location: "mine".into() },
+        MarketHistory::default(), MarketPricing { price_elasticity: 1.0, spread: 0.0,
+            prices: [(Commodity::Ore,1.0)].into(), supply: [(Commodity::Ore,200.0)].into(), demand: Default::default() })).id();
+    f.store.market_at_location.insert("mine".into(), source_market);
+    strategy::run_cycle(&mut f.world, &mut f.store.contracts, &f.store.relations, 60, 1);
+    assert_eq!(f.store.contracts.iter().count(), 0, "shadow cannot commission");
+    assert_eq!(f.world.get::<FactionData>(faction).unwrap().treasury, 20_000);
+    assert_eq!(f.world.resource::<StrategyState>().factions["haulers"].status, "proposed");
+    f.world.resource_mut::<StrategyState>().mode = Mode::Execute;
+    f.world.get_mut::<FactionData>(faction).unwrap().treasury = 0;
+    strategy::run_cycle(&mut f.world, &mut f.store.contracts, &f.store.relations, 80, 1);
+    assert_eq!(f.world.resource::<StrategyState>().factions["haulers"].reason, "insufficient_budget");
+    assert_eq!(f.store.contracts.iter().count(), 0);
+    f.world.get_mut::<FactionData>(faction).unwrap().treasury = 20_000;
+    f.world.get_mut::<MarketPricing>(source_market).unwrap().supply.insert(Commodity::Ore, 0.0);
+    strategy::run_cycle(&mut f.world, &mut f.store.contracts, &f.store.relations, 100, 1);
+    assert_eq!(f.world.resource::<StrategyState>().factions["haulers"].reason, "no_accessible_stock");
+    assert_eq!(f.store.contracts.iter().count(), 0);
+    f.world.get_mut::<MarketPricing>(source_market).unwrap().supply.insert(Commodity::Ore, 200.0);
+    strategy::run_cycle(&mut f.world, &mut f.store.contracts, &f.store.relations, 120, 1);
+    let id = f.store.contracts.iter().next().unwrap().id.clone();
+    assert_eq!(f.store.contracts.get(&id).unwrap().funding.as_ref().unwrap().reserved, 1600);
+    strategy::run_cycle(&mut f.world, &mut f.store.contracts, &f.store.relations, 180, 1);
+    assert_eq!(f.store.contracts.iter().count(), 1, "held project cannot duplicate");
+    assert_eq!(f.world.get::<FactionData>(faction).unwrap().treasury, 18_400);
+    let ship = f.ships[0];
+    f.world.get_mut::<ShipCargo>(ship).unwrap().capacity = 300;
+    let request = f.submit(ship, ShipTransaction::Accept { contract_id: id.clone() });
+    f.apply(ship, request); assert_eq!(f.result(ship), Ok(()));
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+    { let mut pos = f.world.get_mut::<ShipPosition>(ship).unwrap(); pos.location_name = Some("mine".into()); pos.docked_at = Some(source); }
+    let request = f.submit(ship, ShipTransaction::Buy { location: "mine".into(), commodity: Commodity::Ore, quantity: 200, max_unit_price: 1.0 });
+    f.apply(ship, request); assert_eq!(f.result(ship), Ok(()));
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+    // Arrival is supplied by the existing navigation system; exercise the real
+    // destination settlement after moving the fixture to that dock.
+    { let mut pos = f.world.get_mut::<ShipPosition>(ship).unwrap(); pos.location_name = Some("port".into()); pos.docked_at = Some(f.facility); }
+    let request = f.submit(ship, ShipTransaction::Deliver { contract_id: id.clone() });
+    f.apply(ship, request); assert_eq!(f.result(ship), Ok(()));
+    strategy::refresh(&mut f.world, &f.store.contracts, 200);
+    let snapshot = f.world.resource::<StrategyState>().snapshot(200);
+    assert_eq!(snapshot.schema_version, 1);
+    assert_eq!(snapshot.factions[0].projects[0].state, "paid");
+    assert_eq!(f.world.get::<MarketPricing>(source_market).unwrap().supply[&Commodity::Ore], 0.0);
+    assert_eq!(f.world.get::<ShipCargo>(ship).unwrap().cargo.get(&Commodity::Ore).copied().unwrap_or(0), 0);
+    assert_eq!(f.world.get::<ShipEconomy>(ship).unwrap().credits, 2450);
+    // A newly reconstructed diagnostic state discovers the persisted project tag.
+    f.world.insert_resource(StrategyState { mode: Mode::Execute, ..Default::default() });
+    strategy::refresh(&mut f.world, &f.store.contracts, 201);
+    assert_eq!(f.world.resource::<StrategyState>().factions["haulers"].projects[0].contract_id, id);
+}
+
+#[tokio::test]
+async fn strategy_block_construction_queues_complete_frame_without_free_capital() {
+    use sim_core::agents::faction::{FactionData, FactionColors};
+    use sim_db::persistence::DbWrite;
+    let mut f = Fixture::new(0.0, 0.0);
+    let owner = f.world.spawn(FactionData { id: "haulers".into(), name: "Haulers".into(),
+        faction_type: "normal".into(), home_system: "sol".into(), treasury: 1000,
+        personality: sim_core::ai::personality::Personality::balanced_trader(),
+        colors: FactionColors { primary: String::new(), secondary: String::new() }, active_subsidies: 0, dirty: false }).id();
+    f.store.faction_by_id.insert("haulers".into(), owner);
+    crate::engine::drains::materialize_facility(&mut f.world, &mut f.store, "site", "New Factory",
+        "factory", "earth", "haulers", "port", (0.0, 0.0), &mut f.events);
+    let entity = f.store.pending_materializations[0].entity;
+    let db_id = f.world.get::<FacilityIdentity>(entity).unwrap().db_id;
+    assert!(db_id < 0);
+    assert_eq!(f.world.get::<FacilityOperations>(entity).unwrap().credits, 1000);
+    assert_eq!(f.world.get::<FactionData>(owner).unwrap().treasury, 0);
+    let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+    tx.try_send(DbWrite::Tick { tick: 1 }).unwrap();
+    crate::engine::drains::drain_pending_materializations(&mut f.world, &mut f.store, &pool, &tx, &mut f.events).await;
+    crate::engine::persist::emit_persist_writes(&mut f.world, &mut f.store, 2, &tx);
+    assert!(crate::engine::persist::has_lifecycle_writes(&f.world));
+    rx.try_recv().unwrap();
+    crate::engine::persist::emit_persist_writes(&mut f.world, &mut f.store, 3, &tx);
+    let DbWrite::EconomicFrame { writes } = rx.try_recv().unwrap() else { panic!("frame"); };
+    assert!(writes.iter().any(|w| matches!(w, DbWrite::ConstructedFacility { row } if row.db_id == db_id && row.source_site_id == "site")));
+    assert!(writes.iter().any(|w| matches!(w, DbWrite::ConstructionSiteDelete { agent_id } if agent_id == "site")));
+    assert!(writes.iter().any(|w| matches!(w, DbWrite::Faction { treasury: 0, .. })));
+    assert!(writes.iter().any(|w| matches!(w, DbWrite::Facility { credits: 1000, .. })));
+    assert!(writes.iter().any(|w| matches!(w, DbWrite::ContractBoardSnapshot { .. })));
+}

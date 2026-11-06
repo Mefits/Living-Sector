@@ -637,3 +637,8 @@ pub async fn observer_model_js() -> impl IntoResponse {
         ),
     )
 }
+
+/// Read-only, versioned integration contract for the independent Observer team.
+pub async fn strategy(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.snapshots.strategy.read().map(|s| s.clone()).unwrap_or_default())
+}

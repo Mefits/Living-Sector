@@ -1,7 +1,7 @@
 name: Genesis economic checkpoint checks
 on:
   push:
-    branches: [feature/genesis-economic-checkpoint, feature/genesis-lifecycle-checkpoint, feature/genesis-flight-recovery]
+    branches: [feature/genesis-economic-checkpoint, feature/genesis-lifecycle-checkpoint, feature/genesis-flight-recovery, integration/genesis-strategy-prototype]
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,3 +26,15 @@ jobs:
       - name: Three focused flight recovery tests
         if: github.ref_name == 'feature/genesis-flight-recovery'
         run: cargo test --locked -p sim_core -p sim_db -p sim_server --lib flight_recovery_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+      - name: Strategy integration checkpoint
+        if: github.ref_name == 'integration/genesis-strategy-prototype'
+        run: |
+          cargo test --locked -p sim_core -p sim_db -p sim_server --lib strategy_block_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_core -p sim_db -p sim_server --lib checkpoint_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_core -p sim_db -p sim_server --lib escrow_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_core -p sim_db -p sim_server --lib flight_recovery_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+      - name: Strategy runtime API smoke
+        if: github.ref_name == 'integration/genesis-strategy-prototype'
+        run: |
+          cargo build --locked -p sim_server --bin genesis_server --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          python3 tests/strategy-runtime-smoke.py target/debug/genesis_server

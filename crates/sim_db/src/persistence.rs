@@ -32,10 +32,28 @@ pub struct ShipResumeState {
     pub cargo_origin: HashMap<sim_core::economy::commodities::Commodity, (String, f32)>,
 }
 
+/// Creation metadata; runtime balances/reserves follow in the same frame.
+#[derive(Debug, Clone)]
+pub struct ConstructedFacilityRow {
+    pub db_id: i64,
+    pub source_site_id: String,
+    pub name: String,
+    pub facility_type: String,
+    pub faction_id: String,
+    pub body_id: String,
+    pub location_id: i64,
+    pub location_name: String,
+    pub docking_capacity: u32,
+    pub credits: i64,
+    pub reputation: i32,
+    pub condition: f32,
+}
+
 /// A single persist request. The engine emits these per-tick; the worker
 /// batches + dedups before touching SQLite.
 #[derive(Debug, Clone)]
 pub enum DbWrite {
+    ConstructedFacility { row: ConstructedFacilityRow },
     /// One admitted tick: merge all members synchronously before any flush.
     /// Never deduplicate frames themselves: they contain incremental dirty rows.
     EconomicFrame { writes: Vec<DbWrite> },
@@ -273,6 +291,48 @@ mod escrow_tests {
     use sim_core::simulation::spawner::AgentStore;
 
     #[tokio::test]
+    async fn strategy_block_creation_and_site_removal_rollback_together() {
+        let pool = crate::pool::create_pool("sqlite::memory:").await.unwrap();
+        crate::pool::run_migrations(&pool).await.unwrap();
+        for sql in [
+            "INSERT INTO star_systems (id,name) VALUES (1,'sol')",
+            "INSERT INTO celestial_bodies (id,body_id,name,body_type,orbit_radius,orbit_period,current_angle,star_system_id) VALUES (1,'earth','Earth','planet',1,100,0,1)",
+            "INSERT INTO locations (id,name,loc_type,celestial_body_id) VALUES (1,'port','station',1)",
+            "INSERT INTO factions (id,name,faction_type,treasury) VALUES ('owner','Owner','normal',1000)",
+            "INSERT INTO construction_sites (agent_id,name,facility_type,faction_id,body_id,location_name,commodity,progress_required,position_x,position_y,spawned_at_tick) VALUES ('site','Factory','factory','owner','earth','port','ore',10,0,0,0)",
+        ] { sqlx::query(sql).execute(&pool).await.unwrap(); }
+        let mut buffer = HashMap::new();
+        PersistenceWorker::buffer_write(&mut buffer, DbWrite::EconomicFrame { writes: vec![
+            DbWrite::ConstructionSiteDelete { agent_id: "site".into() },
+            DbWrite::Faction { id: "owner".into(), treasury: 800 },
+            DbWrite::ConstructedFacility { row: ConstructedFacilityRow { db_id: -1, source_site_id: "site".into(),
+                name: "Factory".into(), facility_type: "factory".into(), faction_id: "owner".into(),
+                body_id: "earth".into(), location_id: 1, location_name: "port".into(), docking_capacity: 4,
+                credits: 200, reputation: 50, condition: 1.0 } },
+        ]});
+        sqlx::query("CREATE TRIGGER fail_site_delete BEFORE DELETE ON construction_sites BEGIN SELECT RAISE(ABORT, 'checkpoint failure'); END")
+            .execute(&pool).await.unwrap();
+        assert!(PersistenceWorker::flush_buffer(&pool, &mut buffer).await.is_err());
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM facilities").fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 0);
+        let balance: i64 = sqlx::query_scalar("SELECT treasury FROM factions WHERE id='owner'").fetch_one(&pool).await.unwrap();
+        assert_eq!(balance, 1000);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM construction_sites").fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(buffer.len(), 3);
+        sqlx::query("DROP TRIGGER fail_site_delete").execute(&pool).await.unwrap();
+        PersistenceWorker::flush_buffer(&pool, &mut buffer).await.unwrap();
+        PersistenceWorker::flush_buffer(&pool, &mut buffer).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM facilities WHERE construction_site_id='site'").fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 1);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM construction_sites").fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 0);
+        let total: i64 = sqlx::query_scalar("SELECT (SELECT treasury FROM factions WHERE id='owner') + (SELECT credits FROM facilities WHERE id=-1)").fetch_one(&pool).await.unwrap();
+        assert_eq!(total, 1000);
+        pool.close().await;
+    }
+
+    #[tokio::test]
     async fn flight_recovery_sqlite_roundtrip_restores_transit_docks_and_cargo() {
         use sim_core::agents::ship::{ShipPosition, ShipTransit, ShipCargo, ShipEconomy, ShipAI, Transit};
         let pool = crate::pool::create_pool("sqlite::memory:").await.unwrap();
@@ -501,6 +561,7 @@ impl DbWrite {
     /// Dedup key — newer writes replace older ones for the same agent.
     fn key(&self) -> (&'static str, String) {
         match self {
+            DbWrite::ConstructedFacility { row } => ("facility_create", row.source_site_id.clone()),
             DbWrite::EconomicFrame { .. } => unreachable!("frames must be unpacked before dedup"),
             DbWrite::Ship { db_id, .. } => ("ship", db_id.to_string()),
             DbWrite::Market { db_id, .. } => ("market", db_id.to_string()),
@@ -626,13 +687,26 @@ impl PersistenceWorker {
     async fn flush(pool: &SqlitePool, mut writes: Vec<DbWrite>) -> Result<()> {
         // HashMap iteration is arbitrary. Tombstones must win over earlier
         // queued updates/upserts in this same transaction (especially sites).
-        writes.sort_by_key(|write| matches!(write,
+        writes.sort_by_key(|write| match write {
+            DbWrite::ConstructedFacility { .. } => 0,
             DbWrite::DeleteShip { .. } | DbWrite::DeleteFacility { .. }
-            | DbWrite::ConstructionSiteDelete { .. }));
+                | DbWrite::ConstructionSiteDelete { .. } => 2,
+            _ => 1,
+        });
         let mut tx = pool.begin().await?;
 
         for write in writes {
             match write {
+                DbWrite::ConstructedFacility { row } => {
+                    sqlx::query("INSERT INTO facilities (id, construction_site_id, name, facility_type,
+                        location_id, location_name, body_id, faction_id, docking_capacity, services,
+                        condition, reputation, credits, reserves, docked_ships)
+                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'[\"market\"]',?10,?11,?12,'{}','[]')")
+                        .bind(row.db_id).bind(row.source_site_id).bind(row.name).bind(row.facility_type)
+                        .bind(row.location_id).bind(row.location_name).bind(row.body_id).bind(row.faction_id)
+                        .bind(row.docking_capacity as i64).bind(row.condition as f64)
+                        .bind(row.reputation as i64).bind(row.credits).execute(&mut *tx).await?;
+                }
                 DbWrite::EconomicFrame { .. } => anyhow::bail!("unpacked economic frame expected"),
                 DbWrite::Ship {
                     db_id,
