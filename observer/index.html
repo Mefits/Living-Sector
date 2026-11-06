@@ -62,6 +62,7 @@
           <label class="toggle"><input id="ships-toggle" type="checkbox"> Корабли</label>
           <label class="toggle"><input id="links-toggle" type="checkbox" checked> Врата</label>
           <label class="toggle"><input id="labels-toggle" type="checkbox" checked> Подписи</label>
+          <label class="toggle"><input id="modules-toggle" type="checkbox" checked> Сооружения</label>
           <button id="fit-btn" class="small-button" title="Сброс масштаба и сдвига">Сброс вида</button>
         </div>
       </div>
@@ -77,8 +78,8 @@
           <div class="guide-actions"><button id="start-system-btn" class="guide-primary" disabled>Открыть систему</button><button id="dismiss-guide-btn" class="small-button">Показать карту</button></div>
           <p class="guide-note">Состояние симуляции показано сверху. Для спокойного осмотра можно нажать «Пауза».</p>
         </div>
-        <div class="map-legend" aria-label="Условные обозначения"><span><i class="legend-body"></i> Планеты</span><span><i class="legend-hub"></i> Станции и добыча</span><span><i class="legend-ship"></i> Корабли в пути</span></div>
-        <div class="map-help">У станции — корабли на стоянке · На карте — только перелёты · Колесо — масштаб к курсору</div>
+        <div class="map-legend" aria-label="Условные обозначения"><span><i class="legend-body"></i> Планеты</span><span><i class="legend-major"></i> Крупный хаб</span><span><i class="legend-glyph legend-extract"></i> Добыча</span><span><i class="legend-glyph legend-processing"></i> Переработка</span><span><i class="legend-glyph legend-logistics"></i> Логистика</span><span><i class="legend-ship"></i> Корабли</span></div>
+        <div class="map-help">Малые значки — реальные объекты в одном хабе, их позиции на экране условны · Клик — сведения об объекте</div>
       </div>
     </section>
 
