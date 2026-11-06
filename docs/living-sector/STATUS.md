@@ -26,7 +26,11 @@
   между доками задано fixture: это не полный полётный smoke.
 - Контрольный CI дополнительно запускает checkpoint_, escrow_, flight_recovery_;
   полный suite/soak/Windows/UI не запускается. Локально нет Rust; diff-check выполнен.
-  Итог CI и точный SHA интеграции фиксируются после проверки.
+  **CI Linux прошёл** для `94af279f54b87ceb732910b0a8574758b60014ee`: 15 разных тестов (18 запусков),
+  сборка genesis_server и fresh-world HTTP smoke: migrations, 2 фракции,
+  /api/strategy v1, execute mode. https://github.com/Mefits/Living-Sector/actions/runs/42134591267
+  Первый CI обнаружил неполную dock occupancy в интеграционном fixture; исправлена
+  подготовка сценария, native invalid_dock guard сохранён. Успешный повтор указан выше.
 - Ограничения: диагностический portfolio/decision не durable event log, commodity
   stock не резервируется до покупки, один реальный администратор, прочие пока нет.
   Прямое admin/respawn создание и полный replay отложены. Следующий блок — развитие

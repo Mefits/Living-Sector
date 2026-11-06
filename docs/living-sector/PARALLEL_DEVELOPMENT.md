@@ -8,8 +8,22 @@
 Рабочая интеграционная ветка: `integration/genesis-strategy-prototype`, потомок
 `feature/genesis-flight-recovery` @ `bb0d24d9f4c898b43df2d35bc75d5dc31855e3cb`.
 Это последовательное продолжение существующей цепочки, не merge PR #7–15.
-Точный проверенный SHA будет закреплён после CI в этом документе и описании PR.
-Ветки второго разработчика создавать от закреплённого SHA, не от main/старого UI ZIP.
+**Проверенная кодовая база: `94af279f54b87ceb732910b0a8574758b60014ee`.**
+CI Linux: https://github.com/Mefits/Living-Sector/actions/runs/42134591267 — 15 различных адресных тестов (18 запусков из-за пересечения
+фильтров), сборка genesis_server и свежая БД/API smoke прошли. Следующий коммит
+обновляет только документацию/пример JSON; код проверенной базы не меняется.
+Ветки второго разработчика создавать от закреплённого SHA, не от main/старого UI ZIP:
+
+```sh
+git fetch origin integration/genesis-strategy-prototype
+git switch -c feature/observer-strategy 94af279f54b87ceb732910b0a8574758b60014ee
+```
+
+Новый PR направлять в `integration/genesis-strategy-prototype`. Слияние выполняется
+только после отдельного решения владельца, не автоматически. Для запуска свежего
+мира задать DATA_DIR=priv/genesis/data и отдельный DATABASE_PATH; режим исполнения
+включается LIVING_SECTOR_STRATEGY_MODE=execute, затем cargo run --locked -p sim_server
+--bin genesis_server. По умолчанию сервер использует shadow.
 Согласование новых изменений API — через владельца ядра; историю не переписывать.
 
 ## Правила блока
@@ -53,7 +67,8 @@ Rust-типы стратегии пока не являются обещание
 snapshot_tick), `treasury`, `goals:[]`, `selected_goal:Goal|null`,
 `administrator:"logistics"`, `status`, `reason`, `projects:[]`.
 Goal: `goal_id`, `commodity`, `destination`, `shortage_ticks`, `score`.
-Текущие goal_id: sustain_population / secure_fuel / supply_industry.
+Ключ строки Goal — тройка (goal_id, commodity, destination), goal_id обозначает
+категорию, не уникальный экземпляр. Текущие goal_id: sustain_population / secure_fuel / supply_industry.
 Это портфель ранжированных дефицитов, не вся будущая стратегическая модель.
 
 Статусы решения: observing / idle / proposed / blocked / waiting / commissioned.
@@ -65,6 +80,11 @@ Project: `project_id` (совпадает с contract_id), `contract_id`, `admin
 `state` (posted/accepted/picked_up/delivered/paid/expired), `executor_id:string|null`,
 `reserved_credits`, `source`, `destination`, `commodity`, `quantity`.
 В диагностике максимум 32 последних проекта; это не полный журнал.
+status/reason фракции описывают последнее решение, не текущий итог всех проектов;
+актуальное исполнение смотреть в projects[].state. Пример формы ответа:
+[strategy-api-v1.example.json](strategy-api-v1.example.json) — синтетический UI fixture,
+не результат настоящей игровой сессии. Новые поля v1 добавляются совместимо;
+переименование/смена смысла требует новой schema_version и согласования.
 Смысл quantity — реальные единицы native cargo; кредиты — целые числа.
 Между обновлениями не сравнивать Entity handles: API их не выдаёт.
 
