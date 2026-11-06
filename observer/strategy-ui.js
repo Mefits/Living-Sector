@@ -1,7 +1,8 @@
 // Independent, read-only strategy drawer. No writes to the simulation API.
 import {
   parseSnapshot, observedChanges, observationAge, goalKey,
-  human, goalLabels, commodityLabels, decisionLabels, reasonLabels, projectLabels
+  human, goalLabels, commodityLabels, decisionLabels, reasonLabels, projectLabels,
+  administratorLabels, headReasonLabels, assessmentForGoal, projectGroups, progressFraction
 } from "/observer/strategy-model.js";
 
 const format = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 1});
@@ -77,12 +78,102 @@ function fillFactionSelect() {
   select.value = selectedFaction;
   return snapshot.factions.find(f => f.faction_id === selectedFaction);
 }
+function strategyRenderHead(faction) {
+  const target = elements.head;
+  target.replaceChildren();
+  const head = faction.head;
+  if (!head) return showEmpty(target,
+    "Этот сервер ещё не передаёт решения главы (поле head доступно с S4). " +
+    "Показанные ниже логистические решения не являются общим выбором главы.");
+  const card = node("article", undefined, "strategy-summary-card strategy-head-card");
+  const chosen = head.selected_administrator
+    ? human(head.selected_administrator, administratorLabels) : "Нет выбранного администратора";
+  card.append(node("div", "РЕШЕНИЕ ГЛАВЫ · ТИК " + formatNumber(head.observed_tick),
+    "strategy-eyebrow"));
+  card.append(node("h3", chosen, "strategy-faction-name"));
+  card.append(node("p", human(head.reason, headReasonLabels), "strategy-decision-reason"));
+  addField(card, "Казна при выборе", formatNumber(head.treasury_before) + " CR");
+  addField(card, "Доступно для выбора", formatNumber(head.spending_limit) + " CR");
+  addField(card, "План платежа", formatNumber(head.planned_spend) + " CR");
+  addField(card, "Фактически зарезервировано", formatNumber(head.committed_spend) + " CR");
+  const age = observationAge(snapshot, head);
+  if (age !== null && age > 0) addNote(card,
+    "Данные относятся к последнему решению главы, а не к текущему балансу.");
+  target.append(card);
+  const proposals = Array.isArray(head.proposals) ? head.proposals : [];
+  const label = node("h4", "ПРЕДЛОЖЕНИЯ АДМИНИСТРАТОРОВ", "strategy-subheading");
+  target.append(label);
+  if (!proposals.length) return addNote(target, "Предложения в последнем цикле не переданы.");
+  for (const proposal of proposals) {
+    const selected = proposal.administrator === head.selected_administrator;
+    const item = node("article", undefined, "strategy-proposal-card");
+    if (selected) item.classList.add("strategy-proposal-chosen");
+    const row = node("div", undefined, "strategy-goal-heading");
+    row.append(node("strong", human(proposal.administrator, administratorLabels)));
+    row.append(node("span", selected ? "Выбран" :
+      human(proposal.status, decisionLabels), selected ? "strategy-selection-tag" : "strategy-project-state"));
+    item.append(row);
+    if (proposal.goal) item.append(node("div",
+      human(proposal.goal.commodity, commodityLabels) + " → " + text(proposal.goal.destination),
+      "strategy-route"));
+    addField(item, "Состояние до выбора",
+      human(proposal.status, decisionLabels));
+    addField(item, "Основание", human(proposal.reason, reasonLabels));
+    addField(item, "Запрошено", formatNumber(proposal.requested_credits) + " CR");
+    addField(item, "Уровень приоритета", formatNumber(proposal.priority));
+    target.append(item);
+  }
+  addNote(target, "Предложения показаны ДО исполнения. Реальное выполнение смотри в " +
+    "состоянии администратора и статусах контрактов ниже.");
+}
+function strategyRenderConstruction(faction) {
+  const target = elements.construction;
+  target.replaceChildren();
+  const c = faction.construction;
+  if (!c) return showEmpty(target,
+    "Сервер ещё не передаёт строительного администратора (S1/S2) " +
+    "или первый строительный цикл пока не выполнялся.");
+  const card = node("article", undefined, "strategy-construction-card");
+  const row = node("div", undefined, "strategy-section-header");
+  row.append(node("span", "Последнее решение · тик " + formatNumber(c.observed_tick),
+    "strategy-eyebrow"),
+    node("span", human(c.status, decisionLabels), "strategy-state"));
+  card.append(row);
+  card.append(node("p", human(c.reason, reasonLabels), "strategy-decision-reason"));
+  if (c.selected_goal) {
+    addField(card, "Цель", human(c.selected_goal.goal_id, goalLabels));
+    addField(card, "Ресурс", human(c.selected_goal.commodity, commodityLabels));
+    addField(card, "Узел", c.selected_goal.destination);
+  } else addNote(card, "Активной строительной цели на последнем анализе нет.");
+  addField(card, "Тип сооружения", c.facility_type || "—");
+  addField(card, "Площадка", c.site_id || "Не создана");
+  addField(card, "Контракт на поставку", c.contract_id || "Нет");
+  const ratio = progressFraction(c);
+  if (ratio !== null && c.site_id) {
+    const progress = node("div", undefined, "strategy-site-progress");
+    const header = node("div", undefined, "strategy-goal-heading");
+    header.append(node("span", "Доставленные материалы"),
+      node("strong", formatNumber(c.progress_delivered) + " / " +
+        formatNumber(c.progress_required)));
+    progress.append(header);
+    const bar = document.createElement("progress");
+    bar.value = ratio;
+    bar.max = 1;
+    bar.setAttribute("aria-label", "Прогресс доставки строительных материалов");
+    progress.append(bar);
+    card.append(progress);
+  } else addNote(card, "Прогресс площадки пока недоступен; не следует считать её завершённой.");
+  const age = observationAge(snapshot, c);
+  if (age !== null && age > 0) addNote(card,
+    "Решение принято " + age + " тик. назад; прогресс площадки может быть обновлён отдельно.");
+  target.append(card);
+}
 function renderSummary(faction) {
   const target = elements.summary;
   target.replaceChildren();
   const card = node("section", undefined, "strategy-summary-card");
   const header = node("div", undefined, "strategy-section-header");
-  header.append(node("span", "Состояние управления", "strategy-eyebrow"),
+  header.append(node("span", "Логистический администратор", "strategy-eyebrow"),
     node("span", human(faction.status, decisionLabels), "strategy-state"));
   card.append(header);
   const name = node("h3", strategyFactionName(faction.faction_id), "strategy-faction-name");
@@ -126,6 +217,17 @@ function renderGoals(faction) {
       node("span", "Дефицит: " + formatNumber(goal.shortage_ticks) + " тик.")
     );
     card.append(details);
+    const assessment = assessmentForGoal(faction, goal);
+    if (assessment) {
+      const ready = assessment.reason === "ready";
+      card.append(node("div", "Выполнимость: " + human(assessment.reason, reasonLabels),
+        ready ? "strategy-assessment ready" : "strategy-assessment blocked"));
+      if (assessment.source) card.append(node("div", "Доступный источник: " + assessment.source,
+        "strategy-goal-details"));
+    } else if (!faction.assessments.length) {
+      card.append(node("div", "Оценка выполнимости недоступна (S1).",
+        "strategy-goal-details"));
+    }
     card.append(node("div", "Оценка приоритета: " + formatNumber(goal.score), "strategy-score"));
     target.append(card);
   });
@@ -134,21 +236,31 @@ function renderProjects(faction) {
   const target = elements.projects;
   target.replaceChildren();
   if (!faction.projects.length) {
-    return showEmpty(target, "Стратегические контракты ещё не наблюдаются. Это не означает, что нет обычных контрактов.");
+    return showEmpty(target, "Стратегические контракты ещё не наблюдаются. Это не означает, " +
+      "что в мире нет обычных контрактов.");
   }
-  for (const project of faction.projects) {
-    const card = node("article", undefined, "strategy-project-card");
-    const top = node("div", undefined, "strategy-project-top");
-    top.append(node("strong", human(project.commodity, commodityLabels)),
-      node("span", human(project.state, projectLabels), "strategy-project-state"));
-    card.append(top);
-    card.append(node("div", text(project.source) + " → " + text(project.destination), "strategy-route"));
-    addField(card, "Количество", formatNumber(project.quantity));
-    addField(card, "Исполнитель", project.executor_id || "Не назначен");
-    addField(card, "Резерв оплаты", formatNumber(project.reserved_credits) + " CR");
-    addField(card, "Контракт", project.contract_id);
-    target.append(card);
+  const groups = projectGroups(faction);
+  for (const admin of ["logistics", "construction"]) {
+    if (!groups[admin].length) continue;
+    target.append(node("h4", human(admin, administratorLabels) +
+      " · " + groups[admin].length + " контракт(ов)", "strategy-subheading"));
+    for (const project of groups[admin]) {
+      const card = node("article", undefined, "strategy-project-card");
+      const top = node("div", undefined, "strategy-project-top");
+      top.append(node("strong", human(project.commodity, commodityLabels)),
+        node("span", human(project.state, projectLabels), "strategy-project-state"));
+      card.append(top);
+      card.append(node("div", text(project.source) + " → " + text(project.destination),
+        "strategy-route"));
+      addField(card, "Количество", formatNumber(project.quantity));
+      addField(card, "Исполнитель", project.executor_id || "Не назначен");
+      addField(card, "Резерв оплаты", formatNumber(project.reserved_credits) + " CR");
+      addField(card, "Контракт", project.contract_id);
+      target.append(card);
+    }
   }
+  addNote(target, "Контракты строительства — это доставки грузов. " +
+    "Сама стройплощадка и её прогресс показаны отдельно.");
 }
 function renderHistory() {
   const target = elements.history;
@@ -175,12 +287,16 @@ function render() {
     : snapshot ? "API v1 · тик " + formatNumber(snapshot.snapshot_tick) : "Ожидание ответа API";
   elements.update.classList.toggle("strategy-error", Boolean(requestError));
   if (active) {
+    strategyRenderHead(active);
     renderSummary(active);
     renderGoals(active);
+    strategyRenderConstruction(active);
     renderProjects(active);
   } else {
+    showEmpty(elements.head, requestError || "Нет сведений о стратегическом управлении.");
     showEmpty(elements.summary, requestError || "Нет сведений о стратегическом управлении.");
     elements.goals.replaceChildren();
+    elements.construction.replaceChildren();
     elements.projects.replaceChildren();
   }
   renderHistory();
@@ -218,7 +334,8 @@ export function initStrategyPanel(options = {}) {
     backdrop:find("strategy-backdrop"), close:find("strategy-close"),
     mode:find("strategy-mode"), update:find("strategy-update"),
     faction:find("strategy-faction"), content:find("strategy-content"),
-    summary:find("strategy-summary"), goals:find("strategy-goals"),
+    head:find("strategy-head"), summary:find("strategy-summary"),
+    goals:find("strategy-goals"), construction:find("strategy-construction"),
     projects:find("strategy-projects"), history:find("strategy-history"),
     clear:find("strategy-clear-history"), refresh:find("strategy-refresh")
   };
