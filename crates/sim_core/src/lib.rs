@@ -26,3 +26,5 @@ pub mod modules;
 pub mod simulation;
 pub mod spatial;
 pub mod world;
+
+pub mod strategy;

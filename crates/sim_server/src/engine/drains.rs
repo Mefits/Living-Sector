@@ -6,10 +6,8 @@
 //!
 //!   * **PendingMaterialization** — construction site finished, a
 //!     real facility needs to spawn. Drained via
-//!     [`drain_pending_materializations`]: INSERT the new
-//!     facilities row, stash the returned `db_id` back onto the
-//!     in-memory `FacilityIdentity`, and queue a
-//!     `ConstructionSiteDelete` for the persistence sweep.
+//!     [`drain_pending_materializations`]: queue creation metadata and source
+//!     site deletion in the same economic frame, with stable negative DB IDs.
 //!   * **PendingDecommission** — a ship hit `MAX_STRIKES` (broke
 //!     or hoard) and needs to retire. Drained via
 //!     [`drain_pending_decommissions`]: write a row into the
@@ -42,70 +40,47 @@ use tokio::sync::mpsc;
 
 use super::admin::{admin_remove_ship, admin_spawn_ship};
 
-/// Drain `store.pending_materializations`: INSERT each queued facility
-/// row into SQLite, stash the returned id back on the in-memory
-/// `FacilityIdentity.db_id`, and queue a `ConstructionSiteDelete` so
-/// the source site row is cleaned up in the same persistence sweep.
+/// Move construction creation into the same economic frame as the final
+/// delivery, issuer debit and source-site removal. No direct SQL here.
 pub(super) async fn drain_pending_materializations(
     world: &mut World,
     store: &mut AgentStore,
-    pool: &sqlx::SqlitePool,
-    persist_tx: &mpsc::Sender<DbWrite>,
-    events: &mut Vec<serde_json::Value>,
+    _pool: &sqlx::SqlitePool,
+    _persist_tx: &mpsc::Sender<DbWrite>,
+    _events: &mut Vec<serde_json::Value>,
 ) {
     use sim_core::agents::facility::FacilityIdentity;
-    let pending: Vec<sim_core::simulation::spawner::PendingMaterialization> =
-        std::mem::take(&mut store.pending_materializations);
-    if pending.is_empty() {
-        return;
-    }
-    for req in pending {
-        let insert = sqlx::query(
-            "INSERT INTO facilities (
-                 name, facility_type, location_id, location_name, body_id, faction_id,
-                 docking_capacity, services, condition, reputation, credits,
-                 reserves, docked_ships
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-        )
-        .bind(&req.name)
-        .bind(&req.facility_type)
-        .bind(req.location_id)
-        .bind(&req.location_name)
-        .bind(&req.body_id)
-        .bind(&req.faction_id)
-        .bind(req.docking_capacity as i64)
-        .bind("[\"market\"]")
-        .bind(req.condition as f64)
-        .bind(req.reputation as i64)
-        .bind(req.credits)
-        .bind("{}")
-        .bind("[]")
-        .execute(pool)
-        .await;
-        match insert {
-            Ok(r) => {
-                let db_id = r.last_insert_rowid();
-                if let Some(mut fid) = world.get_mut::<FacilityIdentity>(req.entity) {
-                    fid.db_id = db_id;
-                }
-            }
-            Err(e) => {
-                events.push(serde_json::json!({
-                    "kind": "materialization_failed",
-                    "agent_id": req.agent_id,
-                    "error": format!("{e}"),
-                }));
-                continue;
-            }
+    for req in std::mem::take(&mut store.pending_materializations) {
+        if let Some(identity) = world.get::<FacilityIdentity>(req.entity) {
+            let row = sim_db::persistence::ConstructedFacilityRow {
+                db_id: identity.db_id, source_site_id: req.source_site_id.clone(),
+                name: req.name, facility_type: req.facility_type, faction_id: req.faction_id,
+                body_id: req.body_id, location_id: req.location_id, location_name: req.location_name,
+                docking_capacity: req.docking_capacity, credits: req.credits,
+                reputation: req.reputation, condition: req.condition,
+            };
+            super::persist::queue_lifecycle_write(world, DbWrite::ConstructedFacility { row });
         }
-        // Clean up the source construction-site row so restart
-        // doesn't resurrect the completed site.
-        let _ = persist_tx
-            .send(DbWrite::ConstructionSiteDelete {
-                agent_id: req.source_site_id.clone(),
-            })
-            .await;
+        super::persist::queue_lifecycle_write(world, DbWrite::ConstructionSiteDelete { agent_id: req.source_site_id });
     }
+}
+
+/// Constructed facilities use negative DB IDs; SQLite/admin seed IDs are
+/// positive. Reserve synchronously so dock references are stable before flush.
+#[derive(bevy_ecs::prelude::Resource)]
+struct ConstructionIds(i64);
+
+fn next_construction_id(world: &mut World) -> i64 {
+    if !world.contains_resource::<ConstructionIds>() {
+        let mut q = world.query::<&sim_core::agents::facility::FacilityIdentity>();
+        let next = q.iter(world).map(|id| id.db_id).min().unwrap_or(0).min(0)
+            .checked_sub(1).expect("construction ID space exhausted");
+        world.insert_resource(ConstructionIds(next));
+    }
+    let mut ids = world.resource_mut::<ConstructionIds>();
+    let id = ids.0;
+    ids.0 = id.checked_sub(1).expect("construction ID space exhausted");
+    id
 }
 
 /// Record each ship-originated command in the global debug trace
@@ -427,13 +402,8 @@ pub fn random_ship_name(seed: u64) -> String {
     format!("{a} {b}")
 }
 
-/// Spawn a fully-functional facility entity at the given position —
-/// same component set as `admin_spawn_facility` produces. The ECS
-/// entity is created immediately with `FacilityIdentity.db_id = 0`
-/// and a [`PendingMaterialization`] is queued on the store. The
-/// engine's async tick loop drains the queue right after the apply
-/// phase, runs the INSERT against the pool, and backfills the real
-/// db_id so subsequent per-tick Facility flushes land on a real row.
+/// Spawn the runtime facility with a stable negative DB ID; queue creation
+/// for the same economic checkpoint as the final construction delivery.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn materialize_facility(
     world: &mut World,
@@ -479,9 +449,20 @@ pub(super) fn materialize_facility(
             .unwrap_or(0)
     };
 
+    let db_id = next_construction_id(world);
+    // Working capital is a transfer, never an implicit creation grant.
+    let credits = store.faction_by_id.get(faction_id).copied()
+        .and_then(|e| world.get_mut::<sim_core::agents::faction::FactionData>(e))
+        .map(|mut faction| {
+            let amount = faction.treasury.clamp(0, 20_000);
+            faction.treasury -= amount;
+            faction.dirty = true;
+            amount
+        }).unwrap_or(0);
+
     let entity = world.spawn((
         FacilityIdentity {
-            db_id: 0, // runtime-only for now
+            db_id,
             id: agent_id.clone(),
             name: clean_name.clone(),
             facility_type: facility_type.to_string(),
@@ -497,8 +478,8 @@ pub(super) fn materialize_facility(
             services: vec!["market".to_string()],
             condition: 1.0,
             reputation: 50,
-            credits: 20_000,
-            dirty: false,
+            credits,
+            dirty: true,
             starving_notified: false,
         },
         FacilityStorage {
@@ -523,10 +504,8 @@ pub(super) fn materialize_facility(
         .or_default()
         .push(entity);
 
-    // Queue the DB INSERT. The async tick loop drains
-    // `pending_materializations` right after apply_ship_commands,
-    // awaits the INSERT, and backfills the returned row id into
-    // `FacilityIdentity.db_id`.
+    // Queue creation metadata; the emitter sends it with current runtime
+    // state and the issuer debit after reserving a complete frame slot.
     store
         .pending_materializations
         .push(sim_core::simulation::spawner::PendingMaterialization {
@@ -540,7 +519,7 @@ pub(super) fn materialize_facility(
             location_id,
             location_name: location_name.to_string(),
             docking_capacity: 4,
-            credits: 20_000,
+            credits,
             reputation: 50,
             condition: 1.0,
         });

@@ -4,6 +4,38 @@
 
 **Последнее обновление документа:** 2026-11-05.
 
+## Интеграционный блок S1 — 2026-11-06
+
+- Одна ветка `integration/genesis-strategy-prototype` поверх P1f `bb0d24d`;
+  существующие PR не сливаются, история и старые миграции не переписываются.
+- Закрывается construction checkpoint: создание с заранее выделенным DB-id,
+  текущее состояние объекта, удаление site и дебет казны входят в один frame.
+  Стартовый капитал до 20000 переводится из казны, а не создаётся бесплатно.
+  Migration 016 сохраняет источник стройки и запрещает его дублирование.
+- Первый стратегический прототип: ранжированный портфель дефицитов, выбор главы,
+  администратор логистики, обеспеченный native-контракт, существующие исполнители,
+  наблюдение Posted → Accepted → Paid/Expired. Shadow по умолчанию; Execute явно
+  включается переменной LIVING_SECTOR_STRATEGY_MODE. Не более 1 активного проекта
+  фракции; duplicate/source/budget guards используют реальные состояния.
+- `GET /api/strategy` v1 и единый snapshot — read-only контракт для второго
+  разработчика. Observer оставлен ему, без параллельных правок интерфейса.
+- Правила работы, API, владельцы файлов и backlog: [PARALLEL_DEVELOPMENT.md](PARALLEL_DEVELOPMENT.md).
+- 3 адресных теста нового блока: атомарность construction с rollback/retry;
+  backpressure/капитал объекта; shadow → бюджет/stock blockers → execute →
+  native Accept/Buy/Deliver → Paid и восстановление проекции. В тесте перемещение
+  между доками задано fixture: это не полный полётный smoke.
+- Контрольный CI дополнительно запускает checkpoint_, escrow_, flight_recovery_;
+  полный suite/soak/Windows/UI не запускается. Локально нет Rust; diff-check выполнен.
+  **CI Linux прошёл** для `94af279f54b87ceb732910b0a8574758b60014ee`: 15 разных тестов (18 запусков),
+  сборка genesis_server и fresh-world HTTP smoke: migrations, 2 фракции,
+  /api/strategy v1, execute mode. https://github.com/Mefits/Living-Sector/actions/runs/42134591267
+  Первый CI обнаружил неполную dock occupancy в интеграционном fixture; исправлена
+  подготовка сценария, native invalid_dock guard сохранён. Успешный повтор указан выше.
+- Ограничения: диагностический portfolio/decision не durable event log, commodity
+  stock не резервируется до покупки, один реальный администратор, прочие пока нет.
+  Прямое admin/respawn создание и полный replay отложены. Следующий блок — развитие
+  главы/администраторов и наблюдаемого проекта; нового общего аудита экономики нет.
+
 ## P1f: навигация и восстановление контракта — 2026-11-05
 
 - Ветка `feature/genesis-flight-recovery` поверх P1e `51b71b7` (draft PR #14).

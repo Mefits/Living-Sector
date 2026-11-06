@@ -43,6 +43,7 @@ pub struct RelationSnapshot {
 
 #[derive(Default)]
 pub struct SnapshotCache {
+    pub strategy: std::sync::RwLock<sim_core::strategy::Snapshot>,
     pub ships: DashMap<String, ShipSnapshot>,
     pub markets: DashMap<String, MarketSnapshot>,
     pub facilities: DashMap<String, FacilitySnapshot>,
@@ -90,6 +91,10 @@ impl SnapshotCache {
     ///   only on tax / subsidy cycles that are much slower than
     ///   this).
     pub fn update_from(&self, world: &mut World, store: &mut AgentStore, tick: u64) {
+        if let Some(strategy) = world.get_resource::<sim_core::strategy::StrategyState>() {
+            if let Ok(mut snapshot) = self.strategy.write() { *snapshot = strategy.snapshot(tick); }
+        }
+
         // Hot path — every tick.
         self.update_ships(world, store);
         self.update_construction_sites(world, store);

@@ -507,6 +507,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/construction_sites", get(api::construction_sites))
         .route("/api/retirements", get(api::retirements))
         .route("/api/populations", get(api::populations))
+        .route("/api/strategy", get(api::strategy))
         .route("/api/factions", get(api::factions))
         .route("/api/factions/relations", get(api::factions_relations))
         .route("/api/positions", get(api::positions))

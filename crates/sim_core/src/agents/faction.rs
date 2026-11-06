@@ -79,7 +79,7 @@ use crate::economy::contracts::ContractBoard;
 /// Own infrastructure wins when it can supply a full shipment; otherwise
 /// fall back to trade with other factions. Never source from the destination.
 /// Sorting ensures deterministic tie-breaking independent of HashMap order.
-fn choose_logistics_source(
+pub(crate) fn choose_logistics_source(
     supply_by_loc: &std::collections::HashMap<
         String,
         std::collections::HashMap<Commodity, f32>,
@@ -122,7 +122,7 @@ fn choose_logistics_source(
 /// Personality only changes priorities, never the physical stock rules.
 /// Example: a frontier faction can value keeping its fuel supply alive,
 /// while a settled faction prioritises food and industrial materials.
-fn shortage_priority(
+pub(crate) fn shortage_priority(
     commodity: Commodity,
     shortage_ticks: u32,
     personality: Option<&Personality>,
@@ -277,7 +277,10 @@ pub fn tick_factions(
     // --- Subsidy posting ---
     let subsidy_interval = SUBSIDY_CHECK_INTERVAL_BASE * tick_multiplier as u64;
     if subsidy_interval > 0 && tick % subsidy_interval == 0 {
-        run_subsidy_cycle(world, contracts, relations, tick, tick_multiplier);
+        crate::strategy::run_cycle(world, contracts, relations, tick, tick_multiplier);
+        if !crate::strategy::executing(world) {
+            run_subsidy_cycle(world, contracts, relations, tick, tick_multiplier);
+        }
     }
 
     // --- Construction demand analyzer (Phase 19c) ---
@@ -294,6 +297,7 @@ pub fn tick_factions(
     // Keep snapshot `active_subsidies` in sync — recalc from the board so
     // it drops as subsidies Paid/Expire too.
     refresh_active_subsidy_counts(world, contracts);
+    crate::strategy::refresh(world, contracts, tick);
 }
 
 /// Faction treasury floor observed by bailouts. Bailouts won't drain
