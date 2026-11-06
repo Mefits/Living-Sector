@@ -2,7 +2,9 @@
 
 PR #25 `feature/genesis-economy-foundation` основан на S7
 `31f29e719e8d734e6780e331acfe732cd3098c62`. Документационный PR #24 и Observer #17
-не слиты. Итоговый проверенный SHA F1 указан в STATUS.md.
+не слиты. Проверенный SHA F1 `ce48994d89164772ea9e9f8e42536c25c198c18b`.
+Новые независимые экономические инструменты можно ветвить от него; старую UI-ветку
+не перебазировать автоматически.
 
 Владелец экономики редактирует `crates/sim_core/**`, `crates/sim_db/**`,
 `crates/sim_server/src/engine/**` и общий economic-checkpoint workflow.
