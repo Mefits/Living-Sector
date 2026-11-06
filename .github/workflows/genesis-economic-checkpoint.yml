@@ -1,7 +1,7 @@
 name: Genesis economic checkpoint checks
 on:
   push:
-    branches: [feature/genesis-economic-checkpoint, feature/genesis-lifecycle-checkpoint, feature/genesis-flight-recovery, integration/genesis-strategy-prototype, feature/genesis-strategy-replanning, feature/genesis-strategy-construction, feature/genesis-strategy-coordination, feature/genesis-autonomous-execution]
+    branches: [feature/genesis-economic-checkpoint, feature/genesis-lifecycle-checkpoint, feature/genesis-flight-recovery, integration/genesis-strategy-prototype, feature/genesis-strategy-replanning, feature/genesis-strategy-construction, feature/genesis-strategy-coordination, feature/genesis-autonomous-execution, feature/genesis-viable-projects]
   workflow_dispatch:
 permissions:
   contents: read
@@ -40,12 +40,16 @@ jobs:
           python3 tests/strategy-runtime-smoke.py target/debug/genesis_server
 
       - uses: actions/setup-node@v4
-        if: github.ref_name == 'feature/genesis-autonomous-execution'
+        if: github.ref_name == 'feature/genesis-autonomous-execution' || github.ref_name == 'feature/genesis-viable-projects'
         with:
           node-version: '24'
       - name: Bounded autonomous Genesis run
-        if: github.ref_name == 'feature/genesis-autonomous-execution'
+        if: github.ref_name == 'feature/genesis-autonomous-execution' || github.ref_name == 'feature/genesis-viable-projects'
         run: |
           cargo test --locked -p sim_core -p sim_db -p sim_server --lib strategy_block_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
           cargo build --locked -p sim_server --bin genesis_server --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
-          node tests/strategy-autonomous.mjs target/debug/genesis_server
+          if [ "${{ github.ref_name }}" = "feature/genesis-viable-projects" ]; then
+            node tests/strategy-autonomous.mjs target/debug/genesis_server --both-build
+          else
+            node tests/strategy-autonomous.mjs target/debug/genesis_server
+          fi

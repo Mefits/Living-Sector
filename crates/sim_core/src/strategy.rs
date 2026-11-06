@@ -9,6 +9,7 @@ use crate::economy::{commodities::Commodity, contracts::{ContractBoard, Contract
 
 pub mod construction;
 pub mod coordination;
+pub(crate) mod sourcing;
 
 pub const PROJECT_TAG: &str = "strategy.logistics.v1";
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
@@ -101,9 +102,11 @@ pub fn run_cycle(world: &mut World, contracts: &mut ContractBoard,
     }
     for locs in locations.values_mut() { locs.sort(); locs.dedup(); }
     let markets: Vec<_> = world.query::<(&MarketIdentity, &MarketHistory, &MarketPricing)>().iter(world)
-        .map(|(i,h,p)| (i.facility_location.clone(), h.shortage_ticks.clone(), p.supply.clone())).collect();
-    let supply: HashMap<_,_> = markets.iter().map(|(l,_,s)| (l.clone(),s.clone())).collect();
-    let owners = crate::agents::faction_relations::market_controllers(world);
+        .map(|(i,h,p)| (i.facility_location.clone(), h.shortage_ticks.clone(), p.clone())).collect();
+    let sources = sourcing::Sources::new(
+        markets.iter().map(|(location, _, pricing)| (location.as_str(), pricing)),
+        crate::agents::faction_relations::market_controllers(world), relations,
+    );
     for (entity, faction) in factions {
         let members = locations.get(&faction.id).cloned().unwrap_or_default();
         let mut goals = Vec::new();
@@ -129,12 +132,12 @@ pub fn run_cycle(world: &mut World, contracts: &mut ContractBoard,
         let assessments: Vec<_> = goals.iter().map(|goal| {
             let duplicate = contracts.iter().any(|c| c.requestor_id == faction.id && outstanding(c) &&
                 c.commodity == goal.commodity && c.destination_location == goal.destination);
-            let source = faction::choose_logistics_source(&supply, &members, &owners, relations,
-                &faction.id, &goal.destination, goal.commodity, faction::SUBSIDY_QUANTITY as f32);
+            let source = sources.choose(&faction.id, &goal.destination, goal.commodity,
+                faction::SUBSIDY_QUANTITY, payment);
             let reason = if duplicate { "existing_contract" }
-                else if source.is_none() { "no_accessible_stock" }
+                else if let Err(reason) = source { reason }
                 else if !affordable { "insufficient_budget" } else { "ready" };
-            GoalAssessment { goal: goal.clone(), reason: reason.into(), source }
+            GoalAssessment { goal: goal.clone(), reason: reason.into(), source: source.ok() }
         }).collect();
         let candidate = assessments.iter().find(|a| a.reason == "ready").cloned();
         let selected = held.map(|c| goals.iter().find(|g| g.commodity == c.commodity &&
@@ -226,7 +229,7 @@ mod tests {
                 FacilityLocation { location_id: n as i64 + 1, location_name: name.to_string() })).id();
             markets.push(world.spawn((MarketIdentity { db_id: n as i64 + 1, id: format!("market-{name}"),
                 facility, facility_location: name.to_string() }, MarketHistory::default(),
-                MarketPricing { price_elasticity: 1.0, spread: 0.0, prices: HashMap::new(),
+                MarketPricing { price_elasticity: 1.0, spread: 0.0, prices: [(Commodity::Ore, 1.0), (Commodity::Food, 6.0)].into(),
                     supply: HashMap::new(), demand: HashMap::new() })).id());
         }
         world.get_mut::<MarketHistory>(markets[0]).unwrap().shortage_ticks =

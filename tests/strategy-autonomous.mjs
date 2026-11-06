@@ -14,6 +14,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const binary = resolve(process.argv[2] ?? 'target/debug/genesis_server');
 const observe = process.argv.includes('--observe');
+const bothBuild = process.argv.includes('--both-build');
+const factions = ['pirates', 'terran-authority'];
 const dir = mkdtempSync(join(tmpdir(), 'genesis-autonomous-'));
 const listener = createServer();
 listener.listen(0, '127.0.0.1');
@@ -59,7 +61,8 @@ async function start() {
   socket.addEventListener('message', ({ data }) => {
     const message = JSON.parse(data);
     for (const event of message.events ?? []) {
-      if (event.kind.startsWith('construction_') || event.kind.startsWith('ship_transaction_')) {
+      if (event.kind.startsWith('construction_') || event.kind.startsWith('ship_transaction_') ||
+          event.kind === 'strategy_offer_withdrawn') {
         events.push({ ...event, tick: event.tick ?? message.tick, phase });
       }
     }
@@ -117,6 +120,21 @@ function deliveries() {
       quantity: c.quantity, paid: deliver?.payment, accept: accept?.tick, buy: buy?.tick,
       deliver: deliver?.tick, flight: flights.get(c.id) };
   });
+}
+
+function completedSites() {
+  return events.filter(event => event.kind === 'construction_completed').flatMap(event => {
+    const facility = report.facilities.find(f => f.id === event.facility_id);
+    const progress = events.filter(p => p.kind === 'construction_progress' && p.site_id === event.site_id);
+    if (!facility || progress.length < 3 || progress.at(-1).progress !== 1 ||
+        !events.some(p => p.kind === 'construction_site_started' && p.site_id === event.site_id) ||
+        report.construction_sites.some(s => s.id === event.site_id)) return [];
+    return [{ ...event, faction: facility.faction_id }];
+  });
+}
+
+function constructionDone(sites) {
+  return bothBuild ? factions.every(f => sites.some(site => site.faction === f)) : sites.length > 0;
 }
 
 let exited;
@@ -186,16 +204,17 @@ try {
     const delivered = deliveries();
     if (report.tick >= maxTick || (!observe && restored &&
       delivered.some(d => d.id === checkpoint.contract.id) &&
-      ['pirates', 'terran-authority'].every(f => delivered.some(d => d.faction === f && d.buy && d.flight)) &&
-      events.some(e => e.kind === 'construction_completed'))) break;
+      factions.every(f => delivered.some(d => d.faction === f && d.buy && d.flight)) &&
+      constructionDone(completedSites()))) break;
   }
   await pause();
   const delivered = deliveries();
-  const completed = events.filter(e => e.kind === 'construction_completed');
+  const completed = completedSites();
   const rejected = events.filter(e => e.kind === 'ship_transaction_rejected' &&
     e.reason === 'insufficient_contract_funding' && contracts.has(e.contract_id));
   console.log(JSON.stringify({ tick: report.tick, delivered, completed, restored,
-    strategicFundingRejections: rejected.length }, null, 2));
+    strategicFundingRejections: rejected.length,
+    withdrawnOffers: events.filter(e => e.kind === 'strategy_offer_withdrawn').length }, null, 2));
   if (!observe) {
     assert.ok(restored, 'no loaded construction flight available for restart');
     assert.ok(delivered.some(d => d.id === checkpoint.contract.id && d.deliver), 'resumed delivery never paid');
@@ -204,17 +223,13 @@ try {
       (e.operation === 'accept' || (e.operation === 'buy' && e.commodity === checkpoint.contract.commodity)));
     assert.deepEqual(repeated, [], 'resumed flight repeated acceptance or cargo purchase');
     assert.equal(rejected.length, 0, 'strategic offers exceeded their funding');
-    for (const faction of ['pirates', 'terran-authority']) {
+    for (const faction of factions) {
       assert.ok(delivered.some(d => d.faction === faction && d.accept && d.buy && d.deliver && d.flight?.ship === d.ship),
         `no autonomous strategic delivery with witnessed flight for ${faction}`);
     }
-    assert.ok(completed.some(e => {
-      const progress = events.filter(p => p.kind === 'construction_progress' && p.site_id === e.site_id);
-      return events.some(p => p.kind === 'construction_site_started' && p.site_id === e.site_id) &&
-        progress.length >= 3 && progress.at(-1).progress === 1 &&
-        report.facilities.some(f => f.id === e.facility_id) &&
-        report.construction_sites.every(s => s.id !== e.site_id);
-    }), 'no completed facility witnessed from site creation through three deliveries');
+    assert.ok(constructionDone(completed),
+      bothBuild ? 'expected completed construction for both factions' :
+        'no completed facility witnessed from site creation through three deliveries');
   }
   passed = true;
 } finally {

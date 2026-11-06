@@ -1515,8 +1515,9 @@ fn try_plan_contract(
     let mut best: Option<Candidate> = None;
 
     for c in contracts.posted_for_ship(effective_reputation) {
+        let fixed_reward = c.fixed_strategy_reward();
         let own_strategy = c.requestor_id == ship_faction
-            && c.fixed_strategy_reward().is_some_and(|reward| {
+            && fixed_reward.is_some_and(|reward| {
                 reward > 0 && c.funding.as_ref().is_some_and(|f| f.reserved >= reward)
             });
         // The requesting faction AND both physical endpoints must be
@@ -1602,6 +1603,16 @@ fn try_plan_contract(
             let src_price = src_price_known
                 .or_else(|| median_known_price(memory, c.commodity));
             match src_price {
+                Some(price) if fixed_reward.is_some() => {
+                    let owner = controllers.get(&c.source_location).map_or("", String::as_str);
+                    let reputation = economy.faction_reputation.get(owner).copied().unwrap_or(0);
+                    let Some(cost) = crate::strategy::sourcing::purchase_cost(
+                        price, c.quantity, relations, ship_faction, reputation, owner,
+                    ) else {
+                        continue;
+                    };
+                    cost
+                }
                 Some(p) => (p * c.quantity as f32) as i64,
                 // No memory of this commodity at ANY market → can't
                 // even guess. Skip as before.
@@ -1620,14 +1631,15 @@ fn try_plan_contract(
             gate_pairs,
             c.quantity,
         );
-        let cost: i64 = buy_cost + gate_fees;
-        if cost >= c.payment {
+        let payment = fixed_reward.unwrap_or(c.payment);
+        let cost = buy_cost.saturating_add(gate_fees);
+        if cost >= payment {
             continue;
         }
         if economy.credits < cost {
             continue;
         }
-        let profit = c.payment - cost;
+        let profit = payment - cost;
 
         // Phase 19f: fill-ratio scoring. For delivery contracts, reward
         // runs that make good use of the ship's cargo capacity. A
@@ -1661,7 +1673,7 @@ fn try_plan_contract(
                 destination: c.destination_location.clone(),
                 commodity: c.commodity,
                 qty: c.quantity,
-                payment: c.payment,
+                payment,
                 cost,
                 score: effective_profit,
                 kind: c.contract_type,
