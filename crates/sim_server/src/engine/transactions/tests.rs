@@ -1191,12 +1191,16 @@ fn strategy_block_head_to_logistics_to_native_delivery() {
     f.apply(ship, request); assert_eq!(f.result(ship), Ok(()));
     f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
     { let mut pos = f.world.get_mut::<ShipPosition>(ship).unwrap(); pos.location_name = Some("mine".into()); pos.docked_at = Some(source); }
+    f.world.get_mut::<FacilityStorage>(f.facility).unwrap().docked_ships.retain(|e| *e != ship);
+    f.world.get_mut::<FacilityStorage>(source).unwrap().docked_ships.push(ship);
     let request = f.submit(ship, ShipTransaction::Buy { location: "mine".into(), commodity: Commodity::Ore, quantity: 200, max_unit_price: 1.0 });
     f.apply(ship, request); assert_eq!(f.result(ship), Ok(()));
     f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
     // Arrival is supplied by the existing navigation system; exercise the real
     // destination settlement after moving the fixture to that dock.
     { let mut pos = f.world.get_mut::<ShipPosition>(ship).unwrap(); pos.location_name = Some("port".into()); pos.docked_at = Some(f.facility); }
+    f.world.get_mut::<FacilityStorage>(source).unwrap().docked_ships.retain(|e| *e != ship);
+    f.world.get_mut::<FacilityStorage>(f.facility).unwrap().docked_ships.push(ship);
     let request = f.submit(ship, ShipTransaction::Deliver { contract_id: id.clone() });
     f.apply(ship, request); assert_eq!(f.result(ship), Ok(()));
     strategy::refresh(&mut f.world, &f.store.contracts, 200);
