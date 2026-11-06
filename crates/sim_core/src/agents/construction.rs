@@ -43,13 +43,13 @@ pub fn facility_type_for_commodity(c: Commodity) -> &'static str {
     use Commodity::*;
     match c {
         // Raw extractors
-        Ore | Ice => "mining_rig",
+        Ore | Ice | Gas => "mining_rig",
         // Basic / intermediate refining
-        Metals | Gas | Polymers | Fuel => "refinery",
+        Metals | Water | Polymers | Fuel => "refinery",
         // Finished-goods factories
         Components | Electronics | Tools | Luxury => "factory",
         // Food / water producers
-        Food | Water => "farm",
+        Food => "farm",
         // Medical is specialist; treat as factory for now
         Medical => "factory",
     }

@@ -117,14 +117,10 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
                     // Site must exist before any advance is taken. Reuse native placement.
                     faction::ensure_site_spawned(world,events,&account.id,goal.commodity,&goal.destination,tick);
                     let site_entity = crate::agents::construction::find_site(world,&goal.destination,goal.commodity);
-                    let Some(site_entity) = site_entity else {
+                    let Some(_site_entity) = site_entity else {
                         candidate.status = "blocked".into(); candidate.reason = "invalid_site_location".into();
                         view = candidate; continue;
                     };
-                    if existing.is_none() {
-                        let mut site = world.get_mut::<ConstructionSite>(site_entity).unwrap();
-                        site.facility_type = candidate.facility_type.clone().unwrap(); site.dirty = true;
-                    }
                     let mut payer = world.get_mut::<FactionData>(entity).unwrap();
                     payer.treasury -= faction::CONSTRUCTION_BASE_PAYMENT; payer.dirty = true;
                     let id = board.post_construction(account.id.clone(),Some(account.id.clone()),goal.commodity,
