@@ -91,3 +91,21 @@ test("strategy interface wires the declared controls without modifying simulatio
   assert.match(ui, /fetch\("\/api\/strategy",\s*\{cache:\s*"no-store"\}\)/);
   assert.doesNotMatch(ui, /method:\s*["']POST|\/api\/sim\/|innerHTML/);
 });
+
+test("diagnostic export is a read-only click action with bounded browser history", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+  assert.match(html, /id="export-diagnostics"/);
+  assert.match(app, /els\.exportDiagnostics\.addEventListener\("click",exportDiagnostics\)/);
+  const start = app.indexOf("async function exportDiagnostics()");
+  const end = app.indexOf("function handleEvents(", start);
+  assert.ok(start >= 0 && end > start, "export handler should exist");
+  const exportCode = app.slice(start, end);
+  for (const endpoint of ["/api/health","/api/report","/api/strategy","/api/contracts"]) {
+    assert.ok(exportCode.includes(endpoint), "missing diagnostics source: " + endpoint);
+  }
+  assert.match(exportCode, /browser_events_newest_first:\s*s\.events\.slice\(0,\s*100\)/);
+  assert.match(exportCode, /new Blob\(/);
+  assert.match(exportCode, /link\.download\s*=/);
+  assert.doesNotMatch(exportCode, /postJSON\(|\/api\/sim\/|\/api\/admin\//);
+});
