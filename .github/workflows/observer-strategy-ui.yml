@@ -1,0 +1,28 @@
+name: Observer strategy UI checks
+on:
+  push:
+    branches: [feature/observer-strategy-ui1]
+  pull_request:
+    paths:
+      - 'observer/**'
+      - '.github/workflows/observer-strategy-ui.yml'
+permissions:
+  contents: read
+jobs:
+  observer-strategy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify generated UI assets
+        run: node observer/build-strategy.mjs --check
+      - name: Verify module syntax
+        run: |
+          node --check observer/app.js
+          node --check observer/strategy-ui.js
+          node --check observer/strategy-model.js
+      - name: Run targeted Observer tests
+        run: node --test observer/model.test.mjs observer/strategy-model.test.mjs

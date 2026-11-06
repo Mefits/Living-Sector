@@ -1,0 +1,190 @@
+name: Living Sector Observer UI-1 downloads
+
+on:
+  push:
+    branches: [feature/observer-strategy-ui1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ui-package:
+    name: Portable Observer UI files
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify Observer and strategy
+        run: |
+          node observer/build-strategy.mjs --check
+          node --check observer/app.js
+          node --test observer/model.test.mjs observer/strategy-model.test.mjs
+      - name: Package UI-only update
+        run: |
+          mkdir -p dist/UI-Update/observer
+          cp observer/index.html observer/app.js observer/model.js observer/styles.css dist/UI-Update/observer/
+          printf '%s\n' 'Living Sector — Observer UI-1, no executable included.'             'Copy the observer folder next to a compatible Genesis-Server.exe from PR #16 (S1).'             'Requires server GET /api/strategy v1; older Windows builds will not expose it.'             'Do not overwrite or remove .db save files. Refresh browser with Ctrl+F5.'             > dist/UI-Update/README.txt
+          (cd dist/UI-Update && zip -qr ../Living-Sector-Observer-UI1-ONLY.zip .)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Observer-UI1-ONLY
+          path: dist/Living-Sector-Observer-UI1-ONLY.zip
+          retention-days: 14
+          if-no-files-found: error
+
+  windows:
+    name: Windows Genesis strategy preview (portable)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify source UI
+        shell: pwsh
+        run: |
+          node observer/build-strategy.mjs --check
+          node --test observer/model.test.mjs observer/strategy-model.test.mjs
+      - name: Compile native Genesis strategy server
+        shell: pwsh
+        run: cargo build --locked --release -p sim_server --bin genesis_server
+      - name: Smoke-test strategy API and served UI on disposable DB
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:DATABASE_PATH = Join-Path (Get-Location) 'strategy-ui1-ci-only.db'
+          $env:DATA_DIR = (Resolve-Path 'priv/genesis/data').Path
+          $env:LIVING_SECTOR_UI_DIR = (Resolve-Path 'observer').Path
+          $env:BIND_ADDR = '127.0.0.1:18093'
+          $env:LIVING_SECTOR_STRATEGY_MODE = 'shadow'
+          $process = Start-Process -FilePath (Resolve-Path 'target/release/genesis_server.exe').Path -PassThru
+          try {
+            $api = $null
+            for ($i=0; $i -lt 90; $i++) {
+              if ($process.HasExited) { throw 'Genesis server exited early' }
+              try {
+                $api = Invoke-RestMethod 'http://127.0.0.1:18093/api/strategy' -TimeoutSec 2
+                if ($api.schema_version -eq 1 -and @($api.factions).Count -eq 2) { break }
+              } catch {}
+              Start-Sleep -Seconds 1
+            }
+            if ($null -eq $api -or $api.schema_version -ne 1 -or @($api.factions).Count -ne 2) {
+              throw 'GET /api/strategy v1 or two factions are missing'
+            }
+            $html = Invoke-WebRequest 'http://127.0.0.1:18093/observer' -UseBasicParsing -TimeoutSec 4
+            $app = Invoke-WebRequest 'http://127.0.0.1:18093/observer/app.js' -UseBasicParsing -TimeoutSec 4
+            if ($html.StatusCode -ne 200 -or $html.Content -notmatch 'strategy-toggle') {
+              throw 'Strategy panel missing from served HTML'
+            }
+            if ($app.StatusCode -ne 200 -or $app.Content -notmatch 'BEGIN GENERATED STRATEGY BUNDLE') {
+              throw 'Bundled strategy UI missing from server'
+            }
+            Write-Host 'PASS: 2 factions, strategy API v1, served Observer strategy HTML and JS'
+          } finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
+            Remove-Item 'strategy-ui1-ci-only.db*' -Force -ErrorAction SilentlyContinue
+          }
+      - name: Package portable Windows build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = 'dist/Living-Sector-Strategy-UI1'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          Copy-Item 'target/release/genesis_server.exe' "$folder/Genesis-Server.exe"
+          Copy-Item 'observer' "$folder/observer" -Recurse
+          Copy-Item 'priv/genesis/data' "$folder/data" -Recurse
+          Copy-Item 'LICENSE' "$folder/LICENSE"
+          @'
+          @echo off
+          setlocal
+          cd /d "%~dp0"
+          if not exist "Genesis-Server.exe" (
+            echo Missing Genesis-Server.exe. Extract the entire ZIP first.
+            pause
+            exit /b 1
+          )
+          if not exist "data\factions.json" (
+            echo Missing data folder. Extract the entire ZIP first.
+            pause
+            exit /b 1
+          )
+          powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest 'http://127.0.0.1:8080/api/health' -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }"
+          if not errorlevel 1 (
+            echo Port 8080 is occupied. Close the other simulator first.
+            pause
+            exit /b 1
+          )
+          set "BIND_ADDR=127.0.0.1:8080"
+          set "DATA_DIR=%~dp0data"
+          set "DATABASE_PATH=%~dp0strategy-ui1-test.db"
+          set "LIVING_SECTOR_UI_DIR=%~dp0observer"
+          set "WORLD_SPEED=1.0"
+          set "LIVING_SECTOR_STRATEGY_MODE=shadow"
+          echo Living Sector UI-1: strategy mode SHADOW - no strategic project spending.
+          echo For EXECUTE use Start-Strategy-Execute.cmd with a separate database.
+          start "Living Sector - Genesis Strategy" /D "%~dp0" "%~dp0Genesis-Server.exe"
+          powershell -NoProfile -ExecutionPolicy Bypass -Command "$ok=$false; for($i=0;$i -lt 80;$i++){try{$r=Invoke-WebRequest 'http://127.0.0.1:8080/api/health' -UseBasicParsing -TimeoutSec 2; if($r.StatusCode -eq 200){$ok=$true;break}}catch{};Start-Sleep -Seconds 1};if($ok){Start-Process 'http://127.0.0.1:8080/observer'}else{Write-Host 'Server did not start; see server console';exit 1}"
+          if errorlevel 1 pause
+          endlocal
+          '@ | Set-Content "$folder/Start-Living-Sector.cmd" -Encoding ASCII
+          @'
+          @echo off
+          setlocal
+          cd /d "%~dp0"
+          if not exist "Genesis-Server.exe" (
+            echo Missing Genesis-Server.exe.
+            pause
+            exit /b 1
+          )
+          powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest 'http://127.0.0.1:8081/api/health' -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }"
+          if not errorlevel 1 (
+            echo Port 8081 is occupied.
+            pause
+            exit /b 1
+          )
+          set "BIND_ADDR=127.0.0.1:8081"
+          set "DATA_DIR=%~dp0data"
+          set "DATABASE_PATH=%~dp0strategy-ui1-execute-test.db"
+          set "LIVING_SECTOR_UI_DIR=%~dp0observer"
+          set "WORLD_SPEED=1.0"
+          set "LIVING_SECTOR_STRATEGY_MODE=execute"
+          start "Living Sector - Genesis Strategy EXECUTE" /D "%~dp0" "%~dp0Genesis-Server.exe"
+          powershell -NoProfile -ExecutionPolicy Bypass -Command "$ok=$false; for($i=0;$i -lt 80;$i++){try{$r=Invoke-WebRequest 'http://127.0.0.1:8081/api/health' -UseBasicParsing -TimeoutSec 2; if($r.StatusCode -eq 200){$ok=$true;break}}catch{};Start-Sleep -Seconds 1};if($ok){Start-Process 'http://127.0.0.1:8081/observer'}else{Write-Host 'Server did not start; see server console';exit 1}"
+          if errorlevel 1 pause
+          endlocal
+          '@ | Set-Content "$folder/Start-Strategy-Execute.cmd" -Encoding ASCII
+          @(
+            'LIVING SECTOR - GENESIS STRATEGY UI-1 / PR #17'
+            ''
+            '1. Extract the full folder. Do not launch inside the ZIP.'
+            '2. Double-click Start-Living-Sector.cmd (SHADOW strategy; safe observation).'
+            '3. Browser opens the 2D Observer. Click STRATEGY to inspect faction goals.'
+            '4. Optional: Start-Strategy-Execute.cmd uses port 8081 and a separate TEST database.'
+            '5. Two modes use separate SQLite files and never overwrite your previous saves.'
+            '6. Stop the simulator console with Ctrl+C before moving or deleting database files.'
+            '7. The game is an experimental small Sol seed, NOT a full finished game.'
+            '8. Full long-run flight and Windows UI interaction testing remain separate.'
+          ) | Set-Content "$folder/README.txt" -Encoding UTF8
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Compress-Archive -Path $folder -DestinationPath 'dist/Living-Sector-Strategy-UI1-Windows.zip' -CompressionLevel Optimal -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Strategy-UI1-Windows
+          path: dist/Living-Sector-Strategy-UI1-Windows.zip
+          retention-days: 14
+          if-no-files-found: error
