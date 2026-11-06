@@ -256,3 +256,26 @@ body.strategy-open .inspector { display:none!important; }
   .strategy-toolbar-button { padding:6px 9px; }
 }
 /* END GENERATED STRATEGY CSS */
+
+/* Observer V4: hierarchy and readable facility families. */
+.map-legend{display:flex;flex-wrap:wrap;gap:7px 12px;max-width:calc(100% - 25px);background:#081723eb;border:1px solid #294653;border-radius:5px;padding:7px 10px}
+.map-legend>span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.legend-major{display:inline-block;width:12px;height:12px;border:2px solid #7dbec5;border-radius:4px;box-shadow:0 0 0 2px #7dbec530}
+.legend-glyph{width:10px;height:10px;display:inline-block;background:#253541;border:1.5px solid #a3c0cc}
+.legend-extract{border-color:#dbb579;transform:rotate(45deg)}
+.legend-processing{border-color:#ce9f8a;border-radius:50%}
+.legend-logistics{border-color:#d3bd8d}
+.inspector-body .facility-breakdown{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.facility-breakdown-item{border:1px solid #314957;border-left:3px solid #8eacb8;display:inline-flex;align-items:baseline;gap:6px;padding:6px 8px;border-radius:4px;background:#142a36;font-size:10px;color:#afc4cd}
+.facility-breakdown-item strong{font-size:13px;color:#edf4f8}
+.facility-breakdown-item.family-station,.group-member.family-station{border-left-color:#7dbec5}
+.facility-breakdown-item.family-logistics,.group-member.family-logistics{border-left-color:#d3bd8d}
+.facility-breakdown-item.family-extraction,.group-member.family-extraction{border-left-color:#dbb579}
+.facility-breakdown-item.family-processing,.group-member.family-processing{border-left-color:#ce9f8a}
+.facility-breakdown-item.family-production,.group-member.family-production{border-left-color:#89c5a4}
+.facility-breakdown-item.family-service,.group-member.family-service{border-left-color:#c6b6dd}
+@media(max-width:1100px){.map-legend{bottom:9px;gap:6px 8px}.map-top .map-tools{flex-wrap:wrap}}
+
+/* Separate map explanation from legend at intermediate widths. */
+@media(max-width:1450px){.map-help{bottom:47px;max-width:calc(100% - 36px)}}
+@media(max-width:760px){.map-help{display:none}}
