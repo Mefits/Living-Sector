@@ -9,7 +9,7 @@
 }
 .strategy-backdrop { position: fixed; inset: 0; background: #030910b3; z-index: 19; }
 .strategy-drawer {
-  position: fixed; inset: 0 0 0 auto; width: min(478px, 100vw);
+  position: fixed; inset: 0 0 0 auto; width: min(552px, 100vw);
   z-index: 20; display: flex; flex-direction: column; min-height: 0;
   background: #0d1721; border-left: 1px solid #426070;
   box-shadow: -16px 0 60px #000a; color: #e1eaf0;
@@ -103,4 +103,35 @@ body.strategy-open .inspector { display:none!important; }
   .strategy-content { padding:16px 17px; }
   .strategy-footer { padding:10px 17px; }
   .strategy-toolbar-button { padding:6px 9px; }
+}
+
+/* S2–S4 diagnostic layers, not speculative "strategy" badges. */
+.strategy-head-card { border-color:#4a7b79; background:linear-gradient(140deg,#1a3a3e,#112731 72%); }
+.strategy-head-card .strategy-field { grid-template-columns:160px minmax(0,1fr); }
+.strategy-subheading { margin:16px 2px 8px; font-size:10px; font-weight:760;
+  letter-spacing:.07em; color:#9cb8c6; }
+.strategy-proposal-card, .strategy-construction-card { border:1px solid #34505e;
+  border-radius:6px; background:#152630; padding:13px 14px; margin:7px 0; }
+.strategy-proposal-chosen { border-color:#64a7a0; background:#1b3537;
+  box-shadow:inset 3px 0 #60b5aa; }
+.strategy-proposal-card .strategy-field, .strategy-construction-card .strategy-field {
+  grid-template-columns:150px minmax(0,1fr);
+}
+.strategy-proposal-card .strategy-field-value { font-size:10px; }
+.strategy-construction-card .strategy-decision-reason { margin:11px 0; }
+.strategy-assessment { border-radius:4px; font-size:10px;
+  padding:7px 9px; margin-top:9px; }
+.strategy-assessment.ready { background:#1a3932; color:#a2dbc1; }
+.strategy-assessment.blocked { background:#3a2b28; color:#e5c1b4; }
+.strategy-site-progress { margin:14px 0 5px; padding:10px 11px; background:#0c2029;
+  border:1px solid #33515c; border-radius:5px; }
+.strategy-site-progress progress { width:100%; height:9px; margin-top:10px;
+  accent-color:#63bcae; border-radius:6px; }
+.strategy-site-progress progress::-webkit-progress-bar { background:#0b151d; border-radius:6px; }
+.strategy-site-progress progress::-webkit-progress-value { background:#63bcae; border-radius:6px; }
+.strategy-site-progress progress::-moz-progress-bar { background:#63bcae; border-radius:6px; }
+@media(max-width:460px) {
+  .strategy-head-card .strategy-field,
+  .strategy-proposal-card .strategy-field,
+  .strategy-construction-card .strategy-field { grid-template-columns:120px minmax(0,1fr); }
 }
