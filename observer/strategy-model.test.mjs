@@ -7,7 +7,7 @@ import {
 } from "./strategy-model.js";
 
 const fixture = JSON.parse(readFileSync(
-  new URL("../docs/living-sector/strategy-api-v1.example.json", import.meta.url), "utf8"
+  new URL("./strategy-api-v1.fixture.json", import.meta.url), "utf8"
 ));
 const snapshot = () => structuredClone(fixture);
 
