@@ -12,6 +12,7 @@
 
 ## Документы
 
+- **[economy/README.md](economy/README.md)** — новая база исследования устойчивой экономики: [проверенные источники](economy/SOURCES.md), [выводы и границы](economy/README.md), [план денежного фундамента и этапов](economy/FOUNDATION_PLAN.md). **Предложение, а не реализованное изменение**.
 - **[ASTRA_ARCHITECTURE_REVIEW.md](ASTRA_ARCHITECTURE_REVIEW.md)** — результат P0 от 2026-11-05: аудит по SHA, расхождения и рекомендация стратегического слоя; предложение, не реализованный AI.
 - [ASTRA_DATA_CONTRACTS.md](ASTRA_DATA_CONTRACTS.md) — предлагаемые данные, полномочия, атомарные операции и сохранение.
 - [ASTRA_GOAL_CATALOG.md](ASTRA_GOAL_CATALOG.md) — 36 возможных целей с физическими результатами и готовностью доменов.
