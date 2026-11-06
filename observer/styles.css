@@ -160,7 +160,7 @@ body.has-selection .inspector{display:flex}
 }
 .strategy-backdrop { position: fixed; inset: 0; background: #030910b3; z-index: 19; }
 .strategy-drawer {
-  position: fixed; inset: 0 0 0 auto; width: min(478px, 100vw);
+  position: fixed; inset: 0 0 0 auto; width: min(552px, 100vw);
   z-index: 20; display: flex; flex-direction: column; min-height: 0;
   background: #0d1721; border-left: 1px solid #426070;
   box-shadow: -16px 0 60px #000a; color: #e1eaf0;
@@ -255,4 +255,118 @@ body.strategy-open .inspector { display:none!important; }
   .strategy-footer { padding:10px 17px; }
   .strategy-toolbar-button { padding:6px 9px; }
 }
+
+/* S2–S4 diagnostic layers, not speculative "strategy" badges. */
+.strategy-head-card { border-color:#4a7b79; background:linear-gradient(140deg,#1a3a3e,#112731 72%); }
+.strategy-head-card .strategy-field { grid-template-columns:160px minmax(0,1fr); }
+.strategy-subheading { margin:16px 2px 8px; font-size:10px; font-weight:760;
+  letter-spacing:.07em; color:#9cb8c6; }
+.strategy-proposal-card, .strategy-construction-card { border:1px solid #34505e;
+  border-radius:6px; background:#152630; padding:13px 14px; margin:7px 0; }
+.strategy-proposal-chosen { border-color:#64a7a0; background:#1b3537;
+  box-shadow:inset 3px 0 #60b5aa; }
+.strategy-proposal-card .strategy-field, .strategy-construction-card .strategy-field {
+  grid-template-columns:150px minmax(0,1fr);
+}
+.strategy-proposal-card .strategy-field-value { font-size:10px; }
+.strategy-construction-card .strategy-decision-reason { margin:11px 0; }
+.strategy-assessment { border-radius:4px; font-size:10px;
+  padding:7px 9px; margin-top:9px; }
+.strategy-assessment.ready { background:#1a3932; color:#a2dbc1; }
+.strategy-assessment.blocked { background:#3a2b28; color:#e5c1b4; }
+.strategy-site-progress { margin:14px 0 5px; padding:10px 11px; background:#0c2029;
+  border:1px solid #33515c; border-radius:5px; }
+.strategy-site-progress progress { width:100%; height:9px; margin-top:10px;
+  accent-color:#63bcae; border-radius:6px; }
+.strategy-site-progress progress::-webkit-progress-bar { background:#0b151d; border-radius:6px; }
+.strategy-site-progress progress::-webkit-progress-value { background:#63bcae; border-radius:6px; }
+.strategy-site-progress progress::-moz-progress-bar { background:#63bcae; border-radius:6px; }
+@media(max-width:460px) {
+  .strategy-head-card .strategy-field,
+  .strategy-proposal-card .strategy-field,
+  .strategy-construction-card .strategy-field { grid-template-columns:120px minmax(0,1fr); }
+}
+
+/* S7 head alternatives: delivery, construction, waiting. */
+.strategy-problem-title { margin:14px 2px 0; padding:10px 12px;
+  border-left:3px solid #649eaf; color:#d8e8ed; background:#152a36;
+  border-radius:4px; font-weight:670; font-size:12px; overflow-wrap:anywhere; }
+.strategy-option-card { margin:8px 0; padding:13px 14px; border:1px solid #2f4b58;
+  border-radius:6px; background:#132531; }
+.strategy-option-card .strategy-field { grid-template-columns:160px minmax(0,1fr); }
+.strategy-option-reason { margin:8px 0 6px; font-size:11px; color:#acc6d2; }
+@media(max-width:460px) {
+  .strategy-option-card .strategy-field { grid-template-columns:120px minmax(0,1fr); }
+}
 /* END GENERATED STRATEGY CSS */
+
+/* Living Sector: compound infrastructure and concise engineering inspector. */
+.map-legend{gap:11px;bottom:12px;background:rgba(8,23,35,.94)}
+.legend-module{width:10px;height:10px;border:1.5px solid #d3bd8d;border-radius:2px;background:#263845}
+.legend-site{width:10px;height:10px;border:1.5px dashed #e2b47d;background:transparent}
+.map-top .toggle{white-space:nowrap}
+.inspector-body .field{grid-template-columns:minmax(90px,39%) minmax(0,1fr);gap:9px;padding:8px 0}
+.inspector-body .field .value{overflow-wrap:anywhere}
+.inspector-body .group-title{font-size:10px;letter-spacing:.12em;margin-top:20px;border-bottom:1px solid #273c48;padding-bottom:6px}
+.inspector-body .group-member{border-color:#314754;border-left:3px solid #738f9a;transition:background .15s}
+.inspector-body .group-member:hover{background:#1a3440}
+.inspector-body .group-member .group-member-note{color:#9eafbd;font-size:10px;line-height:1.5}
+.meter{margin:10px 0 12px}
+.meter-head{display:flex;justify-content:space-between;gap:6px;color:#b2c7d2;font-size:11px;margin-bottom:6px}
+.meter-head strong{color:#edf4f8;font-variant-numeric:tabular-nums}
+.meter-track{height:7px;background:#1b2d39;border:1px solid #365061;border-radius:4px;overflow:hidden}
+.meter-fill{height:100%;background:#67a9a0;min-width:0;transition:width .15s}
+.meter-low{background:#d0ae72}
+.meter-critical{background:#ce735f}
+@media(max-width:1000px){.map-legend{gap:8px;padding:6px 9px}.map-top .map-tools{flex-wrap:wrap}}
+@media(max-width:750px){.map-legend{right:8px;bottom:8px}.map-stamp{display:none}}
+
+/* V3: system start-frame presets. Only camera state changes. */
+.map-focus-picker{position:absolute;z-index:3;top:39px;left:17px;max-width:min(385px,calc(100% - 35px));padding:7px 9px 8px;background:rgba(7,20,31,.90);border:1px solid rgba(73,110,124,.45);border-radius:7px;box-shadow:0 7px 24px #0003}
+.focus-button-row{display:flex;gap:5px;align-items:center}
+.focus-button{background:transparent;border:1px solid transparent;border-radius:4px;color:#a2bac8;padding:6px 12px;font-size:11px;font-weight:620;white-space:nowrap}
+.focus-button:hover{color:#e2f2f1;background:#183442}
+.focus-button.active,.focus-button[aria-pressed="true"]{color:#d4f4ee;border-color:#397e7a;background:#1b4547}
+.focus-caption{color:#7895a5;font-size:9px;padding:5px 4px 0;line-height:1.35}
+@media(max-width:720px){.map-focus-picker{top:12px;left:8px;padding:5px}.map-stamp{display:none}.focus-caption{display:none}.focus-button{padding:5px 8px;font-size:10px}}
+
+/* V3 follow-up: camera presets belong to the view toolbar, not over planets. */
+.map-top .map-focus-picker{position:static;z-index:auto;left:auto;top:auto;max-width:none;flex:none;padding:0;border:none;border-radius:0;box-shadow:none;background:none}
+.map-top .focus-button-row{gap:3px}
+.map-top .focus-button{font-size:10px;padding:6px 9px}
+.map-top .focus-caption{display:none}
+@media(max-width:1150px){.map-top{height:auto;min-height:52px;flex-wrap:wrap;row-gap:4px;padding-block:5px}.map-top .map-tools{margin-left:auto;flex-wrap:wrap}}
+@media(max-width:690px){.map-top .map-focus-picker{order:2}.map-top .map-tools{order:3}.map-top .focus-button{padding:5px 7px}}
+
+/* V4 — readable industrial map hierarchy, no fabricated economy fields. */
+.map-legend{display:flex;flex-wrap:wrap;max-width:calc(100% - 24px);row-gap:6px;column-gap:11px;padding:7px 11px;border:1px solid #263e4b;border-radius:5px}
+.map-legend>span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:10px}
+.legend-major{display:inline-block;width:12px;height:12px;border:2px solid #76bdb5;border-radius:4px;box-shadow:0 0 0 2px #76bdb53a}
+.legend-extract{border-color:#d5b275!important;transform:rotate(45deg);border-radius:1px!important}
+.legend-processing{border-color:#ce9f8a!important;border-radius:50%!important}
+.legend-logistics{border-color:#d3bd8d!important;border-radius:1px!important}
+.inspector-body .facility-breakdown{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 13px}
+.facility-breakdown-item{display:flex;align-items:baseline;gap:6px;padding:6px 8px;background:#152a36;border:1px solid #294151;border-left:3px solid #8aa5b4;border-radius:4px;font-size:10px;color:#a4bbc8}
+.facility-breakdown-item strong{color:#e5f0f5;font-size:13px;font-weight:650}
+.facility-breakdown-item.family-station{border-left-color:#7dbec5}
+.facility-breakdown-item.family-logistics{border-left-color:#d3bd8d}
+.facility-breakdown-item.family-extraction{border-left-color:#dbb579}
+.facility-breakdown-item.family-processing{border-left-color:#ce9f8a}
+.facility-breakdown-item.family-production{border-left-color:#89c5a4}
+.facility-breakdown-item.family-service{border-left-color:#c6b6dd}
+.inspector-body .group-member.family-station{border-left-color:#7dbec5}
+.inspector-body .group-member.family-logistics{border-left-color:#d3bd8d}
+.inspector-body .group-member.family-extraction{border-left-color:#dbb579}
+.inspector-body .group-member.family-processing{border-left-color:#ce9f8a}
+.inspector-body .group-member.family-production{border-left-color:#89c5a4}
+.inspector-body .group-member.family-service{border-left-color:#c6b6dd}
+@media(max-width:1120px){.map-legend>span{font-size:9px}.map-legend{column-gap:8px;bottom:7px}}
+@media(max-width:770px){.map-legend{max-width:calc(100% - 20px)}.map-legend>span{font-size:9px}}
+
+/* S7 reference recipes: do not misrepresent as live industrial output. */
+.recipe-line{display:flex;flex-direction:column;gap:4px;padding:8px 0;border-bottom:1px solid #273c48;font-size:11px}
+.recipe-line strong{color:#d7e9eb;font-weight:620}
+.recipe-line span{color:#9bb7c4;font-size:10px;line-height:1.55}
+/* Keep the legend and the map-help note from covering each other. */
+@media (max-width:1450px){.map-help{bottom:47px;max-width:calc(100% - 36px)}}
+@media (max-width:760px){.map-help{display:none}}
