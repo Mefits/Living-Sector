@@ -57,6 +57,8 @@ pub(super) fn apply_transaction(
             *max_unit_price,
             tick,
         ),
+        ShipTransaction::Sell { location, commodity, quantity, min_unit_price } =>
+            sell(world, store, ship, location, *commodity, *quantity, *min_unit_price),
         ShipTransaction::Refuel { location } => refuel(world, store, ship, location),
         ShipTransaction::Deliver { contract_id } => {
             deliver(world, store, ship, contract_id, events, tick)
@@ -73,12 +75,8 @@ pub(super) fn apply_transaction(
         }
     }
     let (location, commodity, contract_id, requested_quantity) = match &request {
-        ShipTransaction::Buy {
-            location,
-            commodity,
-            quantity,
-            ..
-        } => (
+        ShipTransaction::Buy { location, commodity, quantity, .. }
+        | ShipTransaction::Sell { location, commodity, quantity, .. } => (
             Some(location.as_str()),
             Some(commodity.as_str()),
             None,
@@ -309,6 +307,70 @@ fn buy(
     Ok((quantity as f32, cost))
 }
 
+/// The market operator buys inventory with its own cash. No order-book
+/// placeholder, faction treasury, or other station is an implicit guarantor.
+fn sell(
+    world: &mut World, store: &AgentStore, ship: Entity, location: &str,
+    commodity: Commodity, quantity: u32, min_unit_price: f32,
+) -> Result<(f32, i64), Rejection> {
+    dock(world, store, ship, location)?;
+    let owner = controller(world, store, ship, location)?;
+    let (market, buyer) = market_at(world, store, ship, location)?;
+    let pricing = world.get::<MarketPricing>(market).ok_or("missing_pricing")?;
+    // Use the public quote on both sides. Reciprocal friendship premiums
+    // created a guaranteed same-port buy/sell arbitrage in the old path.
+    let economy = world.get::<ShipEconomy>(ship).ok_or("missing_economy")?;
+    let faction = &world.get::<ShipIdentity>(ship).ok_or("missing_ship")?.faction_id;
+    let price = pricing.price(commodity) * market_buy_multiplier(&store.relations, faction,
+        economy.faction_reputation.get(&owner).copied().unwrap_or(0), &owner);
+    if !price.is_finite() || price <= 0.0 || !min_unit_price.is_finite()
+        || min_unit_price <= 0.0 || price < min_unit_price {
+        return Err("invalid_or_changed_price");
+    }
+    let stock = pricing.supply.get(&commodity).copied().unwrap_or(0.0);
+    let after = stock + quantity as f32;
+    if !stock.is_finite() || stock < 0.0 || !after.is_finite()
+        || after - stock != quantity as f32 { return Err("invalid_destination_stock"); }
+    let cargo = world.get::<ShipCargo>(ship).ok_or("missing_cargo")?;
+    let have = cargo.cargo.get(&commodity).copied().unwrap_or(0);
+    if quantity == 0 || quantity > (1 << 24) || have < quantity { return Err("insufficient_cargo"); }
+    let value = (price as f64 * quantity as f64).floor();
+    if value < 1.0 || value >= i64::MAX as f64 { return Err("invalid_payment"); }
+    let payment = value as i64;
+    let buyer_cash = world.get::<FacilityOperations>(buyer).ok_or("missing_buyer_economy")?.credits;
+    if buyer_cash < payment { return Err("insufficient_buyer_credits"); }
+    let ship_cash = world.get::<ShipEconomy>(ship).ok_or("missing_economy")?.credits
+        .checked_add(payment).ok_or("credit_overflow")?;
+    let origin = cargo.cargo_origin.get(&commodity).cloned();
+
+    world.get_mut::<ShipEconomy>(ship).unwrap().credits = ship_cash;
+    let mut ops = world.get_mut::<FacilityOperations>(buyer).unwrap();
+    ops.credits -= payment;
+    ops.dirty = true;
+    world.get_mut::<MarketPricing>(market).unwrap().supply.insert(commodity, after);
+    let mut cargo = world.get_mut::<ShipCargo>(ship).unwrap();
+    if have == quantity {
+        cargo.cargo.remove(&commodity);
+        cargo.cargo_age.remove(&commodity);
+        cargo.cargo_origin.remove(&commodity);
+    } else { cargo.cargo.insert(commodity, have - quantity); }
+    if have == quantity {
+        if let (Some((origin, cost)), Some(mut memory)) =
+            (origin, world.get_mut::<sim_core::agents::ship::ShipMemory>(ship)) {
+            if origin != location {
+                memory.route_performance.entry((origin, location.into(), commodity))
+                    .or_default().record(payment as f32 / quantity as f32 - cost);
+            }
+        }
+    }
+    if let Some(mut history) = world.get_mut::<MarketHistory>(market) {
+        *history.trade_volume.entry(commodity).or_default() += quantity as f32;
+        history.dirty = true;
+    }
+    crew_success(world, ship, CrewTask::Unloading, false);
+    Ok((quantity as f32, payment))
+}
+
 fn refuel(
     world: &mut World,
     store: &AgentStore,
@@ -412,8 +474,9 @@ fn deliver(
         }
         agreed
     } else {
-        // Untracked legacy contracts retain P1b settlement; no base is invented.
-        super::contract_funding::quote(world, store, ship, &c)?
+        // A historic initial_payment is not proof of a debit. Keep the row
+        // intact for explicit recovery instead of minting or charging twice.
+        return Err("unverified_legacy_funding");
     };
     economy
         .credits

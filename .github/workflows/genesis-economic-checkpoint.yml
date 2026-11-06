@@ -1,7 +1,7 @@
 name: Genesis economic checkpoint checks
 on:
   push:
-    branches: [feature/genesis-economic-checkpoint, feature/genesis-lifecycle-checkpoint, feature/genesis-flight-recovery, integration/genesis-strategy-prototype, feature/genesis-strategy-replanning, feature/genesis-strategy-construction, feature/genesis-strategy-coordination, feature/genesis-autonomous-execution, feature/genesis-viable-projects, feature/genesis-goal-options]
+    branches: [feature/genesis-economic-checkpoint, feature/genesis-lifecycle-checkpoint, feature/genesis-flight-recovery, integration/genesis-strategy-prototype, feature/genesis-strategy-replanning, feature/genesis-strategy-construction, feature/genesis-strategy-coordination, feature/genesis-autonomous-execution, feature/genesis-viable-projects, feature/genesis-goal-options, feature/genesis-economy-foundation]
   workflow_dispatch:
 permissions:
   contents: read
@@ -55,3 +55,11 @@ jobs:
           else
             node tests/strategy-autonomous.mjs target/debug/genesis_server
           fi
+
+      - name: Economic foundation bounded invariants
+        if: github.ref_name == 'feature/genesis-economy-foundation'
+        run: |
+          cargo test --locked -p sim_core -p sim_db -p sim_server --lib foundation_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_db -p sim_server --lib escrow_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_db -p sim_server --lib flight_recovery_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_core -p sim_db -p sim_server --lib strategy_block_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0

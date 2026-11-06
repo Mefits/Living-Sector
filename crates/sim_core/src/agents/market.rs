@@ -186,7 +186,7 @@ impl MarketSnapshot {
 
 use crate::economy::{
     commodities::Commodity as _Commodity,
-    order_book::{match_orders as match_fn, OrderType},
+
     price_engine,
 };
 use crate::simulation::commands::{CommandBuffer, SimCommand};
@@ -327,136 +327,11 @@ fn tick_one_market(
         }
     }
 
-    // --- 3. Emergency orders ---
-    if tick % emerg_interval == 0 {
-        for (commodity, threshold, qty, premium) in essential_commodities() {
-            let supply = pricing.supply.get(commodity).copied().unwrap_or(0.0);
-            let demand = pricing.demand.get(commodity).copied().unwrap_or(0.0);
-
-            if supply < *threshold && demand > 0.0 {
-                let has_emergency = orders
-                    .pending_buys
-                    .iter()
-                    .any(|o| o.commodity == *commodity && o.agent_id == "market-emergency");
-                if !has_emergency {
-                    let base_price = pricing.prices.get(commodity).copied().unwrap_or(50.0);
-                    let price = base_price * premium;
-                    orders.next_order_id += 1;
-                    let order_id = orders.next_order_id;
-                    orders.pending_buys.push(crate::economy::order_book::Order {
-                        id: order_id,
-                        agent_id: "market-emergency".into(),
-                        order_type: OrderType::Buy,
-                        commodity: *commodity,
-                        quantity: *qty,
-                        price,
-                        placed_at_tick: tick,
-                    });
-                }
-            }
-        }
-    }
-
-    // --- 4. Surplus orders ---
-    if tick % emerg_interval == 0 {
-        let commodities: Vec<_Commodity> = pricing.supply.keys().copied().collect();
-        for commodity in commodities {
-            let supply = pricing.supply.get(&commodity).copied().unwrap_or(0.0);
-            let demand = pricing.demand.get(&commodity).copied().unwrap_or(0.0);
-            let threshold = (demand * SURPLUS_THRESHOLD_MULTIPLIER).max(500.0);
-
-            if supply > threshold {
-                let has_surplus = orders
-                    .pending_sells
-                    .iter()
-                    .any(|o| o.commodity == commodity && o.agent_id == "market-surplus");
-                if !has_surplus {
-                    let base_price = pricing.prices.get(&commodity).copied().unwrap_or(10.0);
-                    let price = base_price * SURPLUS_DISCOUNT;
-                    // Offer up to 20% of excess supply
-                    let excess = supply - (threshold / 2.0);
-                    let qty = ((excess * 0.2).min(500.0) as u32).max(1);
-                    if qty > 0 {
-                        orders.next_order_id += 1;
-                        let order_id = orders.next_order_id;
-                        orders.pending_sells.push(crate::economy::order_book::Order {
-                            id: order_id,
-                            agent_id: "market-surplus".into(),
-                            order_type: OrderType::Sell,
-                            commodity,
-                            quantity: qty,
-                            price,
-                            placed_at_tick: tick,
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    // --- 5. Match orders ---
-    // Group by commodity, match each, collect trades for cross-agent effects.
-    let spread = pricing.spread;
-    let all_buys = std::mem::take(&mut orders.pending_buys);
-    let all_sells = std::mem::take(&mut orders.pending_sells);
-
-    let mut remaining_buys: Vec<_> = Vec::new();
-    let mut remaining_sells: Vec<_> = Vec::new();
-
-    for commodity in _Commodity::ALL {
-        let buys: Vec<_> = all_buys.iter().filter(|o| o.commodity == *commodity).cloned().collect();
-        let sells: Vec<_> = all_sells.iter().filter(|o| o.commodity == *commodity).cloned().collect();
-
-        if buys.is_empty() && sells.is_empty() {
-            continue;
-        }
-
-        let (trades, rem_b, rem_s) = match_fn(buys, sells, spread);
-
-        for trade in &trades {
-            // Track volume
-            *history.trade_volume.entry(*commodity).or_insert(0.0) += trade.quantity as f32;
-
-            // Normal buyers: supply decreases. Emergency market buys: supply increases (restocking).
-            if trade.buyer_id == "market-emergency" {
-                // Market bought to restock — supply goes UP
-                *pricing.supply.entry(*commodity).or_insert(0.0) += trade.quantity as f32;
-            } else {
-                // Normal buyer — supply goes down, record as real consumption signal
-                let entry = pricing.supply.entry(*commodity).or_insert(0.0);
-                *entry = (*entry - trade.quantity as f32).max(0.0);
-                record_consumption(&mut flow, *commodity, trade.quantity as f32, tick);
-            }
-
-            // Spread revenue to owning facility (via command buffer for deterministic timing)
-            let spread_revenue = (trade.quantity as f32 * trade.price * spread / 2.0) as i64;
-            if spread_revenue > 0 {
-                commands.push(SimCommand::TransferCredits {
-                    from: entity, // placeholder: market entity isn't a real credit-holder
-                    to: identity.facility,
-                    amount: spread_revenue,
-                });
-            }
-        }
-
-        // Non-market-internal trades should settle cargo/credits between real agents.
-        // For Phase 3 there are no ships yet; commands are emitted but no real
-        // participants. Phase 4 adds the settlement path via ExecuteTrade.
-        for trade in trades {
-            if !trade.buyer_id.starts_with("market-") && !trade.seller_id.starts_with("market-") {
-                // We only have string ids at this layer; real Entity resolution
-                // happens in the engine apply-phase for Phase 4.
-                // For now, record as executed trade for logging/analytics.
-                let _ = trade;
-            }
-        }
-
-        remaining_buys.extend(rem_b);
-        remaining_sells.extend(rem_s);
-    }
-
-    orders.pending_buys = remaining_buys;
-    orders.pending_sells = remaining_sells;
+    // Legacy anonymous orders have neither a cash payer nor a cargo owner.
+    // Do not "settle" them by mutating supply or minting spread revenue.
+    // Actual exchanges commit through native ship/facility transactions.
+    orders.pending_buys.retain(|o| !o.agent_id.starts_with("market-"));
+    orders.pending_sells.retain(|o| !o.agent_id.starts_with("market-"));
 
     // --- 6. Update demand ---
     let cutoff = tick.saturating_sub(demand_window);
@@ -560,7 +435,7 @@ fn tick_one_market(
     history.dirty = true;
 }
 
-fn record_consumption(flow: &mut MarketFlow, commodity: _Commodity, qty: f32, tick: u64) {
+pub(crate) fn record_consumption(flow: &mut MarketFlow, commodity: _Commodity, qty: f32, tick: u64) {
     if qty <= 0.0 {
         return;
     }

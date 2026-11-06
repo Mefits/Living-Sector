@@ -23,6 +23,8 @@ use tracing::{debug, info, warn};
 /// Stable IDs only: ECS Entity handles are resolved anew on load.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ShipResumeState {
+    #[serde(default)]
+    pub crew_savings: i64,
     pub location_name: Option<String>,
     pub docked_db_id: Option<i64>,
     pub system_id: String,
@@ -349,6 +351,7 @@ mod escrow_tests {
                 departure_tick: 20, arrival_tick: 80, departure_position: Some((3.0, 4.0)),
                 distance_total: 100.0, distance_travelled: 45.0 });
             let resume = ShipResumeState {
+                crew_savings: 77,
                 location_name: (mode != 0).then(|| "port".into()),
                 docked_db_id: (mode == 1).then_some(7), system_id: "sol".into(),
                 universe_offset: (12.0, 34.0), transit,
@@ -368,6 +371,7 @@ mod escrow_tests {
                 &sim_core::simulation::config::TickConfig::DEFAULT).await.unwrap();
             let ship = store.ship_by_id["ship-runner"];
             let pos = world.get::<ShipPosition>(ship).unwrap();
+            assert_eq!(world.get::<sim_core::agents::ship::ShipCrew>(ship).unwrap().wages_credits, 77);
             assert_eq!(pos.location_name, resume.location_name);
             assert_eq!(pos.position, (8.0, 9.0));
             assert_eq!(pos.universe_offset, (12.0, 34.0));

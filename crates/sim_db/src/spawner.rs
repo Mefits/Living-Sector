@@ -1033,7 +1033,7 @@ async fn load_ships(
             morale: 70.0,
             fatigue: 10.0,
             health: 100.0,
-            wages_credits: 0,
+            wages_credits: resume.as_ref().map(|r| r.crew_savings).unwrap_or(0),
             current_task: sim_core::agents::ship::CrewTask::Idle,
             dirty: false,
         });

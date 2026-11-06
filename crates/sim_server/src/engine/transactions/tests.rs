@@ -1350,3 +1350,114 @@ fn strategy_block_reward_stays_within_head_approval_through_renewal_and_acceptan
     assert_eq!(escrow.reserved, 10_000);
     assert_eq!(f.world.get::<FactionData>(owner).unwrap().treasury, 5_000);
 }
+
+fn sale(quantity: u32) -> ShipTransaction {
+    ShipTransaction::Sell { location: "port".into(), commodity: Commodity::Ore,
+        quantity, min_unit_price: 10.0 }
+}
+
+#[test]
+fn foundation_sale_competition_cash_stock_and_duplicate_receipt() {
+    use sim_core::economy::money::MoneySnapshot;
+    let mut f = Fixture::new(0.0, 0.0);
+    f.world.get_mut::<FacilityOperations>(f.facility).unwrap().credits = 100;
+    for ship in f.ships { f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.insert(Commodity::Ore, 10); }
+    let before = MoneySnapshot::capture(&mut f.world, &f.store.contracts);
+    let [first, second] = f.ships;
+    let a = f.submit(first, sale(10));
+    let b = f.submit(second, sale(10));
+    f.apply(first, a); f.apply(second, b);
+    assert_eq!(f.result(first), Ok(()));
+    assert_eq!(f.result(second), Err("insufficient_buyer_credits"));
+    assert_eq!(f.world.get::<ShipCargo>(second).unwrap().cargo[&Commodity::Ore], 10);
+    assert_eq!(f.world.get::<MarketPricing>(f.market).unwrap().supply[&Commodity::Ore], 10.0);
+    assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before.total);
+    let committed = f.snapshot(first);
+    f.apply(first, a);
+    assert_eq!(f.snapshot(first), committed);
+}
+
+#[test]
+fn foundation_sale_rejects_without_any_partial_change() {
+    for case in 0..5 {
+        let mut f = Fixture::new(0.0, 0.0);
+        let ship = f.ships[0];
+        f.world.get_mut::<FacilityOperations>(f.facility).unwrap().credits = 1000;
+        f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.insert(Commodity::Ore, 10);
+        match case {
+            0 => f.world.get_mut::<FacilityOperations>(f.facility).unwrap().credits = 0,
+            1 => { f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.clear(); },
+            2 => f.world.get_mut::<ShipPosition>(ship).unwrap().docked_at = None,
+            3 => f.world.get_mut::<ShipEconomy>(ship).unwrap().credits = i64::MAX,
+            _ => { f.world.get_mut::<MarketPricing>(f.market).unwrap().prices.insert(Commodity::Ore, 9.0); },
+        }
+        let before = f.snapshot(ship);
+        let id = f.submit(ship, sale(10)); f.apply(ship, id);
+        assert!(f.result(ship).is_err());
+        assert_eq!(before, f.snapshot(ship));
+    }
+}
+
+#[test]
+fn foundation_market_placeholder_cannot_mint_a_spread() {
+    let mut f = Fixture::new(0.0, 0.0);
+    let mut commands = CommandBuffer::new();
+    commands.push(SimCommand::TransferCredits { from: f.market, to: f.facility, amount: 100 });
+    super::super::apply::apply_ship_commands(&mut f.world, &mut f.store, &mut commands, &mut f.events, 1);
+    assert_eq!(f.world.get::<FacilityOperations>(f.facility).unwrap().credits, 0);
+    assert_eq!(f.events.last().unwrap()["reason"], "unfunded_transfer");
+}
+
+#[test]
+fn foundation_unverified_legacy_contract_neither_claims_nor_pays() {
+    let mut f = Fixture::new(0.0, 0.0);
+    let id = f.store.contracts.post_delivery_for("station".into(), None, Commodity::Ore,
+        10, "source".into(), "port".into(), 100, 0, 100);
+    let ship = f.ships[0];
+    let before = f.snapshot(ship);
+    let request = f.submit(ship, ShipTransaction::Accept { contract_id: id.clone() });
+    f.apply(ship, request);
+    assert_eq!(f.result(ship), Err("unverified_legacy_funding"));
+    assert_eq!(before, f.snapshot(ship));
+    // Old saves may already have an accepted, unfunded contract.
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+    f.store.contracts.accept(&id, "ship-0".into(), 1);
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().active_contract_id = Some(id.clone());
+    f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.insert(Commodity::Ore, 10);
+    let before = f.snapshot(ship);
+    let request = f.submit(ship, ShipTransaction::Deliver { contract_id: id });
+    f.apply(ship, request);
+    assert_eq!(f.result(ship), Err("unverified_legacy_funding"));
+    assert_eq!(before, f.snapshot(ship));
+}
+
+#[test]
+fn foundation_trade_and_household_consumption_recirculate_cash() {
+    use sim_core::agents::population::*;
+    use sim_core::economy::money::MoneySnapshot;
+    let mut f = Fixture::new(20.0, 10.0);
+    let ship = f.ships[0];
+    let pop = f.world.spawn((PopIdentity { db_id: 1, id:"workers".into(), label:"Workers".into(),
+        demographic:"workers".into(), facility:f.facility, facility_location:"port".into(), faction_id:"".into() },
+        PopEconomy { total_wealth:100, spending_rate:1.0, consumption:Default::default(),
+            production_commodity:None, production_amount:0.0 },
+        PopSentiment { overall_sentiment:50, unrest:0, food_satisfaction:50,
+            safety_satisfaction:50, entertainment_satisfaction:50, dirty:false })).id();
+    let before = MoneySnapshot::capture(&mut f.world, &f.store.contracts).total;
+    for _ in 0..2 {
+        let request = f.submit(ship, purchase()); f.apply(ship, request);
+        assert_eq!(f.result(ship), Ok(()));
+        f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+        let request = f.submit(ship, sale(10)); f.apply(ship, request);
+        assert_eq!(f.result(ship), Ok(()));
+        f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+        assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before);
+    }
+    assert_eq!(purchase_consumption(&mut f.world, pop, f.market, Commodity::Ore, 10.0, 5), Ok((10.0,100)));
+    assert_eq!(f.world.get::<FacilityOperations>(f.facility).unwrap().credits, 100);
+    assert_eq!(f.world.get::<PopEconomy>(pop).unwrap().total_wealth, 0);
+    let stock = f.world.get::<MarketPricing>(f.market).unwrap().supply.clone();
+    assert_eq!(purchase_consumption(&mut f.world, pop, f.market, Commodity::Ore, 1.0, 10), Err("insufficient_household_credits"));
+    assert_eq!(f.world.get::<MarketPricing>(f.market).unwrap().supply, stock);
+    assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before);
+}
