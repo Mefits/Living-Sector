@@ -1,5 +1,11 @@
 # ASTRA — START HERE · Living Sector / Genesis
 
+> **Текущий блок S2 (2026-11-06):** `feature/genesis-strategy-replanning` поверх S1.
+> Выполнимый портфель, удержание проекта до расчёта и повторное планирование;
+> совместимое поле assessments в API v1. CI: 18 адресных тестов + build/API smoke прошли.
+> Проверенный код `593c06d`; PR #18. Интеграционная база второго разработчика
+> остаётся S1; PR автоматически не сливаются. Проверки и ограничения — [STATUS.md](STATUS.md).
+
 > **Текущий интеграционный блок S1 (2026-11-06):** `integration/genesis-strategy-prototype`.
 > Construction checkpoint + первый глава/логистический администратор + native-проект
 > и read-only API. **CI: адресные проверки + сборка + свежая БД/API smoke прошли.**
