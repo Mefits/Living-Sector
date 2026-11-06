@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {
   parseSnapshot, observedChanges, observationAge, goalKey, human,
-  decisionLabels, reasonLabels, projectLabels
+  decisionLabels, reasonLabels, projectLabels,
+  administratorLabels, headReasonLabels, assessmentForGoal, projectGroups, progressFraction
 } from "./strategy-model.js";
 
 const fixture = JSON.parse(readFileSync(
@@ -108,4 +109,105 @@ test("diagnostic export is a read-only click action with bounded browser history
   assert.match(exportCode, /new Blob\(/);
   assert.match(exportCode, /link\.download\s*=/);
   assert.doesNotMatch(exportCode, /postJSON\(|\/api\/sim\/|\/api\/admin\//);
+});
+
+
+test("S2–S4 additive API fields parse while S1 remains supported", () => {
+  const s1 = parseSnapshot(snapshot());
+  assert.equal(s1.factions[0].head, null);
+  assert.equal(s1.factions[0].construction, null);
+  assert.deepEqual(s1.factions[0].assessments, []);
+  const raw = snapshot();
+  const f = raw.factions[0];
+  f.assessments = [{
+    goal: f.goals[0], reason: "no_accessible_stock", source: null
+  }];
+  f.head = {
+    observed_tick: 220, selected_administrator: "construction",
+    reason: "finish_existing_construction", treasury_before: 80000,
+    spending_limit: 75000, planned_spend: 10000, committed_spend: 10000,
+    proposals: [
+      {administrator:"logistics",goal:f.goals[0], status:"blocked",
+       reason:"no_accessible_stock",requested_credits:1600, priority:3},
+      {administrator:"construction",goal:{goal_id:"expand_production",
+       commodity:"food",destination:"port",shortage_ticks:0,score:0},
+       status:"proposed",reason:"shadow_no_mutation",requested_credits:10000,priority:2}
+    ]
+  };
+  f.construction = {
+    observed_tick: 220, status: "commissioned", reason:"funded_native_contract",
+    selected_goal: {goal_id:"expand_production",commodity:"food",destination:"port",
+      shortage_ticks:0,score:0},
+    site_id:"site-3", facility_type:"farm", progress_delivered:400,
+    progress_required:600, contract_id:"contract-4"
+  };
+  f.projects.push({project_id:"contract-4",contract_id:"contract-4",
+    administrator:"construction",state:"posted",executor_id:null,
+    reserved_credits:10000,source:"mine",destination:"port",
+    commodity:"food",quantity:200});
+  const parsed = parseSnapshot(raw);
+  const view = parsed.factions[0];
+  assert.equal(view.head.selected_administrator, "construction");
+  assert.equal(view.head.committed_spend, 10000);
+  assert.equal(view.construction.progress_required, 600);
+  assert.equal(progressFraction(view.construction), 2/3);
+  assert.equal(assessmentForGoal(view, view.goals[0]).reason, "no_accessible_stock");
+  assert.equal(projectGroups(view).construction.length, 1);
+  assert.equal(projectGroups(view).logistics.length, 1);
+  assert.equal(human("construction", administratorLabels), "Строительство");
+  assert.match(human("finish_existing_construction",headReasonLabels), /стройки/);
+  assert.equal(progressFraction({progress_delivered:5,progress_required:0}), null);
+  assert.equal(progressFraction({progress_delivered:999,progress_required:600}), 1);
+});
+test("S4 proposals alone are not reported as completed strategic contracts", () => {
+  const raw = snapshot();
+  raw.factions[0].projects = [];
+  raw.factions[0].head = {
+    observed_tick: raw.snapshot_tick, selected_administrator: null,
+    reason:"no_feasible_proposal", treasury_before:30000,spending_limit:25000,
+    planned_spend:0,committed_spend:0,
+    proposals:[{administrator:"logistics",status:"proposed",reason:"ready",
+      goal:raw.factions[0].goals[0],requested_credits:1600,priority:3}]
+  };
+  const previous = parseSnapshot(raw);
+  const nextRaw = structuredClone(raw);
+  nextRaw.snapshot_tick += 60;
+  nextRaw.factions[0].head.observed_tick += 60;
+  nextRaw.factions[0].head.selected_administrator = "logistics";
+  nextRaw.factions[0].head.reason = "urgent_supply";
+  const changes = observedChanges(previous, parseSnapshot(nextRaw));
+  assert.equal(changes.length, 1);
+  assert.match(changes[0].message, /Глава: Логистика/);
+  assert.doesNotMatch(changes[0].message, /Оплачен|Доставлен/);
+});
+test("construction progress is observed from site state only, never inferred from paid contracts", () => {
+  const raw = snapshot();
+  raw.factions[0].construction = {
+    observed_tick:200,status:"waiting",reason:"existing_contract",
+    selected_goal:raw.factions[0].goals[0],
+    site_id:"site-1",facility_type:"farm",progress_delivered:100,
+    progress_required:600,contract_id:"contract-1"
+  };
+  const before = parseSnapshot(raw);
+  const nextRaw = structuredClone(raw);
+  nextRaw.snapshot_tick += 100;
+  nextRaw.factions[0].construction.progress_delivered = 270;
+  const changes = observedChanges(before,parseSnapshot(nextRaw));
+  assert.equal(changes.length,1);
+  assert.match(changes[0].message, /270 \/ 600/);
+});
+test("UI has dedicated head and construction sections and renders additive fields", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const ui = readFileSync(new URL("./strategy-ui.js", import.meta.url), "utf8");
+  for (const id of ["strategy-head","strategy-construction","strategy-projects"]) {
+    assert.ok(html.includes('id="' + id + '"'));
+  }
+  for (const field of ["planned_spend","committed_spend","spending_limit","assessments",
+                       "progress_delivered","selected_administrator"]) {
+    if (field==="assessments") {
+      assert.match(ui, /assessmentForGoal/);
+    } else assert.ok(ui.includes(field), field);
+  }
+  assert.match(ui, /Предложения показаны ДО исполнения/);
+  assert.match(ui, /Контракты строительства — это доставки грузов/);
 });
