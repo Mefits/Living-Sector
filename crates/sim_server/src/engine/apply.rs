@@ -1309,7 +1309,16 @@ pub(super) fn commit_contract_delivery(
                     cargo.cargo.insert(c.commodity, leftover);
                 }
             }
-            if let Some(&market_entity) = store.market_at_location.get(&c.destination_location) {
+            if c.funding.as_ref().is_some_and(|f| f.source == sim_core::economy::contracts::FundingSource::Population) {
+                // The household already paid for this food in escrow. Consume
+                // it for that recipient, never gift it to a shop to sell again.
+                let population = store.population_by_id[&c.requestor_id];
+                let mut sent = world.get_mut::<sim_core::agents::population::PopSentiment>(population).unwrap();
+                sent.food_satisfaction = (sent.food_satisfaction + sim_core::agents::population::FOOD_SAT_RECOVER_ON_MET).min(100);
+                sent.dirty = true;
+                events.push(serde_json::json!({"kind":"household_delivery_consumed", "tick":tick,
+                    "population_id":c.requestor_id, "contract_id":c.id, "quantity":c.quantity}));
+            } else if let Some(&market_entity) = store.market_at_location.get(&c.destination_location) {
                 if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
                     *pricing.supply.entry(c.commodity).or_insert(0.0) += c.quantity as f32;
                 }

@@ -63,3 +63,5 @@ jobs:
           cargo test --locked -p sim_db -p sim_server --lib escrow_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
           cargo test --locked -p sim_db -p sim_server --lib flight_recovery_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
           cargo test --locked -p sim_core -p sim_db -p sim_server --lib strategy_block_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_server --lib engine::transactions::tests --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_db -p sim_server --lib checkpoint_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0

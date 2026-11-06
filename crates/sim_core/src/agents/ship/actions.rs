@@ -680,6 +680,24 @@ mod transaction_tests {
     }
 
     #[test]
+    fn foundation_sell_actions_wait_for_payment_and_acknowledge_empty_hold() {
+        for action in [ShipAction::Sell { commodity: Commodity::Ore, qty: 10 }, ShipAction::SellAll] {
+            let mut s = Ship::new();
+            s.cargo.cargo.insert(Commodity::Ore, 10);
+            assert_eq!(s.act(&action), BtStatus::Running);
+            assert_eq!(s.economy.credits, 1000);
+            assert_eq!(s.cargo.used(), 10);
+            assert_eq!(s.act(&action), BtStatus::Running);
+            assert_eq!(s.commands.drain().count(), 1);
+            // Apply is the only owner of cash/cargo writes.
+            s.cargo.cargo.clear();
+            s.economy.transaction.pending.as_mut().unwrap().result = Some(Ok(()));
+            assert_eq!(s.act(&action), BtStatus::Success);
+            assert!(s.economy.transaction.pending.is_none());
+        }
+    }
+
+    #[test]
     fn escrow_accept_action_waits_before_claiming_a_contract() {
         let mut s = Ship::new();
         s.economy.active_contract_id = None;

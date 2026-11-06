@@ -187,8 +187,7 @@ pub const SENTIMENT_INERTIA_BASE: f32 = 0.9;
 /// stays as abstract "market value" that's already reflected in
 /// supply/demand pricing. Keeping the rate small prevents per-pop
 /// treasuries from swinging wildly on one busy tick and keeps the
-/// long-run wealth drift observable rather than chaotic.
-pub const POP_MONETISATION_RATE: f32 = 0.10;
+
 
 /// Passenger contract preconditions. Matches Elixir thresholds.
 pub const PASSENGER_MIN_POPULATION: i64 = 5_000;
@@ -586,18 +585,11 @@ fn post_passenger_contracts(
         } else {
             Some(cand.faction_id.clone())
         };
-        if !reserve_population_payment(world, &cand.pop_id, payment) { continue; }
-        let id = contracts.post_passenger_for(
-            cand.pop_id,
-            faction_tag,
-            PASSENGER_BATCH_SIZE,
-            cand.origin,
-            destination,
-            payment,
-            tick,
-            CONTRACT_LIFESPAN_BASE * tick_multiplier,
-        );
-        contracts.register_prepaid(&id, crate::economy::contracts::FundingSource::Population);
+        // Passenger contracts need an actual embarkation/reserved-headcount
+        // transfer first. Legacy arrival created residents at every destination
+        // group. Keep ordinary migration, do not publish unfounded travel here.
+        let _ = (payment, faction_tag, destination, tick, tick_multiplier);
+
     }
 }
 

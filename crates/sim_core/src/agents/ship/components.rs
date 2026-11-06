@@ -329,8 +329,9 @@ pub struct ShipCrew {
     pub fatigue: f32,
     /// 0–100. Damage system isn't live yet — stays near 100 for now.
     pub health: f32,
-    /// Accumulated unpaid wages (credits). Settled into ShipEconomy.credits
-    /// on docked wage payouts or deducted as morale penalty if unpaid.
+    /// Paid crew savings, already debited from ShipEconomy.credits.
+    /// Persisted in ship resume_json and counted once as a separate cash asset.
+    /// Household/shore spending integration remains a later workforce block.
     pub wages_credits: i64,
     /// What the crew is doing right now. Aggregate — the whole crew does
     /// the same thing each tick, matching the Elixir aggregate model.

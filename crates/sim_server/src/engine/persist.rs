@@ -194,6 +194,7 @@ pub(super) fn emit_persist_writes(
         writes.push(write);
     }
     for e in dirty_ships {
+        if let Some(mut crew) = world.get_mut::<sim_core::agents::ship::ShipCrew>(e) { crew.dirty = false; }
         if let Some(mut life) = world.get_mut::<ShipLifecycle>(e) {
             life.dirty = false;
         }

@@ -484,6 +484,20 @@ fn deliver(
         .ok_or("credit_overflow")?;
     dock(world, store, ship, &c.destination_location)?;
     controller(world, store, ship, &c.destination_location)?;
+    let household_delivery = c.funding.as_ref().is_some_and(|f|
+        f.source == sim_core::economy::contracts::FundingSource::Population)
+        && c.contract_type == ContractType::Delivery;
+    if household_delivery {
+        let pop = *store.population_by_id.get(&c.requestor_id).ok_or("missing_contract_recipient")?;
+        let identity = world.get::<sim_core::agents::population::PopIdentity>(pop).ok_or("missing_contract_recipient")?;
+        if identity.facility_location != c.destination_location || c.commodity != Commodity::Food {
+            return Err("invalid_household_delivery");
+        }
+        if !world.get::<sim_core::agents::population::PopDemographics>(pop).is_some_and(|p| p.population_count > 0)
+            || world.get::<sim_core::agents::population::PopSentiment>(pop).is_none() {
+            return Err("missing_contract_recipient");
+        }
+    }
     let physical = !matches!(
         c.contract_type,
         ContractType::Passenger | ContractType::CrewMission
@@ -513,7 +527,7 @@ fn deliver(
             {
                 return Err("wrong_construction_owner");
             }
-        } else {
+        } else if !household_delivery {
             let (market, _) = market_at(world, store, ship, &c.destination_location)?;
             let pricing = world
                 .get::<MarketPricing>(market)
@@ -525,11 +539,6 @@ fn deliver(
             destination_market = Some(market);
         }
     }
-    let top_up = if c.funding.is_none() {
-        prepare_reward_top_up(world, store, &c.requestor_id, c.initial_payment, payment)?
-    } else {
-        None
-    };
     // Status changes only after recipient, ownership, cargo and funding pass.
     let c = store
         .contracts
@@ -545,74 +554,12 @@ fn deliver(
         funding.reserved -= payment;
     }
     let quantity = c.quantity;
-    if let Some((payer, balance, amount)) = top_up {
-        match payer {
-            ContractPayer::Facility(entity) => {
-                let mut ops = world.get_mut::<FacilityOperations>(entity).unwrap();
-                ops.credits = balance;
-                ops.dirty = true;
-            }
-            ContractPayer::Faction(entity) => {
-                let mut data = world
-                    .get_mut::<sim_core::agents::faction::FactionData>(entity)
-                    .unwrap();
-                data.treasury = balance;
-                data.dirty = true;
-            }
-        }
-        events.push(serde_json::json!({
-            "kind": "contract_reward_funded", "contract_id": c.id,
-            "requestor_id": c.requestor_id, "amount": amount, "tick": tick,
-        }));
-    }
     super::apply::commit_contract_delivery(world, store, ship, c, payment, events, tick);
     if let Some(market) = destination_market {
         dirty_market(world, market);
     }
     crew_success(world, ship, CrewTask::Unloading, true);
     Ok((quantity as f32, payment))
-}
-
-enum ContractPayer {
-    Facility(Entity),
-    Faction(Entity),
-}
-
-/// Facility/faction posting paths already debit initial_payment. Never debit
-/// that base a second time. Age/renewal increases and fitting/treaty bonuses
-/// were previously paid without a corresponding debit; fund them at commit.
-/// This does not establish base escrow for legacy population contracts.
-fn prepare_reward_top_up(
-    world: &World,
-    store: &AgentStore,
-    requestor: &str,
-    initial_payment: i64,
-    payment: i64,
-) -> Result<Option<(ContractPayer, i64, i64)>, Rejection> {
-    if initial_payment < 0 {
-        return Err("invalid_prepaid_amount");
-    }
-    let amount = payment.saturating_sub(initial_payment).max(0);
-    if amount == 0 {
-        return Ok(None);
-    }
-    let (payer, credits) = if let Some(&entity) = store.facility_by_id.get(requestor) {
-        let ops = world
-            .get::<FacilityOperations>(entity)
-            .ok_or("missing_contract_payer")?;
-        (ContractPayer::Facility(entity), ops.credits)
-    } else if let Some(&entity) = store.faction_by_id.get(requestor) {
-        let data = world
-            .get::<sim_core::agents::faction::FactionData>(entity)
-            .ok_or("missing_contract_payer")?;
-        (ContractPayer::Faction(entity), data.treasury)
-    } else {
-        return Err("missing_contract_payer");
-    };
-    if credits < amount {
-        return Err("insufficient_contract_funding");
-    }
-    Ok(Some((payer, credits - amount, amount)))
 }
 
 #[cfg(test)]
