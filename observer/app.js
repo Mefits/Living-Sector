@@ -6,6 +6,7 @@ import {
   liveEntityPoint, approachWorldPoint,
   commodityLabel, contractLabel, contractCargoLabel
 } from "/observer/model.js";
+import {initStrategyPanel, openStrategyForFaction} from "/observer/strategy-ui.js";
 
 const byId = id => document.getElementById(id);
 const els = Object.fromEntries([
@@ -173,10 +174,13 @@ function renderSidebar() {
   els.factionLegend.replaceChildren();
   const factions = [...list(s.report.factions)].sort((a,b) => a.name.localeCompare(b.name));
   for (const faction of factions) {
-    const row = document.createElement("div");
-    row.className = "faction-item";
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "faction-item strategy-faction-link";
+    row.title = "Показать стратегию фракции";
     marker(row, "dot", factionColor(faction.id, s.index));
     row.appendChild(textEl("span", faction.name));
+    row.addEventListener("click", () => openStrategyForFaction(faction.id));
     els.factionLegend.appendChild(row);
   }
 }
@@ -1106,6 +1110,7 @@ function wireControls() {
 }
 
 wireControls();
+initStrategyPanel({getFactions: () => list(s.report?.factions)});
 renderMap();
 fetchReport().then(()=>{connectWs();fetchHealth();});
 window.setInterval(fetchReport,18000);
