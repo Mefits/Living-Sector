@@ -1248,3 +1248,61 @@ async fn strategy_block_construction_queues_complete_frame_without_free_capital(
     assert!(writes.iter().any(|w| matches!(w, DbWrite::Facility { credits: 1000, .. })));
     assert!(writes.iter().any(|w| matches!(w, DbWrite::ContractBoardSnapshot { .. })));
 }
+
+#[test]
+fn strategy_block_construction_administrator_to_native_materialization() {
+    use sim_core::{strategy::{self, Mode, StrategyState}, agents::{faction::{FactionData,FactionColors}, celestial_body::{BodyIdentity,BodyOrbit}}};
+    let mut f = Fixture::new(0.0,100.0);
+    f.world.insert_resource(StrategyState { mode: Mode::Execute, ..Default::default() });
+    f.world.get_mut::<FacilityIdentity>(f.facility).unwrap().faction_id = "haulers".into();
+    let owner = f.world.spawn(FactionData { id: "haulers".into(), name: "Haulers".into(),
+        faction_type: "normal".into(), home_system: "sol".into(), treasury: 80_000,
+        personality: sim_core::ai::personality::Personality::balanced_trader(),
+        colors: FactionColors { primary: String::new(), secondary: String::new() }, active_subsidies: 0, dirty: false }).id();
+    f.store.faction_by_id.insert("haulers".into(),owner);
+    f.world.spawn((BodyIdentity { db_id: 1, body_id: "earth".into(), name: "Earth".into(), body_type: "planet".into(), star_system_id: 1, system_name: "sol".into() },
+        BodyOrbit { orbit_radius: 1.0, orbit_period: 100, current_angle: 0.0, universe_offset: (0.0,0.0), dirty: false }));
+    let site = f.site(600);
+    f.world.get_mut::<ConstructionSite>(site).unwrap().progress_delivered = 590;
+    let source = f.world.spawn((
+        FacilityIdentity { db_id: 5, id: "mine".into(), name: "Mine".into(), facility_type: "mining_rig".into(), faction_id: "haulers".into(), body_id: "earth".into() },
+        FacilityLocation { location_id: 2, location_name: "mine".into() },
+        FacilityOperations { docking_capacity: 4, services: vec![], condition: 1.0, reputation: 50, credits: 0, dirty: false, starving_notified: false },
+        FacilityStorage::default(), FacilityLifecycle::new(),
+    )).id();
+    f.store.facility_by_id.insert("mine".into(),source);
+    let source_market = f.world.spawn((MarketIdentity { db_id: 6, id: "mine-market".into(), facility: source, facility_location: "mine".into() },
+        MarketHistory::default(), MarketPricing { price_elasticity: 1.0, spread: 0.0,
+            prices: [(Commodity::Ore,1.0)].into(), supply: [(Commodity::Ore,10.0)].into(), demand: Default::default() })).id();
+    f.store.market_at_location.insert("mine".into(),source_market);
+    strategy::construction::run_cycle(&mut f.world,&mut f.store.contracts,&f.store.relations,&mut f.events,200,1);
+    let id = f.store.contracts.iter().next().unwrap().id.clone();
+    assert_eq!(f.store.contracts.get(&id).unwrap().quantity,10);
+    let ship = f.ships[0];
+    let request = f.submit(ship,ShipTransaction::Accept { contract_id: id.clone() });
+    f.apply(ship,request); assert_eq!(f.result(ship),Ok(()));
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+    { let mut pos = f.world.get_mut::<ShipPosition>(ship).unwrap(); pos.location_name = Some("mine".into()); pos.docked_at = Some(source); }
+    f.world.get_mut::<FacilityStorage>(f.facility).unwrap().docked_ships.retain(|e| *e != ship);
+    f.world.get_mut::<FacilityStorage>(source).unwrap().docked_ships.push(ship);
+    let request = f.submit(ship,ShipTransaction::Buy { location: "mine".into(), commodity: Commodity::Ore, quantity: 10, max_unit_price: 1.0 });
+    f.apply(ship,request); assert_eq!(f.result(ship),Ok(()));
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+    // Navigation is fixture relocation; all purchase/delivery/construction effects are native.
+    { let mut pos = f.world.get_mut::<ShipPosition>(ship).unwrap(); pos.location_name = Some("port".into()); pos.docked_at = Some(f.facility); }
+    f.world.get_mut::<FacilityStorage>(source).unwrap().docked_ships.retain(|e| *e != ship);
+    f.world.get_mut::<FacilityStorage>(f.facility).unwrap().docked_ships.push(ship);
+    let request = f.submit(ship,ShipTransaction::Deliver { contract_id: id.clone() });
+    f.apply(ship,request); assert_eq!(f.result(ship),Ok(()));
+    assert_eq!(f.store.contracts.get(&id).unwrap().status,ContractStatus::Paid);
+    assert_eq!(f.world.get::<ShipCargo>(ship).unwrap().used(),0);
+    assert!(f.world.get::<ConstructionSite>(site).is_none());
+    assert_eq!(f.store.pending_materializations.len(),1);
+    let built = f.store.pending_materializations[0].entity;
+    assert_eq!(f.world.get::<FacilityIdentity>(built).unwrap().facility_type,"mining_rig");
+    assert_eq!(f.world.get::<FacilityOperations>(built).unwrap().credits,20_000);
+    assert_eq!(f.world.get::<FactionData>(owner).unwrap().treasury,50_000);
+    strategy::construction::run_cycle(&mut f.world,&mut f.store.contracts,&f.store.relations,&mut f.events,400,1);
+    assert_eq!(f.store.contracts.iter().count(),1,"completed project must not duplicate");
+    assert_eq!(f.world.resource::<StrategyState>().factions["haulers"].projects[0].state,"paid");
+}
