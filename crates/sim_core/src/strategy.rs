@@ -33,11 +33,18 @@ pub struct Project {
     pub quantity: u32,
 }
 #[derive(Clone, Debug, Serialize)]
+pub struct GoalAssessment {
+    pub goal: Goal,
+    pub reason: String,
+    pub source: Option<String>,
+}
+#[derive(Clone, Debug, Serialize)]
 pub struct FactionView {
     pub faction_id: String,
     pub observed_tick: u64,
     pub treasury: i64,
     pub goals: Vec<Goal>,
+    pub assessments: Vec<GoalAssessment>,
     pub selected_goal: Option<Goal>,
     pub administrator: &'static str,
     pub status: String,
@@ -68,6 +75,10 @@ pub fn executing(world: &World) -> bool {
 fn goal_id(c: Commodity) -> &'static str {
     match c { Commodity::Food | Commodity::Water => "sustain_population",
         Commodity::Fuel => "secure_fuel", _ => "supply_industry" }
+}
+fn outstanding(c: &crate::economy::contracts::Contract) -> bool {
+    !matches!(c.status, ContractStatus::Paid | ContractStatus::Expired)
+        || c.funding.as_ref().is_some_and(|f| f.reserved > 0)
 }
 /// Called at the existing faction subsidy cadence. In execute mode it replaces
 /// only subsidy selection; taxes, construction and independent ships remain native.
@@ -102,39 +113,52 @@ pub fn run_cycle(world: &mut World, contracts: &mut ContractBoard,
         goals.sort_by(|a,b| b.score.total_cmp(&a.score)
             .then_with(|| a.goal_id.cmp(&b.goal_id)).then_with(|| a.commodity.as_str().cmp(b.commodity.as_str()))
             .then_with(|| a.destination.cmp(&b.destination)));
-        let selected = goals.first().cloned();
-        let mut view = FactionView { faction_id: faction.id.clone(), observed_tick: tick,
-            treasury: faction.treasury, goals, selected_goal: selected.clone(), administrator: "logistics",
-            status: "idle".into(), reason: "no_chronic_shortage".into(), projects: Vec::new() };
-        if let Some(goal) = selected {
-            let active = |c: &crate::economy::contracts::Contract| matches!(c.status,
-                ContractStatus::Posted | ContractStatus::Accepted | ContractStatus::PickedUp);
-            let existing = contracts.iter().any(|c| c.requestor_id == faction.id && active(c) &&
-                (c.mission_category.as_deref() == Some(PROJECT_TAG) ||
-                (c.commodity == goal.commodity && c.destination_location == goal.destination)));
+        // Keep an outstanding project stable even when its shortage disappears.
+        // Delivered awaits settlement; terminal contracts with held escrow await refund.
+        let held = contracts.iter().filter(|c| c.requestor_id == faction.id &&
+            c.mission_category.as_deref() == Some(PROJECT_TAG) && outstanding(c))
+            .min_by(|a,b| a.posted_at_tick.cmp(&b.posted_at_tick).then_with(|| a.id.cmp(&b.id)));
+        let payment = faction::SUBSIDY_BASE_PAYMENT * 2;
+        let affordable = faction.treasury.saturating_sub(faction::FACTION_SUBSIDY_FLOOR) >= payment;
+        let assessments: Vec<_> = goals.iter().map(|goal| {
+            let duplicate = contracts.iter().any(|c| c.requestor_id == faction.id && outstanding(c) &&
+                c.commodity == goal.commodity && c.destination_location == goal.destination);
             let source = faction::choose_logistics_source(&supply, &members, &owners, relations,
                 &faction.id, &goal.destination, goal.commodity, faction::SUBSIDY_QUANTITY as f32);
-            let payment = faction::SUBSIDY_BASE_PAYMENT * 2;
-            let affordable = faction.treasury.saturating_sub(faction::FACTION_SUBSIDY_FLOOR) >= payment;
-            if existing {
-                view.status = "waiting".into(); view.reason = "existing_contract".into();
-            } else if source.is_none() {
-                view.status = "blocked".into(); view.reason = "no_accessible_stock".into();
-            } else if !affordable {
-                view.status = "blocked".into(); view.reason = "insufficient_budget".into();
-            } else if !execute {
+            let reason = if duplicate { "existing_contract" }
+                else if source.is_none() { "no_accessible_stock" }
+                else if !affordable { "insufficient_budget" } else { "ready" };
+            GoalAssessment { goal: goal.clone(), reason: reason.into(), source }
+        }).collect();
+        let candidate = assessments.iter().find(|a| a.reason == "ready").cloned();
+        let selected = held.map(|c| goals.iter().find(|g| g.commodity == c.commodity &&
+            g.destination == c.destination_location).cloned().unwrap_or_else(|| Goal {
+                goal_id: goal_id(c.commodity).into(), commodity: c.commodity,
+                destination: c.destination_location.clone(), shortage_ticks: 0, score: 0.0,
+            })).or_else(|| candidate.as_ref().map(|a| a.goal.clone()))
+            .or_else(|| goals.first().cloned());
+        let mut view = FactionView { faction_id: faction.id.clone(), observed_tick: tick,
+            treasury: faction.treasury, goals, assessments, selected_goal: selected, administrator: "logistics",
+            status: "idle".into(), reason: "no_chronic_shortage".into(), projects: Vec::new() };
+        if held.is_some() {
+            view.status = "waiting".into(); view.reason = "existing_contract".into();
+        } else if let Some(candidate) = candidate {
+            if !execute {
                 view.status = "proposed".into(); view.reason = "shadow_no_mutation".into();
             } else {
                 let mut account = world.get_mut::<FactionData>(entity).unwrap();
                 account.treasury -= payment; account.dirty = true;
                 view.treasury = account.treasury;
-                let id = contracts.post_subsidy(faction.id.clone(), goal.commodity, faction::SUBSIDY_QUANTITY,
-                    source.unwrap(), goal.destination, payment, tick,
+                let id = contracts.post_subsidy(faction.id.clone(), candidate.goal.commodity, faction::SUBSIDY_QUANTITY,
+                    candidate.source.unwrap(), candidate.goal.destination, payment, tick,
                     faction::SUBSIDY_LIFESPAN_BASE * tick_multiplier as u64);
                 contracts.register_prepaid(&id, FundingSource::Faction);
                 contracts.get_mut(&id).unwrap().mission_category = Some(PROJECT_TAG.into());
                 view.status = "commissioned".into(); view.reason = "funded_native_contract".into();
             }
+        } else if let Some(first) = view.assessments.first() {
+            view.status = if first.reason == "existing_contract" { "waiting" } else { "blocked" }.into();
+            view.reason = first.reason.clone();
         }
         world.resource_mut::<StrategyState>().factions.insert(faction.id, view);
     }
@@ -149,12 +173,13 @@ pub fn refresh(world: &mut World, contracts: &ContractBoard, tick: u64) {
     state.factions.retain(|id,_| accounts.iter().any(|(f,_)| f==id));
     for (id, treasury) in accounts {
         let view = state.factions.entry(id.clone()).or_insert_with(|| FactionView {
-            faction_id: id.clone(), observed_tick: tick, treasury, goals: Vec::new(), selected_goal: None,
+            faction_id: id.clone(), observed_tick: tick, treasury, goals: Vec::new(), assessments: Vec::new(), selected_goal: None,
             administrator: "logistics", status: "observing".into(), reason: "awaiting_cycle".into(), projects: Vec::new() });
         view.treasury = treasury;
         let mut records: Vec<_> = contracts.iter().filter(|c| c.requestor_id == id &&
             c.mission_category.as_deref() == Some(PROJECT_TAG)).collect();
-        records.sort_by(|a,b| b.posted_at_tick.cmp(&a.posted_at_tick).then_with(|| a.id.cmp(&b.id)));
+        records.sort_by(|a,b| outstanding(b).cmp(&outstanding(a))
+            .then_with(|| b.posted_at_tick.cmp(&a.posted_at_tick)).then_with(|| a.id.cmp(&b.id)));
         view.projects = records.into_iter().take(32).map(|c| Project {
             project_id: c.id.clone(), contract_id: c.id.clone(), administrator: "logistics",
             state: match c.status { ContractStatus::Posted => "posted", ContractStatus::Accepted => "accepted",
@@ -164,5 +189,94 @@ pub fn refresh(world: &mut World, contracts: &ContractBoard, tick: u64) {
             source: c.source_location.clone(), destination: c.destination_location.clone(),
             commodity: c.commodity, quantity: c.quantity,
         }).collect();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::faction::FactionColors;
+
+    fn fixture(mode: Mode) -> (World, ContractBoard, Entity, Entity, Entity) {
+        let mut world = World::new();
+        world.insert_resource(StrategyState { mode, ..Default::default() });
+        let owner = world.spawn(FactionData {
+            id: "own".into(), name: "Own".into(), faction_type: "normal".into(), home_system: "sol".into(),
+            treasury: 20_000, personality: crate::ai::personality::Personality::balanced_trader(),
+            colors: FactionColors { primary: String::new(), secondary: String::new() }, active_subsidies: 0, dirty: false,
+        }).id();
+        let mut markets = Vec::new();
+        for (n, name) in ["port", "mine"].iter().enumerate() {
+            let facility = world.spawn((FacilityIdentity { db_id: n as i64 + 1, id: name.to_string(),
+                name: name.to_string(), facility_type: "station".into(), faction_id: "own".into(), body_id: "earth".into() },
+                FacilityLocation { location_id: n as i64 + 1, location_name: name.to_string() })).id();
+            markets.push(world.spawn((MarketIdentity { db_id: n as i64 + 1, id: format!("market-{name}"),
+                facility, facility_location: name.to_string() }, MarketHistory::default(),
+                MarketPricing { price_elasticity: 1.0, spread: 0.0, prices: HashMap::new(),
+                    supply: HashMap::new(), demand: HashMap::new() })).id());
+        }
+        world.get_mut::<MarketHistory>(markets[0]).unwrap().shortage_ticks =
+            [(Commodity::Food, 1000), (Commodity::Ore, 50)].into();
+        world.get_mut::<MarketPricing>(markets[1]).unwrap().supply.insert(Commodity::Ore, 200.0);
+        (world, ContractBoard::new(), owner, markets[0], markets[1])
+    }
+
+    #[test]
+    fn strategy_block_portfolio_skips_unavailable_goal_and_shadow_matches_execute() {
+        let (mut world, mut board, owner, _, _) = fixture(Mode::Shadow);
+        let relations = FactionRelations::new();
+        run_cycle(&mut world, &mut board, &relations, 60, 1);
+        let view = &world.resource::<StrategyState>().factions["own"];
+        assert_eq!(view.goals[0].commodity, Commodity::Food);
+        assert_eq!(view.assessments[0].reason, "no_accessible_stock");
+        assert_eq!(view.selected_goal.as_ref().unwrap().commodity, Commodity::Ore);
+        assert_eq!(view.status, "proposed");
+        assert_eq!(board.iter().count(), 0);
+        assert_eq!(world.get::<FactionData>(owner).unwrap().treasury, 20_000);
+        world.resource_mut::<StrategyState>().mode = Mode::Execute;
+        run_cycle(&mut world, &mut board, &relations, 120, 1);
+        assert_eq!(board.iter().next().unwrap().commodity, Commodity::Ore);
+        assert_eq!(world.get::<FactionData>(owner).unwrap().treasury, 18_400);
+    }
+
+    #[test]
+    fn strategy_block_existing_non_strategy_goal_does_not_block_other_needs() {
+        let (mut world, mut board, _, _, source) = fixture(Mode::Execute);
+        world.get_mut::<MarketPricing>(source).unwrap().supply.insert(Commodity::Food, 200.0);
+        board.post_subsidy("own".into(), Commodity::Food, 200, "mine".into(), "port".into(), 1600, 0, 1000);
+        run_cycle(&mut world, &mut board, &FactionRelations::new(), 60, 1);
+        assert_eq!(board.iter().count(), 2);
+        let view = &world.resource::<StrategyState>().factions["own"];
+        assert_eq!(view.assessments[0].reason, "existing_contract");
+        assert_eq!(view.selected_goal.as_ref().unwrap().commodity, Commodity::Ore);
+    }
+
+    #[test]
+    fn strategy_block_hold_through_settlement_and_replan_after_release() {
+        let (mut world, mut board, owner, port, source) = fixture(Mode::Execute);
+        let relations = FactionRelations::new();
+        run_cycle(&mut world, &mut board, &relations, 60, 1);
+        let id = board.iter().next().unwrap().id.clone();
+        // Need vanishes while cargo is in flight: retain the actual project's goal.
+        world.get_mut::<MarketHistory>(port).unwrap().shortage_ticks.clear();
+        for status in [ContractStatus::Posted, ContractStatus::Accepted, ContractStatus::PickedUp,
+            ContractStatus::Delivered, ContractStatus::Expired] {
+            board.get_mut(&id).unwrap().status = status;
+            world.insert_resource(StrategyState { mode: Mode::Execute, ..Default::default() });
+            run_cycle(&mut world, &mut board, &relations, 120, 1);
+            let view = &world.resource::<StrategyState>().factions["own"];
+            assert_eq!(view.status, "waiting");
+            assert_eq!(view.selected_goal.as_ref().unwrap().commodity, Commodity::Ore);
+            assert_eq!(board.iter().count(), 1);
+            assert_eq!(world.get::<FactionData>(owner).unwrap().treasury, 18_400);
+        }
+        // Native settlement/refund owns money; strategy only observes its completion.
+        board.get_mut(&id).unwrap().funding.as_mut().unwrap().reserved = 0;
+        world.get_mut::<MarketHistory>(port).unwrap().shortage_ticks.insert(Commodity::Food, 50);
+        world.get_mut::<MarketPricing>(source).unwrap().supply.insert(Commodity::Food, 200.0);
+        run_cycle(&mut world, &mut board, &relations, 180, 1);
+        assert_eq!(board.iter().count(), 2);
+        assert_eq!(world.resource::<StrategyState>().factions["own"].selected_goal.as_ref().unwrap().commodity, Commodity::Food);
+        assert_eq!(world.get::<FactionData>(owner).unwrap().treasury, 16_800);
     }
 }
