@@ -113,6 +113,8 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
                 }
                 if !execute {
                     candidate.status = "proposed".into(); candidate.reason = "shadow_no_mutation".into();
+                } else if !coordination::authorized(world, &account.id, "construction") {
+                    candidate.status = "waiting".into(); candidate.reason = "head_priority".into();
                 } else {
                     // Site must exist before any advance is taken. Reuse native placement.
                     faction::ensure_site_spawned(world,events,&account.id,goal.commodity,&goal.destination,tick);
