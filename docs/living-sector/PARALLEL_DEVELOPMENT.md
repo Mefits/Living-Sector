@@ -212,3 +212,20 @@ supply_industry / no_feasible_proposal / already_commissioned_this_tick.
 StrategyState — persisted native-контрактом с тем же posted_at_tick. Это не полное
 восстановление истории решений. Нет нового ledger, миграций, резервирования всех
 будущих этапов строительства или автоматического перераспределения старого escrow.
+
+## S7: варианты для одной проблемы
+
+API v1 получает дополнительные поля `head.problem`, `head.selected_option`
+(`deliver`, `build` или `wait`), `head.horizon_ticks` и `head.alternatives[]`.
+Все альтернативы относятся к паре товар и узел из `problem`. При отсутствии
+проблемы поле problem равно null, а список пуст.
+
+Альтернатива показывает `status`, `reason`, `source`, `material`, `site_id`,
+`first_payment`, `total_commitment`, `treasury_after`,
+`estimated_delay_ticks`, `shipment_count`, `source_stock`,
+`first_purchase_cost`, `covered_units` и `estimated_net_value`.
+Ожидание имеет оценку 0. Блокировка имеет null вместо оценки.
+`proposals[]` остаётся проекцией двух администраторов. Его прежний `priority`
+служит подсказкой для совместимости, а выбор определяется оценкой вариантов.
+`planned_spend` и `committed_spend` относятся к ближайшему контракту.
+Полная оценка проекта учитывает оставшиеся партии и пусковой капитал.
