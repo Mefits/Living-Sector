@@ -169,6 +169,8 @@ pub(super) fn log_contract_board(store: &AgentStore, tick: u64) {
 }
 
 pub(super) fn log_factions(world: &mut World, _store: &mut AgentStore, tick: u64) {
+    let money = sim_core::economy::money::MoneySnapshot::capture(world, &_store.contracts);
+    info!(tick, money = %serde_json::to_string(&money).unwrap(), "money_accounts");
     use sim_core::agents::faction::FactionData;
     let mut q = world.query::<&FactionData>();
     let mut totals: Vec<(String, i64)> = q

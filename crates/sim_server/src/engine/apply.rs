@@ -98,12 +98,22 @@ pub fn apply_ship_commands(
                 }
             }
 
-            // --- Market spread revenue → facility ---
-            SimCommand::TransferCredits { to, amount, .. } => {
+            // This legacy command supports actual facility-to-facility transfers
+            // only. A market placeholder cannot be a source of money.
+            SimCommand::TransferCredits { from, to, amount } => {
                 use sim_core::agents::facility::FacilityOperations;
-                if amount > 0 {
-                    if let Some(mut ops) = world.get_mut::<FacilityOperations>(to) {
-                        ops.credits += amount;
+                let balances = world.get::<FacilityOperations>(from).zip(world.get::<FacilityOperations>(to))
+                    .and_then(|(payer, payee)| (amount > 0 && payer.credits >= amount)
+                        .then(|| payee.credits.checked_add(amount)).flatten()
+                        .map(|after| (payer.credits - amount, after)));
+                if from != to {
+                    if let Some((debit, credit)) = balances {
+                        let mut payer = world.get_mut::<FacilityOperations>(from).unwrap();
+                        payer.credits = debit; payer.dirty = true;
+                        let mut payee = world.get_mut::<FacilityOperations>(to).unwrap();
+                        payee.credits = credit; payee.dirty = true;
+                    } else {
+                        events.push(serde_json::json!({"kind":"transfer_rejected", "reason":"unfunded_transfer", "tick":tick}));
                     }
                 }
             }
@@ -655,29 +665,19 @@ pub fn commit_dock(
         .get::<FacilityIdentity>(facility)
         .map(|i| i.faction_id.clone())
         .unwrap_or_default();
-    let (fee_mult, burn_mult) =
-        sim_core::agents::faction_relations::trade_pact_dock_modifier(
-            &store.relations,
-            &ship_faction,
-            &fac_faction,
-        );
+    let (fee_mult, _) = sim_core::agents::faction_relations::trade_pact_dock_modifier(
+        &store.relations, &ship_faction, &fac_faction);
     let discounted_fee = ((fee as f32) * fee_mult).round() as i64;
-    if let Some(mut econ) = world.get_mut::<ShipEconomy>(ship) {
-        econ.credits -= discounted_fee;
-    }
-    // Bundle (G): split the fee — facility takes the remainder
-    // after burn, the burned portion is a true sink (subtracted
-    // from the ship, never added to any balance). Burn fraction
-    // lives in WorldTuning (Bundle Q); Bundle B further scales it
-    // by treaty state so allied docks burn less (or nothing).
-    let burn_pct = sim_core::simulation::tuning::WorldTuning::current().dock_fee_burn_pct;
-    let effective_burn_pct = burn_pct * burn_mult;
-    let burned = (discounted_fee as f32 * effective_burn_pct).round() as i64;
-    let to_facility = discounted_fee - burned;
-    if let Some(mut ops) = world.get_mut::<FacilityOperations>(facility) {
-        ops.credits += to_facility;
-        ops.dirty = true;
-    }
+    // Dock service is paid to its operator. The old anonymous burn has no
+    // economic recipient and is intentionally retired in the CR foundation.
+    let Some(payer) = world.get::<ShipEconomy>(ship) else { return };
+    let Some(payee) = world.get::<FacilityOperations>(facility) else { return };
+    if discounted_fee < 0 || payer.credits < discounted_fee { return; }
+    let Some(credit) = payee.credits.checked_add(discounted_fee) else { return };
+    world.get_mut::<ShipEconomy>(ship).unwrap().credits -= discounted_fee;
+    let mut ops = world.get_mut::<FacilityOperations>(facility).unwrap();
+    ops.credits = credit;
+    ops.dirty = true;
     if let Some(mut storage) = world.get_mut::<FacilityStorage>(facility) {
         if !storage.docked_ships.contains(&ship) {
             storage.docked_ships.push(ship);
@@ -1309,7 +1309,16 @@ pub(super) fn commit_contract_delivery(
                     cargo.cargo.insert(c.commodity, leftover);
                 }
             }
-            if let Some(&market_entity) = store.market_at_location.get(&c.destination_location) {
+            if c.funding.as_ref().is_some_and(|f| f.source == sim_core::economy::contracts::FundingSource::Population) {
+                // The household already paid for this food in escrow. Consume
+                // it for that recipient, never gift it to a shop to sell again.
+                let population = store.population_by_id[&c.requestor_id];
+                let mut sent = world.get_mut::<sim_core::agents::population::PopSentiment>(population).unwrap();
+                sent.food_satisfaction = (sent.food_satisfaction + sim_core::agents::population::FOOD_SAT_RECOVER_ON_MET).min(100);
+                sent.dirty = true;
+                events.push(serde_json::json!({"kind":"household_delivery_consumed", "tick":tick,
+                    "population_id":c.requestor_id, "contract_id":c.id, "quantity":c.quantity}));
+            } else if let Some(&market_entity) = store.market_at_location.get(&c.destination_location) {
                 if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
                     *pricing.supply.entry(c.commodity).or_insert(0.0) += c.quantity as f32;
                 }

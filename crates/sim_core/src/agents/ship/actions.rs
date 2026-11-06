@@ -12,7 +12,7 @@
 //! Running / Failure).
 
 use super::{
-    CrewTask, ShipCargo, ShipCrew, ShipEconomy, ShipFuel, ShipMemory, ShipPosition,
+    ShipCargo, ShipCrew, ShipEconomy, ShipFuel, ShipMemory, ShipPosition,
     ShipTransit, ShipTransaction, Transit, CREW_REST_TARGET, DOCK_WAIT_DEFAULT, DOCK_WAIT_LOW_MORALE,
     DOCK_WAIT_LOW_MORALE_THRESHOLD, DOCK_WAIT_WITH_CONTRACT, MAX_REST_TICKS_BASE,
 };
@@ -390,169 +390,44 @@ pub(super) fn execute_ship_action(
         }
 
         ShipAction::Sell { commodity, qty } => {
-            let at = match &position.location_name {
-                Some(l) => l.clone(),
-                None => return BtStatus::Failure,
-            };
-            // Enforce diplomatic embargo at the transaction point, not
-            // only in GOAP planning. An old in-flight order or loaded
-            // contract must never buy/sell at a newly hostile market.
-            let owner = controller_by_location.get(&at).map(String::as_str).unwrap_or("");
-            if !crate::agents::faction_relations::commerce_allowed(
-                relations, ship_faction, owner,
-            ) {
-                return BtStatus::Failure;
+            if let Some(status) = poll_transaction(economy, |r| matches!(r,
+                ShipTransaction::Sell { commodity: c, .. } if c == commodity)) {
+                return status;
             }
-            let base_price = match memory.price_knowledge.get(&at).and_then(|m| m.get(commodity)) {
-                Some(pm) => pm.price,
-                None => return BtStatus::Failure,
+            let Some(at) = position.location_name.clone() else { return BtStatus::Failure };
+            let Some(price) = memory.price_knowledge.get(&at).and_then(|p| p.get(commodity)).map(|p| p.price) else {
+                return BtStatus::Failure;
             };
-            // Bundle C: sell-side posture multiplier. Reciprocal of
-            // the buy-side curve, so a friend who buys at 0.75× also
-            // receives 1.33× when selling.
-            let controller = controller_by_location
-                .get(&at)
-                .map(|s| s.as_str())
-                .unwrap_or("");
-            let rep = economy
-                .faction_reputation
-                .get(controller)
-                .copied()
-                .unwrap_or(0);
-            let posture = crate::agents::faction_relations::market_sell_multiplier(
-                relations,
-                ship_faction,
-                rep,
-                controller,
-            );
-            let price = base_price * posture;
             let have = cargo.cargo.get(commodity).copied().unwrap_or(0);
             let amount = if *qty == 0 { have } else { (*qty).min(have) };
-            if amount == 0 {
-                return BtStatus::Failure;
-            }
-            let revenue = (price * amount as f32) as i64;
-            economy.credits += revenue;
-            // Phase 20: record realised trade-route outcome if the
-            // sell location differs from where this cargo was
-            // bought. The Buy arm stamps `cargo_origin`; we consume
-            // it here once the full batch is sold so avg stays
-            // trade-round-accurate.
-            let origin_info = cargo.cargo_origin.get(commodity).cloned();
-            let new_remaining = have - amount;
-            if new_remaining == 0 {
-                cargo.cargo.remove(commodity);
-                cargo.cargo_age.remove(commodity);
-                cargo.cargo_origin.remove(commodity);
-                if let Some((bought_at, buy_price)) = origin_info {
-                    if bought_at != at {
-                        let profit = price - buy_price;
-                        memory
-                            .route_performance
-                            .entry((bought_at, at.clone(), *commodity))
-                            .or_default()
-                            .record(profit);
-                    }
-                }
-            } else {
-                cargo.cargo.insert(*commodity, new_remaining);
-            }
-            commands.push(SimCommand::AddSupplyAtShipLocation {
-                ship: entity,
-                commodity: *commodity,
-                quantity: amount as f32,
-            });
-            BtStatus::Success
+            if amount == 0 { return BtStatus::Failure; }
+            let owner = controller_by_location.get(&at).map(String::as_str).unwrap_or("");
+            let min_unit_price = price * crate::agents::faction_relations::market_buy_multiplier(
+                relations, ship_faction, economy.faction_reputation.get(owner).copied().unwrap_or(0), owner);
+            request_transaction(economy, commands, entity, ShipTransaction::Sell {
+                location: at, commodity: *commodity, quantity: amount, min_unit_price,
+            })
         }
 
         ShipAction::SellAll => {
-            // Multi-tick unload — each call sells one commodity from the
-            // hold. Returns Running if more cargo remains after selling
-            // this commodity, Success when the hold is empty. Makes a
-            // full unload visibly take N ticks where N = distinct
-            // commodities in cargo.
-            let at = match &position.location_name {
-                Some(l) => l.clone(),
-                None => return BtStatus::Failure,
-            };
-            // Enforce diplomatic embargo at the transaction point, not
-            // only in GOAP planning. An old in-flight order or loaded
-            // contract must never buy/sell at a newly hostile market.
-            let owner = controller_by_location.get(&at).map(String::as_str).unwrap_or("");
-            if !crate::agents::faction_relations::commerce_allowed(
-                relations, ship_faction, owner,
-            ) {
-                return BtStatus::Failure;
+            // Acknowledge before inspecting cargo: the apply phase may have removed
+            // the final stack. Each commodity is a separate atomic exchange.
+            if let Some(status) = poll_transaction(economy, |r| matches!(r, ShipTransaction::Sell { .. })) {
+                if status != BtStatus::Success { return status; }
+                return if cargo.cargo.values().any(|&q| q > 0) { BtStatus::Running } else { BtStatus::Success };
             }
-            let prices = match memory.price_knowledge.get(&at) {
-                Some(p) => p,
-                None => return BtStatus::Failure,
-            };
-            // Pick a deterministic commodity (lowest as_str order) so
-            // repeated calls progress through the hold in a stable order.
-            let next = cargo
-                .cargo
-                .iter()
-                .filter(|(_, &q)| q > 0)
+            let Some(at) = position.location_name.clone() else { return BtStatus::Failure };
+            let Some(prices) = memory.price_knowledge.get(&at) else { return BtStatus::Failure };
+            let next = cargo.cargo.iter().filter(|(_, q)| **q > 0)
                 .filter(|(c, _)| prices.contains_key(c))
-                .map(|(&c, &q)| (c, q))
                 .min_by_key(|(c, _)| c.as_str());
-            let (commodity, qty) = match next {
-                Some(pair) => pair,
-                None => return BtStatus::Success, // nothing sellable left
-            };
-            let base_price = prices
-                .get(&commodity)
-                .map(|pm| pm.price)
-                .unwrap_or(0.0);
-            // Bundle C: posture multiplier on sells — reciprocal of
-            // the buy curve so a friend earns ~1.33× per unit here.
-            let controller = controller_by_location
-                .get(&at)
-                .map(|s| s.as_str())
-                .unwrap_or("");
-            let rep = economy
-                .faction_reputation
-                .get(controller)
-                .copied()
-                .unwrap_or(0);
-            let posture = crate::agents::faction_relations::market_sell_multiplier(
-                relations,
-                ship_faction,
-                rep,
-                controller,
-            );
-            let price = base_price * posture;
-            let revenue = (price * qty as f32) as i64;
-            economy.credits += revenue;
-            // Phase 20: record realised route outcome before clearing
-            // cargo_origin. SellAll always sells the whole stack, so
-            // unlike partial Sell we don't need a remaining-qty guard.
-            let origin_info = cargo.cargo_origin.remove(&commodity);
-            cargo.cargo.remove(&commodity);
-            cargo.cargo_age.remove(&commodity);
-            if let Some((bought_at, buy_price)) = origin_info {
-                if bought_at != at {
-                    let profit = price - buy_price;
-                    memory
-                        .route_performance
-                        .entry((bought_at, at.clone(), commodity))
-                        .or_default()
-                        .record(profit);
-                }
-            }
-            commands.push(SimCommand::AddSupplyAtShipLocation {
-                ship: entity,
-                commodity,
-                quantity: qty as f32,
-            });
-            crew.current_task = CrewTask::Unloading;
-            // Running if more cargo remains; otherwise Success.
-            if cargo.cargo.values().any(|&q| q > 0) {
-                BtStatus::Running
-            } else {
-                BtStatus::Success
-            }
+            let Some((&commodity, &quantity)) = next else { return BtStatus::Success };
+            let owner = controller_by_location.get(&at).map(String::as_str).unwrap_or("");
+            let min_unit_price = prices[&commodity].price * crate::agents::faction_relations::market_buy_multiplier(
+                relations, ship_faction, economy.faction_reputation.get(owner).copied().unwrap_or(0), owner);
+            request_transaction(economy, commands, entity, ShipTransaction::Sell {
+                location: at, commodity, quantity, min_unit_price,
+            })
         }
 
         ShipAction::AcceptContract { contract_id } => {
@@ -673,6 +548,7 @@ pub(super) fn affordable_quantity(credits: i64, price: f32, capacity: u32) -> u3
 #[cfg(test)]
 mod transaction_tests {
     use super::*;
+    use crate::agents::ship::CrewTask;
     use crate::economy::commodities::PriceMemory;
 
     struct Ship {
@@ -800,6 +676,24 @@ mod transaction_tests {
             assert_eq!(s.crew.current_task, CrewTask::Idle);
             s.economy.transaction.pending.as_mut().unwrap().result = Some(Err("rejected"));
             assert_eq!(s.act(&action), BtStatus::Failure);
+            assert!(s.economy.transaction.pending.is_none());
+        }
+    }
+
+    #[test]
+    fn foundation_sell_actions_wait_for_payment_and_acknowledge_empty_hold() {
+        for action in [ShipAction::Sell { commodity: Commodity::Ore, qty: 10 }, ShipAction::SellAll] {
+            let mut s = Ship::new();
+            s.cargo.cargo.insert(Commodity::Ore, 10);
+            assert_eq!(s.act(&action), BtStatus::Running);
+            assert_eq!(s.economy.credits, 1000);
+            assert_eq!(s.cargo.used(), 10);
+            assert_eq!(s.act(&action), BtStatus::Running);
+            assert_eq!(s.commands.drain().count(), 1);
+            // Apply is the only owner of cash/cargo writes.
+            s.cargo.cargo.clear();
+            s.economy.transaction.pending.as_mut().unwrap().result = Some(Ok(()));
+            assert_eq!(s.act(&action), BtStatus::Success);
             assert!(s.economy.transaction.pending.is_none());
         }
     }

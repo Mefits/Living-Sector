@@ -150,7 +150,7 @@ pub enum ContractStatus {
 /// Account from which the posting agent actually debited the advance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum FundingSource { Facility, Faction }
+pub enum FundingSource { Facility, Faction, Population }
 
 /// Explicit escrow for newly funded facility/faction contracts. None on a
 /// contract means legacy/unverified funding, never an inferred new balance.

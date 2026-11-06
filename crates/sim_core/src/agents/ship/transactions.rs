@@ -17,6 +17,12 @@ pub enum ShipTransaction {
         quantity: u32,
         max_unit_price: f32,
     },
+    Sell {
+        location: String,
+        commodity: Commodity,
+        quantity: u32,
+        min_unit_price: f32,
+    },
     Refuel {
         location: String,
     },
@@ -30,6 +36,7 @@ impl ShipTransaction {
         match self {
             Self::Accept { .. } => "accept",
             Self::Buy { .. } => "buy",
+            Self::Sell { .. } => "sell",
             Self::Refuel { .. } => "refuel",
             Self::Deliver { .. } => "deliver",
         }

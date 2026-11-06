@@ -47,6 +47,10 @@ fn account(
     source: FundingSource,
 ) -> Result<(Entity, i64), &'static str> {
     match source {
+        FundingSource::Population => {
+            let e = *store.population_by_id.get(id).ok_or("missing_contract_payer")?;
+            Ok((e, world.get::<sim_core::agents::population::PopEconomy>(e).ok_or("missing_contract_payer")?.total_wealth))
+        }
         FundingSource::Facility => {
             let e = *store
                 .facility_by_id
@@ -78,6 +82,10 @@ fn account(
 
 fn set_balance(world: &mut World, entity: Entity, source: FundingSource, credits: i64) {
     match source {
+        FundingSource::Population => {
+            world.get_mut::<sim_core::agents::population::PopEconomy>(entity).unwrap().total_wealth = credits;
+            if let Some(mut sent) = world.get_mut::<sim_core::agents::population::PopSentiment>(entity) { sent.dirty = true; }
+        }
         FundingSource::Facility => {
             let mut ops = world.get_mut::<FacilityOperations>(entity).unwrap();
             ops.credits = credits;
@@ -123,6 +131,7 @@ pub(super) fn accept(
     {
         return Err("already_has_contract");
     }
+    if c.funding.is_none() { return Err("unverified_legacy_funding"); }
     let payment = quote(world, store, ship, &c)?;
     let mut debit = None;
     let mut added = 0;

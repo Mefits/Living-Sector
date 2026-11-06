@@ -209,6 +209,8 @@ impl Fixture {
                 1000,
             )
         };
+        self.store.contracts.register_prepaid(&id, sim_core::economy::contracts::FundingSource::Facility);
+        self.store.contracts.get_mut(&id).unwrap().funding.as_mut().unwrap().agreed_payment = Some(120);
         assert!(self.store.contracts.accept(&id, "ship-0".into(), 1));
         let ship = self.ships[0];
         self.world
@@ -253,7 +255,6 @@ fn purchase() -> ShipTransaction {
 }
 
 fn escrow_offer(f: &mut Fixture) -> String {
-    use sim_core::economy::contracts::FundingSource;
     let id = f.delivery(false);
     assert!(f.store.contracts.release(&id, Some("ship-0")));
     f.world
@@ -265,9 +266,7 @@ fn escrow_offer(f: &mut Fixture) -> String {
         .get_mut::<FacilityOperations>(f.facility)
         .unwrap()
         .credits = 880;
-    f.store
-        .contracts
-        .register_prepaid(&id, FundingSource::Facility);
+    f.store.contracts.get_mut(&id).unwrap().funding.as_mut().unwrap().agreed_payment = None;
     f.store.contracts.get_mut(&id).unwrap().payment = 150;
     id
 }
@@ -531,139 +530,20 @@ fn escrow_expiry_cancellation_and_loss_refund_once_but_release_keeps_reserve() {
 }
 
 #[test]
-fn supply_flow_reward_increases_are_funded_once_or_delivery_is_rejected() {
-    use sim_core::agents::{
-        faction::{FactionColors, FactionData},
-        ship::ShipFitting,
-    };
-    for case in [
-        "facility_age",
-        "faction_bonus",
-        "broke",
-        "missing_payer",
-        "missing_cargo",
-    ] {
-        let mut f = Fixture::new(0.0, 0.0);
-        let ship = f.ships[0];
-        let id = f.delivery(false);
-        // Opening balances: 1000 ship + 880 requestor + 120 prepaid contract = 2000.
-        let opening = if case == "broke" { 29 } else { 880 };
-        let faction = if case == "faction_bonus" {
-            let payer = f
-                .world
-                .spawn(FactionData {
-                    id: "sponsor".into(),
-                    name: "Sponsor".into(),
-                    faction_type: "civilian".into(),
-                    home_system: "sol".into(),
-                    treasury: opening,
-                    personality: sim_core::ai::personality::Personality::balanced_trader(),
-                    colors: FactionColors {
-                        primary: "blue".into(),
-                        secondary: "white".into(),
-                    },
-                    active_subsidies: 0,
-                    dirty: false,
-                })
-                .id();
-            f.store.faction_by_id.insert("sponsor".into(), payer);
-            f.store.contracts.get_mut(&id).unwrap().requestor_id = "sponsor".into();
-            let mut fitting = ShipFitting::new_default();
-            fitting.derived.comms_bonus = 0.25;
-            f.world.entity_mut(ship).insert(fitting);
-            Some(payer)
-        } else {
-            f.world
-                .get_mut::<FacilityOperations>(f.facility)
-                .unwrap()
-                .credits = opening;
-            f.store.contracts.get_mut(&id).unwrap().payment = 150; // aged offer, base still 120
-            None
-        };
-        if case == "missing_payer" {
-            f.store.contracts.get_mut(&id).unwrap().requestor_id = "removed".into();
-        }
-        if case == "missing_cargo" {
-            f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.clear();
-        }
-        let request = f.submit(ship, ShipTransaction::Deliver { contract_id: id });
-        let before = f.snapshot(ship);
-        f.apply(ship, request);
-        if matches!(case, "facility_age" | "faction_bonus") {
-            assert_eq!(f.result(ship), Ok(()));
-            let payer_remaining = match faction {
-                Some(e) => f.world.get::<FactionData>(e).unwrap().treasury,
-                None => {
-                    f.world
-                        .get::<FacilityOperations>(f.facility)
-                        .unwrap()
-                        .credits
-                }
-            };
-            assert_eq!(payer_remaining, 850);
-            assert_eq!(
-                f.world.get::<ShipEconomy>(ship).unwrap().credits + payer_remaining,
-                2000
-            );
-            assert_eq!(
-                f.events
-                    .iter()
-                    .filter(|e| e["kind"] == "contract_reward_funded")
-                    .count(),
-                1
-            );
-            let after = f.snapshot(ship);
-            f.apply(ship, request);
-            assert_eq!(f.snapshot(ship), after);
-            if let Some(e) = faction {
-                assert_eq!(f.world.get::<FactionData>(e).unwrap().treasury, 850);
-            }
-        } else {
-            assert!(f.result(ship).is_err(), "{case}");
-            assert_eq!(f.snapshot(ship), before, "{case}");
-            assert!(!f
-                .events
-                .iter()
-                .any(|e| e["kind"] == "contract_reward_funded"));
-            if case == "broke" {
-                let cid = f
-                    .world
-                    .get::<ShipEconomy>(ship)
-                    .unwrap()
-                    .active_contract_id
-                    .clone()
-                    .unwrap();
-                f.store.contracts.get_mut(&cid).unwrap().faction_id = Some("sponsor".into());
-                f.world
-                    .get_mut::<ShipEconomy>(ship)
-                    .unwrap()
-                    .faction_reputation
-                    .insert("sponsor".into(), 50);
-                let mut commands = CommandBuffer::new();
-                commands.push(SimCommand::ReleaseContract {
-                    ship_id: "ship-0".into(),
-                    contract_id: cid.clone(),
-                    reason: "issuer_funding_failure",
-                });
-                super::super::apply::apply_ship_commands(
-                    &mut f.world,
-                    &mut f.store,
-                    &mut commands,
-                    &mut f.events,
-                    11,
-                );
-                assert_eq!(
-                    f.world.get::<ShipEconomy>(ship).unwrap().faction_reputation["sponsor"],
-                    50
-                );
-                assert_eq!(
-                    f.store.contracts.get(&cid).unwrap().status,
-                    ContractStatus::Posted
-                );
-            }
-        }
-    }
+fn foundation_legacy_reward_changes_do_not_prove_a_historic_debit() {
+    let mut f = Fixture::new(0.0, 0.0);
+    let ship = f.ships[0];
+    let id = f.delivery(false);
+    f.store.contracts.get_mut(&id).unwrap().funding = None;
+    f.store.contracts.get_mut(&id).unwrap().payment = 150;
+    f.world.get_mut::<FacilityOperations>(f.facility).unwrap().credits = 880;
+    let before = f.snapshot(ship);
+    let request = f.submit(ship, ShipTransaction::Deliver { contract_id: id });
+    f.apply(ship, request);
+    assert_eq!(f.result(ship), Err("unverified_legacy_funding"));
+    assert_eq!(f.snapshot(ship), before);
 }
+
 fn fuel_request() -> ShipTransaction {
     ShipTransaction::Refuel {
         location: "port".into(),
@@ -1004,7 +884,9 @@ fn invalid_deliveries_preserve_cargo_payment_status_and_experience() {
         }
         let request = f.submit(ship, ShipTransaction::Deliver { contract_id });
         let before = f.snapshot(ship);
-        f.apply(ship, request);
+        // Test the rejected transaction itself. The enclosing apply pass also
+        // legitimately refunds expired escrow, covered by escrow_expiry_* above.
+        apply_transaction(&mut f.world, &mut f.store, ship, request, &mut f.events, 10);
         assert!(f.result(ship).is_err(), "{case}");
         assert_eq!(before, f.snapshot(ship), "{case}");
         assert_eq!(f.events.len(), 1, "no reward events on rejection: {case}");
@@ -1349,4 +1231,193 @@ fn strategy_block_reward_stays_within_head_approval_through_renewal_and_acceptan
     assert_eq!(escrow.agreed_payment, Some(10_000));
     assert_eq!(escrow.reserved, 10_000);
     assert_eq!(f.world.get::<FactionData>(owner).unwrap().treasury, 5_000);
+}
+
+fn sale(quantity: u32) -> ShipTransaction {
+    ShipTransaction::Sell { location: "port".into(), commodity: Commodity::Ore,
+        quantity, min_unit_price: 10.0 }
+}
+
+#[test]
+fn foundation_sale_competition_cash_stock_and_duplicate_receipt() {
+    use sim_core::economy::money::MoneySnapshot;
+    let mut f = Fixture::new(0.0, 0.0);
+    f.world.get_mut::<FacilityOperations>(f.facility).unwrap().credits = 100;
+    for ship in f.ships { f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.insert(Commodity::Ore, 10); }
+    let before = MoneySnapshot::capture(&mut f.world, &f.store.contracts);
+    let [first, second] = f.ships;
+    let a = f.submit(first, sale(10));
+    let b = f.submit(second, sale(10));
+    f.apply(first, a); f.apply(second, b);
+    assert_eq!(f.result(first), Ok(()));
+    assert_eq!(f.result(second), Err("insufficient_buyer_credits"));
+    assert_eq!(f.world.get::<ShipCargo>(second).unwrap().cargo[&Commodity::Ore], 10);
+    assert_eq!(f.world.get::<MarketPricing>(f.market).unwrap().supply[&Commodity::Ore], 10.0);
+    assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before.total);
+    let committed = f.snapshot(first);
+    f.apply(first, a);
+    assert_eq!(f.snapshot(first), committed);
+}
+
+#[test]
+fn foundation_sale_rejects_without_any_partial_change() {
+    for case in 0..5 {
+        let mut f = Fixture::new(0.0, 0.0);
+        let ship = f.ships[0];
+        f.world.get_mut::<FacilityOperations>(f.facility).unwrap().credits = 1000;
+        f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.insert(Commodity::Ore, 10);
+        match case {
+            0 => f.world.get_mut::<FacilityOperations>(f.facility).unwrap().credits = 0,
+            1 => { f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.clear(); },
+            2 => f.world.get_mut::<ShipPosition>(ship).unwrap().docked_at = None,
+            3 => f.world.get_mut::<ShipEconomy>(ship).unwrap().credits = i64::MAX,
+            _ => { f.world.get_mut::<MarketPricing>(f.market).unwrap().prices.insert(Commodity::Ore, 9.0); },
+        }
+        let before = f.snapshot(ship);
+        let id = f.submit(ship, sale(10)); f.apply(ship, id);
+        assert!(f.result(ship).is_err());
+        assert_eq!(before, f.snapshot(ship));
+    }
+}
+
+#[test]
+fn foundation_market_placeholder_cannot_mint_a_spread() {
+    let mut f = Fixture::new(0.0, 0.0);
+    let mut commands = CommandBuffer::new();
+    commands.push(SimCommand::TransferCredits { from: f.market, to: f.facility, amount: 100 });
+    super::super::apply::apply_ship_commands(&mut f.world, &mut f.store, &mut commands, &mut f.events, 1);
+    assert_eq!(f.world.get::<FacilityOperations>(f.facility).unwrap().credits, 0);
+    assert_eq!(f.events.last().unwrap()["reason"], "unfunded_transfer");
+}
+
+#[test]
+fn foundation_unverified_legacy_contract_neither_claims_nor_pays() {
+    let mut f = Fixture::new(0.0, 0.0);
+    let id = f.store.contracts.post_delivery_for("station".into(), None, Commodity::Ore,
+        10, "source".into(), "port".into(), 100, 0, 100);
+    let ship = f.ships[0];
+    let before = f.snapshot(ship);
+    let request = f.submit(ship, ShipTransaction::Accept { contract_id: id.clone() });
+    f.apply(ship, request);
+    assert_eq!(f.result(ship), Err("unverified_legacy_funding"));
+    assert_eq!(before, f.snapshot(ship));
+    // Old saves may already have an accepted, unfunded contract.
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+    f.store.contracts.accept(&id, "ship-0".into(), 1);
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().active_contract_id = Some(id.clone());
+    f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.insert(Commodity::Ore, 10);
+    let before = f.snapshot(ship);
+    let request = f.submit(ship, ShipTransaction::Deliver { contract_id: id });
+    f.apply(ship, request);
+    assert_eq!(f.result(ship), Err("unverified_legacy_funding"));
+    assert_eq!(before, f.snapshot(ship));
+}
+
+#[test]
+fn foundation_trade_and_household_consumption_recirculate_cash() {
+    use sim_core::agents::population::*;
+    use sim_core::economy::money::MoneySnapshot;
+    let mut f = Fixture::new(20.0, 10.0);
+    let ship = f.ships[0];
+    let pop = f.world.spawn((PopIdentity { db_id: 1, id:"workers".into(), label:"Workers".into(),
+        demographic:"workers".into(), facility:f.facility, facility_location:"port".into(), faction_id:"".into() },
+        PopEconomy { total_wealth:100, spending_rate:1.0, consumption:Default::default(),
+            production_commodity:None, production_amount:0.0 },
+        PopSentiment { overall_sentiment:50, unrest:0, food_satisfaction:50,
+            safety_satisfaction:50, entertainment_satisfaction:50, dirty:false })).id();
+    let before = MoneySnapshot::capture(&mut f.world, &f.store.contracts).total;
+    for _ in 0..2 {
+        let request = f.submit(ship, purchase()); f.apply(ship, request);
+        assert_eq!(f.result(ship), Ok(()));
+        f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+        let request = f.submit(ship, sale(10)); f.apply(ship, request);
+        assert_eq!(f.result(ship), Ok(()));
+        f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+        assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before);
+    }
+    assert_eq!(purchase_consumption(&mut f.world, pop, f.market, Commodity::Ore, 10.0, 5), Ok((10.0,100)));
+    assert_eq!(f.world.get::<FacilityOperations>(f.facility).unwrap().credits, 100);
+    assert_eq!(f.world.get::<PopEconomy>(pop).unwrap().total_wealth, 0);
+    let stock = f.world.get::<MarketPricing>(f.market).unwrap().supply.clone();
+    assert_eq!(purchase_consumption(&mut f.world, pop, f.market, Commodity::Ore, 1.0, 10), Err("insufficient_household_credits"));
+    assert_eq!(f.world.get::<MarketPricing>(f.market).unwrap().supply, stock);
+    assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before);
+}
+
+#[tokio::test]
+async fn foundation_sale_checkpoint_restores_both_wallets_and_cargo_once() {
+    use sim_db::persistence::PersistenceWorker;
+    let pool = sim_db::pool::create_pool("sqlite::memory:").await.unwrap();
+    sim_db::pool::run_migrations(&pool).await.unwrap();
+    for sql in [
+        "INSERT INTO star_systems (id,name) VALUES (1,'sol')",
+        "INSERT INTO celestial_bodies (id,body_id,name,body_type,orbit_radius,orbit_period,current_angle,star_system_id) VALUES (1,'earth','Earth','planet',1,100,0,1)",
+        "INSERT INTO locations (id,name,loc_type,celestial_body_id) VALUES (1,'port','station',1)",
+        "INSERT INTO facilities (id,name,facility_type,location_id,location_name,credits) VALUES (1,'Station','station',1,'port',100)",
+        "INSERT INTO markets (id,facility_id,facility_location,prices,supply) VALUES (2,1,'port','{\"ore\":10}','{\"ore\":0}')",
+        "INSERT INTO ships (id,name,location_name,credits,cargo) VALUES (10,'Runner','port',1000,'{\"ore\":10}')",
+        "INSERT INTO ships (id,name,location_name,credits) VALUES (11,'Other','port',1000)",
+    ] { sqlx::query(sql).execute(&pool).await.unwrap(); }
+    let mut f = Fixture::new(0.0, 0.0);
+    let ship = f.ships[0];
+    f.world.get_mut::<FacilityOperations>(f.facility).unwrap().credits = 100;
+    f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.insert(Commodity::Ore, 10);
+    let request = f.submit(ship, sale(10)); f.apply(ship, request);
+    assert_eq!(f.result(ship), Ok(()));
+    let (tx, rx) = tokio::sync::mpsc::channel(4);
+    let (flush_tx, flush_rx) = tokio::sync::mpsc::channel(1);
+    super::super::persist::emit_persist_writes(&mut f.world, &mut f.store, 10, &tx);
+    // Closing the admitted write stream flushes the complete economic frame.
+    drop(tx); drop(flush_tx);
+    PersistenceWorker::new(pool.clone(), rx, flush_rx, std::time::Duration::from_secs(1)).run().await;
+    let mut world = World::new();
+    let mut store = sim_db::spawner::load_agents(&mut world, &pool,
+        &sim_core::world::registry::WorldRegistry::default(),
+        &sim_core::simulation::config::TickConfig::DEFAULT).await.unwrap();
+    let ship = store.ship_by_id["ship-runner"];
+    assert_eq!(world.get::<ShipEconomy>(ship).unwrap().credits, 1100);
+    assert_eq!(world.get::<ShipCargo>(ship).unwrap().used(), 0);
+    let market = store.market_at_location["port"];
+    let owner = world.get::<MarketIdentity>(market).unwrap().facility;
+    assert_eq!(world.get::<FacilityOperations>(owner).unwrap().credits, 0);
+    assert_eq!(world.get::<MarketPricing>(market).unwrap().supply[&Commodity::Ore], 10.0);
+    let before = sim_core::economy::money::MoneySnapshot::capture(&mut world, &store.contracts);
+    let id = world.get_mut::<ShipEconomy>(ship).unwrap().transaction.begin(sale(10)).unwrap();
+    apply_transaction(&mut world, &mut store, ship, id, &mut vec![], 11);
+    assert!(world.get::<ShipEconomy>(ship).unwrap().transaction.pending.as_ref().unwrap().result.unwrap().is_err());
+    assert_eq!(sim_core::economy::money::MoneySnapshot::capture(&mut world, &store.contracts), before);
+    pool.close().await;
+}
+
+#[test]
+fn foundation_household_delivery_spends_escrow_without_reselling_its_food() {
+    use sim_core::agents::population::*;
+    use sim_core::economy::{contracts::FundingSource, money::MoneySnapshot};
+    let mut f = Fixture::new(0.0, 0.0);
+    let ship = f.ships[0];
+    let pop = f.world.spawn((PopIdentity { db_id:1, id:"workers".into(), label:"Workers".into(),
+        demographic:"workers".into(), facility:f.facility, facility_location:"port".into(), faction_id:"".into() },
+        PopDemographics { population_count:100, growth_rate:0.0, employed_fraction:0.0, migration_pressure:0.0 },
+        PopEconomy { total_wealth:200, spending_rate:1.0, consumption:Default::default(), production_commodity:None, production_amount:0.0 },
+        PopSentiment { overall_sentiment:10, unrest:0, food_satisfaction:10, safety_satisfaction:50, entertainment_satisfaction:50, dirty:false })).id();
+    f.store.population_by_id.insert("workers".into(), pop);
+    let before = MoneySnapshot::capture(&mut f.world, &f.store.contracts).total;
+    let id = f.store.contracts.post_delivery_for("workers".into(), None, Commodity::Food, 10,
+        "source".into(), "port".into(), 120, 0, 1000);
+    f.world.get_mut::<PopEconomy>(pop).unwrap().total_wealth -= 120;
+    f.store.contracts.register_prepaid(&id, FundingSource::Population);
+    let request = f.submit(ship, ShipTransaction::Accept { contract_id:id.clone() }); f.apply(ship, request);
+    assert_eq!(f.result(ship), Ok(()));
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+    f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.insert(Commodity::Food,10);
+    let request = f.submit(ship, ShipTransaction::Deliver { contract_id:id.clone() }); f.apply(ship, request);
+    assert_eq!(f.result(ship), Ok(()));
+    assert_eq!(f.world.get::<ShipCargo>(ship).unwrap().used(),0);
+    assert_eq!(f.world.get::<MarketPricing>(f.market).unwrap().supply.get(&Commodity::Food).copied().unwrap_or(0.0),0.0);
+    assert_eq!(f.world.get::<PopEconomy>(pop).unwrap().total_wealth,80);
+    assert_eq!(f.world.get::<ShipEconomy>(ship).unwrap().credits,1120);
+    assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total,before);
+    assert_eq!(f.events.iter().filter(|e| e["kind"] == "household_delivery_consumed").count(),1);
+    f.apply(ship, request);
+    assert_eq!(f.events.iter().filter(|e| e["kind"] == "household_delivery_consumed").count(),1);
 }

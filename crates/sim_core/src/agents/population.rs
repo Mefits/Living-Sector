@@ -182,14 +182,6 @@ pub const CONTRACT_URGENCY_PEAK: f32 = 2.0;
 /// speed = quicker convergence toward the food-driven target).
 pub const SENTIMENT_INERTIA_BASE: f32 = 0.9;
 
-/// Bundle (K): how much of a pop's production / consumption value
-/// hits its own treasury per tick. 0.10 = 10%; the remaining 90%
-/// stays as abstract "market value" that's already reflected in
-/// supply/demand pricing. Keeping the rate small prevents per-pop
-/// treasuries from swinging wildly on one busy tick and keeps the
-/// long-run wealth drift observable rather than chaotic.
-pub const POP_MONETISATION_RATE: f32 = 0.10;
-
 /// Passenger contract preconditions. Matches Elixir thresholds.
 pub const PASSENGER_MIN_POPULATION: i64 = 5_000;
 pub const PASSENGER_MIN_SENTIMENT: i32 = 50;
@@ -291,85 +283,32 @@ pub fn tick_populations(
         };
 
         let mut any_shortage = false;
-        // Bundle (K): wealth delta accumulates per-commodity income
-        // (production × local price × MONETISATION_RATE) and expense
-        // (consumption × local price × MONETISATION_RATE). Applied
-        // once at end of the per-pop block so we aren't re-querying
-        // PopEconomy mid-inner-loop.
-        let mut wealth_delta: i64 = 0;
-
-        // Consume
+        // Consumption is an actual purchase from the market's owner. A
+        // household without cash remains unsupplied, even with stock nearby.
         if tick % consumption_interval == 0 {
-            if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
-                // Snapshot prices for wealth-accounting; cheap
-                // (13-entry HashMap) and keeps the supply borrow.
-                let prices_snap = pricing.prices.clone();
-                for (commodity, amount) in consumption {
-                    let available = pricing.supply.get(&commodity).copied().unwrap_or(0.0);
-                    let consumed = amount.min(available);
-                    if consumed < amount {
-                        any_shortage = true;
-                    }
-                    if consumed > 0.0 {
-                        let entry = pricing.supply.entry(commodity).or_insert(0.0);
-                        *entry = (*entry - consumed).max(0.0);
-                        // Wealth outflow for consumed goods.
-                        let price = prices_snap.get(&commodity).copied().unwrap_or(0.0);
-                        wealth_delta -= (price * consumed * POP_MONETISATION_RATE)
-                            .round() as i64;
-                    }
-                }
-
-                // Emergency water consumption — when food satisfaction is
-                // critical (< 30) pops drink deeper into local reserves.
-                // Models Elixir's water-buy branch that fires below the
-                // same threshold.
-                if current_food_sat < EMERGENCY_WATER_THRESHOLD && pop_size > 0 {
-                    let extra =
-                        EMERGENCY_WATER_RATE * (pop_size as f32 / 1000.0).max(1.0);
-                    let avail = pricing
-                        .supply
-                        .get(&Commodity::Water)
-                        .copied()
-                        .unwrap_or(0.0);
-                    let taken = extra.min(avail);
-                    if taken > 0.0 {
-                        let entry = pricing.supply.entry(Commodity::Water).or_insert(0.0);
-                        *entry = (*entry - taken).max(0.0);
-                    }
-                }
+            let mut needs: Vec<_> = consumption.into_iter().collect();
+            if current_food_sat < EMERGENCY_WATER_THRESHOLD && pop_size > 0 {
+                needs.push((Commodity::Water, EMERGENCY_WATER_RATE * (pop_size as f32 / 1000.0).max(1.0)));
+            }
+            needs.sort_by_key(|(c, _)| match c {
+                Commodity::Food => (0, c.as_str()), Commodity::Water => (1, c.as_str()), _ => (2, c.as_str()),
+            });
+            for (commodity, needed) in needs {
+                let result = purchase_consumption(world, entity, market_entity, commodity, needed, tick);
+                if result.as_ref().map(|(qty, _)| *qty < needed).unwrap_or(true) { any_shortage = true; }
+                events.push(serde_json::json!({"kind":"population_purchase", "tick":tick,
+                    "population_id":world.get::<PopIdentity>(entity).map(|p| &p.id),
+                    "commodity":commodity.as_str(), "needed":needed,
+                    "quantity":result.as_ref().map(|v| v.0).unwrap_or(0.0),
+                    "payment":result.as_ref().map(|v| v.1).unwrap_or(0), "reason":result.err()}));
             }
         }
-
-        // Produce
-        if tick % production_interval == 0 {
-            if let Some(commodity) = production_commodity {
-                if production_amount > 0.0 {
-                    if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
-                        *pricing.supply.entry(commodity).or_insert(0.0) += production_amount;
-                        // Bundle (K): wealth inflow — market absorbs
-                        // the production at current price (partial
-                        // monetisation — most value stays in the
-                        // shared market supply pool).
-                        let price = pricing.prices.get(&commodity).copied().unwrap_or(0.0);
-                        wealth_delta += (price * production_amount * POP_MONETISATION_RATE)
-                            .round() as i64;
-                    }
-                }
-            }
-        }
-
-        // Bundle (K): apply accumulated wealth delta. total_wealth
-        // is i64 and clamped at 0 below to prevent underflow into
-        // negative territory — a poor pop stays at wealth=0 rather
-        // than going into phantom debt. Growth-rate feedback from
-        // wealth is deferred to a follow-up commit; this commit's
-        // value is turning a previously-static field into a
-        // real-time signal.
-        if wealth_delta != 0 {
-            if let Some(mut econ) = world.get_mut::<PopEconomy>(entity) {
-                econ.total_wealth = (econ.total_wealth + wealth_delta).max(0);
-            }
+        // The legacy household production bypassed recipes/resources and paid
+        // itself invented revenue. Native facilities remain the producers.
+        // Workforce integration is the next block; do not silently mint output.
+        if tick % production_interval == 0 && production_commodity.is_some() && production_amount > 0.0 {
+            events.push(serde_json::json!({"kind":"population_production_blocked", "tick":tick,
+                "reason":"requires_native_employer", "location":location}));
         }
 
         // Update sentiment based on food supply — apply inertia so the
@@ -544,6 +483,17 @@ fn run_population_migration(
         return;
     }
 
+    let Some(source_cash) = world.get::<PopEconomy>(source.entity).map(|e| e.total_wealth) else { return };
+    let Some(destination_cash) = world.get::<PopEconomy>(destination.entity).map(|e| e.total_wealth) else { return };
+    if source_cash < 0 { return; }
+    let transfer = (source_cash as i128 * moved as i128 / source.population as i128) as i64;
+    let Some(after) = destination_cash.checked_add(transfer) else { return };
+    world.get_mut::<PopEconomy>(source.entity).unwrap().total_wealth -= transfer;
+    world.get_mut::<PopEconomy>(destination.entity).unwrap().total_wealth = after;
+    for entity in [source.entity, destination.entity] {
+        if let Some(mut sent) = world.get_mut::<PopSentiment>(entity) { sent.dirty = true; }
+    }
+
     if let Some(mut demo) = world.get_mut::<PopDemographics>(source.entity) {
         demo.population_count = demo.population_count.saturating_sub(moved);
         demo.migration_pressure = 0.0;
@@ -628,16 +578,11 @@ fn post_passenger_contracts(
         } else {
             Some(cand.faction_id.clone())
         };
-        contracts.post_passenger_for(
-            cand.pop_id,
-            faction_tag,
-            PASSENGER_BATCH_SIZE,
-            cand.origin,
-            destination,
-            payment,
-            tick,
-            CONTRACT_LIFESPAN_BASE * tick_multiplier,
-        );
+        // Passenger contracts need an actual embarkation/reserved-headcount
+        // transfer first. Legacy arrival created residents at every destination
+        // group. Keep ordinary migration, do not publish unfounded travel here.
+        let _ = (payment, faction_tag, destination, tick, tick_multiplier);
+
     }
 }
 
@@ -740,7 +685,8 @@ fn post_food_contracts(
         } else {
             Some(dec.faction_id.clone())
         };
-        contracts.post_delivery_for(
+        if !reserve_population_payment(world, &dec.pop_id, payment) { continue; }
+        let id = contracts.post_delivery_for(
             dec.pop_id,
             faction_tag,
             Commodity::Food,
@@ -751,6 +697,56 @@ fn post_food_contracts(
             tick,
             lifespan,
         );
+        contracts.register_prepaid(&id, crate::economy::contracts::FundingSource::Population);
     }
 }
 
+
+/// All validation precedes mutation; callers hold exclusive World access.
+pub fn purchase_consumption(world: &mut World, population: Entity, market: Entity,
+    commodity: Commodity, needed: f32, tick: u64) -> Result<(f32, i64), &'static str> {
+    use crate::agents::{facility::FacilityOperations, market::{MarketHistory, MarketFlow}};
+    let identity = world.get::<MarketIdentity>(market).ok_or("missing_market")?;
+    let seller = identity.facility;
+    if world.get::<PopIdentity>(population).ok_or("missing_population")?.facility_location != identity.facility_location {
+        return Err("wrong_location");
+    }
+    let pricing = world.get::<MarketPricing>(market).ok_or("missing_pricing")?;
+    let price = pricing.price(commodity) as f64;
+    let stock = pricing.supply.get(&commodity).copied().unwrap_or(0.0);
+    let cash = world.get::<PopEconomy>(population).ok_or("missing_wallet")?.total_wealth;
+    if !needed.is_finite() || needed <= 0.0 || !price.is_finite() || price <= 0.0 || !stock.is_finite() || stock < 0.0 {
+        return Err("invalid_quote");
+    }
+    if stock == 0.0 { return Err("insufficient_stock"); }
+    if cash <= 0 { return Err("insufficient_household_credits"); }
+    // Fractional physical units are valid; round payment upward, never give
+    // free fractional purchases. Recheck after the f32 conversion.
+    let quantity = (needed as f64).min(stock as f64).min(cash as f64 / price) as f32;
+    if quantity <= 0.0 { return Err("insufficient_household_credits"); }
+    let payment = (quantity as f64 * price).ceil();
+    if payment >= i64::MAX as f64 || payment as i64 > cash { return Err("invalid_payment"); }
+    let payment = payment as i64;
+    let after = world.get::<FacilityOperations>(seller).ok_or("missing_seller_economy")?.credits
+        .checked_add(payment).ok_or("credit_overflow")?;
+    world.get_mut::<PopEconomy>(population).unwrap().total_wealth -= payment;
+    if let Some(mut sent) = world.get_mut::<PopSentiment>(population) { sent.dirty = true; }
+    let mut ops = world.get_mut::<FacilityOperations>(seller).unwrap(); ops.credits = after; ops.dirty = true;
+    world.get_mut::<MarketPricing>(market).unwrap().supply.insert(commodity, stock - quantity);
+    if let Some(mut history) = world.get_mut::<MarketHistory>(market) { history.dirty = true; }
+    if let Some(mut flow) = world.get_mut::<MarketFlow>(market) {
+        crate::agents::market::record_consumption(&mut flow, commodity, quantity, tick);
+    }
+    Ok((quantity, payment))
+}
+
+fn reserve_population_payment(world: &mut World, id: &str, payment: i64) -> bool {
+    let entity = world.query::<(Entity, &PopIdentity)>().iter(world)
+        .find(|(_, p)| p.id == id).map(|(e, _)| e);
+    let Some(entity) = entity else { return false };
+    let Some(mut economy) = world.get_mut::<PopEconomy>(entity) else { return false };
+    if payment < 0 || economy.total_wealth < payment { return false; }
+    economy.total_wealth -= payment;
+    if let Some(mut sent) = world.get_mut::<PopSentiment>(entity) { sent.dirty = true; }
+    true
+}

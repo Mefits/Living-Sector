@@ -135,6 +135,7 @@ pub(super) fn emit_persist_writes(
                         position_y: pos.position.1,
                         cargo_json: serde_json::Value::Object(cargo_json).to_string(),
                         resume_json: serde_json::to_string(&sim_db::persistence::ShipResumeState {
+                            crew_savings: world.get::<sim_core::agents::ship::ShipCrew>(e).map(|c| c.wages_credits).unwrap_or(0),
                             location_name: pos.location_name.clone(),
                             docked_db_id: pos.docked_at.and_then(|e| world.get::<sim_core::agents::facility::FacilityIdentity>(e).map(|id| id.db_id)),
                             system_id: pos.system_id.clone(),
@@ -165,7 +166,7 @@ pub(super) fn emit_persist_writes(
                 .get::<ShipProgression>(e)
                 .map(|p| p.dirty)
                 .unwrap_or(false);
-            if !life_dirty && !prog_dirty {
+            if !life_dirty && !prog_dirty && !world.get::<sim_core::agents::ship::ShipCrew>(e).is_some_and(|c| c.dirty) {
                 continue;
             }
             let fitting_json = world
@@ -193,6 +194,7 @@ pub(super) fn emit_persist_writes(
         writes.push(write);
     }
     for e in dirty_ships {
+        if let Some(mut crew) = world.get_mut::<sim_core::agents::ship::ShipCrew>(e) { crew.dirty = false; }
         if let Some(mut life) = world.get_mut::<ShipLifecycle>(e) {
             life.dirty = false;
         }

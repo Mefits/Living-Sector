@@ -622,9 +622,9 @@ fn tick_crew(
         // --- 4. Pay wages (every 50×mult ticks) ---
         if wage_interval > 0 && tick % wage_interval == 0 && crew.size > 0 {
             let owed = CREW_WAGE_PER_HEAD * crew.size as i64;
-            if economy.credits >= owed {
+            if economy.credits >= owed && crew.wages_credits.checked_add(owed).is_some() {
                 economy.credits -= owed;
-                crew.wages_credits = crew.wages_credits.saturating_add(owed);
+                crew.wages_credits += owed;
             } else {
                 crew.morale = (crew.morale - CREW_WAGE_UNPAID_MORALE_DROP).max(0.0);
             }

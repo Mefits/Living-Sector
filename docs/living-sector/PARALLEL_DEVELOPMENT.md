@@ -1,3 +1,31 @@
+## Экономический блок F1 — дополнение 2026-11-06
+
+PR #25 `feature/genesis-economy-foundation` основан на S7
+`31f29e719e8d734e6780e331acfe732cd3098c62`. Документационный PR #24 и Observer #17
+не слиты. Проверенный SHA F1 `ce48994d89164772ea9e9f8e42536c25c198c18b`.
+Новые независимые экономические инструменты можно ветвить от него; старую UI-ветку
+не перебазировать автоматически.
+
+Владелец экономики редактирует `crates/sim_core/**`, `crates/sim_db/**`,
+`crates/sim_server/src/engine/**` и общий economic-checkpoint workflow.
+Эти файлы, включая `agents/ship/actions.rs`, `agents/population.rs`,
+`economy/contracts.rs`, `economy/money.rs`, `persistence.rs`, `spawner.rs`,
+нельзя параллельно менять для стратегии/складов/труда без согласованного разделения.
+Основные STATUS/HANDOFF/AGENTS также обновляет владелец ядра.
+
+Безопасно отдельно разрабатывать Observer и offline-инструмент
+`tools/economy-diagnostics/`, тестовые fixtures в `tests/economy-diagnostics/`,
+свою документацию. `money_accounts` — структурированный лог с полями
+ships/facilities/factions/households/crew_savings/escrow/total,
+unverified_contracts/negative_accounts. Это снимок активных счетов, не журнал
+эмиссии и не `/api/economy`. Не выводить из него полную сохранность денег
+при исчезновении агентов. Новый HTTP endpoint согласовать отдельно.
+
+`/api/strategy` v1 не менялся. В событиях транзакций добавлена operation=`sell`,
+причины `insufficient_buyer_credits`, `unverified_legacy_funding`.
+Неизвестные поля/причины отображлять как текст. Второму разработчику не нужно
+реализовывать параллельный расчёт денег в интерфейсе.
+
 # Параллельная разработка: интеграционная база и границы
 
 > **Для нового владельца ядра (Sol):** продолжать от S4 по [HANDOFF.md](HANDOFF.md).
