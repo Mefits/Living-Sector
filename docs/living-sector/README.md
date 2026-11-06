@@ -1,8 +1,8 @@
 # Living Sector — рабочая документация
 
-**Основа:** публичный форк [The Space Project](https://github.com/Kalcode/spaceprojectsim), Rust + ECS + SQLite. **Текущий Genesis на 2026-11-05:** отдельные draft PR #7 (оригинальный Core) и #8 (две фракции, логистика, конечный сбор обломков), **не слиты**. Ранние документы ниже содержат историю разработки, не всегда актуальную для PR #8.
+**Основа:** форк The Space Project, Rust + ECS + SQLite. На 2026-11-06 актуальное ядро — S4, `feature/genesis-strategy-coordination`, PR #20. Цепочка PR не объединена.
 
-**Новая точка входа для Astra / любого нового разработчика — [ASTRA_START_HERE.md](ASTRA_START_HERE.md).** Здесь указаны ветка, подтверждённые проверки, архив UI 0.14, ограничения и маршруты по исходникам.
+**Для передачи Astra → Sol и продолжения ядра читать [HANDOFF.md](HANDOFF.md).** Там точные SHA, архитектурные границы и ближайший блок. [PARALLEL_DEVELOPMENT.md](PARALLEL_DEVELOPMENT.md) описывает отдельную базу Observer и API v1. [ASTRA_START_HERE.md](ASTRA_START_HERE.md) сохраняет историю этапов; старые ссылки на PR #8 не являются текущим стартом.
 
 ## Что мы делаем
 

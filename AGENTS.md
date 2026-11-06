@@ -1,6 +1,4 @@
-> **Integration block S1 (2026-11-06):** use `integration/genesis-strategy-prototype` and the pinned SHA in [PARALLEL_DEVELOPMENT.md](docs/living-sector/PARALLEL_DEVELOPMENT.md). This supersedes the older baseline note below for new work. Work in 5–10 related tasks per branch/PR; use focused checks and milestone integration checks. The core owner handles strategy/ECS/SQLite; the second developer owns Observer and isolated diagnostics through `/api/strategy` v1. Do not merge existing PRs or rewrite history. Next priority is the working head/administrators, not another general economy audit.
-
-> **CURRENT GENESIS ENTRYPOINT (2026-11-05):** Read [docs/living-sector/ASTRA_START_HERE.md](docs/living-sector/ASTRA_START_HERE.md) first. For the current headless 2D Genesis, use branch `feature/genesis-faction-economy` (draft PR #8), based on `feature/genesis-core-reuse` (draft PR #7). `main` and `living-sector-dev` are **not** the current Genesis implementation. The polished Observer 0.14 and its sprites are, at this stage, in a separate Windows ZIP, **not committed as UI sources in this branch**. Do not assume they are in GitHub. Do not merge the PRs without the owner's instruction.
+> **Current core handoff (2026-11-06, Astra → Sol):** read [HANDOFF.md](docs/living-sector/HANDOFF.md) first. Core development continues from S4, `feature/genesis-strategy-coordination` / PR #20, pinned base `a22e61a7df3d415a7c10a42dacce6f87d27301cb`. S1 remains the separately pinned Observer integration base; it is NOT the latest core. Work in blocks of 5–10 related tasks, one branch/PR per block, focused checks and milestone integration checks. No automatic merges or history rewrites. Next block: real autonomous execution and restart, not a fresh economy audit.
 
 # Working rules for AI contributors — Living Sector
 
@@ -8,12 +6,9 @@ This repository is a **fork of [Kalcode/spaceprojectsim](https://github.com/Kalc
 
 ## Read before changing anything
 
-1. [docs/living-sector/README.md](docs/living-sector/README.md) — entry point and document status.
-2. [docs/living-sector/STATUS.md](docs/living-sector/STATUS.md) — what has *actually* been inspected or tested.
-3. [docs/living-sector/VISION.md](docs/living-sector/VISION.md) — long-term vision.
-4. [docs/living-sector/DESIGN.md](docs/living-sector/DESIGN.md) — agreed directions versus open choices.
-5. [docs/living-sector/ARCHITECTURE.md](docs/living-sector/ARCHITECTURE.md) and [ROADMAP.md](docs/living-sector/ROADMAP.md).
-6. Original [CLAUDE.md](CLAUDE.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [CONTRIBUTING.md](CONTRIBUTING.md) and current source files: the upstream documents can lag behind code.
+1. [docs/living-sector/HANDOFF.md](docs/living-sector/HANDOFF.md) — current base, architecture boundaries, verified results and next block.
+2. The current section of [STATUS.md](docs/living-sector/STATUS.md), plus [PARALLEL_DEVELOPMENT.md](docs/living-sector/PARALLEL_DEVELOPMENT.md) when changing API/ownership boundaries.
+3. Relevant source files and their tests. Read VISION/DESIGN/ARCHITECTURE, upstream CLAUDE.md and CONTRIBUTING.md as needed for the affected area; do not repeat completed audits or reread the entire history by default.
 
 ## Rules
 
@@ -21,7 +16,7 @@ This repository is a **fork of [Kalcode/spaceprojectsim](https://github.com/Kalc
 - **Do not replace the existing Rust/Bevy simulator with Godot/C#/TypeScript.** The possibility of a future personal-scale mode does not authorize a rewrite.
 - Do not start implementing features or updating upstream code without a concrete task.
 - Preserve compatibility with the original fork when reasonable; prefer isolated modules, clear interfaces, and small changes.
-- Main branch should remain close to upstream. For **current Genesis work**, base new branches on `feature/genesis-faction-economy` until the owner chooses a different integration baseline; older work may still branch from `living-sector-dev`. Never force-push, rewrite history or merge open draft PRs without instruction.
+- Main stays close to upstream. For core continuation use the pinned S4 base in HANDOFF.md; for independent Observer work use the pinned S1 base in PARALLEL_DEVELOPMENT.md. Never force-push, rewrite history or merge open PRs without instruction.
 - Preserve the original MIT LICENSE and attribution. Avoid secrets, paid services, telemetry, unrequested publishing or unrelated refactors.
 - Prefer the smallest relevant Rust check, e.g. `cargo check -p sim_core` / `cargo test -p sim_core`. Run full checks for integration changes when a tool environment is available.
 - Minimize AI/Codex context cost: limit inspected files and log output to the affected modules. Do not claim tests passed if you did not run them.
