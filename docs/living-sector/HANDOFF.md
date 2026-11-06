@@ -1,3 +1,10 @@
+> **Экономический F1 поверх S7** — `feature/genesis-economy-foundation`, [PR #25](https://github.com/Mefits/Living-Sector/pull/25).
+> Реальные платежи торговли/населения, сохранение crew savings, запрет выплат
+> без подтверждённого escrow. [Архитектура, ограничения и следующий блок](economy/F1_ECONOMY_FOUNDATION.md).
+> Исторические S4-инструкции ниже не являются актуальной базой F1.
+> Следующий результат — оплачиваемый труд native предприятий и замкнутый цикл
+> дохода/потребления, затем трудовое строительство. Observer здесь не менялся.
+
 # Передача Astra → Sol: основная разработка Living Sector
 
 > **S7 поверх S6** — `feature/genesis-goal-options`, [PR #23](https://github.com/Mefits/Living-Sector/pull/23).

@@ -12,7 +12,7 @@
 //! Running / Failure).
 
 use super::{
-    CrewTask, ShipCargo, ShipCrew, ShipEconomy, ShipFuel, ShipMemory, ShipPosition,
+    ShipCargo, ShipCrew, ShipEconomy, ShipFuel, ShipMemory, ShipPosition,
     ShipTransit, ShipTransaction, Transit, CREW_REST_TARGET, DOCK_WAIT_DEFAULT, DOCK_WAIT_LOW_MORALE,
     DOCK_WAIT_LOW_MORALE_THRESHOLD, DOCK_WAIT_WITH_CONTRACT, MAX_REST_TICKS_BASE,
 };
@@ -548,6 +548,7 @@ pub(super) fn affordable_quantity(credits: i64, price: f32, capacity: u32) -> u3
 #[cfg(test)]
 mod transaction_tests {
     use super::*;
+    use crate::agents::ship::CrewTask;
     use crate::economy::commodities::PriceMemory;
 
     struct Ship {

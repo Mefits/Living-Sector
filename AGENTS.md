@@ -1,3 +1,9 @@
+> **Current economic block F1 (2026-11-06):** `feature/genesis-economy-foundation`, PR #25,
+> based on S7 `31f29e719e8d734e6780e331acfe732cd3098c62`.
+> Read `docs/living-sector/economy/F1_ECONOMY_FOUNDATION.md` and the latest STATUS
+> first. The user's new economy brief supersedes the old no-issuance restriction.
+> Workforce/payroll/production is the next block; do not call F1 a completed economy.
+
 > **Current core handoff (2026-11-06, Astra → Sol):** read [HANDOFF.md](docs/living-sector/HANDOFF.md) first. Core development continues from S4, `feature/genesis-strategy-coordination` / PR #20, pinned base `a22e61a7df3d415a7c10a42dacce6f87d27301cb`. S1 remains the separately pinned Observer integration base; it is NOT the latest core. Work in blocks of 5–10 related tasks, one branch/PR per block, focused checks and milestone integration checks. No automatic merges or history rewrites. Next block: real autonomous execution and restart, not a fresh economy audit.
 
 # Working rules for AI contributors — Living Sector

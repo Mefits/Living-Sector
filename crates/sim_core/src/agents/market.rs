@@ -189,7 +189,7 @@ use crate::economy::{
 
     price_engine,
 };
-use crate::simulation::commands::{CommandBuffer, SimCommand};
+use crate::simulation::commands::CommandBuffer;
 
 /// How many ticks between production/consumption cycles at the default tick rate.
 /// Actual interval in ticks = PROD_CONS_INTERVAL_BASE * tick_multiplier (32 = every 160 ticks).
@@ -223,21 +223,6 @@ pub const MARKET_TREND_SAMPLE_INTERVAL_BASE: u64 = 16;
 /// per (price + supply) value × 39 markets ≈ 1.1 MB for the whole
 /// world — well under any concern.
 pub const MARKET_TREND_KEEP: usize = 200;
-
-/// Essential commodities: (threshold, order_qty, premium_multiplier).
-/// When supply < threshold, market posts an emergency buy order at premium price.
-fn essential_commodities() -> &'static [(_Commodity, f32, u32, f32)] {
-    use _Commodity::*;
-    &[
-        (Fuel, 50.0, 500, 1.5),
-        (Food, 50.0, 300, 1.5),
-        (Water, 30.0, 200, 1.3),
-        (Metals, 30.0, 200, 1.3),
-        (Tools, 20.0, 100, 1.4),
-        (Ore, 50.0, 300, 1.2),
-        (Ice, 50.0, 300, 1.2),
-    ]
-}
 
 /// Tick all markets in the world. Serial iteration — 23 markets is trivial.
 /// Phase 3 implementation. Adds to `commands` for cross-agent effects.
@@ -279,10 +264,10 @@ pub fn tick_markets(
 fn tick_one_market(
     world: &mut World,
     entity: Entity,
-    commands: &mut CommandBuffer,
+    _commands: &mut CommandBuffer,
     tick: u64,
     prod_interval: u64,
-    emerg_interval: u64,
+    _emerg_interval: u64,
     demand_window: u64,
     demand_warmup: u64,
     reserve_expiry: u64,
@@ -296,7 +281,7 @@ fn tick_one_market(
         &mut MarketOrders,
         &mut MarketHistory,
     )>();
-    let Ok((identity, mut pricing, mut flow, mut orders, mut history)) = q.get_mut(world, entity)
+    let Ok((_identity, mut pricing, mut flow, mut orders, mut history)) = q.get_mut(world, entity)
     else {
         return;
     };

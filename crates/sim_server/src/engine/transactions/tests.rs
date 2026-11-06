@@ -255,7 +255,6 @@ fn purchase() -> ShipTransaction {
 }
 
 fn escrow_offer(f: &mut Fixture) -> String {
-    use sim_core::economy::contracts::FundingSource;
     let id = f.delivery(false);
     assert!(f.store.contracts.release(&id, Some("ship-0")));
     f.world
@@ -885,7 +884,9 @@ fn invalid_deliveries_preserve_cargo_payment_status_and_experience() {
         }
         let request = f.submit(ship, ShipTransaction::Deliver { contract_id });
         let before = f.snapshot(ship);
-        f.apply(ship, request);
+        // Test the rejected transaction itself. The enclosing apply pass also
+        // legitimately refunds expired escrow, covered by escrow_expiry_* above.
+        apply_transaction(&mut f.world, &mut f.store, ship, request, &mut f.events, 10);
         assert!(f.result(ship).is_err(), "{case}");
         assert_eq!(before, f.snapshot(ship), "{case}");
         assert_eq!(f.events.len(), 1, "no reward events on rejection: {case}");
@@ -1386,4 +1387,37 @@ async fn foundation_sale_checkpoint_restores_both_wallets_and_cargo_once() {
     assert!(world.get::<ShipEconomy>(ship).unwrap().transaction.pending.as_ref().unwrap().result.unwrap().is_err());
     assert_eq!(sim_core::economy::money::MoneySnapshot::capture(&mut world, &store.contracts), before);
     pool.close().await;
+}
+
+#[test]
+fn foundation_household_delivery_spends_escrow_without_reselling_its_food() {
+    use sim_core::agents::population::*;
+    use sim_core::economy::{contracts::FundingSource, money::MoneySnapshot};
+    let mut f = Fixture::new(0.0, 0.0);
+    let ship = f.ships[0];
+    let pop = f.world.spawn((PopIdentity { db_id:1, id:"workers".into(), label:"Workers".into(),
+        demographic:"workers".into(), facility:f.facility, facility_location:"port".into(), faction_id:"".into() },
+        PopDemographics { population_count:100, growth_rate:0.0, employed_fraction:0.0, migration_pressure:0.0 },
+        PopEconomy { total_wealth:200, spending_rate:1.0, consumption:Default::default(), production_commodity:None, production_amount:0.0 },
+        PopSentiment { overall_sentiment:10, unrest:0, food_satisfaction:10, safety_satisfaction:50, entertainment_satisfaction:50, dirty:false })).id();
+    f.store.population_by_id.insert("workers".into(), pop);
+    let before = MoneySnapshot::capture(&mut f.world, &f.store.contracts).total;
+    let id = f.store.contracts.post_delivery_for("workers".into(), None, Commodity::Food, 10,
+        "source".into(), "port".into(), 120, 0, 1000);
+    f.world.get_mut::<PopEconomy>(pop).unwrap().total_wealth -= 120;
+    f.store.contracts.register_prepaid(&id, FundingSource::Population);
+    let request = f.submit(ship, ShipTransaction::Accept { contract_id:id.clone() }); f.apply(ship, request);
+    assert_eq!(f.result(ship), Ok(()));
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+    f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.insert(Commodity::Food,10);
+    let request = f.submit(ship, ShipTransaction::Deliver { contract_id:id.clone() }); f.apply(ship, request);
+    assert_eq!(f.result(ship), Ok(()));
+    assert_eq!(f.world.get::<ShipCargo>(ship).unwrap().used(),0);
+    assert_eq!(f.world.get::<MarketPricing>(f.market).unwrap().supply.get(&Commodity::Food).copied().unwrap_or(0.0),0.0);
+    assert_eq!(f.world.get::<PopEconomy>(pop).unwrap().total_wealth,80);
+    assert_eq!(f.world.get::<ShipEconomy>(ship).unwrap().credits,1120);
+    assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total,before);
+    assert_eq!(f.events.iter().filter(|e| e["kind"] == "household_delivery_consumed").count(),1);
+    f.apply(ship, request);
+    assert_eq!(f.events.iter().filter(|e| e["kind"] == "household_delivery_consumed").count(),1);
 }

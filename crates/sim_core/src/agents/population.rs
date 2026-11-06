@@ -182,13 +182,6 @@ pub const CONTRACT_URGENCY_PEAK: f32 = 2.0;
 /// speed = quicker convergence toward the food-driven target).
 pub const SENTIMENT_INERTIA_BASE: f32 = 0.9;
 
-/// Bundle (K): how much of a pop's production / consumption value
-/// hits its own treasury per tick. 0.10 = 10%; the remaining 90%
-/// stays as abstract "market value" that's already reflected in
-/// supply/demand pricing. Keeping the rate small prevents per-pop
-/// treasuries from swinging wildly on one busy tick and keeps the
-
-
 /// Passenger contract preconditions. Matches Elixir thresholds.
 pub const PASSENGER_MIN_POPULATION: i64 = 5_000;
 pub const PASSENGER_MIN_SENTIMENT: i32 = 50;
