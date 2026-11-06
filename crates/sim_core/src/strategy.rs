@@ -7,6 +7,8 @@ use crate::agents::{faction::{self, FactionData}, facility::{FacilityIdentity, F
     market::{MarketIdentity, MarketHistory, MarketPricing}, faction_relations::FactionRelations};
 use crate::economy::{commodities::Commodity, contracts::{ContractBoard, ContractStatus, FundingSource}};
 
+pub mod construction;
+
 pub const PROJECT_TAG: &str = "strategy.logistics.v1";
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -50,6 +52,7 @@ pub struct FactionView {
     pub status: String,
     pub reason: String,
     pub projects: Vec<Project>,
+    pub construction: Option<construction::ConstructionView>,
 }
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Snapshot {
@@ -137,9 +140,11 @@ pub fn run_cycle(world: &mut World, contracts: &mut ContractBoard,
                 destination: c.destination_location.clone(), shortage_ticks: 0, score: 0.0,
             })).or_else(|| candidate.as_ref().map(|a| a.goal.clone()))
             .or_else(|| goals.first().cloned());
+        let construction = world.resource::<StrategyState>().factions.get(&faction.id)
+            .and_then(|v| v.construction.clone());
         let mut view = FactionView { faction_id: faction.id.clone(), observed_tick: tick,
             treasury: faction.treasury, goals, assessments, selected_goal: selected, administrator: "logistics",
-            status: "idle".into(), reason: "no_chronic_shortage".into(), projects: Vec::new() };
+            status: "idle".into(), reason: "no_chronic_shortage".into(), projects: Vec::new(), construction };
         if held.is_some() {
             view.status = "waiting".into(); view.reason = "existing_contract".into();
         } else if let Some(candidate) = candidate {
@@ -174,14 +179,15 @@ pub fn refresh(world: &mut World, contracts: &ContractBoard, tick: u64) {
     for (id, treasury) in accounts {
         let view = state.factions.entry(id.clone()).or_insert_with(|| FactionView {
             faction_id: id.clone(), observed_tick: tick, treasury, goals: Vec::new(), assessments: Vec::new(), selected_goal: None,
-            administrator: "logistics", status: "observing".into(), reason: "awaiting_cycle".into(), projects: Vec::new() });
+            administrator: "logistics", status: "observing".into(), reason: "awaiting_cycle".into(), projects: Vec::new(), construction: None });
         view.treasury = treasury;
         let mut records: Vec<_> = contracts.iter().filter(|c| c.requestor_id == id &&
-            c.mission_category.as_deref() == Some(PROJECT_TAG)).collect();
+            matches!(c.mission_category.as_deref(), Some(PROJECT_TAG) | Some(construction::PROJECT_TAG))).collect();
         records.sort_by(|a,b| outstanding(b).cmp(&outstanding(a))
             .then_with(|| b.posted_at_tick.cmp(&a.posted_at_tick)).then_with(|| a.id.cmp(&b.id)));
         view.projects = records.into_iter().take(32).map(|c| Project {
-            project_id: c.id.clone(), contract_id: c.id.clone(), administrator: "logistics",
+            project_id: c.id.clone(), contract_id: c.id.clone(), administrator:
+                if c.mission_category.as_deref() == Some(construction::PROJECT_TAG) { "construction" } else { "logistics" },
             state: match c.status { ContractStatus::Posted => "posted", ContractStatus::Accepted => "accepted",
                 ContractStatus::PickedUp => "picked_up", ContractStatus::Delivered => "delivered",
                 ContractStatus::Paid => "paid", ContractStatus::Expired => "expired" }.into(), executor_id: c.fulfiller_id.clone(),
@@ -190,6 +196,8 @@ pub fn refresh(world: &mut World, contracts: &ContractBoard, tick: u64) {
             commodity: c.commodity, quantity: c.quantity,
         }).collect();
     }
+    drop(state);
+    construction::refresh(world);
 }
 
 #[cfg(test)]
@@ -197,7 +205,7 @@ mod tests {
     use super::*;
     use crate::agents::faction::FactionColors;
 
-    fn fixture(mode: Mode) -> (World, ContractBoard, Entity, Entity, Entity) {
+    pub(super) fn fixture(mode: Mode) -> (World, ContractBoard, Entity, Entity, Entity) {
         let mut world = World::new();
         world.insert_resource(StrategyState { mode, ..Default::default() });
         let owner = world.spawn(FactionData {

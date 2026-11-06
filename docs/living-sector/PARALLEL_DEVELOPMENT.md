@@ -141,3 +141,30 @@ native settlement/refund. Стратегия сама не возвращает 
 
 Сохранения и миграции в S2 не меняются. Повторное создание StrategyState восстанавливает
 удерживаемую цель из native contracts. Полная история решений по-прежнему не сохраняется.
+
+## S3: строительный администратор (совместимое расширение v1)
+
+Ветка `feature/genesis-strategy-construction`, PR #19 поверх S2. Для независимой
+UI-ветки по-прежнему использовать закреплённый S1 SHA выше, до согласованной интеграции.
+Старые поля фракции selected_goal/status/reason/administrator описывают логистику.
+Новое поле `construction` равно null до первого строительного цикла, затем объект:
+
+- observed_tick: возраст решения, status/reason: последнее решение администратора;
+- selected_goal: Goal с goal_id=expand_production либо null;
+- site_id: текущая площадка либо null; facility_type: планируемый/сохранённый тип;
+- progress_delivered/progress_required: текущая площадка, 0/0 при её отсутствии;
+- contract_id: удерживаемая/последняя выданная поставка либо null.
+
+Причины: no_chronic_shortage, existing_contract, site_owned_by_other_faction,
+no_producer, producer_already_present, invalid_site_location, no_local_resource,
+awaiting_materialization, no_accessible_stock, insufficient_budget,
+shadow_no_mutation, funded_native_contract. Статусы прежние: idle/blocked/waiting/
+proposed/commissioned. Прогресс обновляется между решениями. null site_id сам по себе
+не доказывает завершение: это также ещё не созданная/удалённая площадка.
+
+projects[] теперь содержит также administrator=construction с прежней формой Project;
+marker native-контракта strategy.construction.v1. Это список поставок, а не один
+агрегированный проект здания; завершение paid одной поставки не означает готовность
+объекта. Логистические строки/поля не переименованы. UI должен поддерживать новые
+значения administrator и отдельную карточку construction, не менять серверные типы.
+После загрузки сохранённая стройка возобновляется на следующем строительном цикле.

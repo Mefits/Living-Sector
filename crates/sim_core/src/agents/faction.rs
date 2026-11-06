@@ -291,7 +291,10 @@ pub fn tick_factions(
     let construction_interval =
         CONSTRUCTION_CHECK_INTERVAL_BASE * tick_multiplier as u64;
     if construction_interval > 0 && tick % construction_interval == 0 {
-        run_construction_cycle(world, contracts, events, relations, tick, tick_multiplier);
+        crate::strategy::construction::run_cycle(world, contracts, relations, events, tick, tick_multiplier);
+        if !crate::strategy::executing(world) {
+            run_construction_cycle(world, contracts, events, relations, tick, tick_multiplier);
+        }
     }
 
     // Keep snapshot `active_subsidies` in sync — recalc from the board so
@@ -904,7 +907,7 @@ fn run_construction_cycle(
 /// any existing facility at the destination; picks the position via
 /// the same `facility_offset_position` hash so the site visually
 /// sits where the real facility will materialise.
-fn ensure_site_spawned(
+pub(crate) fn ensure_site_spawned(
     world: &mut World,
     events: &mut Vec<serde_json::Value>,
     faction_id: &str,
@@ -924,10 +927,10 @@ fn ensure_site_spawned(
     // Pick body from any facility at the destination. Without a body
     // we can't place the site; skip.
     let body_id = {
-        use crate::agents::facility::{FacilityIdentity, FacilityLocation};
         let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
-        q.iter(&world)
-            .find(|(_, loc)| loc.location_name == destination)
+        q.iter(world)
+            .filter(|(id, loc)| loc.location_name == destination && id.faction_id == faction_id)
+            .min_by(|a,b| a.0.id.cmp(&b.0.id))
             .map(|(id, _)| id.body_id.clone())
     };
     let Some(body_id) = body_id else { return };
