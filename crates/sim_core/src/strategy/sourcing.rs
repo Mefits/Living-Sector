@@ -47,6 +47,13 @@ impl<'a> Sources<'a> {
         self.owners.get(location).map_or("", String::as_str)
     }
 
+    pub(super) fn quote(
+        &self, faction: &str, source: &str, commodity: Commodity, quantity: u32,
+    ) -> Option<i64> {
+        purchase_cost(self.market(source)?.price(commodity), quantity, self.relations,
+            faction, 0, self.owner(source))
+    }
+
     pub(super) fn choose(
         &self, faction: &str, destination: &str, commodity: Commodity, quantity: u32,
         reward: i64,
@@ -65,8 +72,7 @@ impl<'a> Sources<'a> {
             has_stock = true;
             // Own-faction purchases get their native discount. Quotes from
             // other factions don't depend on a particular captain's reputation.
-            let Some(cost) = purchase_cost(market.price(commodity), quantity, self.relations,
-                faction, 0, owner).filter(|&cost| cost < reward) else {
+            let Some(cost) = self.quote(faction, location, commodity, quantity).filter(|&cost| cost < reward) else {
                 continue;
             };
             let candidate = (cost, owner != faction, location);

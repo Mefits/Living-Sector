@@ -15,6 +15,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 const binary = resolve(process.argv[2] ?? 'target/debug/genesis_server');
 const observe = process.argv.includes('--observe');
 const bothBuild = process.argv.includes('--both-build');
+const checkOptions = process.argv.includes('--head-options');
 const factions = ['pirates', 'terran-authority'];
 const dir = mkdtempSync(join(tmpdir(), 'genesis-autonomous-'));
 const listener = createServer();
@@ -27,6 +28,7 @@ const strategyTags = new Set(['strategy.logistics.v1', 'strategy.construction.v1
 const contracts = new Map();
 const flights = new Map();
 const events = [];
+const headDecisions = new Map();
 let socket, server, report, strategy, checkpoint, restored, passed;
 let phase = 0;
 
@@ -90,6 +92,38 @@ async function sample() {
   }
 }
 
+function inspectHeadOptions() {
+  for (const faction of strategy.factions) {
+    const head = faction.head;
+    if (!head?.problem) continue;
+    const key = `${faction.faction_id}:${head.observed_tick}`;
+    if (headDecisions.has(key)) continue;
+    assert.deepEqual(head.alternatives.map(option => option.action), ['deliver', 'build', 'wait']);
+    const chosen = head.alternatives.find(option => option.action === head.selected_option);
+    assert.ok(chosen, 'head selected an action outside the alternatives');
+    assert.equal(head.planned_spend, chosen.first_payment);
+    assert.equal(chosen.estimated_net_value,
+      Math.max(...head.alternatives.map(option => option.estimated_net_value ?? -Infinity)),
+      'selected action has a lower forecast than another option for the same problem');
+    if (chosen.action === 'wait') {
+      assert.equal(head.committed_spend, 0);
+    } else {
+      assert.ok(chosen.treasury_after >= 5000, 'selected project spends the treasury floor');
+      if (head.committed_spend > 0) {
+        const issued = [...contracts.values()].find(c => c.requestor_id === faction.faction_id &&
+          c.posted_at_tick === head.observed_tick);
+        // The contract endpoint can be one snapshot cadence behind the head.
+        if (!issued) continue;
+        assert.equal(head.committed_spend, chosen.first_payment);
+        assert.equal(issued.destination_location, head.problem.destination);
+        assert.equal(issued.commodity, chosen.material);
+        assert.equal(issued.source_location, chosen.source);
+      }
+    }
+    headDecisions.set(key, chosen.action);
+  }
+}
+
 async function pause() {
   await request('/api/sim/pause', {});
   const deadline = Date.now() + 2000;
@@ -146,6 +180,7 @@ try {
   while (true) {
     await delay(100);
     await sample();
+    if (checkOptions) inspectHeadOptions();
     assert.ok(Date.now() < deadline, 'scenario timed out');
     if (!observe && !checkpoint) {
       const ship = report.ships.find(s => {
@@ -212,9 +247,17 @@ try {
   const completed = completedSites();
   const rejected = events.filter(e => e.kind === 'ship_transaction_rejected' &&
     e.reason === 'insufficient_contract_funding' && contracts.has(e.contract_id));
-  console.log(JSON.stringify({ tick: report.tick, delivered, completed, restored,
+  const observedOptions = [...headDecisions.values()].reduce((counts, option) => {
+    counts[option] = (counts[option] ?? 0) + 1;
+    return counts;
+  }, {});
+  console.log(JSON.stringify({ tick: report.tick, delivered, completed, restored, observedOptions,
     strategicFundingRejections: rejected.length,
     withdrawnOffers: events.filter(e => e.kind === 'strategy_offer_withdrawn').length }, null, 2));
+  if (checkOptions) {
+    assert.ok(observedOptions.deliver && observedOptions.build && observedOptions.wait,
+      'head did not choose all three options over the course of the scenario');
+  }
   if (!observe) {
     assert.ok(restored, 'no loaded construction flight available for restart');
     assert.ok(delivered.some(d => d.id === checkpoint.contract.id && d.deliver), 'resumed delivery never paid');

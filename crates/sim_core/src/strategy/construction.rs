@@ -5,6 +5,40 @@ use crate::agents::{construction::ConstructionSite, celestial_body::{BodyIdentit
 use crate::economy::{contracts::ContractType, recipes};
 
 pub const PROJECT_TAG: &str = "strategy.construction.v1";
+/// Working capital transferred to the completed facility by sim_server.
+pub const STARTUP_CAPITAL: i64 = 20_000;
+
+#[derive(Clone, Debug)]
+pub(super) struct Offer {
+    pub goal: Goal,
+    pub facility_type: Option<String>,
+    pub source: Option<String>,
+    pub material: Commodity,
+    pub remaining: u32,
+    pub raw_richness: f32,
+    pub site_id: Option<String>,
+    pub reason: &'static str,
+}
+
+impl Offer {
+    pub fn shipments(&self) -> u32 {
+        self.remaining.div_ceil(faction::CONSTRUCTION_QUANTITY)
+    }
+
+    pub fn total_cost(&self) -> i64 {
+        i64::from(self.shipments()) * faction::CONSTRUCTION_BASE_PAYMENT + STARTUP_CAPITAL
+    }
+}
+
+fn target_commodity(site: &ConstructionSite) -> Commodity {
+    // Native sites use site-<target>-<location>-<tick>. S6 keeps the
+    // target in this ID even when the persisted delivery cargo differs.
+    site.id.strip_prefix("site-")
+        .and_then(|id| id.split_once('-'))
+        .and_then(|(target, _)| Commodity::ALL.iter().find(|c| c.as_str() == target))
+        .copied()
+        .unwrap_or(site.commodity)
+}
 #[derive(Clone, Debug, Serialize)]
 pub struct ConstructionView {
     pub observed_tick: u64,
@@ -17,12 +51,14 @@ pub struct ConstructionView {
     pub progress_required: u32,
     pub contract_id: Option<String>,
     pub delivery_commodity: Option<Commodity>,
+    #[serde(skip)]
+    pub(super) offers: Vec<Offer>,
 }
 impl ConstructionView {
     fn new(tick: u64) -> Self {
         Self { observed_tick: tick, status: "idle".into(), reason: "no_chronic_shortage".into(),
             selected_goal: None, site_id: None, facility_type: None,
-            progress_delivered: 0, progress_required: 0, contract_id: None, delivery_commodity: None }
+            progress_delivered: 0, progress_required: 0, contract_id: None, delivery_commodity: None, offers: Vec::new() }
     }
 }
 
@@ -61,9 +97,15 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
             .min_by(|a,b| a.posted_at_tick.cmp(&b.posted_at_tick).then_with(|| a.id.cmp(&b.id)));
         // Prefer the oldest viable site. Keep blocked sites and their
         // delivered material while evaluating other shortages.
-        let existing_goals = sites.iter().map(|site| Goal {
-            goal_id: "expand_production".into(), commodity: site.commodity,
-            destination: site.location_name.clone(), shortage_ticks: 0, score: 0.0,
+        let existing_goals = sites.iter().map(|site| {
+            let commodity = target_commodity(site);
+            let age = markets.iter().find(|(location, _, _)| *location == site.location_name)
+                .and_then(|(_, shortages, _)| shortages.get(&commodity)).copied().unwrap_or(0);
+            Goal {
+                goal_id: "expand_production".into(), commodity,
+                destination: site.location_name.clone(), shortage_ticks: age,
+                score: faction::shortage_priority(commodity, age, Some(&account.personality)),
+            }
         });
         let mut new_goals: Vec<_> = markets.iter().filter(|(l,_,_)| members.contains(l))
             .flat_map(|(l,h,_)| h.iter()
@@ -71,22 +113,25 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
                 .map(|(&c,&age)| Goal { goal_id: "expand_production".into(), commodity: c,
                     destination: l.clone(), shortage_ticks: age,
                     score: faction::shortage_priority(c,age,Some(&account.personality)) }))
-            .filter(|goal| !sites.iter().any(|s| s.location_name == goal.destination && s.commodity == goal.commodity))
+            .filter(|goal| !sites.iter().any(|s| s.location_name == goal.destination && target_commodity(s) == goal.commodity))
             .collect();
         new_goals.sort_by(|a,b| b.score.total_cmp(&a.score).then_with(|| a.commodity.as_str().cmp(b.commodity.as_str()))
             .then_with(|| a.destination.cmp(&b.destination)));
         let goals = existing_goals.chain(new_goals);
+        let mut offers = Vec::new();
         if let Some(c) = held {
             view.delivery_commodity = Some(c.commodity);
             view.status = "waiting".into(); view.reason = "existing_contract".into();
             view.contract_id = Some(c.id.clone());
-            view.selected_goal = Some(Goal { goal_id: "expand_production".into(), commodity: c.commodity,
+            let target = sites.iter().find(|s| s.location_name == c.destination_location && s.commodity == c.commodity)
+                .map_or(c.commodity, target_commodity);
+            view.selected_goal = Some(Goal { goal_id: "expand_production".into(), commodity: target,
                 destination: c.destination_location.clone(), shortage_ticks: 0, score: 0.0 });
         } else {
             for goal in goals {
                 let mut candidate = ConstructionView::new(tick);
                 candidate.selected_goal = Some(goal.clone());
-                let existing = sites.iter().find(|s| s.location_name == goal.destination && s.commodity == goal.commodity);
+                let existing = sites.iter().find(|s| s.location_name == goal.destination && target_commodity(s) == goal.commodity);
                 let kind = existing.map(|s| s.facility_type.as_str()).or_else(|| producer(goal.commodity));
                 candidate.facility_type = kind.map(str::to_string);
                 let mut anchors: Vec<_> = facilities.iter().filter(|(i,l)| i.faction_id == account.id &&
@@ -95,13 +140,20 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
                 let body = existing.map(|s| s.body_id.as_str()).or_else(|| anchors.first().map(|(i,_)| i.body_id.as_str()));
                 let placeable = body.is_some_and(|body| world.query::<(&BodyIdentity,&BodyOrbit)>().iter(world)
                     .any(|(i,_)| i.body_id == body));
-                let raw_available = body.is_some_and(|body| world.query::<(&BodyIdentity,&BodyResources)>().iter(world)
-                    .any(|(i,r)| i.body_id == body && r.resources.get(&goal.commodity)
-                        .is_some_and(|v| v.is_finite() && *v > 0.0)));
+                let raw_richness = body.and_then(|body| world.query::<(&BodyIdentity, &BodyResources)>()
+                    .iter(world).find(|(id, _)| id.body_id == body)
+                    .and_then(|(_, resources)| resources.resources.get(&goal.commodity).copied()))
+                    .filter(|richness| richness.is_finite() && *richness > 0.0)
+                    .unwrap_or(0.0);
                 let conflict = world.query::<&ConstructionSite>().iter(world).any(|s|
                     s.location_name == goal.destination && s.commodity == goal.commodity && s.faction_id != account.id);
-                let amount = existing.map_or(faction::CONSTRUCTION_QUANTITY, |s| s.remaining().min(faction::CONSTRUCTION_QUANTITY));
-                let direct = sources.choose(&account.id, &goal.destination, goal.commodity,
+                let remaining = existing.map_or(
+                    crate::agents::construction::CONSTRUCTION_PROGRESS_REQUIRED,
+                    ConstructionSite::remaining,
+                );
+                let amount = remaining.min(faction::CONSTRUCTION_QUANTITY);
+                let direct_material = existing.map_or(goal.commodity, |site| site.commodity);
+                let direct = sources.choose(&account.id, &goal.destination, direct_material,
                     amount, faction::CONSTRUCTION_BASE_PAYMENT);
                 let (material, source) = if existing.is_none() && direct.is_err() && !conflict {
                     // A refinery can be commissioned with feedstock from a
@@ -111,9 +163,9 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
                         &sources, &sites, &account.id, &goal, kind, amount,
                     ).map_or((goal.commodity, direct), |(material, source)| (material, Ok(source)))
                 } else {
-                    (goal.commodity, direct)
+                    (direct_material, direct)
                 };
-                let material_conflict = material != goal.commodity && world.query::<&ConstructionSite>().iter(world)
+                let material_conflict = existing.is_none() && material != goal.commodity && world.query::<&ConstructionSite>().iter(world)
                     .any(|site| site.location_name == goal.destination && site.commodity == material);
                 let already_planned = existing.is_none() && sites.iter().any(|s|
                     s.location_name == goal.destination && Some(s.facility_type.as_str()) == kind);
@@ -124,21 +176,37 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
                     else if already_built { "producer_already_present" }
                     else if already_planned || material_conflict { "producer_already_planned" }
                     else if !placeable || !members.contains(&goal.destination) { "invalid_site_location" }
-                    else if existing.is_none() && kind == Some("mining_rig") && !raw_available { "no_local_resource" }
+                    else if existing.is_none() && kind == Some("mining_rig") && raw_richness == 0.0 { "no_local_resource" }
                     else if amount == 0 { "awaiting_materialization" }
                     else if let Err(reason) = source { reason }
                     else if account.treasury < faction::CONSTRUCTION_MIN_TREASURY { "insufficient_budget" }
                     else { "ready" };
+                let mut offer = Offer {
+                    goal: goal.clone(), facility_type: candidate.facility_type.clone(),
+                    source: source.as_ref().ok().cloned(), material, remaining, raw_richness,
+                    site_id: existing.map(|site| site.id.clone()), reason,
+                };
+                if offer.reason == "ready" && offer.total_cost() >
+                    account.treasury.saturating_sub(faction::FACTION_SUBSIDY_FLOOR)
+                {
+                    offer.reason = "insufficient_project_budget";
+                }
+                let reason = offer.reason;
+                offers.push(offer);
+                candidate.delivery_commodity = Some(material);
                 if reason != "ready" {
                     candidate.status = "blocked".into(); candidate.reason = reason.into();
                     if view.selected_goal.is_none() { view = candidate; }
                     continue;
                 }
-                candidate.delivery_commodity = Some(material);
                 if !execute {
                     candidate.status = "proposed".into(); candidate.reason = "shadow_no_mutation".into();
-                } else if !coordination::authorized(world, &account.id, "construction") {
+                    if view.status != "proposed" { view = candidate; }
+                    continue;
+                } else if !coordination::authorized(world, &account.id, "construction", &goal) {
                     candidate.status = "waiting".into(); candidate.reason = "head_priority".into();
+                    if view.status != "waiting" { view = candidate; }
+                    continue;
                 } else {
                     // Site must exist before any advance is taken. Reuse native placement.
                     faction::ensure_site_spawned_with_material(
@@ -163,6 +231,7 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
                 view = candidate; break;
             }
         }
+        view.offers = offers;
         world.resource_mut::<StrategyState>().factions.get_mut(&account.id).unwrap().construction = Some(view);
     }
     super::refresh(world,board,tick);

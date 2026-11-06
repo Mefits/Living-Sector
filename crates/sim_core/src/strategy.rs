@@ -9,6 +9,7 @@ use crate::economy::{commodities::Commodity, contracts::{ContractBoard, Contract
 
 pub mod construction;
 pub mod coordination;
+mod options;
 pub(crate) mod sourcing;
 
 pub const PROJECT_TAG: &str = "strategy.logistics.v1";
@@ -139,7 +140,9 @@ pub fn run_cycle(world: &mut World, contracts: &mut ContractBoard,
                 else if !affordable { "insufficient_budget" } else { "ready" };
             GoalAssessment { goal: goal.clone(), reason: reason.into(), source: source.ok() }
         }).collect();
-        let candidate = assessments.iter().find(|a| a.reason == "ready").cloned();
+        let candidate = assessments.iter()
+            .find(|a| a.reason == "ready" && coordination::authorized(world, &faction.id, "logistics", &a.goal))
+            .or_else(|| assessments.iter().find(|a| a.reason == "ready")).cloned();
         let selected = held.map(|c| goals.iter().find(|g| g.commodity == c.commodity &&
             g.destination == c.destination_location).cloned().unwrap_or_else(|| Goal {
                 goal_id: goal_id(c.commodity).into(), commodity: c.commodity,
@@ -157,7 +160,7 @@ pub fn run_cycle(world: &mut World, contracts: &mut ContractBoard,
         } else if let Some(candidate) = candidate {
             if !execute {
                 view.status = "proposed".into(); view.reason = "shadow_no_mutation".into();
-            } else if !coordination::authorized(world, &faction.id, "logistics") {
+            } else if !coordination::authorized(world, &faction.id, "logistics", &candidate.goal) {
                 view.status = "waiting".into(); view.reason = "head_priority".into();
             } else {
                 let mut account = world.get_mut::<FactionData>(entity).unwrap();
