@@ -275,3 +275,7 @@ body.strategy-open .inspector { display:none!important; }
 .facility-breakdown-item.family-production,.group-member.family-production{border-left-color:#89c5a4}
 .facility-breakdown-item.family-service,.group-member.family-service{border-left-color:#c6b6dd}
 @media(max-width:1100px){.map-legend{bottom:9px;gap:6px 8px}.map-top .map-tools{flex-wrap:wrap}}
+
+/* Separate map explanation from legend at intermediate widths. */
+@media(max-width:1450px){.map-help{bottom:47px;max-width:calc(100% - 36px)}}
+@media(max-width:760px){.map-help{display:none}}
