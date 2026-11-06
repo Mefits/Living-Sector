@@ -12,7 +12,7 @@ const els = Object.fromEntries([
   "connection","system-count","system-search","system-list","faction-count","faction-legend",
   "world-subtitle","tick","agent-count","pause-btn","speed-select","sector-tab","system-tab",
   "ships-toggle","links-toggle","labels-toggle","fit-btn","map","canvas-holder","hover-label",
-  "map-error","data-tick","event-feed","clear-events","inspector-body","clear-selection",
+  "map-error","data-tick","event-feed","clear-events","export-diagnostics","inspector-body","clear-selection",
   "ship-total","facility-total","market-total","first-run-guide","start-system-btn","dismiss-guide-btn"
 ].map(id => [id.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase()), byId(id)]));
 
@@ -464,6 +464,67 @@ function renderEvents() {
     els.eventFeed.appendChild(row);
   }
 }
+// User-facing export: current real server snapshots plus only the events received
+// by this particular browser tab (Observer retains at most the newest 100).
+// This is NOT a full server log or a complete replay of earlier ticks.
+async function exportDiagnostics() {
+  const button = els.exportDiagnostics;
+  if (button.disabled) return;
+  const oldText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Сбор…";
+  try {
+    const routes = {
+      health: "/api/health",
+      report: "/api/report",
+      strategy: "/api/strategy",
+      contracts: "/api/contracts",
+      facilities: "/api/facilities",
+      ships: "/api/ships",
+      markets: "/api/markets",
+      construction_sites: "/api/construction_sites",
+      retirements: "/api/retirements",
+      faction_relations: "/api/factions/relations",
+      populations: "/api/populations"
+    };
+    const results = await Promise.all(Object.entries(routes).map(async ([name, path]) => {
+      try { return [name, {ok: true, value: await getJSON(path)}]; }
+      catch (error) { return [name, {ok: false, error: String(error?.message ?? error)}]; }
+    }));
+    const endpoints = Object.fromEntries(results);
+    if (!endpoints.health.ok && !endpoints.report.ok && !endpoints.strategy.ok) {
+      throw new Error("Не удалось получить данные с сервера. Проверьте подключение.");
+    }
+    const currentTick = endpoints.health.value?.tick ??
+      endpoints.report.value?.tick ?? s.health?.tick ?? "unknown";
+    const payload = {
+      format: "living-sector-observer-diagnostics-v1",
+      captured_at: new Date().toISOString(),
+      note: "Текущие снимки API и до 100 последних событий этой вкладки. НЕ полный лог 5000 тиков.",
+      source: "Observer UI-1 / GET endpoints / local WebSocket event buffer",
+      snapshot_tick_at_export: currentTick,
+      browser_events_newest_first: s.events.slice(0, 100),
+      browser_event_count: s.events.length,
+      endpoints
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json;charset=utf-8"});
+    const uri = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = uri;
+    link.download = "LivingSector-Diagnostics-t" + currentTick + "-" +
+      new Date().toISOString().replaceAll(":", "-") + ".json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(uri), 1000);
+  } catch (error) {
+    window.alert("Экспорт диагностики: " + String(error?.message ?? error));
+  } finally {
+    button.textContent = oldText;
+    button.disabled = false;
+  }
+}
+
 function handleEvents(tick, events) {
   for (const event of list(events)) s.events.unshift({tick,event});
   s.events.length = Math.min(s.events.length,100);
@@ -1098,6 +1159,7 @@ function wireControls() {
   els.systemTab.addEventListener("click",()=>{if(s.systemName)chooseSystem(s.systemName,true);});
   els.fitBtn.addEventListener("click",resetCamera);
   els.systemSearch.addEventListener("input",renderSidebar);
+  els.exportDiagnostics.addEventListener("click",exportDiagnostics);
   els.clearEvents.addEventListener("click",()=>{s.events=[];renderEvents();});
   els.clearSelection.addEventListener("click",()=>{s.selection=null;renderInspector();});
   els.startSystemBtn.addEventListener("click",()=>{
