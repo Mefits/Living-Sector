@@ -454,7 +454,7 @@ pub(super) fn materialize_facility(
     let credits = store.faction_by_id.get(faction_id).copied()
         .and_then(|e| world.get_mut::<sim_core::agents::faction::FactionData>(e))
         .map(|mut faction| {
-            let amount = faction.treasury.clamp(0, 20_000);
+            let amount = faction.treasury.clamp(0, sim_core::strategy::construction::STARTUP_CAPITAL);
             faction.treasury -= amount;
             faction.dirty = true;
             amount

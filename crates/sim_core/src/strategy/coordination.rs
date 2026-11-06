@@ -21,43 +21,80 @@ pub struct HeadDecision {
     pub planned_spend: i64,
     pub committed_spend: i64,
     pub proposals: Vec<Proposal>,
+    pub problem: Option<Goal>,
+    pub selected_option: &'static str,
+    pub horizon_ticks: u64,
+    pub alternatives: Vec<options::Alternative>,
 }
-#[derive(Resource)]
-struct Grants(BTreeMap<String, &'static str>);
+struct Grant {
+    administrator: &'static str,
+    goal: Goal,
+}
 
-pub(super) fn authorized(world: &World, faction: &str, administrator: &str) -> bool {
-    world.get_resource::<Grants>().is_none_or(|g| g.0.get(faction).is_some_and(|a| *a == administrator))
+#[derive(Resource)]
+struct Grants(BTreeMap<String, Grant>);
+
+pub(super) fn authorized(world: &World, faction: &str, administrator: &str, goal: &Goal) -> bool {
+    world.get_resource::<Grants>().is_none_or(|grants| {
+        grants.0.get(faction).is_some_and(|grant| {
+            grant.administrator == administrator && options::same_problem(&grant.goal, goal)
+        })
+    })
 }
-fn choose(proposals: &[Proposal], limit: i64) -> Option<&Proposal> {
-    proposals.iter().filter(|p| p.status == "proposed" && p.requested_credits <= limit)
-        .max_by(|a,b| a.priority.cmp(&b.priority)
-            .then_with(|| a.goal.as_ref().map_or(0.0,|g| g.score).total_cmp(&b.goal.as_ref().map_or(0.0,|g| g.score)))
-            // Stable tie-break independent of the order administrators were evaluated.
-            .then_with(|| b.administrator.cmp(a.administrator)))
-}
-fn decision(view: &FactionView, tick: u64, already_commissioned: bool) -> HeadDecision {
-    let urgent = view.selected_goal.as_ref().is_some_and(|g|
-        matches!(g.commodity, Commodity::Food | Commodity::Water | Commodity::Fuel));
-    let mut proposals = vec![Proposal { administrator: "logistics", goal: view.selected_goal.clone(),
-        status: view.status.clone(), reason: view.reason.clone(),
-        requested_credits: faction::SUBSIDY_BASE_PAYMENT * 2, priority: if urgent { 3 } else { 0 } }];
-    if let Some(c) = &view.construction {
-        proposals.push(Proposal { administrator: "construction", goal: c.selected_goal.clone(),
-            status: c.status.clone(), reason: c.reason.clone(), requested_credits: faction::CONSTRUCTION_BASE_PAYMENT,
-            priority: if c.site_id.is_some() { 2 } else { 1 } });
-    }
+
+fn decision(
+    view: &FactionView, sources: &sourcing::Sources<'_>, tick: u64,
+    mult: u32, already_commissioned: bool,
+) -> HeadDecision {
     let limit = view.treasury.saturating_sub(faction::FACTION_SUBSIDY_FLOOR).max(0);
-    let chosen = if already_commissioned { None } else { choose(&proposals,limit) };
-    let selected = chosen.map(|p| p.administrator);
-    let planned = chosen.map_or(0,|p| p.requested_credits);
+    let comparison = options::compare(view, sources, mult);
+    let selected_option = if already_commissioned { "wait" }
+        else { comparison.as_ref().map_or("wait", |c| c.selected) };
+    let selected = match selected_option {
+        "deliver" => Some("logistics"),
+        "build" => Some("construction"),
+        _ => None,
+    };
+    let (problem, alternatives) = comparison.map_or((None, Vec::new()), |c| {
+        (Some(c.goal), c.alternatives)
+    });
+    let planned = alternatives.iter().find(|option| option.action == selected_option)
+        .map_or(0, |option| option.first_payment);
     let reason = if already_commissioned { "already_commissioned_this_tick" }
-        else { match chosen.map(|p| p.priority) {
-            Some(3) => "urgent_supply", Some(2) => "finish_existing_construction",
-            Some(1) => "expand_production", Some(_) => "supply_industry", None => "no_feasible_proposal",
-        }};
-    HeadDecision { observed_tick: tick, selected_administrator: selected, reason: reason.into(),
+        else if problem.is_none() { "no_current_problem" }
+        else if selected_option == "wait" { "wait_no_positive_option" }
+        else { "best_projected_relief" };
+    // Keep the original two-administrator projection for older readers.
+    // The comparison uses net value, and priority is only a legacy hint.
+    let proposals = alternatives.iter().filter_map(|option| {
+        let administrator = match option.action {
+            "deliver" => "logistics",
+            "build" => "construction",
+            _ => return None,
+        };
+        let priority = match option.action {
+            "deliver" if problem.as_ref().is_some_and(|goal| {
+                matches!(goal.commodity, Commodity::Food | Commodity::Water | Commodity::Fuel)
+            }) => 3,
+            "build" if option.site_id.is_some() => 2,
+            "build" => 1,
+            _ => 0,
+        };
+        Some(Proposal {
+            administrator,
+            goal: problem.clone(),
+            status: if option.status == "ready" { "proposed" } else { "blocked" }.into(),
+            reason: option.reason.clone(),
+            requested_credits: option.first_payment,
+            priority,
+        })
+    }).collect();
+    HeadDecision {
+        observed_tick: tick, selected_administrator: selected, reason: reason.into(),
         treasury_before: view.treasury, spending_limit: limit, planned_spend: planned,
-        committed_spend: 0, proposals }
+        committed_spend: 0, proposals, problem, selected_option,
+        horizon_ticks: options::horizon_ticks(mult), alternatives,
+    }
 }
 
 /// One funded strategic contract per faction per decision cycle. Both proposals
@@ -76,12 +113,21 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
     construction::run_cycle(world,board,relations,&mut preview_events,tick,mult);
     debug_assert!(preview_events.is_empty());
     world.resource_mut::<StrategyState>().mode = mode;
+    let owners = crate::agents::faction_relations::market_controllers(world);
+    let mut query = world.query::<(&MarketIdentity, &MarketPricing)>();
+    let sources = sourcing::Sources::new(
+        query.iter(world).map(|(id, market)| (id.facility_location.as_str(), market)),
+        owners, relations,
+    );
     let decisions: Vec<_> = world.resource::<StrategyState>().factions.iter().map(|(id,view)| {
         let already = board.iter().any(|c| c.requestor_id == *id && c.posted_at_tick == tick &&
             matches!(c.mission_category.as_deref(), Some(PROJECT_TAG) | Some(construction::PROJECT_TAG)));
-        (id.clone(),decision(view,tick,already))
+        (id.clone(), decision(view, &sources, tick, mult, already))
     }).collect();
-    let grants = decisions.iter().filter_map(|(id,d)| d.selected_administrator.map(|a| (id.clone(),a))).collect();
+    let grants = decisions.iter().filter_map(|(id, decision)| Some((id.clone(), Grant {
+        administrator: decision.selected_administrator?,
+        goal: decision.problem.clone()?,
+    }))).collect();
     for (id,d) in decisions { world.resource_mut::<StrategyState>().factions.get_mut(&id).unwrap().head = Some(d); }
     if mode == Mode::Execute {
         world.insert_resource(Grants(grants));
@@ -108,6 +154,11 @@ mod tests {
         let (mut w,b,owner,port,source) = super::super::tests::fixture(Mode::Execute);
         w.get_mut::<FactionData>(owner).unwrap().treasury = 80_000;
         w.get_mut::<MarketPricing>(source).unwrap().supply = [(Commodity::Food,600.0),(Commodity::Ore,600.0)].into();
+        {
+            let mut market = w.get_mut::<MarketPricing>(port).unwrap();
+            market.demand = [(Commodity::Food, 50.0), (Commodity::Ore, 200.0)].into();
+            market.prices = [(Commodity::Food, 18.0), (Commodity::Ore, 15.0)].into();
+        }
         w.spawn((BodyIdentity { db_id: 1, body_id: "earth".into(), name: "Earth".into(),
             body_type: "planet".into(), star_system_id: 1, system_name: "sol".into() },
             BodyOrbit { orbit_radius: 1.0, orbit_period: 100, current_angle: 0.0, universe_offset: (0.0,0.0), dirty: false },
@@ -124,7 +175,7 @@ mod tests {
         let view = &w.resource::<StrategyState>().factions["own"];
         let head = view.head.as_ref().unwrap();
         assert_eq!(head.selected_administrator,Some("logistics"));
-        assert_eq!(head.reason,"urgent_supply"); assert_eq!(head.planned_spend,1600); assert_eq!(head.committed_spend,1600);
+        assert_eq!(head.reason,"best_projected_relief"); assert_eq!(head.planned_spend,1600); assert_eq!(head.committed_spend,1600);
         assert_eq!(view.construction.as_ref().unwrap().reason,"head_priority");
         assert_eq!(w.query::<&ConstructionSite>().iter(&w).count(),0);
         assert_eq!(w.get::<FactionData>(owner).unwrap().treasury,78_400);
@@ -140,14 +191,20 @@ mod tests {
     fn strategy_block_head_continues_site_before_industrial_delivery() {
         let (mut w,mut b,owner,port,_) = fixture(); let mut events = Vec::new(); let relations = FactionRelations::new();
         faction::ensure_site_spawned(&mut w,&mut events,"own",Commodity::Food,"port",1);
-        w.get_mut::<MarketHistory>(port).unwrap().shortage_ticks = [(Commodity::Ore,50)].into();
+        w.get_mut::<MarketHistory>(port).unwrap().shortage_ticks = HashMap::new();
+        {
+            let mut market = w.get_mut::<MarketPricing>(port).unwrap();
+            market.supply.insert(Commodity::Water, 600.0);
+            market.prices.insert(Commodity::Food, 500.0);
+        }
         run_cycle(&mut w,&mut b,&relations,&mut events,60,1);
         let head = w.resource::<StrategyState>().factions["own"].head.as_ref().unwrap();
-        assert_eq!(head.reason,"finish_existing_construction");
+        assert_eq!(head.reason,"best_projected_relief");
         assert_eq!(head.selected_administrator,Some("construction"));
         assert_eq!(head.committed_spend,10_000); assert_eq!(b.iter().count(),1);
         assert_eq!(w.get::<FactionData>(owner).unwrap().treasury,70_000);
         // An in-flight construction shipment does not prevent useful logistics next cycle.
+        w.get_mut::<MarketHistory>(port).unwrap().shortage_ticks.insert(Commodity::Ore, 50);
         run_cycle(&mut w,&mut b,&relations,&mut events,120,1);
         assert_eq!(b.iter().count(),2);
         assert_eq!(w.resource::<StrategyState>().factions["own"].head.as_ref().unwrap().selected_administrator,Some("logistics"));
@@ -157,6 +214,7 @@ mod tests {
     fn strategy_block_head_shadow_matches_execution_and_respects_budget_floor() {
         let (mut w,mut b,owner,port,_) = fixture(); let mut events = Vec::new(); let relations = FactionRelations::new();
         w.get_mut::<MarketHistory>(port).unwrap().shortage_ticks = [(Commodity::Ore,1000)].into();
+        w.get_mut::<MarketPricing>(port).unwrap().prices.insert(Commodity::Ore, 500.0);
         w.resource_mut::<StrategyState>().mode = Mode::Shadow;
         run_cycle(&mut w,&mut b,&relations,&mut events,60,1);
         let head = w.resource::<StrategyState>().factions["own"].head.as_ref().unwrap();
@@ -178,15 +236,65 @@ mod tests {
         assert_eq!(b.iter().count(),1);
     }
     #[test]
-    fn strategy_block_head_selection_is_independent_of_proposal_order() {
-        let (mut w,mut b,_,_,_) = fixture();
-        w.resource_mut::<StrategyState>().mode = Mode::Shadow;
-        run_cycle(&mut w,&mut b,&FactionRelations::new(),&mut Vec::new(),60,1);
-        let head = w.resource::<StrategyState>().factions["own"].head.as_ref().unwrap();
-        let mut proposals = head.proposals.clone();
-        let expected = choose(&proposals,head.spending_limit).unwrap().administrator;
-        proposals.reverse();
-        assert_eq!(choose(&proposals,head.spending_limit).unwrap().administrator,expected);
-        assert!(choose(&proposals,1599).is_none());
+    fn strategy_block_head_grant_executes_the_specific_problem() {
+        let (mut world, mut board, _, port, _) = fixture();
+        // Food has the oldest recorded shortage and an affordable source.
+        // At decision time the local stock already covers the horizon.
+        world.get_mut::<MarketPricing>(port).unwrap().supply.insert(Commodity::Food, 1000.0);
+        run_cycle(&mut world, &mut board, &FactionRelations::new(), &mut Vec::new(), 60, 1);
+        let view = &world.resource::<StrategyState>().factions["own"];
+        let head = view.head.as_ref().unwrap();
+        assert_eq!(head.selected_option, "deliver");
+        assert_eq!(head.problem.as_ref().unwrap().commodity, Commodity::Ore);
+        assert_eq!(head.committed_spend, 1600);
+        let contracts: Vec<_> = board.iter().collect();
+        assert_eq!(contracts.len(), 1);
+        assert_eq!(contracts[0].commodity, Commodity::Ore);
+        assert_eq!(contracts[0].destination_location, head.problem.as_ref().unwrap().destination);
+    }
+
+    #[test]
+    fn strategy_block_head_compares_build_deliver_and_wait_for_same_problem() {
+        let (mut world, mut board, owner, port, source) = fixture();
+        world.resource_mut::<StrategyState>().mode = Mode::Shadow;
+        world.get_mut::<MarketHistory>(port).unwrap().shortage_ticks =
+            [(Commodity::Ore, 1000)].into();
+        world.get_mut::<MarketPricing>(port).unwrap().prices.insert(Commodity::Ore, 500.0);
+        let relations = FactionRelations::new();
+        let mut events = Vec::new();
+
+        run_cycle(&mut world, &mut board, &relations, &mut events, 60, 1);
+        let head = world.resource::<StrategyState>().factions["own"].head.as_ref().unwrap();
+        assert_eq!(head.selected_option, "build");
+        assert_eq!(head.problem.as_ref().unwrap().commodity, Commodity::Ore);
+        assert_eq!(head.alternatives.len(), 3);
+        let build = head.alternatives.iter().find(|a| a.action == "build").unwrap();
+        assert_eq!(build.total_commitment, 50_000);
+        assert_eq!(build.treasury_after, 30_000);
+
+        // Same problem and supplies. This treasury can pay a shipment or
+        // the first building lot but cannot finish and commission the site.
+        world.get_mut::<FactionData>(owner).unwrap().treasury = 40_000;
+        run_cycle(&mut world, &mut board, &relations, &mut events, 120, 1);
+        let head = world.resource::<StrategyState>().factions["own"].head.as_ref().unwrap();
+        assert_eq!(head.selected_option, "deliver");
+        assert_eq!(head.alternatives.iter().find(|a| a.action == "build").unwrap().reason,
+            "insufficient_project_budget");
+
+        world.get_mut::<MarketPricing>(source).unwrap().prices.insert(Commodity::Ore, 500.0);
+        run_cycle(&mut world, &mut board, &relations, &mut events, 180, 1);
+        let head = world.resource::<StrategyState>().factions["own"].head.as_ref().unwrap();
+        assert_eq!(head.selected_option, "wait");
+        assert_eq!(head.committed_spend, 0);
+        assert!(board.iter().next().is_none());
+
+        // A viable source alone does not justify spending if the local
+        // stock covers the forecast demand, even with stale shortage age.
+        world.get_mut::<MarketPricing>(source).unwrap().prices.insert(Commodity::Ore, 1.0);
+        world.get_mut::<MarketPricing>(port).unwrap().supply.insert(Commodity::Ore, 3000.0);
+        run_cycle(&mut world, &mut board, &relations, &mut events, 240, 1);
+        let head = world.resource::<StrategyState>().factions["own"].head.as_ref().unwrap();
+        assert_eq!(head.selected_option, "wait");
+        assert!(head.alternatives.iter().any(|a| a.reason == "no_projected_shortage_relief"));
     }
 }
