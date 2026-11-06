@@ -8,6 +8,7 @@
 
 - [SOURCES.md](SOURCES.md) — первоисточники, точные выводы из них, ограничения применимости.
 - [FOUNDATION_PLAN.md](FOUNDATION_PLAN.md) — предлагаемый денежный цикл, инварианты, итерации и граница разовой работы Astra.
+- [LOGISTICS_AND_PILOTS.md](LOGISTICS_AND_PILOTS.md) — физический склад, собственность фракционного/частного флота, диспетчеризация и будущие пилоты; ещё не реализовано.
 - [../HANDOFF.md](../HANDOFF.md) / [../STATUS.md](../STATUS.md) — действующий код S7, задачи стратегии; этот раздел **не подменяет** handoff.
 - [../GENESIS_ATOMIC_TRANSACTIONS.md](../GENESIS_ATOMIC_TRANSACTIONS.md) — уже реализованные частичные гарантии операций; переиспользовать, не создавать второй движок.
 - [../PARALLEL_DEVELOPMENT.md](../PARALLEL_DEVELOPMENT.md) — правила разделения файлов и веток.
