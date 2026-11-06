@@ -6,7 +6,7 @@ import {
 
 const format = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 1});
 const text = value => value === null || value === undefined ? "—" : String(value);
-const number = value => Number.isFinite(value) ? format.format(value) : "—";
+const formatNumber = value => Number.isFinite(value) ? format.format(value) : "—";
 const node = (tag, content, className) => {
   const element = document.createElement(tag);
   if (content !== undefined) element.textContent = text(content);
@@ -90,7 +90,7 @@ function renderSummary(faction) {
   card.append(node("p", human(faction.reason, reasonLabels), "strategy-decision-reason"));
   const metrics = node("div", undefined, "strategy-metrics");
   for (const [label, value] of [
-    ["Казна", number(faction.treasury) + " CR"],
+    ["Казна", formatNumber(faction.treasury) + " CR"],
     ["Кандидаты", faction.goals.length],
     ["Проекты в ответе", faction.projects.length]
   ]) {
@@ -100,7 +100,7 @@ function renderSummary(faction) {
   }
   card.append(metrics);
   addField(card, "Администратор", faction.administrator);
-  addField(card, "Тик наблюдения", number(faction.observed_tick));
+  addField(card, "Тик наблюдения", formatNumber(faction.observed_tick));
   const age = observationAge(snapshot, faction);
   addField(card, "Возраст отчёта", age === null ? "не указан" : age + " тик.");
   if (age !== null && age > 0) {
@@ -123,10 +123,10 @@ function renderGoals(faction) {
     const details = node("div", undefined, "strategy-goal-details");
     details.append(
       node("span", human(goal.commodity, commodityLabels) + " → " + text(goal.destination)),
-      node("span", "Дефицит: " + number(goal.shortage_ticks) + " тик.")
+      node("span", "Дефицит: " + formatNumber(goal.shortage_ticks) + " тик.")
     );
     card.append(details);
-    card.append(node("div", "Оценка приоритета: " + number(goal.score), "strategy-score"));
+    card.append(node("div", "Оценка приоритета: " + formatNumber(goal.score), "strategy-score"));
     target.append(card);
   });
 }
@@ -143,9 +143,9 @@ function renderProjects(faction) {
       node("span", human(project.state, projectLabels), "strategy-project-state"));
     card.append(top);
     card.append(node("div", text(project.source) + " → " + text(project.destination), "strategy-route"));
-    addField(card, "Количество", number(project.quantity));
+    addField(card, "Количество", formatNumber(project.quantity));
     addField(card, "Исполнитель", project.executor_id || "Не назначен");
-    addField(card, "Резерв оплаты", number(project.reserved_credits) + " CR");
+    addField(card, "Резерв оплаты", formatNumber(project.reserved_credits) + " CR");
     addField(card, "Контракт", project.contract_id);
     target.append(card);
   }
@@ -159,7 +159,7 @@ function renderHistory() {
   }
   for (const item of entries) {
     const row = node("div", undefined, "strategy-history-row");
-    row.append(node("time", "Тик " + number(item.tick)), node("div", item.message));
+    row.append(node("time", "Тик " + formatNumber(item.tick)), node("div", item.message));
     target.append(row);
   }
 }
@@ -172,7 +172,7 @@ function render() {
   elements.mode.dataset.mode = snapshot?.mode || "unknown";
   elements.update.textContent = requestError
     ? "Ошибка получения данных · " + requestError
-    : snapshot ? "API v1 · тик " + number(snapshot.snapshot_tick) : "Ожидание ответа API";
+    : snapshot ? "API v1 · тик " + formatNumber(snapshot.snapshot_tick) : "Ожидание ответа API";
   elements.update.classList.toggle("strategy-error", Boolean(requestError));
   if (active) {
     renderSummary(active);
@@ -235,9 +235,20 @@ export function initStrategyPanel(options = {}) {
   elements.clear.addEventListener("click", () => {changes = [];renderHistory();});
   elements.refresh.addEventListener("click", poll);
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && !elements.drawer.hidden) {
+    if (elements.drawer.hidden) return;
+    if (event.key === "Escape") {
       event.preventDefault();
       setOpen(false);
+    } else if (event.key === "Tab") {
+      // Keep keyboard focus inside the modal; return it to the toggle on close.
+      const focusable = [...elements.drawer.querySelectorAll("button:not([disabled]),select:not([disabled])")];
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first.focus();
+      }
     }
   });
   window.setInterval(poll, 6000);
