@@ -15,6 +15,9 @@ pub(super) fn quote(
     c: &Contract,
 ) -> Result<i64, &'static str> {
     let identity = world.get::<ShipIdentity>(ship).ok_or("missing_ship")?;
+    if let Some(reward) = c.fixed_strategy_reward() {
+        return if reward >= 0 { Ok(reward) } else { Err("invalid_payment") };
+    }
     let bonus = world
         .get::<ShipFitting>(ship)
         .map(|f| f.derived.comms_bonus)
@@ -128,6 +131,9 @@ pub(super) fn accept(
             return Err("invalid_contract_escrow");
         }
         added = payment.saturating_sub(funding.reserved).max(0);
+        if added > 0 && c.fixed_strategy_reward().is_some() {
+            return Err("invalid_contract_escrow");
+        }
         if added > 0 {
             let (payer, credits) = account(world, store, &c.requestor_id, funding.source)?;
             if credits < added {
