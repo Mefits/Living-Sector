@@ -8,6 +8,7 @@ use crate::agents::{faction::{self, FactionData}, facility::{FacilityIdentity, F
 use crate::economy::{commodities::Commodity, contracts::{ContractBoard, ContractStatus, FundingSource}};
 
 pub mod construction;
+pub mod coordination;
 
 pub const PROJECT_TAG: &str = "strategy.logistics.v1";
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
@@ -53,6 +54,7 @@ pub struct FactionView {
     pub reason: String,
     pub projects: Vec<Project>,
     pub construction: Option<construction::ConstructionView>,
+    pub head: Option<coordination::HeadDecision>,
 }
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Snapshot {
@@ -64,6 +66,7 @@ pub struct Snapshot {
 #[derive(Resource, Default)]
 pub struct StrategyState {
     pub mode: Mode,
+    pub last_coordinated_tick: Option<u64>,
     pub factions: BTreeMap<String, FactionView>,
 }
 impl StrategyState {
@@ -140,16 +143,19 @@ pub fn run_cycle(world: &mut World, contracts: &mut ContractBoard,
                 destination: c.destination_location.clone(), shortage_ticks: 0, score: 0.0,
             })).or_else(|| candidate.as_ref().map(|a| a.goal.clone()))
             .or_else(|| goals.first().cloned());
+        let head = world.resource::<StrategyState>().factions.get(&faction.id).and_then(|v| v.head.clone());
         let construction = world.resource::<StrategyState>().factions.get(&faction.id)
             .and_then(|v| v.construction.clone());
         let mut view = FactionView { faction_id: faction.id.clone(), observed_tick: tick,
             treasury: faction.treasury, goals, assessments, selected_goal: selected, administrator: "logistics",
-            status: "idle".into(), reason: "no_chronic_shortage".into(), projects: Vec::new(), construction };
+            status: "idle".into(), reason: "no_chronic_shortage".into(), projects: Vec::new(), construction, head };
         if held.is_some() {
             view.status = "waiting".into(); view.reason = "existing_contract".into();
         } else if let Some(candidate) = candidate {
             if !execute {
                 view.status = "proposed".into(); view.reason = "shadow_no_mutation".into();
+            } else if !coordination::authorized(world, &faction.id, "logistics") {
+                view.status = "waiting".into(); view.reason = "head_priority".into();
             } else {
                 let mut account = world.get_mut::<FactionData>(entity).unwrap();
                 account.treasury -= payment; account.dirty = true;
@@ -179,7 +185,7 @@ pub fn refresh(world: &mut World, contracts: &ContractBoard, tick: u64) {
     for (id, treasury) in accounts {
         let view = state.factions.entry(id.clone()).or_insert_with(|| FactionView {
             faction_id: id.clone(), observed_tick: tick, treasury, goals: Vec::new(), assessments: Vec::new(), selected_goal: None,
-            administrator: "logistics", status: "observing".into(), reason: "awaiting_cycle".into(), projects: Vec::new(), construction: None });
+            administrator: "logistics", status: "observing".into(), reason: "awaiting_cycle".into(), projects: Vec::new(), construction: None, head: None });
         view.treasury = treasury;
         let mut records: Vec<_> = contracts.iter().filter(|c| c.requestor_id == id &&
             matches!(c.mission_category.as_deref(), Some(PROJECT_TAG) | Some(construction::PROJECT_TAG))).collect();

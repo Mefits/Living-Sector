@@ -277,21 +277,19 @@ pub fn tick_factions(
     // --- Subsidy posting ---
     let subsidy_interval = SUBSIDY_CHECK_INTERVAL_BASE * tick_multiplier as u64;
     if subsidy_interval > 0 && tick % subsidy_interval == 0 {
-        crate::strategy::run_cycle(world, contracts, relations, tick, tick_multiplier);
+        crate::strategy::coordination::run_cycle(world, contracts, relations, events, tick, tick_multiplier);
         if !crate::strategy::executing(world) {
             run_subsidy_cycle(world, contracts, relations, tick, tick_multiplier);
         }
     }
 
-    // --- Construction demand analyzer (Phase 19c) ---
+    // --- Legacy construction selector, only in shadow ---
     // Extreme shortages → spawn a producer-class delivery contract.
-    // Runs on its own interval, well-separated from subsidy cadence so
-    // a single flow of "demand signal" doesn't bunch both responses on
-    // the same tick.
+    // Execute mode evaluates both strategic administrators together at
+    // subsidy cadence; the head authorizes at most one new funded contract.
     let construction_interval =
         CONSTRUCTION_CHECK_INTERVAL_BASE * tick_multiplier as u64;
     if construction_interval > 0 && tick % construction_interval == 0 {
-        crate::strategy::construction::run_cycle(world, contracts, relations, events, tick, tick_multiplier);
         if !crate::strategy::executing(world) {
             run_construction_cycle(world, contracts, events, relations, tick, tick_multiplier);
         }
