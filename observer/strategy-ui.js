@@ -2,7 +2,8 @@
 import {
   parseSnapshot, observedChanges, observationAge, goalKey,
   human, goalLabels, commodityLabels, decisionLabels, reasonLabels, projectLabels,
-  administratorLabels, headReasonLabels, assessmentForGoal, projectGroups, progressFraction
+  administratorLabels, headReasonLabels, assessmentForGoal, projectGroups, progressFraction,
+  optionLabels, optionStatusLabels, optionReasonLabels
 } from "/observer/strategy-model.js";
 
 const format = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 1});
@@ -100,6 +101,51 @@ function strategyRenderHead(faction) {
   if (age !== null && age > 0) addNote(card,
     "Данные относятся к последнему решению главы, а не к текущему балансу.");
   target.append(card);
+  // S7 options use forecast data; never equate covered_units with the native contract quantity.
+  const options = Array.isArray(head.alternatives) ? head.alternatives : null;
+  if (options) {
+    if (head.problem) {
+      const problem = head.problem;
+      const caption = node("div", "ПРОБЛЕМА · " +
+        human(problem.commodity, commodityLabels) + " → " + text(problem.destination),
+        "strategy-problem-title");
+      target.append(caption);
+      addNote(target, "Дефицит: " + formatNumber(problem.shortage_ticks) +
+        " тик. · Горизонт прогноза: " + formatNumber(head.horizon_ticks) + " тик.");
+    }
+    target.append(node("h4", "ВАРИАНТЫ ГЛАВЫ · S7", "strategy-subheading"));
+    for (const option of options) {
+      const selected = option.action === head.selected_option;
+      const item = node("article", undefined, "strategy-option-card");
+      if (selected) item.classList.add("strategy-proposal-chosen");
+      const header = node("div", undefined, "strategy-goal-heading");
+      header.append(node("strong", human(option.action, optionLabels)));
+      header.append(node("span", selected ? "Выбран" :
+        human(option.status, optionStatusLabels),
+        selected ? "strategy-selection-tag" : "strategy-project-state"));
+      item.append(header);
+      item.append(node("p", human(option.reason, optionReasonLabels), "strategy-option-reason"));
+      if (option.source) addField(item, "Источник", option.source);
+      if (option.material) addField(item, "Товар / сырьё", human(option.material, commodityLabels));
+      if (option.site_id) addField(item, "Стройплощадка", option.site_id);
+      addField(item, "Первая оплата", formatNumber(option.first_payment) + " CR");
+      addField(item, "Полный бюджет (оценка)", formatNumber(option.total_commitment) + " CR");
+      addField(item, "Казна после (прогноз)", formatNumber(option.treasury_after) + " CR");
+      if (option.action !== "wait") {
+        addField(item, "Оценка задержки", formatNumber(option.estimated_delay_ticks) + " тик.");
+        addField(item, "План поставок", formatNumber(option.shipment_count));
+        addField(item, "Покрытие потребности", formatNumber(option.covered_units) + " ед.");
+        if (Number.isFinite(option.first_purchase_cost))
+          addField(item, "Закупка 1-й партии", formatNumber(option.first_purchase_cost) + " CR");
+        if (Number.isFinite(option.estimated_net_value))
+          addField(item, "Расчётная оценка", formatNumber(option.estimated_net_value));
+      }
+      target.append(item);
+    }
+    addNote(target, "Покрытие потребности — прогнозируемый эффект, НЕ фактический размер партии. " +
+      "Полный бюджет не означает, что все будущие платежи уже зарезервированы. " +
+      "Выбранный вариант не равен завершённому контракту.");
+  }
   const proposals = Array.isArray(head.proposals) ? head.proposals : [];
   const label = node("h4", "ПРЕДЛОЖЕНИЯ АДМИНИСТРАТОРОВ", "strategy-subheading");
   target.append(label);

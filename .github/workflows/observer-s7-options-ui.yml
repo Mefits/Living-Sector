@@ -1,0 +1,41 @@
+name: Observer S7 decision options UI patch
+on:
+  push:
+    branches: [feature/observer-s7-options-20261106]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile UI and run unit tests
+        run: |
+          node observer/build-strategy.mjs --write
+          node --check observer/app.js
+          node --check observer/strategy-ui.js
+          node --test observer/model.test.mjs observer/strategy-model.test.mjs
+          grep -q 'S7 head alternatives' observer/styles.css
+          grep -q 'head.alternatives' observer/app.js
+          grep -q 's.events.length = Math.min(s.events.length,1000)' observer/app.js
+      - name: Package Observer overlay, no engine
+        run: |
+          mkdir -p dist/observer
+          cp observer/index.html observer/app.js observer/styles.css observer/model.js dist/observer/
+          printf '%s\n' 'Living Sector S7 - Observer alternatives UI hotfix' '' \
+            'Unzip into your existing S7 Windows game folder and replace observer files.' \
+            'Stop/reopen the browser tab or use Ctrl+F5. Server restart not required.' \
+            'This patch only changes Observer; no Rust engine or existing saves are affected.' \
+            'It still retains/export 1000 latest events per browser tab.' > dist/README-UI-ONLY.txt
+          cd dist && zip -q -r Living-Sector-S7-Observer-Options-UI.zip observer README-UI-ONLY.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-S7-Observer-Options-UI
+          path: dist/Living-Sector-S7-Observer-Options-UI.zip
+          retention-days: 14
+          if-no-files-found: error

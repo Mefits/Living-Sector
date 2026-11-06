@@ -26,7 +26,11 @@ export const reasonLabels = Object.freeze({
   producer_already_present: "Такой производитель здесь уже существует",
   invalid_site_location: "Невозможно разместить объект в этой точке",
   no_local_resource: "На планете отсутствует необходимый добываемый ресурс",
-  awaiting_materialization: "Ожидается завершение строительства"
+  awaiting_materialization: "Ожидается завершение строительства",
+  positive_projected_relief: "Ожидается полезный эффект",
+  unprofitable_source: "Поставка экономически невыгодна",
+  no_construction_proposal: "Нет подходящего строительного проекта",
+  reconsider_next_cycle: "Повторная оценка в следующем цикле"
 });
 export const administratorLabels = Object.freeze({
   logistics: "Логистика", construction: "Строительство"
@@ -37,7 +41,23 @@ export const headReasonLabels = Object.freeze({
   expand_production: "Расширение производства",
   supply_industry: "Снабжение промышленности",
   no_feasible_proposal: "Нет выполнимых предложений",
-  already_commissioned_this_tick: "Новый контракт уже создан в этом тике"
+  already_commissioned_this_tick: "Новый контракт уже создан в этом тике",
+  best_projected_relief: "Выбран вариант с наибольшим прогнозируемым эффектом"
+});
+export const optionLabels = Object.freeze({
+  deliver: "Доставить", build: "Построить", wait: "Подождать"
+});
+export const optionStatusLabels = Object.freeze({
+  ready: "Возможен", blocked: "Недоступен", waiting: "Ожидание"
+});
+export const optionReasonLabels = Object.freeze({
+  positive_projected_relief: "Положительный прогноз",
+  unprofitable_source: "Поставка экономически невыгодна",
+  no_accessible_stock: "Нет доступного запаса",
+  insufficient_budget: "Не хватает бюджета",
+  producer_already_present: "Производитель уже существует",
+  no_construction_proposal: "Стройка не предложена",
+  reconsider_next_cycle: "Вернуться к выбору в следующем цикле"
 });
 export const projectLabels = Object.freeze({
   posted: "Опубликован", accepted: "Принят",

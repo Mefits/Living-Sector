@@ -135,3 +135,15 @@ body.strategy-open .inspector { display:none!important; }
   .strategy-proposal-card .strategy-field,
   .strategy-construction-card .strategy-field { grid-template-columns:120px minmax(0,1fr); }
 }
+
+/* S7 head alternatives: delivery, construction, waiting. */
+.strategy-problem-title { margin:14px 2px 0; padding:10px 12px;
+  border-left:3px solid #649eaf; color:#d8e8ed; background:#152a36;
+  border-radius:4px; font-weight:670; font-size:12px; overflow-wrap:anywhere; }
+.strategy-option-card { margin:8px 0; padding:13px 14px; border:1px solid #2f4b58;
+  border-radius:6px; background:#132531; }
+.strategy-option-card .strategy-field { grid-template-columns:160px minmax(0,1fr); }
+.strategy-option-reason { margin:8px 0 6px; font-size:11px; color:#acc6d2; }
+@media(max-width:460px) {
+  .strategy-option-card .strategy-field { grid-template-columns:120px minmax(0,1fr); }
+}

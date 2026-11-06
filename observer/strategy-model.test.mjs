@@ -213,3 +213,34 @@ test("UI has dedicated head and construction sections and renders additive field
   assert.match(ui, /Предложения показаны ДО исполнения/);
   assert.match(ui, /Контракты строительства — это доставки грузов/);
 });
+
+test("S7 choices remain forecast alternatives rather than executed contracts", () => {
+  const raw = snapshot();
+  raw.factions[0].head = {
+    observed_tick: raw.snapshot_tick, selected_option:"deliver",
+    problem:{goal_id:"supply_industry",commodity:"ice",destination:"earth-station",
+      shortage_ticks:51,score:51},
+    horizon_ticks:1200,
+    alternatives:[
+      {action:"deliver",status:"ready",reason:"positive_projected_relief",
+        source:"belt-outpost",material:"ice",first_payment:1600,
+        total_commitment:1600,treasury_after:8400,estimated_delay_ticks:120,
+        shipment_count:1,covered_units:60,first_purchase_cost:150,estimated_net_value:25400},
+      {action:"build",status:"blocked",reason:"no_construction_proposal",
+        first_payment:0,total_commitment:0,covered_units:0},
+      {action:"wait",status:"ready",reason:"reconsider_next_cycle",
+        first_payment:0,total_commitment:0,covered_units:0}
+    ]
+  };
+  const v = parseSnapshot(raw);
+  assert.equal(v.factions[0].head.selected_option,"deliver");
+  assert.equal(v.factions[0].head.alternatives[0].covered_units,60);
+  assert.equal(v.factions[0].projects.length,raw.factions[0].projects.length);
+  const ui = readFileSync(new URL("./strategy-ui.js",import.meta.url),"utf8");
+  for(const key of ["head.alternatives","head.selected_option","head.horizon_ticks",
+    "option.total_commitment","option.covered_units","option.estimated_net_value"]) {
+    assert.ok(ui.includes(key),"missing S7 field "+key);
+  }
+  assert.match(ui,/НЕ фактический размер партии/);
+  assert.match(ui,/Выбранный вариант не равен завершённому контракту/);
+});
