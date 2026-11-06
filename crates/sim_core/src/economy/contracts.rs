@@ -219,6 +219,20 @@ pub struct Contract {
     pub renewal_count: u8,
 }
 
+impl Contract {
+    /// These offers spend only the amount authorized by the faction head.
+    /// An already accepted offer still settles its recorded agreed_payment.
+    pub fn fixed_strategy_reward(&self) -> Option<i64> {
+        let funding = self.funding.as_ref()?;
+        (funding.source == FundingSource::Faction
+            && matches!(
+                self.mission_category.as_deref(),
+                Some(crate::strategy::PROJECT_TAG) | Some(crate::strategy::construction::PROJECT_TAG)
+            ))
+        .then_some(self.initial_payment)
+    }
+}
+
 /// Per-contract detail for a renewal that just fired. Returned from
 /// [`ContractBoard::sweep_expiring`] so the engine can emit a
 /// `contract_renewed` event to the ticker without re-looking-up the
@@ -328,7 +342,12 @@ impl ContractBoard {
     /// `next_id` is bumped past any numeric suffix on the loaded id
     /// (e.g. `"contract-137"` → `next_id >= 138`) so post-boot
     /// posting doesn't collide with hydrated ids.
-    pub fn insert_loaded(&mut self, c: Contract) {
+    pub fn insert_loaded(&mut self, mut c: Contract) {
+        if c.status == ContractStatus::Posted {
+            if let Some(reward) = c.fixed_strategy_reward() {
+                c.payment = reward;
+            }
+        }
         if let Some(suffix) = c.id.strip_prefix("contract-") {
             if let Ok(n) = suffix.parse::<u64>() {
                 if n >= self.next_id {
@@ -830,6 +849,10 @@ impl ContractBoard {
             .unwrap_or_default();
         for id in ids {
             if let Some(c) = self.contracts.get_mut(&id) {
+                if let Some(reward) = c.fixed_strategy_reward() {
+                    c.payment = reward;
+                    continue;
+                }
                 if c.initial_payment <= 0 {
                     continue;
                 }
@@ -891,6 +914,9 @@ impl ContractBoard {
             c.status = ContractStatus::Posted;
             c.fulfiller_id = None;
             c.accepted_at_tick = None;
+            if let Some(reward) = c.fixed_strategy_reward() {
+                c.payment = reward;
+            }
             if let Some(funding) = c.funding.as_mut() { funding.agreed_payment = None; }
             (
                 c.destination_location.clone(),
@@ -984,8 +1010,10 @@ impl ContractBoard {
             if should_renew {
                 let (commodity, destination, new_payment, new_min_rep, new_count) =
                     if let Some(c) = self.contracts.get_mut(&id) {
-                        let bump = CONTRACT_RENEWAL_PAYMENT_BUMP;
-                        c.payment = ((c.payment as f32) * (1.0 + bump)).round() as i64;
+                        c.payment = c.fixed_strategy_reward().unwrap_or_else(|| {
+                            ((c.payment as f32) * (1.0 + CONTRACT_RENEWAL_PAYMENT_BUMP)).round()
+                                as i64
+                        });
                         // Subsidies: one renewal drops rep straight to 0
                         // so anyone can accept. Others: fixed step.
                         if is_subsidy_retry {

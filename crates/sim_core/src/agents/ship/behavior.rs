@@ -1061,8 +1061,14 @@ fn plan_goal(
         // so cautious ships ignore it.
         let contested = contested_destinations.contains(&c.destination);
         let owner = controller_by_location.get(&c.destination).map(String::as_str).unwrap_or("");
+        let loyalty = if c.own_strategy {
+            1.0 + personality.loyalty.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         let score = score_strategic(c.profit, c.goal_name, personality, contested)
-            * crate::agents::faction_relations::own_market_priority(ship_faction, owner);
+            * crate::agents::faction_relations::own_market_priority(ship_faction, owner)
+            * loyalty;
         // GOAP combined goal: if we have a retrofit plan AND the
         // contract is delivery-class, try to synthesise a single
         // BT that picks up cargo, detours through the shipyard,
@@ -1427,6 +1433,8 @@ pub struct ContractCandidate {
     pub goal_name: &'static str,
     pub profit: i64,
     pub bt: BtNode<ShipAction>,
+    /// A profitable, fully funded strategic job from the ship's own faction.
+    own_strategy: bool,
     /// Destination location_name. Populated for every contract kind —
     /// `plan_goal` reads this to check the contested-zone bonus. For
     /// delivery / passenger / courier the value is the cargo or
@@ -1502,10 +1510,15 @@ fn try_plan_contract(
         /// consistent with the old rules.
         score: i64,
         kind: ContractType,
+        own_strategy: bool,
     }
     let mut best: Option<Candidate> = None;
 
     for c in contracts.posted_for_ship(effective_reputation) {
+        let own_strategy = c.requestor_id == ship_faction
+            && c.fixed_strategy_reward().is_some_and(|reward| {
+                reward > 0 && c.funding.as_ref().is_some_and(|f| f.reserved >= reward)
+            });
         // The requesting faction AND both physical endpoints must be
         // non-hostile. Reputation/aged-open contracts cannot bypass war.
         if let Some(owner) = c.faction_id.as_deref() {
@@ -1640,7 +1653,7 @@ fn try_plan_contract(
 
         let better = best
             .as_ref()
-            .is_none_or(|b| effective_profit > b.score);
+            .is_none_or(|b| (own_strategy, effective_profit) > (b.own_strategy, b.score));
         if better {
             best = Some(Candidate {
                 id: c.id.clone(),
@@ -1652,6 +1665,7 @@ fn try_plan_contract(
                 cost,
                 score: effective_profit,
                 kind: c.contract_type,
+                own_strategy,
             });
         }
     }
@@ -1763,6 +1777,7 @@ fn try_plan_contract(
         goal_name,
         profit,
         bt,
+        own_strategy: cand.own_strategy,
         destination: candidate_destination,
         delivery_params,
     })

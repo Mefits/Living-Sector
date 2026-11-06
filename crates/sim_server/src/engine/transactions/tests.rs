@@ -1306,3 +1306,47 @@ fn strategy_block_construction_administrator_to_native_materialization() {
     assert_eq!(f.store.contracts.iter().count(),1,"completed project must not duplicate");
     assert_eq!(f.world.resource::<StrategyState>().factions["haulers"].projects[0].state,"paid");
 }
+
+#[test]
+fn strategy_block_reward_stays_within_head_approval_through_renewal_and_acceptance() {
+    use sim_core::agents::faction::{FactionColors, FactionData};
+    use sim_core::economy::contracts::FundingSource;
+
+    let mut f = Fixture::new(0.0, 0.0);
+    let owner = f.world.spawn(FactionData {
+        id: "haulers".into(),
+        name: "Haulers".into(),
+        faction_type: "normal".into(),
+        home_system: "sol".into(),
+        treasury: 5_000,
+        personality: sim_core::ai::personality::Personality::balanced_trader(),
+        colors: FactionColors { primary: String::new(), secondary: String::new() },
+        active_subsidies: 0,
+        dirty: false,
+    }).id();
+    f.store.faction_by_id.insert("haulers".into(), owner);
+    let id = f.store.contracts.post_construction(
+        "haulers".into(), Some("haulers".into()), Commodity::Ore, 10,
+        "source".into(), "port".into(), 10_000, 0, 100,
+    );
+    f.store.contracts.register_prepaid(&id, FundingSource::Faction);
+    let contract = f.store.contracts.get_mut(&id).unwrap();
+    contract.mission_category = Some(sim_core::strategy::construction::PROJECT_TAG.into());
+    // Older checkpoints can have an inflated Posted reward.
+    contract.payment = 27_344;
+    let mut restored = sim_core::economy::contracts::ContractBoard::new();
+    restored.insert_loaded(contract.clone());
+    assert_eq!(restored.get(&id).unwrap().payment, 10_000);
+    f.store.contracts = restored;
+    f.store.contracts.age_escalate_payment(1000);
+    let sweep = f.store.contracts.sweep_expiring(1000, 100);
+    assert_eq!(sweep.renewed[0].new_payment, 10_000);
+    let ship = f.ships[0];
+    let request = f.submit(ship, ShipTransaction::Accept { contract_id: id.clone() });
+    f.apply(ship, request);
+    assert_eq!(f.result(ship), Ok(()));
+    let escrow = f.store.contracts.get(&id).unwrap().funding.as_ref().unwrap();
+    assert_eq!(escrow.agreed_payment, Some(10_000));
+    assert_eq!(escrow.reserved, 10_000);
+    assert_eq!(f.world.get::<FactionData>(owner).unwrap().treasury, 5_000);
+}

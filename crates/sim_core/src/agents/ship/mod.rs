@@ -829,6 +829,8 @@ fn advance_transits(
                 t.arrival_tick = tick.saturating_add(ticks_left);
 
                 transit.transit = Some(t);
+                // Position, progress and fuel are one resumable flight state.
+                lifecycle.dirty = true;
             }
         } else if position.location_name.is_some() {
             // Pin the ship to its location's current world coordinates.
