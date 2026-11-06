@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "snapshot_tick": 200,
+  "mode": "execute",
+  "factions": [
+    {
+      "faction_id": "example-faction",
+      "observed_tick": 120,
+      "treasury": 18400,
+      "goals": [
+        {
+          "goal_id": "supply_industry",
+          "commodity": "ore",
+          "destination": "port",
+          "shortage_ticks": 50,
+          "score": 50.0
+        }
+      ],
+      "selected_goal": {
+        "goal_id": "supply_industry",
+        "commodity": "ore",
+        "destination": "port",
+        "shortage_ticks": 50,
+        "score": 50.0
+      },
+      "administrator": "logistics",
+      "status": "commissioned",
+      "reason": "funded_native_contract",
+      "projects": [
+        {
+          "project_id": "example-contract",
+          "contract_id": "example-contract",
+          "administrator": "logistics",
+          "state": "paid",
+          "executor_id": "example-ship",
+          "reserved_credits": 0,
+          "source": "mine",
+          "destination": "port",
+          "commodity": "ore",
+          "quantity": 200
+        }
+      ]
+    }
+  ]
+}

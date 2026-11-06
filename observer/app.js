@@ -12,7 +12,7 @@ const els = Object.fromEntries([
   "connection","system-count","system-search","system-list","faction-count","faction-legend",
   "world-subtitle","tick","agent-count","pause-btn","speed-select","sector-tab","system-tab",
   "ships-toggle","links-toggle","labels-toggle","fit-btn","map","canvas-holder","hover-label",
-  "map-error","data-tick","event-feed","clear-events","inspector-body","clear-selection",
+  "map-error","data-tick","event-feed","clear-events","export-diagnostics","inspector-body","clear-selection",
   "ship-total","facility-total","market-total","first-run-guide","start-system-btn","dismiss-guide-btn"
 ].map(id => [id.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase()), byId(id)]));
 
@@ -173,10 +173,13 @@ function renderSidebar() {
   els.factionLegend.replaceChildren();
   const factions = [...list(s.report.factions)].sort((a,b) => a.name.localeCompare(b.name));
   for (const faction of factions) {
-    const row = document.createElement("div");
-    row.className = "faction-item";
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "faction-item strategy-faction-link";
+    row.title = "Показать стратегию фракции";
     marker(row, "dot", factionColor(faction.id, s.index));
     row.appendChild(textEl("span", faction.name));
+    row.addEventListener("click", () => openStrategyForFaction(faction.id));
     els.factionLegend.appendChild(row);
   }
 }
@@ -461,9 +464,71 @@ function renderEvents() {
     els.eventFeed.appendChild(row);
   }
 }
+// User-facing export: current real server snapshots plus only the events received
+// by this particular browser tab (Observer retains at most the newest 1000).
+// This is NOT a full server log or a complete replay of earlier ticks.
+async function exportDiagnostics() {
+  const button = els.exportDiagnostics;
+  if (button.disabled) return;
+  const oldText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Сбор…";
+  try {
+    const routes = {
+      health: "/api/health",
+      report: "/api/report",
+      strategy: "/api/strategy",
+      contracts: "/api/contracts",
+      facilities: "/api/facilities",
+      ships: "/api/ships",
+      markets: "/api/markets",
+      construction_sites: "/api/construction_sites",
+      retirements: "/api/retirements",
+      faction_relations: "/api/factions/relations",
+      populations: "/api/populations"
+    };
+    const results = await Promise.all(Object.entries(routes).map(async ([name, path]) => {
+      try { return [name, {ok: true, value: await getJSON(path)}]; }
+      catch (error) { return [name, {ok: false, error: String(error?.message ?? error)}]; }
+    }));
+    const endpoints = Object.fromEntries(results);
+    if (!endpoints.health.ok && !endpoints.report.ok && !endpoints.strategy.ok) {
+      throw new Error("Не удалось получить данные с сервера. Проверьте подключение.");
+    }
+    const currentTick = endpoints.health.value?.tick ??
+      endpoints.report.value?.tick ?? s.health?.tick ?? "unknown";
+    const payload = {
+      format: "living-sector-observer-diagnostics-v1",
+      captured_at: new Date().toISOString(),
+      note: "Текущие снимки API и до 1000 последних событий этой вкладки. НЕ полный серверный журнал тиков.",
+      source: "Observer UI-1 / GET endpoints / local WebSocket event buffer",
+      snapshot_tick_at_export: currentTick,
+      browser_events_newest_first: s.events.slice(0, 1000),
+      browser_event_count: s.events.length,
+      browser_event_capacity: 1000,
+      endpoints
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json;charset=utf-8"});
+    const uri = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = uri;
+    link.download = "LivingSector-Diagnostics-t" + currentTick + "-" +
+      new Date().toISOString().replaceAll(":", "-") + ".json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(uri), 1000);
+  } catch (error) {
+    window.alert("Экспорт диагностики: " + String(error?.message ?? error));
+  } finally {
+    button.textContent = oldText;
+    button.disabled = false;
+  }
+}
+
 function handleEvents(tick, events) {
   for (const event of list(events)) s.events.unshift({tick,event});
-  s.events.length = Math.min(s.events.length,100);
+  s.events.length = Math.min(s.events.length,1000);
   renderEvents();
 }
 
@@ -1095,6 +1160,7 @@ function wireControls() {
   els.systemTab.addEventListener("click",()=>{if(s.systemName)chooseSystem(s.systemName,true);});
   els.fitBtn.addEventListener("click",resetCamera);
   els.systemSearch.addEventListener("input",renderSidebar);
+  els.exportDiagnostics.addEventListener("click",exportDiagnostics);
   els.clearEvents.addEventListener("click",()=>{s.events=[];renderEvents();});
   els.clearSelection.addEventListener("click",()=>{s.selection=null;renderInspector();});
   els.startSystemBtn.addEventListener("click",()=>{
@@ -1105,7 +1171,373 @@ function wireControls() {
   installCanvasHandlers();
 }
 
+/* BEGIN GENERATED STRATEGY BUNDLE */
+
+// Pure, read-only adapter for GET /api/strategy v1.
+// Never infer execution or progress from scores, proposed goals or HTTP freshness.
+const goalLabels = Object.freeze({
+  sustain_population: "Снабжение населения",
+  secure_fuel: "Обеспечение топливом",
+  supply_industry: "Снабжение промышленности"
+});
+const decisionLabels = Object.freeze({
+  observing: "Наблюдение", idle: "Нет предложений",
+  proposed: "Предложение", blocked: "Заблокировано",
+  waiting: "Ожидание", commissioned: "Контракт создан"
+});
+const reasonLabels = Object.freeze({
+  awaiting_cycle: "Ожидание следующего анализа",
+  no_chronic_shortage: "Не выявлено длительного дефицита",
+  shadow_no_mutation: "Диагностический режим: деньги и контракты не меняются",
+  no_accessible_stock: "Нет доступного запаса в подходящем источнике",
+  insufficient_budget: "Недостаточно свободного бюджета",
+  existing_contract: "Для потребности уже существует контракт",
+  funded_native_contract: "Создан обеспеченный штатный контракт"
+});
+const projectLabels = Object.freeze({
+  posted: "Опубликован", accepted: "Принят",
+  picked_up: "Груз забран", delivered: "Доставлен",
+  paid: "Оплачен", expired: "Истёк"
+});
+const commodityLabels = Object.freeze({
+  ore:"Руда", ice:"Лёд", gas:"Газ", metals:"Металлы",
+  fuel:"Топливо", polymers:"Полимеры", water:"Вода",
+  components:"Компоненты", electronics:"Электроника",
+  tools:"Инструменты", food:"Продовольствие",
+  medical:"Медикаменты", luxury:"Предметы роскоши"
+});
+function human(value, dictionary) {
+  const code = String(value ?? "");
+  return dictionary[code] || code || "—";
+}
+function goalKey(goal) {
+  if (!goal) return null;
+  // A goal_id is a category, not a unique instance.
+  return JSON.stringify([goal.goal_id, goal.commodity, goal.destination]);
+}
+function parseSnapshot(input) {
+  if (!input || input.schema_version !== 1 || !Array.isArray(input.factions) ||
+      !Number.isSafeInteger(input.snapshot_tick) || input.snapshot_tick < 0 ||
+      !["shadow","execute"].includes(input.mode)) {
+    throw new Error("Неподдерживаемый формат /api/strategy (ожидается v1)");
+  }
+  const factions = input.factions.map(f => ({
+    faction_id: String(f.faction_id ?? ""),
+    observed_tick: Number.isSafeInteger(f.observed_tick) ? f.observed_tick : null,
+    treasury: Number.isFinite(f.treasury) ? f.treasury : null,
+    goals: Array.isArray(f.goals) ? f.goals : [],
+    selected_goal: f.selected_goal ?? null,
+    administrator: String(f.administrator ?? "—"),
+    status: String(f.status ?? "—"),
+    reason: String(f.reason ?? "—"),
+    projects: Array.isArray(f.projects) ? f.projects : []
+  })).filter(f=>f.faction_id);
+  return {
+    schema_version: 1,
+    snapshot_tick: input.snapshot_tick,
+    mode: input.mode,
+    factions
+  };
+}
+function observedChanges(before, after) {
+  // This is a local diff of observed snapshots, NOT an authoritative event log.
+  if (!before || !after || after.snapshot_tick <= before.snapshot_tick) return [];
+  const results = [];
+  const previous = new Map(before.factions.map(f => [f.faction_id, f]));
+  for (const now of after.factions) {
+    const old = previous.get(now.faction_id);
+    if (!old) continue;
+    const add = message => results.push({
+      faction_id: now.faction_id, tick: after.snapshot_tick, message
+    });
+    if (goalKey(old.selected_goal) !== goalKey(now.selected_goal)) {
+      const target = now.selected_goal;
+      add(target
+        ? "Выбран приоритет: " + human(target.goal_id, goalLabels) +
+          " · " + human(target.commodity, commodityLabels) +
+          " → " + String(target.destination ?? "—")
+        : "Выбранный приоритет больше не указан");
+    }
+    if (old.status !== now.status || old.reason !== now.reason) {
+      add("Решение: " + human(now.status, decisionLabels) +
+        " · " + human(now.reason, reasonLabels));
+    }
+    const oldProjects = new Map(old.projects.map(p => [p.contract_id, p]));
+    for (const project of now.projects) {
+      if (!project.contract_id) continue;
+      const previousProject = oldProjects.get(project.contract_id);
+      if (!previousProject) {
+        add("Впервые наблюдаем проект " + project.contract_id +
+          " · " + human(project.state, projectLabels));
+      } else if (previousProject.state !== project.state) {
+        add("Проект " + project.contract_id + ": " +
+          human(previousProject.state, projectLabels) + " → " +
+          human(project.state, projectLabels));
+      }
+    }
+  }
+  return results;
+}
+function observationAge(snapshot, faction) {
+  if (!snapshot || !faction || !Number.isSafeInteger(faction.observed_tick)) return null;
+  return Math.max(0, snapshot.snapshot_tick - faction.observed_tick);
+}
+
+// Independent, read-only strategy drawer. No writes to the simulation API.
+const format = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 1});
+const text = value => value === null || value === undefined ? "—" : String(value);
+const formatNumber = value => Number.isFinite(value) ? format.format(value) : "—";
+const node = (tag, content, className) => {
+  const element = document.createElement(tag);
+  if (content !== undefined) element.textContent = text(content);
+  if (className) element.className = className;
+  return element;
+};
+const find = id => document.getElementById(id);
+
+let elements;
+let getFactions = () => [];
+let snapshot = null;
+let selectedFaction = null;
+let changes = [];
+let pending = false;
+let requestError = null;
+
+function strategyFactionName(id) {
+  return getFactions().find(f => f.id === id)?.name || id;
+}
+function addField(parent, label, value) {
+  const row = node("div", undefined, "strategy-field");
+  row.append(node("span", label, "strategy-field-label"), node("span", value, "strategy-field-value"));
+  parent.appendChild(row);
+}
+function addNote(parent, message) {
+  parent.append(node("p", message, "strategy-note"));
+}
+function showEmpty(container, message) {
+  container.replaceChildren(node("p", message, "strategy-empty"));
+}
+function setOpen(open) {
+  if (!elements) return;
+  elements.drawer.hidden = !open;
+  elements.backdrop.hidden = !open;
+  elements.toggle.setAttribute("aria-expanded", String(open));
+  document.body.classList.toggle("strategy-open", open);
+  if (open) {
+    elements.close.focus();
+    poll();
+  } else {
+    elements.toggle.focus();
+  }
+}
+function openStrategyForFaction(id = null) {
+  if (!elements) return;
+  if (id) selectedFaction = String(id);
+  setOpen(true);
+  render();
+}
+
+function fillFactionSelect() {
+  const select = elements.faction;
+  const current = selectedFaction;
+  select.replaceChildren();
+  if (!snapshot?.factions.length) {
+    select.appendChild(new Option("Нет сведений о фракциях", ""));
+    select.disabled = true;
+    return null;
+  }
+  select.disabled = false;
+  const sorted = [...snapshot.factions].sort((a, b) =>
+    strategyFactionName(a.faction_id).localeCompare(strategyFactionName(b.faction_id), "ru"));
+  for (const faction of sorted) {
+    select.appendChild(new Option(strategyFactionName(faction.faction_id), faction.faction_id));
+  }
+  const present = sorted.some(f => f.faction_id === current);
+  selectedFaction = present ? current : sorted[0].faction_id;
+  select.value = selectedFaction;
+  return snapshot.factions.find(f => f.faction_id === selectedFaction);
+}
+function renderSummary(faction) {
+  const target = elements.summary;
+  target.replaceChildren();
+  const card = node("section", undefined, "strategy-summary-card");
+  const header = node("div", undefined, "strategy-section-header");
+  header.append(node("span", "Состояние управления", "strategy-eyebrow"),
+    node("span", human(faction.status, decisionLabels), "strategy-state"));
+  card.append(header);
+  const name = node("h3", strategyFactionName(faction.faction_id), "strategy-faction-name");
+  card.append(name);
+  card.append(node("p", human(faction.reason, reasonLabels), "strategy-decision-reason"));
+  const metrics = node("div", undefined, "strategy-metrics");
+  for (const [label, value] of [
+    ["Казна", formatNumber(faction.treasury) + " CR"],
+    ["Кандидаты", faction.goals.length],
+    ["Проекты в ответе", faction.projects.length]
+  ]) {
+    const item = node("div", undefined, "strategy-metric");
+    item.append(node("span", label), node("strong", value));
+    metrics.append(item);
+  }
+  card.append(metrics);
+  addField(card, "Администратор", faction.administrator);
+  addField(card, "Тик наблюдения", formatNumber(faction.observed_tick));
+  const age = observationAge(snapshot, faction);
+  addField(card, "Возраст отчёта", age === null ? "не указан" : age + " тик.");
+  if (age !== null && age > 0) {
+    addNote(card, "Решение принято на предыдущем цикле анализа. Текущий тик мира может быть новее.");
+  }
+  target.append(card);
+}
+function renderGoals(faction) {
+  const target = elements.goals;
+  target.replaceChildren();
+  if (!faction.goals.length) return showEmpty(target, "На последнем анализе кандидаты не сформированы.");
+  const selectedKey = goalKey(faction.selected_goal);
+  faction.goals.forEach((goal, index) => {
+    const card = node("article", undefined, "strategy-goal-card");
+    if (goalKey(goal) === selectedKey) card.classList.add("strategy-goal-selected");
+    const heading = node("div", undefined, "strategy-goal-heading");
+    heading.append(node("span", (index + 1) + ". " + human(goal.goal_id, goalLabels)));
+    if (goalKey(goal) === selectedKey) heading.append(node("span", "Выбран", "strategy-selection-tag"));
+    card.append(heading);
+    const details = node("div", undefined, "strategy-goal-details");
+    details.append(
+      node("span", human(goal.commodity, commodityLabels) + " → " + text(goal.destination)),
+      node("span", "Дефицит: " + formatNumber(goal.shortage_ticks) + " тик.")
+    );
+    card.append(details);
+    card.append(node("div", "Оценка приоритета: " + formatNumber(goal.score), "strategy-score"));
+    target.append(card);
+  });
+}
+function renderProjects(faction) {
+  const target = elements.projects;
+  target.replaceChildren();
+  if (!faction.projects.length) {
+    return showEmpty(target, "Стратегические контракты ещё не наблюдаются. Это не означает, что нет обычных контрактов.");
+  }
+  for (const project of faction.projects) {
+    const card = node("article", undefined, "strategy-project-card");
+    const top = node("div", undefined, "strategy-project-top");
+    top.append(node("strong", human(project.commodity, commodityLabels)),
+      node("span", human(project.state, projectLabels), "strategy-project-state"));
+    card.append(top);
+    card.append(node("div", text(project.source) + " → " + text(project.destination), "strategy-route"));
+    addField(card, "Количество", formatNumber(project.quantity));
+    addField(card, "Исполнитель", project.executor_id || "Не назначен");
+    addField(card, "Резерв оплаты", formatNumber(project.reserved_credits) + " CR");
+    addField(card, "Контракт", project.contract_id);
+    target.append(card);
+  }
+}
+function renderHistory() {
+  const target = elements.history;
+  target.replaceChildren();
+  const entries = changes.filter(item => item.faction_id === selectedFaction).slice(0, 50);
+  if (!entries.length) {
+    return showEmpty(target, "Изменения появятся после следующих опросов. Ранее произошедшие события недоступны.");
+  }
+  for (const item of entries) {
+    const row = node("div", undefined, "strategy-history-row");
+    row.append(node("time", "Тик " + formatNumber(item.tick)), node("div", item.message));
+    target.append(row);
+  }
+}
+function render() {
+  if (!elements) return;
+  const scroll = elements.content.scrollTop;
+  const active = fillFactionSelect();
+  elements.mode.textContent = snapshot?.mode === "execute" ? "EXECUTE · выполнение" :
+    snapshot?.mode === "shadow" ? "SHADOW · наблюдение" : "Нет данных";
+  elements.mode.dataset.mode = snapshot?.mode || "unknown";
+  elements.update.textContent = requestError
+    ? "Ошибка получения данных · " + requestError
+    : snapshot ? "API v1 · тик " + formatNumber(snapshot.snapshot_tick) : "Ожидание ответа API";
+  elements.update.classList.toggle("strategy-error", Boolean(requestError));
+  if (active) {
+    renderSummary(active);
+    renderGoals(active);
+    renderProjects(active);
+  } else {
+    showEmpty(elements.summary, requestError || "Нет сведений о стратегическом управлении.");
+    elements.goals.replaceChildren();
+    elements.projects.replaceChildren();
+  }
+  renderHistory();
+  elements.content.scrollTop = scroll;
+}
+async function poll() {
+  if (!elements || elements.drawer.hidden || pending || document.hidden) return;
+  pending = true;
+  try {
+    const response = await fetch("/api/strategy", {cache: "no-store"});
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const next = parseSnapshot(await response.json());
+    if (snapshot && next.snapshot_tick < snapshot.snapshot_tick) {
+      // New world or rollback: comparison against previous timeline would be misleading.
+      changes = [];
+      snapshot = null;
+    }
+    const additions = observedChanges(snapshot, next);
+    if (additions.length) changes = [...additions.reverse(), ...changes].slice(0, 100);
+    snapshot = next;
+    requestError = null;
+  } catch (error) {
+    requestError = error instanceof Error ? error.message : String(error);
+    // Keep the previous snapshot visible, clearly marked as last known data.
+  } finally {
+    pending = false;
+    render();
+  }
+}
+function initStrategyPanel(options = {}) {
+  if (elements) return;
+  getFactions = typeof options.getFactions === "function" ? options.getFactions : getFactions;
+  elements = {
+    toggle:find("strategy-toggle"), drawer:find("strategy-drawer"),
+    backdrop:find("strategy-backdrop"), close:find("strategy-close"),
+    mode:find("strategy-mode"), update:find("strategy-update"),
+    faction:find("strategy-faction"), content:find("strategy-content"),
+    summary:find("strategy-summary"), goals:find("strategy-goals"),
+    projects:find("strategy-projects"), history:find("strategy-history"),
+    clear:find("strategy-clear-history"), refresh:find("strategy-refresh")
+  };
+  if (Object.values(elements).some(element => !element)) {
+    throw new Error("Отсутствует элемент интерфейса стратегии");
+  }
+  elements.toggle.addEventListener("click", () => setOpen(elements.drawer.hidden));
+  elements.close.addEventListener("click", () => setOpen(false));
+  elements.backdrop.addEventListener("click", () => setOpen(false));
+  elements.faction.addEventListener("change", () => {
+    selectedFaction = elements.faction.value;
+    render();
+  });
+  elements.clear.addEventListener("click", () => {changes = [];renderHistory();});
+  elements.refresh.addEventListener("click", poll);
+  document.addEventListener("keydown", event => {
+    if (elements.drawer.hidden) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+    } else if (event.key === "Tab") {
+      // Keep keyboard focus inside the modal; return it to the toggle on close.
+      const focusable = [...elements.drawer.querySelectorAll("button:not([disabled]),select:not([disabled])")];
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first.focus();
+      }
+    }
+  });
+  window.setInterval(poll, 6000);
+  render();
+}
+
+/* END GENERATED STRATEGY BUNDLE */
 wireControls();
+initStrategyPanel({getFactions: () => list(s.report?.factions)});
 renderMap();
 fetchReport().then(()=>{connectWs();fetchHealth();});
 window.setInterval(fetchReport,18000);
