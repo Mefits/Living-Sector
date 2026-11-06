@@ -23,7 +23,7 @@ let changes = [];
 let pending = false;
 let requestError = null;
 
-function factionName(id) {
+function strategyFactionName(id) {
   return getFactions().find(f => f.id === id)?.name || id;
 }
 function addField(parent, label, value) {
@@ -68,9 +68,9 @@ function fillFactionSelect() {
   }
   select.disabled = false;
   const sorted = [...snapshot.factions].sort((a, b) =>
-    factionName(a.faction_id).localeCompare(factionName(b.faction_id), "ru"));
+    strategyFactionName(a.faction_id).localeCompare(strategyFactionName(b.faction_id), "ru"));
   for (const faction of sorted) {
-    select.appendChild(new Option(factionName(faction.faction_id), faction.faction_id));
+    select.appendChild(new Option(strategyFactionName(faction.faction_id), faction.faction_id));
   }
   const present = sorted.some(f => f.faction_id === current);
   selectedFaction = present ? current : sorted[0].faction_id;
@@ -85,7 +85,7 @@ function renderSummary(faction) {
   header.append(node("span", "Состояние управления", "strategy-eyebrow"),
     node("span", human(faction.status, decisionLabels), "strategy-state"));
   card.append(header);
-  const name = node("h3", factionName(faction.faction_id), "strategy-faction-name");
+  const name = node("h3", strategyFactionName(faction.faction_id), "strategy-faction-name");
   card.append(name);
   card.append(node("p", human(faction.reason, reasonLabels), "strategy-decision-reason"));
   const metrics = node("div", undefined, "strategy-metrics");
