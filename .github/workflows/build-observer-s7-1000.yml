@@ -79,8 +79,8 @@ jobs:
                 $page.Content -notmatch 'strategy-construction' -or
                 $page.Content -notmatch 'export-diagnostics' -or
                 $script.StatusCode -ne 200 -or $script.Content -notmatch 'strategyRenderHead' -or
-                $script.Content -notmatch 's.events.length = Math.min(s.events.length,1000)' -or
-                $script.Content -notmatch 's.events.slice(0, 1000)') {
+                -not ($script.Content.Contains('s.events.length = Math.min(s.events.length,1000)')) -or
+                -not ($script.Content.Contains('s.events.slice(0, 1000)'))) {
               throw 'S2-S7 Observer not served'
             }
             Write-Host 'PASS: native S7 server, execute, 2 factions, strategy fields, head and construction UI, diagnostics button'
