@@ -1,3 +1,17 @@
+> **Current A2 (2026-11-07):** `feature/genesis-station-orders`, PR #43.
+> Read `docs/living-sector/STATION_ORDERS.md` first. Durable assignments for native
+> funded shipments and construction; station input needs join the head portfolio.
+> Core A2 `8fb0c3403872f33932174a6dd3389136dfed43e6` passed focused checks.
+> Finance paused. No release builds, automatic merges or Observer changes.
+> Continue A3 from the latest verified SHA in HANDOFF; older next steps are history.
+
+> **Current A1 (2026-11-07):** `feature/genesis-station-administrator`, PR #41.
+> Verified A1 `7931daaa0f98dc81110979fab4903efff2494d16`; CI 42380994557 passed.
+> User paused finance work in favor of station administrators. Read
+> `docs/living-sector/STATION_ADMINISTRATOR.md` first. Base unified fd4e3315f5502aa4c02619b8f84629997183f422.
+> One faction/location administrator, existing local population, native payroll.
+> A2 is durable ship orders/dispatch. Do not resume historical service/finance plans.
+
 > **Current F4 (2026-11-07):** `feature/genesis-construction-executor`, PR #34.
 > Verified code `6470013763fc893ac502b2c2017225b56814dbda`; CI 42355317764 passed.
 > Read `docs/living-sector/economy/F4_CONSTRUCTION_EXECUTOR.md` first.

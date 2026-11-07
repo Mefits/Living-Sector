@@ -29,6 +29,7 @@ fn active(bt: &BtNode<ShipAction>) -> Option<&str> {
 pub fn present(world: &mut World, site: &ConstructionSite) -> Option<String> {
     world.query::<(Entity,&ShipIdentity,&ShipPosition,&ShipTransit,&ShipAI)>().iter(world)
         .filter(|(e,id,pos,transit,ai)| capable(&id.class) && id.faction_id==site.faction_id
+            && site.labor.station_order.as_ref().is_none_or(|o|o.executor_id.as_deref()==Some(id.id.as_str()))
             && ai.current_goal=="construct" && ai.current_bt.as_ref().and_then(active)==Some(site.id.as_str())
             && transit.transit.is_none() && pos.location_name.as_deref()==Some(site.location_name.as_str())
             && pos.docked_at.is_some_and(|dock| world.get::<FacilityStorage>(dock).is_some_and(|s|s.docked_ships.contains(e))
@@ -59,9 +60,11 @@ pub fn offers(world: &mut World) -> Vec<Offer> {
             }
         }
     }
+    let executing=crate::strategy::executing(world);
     let mut offers:Vec<_>=world.query::<&ConstructionSite>().iter(world)
         .filter(|s| !s.completed && s.remaining()==0 && s.labor.completed<s.labor.required)
-        .map(|s|Offer {site_id:s.id.clone(),location:s.location_name.clone(),faction:s.faction_id.clone(),claimed_by:claims.get(&s.id).cloned()}).collect();
+        .filter(|s| !executing || s.labor.station_order.as_ref().is_some_and(|o|o.executor_id.is_some()))
+        .map(|s|Offer {site_id:s.id.clone(),location:s.location_name.clone(),faction:s.faction_id.clone(),claimed_by:s.labor.station_order.as_ref().and_then(|o|o.executor_id.clone()).or_else(||claims.get(&s.id).cloned())}).collect();
     offers.sort_by(|a,b|a.site_id.cmp(&b.site_id)); offers
 }
 

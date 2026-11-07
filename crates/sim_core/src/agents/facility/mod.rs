@@ -378,6 +378,8 @@ pub fn tick_facilities_with_relations(
         restock::tick_restock(world, relations);
     }
 
+    if tick % recipe_interval == 0 { crate::strategy::station::plan(world, tick); }
+
     // Phase 5: recipes + mining + XP (every 5×mult ticks).
     if tick % recipe_interval == 0 || tick % mining_interval == 0 {
         tick_recipes_and_mining(world, tick, tick_multiplier, &facility_lod_gate);
@@ -396,6 +398,8 @@ pub fn tick_facilities_with_relations(
     if module_production_interval > 0 && tick % module_production_interval == 0 {
         tick_produce_modules(world, tick);
     }
+
+    if tick % recipe_interval == 0 { crate::strategy::station::feedback(world, tick); }
 
     // Phase 7: post crew missions (every 100×mult ticks, probabilistic).
     let crew_mission_interval = CREW_MISSION_POST_INTERVAL_BASE * mult;

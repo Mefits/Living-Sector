@@ -1,0 +1,31 @@
+name: Station Economy Inspector (Observer only)
+on:
+  pull_request:
+    branches:
+      - integration/genesis-unified-20261107
+    paths:
+      - "observer/**"
+      - "priv/genesis/data/worlds/**"
+      - ".github/workflows/observer-station-economy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  observer-station-economy:
+    name: JavaScript syntax and 3 real seed station fixtures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate Observer V5 JavaScript without Windows build
+        run: |
+          node --check observer/app.js
+          node --check observer/model.js
+          node --check observer/station-kit.js
+      - name: Run Observer unit and 3-station seed tests
+        run: npm --prefix observer test

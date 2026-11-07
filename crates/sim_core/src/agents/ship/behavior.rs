@@ -418,6 +418,7 @@ pub(super) fn decide_and_act(
     // fetched via separate `world.get<>` calls; they're now in the
     // query as immutable refs alongside the 9 muts so the parallel
     // closure has no need to touch the World outside its own slice.
+    let station_execute=crate::strategy::executing(world);
     let construction_offers = crate::agents::construction::executor::offers(world);
     let cmd_mutex = std::sync::Mutex::new(CommandBuffer::new());
     let mut q = world.query::<(
@@ -560,6 +561,15 @@ pub(super) fn decide_and_act(
                 ai.current_bt = None;
             }
         }
+        let assigned_delivery=crate::strategy::orders::assigned_contract(contracts,&ship_id);
+        let assigned_builder=station_execute && construction_offers.iter().any(|o|o.claimed_by.as_deref()==Some(ship_id.as_str()));
+        // Only uncommitted commercial plans can be preempted by new orders.
+        if (assigned_delivery.is_some() || assigned_builder) && economy.active_contract_id.is_none()
+            && economy.transaction.pending.is_none()
+            && !ai.current_goal.starts_with("fulfill_")
+            && !matches!(ai.current_goal.as_str(), "construct"|"refuel"|"rest_crew") {
+            ai.current_bt=None;
+        }
         let needs_plan = ai.current_bt.is_none();
         // Bundle 2.2: mid-action replan check. If the current goal is
         // replan-eligible, we've been committed for the minimum dwell,
@@ -585,6 +595,8 @@ pub(super) fn decide_and_act(
         };
         let replan_check_due = !needs_plan
             && economy.transaction.pending.is_none()
+            && !(assigned_delivery.is_some() && economy.active_contract_id.is_some())
+            && !assigned_builder
             && is_replan_eligible(&ai.current_goal)
             && elapsed_since_plan >= REPLAN_MIN_COMMIT_TICKS
             && (tick + ship_offset) % REPLAN_CHECK_INTERVAL_TICKS == 0;
@@ -638,7 +650,7 @@ pub(super) fn decide_and_act(
             // than inventing a commercial reward. Biological priorities still win.
             if let Some(offer) = crate::agents::construction::executor::choose(&construction_offers,
                 &ship_id, &ship_faction, &identity.class, position.location_name.as_deref(),
-                &location_to_system, ai.personality.loyalty, candidate.score, economy.active_contract_id.is_some()) {
+                &location_to_system, ai.personality.loyalty, if assigned_builder && !matches!(candidate.name,"refuel"|"rest_crew") { -1.0 } else {candidate.score}, economy.active_contract_id.is_some()) {
                 let mut actions = vec![ShipAction::Undock];
                 actions.extend(route_actions(position.location_name.as_deref().unwrap(), &offer.location, registry, gate_pairs));
                 actions.push(ShipAction::Dock);
@@ -1017,6 +1029,17 @@ fn plan_goal(
             score,
             bt: build_refuel_bt(),
         });
+    }
+
+    if crate::strategy::orders::assigned_contract(contracts,ship_id).is_some() {
+        if let Some(c)=try_plan_contract(&at_loc,cargo,economy,effective_reputation,memory,contracts,
+            ship_id,ship_faction,relations,controller_by_location,registry,gate_pairs,sensor_range_au,
+            fuel_bucket,location_to_system,dock_congestion) {
+            candidates.push(ScoredGoal {name:c.goal_name,score:35.0,bt:c.bt});
+        } else {
+            candidates.push(ScoredGoal {name:"idle_station_order",score:TIER_IDLE_FLOOR,bt:BtNode::action(ShipAction::Idle)});
+        }
+        return candidates.into_iter().max_by(|a,b|a.score.total_cmp(&b.score)).unwrap();
     }
 
     // --- Housekeeping tier: sell_cargo + retrofit ---
@@ -1491,7 +1514,7 @@ fn try_plan_contract(
     effective_reputation: &StdHashMap<String, u8>,
     memory: &ShipMemory,
     contracts: &crate::economy::contracts::ContractBoard,
-    _ship_id: &str,
+    ship_id: &str,
     ship_faction: &str,
     relations: &crate::agents::faction_relations::FactionRelations,
     controllers: &StdHashMap<String, String>,
@@ -1534,7 +1557,13 @@ fn try_plan_contract(
     }
     let mut best: Option<Candidate> = None;
 
-    for c in contracts.posted_for_ship(effective_reputation) {
+    let assigned=crate::strategy::orders::assigned_contract(contracts,ship_id);
+    let offers=if let Some(c)=assigned.filter(|c|c.status==crate::economy::contracts::ContractStatus::Posted) {
+        vec![c] // Membership-based assignment does not wait for public reputation aging.
+    } else {contracts.posted_for_ship(effective_reputation)};
+    for c in offers {
+        if !crate::strategy::orders::may_accept(c,ship_id,ship_faction)
+            || assigned.is_some_and(|a|a.id!=c.id) {continue;}
         let fixed_reward = c.fixed_strategy_reward();
         let own_strategy = c.requestor_id == ship_faction
             && fixed_reward.is_some_and(|reward| {
@@ -2726,5 +2755,33 @@ mod flight_recovery_tests {
             assert!(children.iter().any(|n| matches!(n, BtNode::Action(ShipAction::DeliverCargo { contract_id }) if contract_id == &id)));
             assert_eq!(serde_json::to_string(c).unwrap(), before);
         }
+    }
+}
+
+#[cfg(test)]
+mod station_order_planner_tests {
+    use super::*;
+    #[test]
+    fn station_order_planner_obeys_assignment_without_public_reputation_and_keeps_refuel() {
+        use crate::{economy::contracts::{ContractBoard,FundingSource},strategy::orders::Order};
+        let mut board=ContractBoard::new();
+        let id=board.post_subsidy("civ".into(),Commodity::Ore,10,"port".into(),"port".into(),500,0,1000);
+        board.register_prepaid(&id,FundingSource::Faction);
+        let mut order=Order::new("delivery",&id);order.executor_id=Some("ship".into());
+        let c=board.get_mut(&id).unwrap();c.mission_category=Some(crate::strategy::PROJECT_TAG.into());
+        c.funding.as_mut().unwrap().station_order=Some(order);
+        let cargo=ShipCargo {cargo:Default::default(),capacity:100,cargo_age:Default::default(),cargo_origin:Default::default()};
+        let economy=ShipEconomy {transaction:Default::default(),credits:1000,efficiency:1.,active_contract_id:None,faction_reputation:Default::default(),dock_dwell_start_tick:None,rest_start_tick:None,dock_attempt_start_tick:None};
+        let memory=ShipMemory {price_knowledge:[("port".into(),[(Commodity::Ore,crate::economy::commodities::PriceMemory {price:10.,tick:0})].into())].into(),visited:vec![],recent_systems:Default::default(),route_performance:Default::default()};
+        let position=ShipPosition {location_name:Some("port".into()),docked_at:None,system_id:"sol".into(),universe_offset:(0.,0.),position:(0.,0.)};
+        let mut fuel=ShipFuel {fuel:100.,fuel_capacity:100.,fuel_consumption_rate:0.05,speed_modifier:1.};
+        let mut personality=crate::ai::personality::Personality::balanced_trader();personality.safety=1.;
+        let choose=|fuel:&ShipFuel|plan_goal(&position,&cargo,fuel,&economy,&memory,None,&board,&Default::default(),"ship","civ",
+            &Default::default(),&Default::default(),&WorldRegistry::default(),&Default::default(),None,1000.,&Default::default(),
+            &Default::default(),&personality,&Default::default(),0,1);
+        assert_eq!(choose(&fuel).name,"fulfill_contract");
+        fuel.fuel=0.;assert_eq!(choose(&fuel).name,"refuel");
+        assert!(try_plan_contract("port",&cargo,&economy,&Default::default(),&memory,&board,"independent","independent",
+            &Default::default(),&Default::default(),&WorldRegistry::default(),&Default::default(),1000.,10,&Default::default(),&Default::default()).is_none());
     }
 }

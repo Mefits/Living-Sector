@@ -38,6 +38,9 @@ fn commit_shift(world: &mut World, producer: Entity, stock_owner: Entity,
     if crew.work_shift.as_ref().is_some_and(|s| s.tick >= tick) {
         return Err("already_worked_this_tick");
     }
+    if input_payment.is_none() && !crate::strategy::station::permits(world, producer, tick) {
+        return Err("station_workforce_not_assigned");
+    }
     let required = crew.crew_count;
     if required == 0 { return Err("no_staffed_jobs"); }
     let identity = world.get::<FacilityIdentity>(producer).ok_or("missing_employer")?;

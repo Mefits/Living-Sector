@@ -368,7 +368,7 @@
       "demographic": "workers",
       "facility_id": "pirate-outpost",
       "faction_id": "pirates",
-      "population_count": 50,
+      "population_count": 24,
       "total_wealth": 1000,
       "food_satisfaction": 70,
       "consumption": {

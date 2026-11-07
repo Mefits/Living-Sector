@@ -14,7 +14,7 @@ pub(super) fn quote(
     ship: Entity,
     c: &Contract,
 ) -> Result<i64, &'static str> {
-    let identity = world.get::<ShipIdentity>(ship).ok_or("missing_ship")?;
+    let identity = world.get::<ShipIdentity>(ship).ok_or("missing_ship")?.clone();
     if let Some(reward) = c.fixed_strategy_reward() {
         return if reward >= 0 { Ok(reward) } else { Err("invalid_payment") };
     }
@@ -112,8 +112,13 @@ pub(super) fn accept(
     if c.status != ContractStatus::Posted {
         return Err("contract_unavailable");
     }
-    let identity = world.get::<ShipIdentity>(ship).ok_or("missing_ship")?;
+    let identity = world.get::<ShipIdentity>(ship).ok_or("missing_ship")?.clone();
     let ship_id = identity.id.clone();
+    if !sim_core::strategy::orders::may_accept(&c, &ship_id, &identity.faction_id)
+        || sim_core::strategy::orders::assigned_contract(&store.contracts, &ship_id).is_some_and(|a|a.id!=id)
+        || sim_core::strategy::orders::builder_assigned(world, &ship_id) {
+        return Err("station_order_assigned_elsewhere");
+    }
     if c.faction_id.as_deref().is_some_and(|f| {
         !sim_core::agents::faction_relations::commerce_allowed(
             &store.relations,

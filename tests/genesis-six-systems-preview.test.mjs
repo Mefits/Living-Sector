@@ -50,7 +50,7 @@ test("three independent starter economies, exactly one station, two provisional 
     assert.equal(ship[0].location, fs[0].location);
     const pop = allPopulations.filter(p => p.faction_id === faction.id);
     assert.equal(pop.length, 1);
-    assert.equal(pop[0].population_count, 50);
+    assert.equal(pop[0].population_count, ({"terran-authority":50,"pirates":24,"ceti-freeholds":30})[faction.id]);
     assert.equal(pop[0].facility_id, fs[0].location);
   }
 });

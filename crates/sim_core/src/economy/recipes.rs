@@ -23,7 +23,7 @@ pub const RECIPES: &[Recipe] = &[
         id: "process_ice",
         facility_type: "refinery",
         inputs: &[(Commodity::Ice, 8)],
-        outputs: &[(Commodity::Water, 6), (Commodity::Fuel, 5)],
+        outputs: &[(Commodity::Water, 10), (Commodity::Fuel, 5)],
     },
     Recipe {
         id: "crack_fuel",
