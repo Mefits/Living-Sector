@@ -2872,3 +2872,64 @@ mod flight_recovery_tests {
         }
     }
 }
+
+
+#[cfg(test)]
+mod native_ice_mining_route_tests {
+    use super::*;
+    use crate::world::registry::Route;
+
+    fn fixture() -> (WorldRegistry, Vec<IceMiningSite>, Vec<IceMiningDepot>) {
+        let mut registry = WorldRegistry::default();
+        registry.routes.insert("pirate-outpost".into(), vec![
+            Route { to: "mine-callisto".into(), distance: 18 }
+        ]);
+        registry.routes.insert("mine-callisto".into(), vec![
+            Route { to: "pirate-outpost".into(), distance: 18 }
+        ]);
+        let sites = vec![IceMiningSite {
+            location: "mine-callisto".into(),
+            body_id: "callisto".into(),
+            richness: 0.65,
+        }];
+        let depots = vec![IceMiningDepot {
+            location: "pirate-outpost".into(),
+            faction_id: "pirates".into(),
+            ice_supply: 0.0,
+            water_supply: 0.0,
+        }];
+        (registry, sites, depots)
+    }
+
+    #[test]
+    fn shortage_selects_physical_mine_and_recovery_delivers_cargo() {
+        let (registry, sites, depots) = fixture();
+        let trip = choose_ice_mining_trip(
+            "pirate-outpost", "pirates", 0, &registry, &sites, &depots
+        ).unwrap();
+        assert_eq!(trip.name, "mine_ice");
+        assert!(trip.score > 0.0);
+
+        let home = choose_ice_mining_trip(
+            "mine-callisto", "pirates", 40, &registry, &sites, &depots
+        ).unwrap();
+        assert_eq!(home.name, "deliver_mined_ice");
+    }
+
+    #[test]
+    fn no_free_or_hostile_mining_when_no_site_or_no_route_or_ice_is_plentiful() {
+        let (mut registry, sites, mut depots) = fixture();
+        assert!(choose_ice_mining_trip(
+            "pirate-outpost", "terran-authority", 0, &registry, &sites, &depots
+        ).is_none());
+        depots[0].ice_supply = 650.0;
+        assert!(choose_ice_mining_trip(
+            "pirate-outpost", "pirates", 0, &registry, &sites, &depots
+        ).is_none());
+        depots[0].ice_supply = 0.0;
+        registry.routes.clear();
+        assert!(choose_ice_mining_trip(
+            "pirate-outpost", "pirates", 0, &registry, &sites, &depots
+        ).is_none());
+    }
+}
