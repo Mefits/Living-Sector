@@ -23,7 +23,7 @@ pub const RECIPES: &[Recipe] = &[
         id: "process_ice",
         facility_type: "refinery",
         inputs: &[(Commodity::Ice, 8)],
-        outputs: &[(Commodity::Water, 6), (Commodity::Fuel, 5)],
+        outputs: &[(Commodity::Water, 10), (Commodity::Fuel, 5)],
     },
     Recipe {
         id: "crack_fuel",
@@ -109,6 +109,21 @@ pub fn execute(
     max_batches: u32,
     prices: Option<&HashMap<Commodity, f32>>,
 ) -> HashMap<Commodity, f32> {
+    execute_with_output_cap(recipe, supply, efficiency, max_batches, prices, None)
+}
+
+/// A physically limited production run. The optional output cap constrains
+/// scale BEFORE either inputs or outputs are mutated, including a fractional
+/// final batch. It is intentionally opt-in until full station warehouse
+/// capacity applies consistently to all commodity flows.
+pub fn execute_with_output_cap(
+    recipe: &Recipe,
+    supply: &mut HashMap<Commodity, f32>,
+    efficiency: f32,
+    max_batches: u32,
+    prices: Option<&HashMap<Commodity, f32>>,
+    output_cap: Option<(Commodity, f32)>,
+) -> HashMap<Commodity, f32> {
     if !efficiency.is_finite()
         || efficiency <= 0.0
         || max_batches == 0
@@ -126,6 +141,24 @@ pub fn execute(
             return HashMap::new();
         }
         scale = scale.min(available as f64 / needed as f64);
+    }
+    if let Some((capped, limit)) = output_cap {
+        let current = supply.get(&capped).copied().unwrap_or(0.0);
+        if !limit.is_finite() || limit <= 0.0 || !current.is_finite() || current < 0.0 {
+            return HashMap::new();
+        }
+        if current >= limit {
+            return HashMap::new();
+        }
+        for &(commodity, amount) in recipe.outputs {
+            if commodity == capped {
+                let output_per_batch = amount as f64 * efficiency as f64;
+                if output_per_batch <= 0.0 || !output_per_batch.is_finite() {
+                    return HashMap::new();
+                }
+                scale = scale.min(((limit as f64 - current as f64) / output_per_batch).max(0.0));
+            }
+        }
     }
     if scale <= 0.0 {
         return HashMap::new();

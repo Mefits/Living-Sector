@@ -1,0 +1,136 @@
+name: Living Sector F2 + Observer V5 Windows test build
+on:
+  push:
+    branches:
+      - integration/genesis-f2-observer-v5-windows-test-20261107
+      - fix/f2-liquidity-population-sales-20261107
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: living-sector-f2-v5-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-zip:
+    runs-on: windows-2022
+    timeout-minutes: 75
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify Observer V5 scripts and station layout tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          node --check observer/model.js
+          if ($LASTEXITCODE -ne 0) { throw "Observer model syntax check failed" }
+          node --check observer/app.js
+          if ($LASTEXITCODE -ne 0) { throw "Observer app syntax check failed" }
+          node --check observer/station-kit.js
+          if ($LASTEXITCODE -ne 0) { throw "Observer station module syntax check failed" }
+          Push-Location observer
+          try {
+            npm test
+            if ($LASTEXITCODE -ne 0) { throw "Observer unit tests failed" }
+          } finally {
+            Pop-Location
+          }
+      - name: Verify focused population and partial cargo settlement invariants
+        shell: pwsh
+        run: |
+          cargo test --locked -p sim_server --lib liquidity_
+          if ($LASTEXITCODE -ne 0) { throw "Liquidity tests failed" }
+          cargo test --locked -p sim_server --lib foundation_sale_competition
+          if ($LASTEXITCODE -ne 0) { throw "Existing sale competition test failed" }
+          cargo test --locked -p sim_server --lib foundation_sale_rejects_without_any_partial_change
+          if ($LASTEXITCODE -ne 0) { throw "Sale rejection invariant failed" }
+      - name: Compile original Rust simulation with Astra F1 F2
+        shell: pwsh
+        run: |
+          cargo build --locked --release -p sim_server --bin genesis_server
+          if ($LASTEXITCODE -ne 0) { throw "Genesis Rust build failed" }
+      - name: Verify Windows server API, fresh population and V5 module serving
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:DATABASE_PATH = Join-Path (Get-Location) "genesis-f2-v5-ci-smoke.db"
+          $env:DATA_DIR = (Resolve-Path "priv/genesis/data").Path
+          $env:LIVING_SECTOR_UI_DIR = (Resolve-Path "observer").Path
+          $env:LIVING_SECTOR_STRATEGY_MODE = "execute"
+          $env:BIND_ADDR = "127.0.0.1:18097"
+          $env:WORLD_SPEED = "1.0"
+          $proc = Start-Process -FilePath (Resolve-Path "target/release/genesis_server.exe").Path -PassThru
+          try {
+            $ready = $false
+            for ($i=0; $i -lt 70; $i++) {
+              if ($proc.HasExited) { throw "Server terminated during startup: $($proc.ExitCode)" }
+              try {
+                $people = Invoke-RestMethod "http://127.0.0.1:18097/api/populations" -TimeoutSec 2
+                $facility = Invoke-RestMethod "http://127.0.0.1:18097/api/facilities" -TimeoutSec 2
+                $asset = Invoke-WebRequest "http://127.0.0.1:18097/observer/station-kit.js" -UseBasicParsing -TimeoutSec 2
+                if (@($people.data).Count -ge 6 -and @($facility.data).Count -gt 0 -and $asset.Content -match "drawStationComplex") {
+                  $ready = $true
+                  Write-Host "PASS: native server, populated fresh F2 world, /api/facilities and Observer V5 station-kit module."
+                  break
+                }
+              } catch {
+                Start-Sleep -Milliseconds 800
+              }
+            }
+            if (-not $ready) { throw "F2 world or Observer V5 module endpoint unavailable" }
+          } finally {
+            if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Package isolated Windows test build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "dist/Living-Sector-F2-V5-Liquidity"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Copy-Item "target/release/genesis_server.exe" "$root/Genesis-Server.exe"
+          Copy-Item "observer" "$root/observer" -Recurse
+          New-Item -ItemType Directory -Force -Path "$root/priv/genesis" | Out-Null
+          Copy-Item "priv/genesis/data" "$root/priv/genesis/data" -Recurse
+          Copy-Item "LICENSE" "$root/LICENSE"
+          $launch = Get-Content "Start-Genesis.cmd" -Raw
+          $launch = $launch.Replace("genesis-faction-economy-v1.db", "genesis-f2-v5-liquidity-test.db")
+          $launch = $launch.Replace('set "WORLD_SPEED=1.0"', 'set "WORLD_SPEED=1.0"' + "`r`n" + 'set "LIVING_SECTOR_STRATEGY_MODE=execute"')
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) "$root/Start-Genesis.cmd"), $launch, [System.Text.Encoding]::ASCII)
+          @(
+            "LIVING SECTOR - WINDOWS TEST: ASTRA ECONOMY F1+F2 AND OBSERVER V5"
+            ""
+            "Extract the full folder. Start by double-clicking Start-Genesis.cmd."
+            "Use the Observer browser tab to resume simulation (starts paused)."
+            "New isolated save: genesis-f2-v5-test.db. Other databases are not overwritten."
+            "Requires no Bevy 3D client or game engine installation."
+            ""
+            "F1: financed trade and household consumption."
+            "F2: workforce, payroll and resource-dependent native production."
+            "Liquidity patch: proportional emergency water, affordable fractional household payments, partial ship sales."
+            "V5: flat modular station visuals with click-selectable real facilities."
+            "T1/T2/T3 are visual layouts, not actual upgrade or slot constraints."
+            "NOT YET IMPLEMENTED: construction payroll, housing and long-term balance guarantees."
+            "Do not test F2 on old saves without residents."
+            ""
+            "For graceful save, use Ctrl+C in the Genesis Server console."
+            "Source integration: fix/f2-liquidity-population-sales-20261107"
+          ) | Set-Content "$root/README.txt" -Encoding UTF8
+          Compress-Archive -Path $root -DestinationPath "dist/Living-Sector-F2-V5-Liquidity-Liquidity-Windows.zip" -CompressionLevel Optimal -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-F2-V5-Liquidity-Windows-Test
+          path: dist/Living-Sector-F2-V5-Liquidity-Liquidity-Windows.zip
+          retention-days: 14
+          if-no-files-found: error

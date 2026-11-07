@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test model.test.mjs"
+    "test": "node --test model.test.mjs station-kit.test.mjs station-economy.test.mjs telemetry-model.test.mjs"
   }
 }

@@ -155,3 +155,38 @@ fn supply_flow_restock_conserves_goods_and_money_and_respects_access() {
         );
     }
 }
+
+#[test]
+fn household_food_and_water_stay_on_market_instead_of_idle_service_reserves() {
+    let mut world = World::new();
+    let owner = facility(&mut world, "owner", 5000, 100.0);
+    let market = world.spawn((
+        MarketIdentity {
+            db_id: 2,
+            id: "market-port".into(),
+            facility: owner,
+            facility_location: "port".into(),
+        },
+        MarketPricing {
+            price_elasticity: 1.0,
+            spread: 0.0,
+            prices: [(Commodity::Food, 18.0), (Commodity::Water, 12.0)].into(),
+            supply: [(Commodity::Food, 1000.0), (Commodity::Water, 1000.0)].into(),
+            demand: Default::default(),
+        },
+        MarketHistory::default(),
+    )).id();
+
+    // F2 workers are real residents buying from the market, not a second
+    // food-consuming population stored in FacilityStorage.
+    tick_restock(&mut world, &FactionRelations::new());
+
+    let pricing = world.get::<MarketPricing>(market).unwrap();
+    assert_eq!(pricing.supply[&Commodity::Food], 1000.0);
+    assert_eq!(pricing.supply[&Commodity::Water], 1000.0);
+    let reserves = &world.get::<FacilityStorage>(owner).unwrap().reserves;
+    assert_eq!(reserves.get(&Commodity::Food).copied().unwrap_or(0.0), 0.0);
+    assert_eq!(reserves.get(&Commodity::Water).copied().unwrap_or(0.0), 0.0);
+    assert_eq!(world.get::<FacilityOperations>(owner).unwrap().credits, 5000);
+    assert!(!world.get::<MarketHistory>(market).unwrap().dirty);
+}

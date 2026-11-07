@@ -394,6 +394,24 @@ pub(super) fn emit_persist_writes(
         }
     }
 
+    // A separate low-frequency orbital write avoids coupling physical
+    // motion to a facility's finances or personnel. Restart resumes at
+    // the persisted phase; any possible rewind is at most this interval.
+    if tick % 16 == 0 {
+        let mut q = world.query::<(
+            &sim_core::agents::facility::FacilityIdentity,
+            &sim_core::agents::facility::FacilityOrbit,
+        )>();
+        for (identity, orbit) in q.iter(world) {
+            if identity.db_id != 0 && orbit.angle_degrees.is_finite() {
+                writes.push(DbWrite::FacilityOrbit {
+                    db_id: identity.db_id,
+                    orbit_angle: orbit.angle_degrees,
+                });
+            }
+        }
+    }
+
     // Phase 19c-d: flush dirty construction sites on the same cadence
     // as facilities. Volume is low (one site per commodity-location)
     // so we push every dirty row directly — no further dedup needed.

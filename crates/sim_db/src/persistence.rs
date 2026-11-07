@@ -110,6 +110,9 @@ pub enum DbWrite {
         /// object round-trips crew_count / morale / hunger / food_debt.
         crew_state_json: String,
     },
+    /// Slowly moving station orbital phase. Persisted independently of
+    /// economic balances to avoid marking every facility economically dirty.
+    FacilityOrbit { db_id: i64, orbit_angle: f32 },
     /// Population demographics + sentiment.
     Population {
         employed_fraction: f32,
@@ -485,6 +488,10 @@ mod escrow_tests {
         board.accept(&funded, "ship".into(), 2);
         let c = board.get_mut(&funded).unwrap();
         c.renewal_count = 2;
+        let mut order=sim_core::strategy::orders::Order::new("delivery",&funded);
+        order.executor_id=Some("ship".into());order.attempt=2;order.state="executing".into();
+        c.funding.as_mut().unwrap().station_order=Some(order);
+
         c.funding.as_mut().unwrap().reserved = 150;
         c.funding.as_mut().unwrap().agreed_payment = Some(150);
         let legacy = board.post_delivery_for(
@@ -574,6 +581,7 @@ impl DbWrite {
             DbWrite::Market { db_id, .. } => ("market", db_id.to_string()),
             DbWrite::Faction { id, .. } => ("faction", id.clone()),
             DbWrite::Facility { db_id, .. } => ("facility", db_id.to_string()),
+            DbWrite::FacilityOrbit { db_id, .. } => ("facility_orbit", db_id.to_string()),
             DbWrite::Population { db_id, .. } => ("population", db_id.to_string()),
             DbWrite::Body { db_id, .. } => ("body", db_id.to_string()),
             DbWrite::Tick { .. } => ("tick", String::new()),
@@ -819,6 +827,13 @@ impl PersistenceWorker {
                     .await?;
                 }
 
+                DbWrite::FacilityOrbit { db_id, orbit_angle } => {
+                    sqlx::query("UPDATE facilities SET orbit_angle=?1 WHERE id=?2")
+                        .bind(orbit_angle as f64)
+                        .bind(db_id)
+                        .execute(&mut *tx)
+                        .await?;
+                }
                 DbWrite::Population {
                     employed_fraction,
                     db_id,

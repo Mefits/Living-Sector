@@ -202,12 +202,14 @@ pub fn admin_spawn_facility(
 ) {
     use sim_core::agents::facility::{
         FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations, FacilityStorage,
+        FacilityOrbit, current_facility_orbit_angle,
     };
 
     if store.facility_by_id.contains_key(&payload.agent_id) {
         return;
     }
 
+    let orbit_angle = current_facility_orbit_angle(world, &payload.location_name);
     let entity = world.spawn((
         FacilityIdentity {
             db_id: payload.db_id,
@@ -237,6 +239,7 @@ pub fn admin_spawn_facility(
             dock_queue: vec![],
         },
         FacilityLifecycle::new(),
+        FacilityOrbit::new(&payload.location_name, Some(orbit_angle)),
         sim_core::simulation::lod::AgentLod::new(),
     )).id();
     // Phase 18c: shipyards carry a ModuleStock. Attached separately so

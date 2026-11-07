@@ -202,6 +202,13 @@ export function approximateShipsNear(system, ships, positions, radius) {
 
 // Preserve the world point below the cursor while the camera zoom changes.
 // Screen transform is: viewport centre + worldDelta * scale + pan.
+// Keep a chosen moving world object at the exact canvas center. This
+// affects observer panning only; server positions remain authoritative.
+export function panToFollowWorldPoint(target,bounds,scale) {
+  if(!target||!bounds||!Number.isFinite(scale)||scale<=0)return {x:0,y:0};
+  return {x:(bounds.cx-target.x)*scale, y:(target.y-bounds.cy)*scale};
+}
+
 export function panForCursorZoom(pan, cursor, viewport, oldZoom, newZoom) {
   if (!(oldZoom > 0) || !(newZoom > 0)) return {...pan};
   const ratio = newZoom / oldZoom;
@@ -340,4 +347,38 @@ export function shortageCount(markets) {
 export function sortedCargo(cargo) {
   return Object.entries(cargo || {}).filter(([, qty]) => Number(qty) > 0)
     .sort((a, b) => Number(b[1]) - Number(a[1]));
+}
+
+// Read-only local station economy view. Never sum unrelated station and market ledgers.
+export function stationEconomy(report,location) {
+  const at=key(location);
+  if(!at)return null;
+  const members=list(report?.facilities).filter(f=>key(f?.location)===at);
+  const station=members.find(f=>f?.type==="station");
+  if(!station)return null;
+  const market=list(report?.markets).find(m=>key(m?.facility_location)===at)??null;
+  const read=(obj,id)=>Object.prototype.hasOwnProperty.call(obj??{},id) &&
+    obj[id]!==null && Number.isFinite(Number(obj[id])) ? Number(obj[id]) : null;
+  const priority=["food","water","fuel"];
+  const commodities=market?[...new Set([
+    ...priority,...Object.keys(market.supply??{}),...Object.keys(market.demand??{}),
+    ...Object.keys(market.shortage_ticks??{}),...Object.keys(market.prices??{})
+  ])]:[];
+  const goods=commodities.map(id=>({
+    id,
+    // A missing key in an existing market supply map means zero stock.
+    // A missing map means the server did not provide inventory information.
+    stock:read(market.supply,id)??(market.supply&&typeof market.supply==="object"?0:null),
+    demand:read(market.demand,id),
+    price:read(market.prices,id),
+    shortageTicks:read(market.shortage_ticks,id)
+  })).sort((a,b)=>{
+    const rank=x=>priority.includes(x.id)?priority.indexOf(x.id):
+      x.shortageTicks>0?3:x.stock>0?4:5;
+    return rank(a)-rank(b)||a.id.localeCompare(b.id);
+  });
+  return {
+    location:station.location,station,members,market,goods,
+    shortages:goods.filter(g=>g.shortageTicks>0)
+  };
 }

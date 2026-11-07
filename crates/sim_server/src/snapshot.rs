@@ -92,7 +92,12 @@ impl SnapshotCache {
     ///   this).
     pub fn update_from(&self, world: &mut World, store: &mut AgentStore, tick: u64) {
         if let Some(strategy) = world.get_resource::<sim_core::strategy::StrategyState>() {
-            if let Ok(mut snapshot) = self.strategy.write() { *snapshot = strategy.snapshot(tick); }
+            if let Ok(mut snapshot) = self.strategy.write() {
+                *snapshot = strategy.snapshot(tick);
+                snapshot.orders = sim_core::strategy::orders::snapshot(world, &store.contracts);
+                snapshot.stations = world.get_resource::<sim_core::strategy::station::StationAdministration>()
+                    .map(|s|s.stations.clone()).unwrap_or_default();
+            }
         }
 
         // Hot path — every tick.
@@ -174,25 +179,43 @@ impl SnapshotCache {
                 body_pos.insert(id.body_id.clone(), orbit.universe_position());
             }
         }
-        let mut q = world.query::<&FacilityIdentity>();
-        for id in q.iter(&world) {
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation,
+            Option<&sim_core::agents::facility::FacilityOrbit>)>();
+        for (id, loc, orbit) in q.iter(&world) {
             let center = body_pos.get(&id.body_id).copied().unwrap_or((0.0, 0.0));
-            let pos = facility_offset_position(center, &id.id);
+            let angle = orbit.map(|v| v.angle_degrees)
+                .unwrap_or_else(|| sim_core::agents::facility::facility_orbit_initial_angle(&loc.location_name));
+            let pos = sim_core::agents::facility::facility_orbit_position(center, angle);
             self.positions.insert(id.id.clone(), pos);
         }
     }
 
-    /// Phase 19c: refresh the construction-sites cache each tick +
-    /// publish their positions so Godot's positions broadcast picks
-    /// them up alongside ships / bodies / facilities.
+    /// Phase 19c: refresh construction sites every tick. The stored
+    /// site.position is the universe coordinate at the creation tick;
+    /// using it forever left sites on an old point of the planet's orbit.
+    /// Resolve the current body position and keep the same stable relative
+    /// offset used when the site was spawned. Do not mutate its persisted
+    /// creation-time position or any simulation/economic state.
     fn update_construction_sites(&self, world: &mut World, _store: &mut AgentStore) {
+        let mut body_positions: std::collections::HashMap<String, (f32, f32)> =
+            std::collections::HashMap::new();
+        {
+            let mut bodies = world.query::<(&BodyIdentity, &BodyOrbit)>();
+            for (id, orbit) in bodies.iter(&world) {
+                body_positions.insert(id.body_id.clone(), orbit.universe_position());
+            }
+        }
         let mut live: std::collections::HashSet<String> = Default::default();
         let mut q = world.query::<&ConstructionSite>();
         for site in q.iter(&world) {
             live.insert(site.id.clone());
-            self.construction_sites
-                .insert(site.id.clone(), ConstructionSiteSnapshot::from(site));
-            self.positions.insert(site.id.clone(), site.position);
+            let pos = construction_site_orbit_position(
+                &body_positions, &site.body_id, &site.id, site.position,
+            );
+            let mut snapshot = ConstructionSiteSnapshot::from(site);
+            snapshot.position = sim_core::agents::Position::from(pos);
+            self.construction_sites.insert(site.id.clone(), snapshot);
+            self.positions.insert(site.id.clone(), pos);
         }
         self.construction_sites.retain(|k, _| live.contains(k));
         self.positions
@@ -327,12 +350,12 @@ impl SnapshotCache {
                 .get(&identity.body_id)
                 .copied()
                 .unwrap_or((0.0, 0.0));
-            // Offset from body center so co-located facilities don't stack
-            // on top of the planet or each other. Angle comes from a stable
-            // hash of the facility id so the same facility always lands at
-            // the same spot around its body. Matches the Elixir sim's
-            // `:erlang.phash2(id, 360)` offset pattern at radius 0.15.
-            let pos = facility_offset_position(body_center, &identity.id);
+            // Every module sharing a station location has one physical
+            // orbital anchor; the module sockets are local station geometry.
+            let angle = world.get::<sim_core::agents::facility::FacilityOrbit>(e)
+                .map(|v| v.angle_degrees)
+                .unwrap_or_else(|| sim_core::agents::facility::facility_orbit_initial_angle(&location.location_name));
+            let pos = sim_core::agents::facility::facility_orbit_position(body_center, angle);
             let docked_ship_ids: Vec<String> = storage
                 .docked_ships
                 .iter()
@@ -412,3 +435,51 @@ impl SnapshotCache {
 // the same function for transit endpoints (ships aim at the station's
 // actual offset, not the body center).
 use sim_core::agents::facility::facility_offset_position;
+ 
+/// Visual orbit anchor for an in-progress construction site. When its parent
+/// body exists, the site's published coordinate follows that body's orbit;
+/// otherwise retain the saved coordinate for a readable legacy snapshot.
+fn construction_site_orbit_position(
+    body_positions: &std::collections::HashMap<String, (f32, f32)>,
+    body_id: &str,
+    site_id: &str,
+    saved_position: (f32, f32),
+) -> (f32, f32) {
+    body_positions
+        .get(body_id)
+        .map(|&center| facility_offset_position(center, site_id))
+        .unwrap_or(saved_position)
+}
+
+#[cfg(test)]
+mod construction_site_orbit_tests {
+    use super::*;
+
+    #[test]
+    fn site_moves_with_body_and_retains_its_relative_offset() {
+        let mut bodies = std::collections::HashMap::new();
+        bodies.insert("jupiter".to_string(), (5.0, 0.0));
+        let first = construction_site_orbit_position(
+            &bodies, "jupiter", "site-water-jupiter-600", (9.0, 9.0),
+        );
+        bodies.insert("jupiter".to_string(), (3.0, 4.0));
+        let second = construction_site_orbit_position(
+            &bodies, "jupiter", "site-water-jupiter-600", (9.0, 9.0),
+        );
+        assert!(((second.0 - first.0) + 2.0).abs() < 0.0001);
+        assert!(((second.1 - first.1) - 4.0).abs() < 0.0001);
+        assert!(((first.0 - 5.0).hypot(first.1) - 0.15).abs() < 0.0001);
+    }
+
+    #[test]
+    fn missing_parent_keeps_saved_snapshot_position() {
+        let bodies = std::collections::HashMap::new();
+        assert_eq!(
+            construction_site_orbit_position(
+                &bodies, "missing-body", "site-orphan", (2.5, -1.0),
+            ),
+            (2.5, -1.0)
+        );
+    }
+}
+

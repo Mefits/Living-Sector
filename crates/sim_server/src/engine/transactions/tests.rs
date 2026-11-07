@@ -1268,6 +1268,34 @@ fn foundation_sale_competition_cash_stock_and_duplicate_receipt() {
 }
 
 #[test]
+fn liquidity_partial_sale_preserves_cash_cargo_and_idempotent_receipt() {
+    use sim_core::economy::money::MoneySnapshot;
+    let mut f = Fixture::new(0.0, 0.0);
+    let ship = f.ships[0];
+    f.world.get_mut::<FacilityOperations>(f.facility).unwrap().credits = 85;
+    f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.insert(Commodity::Ore, 10);
+    let before = MoneySnapshot::capture(&mut f.world, &f.store.contracts).total;
+    let request = f.submit(ship, sale(10));
+    f.apply(ship, request);
+    assert_eq!(f.result(ship), Ok(()));
+    assert_eq!(f.events.last().unwrap()["quantity"], 8.0);
+    assert_eq!(f.events.last().unwrap()["payment"], 80);
+    assert_eq!(f.world.get::<ShipCargo>(ship).unwrap().cargo[&Commodity::Ore], 2);
+    assert_eq!(f.world.get::<MarketPricing>(f.market).unwrap().supply[&Commodity::Ore], 8.0);
+    assert_eq!(f.world.get::<FacilityOperations>(f.facility).unwrap().credits, 5);
+    assert_eq!(f.world.get::<ShipEconomy>(ship).unwrap().credits, 1080);
+    assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before);
+    let committed = f.snapshot(ship);
+    f.apply(ship, request);
+    assert_eq!(f.snapshot(ship), committed, "same transaction receipt must not settle twice");
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+    let next_request = f.submit(ship, sale(2));
+    f.apply(ship, next_request);
+    assert_eq!(f.result(ship), Err("insufficient_buyer_credits"));
+    assert_eq!(f.snapshot(ship), committed);
+}
+
+#[test]
 fn foundation_sale_rejects_without_any_partial_change() {
     for case in 0..5 {
         let mut f = Fixture::new(0.0, 0.0);
@@ -1350,6 +1378,37 @@ fn foundation_trade_and_household_consumption_recirculate_cash() {
     assert_eq!(purchase_consumption(&mut f.world, pop, f.market, Commodity::Ore, 1.0, 10), Err("insufficient_household_credits"));
     assert_eq!(f.world.get::<MarketPricing>(f.market).unwrap().supply, stock);
     assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before);
+}
+
+#[test]
+fn liquidity_fractional_household_purchase_with_exact_cash() {
+    use sim_core::agents::population::*;
+    use sim_core::economy::money::MoneySnapshot;
+    let mut f = Fixture::new(1.0, 0.0);
+    f.world.get_mut::<MarketPricing>(f.market).unwrap()
+        .prices.insert(Commodity::Ore, 500.0);
+    let pop = f.world.spawn((
+        PopIdentity { db_id: 1, id: "small-household".into(), label: "Small household".into(),
+            demographic: "workers".into(), facility: f.facility, facility_location: "port".into(),
+            faction_id: "".into() },
+        PopEconomy { total_wealth: 24, spending_rate: 1.0, consumption: Default::default(),
+            production_commodity: None, production_amount: 0.0 },
+        PopSentiment { overall_sentiment: 50, unrest: 0, food_satisfaction: 50,
+            safety_satisfaction: 50, entertainment_satisfaction: 50, dirty: false },
+    )).id();
+    let before = MoneySnapshot::capture(&mut f.world, &f.store.contracts).total;
+    let (qty, payment) = purchase_consumption(&mut f.world, pop, f.market, Commodity::Ore, 0.5, 5).unwrap();
+    assert!(qty > 0.0 && qty < 0.05, "quantity must be strictly affordable");
+    assert_eq!(payment, 24);
+    assert_eq!(f.world.get::<PopEconomy>(pop).unwrap().total_wealth, 0);
+    assert_eq!(f.world.get::<FacilityOperations>(f.facility).unwrap().credits, 24);
+    assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before);
+    let after = f.world.get::<MarketPricing>(f.market).unwrap().supply[&Commodity::Ore];
+    assert!(after < 1.0 && after > 0.9);
+    let snapshot = f.snapshot(f.ships[0]);
+    assert_eq!(purchase_consumption(&mut f.world, pop, f.market, Commodity::Ore, 0.5, 10),
+        Err("insufficient_household_credits"));
+    assert_eq!(f.snapshot(f.ships[0]), snapshot, "broke buyer cannot consume for free");
 }
 
 #[tokio::test]
@@ -1504,6 +1563,9 @@ async fn construction_labor_checkpoint_resumes_and_materializes_once() {
     let site=world.query::<(Entity,&ConstructionSite)>().iter(&world).next().unwrap().0;
     assert_eq!(world.get::<ConstructionSite>(site).unwrap().labor.completed,0);
     let builder=*store.ship_by_id.values().next().unwrap();
+    let mut order=sim_core::strategy::orders::Order::new("construction","site");
+    order.executor_id=Some(world.get::<ShipIdentity>(builder).unwrap().id.clone());order.attempt=1;
+    world.get_mut::<ConstructionSite>(site).unwrap().labor.station_order=Some(order.clone());
     construction_plan(&mut world,builder);
     assert_eq!(labor::work(&mut world,site,5),Ok(6));
     let (tx,rx)=tokio::sync::mpsc::channel(4); let (ft,fr)=tokio::sync::mpsc::channel(1);
@@ -1514,6 +1576,7 @@ async fn construction_labor_checkpoint_resumes_and_materializes_once() {
     let mut store=sim_db::spawner::load_agents(&mut world,&pool,&registry,&config).await.unwrap();
     let site=world.query::<(Entity,&ConstructionSite)>().iter(&world).next().unwrap().0;
     assert_eq!(world.get::<ConstructionSite>(site).unwrap().labor.completed,6);
+    assert_eq!(world.get::<ConstructionSite>(site).unwrap().labor.station_order.as_ref(),Some(&order));
     assert_eq!(labor::work(&mut world,site,5),Err("already_worked_this_tick"));
     assert_eq!(world.get::<FactionData>(store.faction_by_id["civ"]).unwrap().treasury,20144);
     assert_eq!(world.get::<PopEconomy>(*store.population_by_id.values().next().unwrap()).unwrap().total_wealth,6);
@@ -1549,4 +1612,113 @@ fn construction_plan(world: &mut World, ship: Entity) {
     world.entity_mut(ship).insert(ShipAI {personality:Personality::balanced_trader(),current_goal:"construct".into(),
         current_bt:Some(BtNode::action(ShipAction::Construct {site_id:"site".into(),location:"port".into()})),
         current_goal_score:40.0,last_plan_tick:0});
+}
+
+#[test]
+fn station_order_native_accept_buy_deliver_rejects_second_executor() {
+    use sim_core::strategy::orders::Order;
+    use sim_core::economy::{contracts::FundingSource,money::MoneySnapshot};
+    let mut f=Fixture::new(100.,100.);
+    let id=f.store.contracts.post_delivery_for("station".into(),Some("haulers".into()),Commodity::Ore,10,"port".into(),"port".into(),120,0,1000);
+    f.store.contracts.register_prepaid(&id,FundingSource::Facility);
+    let mut order=Order::new("delivery",&id);order.executor_id=Some("ship-0".into());order.attempt=1;
+    f.store.contracts.get_mut(&id).unwrap().funding.as_mut().unwrap().station_order=Some(order);
+    let total=MoneySnapshot::capture(&mut f.world,&f.store.contracts).total;
+    let [a,b]=f.ships;
+    let req=f.submit(b,ShipTransaction::Accept{contract_id:id.clone()});f.apply(b,req);
+    assert_eq!(f.result(b),Err("station_order_assigned_elsewhere"));
+    let req=f.submit(a,ShipTransaction::Accept{contract_id:id.clone()});f.apply(a,req);assert_eq!(f.result(a),Ok(()));
+    f.world.get_mut::<ShipEconomy>(a).unwrap().transaction.pending=None;
+    let req=f.submit(a,ShipTransaction::Buy{location:"port".into(),commodity:Commodity::Ore,quantity:10,max_unit_price:100.});
+    f.apply(a,req);assert_eq!(f.result(a),Ok(()));
+    f.world.get_mut::<ShipEconomy>(a).unwrap().transaction.pending=None;
+    let req=f.submit(a,ShipTransaction::Deliver{contract_id:id.clone()});f.apply(a,req);assert_eq!(f.result(a),Ok(()));
+    assert_eq!(f.store.contracts.get(&id).unwrap().status,ContractStatus::Paid);
+    assert_eq!(f.world.get::<ShipCargo>(a).unwrap().used(),0);
+    assert_eq!(MoneySnapshot::capture(&mut f.world,&f.store.contracts).total,total);
+    let view=sim_core::strategy::orders::snapshot(&mut f.world,&f.store.contracts);
+    assert_eq!(view[0].order.state,"completed");assert_eq!(view[0].completed_quantity,10);
+}
+
+#[cfg(test)]
+mod physical_ice_mining {
+    use super::*;
+
+    fn fixture(richness: f32, at: &str, class: &str) -> (World, AgentStore, Entity, Entity) {
+        let mut world = World::new();
+        let mut store = AgentStore::new();
+        let body = world.spawn((
+            BodyIdentity {
+                db_id: 3, body_id: "callisto".into(), name: "Callisto".into(),
+                body_type: "moon".into(), star_system_id: 1, system_name: "Sol".into(),
+            },
+            BodyResources {
+                resources: [(Commodity::Ice, richness)].into(),
+                max_resources: [(Commodity::Ice, 0.65)].into(),
+            },
+            BodyOrbit {
+                orbit_radius: 5.38, orbit_period: 16, current_angle: 0.0,
+                universe_offset: (0.0, 0.0), dirty: false,
+            },
+        )).id();
+        store.body_by_id.insert("callisto".into(), body);
+        let ship = world.spawn((
+            ShipIdentity {
+                db_id: 1, id: "pirate-miner".into(), name: "Pirate Miner".into(),
+                class: class.into(), faction_id: "pirates".into(),
+                size: sim_core::simulation::config::ShipSize::Small,
+            },
+            ShipPosition {
+                location_name: Some(at.into()), docked_at: None,
+                system_id: "Sol".into(), universe_offset: (0.0, 0.0),
+                position: (5.3, 0.0),
+            },
+            ShipTransit { transit: None },
+            ShipCargo {
+                cargo: Default::default(), capacity: 200,
+                cargo_age: Default::default(), cargo_origin: Default::default(),
+            },
+            ShipLifecycle {
+                broke_strikes: 0, hoard_strikes: 0, idle_ticks: 0, dirty: false,
+            },
+            ShipCrewSkills::for_roles(&[]),
+        )).id();
+        (world, store, ship, body)
+    }
+
+    #[test]
+    fn physical_mining_depletes_body_and_fills_ship_without_market_or_credits() {
+        let (mut world, store, ship, body) = fixture(0.65, "mine-callisto", "miner");
+        let (qty, payment) = mine(&mut world, &store, ship,
+            "mine-callisto", "callisto", Commodity::Ice, 40, 12).unwrap();
+        assert_eq!(qty, 40.0);
+        assert_eq!(payment, 0);
+        assert_eq!(world.get::<ShipCargo>(ship).unwrap().cargo[&Commodity::Ice], 40);
+        let remaining = world.get::<BodyResources>(body).unwrap().resources[&Commodity::Ice];
+        assert!((remaining - (0.65 - 40.0 / 8000.0)).abs() < 0.000001);
+        assert!(store.market_at_location.is_empty());
+    }
+
+    #[test]
+    fn mining_rejects_wrong_location_and_non_miners_without_mutation() {
+        for (at, class) in [
+            ("pirate-outpost", "miner"), ("mine-callisto", "freighter"),
+        ] {
+            let (mut world, store, ship, body) = fixture(0.65, at, class);
+            assert!(mine(&mut world, &store, ship,
+                "mine-callisto", "callisto", Commodity::Ice, 40, 12).is_err());
+            assert_eq!(world.get::<BodyResources>(body).unwrap().resources[&Commodity::Ice], 0.65);
+            assert_eq!(world.get::<ShipCargo>(ship).unwrap().used(), 0);
+        }
+    }
+
+    #[test]
+    fn depleted_body_can_only_supply_available_units() {
+        let (mut world, store, ship, body) = fixture(0.002, "mine-callisto", "miner");
+        let (qty, _) = mine(&mut world, &store, ship,
+            "mine-callisto", "callisto", Commodity::Ice, 40, 50).unwrap();
+        assert_eq!(qty, 16.0);
+        assert_eq!(world.get::<ShipCargo>(ship).unwrap().used(), 16);
+        assert!(world.get::<BodyResources>(body).unwrap().resources[&Commodity::Ice] <= 0.000001);
+    }
 }

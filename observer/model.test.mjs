@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildIndex, ownership, factionColor, positionOf, shortageCount,
   systemAtPosition, approximateShipsNear,
-  panForCursorZoom, clusterMarkers, shipSystem,
+  panForCursorZoom, panToFollowWorldPoint, clusterMarkers, shipSystem,
   groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub,
   liveEntityPoint, approachWorldPoint
 } from "./model.js";
@@ -209,10 +209,33 @@ test("regression: no hidden parked ships or fake circular vessel placement in ma
 test("UI ids referenced by the code exist in the actual HTML", async () => {
   const { readFileSync } = await import("node:fs");
   const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./native.html", import.meta.url), "utf8");
   const match = app.match(/const els = Object\.fromEntries\(\[([\s\S]*?)\]\.map/);
   assert.ok(match, "UI id binding block should be present");
   const ids = [...match[1].matchAll(/"([a-z][a-z0-9-]+)"/g)].map(m => m[1]);
   assert.ok(ids.length > 25, "expected all mapped UI controls");
   for (const id of ids) assert.ok(html.includes('id="' + id + '"'), "missing HTML id: " + id);
+});
+
+test("follow-camera recentering tracks any moving world object without screen drift",()=>{
+  const bounds={cx:2,cy:-4};
+  const scale=24,w=960,h=600;
+  for(const target of [{x:2,y:-4},{x:18,y:7},{x:-3,y:11}]){
+    const pan=panToFollowWorldPoint(target,bounds,scale);
+    const screen={x:w/2+(target.x-bounds.cx)*scale+pan.x,
+      y:h/2-(target.y-bounds.cy)*scale+pan.y};
+    assert.ok(Math.abs(screen.x-w/2)<1e-9);
+    assert.ok(Math.abs(screen.y-h/2)<1e-9);
+  }
+});
+
+test("physical station marker stays at server location, never reflows around planets",async()=>{
+  const {readFileSync}=await import("node:fs");
+  const app=readFileSync(new URL("./app.js",import.meta.url),"utf8");
+  const html=readFileSync(new URL("./native.html",import.meta.url),"utf8");
+  assert.ok(app.includes("const at=actual;"),"complex must stay on physical position");
+  assert.ok(app.includes("followSelectedObject()"));
+  assert.ok(app.includes("if(s.follow)stopFollowing()"));
+  assert.ok(html.includes('id="follow-btn"'));
+  assert.ok(!app.includes("const at=layoutMarker(actual,footprint,0)"));
 });

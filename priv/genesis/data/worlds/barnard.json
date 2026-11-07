@@ -1,0 +1,70 @@
+{
+  "system": {
+    "id": "system-barnard",
+    "name": "Barnard's Star",
+    "universe_offset": [
+      110,
+      -110
+    ],
+    "star_type": "M"
+  },
+  "bodies": [
+    {
+      "id": "yeoman",
+      "name": "Yeoman",
+      "type": "planet",
+      "orbit_radius": 1.4,
+      "orbit_period": 240,
+      "current_angle": 80,
+      "biome": "arid",
+      "resources": {
+        "ore": 0.6,
+        "ice": 0.2
+      }
+    },
+    {
+      "id": "barnard-belt",
+      "name": "Barnard Belt",
+      "type": "belt",
+      "orbit_radius": 3.2,
+      "orbit_period": 560,
+      "current_angle": 200,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.9,
+        "ice": 0.3
+      }
+    },
+    {
+      "id": "outpost-gamma",
+      "name": "Outpost Gamma",
+      "type": "planet",
+      "orbit_radius": 5.2,
+      "orbit_period": 1000,
+      "current_angle": 300,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.85,
+        "gas": 0.5
+      }
+    },
+    {
+      "id": "barnard-deep-asteroid",
+      "name": "Deep Drift",
+      "type": "asteroid",
+      "orbit_radius": 6.8,
+      "orbit_period": 1400,
+      "current_angle": 120,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.8,
+        "ice": 0.4
+      }
+    }
+  ],
+  "travel_routes": [],
+  "facilities": [],
+  "markets": [],
+  "ships": [],
+  "populations": []
+}

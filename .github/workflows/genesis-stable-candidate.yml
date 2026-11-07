@@ -1,0 +1,143 @@
+name: Living Sector stable candidate - Astra A2 + Observer V5 Windows
+
+on:
+  push:
+    branches: [integration/genesis-stable-candidate-20261107]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: genesis-stable-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-checkpoint:
+    name: Astra A1/A2 native checkpoint (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Native station administration and orders checks
+        run: |
+          for filter in station_order_ station_admin_ escrow_sqlite_roundtrip construction_labor_checkpoint; do
+            cargo test --locked -p sim_core -p sim_server -p sim_db --lib "$filter" --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          done
+  windows-preview:
+    name: Six systems, native Genesis engine and Observer
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify preview seed and Observer syntax
+        shell: pwsh
+        run: |
+          node --test tests/genesis-six-systems-preview.test.mjs
+          node --check observer/app.js
+          node --check observer/model.js
+          node --test observer/model.test.mjs observer/station-economy.test.mjs observer/station-admin-ui.test.mjs
+      - name: Verify Observer V5 frontend, modular station assets and strategy bundle
+        shell: pwsh
+        run: |
+          node --check observer/station-kit.js
+          node --test observer/station-kit.test.mjs observer/strategy-model.test.mjs
+          node observer/build-strategy.mjs --write
+          node observer/build-strategy.mjs --check
+      - name: Build real ECS + SQLite Windows server
+        shell: pwsh
+        run: cargo build --locked --release -p sim_server --bin genesis_server
+      - name: Fresh database boot and actual six-system API smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:DATABASE_PATH = Join-Path (Get-Location) "six-systems-ci-smoke.db"
+          $env:DATA_DIR = (Resolve-Path "priv/genesis/data").Path
+          $env:LIVING_SECTOR_UI_DIR = (Resolve-Path "observer").Path
+          $env:BIND_ADDR = "127.0.0.1:18092"
+          $env:WORLD_SPEED = "0.25"
+          $proc = Start-Process -FilePath (Resolve-Path "target/release/genesis_server.exe").Path -PassThru
+          try {
+            $verified = $false
+            for ($i=0; $i -lt 70; $i++) {
+              if ($proc.HasExited) { throw "Genesis terminated before API smoke ($($proc.ExitCode))" }
+              try {
+                $report = Invoke-RestMethod -Uri "http://127.0.0.1:18092/api/report" -TimeoutSec 3
+                if (@($report.systems).Count -ne 6) { throw "Expected 6 systems, found $(@($report.systems).Count)" }
+                if (@($report.factions).Count -ne 3) { throw "Expected 3 factions, found $(@($report.factions).Count)" }
+                if (@($report.facilities).Count -ne 9) { throw "Expected 9 provisional structures" }
+                if (@($report.markets).Count -ne 3) { throw "Expected 3 local markets" }
+                if (@($report.ships).Count -ne 3) { throw "Expected 3 provisional ships" }
+                $bodyCount = 0
+                foreach ($s in @($report.systems)) { $bodyCount += @($s.bodies).Count }
+                if ($bodyCount -ne 36) { throw "Expected 36 celestial bodies, got $bodyCount" }
+                $viewer = Invoke-WebRequest -Uri "http://127.0.0.1:18092/observer" -UseBasicParsing -TimeoutSec 5
+                if ($viewer.StatusCode -ne 200) { throw "Observer HTTP test failed" }
+                $stationKit = Invoke-WebRequest -Uri "http://127.0.0.1:18092/observer/station-kit.js" -UseBasicParsing -TimeoutSec 5
+                if ($stationKit.StatusCode -ne 200 -or $stationKit.Content -notmatch "drawStationComplex") { throw "Observer V5 station-kit asset unavailable" }
+                $factionViewer = Invoke-RestMethod -Uri "http://127.0.0.1:18092/api/strategy" -TimeoutSec 5
+                if ($null -eq $factionViewer) { throw "Astra strategy API unavailable" }
+                if ($null -eq $factionViewer.stations -or $null -eq $factionViewer.orders) { throw "Astra A1/A2 strategy data missing" }
+                Write-Host "PASS: F4 native, V5 Observer, six systems, 36 bodies, 3 factions, 9 provisional facilities, 3 markets, 3 ships"
+                $verified = $true
+                break
+              } catch {
+                if ($i -gt 20) { throw }
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $verified) { throw "Six-system native smoke did not confirm the world" }
+          } finally {
+            if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Assemble versioned portable Windows preview
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "dist/Living-Sector-Genesis-Stable-Candidate-A2-V5"
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          Copy-Item "target/release/genesis_server.exe" "$root/Genesis-Server.exe"
+          Copy-Item "Start-Genesis.cmd" "$root/Start-Genesis.cmd"
+          Copy-Item "LICENSE" "$root/LICENSE"
+          Copy-Item "observer" "$root/observer" -Recurse
+          New-Item -ItemType Directory -Path "$root/priv/genesis" -Force | Out-Null
+          Copy-Item "priv/genesis/data" "$root/priv/genesis/data" -Recurse
+          Copy-Item "docs/living-sector/GENESIS_START_6_SYSTEMS_PREVIEW.md" "$root/START-DESIGN.md"
+          @(
+            "LIVING SECTOR — STABLE CANDIDATE: ASTRA A2 + OBSERVER V5 — 2026-11-07"
+            ""
+            "1. Unpack the folder. Run Start-Genesis.cmd."
+            "2. Use the NEW isolated save genesis-six-systems-preview-v1.db. Astra execute mode runs when simulation is resumed."
+            "3. All six original star systems and 36 bodies are in this test seed. F1-F4 paid economy integrated."
+            "4. Sol: Terran and outlaw Pirate bases. Alpha Centauri: Ceti Freeholds. Observer V5 modular visuals included."
+            "5. Each faction has a station and two TEMPORARY ECS facilities representing primitive extraction and refining."
+            "6. Each faction has 50 residents, Food=1000, Water=1000 and one FREIGHTER PLACEHOLDER, NOT A WORKING MINER."
+            "7. A1 station administrators and A2 durable assignments/ship orders are integrated. T1/T2/T3 are visual-only; no real slot limits, autonomous ship mining, hull production or interstellar gates."
+            "8. Liquidity PR33, site-orbit PR28, station inspector PR40 included. Population seed 50/24/30 and process_ice water yield 10. Autonomous closed-loop start NOT YET VERIFIED."
+            "9. Balance Lab 0.3 and standalone Observer V5.1 reference are in observer/reference. Native balance caveats: docs/living-sector/STABLE_CANDIDATE_20261107.md (source repo)."
+            "10. Older Genesis and sim.db saves are not touched."
+          ) | Set-Content "$root/README.txt" -Encoding UTF8
+          Compress-Archive -Path $root -DestinationPath "dist/Living-Sector-Genesis-Stable-Candidate-A2-V5-Windows.zip" -CompressionLevel Optimal -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Genesis-Stable-Candidate-A2-V5-Six-Systems-Windows
+          path: dist/Living-Sector-Genesis-Stable-Candidate-A2-V5-Windows.zip
+          retention-days: 14
+          if-no-files-found: error

@@ -1,0 +1,43 @@
+name: PR42 merge assessment
+on:
+  push:
+    branches: [integration/genesis-pr42-final-20261108]
+permissions:
+  contents: read
+jobs:
+  assess:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Attempt PR42 merge without changes to repository
+        shell: bash
+        run: |
+          git config user.email "ls-integration@users.noreply.github.com"
+          git config user.name "Living Sector integration"
+          git fetch origin feature/genesis-physical-orbits-camera-20261107
+          set +e
+          git merge --no-ff --no-commit origin/feature/genesis-physical-orbits-camera-20261107 > merge.log 2>&1
+          code=$?
+          set -e
+          cat merge.log
+          echo "Merge status: $code"
+          echo "=== Unmerged paths ==="
+          git ls-files -u | cut -f2 | sort -u | tee conflicts.txt
+          echo "=== Change status ==="
+          git status --short | head -100
+          mkdir -p /tmp/pr42-inspection
+          cp conflicts.txt merge.log /tmp/pr42-inspection/
+          while IFS= read -r path; do
+            test -z "$path" && continue
+            mkdir -p "/tmp/pr42-inspection/$(dirname "$path")"
+            cp "$path" "/tmp/pr42-inspection/$path"
+          done < conflicts.txt
+          tar -czf pr42-merge-review.tar.gz -C /tmp/pr42-inspection .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PR42-merge-review
+          path: pr42-merge-review.tar.gz
+          retention-days: 3
