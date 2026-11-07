@@ -42,6 +42,7 @@ jobs:
         run: |
           node --check observer/station-kit.js
           node --test observer/station-kit.test.mjs observer/strategy-model.test.mjs
+          node observer/build-strategy.mjs --write
           node observer/build-strategy.mjs --check
       - name: Build real ECS + SQLite Windows server
         shell: pwsh
