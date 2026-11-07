@@ -1899,3 +1899,31 @@ mod salvage_field_tests {
         assert_eq!(salvage_extraction(0.0, 1.0), (0.0, 0.0));
     }
 }
+
+
+#[cfg(test)]
+mod survival_food_buffer_tests {
+    use super::farm_demand_limited_batches;
+
+    #[test]
+    fn stocked_farm_does_not_consume_water_for_unsold_food() {
+        assert_eq!(farm_demand_limited_batches(1000.0, 5.0, 20), 0);
+        assert_eq!(farm_demand_limited_batches(45273.0, 5.0, 20), 0);
+        assert_eq!(farm_demand_limited_batches(50.0, 5.0, 20), 0);
+    }
+
+    #[test]
+    fn farms_recover_food_shortages_by_small_paid_batches() {
+        assert_eq!(farm_demand_limited_batches(49.0, 5.0, 20), 1);
+        assert_eq!(farm_demand_limited_batches(0.0, 5.0, 20), 5);
+        assert_eq!(farm_demand_limited_batches(20.0, 100.0, 20), 20);
+        assert_eq!(farm_demand_limited_batches(20.0, 100.0, 2), 2);
+    }
+
+    #[test]
+    fn invalid_market_data_cannot_trigger_overproduction() {
+        assert_eq!(farm_demand_limited_batches(f32::NAN, 5.0, 20), 0);
+        assert_eq!(farm_demand_limited_batches(0.0, f32::INFINITY, 20), 0);
+        assert_eq!(farm_demand_limited_batches(-1.0, 5.0, 20), 0);
+    }
+}
