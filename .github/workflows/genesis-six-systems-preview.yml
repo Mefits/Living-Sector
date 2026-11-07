@@ -96,7 +96,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $root = "dist/Living-Sector-Genesis-Six-Systems-Preview"
+          $root = "dist/Living-Sector-Genesis-Unified-F4-V5"
           New-Item -ItemType Directory -Path $root -Force | Out-Null
           Copy-Item "target/release/genesis_server.exe" "$root/Genesis-Server.exe"
           Copy-Item "Start-Genesis.cmd" "$root/Start-Genesis.cmd"
@@ -109,17 +109,17 @@ jobs:
             "LIVING SECTOR — UNIFIED GENESIS F4 + OBSERVER V5 + HOTFIX — 2026-11-07"
             ""
             "1. Unpack the folder. Run Start-Genesis.cmd."
-            "2. Use a NEW database: genesis-six-systems-preview-v1.db."
+            "2. Use the NEW isolated save genesis-six-systems-preview-v1.db. Astra execute mode runs when simulation is resumed."
             "3. All six original star systems and 36 bodies are in this test seed. F1-F4 paid economy integrated."
             "4. Sol: Terran and outlaw Pirate bases. Alpha Centauri: Ceti Freeholds. Observer V5 modular visuals included."
             "5. Each faction has a station and two TEMPORARY ECS facilities representing primitive extraction and refining."
             "6. Each faction has 50 residents, Food=1000, Water=1000 and one FREIGHTER PLACEHOLDER, NOT A WORKING MINER."
-            "7. Preview limitations: no modular T1 slots/storage caps, no organic population growth, no station administrator, no ship mining, no hull construction, no interstellar gates/travel."
+            "7. Preview limits: T1/T2/T3 are still visual-only; no actual slot/storage limits, no natural growth, no local station manager, no ship mining, no hull production or interstellar travel."
             "8. Liquidity fix from PR33 and site-orbit fix PR28 included. Autonomous closed-loop start NOT YET VERIFIED."
             "9. Future economy rules and exact design decisions: START-DESIGN.md."
             "10. Older Genesis and sim.db saves are not touched."
           ) | Set-Content "$root/README.txt" -Encoding UTF8
-          Compress-Archive -Path $root -DestinationPath "dist/Living-Sector-Genesis-Six-Systems-Preview-Windows.zip" -CompressionLevel Optimal -Force
+          Compress-Archive -Path $root -DestinationPath "dist/Living-Sector-Genesis-Unified-F4-V5-Windows.zip" -CompressionLevel Optimal -Force
       - uses: actions/upload-artifact@v4
         with:
           name: Living-Sector-Genesis-Unified-F4-V5-Six-Systems-Windows
