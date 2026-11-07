@@ -1421,3 +1421,43 @@ fn foundation_household_delivery_spends_escrow_without_reselling_its_food() {
     f.apply(ship, request);
     assert_eq!(f.events.iter().filter(|e| e["kind"] == "household_delivery_consumed").count(),1);
 }
+
+#[tokio::test]
+async fn workforce_payroll_and_receipt_survive_actual_sqlite_checkpoint() {
+    use sim_core::agents::{facility::{FacilityCrew,workforce::pay_shift},population::*};
+    use sim_db::persistence::PersistenceWorker;
+    let pool=sim_db::pool::create_pool("sqlite::memory:").await.unwrap();
+    sim_db::pool::run_migrations(&pool).await.unwrap();
+    for sql in [
+        "INSERT INTO star_systems (id,name) VALUES (1,'sol')",
+        "INSERT INTO celestial_bodies (id,body_id,name,body_type,orbit_radius,orbit_period,current_angle,star_system_id) VALUES (1,'earth','Earth','planet',1,100,0,1)",
+        "INSERT INTO locations (id,name,loc_type,celestial_body_id) VALUES (1,'port','station',1)",
+        "INSERT INTO facilities (id,name,facility_type,location_id,location_name,credits) VALUES (1,'Station','farm',1,'port',100)",
+        "INSERT INTO populations (id,label,demographic,facility_id,facility_location,population_count,total_wealth) VALUES (1,'Workers','workers',1,'port',10,0)",
+    ] { sqlx::query(sql).execute(&pool).await.unwrap(); }
+    let mut world=World::new();
+    let registry=sim_core::world::registry::WorldRegistry::default();
+    let config=sim_core::simulation::config::TickConfig::DEFAULT;
+    let mut store=sim_db::spawner::load_agents(&mut world,&pool,&registry,&config).await.unwrap();
+    let facility=*store.facility_by_id.values().next().unwrap();
+    let people=*store.population_by_id.values().next().unwrap();
+    let before=sim_core::economy::money::MoneySnapshot::capture(&mut world,&store.contracts).total;
+    pay_shift(&mut world,facility,facility,5,None).unwrap();
+    assert_eq!(world.get::<PopEconomy>(people).unwrap().total_wealth,6);
+    let (tx,rx)=tokio::sync::mpsc::channel(4);
+    let (flush_tx,flush_rx)=tokio::sync::mpsc::channel(1);
+    super::super::persist::emit_persist_writes(&mut world,&mut store,5,&tx);
+    drop(tx); drop(flush_tx);
+    PersistenceWorker::new(pool.clone(),rx,flush_rx,std::time::Duration::from_secs(1)).run().await;
+    let mut restored=World::new();
+    let store=sim_db::spawner::load_agents(&mut restored,&pool,&registry,&config).await.unwrap();
+    let facility=*store.facility_by_id.values().next().unwrap();
+    let people=*store.population_by_id.values().next().unwrap();
+    assert_eq!(restored.get::<FacilityOperations>(facility).unwrap().credits,94);
+    assert_eq!(restored.get::<PopEconomy>(people).unwrap().total_wealth,6);
+    assert_eq!(restored.get::<PopDemographics>(people).unwrap().employed_fraction,1.0);
+    assert_eq!(restored.get::<FacilityCrew>(facility).unwrap().work_shift.as_ref().unwrap().tick,5);
+    assert_eq!(pay_shift(&mut restored,facility,facility,5,None).unwrap_err(),"already_worked_this_tick");
+    assert_eq!(sim_core::economy::money::MoneySnapshot::capture(&mut restored,&store.contracts).total,before);
+    pool.close().await;
+}

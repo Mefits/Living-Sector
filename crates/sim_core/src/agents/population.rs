@@ -50,6 +50,7 @@ pub struct PopSentiment {
 /// Snapshot for HTTP/WS.
 #[derive(Debug, Clone, Serialize)]
 pub struct PopSnapshot {
+    pub employed_fraction: f32,
     pub id: String,
     pub label: String,
     pub demographic: String,
@@ -74,6 +75,7 @@ impl PopSnapshot {
     ) -> Self {
         let _ = demographics.growth_rate;
         Self {
+            employed_fraction: demographics.employed_fraction,
             id: identity.id.clone(),
             label: identity.label.clone(),
             demographic: identity.demographic.clone(),
@@ -286,7 +288,9 @@ pub fn tick_populations(
         // Consumption is an actual purchase from the market's owner. A
         // household without cash remains unsupplied, even with stock nearby.
         if tick % consumption_interval == 0 {
-            let mut needs: Vec<_> = consumption.into_iter().collect();
+            let mut needs: Vec<_> = consumption.into_iter()
+                .map(|(c, rate)| (c, rate * pop_size.max(0) as f32 / 1000.0))
+                .filter(|(_, amount)| *amount > 0.0).collect();
             if current_food_sat < EMERGENCY_WATER_THRESHOLD && pop_size > 0 {
                 needs.push((Commodity::Water, EMERGENCY_WATER_RATE * (pop_size as f32 / 1000.0).max(1.0)));
             }

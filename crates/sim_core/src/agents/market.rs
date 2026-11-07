@@ -266,7 +266,7 @@ fn tick_one_market(
     entity: Entity,
     _commands: &mut CommandBuffer,
     tick: u64,
-    prod_interval: u64,
+    _prod_interval: u64,
     _emerg_interval: u64,
     demand_window: u64,
     demand_warmup: u64,
@@ -296,21 +296,9 @@ fn tick_one_market(
     }
     history.last_tick = tick;
 
-    // --- 1. Production ---
-    if tick % prod_interval == 0 {
-        for (&commodity, &amount) in &flow.production {
-            *pricing.supply.entry(commodity).or_insert(0.0) += amount;
-        }
-    }
-
-    // --- 2. Consumption ---
-    if tick % prod_interval == 0 {
-        for (&commodity, &amount) in &flow.consumption.clone() {
-            let entry = pricing.supply.entry(commodity).or_insert(0.0);
-            *entry = (*entry - amount).max(0.0);
-            record_consumption(&mut flow, commodity, amount, tick);
-        }
-    }
+    // Stock changes only through native paid production, resource extraction,
+    // purchases and final consumption. Legacy seed flow maps remain readable,
+    // but cannot bypass workers, recipes or buyers by mutating supply here.
 
     // Legacy anonymous orders have neither a cash payer nor a cargo owner.
     // Do not "settle" them by mutating supply or minting spread revenue.

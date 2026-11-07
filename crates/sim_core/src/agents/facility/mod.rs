@@ -8,6 +8,7 @@
 
 mod components;
 mod restock;
+pub mod workforce;
 pub use components::*;
 
 use crate::economy::commodities::Commodity;
@@ -338,6 +339,7 @@ pub fn tick_facilities_with_relations(
     // on-screen throughput, which is acceptable since the player
     // isn't looking.
     let facility_lod_gate = build_facility_lod_gate(world, tick);
+    if tick % recipe_interval == 0 { workforce::refresh_employment(world, tick); }
 
     // Phase 1: condition degrade (every tick; cheap — one field write).
     tick_degrade_condition(world, tick_scale);
@@ -363,7 +365,7 @@ pub fn tick_facilities_with_relations(
 
     // Phase 2: self-repair (every 20×mult ticks).
     if repair_interval > 0 && tick % repair_interval == 0 {
-        tick_self_repair(world);
+        tick_self_repair(world, tick);
     }
 
     // Phase 3: abandonment check (every 10×mult ticks).
@@ -392,7 +394,7 @@ pub fn tick_facilities_with_relations(
     // tuning knob.
     let module_production_interval = MODULE_PRODUCTION_INTERVAL_BASE * mult;
     if module_production_interval > 0 && tick % module_production_interval == 0 {
-        tick_produce_modules(world);
+        tick_produce_modules(world, tick);
     }
 
     // Phase 7: post crew missions (every 100×mult ticks, probabilistic).
@@ -493,94 +495,22 @@ fn tick_dock_queue_sweep(world: &mut World) {
     }
 }
 
-fn tick_facility_crew(
-    world: &mut World,
-    events: &mut Vec<serde_json::Value>,
-    tick_scale: f32,
-    tick_multiplier: u32,
-) {
-    let interval = (FACILITY_CREW_TICK_INTERVAL_BASE * tick_multiplier as u64) as f32;
-    let hunger_delta = CREW_HUNGER_RATE_PER_TICK * interval * tick_scale;
-
-    // Need the identity/location for starving events — collect here
-    // rather than querying again later so we don't fight hecs borrows.
-    let mut q = world.query::<(
-        &FacilityIdentity,
-        &FacilityLocation,
-        &mut FacilityCrew,
-        &mut FacilityStorage,
-        &FacilityLifecycle,
-    )>();
-    for (identity, loc, mut crew, mut storage, life) in q.iter_mut(world) {
-        if life.abandoned || crew.crew_count == 0 {
-            continue;
-        }
-        let before_morale = crew.morale;
-
-        // Hunger rises uniformly per tick.
-        crew.hunger = (crew.hunger + hunger_delta).clamp(0.0, 100.0);
-
-        // Accumulate fractional food draw. Crew eats whole food units
-        // from reserves only when the debt crosses 1.0, so the integer
-        // reserves math stays clean even at 0.02/crew/tick.
-        crew.food_debt += crew.crew_count as f32 * FOOD_PER_CREW_TICK * interval;
-        while crew.food_debt >= 1.0 {
-            let food = storage.reserves.entry(Commodity::Food).or_insert(0.0);
-            if *food >= 1.0 {
-                *food -= 1.0;
-                crew.food_debt -= 1.0;
-                // Per-meal hunger relief — scaled down for large crews
-                // so 20 crew eating 20 food/tick doesn't all-clear
-                // hunger from one meal. In practice debt-driven meals
-                // at steady state keep hunger pinned near 0.
-                let relief = CREW_MEAL_HUNGER_DECREASE / (crew.crew_count as f32).max(1.0);
-                crew.hunger = (crew.hunger - relief).max(0.0);
-            } else {
-                // No food in reserves — leave debt accumulated so
-                // the next tick with food will catch up.
-                break;
+fn tick_facility_crew(world: &mut World, _events: &mut Vec<serde_json::Value>, _tick_scale: f32, _tick_multiplier: u32) {
+    // Jobs are occupied by the same residents who buy household food. Do not
+    // consume a second ration for a fictional duplicate facility population.
+    let satisfaction: std::collections::HashMap<String, f32> = world
+        .query::<(&crate::agents::population::PopIdentity, &crate::agents::population::PopSentiment)>()
+        .iter(world).map(|(id, s)| (id.id.clone(), s.food_satisfaction as f32)).collect();
+    for mut crew in world.query::<&mut FacilityCrew>().iter_mut(world) {
+        if let Some(shift) = &crew.work_shift {
+            let count: u32 = shift.workers.iter().map(|(_,n)| *n as u32).sum();
+            if count > 0 {
+                let sat = shift.workers.iter().map(|(id,n)| satisfaction.get(id).copied().unwrap_or(0.0) * *n as f32).sum::<f32>() / count as f32;
+                crew.morale = sat.clamp(0.0,100.0);
+                crew.hunger = 100.0 - crew.morale;
+                crew.food_debt = 0.0;
+                crew.dirty = true;
             }
-        }
-
-        // Morale — hungry crews decay, fed crews recover.
-        let morale_target = if crew.hunger > HUNGER_MORALE_HIT_THRESHOLD {
-            0.0
-        } else {
-            100.0
-        };
-        let rate = if morale_target < crew.morale {
-            CREW_MORALE_HUNGRY_DECAY
-        } else {
-            CREW_MORALE_RECOVERY
-        };
-        let step = rate * interval;
-        if morale_target < crew.morale {
-            crew.morale = (crew.morale - step).max(morale_target);
-        } else if morale_target > crew.morale {
-            crew.morale = (crew.morale + step).min(morale_target);
-        }
-        crew.morale = crew.morale.clamp(0.0, 100.0);
-
-        // Emit a one-shot `facility_crew_starving` event only when
-        // morale CROSSES the starving threshold going down. Tracking
-        // the prior value avoids spamming the ticker every crew-tick
-        // while morale hovers in the danger zone.
-        if before_morale > CREW_STARVING_MORALE && crew.morale <= CREW_STARVING_MORALE {
-            events.push(serde_json::json!({
-                "kind": "facility_crew_starving",
-                "facility_id": identity.id,
-                "location": loc.location_name,
-                "facility_type": identity.facility_type,
-                "crew_count": crew.crew_count,
-                "morale": crew.morale,
-            }));
-        }
-
-        let changed = (crew.morale - before_morale).abs() > f32::EPSILON
-            || crew.hunger > 0.0
-            || crew.food_debt > 0.0;
-        if changed {
-            crew.dirty = true;
         }
     }
 }
@@ -588,24 +518,18 @@ fn tick_facility_crew(
 /// Phase 2: consume one Tool to bump condition. Only if condition is
 /// already below REPAIR_THRESHOLD and reserves[Tools] > 0. Matches Elixir
 /// `facility_agent.ex:maybe_self_repair`.
-fn tick_self_repair(world: &mut World) {
-    let mut q = world.query::<(
-        &mut FacilityOperations,
-        &mut FacilityStorage,
-        &mut FacilityLifecycle,
-    )>();
-    for (mut ops, mut storage, mut life) in q.iter_mut(world) {
-        if life.abandoned || ops.condition >= CONDITION_REPAIR_THRESHOLD {
-            continue;
-        }
-        let tools = storage.reserves.get(&Commodity::Tools).copied().unwrap_or(0.0);
-        if tools < 1.0 {
-            continue;
-        }
-        *storage.reserves.entry(Commodity::Tools).or_insert(0.0) = (tools - 1.0).max(0.0);
-        ops.condition = (ops.condition + CONDITION_REPAIR_PER_TOOL).min(1.0);
-        ops.dirty = true;
-        life.dirty = true;
+fn tick_self_repair(world: &mut World, tick: u64) {
+    let mut facilities: Vec<_> = world.query::<(Entity, &FacilityIdentity, &FacilityOperations, &FacilityStorage, &FacilityLifecycle)>()
+        .iter(world).filter(|(_,_,ops,storage,life)| !life.abandoned && ops.condition < CONDITION_REPAIR_THRESHOLD
+            && storage.reserves.get(&Commodity::Tools).copied().unwrap_or(0.0) >= 1.0)
+        .map(|(e,id,_,_,_)| (id.id.clone(),e)).collect();
+    facilities.sort_by(|a,b| a.0.cmp(&b.0));
+    for (_, entity) in facilities {
+        if workforce::pay_shift(world, entity, entity, tick, Some(0)).is_err() { continue; }
+        *world.get_mut::<FacilityStorage>(entity).unwrap().reserves.entry(Commodity::Tools).or_default() -= 1.0;
+        let mut ops = world.get_mut::<FacilityOperations>(entity).unwrap();
+        ops.condition = (ops.condition + CONDITION_REPAIR_PER_TOOL).min(1.0); ops.dirty = true;
+        world.get_mut::<FacilityLifecycle>(entity).unwrap().dirty = true;
     }
 }
 
@@ -694,7 +618,7 @@ fn tick_recipes_and_mining(
         level: u8,
         abandoned: bool,
     }
-    let facilities: Vec<FacilityInfo> = {
+    let mut facilities: Vec<FacilityInfo> = {
         let mut q = world.query::<(Entity, &FacilityIdentity, &FacilityLocation, &FacilityLifecycle)>();
         q.iter(&world)
             .map(|(e, id, loc, life)| FacilityInfo {
@@ -707,6 +631,8 @@ fn tick_recipes_and_mining(
             })
             .collect()
     };
+
+    facilities.sort_by_key(|f| world.get::<FacilityIdentity>(f.entity).map(|id| id.id.clone()).unwrap_or_default());
 
     if tick % recipe_interval == 0 {
         for fac in &facilities {
@@ -745,26 +671,21 @@ fn tick_recipes_and_mining(
             // Count recipes that actually produced output — XP only grows
             // when real work happens. Elixir increments XP by the number
             // of recipes that ran successfully each cycle.
+            let Some(pricing) = world.get::<MarketPricing>(market_entity) else { continue };
+            let mut proposed = pricing.supply.clone();
+            let prices = pricing.prices.clone();
             let mut recipes_run: u32 = 0;
-            if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
-                // Bundle (H): snapshot prices for the profitability
-                // gate. Clone is cheap (HashMap<Commodity, f32>,
-                // ~13 entries) and lets us keep the mutable supply
-                // borrow below.
-                let prices_snap = pricing.prices.clone();
-                for recipe in recipes::for_facility_type(&fac.facility_type) {
-                    let produced = recipes::execute(
-                        recipe,
-                        &mut pricing.supply,
-                        output_mult,
-                        max_batches,
-                        Some(&prices_snap),
-                    );
-                    if !produced.is_empty() {
-                        recipes_run += 1;
-                    }
-                }
+            for recipe in recipes::for_facility_type(&fac.facility_type) {
+                if !recipes::execute(recipe, &mut proposed, output_mult, max_batches, Some(&prices)).is_empty() { recipes_run += 1; }
             }
+            if recipes_run == 0 {
+                if recipes::for_facility_type(&fac.facility_type).next().is_some() { workforce::blocked(world, fac.entity, "no_viable_recipe"); }
+                continue;
+            }
+            let owner = world.get::<MarketIdentity>(market_entity).unwrap().facility;
+            if workforce::pay_shift(world, fac.entity, owner, tick, None).is_err() { continue; }
+            world.get_mut::<MarketPricing>(market_entity).unwrap().supply = proposed;
+            if let Some(mut history) = world.get_mut::<crate::agents::market::MarketHistory>(market_entity) { history.dirty = true; }
             if recipes_run > 0 {
                 grant_facility_xp(world, fac.entity, recipes_run);
             }
@@ -811,21 +732,25 @@ fn tick_recipes_and_mining(
             let yield_mult = yield_fitting * crew_efficiency;
             let is_salvage = fac.facility_type == "salvage_field";
             let mut depleted: Vec<(Commodity, f32)> = Vec::new();
-            if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
-                for (commodity, richness) in body_resources {
-                    if richness <= 0.0 {
-                        continue;
-                    }
-                    let extracted = if is_salvage {
-                        let (qty, new_richness) = salvage_extraction(richness, yield_mult);
-                        depleted.push((commodity, new_richness));
-                        qty
-                    } else {
-                        MINING_YIELD_PER_CYCLE * richness * yield_mult
-                    };
-                    *pricing.supply.entry(commodity).or_insert(0.0) += extracted;
-                }
+            let Some(pricing) = world.get::<MarketPricing>(market_entity) else { continue };
+            let mut proposed = pricing.supply.clone();
+            let mut extracted_any = false;
+            let mut valid = true;
+            for (commodity, richness) in body_resources {
+                if !richness.is_finite() || richness <= 0.0 { continue; }
+                let extracted = if is_salvage {
+                    let (qty, remaining) = salvage_extraction(richness, yield_mult);
+                    depleted.push((commodity, remaining)); qty
+                } else { MINING_YIELD_PER_CYCLE * richness * yield_mult };
+                let stock = proposed.entry(commodity).or_default();
+                if !extracted.is_finite() || extracted < 0.0 || !stock.is_finite() || *stock < 0.0 || !(*stock + extracted).is_finite() { valid = false; break; }
+                *stock += extracted; extracted_any |= extracted > 0.0;
             }
+            if !valid || !extracted_any { workforce::blocked(world, fac.entity, "no_extractable_resource"); continue; }
+            let owner = world.get::<MarketIdentity>(market_entity).unwrap().facility;
+            if workforce::pay_shift(world, fac.entity, owner, tick, None).is_err() { continue; }
+            world.get_mut::<MarketPricing>(market_entity).unwrap().supply = proposed;
+            if let Some(mut history) = world.get_mut::<crate::agents::market::MarketHistory>(market_entity) { history.dirty = true; }
             // Unlike legacy mining rigs, a salvage field owns a finite
             // physical cache. Only the removed units become market supply.
             // Body orbital writes persist the reduced resource fractions.
@@ -877,7 +802,7 @@ pub fn grant_facility_xp(world: &mut World, entity: Entity, batches: u32) {
 /// per tick keeps a single shipyard from hoovering the local
 /// electronics/metals/components supply in a single phase — slower
 /// cadence, more elastic market prices, retrofit stays a scarce event.
-fn tick_produce_modules(world: &mut World) {
+fn tick_produce_modules(world: &mut World, tick: u64) {
     use crate::economy::module_production::{
         consume_inputs, inputs_available, MODULE_RECIPES, SHIPYARD_STOCK_TARGET,
     };
@@ -957,6 +882,12 @@ fn tick_produce_modules(world: &mut World) {
             None => continue,
         };
 
+        let pricing = world.get::<MarketPricing>(market_entity).unwrap();
+        let input_cost: f64 = recipe.inputs.iter().map(|(c,q)| pricing.price(*c) as f64 * *q as f64).sum();
+        if !input_cost.is_finite() || input_cost < 0.0 || input_cost.ceil() >= i64::MAX as f64 { continue; }
+        let owner = world.get::<MarketIdentity>(market_entity).unwrap().facility;
+        if workforce::pay_shift(world, yard.entity, owner, tick, Some(input_cost.ceil() as i64)).is_err() { continue; }
+        if let Some(mut history) = world.get_mut::<crate::agents::market::MarketHistory>(market_entity) { history.dirty = true; }
         // Consume inputs from the market and bump stock.
         if let Some(mut pricing) = world.get_mut::<MarketPricing>(market_entity) {
             consume_inputs(recipe, &mut pricing.supply);
@@ -1817,9 +1748,15 @@ mod tests {
             ModuleStock::default(),
         )).id();
 
+        world.get_mut::<MarketIdentity>(market_entity).unwrap().facility = shipyard_entity;
+        world.entity_mut(shipyard_entity).insert((FacilityCrew::new_for_type("shipyard"),
+            FacilityOperations { docking_capacity:10, services:vec![], condition:1.0, reputation:50,
+                credits:1000, dirty:false, starving_notified:false }));
+        workforce::tests::household(&mut world, shipyard_entity, "earth-station", "terran-authority", 100, 0);
+
         // Run the production phase — it should pick engine_t2 (first
         // under-stocked recipe whose inputs are covered) and mint 1.
-        tick_produce_modules(&mut world);
+        tick_produce_modules(&mut world, 5);
 
         let stock = world.get::<ModuleStock>(shipyard_entity).unwrap();
         assert_eq!(
@@ -1895,7 +1832,7 @@ mod tests {
             ModuleStock::default(),
         )).id();
 
-        tick_produce_modules(&mut world);
+        tick_produce_modules(&mut world, 5);
         let stock = world.get::<ModuleStock>(yard).unwrap();
         assert!(
             stock.stock.is_empty(),

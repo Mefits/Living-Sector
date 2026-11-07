@@ -447,6 +447,7 @@ pub(super) fn emit_persist_writes(
                 continue;
             }
             writes.push(DbWrite::Population {
+                employed_fraction: demo.employed_fraction,
                 db_id: pid.db_id,
                 population_count: demo.population_count,
                 overall_sentiment: sent.overall_sentiment,

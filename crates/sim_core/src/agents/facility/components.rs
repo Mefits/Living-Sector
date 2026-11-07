@@ -278,9 +278,10 @@ impl FacilityFitting {
 ///   skeleton crew keeps the lights on.
 #[derive(Debug, Clone, Component)]
 pub struct FacilityCrew {
-    /// Number of crew members. Seeded from facility type at spawn.
-    /// Doesn't change during play yet (no hiring / firing mechanic);
-    /// if we add one later, events adjust this in-place.
+    pub work_shift: Option<super::workforce::WorkShift>,
+    pub work_blocked_reason: Option<String>,
+    /// Required workers for a production shift. Residents are hired locally;
+    /// this count is jobs, not a separate population.
     pub crew_count: u16,
     /// 0..=100. Starts at 80 (cheerful open), decays when hungry.
     pub morale: f32,
@@ -327,6 +328,8 @@ impl FacilityCrew {
 
     pub fn new_for_type(facility_type: &str) -> Self {
         Self {
+            work_shift: None,
+            work_blocked_reason: None,
             crew_count: Self::default_count_for_type(facility_type),
             morale: CREW_MORALE_START,
             hunger: 0.0,
@@ -361,6 +364,10 @@ impl Default for FacilityCrew {
 /// Serialized form for DB + WS.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Default)]
 pub struct FacilityCrewSnapshot {
+    #[serde(default)]
+    pub work_shift: Option<super::workforce::WorkShift>,
+    #[serde(default)]
+    pub work_blocked_reason: Option<String>,
     pub crew_count: u16,
     pub morale: f32,
     pub hunger: f32,
@@ -371,6 +378,8 @@ pub struct FacilityCrewSnapshot {
 impl From<&FacilityCrew> for FacilityCrewSnapshot {
     fn from(c: &FacilityCrew) -> Self {
         Self {
+            work_shift: c.work_shift.clone(),
+            work_blocked_reason: c.work_blocked_reason.clone(),
             crew_count: c.crew_count,
             morale: c.morale,
             hunger: c.hunger,
@@ -382,6 +391,8 @@ impl From<&FacilityCrew> for FacilityCrewSnapshot {
 impl From<FacilityCrewSnapshot> for FacilityCrew {
     fn from(s: FacilityCrewSnapshot) -> Self {
         Self {
+            work_shift: s.work_shift,
+            work_blocked_reason: s.work_blocked_reason,
             crew_count: s.crew_count,
             morale: s.morale,
             hunger: s.hunger,
