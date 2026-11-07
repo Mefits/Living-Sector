@@ -497,6 +497,7 @@ fn build_router(state: AppState) -> Router {
         .route("/observer/styles.css", get(api::observer_styles))
         .route("/observer/app.js", get(api::observer_app_js))
         .route("/observer/model.js", get(api::observer_model_js))
+        .route("/observer/station-kit.js", get(api::observer_station_kit_js))
         .route("/ws", get(ws::handler::ws_upgrade))
         .route("/api/health", get(api::health))
         .route("/api/report", get(api::report))
