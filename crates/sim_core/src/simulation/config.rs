@@ -243,6 +243,28 @@ mod tests {
     }
 
     #[test]
+    fn speed_16x_needs_16_tps_to_keep_game_time_consistent() {
+        // A 5-unit game-time production interval must have the same
+        // effective duration, regardless of test speed.
+        for (world_speed, ticks_per_second) in [(1.0, 8), (8.0, 8), (16.0, 16)] {
+            let config = TickConfig { world_speed, ticks_per_second };
+            let ticks_per_production = 5 * config.tick_multiplier();
+            let game_seconds_per_production =
+                ticks_per_production as f32 / ticks_per_second as f32 * world_speed;
+            assert!(
+                (game_seconds_per_production - 5.0).abs() < 0.0001,
+                "{world_speed}x @ {ticks_per_second} TPS must run one production pass per 5 game-seconds"
+            );
+        }
+        // 16x at just 8 TPS would clamp the integer multiplier to 1,
+        // taking 10 game-seconds per production pass instead of 5.
+        let wrong = TickConfig { world_speed: 16.0, ticks_per_second: 8 };
+        let wrong_game_seconds = 5 * wrong.tick_multiplier();
+        assert_eq!(wrong_game_seconds, 5);
+        assert_eq!(wrong_game_seconds as f32 / 8.0 * 16.0, 10.0);
+    }
+
+    #[test]
     fn all_ship_classes_have_positive_capacity() {
         for class in SHIP_CLASSES {
             assert!(class.cargo_capacity > 0, "{} cargo_capacity must be > 0", class.name);

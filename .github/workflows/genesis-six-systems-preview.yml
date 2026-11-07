@@ -1,15 +1,19 @@
-name: Genesis Unified - Windows x64 (F4, V5, liquidity, six systems)
+name: Genesis Survival Step 1 - Windows x64
 
+# The expensive Windows distribution is a checkpoint, not a per-commit test.
+# Update this workflow at a milestone to trigger its push-only build on this branch.
 on:
   push:
-    branches: [integration/genesis-unified-20261107]
+    branches: [feature/genesis-survival-step1-20261107]
+    paths:
+      - .github/workflows/genesis-six-systems-preview.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: genesis-unified-${{ github.ref }}
+  group: genesis-survival1-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -65,7 +69,7 @@ jobs:
                 $report = Invoke-RestMethod -Uri "http://127.0.0.1:18092/api/report" -TimeoutSec 3
                 if (@($report.systems).Count -ne 6) { throw "Expected 6 systems, found $(@($report.systems).Count)" }
                 if (@($report.factions).Count -ne 3) { throw "Expected 3 factions, found $(@($report.factions).Count)" }
-                if (@($report.facilities).Count -ne 9) { throw "Expected 9 provisional structures" }
+                if (@($report.facilities).Count -ne 12) { throw "Expected 12 provisional structures including three farms" }
                 if (@($report.markets).Count -ne 3) { throw "Expected 3 local markets" }
                 if (@($report.ships).Count -ne 3) { throw "Expected 3 provisional ships" }
                 $bodyCount = 0
@@ -77,7 +81,7 @@ jobs:
                 if ($stationKit.StatusCode -ne 200 -or $stationKit.Content -notmatch "drawStationComplex") { throw "Observer V5 station-kit asset unavailable" }
                 $factionViewer = Invoke-RestMethod -Uri "http://127.0.0.1:18092/api/strategy" -TimeoutSec 5
                 if ($null -eq $factionViewer) { throw "Astra strategy API unavailable" }
-                Write-Host "PASS: F4 native, V5 Observer, six systems, 36 bodies, 3 factions, 9 provisional facilities, 3 markets, 3 ships"
+                Write-Host "PASS: F4 native, V5 Observer, six systems, 36 bodies, 3 factions, 12 provisional facilities including 3 farms"
                 $verified = $true
                 break
               } catch {
@@ -86,6 +90,23 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if (-not $verified) { throw "Six-system native smoke did not confirm the world" }
+            $allFarmsWorked = $false
+            for ($attempt=0; $attempt -lt 55; $attempt++) {
+              $report = Invoke-RestMethod "http://127.0.0.1:18092/api/report" -TimeoutSec 5
+              $farms = @($report.facilities | Where-Object { $_.type -eq "farm" })
+              if ($farms.Count -ne 3) { throw "Expected 3 native food-producing farms" }
+              $worked = @($farms | Where-Object { $_.crew.work_shift -and $_.crew.work_shift.tick -gt 0 })
+              if ($worked.Count -eq 3) {
+                foreach ($m in @($report.markets)) {
+                  if ($m.supply.food -le 0) { throw "Food starvation at $($m.facility_location) after first farm shift" }
+                }
+                $allFarmsWorked = $true
+                Write-Host "PASS: all 3 farms paid local shifts, produced real food and fed accessible markets at tick $($report.tick)"
+                break
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $allFarmsWorked) { throw "Native farms did not complete paid production shifts" }
           } finally {
             if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
           }
@@ -93,7 +114,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $root = "dist/Living-Sector-Genesis-Unified-F4-V5"
+          $root = "dist/Living-Sector-Genesis-Survival-1"
           New-Item -ItemType Directory -Path $root -Force | Out-Null
           Copy-Item "target/release/genesis_server.exe" "$root/Genesis-Server.exe"
           Copy-Item "Start-Genesis.cmd" "$root/Start-Genesis.cmd"
@@ -102,24 +123,25 @@ jobs:
           New-Item -ItemType Directory -Path "$root/priv/genesis" -Force | Out-Null
           Copy-Item "priv/genesis/data" "$root/priv/genesis/data" -Recurse
           Copy-Item "docs/living-sector/GENESIS_START_6_SYSTEMS_PREVIEW.md" "$root/START-DESIGN.md"
+          Copy-Item "docs/living-sector/GENESIS_SURVIVAL_STEP1.md" "$root/SURVIVAL-STEP1.md"
           @(
-            "LIVING SECTOR — UNIFIED GENESIS F4 + OBSERVER V5 + HOTFIX — 2026-11-07"
+            "LIVING SECTOR — SURVIVAL STEP 1: PAID FARMS + HOUSEHOLD FOOD SUPPLY — 2026-11-07"
             ""
             "1. Unpack the folder. Run Start-Genesis.cmd."
-            "2. Use the NEW isolated save genesis-six-systems-preview-v1.db. Astra execute mode runs when simulation is resumed."
+            "2. Use the NEW isolated save genesis-unified-survival-v1.db. Astra execute mode runs when simulation is resumed."
             "3. All six original star systems and 36 bodies are in this test seed. F1-F4 paid economy integrated."
             "4. Sol: Terran and outlaw Pirate bases. Alpha Centauri: Ceti Freeholds. Observer V5 modular visuals included."
-            "5. Each faction has a station and two TEMPORARY ECS facilities representing primitive extraction and refining."
+            "5. Each faction has a station and THREE TEMPORARY ECS facilities: extraction, refining and paid water-to-food farm."
             "6. Each faction has 50 residents, Food=1000, Water=1000 and one FREIGHTER PLACEHOLDER, NOT A WORKING MINER."
             "7. Preview limits: T1/T2/T3 are still visual-only; no actual slot/storage limits, no natural growth, no local station manager, no ship mining, no hull production or interstellar travel."
-            "8. Liquidity fix from PR33 and site-orbit fix PR28 included. Autonomous closed-loop start NOT YET VERIFIED."
-            "9. Future economy rules and exact design decisions: START-DESIGN.md."
+            "8. Food/water are no longer trapped by restock; fuel and tools still restock. Full long-term water self-sufficiency NOT YET VERIFIED."
+            "9. Future economy rules: START-DESIGN.md. Step 1 patch notes: SURVIVAL-STEP1.md."
             "10. Older Genesis and sim.db saves are not touched."
           ) | Set-Content "$root/README.txt" -Encoding UTF8
-          Compress-Archive -Path $root -DestinationPath "dist/Living-Sector-Genesis-Unified-F4-V5-Windows.zip" -CompressionLevel Optimal -Force
+          Compress-Archive -Path $root -DestinationPath "dist/Living-Sector-Genesis-Survival-1-Windows.zip" -CompressionLevel Optimal -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: Living-Sector-Genesis-Unified-F4-V5-Six-Systems-Windows
-          path: dist/Living-Sector-Genesis-Unified-F4-V5-Windows.zip
+          name: Living-Sector-Genesis-Survival-1-Windows
+          path: dist/Living-Sector-Genesis-Survival-1-Windows.zip
           retention-days: 14
           if-no-files-found: error

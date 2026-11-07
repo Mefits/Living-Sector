@@ -76,7 +76,13 @@
       }
     }
   ],
-  "travel_routes": [],
+  "travel_routes": [
+    {
+      "from": "alpha-station",
+      "to": "mine-ac-belt",
+      "distance": 12
+    }
+  ],
   "facilities": [
     {
       "id": "facility-alpha-station",
@@ -109,6 +115,17 @@
       "location": "alpha-station",
       "body": "proxima",
       "type": "refinery",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    },
+    {
+      "id": "facility-alpha-station-farm-module",
+      "name": "Alpha Primitive Farm (preview)",
+      "faction_id": "ceti-freeholds",
+      "location": "alpha-station",
+      "body": "proxima",
+      "type": "farm",
       "docking_capacity": 2,
       "services": [],
       "reserves": {}
@@ -155,7 +172,7 @@
     {
       "name": "Ceti 01",
       "location": "alpha-station",
-      "class": "freighter",
+      "class": "miner",
       "credits": 12000,
       "faction_id": "ceti-freeholds",
       "fitting": {
@@ -178,6 +195,13 @@
       },
       "production_commodity": null,
       "production_amount": 0
+    }
+  ],
+  "nav_sites": [
+    {
+      "name": "mine-ac-belt",
+      "type": "mining_site",
+      "body": "ac-belt"
     }
   ]
 }
