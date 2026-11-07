@@ -583,7 +583,8 @@ fn recompute_lod(
 ) -> sim_core::simulation::lod::LodStats {
     use sim_core::agents::{
         celestial_body::{BodyIdentity, BodyOrbit},
-        facility::{FacilityIdentity, FacilityLocation},
+        facility::{FacilityIdentity, FacilityLocation, FacilityOrbit,
+                   facility_orbit_position, facility_orbit_initial_angle},
         population::PopIdentity,
         ship::ShipPosition,
     };
@@ -617,17 +618,17 @@ fn recompute_lod(
     };
 
     // Facilities.
-    let facility_info: Vec<(Entity, String, String)> = {
-        let mut q = world
-            .query::<(Entity, &AgentLod, &FacilityIdentity, &FacilityLocation)>();
-        q.iter(world)
-            .map(|(e, _lod, id, _loc)| (e, id.body_id.clone(), id.id.clone()))
-            .collect()
+    let facility_info: Vec<(Entity, String, f32)> = {
+        let mut q = world.query::<(Entity, &AgentLod, &FacilityIdentity,
+            &FacilityLocation, Option<&FacilityOrbit>)>();
+        q.iter(world).map(|(e, _lod, id, loc, orbit)| (
+            e, id.body_id.clone(), orbit.map(|o| o.angle_degrees)
+                .unwrap_or_else(|| facility_orbit_initial_angle(&loc.location_name))
+        )).collect()
     };
-    for (e, body_id, fac_id) in facility_info {
+    for (e, body_id, angle) in facility_info {
         if let Some(&center) = body_pos.get(&body_id) {
-            let pos = sim_core::agents::facility::facility_offset_position(center, &fac_id);
-            pos_by_entity.insert(e, pos);
+            pos_by_entity.insert(e, facility_orbit_position(center, angle));
         }
     }
 
