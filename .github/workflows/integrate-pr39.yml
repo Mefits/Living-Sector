@@ -29,7 +29,7 @@ jobs:
           git config user.name "Living Sector integration"
           git fetch origin feature/genesis-survival-step1-20261107
           git merge --no-commit --no-ff origin/feature/genesis-survival-step1-20261107 || true
-          git diff --name-only --diff-filter=U | sort > /tmp/actual-conflicts
+          git ls-files -u | cut -f2 | sort -u > /tmp/actual-conflicts
           printf "%s\n" "crates/sim_core/src/agents/ship/behavior.rs" "crates/sim_server/src/engine/transactions/tests.rs" | sort > /tmp/expected-conflicts
           diff -u /tmp/expected-conflicts /tmp/actual-conflicts
           python3 - <<'PY'
@@ -63,7 +63,7 @@ jobs:
           s=s.replace('"facility-alpha-station",3]', '"facility-alpha-station",4]')
           p.write_text(s)
           PY
-          test -z "$(git diff --name-only --diff-filter=U)"
+          test -z "$(git ls-files -u)"
           git add -A
       - name: Observer + Genesis seed regression
         run: |
