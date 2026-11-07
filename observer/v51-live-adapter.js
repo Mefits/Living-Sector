@@ -167,6 +167,7 @@
     if(!serverMode||runtime.context)return;
     runtime.context=context;
     document.body.classList.add("v51-live");
+    const footer=$("v51FooterNote");if(footer)footer.textContent="Данные из Rust и нативного Observer. Неизвестные показатели обозначены «—».";
     const runtimeControls=$("v51LiveControls");if(runtimeControls)runtimeControls.hidden=false;
     const nativeFrame=context.nativeFrame;
     nativeFrame?.addEventListener("load",nativeSync);
