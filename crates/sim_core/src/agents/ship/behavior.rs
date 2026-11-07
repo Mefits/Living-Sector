@@ -418,6 +418,7 @@ pub(super) fn decide_and_act(
     // fetched via separate `world.get<>` calls; they're now in the
     // query as immutable refs alongside the 9 muts so the parallel
     // closure has no need to touch the World outside its own slice.
+    let construction_offers = crate::agents::construction::executor::offers(world);
     let cmd_mutex = std::sync::Mutex::new(CommandBuffer::new());
     let mut q = world.query::<(
         Entity,
@@ -552,6 +553,13 @@ pub(super) fn decide_and_act(
             }
         }
 
+        if ai.current_goal == "construct" {
+            let wanted = ai.current_bt.as_ref().and_then(crate::agents::construction::executor::target);
+            if !construction_offers.iter().any(|o| Some(o.site_id.as_str()) == wanted
+                && o.claimed_by.as_deref().is_none_or(|owner| owner == ship_id)) {
+                ai.current_bt = None;
+            }
+        }
         let needs_plan = ai.current_bt.is_none();
         // Bundle 2.2: mid-action replan check. If the current goal is
         // replan-eligible, we've been committed for the minimum dwell,
@@ -602,7 +610,7 @@ pub(super) fn decide_and_act(
                 }
                 out
             };
-            let candidate = plan_goal(
+            let mut candidate = plan_goal(
                 position,
                 cargo,
                 fuel,
@@ -626,6 +634,22 @@ pub(super) fn decide_and_act(
                 lifecycle.idle_ticks,
                 tick,
             );
+            // Construction is faction engineering duty, scored by loyalty rather
+            // than inventing a commercial reward. Biological priorities still win.
+            if economy.active_contract_id.is_none() && crate::agents::construction::executor::capable(&identity.class) {
+                if let Some(offer) = construction_offers.iter().find(|o| o.faction == ship_faction
+                    && o.claimed_by.as_deref().is_none_or(|owner| owner == ship_id)
+                    && location_to_system.get(&o.location).is_some_and(|system| Some(system) == location_to_system.get(position.location_name.as_deref().unwrap_or("")))) {
+                    let score = crate::agents::construction::executor::utility(ai.personality.loyalty);
+                    if score > candidate.score {
+                        let mut actions = vec![ShipAction::Undock];
+                        actions.extend(route_actions(position.location_name.as_deref().unwrap_or(""), &offer.location, registry, gate_pairs));
+                        actions.push(ShipAction::Dock);
+                        actions.push(ShipAction::Construct { site_id:offer.site_id.clone(), location:offer.location.clone() });
+                        candidate = ScoredGoal { name:"construct",score,bt:BtNode::sequence(actions.into_iter().map(BtNode::action).collect()) };
+                    }
+                }
+            }
             // Obligation-aware replan bar. A ship holding an active
             // contract treats it as a real commitment — the bar to
             // replace it rises by a fixed obligation weight plus a
