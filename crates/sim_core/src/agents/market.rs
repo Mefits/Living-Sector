@@ -256,6 +256,7 @@ pub fn tick_markets(
             demand_window,
             demand_warmup,
             reserve_expiry,
+            mult,
         );
     }
 }
@@ -271,6 +272,7 @@ fn tick_one_market(
     demand_window: u64,
     demand_warmup: u64,
     reserve_expiry: u64,
+    tick_multiplier: u64,
 ) {
     // Pull all the components we'll mutate. hecs's query_one_mut is ideal for
     // operating on a single entity with multiple component refs.
@@ -343,7 +345,14 @@ fn tick_one_market(
     }
     pricing.demand = new_demand;
 
-    // --- 7. Track shortage ---
+    // --- 7. Track shortage / 8. Reprice ---
+    // Price elasticity and shortage urgency were applied once per raw engine
+    // tick while production & consumption use game-time intervals. At 8 TPS,
+    // 1× applied eight repricings per game-second; 8× applied only one.
+    // Run price/shortage analysis once per normalized game-second at all
+    // speeds. All paid trades/stock movements still run on their normal tick.
+    let should_reprice = tick % tick_multiplier.max(1) == 0;
+    if should_reprice {
     let supply_snapshot: HashMap<_Commodity, f32> = pricing.supply.clone();
     let demand_snapshot: HashMap<_Commodity, f32> = pricing.demand.clone();
     let prices_snapshot: Vec<_Commodity> = pricing.prices.keys().copied().collect();
@@ -373,6 +382,7 @@ fn tick_one_market(
         })
         .collect();
     pricing.prices = new_prices.clone();
+    } // end normalized game-time repricing
 
     // Phase 20d: sample the trend ring every
     // `MARKET_TREND_SAMPLE_INTERVAL_BASE` base ticks. The price
@@ -381,7 +391,7 @@ fn tick_one_market(
     if tick.is_multiple_of(MARKET_TREND_SAMPLE_INTERVAL_BASE) {
         history.trend_samples.push_back(MarketTrendSample {
             tick,
-            prices: new_prices,
+            prices: pricing.prices.clone(),
             supply: pricing.supply.clone(),
         });
         while history.trend_samples.len() > MARKET_TREND_KEEP {
@@ -416,6 +426,26 @@ pub(crate) fn record_consumption(flow: &mut MarketFlow, commodity: _Commodity, q
         .entry(commodity)
         .or_default()
         .push((tick, qty));
+}
+
+#[cfg(test)]
+mod market_time_tests {
+    use crate::simulation::config::TickConfig;
+
+    #[test]
+    fn shortage_and_price_updates_have_same_game_time_cadence_at_all_speeds() {
+        // 16 game-seconds at each speed: exactly 16 price updates.
+        for (world_speed, ticks_per_second) in [
+            (0.25, 8), (1.0, 8), (2.0, 8), (4.0, 8),
+            (8.0, 8), (16.0, 16),
+        ] {
+            let multiplier = TickConfig { world_speed, ticks_per_second }.tick_multiplier() as u64;
+            let count = (1..=16 * multiplier)
+                .filter(|tick| tick % multiplier.max(1) == 0)
+                .count();
+            assert_eq!(count, 16, "{world_speed}x @ {ticks_per_second} TPS");
+        }
+    }
 }
 
 #[cfg(test)]
