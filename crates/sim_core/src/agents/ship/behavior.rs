@@ -53,6 +53,97 @@ use super::actions::ShipAction;
 use super::*;
 
 
+/// Physical mining opportunities: an extractor waypoint follows a
+/// real celestial body, while the receiving depot is a real faction-owned
+/// market with a cash-constrained purchaser. No station is conjured at
+/// the mining site.
+#[derive(Debug, Clone)]
+struct IceMiningSite {
+    location: String,
+    body_id: String,
+    richness: f32,
+}
+
+#[derive(Debug, Clone)]
+struct IceMiningDepot {
+    location: String,
+    faction_id: String,
+    ice_supply: f32,
+    water_supply: f32,
+}
+
+fn choose_ice_mining_trip(
+    at: &str,
+    faction: &str,
+    carried_ice: u32,
+    registry: &WorldRegistry,
+    sites: &[IceMiningSite],
+    depots: &[IceMiningDepot],
+) -> Option<ScoredGoal> {
+    let mut options = Vec::new();
+    for depot in depots.iter().filter(|d| d.faction_id == faction) {
+        for site in sites.iter().filter(|s| s.richness > 0.0 && s.richness.is_finite()) {
+            let Some(distance) = registry.travel_distance(&depot.location, &site.location)
+                .or_else(|| registry.travel_distance(&site.location, &depot.location))
+            else { continue };
+            // Don't teleport from arbitrary markets, cross systems or mine a
+            // deposit that cannot be reached from our actual position.
+            if at != depot.location && at != site.location { continue; }
+            // One cargo hold is finite; mine only while own Ice stock is
+            // low. Water scarcity increases economic utility but is never
+            // the only reason a miner can work.
+            if carried_ice == 0 && depot.ice_supply >= 600.0 { continue; }
+            let ice_urgency = (1.0 - depot.ice_supply.max(0.0) / 600.0).clamp(0.0, 1.0);
+            let water_urgency = (1.0 - depot.water_supply.max(0.0) / 2000.0).clamp(0.0, 1.0);
+            let score = if carried_ice > 0 { 70.0 }
+                else { (22.0 + 26.0 * ice_urgency + 15.0 * water_urgency)
+                    * (site.richness + 0.5).clamp(0.5, 1.2) };
+            // Mild route cost discourages distant ore while letting shortage
+            // signals dominate for otherwise equivalent choices.
+            let score = score - distance as f32 * 0.05;
+            let mut steps = Vec::new();
+            if carried_ice == 0 {
+                if at == depot.location {
+                    steps.push(BtNode::action(ShipAction::Undock));
+                    steps.push(BtNode::action(ShipAction::Travel {
+                        destination: site.location.clone(),
+                    }));
+                }
+                steps.push(BtNode::action(ShipAction::Mine {
+                    location: site.location.clone(),
+                    body_id: site.body_id.clone(),
+                    commodity: Commodity::Ice,
+                }));
+            }
+            if at == site.location || carried_ice == 0 {
+                steps.push(BtNode::action(ShipAction::Travel {
+                    destination: depot.location.clone(),
+                }));
+            }
+            steps.push(BtNode::action(ShipAction::Dock));
+            steps.push(BtNode::action(ShipAction::Sell {
+                commodity: Commodity::Ice,
+                qty: 0,
+            }));
+            steps.push(BtNode::action(ShipAction::Undock));
+            options.push((
+                score,
+                distance,
+                site.location.clone(),
+                ScoredGoal {
+                    name: if carried_ice > 0 { "deliver_mined_ice" } else { "mine_ice" },
+                    score,
+                    bt: BtNode::sequence(steps),
+                },
+            ));
+        }
+    }
+    options.sort_by(|a, b| b.0.total_cmp(&a.0)
+        .then_with(|| a.1.cmp(&b.1))
+        .then_with(|| a.2.cmp(&b.2)));
+    options.into_iter().next().map(|(_, _, _, plan)| plan)
+}
+
 /// Find the best profitable trade route from memory.
 /// Result of a successful trade-run plan — parallel shape to
 /// [`ContractCandidate`] so `plan_goal` can score the two options
@@ -262,6 +353,42 @@ pub(super) fn decide_and_act(
                 Some((name.clone(), sys.clone()))
             })
             .collect()
+    };
+
+    // Native body resources and market stocks are snapshotted before the
+    // parallel ship query. The apply phase alone commits extraction.
+    let mining_sites: Vec<IceMiningSite> = {
+        use crate::agents::celestial_body::{BodyIdentity, BodyResources};
+        let by_db: StdHashMap<i64, (String, f32)> = {
+            let mut q = world.query::<(&BodyIdentity, &BodyResources)>();
+            q.iter(world).map(|(id, res)| (
+                id.db_id,
+                (id.body_id.clone(),
+                 res.resources.get(&Commodity::Ice).copied().unwrap_or(0.0))
+            )).collect()
+        };
+        registry.locations.iter().filter_map(|(name, loc)| {
+            if loc.loc_type != "mining_site" { return None; }
+            let (body_id, richness) = by_db.get(&loc.celestial_body_id)?;
+            if name != &format!("mine-{body_id}") { return None; }
+            Some(IceMiningSite { location: name.clone(),
+                body_id: body_id.clone(), richness: *richness })
+        }).collect()
+    };
+    let mining_depots: Vec<IceMiningDepot> = {
+        use crate::agents::{
+            facility::FacilityIdentity, market::{MarketIdentity, MarketPricing}
+        };
+        let mut q = world.query::<(&MarketIdentity, &MarketPricing)>();
+        q.iter(world).filter_map(|(id, pricing)| {
+            let owner = world.get::<FacilityIdentity>(id.facility)?;
+            Some(IceMiningDepot {
+                location: id.facility_location.clone(),
+                faction_id: owner.faction_id.clone(),
+                ice_supply: pricing.supply.get(&Commodity::Ice).copied().unwrap_or(0.0),
+                water_supply: pricing.supply.get(&Commodity::Water).copied().unwrap_or(0.0),
+            })
+        }).collect()
     };
 
     // Bundle D: contested-destination snapshot. A `location_name` ends
@@ -634,6 +761,21 @@ pub(super) fn decide_and_act(
                 lifecycle.idle_ticks,
                 tick,
             );
+            // Mining is another native economic option, not a scripted
+            // faction order. Only miner-class hulls can offer it, and its
+            // score competes with contracts, refuel and crew rest.
+            if identity.class == "miner" && economy.active_contract_id.is_none() {
+                if let Some(mining) = choose_ice_mining_trip(
+                    position.location_name.as_deref().unwrap_or(""),
+                    &ship_faction,
+                    cargo.cargo.get(&Commodity::Ice).copied().unwrap_or(0),
+                    registry, &mining_sites, &mining_depots,
+                ) {
+                    if mining.score > candidate.score {
+                        candidate = mining;
+                    }
+                }
+            }
             // Construction is faction engineering duty, scored by loyalty rather
             // than inventing a commercial reward. Biological priorities still win.
             if let Some(offer) = crate::agents::construction::executor::choose(&construction_offers,
@@ -921,6 +1063,8 @@ pub fn is_replan_eligible(goal: &str) -> bool {
             | "sell_cargo"
             | "fulfill_delivery_with_retrofit"
             | "trade_run_with_retrofit"
+            | "mine_ice"
+            | "deliver_mined_ice"
     )
 }
 
