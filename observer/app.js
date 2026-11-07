@@ -1,7 +1,7 @@
 import {
   list, number, point, key, buildIndex, factionColor, factionName,
   systemByName, positionOf, approximateShipsNear, shortageCount, sortedCargo,
-  panForCursorZoom, clusterMarkers, shipSystem, worldGridStep, mapIconScale,
+  panForCursorZoom, panToFollowWorldPoint, clusterMarkers, shipSystem, worldGridStep, mapIconScale,
   groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub,
   liveEntityPoint, approachWorldPoint,
   commodityLabel, contractLabel, contractCargoLabel
@@ -1075,7 +1075,7 @@ function camera(w,h) {
   if(s.follow && s.view==="system"){
     const target=followedWorldPosition();
     if(target) {
-      s.pan={x:-(target.x-b.cx)*scale, y:(target.y-b.cy)*scale};
+      s.pan=panToFollowWorldPoint(target,b,scale);
     }
   }
   return {
