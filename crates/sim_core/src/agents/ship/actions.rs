@@ -350,7 +350,7 @@ pub(super) fn execute_ship_action(
         ShipAction::Mine { location, body_id, commodity, quantity } => {
             if let Some(status) = poll_transaction(economy, |r| matches!(r,
                 ShipTransaction::Mine { location: at, body_id: body, commodity: c, quantity: qty }
-                    if at == location && body == body_id && c == commodity && qty == quantity
+                    if at == location && body == body_id && c == commodity && *qty > 0 && qty <= quantity
             )) {
                 return status;
             }
