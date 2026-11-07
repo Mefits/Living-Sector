@@ -687,6 +687,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 /* Live shell: keep V5.1 exact layout; native Rust map is embedded as a working canvas. */
 body.v51-live .map-layer,body.v51-live .map-crosshair {display:none!important}
+body.v51-live .map-bottom .map-legend {display:none!important}
 .native-map-frame {display:none;position:absolute;inset:0;width:100%;height:100%;border:0;background:#07121d}
 body.v51-live .native-map-frame {display:block}
 body.v51-live .map-canvas {cursor:default}
@@ -1128,7 +1129,7 @@ const state = {
   ...defaults, ...saved,
   report: DEMO, isDemo: true,
   mapZoom: 0.88, mapPan: { x: 0, y: 0 },
-  selectedFacility: null, selectedShip: null,
+  selectedFacility: null, selectedShip: null, selectedBody:null, selectedSystem:null,
   factionId: null, eventFilter: 'all', eventFaction: 'all'
 };
 
@@ -1859,11 +1860,41 @@ function readShipModal() {
     ${near?`<button class="btn" data-select="${safe(near.location)}">◈ Найти связанную станцию</button>`:''}
     <div class="foot-note">Показаны сведения ships[]; модель, маршрут и ранее созданные игровые ассеты не изменяются.</div>`;
 }
+
+function readNativeBodyModal() {
+  const id=state.selectedBody;
+  const sys=arr(state.report.systems).find(x=>arr(x.bodies).some(b=>b.id===id));
+  const b=arr(sys?.bodies).find(x=>x.id===id);
+  if(!b)return emptyInfo('Тело не найдено в текущем снимке /api/report.');
+  const resources=Object.entries(b.resources||{});
+  const bodyRows=[
+    dataLine('Система',sys?.name),
+    dataLine('Тип',b.type),
+    dataLine('Орбитальный радиус',exists(b.orbit_radius)?fmt(b.orbit_radius,2):null),
+    dataLine('Период орбиты',exists(b.orbit_period)?fmt(b.orbit_period,0):null)
+  ].join('');
+  return '<div class="inspector-card-head"><div><h3>'+safe(b.name||b.id)+'</h3><p>'+
+    safe(sys?.name||'Система неизвестна')+'</p></div></div>'+
+    sectionBlock('Физическое тело',bodyRows)+
+    sectionBlock('Месторождения',resources.length?resources.map(([k,v])=>dataLine(goodName(k),fmt(v,0))).join(''):
+      emptyInfo('Ресурсы не указаны в снимке.'))+
+    '<p class="foot-note">Фактические характеристики тела из /api/report; карта и орбиты рассчитываются нативным движком.</p>';
+}
+function readNativeSystemModal() {
+  const sys=arr(state.report.systems).find(x=>x.name===state.selectedSystem);
+  if(!sys)return emptyInfo('Система не найдена в отчёте.');
+  return '<div class="inspector-card-head"><div><h3>'+safe(sys.name)+'</h3><p>Физическая система</p></div></div>'+
+    sectionBlock('Состав',dataLine('Небесные тела',fmt(arr(sys.bodies).length,0))+
+      dataLine('Смещение',Array.isArray(sys.universe_offset)?sys.universe_offset.join(', '):null))+
+    sectionBlock('Небесные тела',arr(sys.bodies).map(b=>'<div class="data-line"><span>'+safe(b.name||b.id)+
+      '</span><b>'+safe(b.type||'—')+'</b></div>').join(''));
+}
+
 /* ========== MODALS ========== */
 function openModal(type) {
-  const titles = {sector:'Сводка по сектору',balance:'Базовые коэффициенты',factions:'Главы фракций · решения',chronicle:'Хроника сектора',facility:'Карточка предприятия',ship:'Карточка корабля'};
+  const titles = {sector:'Сводка по сектору',balance:'Базовые коэффициенты',factions:'Главы фракций · решения',chronicle:'Хроника сектора',facility:'Карточка предприятия',ship:'Карточка корабля',body:'Небесное тело',system:'Звёздная система'};
   $('modalTitle').textContent = titles[type] || 'Сведения';
-  $('modal').classList.toggle('wide', ['factions','chronicle','facility','ship'].includes(type));
+  $('modal').classList.toggle('wide', ['factions','chronicle','facility','ship','body','system'].includes(type));
   let body = '';
   if (type === 'factions') {
     body=renderFactionsModal();
@@ -1873,6 +1904,10 @@ function openModal(type) {
     body=readFacilityModal();
   } else if (type === 'ship') {
     body=readShipModal();
+  } else if (type === 'body') {
+    body=readNativeBodyModal();
+  } else if (type === 'system') {
+    body=readNativeSystemModal();
   } else if (type === 'sector') {
     const st = stations();
     const pop = arr(state.report.populations).reduce((s, x) => s + val(x.count), 0);
