@@ -179,10 +179,13 @@ impl SnapshotCache {
                 body_pos.insert(id.body_id.clone(), orbit.universe_position());
             }
         }
-        let mut q = world.query::<&FacilityIdentity>();
-        for id in q.iter(&world) {
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation,
+            Option<&sim_core::agents::facility::FacilityOrbit>)>();
+        for (id, loc, orbit) in q.iter(&world) {
             let center = body_pos.get(&id.body_id).copied().unwrap_or((0.0, 0.0));
-            let pos = facility_offset_position(center, &id.id);
+            let angle = orbit.map(|v| v.angle_degrees)
+                .unwrap_or_else(|| sim_core::agents::facility::facility_orbit_initial_angle(&loc.location_name));
+            let pos = sim_core::agents::facility::facility_orbit_position(center, angle);
             self.positions.insert(id.id.clone(), pos);
         }
     }
@@ -347,12 +350,12 @@ impl SnapshotCache {
                 .get(&identity.body_id)
                 .copied()
                 .unwrap_or((0.0, 0.0));
-            // Offset from body center so co-located facilities don't stack
-            // on top of the planet or each other. Angle comes from a stable
-            // hash of the facility id so the same facility always lands at
-            // the same spot around its body. Matches the Elixir sim's
-            // `:erlang.phash2(id, 360)` offset pattern at radius 0.15.
-            let pos = facility_offset_position(body_center, &identity.id);
+            // Every module sharing a station location has one physical
+            // orbital anchor; the module sockets are local station geometry.
+            let angle = world.get::<sim_core::agents::facility::FacilityOrbit>(e)
+                .map(|v| v.angle_degrees)
+                .unwrap_or_else(|| sim_core::agents::facility::facility_orbit_initial_angle(&location.location_name));
+            let pos = sim_core::agents::facility::facility_orbit_position(body_center, angle);
             let docked_ship_ids: Vec<String> = storage
                 .docked_ships
                 .iter()

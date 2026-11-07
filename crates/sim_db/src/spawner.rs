@@ -5,7 +5,7 @@ use bevy_ecs::prelude::{Entity, World};
 use sim_core::{
     agents::{
         celestial_body::{BodyIdentity, BodyOrbit, BodyResources},
-        facility::{FacilityIdentity, FacilityLocation, FacilityOperations, FacilityStorage},
+        facility::{FacilityIdentity, FacilityLocation, FacilityOperations, FacilityStorage, FacilityOrbit},
         faction::{FactionColors, FactionData},
         market::{MarketFlow, MarketHistory, MarketIdentity, MarketOrders, MarketPricing},
         population::{PopDemographics, PopEconomy, PopIdentity, PopSentiment},
@@ -396,7 +396,7 @@ async fn load_facilities(world: &mut World, pool: &SqlitePool, store: &mut Agent
     let rows = sqlx::query(
         "SELECT id, name, facility_type, location_id, location_name, body_id, faction_id,
                 docking_capacity, services, condition, reputation, credits, reserves, docked_ships,
-                gate_paired_id, module_stock, fitting, crew_state
+                gate_paired_id, module_stock, fitting, crew_state, orbit_angle
          FROM facilities",
     )
     .fetch_all(pool)
@@ -463,6 +463,8 @@ async fn load_facilities(world: &mut World, pool: &SqlitePool, store: &mut Agent
                 dock_queue: vec![],
             },
             sim_core::agents::facility::FacilityLifecycle::new(),
+            FacilityOrbit::new(&location_name, r.try_get::<Option<f64>, _>("orbit_angle")
+                .ok().flatten().map(|v| v as f32)),
             sim_core::simulation::lod::AgentLod::new(),
         )).id();
         // Attach FacilityFitting (Phase 18e) to every non-gate
@@ -1071,7 +1073,7 @@ fn resolve_location_world_pos(
 ) -> Option<(f32, f32)> {
     use sim_core::agents::{
         celestial_body::{BodyIdentity, BodyOrbit},
-        facility::{facility_offset_position, FacilityIdentity, FacilityLocation},
+        facility::{facility_orbit_position, facility_orbit_initial_angle, FacilityIdentity, FacilityLocation, FacilityOrbit},
     };
     let loc_info = registry.locations.get(location_name)?;
     let body_db_id = loc_info.celestial_body_id;
@@ -1082,16 +1084,16 @@ fn resolve_location_world_pos(
             .find(|(id, _)| id.db_id == body_db_id)
             .map(|(_, orbit)| orbit.universe_position())?
     };
-    // If there's a facility at this location, use its offset so the ship
-    // starts at the dock rather than the body center.
-    let fac_id = {
-        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
-        q.iter(world)
-            .find(|(_, loc)| loc.location_name == location_name)
-            .map(|(id, _)| id.id.clone())
+    // Co-located station modules share one real orbital anchor. Use
+    // exactly the same phase as the live simulation / snapshots.
+    let orbit_angle = {
+        let mut q = world.query::<(&FacilityLocation, Option<&FacilityOrbit>)>();
+        q.iter(world).find(|(loc, _)| loc.location_name == location_name)
+            .map(|(_, orbit)| orbit.map(|o| o.angle_degrees)
+                .unwrap_or_else(|| facility_orbit_initial_angle(location_name)))
     };
-    Some(if let Some(id) = fac_id {
-        facility_offset_position(body_pos, &id)
+    Some(if let Some(angle) = orbit_angle {
+        facility_orbit_position(body_pos, angle)
     } else {
         body_pos
     })

@@ -676,10 +676,12 @@ fn advance_transits(
     active: &ShipLodGate,
 ) {
     use crate::agents::facility::{
-        facility_offset_position, FacilityIdentity, FacilityLocation, FacilityOperations,
+        facility_orbit_initial_angle, facility_orbit_position,
+        FacilityIdentity, FacilityLocation, FacilityOperations, FacilityOrbit,
     };
 
-    // Snapshot body positions for location→position lookups.
+    // Body orbit and station orbit move independently. Ships chase their
+    // *current* docking coordinates rather than a stale initial offset.
     let body_positions: std::collections::HashMap<i64, (f32, f32)> = {
         let mut q = world.query::<(
             &crate::agents::celestial_body::BodyIdentity,
@@ -689,49 +691,30 @@ fn advance_transits(
             .map(|(id, orbit)| (id.db_id, orbit.universe_position()))
             .collect()
     };
-
-    // Pick one "primary" facility id per location — the highest-capacity
-    // dockable facility there. Ships aim at this facility's offset
-    // position so they visually arrive at the station they'll actually
-    // try to dock at (matches the server-side `primary_dock_at_location`
-    // heuristic). The snapshot layer uses the same
-    // `facility_offset_position` function so ship and station agree on
-    // where the "dock" is.
-    //
-    // Pre-18M this picked by hecs iteration order, which at co-located
-    // clusters (earth-station has 5 facilities) would sometimes land
-    // on the farm or the refinery — ships visibly drifted to
-    // "Terra Hydroponics" even when the contract destination was the
-    // main station.
-    let mut primary_facility_by_location: std::collections::HashMap<String, (String, u32)> =
+    let mut primary_facility_by_location: std::collections::HashMap<String,(f32,u32)> =
         std::collections::HashMap::new();
     {
-        let mut q = world
-            .query::<(&FacilityIdentity, &FacilityLocation, &FacilityOperations)>();
-        for (fac_id, fac_loc, ops) in q.iter(&world) {
+        let mut q = world.query::<(
+            &FacilityIdentity, &FacilityLocation, &FacilityOperations, Option<&FacilityOrbit>
+        )>();
+        for (_identity, loc, ops, orbit) in q.iter(&world) {
             let cap = ops.docking_capacity;
-            if cap == 0 {
-                continue;
-            }
-            let entry = primary_facility_by_location
-                .entry(fac_loc.location_name.clone())
-                .or_insert_with(|| (fac_id.id.clone(), cap));
-            if cap > entry.1 {
-                *entry = (fac_id.id.clone(), cap);
-            }
+            if cap == 0 { continue; }
+            let angle = orbit.map(|o| o.angle_degrees)
+                .unwrap_or_else(|| facility_orbit_initial_angle(&loc.location_name));
+            let entry = primary_facility_by_location.entry(loc.location_name.clone())
+                .or_insert((angle,cap));
+            if cap > entry.1 { *entry = (angle,cap); }
         }
     }
-
-    let location_to_pos = |loc: &str| -> Option<(f32, f32)> {
+    let location_to_pos = |loc: &str| -> Option<(f32,f32)> {
         let info = registry.locations.get(loc)?;
-        let body_pos = body_positions.get(&info.celestial_body_id).copied()?;
-        // If there's a facility at this location, target its offset position
-        // (where the client renders the station). Otherwise fall back to
-        // body center (locations with no facility still need a position).
-        if let Some((fac_id, _)) = primary_facility_by_location.get(loc) {
-            Some(facility_offset_position(body_pos, fac_id))
+        let center = body_positions.get(&info.celestial_body_id).copied()?;
+        if let Some((angle,_)) = primary_facility_by_location.get(loc) {
+            Some(facility_orbit_position(center,*angle))
         } else {
-            Some(body_pos)
+            // Body-linked mining/navigation waypoints without facilities.
+            Some(center)
         }
     };
 

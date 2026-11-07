@@ -202,6 +202,13 @@ export function approximateShipsNear(system, ships, positions, radius) {
 
 // Preserve the world point below the cursor while the camera zoom changes.
 // Screen transform is: viewport centre + worldDelta * scale + pan.
+// Keep a chosen moving world object at the exact canvas center. This
+// affects observer panning only; server positions remain authoritative.
+export function panToFollowWorldPoint(target,bounds,scale) {
+  if(!target||!bounds||!Number.isFinite(scale)||scale<=0)return {x:0,y:0};
+  return {x:(bounds.cx-target.x)*scale, y:(target.y-bounds.cy)*scale};
+}
+
 export function panForCursorZoom(pan, cursor, viewport, oldZoom, newZoom) {
   if (!(oldZoom > 0) || !(newZoom > 0)) return {...pan};
   const ratio = newZoom / oldZoom;
