@@ -485,6 +485,10 @@ mod escrow_tests {
         board.accept(&funded, "ship".into(), 2);
         let c = board.get_mut(&funded).unwrap();
         c.renewal_count = 2;
+        let mut order=sim_core::strategy::orders::Order::new("delivery",&funded);
+        order.executor_id=Some("ship".into());order.attempt=2;order.state="executing".into();
+        c.funding.as_mut().unwrap().station_order=Some(order);
+
         c.funding.as_mut().unwrap().reserved = 150;
         c.funding.as_mut().unwrap().agreed_payment = Some(150);
         let legacy = board.post_delivery_for(

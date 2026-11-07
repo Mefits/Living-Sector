@@ -1,3 +1,10 @@
+> **A2 — приказы станции (2026-11-07):** `feature/genesis-station-orders`, [PR #43](https://github.com/Mefits/Living-Sector/pull/43).
+> Рабочая база A1: `97d6d63430a772e78ccf252b211c6db9c8078cc0`.
+> A2 `8fb0c3403872f33932174a6dd3389136dfed43e6`: адресные Rust/SQLite проверки прошли.
+> Перед продолжением читать [STATION_ORDERS.md](STATION_ORDERS.md): API, сохранения,
+> границы ядра и оставшаяся A3. Финансы отложены; Observer и релизы не менялись.
+> Исторические задания ниже не заменяют актуальный этап.
+
 > **A1 — администратор станции (2026-11-07):** `feature/genesis-station-administrator`, PR #41.
 > Проверенный A1 `7931daaa0f98dc81110979fab4903efff2494d16`; CI 42380994557 прошёл.
 > База unified `fd4e3315f5502aa4c02619b8f84629997183f422`.

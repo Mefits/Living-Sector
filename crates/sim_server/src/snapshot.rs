@@ -94,6 +94,7 @@ impl SnapshotCache {
         if let Some(strategy) = world.get_resource::<sim_core::strategy::StrategyState>() {
             if let Ok(mut snapshot) = self.strategy.write() {
                 *snapshot = strategy.snapshot(tick);
+                snapshot.orders = sim_core::strategy::orders::snapshot(world, &store.contracts);
                 snapshot.stations = world.get_resource::<sim_core::strategy::station::StationAdministration>()
                     .map(|s|s.stations.clone()).unwrap_or_default();
             }

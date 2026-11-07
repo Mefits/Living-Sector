@@ -1563,6 +1563,9 @@ async fn construction_labor_checkpoint_resumes_and_materializes_once() {
     let site=world.query::<(Entity,&ConstructionSite)>().iter(&world).next().unwrap().0;
     assert_eq!(world.get::<ConstructionSite>(site).unwrap().labor.completed,0);
     let builder=*store.ship_by_id.values().next().unwrap();
+    let mut order=sim_core::strategy::orders::Order::new("construction","site");
+    order.executor_id=Some(world.get::<ShipIdentity>(builder).unwrap().id.clone());order.attempt=1;
+    world.get_mut::<ConstructionSite>(site).unwrap().labor.station_order=Some(order.clone());
     construction_plan(&mut world,builder);
     assert_eq!(labor::work(&mut world,site,5),Ok(6));
     let (tx,rx)=tokio::sync::mpsc::channel(4); let (ft,fr)=tokio::sync::mpsc::channel(1);
@@ -1573,6 +1576,7 @@ async fn construction_labor_checkpoint_resumes_and_materializes_once() {
     let mut store=sim_db::spawner::load_agents(&mut world,&pool,&registry,&config).await.unwrap();
     let site=world.query::<(Entity,&ConstructionSite)>().iter(&world).next().unwrap().0;
     assert_eq!(world.get::<ConstructionSite>(site).unwrap().labor.completed,6);
+    assert_eq!(world.get::<ConstructionSite>(site).unwrap().labor.station_order.as_ref(),Some(&order));
     assert_eq!(labor::work(&mut world,site,5),Err("already_worked_this_tick"));
     assert_eq!(world.get::<FactionData>(store.faction_by_id["civ"]).unwrap().treasury,20144);
     assert_eq!(world.get::<PopEconomy>(*store.population_by_id.values().next().unwrap()).unwrap().total_wealth,6);
@@ -1608,4 +1612,30 @@ fn construction_plan(world: &mut World, ship: Entity) {
     world.entity_mut(ship).insert(ShipAI {personality:Personality::balanced_trader(),current_goal:"construct".into(),
         current_bt:Some(BtNode::action(ShipAction::Construct {site_id:"site".into(),location:"port".into()})),
         current_goal_score:40.0,last_plan_tick:0});
+}
+
+#[test]
+fn station_order_native_accept_buy_deliver_rejects_second_executor() {
+    use sim_core::strategy::orders::Order;
+    use sim_core::economy::{contracts::FundingSource,money::MoneySnapshot};
+    let mut f=Fixture::new(100.,100.);
+    let id=f.store.contracts.post_delivery_for("station".into(),Some("haulers".into()),Commodity::Ore,10,"port".into(),"port".into(),120,0,1000);
+    f.store.contracts.register_prepaid(&id,FundingSource::Facility);
+    let mut order=Order::new("delivery",&id);order.executor_id=Some("ship-0".into());order.attempt=1;
+    f.store.contracts.get_mut(&id).unwrap().funding.as_mut().unwrap().station_order=Some(order);
+    let total=MoneySnapshot::capture(&mut f.world,&f.store.contracts).total;
+    let [a,b]=f.ships;
+    let req=f.submit(b,ShipTransaction::Accept{contract_id:id.clone()});f.apply(b,req);
+    assert_eq!(f.result(b),Err("station_order_assigned_elsewhere"));
+    let req=f.submit(a,ShipTransaction::Accept{contract_id:id.clone()});f.apply(a,req);assert_eq!(f.result(a),Ok(()));
+    f.world.get_mut::<ShipEconomy>(a).unwrap().transaction.pending=None;
+    let req=f.submit(a,ShipTransaction::Buy{location:"port".into(),commodity:Commodity::Ore,quantity:10,max_unit_price:100.});
+    f.apply(a,req);assert_eq!(f.result(a),Ok(()));
+    f.world.get_mut::<ShipEconomy>(a).unwrap().transaction.pending=None;
+    let req=f.submit(a,ShipTransaction::Deliver{contract_id:id.clone()});f.apply(a,req);assert_eq!(f.result(a),Ok(()));
+    assert_eq!(f.store.contracts.get(&id).unwrap().status,ContractStatus::Paid);
+    assert_eq!(f.world.get::<ShipCargo>(a).unwrap().used(),0);
+    assert_eq!(MoneySnapshot::capture(&mut f.world,&f.store.contracts).total,total);
+    let view=sim_core::strategy::orders::snapshot(&mut f.world,&f.store.contracts);
+    assert_eq!(view[0].order.state,"completed");assert_eq!(view[0].completed_quantity,10);
 }
