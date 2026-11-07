@@ -541,9 +541,11 @@ function innerFocusRadius(sys) {
   const radii=sys.bodies.map(b=>number(b.orbit_radius))
     .filter(r=>Number.isFinite(r)&&r>0);
   const outer=Math.max(0,...radii);
-  // Starter orbits were physically doubled; keep the inner Sol preset
-  // framing Earth, belt and Jupiter instead of cropping Jupiter away.
-  return Math.max(6,Math.min(12.6,outer*.67));
+  // Keep inner-view world scale comparable to the original system, so
+  // doubled physical distances actually LOOK doubled on screen instead
+  // of silently zooming out to the same crowded fit.
+  // Farther planets remain reachable through "Вся система"/pan/zoom.
+  return Math.max(4,Math.min(7,outer*.31));
 }
 function refreshCameraFocusControls() {
   const system = s.view === "system" && systemByName(s.systemName,s.index);
@@ -556,7 +558,7 @@ function refreshCameraFocusControls() {
   els.focusInnerBtn.setAttribute("aria-pressed",String(inner));
   els.focusFullBtn.setAttribute("aria-pressed",String(!inner));
   els.focusCaption.textContent=inner
-    ? "Земля · пояс · Юпитер. Дальние узлы — во всей системе"
+    ? "Ближние планеты · пояс. Юпитер и дальние орбиты — во всей системе"
     : "Все планеты и дальние узлы системы";
 }
 function setCameraFocus(mode) {
