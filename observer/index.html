@@ -70,7 +70,8 @@
           <label class="toggle"><input id="modules-toggle" type="checkbox" checked> Сооружения</label>
           <label class="toggle"><input id="links-toggle" type="checkbox" checked> Врата</label>
           <label class="toggle"><input id="labels-toggle" type="checkbox" checked> Подписи</label>
-          <button id="fit-btn" class="small-button" title="Сброс масштаба и сдвига">Сброс вида</button>
+          <button id="follow-btn" class="small-button" title="Зафиксировать камеру на выбранной планете, станции или корабле" disabled aria-pressed="false">Следить за объектом</button>
+          <button id="fit-btn" class="small-button" title="Отключить слежение, сбросить масштаб и сдвиг">Сброс вида</button>
         </div>
       </div>
       <div id="canvas-holder" class="canvas-holder">
@@ -87,7 +88,7 @@
           <p class="guide-note">Состояние симуляции показано сверху. Для спокойного осмотра можно нажать «Пауза».</p>
         </div>
         <div class="map-legend" aria-label="Условные обозначения"><span><i class="legend-body"></i> Планеты</span><span><i class="legend-major"></i> Крупный хаб</span><span><i class="legend-module legend-extract"></i> Добыча</span><span><i class="legend-module legend-processing"></i> Переработка</span><span><i class="legend-module legend-logistics"></i> Логистика</span><span><i class="legend-site"></i> Стройка</span><span><i class="legend-ship"></i> Корабль</span></div>
-        <div class="map-help">Соседние значки сооружений — условная раскладка в одном хабе · Клик по объекту — подробности</div>
+        <div class="map-help">Станции движутся по собственным орбитам · Выбери объект и нажми «Следить» (или дважды щёлкни) · Перетаскивание освобождает камеру</div>
       </div>
     </section>
 
