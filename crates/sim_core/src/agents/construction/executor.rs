@@ -38,6 +38,17 @@ pub fn present(world: &mut World, site: &ConstructionSite) -> Option<String> {
 
 #[derive(Clone)]
 pub struct Offer { pub site_id:String, pub location:String, pub faction:String, pub claimed_by:Option<String> }
+/// Compare a viable local-system assignment with the current best utility option.
+#[allow(clippy::too_many_arguments)]
+pub fn choose<'a>(offers: &'a [Offer], ship: &str, faction: &str, class: &str,
+    location: Option<&str>, systems: &std::collections::HashMap<String,String>,
+    loyalty: f32, competing_score: f32, committed: bool) -> Option<&'a Offer> {
+    if committed || !capable(class) || utility(loyalty) <= competing_score { return None; }
+    let system=systems.get(location?)?;
+    offers.iter().find(|o| o.faction==faction && systems.get(&o.location)==Some(system)
+        && o.claimed_by.as_deref().is_none_or(|owner|owner==ship))
+}
+
 pub fn offers(world: &mut World) -> Vec<Offer> {
     let mut claims=std::collections::HashMap::<String,String>::new();
     for (id,ai) in world.query::<(&ShipIdentity,&ShipAI)>().iter(world) {
@@ -80,5 +91,23 @@ pub(crate) mod tests {
         w.get_mut::<ShipAI>(ship).unwrap().current_bt=Some(BtNode::sequence(vec![BtNode::action(ShipAction::Dock),
             BtNode::action(ShipAction::Construct {site_id:"site".into(),location:"port".into()})]));
         assert_eq!(present(&mut w,&site),None,"planned work is not actual attendance");
+    }
+}
+
+#[cfg(test)]
+mod choice_tests {
+    use super::*;
+    #[test]
+    fn construction_executor_competes_with_options_and_respects_commitment() {
+        let mut offers=vec![Offer {site_id:"site".into(),location:"port".into(),faction:"civ".into(),claimed_by:None}];
+        let systems=[("source".into(),"sol".into()),("port".into(),"sol".into())].into();
+        assert!(choose(&offers,"ship","civ","freighter",Some("source"),&systems,0.8,10.0,false).is_some());
+        assert!(choose(&offers,"ship","civ","freighter",Some("source"),&systems,0.8,90.0,false).is_none());
+        assert!(choose(&offers,"ship","civ","freighter",Some("source"),&systems,0.8,10.0,true).is_none());
+        assert!(choose(&offers,"ship","civ","courier",Some("source"),&systems,0.8,10.0,false).is_none());
+        assert!(choose(&offers,"ship","other","freighter",Some("source"),&systems,0.8,10.0,false).is_none());
+        assert!(choose(&offers,"ship","civ","freighter",None,&systems,0.8,10.0,false).is_none());
+        offers[0].claimed_by=Some("another".into());
+        assert!(choose(&offers,"ship","civ","freighter",Some("source"),&systems,0.8,10.0,false).is_none());
     }
 }

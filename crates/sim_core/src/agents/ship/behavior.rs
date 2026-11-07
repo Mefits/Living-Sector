@@ -636,19 +636,15 @@ pub(super) fn decide_and_act(
             );
             // Construction is faction engineering duty, scored by loyalty rather
             // than inventing a commercial reward. Biological priorities still win.
-            if economy.active_contract_id.is_none() && crate::agents::construction::executor::capable(&identity.class) {
-                if let Some(offer) = construction_offers.iter().find(|o| o.faction == ship_faction
-                    && o.claimed_by.as_deref().is_none_or(|owner| owner == ship_id)
-                    && location_to_system.get(&o.location).is_some_and(|system| Some(system) == location_to_system.get(position.location_name.as_deref().unwrap_or("")))) {
-                    let score = crate::agents::construction::executor::utility(ai.personality.loyalty);
-                    if score > candidate.score {
-                        let mut actions = vec![ShipAction::Undock];
-                        actions.extend(route_actions(position.location_name.as_deref().unwrap_or(""), &offer.location, registry, gate_pairs));
-                        actions.push(ShipAction::Dock);
-                        actions.push(ShipAction::Construct { site_id:offer.site_id.clone(), location:offer.location.clone() });
-                        candidate = ScoredGoal { name:"construct",score,bt:BtNode::sequence(actions.into_iter().map(BtNode::action).collect()) };
-                    }
-                }
+            if let Some(offer) = crate::agents::construction::executor::choose(&construction_offers,
+                &ship_id, &ship_faction, &identity.class, position.location_name.as_deref(),
+                &location_to_system, ai.personality.loyalty, candidate.score, economy.active_contract_id.is_some()) {
+                let mut actions = vec![ShipAction::Undock];
+                actions.extend(route_actions(position.location_name.as_deref().unwrap(), &offer.location, registry, gate_pairs));
+                actions.push(ShipAction::Dock);
+                actions.push(ShipAction::Construct { site_id:offer.site_id.clone(), location:offer.location.clone() });
+                candidate = ScoredGoal { name:"construct",score:crate::agents::construction::executor::utility(ai.personality.loyalty),
+                    bt:BtNode::sequence(actions.into_iter().map(BtNode::action).collect()) };
             }
             // Obligation-aware replan bar. A ship holding an active
             // contract treats it as a real commitment — the bar to
