@@ -1,3 +1,10 @@
+> **Актуальный F2 (2026-11-07):** `feature/genesis-paid-production`, [PR #29](https://github.com/Mefits/Living-Sector/pull/29).
+> Проверенный SHA `c8cdf69dd94eb42963529f5e2c404ccd984d1936`; CI 42316233684 прошёл.
+> Native производство оплачивает труд существующего населения. На тике 41
+> в коротком запуске работали 10 предприятий обеих фракций.
+> [Правила, API, совместимость и границы](economy/F2_PAID_PRODUCTION.md).
+> Следующий блок — строительный труд. Ниже сохранена история F1/S7/S4.
+
 ## F1 — реальные денежные расчёты, 2026-11-06
 
 Ветка `feature/genesis-economy-foundation`, [PR #25](https://github.com/Mefits/Living-Sector/pull/25),

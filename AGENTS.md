@@ -1,3 +1,10 @@
+> **Current F2 (2026-11-07):** `feature/genesis-paid-production`, PR #29.
+> Verified code `c8cdf69dd94eb42963529f5e2c404ccd984d1936`, CI 42316233684 passed.
+> Read `docs/living-sector/economy/F2_PAID_PRODUCTION.md` first: paid native
+> production, workforce API, old-save behavior and parallel ownership boundaries.
+> Next block: construction labor, not another general economy audit.
+> Earlier S4/F1 base instructions below are historical, not the current core base.
+
 > **Current economic block F1 (2026-11-06):** `feature/genesis-economy-foundation`, PR #25,
 > based on S7 `31f29e719e8d734e6780e331acfe732cd3098c62`.
 > Read `docs/living-sector/economy/F1_ECONOMY_FOUNDATION.md` and the latest STATUS
@@ -22,7 +29,7 @@ This repository is a **fork of [Kalcode/spaceprojectsim](https://github.com/Kalc
 - **Do not replace the existing Rust/Bevy simulator with Godot/C#/TypeScript.** The possibility of a future personal-scale mode does not authorize a rewrite.
 - Do not start implementing features or updating upstream code without a concrete task.
 - Preserve compatibility with the original fork when reasonable; prefer isolated modules, clear interfaces, and small changes.
-- Main stays close to upstream. For core continuation use the pinned S4 base in HANDOFF.md; for independent Observer work use the pinned S1 base in PARALLEL_DEVELOPMENT.md. Never force-push, rewrite history or merge open PRs without instruction.
+- Main stays close to upstream. For core continuation use the latest verified base at the top of HANDOFF.md; for independent Observer work use the pinned S1 base in PARALLEL_DEVELOPMENT.md. Never force-push, rewrite history or merge open PRs without instruction.
 - Preserve the original MIT LICENSE and attribution. Avoid secrets, paid services, telemetry, unrequested publishing or unrelated refactors.
 - Prefer the smallest relevant Rust check, e.g. `cargo check -p sim_core` / `cargo test -p sim_core`. Run full checks for integration changes when a tool environment is available.
 - Minimize AI/Codex context cost: limit inspected files and log output to the affected modules. Do not claim tests passed if you did not run them.
