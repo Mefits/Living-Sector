@@ -1866,9 +1866,17 @@ function wireControls() {
   els.pauseBtn.addEventListener("click",()=>control(
     s.health?.running?"/api/sim/pause":"/api/sim/resume",{}
   ));
-  els.speedSelect.addEventListener("change",()=>control("/api/sim/speed",{
-    world_speed:Number(els.speedSelect.value)
-  }));
+  els.speedSelect.addEventListener("change",()=> {
+    const worldSpeed = Number(els.speedSelect.value);
+    // >8x requires a higher tick cadence: at 8 TPS the integer interval
+    // multiplier bottoms out at 1, leaving production/consumption running
+    // at 8x while physics uses 16x. 16 TPS keeps one time-unit per tick.
+    const ticksPerSecond = worldSpeed > 8 ? 16 : 8;
+    control("/api/sim/speed",{
+      world_speed:worldSpeed,
+      ticks_per_second:ticksPerSecond
+    });
+  });
   els.sectorTab.addEventListener("click",sectorMode);
   els.systemTab.addEventListener("click",()=>{if(s.systemName)chooseSystem(s.systemName,true);});
   els.fitBtn.addEventListener("click",resetCamera);
