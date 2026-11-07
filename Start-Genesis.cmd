@@ -36,13 +36,13 @@ if not errorlevel 1 (
 
 set "BIND_ADDR=127.0.0.1:8080"
 set "DATA_DIR=%~dp0priv\genesis\data"
-set "DATABASE_PATH=%~dp0genesis-six-systems-preview-v1.db"
+set "DATABASE_PATH=%~dp0genesis-mining-pilot-v1.db"
 set "LIVING_SECTOR_UI_DIR=%~dp0observer"
 set "WORLD_SPEED=1.0"
 set "LIVING_SECTOR_STRATEGY_MODE=execute"
 
-echo Living Sector UNIFIED: Astra F4, paid economy, Observer V5, 6 systems.
-echo Database: genesis-six-systems-preview-v1.db. Older saves remain untouched.
+echo Living Sector MINING PILOT: paid farms, 3 native ice miners, Observer V5.
+echo Database: genesis-mining-pilot-v1.db. Older saves remain untouched.
 echo Use Ctrl+C in the Genesis Server console for a graceful save.
 start "Living Sector - Genesis Core" /D "%~dp0" "%~dp0Genesis-Server.exe"
 

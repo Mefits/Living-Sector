@@ -10,9 +10,9 @@ function seed(name) {
   return {facilities:world.facilities,markets:world.markets.map(m=>({...m,facility_location:m.facility_id}))};
 }
 for(const [world,location,stationId,expectedCount] of [
-  ["sol","earth-station","facility-earth-station",3],
-  ["sol","pirate-outpost","facility-pirate-station",3],
-  ["alpha_centauri","alpha-station","facility-alpha-station",3]
+  ["sol","earth-station","facility-earth-station",4],
+  ["sol","pirate-outpost","facility-pirate-station",4],
+  ["alpha_centauri","alpha-station","facility-alpha-station",4]
 ]) {
   test("seed station: "+location,()=>{
     const economy=stationEconomy(seed(world),location);

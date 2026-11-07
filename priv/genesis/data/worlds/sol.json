@@ -180,7 +180,18 @@
       }
     }
   ],
-  "travel_routes": [],
+  "travel_routes": [
+    {
+      "from": "earth-station",
+      "to": "mine-near-earth",
+      "distance": 12
+    },
+    {
+      "from": "pirate-outpost",
+      "to": "mine-callisto",
+      "distance": 18
+    }
+  ],
   "facilities": [
     {
       "id": "facility-earth-station",
@@ -248,6 +259,28 @@
       "location": "pirate-outpost",
       "body": "jupiter",
       "type": "refinery",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    },
+    {
+      "id": "facility-earth-station-farm-module",
+      "name": "Genesis Primitive Farm (preview)",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "farm",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    },
+    {
+      "id": "facility-pirate-outpost-farm-module",
+      "name": "Pirate Primitive Farm (preview)",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "jupiter",
+      "type": "farm",
       "docking_capacity": 2,
       "services": [],
       "reserves": {}
@@ -329,7 +362,7 @@
     {
       "name": "Terran 01",
       "location": "earth-station",
-      "class": "freighter",
+      "class": "miner",
       "credits": 12000,
       "faction_id": "terran-authority",
       "fitting": {
@@ -339,7 +372,7 @@
     {
       "name": "Raider 01",
       "location": "pirate-outpost",
-      "class": "freighter",
+      "class": "miner",
       "credits": 12000,
       "faction_id": "pirates",
       "fitting": {
@@ -377,6 +410,18 @@
       },
       "production_commodity": null,
       "production_amount": 0
+    }
+  ],
+  "nav_sites": [
+    {
+      "name": "mine-near-earth",
+      "type": "mining_site",
+      "body": "near-earth"
+    },
+    {
+      "name": "mine-callisto",
+      "type": "mining_site",
+      "body": "callisto"
     }
   ]
 }
