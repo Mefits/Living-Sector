@@ -209,7 +209,7 @@ test("regression: no hidden parked ships or fake circular vessel placement in ma
 test("UI ids referenced by the code exist in the actual HTML", async () => {
   const { readFileSync } = await import("node:fs");
   const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./native.html", import.meta.url), "utf8");
   const match = app.match(/const els = Object\.fromEntries\(\[([\s\S]*?)\]\.map/);
   assert.ok(match, "UI id binding block should be present");
   const ids = [...match[1].matchAll(/"([a-z][a-z0-9-]+)"/g)].map(m => m[1]);
@@ -232,7 +232,7 @@ test("follow-camera recentering tracks any moving world object without screen dr
 test("physical station marker stays at server location, never reflows around planets",async()=>{
   const {readFileSync}=await import("node:fs");
   const app=readFileSync(new URL("./app.js",import.meta.url),"utf8");
-  const html=readFileSync(new URL("./index.html",import.meta.url),"utf8");
+  const html=readFileSync(new URL("./native.html",import.meta.url),"utf8");
   assert.ok(app.includes("const at=actual;"),"complex must stay on physical position");
   assert.ok(app.includes("followSelectedObject()"));
   assert.ok(app.includes("if(s.follow)stopFollowing()"));

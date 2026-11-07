@@ -1,0 +1,31 @@
+name: Observer V5.1 live shell integration
+on:
+  push:
+    branches: [feature/observer-v51-live-shell-20261108]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ui:
+    name: V5.1 default shell, native map and API adapter
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate real V5.1 and all native Observer regression tests
+        run: |
+          node --check observer/app.js
+          node --check observer/v51-live-adapter.js
+          node observer/build-strategy.mjs --check
+          node observer/build-telemetry.mjs --check
+          node --test observer/*.test.mjs tests/genesis-physical-orbits.test.mjs
+      - name: Export all UI files for a complete preview
+        run: tar -czf observer-v51-live-files.tar.gz observer/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Observer-V51-live-sources
+          path: observer-v51-live-files.tar.gz
+          retention-days: 3

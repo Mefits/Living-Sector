@@ -3123,3 +3123,48 @@ window.setInterval(fetchReport,18000);
 window.setInterval(fetchHealth,2500);
 window.setInterval(()=>{refreshToolbar();renderInspector();},2200);
 window.addEventListener("beforeunload",()=>s.ws?.close());
+
+/* V5.1 map bridge. This is an optional display-only integration: native engine,
+   textures, orbital navigation and the original Observer remain unchanged. */
+(function installV51MapBridge() {
+  function syncSelection(){
+    if(window.parent===window)return;
+    const selected=s.selection||null;
+    const key=JSON.stringify(selected);
+    if(key===syncSelection.previous)return;
+    syncSelection.previous=key;
+    window.parent.postMessage({type:"living-sector-native-selection",selection:selected},location.origin);
+  }
+  const select=(type,id)=>{
+    const item=type==="ship"?list(s.report?.ships).find(x=>x.id===id):
+      list(s.report?.facilities).find(x=>x.id===id);
+    if(!item)return false;
+    const knownBodies=s.index?.systems||[];
+    const bodyId=item.body_id??item.body;
+    const target=knownBodies.find(sys=>list(sys.bodies).some(b=>b.id===bodyId));
+    if(target)chooseSystem(target.name,true);
+    s.selection={type,id};s.guideDismissed=true;
+    renderInspector();refreshToolbar();updateFollowButton();
+    syncSelection();return true;
+  };
+  window.__livingSectorNativeBridge={
+    getState:()=>({view:s.view,systemName:s.systemName,selection:s.selection,events:s.events,
+      tick:s.report?.tick,health:s.health}),
+    selectStation:location=>{
+      const facility=list(s.report?.facilities).find(f=>f.type==="station"&&f.location===location);
+      return facility?select("facility",facility.id):false;
+    },
+    selectFacility:id=>select("facility",id),
+    selectShip:id=>select("ship",id),
+    reset:()=>{resetCamera();syncSelection();},
+    zoom:ratio=>{
+      if(!Number.isFinite(ratio)||ratio<=0)return;
+      const rect=els.map.getBoundingClientRect();
+      changeZoomAt({x:rect.width/2,y:rect.height/2},ratio);
+    },
+    sector:()=>sectorMode(),
+    system:name=>chooseSystem(name,true),
+    follow:()=>{if(s.follow)stopFollowing();else followSelectedObject();}
+  };
+  if(window.parent!==window)window.setInterval(syncSelection,450);
+})();
