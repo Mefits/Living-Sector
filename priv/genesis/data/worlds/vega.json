@@ -3,8 +3,8 @@
     "id": "system-vega",
     "name": "Vega",
     "universe_offset": [
-      60,
-      -30
+      120,
+      -60
     ],
     "star_type": "A"
   },
@@ -13,7 +13,7 @@
       "id": "veritas",
       "name": "Veritas",
       "type": "planet",
-      "orbit_radius": 0.8,
+      "orbit_radius": 1.6,
       "orbit_period": 260,
       "current_angle": 30,
       "biome": "temperate",
@@ -26,7 +26,7 @@
       "id": "orison",
       "name": "Orison",
       "type": "planet",
-      "orbit_radius": 1.5,
+      "orbit_radius": 3,
       "orbit_period": 500,
       "current_angle": 190,
       "biome": "desert",
@@ -39,7 +39,7 @@
       "id": "vega-rim-belt",
       "name": "Vega Rim Belt",
       "type": "belt",
-      "orbit_radius": 2.4,
+      "orbit_radius": 4.8,
       "orbit_period": 900,
       "current_angle": 60,
       "biome": "asteroid",
@@ -53,7 +53,7 @@
       "id": "vega-ice-field",
       "name": "Vega Ice Field",
       "type": "asteroid",
-      "orbit_radius": 3.2,
+      "orbit_radius": 6.4,
       "orbit_period": 1300,
       "current_angle": 270,
       "biome": "ice",

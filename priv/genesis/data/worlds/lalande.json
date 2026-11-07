@@ -3,8 +3,8 @@
     "id": "system-lalande",
     "name": "Lalande",
     "universe_offset": [
-      80,
-      -45
+      160,
+      -90
     ],
     "star_type": "M"
   },
@@ -13,7 +13,7 @@
       "id": "kinship",
       "name": "Kinship",
       "type": "planet",
-      "orbit_radius": 0.9,
+      "orbit_radius": 1.8,
       "orbit_period": 280,
       "current_angle": 110,
       "biome": "temperate",
@@ -26,7 +26,7 @@
       "id": "lalande-belt",
       "name": "Lalande Belt",
       "type": "belt",
-      "orbit_radius": 1.8,
+      "orbit_radius": 3.6,
       "orbit_period": 650,
       "current_angle": 40,
       "biome": "asteroid",
@@ -39,7 +39,7 @@
       "id": "lalande-outer",
       "name": "Lalande Outer",
       "type": "planet",
-      "orbit_radius": 3,
+      "orbit_radius": 6,
       "orbit_period": 1150,
       "current_angle": 220,
       "biome": "gas",
@@ -52,7 +52,7 @@
       "id": "lalande-drift",
       "name": "Lalande Drift",
       "type": "asteroid",
-      "orbit_radius": 2.5,
+      "orbit_radius": 5,
       "orbit_period": 950,
       "current_angle": 330,
       "biome": "asteroid",

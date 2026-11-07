@@ -59,6 +59,9 @@ select.control-button{min-width:72px}
 .toggle{display:flex;align-items:center;gap:4px;font-size:11px;color:#a6bac7;white-space:nowrap}
 .toggle input{accent-color:var(--accent)}
 .small-button{font-size:11px;padding:5px 9px}
+.small-button.following{border-color:#86c9bd;color:#c1f4e6;background:#17403f;box-shadow:inset 0 0 0 1px #4c9e9133}
+.small-button:disabled{opacity:.48;cursor:default}
+
 .canvas-holder{position:relative;flex:1;min-height:0;overflow:hidden;background:radial-gradient(ellipse at 48% 45%,#11202c 0,#0a121b 50%,#070c12 100%)}
 canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
 canvas.grabbing{cursor:grabbing}
