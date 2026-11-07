@@ -307,6 +307,27 @@ fn buy(
     Ok((quantity as f32, cost))
 }
 
+/// Largest payable portion of one sale, using the same floor rounding as
+/// the actual settlement. A buyer never borrows or creates money. This only
+/// scales the quantity of an otherwise valid transaction.
+fn affordable_sale_quantity(requested: u32, unit_price: f32, buyer_cash: i64) -> u32 {
+    if requested == 0 || buyer_cash <= 0 || !unit_price.is_finite() || unit_price <= 0.0 {
+        return 0;
+    }
+    let mut low = 0_u32;
+    let mut high = requested;
+    while low < high {
+        let middle = low + (high - low + 1) / 2;
+        let payment = (unit_price as f64 * middle as f64).floor();
+        if payment >= 1.0 && payment < i64::MAX as f64 && payment <= buyer_cash as f64 {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    low
+}
+
 /// The market operator buys inventory with its own cash. No order-book
 /// placeholder, faction treasury, or other station is an implicit guarantor.
 fn sell(
@@ -328,16 +349,21 @@ fn sell(
         return Err("invalid_or_changed_price");
     }
     let stock = pricing.supply.get(&commodity).copied().unwrap_or(0.0);
-    let after = stock + quantity as f32;
-    if !stock.is_finite() || stock < 0.0 || !after.is_finite()
-        || after - stock != quantity as f32 { return Err("invalid_destination_stock"); }
     let cargo = world.get::<ShipCargo>(ship).ok_or("missing_cargo")?;
     let have = cargo.cargo.get(&commodity).copied().unwrap_or(0);
     if quantity == 0 || quantity > (1 << 24) || have < quantity { return Err("insufficient_cargo"); }
-    let value = (price as f64 * quantity as f64).floor();
+    let buyer_cash = world.get::<FacilityOperations>(buyer).ok_or("missing_buyer_economy")?.credits;
+    // A real market operator can buy only what its cash covers. Full
+    // quantities still settle as before, while a partial fill leaves
+    // the rest in the ship's hold for a later market/transaction.
+    let sold = affordable_sale_quantity(quantity, price, buyer_cash);
+    if sold == 0 { return Err("insufficient_buyer_credits"); }
+    let after = stock + sold as f32;
+    if !stock.is_finite() || stock < 0.0 || !after.is_finite()
+        || after - stock != sold as f32 { return Err("invalid_destination_stock"); }
+    let value = (price as f64 * sold as f64).floor();
     if value < 1.0 || value >= i64::MAX as f64 { return Err("invalid_payment"); }
     let payment = value as i64;
-    let buyer_cash = world.get::<FacilityOperations>(buyer).ok_or("missing_buyer_economy")?.credits;
     if buyer_cash < payment { return Err("insufficient_buyer_credits"); }
     let ship_cash = world.get::<ShipEconomy>(ship).ok_or("missing_economy")?.credits
         .checked_add(payment).ok_or("credit_overflow")?;
@@ -349,26 +375,26 @@ fn sell(
     ops.dirty = true;
     world.get_mut::<MarketPricing>(market).unwrap().supply.insert(commodity, after);
     let mut cargo = world.get_mut::<ShipCargo>(ship).unwrap();
-    if have == quantity {
+    if have == sold {
         cargo.cargo.remove(&commodity);
         cargo.cargo_age.remove(&commodity);
         cargo.cargo_origin.remove(&commodity);
-    } else { cargo.cargo.insert(commodity, have - quantity); }
-    if have == quantity {
+    } else { cargo.cargo.insert(commodity, have - sold); }
+    if have == sold {
         if let (Some((origin, cost)), Some(mut memory)) =
             (origin, world.get_mut::<sim_core::agents::ship::ShipMemory>(ship)) {
             if origin != location {
                 memory.route_performance.entry((origin, location.into(), commodity))
-                    .or_default().record(payment as f32 / quantity as f32 - cost);
+                    .or_default().record(payment as f32 / sold as f32 - cost);
             }
         }
     }
     if let Some(mut history) = world.get_mut::<MarketHistory>(market) {
-        *history.trade_volume.entry(commodity).or_default() += quantity as f32;
+        *history.trade_volume.entry(commodity).or_default() += sold as f32;
         history.dirty = true;
     }
     crew_success(world, ship, CrewTask::Unloading, false);
-    Ok((quantity as f32, payment))
+    Ok((sold as f32, payment))
 }
 
 fn refuel(

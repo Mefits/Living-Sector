@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - integration/genesis-f2-observer-v5-windows-test-20261107
+      - fix/f2-liquidity-population-sales-20261107
   workflow_dispatch:
 
 permissions:
@@ -46,6 +47,15 @@ jobs:
           } finally {
             Pop-Location
           }
+      - name: Verify focused population and partial cargo settlement invariants
+        shell: pwsh
+        run: |
+          cargo test --locked -p sim_server --lib liquidity_
+          if ($LASTEXITCODE -ne 0) { throw "Liquidity tests failed" }
+          cargo test --locked -p sim_server --lib foundation_sale_competition
+          if ($LASTEXITCODE -ne 0) { throw "Existing sale competition test failed" }
+          cargo test --locked -p sim_server --lib foundation_sale_rejects_without_any_partial_change
+          if ($LASTEXITCODE -ne 0) { throw "Sale rejection invariant failed" }
       - name: Compile original Rust simulation with Astra F1 F2
         shell: pwsh
         run: |
@@ -87,7 +97,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $root = "dist/Living-Sector-F2-V5"
+          $root = "dist/Living-Sector-F2-V5-Liquidity"
           New-Item -ItemType Directory -Force -Path $root | Out-Null
           Copy-Item "target/release/genesis_server.exe" "$root/Genesis-Server.exe"
           Copy-Item "observer" "$root/observer" -Recurse
@@ -95,7 +105,7 @@ jobs:
           Copy-Item "priv/genesis/data" "$root/priv/genesis/data" -Recurse
           Copy-Item "LICENSE" "$root/LICENSE"
           $launch = Get-Content "Start-Genesis.cmd" -Raw
-          $launch = $launch.Replace("genesis-faction-economy-v1.db", "genesis-f2-v5-test.db")
+          $launch = $launch.Replace("genesis-faction-economy-v1.db", "genesis-f2-v5-liquidity-test.db")
           $launch = $launch.Replace('set "WORLD_SPEED=1.0"', 'set "WORLD_SPEED=1.0"' + "`r`n" + 'set "LIVING_SECTOR_STRATEGY_MODE=execute"')
           [System.IO.File]::WriteAllText((Join-Path (Get-Location) "$root/Start-Genesis.cmd"), $launch, [System.Text.Encoding]::ASCII)
           @(
@@ -108,18 +118,19 @@ jobs:
             ""
             "F1: financed trade and household consumption."
             "F2: workforce, payroll and resource-dependent native production."
+            "Liquidity patch: proportional emergency water, affordable fractional household payments, partial ship sales."
             "V5: flat modular station visuals with click-selectable real facilities."
             "T1/T2/T3 are visual layouts, not actual upgrade or slot constraints."
             "NOT YET IMPLEMENTED: construction payroll, housing and long-term balance guarantees."
             "Do not test F2 on old saves without residents."
             ""
             "For graceful save, use Ctrl+C in the Genesis Server console."
-            "Source integration: integration/genesis-f2-observer-v5-windows-test-20261107"
+            "Source integration: fix/f2-liquidity-population-sales-20261107"
           ) | Set-Content "$root/README.txt" -Encoding UTF8
-          Compress-Archive -Path $root -DestinationPath "dist/Living-Sector-F2-V5-Windows.zip" -CompressionLevel Optimal -Force
+          Compress-Archive -Path $root -DestinationPath "dist/Living-Sector-F2-V5-Liquidity-Liquidity-Windows.zip" -CompressionLevel Optimal -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: Living-Sector-F2-V5-Windows-Test
-          path: dist/Living-Sector-F2-V5-Windows.zip
+          name: Living-Sector-F2-V5-Liquidity-Windows-Test
+          path: dist/Living-Sector-F2-V5-Liquidity-Liquidity-Windows.zip
           retention-days: 14
           if-no-files-found: error
