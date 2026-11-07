@@ -1609,3 +1609,82 @@ fn construction_plan(world: &mut World, ship: Entity) {
         current_bt:Some(BtNode::action(ShipAction::Construct {site_id:"site".into(),location:"port".into()})),
         current_goal_score:40.0,last_plan_tick:0});
 }
+
+#[cfg(test)]
+mod physical_ice_mining {
+    use super::*;
+
+    fn fixture(richness: f32, at: &str, class: &str) -> (World, AgentStore, Entity, Entity) {
+        let mut world = World::new();
+        let mut store = AgentStore::new();
+        let body = world.spawn((
+            BodyIdentity {
+                db_id: 3, body_id: "callisto".into(), name: "Callisto".into(),
+                body_type: "moon".into(), star_system_id: 1, system_name: "Sol".into(),
+            },
+            BodyResources {
+                resources: [(Commodity::Ice, richness)].into(),
+                max_resources: [(Commodity::Ice, 0.65)].into(),
+            },
+        )).id();
+        store.body_by_id.insert("callisto".into(), body);
+        let ship = world.spawn((
+            ShipIdentity {
+                db_id: 1, id: "pirate-miner".into(), name: "Pirate Miner".into(),
+                class: class.into(), faction_id: "pirates".into(),
+                size: sim_core::simulation::config::ShipSize::Small,
+            },
+            ShipPosition {
+                location_name: Some(at.into()), docked_at: None,
+                system_id: "Sol".into(), universe_offset: (0.0, 0.0),
+                position: (5.3, 0.0),
+            },
+            ShipTransit { transit: None },
+            ShipCargo {
+                cargo: Default::default(), capacity: 200,
+                cargo_age: Default::default(), cargo_origin: Default::default(),
+            },
+            ShipLifecycle {
+                broke_strikes: 0, hoard_strikes: 0, idle_ticks: 0, dirty: false,
+            },
+            ShipCrewSkills::for_roles(&[]),
+        )).id();
+        (world, store, ship, body)
+    }
+
+    #[test]
+    fn physical_mining_depletes_body_and_fills_ship_without_market_or_credits() {
+        let (mut world, store, ship, body) = fixture(0.65, "mine-callisto", "miner");
+        let (qty, payment) = mine(&mut world, &store, ship,
+            "mine-callisto", "callisto", Commodity::Ice, 40, 12).unwrap();
+        assert_eq!(qty, 40.0);
+        assert_eq!(payment, 0);
+        assert_eq!(world.get::<ShipCargo>(ship).unwrap().cargo[&Commodity::Ice], 40);
+        let remaining = world.get::<BodyResources>(body).unwrap().resources[&Commodity::Ice];
+        assert!((remaining - (0.65 - 40.0 / 8000.0)).abs() < 0.000001);
+        assert!(store.market_at_location.is_empty());
+    }
+
+    #[test]
+    fn mining_rejects_wrong_location_and_non_miners_without_mutation() {
+        for (at, class) in [
+            ("pirate-outpost", "miner"), ("mine-callisto", "freighter"),
+        ] {
+            let (mut world, store, ship, body) = fixture(0.65, at, class);
+            assert!(mine(&mut world, &store, ship,
+                "mine-callisto", "callisto", Commodity::Ice, 40, 12).is_err());
+            assert_eq!(world.get::<BodyResources>(body).unwrap().resources[&Commodity::Ice], 0.65);
+            assert_eq!(world.get::<ShipCargo>(ship).unwrap().used(), 0);
+        }
+    }
+
+    #[test]
+    fn depleted_body_can_only_supply_available_units() {
+        let (mut world, store, ship, body) = fixture(0.002, "mine-callisto", "miner");
+        let (qty, _) = mine(&mut world, &store, ship,
+            "mine-callisto", "callisto", Commodity::Ice, 40, 50).unwrap();
+        assert_eq!(qty, 16.0);
+        assert_eq!(world.get::<ShipCargo>(ship).unwrap().used(), 16);
+        assert!(world.get::<BodyResources>(body).unwrap().resources[&Commodity::Ice] <= 0.000001);
+    }
+}
