@@ -125,14 +125,19 @@
   function selectedFromNative(item) {
     if(!runtime.active||!runtime.context||!item)return;
     const state=runtime.context.state;
-    const fac=list(state.report.facilities).find(f=>f.id===item.id);
+    const fac=list(state.report.facilities).find(f=>f.id===item.id||
+      (item.type==="facility_group"&&list(item.ids).includes(f.id)));
     const ship=list(state.report.ships).find(s=>s.id===item.id);
     const loc=fac?.location??ship?.location??null;
     if(loc&&state.location!==loc){state.location=loc;runtime.context.renderAll();}
     if(item.type==="ship"&&ship){
       state.selectedShip=ship.id;
+      runtime.context.openModal("ship");
     } else if((item.type==="facility"||item.type==="facility_group")&&fac) {
       state.selectedFacility=fac.id;
+    } else if(item.type==="body"&&item.id) {
+      state.selectedBody=item.id;
+      runtime.context.openModal("body");
     }
   }
   function nativeSync() {
