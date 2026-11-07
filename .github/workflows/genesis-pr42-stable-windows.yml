@@ -1,4 +1,4 @@
-name: Living Sector Genesis stable: PR42 + A2 + mining + Observer
+name: "Living Sector Genesis stable - PR42 + A2 + mining + Observer"
 on:
   push:
     branches: [integration/genesis-pr42-final-20261108]
@@ -86,7 +86,9 @@ jobs:
                 $bodies=0;foreach($sys in $systems){$bodies+=@($sys.bodies).Count}
                 if($bodies -ne 36){throw "Expected 36 original bodies"}
                 $strategy=Invoke-RestMethod "http://127.0.0.1:18097/api/strategy" -TimeoutSec 5
-                if($null -eq $strategy.stations -or $null -eq $strategy.orders){throw "Astra A1/A2 data missing"}\n                $sol=$systems | Where-Object { $_.name -eq "Sol" } | Select-Object -First 1\n                if($null -eq $sol){ throw "Sol not found after spatial merge" }
+                if($null -eq $strategy.stations -or $null -eq $strategy.orders){throw "Astra A1/A2 data missing"}
+                $sol=$systems | Where-Object { $_.name -eq "Sol" } | Select-Object -First 1
+                if($null -eq $sol){ throw "Sol not found after spatial merge" }
                 foreach($path in @("observer","observer/app.js","observer/styles.css","observer/station-kit.js")){
                   $page=Invoke-WebRequest -Uri "http://127.0.0.1:18097/$path" -UseBasicParsing -TimeoutSec 5
                   if($page.StatusCode -ne 200){throw "Observer asset unavailable: $path"}
