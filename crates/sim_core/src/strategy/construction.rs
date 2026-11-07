@@ -49,6 +49,9 @@ pub struct ConstructionView {
     pub facility_type: Option<String>,
     pub progress_delivered: u32,
     pub progress_required: u32,
+    pub labor_completed: u32,
+    pub labor_required: u32,
+    pub labor_blocked_reason: Option<String>,
     pub contract_id: Option<String>,
     pub delivery_commodity: Option<Commodity>,
     #[serde(skip)]
@@ -58,7 +61,7 @@ impl ConstructionView {
     fn new(tick: u64) -> Self {
         Self { observed_tick: tick, status: "idle".into(), reason: "no_chronic_shortage".into(),
             selected_goal: None, site_id: None, facility_type: None,
-            progress_delivered: 0, progress_required: 0, contract_id: None, delivery_commodity: None, offers: Vec::new() }
+            progress_delivered: 0, progress_required: 0, labor_completed: 0, labor_required: 0, labor_blocked_reason: None, contract_id: None, delivery_commodity: None, offers: Vec::new() }
     }
 }
 
@@ -278,11 +281,14 @@ pub(super) fn refresh(world: &mut World) {
         if let Some(view) = &mut faction.construction {
             view.site_id = None;
             view.progress_delivered = 0; view.progress_required = 0;
+            view.labor_completed = 0; view.labor_required = 0; view.labor_blocked_reason = None;
             if let Some(goal) = &view.selected_goal {
                 if let Some(site) = sites.iter().find(|s| s.faction_id == *id &&
                     s.location_name == goal.destination && s.commodity == view.delivery_commodity.unwrap_or(goal.commodity)) {
                     view.site_id = Some(site.id.clone()); view.facility_type = Some(site.facility_type.clone());
                     view.progress_delivered = site.progress_delivered; view.progress_required = site.progress_required;
+                    view.labor_completed = site.labor.completed; view.labor_required = site.labor.required;
+                    view.labor_blocked_reason = site.labor.blocked_reason.clone();
                 }
             }
         }

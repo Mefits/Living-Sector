@@ -81,5 +81,6 @@ jobs:
           cargo test --locked -p sim_core -p sim_db -p sim_server --lib construction --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
           cargo test --locked -p sim_core -p sim_server --lib workforce_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
           cargo test --locked -p sim_server --lib engine::transactions::tests --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_core --lib strategy_block_head_compares_build_deliver --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
           cargo build --locked -p sim_server --bin genesis_server --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
           python3 tests/workforce-runtime-smoke.py target/debug/genesis_server

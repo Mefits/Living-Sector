@@ -1,28 +1,9 @@
 //! Construction sites (Phase 19c-b).
 //!
-//! A `ConstructionSite` is a half-built facility that sits in the
-//! world from the moment the demand analyzer decides "we need a
-//! polymer refinery at Kuiper Station" until enough construction
-//! deliveries arrive to complete it. At `progress == 1.0` the site
-//! despawns and a real `Facility*` entity materialises at the same
-//! position.
-//!
-//! ## Lifecycle
-//!
-//! 1. `run_construction_cycle` (faction.rs) detects chronic shortage,
-//!    spawns a `ConstructionSite` via `spawn_site()`, then posts a
-//!    `ContractType::Construction` contract targeting the site.
-//! 2. Ships fulfil the delivery contract normally.
-//! 3. `apply_deliver_construction` (engine.rs) bumps the site's
-//!    `progress_delivered` by the delivered quantity (capped at
-//!    `progress_required`).
-//! 4. If `progress >= 1.0` the site materialises. If not, the next
-//!    demand analyzer cycle posts another contract (up to a cap).
-//!
-//! The site is **not** a facility — ships don't dock at it, it has
-//! no market, it doesn't run recipes. It's a placeholder entity that
-//! Godot renders as a scaffold/wireframe so the player sees
-//! something visible happening at the starved location.
+//! Native sites retain delivered material while local residents perform paid work.
+//! Deliveries advance `progress_delivered`; construction labor advances a separate
+//! durable worker-shift counter. Only both requirements permit materialization
+//! through the existing server economic checkpoint. Sites have no market or wallet.
 
 use crate::economy::commodities::Commodity;
 use bevy_ecs::prelude::{Component, Entity, World};
@@ -111,14 +92,12 @@ pub struct ConstructionSite {
     /// separate side-channel.
     pub completed: bool,
     /// Persistence flag. Set to true when any field changes, then
-    /// cleared by the engine's flush sweep. Sites aren't persisted
-    /// to DB yet (MVP — they live only in RAM), so this is unused
-    /// for now but wired so adding a migration is mechanical.
+    /// cleared after the complete economic frame is admitted to persistence.
     pub dirty: bool,
 }
 
 impl ConstructionSite {
-    /// Progress fraction 0.0..=1.0, clamped.
+    /// Material delivery fraction 0.0..=1.0, not total construction completion.
     pub fn progress(&self) -> f32 {
         if self.progress_required == 0 {
             return 1.0;

@@ -1020,10 +1020,8 @@ pub fn apply_gate_jump(
 }
 
 /// Phase 19c-c/d: route a Construction delivery into the matching
-/// site's progress. When progress hits 1.0, the site materialises
-/// into a real facility at the same position and the site entity is
-/// despawned. Fires `construction_progress` and, on finish,
-/// `construction_completed` events.
+/// material progress. Full materials unlock paid work; only the labor tick
+/// can complete and materialize the facility.
 pub fn apply_construction_delivery(
     world: &mut World,
     store: &mut AgentStore,
