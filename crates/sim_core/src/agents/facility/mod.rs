@@ -36,6 +36,19 @@ use crate::economy::recipes;
 /// At default 0.25 speed (mult=32) this is every 160 ticks (~20s).
 /// Physical orbital movement is not tied to crew, production, or LOD:
 /// every station remains at its real position even at high zoom-out.
+/// Reuse the existing station location's physical phase when a new module
+/// is constructed. No jump back to the initial angle at construction time.
+pub fn current_facility_orbit_angle(
+    world: &mut bevy_ecs::prelude::World, location: &str,
+) -> f32 {
+    let mut q = world.query::<(&crate::agents::facility::FacilityLocation,
+        &crate::agents::facility::FacilityOrbit)>();
+    q.iter(world)
+        .find(|(loc, _)| loc.location_name == location)
+        .map(|(_, orbit)| orbit.angle_degrees)
+        .unwrap_or_else(|| crate::agents::facility::facility_orbit_initial_angle(location))
+}
+
 pub fn tick_facility_orbits(world: &mut bevy_ecs::prelude::World, tick_scale: f32) {
     let mut q = world.query::<&mut crate::agents::facility::FacilityOrbit>();
     for mut orbit in q.iter_mut(world) { orbit.advance(tick_scale); }
