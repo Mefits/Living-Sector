@@ -1,0 +1,81 @@
+name: Integrate PR39 safely into full Genesis
+on:
+  push:
+    branches: [integration/genesis-full-20261107]
+    paths: ['.github/workflows/integrate-pr39.yml']
+permissions:
+  contents: write
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Merge native mining while preserving A2
+        shell: bash
+        run: |
+          git config user.email "integration@users.noreply.github.com"
+          git config user.name "Living Sector integration"
+          git fetch origin feature/genesis-survival-step1-20261107
+          git merge --no-commit --no-ff origin/feature/genesis-survival-step1-20261107 && exit 0
+          git diff --name-only --diff-filter=U | sort > /tmp/actual-conflicts
+          printf "%s\n" "crates/sim_core/src/agents/ship/behavior.rs" "crates/sim_server/src/engine/transactions/tests.rs" | sort > /tmp/expected-conflicts
+          diff -u /tmp/expected-conflicts /tmp/actual-conflicts
+          python3 - <<'PY'
+          from pathlib import Path
+          for path, delim in [
+            ("crates/sim_core/src/agents/ship/behavior.rs", "\n    }\n}\n\n"),
+            ("crates/sim_server/src/engine/transactions/tests.rs", "\n}\n\n"),
+          ]:
+            f = Path(path)
+            s = f.read_text()
+            assert s.count("<<<<<<< HEAD") == 1, path
+            assert s.count(">>>>>>> origin/feature/genesis-survival-step1-20261107") == 1, path
+            i = s.index("<<<<<<< HEAD\n")
+            j = s.index("\n=======\n", i)
+            k = s.index("\n>>>>>>> origin/feature/genesis-survival-step1-20261107\n", j)
+            ours = s[i+len("<<<<<<< HEAD\n"):j]
+            theirs = s[j+len("\n=======\n"):k]
+            if "behavior.rs" in path:
+              assert "mod station_order_planner_tests" in ours
+              assert "mod native_ice_mining_route_tests" in theirs
+            else:
+              assert "fn station_order_native_accept_buy_deliver" in ours
+              assert "mod physical_ice_mining" in theirs
+            f.write_text(s[:i]+ours+delim+theirs+"\n"+s[k+len("\n>>>>>>> origin/feature/genesis-survival-step1-20261107\n"):])
+          p=Path("observer/station-economy.test.mjs")
+          s=p.read_text()
+          for station in ("earth-station","pirate-outpost","alpha-station"):
+            before=f',"facility-{station}"' if station != "pirate-outpost" else ',"facility-pirate-station"'
+          s=s.replace('"facility-earth-station",3]', '"facility-earth-station",4]')
+          s=s.replace('"facility-pirate-station",3]', '"facility-pirate-station",4]')
+          s=s.replace('"facility-alpha-station",3]', '"facility-alpha-station",4]')
+          p.write_text(s)
+          PY
+          test -z "$(git diff --name-only --diff-filter=U)"
+          git add -A
+      - name: Observer + Genesis seed regression
+        run: |
+          node --check observer/app.js
+          node observer/build-strategy.mjs --check
+          node --test observer/*.test.mjs tests/genesis-six-systems-preview.test.mjs
+      - name: Native A2 and physical mining checks
+        run: |
+          cargo test --locked -p sim_core -p sim_server -p sim_db --lib station_order_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_core -p sim_server -p sim_db --lib physical_ice_mining --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_core --lib native_ice_mining_route_tests --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+      - name: Commit and push only tested merge
+        run: |
+          git commit -m "Merge PR39 mining and survival with Astra A2 administration"
+          git push origin HEAD:integration/genesis-full-20261107
