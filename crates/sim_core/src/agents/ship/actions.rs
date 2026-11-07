@@ -46,7 +46,7 @@ pub enum ShipAction {
     /// Extract real body resources into a miner's cargo hold at a physical
     /// nav location, after a short mining shift. No market inventory is
     /// created until that ship returns and sells the ore/ice.
-    Mine { location: String, body_id: String, commodity: Commodity },
+    Mine { location: String, body_id: String, commodity: Commodity, quantity: u32 },
     /// Sell `qty` of `commodity` at the current location. `qty = 0` means "all".
     Sell { commodity: Commodity, qty: u32 },
     /// Sell every commodity in the hold.
@@ -347,10 +347,10 @@ pub(super) fn execute_ship_action(
             BtStatus::Running
         }
 
-        ShipAction::Mine { location, body_id, commodity } => {
+        ShipAction::Mine { location, body_id, commodity, quantity } => {
             if let Some(status) = poll_transaction(economy, |r| matches!(r,
-                ShipTransaction::Mine { location: at, body_id: body, commodity: c, .. }
-                    if at == location && body == body_id && c == commodity
+                ShipTransaction::Mine { location: at, body_id: body, commodity: c, quantity: qty }
+                    if at == location && body == body_id && c == commodity && qty == quantity
             )) {
                 return status;
             }
@@ -376,7 +376,7 @@ pub(super) fn execute_ship_action(
                 location: location.clone(),
                 body_id: body_id.clone(),
                 commodity: *commodity,
-                quantity: cargo.free().min(40),
+                quantity: (*quantity).min(cargo.free()),
             })
         }
 
