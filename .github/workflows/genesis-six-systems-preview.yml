@@ -138,6 +138,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Living-Sector-Genesis-Survival-1-Windows
-          path: dist/Living-Sector-Genesis-Unified-F4-V5-Windows.zip
+          path: dist/Living-Sector-Genesis-Survival-1-Windows.zip
           retention-days: 14
           if-no-files-found: error
