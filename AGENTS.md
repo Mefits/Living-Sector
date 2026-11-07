@@ -1,3 +1,10 @@
+> **Current A2 (2026-11-07):** `feature/genesis-station-orders`, PR #43.
+> Read `docs/living-sector/STATION_ORDERS.md` first. Durable assignments for native
+> funded shipments and construction; station input needs join the head portfolio.
+> Core A2 `990eafc08219099fd0b9223f5f046d551f40cb53` passed focused checks.
+> Finance paused. No release builds, automatic merges or Observer changes.
+> Continue A3 from the latest verified SHA in HANDOFF; older next steps are history.
+
 > **Current A1 (2026-11-07):** `feature/genesis-station-administrator`, PR #41.
 > Verified A1 `7931daaa0f98dc81110979fab4903efff2494d16`; CI 42380994557 passed.
 > User paused finance work in favor of station administrators. Read

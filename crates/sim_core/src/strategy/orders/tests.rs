@@ -78,3 +78,23 @@ fn station_order_legacy_json_has_no_fabricated_assignment() {
     assert!(f.station_order.is_none());
     let l:crate::agents::construction::ConstructionLabor=serde_json::from_str("{}").unwrap();assert!(l.station_order.is_none());assert_eq!(l.completed,0);
 }
+
+#[test]
+fn station_order_input_need_uses_head_portfolio_and_one_native_contract() {
+    use crate::strategy::{station::{StationAdministration,StationView,Need},coordination};
+    let (mut w,mut b,owner,destination,_)=crate::strategy::tests::fixture(Mode::Execute);
+    w.get_mut::<crate::agents::market::MarketHistory>(destination).unwrap().shortage_ticks.clear();
+    let mut administration=StationAdministration::default();
+    administration.stations.push(StationView {faction_id:"own".into(),location:"port".into(),observed_tick:5,executing:true,
+        workforce:6,already_working:0,assigned_workers:0,idle_workers:6,head_priority:None,modules:vec![],
+        needs:vec![Need {facility_id:"refinery".into(),commodity:Commodity::Ore,kind:"supply_input"}]});
+    w.insert_resource(administration);
+    let relations=FactionRelations::default();
+    coordination::run_cycle(&mut w,&mut b,&relations,&mut vec![],60,1);
+    assert_eq!(b.iter().count(),1,"input request should become a head-funded shipment");
+    assert_eq!(b.iter().next().unwrap().commodity,Commodity::Ore);
+    let balance=w.get::<crate::agents::faction::FactionData>(owner).unwrap().treasury;
+    coordination::run_cycle(&mut w,&mut b,&relations,&mut vec![],120,1);
+    assert_eq!(b.iter().count(),1,"one need must not create duplicate orders");
+    assert_eq!(w.get::<crate::agents::faction::FactionData>(owner).unwrap().treasury,balance);
+}
