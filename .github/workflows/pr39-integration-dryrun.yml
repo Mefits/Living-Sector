@@ -1,0 +1,40 @@
+name: PR39 integration dry-run and source handoff
+on:
+  push:
+    branches: [integration/genesis-full-20261107]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Merge PR39 without committing
+        shell: bash
+        run: |
+          git fetch origin feature/genesis-survival-step1-20261107
+          set +e
+          git -c user.email=integration@users.noreply.github.com -c user.name=LivingSectorIntegration merge --no-commit --no-ff origin/feature/genesis-survival-step1-20261107 > merge-output.txt 2>&1
+          status=$?
+          set -e
+          echo "merge exit=$status"
+          cat merge-output.txt
+          echo "=== UNMERGED ==="
+          git diff --name-only --diff-filter=U | tee merge-conflicts.txt
+          echo "=== STATUS ==="
+          git status --short | head -80
+      - name: Produce small integration workspace
+        shell: bash
+        run: |
+          mkdir -p /tmp/ls-source
+          cp -a observer crates/sim_core/src crates/sim_db/src crates/sim_server/src priv/genesis/data tests Start-Genesis.cmd Cargo.toml Cargo.lock /tmp/ls-source/ 2>/dev/null || true
+          tar -czf pr39-integration-source.tar.gz observer crates/sim_core/src crates/sim_db/src crates/sim_server/src priv/genesis/data tests .github/workflows/genesis-six-systems-preview.yml Start-Genesis.cmd Cargo.toml Cargo.lock merge-conflicts.txt merge-output.txt || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PR39-integration-source
+          path: pr39-integration-source.tar.gz
+          retention-days: 3
