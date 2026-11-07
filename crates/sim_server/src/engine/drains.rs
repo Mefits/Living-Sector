@@ -460,6 +460,7 @@ pub(super) fn materialize_facility(
             amount
         }).unwrap_or(0);
 
+    let orbit_angle = sim_core::agents::facility::current_facility_orbit_angle(world, location_name);
     let entity = world.spawn((
         FacilityIdentity {
             db_id,
@@ -489,6 +490,7 @@ pub(super) fn materialize_facility(
             dock_queue: vec![],
         },
         FacilityLifecycle::new(),
+        sim_core::agents::facility::FacilityOrbit::new(location_name, Some(orbit_angle)),
         sim_core::simulation::lod::AgentLod::new(),
         FacilityFitting::new_default(),
         FacilityCrew::new_for_type(facility_type),
