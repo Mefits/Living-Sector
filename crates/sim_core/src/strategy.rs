@@ -8,6 +8,7 @@ use crate::agents::{faction::{self, FactionData}, facility::{FacilityIdentity, F
 use crate::economy::{commodities::Commodity, contracts::{ContractBoard, ContractStatus, FundingSource}};
 
 pub mod construction;
+pub mod station;
 pub mod coordination;
 mod options;
 pub(crate) mod sourcing;
@@ -64,6 +65,7 @@ pub struct Snapshot {
     pub snapshot_tick: u64,
     pub mode: Mode,
     pub factions: Vec<FactionView>,
+    pub stations: Vec<station::StationView>,
 }
 #[derive(Resource, Default)]
 pub struct StrategyState {
@@ -74,7 +76,7 @@ pub struct StrategyState {
 impl StrategyState {
     pub fn snapshot(&self, tick: u64) -> Snapshot {
         Snapshot { schema_version: 1, snapshot_tick: tick, mode: self.mode,
-            factions: self.factions.values().cloned().collect() }
+            factions: self.factions.values().cloned().collect(), stations: Vec::new() }
     }
 }
 pub fn executing(world: &World) -> bool {
