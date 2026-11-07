@@ -121,9 +121,9 @@ fn choose_ice_mining_trip(
 ) -> Option<ScoredGoal> {
     let mut options = Vec::new();
     for depot in depots.iter().filter(|d| d.faction_id == faction) {
-        for site in sites.iter().filter(|s| s.richness.is_finite()
-            && s.richness > 0.0
-            && s.richness * crate::agents::facility::SALVAGE_UNITS_PER_RICHNESS >= 1.0)
+        for site in sites.iter().filter(|s| carried_ice > 0
+            || (s.richness.is_finite() && s.richness > 0.0
+                && s.richness * crate::agents::facility::SALVAGE_UNITS_PER_RICHNESS >= 1.0))
         {
             let Some(distance) = registry.travel_distance(&depot.location, &site.location)
                 .or_else(|| registry.travel_distance(&site.location, &depot.location))
@@ -1600,9 +1600,9 @@ fn try_build_explore_bt(
 /// location? Used by the idle-at-station logic to decide whether the
 /// ship should wander to a real port.
 fn has_dockable_here(at_loc: &str, registry: &WorldRegistry) -> bool {
-    registry
-        .locations
-        .contains_key(at_loc)
+    registry.locations.get(at_loc)
+        .is_some_and(|location| location.loc_type != "mining_site"
+            && location.loc_type != "gate")
 }
 
 /// Pick any non-gate station in the same star system as `at_loc`.
@@ -1615,8 +1615,8 @@ fn pick_same_system_station(
     location_to_system: &StdHashMap<String, String>,
 ) -> Option<String> {
     let current_system = location_to_system.get(at_loc)?;
-    for (name, _info) in registry.locations.iter() {
-        if name == at_loc {
+    for (name, info) in registry.locations.iter() {
+        if name == at_loc || info.loc_type == "mining_site" {
             continue;
         }
         if name.contains("gate") {
@@ -2987,6 +2987,25 @@ mod native_ice_mining_route_tests {
         registry.routes.clear();
         assert!(choose("pirate-outpost", "pirates", 0,
             &registry, &sites, &depots).is_none());
+    }
+
+    #[test]
+    fn depleted_site_must_still_allow_miner_to_return_with_existing_cargo() {
+        let (registry, mut sites, depots) = fixture();
+        sites[0].richness = 0.0;
+        assert!(choose("pirate-outpost", "pirates", 0,
+            &registry, &sites, &depots).is_none());
+        assert_eq!(choose("mine-callisto", "pirates", 40,
+            &registry, &sites, &depots).unwrap().name, "deliver_mined_ice");
+        assert!(!has_dockable_here("mine-callisto", &{
+            let mut r = WorldRegistry::default();
+            r.locations.insert("mine-callisto".into(),
+                crate::world::registry::LocationInfo {
+                    db_id: 9, name: "mine-callisto".into(),
+                    loc_type: "mining_site".into(), celestial_body_id: 7
+                });
+            r
+        }));
     }
 
     #[test]
