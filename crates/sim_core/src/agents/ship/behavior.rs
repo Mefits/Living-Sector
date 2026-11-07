@@ -82,7 +82,12 @@ fn choose_ice_mining_trip(
 ) -> Option<ScoredGoal> {
     let mut options = Vec::new();
     for depot in depots.iter().filter(|d| d.faction_id == faction) {
-        for site in sites.iter().filter(|s| s.richness > 0.0 && s.richness.is_finite()) {
+        // A sub-unit deposit is not currently mineable: the transaction
+        // only transfers whole cargo units, never a fractional free unit.
+        for site in sites.iter().filter(|s|
+            s.richness.is_finite()
+            && s.richness * crate::agents::facility::SALVAGE_UNITS_PER_RICHNESS >= 1.0
+        ) {
             let Some(distance) = registry.travel_distance(&depot.location, &site.location)
                 .or_else(|| registry.travel_distance(&site.location, &depot.location))
             else { continue };
