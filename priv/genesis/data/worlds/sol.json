@@ -262,6 +262,17 @@
       "docking_capacity": 2,
       "services": [],
       "reserves": {}
+    },
+    {
+      "id": "facility-pirate-outpost-farm-module",
+      "name": "Pirate Primitive Farm (preview)",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "jupiter",
+      "type": "farm",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
     }
   ],
   "markets": [
