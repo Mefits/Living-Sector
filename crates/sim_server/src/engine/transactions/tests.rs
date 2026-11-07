@@ -1626,6 +1626,10 @@ mod physical_ice_mining {
                 resources: [(Commodity::Ice, richness)].into(),
                 max_resources: [(Commodity::Ice, 0.65)].into(),
             },
+            BodyOrbit {
+                orbit_radius: 5.38, orbit_period: 16, current_angle: 0.0,
+                universe_offset: (0.0, 0.0), dirty: false,
+            },
         )).id();
         store.body_by_id.insert("callisto".into(), body);
         let ship = world.spawn((
