@@ -76,7 +76,7 @@ test("a newly observed native contract is not mistaken for a completed project",
   assert.doesNotMatch(diff[0].message, /Оплачен/);
 });
 test("strategy interface wires the declared controls without modifying simulation API", () => {
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./native.html", import.meta.url), "utf8");
   const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
   const ui = readFileSync(new URL("./strategy-ui.js", import.meta.url), "utf8");
   const ids = [...ui.matchAll(/find\("([a-z-]+)"\)/g)].map(match => match[1]);
@@ -94,7 +94,7 @@ test("strategy interface wires the declared controls without modifying simulatio
 });
 
 test("diagnostic export is a read-only click action with bounded browser history", () => {
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./native.html", import.meta.url), "utf8");
   const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
   assert.match(html, /id="export-diagnostics"/);
   assert.match(app, /els\.exportDiagnostics\.addEventListener\("click",exportDiagnostics\)/);
@@ -199,7 +199,7 @@ test("construction progress is observed from site state only, never inferred fro
   assert.match(changes[0].message, /270 \/ 600/);
 });
 test("UI has dedicated head and construction sections and renders additive fields", () => {
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./native.html", import.meta.url), "utf8");
   const ui = readFileSync(new URL("./strategy-ui.js", import.meta.url), "utf8");
   for (const id of ["strategy-head","strategy-construction","strategy-projects"]) {
     assert.ok(html.includes('id="' + id + '"'));
