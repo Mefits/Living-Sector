@@ -557,7 +557,48 @@ pub struct GateLinkSnapshot {
 /// Radial offset (universe units) each facility sits from its body center.
 /// Matches the Elixir sim's 0.15 value. Small enough that facilities visually
 /// cluster around the planet, large enough to be distinct at gameplay zoom.
-pub const FACILITY_ORBIT_RADIUS: f32 = 0.15;
+pub const FACILITY_ORBIT_RADIUS: f32 = 0.22;
+
+/// The station's orbit is a genuine, slowly evolving world coordinate around
+/// its parent body. Moon-like visual movement, but deliberately much slower
+/// than the compact starter-system moons. Units are simulation-time seconds.
+pub const FACILITY_ORBIT_PERIOD: f32 = 8_000.0;
+
+/// Every facility at a shared location participates in the *same* orbital
+/// anchor. That makes modules physically co-located with their station.
+#[derive(Debug, Clone, Component)]
+pub struct FacilityOrbit {
+    pub angle_degrees: f32,
+    pub dirty: bool,
+}
+
+impl FacilityOrbit {
+    pub fn new(location: &str, persisted: Option<f32>) -> Self {
+        Self { angle_degrees: persisted.filter(|v| v.is_finite())
+            .unwrap_or_else(|| facility_orbit_initial_angle(location)).rem_euclid(360.0),
+            dirty: false }
+    }
+    pub fn advance(&mut self, tick_scale: f32) {
+        if tick_scale.is_finite() && tick_scale > 0.0 {
+            self.angle_degrees = (self.angle_degrees
+                + 360.0 * tick_scale / FACILITY_ORBIT_PERIOD).rem_euclid(360.0);
+        }
+    }
+}
+
+/// Stable initial phase, identical for every module in a station location.
+/// A deterministic byte hash avoids platform-dependent DefaultHasher seeds.
+pub fn facility_orbit_initial_angle(location: &str) -> f32 {
+    let hash = location.as_bytes().iter().fold(2166136261u32, |h,b|
+        (h ^ (*b as u32)).wrapping_mul(16777619));
+    (hash % 360) as f32
+}
+
+pub fn facility_orbit_position(body: (f32, f32), angle_degrees: f32) -> (f32, f32) {
+    let theta = angle_degrees.to_radians();
+    (body.0 + FACILITY_ORBIT_RADIUS * theta.cos(),
+     body.1 + FACILITY_ORBIT_RADIUS * theta.sin())
+}
 
 /// Base docking fee charged when a ship docks. The final fee is scaled by
 /// occupancy (busier station = higher fee) and inversely by condition
@@ -634,6 +675,27 @@ pub fn facility_offset_position(body_center: (f32, f32), facility_id: &str) -> (
         body_center.0 + FACILITY_ORBIT_RADIUS * angle.cos(),
         body_center.1 + FACILITY_ORBIT_RADIUS * angle.sin(),
     )
+}
+
+#[cfg(test)]
+mod physical_orbit_tests {
+    use super::*;
+    #[test]
+    fn modules_same_location_share_a_physical_orbital_anchor() {
+        let a = FacilityOrbit::new("earth-station", None);
+        let b = FacilityOrbit::new("earth-station", None);
+        assert_eq!(a.angle_degrees,b.angle_degrees);
+        assert_eq!(facility_orbit_position((2.0, -4.0),a.angle_degrees),
+                   facility_orbit_position((2.0, -4.0),b.angle_degrees));
+    }
+    #[test]
+    fn station_rotation_is_slow_and_persistent() {
+        let mut orbit = FacilityOrbit::new("earth-station",Some(90.0));
+        orbit.advance(1.0);
+        assert!(orbit.angle_degrees > 90.0 && orbit.angle_degrees < 90.1);
+        let restored = FacilityOrbit::new("earth-station",Some(orbit.angle_degrees));
+        assert_eq!(restored.angle_degrees,orbit.angle_degrees);
+    }
 }
 
 impl FacilitySnapshot {
