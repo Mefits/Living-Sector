@@ -3,6 +3,7 @@
 
 use bevy_ecs::prelude::{Entity, World};
 use sim_core::agents::{
+    celestial_body::{BodyIdentity, BodyResources},
     facility::{
         FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations, FacilityStorage,
         REFUEL_PRICE_PER_UNIT, REFUEL_UNITS_PER_TICK,
@@ -60,6 +61,8 @@ pub(super) fn apply_transaction(
         ShipTransaction::Sell { location, commodity, quantity, min_unit_price } =>
             sell(world, store, ship, location, *commodity, *quantity, *min_unit_price),
         ShipTransaction::Refuel { location } => refuel(world, store, ship, location),
+        ShipTransaction::Mine { location, body_id, commodity, quantity } =>
+            mine(world, store, ship, location, body_id, *commodity, *quantity, tick),
         ShipTransaction::Deliver { contract_id } => {
             deliver(world, store, ship, contract_id, events, tick)
         }
@@ -83,6 +86,8 @@ pub(super) fn apply_transaction(
             Some(*quantity),
         ),
         ShipTransaction::Refuel { location } => (Some(location.as_str()), Some("fuel"), None, None),
+        ShipTransaction::Mine { location, commodity, quantity, .. } =>
+            (Some(location.as_str()), Some(commodity.as_str()), None, Some(*quantity)),
         ShipTransaction::Deliver { contract_id } | ShipTransaction::Accept { contract_id } => {
             (None, None, Some(contract_id.as_str()), None)
         }
@@ -96,6 +101,67 @@ pub(super) fn apply_transaction(
         "quantity": outcome.as_ref().ok().map(|v| v.0),
         "payment": outcome.as_ref().ok().map(|v| v.1),
     }));
+}
+
+/// Explicit physical extraction. Only a miner at its body-linked waypoint
+/// can mine: no local market, synthetic station, or cash-generation path.
+/// The body fraction represents a finite in-world stock that also participates
+/// in the ordinary biome resource-regeneration rules.
+fn mine(
+    world: &mut World,
+    store: &AgentStore,
+    ship: Entity,
+    location: &str,
+    body_id: &str,
+    commodity: Commodity,
+    requested: u32,
+    tick: u64,
+) -> Result<(f32, i64), Rejection> {
+    const MAX_PER_SHIFT: u32 = 40;
+    use sim_core::agents::facility::SALVAGE_UNITS_PER_RICHNESS;
+    let identity = world.get::<ShipIdentity>(ship).ok_or("missing_ship")?;
+    if identity.class != "miner" { return Err("requires_miner"); }
+    if commodity != Commodity::Ice { return Err("unsupported_mining_commodity"); }
+    if requested == 0 || requested > MAX_PER_SHIFT { return Err("invalid_mining_quantity"); }
+    // Stable canonical waypoint ids are seeded only for named body locations.
+    // The ship cannot mine while in transit, docked, or somewhere else.
+    if location != format!("mine-{body_id}") { return Err("not_a_mining_waypoint"); }
+    let position = world.get::<ShipPosition>(ship).ok_or("missing_position")?;
+    if position.location_name.as_deref() != Some(location)
+        || position.docked_at.is_some()
+        || world.get::<ShipTransit>(ship).ok_or("missing_transit")?.transit.is_some()
+    { return Err("wrong_mining_location"); }
+    let body = *store.body_by_id.get(body_id).ok_or("missing_mining_body")?;
+    let body_identity = world.get::<BodyIdentity>(body).ok_or("missing_mining_body")?;
+    if position.system_id != body_identity.system_name {
+        return Err("mining_other_system");
+    }
+    let resources = world.get::<BodyResources>(body).ok_or("missing_body_resources")?;
+    let richness = resources.resources.get(&commodity).copied().unwrap_or(0.0);
+    if !richness.is_finite() || !(0.0..=1.0).contains(&richness) {
+        return Err("invalid_body_resource");
+    }
+    let available = (richness as f64 * SALVAGE_UNITS_PER_RICHNESS as f64)
+        .floor().max(0.0) as u32;
+    let capacity = world.get::<ShipCargo>(ship).ok_or("missing_cargo")?.free();
+    let extracted = requested.min(capacity).min(available);
+    if extracted == 0 { return Err("exhausted_deposit_or_full_hold"); }
+    let remaining = (richness as f64
+        - extracted as f64 / SALVAGE_UNITS_PER_RICHNESS as f64).max(0.0) as f32;
+    // All validation precedes mutations. Body inventory decreases exactly
+    // when ship cargo increases; market supply remains untouched in space.
+    world.get_mut::<BodyResources>(body).unwrap().resources.insert(commodity, remaining);
+    let mut cargo = world.get_mut::<ShipCargo>(ship).unwrap();
+    *cargo.cargo.entry(commodity).or_insert(0) += extracted;
+    cargo.cargo_age.entry(commodity).or_insert(tick);
+    if let Some(mut crew) = world.get_mut::<ShipCrew>(ship) {
+        crew.current_task = CrewTask::Engineering;
+        crew.dirty = true;
+    }
+    if let Some(mut skills) = world.get_mut::<ShipCrewSkills>(ship) {
+        skills.grant("engineering", 1);
+    }
+    Ok((extracted as f32, 0))
 }
 
 fn dock(
