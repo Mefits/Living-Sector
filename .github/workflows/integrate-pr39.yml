@@ -28,7 +28,7 @@ jobs:
           git config user.email "integration@users.noreply.github.com"
           git config user.name "Living Sector integration"
           git fetch origin feature/genesis-survival-step1-20261107
-          git merge --no-commit --no-ff origin/feature/genesis-survival-step1-20261107 && exit 0
+          git merge --no-commit --no-ff origin/feature/genesis-survival-step1-20261107 || true
           git diff --name-only --diff-filter=U | sort > /tmp/actual-conflicts
           printf "%s\n" "crates/sim_core/src/agents/ship/behavior.rs" "crates/sim_server/src/engine/transactions/tests.rs" | sort > /tmp/expected-conflicts
           diff -u /tmp/expected-conflicts /tmp/actual-conflicts
