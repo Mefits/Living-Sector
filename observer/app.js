@@ -2991,7 +2991,9 @@ function telemetryUpdate() {
   telemetryScopeOptions(all);
   const data=telemetrySnapshot(report,telemetryState.scope);
   telemetryEls.tick.textContent="ТИК "+telemetryFmt(data.tick);
+  const scroll=telemetryEls.content.scrollTop;
   telemetryView(data,report);
+  telemetryEls.content.scrollTop=scroll;
 }
 function initTelemetryPanel({getReport,getEvents,onSelect}={}){
   if(telemetryEls)return;
@@ -3009,6 +3011,7 @@ function initTelemetryPanel({getReport,getEvents,onSelect}={}){
   telemetryEls.scope.addEventListener("change",()=>{telemetryState.scope=telemetryEls.scope.value;telemetryUpdate();});
   telemetryEls.tabs.querySelectorAll("button[data-tab]").forEach(button=>button.addEventListener("click",()=>{
     telemetryState.tab=button.dataset.tab;
+    telemetryEls.content.scrollTop=0;
     telemetryEls.tabs.querySelectorAll("button").forEach(b=>b.classList.toggle("active",b===button));
     telemetryUpdate();
   }));
