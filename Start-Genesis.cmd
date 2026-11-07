@@ -39,13 +39,14 @@ set "DATA_DIR=%~dp0priv\genesis\data"
 set "DATABASE_PATH=%~dp0genesis-six-systems-preview-v1.db"
 set "LIVING_SECTOR_UI_DIR=%~dp0observer"
 set "WORLD_SPEED=1.0"
+set "LIVING_SECTOR_STRATEGY_MODE=execute"
 
-echo Living Sector Genesis: 6 star systems, 3 experimental factions, original sim_core.
+echo Living Sector UNIFIED: Astra F4, paid economy, Observer V5, 6 systems.
 echo Database: genesis-six-systems-preview-v1.db. Older saves remain untouched.
 echo Use Ctrl+C in the Genesis Server console for a graceful save.
 start "Living Sector - Genesis Core" /D "%~dp0" "%~dp0Genesis-Server.exe"
 
-rem This is a preview: starter freighters cannot mine, and T1 modules are represented by separate native facilities.
+rem Unified integration: economy F1-F4, V5 UI and fixes are active. Ship mining and true station modules remain future features.
 rem Pause for inspection only after the HTTP endpoint becomes ready.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ready=$false; for($i=0;$i -lt 75;$i++){try{$r=Invoke-WebRequest -Uri 'http://127.0.0.1:8080/api/health' -UseBasicParsing -TimeoutSec 2; if($r.StatusCode -eq 200){$ready=$true;break}}catch{}; Start-Sleep -Seconds 1}; if(-not $ready){Write-Host 'Server did not start. Check Genesis Server window.';exit 1}; try{Invoke-RestMethod -Uri 'http://127.0.0.1:8080/api/sim/pause' -Method Post -ContentType 'application/json' -Body '{}' | Out-Null}catch{Write-Host 'Could not pause automatically.'}; Start-Process 'http://127.0.0.1:8080/observer'"
 if errorlevel 1 pause
