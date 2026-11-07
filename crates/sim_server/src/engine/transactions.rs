@@ -3,7 +3,7 @@
 
 use bevy_ecs::prelude::{Entity, World};
 use sim_core::agents::{
-    celestial_body::{BodyIdentity, BodyResources},
+    celestial_body::{BodyIdentity, BodyOrbit, BodyResources},
     facility::{
         FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations, FacilityStorage,
         REFUEL_PRICE_PER_UNIT, REFUEL_UNITS_PER_TICK,
@@ -133,7 +133,12 @@ fn mine(
     { return Err("wrong_mining_location"); }
     let body = *store.body_by_id.get(body_id).ok_or("missing_mining_body")?;
     let body_identity = world.get::<BodyIdentity>(body).ok_or("missing_mining_body")?;
-    if position.system_id != body_identity.system_name {
+    if body_identity.body_id != body_id { return Err("mismatched_mining_body"); }
+    // ShipPosition.system_id stores the seed slug ("system-sol"), while
+    // BodyIdentity.system_name stores the display name ("Sol"). Comparing
+    // them directly would reject every valid mining trip.
+    let body_orbit = world.get::<BodyOrbit>(body).ok_or("missing_body_orbit")?;
+    if position.universe_offset != body_orbit.universe_offset {
         return Err("mining_other_system");
     }
     let resources = world.get::<BodyResources>(body).ok_or("missing_body_resources")?;
