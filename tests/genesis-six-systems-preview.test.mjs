@@ -25,7 +25,7 @@ test("six original star systems are visible with original bodies, but not legacy
   }
 });
 
-test("three independent starter economies, one station, three provisional modules (including native farm) and one placeholder ship each", () => {
+test("three independent starter economies, one station, three provisional modules, and one real miner per faction", () => {
   assert.equal(factions.length, 3);
   assert.equal(factions.filter(f => f.type === "outlaw").length, 1);
   assert.equal(allFacilities.length, 12);
@@ -46,7 +46,7 @@ test("three independent starter economies, one station, three provisional module
     assert.ok(Object.keys(market.supply).every(x => x === "food" || x === "water"));
     const ship = allShips.filter(s => s.faction_id === faction.id);
     assert.equal(ship.length, 1);
-    assert.equal(ship[0].class, "freighter");
+    assert.equal(ship[0].class, "miner");
     assert.equal(ship[0].location, fs[0].location);
     const pop = allPopulations.filter(p => p.faction_id === faction.id);
     assert.equal(pop.length, 1);
@@ -80,15 +80,38 @@ test("pirate settlement must fetch ice from physical Sol bodies, not Jupiter", (
   assert.ok(pirates.every(f => f.body === "jupiter"));
   assert.ok(pirates.some(f => f.type === "refinery"), "water can be refined once Ice arrives");
   assert.ok(sol.ships.some(s => s.faction_id === "pirates"),
-    "an independent vessel exists; a real mining action is still required");
+    "pirate miner vessel must exist");
 });
 
-test("no cross-system trade infrastructure or preseeded external business", () => {
-  assert.ok(worlds.every(w => w.travel_routes.length === 0));
+test("no cross-system travel links or preseeded external business", () => {
+  assert.equal(worlds.reduce((n,w) => n + w.travel_routes.length,0), 3);
+  assert.ok(worlds.every(w => w.travel_routes.every(r =>
+    w.facilities.some(f => f.location === r.from) && w.nav_sites?.some(s => s.name === r.to))));
   assert.ok(allFacilities.every(f => f.type !== "shipyard" && f.type !== "gate"));
   assert.ok(worlds.slice(1).every(w => w.system.name !== "Sol"));
 });
 
+
+test("body-linked mining waypoints have native routes, minerals and no fake factories", () => {
+  const sites = worlds.flatMap(w => w.nav_sites ?? []);
+  const routes = worlds.flatMap(w => w.travel_routes);
+  assert.equal(sites.length, 3);
+  assert.equal(routes.length, 3);
+  for (const world of worlds) {
+    for (const site of (world.nav_sites ?? [])) {
+      assert.equal(site.name, "mine-" + site.body);
+      assert.equal(site.type, "mining_site");
+      assert.ok(world.bodies.find(b => b.id === site.body)?.resources?.ice > 0);
+      assert.ok(!world.facilities.some(f => f.location === site.name));
+      assert.ok(!world.markets.some(m => m.facility_id === site.name));
+      assert.ok(world.travel_routes.some(r => r.to === site.name && r.distance > 0));
+    }
+  }
+  const source = readFileSync(new URL("../crates/sim_server/src/engine/transactions.rs", import.meta.url), "utf8");
+  assert.match(source, /fn mine\(/);
+  assert.match(source, /world\.get_mut::<BodyResources>\(body\)/);
+  assert.match(source, /world\.get_mut::<ShipCargo>\(ship\)/);
+});
 
 test("survival farms use the native water-to-food recipe and occupy the third preview module socket", () => {
   const recipeSource = readFileSync(new URL("../crates/sim_core/src/economy/recipes.rs",import.meta.url),"utf8");
