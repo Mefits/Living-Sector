@@ -1,0 +1,70 @@
+{
+  "system": {
+    "id": "system-lalande",
+    "name": "Lalande",
+    "universe_offset": [
+      80,
+      -45
+    ],
+    "star_type": "M"
+  },
+  "bodies": [
+    {
+      "id": "kinship",
+      "name": "Kinship",
+      "type": "planet",
+      "orbit_radius": 0.9,
+      "orbit_period": 280,
+      "current_angle": 110,
+      "biome": "temperate",
+      "resources": {
+        "ore": 0.4,
+        "ice": 0.3
+      }
+    },
+    {
+      "id": "lalande-belt",
+      "name": "Lalande Belt",
+      "type": "belt",
+      "orbit_radius": 1.8,
+      "orbit_period": 650,
+      "current_angle": 40,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.88,
+        "ice": 0.4
+      }
+    },
+    {
+      "id": "lalande-outer",
+      "name": "Lalande Outer",
+      "type": "planet",
+      "orbit_radius": 3,
+      "orbit_period": 1150,
+      "current_angle": 220,
+      "biome": "gas",
+      "resources": {
+        "gas": 0.95,
+        "ice": 0.6
+      }
+    },
+    {
+      "id": "lalande-drift",
+      "name": "Lalande Drift",
+      "type": "asteroid",
+      "orbit_radius": 2.5,
+      "orbit_period": 950,
+      "current_angle": 330,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.7,
+        "ice": 0.5
+      }
+    }
+  ],
+  "travel_routes": [],
+  "facilities": [],
+  "markets": [],
+  "ships": [],
+  "populations": []
+}
