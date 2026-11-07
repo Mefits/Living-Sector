@@ -53,10 +53,9 @@ use super::actions::ShipAction;
 use super::*;
 
 
-/// Physical mining opportunities: an extractor waypoint follows a
-/// real celestial body, while the receiving depot is a real faction-owned
-/// market with a cash-constrained purchaser. No station is conjured at
-/// the mining site.
+/// Physical mining opportunities. The crew chooses whether a haul can earn
+/// money from a real buyer. Station consumption/production targets belong
+/// to the future station administrator, not to ship AI.
 #[derive(Debug, Clone)]
 struct IceMiningSite {
     location: String,
@@ -68,44 +67,89 @@ struct IceMiningSite {
 struct IceMiningDepot {
     location: String,
     faction_id: String,
-    ice_supply: f32,
-    water_supply: f32,
+    ice_unit_price: f32,
+    fuel_unit_price: f32,
+    buyer_credits: i64,
 }
 
+/// Expected return from one physical trip, not an artificial "water
+/// shortage" score. The selling market must have real credits, and the
+/// requested quantity cannot exceed ship capacity, physical Ice, or the
+/// buyer's estimated purchasing power. Execution checks all of this again.
+fn profitable_mining_quantity(
+    cargo_free: u32,
+    available_ice: u32,
+    unit_price: f32,
+    buyer_credits: i64,
+    distance: u32,
+    fuel_rate: f32,
+    fuel_price: f32,
+    speed_modifier: f32,
+) -> Option<(u32, i64)> {
+    if !unit_price.is_finite() || unit_price <= 0.0 ||
+        !fuel_rate.is_finite() || fuel_rate < 0.0 ||
+        !fuel_price.is_finite() || fuel_price < 0.0 ||
+        !speed_modifier.is_finite() || speed_modifier <= 0.0 ||
+        buyer_credits <= 0
+    { return None; }
+    let unit = unit_price as f64;
+    let payable = ((buyer_credits as f64) / unit).floor().min(u32::MAX as f64) as u32;
+    let qty = cargo_free.min(40).min(available_ice).min(payable);
+    if qty == 0 { return None; }
+    let revenue = (unit * qty as f64).floor();
+    // An estimated fuel opportunity cost, not money deducted out of thin air.
+    // Actual fuel and refuelling are still handled by existing ship systems.
+    let trip_cost = 2.0 * distance as f64 * fuel_rate as f64
+        * fuel_price as f64 / speed_modifier as f64;
+    let net = revenue - trip_cost;
+    if !net.is_finite() || net < 1.0 || net >= i64::MAX as f64 { return None; }
+    Some((qty, net.floor() as i64))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn choose_ice_mining_trip(
     at: &str,
     faction: &str,
     carried_ice: u32,
+    cargo_free: u32,
+    fuel_rate: f32,
+    speed_modifier: f32,
+    personality: &crate::ai::personality::Personality,
     registry: &WorldRegistry,
     sites: &[IceMiningSite],
     depots: &[IceMiningDepot],
 ) -> Option<ScoredGoal> {
     let mut options = Vec::new();
     for depot in depots.iter().filter(|d| d.faction_id == faction) {
-        // A sub-unit deposit is not currently mineable: the transaction
-        // only transfers whole cargo units, never a fractional free unit.
-        for site in sites.iter().filter(|s|
-            s.richness.is_finite()
-            && s.richness * crate::agents::facility::SALVAGE_UNITS_PER_RICHNESS >= 1.0
-        ) {
+        for site in sites.iter().filter(|s| s.richness.is_finite()
+            && s.richness > 0.0
+            && s.richness * crate::agents::facility::SALVAGE_UNITS_PER_RICHNESS >= 1.0)
+        {
             let Some(distance) = registry.travel_distance(&depot.location, &site.location)
                 .or_else(|| registry.travel_distance(&site.location, &depot.location))
             else { continue };
-            // Don't teleport from arbitrary markets, cross systems or mine a
-            // deposit that cannot be reached from our actual position.
             if at != depot.location && at != site.location { continue; }
-            // One cargo hold is finite; mine only while own Ice stock is
-            // low. Water scarcity increases economic utility but is never
-            // the only reason a miner can work.
-            if carried_ice == 0 && depot.ice_supply >= 600.0 { continue; }
-            let ice_urgency = (1.0 - depot.ice_supply.max(0.0) / 600.0).clamp(0.0, 1.0);
-            let water_urgency = (1.0 - depot.water_supply.max(0.0) / 2000.0).clamp(0.0, 1.0);
-            let score = if carried_ice > 0 { 70.0 }
-                else { (22.0 + 26.0 * ice_urgency + 15.0 * water_urgency)
-                    * (site.richness + 0.5).clamp(0.5, 1.2) };
-            // Mild route cost discourages distant ore while letting shortage
-            // signals dominate for otherwise equivalent choices.
-            let score = score - distance as f32 * 0.05;
+
+            let (score, qty) = if carried_ice > 0 {
+                // Return mined goods to an actual market; crew needs a
+                // proper dock even if the purchaser temporarily lacks cash.
+                // This is cargo housekeeping, not a station supply order.
+                (TIER_HOUSEKEEPING_WEIGHT * personality.profit.max(0.3) * 1.3, 0)
+            } else {
+                let available = (site.richness as f64
+                    * crate::agents::facility::SALVAGE_UNITS_PER_RICHNESS as f64)
+                    .floor().max(0.0) as u32;
+                let Some((qty, net)) = profitable_mining_quantity(
+                    cargo_free, available, depot.ice_unit_price, depot.buyer_credits,
+                    distance, fuel_rate, depot.fuel_unit_price, speed_modifier,
+                ) else { continue };
+                // Use the native strategic scorer and class miner's
+                // existing prefer_goals["mine"] instead of an ad hoc
+                // administrator-like shortage score.
+                let utility = score_strategic(net, "mine", personality, false);
+                (utility, qty)
+            };
+
             let mut steps = Vec::new();
             if carried_ice == 0 {
                 if at == depot.location {
@@ -118,6 +162,7 @@ fn choose_ice_mining_trip(
                     location: site.location.clone(),
                     body_id: site.body_id.clone(),
                     commodity: Commodity::Ice,
+                    quantity: qty,
                 }));
             }
             if at == site.location || carried_ice == 0 {
@@ -131,16 +176,11 @@ fn choose_ice_mining_trip(
                 qty: 0,
             }));
             steps.push(BtNode::action(ShipAction::Undock));
-            options.push((
+            options.push((score, distance, site.location.clone(), ScoredGoal {
+                name: if carried_ice > 0 { "deliver_mined_ice" } else { "mine_ice" },
                 score,
-                distance,
-                site.location.clone(),
-                ScoredGoal {
-                    name: if carried_ice > 0 { "deliver_mined_ice" } else { "mine_ice" },
-                    score,
-                    bt: BtNode::sequence(steps),
-                },
-            ));
+                bt: BtNode::sequence(steps),
+            }));
         }
     }
     options.sort_by(|a, b| b.0.total_cmp(&a.0)
@@ -382,16 +422,19 @@ pub(super) fn decide_and_act(
     };
     let mining_depots: Vec<IceMiningDepot> = {
         use crate::agents::{
-            facility::FacilityIdentity, market::{MarketIdentity, MarketPricing}
+            facility::{FacilityIdentity, FacilityOperations},
+            market::{MarketIdentity, MarketPricing}
         };
         let mut q = world.query::<(&MarketIdentity, &MarketPricing)>();
         q.iter(world).filter_map(|(id, pricing)| {
             let owner = world.get::<FacilityIdentity>(id.facility)?;
+            let cash = world.get::<FacilityOperations>(id.facility)?.credits;
             Some(IceMiningDepot {
                 location: id.facility_location.clone(),
                 faction_id: owner.faction_id.clone(),
-                ice_supply: pricing.supply.get(&Commodity::Ice).copied().unwrap_or(0.0),
-                water_supply: pricing.supply.get(&Commodity::Water).copied().unwrap_or(0.0),
+                ice_unit_price: pricing.price(Commodity::Ice),
+                fuel_unit_price: pricing.price(Commodity::Fuel),
+                buyer_credits: cash,
             })
         }).collect()
     };
@@ -774,7 +817,8 @@ pub(super) fn decide_and_act(
                     position.location_name.as_deref().unwrap_or(""),
                     &ship_faction,
                     cargo.cargo.get(&Commodity::Ice).copied().unwrap_or(0),
-                    registry, &mining_sites, &mining_depots,
+                    cargo.free(), fuel.fuel_consumption_rate, fuel.speed_modifier,
+                    &ai.personality, registry, &mining_sites, &mining_depots,
                 ) {
                     if mining.score > candidate.score {
                         candidate = mining;
@@ -2883,6 +2927,7 @@ mod flight_recovery_tests {
 mod native_ice_mining_route_tests {
     use super::*;
     use crate::world::registry::Route;
+    use crate::ai::personality::Personality;
 
     fn fixture() -> (WorldRegistry, Vec<IceMiningSite>, Vec<IceMiningDepot>) {
         let mut registry = WorldRegistry::default();
@@ -2892,49 +2937,67 @@ mod native_ice_mining_route_tests {
         registry.routes.insert("mine-callisto".into(), vec![
             Route { to: "pirate-outpost".into(), distance: 18 }
         ]);
-        let sites = vec![IceMiningSite {
+        (registry,
+         vec![IceMiningSite {
             location: "mine-callisto".into(),
             body_id: "callisto".into(),
             richness: 0.65,
-        }];
-        let depots = vec![IceMiningDepot {
+         }],
+         vec![IceMiningDepot {
             location: "pirate-outpost".into(),
             faction_id: "pirates".into(),
-            ice_supply: 0.0,
-            water_supply: 0.0,
-        }];
-        (registry, sites, depots)
+            ice_unit_price: 10.0,
+            fuel_unit_price: 25.0,
+            buyer_credits: 30_000,
+         }])
+    }
+
+    fn choose(
+        at: &str, faction: &str, carried: u32,
+        registry: &WorldRegistry, sites: &[IceMiningSite], depots: &[IceMiningDepot],
+    ) -> Option<ScoredGoal> {
+        choose_ice_mining_trip(
+            at, faction, carried, 200, 0.05, 1.0,
+            &Personality::miner(), registry, sites, depots
+        )
     }
 
     #[test]
-    fn shortage_selects_physical_mine_and_recovery_delivers_cargo() {
+    fn paid_profitable_ice_route_is_independent_of_water_and_ice_stock_thresholds() {
         let (registry, sites, depots) = fixture();
-        let trip = choose_ice_mining_trip(
-            "pirate-outpost", "pirates", 0, &registry, &sites, &depots
-        ).unwrap();
+        let trip = choose("pirate-outpost", "pirates", 0, &registry, &sites, &depots).unwrap();
         assert_eq!(trip.name, "mine_ice");
         assert!(trip.score > 0.0);
-
-        let home = choose_ice_mining_trip(
-            "mine-callisto", "pirates", 40, &registry, &sites, &depots
-        ).unwrap();
+        let home = choose("mine-callisto", "pirates", 40, &registry, &sites, &depots).unwrap();
         assert_eq!(home.name, "deliver_mined_ice");
     }
 
     #[test]
-    fn no_free_or_hostile_mining_when_no_site_or_no_route_or_ice_is_plentiful() {
+    fn no_free_mining_when_buyer_cannot_pay_or_route_would_lose_money() {
         let (mut registry, sites, mut depots) = fixture();
-        assert!(choose_ice_mining_trip(
-            "pirate-outpost", "terran-authority", 0, &registry, &sites, &depots
-        ).is_none());
-        depots[0].ice_supply = 650.0;
-        assert!(choose_ice_mining_trip(
-            "pirate-outpost", "pirates", 0, &registry, &sites, &depots
-        ).is_none());
-        depots[0].ice_supply = 0.0;
+        assert!(choose("pirate-outpost", "terran-authority", 0,
+            &registry, &sites, &depots).is_none());
+        depots[0].buyer_credits = 0;
+        assert!(choose("pirate-outpost", "pirates", 0,
+            &registry, &sites, &depots).is_none());
+        depots[0].buyer_credits = 30_000;
+        depots[0].ice_unit_price = 0.01;
+        assert!(choose("pirate-outpost", "pirates", 0,
+            &registry, &sites, &depots).is_none());
         registry.routes.clear();
-        assert!(choose_ice_mining_trip(
-            "pirate-outpost", "pirates", 0, &registry, &sites, &depots
-        ).is_none());
+        assert!(choose("pirate-outpost", "pirates", 0,
+            &registry, &sites, &depots).is_none());
+    }
+
+    #[test]
+    fn mine_quantity_is_capped_by_real_buyer_cash_hold_and_body() {
+        let enough = profitable_mining_quantity(200, 400, 10.0, 1000,
+            18, 0.05, 25.0, 1.0).unwrap();
+        assert_eq!(enough.0, 40);
+        let reduced = profitable_mining_quantity(15, 20, 10.0, 200,
+            18, 0.05, 25.0, 1.0).unwrap();
+        assert_eq!(reduced.0, 15);
+        assert!(profitable_mining_quantity(200, 400, 10.0, 0,
+            18, 0.05, 25.0, 1.0).is_none());
     }
 }
