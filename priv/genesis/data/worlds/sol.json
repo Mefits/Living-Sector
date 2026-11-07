@@ -327,7 +327,7 @@
   ],
   "ships": [
     {
-      "name": "Terran-001 (freighter placeholder)",
+      "name": "Terran 01",
       "location": "earth-station",
       "class": "freighter",
       "credits": 12000,
@@ -337,7 +337,7 @@
       }
     },
     {
-      "name": "Pirate-001 (freighter placeholder)",
+      "name": "Raider 01",
       "location": "pirate-outpost",
       "class": "freighter",
       "credits": 12000,
