@@ -3,8 +3,8 @@
     "id": "system-barnard",
     "name": "Barnard's Star",
     "universe_offset": [
-      55,
-      -55
+      110,
+      -110
     ],
     "star_type": "M"
   },
@@ -13,7 +13,7 @@
       "id": "yeoman",
       "name": "Yeoman",
       "type": "planet",
-      "orbit_radius": 0.7,
+      "orbit_radius": 1.4,
       "orbit_period": 240,
       "current_angle": 80,
       "biome": "arid",
@@ -26,7 +26,7 @@
       "id": "barnard-belt",
       "name": "Barnard Belt",
       "type": "belt",
-      "orbit_radius": 1.6,
+      "orbit_radius": 3.2,
       "orbit_period": 560,
       "current_angle": 200,
       "biome": "asteroid",
@@ -39,7 +39,7 @@
       "id": "outpost-gamma",
       "name": "Outpost Gamma",
       "type": "planet",
-      "orbit_radius": 2.6,
+      "orbit_radius": 5.2,
       "orbit_period": 1000,
       "current_angle": 300,
       "biome": "ice",
@@ -52,7 +52,7 @@
       "id": "barnard-deep-asteroid",
       "name": "Deep Drift",
       "type": "asteroid",
-      "orbit_radius": 3.4,
+      "orbit_radius": 6.8,
       "orbit_period": 1400,
       "current_angle": 120,
       "biome": "asteroid",
