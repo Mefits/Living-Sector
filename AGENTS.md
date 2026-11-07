@@ -1,3 +1,9 @@
+> **Current F4 (2026-11-07):** `feature/genesis-construction-executor`, PR #34.
+> Verified code `6470013763fc893ac502b2c2017225b56814dbda`; CI 42355317764 passed.
+> Read `docs/living-sector/economy/F4_CONSTRUCTION_EXECUTOR.md` first.
+> Engineering ships choose construction duty; paid work requires actual attendance.
+> Service staffing remains next. Historical F3/F2 instructions follow below.
+
 > **Current F3 (2026-11-07):** `feature/genesis-construction-labor`, PR #32.
 > Verified base `1ade8339afeef8e3f351a45a256e09d999078bb4`; CI 42351760363 passed.
 > Read `docs/living-sector/economy/F3_CONSTRUCTION_LABOR.md` first.
