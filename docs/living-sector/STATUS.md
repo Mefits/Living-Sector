@@ -1,3 +1,10 @@
+> **F3 — оплачиваемая стройка (2026-11-07):** `feature/genesis-construction-labor`, [PR #32](https://github.com/Mefits/Living-Sector/pull/32).
+> Проверенная база `1ade8339afeef8e3f351a45a256e09d999078bb4`; CI 42351760363 прошёл.
+> Материалы и труд теперь отдельные стадии. Зарплата идёт из казны местным жителям;
+> запись смены и завершение проходят через native SQLite checkpoint.
+> [Интерфейсы, совместимость и ограничения F3](economy/F3_CONSTRUCTION_LABOR.md).
+> Это продолжение F2; UI и интеграционные PR автоматически не объединялись.
+
 > **Актуальный F2 (2026-11-07):** `feature/genesis-paid-production`, [PR #29](https://github.com/Mefits/Living-Sector/pull/29).
 > Проверенный SHA `c8cdf69dd94eb42963529f5e2c404ccd984d1936`; CI 42316233684 прошёл.
 > Native производство оплачивает труд существующего населения. На тике 41
