@@ -2,7 +2,7 @@
 import {telemetrySnapshot, TELEMETRY_NAMES, telemetryList, telemetryNumber} from "/observer/telemetry-model.js";
 const telemetryFormat=new Intl.NumberFormat("ru-RU",{maximumFractionDigits:1});
 const telemetryText=value=>value===null||value===undefined?"—":String(value);
-const telemetryFmt=value=>value===null||value===undefined?"—":telemetryFormat.format(value);
+const telemetryFmt=value=>value===null||value===undefined?"—":typeof value==="number"?telemetryFormat.format(value):String(value);
 const telemetryDom=(tag,cls,value)=>{
   const e=document.createElement(tag);if(cls)e.className=cls;
   if(value!==undefined)e.textContent=telemetryText(value);

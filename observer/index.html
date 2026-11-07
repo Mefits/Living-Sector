@@ -36,6 +36,7 @@
         <span id="world-subtitle" class="sub-title">—</span>
       </div>
       <div class="controls">
+        <button id="telemetry-toggle" class="telemetry-toolbar-button" type="button" aria-controls="telemetry-drawer" aria-expanded="false">▤ Статистика</button>
         <button id="strategy-toggle" class="strategy-toolbar-button" type="button" aria-controls="strategy-drawer" aria-expanded="false">◈ Стратегия</button>
         <div class="readout"><span>ТИК</span><strong id="tick">—</strong></div>
         <div class="readout"><span>АГЕНТЫ</span><strong id="agent-count">—</strong></div>
@@ -103,6 +104,29 @@
     </section>
   </main>
 
+  <div id="telemetry-backdrop" class="telemetry-backdrop" hidden></div>
+  <aside id="telemetry-drawer" class="telemetry-drawer" role="dialog" aria-modal="true" aria-label="Экономика и статистика сектора" hidden>
+    <header class="telemetry-drawer-head">
+      <div><small>LIVING SECTOR / TELEMETRY</small><h2>Экономика сектора</h2><p>Живые данные · графики · без управления симуляцией</p></div>
+      <button id="telemetry-close" class="telemetry-close" type="button" aria-label="Закрыть статистику">×</button>
+    </header>
+    <div class="telemetry-scope-row">
+      <label for="telemetry-scope">ПОКАЗАТЕЛИ</label>
+      <select id="telemetry-scope" aria-label="Фильтр по фракции"><option value="all">Весь сектор</option></select>
+      <strong id="telemetry-tick">ТИК —</strong>
+    </div>
+    <nav id="telemetry-tabs" class="telemetry-tabs" aria-label="Разделы статистики">
+      <button type="button" class="active" data-tab="overview">Обзор</button>
+      <button type="button" data-tab="resources">Ресурсы</button>
+      <button type="button" data-tab="industry">Производство</button>
+      <button type="button" data-tab="population">Население</button>
+      <button type="button" data-tab="market">Рынок</button>
+      <button type="button" data-tab="fleet">Флот</button>
+      <button type="button" data-tab="signals">События</button>
+      <button type="button" data-tab="analytics">Графики</button>
+    </nav>
+    <div id="telemetry-content" class="telemetry-scroll"><p class="telemetry-note">Данные появятся после подключения к симуляции.</p></div>
+  </aside>
   <div id="strategy-backdrop" class="strategy-backdrop" hidden></div>
   <aside id="strategy-drawer" class="strategy-drawer" role="dialog" aria-modal="true" aria-label="Стратегическое управление фракциями" hidden>
     <header class="strategy-drawer-header">
