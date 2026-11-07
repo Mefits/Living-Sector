@@ -268,6 +268,31 @@ async fn seed_world(pool: &SqlitePool, path: &std::path::Path) -> Result<()> {
         }
     }
 
+    // Navigation/mining waypoints are real body-linked locations without
+    // facilities, markets or invented resource stock. Ships can travel to
+    // them using the native orbital position resolver. No production occurs
+    // until a miner physically arrives and extracts from BodyResources.
+    for site in data["nav_sites"].as_array().unwrap_or(&vec![]) {
+        let name = str_field(site, "name")?;
+        let body = str_field(site, "body")?;
+        let body_id = body_db_id.get(&body).copied()
+            .ok_or_else(|| anyhow::anyhow!("nav site {name} has unknown body {body}"))?;
+        let loc_type = site.get("type").and_then(|v| v.as_str()).unwrap_or("mining_site");
+        sqlx::query(
+            "INSERT INTO locations (name, loc_type, celestial_body_id)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(name) DO UPDATE SET
+               loc_type=excluded.loc_type,
+               celestial_body_id=excluded.celestial_body_id,
+               updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+        )
+        .bind(&name)
+        .bind(loc_type)
+        .bind(body_id)
+        .execute(pool)
+        .await?;
+    }
+
     // Refresh location map for locations that may have been created above
     // but weren't in the facilities loop (e.g., if markets reference a location not yet seen)
     let all_locs: Vec<(i64, String)> =
