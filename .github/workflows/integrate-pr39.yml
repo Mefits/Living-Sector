@@ -63,8 +63,8 @@ jobs:
           s=s.replace('"facility-alpha-station",3]', '"facility-alpha-station",4]')
           p.write_text(s)
           PY
-          test -z "$(git ls-files -u)"
           git add -A
+          test -z "$(git ls-files -u)"
       - name: Observer + Genesis seed regression
         run: |
           node --check observer/app.js
