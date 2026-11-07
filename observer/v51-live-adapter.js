@@ -85,6 +85,7 @@
     const tick=$("v51LiveTick");if(tick)tick.textContent=count(report.tick);
   }
   async function refresh(manual=false){
+    if(manual)runtime.active=true;
     if(!runtime.active||runtime.busy||!runtime.context)return;
     runtime.busy=true;
     try {
@@ -140,6 +141,7 @@
     const data=bridge.getState?.();
     if(!data)return;
     runtime.events=nativeEvents();
+    if(Number.isFinite(data.zoom)) {const label=$("zoomLabel");if(label)label.textContent=Math.round(data.zoom*100)+"%";}
     const k=JSON.stringify(data.selection||null);
     if(k!==runtime.lastNativeSelection){runtime.lastNativeSelection=k;selectedFromNative(data.selection);}
   }
@@ -188,6 +190,7 @@
     window.setInterval(nativeSync,600);
   }
   window.LivingSectorV51={
+    prepare,
     isLive:()=>serverMode,
     start,refresh,
     pauseLiveForImport:()=>{runtime.active=false;markStatus("Режим файла JSON",false);}
