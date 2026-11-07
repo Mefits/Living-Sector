@@ -344,6 +344,7 @@ pub async fn run_tick_loop(
         // updated when gates spawn/despawn (admin operations).
         let gate_pairs_snapshot = store.gate_pairs.clone();
         phase!(ships, {
+            sim_core::strategy::orders::dispatch(&mut world, &mut store.contracts, &store.relations, &registry, tick, tick_mult);
             ship::tick_ships(
                 &mut world,
                 &registry,

@@ -1,7 +1,7 @@
 name: Genesis economic checkpoint checks
 on:
   push:
-    branches: [feature/genesis-economic-checkpoint, feature/genesis-lifecycle-checkpoint, feature/genesis-flight-recovery, integration/genesis-strategy-prototype, feature/genesis-strategy-replanning, feature/genesis-strategy-construction, feature/genesis-strategy-coordination, feature/genesis-autonomous-execution, feature/genesis-viable-projects, feature/genesis-goal-options, feature/genesis-economy-foundation, feature/genesis-paid-production, feature/genesis-construction-labor, feature/genesis-construction-executor, feature/genesis-station-administrator]
+    branches: [feature/genesis-economic-checkpoint, feature/genesis-lifecycle-checkpoint, feature/genesis-flight-recovery, integration/genesis-strategy-prototype, feature/genesis-strategy-replanning, feature/genesis-strategy-construction, feature/genesis-strategy-coordination, feature/genesis-autonomous-execution, feature/genesis-viable-projects, feature/genesis-goal-options, feature/genesis-economy-foundation, feature/genesis-paid-production, feature/genesis-construction-labor, feature/genesis-construction-executor, feature/genesis-station-administrator, feature/genesis-station-orders]
   workflow_dispatch:
 permissions:
   contents: read
@@ -93,3 +93,11 @@ jobs:
           cargo test --locked -p sim_server --lib construction_labor_checkpoint --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
           cargo build --locked -p sim_server --bin genesis_server --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
           python3 tests/station-admin-runtime-smoke.py target/debug/genesis_server
+
+      - name: Station orders and durable native execution
+        if: github.ref_name == 'feature/genesis-station-orders'
+        run: |
+          cargo test --locked -p sim_core -p sim_server -p sim_db --lib station_order_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_core --lib station_admin_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_db --lib escrow_sqlite_roundtrip --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_server --lib construction_labor_checkpoint --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0

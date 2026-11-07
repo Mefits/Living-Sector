@@ -18,6 +18,7 @@ pub const LABOR_REQUIRED: u32 = 150;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ConstructionLabor {
+    pub station_order: Option<crate::strategy::orders::Order>,
     pub required: u32,
     pub completed: u32,
     pub last_shift: Option<super::facility::workforce::WorkShift>,
@@ -25,7 +26,7 @@ pub struct ConstructionLabor {
     pub last_executor: Option<String>,
 }
 impl Default for ConstructionLabor {
-    fn default() -> Self { Self { required: LABOR_REQUIRED, completed: 0, last_shift: None, blocked_reason: None, last_executor: None } }
+    fn default() -> Self { Self { station_order: None, required: LABOR_REQUIRED, completed: 0, last_shift: None, blocked_reason: None, last_executor: None } }
 }
 
 /// Units of commodity needed to finish a construction site. Sized so

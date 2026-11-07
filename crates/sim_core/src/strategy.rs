@@ -9,6 +9,7 @@ use crate::economy::{commodities::Commodity, contracts::{ContractBoard, Contract
 
 pub mod construction;
 pub mod station;
+pub mod orders;
 pub mod coordination;
 mod options;
 pub(crate) mod sourcing;
@@ -66,6 +67,7 @@ pub struct Snapshot {
     pub mode: Mode,
     pub factions: Vec<FactionView>,
     pub stations: Vec<station::StationView>,
+    pub orders: Vec<orders::OrderView>,
 }
 #[derive(Resource, Default)]
 pub struct StrategyState {
@@ -76,7 +78,7 @@ pub struct StrategyState {
 impl StrategyState {
     pub fn snapshot(&self, tick: u64) -> Snapshot {
         Snapshot { schema_version: 1, snapshot_tick: tick, mode: self.mode,
-            factions: self.factions.values().cloned().collect(), stations: Vec::new() }
+            factions: self.factions.values().cloned().collect(), stations: Vec::new(), orders: Vec::new() }
     }
 }
 pub fn executing(world: &World) -> bool {
@@ -122,6 +124,18 @@ pub fn run_cycle(world: &mut World, contracts: &mut ContractBoard,
                     score: faction::shortage_priority(commodity, age, Some(&faction.personality)) });
             }
         }
+        // Production input requests join the same head portfolio and funded
+        // contracts. A local administrator never posts a competing reward.
+        if let Some(stations)=world.get_resource::<station::StationAdministration>() {
+            for station in stations.stations.iter().filter(|s|s.faction_id==faction.id && members.contains(&s.location)) {
+                for need in &station.needs {
+                    if goals.iter().any(|g|g.commodity==need.commodity && g.destination==station.location) {continue;}
+                    goals.push(Goal {goal_id:goal_id(need.commodity).into(),commodity:need.commodity,
+                        destination:station.location.clone(),shortage_ticks:0,
+                        score:faction::shortage_priority(need.commodity,faction::SUBSIDY_TRIGGER_TICKS,Some(&faction.personality))});
+                }
+            }
+        }
         goals.sort_by(|a,b| b.score.total_cmp(&a.score)
             .then_with(|| a.goal_id.cmp(&b.goal_id)).then_with(|| a.commodity.as_str().cmp(b.commodity.as_str()))
             .then_with(|| a.destination.cmp(&b.destination)));
@@ -133,7 +147,7 @@ pub fn run_cycle(world: &mut World, contracts: &mut ContractBoard,
         let payment = faction::SUBSIDY_BASE_PAYMENT * 2;
         let affordable = faction.treasury.saturating_sub(faction::FACTION_SUBSIDY_FLOOR) >= payment;
         let assessments: Vec<_> = goals.iter().map(|goal| {
-            let duplicate = contracts.iter().any(|c| c.requestor_id == faction.id && outstanding(c) &&
+            let duplicate = contracts.iter().any(|c| (c.requestor_id == faction.id || c.faction_id.as_deref()==Some(faction.id.as_str())) && outstanding(c) &&
                 c.commodity == goal.commodity && c.destination_location == goal.destination);
             let source = sources.choose(&faction.id, &goal.destination, goal.commodity,
                 faction::SUBSIDY_QUANTITY, payment);
