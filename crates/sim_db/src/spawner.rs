@@ -5,7 +5,7 @@ use bevy_ecs::prelude::{Entity, World};
 use sim_core::{
     agents::{
         celestial_body::{BodyIdentity, BodyOrbit, BodyResources},
-        facility::{FacilityIdentity, FacilityLocation, FacilityOperations, FacilityStorage},
+        facility::{FacilityIdentity, FacilityLocation, FacilityOperations, FacilityStorage, FacilityOrbit},
         faction::{FactionColors, FactionData},
         market::{MarketFlow, MarketHistory, MarketIdentity, MarketOrders, MarketPricing},
         population::{PopDemographics, PopEconomy, PopIdentity, PopSentiment},
@@ -396,7 +396,7 @@ async fn load_facilities(world: &mut World, pool: &SqlitePool, store: &mut Agent
     let rows = sqlx::query(
         "SELECT id, name, facility_type, location_id, location_name, body_id, faction_id,
                 docking_capacity, services, condition, reputation, credits, reserves, docked_ships,
-                gate_paired_id, module_stock, fitting, crew_state
+                gate_paired_id, module_stock, fitting, crew_state, orbit_angle
          FROM facilities",
     )
     .fetch_all(pool)
@@ -463,6 +463,8 @@ async fn load_facilities(world: &mut World, pool: &SqlitePool, store: &mut Agent
                 dock_queue: vec![],
             },
             sim_core::agents::facility::FacilityLifecycle::new(),
+            FacilityOrbit::new(&location_name, r.try_get::<Option<f64>, _>("orbit_angle")
+                .ok().flatten().map(|v| v as f32)),
             sim_core::simulation::lod::AgentLod::new(),
         )).id();
         // Attach FacilityFitting (Phase 18e) to every non-gate
