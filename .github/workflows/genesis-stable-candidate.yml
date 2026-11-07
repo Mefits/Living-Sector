@@ -13,6 +13,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-checkpoint:
+    name: Astra A1/A2 native checkpoint (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Native station administration and orders checks
+        run: |
+          for filter in station_order_ station_admin_ escrow_sqlite_roundtrip construction_labor_checkpoint; do
+            cargo test --locked -p sim_core -p sim_server -p sim_db --lib "$filter" --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          done
   windows-preview:
     name: Six systems, native Genesis engine and Observer
     runs-on: windows-2022
@@ -44,11 +61,6 @@ jobs:
           node --test observer/station-kit.test.mjs observer/strategy-model.test.mjs
           node observer/build-strategy.mjs --write
           node observer/build-strategy.mjs --check
-      - name: Verify native Astra A1 and A2 core paths
-        shell: pwsh
-        run: |
-          cargo test --locked -p sim_core --lib station_admin_
-          cargo test --locked -p sim_core -p sim_db -p sim_server --lib station_order_
       - name: Build real ECS + SQLite Windows server
         shell: pwsh
         run: cargo build --locked --release -p sim_server --bin genesis_server
