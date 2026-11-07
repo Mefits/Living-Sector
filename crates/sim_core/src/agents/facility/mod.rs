@@ -34,6 +34,13 @@ use crate::economy::recipes;
 
 /// How often facilities run recipes. Base ticks at 1x world speed = 5 ticks.
 /// At default 0.25 speed (mult=32) this is every 160 ticks (~20s).
+/// Physical orbital movement is not tied to crew, production, or LOD:
+/// every station remains at its real position even at high zoom-out.
+pub fn tick_facility_orbits(world: &mut bevy_ecs::prelude::World, tick_scale: f32) {
+    let mut q = world.query::<&mut crate::agents::facility::FacilityOrbit>();
+    for mut orbit in q.iter_mut(world) { orbit.advance(tick_scale); }
+}
+
 pub const RECIPE_INTERVAL_BASE: u64 = 5;
 pub const MINING_INTERVAL_BASE: u64 = 5;
 
