@@ -68,6 +68,21 @@ test("body-specific extraction gives Earth ore but no gas; Jupiter gas but no or
   assert.ok(sol.bodies.some(b => b.type === "belt" || b.type === "asteroid"));
 });
 
+test("pirate settlement must fetch ice from physical Sol bodies, not Jupiter", () => {
+  const sol = worlds[0];
+  const jupiter = sol.bodies.find(body => body.id === "jupiter");
+  const callisto = sol.bodies.find(body => body.id === "callisto");
+  const trojans = sol.bodies.find(body => body.id === "trojan-cluster");
+  assert.equal(jupiter.resources.ice, undefined, "a gas giant is not a free ice mine");
+  assert.ok(callisto?.resources.ice > 0, "Callisto is a physical ice source");
+  assert.ok(trojans?.resources.ice > 0, "nearby asteroids provide another physical source");
+  const pirates = sol.facilities.filter(f => f.faction_id === "pirates");
+  assert.ok(pirates.every(f => f.body === "jupiter"));
+  assert.ok(pirates.some(f => f.type === "refinery"), "water can be refined once Ice arrives");
+  assert.ok(sol.ships.some(s => s.faction_id === "pirates"),
+    "an independent vessel exists; a real mining action is still required");
+});
+
 test("no cross-system trade infrastructure or preseeded external business", () => {
   assert.ok(worlds.every(w => w.travel_routes.length === 0));
   assert.ok(allFacilities.every(f => f.type !== "shipyard" && f.type !== "gate"));
