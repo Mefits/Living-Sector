@@ -412,6 +412,7 @@ pub(super) fn emit_persist_writes(
                     continue;
                 };
                 Some(sim_db::persistence::ConstructionSiteRow {
+                    labor_state: serde_json::to_string(&site.labor).expect("construction labor is serializable"),
                     agent_id: site.id.clone(),
                     name: site.name.clone(),
                     facility_type: site.facility_type.clone(),

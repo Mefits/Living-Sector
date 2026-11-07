@@ -1,3 +1,10 @@
+> **Current F3 (2026-11-07):** `feature/genesis-construction-labor`, PR #32.
+> Verified base `1ade8339afeef8e3f351a45a256e09d999078bb4`; CI 42351760363 passed.
+> Read `docs/living-sector/economy/F3_CONSTRUCTION_LABOR.md` first.
+> Construction requires paid local work after materials; native population and
+> economic checkpoint are reused. No automatic merges with Observer branches.
+> Earlier F2/F1/S4 next-block instructions below are historical.
+
 > **Current F2 (2026-11-07):** `feature/genesis-paid-production`, PR #29.
 > Verified code `c8cdf69dd94eb42963529f5e2c404ccd984d1936`, CI 42316233684 passed.
 > Read `docs/living-sector/economy/F2_PAID_PRODUCTION.md` first: paid native

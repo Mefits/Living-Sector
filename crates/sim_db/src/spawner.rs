@@ -1422,7 +1422,7 @@ async fn load_construction_sites(world: &mut World, pool: &SqlitePool, _store: &
                 location_name, commodity,
                 progress_delivered, progress_required,
                 position_x, position_y,
-                spawned_at_tick, completed
+                spawned_at_tick, completed, labor_state
            FROM construction_sites",
     )
     .fetch_all(pool)
@@ -1443,6 +1443,7 @@ async fn load_construction_sites(world: &mut World, pool: &SqlitePool, _store: &
             continue;
         };
         let site = ConstructionSite {
+                labor: serde_json::from_str(&r.get::<String, _>("labor_state"))?,
             id: r.get("agent_id"),
             name: r.get("name"),
             facility_type: r.get("facility_type"),

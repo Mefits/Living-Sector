@@ -201,6 +201,7 @@ pub struct RetirementRow {
 /// Mirrors the `construction_sites` table schema verbatim.
 #[derive(Debug, Clone)]
 pub struct ConstructionSiteRow {
+    pub labor_state: String,
     pub agent_id: String,
     pub name: String,
     pub facility_type: String,
@@ -397,6 +398,7 @@ mod escrow_tests {
         let pool = crate::pool::create_pool("sqlite::memory:").await.unwrap();
         crate::pool::run_migrations(&pool).await.unwrap();
         let row = ConstructionSiteRow {
+            labor_state: "{}".into(),
             agent_id: "site".into(), name: "Site".into(), facility_type: "factory".into(),
             faction_id: "issuer".into(), body_id: "earth".into(), location_name: "port".into(),
             commodity: "ore".into(), progress_delivered: 10, progress_required: 10,
@@ -895,8 +897,8 @@ impl PersistenceWorker {
                              body_id, location_name, commodity,
                              progress_delivered, progress_required,
                              position_x, position_y,
-                             spawned_at_tick, completed
-                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                             spawned_at_tick, completed, labor_state
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                          ON CONFLICT(agent_id) DO UPDATE SET
                              name=excluded.name,
                              facility_type=excluded.facility_type,
@@ -909,6 +911,7 @@ impl PersistenceWorker {
                              position_x=excluded.position_x,
                              position_y=excluded.position_y,
                              completed=excluded.completed,
+                             labor_state=excluded.labor_state,
                              updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')",
                     )
                     .bind(&row.agent_id)
@@ -924,6 +927,7 @@ impl PersistenceWorker {
                     .bind(row.position_y as f64)
                     .bind(row.spawned_at_tick)
                     .bind(row.completed as i64)
+                    .bind(&row.labor_state)
                     .execute(&mut *tx)
                     .await?;
                 }

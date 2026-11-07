@@ -1,32 +1,30 @@
 //! Construction sites (Phase 19c-b).
 //!
-//! A `ConstructionSite` is a half-built facility that sits in the
-//! world from the moment the demand analyzer decides "we need a
-//! polymer refinery at Kuiper Station" until enough construction
-//! deliveries arrive to complete it. At `progress == 1.0` the site
-//! despawns and a real `Facility*` entity materialises at the same
-//! position.
-//!
-//! ## Lifecycle
-//!
-//! 1. `run_construction_cycle` (faction.rs) detects chronic shortage,
-//!    spawns a `ConstructionSite` via `spawn_site()`, then posts a
-//!    `ContractType::Construction` contract targeting the site.
-//! 2. Ships fulfil the delivery contract normally.
-//! 3. `apply_deliver_construction` (engine.rs) bumps the site's
-//!    `progress_delivered` by the delivered quantity (capped at
-//!    `progress_required`).
-//! 4. If `progress >= 1.0` the site materialises. If not, the next
-//!    demand analyzer cycle posts another contract (up to a cap).
-//!
-//! The site is **not** a facility — ships don't dock at it, it has
-//! no market, it doesn't run recipes. It's a placeholder entity that
-//! Godot renders as a scaffold/wireframe so the player sees
-//! something visible happening at the starved location.
+//! Native sites retain delivered material while local residents perform paid work.
+//! Deliveries advance `progress_delivered`; construction labor advances a separate
+//! durable worker-shift counter. Only both requirements permit materialization
+//! through the existing server economic checkpoint. Sites have no market or wallet.
 
 use crate::economy::commodities::Commodity;
 use bevy_ecs::prelude::{Component, Entity, World};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
+
+pub mod labor;
+
+/// Worker-shifts required after materials arrive. No wages are invented for old saves.
+pub const LABOR_REQUIRED: u32 = 150;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ConstructionLabor {
+    pub required: u32,
+    pub completed: u32,
+    pub last_shift: Option<super::facility::workforce::WorkShift>,
+    pub blocked_reason: Option<String>,
+}
+impl Default for ConstructionLabor {
+    fn default() -> Self { Self { required: LABOR_REQUIRED, completed: 0, last_shift: None, blocked_reason: None } }
+}
 
 /// Units of commodity needed to finish a construction site. Sized so
 /// ~3 standard Construction deliveries (200 each) complete the build.
@@ -59,6 +57,7 @@ pub fn facility_type_for_commodity(c: Commodity) -> &'static str {
 /// deliberately small so rendering + progress-update passes are cheap.
 #[derive(Debug, Clone, Component)]
 pub struct ConstructionSite {
+    pub labor: ConstructionLabor,
     /// Stable agent-id. Format: `site-<commodity>-<location>-<tick>`.
     pub id: String,
     /// Human-readable name for UI. e.g. "Kuiper Polymer Works".
@@ -93,14 +92,12 @@ pub struct ConstructionSite {
     /// separate side-channel.
     pub completed: bool,
     /// Persistence flag. Set to true when any field changes, then
-    /// cleared by the engine's flush sweep. Sites aren't persisted
-    /// to DB yet (MVP — they live only in RAM), so this is unused
-    /// for now but wired so adding a migration is mechanical.
+    /// cleared after the complete economic frame is admitted to persistence.
     pub dirty: bool,
 }
 
 impl ConstructionSite {
-    /// Progress fraction 0.0..=1.0, clamped.
+    /// Material delivery fraction 0.0..=1.0, not total construction completion.
     pub fn progress(&self) -> f32 {
         if self.progress_required == 0 {
             return 1.0;
@@ -117,6 +114,7 @@ impl ConstructionSite {
 /// WS / HTTP snapshot. Godot reads this to render scaffolds.
 #[derive(Debug, Clone, Serialize)]
 pub struct ConstructionSiteSnapshot {
+    pub labor: ConstructionLabor,
     pub id: String,
     pub name: String,
     pub facility_type: String,
@@ -134,6 +132,7 @@ pub struct ConstructionSiteSnapshot {
 impl From<&ConstructionSite> for ConstructionSiteSnapshot {
     fn from(s: &ConstructionSite) -> Self {
         Self {
+            labor: s.labor.clone(),
             id: s.id.clone(),
             name: s.name.clone(),
             facility_type: s.facility_type.clone(),
