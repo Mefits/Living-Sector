@@ -53,6 +53,8 @@ jobs:
         shell: pwsh
         run: |
           node --test observer/telemetry-model.test.mjs observer/station-admin-ui.test.mjs observer/station-economy.test.mjs tests/genesis-six-systems-preview.test.mjs
+          node observer/build-strategy.mjs --write
+          node observer/build-telemetry.mjs --write
           node observer/build-strategy.mjs --check
           node observer/build-telemetry.mjs --check
       - name: Compile actual Genesis server
