@@ -251,6 +251,17 @@
       "docking_capacity": 2,
       "services": [],
       "reserves": {}
+    },
+    {
+      "id": "facility-earth-station-farm-module",
+      "name": "Genesis Primitive Farm (preview)",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "farm",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
     }
   ],
   "markets": [
