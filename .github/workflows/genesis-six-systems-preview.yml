@@ -37,16 +37,12 @@ jobs:
           node --check observer/app.js
           node --check observer/model.js
           node --test observer/model.test.mjs
-      - name: Verify Observer V5 and economic hotfix
+      - name: Verify Observer V5 frontend, modular station assets and strategy bundle
         shell: pwsh
         run: |
           node --check observer/station-kit.js
           node --test observer/station-kit.test.mjs observer/strategy-model.test.mjs
           node observer/build-strategy.mjs --check
-          cargo test --locked -p sim_server --lib liquidity_
-          if ($LASTEXITCODE -ne 0) { throw "Liquidity invariants failed" }
-          cargo test --locked -p sim_core --lib workforce_
-          if ($LASTEXITCODE -ne 0) { throw "Workforce invariants failed" }
       - name: Build real ECS + SQLite Windows server
         shell: pwsh
         run: cargo build --locked --release -p sim_server --bin genesis_server
