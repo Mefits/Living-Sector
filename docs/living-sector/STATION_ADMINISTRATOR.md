@@ -81,6 +81,14 @@ priority_commodity, head_priority, retained, reason, actual_workers, execution_r
 
 ## Проверки и ограничения
 
+Проверенный код: `7931daaa0f98dc81110979fab4903efff2494d16`.
+[CI 42380994557](https://github.com/Mefits/Living-Sector/actions/runs/42380994557) прошёл:
+7 station_admin проверок, адресные workforce и SQLite construction checkpoint,
+тестовый genesis_server и короткий API/native payroll smoke. Релиз/Windows не
+собирались. Первый прогон прошёл core-проверки, но smoke использовал устаревшее
+ожидание 6 групп населения; теперь количество сверяется с seed всех систем.
+
+
 Адресно проверяются изменение реального производства при дефиците персонала,
 сохранение суммы денег, смена приоритета, инерция, shadow без управления, отсутствие
 денег/сырья, локальность населения, направление главы и восстановление плана из

@@ -1,4 +1,5 @@
 > **Current A1 (2026-11-07):** `feature/genesis-station-administrator`, PR #41.
+> Verified A1 `7931daaa0f98dc81110979fab4903efff2494d16`; CI 42380994557 passed.
 > User paused finance work in favor of station administrators. Read
 > `docs/living-sector/STATION_ADMINISTRATOR.md` first. Base unified fd4e3315f5502aa4c02619b8f84629997183f422.
 > One faction/location administrator, existing local population, native payroll.
