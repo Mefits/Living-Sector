@@ -10,6 +10,32 @@
   },
   "bodies": [
     {
+      "id": "mercury",
+      "name": "Mercury",
+      "type": "planet",
+      "orbit_radius": 0.4,
+      "orbit_period": 88,
+      "current_angle": 30,
+      "biome": "molten",
+      "resources": {
+        "ore": 0.7,
+        "gas": 0.1
+      }
+    },
+    {
+      "id": "venus",
+      "name": "Venus",
+      "type": "planet",
+      "orbit_radius": 0.7,
+      "orbit_period": 225,
+      "current_angle": 160,
+      "biome": "molten",
+      "resources": {
+        "gas": 0.8,
+        "ice": 0.2
+      }
+    },
+    {
       "id": "earth",
       "name": "Earth",
       "type": "planet",
@@ -18,8 +44,8 @@
       "current_angle": 0,
       "biome": "terrestrial",
       "resources": {
-        "ice": 0.3,
-        "gas": 0.1
+        "ore": 0.65,
+        "ice": 0.3
       }
     },
     {
@@ -69,11 +95,75 @@
       "type": "planet",
       "orbit_radius": 5.2,
       "orbit_period": 4333,
-      "current_angle": 315,
+      "current_angle": 200,
       "biome": "gas_giant",
       "resources": {
-        "gas": 0.9,
+        "gas": 0.9
+      }
+    },
+    {
+      "id": "saturn",
+      "name": "Saturn",
+      "type": "planet",
+      "orbit_radius": 9.5,
+      "orbit_period": 10759,
+      "current_angle": 280,
+      "biome": "gas_giant",
+      "resources": {
+        "gas": 0.8,
+        "ice": 0.9
+      }
+    },
+    {
+      "id": "trojan-cluster",
+      "name": "Trojan Cluster",
+      "type": "asteroid",
+      "orbit_radius": 5,
+      "orbit_period": 4333,
+      "current_angle": 180,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.8,
         "ice": 0.3
+      }
+    },
+    {
+      "id": "hilda-group",
+      "name": "Hilda Group",
+      "type": "asteroid",
+      "orbit_radius": 4,
+      "orbit_period": 3200,
+      "current_angle": 240,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.6,
+        "gas": 0.4
+      }
+    },
+    {
+      "id": "near-earth",
+      "name": "Near-Earth Asteroid",
+      "type": "asteroid",
+      "orbit_radius": 1.2,
+      "orbit_period": 480,
+      "current_angle": 300,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.5,
+        "ice": 0.2
+      }
+    },
+    {
+      "id": "kuiper",
+      "name": "Kuiper Object",
+      "type": "asteroid",
+      "orbit_radius": 12,
+      "orbit_period": 15000,
+      "current_angle": 90,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.9,
+        "gas": 0.5
       }
     },
     {
@@ -88,130 +178,17 @@
         "ore": 0.78,
         "ice": 0.65
       }
-    },
-    {
-      "id": "jupiter-wreckage",
-      "name": "Поле обломков у пиратской базы",
-      "type": "belt",
-      "orbit_radius": 5.26,
-      "orbit_period": 4300,
-      "current_angle": 316,
-      "biome": "asteroid",
-      "resources": {
-        "ore": 0.5,
-        "ice": 0.3,
-        "gas": 0.25,
-        "metals": 0.12
-      }
     }
   ],
-  "travel_routes": [
-    {
-      "from": "earth-station",
-      "to": "belt-outpost",
-      "distance": 150
-    },
-    {
-      "from": "pirate-outpost",
-      "to": "jupiter-gas-field",
-      "distance": 90
-    },
-    {
-      "from": "pirate-outpost",
-      "to": "callisto-mine",
-      "distance": 115
-    },
-    {
-      "from": "callisto-mine",
-      "to": "jupiter-gas-field",
-      "distance": 160
-    },
-    {
-      "from": "jupiter-gas-field",
-      "to": "belt-outpost",
-      "distance": 200
-    },
-    {
-      "from": "pirate-outpost",
-      "to": "pirate-wreckage",
-      "distance": 50
-    },
-    {
-      "from": "pirate-wreckage",
-      "to": "jupiter-gas-field",
-      "distance": 70
-    }
-  ],
+  "travel_routes": [],
   "facilities": [
     {
       "id": "facility-earth-station",
-      "name": "Genesis Station",
+      "name": "Genesis Station T1",
       "faction_id": "terran-authority",
       "location": "earth-station",
       "body": "earth",
       "type": "station",
-      "docking_capacity": 50,
-      "services": [
-        "refuel",
-        "repair",
-        "medical",
-        "market",
-        "passenger_terminal"
-      ],
-      "reserves": {}
-    },
-    {
-      "id": "facility-earth-farm",
-      "name": "Genesis Hydroponics",
-      "faction_id": "terran-authority",
-      "location": "earth-station",
-      "body": "earth",
-      "type": "farm",
-      "docking_capacity": 10,
-      "services": [
-        "market"
-      ],
-      "reserves": {}
-    },
-    {
-      "id": "facility-earth-shipyard",
-      "name": "Genesis Shipyard",
-      "faction_id": "terran-authority",
-      "location": "earth-station",
-      "body": "earth",
-      "type": "shipyard",
-      "docking_capacity": 20,
-      "services": [
-        "refuel",
-        "repair",
-        "market",
-        "shipyard"
-      ],
-      "reserves": {},
-      "fitting": {},
-      "module_stock": {}
-    },
-    {
-      "id": "facility-belt-outpost",
-      "name": "Belt Extraction",
-      "faction_id": "terran-authority",
-      "location": "belt-outpost",
-      "body": "belt",
-      "type": "mining_rig",
-      "docking_capacity": 30,
-      "services": [
-        "refuel",
-        "market"
-      ],
-      "reserves": {}
-    },
-    {
-      "id": "facility-earth-factory",
-      "name": "Genesis Assembly",
-      "faction_id": "terran-authority",
-      "location": "earth-station",
-      "body": "earth",
-      "type": "factory",
       "docking_capacity": 12,
       "services": [
         "market"
@@ -219,12 +196,34 @@
       "reserves": {}
     },
     {
-      "id": "facility-earth-refinery",
-      "name": "Genesis Refinery",
+      "id": "facility-earth-mine-module",
+      "name": "Genesis Primitive Extraction (preview)",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "mining_rig",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    },
+    {
+      "id": "facility-earth-refinery-module",
+      "name": "Genesis Primitive Refining (preview)",
       "faction_id": "terran-authority",
       "location": "earth-station",
       "body": "earth",
       "type": "refinery",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    },
+    {
+      "id": "facility-pirate-station",
+      "name": "Pirate Station T1",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "jupiter",
+      "type": "station",
       "docking_capacity": 12,
       "services": [
         "market"
@@ -232,117 +231,25 @@
       "reserves": {}
     },
     {
-      "id": "facility-pirate-outpost",
-      "name": "Пиратская база",
+      "id": "facility-pirate-mine-module",
+      "name": "Pirate Primitive Extraction (preview)",
       "faction_id": "pirates",
       "location": "pirate-outpost",
       "body": "jupiter",
-      "type": "station",
-      "docking_capacity": 20,
-      "services": [
-        "refuel",
-        "repair",
-        "market"
-      ],
+      "type": "mining_rig",
+      "docking_capacity": 2,
+      "services": [],
       "reserves": {}
     },
     {
-      "id": "facility-pirate-yard",
-      "name": "Верфь корсаров",
-      "faction_id": "pirates",
-      "location": "pirate-outpost",
-      "body": "jupiter",
-      "type": "shipyard",
-      "docking_capacity": 10,
-      "services": [
-        "refuel",
-        "repair",
-        "market",
-        "shipyard"
-      ],
-      "reserves": {},
-      "module_stock": {},
-      "fitting": {}
-    },
-    {
-      "id": "facility-pirate-refinery",
-      "name": "Пиратская переработка",
+      "id": "facility-pirate-refinery-module",
+      "name": "Pirate Primitive Refining (preview)",
       "faction_id": "pirates",
       "location": "pirate-outpost",
       "body": "jupiter",
       "type": "refinery",
-      "docking_capacity": 8,
-      "services": [
-        "market"
-      ],
-      "reserves": {}
-    },
-    {
-      "id": "facility-pirate-factory",
-      "name": "Мастерские корсаров",
-      "faction_id": "pirates",
-      "location": "pirate-outpost",
-      "body": "jupiter",
-      "type": "factory",
-      "docking_capacity": 8,
-      "services": [
-        "market"
-      ],
-      "reserves": {}
-    },
-    {
-      "id": "facility-pirate-farm",
-      "name": "Гидропоника корсаров",
-      "faction_id": "pirates",
-      "location": "pirate-outpost",
-      "body": "jupiter",
-      "type": "farm",
-      "docking_capacity": 8,
-      "services": [
-        "market"
-      ],
-      "reserves": {}
-    },
-    {
-      "id": "facility-jupiter-extractor",
-      "name": "Газовая платформа Юпитера",
-      "faction_id": "pirates",
-      "location": "jupiter-gas-field",
-      "body": "jupiter",
-      "type": "mining_rig",
-      "docking_capacity": 14,
-      "services": [
-        "refuel",
-        "market"
-      ],
-      "reserves": {}
-    },
-    {
-      "id": "facility-callisto-mine",
-      "name": "Рудная шахта Каллисто",
-      "faction_id": "pirates",
-      "location": "callisto-mine",
-      "body": "callisto",
-      "type": "mining_rig",
-      "docking_capacity": 16,
-      "services": [
-        "refuel",
-        "market"
-      ],
-      "reserves": {}
-    },
-    {
-      "id": "facility-pirate-salvage",
-      "name": "Пиратские сборщики обломков",
-      "faction_id": "pirates",
-      "location": "pirate-wreckage",
-      "body": "jupiter-wreckage",
-      "type": "salvage_field",
-      "docking_capacity": 10,
-      "services": [
-        "refuel",
-        "market"
-      ],
+      "docking_capacity": 2,
+      "services": [],
       "reserves": {}
     }
   ],
@@ -350,326 +257,90 @@
     {
       "id": "market-earth-station",
       "facility_id": "earth-station",
-      "prices": {
-        "ore": 48,
-        "ice": 30,
-        "gas": 50,
-        "metals": 55,
-        "fuel": 22,
-        "polymers": 50,
-        "water": 10,
-        "components": 90,
-        "electronics": 130,
-        "tools": 100,
-        "food": 8,
-        "medical": 110,
-        "luxury": 160
-      },
-      "supply": {
-        "ore": 4,
-        "ice": 12,
-        "gas": 10,
-        "metals": 35,
-        "fuel": 650,
-        "polymers": 35,
-        "water": 320,
-        "components": 18,
-        "electronics": 15,
-        "tools": 15,
-        "food": 360,
-        "medical": 12
-      },
-      "demand": {
-        "ore": 70,
-        "ice": 5,
-        "fuel": 18,
-        "food": 20,
-        "metals": 18,
-        "water": 14,
-        "components": 12,
-        "electronics": 5,
-        "tools": 4
-      },
-      "consumption": {},
-      "production": {},
-      "price_elasticity": 0.02
-    },
-    {
-      "id": "market-belt-outpost",
-      "facility_id": "belt-outpost",
-      "prices": {
-        "ore": 9,
-        "ice": 8,
-        "gas": 12,
-        "metals": 50,
-        "fuel": 30,
-        "polymers": 42,
-        "water": 20,
-        "components": 75,
-        "electronics": 125,
-        "tools": 85,
-        "food": 55,
-        "medical": 120,
-        "luxury": 180
-      },
-      "supply": {
-        "ore": 250,
-        "ice": 90,
-        "gas": 30,
-        "metals": 1,
-        "fuel": 260,
-        "polymers": 4,
-        "water": 20,
-        "components": 0,
-        "electronics": 0,
-        "tools": 4,
-        "food": 45
-      },
-      "demand": {
-        "food": 28,
-        "fuel": 8,
-        "metals": 12,
-        "water": 7
-      },
-      "consumption": {},
       "price_elasticity": 0.02,
-      "production": {}
+      "prices": {
+        "ore": 15,
+        "ice": 10,
+        "gas": 20,
+        "metals": 45,
+        "fuel": 25,
+        "polymers": 40,
+        "water": 12,
+        "components": 80,
+        "electronics": 120,
+        "tools": 90,
+        "food": 18,
+        "medical": 100,
+        "luxury": 150
+      },
+      "supply": {
+        "food": 1000,
+        "water": 1000
+      },
+      "demand": {
+        "food": 2,
+        "water": 2,
+        "ore": 8,
+        "ice": 8,
+        "gas": 8,
+        "metals": 4,
+        "fuel": 4
+      },
+      "production": {},
+      "consumption": {}
     },
     {
       "id": "market-pirate-outpost",
       "facility_id": "pirate-outpost",
       "price_elasticity": 0.02,
       "prices": {
-        "ore": 48,
-        "ice": 43,
-        "gas": 37,
-        "metals": 80,
-        "fuel": 36,
-        "polymers": 75,
-        "water": 30,
-        "components": 120,
-        "electronics": 170,
-        "tools": 110,
-        "food": 65,
-        "medical": 140
-      },
-      "supply": {
-        "ore": 4,
-        "ice": 8,
-        "gas": 6,
-        "metals": 45,
-        "fuel": 180,
-        "polymers": 16,
-        "water": 160,
-        "components": 15,
-        "electronics": 5,
-        "tools": 12,
-        "food": 245,
-        "medical": 5
-      },
-      "demand": {
-        "ore": 110,
-        "ice": 90,
-        "gas": 120,
-        "metals": 45,
-        "fuel": 48,
-        "polymers": 18,
-        "water": 70,
-        "components": 35,
-        "tools": 15,
-        "food": 36
-      },
-      "production": {},
-      "consumption": {}
-    },
-    {
-      "id": "market-jupiter-gas-field",
-      "facility_id": "jupiter-gas-field",
-      "price_elasticity": 0.02,
-      "prices": {
-        "ore": 35,
-        "ice": 9,
-        "gas": 8,
-        "metals": 95,
-        "fuel": 50,
-        "polymers": 60,
-        "water": 48,
-        "components": 140,
-        "food": 95,
-        "tools": 130
-      },
-      "supply": {
-        "ore": 1,
-        "ice": 140,
-        "gas": 300,
-        "metals": 1,
-        "fuel": 65,
-        "polymers": 1,
-        "water": 6,
-        "components": 0,
-        "food": 12,
-        "tools": 3
-      },
-      "demand": {
-        "food": 55,
-        "water": 35,
-        "fuel": 30,
-        "metals": 20,
-        "components": 12,
-        "tools": 9
-      },
-      "production": {},
-      "consumption": {}
-    },
-    {
-      "id": "market-callisto-mine",
-      "facility_id": "callisto-mine",
-      "price_elasticity": 0.02,
-      "prices": {
-        "ore": 9,
+        "ore": 15,
         "ice": 10,
-        "gas": 35,
-        "metals": 92,
-        "fuel": 44,
-        "polymers": 82,
-        "water": 42,
-        "components": 130,
-        "food": 91,
-        "tools": 125
+        "gas": 20,
+        "metals": 45,
+        "fuel": 25,
+        "polymers": 40,
+        "water": 12,
+        "components": 80,
+        "electronics": 120,
+        "tools": 90,
+        "food": 18,
+        "medical": 100,
+        "luxury": 150
       },
       "supply": {
-        "ore": 320,
-        "ice": 240,
-        "gas": 0,
-        "metals": 0,
-        "fuel": 70,
-        "water": 10,
-        "components": 0,
-        "food": 12,
-        "tools": 4
+        "food": 1000,
+        "water": 1000
       },
       "demand": {
-        "food": 55,
-        "water": 32,
-        "fuel": 25,
-        "metals": 16,
-        "components": 12,
-        "tools": 9
+        "food": 2,
+        "water": 2,
+        "ore": 8,
+        "ice": 8,
+        "gas": 8,
+        "metals": 4,
+        "fuel": 4
       },
       "production": {},
       "consumption": {}
-    },
-    {
-      "id": "market-pirate-wreckage",
-      "facility_id": "pirate-wreckage",
-      "price_elasticity": 0.02,
-      "prices": {
-        "ore": 12,
-        "ice": 12,
-        "gas": 15,
-        "metals": 32,
-        "water": 40,
-        "fuel": 43,
-        "food": 68,
-        "tools": 100,
-        "components": 140,
-        "polymers": 80
-      },
-      "supply": {
-        "ore": 0,
-        "ice": 0,
-        "gas": 0,
-        "metals": 0,
-        "water": 8,
-        "fuel": 60,
-        "food": 30,
-        "tools": 6,
-        "components": 0
-      },
-      "demand": {
-        "fuel": 15,
-        "food": 12,
-        "water": 8,
-        "tools": 5,
-        "components": 4
-      },
-      "consumption": {},
-      "production": {}
     }
   ],
   "ships": [
     {
-      "name": "Грузовой-001",
-      "location": "belt-outpost",
+      "name": "Terran-001 (freighter placeholder)",
+      "location": "earth-station",
       "class": "freighter",
-      "credits": 18000,
+      "credits": 12000,
       "faction_id": "terran-authority",
       "fitting": {
         "comms": "comms_t2"
       }
     },
     {
-      "name": "Грузовой-002",
-      "location": "earth-station",
-      "class": "freighter",
-      "credits": 14000,
-      "faction_id": "terran-authority",
-      "fitting": {
-        "comms": "comms_t2"
-      }
-    },
-    {
-      "name": "Курьер-001",
-      "location": "earth-station",
-      "class": "courier",
-      "credits": 7500,
-      "faction_id": "terran-authority"
-    },
-    {
-      "name": "Корсар-001",
+      "name": "Pirate-001 (freighter placeholder)",
       "location": "pirate-outpost",
       "class": "freighter",
-      "credits": 16000,
-      "faction_id": "pirates",
-      "fitting": {
-        "comms": "comms_t2"
-      }
-    },
-    {
-      "name": "Корсар-002",
-      "location": "pirate-outpost",
-      "class": "courier",
-      "credits": 10000,
-      "faction_id": "pirates",
-      "fitting": {
-        "comms": "comms_t2"
-      }
-    },
-    {
-      "name": "Пиратский снабженец",
-      "location": "jupiter-gas-field",
-      "class": "freighter",
-      "credits": 15000,
-      "faction_id": "pirates",
-      "fitting": {
-        "comms": "comms_t2"
-      }
-    },
-    {
-      "name": "Шахтёр Каллисто",
-      "location": "callisto-mine",
-      "class": "freighter",
-      "credits": 15000,
-      "faction_id": "pirates",
-      "fitting": {
-        "comms": "comms_t2"
-      }
-    },
-    {
-      "name": "Сборщик обломков",
-      "location": "pirate-wreckage",
-      "class": "freighter",
-      "credits": 13000,
+      "credits": 12000,
       "faction_id": "pirates",
       "fitting": {
         "comms": "comms_t2"
@@ -682,22 +353,7 @@
       "demographic": "workers",
       "facility_id": "earth-station",
       "faction_id": "terran-authority",
-      "population_count": 120,
-      "total_wealth": 1000,
-      "food_satisfaction": 70,
-      "consumption": {
-        "food": 5,
-        "water": 3
-      },
-      "production_commodity": null,
-      "production_amount": 0
-    },
-    {
-      "label": "Residents belt-outpost",
-      "demographic": "workers",
-      "facility_id": "belt-outpost",
-      "faction_id": "terran-authority",
-      "population_count": 40,
+      "population_count": 50,
       "total_wealth": 1000,
       "food_satisfaction": 70,
       "consumption": {
@@ -712,52 +368,7 @@
       "demographic": "workers",
       "facility_id": "pirate-outpost",
       "faction_id": "pirates",
-      "population_count": 120,
-      "total_wealth": 1000,
-      "food_satisfaction": 70,
-      "consumption": {
-        "food": 5,
-        "water": 3
-      },
-      "production_commodity": null,
-      "production_amount": 0
-    },
-    {
-      "label": "Residents jupiter-gas-field",
-      "demographic": "workers",
-      "facility_id": "jupiter-gas-field",
-      "faction_id": "pirates",
-      "population_count": 40,
-      "total_wealth": 1000,
-      "food_satisfaction": 70,
-      "consumption": {
-        "food": 5,
-        "water": 3
-      },
-      "production_commodity": null,
-      "production_amount": 0
-    },
-    {
-      "label": "Residents callisto-mine",
-      "demographic": "workers",
-      "facility_id": "callisto-mine",
-      "faction_id": "pirates",
-      "population_count": 40,
-      "total_wealth": 1000,
-      "food_satisfaction": 70,
-      "consumption": {
-        "food": 5,
-        "water": 3
-      },
-      "production_commodity": null,
-      "production_amount": 0
-    },
-    {
-      "label": "Residents pirate-wreckage",
-      "demographic": "workers",
-      "facility_id": "pirate-wreckage",
-      "faction_id": "pirates",
-      "population_count": 40,
+      "population_count": 50,
       "total_wealth": 1000,
       "food_satisfaction": 70,
       "consumption": {
