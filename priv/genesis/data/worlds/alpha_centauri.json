@@ -153,7 +153,7 @@
   ],
   "ships": [
     {
-      "name": "Alpha-001 (freighter placeholder)",
+      "name": "Ceti 01",
       "location": "alpha-station",
       "class": "freighter",
       "credits": 12000,
