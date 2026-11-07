@@ -112,6 +112,7 @@ pub enum DbWrite {
     },
     /// Population demographics + sentiment.
     Population {
+        employed_fraction: f32,
         db_id: i64,
         population_count: i64,
         overall_sentiment: i32,
@@ -817,6 +818,7 @@ impl PersistenceWorker {
                 }
 
                 DbWrite::Population {
+                    employed_fraction,
                     db_id,
                     population_count,
                     overall_sentiment,
@@ -826,7 +828,7 @@ impl PersistenceWorker {
                     sqlx::query(
                         "UPDATE populations SET
                            population_count=?1, overall_sentiment=?2,
-                           food_satisfaction=?3, total_wealth=?4,
+                           food_satisfaction=?3, total_wealth=?4, employed_fraction=?6,
                            updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
                          WHERE id=?5",
                     )
@@ -835,6 +837,7 @@ impl PersistenceWorker {
                     .bind(food_satisfaction as i64)
                     .bind(total_wealth)
                     .bind(db_id)
+                    .bind(employed_fraction)
                     .execute(&mut *tx)
                     .await?;
                 }

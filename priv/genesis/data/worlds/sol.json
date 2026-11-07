@@ -676,5 +676,96 @@
       }
     }
   ],
-  "populations": []
+  "populations": [
+    {
+      "label": "Residents earth-station",
+      "demographic": "workers",
+      "facility_id": "earth-station",
+      "faction_id": "terran-authority",
+      "population_count": 120,
+      "total_wealth": 1000,
+      "food_satisfaction": 70,
+      "consumption": {
+        "food": 5,
+        "water": 3
+      },
+      "production_commodity": null,
+      "production_amount": 0
+    },
+    {
+      "label": "Residents belt-outpost",
+      "demographic": "workers",
+      "facility_id": "belt-outpost",
+      "faction_id": "terran-authority",
+      "population_count": 40,
+      "total_wealth": 1000,
+      "food_satisfaction": 70,
+      "consumption": {
+        "food": 5,
+        "water": 3
+      },
+      "production_commodity": null,
+      "production_amount": 0
+    },
+    {
+      "label": "Residents pirate-outpost",
+      "demographic": "workers",
+      "facility_id": "pirate-outpost",
+      "faction_id": "pirates",
+      "population_count": 120,
+      "total_wealth": 1000,
+      "food_satisfaction": 70,
+      "consumption": {
+        "food": 5,
+        "water": 3
+      },
+      "production_commodity": null,
+      "production_amount": 0
+    },
+    {
+      "label": "Residents jupiter-gas-field",
+      "demographic": "workers",
+      "facility_id": "jupiter-gas-field",
+      "faction_id": "pirates",
+      "population_count": 40,
+      "total_wealth": 1000,
+      "food_satisfaction": 70,
+      "consumption": {
+        "food": 5,
+        "water": 3
+      },
+      "production_commodity": null,
+      "production_amount": 0
+    },
+    {
+      "label": "Residents callisto-mine",
+      "demographic": "workers",
+      "facility_id": "callisto-mine",
+      "faction_id": "pirates",
+      "population_count": 40,
+      "total_wealth": 1000,
+      "food_satisfaction": 70,
+      "consumption": {
+        "food": 5,
+        "water": 3
+      },
+      "production_commodity": null,
+      "production_amount": 0
+    },
+    {
+      "label": "Residents pirate-wreckage",
+      "demographic": "workers",
+      "facility_id": "pirate-wreckage",
+      "faction_id": "pirates",
+      "population_count": 40,
+      "total_wealth": 1000,
+      "food_satisfaction": 70,
+      "consumption": {
+        "food": 5,
+        "water": 3
+      },
+      "production_commodity": null,
+      "production_amount": 0
+    }
+  ]
 }
