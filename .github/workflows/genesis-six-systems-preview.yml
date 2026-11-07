@@ -1,0 +1,114 @@
+name: Genesis Six Systems Preview - Windows x64
+
+on:
+  push:
+    branches: [feature/genesis-six-systems-start-preview-20261107]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: genesis-six-system-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-preview:
+    name: Six systems, native Genesis engine and Observer
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify preview seed and Observer syntax
+        shell: pwsh
+        run: |
+          node --test tests/genesis-six-systems-preview.test.mjs
+          node --check observer/app.js
+          node --check observer/model.js
+          node --test observer/model.test.mjs
+      - name: Build real ECS + SQLite Windows server
+        shell: pwsh
+        run: cargo build --locked --release -p sim_server --bin genesis_server
+      - name: Fresh database boot and actual six-system API smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:DATABASE_PATH = Join-Path (Get-Location) "six-systems-ci-smoke.db"
+          $env:DATA_DIR = (Resolve-Path "priv/genesis/data").Path
+          $env:LIVING_SECTOR_UI_DIR = (Resolve-Path "observer").Path
+          $env:BIND_ADDR = "127.0.0.1:18092"
+          $env:WORLD_SPEED = "0.25"
+          $proc = Start-Process -FilePath (Resolve-Path "target/release/genesis_server.exe").Path -PassThru
+          try {
+            $verified = $false
+            for ($i=0; $i -lt 70; $i++) {
+              if ($proc.HasExited) { throw "Genesis terminated before API smoke ($($proc.ExitCode))" }
+              try {
+                $report = Invoke-RestMethod -Uri "http://127.0.0.1:18092/api/report" -TimeoutSec 3
+                if (@($report.systems).Count -ne 6) { throw "Expected 6 systems, found $(@($report.systems).Count)" }
+                if (@($report.factions).Count -ne 3) { throw "Expected 3 factions, found $(@($report.factions).Count)" }
+                if (@($report.facilities).Count -ne 9) { throw "Expected 9 provisional structures" }
+                if (@($report.markets).Count -ne 3) { throw "Expected 3 local markets" }
+                if (@($report.ships).Count -ne 3) { throw "Expected 3 provisional ships" }
+                $bodyCount = 0
+                foreach ($s in @($report.systems)) { $bodyCount += @($s.bodies).Count }
+                if ($bodyCount -ne 36) { throw "Expected 36 celestial bodies, got $bodyCount" }
+                $viewer = Invoke-WebRequest -Uri "http://127.0.0.1:18092/observer" -UseBasicParsing -TimeoutSec 5
+                if ($viewer.StatusCode -ne 200) { throw "Observer HTTP test failed" }
+                Write-Host "PASS: 6 systems, 36 bodies, 3 factions, 9 provisional facilities, 3 markets, 3 ships"
+                $verified = $true
+                break
+              } catch {
+                if ($i -gt 20) { throw }
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $verified) { throw "Six-system native smoke did not confirm the world" }
+          } finally {
+            if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Assemble versioned portable Windows preview
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "dist/Living-Sector-Genesis-Six-Systems-Preview"
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          Copy-Item "target/release/genesis_server.exe" "$root/Genesis-Server.exe"
+          Copy-Item "Start-Genesis.cmd" "$root/Start-Genesis.cmd"
+          Copy-Item "LICENSE" "$root/LICENSE"
+          Copy-Item "observer" "$root/observer" -Recurse
+          New-Item -ItemType Directory -Path "$root/priv/genesis" -Force | Out-Null
+          Copy-Item "priv/genesis/data" "$root/priv/genesis/data" -Recurse
+          Copy-Item "docs/living-sector/GENESIS_START_6_SYSTEMS_PREVIEW.md" "$root/START-DESIGN.md"
+          @(
+            "LIVING SECTOR — SIX SYSTEMS START PREVIEW — 2026-11-07"
+            ""
+            "1. Unpack the folder. Run Start-Genesis.cmd."
+            "2. Use a NEW database: genesis-six-systems-preview-v1.db."
+            "3. All six original star systems and 36 bodies are in this test seed."
+            "4. Sol: Terran and outlaw Pirate bases. Alpha Centauri: Ceti Freeholds."
+            "5. Each faction has a station and two TEMPORARY ECS facilities representing primitive extraction and refining."
+            "6. Each faction has 50 residents, Food=1000, Water=1000 and one FREIGHTER PLACEHOLDER, NOT A WORKING MINER."
+            "7. Preview limitations: no modular T1 slots/storage caps, no organic population growth, no station administrator, no ship mining, no hull construction, no interstellar gates/travel."
+            "8. This version is for reviewing starter geography and saving design work; autonomous closed-loop start is NOT YET VERIFIED."
+            "9. Future economy rules and exact design decisions: START-DESIGN.md."
+            "10. Older Genesis and sim.db saves are not touched."
+          ) | Set-Content "$root/README.txt" -Encoding UTF8
+          Compress-Archive -Path $root -DestinationPath "dist/Living-Sector-Genesis-Six-Systems-Preview-Windows.zip" -CompressionLevel Optimal -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Genesis-Six-Systems-Preview-Windows
+          path: dist/Living-Sector-Genesis-Six-Systems-Preview-Windows.zip
+          retention-days: 14
+          if-no-files-found: error
