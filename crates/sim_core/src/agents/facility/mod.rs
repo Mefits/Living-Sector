@@ -133,13 +133,16 @@ pub const RESERVE_RESTOCK_THRESHOLD: f32 = 100.0;
 pub const RESERVE_RESTOCK_TARGET: f32 = 500.0;
 /// Interval (base-ticks) between restock passes.
 pub const RESTOCK_INTERVAL_BASE: u64 = 20;
-/// Commodities a facility tries to keep in reserve. Elixir stores fuel /
-/// food / tools / water as the crew-essentials set.
+/// Facility reserves are for services and upkeep, not the population pantry.
+/// Since F2 the crew is hired from local residents who purchase Food and Water
+/// at the market; tick_facility_crew follows household satisfaction instead
+/// of consuming facility rations. Restocking Food/Water here would transfer
+/// the household's finite food/water stock to idle facility reserves and
+/// cause starvation with food still physically present at the same location.
+/// Keep actual service inputs (fuel and repair tools) in facility reserves.
 pub const RESTOCK_COMMODITIES: &[Commodity] = &[
     Commodity::Fuel,
-    Commodity::Food,
     Commodity::Tools,
-    Commodity::Water,
 ];
 
 /// Recipe input commodities a facility posts *market-supply* delivery
