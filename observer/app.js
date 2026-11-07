@@ -4,7 +4,7 @@ import {
   panForCursorZoom, clusterMarkers, shipSystem, worldGridStep, mapIconScale,
   groupFacilitiesByLocation, layoutMapLabels, shipMapState, shipsAtHub,
   liveEntityPoint, approachWorldPoint,
-  commodityLabel, contractLabel, contractCargoLabel
+  commodityLabel, contractLabel, contractCargoLabel, stationEconomy
 } from "/observer/model.js";
 import {drawStationComplex,visualStationTier,stationScale,stationReveal} from "/observer/station-kit.js";
 
@@ -159,6 +159,128 @@ function appendOperationalFacts(content,fac){
     chips(content,fac.services.map(x=>String(x)),12);
   }
 }
+
+/* Compact station accounting view: only facts in /api/report; missing statistics remain vacant. */
+const STATION_BLOCK_LABELS=Object.freeze({
+  no_viable_recipe:"Нет доступного рецепта",
+  no_extractable_resource:"Нет доступного ресурса",
+  insufficient_workers:"Недостаточно работников",
+  insufficient_payroll_budget:"Недостаточно денег на зарплаты",
+  insufficient_processing_budget:"Недостаточно денег на обработку и зарплаты",
+  no_staffed_jobs:"Нет штатных рабочих мест"
+});
+const hasEconomyValue=value=>value!==null&&value!==undefined&&value!==""&&
+  (typeof value==="number"||typeof value==="string")&&Number.isFinite(Number(value));
+function economyLine(parent,label,value,css=""){
+  const line=document.createElement("div");
+  line.className="economy-line"+(value===null?" economy-pending":"")+(css?" "+css:"");
+  line.append(textEl("span",label),textEl("strong",value??"—"));
+  parent.appendChild(line);
+}
+const econNum=value=>hasEconomyValue(value)?fnum(value):null;
+function appendStationEconomy(parent,location){
+  const data=stationEconomy(s.report,location);
+  if(!data)return;
+  const {station,members,market,goods,shortages}=data;
+  const panel=document.createElement("section");panel.className="station-economy";
+  panel.setAttribute("aria-label","Экономика станции");
+  panel.appendChild(textEl("div","ЭКОНОМИКА СТАНЦИИ","economy-title"));
+  economyLine(panel,"Станция",station.name??station.id??"—");
+  economyLine(panel,"Фракция",factionName(station.faction_id,s.index));
+  economyLine(panel,"Тип",facilityTypeLabel(station.type));
+  economyLine(panel,"Уровень",econNum(station.level));
+  economyLine(panel,"Касса станции",hasEconomyValue(station.credits)?fnum(station.credits)+" CR":null);
+  economyLine(panel,"Состояние",hasEconomyValue(station.condition)?
+    fnum(Number(station.condition)*100)+"%":null);
+  economyLine(panel,"Статус",typeof station.abandoned==="boolean"?
+    (station.abandoned?"Заброшена":"Не заброшена"):null);
+
+  panel.appendChild(textEl("div","РЫНОК · ДОСТУПНЫЕ ЗАПАСЫ","economy-subtitle"));
+  if(!market||!market.supply||typeof market.supply!=="object"){
+    panel.appendChild(textEl("p","Сервер не предоставил запасы для этой локации.","economy-note"));
+    for(const name of ["food","water","fuel"])economyLine(panel,commodityLabel(name),null);
+  }else{
+    if(shortages.length)panel.appendChild(textEl("p",
+      "Нехватки по данным сервера: "+shortages.map(x=>
+        commodityLabel(x.id)+" ("+fnum(x.shortageTicks)+" тиков)").join(", "),"economy-alert"));
+    else if(!market.shortage_ticks) economyLine(panel,"Нехватки",null);
+    else panel.appendChild(textEl("p","Нет нехваток, отмеченных в этом снимке.","economy-note"));
+    for(const good of goods){
+      if(!["food","water","fuel"].includes(good.id)&&
+         !(good.stock>0||good.demand>0||good.shortageTicks>0))continue;
+      const line=document.createElement("div");
+      line.className="economy-stock"+(good.shortageTicks>0?" economy-stock-short":"");
+      line.appendChild(textEl("span",commodityLabel(good.id)));
+      const value=document.createElement("div");
+      value.appendChild(textEl("strong",econNum(good.stock)??"—"));
+      if(hasEconomyValue(good.demand))value.appendChild(textEl("small","спрос "+fnum(good.demand)));
+      if(good.shortageTicks>0)value.appendChild(textEl("small","нехватка "+fnum(good.shortageTicks)+" т."));
+      line.appendChild(value);panel.appendChild(line);
+    }
+  }
+  panel.appendChild(textEl("p","Запасы рынка не суммируются с резервами сооружений.","economy-note"));
+
+  panel.appendChild(textEl("div","ПРЕДПРИЯТИЯ","economy-subtitle"));
+  const businesses=members.filter(f=>f.id!==station.id).sort(facilityOrder);
+  if(!businesses.length)panel.appendChild(textEl("p","Других предприятий на этой локации нет.","economy-note"));
+  for(const fac of businesses){
+    const item=document.createElement("div");item.className="economy-business";
+    item.appendChild(textEl("strong",fac.name??fac.id,"economy-business-name"));
+    item.appendChild(textEl("small",facilityTypeLabel(fac.type)+
+      (fac.abandoned===true?" · заброшено":fac.abandoned===false?" · не заброшено":""),"economy-note"));
+    if(hasEconomyValue(fac.credits))economyLine(item,"Деньги",fnum(fac.credits)+" CR");
+    const recipes=S7_RECIPES_REFERENCE[fac.type];
+    if(recipes?.length){
+      item.appendChild(textEl("small","Возможные рецепты типа, не фактическая работа:","economy-note"));
+      for(const [title,inputs,outputs] of recipes)
+        item.appendChild(textEl("div",title+": "+inputs.map(commodityLabel).join(" + ")+
+          " → "+outputs.map(commodityLabel).join(" + "),"economy-recipe"));
+    }else economyLine(item,"Рецепт / добыча",null);
+    const stock=Object.entries(fac.reserves??{}).filter(([,qty])=>hasEconomyValue(qty)&&Number(qty)>0);
+    if(stock.length)item.appendChild(textEl("small","Резервы: "+stock.map(([id,qty])=>
+      commodityLabel(id)+" "+fnum(qty)).join(" · "),"economy-note"));
+    economyLine(item,"Фактический выпуск",null);
+    economyLine(item,"Фактический расход",null);
+    economyLine(item,"Эффективность",null);
+    panel.appendChild(item);
+  }
+
+  panel.appendChild(textEl("div","РАБОТНИКИ · ВЫПЛАТЫ","economy-subtitle"));
+  const staffed=members.filter(f=>f.crew&&typeof f.crew==="object").sort(facilityOrder);
+  if(!staffed.length){
+    economyLine(panel,"Занятость",null);economyLine(panel,"Зарплаты",null);
+    economyLine(panel,"Эффективность",null);
+  }
+  for(const fac of staffed){
+    const row=document.createElement("div");row.className="economy-business";
+    row.appendChild(textEl("strong",facilityTypeLabel(fac.type),"economy-business-name"));
+    economyLine(row,"Рабочих мест",econNum(fac.crew.crew_count));
+    economyLine(row,"Мораль",hasEconomyValue(fac.crew.morale)?
+      fnum(fac.crew.morale)+"%":null);
+    const shift=fac.crew.work_shift;
+    const workers=Array.isArray(shift?.workers)?shift.workers.reduce((n,pair)=>
+      n+(hasEconomyValue(pair?.[1])?Number(pair[1]):0),0):null;
+    economyLine(row,"Занято на смене",workers===null?null:
+      fnum(workers)+(hasEconomyValue(shift?.tick)?" · тик "+fnum(shift.tick):""));
+    economyLine(row,"Зарплата за смену",hasEconomyValue(shift?.wages)?
+      fnum(shift.wages)+" CR":null);
+    economyLine(row,"Эффективность",null);
+    panel.appendChild(row);
+  }
+  panel.appendChild(textEl("p","Смены и зарплаты — последняя запись сервера, не текущий постоянный штат.","economy-note"));
+
+  panel.appendChild(textEl("div","ПРИЧИНЫ ОСТАНОВОК","economy-subtitle"));
+  for(const fac of members){
+    const reason=typeof fac.crew?.work_blocked_reason==="string"?
+      fac.crew.work_blocked_reason.trim():"";
+    if(reason)panel.appendChild(textEl("p",facilityTypeLabel(fac.type)+": "+
+      (STATION_BLOCK_LABELS[reason]??reason)+" ["+reason+"]","economy-alert"));
+  }
+  economyLine(panel,"Текущая причина",null);
+  panel.appendChild(textEl("p","Коды выше — последние известные блокировки; API не подтверждает, что простой продолжается.","economy-note"));
+  parent.appendChild(panel);
+}
+
 function facilityOrder(a,b) {
   return facilityMeta(a.type).order-facilityMeta(b.type).order ||
     String(a.id).localeCompare(String(b.id));
@@ -601,6 +723,7 @@ function renderInspector() {
       inspectorRow(content, "Узел", members[0]?.location ?? "—");
       inspectorRow(content, "Фракция", factionName(members[0]?.faction_id, s.index));
       inspectorRow(content, "Не заброшены", members.filter(m=>!m.abandoned).length+" / "+members.length);
+      appendStationEconomy(content,members[0]?.location);
       detailGroup(content,"Состав узла");
       appendFacilityBreakdown(content,members);
       detailGroup(content,"Выбор сооружения");
@@ -703,6 +826,10 @@ function renderInspector() {
       }
     }
   } else if (type === "facility") {
+    if(entity.type==="station"){
+      appendStationEconomy(content,entity.location);
+      showHubShips(content,entity.location);
+    }else{
     inspectorRow(content, "Тип", facilityTypeLabel(entity.type));
     inspectorRow(content, "Назначение", facilityMeta(entity.type).role);
     if(["mining_rig","salvage_field","gas_harvester","refinery","smelter"].includes(entity.type)){
@@ -740,6 +867,7 @@ function renderInspector() {
     }
     appendReferenceRecipes(content,entity);
     showHubShips(content,entity.location);
+    }
   } else if (type === "construction_site") {
     inspectorRow(content, "Тип будущего объекта", facilityTypeLabel(entity.facility_type));
     inspectorRow(content, "Фракция", factionName(entity.faction_id, s.index));
