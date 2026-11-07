@@ -308,7 +308,12 @@ pub async fn run_tick_loop(
         }
 
         // Tick phases
-        phase!(bodies, { tick_bodies(&mut world, &mut store, tick_scale); });
+        phase!(bodies, {
+            tick_bodies(&mut world, &mut store, tick_scale);
+            // Station orbital state follows its parent body's position but
+            // revolves around that body on a much slower independent clock.
+            sim_core::agents::facility::tick_facility_orbits(&mut world, tick_scale);
+        });
         phase!(bodies_regen, {
             if sim_core::simulation::tuning::WorldTuning::current()
                 .regenerate_body_resources
