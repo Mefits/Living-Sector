@@ -1,0 +1,183 @@
+{
+  "system": {
+    "id": "system-alpha-centauri",
+    "name": "Alpha Centauri",
+    "universe_offset": [
+      20,
+      5
+    ],
+    "star_type": "K"
+  },
+  "bodies": [
+    {
+      "id": "proxima",
+      "name": "Proxima",
+      "type": "planet",
+      "orbit_radius": 0.8,
+      "orbit_period": 300,
+      "current_angle": 90,
+      "biome": "desert",
+      "resources": {
+        "ore": 0.6,
+        "ice": 0.7,
+        "gas": 0.3
+      }
+    },
+    {
+      "id": "haven",
+      "name": "Haven",
+      "type": "planet",
+      "orbit_radius": 1.8,
+      "orbit_period": 600,
+      "current_angle": 200,
+      "biome": "terrestrial",
+      "resources": {
+        "ice": 0.4,
+        "gas": 0.2
+      }
+    },
+    {
+      "id": "refuge",
+      "name": "Refuge",
+      "type": "planet",
+      "orbit_radius": 2.5,
+      "orbit_period": 900,
+      "current_angle": 320,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.9,
+        "gas": 0.5
+      }
+    },
+    {
+      "id": "ac-belt",
+      "name": "AC Belt",
+      "type": "asteroid",
+      "orbit_radius": 1.2,
+      "orbit_period": 450,
+      "current_angle": 60,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.7,
+        "ice": 0.5
+      }
+    },
+    {
+      "id": "outer-rocks",
+      "name": "Outer Rocks",
+      "type": "asteroid",
+      "orbit_radius": 3,
+      "orbit_period": 1100,
+      "current_angle": 200,
+      "biome": "ice",
+      "resources": {
+        "ore": 0.4,
+        "ice": 0.8
+      }
+    }
+  ],
+  "travel_routes": [],
+  "facilities": [
+    {
+      "id": "facility-alpha-station",
+      "name": "Alpha Station T1",
+      "faction_id": "ceti-freeholds",
+      "location": "alpha-station",
+      "body": "proxima",
+      "type": "station",
+      "docking_capacity": 12,
+      "services": [
+        "market"
+      ],
+      "reserves": {}
+    },
+    {
+      "id": "facility-alpha-mine-module",
+      "name": "Alpha Primitive Extraction (preview)",
+      "faction_id": "ceti-freeholds",
+      "location": "alpha-station",
+      "body": "proxima",
+      "type": "mining_rig",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    },
+    {
+      "id": "facility-alpha-refinery-module",
+      "name": "Alpha Primitive Refining (preview)",
+      "faction_id": "ceti-freeholds",
+      "location": "alpha-station",
+      "body": "proxima",
+      "type": "refinery",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    }
+  ],
+  "markets": [
+    {
+      "id": "market-alpha-station",
+      "facility_id": "alpha-station",
+      "price_elasticity": 0.02,
+      "prices": {
+        "ore": 15,
+        "ice": 10,
+        "gas": 20,
+        "metals": 45,
+        "fuel": 25,
+        "polymers": 40,
+        "water": 12,
+        "components": 80,
+        "electronics": 120,
+        "tools": 90,
+        "food": 18,
+        "medical": 100,
+        "luxury": 150
+      },
+      "supply": {
+        "food": 1000,
+        "water": 1000
+      },
+      "demand": {
+        "food": 2,
+        "water": 2,
+        "ore": 8,
+        "ice": 5,
+        "gas": 5,
+        "metals": 5,
+        "fuel": 5
+      },
+      "production": {},
+      "consumption": {}
+    }
+  ],
+  "ships": [
+    {
+      "name": "Alpha-001 (freighter placeholder)",
+      "location": "alpha-station",
+      "class": "freighter",
+      "credits": 12000,
+      "faction_id": "ceti-freeholds",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    }
+  ],
+  "populations": [
+    {
+      "label": "Residents alpha-station",
+      "demographic": "workers",
+      "facility_id": "alpha-station",
+      "faction_id": "ceti-freeholds",
+      "population_count": 50,
+      "total_wealth": 1000,
+      "food_satisfaction": 70,
+      "consumption": {
+        "food": 5,
+        "water": 3
+      },
+      "production_commodity": null,
+      "production_amount": 0
+    }
+  ]
+}
