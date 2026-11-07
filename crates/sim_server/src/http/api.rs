@@ -638,6 +638,20 @@ pub async fn observer_model_js() -> impl IntoResponse {
     )
 }
 
+/// Serve the Observer V5 ES module, without changing F2 economic APIs.
+pub async fn observer_station_kit_js() -> impl IntoResponse {
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        observer_asset(
+            "station-kit.js",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/station-kit.js")),
+        ),
+    )
+}
+
 /// Read-only, versioned integration contract for the independent Observer team.
 pub async fn strategy(State(state): State<AppState>) -> impl IntoResponse {
     Json(state.snapshots.strategy.read().map(|s| s.clone()).unwrap_or_default())
