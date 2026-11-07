@@ -91,10 +91,15 @@ fn station_order_input_need_uses_head_portfolio_and_one_native_contract() {
     w.insert_resource(administration);
     let relations=FactionRelations::default();
     coordination::run_cycle(&mut w,&mut b,&relations,&mut vec![],60,1);
-    assert_eq!(b.iter().count(),1,"input request should become a head-funded shipment");
+    assert_eq!(b.iter().count(),0,"a request alone must not force spending without projected benefit");
+    assert_eq!(w.resource::<StrategyState>().factions["own"].head.as_ref().unwrap().selected_option,"wait");
+    { let mut m=w.get_mut::<MarketPricing>(destination).unwrap();
+      m.demand.insert(Commodity::Ore,200.);m.prices.insert(Commodity::Ore,15.); }
+    coordination::run_cycle(&mut w,&mut b,&relations,&mut vec![],120,1);
+    assert_eq!(b.iter().count(),1,"a viable input request should become a head-funded shipment");
     assert_eq!(b.iter().next().unwrap().commodity,Commodity::Ore);
     let balance=w.get::<crate::agents::faction::FactionData>(owner).unwrap().treasury;
-    coordination::run_cycle(&mut w,&mut b,&relations,&mut vec![],120,1);
+    coordination::run_cycle(&mut w,&mut b,&relations,&mut vec![],180,1);
     assert_eq!(b.iter().count(),1,"one need must not create duplicate orders");
     assert_eq!(w.get::<crate::agents::faction::FactionData>(owner).unwrap().treasury,balance);
 }
