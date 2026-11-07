@@ -6,6 +6,7 @@ import {
   liveEntityPoint, approachWorldPoint,
   commodityLabel, contractLabel, contractCargoLabel
 } from "/observer/model.js";
+import {drawStationComplex,visualStationTier,stationScale,stationReveal} from "/observer/station-kit.js";
 
 const byId = id => document.getElementById(id);
 const els = Object.fromEntries([
@@ -603,10 +604,25 @@ function renderInspector() {
       detailGroup(content,"Состав узла");
       appendFacilityBreakdown(content,members);
       detailGroup(content,"Выбор сооружения");
+      const ongoing=list(s.report?.construction_sites).filter(site=>
+        site.location===members[0]?.location);
+      if(ongoing.length){
+        detailGroup(content,"Строительство на узле");
+        for(const site of ongoing){
+          const button=document.createElement("button");button.type="button";
+          button.className="group-member";
+          button.appendChild(textEl("span",site.name??"Строительная площадка"));
+          button.appendChild(textEl("span",Math.round(number(site.progress)*100)+"%", "group-member-note"));
+          button.addEventListener("click",()=>{
+            s.selection={type:"construction_site",id:site.id};renderInspector();
+          });
+          content.appendChild(button);
+        }
+      }
     }
     content.appendChild(textEl("p",isShip ?
       "Корабли сгруппированы из-за масштаба карты. Выберите нужный корабль." :
-      "Сооружения разделяют реальные координаты одного узла. Маленькие значки рядом с хабом — условная раскладка для выбора конкретного объекта.",
+      "Одна локация — один станционный комплекс. Внешние узлы показывают реальные предприятия; форма T1–T3 пока только визуальная компоновка, не механика улучшения станции.",
       "small-note"));
     for (const member of (isShip?members:[...members].sort(facilityOrder)).slice(0, 140)) {
       const button = document.createElement("button");
@@ -1565,6 +1581,7 @@ function renderMap() {
         addTarget("body",body.id,screen.x,screen.y,Math.max(13,rr),bodyDisplayName(body));
       }
       const occupiedMarkers=[];
+      const attachedConstructionSites=new Set();
       // Find a nearby screen-only marker position without overlapping planets.
       // The real ECS location stays untouched; a short connector indicates
       // the actual anchoring when the icon must be displaced.
@@ -1605,61 +1622,53 @@ function renderMap() {
         if(!p)continue;
         const actual=toScreen(p);
         if(!visible(actual,75))continue;
-        const at=layoutMarker(actual,16*iconScale,0);
+        // One actual location is one station complex. Screen-space sockets
+        // are visual annotations, never simulated additional facilities.
+        const stationCore=members.some(m=>m.type==="station");
+        const building=stationCore ? list(s.report?.construction_sites).filter(site=>
+          site.location===hub.location && site.body_id===prefer.body_id) : [];
+        for(const site of building)attachedConstructionSites.add(site.id);
+        const tier=visualStationTier(members,building);
+        const visualModules=members.filter(m=>m.id!==prefer.id)
+          .map(m=>({...m,__selected:isSelected("facility",m.id)}))
+          .concat(building.map(site=>({...site,__site:true,
+            __selected:isSelected("construction_site",site.id)})));
+        const composeScale=stationScale(s.zoom);
+        const reveal=els.modulesToggle.checked ?
+          Math.max(stationCore && members.some(m=>isSelected("facility",m.id)) ? .55 : 0,
+            stationReveal(s.zoom)) : 0;
+        const footprint=stationCore?
+          Math.max(18*composeScale,reveal>.08?56*composeScale:0):16*iconScale;
+        const at=layoutMarker(actual,footprint,0);
         if(!at)continue;
         leader(actual,at);
-        occupiedMarkers.push({x:at.x,y:at.y,r:16*iconScale});
+        occupiedMarkers.push({x:at.x,y:at.y,r:footprint});
         const ids=members.map(x=>x.id);
         const selected=ids.includes(s.selection?.id) ||
           (s.selection?.type==="facility_group" &&
           s.selection.ids?.some(id=>ids.includes(id)));
         const primary=hubTier(members)==="major";
-        withMapScale(at,iconScale,()=>drawFacilityHub(at,prefer.type,selected,prefer,{major:primary}));
-        if(members.length>1){
-          ctx.save();ctx.fillStyle="rgba(10,27,38,.95)";
-          ctx.strokeStyle="rgba(111,167,179,.65)";ctx.lineWidth=1;
-          const count=Math.min(members.length,9);
-          ctx.beginPath();ctx.roundRect(at.x+9*iconScale,at.y-16*iconScale,
-            13*iconScale,12*iconScale,3);ctx.fill();ctx.stroke();
-          ctx.fillStyle="#d2e7e9";ctx.font=(10*iconScale)+"px Segoe UI";
-          ctx.textAlign="center";ctx.fillText(String(count),at.x+15.5*iconScale,at.y-7*iconScale);
-          ctx.restore();
+        let moduleTargets=[];
+        if(stationCore){
+          const drawn=drawStationComplex(ctx,{x:at.x,y:at.y,tier,zoom:s.zoom,
+            tint:factionColor(prefer.faction_id,s.index),selected,
+            modules:visualModules,showModules:els.modulesToggle.checked});
+          moduleTargets=drawn.moduleTargets;
+          markGlyph(at,Math.max(17*composeScale,footprint*.72));
+        }else{
+          // Industrial/extraction location without a station is NOT a new station.
+          withMapScale(at,iconScale,()=>drawFacilityHub(at,prefer.type,selected,prefer));
+          markGlyph(at,14*iconScale);
         }
-        markGlyph(at,(primary?19:14)*iconScale);
-        if(els.modulesToggle.checked && members.length>1){
-          const extras=members.filter(item=>item.id!==prefer.id);
-          // Don't let the same site explode into six huge icons at
-          // overview distance; the inspector always retains the full list.
-          const iconLimit=s.zoom<.75?2:s.zoom<1.6?4:6;
-          const featured=extras.slice(0,iconLimit);
-          const selectedExtra=extras.find(f=>isSelected("facility",f.id));
-          if(selectedExtra && featured.length && !featured.some(f=>f.id===selectedExtra.id))
-            featured[featured.length-1]=selectedExtra;
-          // Satellite icons are small selectable screen-only annotations.
-          // Pack them around the hub while avoiding every planet disc.
-          for(let i=0;i<featured.length;i++){
-            const fac=featured[i];
-            const angle=Math.PI+((i%4)-1.5)*.47;
-            const spread={x:at.x+Math.cos(angle)*(27+Math.floor(i/4)*25),
-              y:at.y+Math.sin(angle)*(27+Math.floor(i/4)*25)};
-            const satellite=layoutMarker(spread,10*iconScale,1);
-            if(!satellite)continue;
-            leader(at,satellite);
-            occupiedMarkers.push({x:satellite.x,y:satellite.y,r:10*iconScale});
-            const subSelected=isSelected("facility",fac.id);
-            withMapScale(satellite,iconScale*.58,()=>
-              drawFacilityHub(satellite,fac.type,subSelected,fac));
-            markGlyph(satellite,10*iconScale);
-            addTarget("facility",fac.id,satellite.x,satellite.y,
-              Math.max(11,11*iconScale),fac.name??facilityTypeLabel(fac.type));
-            if(subSelected)askLabel("facility-"+fac.id,satellite,fac.name,
-              facilityMeta(fac.type).tone,0,12,160);
-          }
-          if(extras.length>iconLimit){
-            ctx.save();ctx.font="10px Segoe UI";ctx.textAlign="center";
-            ctx.fillStyle="#d2e3e8";ctx.fillText("+"+(extras.length-featured.length),
-              at.x-40*iconScale,at.y+33*iconScale);ctx.restore();
-          }
+        const coreTargetType=members.length>1?"facility_group":"facility";
+        addTarget(coreTargetType,members.length>1?hub.id:members[0].id,
+          at.x,at.y,Math.max(19,19*composeScale),prefer.name,
+          members.length>1?ids:null);
+        // Each occupied socket is clickable only once it is actually visible.
+        for(const item of moduleTargets){
+          const entry=item.entity;
+          addTarget(entry.__site?"construction_site":"facility",entry.id,
+            item.x,item.y,Math.max(15,item.r),entry.name??"Модуль");
         }
         const parked=showShips?shipsAtHub(s.ships,hub.location):[];
         // The label stays short: each parked vessel gets its own
@@ -1669,15 +1678,12 @@ function renderMap() {
           primary?factionColor(prefer.faction_id,s.index):facilityMeta(prefer.type).tone,
           selected?0:primary?3:15,primary?21:17,205);
         hubAnchors.set(key(hub.location),{at,parked});
-        const targetType=members.length>1?"facility_group":"facility";
-        addTarget(targetType,members.length>1?hub.id:members[0].id,
-          at.x,at.y,Math.max(15,15*iconScale),prefer.name,
-          members.length>1?ids:null);
       }
       // Show real construction sites on the orbital map. An offset leader
       // is used only when a hub glyph would visually cover the scaffold.
       const bodyIds=new Set(sys.bodies.map(body=>body.id));
       for(const site of list(s.report?.construction_sites)){
+        if(attachedConstructionSites.has(site.id))continue;
         if(!bodyIds.has(site.body_id))continue;
         const actual=liveWorldPoint(site);if(!actual)continue;
         const anchor=toScreen(actual);if(!visible(anchor,35))continue;
