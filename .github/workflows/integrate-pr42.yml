@@ -1,0 +1,82 @@
+name: PR42 guarded integration (orbit + Astra + mining)
+on:
+  push:
+    branches: [integration/genesis-pr42-final-20261108]
+    paths:
+      - ".github/workflows/integrate-pr42.yml"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Integrate PR42 preserving existing station/miner startup
+        shell: bash
+        run: |
+          git config user.email "integration@users.noreply.github.com"
+          git config user.name "Living Sector integration"
+          git fetch origin feature/genesis-physical-orbits-camera-20261107
+          git merge --no-commit --no-ff origin/feature/genesis-physical-orbits-camera-20261107 || true
+          git ls-files -u | cut -f2 | sort -u > /tmp/actual-conflicts
+          printf "%s\n" "Start-Genesis.cmd" > /tmp/expected-conflicts
+          diff -u /tmp/expected-conflicts /tmp/actual-conflicts
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path("Start-Genesis.cmd")
+          s=p.read_text(encoding="utf-8")
+          pattern=r"<<<<<<< HEAD\n(.*?)\n=======\n(.*?)\n>>>>>>> origin/feature/genesis-physical-orbits-camera-20261107"
+          matches=list(re.finditer(pattern,s,re.S))
+          assert len(matches)==2, "Expected exactly two startup conflicts"
+          assert "DATABASE_PATH=" in matches[0].group(0)
+          assert "MINING PILOT" in matches[1].group(0)
+          assert "SPATIAL PILOT" in matches[1].group(0)
+          replacements=iter([
+            'set "DATABASE_PATH=%~dp0genesis-a2-mining-physical-v1.db"',
+            'echo Living Sector: Astra A2, physical ice mining, 2x planetary orbits, V5.1 Observer.\necho Database: genesis-a2-mining-physical-v1.db. Older saves remain untouched.'
+          ])
+          s=re.sub(pattern,lambda m:next(replacements),s,flags=re.S)
+          s=s.replace("rem Spatial pilot based on unified F4/V5. Station orbits are real; construction/ship mining remains separate work.",
+            "rem Native Astra A1/A2 orders, paid farms, independent ice miners, physical facility orbits and Observer telemetry.")
+          assert "<<<<<<<" not in s and ">>>>>>>" not in s
+          p.write_text(s,encoding="utf-8")
+          PY
+          git add Start-Genesis.cmd
+          test -z "$(git ls-files -u)"
+          node observer/build-strategy.mjs --write
+          node observer/build-telemetry.mjs --write
+          node observer/build-strategy.mjs --check
+          node observer/build-telemetry.mjs --check
+          git add -A
+      - name: Test 1 - physical world and native observer integration
+        shell: bash
+        run: |
+          node --check observer/app.js
+          node --test tests/genesis-physical-orbits.test.mjs observer/model.test.mjs tests/genesis-six-systems-preview.test.mjs observer/telemetry-model.test.mjs
+          cargo test --locked -p sim_core --lib physical_orbit_tests --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+      - name: Test 2 - Astra A2 and autonomous mining interop
+        shell: bash
+        run: |
+          cargo test --locked -p sim_core -p sim_server -p sim_db --lib station_order_ --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+          cargo test --locked -p sim_core -p sim_server -p sim_db --lib physical_ice_mining --config 'profile.dev.package."*".opt-level=0' --config profile.dev.opt-level=0
+      - name: Freeze passing integration on separate branch
+        shell: bash
+        run: |
+          git diff --check
+          git add -A
+          git commit -m "Integrate PR42 physical orbital world and camera with Astra A2, PR39 and Observer V5.1"
+          git push origin HEAD:integration/genesis-pr42-final-20261108
