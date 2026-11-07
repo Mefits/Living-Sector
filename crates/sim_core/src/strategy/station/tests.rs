@@ -94,3 +94,16 @@ fn station_admin_head_direction_can_override_local_preference() {
             spending_limit:0,planned_spend:0,committed_spend:0,proposals:vec![],problem:Some(goal),selected_option:"wait",horizon_ticks:1,alternatives:vec![]})});
     plan(&mut w,5);assert_eq!(assigned(&w,"a-farm"),6);
 }
+
+#[test]
+fn station_admin_surplus_does_not_stop_staffed_production_and_shared_cash_is_bounded() {
+    let (mut w,farm,_,pop,market)=fixture(Mode::Execute);
+    w.get_mut::<PopDemographics>(pop).unwrap().population_count=20;
+    w.get_mut::<MarketPricing>(market).unwrap().supply.insert(Commodity::Water,1000.0);
+    plan(&mut w,5);
+    assert_eq!(w.resource::<StationAdministration>().stations[0].assigned_workers,12,"surplus is priority input, not stop threshold");
+    w.get_mut::<FacilityOperations>(farm).unwrap().credits=7;
+    plan(&mut w,10);
+    assert_eq!(w.resource::<StationAdministration>().stations[0].assigned_workers,6,"shared stock owner cannot promise both payrolls");
+    assert_eq!(w.get::<FacilityOperations>(farm).unwrap().credits,7,"planning does not debit cash");
+}
