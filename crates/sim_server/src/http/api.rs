@@ -574,7 +574,7 @@ pub async fn sim_speed(
 
 // Living Sector strategy UI: prefer optional files next to the executable.
 // A single native build can then accept unlimited HTML/CSS/JS iterations.
-// Only these four fixed filenames can be loaded; never accept a request path
+// Only fixed allowlisted filenames can be loaded; never accept a request path
 // from the browser. Embedded assets remain a safe fallback.
 fn observer_asset(filename: &str, embedded: &'static str) -> String {
     let root = std::env::var_os("LIVING_SECTOR_UI_DIR")
@@ -648,6 +648,32 @@ pub async fn observer_station_kit_js() -> impl IntoResponse {
         observer_asset(
             "station-kit.js",
             include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/station-kit.js")),
+        ),
+    )
+}
+
+
+/* Approved V5.1 frontend. These exact paths are allowlisted and support
+   overriding HTML/JS next to the executable; no arbitrary filesystem routes. */
+pub async fn observer_native_page() -> impl IntoResponse {
+    (
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        axum::response::Html(observer_asset(
+            "native.html",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/native.html")),
+        )),
+    )
+}
+
+pub async fn observer_v51_live_adapter_js() -> impl IntoResponse {
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        observer_asset(
+            "v51-live-adapter.js",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/v51-live-adapter.js")),
         ),
     )
 }
