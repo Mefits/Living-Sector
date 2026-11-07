@@ -292,7 +292,7 @@ pub fn tick_populations(
                 .map(|(c, rate)| (c, rate * pop_size.max(0) as f32 / 1000.0))
                 .filter(|(_, amount)| *amount > 0.0).collect();
             if current_food_sat < EMERGENCY_WATER_THRESHOLD && pop_size > 0 {
-                needs.push((Commodity::Water, EMERGENCY_WATER_RATE * (pop_size as f32 / 1000.0).max(1.0)));
+                needs.push((Commodity::Water, EMERGENCY_WATER_RATE * pop_size as f32 / 1000.0));
             }
             needs.sort_by_key(|(c, _)| match c {
                 Commodity::Food => (0, c.as_str()), Commodity::Water => (1, c.as_str()), _ => (2, c.as_str()),
@@ -724,12 +724,19 @@ pub fn purchase_consumption(world: &mut World, population: Entity, market: Entit
     }
     if stock == 0.0 { return Err("insufficient_stock"); }
     if cash <= 0 { return Err("insufficient_household_credits"); }
-    // Fractional physical units are valid; round payment upward, never give
-    // free fractional purchases. Recheck after the f32 conversion.
-    let quantity = (needed as f64).min(stock as f64).min(cash as f64 / price) as f32;
+    // Fractional physical units are valid. The f64->f32 conversion can
+    // round an exactly affordable quantity UP by one ULP, causing ceil()
+    // to charge one credit more than the wallet holds. Step one f32
+    // representable value down when needed; never forgive the payment.
+    let mut quantity = (needed as f64).min(stock as f64).min(cash as f64 / price) as f32;
     if quantity <= 0.0 { return Err("insufficient_household_credits"); }
-    let payment = (quantity as f64 * price).ceil();
-    if payment >= i64::MAX as f64 || payment as i64 > cash { return Err("invalid_payment"); }
+    let mut payment = (quantity as f64 * price).ceil();
+    if payment > cash as f64 {
+        quantity = f32::from_bits(quantity.to_bits().saturating_sub(1));
+        if quantity <= 0.0 { return Err("insufficient_household_credits"); }
+        payment = (quantity as f64 * price).ceil();
+    }
+    if !payment.is_finite() || payment >= i64::MAX as f64 || payment as i64 > cash { return Err("invalid_payment"); }
     let payment = payment as i64;
     let after = world.get::<FacilityOperations>(seller).ok_or("missing_seller_economy")?.credits
         .checked_add(payment).ok_or("credit_overflow")?;

@@ -1268,6 +1268,34 @@ fn foundation_sale_competition_cash_stock_and_duplicate_receipt() {
 }
 
 #[test]
+fn liquidity_partial_sale_preserves_cash_cargo_and_idempotent_receipt() {
+    use sim_core::economy::money::MoneySnapshot;
+    let mut f = Fixture::new(0.0, 0.0);
+    let ship = f.ships[0];
+    f.world.get_mut::<FacilityOperations>(f.facility).unwrap().credits = 85;
+    f.world.get_mut::<ShipCargo>(ship).unwrap().cargo.insert(Commodity::Ore, 10);
+    let before = MoneySnapshot::capture(&mut f.world, &f.store.contracts).total;
+    let request = f.submit(ship, sale(10));
+    f.apply(ship, request);
+    assert_eq!(f.result(ship), Ok(()));
+    assert_eq!(f.events.last().unwrap()["quantity"], 8.0);
+    assert_eq!(f.events.last().unwrap()["payment"], 80);
+    assert_eq!(f.world.get::<ShipCargo>(ship).unwrap().cargo[&Commodity::Ore], 2);
+    assert_eq!(f.world.get::<MarketPricing>(f.market).unwrap().supply[&Commodity::Ore], 8.0);
+    assert_eq!(f.world.get::<FacilityOperations>(f.facility).unwrap().credits, 5);
+    assert_eq!(f.world.get::<ShipEconomy>(ship).unwrap().credits, 1080);
+    assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before);
+    let committed = f.snapshot(ship);
+    f.apply(ship, request);
+    assert_eq!(f.snapshot(ship), committed, "same transaction receipt must not settle twice");
+    f.world.get_mut::<ShipEconomy>(ship).unwrap().transaction.pending = None;
+    let next_request = f.submit(ship, sale(2));
+    f.apply(ship, next_request);
+    assert_eq!(f.result(ship), Err("insufficient_buyer_credits"));
+    assert_eq!(f.snapshot(ship), committed);
+}
+
+#[test]
 fn foundation_sale_rejects_without_any_partial_change() {
     for case in 0..5 {
         let mut f = Fixture::new(0.0, 0.0);
@@ -1350,6 +1378,37 @@ fn foundation_trade_and_household_consumption_recirculate_cash() {
     assert_eq!(purchase_consumption(&mut f.world, pop, f.market, Commodity::Ore, 1.0, 10), Err("insufficient_household_credits"));
     assert_eq!(f.world.get::<MarketPricing>(f.market).unwrap().supply, stock);
     assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before);
+}
+
+#[test]
+fn liquidity_fractional_household_purchase_with_exact_cash() {
+    use sim_core::agents::population::*;
+    use sim_core::economy::money::MoneySnapshot;
+    let mut f = Fixture::new(1.0, 0.0);
+    f.world.get_mut::<MarketPricing>(f.market).unwrap()
+        .prices.insert(Commodity::Ore, 500.0);
+    let pop = f.world.spawn((
+        PopIdentity { db_id: 1, id: "small-household".into(), label: "Small household".into(),
+            demographic: "workers".into(), facility: f.facility, facility_location: "port".into(),
+            faction_id: "".into() },
+        PopEconomy { total_wealth: 24, spending_rate: 1.0, consumption: Default::default(),
+            production_commodity: None, production_amount: 0.0 },
+        PopSentiment { overall_sentiment: 50, unrest: 0, food_satisfaction: 50,
+            safety_satisfaction: 50, entertainment_satisfaction: 50, dirty: false },
+    )).id();
+    let before = MoneySnapshot::capture(&mut f.world, &f.store.contracts).total;
+    let (qty, payment) = purchase_consumption(&mut f.world, pop, f.market, Commodity::Ore, 0.5, 5).unwrap();
+    assert!(qty > 0.0 && qty < 0.05, "quantity must be strictly affordable");
+    assert_eq!(payment, 24);
+    assert_eq!(f.world.get::<PopEconomy>(pop).unwrap().total_wealth, 0);
+    assert_eq!(f.world.get::<FacilityOperations>(f.facility).unwrap().credits, 24);
+    assert_eq!(MoneySnapshot::capture(&mut f.world, &f.store.contracts).total, before);
+    let after = f.world.get::<MarketPricing>(f.market).unwrap().supply[&Commodity::Ore];
+    assert!(after < 1.0 && after > 0.9);
+    let snapshot = f.snapshot(f.ships[0]);
+    assert_eq!(purchase_consumption(&mut f.world, pop, f.market, Commodity::Ore, 0.5, 10),
+        Err("insufficient_household_credits"));
+    assert_eq!(f.snapshot(f.ships[0]), snapshot, "broke buyer cannot consume for free");
 }
 
 #[tokio::test]

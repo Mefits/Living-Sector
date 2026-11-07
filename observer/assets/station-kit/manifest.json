@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "tiers": {
+    "t1": 4,
+    "t2": 5,
+    "t3": 6
+  },
+  "modules": [
+    {
+      "id": "command",
+      "title": "Управление",
+      "color": "#9887ad",
+      "shape": "hex",
+      "path": "modules/module_command.svg"
+    },
+    {
+      "id": "storage",
+      "title": "Склад",
+      "color": "#bca483",
+      "shape": "square",
+      "path": "modules/module_storage.svg"
+    },
+    {
+      "id": "factory",
+      "title": "Производство",
+      "color": "#8ca1b3",
+      "shape": "hex",
+      "path": "modules/module_factory.svg"
+    },
+    {
+      "id": "refinery",
+      "title": "Переработка",
+      "color": "#8ca1b3",
+      "shape": "hex",
+      "path": "modules/module_refinery.svg"
+    },
+    {
+      "id": "power",
+      "title": "Энергия",
+      "color": "#abb57d",
+      "shape": "circle",
+      "path": "modules/module_power.svg"
+    },
+    {
+      "id": "repair",
+      "title": "Ремонт",
+      "color": "#a99ab6",
+      "shape": "square",
+      "path": "modules/module_repair.svg"
+    },
+    {
+      "id": "shipyard",
+      "title": "Верфь",
+      "color": "#a99ab6",
+      "shape": "square",
+      "path": "modules/module_shipyard.svg"
+    },
+    {
+      "id": "habitat",
+      "title": "Жильё",
+      "color": "#86aa90",
+      "shape": "circle",
+      "path": "modules/module_habitat.svg"
+    },
+    {
+      "id": "research",
+      "title": "Исследования",
+      "color": "#9d9cba",
+      "shape": "hex",
+      "path": "modules/module_research.svg"
+    },
+    {
+      "id": "defense",
+      "title": "Оборона",
+      "color": "#b49caa",
+      "shape": "hex",
+      "path": "modules/module_defense.svg"
+    },
+    {
+      "id": "mining",
+      "title": "Добыча",
+      "color": "#bd9669",
+      "shape": "circle",
+      "path": "modules/module_mining.svg"
+    },
+    {
+      "id": "fuel",
+      "title": "Топливо",
+      "color": "#bea36e",
+      "shape": "square",
+      "path": "modules/module_fuel.svg"
+    },
+    {
+      "id": "farm",
+      "title": "Ферма",
+      "color": "#83ac91",
+      "shape": "circle",
+      "path": "modules/module_farm.svg"
+    },
+    {
+      "id": "signal",
+      "title": "Связь",
+      "color": "#a48dbb",
+      "shape": "hex",
+      "path": "modules/module_signal.svg"
+    },
+    {
+      "id": "gas",
+      "title": "Газ",
+      "color": "#86aaa5",
+      "shape": "circle",
+      "path": "modules/module_gas.svg"
+    },
+    {
+      "id": "salvage",
+      "title": "Обломки",
+      "color": "#bd9669",
+      "shape": "circle",
+      "path": "modules/module_salvage.svg"
+    }
+  ]
+}
