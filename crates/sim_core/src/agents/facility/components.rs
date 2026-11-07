@@ -557,7 +557,7 @@ pub struct GateLinkSnapshot {
 /// Radial offset (universe units) each facility sits from its body center.
 /// Matches the Elixir sim's 0.15 value. Small enough that facilities visually
 /// cluster around the planet, large enough to be distinct at gameplay zoom.
-pub const FACILITY_ORBIT_RADIUS: f32 = 0.22;
+pub const FACILITY_ORBIT_RADIUS: f32 = 0.55;
 
 /// The station's orbit is a genuine, slowly evolving world coordinate around
 /// its parent body. Moon-like visual movement, but deliberately much slower
