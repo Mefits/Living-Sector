@@ -26,6 +26,14 @@ pub enum ShipTransaction {
     Refuel {
         location: String,
     },
+    /// Native physical extraction at a body-linked mining waypoint.
+    /// This is not a market purchase or an implicit stock generator.
+    Mine {
+        location: String,
+        body_id: String,
+        commodity: Commodity,
+        quantity: u32,
+    },
     Deliver {
         contract_id: String,
     },
@@ -38,6 +46,7 @@ impl ShipTransaction {
             Self::Buy { .. } => "buy",
             Self::Sell { .. } => "sell",
             Self::Refuel { .. } => "refuel",
+            Self::Mine { .. } => "mine",
             Self::Deliver { .. } => "deliver",
         }
     }
