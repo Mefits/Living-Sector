@@ -34,7 +34,7 @@ impl Order {
         self.retry_after_tick=tick.saturating_add(cooldown);
     }
 }
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OrderView {
     #[serde(flatten)] pub order: Order,
     pub faction_id: String,
@@ -86,7 +86,8 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
     let alive:HashSet<_>=ships.iter().map(|s|s.id.as_str()).collect();
     let mut used:HashSet<String>=board.iter().filter(|c|matches!(c.status,ContractStatus::Accepted|ContractStatus::PickedUp|ContractStatus::Delivered))
         .filter_map(|c|c.fulfiller_id.clone()).collect();
-    let mut ids:Vec<_>=board.iter().filter(|c| c.fixed_strategy_reward().is_some()).map(|c|c.id.clone()).collect();
+    let mut ids:Vec<_>=board.iter().filter(|c| c.fixed_strategy_reward().is_some()
+        && (contract_order(c).is_some() || c.fulfiller_id.as_ref().is_none_or(|id|ships.iter().any(|s|s.id==*id && c.faction_id.as_deref()==Some(s.faction.as_str()))))).map(|c|c.id.clone()).collect();
     ids.sort();
     let mut sites:Vec<_>=world.query::<(bevy_ecs::prelude::Entity,&ConstructionSite)>().iter(world)
         .map(|(e,s)|(s.id.clone(),e)).collect(); sites.sort_by(|a,b|a.0.cmp(&b.0));

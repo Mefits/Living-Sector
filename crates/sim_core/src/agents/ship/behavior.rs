@@ -566,7 +566,8 @@ pub(super) fn decide_and_act(
         // Only uncommitted commercial plans can be preempted by new orders.
         if (assigned_delivery.is_some() || assigned_builder) && economy.active_contract_id.is_none()
             && economy.transaction.pending.is_none()
-            && !matches!(ai.current_goal.as_str(), "construct"|"fulfill_delivery"|"fulfill_construction"|"refuel"|"rest_crew") {
+            && !ai.current_goal.starts_with("fulfill_")
+            && !matches!(ai.current_goal.as_str(), "construct"|"refuel"|"rest_crew") {
             ai.current_bt=None;
         }
         let needs_plan = ai.current_bt.is_none();
@@ -1557,7 +1558,10 @@ fn try_plan_contract(
     let mut best: Option<Candidate> = None;
 
     let assigned=crate::strategy::orders::assigned_contract(contracts,ship_id);
-    for c in contracts.posted_for_ship(effective_reputation) {
+    let offers=if let Some(c)=assigned.filter(|c|c.status==crate::economy::contracts::ContractStatus::Posted) {
+        vec![c] // Membership-based assignment does not wait for public reputation aging.
+    } else {contracts.posted_for_ship(effective_reputation)};
+    for c in offers {
         if !crate::strategy::orders::may_accept(c,ship_id,ship_faction)
             || assigned.is_some_and(|a|a.id!=c.id) {continue;}
         let fixed_reward = c.fixed_strategy_reward();
@@ -2751,5 +2755,33 @@ mod flight_recovery_tests {
             assert!(children.iter().any(|n| matches!(n, BtNode::Action(ShipAction::DeliverCargo { contract_id }) if contract_id == &id)));
             assert_eq!(serde_json::to_string(c).unwrap(), before);
         }
+    }
+}
+
+#[cfg(test)]
+mod station_order_planner_tests {
+    use super::*;
+    #[test]
+    fn station_order_planner_obeys_assignment_without_public_reputation_and_keeps_refuel() {
+        use crate::{economy::contracts::{ContractBoard,FundingSource},strategy::orders::Order};
+        let mut board=ContractBoard::new();
+        let id=board.post_subsidy("civ".into(),Commodity::Ore,10,"port".into(),"port".into(),500,0,1000);
+        board.register_prepaid(&id,FundingSource::Faction);
+        let mut order=Order::new("delivery",&id);order.executor_id=Some("ship".into());
+        let c=board.get_mut(&id).unwrap();c.mission_category=Some(crate::strategy::PROJECT_TAG.into());
+        c.funding.as_mut().unwrap().station_order=Some(order);
+        let cargo=ShipCargo {cargo:Default::default(),capacity:100,cargo_age:Default::default(),cargo_origin:Default::default()};
+        let economy=ShipEconomy {transaction:Default::default(),credits:1000,efficiency:1.,active_contract_id:None,faction_reputation:Default::default(),dock_dwell_start_tick:None,rest_start_tick:None,dock_attempt_start_tick:None};
+        let memory=ShipMemory {price_knowledge:[("port".into(),[(Commodity::Ore,crate::economy::commodities::PriceMemory {price:10.,tick:0})].into())].into(),visited:vec![],recent_systems:Default::default(),route_performance:Default::default()};
+        let position=ShipPosition {location_name:Some("port".into()),docked_at:None,system_id:"sol".into(),universe_offset:(0.,0.),position:(0.,0.)};
+        let mut fuel=ShipFuel {fuel:100.,fuel_capacity:100.,fuel_consumption_rate:0.05,speed_modifier:1.};
+        let mut personality=crate::ai::personality::Personality::balanced_trader();personality.safety=1.;
+        let choose=|fuel:&ShipFuel|plan_goal(&position,&cargo,fuel,&economy,&memory,None,&board,&Default::default(),"ship","civ",
+            &Default::default(),&Default::default(),&WorldRegistry::default(),&Default::default(),None,1000.,&Default::default(),
+            &Default::default(),&personality,&Default::default(),0,1);
+        assert_eq!(choose(&fuel).name,"fulfill_contract");
+        fuel.fuel=0.;assert_eq!(choose(&fuel).name,"refuel");
+        assert!(try_plan_contract("port",&cargo,&economy,&Default::default(),&memory,&board,"independent","independent",
+            &Default::default(),&Default::default(),&WorldRegistry::default(),&Default::default(),1000.,10,&Default::default(),&Default::default()).is_none());
     }
 }
