@@ -53,6 +53,8 @@ pub enum ShipAction {
     PickupCargo { contract_id: String },
     /// Deliver contract cargo and collect payment (Phase 8b).
     DeliverCargo { contract_id: String },
+    /// Remain on site while the server performs paid construction shifts.
+    Construct { site_id: String, location: String },
     /// Do nothing — always succeeds.
     Idle,
     /// Shore leave: dwell at current location until crew morale recovers.
@@ -113,6 +115,11 @@ pub(super) fn execute_ship_action(
 ) -> BtStatus {
     match action {
         ShipAction::Idle => BtStatus::Success,
+        ShipAction::Construct { location, .. } => {
+            if position.location_name.as_deref() == Some(location.as_str()) && position.docked_at.is_some() && transit.transit.is_none() {
+                BtStatus::Running
+            } else { BtStatus::Failure }
+        },
 
         ShipAction::DockDwell { seconds } => {
             // Wall-clock timed dwell. Uses TPS (ticks_per_second) directly

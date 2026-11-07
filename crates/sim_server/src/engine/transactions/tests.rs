@@ -1182,6 +1182,7 @@ fn strategy_block_construction_administrator_to_native_materialization() {
     // Delivery alone never materializes: paid work is a distinct stage.
     assert_eq!(f.world.get::<ConstructionSite>(site).unwrap().labor.completed, 0);
     construction_people(&mut f.world, f.facility, "haulers", 100);
+    construction_plan(&mut f.world, ship);
     for tick in (205..=275).step_by(5) {
         crate::engine::apply::tick_construction_labor(&mut f.world, &mut f.store, &mut f.events, tick, 1);
     }
@@ -1491,6 +1492,7 @@ async fn construction_labor_checkpoint_resumes_and_materializes_once() {
         "INSERT INTO factions (id,name,faction_type,treasury) VALUES ('civ','Civ','normal',20150)",
         "INSERT INTO facilities (id,name,facility_type,location_id,location_name,credits,faction_id) VALUES (1,'Station','farm',1,'port',100,'civ')",
         "INSERT INTO populations (id,label,demographic,facility_id,facility_location,population_count,total_wealth,faction_id) VALUES (1,'Workers','workers',1,'port',10,0,'civ')",
+        "INSERT INTO ships (id,name,class,location_id,location_name,system_id,faction_id,docked_at) VALUES (1,'Builder','freighter',1,'port','sol','civ',1)",
         // Legacy site row uses the additive migration default, no work is fabricated.
         "INSERT INTO construction_sites (agent_id,name,facility_type,faction_id,body_id,location_name,commodity,progress_delivered,progress_required,position_x,position_y,spawned_at_tick) VALUES ('site','New Farm','farm','civ','earth','port','metals',600,600,0,0,0)",
     ] { sqlx::query(sql).execute(&pool).await.unwrap(); }
@@ -1501,6 +1503,8 @@ async fn construction_labor_checkpoint_resumes_and_materializes_once() {
     let total=sim_core::economy::money::MoneySnapshot::capture(&mut world,&store.contracts).total;
     let site=world.query::<(Entity,&ConstructionSite)>().iter(&world).next().unwrap().0;
     assert_eq!(world.get::<ConstructionSite>(site).unwrap().labor.completed,0);
+    let builder=*store.ship_by_id.values().next().unwrap();
+    construction_plan(&mut world,builder);
     assert_eq!(labor::work(&mut world,site,5),Ok(6));
     let (tx,rx)=tokio::sync::mpsc::channel(4); let (ft,fr)=tokio::sync::mpsc::channel(1);
     super::super::persist::emit_persist_writes(&mut world,&mut store,5,&tx);
@@ -1513,6 +1517,8 @@ async fn construction_labor_checkpoint_resumes_and_materializes_once() {
     assert_eq!(labor::work(&mut world,site,5),Err("already_worked_this_tick"));
     assert_eq!(world.get::<FactionData>(store.faction_by_id["civ"]).unwrap().treasury,20144);
     assert_eq!(world.get::<PopEconomy>(*store.population_by_id.values().next().unwrap()).unwrap().total_wealth,6);
+    let builder=*store.ship_by_id.values().next().unwrap();
+    construction_plan(&mut world,builder); // Replanning rebuilds ephemeral BT after reload.
     for tick in (10..=125).step_by(5) {
         crate::engine::apply::tick_construction_labor(&mut world,&mut store,&mut vec![],tick,1);
     }
@@ -1536,4 +1542,11 @@ async fn construction_labor_checkpoint_resumes_and_materializes_once() {
     assert_eq!(world.get::<PopEconomy>(*store.population_by_id.values().next().unwrap()).unwrap().total_wealth,150);
     assert_eq!(sim_core::economy::money::MoneySnapshot::capture(&mut world,&store.contracts).total,total);
     pool.close().await;
+}
+
+fn construction_plan(world: &mut World, ship: Entity) {
+    use sim_core::{agents::ship::{ShipAI,ShipAction},ai::{behavior_tree::BtNode,personality::Personality}};
+    world.entity_mut(ship).insert(ShipAI {personality:Personality::balanced_trader(),current_goal:"construct".into(),
+        current_bt:Some(BtNode::action(ShipAction::Construct {site_id:"site".into(),location:"port".into()})),
+        current_goal_score:40.0,last_plan_tick:0});
 }

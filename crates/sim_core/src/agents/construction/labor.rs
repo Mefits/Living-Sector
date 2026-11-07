@@ -28,6 +28,7 @@ fn commit(world: &mut World, entity: Entity, tick: u64) -> Result<u32, &'static 
     let (payer, cash) = world.query::<(Entity, &FactionData)>().iter(world)
         .find(|(_, f)| f.id == site.faction_id).map(|(e,f)| (e,f.treasury)).ok_or("missing_sponsor")?;
     if cash < WAGE_PER_SHIFT { return Err("insufficient_labor_budget"); }
+    let executor = super::executor::present(world, &site).ok_or("awaiting_construction_ship")?;
     let occupied = occupied_workers(world, tick);
     let mut candidates: Vec<_> = world.query::<(Entity, &PopIdentity, &PopDemographics, &PopEconomy, &PopSentiment)>()
         .iter(world).filter(|(_,id,d,_,_)| id.faction_id == site.faction_id && id.facility_location == site.location_name && d.population_count > 0)
@@ -56,6 +57,7 @@ fn commit(world: &mut World, entity: Entity, tick: u64) -> Result<u32, &'static 
     }
     let mut site = world.get_mut::<ConstructionSite>(entity).unwrap();
     site.labor.completed += workers;
+    site.labor.last_executor = Some(executor);
     site.labor.last_shift = Some(WorkShift { tick, workers: assignments.into_iter().map(|(id,_,n,_)| (id,n)).collect(),
         wages, input_payment: 0, processing_fee: 0 });
     site.dirty = true;
@@ -75,6 +77,9 @@ mod tests {
         let site=w.spawn(ConstructionSite { id:"site".into(),name:"Site".into(),facility_type:"farm".into(),faction_id:"civ".into(),body_id:"earth".into(),
             location_name:"port".into(),commodity:crate::economy::commodities::Commodity::Metals,progress_delivered:600,progress_required:600,
             position:(0.0,0.0),spawned_at_tick:0,completed:false,dirty:false,labor:ConstructionLabor::default() }).id();
+        let dock=w.spawn(crate::agents::facility::FacilityStorage::default()).id();
+        let ship=super::super::executor::tests::builder(&mut w,dock);
+        w.get_mut::<crate::agents::facility::FacilityStorage>(dock).unwrap().docked_ships.push(ship);
         (w,payer,people,site)
     }
     #[test]

@@ -10,6 +10,7 @@ use bevy_ecs::prelude::{Component, Entity, World};
 use serde::{Serialize, Deserialize};
 
 pub mod labor;
+pub mod executor;
 
 /// Worker-shifts required after materials arrive. No wages are invented for old saves.
 pub const LABOR_REQUIRED: u32 = 150;
@@ -21,9 +22,10 @@ pub struct ConstructionLabor {
     pub completed: u32,
     pub last_shift: Option<super::facility::workforce::WorkShift>,
     pub blocked_reason: Option<String>,
+    pub last_executor: Option<String>,
 }
 impl Default for ConstructionLabor {
-    fn default() -> Self { Self { required: LABOR_REQUIRED, completed: 0, last_shift: None, blocked_reason: None } }
+    fn default() -> Self { Self { required: LABOR_REQUIRED, completed: 0, last_shift: None, blocked_reason: None, last_executor: None } }
 }
 
 /// Units of commodity needed to finish a construction site. Sized so
