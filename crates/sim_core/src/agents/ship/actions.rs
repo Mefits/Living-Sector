@@ -43,6 +43,10 @@ pub enum ShipAction {
     /// Buy up to `qty` units of `commodity` at the ship's current location.
     /// Returns Failure if no local price or ship can't afford any.
     Buy { commodity: Commodity, qty: u32 },
+    /// Extract real body resources into a miner's cargo hold at a physical
+    /// nav location, after a short mining shift. No market inventory is
+    /// created until that ship returns and sells the ore/ice.
+    Mine { location: String, body_id: String, commodity: Commodity },
     /// Sell `qty` of `commodity` at the current location. `qty = 0` means "all".
     Sell { commodity: Commodity, qty: u32 },
     /// Sell every commodity in the hold.
@@ -341,6 +345,39 @@ pub(super) fn execute_ship_action(
             position.location_name = None;
             position.docked_at = None;
             BtStatus::Running
+        }
+
+        ShipAction::Mine { location, body_id, commodity } => {
+            if let Some(status) = poll_transaction(economy, |r| matches!(r,
+                ShipTransaction::Mine { location: at, body_id: body, commodity: c, .. }
+                    if at == location && body == body_id && c == commodity
+            )) {
+                return status;
+            }
+            if position.location_name.as_deref() != Some(location.as_str())
+                || transit.transit.is_some() || position.docked_at.is_some()
+                || cargo.free() == 0
+            {
+                economy.dock_dwell_start_tick = None;
+                return BtStatus::Failure;
+            }
+            // Measured in game time, rather than raw CPU/technical ticks.
+            // Reuses the mutually exclusive BT dwell cursor; subsequent
+            // dock actions start a new window.
+            const MINE_SHIFT_GAME_SECONDS: u64 = 3;
+            let ticks_to_work = MINE_SHIFT_GAME_SECONDS
+                * config.tick_multiplier().max(1) as u64;
+            let start = *economy.dock_dwell_start_tick.get_or_insert(tick);
+            if tick.saturating_sub(start) < ticks_to_work {
+                return BtStatus::Running;
+            }
+            economy.dock_dwell_start_tick = None;
+            request_transaction(economy, commands, entity, ShipTransaction::Mine {
+                location: location.clone(),
+                body_id: body_id.clone(),
+                commodity: *commodity,
+                quantity: cargo.free().min(40),
+            })
         }
 
         ShipAction::Buy { commodity, qty } => {
