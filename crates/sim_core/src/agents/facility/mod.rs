@@ -41,6 +41,21 @@ pub const MINING_INTERVAL_BASE: u64 = 5;
 /// from draining all ore in one tick.
 pub const RECIPE_MAX_BATCHES: u32 = 20;
 
+/// Do not turn a tiny settlement's water supply into thousands of unsold
+/// food units. Farm output follows local demand and a short inventory buffer.
+/// This is production scheduling, not a free good or a 5k stock cap.
+fn farm_demand_limited_batches(food_stock: f32, food_demand: f32, max_batches: u32) -> u32 {
+    if !food_stock.is_finite() || food_stock < 0.0
+        || !food_demand.is_finite() || food_demand < 0.0 { return 0; }
+    // Demand is the market's observed/seed floor quantity. Keep ten demand
+    // windows on hand, never fewer than 50 units during the tiny-world phase.
+    let target = (food_demand * 10.0).max(50.0);
+    if food_stock >= target { return 0; }
+    // grow_food is ten Food per native recipe batch. When close to the
+    // buffer, pay one real shift for only one batch, not the default 20.
+    ((target - food_stock) / 10.0).ceil().max(0.0).min(max_batches as f32) as u32
+}
+
 /// Mining yield per cycle = body_resource_richness × RESOURCE_YIELD_PER_TICK
 /// Units of commodity added to market supply per cycle.
 pub const MINING_YIELD_PER_CYCLE: f32 = 80.0;
@@ -675,11 +690,22 @@ fn tick_recipes_and_mining(
             // when real work happens. Elixir increments XP by the number
             // of recipes that ran successfully each cycle.
             let Some(pricing) = world.get::<MarketPricing>(market_entity) else { continue };
+            let farm_batches = if fac.facility_type == "farm" {
+                farm_demand_limited_batches(
+                    pricing.supply.get(&Commodity::Food).copied().unwrap_or(0.0),
+                    pricing.demand.get(&Commodity::Food).copied().unwrap_or(0.0),
+                    max_batches,
+                )
+            } else { max_batches };
+            if farm_batches == 0 {
+                if fac.facility_type == "farm" { workforce::blocked(world, fac.entity, "sufficient_food_stock"); }
+                continue;
+            }
             let mut proposed = pricing.supply.clone();
             let prices = pricing.prices.clone();
             let mut recipes_run: u32 = 0;
             for recipe in recipes::for_facility_type(&fac.facility_type) {
-                if !recipes::execute(recipe, &mut proposed, output_mult, max_batches, Some(&prices)).is_empty() { recipes_run += 1; }
+                if !recipes::execute(recipe, &mut proposed, output_mult, farm_batches, Some(&prices)).is_empty() { recipes_run += 1; }
             }
             if recipes_run == 0 {
                 if recipes::for_facility_type(&fac.facility_type).next().is_some() { workforce::blocked(world, fac.entity, "no_viable_recipe"); }
