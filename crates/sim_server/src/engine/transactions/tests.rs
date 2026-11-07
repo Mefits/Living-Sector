@@ -227,6 +227,7 @@ impl Fixture {
     fn site(&mut self, remaining: u32) -> Entity {
         self.world
             .spawn(ConstructionSite {
+                labor: Default::default(),
                 id: "site".into(),
                 name: "Site".into(),
                 facility_type: "mining_rig".into(),
@@ -1178,12 +1179,18 @@ fn strategy_block_construction_administrator_to_native_materialization() {
     f.apply(ship,request); assert_eq!(f.result(ship),Ok(()));
     assert_eq!(f.store.contracts.get(&id).unwrap().status,ContractStatus::Paid);
     assert_eq!(f.world.get::<ShipCargo>(ship).unwrap().used(),0);
+    // Delivery alone never materializes: paid work is a distinct stage.
+    assert_eq!(f.world.get::<ConstructionSite>(site).unwrap().labor.completed, 0);
+    construction_people(&mut f.world, f.facility, "haulers", 100);
+    for tick in (205..=275).step_by(5) {
+        crate::engine::apply::tick_construction_labor(&mut f.world, &mut f.store, &mut f.events, tick, 1);
+    }
     assert!(f.world.get::<ConstructionSite>(site).is_none());
     assert_eq!(f.store.pending_materializations.len(),1);
     let built = f.store.pending_materializations[0].entity;
     assert_eq!(f.world.get::<FacilityIdentity>(built).unwrap().facility_type,"mining_rig");
     assert_eq!(f.world.get::<FacilityOperations>(built).unwrap().credits,20_000);
-    assert_eq!(f.world.get::<FactionData>(owner).unwrap().treasury,50_000);
+    assert_eq!(f.world.get::<FactionData>(owner).unwrap().treasury,49_850);
     strategy::construction::run_cycle(&mut f.world,&mut f.store.contracts,&f.store.relations,&mut f.events,400,1);
     assert_eq!(f.store.contracts.iter().count(),1,"completed project must not duplicate");
     assert_eq!(f.world.resource::<StrategyState>().factions["haulers"].projects[0].state,"paid");
@@ -1459,5 +1466,74 @@ async fn workforce_payroll_and_receipt_survive_actual_sqlite_checkpoint() {
     assert_eq!(restored.get::<FacilityCrew>(facility).unwrap().work_shift.as_ref().unwrap().tick,5);
     assert_eq!(pay_shift(&mut restored,facility,facility,5,None).unwrap_err(),"already_worked_this_tick");
     assert_eq!(sim_core::economy::money::MoneySnapshot::capture(&mut restored,&store.contracts).total,before);
+    pool.close().await;
+}
+
+fn construction_people(world: &mut World, facility: Entity, faction: &str, count: i64) -> Entity {
+    use sim_core::agents::population::*;
+    world.spawn((PopIdentity { db_id:1,id:"workers".into(),label:"Workers".into(),demographic:"workers".into(),
+        facility,facility_location:"port".into(),faction_id:faction.into() },
+        PopDemographics { population_count:count,growth_rate:0.0,employed_fraction:0.0,migration_pressure:0.0 },
+        PopEconomy { total_wealth:0,spending_rate:1.0,consumption:Default::default(),production_commodity:None,production_amount:0.0 },
+        PopSentiment { overall_sentiment:70,unrest:0,food_satisfaction:70,safety_satisfaction:50,entertainment_satisfaction:50,dirty:false })).id()
+}
+
+#[tokio::test]
+async fn construction_labor_checkpoint_resumes_and_materializes_once() {
+    use sim_core::agents::{construction::{ConstructionSite,labor}, faction::FactionData,population::PopEconomy,facility::FacilityCrew};
+    use sim_db::persistence::PersistenceWorker;
+    let pool=sim_db::pool::create_pool("sqlite::memory:").await.unwrap();
+    sim_db::pool::run_migrations(&pool).await.unwrap();
+    for sql in [
+        "INSERT INTO star_systems (id,name) VALUES (1,'sol')",
+        "INSERT INTO celestial_bodies (id,body_id,name,body_type,orbit_radius,orbit_period,current_angle,star_system_id) VALUES (1,'earth','Earth','planet',1,100,0,1)",
+        "INSERT INTO locations (id,name,loc_type,celestial_body_id) VALUES (1,'port','station',1)",
+        "INSERT INTO factions (id,name,faction_type,treasury) VALUES ('civ','Civ','normal',20150)",
+        "INSERT INTO facilities (id,name,facility_type,location_id,location_name,credits,faction_id) VALUES (1,'Station','farm',1,'port',100,'civ')",
+        "INSERT INTO populations (id,label,demographic,facility_id,facility_location,population_count,total_wealth,faction_id) VALUES (1,'Workers','workers',1,'port',10,0,'civ')",
+        // Legacy site row uses the additive migration default, no work is fabricated.
+        "INSERT INTO construction_sites (agent_id,name,facility_type,faction_id,body_id,location_name,commodity,progress_delivered,progress_required,position_x,position_y,spawned_at_tick) VALUES ('site','New Farm','farm','civ','earth','port','metals',600,600,0,0,0)",
+    ] { sqlx::query(sql).execute(&pool).await.unwrap(); }
+    let registry=sim_core::world::registry::WorldRegistry::default();
+    let config=sim_core::simulation::config::TickConfig::DEFAULT;
+    let mut world=World::new();
+    let mut store=sim_db::spawner::load_agents(&mut world,&pool,&registry,&config).await.unwrap();
+    let total=sim_core::economy::money::MoneySnapshot::capture(&mut world,&store.contracts).total;
+    let site=world.query::<(Entity,&ConstructionSite)>().iter(&world).next().unwrap().0;
+    assert_eq!(world.get::<ConstructionSite>(site).unwrap().labor.completed,0);
+    assert_eq!(labor::work(&mut world,site,5),Ok(6));
+    let (tx,rx)=tokio::sync::mpsc::channel(4); let (ft,fr)=tokio::sync::mpsc::channel(1);
+    super::super::persist::emit_persist_writes(&mut world,&mut store,5,&tx);
+    drop(tx);drop(ft);
+    PersistenceWorker::new(pool.clone(),rx,fr,std::time::Duration::from_secs(1)).run().await;
+    let mut world=World::new();
+    let mut store=sim_db::spawner::load_agents(&mut world,&pool,&registry,&config).await.unwrap();
+    let site=world.query::<(Entity,&ConstructionSite)>().iter(&world).next().unwrap().0;
+    assert_eq!(world.get::<ConstructionSite>(site).unwrap().labor.completed,6);
+    assert_eq!(labor::work(&mut world,site,5),Err("already_worked_this_tick"));
+    assert_eq!(world.get::<FactionData>(store.faction_by_id["civ"]).unwrap().treasury,20144);
+    assert_eq!(world.get::<PopEconomy>(*store.population_by_id.values().next().unwrap()).unwrap().total_wealth,6);
+    for tick in (10..=125).step_by(5) {
+        crate::engine::apply::tick_construction_labor(&mut world,&mut store,&mut vec![],tick,1);
+    }
+    assert!(world.get::<ConstructionSite>(site).is_none());
+    assert_eq!(store.pending_materializations.len(),1);
+    let built=store.pending_materializations[0].entity;
+    assert_eq!(world.get::<FacilityCrew>(built).unwrap().work_shift.as_ref().unwrap().tick,125);
+    assert_eq!(sim_core::economy::money::MoneySnapshot::capture(&mut world,&store.contracts).total,total);
+    let (tx,rx)=tokio::sync::mpsc::channel(4); let (ft,fr)=tokio::sync::mpsc::channel(1);
+    crate::engine::drains::drain_pending_materializations(&mut world,&mut store,&pool,&tx,&mut vec![]).await;
+    super::super::persist::emit_persist_writes(&mut world,&mut store,125,&tx);
+    drop(tx);drop(ft);
+    PersistenceWorker::new(pool.clone(),rx,fr,std::time::Duration::from_secs(1)).run().await;
+    let mut world=World::new();
+    let mut store=sim_db::spawner::load_agents(&mut world,&pool,&registry,&config).await.unwrap();
+    crate::engine::apply::tick_construction_labor(&mut world,&mut store,&mut vec![],125,1);
+    assert_eq!(world.query::<&ConstructionSite>().iter(&world).count(),0);
+    assert_eq!(store.facility_by_id.len(),2);
+    assert!(store.pending_materializations.is_empty());
+    assert_eq!(world.get::<FactionData>(store.faction_by_id["civ"]).unwrap().treasury,0);
+    assert_eq!(world.get::<PopEconomy>(*store.population_by_id.values().next().unwrap()).unwrap().total_wealth,150);
+    assert_eq!(sim_core::economy::money::MoneySnapshot::capture(&mut world,&store.contracts).total,total);
     pool.close().await;
 }

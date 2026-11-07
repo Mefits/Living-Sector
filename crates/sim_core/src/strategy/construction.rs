@@ -26,7 +26,7 @@ impl Offer {
     }
 
     pub fn total_cost(&self) -> i64 {
-        i64::from(self.shipments()) * faction::CONSTRUCTION_BASE_PAYMENT + STARTUP_CAPITAL
+        i64::from(self.shipments()) * faction::CONSTRUCTION_BASE_PAYMENT + STARTUP_CAPITAL + i64::from(crate::agents::construction::LABOR_REQUIRED)
     }
 }
 
@@ -177,7 +177,7 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
                     else if already_planned || material_conflict { "producer_already_planned" }
                     else if !placeable || !members.contains(&goal.destination) { "invalid_site_location" }
                     else if existing.is_none() && kind == Some("mining_rig") && raw_richness == 0.0 { "no_local_resource" }
-                    else if amount == 0 { "awaiting_materialization" }
+                    else if amount == 0 { "awaiting_paid_labor" }
                     else if let Err(reason) = source { reason }
                     else if account.treasury < faction::CONSTRUCTION_MIN_TREASURY { "insufficient_budget" }
                     else { "ready" };

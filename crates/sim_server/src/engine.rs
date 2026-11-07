@@ -382,6 +382,7 @@ pub async fn run_tick_loop(
                 tick_mult,
             );
         });
+        apply::tick_construction_labor(&mut world, &mut store, &mut events, tick, tick_mult);
         phase!(populations, {
             population::tick_populations(
                 &mut world,

@@ -269,8 +269,8 @@ mod tests {
         assert_eq!(head.problem.as_ref().unwrap().commodity, Commodity::Ore);
         assert_eq!(head.alternatives.len(), 3);
         let build = head.alternatives.iter().find(|a| a.action == "build").unwrap();
-        assert_eq!(build.total_commitment, 50_000);
-        assert_eq!(build.treasury_after, 30_000);
+        assert_eq!(build.total_commitment, 50_150);
+        assert_eq!(build.treasury_after, 29_850);
 
         // Same problem and supplies. This treasury can pay a shipment or
         // the first building lot but cannot finish and commission the site.

@@ -971,6 +971,7 @@ pub(crate) fn ensure_site_spawned_with_material(
     );
 
     let site = ConstructionSite {
+                labor: Default::default(),
         id: site_id.clone(),
         name: name.clone(),
         facility_type: facility_type.to_string(),

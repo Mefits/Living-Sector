@@ -46,14 +46,7 @@ fn commit_shift(world: &mut World, producer: Entity, stock_owner: Entity,
     let owner = world.get::<FacilityIdentity>(stock_owner).ok_or("missing_stock_owner")?;
     if owner.faction_id != faction || world.get::<FacilityLocation>(stock_owner)
         .is_none_or(|l| l.location_name != location) { return Err("foreign_workplace_stock"); }
-    let mut occupied: HashMap<String, i64> = HashMap::new();
-    for crew in world.query::<&FacilityCrew>().iter(world) {
-        if let Some(shift) = &crew.work_shift {
-            if shift.tick == tick {
-                for (id, count) in &shift.workers { *occupied.entry(id.clone()).or_default() += *count as i64; }
-            }
-        }
-    }
+    let occupied = occupied_workers(world, tick);
     let mut candidates: Vec<_> = world.query::<(Entity, &PopIdentity, &PopDemographics, &PopEconomy)>()
         .iter(world).filter(|(_, id, demo, _)| id.facility_location == location && id.faction_id == faction && demo.population_count > 0)
         .map(|(e, id, demo, cash)| (id.id.clone(), e,
@@ -121,12 +114,7 @@ pub(super) fn blocked(world: &mut World, facility: Entity, reason: &str) {
 /// Reconstruct latest-shift employment from durable receipts, including on
 /// restart at the same tick. Residents not hired remain unemployed.
 pub fn refresh_employment(world: &mut World, tick: u64) {
-    let mut counts: HashMap<String,u32> = HashMap::new();
-    for crew in world.query::<&FacilityCrew>().iter(world) {
-        if let Some(shift) = &crew.work_shift {
-            if shift.tick == tick { for (id,n) in &shift.workers { *counts.entry(id.clone()).or_default() += *n as u32; } }
-        }
-    }
+    let counts = occupied_workers(world, tick);
     for (id, mut demo, mut sentiment) in world.query::<(&PopIdentity, &mut PopDemographics, &mut PopSentiment)>().iter_mut(world) {
         demo.employed_fraction = (counts.get(&id.id).copied().unwrap_or(0) as f32
             / (demo.population_count as f32 * 0.6).max(1.0)).clamp(0.0,1.0);
@@ -136,3 +124,16 @@ pub fn refresh_employment(world: &mut World, tick: u64) {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+/// Durable shared labor reservations for factories and construction sites.
+pub fn occupied_workers(world: &mut World, tick: u64) -> HashMap<String, i64> {
+    let mut result = HashMap::new();
+    let mut shifts: Vec<_> = world.query::<&FacilityCrew>().iter(world)
+        .filter_map(|crew| crew.work_shift.clone()).collect();
+    shifts.extend(world.query::<&crate::agents::construction::ConstructionSite>().iter(world)
+        .filter_map(|site| site.labor.last_shift.clone()));
+    for shift in shifts { if shift.tick == tick {
+        for (id, count) in shift.workers { *result.entry(id).or_insert(0) += i64::from(count); }
+    }}
+    result
+}

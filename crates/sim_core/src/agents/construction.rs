@@ -26,7 +26,24 @@
 
 use crate::economy::commodities::Commodity;
 use bevy_ecs::prelude::{Component, Entity, World};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
+
+pub mod labor;
+
+/// Worker-shifts required after materials arrive. No wages are invented for old saves.
+pub const LABOR_REQUIRED: u32 = 150;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ConstructionLabor {
+    pub required: u32,
+    pub completed: u32,
+    pub last_shift: Option<super::facility::workforce::WorkShift>,
+    pub blocked_reason: Option<String>,
+}
+impl Default for ConstructionLabor {
+    fn default() -> Self { Self { required: LABOR_REQUIRED, completed: 0, last_shift: None, blocked_reason: None } }
+}
 
 /// Units of commodity needed to finish a construction site. Sized so
 /// ~3 standard Construction deliveries (200 each) complete the build.
@@ -59,6 +76,7 @@ pub fn facility_type_for_commodity(c: Commodity) -> &'static str {
 /// deliberately small so rendering + progress-update passes are cheap.
 #[derive(Debug, Clone, Component)]
 pub struct ConstructionSite {
+    pub labor: ConstructionLabor,
     /// Stable agent-id. Format: `site-<commodity>-<location>-<tick>`.
     pub id: String,
     /// Human-readable name for UI. e.g. "Kuiper Polymer Works".
@@ -117,6 +135,7 @@ impl ConstructionSite {
 /// WS / HTTP snapshot. Godot reads this to render scaffolds.
 #[derive(Debug, Clone, Serialize)]
 pub struct ConstructionSiteSnapshot {
+    pub labor: ConstructionLabor,
     pub id: String,
     pub name: String,
     pub facility_type: String,
@@ -134,6 +153,7 @@ pub struct ConstructionSiteSnapshot {
 impl From<&ConstructionSite> for ConstructionSiteSnapshot {
     fn from(s: &ConstructionSite) -> Self {
         Self {
+            labor: s.labor.clone(),
             id: s.id.clone(),
             name: s.name.clone(),
             facility_type: s.facility_type.clone(),

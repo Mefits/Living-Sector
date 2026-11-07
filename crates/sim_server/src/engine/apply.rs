@@ -1052,61 +1052,42 @@ pub fn apply_construction_delivery(
         }
     };
 
-    // Snapshot the fields we need before mutating.
-    let (site_id, site_name, completed_now, new_progress, facility_type, body_id,
-         faction_id, position, site_location) = {
-        if let Some(mut site) = world.get_mut::<ConstructionSite>(site_entity) {
-            let absorbed = quantity.min(site.remaining());
-            site.progress_delivered = site.progress_delivered.saturating_add(absorbed);
-            site.dirty = true;
-            let progress = site.progress();
-            let finished = progress >= 1.0 && !site.completed;
-            if finished {
-                site.completed = true;
+    let mut site = world.get_mut::<ConstructionSite>(site_entity).unwrap();
+    site.progress_delivered += quantity.min(site.remaining());
+    site.dirty = true;
+    events.push(serde_json::json!({"kind": "construction_progress", "site_id": site.id,
+        "progress": site.progress(), "location": site.location_name,
+        "labor_completed": site.labor.completed, "labor_required": site.labor.required }));
+}
+
+/// Work follows native production on the same cadence and shares its labor pool.
+/// Completion stays in the original materialization/checkpoint path.
+pub fn tick_construction_labor(world: &mut World, store: &mut AgentStore,
+    events: &mut Vec<serde_json::Value>, tick: u64, mult: u32) {
+    use sim_core::agents::{construction::{ConstructionSite, labor}, facility::FacilityCrew};
+    if tick % (sim_core::agents::facility::RECIPE_INTERVAL_BASE * u64::from(mult.max(1))) != 0 { return; }
+    let mut sites: Vec<_> = world.query::<(Entity, &ConstructionSite)>().iter(world)
+        .filter(|(_,s)| !s.completed).map(|(e,s)| (s.id.clone(),e)).collect();
+    sites.sort_by(|a,b| a.0.cmp(&b.0));
+    for (_,entity) in sites {
+        if let Ok(workers) = labor::work(world, entity, tick) {
+            let site = world.get::<ConstructionSite>(entity).unwrap().clone();
+            if workers > 0 {
+                events.push(serde_json::json!({"kind":"construction_labor", "site_id":site.id,
+                    "workers":workers, "labor_completed":site.labor.completed, "labor_required":site.labor.required}));
             }
-            (
-                site.id.clone(),
-                site.name.clone(),
-                finished,
-                progress,
-                site.facility_type.clone(),
-                site.body_id.clone(),
-                site.faction_id.clone(),
-                site.position,
-                site.location_name.clone(),
-            )
-        } else {
-            return;
+            if site.remaining() == 0 && site.labor.completed >= site.labor.required {
+                materialize_facility(world, store, &site.id, &site.name, &site.facility_type,
+                    &site.body_id, &site.faction_id, &site.location_name, site.position, events);
+                // Keep the final shift reservation alive on the new facility,
+                // including after checkpoint/reload, before removing the site.
+                let built = store.pending_materializations.last().unwrap().entity;
+                let mut crew = world.get_mut::<FacilityCrew>(built).unwrap();
+                crew.work_shift = site.labor.last_shift;
+                crew.dirty = true;
+                world.despawn(entity);
+            }
         }
-    };
-
-    events.push(serde_json::json!({
-        "kind": "construction_progress",
-        "site_id": site_id,
-        "progress": new_progress,
-        "location": site_location,
-    }));
-
-    if completed_now {
-        // Despawn the site, materialise a real facility at the same
-        // position via the shared admin-spawn plumbing. DB INSERT for
-        // the new facility is queued via `pending_materializations`
-        // and drained asynchronously right after the apply phase; the
-        // site row itself is deleted here so restart doesn't resurrect
-        // a completed site.
-        let _ = world.despawn(site_entity);
-        materialize_facility(
-            world,
-            store,
-            &site_id,
-            &site_name,
-            &facility_type,
-            &body_id,
-            &faction_id,
-            &site_location,
-            position,
-            events,
-        );
     }
 }
 
