@@ -494,6 +494,9 @@ fn build_router(state: AppState) -> Router {
         // Independent 2D Strategy/Observer client, backed by the real API.
         .route("/observer", get(api::observer_page))
         .route("/observer/", get(api::observer_page))
+        .route("/observer/index.html", get(api::observer_page))
+        .route("/observer/native.html", get(api::observer_native_page))
+        .route("/observer/v51-live-adapter.js", get(api::observer_v51_live_adapter_js))
         .route("/observer/styles.css", get(api::observer_styles))
         .route("/observer/app.js", get(api::observer_app_js))
         .route("/observer/model.js", get(api::observer_model_js))
