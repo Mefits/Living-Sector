@@ -1624,10 +1624,10 @@ function renderMap() {
         if(!visible(actual,75))continue;
         // One actual location is one station complex. Screen-space sockets
         // are visual annotations, never simulated additional facilities.
-        const building=list(s.report?.construction_sites).filter(site=>
-          site.location===hub.location && site.body_id===prefer.body_id);
-        for(const site of building)attachedConstructionSites.add(site.id);
         const stationCore=members.some(m=>m.type==="station");
+        const building=stationCore ? list(s.report?.construction_sites).filter(site=>
+          site.location===hub.location && site.body_id===prefer.body_id) : [];
+        for(const site of building)attachedConstructionSites.add(site.id);
         const tier=visualStationTier(members,building);
         const visualModules=members.filter(m=>m.id!==prefer.id)
           .map(m=>({...m,__selected:isSelected("facility",m.id)}))
