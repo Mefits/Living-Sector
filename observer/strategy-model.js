@@ -104,7 +104,9 @@ export function parseSnapshot(input) {
     schema_version: 1,
     snapshot_tick: input.snapshot_tick,
     mode: input.mode,
-    factions
+    factions,
+    stations: Array.isArray(input.stations) ? input.stations : [],
+    orders: Array.isArray(input.orders) ? input.orders : []
   };
 }
 

@@ -308,6 +308,68 @@ function renderProjects(faction) {
   addNote(target, "Контракты строительства — это доставки грузов. " +
     "Сама стройплощадка и её прогресс показаны отдельно.");
 }
+
+function renderStationAdministration(faction) {
+  const target = elements.stations;
+  target.replaceChildren();
+  const stations = (snapshot?.stations ?? []).filter(s => s?.faction_id === faction.faction_id);
+  if (!stations.length) return showEmpty(target, "Снимок пока не содержит станционных администраторов A1.");
+  for (const station of stations) {
+    const card = node("article", undefined, "strategy-construction-card");
+    const heading = node("div", undefined, "strategy-section-header");
+    heading.append(node("strong", station.location || "Станция", "strategy-eyebrow"),
+      node("span", station.executing ? "EXECUTE" : "SHADOW", "strategy-state"));
+    card.append(heading);
+    addField(card, "Работников", formatNumber(station.workforce));
+    addField(card, "Уже заняты", formatNumber(station.already_working));
+    addField(card, "Назначены", formatNumber(station.assigned_workers));
+    addField(card, "Свободны", formatNumber(station.idle_workers));
+    if (station.head_priority) addField(card, "Приоритет главы", human(station.head_priority, commodityLabels));
+    for (const module of (Array.isArray(station.modules) ? station.modules : [])) {
+      const entry = node("article", undefined, "strategy-proposal-card");
+      const top = node("div", undefined, "strategy-goal-heading");
+      top.append(node("strong", module.facility_id || module.facility_type || "Модуль"),
+        node("span", module.assigned_workers > 0 ? "Назначен" : "Не назначен", "strategy-project-state"));
+      entry.append(top);
+      addField(entry, "Рабочие: факт / план / норма",
+        [module.actual_workers, module.assigned_workers, module.required_workers].map(x => formatNumber(x)).join(" / "));
+      addField(entry, "Решение", module.reason || "—");
+      if (module.execution_reason) addField(entry, "Исполнение", module.execution_reason);
+      if (module.priority_commodity) addField(entry, "Ресурс", human(module.priority_commodity, commodityLabels));
+      card.append(entry);
+    }
+    const needs = Array.isArray(station.needs) ? station.needs : [];
+    if (needs.length) {
+      card.append(node("h4", "ПОТРЕБНОСТИ · НЕ ПРИКАЗЫ", "strategy-subheading"));
+      for (const need of needs) card.append(node("p",
+        human(need.commodity, commodityLabels) + " · " + (need.facility_id || station.location), "strategy-note"));
+    }
+    target.append(card);
+  }
+}
+function renderStationOrders(faction) {
+  const target = elements.orders;
+  target.replaceChildren();
+  const orders = (snapshot?.orders ?? []).filter(o => o?.faction_id === faction.faction_id);
+  if (!orders.length) return showEmpty(target, "Пока нет нативных приказов A2.");
+  for (const order of orders.slice(0,50)) {
+    const card = node("article", undefined, "strategy-project-card");
+    const top = node("div", undefined, "strategy-goal-heading");
+    top.append(node("strong", (order.kind === "construction" ? "Стройка" : "Доставка") + " · " + (order.location || "—")),
+      node("span", order.state || "—", "strategy-project-state"));
+    card.append(top);
+    addField(card, "Цель", order.target_id || "—");
+    if (order.commodity) addField(card, "Ресурс", human(order.commodity, commodityLabels));
+    if (Number.isFinite(order.quantity)) addField(card, "Выполнено / всего",
+      formatNumber(order.completed_quantity) + " / " + formatNumber(order.quantity));
+    addField(card, "Исполнитель", order.executor_id || "Не назначен");
+    addField(card, "Попытка", formatNumber(order.attempt));
+    if (order.blocked_reason) addField(card, "Блокировка", order.blocked_reason);
+    addField(card, "Приказ", order.order_id || "—");
+    target.append(card);
+  }
+}
+
 function renderHistory() {
   const target = elements.history;
   target.replaceChildren();
@@ -338,12 +400,16 @@ function render() {
     renderGoals(active);
     strategyRenderConstruction(active);
     renderProjects(active);
+    renderStationAdministration(active);
+    renderStationOrders(active);
   } else {
     showEmpty(elements.head, requestError || "Нет сведений о стратегическом управлении.");
     showEmpty(elements.summary, requestError || "Нет сведений о стратегическом управлении.");
     elements.goals.replaceChildren();
     elements.construction.replaceChildren();
     elements.projects.replaceChildren();
+    elements.stations.replaceChildren();
+    elements.orders.replaceChildren();
   }
   renderHistory();
   elements.content.scrollTop = scroll;
@@ -382,7 +448,8 @@ export function initStrategyPanel(options = {}) {
     faction:find("strategy-faction"), content:find("strategy-content"),
     head:find("strategy-head"), summary:find("strategy-summary"),
     goals:find("strategy-goals"), construction:find("strategy-construction"),
-    projects:find("strategy-projects"), history:find("strategy-history"),
+    projects:find("strategy-projects"), stations:find("strategy-stations"),
+    orders:find("strategy-orders"), history:find("strategy-history"),
     clear:find("strategy-clear-history"), refresh:find("strategy-refresh")
   };
   if (Object.values(elements).some(element => !element)) {
