@@ -441,7 +441,7 @@ mod market_time_tests {
         ] {
             let multiplier = TickConfig { world_speed, ticks_per_second }.tick_multiplier() as u64;
             let count = (1..=16 * multiplier)
-                .filter(|tick| tick % multiplier.max(1) == 0)
+                .filter(|tick| *tick % multiplier.max(1) == 0)
                 .count();
             assert_eq!(count, 16, "{world_speed}x @ {ticks_per_second} TPS");
         }
