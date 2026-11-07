@@ -15,14 +15,14 @@ const els = Object.fromEntries([
   "ships-toggle","links-toggle","labels-toggle","modules-toggle","fit-btn","map","canvas-holder","hover-label",
   "map-error","data-tick","event-feed","clear-events","export-diagnostics","inspector-body","clear-selection",
   "ship-total","facility-total","market-total","first-run-guide","start-system-btn","dismiss-guide-btn",
-  "focus-picker","focus-inner-btn","focus-full-btn","focus-caption"
+  "focus-picker","focus-inner-btn","focus-full-btn","focus-caption","follow-btn"
 ].map(id => [id.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase()), byId(id)]));
 
 const s = {
   report: null, index: null, ships: [], health: null, positions: new Map(),
   ws: null, wsUp: false, live: false, events: [],
   view: "sector", systemName: null, selection: null,
-  zoom: 1, pan: {x: 0, y: 0}, cameraFocus: "inner", dragging: null, hover: null,
+  zoom: 1, pan: {x: 0, y: 0}, cameraFocus: "inner", follow: null, followVisual: null, dragging: null, hover: null,
   targets: [], visualPositions: new Map(), shipMotion: new Map(),
   mapWorldPositions: new Map(), shipCallsigns: new Map(), shipSymbolVariants: new Map(),
   shipHeading: new Map(),
@@ -465,7 +465,62 @@ function sectorMode() {
   resetCamera(); renderSidebar(); refreshToolbar(); renderStartGuide();
   refreshCameraFocusControls();
 }
+// Observer-only follow state; this NEVER modifies the simulation's coordinates.
+/// Double-click or press "Следить" after selecting a physical object.
+function trackedEntity() {
+  if(!s.follow || !s.index)return null;
+  const {type,id,ids}=s.follow;
+  if(type==="ship")return s.ships.find(x=>x.id===id)??null;
+  if(type==="body")return s.index.systems.flatMap(sys=>sys.bodies).find(x=>x.id===id)??null;
+  if(type==="facility")return list(s.report?.facilities).find(x=>x.id===id)??null;
+  if(type==="facility_group") {
+    const members=list(s.report?.facilities).filter(x=>ids?.includes(x.id));
+    return members.find(x=>x.type==="station") ?? members[0] ?? null;
+  }
+  if(type==="construction_site")return list(s.report?.construction_sites).find(x=>x.id===id)??null;
+  return null;
+}
+function updateFollowButton(){
+  if(!els.followBtn)return;
+  const selectable=["ship","body","facility","facility_group","construction_site"].includes(s.selection?.type);
+  els.followBtn.disabled=!selectable && !s.follow;
+  const following=Boolean(s.follow);
+  els.followBtn.classList.toggle("following",following);
+  els.followBtn.setAttribute("aria-pressed",String(following));
+  els.followBtn.textContent=following?"Снять слежение":"Следить за объектом";
+}
+function stopFollowing(){
+  s.follow=null;s.followVisual=null;
+  updateFollowButton();
+}
+function followSelectedObject(){
+  const item=s.selection;
+  if(!item||!["ship","body","facility","facility_group","construction_site"].includes(item.type)){
+    stopFollowing();return;
+  }
+  if(s.follow?.type===item.type && s.follow?.id===item.id) {
+    stopFollowing();return;
+  }
+  s.follow={type:item.type,id:item.id,ids:item.ids??null};
+  s.followVisual=null;
+  updateFollowButton();
+}
+function followedWorldPosition(){
+  const entity=trackedEntity();
+  if(!entity) {
+    if(s.follow)stopFollowing();
+    return null;
+  }
+  const target=s.follow.type==="ship"?
+    positionOf(entity,s.positions):liveEntityPoint(entity,s.positions);
+  if(!target)return null;
+  // Smooth only camera coordinates, not world/agent state.
+  s.followVisual=approachWorldPoint(s.followVisual,target,0.18,12);
+  return s.followVisual;
+}
+
 function resetCamera() {
+  stopFollowing();
   const current=systemByName(s.systemName,s.index);
   // Small comfortable overscan of the populated core, even when a remote
   // Saturn system would otherwise consume most of the available pixels.
@@ -1015,6 +1070,12 @@ function resizeCanvas() {
 function camera(w,h) {
   const b = boundsOf(s.view);
   const scale = Math.min(w / b.sx, h / b.sy) * s.zoom * 0.84;
+  if(s.follow && s.view==="system"){
+    const target=followedWorldPosition();
+    if(target) {
+      s.pan={x:-(target.x-b.cx)*scale, y:(target.y-b.cy)*scale};
+    }
+  }
   return {
     scale,
     toScreen: p => ({
@@ -1639,9 +1700,10 @@ function renderMap() {
             stationReveal(s.zoom)) : 0;
         const footprint=stationCore?
           Math.max(18*composeScale,reveal>.08?56*composeScale:0):16*iconScale;
-        const at=layoutMarker(actual,footprint,0);
-        if(!at)continue;
-        leader(actual,at);
+        // This is the physical station's actual server/world position.
+        // Never push the entire complex into a free screen slot when
+        // planets move; only its text label may move or disappear.
+        const at=actual;
         occupiedMarkers.push({x:at.x,y:at.y,r:footprint});
         const ids=members.map(x=>x.id);
         const selected=ids.includes(s.selection?.id) ||
@@ -1815,6 +1877,7 @@ function installCanvasHandlers(){
     if(s.dragging){
       if(Math.hypot(p.x-s.dragging.start.x,p.y-s.dragging.start.y)>4)s.dragging.moved=true;
       if(s.dragging.moved){
+        if(s.follow)stopFollowing(); // direct user pan releases tracking
         s.pan.x+=p.x-s.dragging.previous.x;
         s.pan.y+=p.y-s.dragging.previous.y;
       }
@@ -1839,7 +1902,7 @@ function installCanvasHandlers(){
         s.selection={type:target.type,id:target.id,ids:target.ids,name:target.name};
         if(target.type==="system")s.systemName=target.id;
         s.guideDismissed = true;
-        renderInspector();refreshToolbar();renderSidebar();
+        renderInspector();refreshToolbar();renderSidebar();updateFollowButton();
       }
     }
   });
@@ -1848,7 +1911,13 @@ function installCanvasHandlers(){
   els.map.addEventListener("dblclick",e=>{
     const p=toLocal(e),target=nearestTarget(p.x,p.y);
     if(target?.type==="system")chooseSystem(target.id,true);
-    else if(target?.type==="ship_group" || target?.type==="facility_group") changeZoomAt(p,2);
+    else if(target?.type==="ship_group") changeZoomAt(p,2);
+    else if(target && ["ship","body","facility","facility_group","construction_site"].includes(target.type)) {
+      s.selection={type:target.type,id:target.id,ids:target.ids,name:target.name};
+      s.guideDismissed=true;
+      followSelectedObject();
+      renderInspector();updateFollowButton();
+    }
   });
   els.map.addEventListener("wheel",e=>{
     e.preventDefault();
@@ -1859,6 +1928,7 @@ function installCanvasHandlers(){
     if(e.key==="Escape"){sectorMode();els.map.blur();}
     if(e.key==="1"){setCameraFocus("inner");e.preventDefault();}
     if(e.key==="2"){setCameraFocus("full");e.preventDefault();}
+    if(e.key.toLowerCase()==="f"){if(s.follow)stopFollowing();else followSelectedObject();e.preventDefault();}
   });
 }
 
@@ -1872,12 +1942,13 @@ function wireControls() {
   els.sectorTab.addEventListener("click",sectorMode);
   els.systemTab.addEventListener("click",()=>{if(s.systemName)chooseSystem(s.systemName,true);});
   els.fitBtn.addEventListener("click",resetCamera);
+  els.followBtn.addEventListener("click",()=>{if(s.follow)stopFollowing();else followSelectedObject();});
   els.focusInnerBtn.addEventListener("click",()=>setCameraFocus("inner"));
   els.focusFullBtn.addEventListener("click",()=>setCameraFocus("full"));
   els.systemSearch.addEventListener("input",renderSidebar);
   els.exportDiagnostics.addEventListener("click",exportDiagnostics);
   els.clearEvents.addEventListener("click",()=>{s.events=[];renderEvents();});
-  els.clearSelection.addEventListener("click",()=>{s.selection=null;renderInspector();});
+  els.clearSelection.addEventListener("click",()=>{s.selection=null;stopFollowing();renderInspector();});
   els.startSystemBtn.addEventListener("click",()=>{
     const chosen = s.index?.systems.find(x => x.name === "Sol") ?? s.index?.systems[0];
     if (chosen) chooseSystem(chosen.name, true);
