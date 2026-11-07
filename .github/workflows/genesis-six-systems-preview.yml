@@ -1,15 +1,15 @@
-name: Genesis Six Systems Preview - Windows x64
+name: Genesis Unified - Windows x64 (F4, V5, liquidity, six systems)
 
 on:
   push:
-    branches: [feature/genesis-six-systems-start-preview-20261107]
+    branches: [integration/genesis-unified-20261107]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: genesis-six-system-preview-${{ github.ref }}
+  group: genesis-unified-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -37,6 +37,16 @@ jobs:
           node --check observer/app.js
           node --check observer/model.js
           node --test observer/model.test.mjs
+      - name: Verify Observer V5 and economic hotfix
+        shell: pwsh
+        run: |
+          node --check observer/station-kit.js
+          node --test observer/station-kit.test.mjs observer/strategy-model.test.mjs
+          node observer/build-strategy.mjs --check
+          cargo test --locked -p sim_server --lib liquidity_
+          if ($LASTEXITCODE -ne 0) { throw "Liquidity invariants failed" }
+          cargo test --locked -p sim_core --lib workforce_
+          if ($LASTEXITCODE -ne 0) { throw "Workforce invariants failed" }
       - name: Build real ECS + SQLite Windows server
         shell: pwsh
         run: cargo build --locked --release -p sim_server --bin genesis_server
@@ -66,7 +76,11 @@ jobs:
                 if ($bodyCount -ne 36) { throw "Expected 36 celestial bodies, got $bodyCount" }
                 $viewer = Invoke-WebRequest -Uri "http://127.0.0.1:18092/observer" -UseBasicParsing -TimeoutSec 5
                 if ($viewer.StatusCode -ne 200) { throw "Observer HTTP test failed" }
-                Write-Host "PASS: 6 systems, 36 bodies, 3 factions, 9 provisional facilities, 3 markets, 3 ships"
+                $stationKit = Invoke-WebRequest -Uri "http://127.0.0.1:18092/observer/station-kit.js" -UseBasicParsing -TimeoutSec 5
+                if ($stationKit.StatusCode -ne 200 -or $stationKit.Content -notmatch "drawStationComplex") { throw "Observer V5 station-kit asset unavailable" }
+                $factionViewer = Invoke-RestMethod -Uri "http://127.0.0.1:18092/api/strategy" -TimeoutSec 5
+                if ($null -eq $factionViewer) { throw "Astra strategy API unavailable" }
+                Write-Host "PASS: F4 native, V5 Observer, six systems, 36 bodies, 3 factions, 9 provisional facilities, 3 markets, 3 ships"
                 $verified = $true
                 break
               } catch {
@@ -92,23 +106,23 @@ jobs:
           Copy-Item "priv/genesis/data" "$root/priv/genesis/data" -Recurse
           Copy-Item "docs/living-sector/GENESIS_START_6_SYSTEMS_PREVIEW.md" "$root/START-DESIGN.md"
           @(
-            "LIVING SECTOR — SIX SYSTEMS START PREVIEW — 2026-11-07"
+            "LIVING SECTOR — UNIFIED GENESIS F4 + OBSERVER V5 + HOTFIX — 2026-11-07"
             ""
             "1. Unpack the folder. Run Start-Genesis.cmd."
             "2. Use a NEW database: genesis-six-systems-preview-v1.db."
-            "3. All six original star systems and 36 bodies are in this test seed."
-            "4. Sol: Terran and outlaw Pirate bases. Alpha Centauri: Ceti Freeholds."
+            "3. All six original star systems and 36 bodies are in this test seed. F1-F4 paid economy integrated."
+            "4. Sol: Terran and outlaw Pirate bases. Alpha Centauri: Ceti Freeholds. Observer V5 modular visuals included."
             "5. Each faction has a station and two TEMPORARY ECS facilities representing primitive extraction and refining."
             "6. Each faction has 50 residents, Food=1000, Water=1000 and one FREIGHTER PLACEHOLDER, NOT A WORKING MINER."
             "7. Preview limitations: no modular T1 slots/storage caps, no organic population growth, no station administrator, no ship mining, no hull construction, no interstellar gates/travel."
-            "8. This version is for reviewing starter geography and saving design work; autonomous closed-loop start is NOT YET VERIFIED."
+            "8. Liquidity fix from PR33 and site-orbit fix PR28 included. Autonomous closed-loop start NOT YET VERIFIED."
             "9. Future economy rules and exact design decisions: START-DESIGN.md."
             "10. Older Genesis and sim.db saves are not touched."
           ) | Set-Content "$root/README.txt" -Encoding UTF8
           Compress-Archive -Path $root -DestinationPath "dist/Living-Sector-Genesis-Six-Systems-Preview-Windows.zip" -CompressionLevel Optimal -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: Living-Sector-Genesis-Six-Systems-Preview-Windows
+          name: Living-Sector-Genesis-Unified-F4-V5-Six-Systems-Windows
           path: dist/Living-Sector-Genesis-Six-Systems-Preview-Windows.zip
           retention-days: 14
           if-no-files-found: error
