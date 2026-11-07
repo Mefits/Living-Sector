@@ -1,8 +1,12 @@
 name: Genesis Survival Step 1 - Windows x64
 
+# The expensive Windows distribution is a checkpoint, not a per-commit test.
+# Update this workflow at a milestone to trigger its push-only build on this branch.
 on:
   push:
     branches: [feature/genesis-survival-step1-20261107]
+    paths:
+      - .github/workflows/genesis-six-systems-preview.yml
   workflow_dispatch:
 
 permissions:
