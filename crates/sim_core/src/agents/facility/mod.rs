@@ -41,20 +41,11 @@ pub const MINING_INTERVAL_BASE: u64 = 5;
 /// from draining all ore in one tick.
 pub const RECIPE_MAX_BATCHES: u32 = 20;
 
-/// Do not turn a tiny settlement's water supply into thousands of unsold
-/// food units. Farm output follows local demand and a short inventory buffer.
-/// This is production scheduling, not a free good or a 5k stock cap.
-fn farm_demand_limited_batches(food_stock: f32, food_demand: f32, max_batches: u32) -> u32 {
-    if !food_stock.is_finite() || food_stock < 0.0
-        || !food_demand.is_finite() || food_demand < 0.0 { return 0; }
-    // Demand is the market's observed/seed floor quantity. Keep ten demand
-    // windows on hand, never fewer than 50 units during the tiny-world phase.
-    let target = (food_demand * 10.0).max(50.0);
-    if food_stock >= target { return 0; }
-    // grow_food is ten Food per native recipe batch. When close to the
-    // buffer, pay one real shift for only one batch, not the default 20.
-    ((target - food_stock) / 10.0).ceil().max(0.0).min(max_batches as f32) as u32
-}
+/// The agreed T1 warehouse allowance is per commodity, not a demand buffer.
+/// Until the native warehouse component is implemented, the starter farm
+/// respects this limit for Food in its local market (one market per hub).
+/// Other commodities/transfer paths still need their own capacity enforcement.
+pub const STARTER_FOOD_STORAGE_CAP: f32 = 5_000.0;
 
 /// Mining yield per cycle = body_resource_richness × RESOURCE_YIELD_PER_TICK
 /// Units of commodity added to market supply per cycle.
@@ -690,22 +681,28 @@ fn tick_recipes_and_mining(
             // when real work happens. Elixir increments XP by the number
             // of recipes that ran successfully each cycle.
             let Some(pricing) = world.get::<MarketPricing>(market_entity) else { continue };
-            let farm_batches = if fac.facility_type == "farm" {
-                farm_demand_limited_batches(
-                    pricing.supply.get(&Commodity::Food).copied().unwrap_or(0.0),
-                    pricing.demand.get(&Commodity::Food).copied().unwrap_or(0.0),
-                    max_batches,
-                )
-            } else { max_batches };
-            if farm_batches == 0 {
-                if fac.facility_type == "farm" { workforce::blocked(world, fac.entity, "sufficient_food_stock"); }
+            let is_farm = fac.facility_type == "farm";
+            let food_stock = pricing.supply.get(&Commodity::Food).copied().unwrap_or(0.0);
+            if is_farm && food_stock.is_finite() && food_stock >= STARTER_FOOD_STORAGE_CAP {
+                workforce::blocked(world, fac.entity, "food_storage_full");
                 continue;
             }
             let mut proposed = pricing.supply.clone();
             let prices = pricing.prices.clone();
             let mut recipes_run: u32 = 0;
             for recipe in recipes::for_facility_type(&fac.facility_type) {
-                if !recipes::execute(recipe, &mut proposed, output_mult, farm_batches, Some(&prices)).is_empty() { recipes_run += 1; }
+                let produced = if is_farm {
+                    // Keep producing despite surplus/low market price; only
+                    // physical input, paid labor and storage limit matter.
+                    // The final batch can be fractional: no free Food/Water.
+                    recipes::execute_with_output_cap(
+                        recipe, &mut proposed, output_mult, max_batches,
+                        None, Some((Commodity::Food, STARTER_FOOD_STORAGE_CAP))
+                    )
+                } else {
+                    recipes::execute(recipe, &mut proposed, output_mult, max_batches, Some(&prices))
+                };
+                if !produced.is_empty() { recipes_run += 1; }
             }
             if recipes_run == 0 {
                 if recipes::for_facility_type(&fac.facility_type).next().is_some() { workforce::blocked(world, fac.entity, "no_viable_recipe"); }
@@ -1902,28 +1899,62 @@ mod salvage_field_tests {
 
 
 #[cfg(test)]
-mod survival_food_buffer_tests {
-    use super::farm_demand_limited_batches;
+mod survival_food_cap_tests {
+    use super::STARTER_FOOD_STORAGE_CAP;
+    use crate::economy::{commodities::Commodity, recipes::{self, RECIPES}};
+    use std::collections::HashMap;
 
     #[test]
-    fn stocked_farm_does_not_consume_water_for_unsold_food() {
-        assert_eq!(farm_demand_limited_batches(1000.0, 5.0, 20), 0);
-        assert_eq!(farm_demand_limited_batches(45273.0, 5.0, 20), 0);
-        assert_eq!(farm_demand_limited_batches(50.0, 5.0, 20), 0);
+    fn farm_produces_even_when_food_surplus_is_far_above_demand() {
+        let recipe = RECIPES.iter().find(|r| r.id == "grow_food").unwrap();
+        let mut stock: HashMap<_, _> = [
+            (Commodity::Food, 1_000.0),
+            (Commodity::Water, 100.0)
+        ].into();
+        let output = recipes::execute_with_output_cap(
+            recipe, &mut stock, 1.0, 20, None,
+            Some((Commodity::Food, STARTER_FOOD_STORAGE_CAP))
+        );
+        assert_eq!(output[&Commodity::Food], 200.0);
+        assert_eq!(stock[&Commodity::Food], 1_200.0);
+        assert_eq!(stock[&Commodity::Water], 40.0);
     }
 
     #[test]
-    fn farms_recover_food_shortages_by_small_paid_batches() {
-        assert_eq!(farm_demand_limited_batches(49.0, 5.0, 20), 1);
-        assert_eq!(farm_demand_limited_batches(0.0, 5.0, 20), 5);
-        assert_eq!(farm_demand_limited_batches(20.0, 100.0, 20), 20);
-        assert_eq!(farm_demand_limited_batches(20.0, 100.0, 2), 2);
+    fn farm_stops_at_cap_and_partial_final_batch_conserves_inputs() {
+        let recipe = RECIPES.iter().find(|r| r.id == "grow_food").unwrap();
+        let mut stock: HashMap<_, _> = [
+            (Commodity::Food, 4_995.0),
+            (Commodity::Water, 100.0)
+        ].into();
+        let output = recipes::execute_with_output_cap(
+            recipe, &mut stock, 1.0, 20, None,
+            Some((Commodity::Food, STARTER_FOOD_STORAGE_CAP))
+        );
+        assert_eq!(output[&Commodity::Food], 5.0);
+        assert_eq!(stock[&Commodity::Food], STARTER_FOOD_STORAGE_CAP);
+        assert_eq!(stock[&Commodity::Water], 98.5);
+
+        let second = recipes::execute_with_output_cap(
+            recipe, &mut stock, 1.0, 20, None,
+            Some((Commodity::Food, STARTER_FOOD_STORAGE_CAP))
+        );
+        assert!(second.is_empty());
+        assert_eq!(stock[&Commodity::Water], 98.5);
     }
 
     #[test]
-    fn invalid_market_data_cannot_trigger_overproduction() {
-        assert_eq!(farm_demand_limited_batches(f32::NAN, 5.0, 20), 0);
-        assert_eq!(farm_demand_limited_batches(0.0, f32::INFINITY, 20), 0);
-        assert_eq!(farm_demand_limited_batches(-1.0, 5.0, 20), 0);
+    fn invalid_stock_cannot_cause_farm_overproduction() {
+        let recipe = RECIPES.iter().find(|r| r.id == "grow_food").unwrap();
+        let mut stock = HashMap::from([
+            (Commodity::Food, f32::NAN),
+            (Commodity::Water, 100.0)
+        ]);
+        let produced = recipes::execute_with_output_cap(
+            recipe, &mut stock, 1.0, 20, None,
+            Some((Commodity::Food, STARTER_FOOD_STORAGE_CAP))
+        );
+        assert!(produced.is_empty());
+        assert_eq!(stock[&Commodity::Water], 100.0);
     }
 }
