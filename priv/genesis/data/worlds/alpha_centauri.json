@@ -112,6 +112,17 @@
       "docking_capacity": 2,
       "services": [],
       "reserves": {}
+    },
+    {
+      "id": "facility-alpha-station-farm-module",
+      "name": "Alpha Primitive Farm (preview)",
+      "faction_id": "ceti-freeholds",
+      "location": "alpha-station",
+      "body": "proxima",
+      "type": "farm",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
     }
   ],
   "markets": [
