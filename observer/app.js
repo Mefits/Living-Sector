@@ -541,7 +541,9 @@ function innerFocusRadius(sys) {
   const radii=sys.bodies.map(b=>number(b.orbit_radius))
     .filter(r=>Number.isFinite(r)&&r>0);
   const outer=Math.max(0,...radii);
-  return Math.max(3,Math.min(6.3,outer*.67));
+  // Starter orbits were physically doubled; keep the inner Sol preset
+  // framing Earth, belt and Jupiter instead of cropping Jupiter away.
+  return Math.max(6,Math.min(12.6,outer*.67));
 }
 function refreshCameraFocusControls() {
   const system = s.view === "system" && systemByName(s.systemName,s.index);
@@ -1643,6 +1645,7 @@ function renderMap() {
       }
       const occupiedMarkers=[];
       const attachedConstructionSites=new Set();
+      const renderedStationOrbits=new Set();
       // Find a nearby screen-only marker position without overlapping planets.
       // The real ECS location stays untouched; a short connector indicates
       // the actual anchoring when the icon must be displaced.
@@ -1683,6 +1686,24 @@ function renderMap() {
         if(!p)continue;
         const actual=toScreen(p);
         if(!visible(actual,75))continue;
+        // Show the real local orbit around the parent body, rather
+        // than a connector line to a displaced screen-space menu.
+        if(!renderedStationOrbits.has(prefer.body_id)){
+          const parent=sys.bodies.find(body=>body.id===prefer.body_id);
+          const parentPos=parent?liveWorldPoint(parent):null;
+          if(parentPos){
+            const parentScreen=toScreen(parentPos);
+            const r=Math.hypot(p.x-parentPos.x,p.y-parentPos.y)*scale;
+            if(r>4 && r<Math.max(w,h)){
+              ctx.save();
+              ctx.setLineDash([3,6]);ctx.lineWidth=1;
+              ctx.strokeStyle="rgba(119,183,197,.24)";
+              ctx.beginPath();ctx.arc(parentScreen.x,parentScreen.y,r,0,Math.PI*2);
+              ctx.stroke();ctx.restore();
+              renderedStationOrbits.add(prefer.body_id);
+            }
+          }
+        }
         // One actual location is one station complex. Screen-space sockets
         // are visual annotations, never simulated additional facilities.
         const stationCore=members.some(m=>m.type==="station");
