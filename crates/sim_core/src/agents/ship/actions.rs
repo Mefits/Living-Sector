@@ -53,6 +53,7 @@ pub enum ShipAction {
     SellAll,
     /// Accept a delivery contract by id (Phase 8b).
     AcceptContract { contract_id: String },
+    EmbarkPassengers { contract_id: String },
     /// Pick up the cargo reserved for an accepted contract (Phase 8b).
     PickupCargo { contract_id: String },
     /// Deliver contract cargo and collect payment (Phase 8b).
@@ -480,6 +481,16 @@ pub(super) fn execute_ship_action(
                 return status;
             }
             request_transaction(economy, commands, entity, ShipTransaction::Accept {
+                contract_id: contract_id.clone(),
+            })
+        }
+
+        ShipAction::EmbarkPassengers { contract_id } => {
+            if let Some(status) = poll_transaction(economy, |r| matches!(r,
+                ShipTransaction::Embark { contract_id: id } if id == contract_id)) {
+                return status;
+            }
+            request_transaction(economy, commands, entity, ShipTransaction::Embark {
                 contract_id: contract_id.clone(),
             })
         }

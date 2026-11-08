@@ -1,3 +1,7 @@
+> **C1 — автономная колонизация (2026-11-08):** `feature/genesis-c1-colonization` поверх `ae69c712`.
+> Глава, контрактные перевозки, F3/F4, A1/A2 и SQLite связаны в нативный цикл основания станции.
+> [Аудит, проверка и границы C1](C1_COLONIZATION.md).
+
 > **A2 — приказы станции (2026-11-07):** `feature/genesis-station-orders`, [PR #43](https://github.com/Mefits/Living-Sector/pull/43).
 > Рабочая база A1: `97d6d63430a772e78ccf252b211c6db9c8078cc0`.
 > A2 `8fb0c3403872f33932174a6dd3389136dfed43e6`: адресные Rust/SQLite проверки прошли.

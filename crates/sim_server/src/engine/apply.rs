@@ -1072,14 +1072,26 @@ pub fn tick_construction_labor(world: &mut World, store: &mut AgentStore,
             let site = world.get::<ConstructionSite>(entity).unwrap().clone();
             if workers > 0 {
                 events.push(serde_json::json!({"kind":"construction_labor", "site_id":site.id,
-                    "workers":workers, "labor_completed":site.labor.completed, "labor_required":site.labor.required}));
+                    "workers":workers, "labor_completed":site.labor.completed, "labor_required":site.labor.required,
+                    "executor":site.labor.last_executor,"wages":site.labor.last_shift.as_ref().map(|s|s.wages)}));
             }
             if site.remaining() == 0 && site.labor.completed >= site.labor.required {
-                materialize_facility(world, store, &site.id, &site.name, &site.facility_type,
-                    &site.body_id, &site.faction_id, &site.location_name, site.position, events);
-                // Keep the final shift reservation alive on the new facility,
-                // including after checkpoint/reload, before removing the site.
-                let built = store.pending_materializations.last().unwrap().entity;
+                let built = if site.labor.colony_source.is_some() {
+                    match super::colony::establish(world, store, &site, events, mult) {
+                        Ok(dock) => dock,
+                        Err(reason) => {
+                            let mut site = world.get_mut::<ConstructionSite>(entity).unwrap();
+                            site.labor.blocked_reason = Some(reason.into());
+                            site.dirty = true;
+                            continue;
+                        }
+                    }
+                } else {
+                    materialize_facility(world, store, &site.id, &site.name, &site.facility_type,
+                        &site.body_id, &site.faction_id, &site.location_name, site.position, events);
+                    store.pending_materializations.last().unwrap().entity
+                };
+                // Preserve the final shift's workforce reservation through the checkpoint.
                 let mut crew = world.get_mut::<FacilityCrew>(built).unwrap();
                 crew.work_shift = site.labor.last_shift;
                 crew.dirty = true;
@@ -1099,7 +1111,6 @@ pub(super) fn commit_contract_delivery(
     events: &mut Vec<serde_json::Value>,
     tick: u64,
 ) {
-    use sim_core::agents::population::PopDemographics;
     use sim_core::agents::ship::{ShipCargo, ShipEconomy};
     use sim_core::economy::contracts::ContractType;
     // Pay the ship and bump faction reputation if the
@@ -1218,24 +1229,12 @@ pub(super) fn commit_contract_delivery(
             }
         }
         ContractType::Passenger => {
-            // Disembark: increment destination population.
-            // We treat the facility_location as the pop's
-            // home; any pops there grow by the head count.
-            let mut q = world.query::<(
-                &sim_core::agents::population::PopIdentity,
-                &mut PopDemographics,
-            )>();
-            for (id, mut demo) in q.iter_mut(world) {
-                if id.facility_location == c.destination_location {
-                    demo.population_count += c.quantity as i64;
-                }
-            }
             events.push(serde_json::json!({
-                "kind": "passengers_arrived",
-                "contract_id": c.id,
-                "destination": c.destination_location,
-                "head_count": c.quantity,
-                "payment": effective_payment,
+                "kind": "passengers_arrived", "contract_id": c.id,
+                "source": c.source_location, "destination": c.destination_location,
+                "head_count": c.quantity, "payment": effective_payment,
+                "ship_id": c.fulfiller_id,
+                "wealth": c.funding.as_ref().and_then(|f| f.embarked.as_ref()).map(|p| p.wealth),
             }));
         }
         ContractType::Construction => {
@@ -1269,7 +1268,8 @@ pub(super) fn commit_contract_delivery(
                 "contract_id": c.id,
                 "contract_type": c.contract_type.as_str(),
                 "commodity": c.commodity.as_str(),
-                "destination": c.destination_location,
+                "source": c.source_location, "destination": c.destination_location,
+                "quantity": c.quantity, "ship_id": c.fulfiller_id,
                 "payment": effective_payment,
                 "faction_id": c.faction_id,
             }));

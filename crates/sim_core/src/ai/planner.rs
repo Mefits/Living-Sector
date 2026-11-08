@@ -329,10 +329,9 @@ pub enum Operator {
     SellAll,
     DeliverCargo,
     Refit,
-    /// Passenger / courier delivery. Same apply-phase semantics as
-    /// `DeliverCargo` in the engine (both emit `ShipAction::DeliverCargo`)
-    /// but the precondition doesn't require `cargo_loaded` — passenger
-    /// contracts don't occupy hold space. Effect: `delivered = true`.
+    /// Move passengers into the ship's manifest while docked at the source.
+    EmbarkPassengers,
+    /// Settle a passenger, courier or crew-mission contract at its destination.
     DeliverPassengers,
     /// Shore leave / crew-mission dwell. The real `ShipAction::Rest`
     /// returns Running until morale ≥ CREW_REST_TARGET; for the
@@ -390,6 +389,7 @@ impl Operator {
         &[
             Operator::Dock,
             Operator::Refuel,
+            Operator::EmbarkPassengers,
             Operator::DeliverPassengers,
             Operator::Undock,
             Operator::Travel { to: Loc::Origin },
@@ -605,8 +605,16 @@ impl Operator {
                 next.rested = true;
                 Some((next, ShipAction::Rest))
             }
+            Operator::EmbarkPassengers => {
+                if !state.docked || state.at != Loc::Source || state.cargo_loaded || map.quantity == 0 {
+                    return None;
+                }
+                let mut next = state.clone();
+                next.cargo_loaded = true;
+                Some((next, ShipAction::EmbarkPassengers { contract_id: map.contract_id.clone() }))
+            }
             Operator::DeliverPassengers => {
-                if !state.docked || state.at != Loc::Dest {
+                if !state.docked || state.at != Loc::Dest || (map.quantity > 0 && !state.cargo_loaded) {
                     return None;
                 }
                 if state.delivered {
@@ -875,10 +883,7 @@ mod tests {
 
     #[test]
     fn plans_passenger_delivery_without_buy() {
-        // Passenger/courier plans have no Buy step — the contract
-        // payment fires on DeliverPassengers at the destination
-        // regardless of cargo state. Plan shape: Travel → Dock →
-        // Undock → Travel → Dock → DeliverPassengers.
+        // Passengers board at the source and disembark at the destination.
         let map = basic_map();
         let initial = WorldState::new(Loc::Origin, 10);
         let plan = plan(
@@ -890,8 +895,9 @@ mod tests {
         )
         .expect("passenger plan should exist");
         assert!(plan.final_state.delivered);
-        // Must include DeliverCargo (our DeliverPassengers op emits
-        // that action) but NOT Buy or SellAll.
+        let embark = plan.actions.iter().position(|a| matches!(a, ShipAction::EmbarkPassengers { .. })).unwrap();
+        let deliver = plan.actions.iter().position(|a| matches!(a, ShipAction::DeliverCargo { .. })).unwrap();
+        assert!(embark < deliver);
         assert!(
             plan.actions.iter().any(|a| matches!(a, ShipAction::DeliverCargo { .. })),
             "passenger plan must include DeliverCargo: {:?}",
@@ -910,34 +916,14 @@ mod tests {
     }
 
     #[test]
-    fn passenger_plan_is_shorter_than_delivery_plan() {
-        // Delivery requires Buy at source; passenger doesn't.
-        // Plans should reflect that — passenger is typically
-        // 1-2 actions shorter.
+    fn resumed_passenger_plan_does_not_board_twice() {
         let map = basic_map();
-        let initial = WorldState::new(Loc::Origin, 10);
-        let delivery_plan = plan(
-            initial.clone(),
-            |s| s.delivered,
-            Operator::delivery_catalog(),
-            &map,
-            16,
-        )
-        .unwrap();
-        let passenger_plan = plan(
-            initial,
-            |s| s.delivered,
-            Operator::passenger_catalog(),
-            &map,
-            16,
-        )
-        .unwrap();
-        assert!(
-            passenger_plan.actions.len() < delivery_plan.actions.len(),
-            "passenger should be shorter than delivery: pax={} deliv={}",
-            passenger_plan.actions.len(),
-            delivery_plan.actions.len(),
-        );
+        let mut initial = WorldState::new(Loc::Source, 10);
+        initial.docked = true;
+        initial.cargo_loaded = true;
+        let resumed = plan(initial, |s| s.delivered, Operator::passenger_catalog(), &map, 16).unwrap();
+        assert!(!resumed.actions.iter().any(|action| matches!(action, ShipAction::EmbarkPassengers { .. })));
+        assert!(resumed.final_state.delivered);
     }
 
     #[test]

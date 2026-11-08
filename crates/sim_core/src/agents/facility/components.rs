@@ -321,7 +321,7 @@ impl FacilityCrew {
             // never be able to restock food. Easier to model them as
             // pure infrastructure than to invent a supply path just
             // for gate feeding.
-            "gate" => 0,
+            "gate" | crate::strategy::colony::DOCK_TYPE => 0,
             _ => 6,
         }
     }

@@ -447,6 +447,11 @@ fn run_population_migration(
     {
         let mut q = world.query::<(Entity, &PopIdentity, &PopDemographics, &PopSentiment)>();
         for (e, identity, demo, sentiment) in q.iter(&world) {
+            if world.get::<crate::agents::facility::FacilityIdentity>(identity.facility)
+                .is_some_and(|facility| facility.facility_type == crate::strategy::colony::DOCK_TYPE)
+            {
+                continue;
+            }
             pops.push(PopRef {
                 entity: e,
                 id: identity.id.clone(),

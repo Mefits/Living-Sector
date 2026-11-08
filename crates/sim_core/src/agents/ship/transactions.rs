@@ -34,6 +34,7 @@ pub enum ShipTransaction {
         commodity: Commodity,
         quantity: u32,
     },
+    Embark { contract_id: String },
     Deliver {
         contract_id: String,
     },
@@ -47,6 +48,7 @@ impl ShipTransaction {
             Self::Sell { .. } => "sell",
             Self::Refuel { .. } => "refuel",
             Self::Mine { .. } => "mine",
+            Self::Embark { .. } => "embark",
             Self::Deliver { .. } => "deliver",
         }
     }

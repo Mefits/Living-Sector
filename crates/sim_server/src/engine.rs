@@ -53,6 +53,7 @@ mod admin;
 mod apply;
 mod transactions;
 mod contract_funding;
+mod colony;
 mod drains;
 mod persist;
 mod publish;
@@ -116,6 +117,7 @@ pub async fn run_tick_loop(
     persist_tx: mpsc::Sender<DbWrite>,
     pool: sqlx::SqlitePool,
     command_trace: std::sync::Arc<std::sync::RwLock<std::collections::VecDeque<crate::app_state::CommandTraceEntry>>>,
+    #[cfg(test)] test_run: Option<(u64, Option<&str>)>,
 ) {
     let mut timer_interval = tick_config.tick_interval_ms();
     interval_ms.store(timer_interval, Ordering::Relaxed);
@@ -143,7 +145,10 @@ pub async fn run_tick_loop(
     let mode = if std::env::var("LIVING_SECTOR_STRATEGY_MODE").as_deref() == Ok("execute") {
         sim_core::strategy::Mode::Execute
     } else { sim_core::strategy::Mode::Shadow };
+    #[cfg(test)]
+    let mode = if test_run.is_some() { sim_core::strategy::Mode::Execute } else { mode };
     world.insert_resource(sim_core::strategy::StrategyState { mode, ..Default::default() });
+    world.insert_resource(sim_core::strategy::colony::Navigation(registry.clone()));
     sim_core::strategy::refresh(&mut world, &store.contracts, tick_counter.load(Ordering::Relaxed));
     // Prime all snapshot categories before the first timer tick. In the
     // small Genesis scenario the launcher pauses almost immediately, and a
@@ -155,6 +160,14 @@ pub async fn run_tick_loop(
     log_sample_market(&mut world, &mut store, "initial");
 
     loop {
+        #[cfg(test)]
+        if let Some((end, _)) = test_run {
+            if tick_counter.load(Ordering::Relaxed) >= end { break; }
+            tokio::task::yield_now().await;
+        } else {
+            timer.tick().await;
+        }
+        #[cfg(not(test))]
         timer.tick().await;
 
         // Drain control commands (non-blocking)
@@ -427,6 +440,7 @@ pub async fn run_tick_loop(
                 tick_mult,
             );
         });
+        colony::prepare_docks(&mut world, &mut store, &registry, &mut events);
         // Bundle A: inter-faction relations. Low-frequency — decay +
         // threshold-driven treaty transitions only need to run on
         // the relations interval. Emits `treaty_changed` events for
@@ -466,6 +480,10 @@ pub async fn run_tick_loop(
         // Admit a complete economic frame before clearing dirty state.
         emit_persist_writes(&mut world, &mut store, tick, &persist_tx);
 
+        #[cfg(test)]
+        let stop_test = test_run.and_then(|(_, kind)| kind)
+            .is_some_and(|kind| events.iter().any(|event| event["kind"] == kind));
+
         // Broadcasts (cadences match the protocol spec)
         publish_positions(tick, timer_interval, &snapshots, &broadcast_tx);
         if !events.is_empty() {
@@ -485,6 +503,9 @@ pub async fn run_tick_loop(
             publish_faction_states(tick, &snapshots, &broadcast_tx);
             publish_contract_states(tick, &snapshots, &broadcast_tx);
         }
+
+        #[cfg(test)]
+        if stop_test { break; }
 
         // Diagnostics
         if tick % (8 * 10) == 0 {
@@ -1046,3 +1067,6 @@ mod tests {
         assert_eq!(econ.credits, 0, "admin override does not charge");
     }
 }
+
+#[cfg(test)]
+mod colony_test;

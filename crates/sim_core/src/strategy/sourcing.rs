@@ -102,7 +102,7 @@ pub(super) fn withdraw_unprofitable(
     );
     let mut blocked = Vec::new();
     for contract in board.iter() {
-        if contract.status != ContractStatus::Posted {
+        if contract.status != ContractStatus::Posted || contract.contract_type == crate::economy::contracts::ContractType::Passenger {
             continue;
         }
         let Some(reward) = contract.fixed_strategy_reward() else { continue };

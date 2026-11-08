@@ -56,6 +56,8 @@ pub struct ConstructedFacilityRow {
 #[derive(Debug, Clone)]
 pub enum DbWrite {
     ConstructedFacility { row: ConstructedFacilityRow },
+    ColonyPopulation { db_id: i64, label: String, location: String, faction: String },
+    ColonyEstablished { db_id: i64, location: String },
     /// One admitted tick: merge all members synchronously before any flush.
     /// Never deduplicate frames themselves: they contain incremental dirty rows.
     EconomicFrame { writes: Vec<DbWrite> },
@@ -576,6 +578,8 @@ impl DbWrite {
     fn key(&self) -> (&'static str, String) {
         match self {
             DbWrite::ConstructedFacility { row } => ("facility_create", row.source_site_id.clone()),
+            DbWrite::ColonyPopulation { db_id, .. } => ("colony_population", db_id.to_string()),
+            DbWrite::ColonyEstablished { db_id, .. } => ("colony_established", db_id.to_string()),
             DbWrite::EconomicFrame { .. } => unreachable!("frames must be unpacked before dedup"),
             DbWrite::Ship { db_id, .. } => ("ship", db_id.to_string()),
             DbWrite::Market { db_id, .. } => ("market", db_id.to_string()),
@@ -704,9 +708,10 @@ impl PersistenceWorker {
         // queued updates/upserts in this same transaction (especially sites).
         writes.sort_by_key(|write| match write {
             DbWrite::ConstructedFacility { .. } => 0,
+            DbWrite::ColonyPopulation { .. } | DbWrite::ColonyEstablished { .. } => 1,
             DbWrite::DeleteShip { .. } | DbWrite::DeleteFacility { .. }
-                | DbWrite::ConstructionSiteDelete { .. } => 2,
-            _ => 1,
+                | DbWrite::ConstructionSiteDelete { .. } => 3,
+            _ => 2,
         });
         let mut tx = pool.begin().await?;
 
@@ -716,11 +721,25 @@ impl PersistenceWorker {
                     sqlx::query("INSERT INTO facilities (id, construction_site_id, name, facility_type,
                         location_id, location_name, body_id, faction_id, docking_capacity, services,
                         condition, reputation, credits, reserves, docked_ships)
-                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'[\"market\"]',?10,?11,?12,'{}','[]')")
+                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,
+                            CASE WHEN ?4='construction_dock' THEN '[]' ELSE '[\"market\"]' END,
+                            ?10,?11,?12,'{}','[]')")
                         .bind(row.db_id).bind(row.source_site_id).bind(row.name).bind(row.facility_type)
                         .bind(row.location_id).bind(row.location_name).bind(row.body_id).bind(row.faction_id)
                         .bind(row.docking_capacity as i64).bind(row.condition as f64)
                         .bind(row.reputation as i64).bind(row.credits).execute(&mut *tx).await?;
+                }
+                DbWrite::ColonyPopulation { db_id, label, location, faction } => {
+                    sqlx::query("INSERT INTO populations (id,label,demographic,facility_id,facility_location,
+                        faction_id,population_count,total_wealth,growth_rate,employed_fraction,consumption)
+                        VALUES (?1,?2,'workers',?1,?3,?4,0,0,0,0,'{\"food\":1,\"water\":0.6}')")
+                        .bind(db_id).bind(label).bind(location).bind(faction).execute(&mut *tx).await?;
+                }
+                DbWrite::ColonyEstablished { db_id, location } => {
+                    sqlx::query("UPDATE facilities SET facility_type='station', services='[\"market\"]' WHERE id=?1 AND facility_type='construction_dock'")
+                        .bind(db_id).execute(&mut *tx).await?;
+                    sqlx::query("INSERT INTO markets (id,facility_id,facility_location) VALUES (?1,?1,?2)")
+                        .bind(db_id).bind(location).execute(&mut *tx).await?;
                 }
                 DbWrite::EconomicFrame { .. } => anyhow::bail!("unpacked economic frame expected"),
                 DbWrite::Ship {

@@ -84,6 +84,7 @@ pub fn plan(world:&mut World,tick:u64) {
         .map(|(e,id,ops)|(e,(id.faction_id.clone(),ops.credits))).collect();
     let mut groups:BTreeMap<(String,String),Vec<_>>=BTreeMap::new();
     for (e,id,loc,crew,life) in world.query::<(Entity,&FacilityIdentity,&FacilityLocation,&FacilityCrew,&FacilityLifecycle)>().iter(world) {
+        if id.facility_type == super::colony::DOCK_TYPE { continue; }
         groups.entry((id.faction_id.clone(),loc.location_name.clone())).or_default().push((e,id.clone(),crew.clone(),life.abandoned));
     }
     let mut state=StationAdministration {tick:Some(tick),executing:execute,..Default::default()};

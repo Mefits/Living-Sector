@@ -63,6 +63,9 @@ pub(super) fn apply_transaction(
         ShipTransaction::Refuel { location } => refuel(world, store, ship, location),
         ShipTransaction::Mine { location, body_id, commodity, quantity } =>
             mine(world, store, ship, location, body_id, *commodity, *quantity, tick),
+        ShipTransaction::Embark { contract_id } => {
+            embark(world, store, ship, contract_id, events, tick)
+        }
         ShipTransaction::Deliver { contract_id } => {
             deliver(world, store, ship, contract_id, events, tick)
         }
@@ -88,15 +91,17 @@ pub(super) fn apply_transaction(
         ShipTransaction::Refuel { location } => (Some(location.as_str()), Some("fuel"), None, None),
         ShipTransaction::Mine { location, commodity, quantity, .. } =>
             (Some(location.as_str()), Some(commodity.as_str()), None, Some(*quantity)),
-        ShipTransaction::Deliver { contract_id } | ShipTransaction::Accept { contract_id } => {
+        ShipTransaction::Deliver { contract_id } | ShipTransaction::Accept { contract_id }
+        | ShipTransaction::Embark { contract_id } => {
             (None, None, Some(contract_id.as_str()), None)
         }
     };
+    let active_contract = world.get::<ShipEconomy>(ship).and_then(|e| e.active_contract_id.as_deref());
     events.push(serde_json::json!({
         "kind": if outcome.is_ok() { "ship_transaction_applied" } else { "ship_transaction_rejected" },
         "ship_id": world.get::<ShipIdentity>(ship).map(|id| id.id.as_str()),
         "request_id": request_id, "operation": request.kind(), "tick": tick,
-        "location": location, "commodity": commodity, "contract_id": contract_id, "requested_quantity": requested_quantity,
+        "location": location, "commodity": commodity, "contract_id": contract_id.or(active_contract), "requested_quantity": requested_quantity,
         "reason": outcome.as_ref().err(),
         "quantity": outcome.as_ref().ok().map(|v| v.0),
         "payment": outcome.as_ref().ok().map(|v| v.1),
@@ -530,6 +535,57 @@ fn refuel(
     Ok((amount, payment))
 }
 
+fn embark(
+    world: &mut World,
+    store: &mut AgentStore,
+    ship: Entity,
+    contract_id: &str,
+    events: &mut Vec<serde_json::Value>,
+    tick: u64,
+) -> Result<(f32, i64), Rejection> {
+    use sim_core::agents::population::{PopIdentity, PopDemographics, PopEconomy, PopSentiment};
+    use sim_core::economy::contracts::EmbarkedPassengers;
+
+    let c = store.contracts.get(contract_id).ok_or("missing_contract")?;
+    let identity = world.get::<ShipIdentity>(ship).ok_or("missing_ship")?;
+    let economy = world.get::<ShipEconomy>(ship).ok_or("missing_economy")?;
+    if c.contract_type != ContractType::Passenger || c.status != ContractStatus::Accepted
+        || c.fulfiller_id.as_deref() != Some(&identity.id)
+        || economy.active_contract_id.as_deref() != Some(contract_id)
+        || c.funding.as_ref().is_none_or(|f| f.agreed_payment.is_none() || f.embarked.is_some())
+    {
+        return Err("inactive_passenger_contract");
+    }
+    let faction = c.faction_id.as_deref().unwrap_or(&identity.faction_id).to_owned();
+    let source = c.source_location.clone();
+    let quantity = c.quantity;
+    let seats = sim_core::simulation::config::ship_class(&identity.class).map_or(0, |class| class.passenger_capacity);
+    if quantity == 0 || quantity > seats { return Err("insufficient_passenger_capacity"); }
+    dock(world, store, ship, &source)?;
+    controller(world, store, ship, &source)?;
+    let reserve = if c.mission_category.as_deref() == Some(sim_core::strategy::colony::PROJECT_TAG) {
+        i64::from(sim_core::strategy::colony::SETTLERS)
+    } else { 0 };
+    let (household, origin, wealth) = world.query::<(Entity, &PopIdentity, &PopDemographics, &PopEconomy, &PopSentiment)>()
+        .iter(world).filter(|(_, p, d, e, _)| p.facility_location == source && p.faction_id == faction
+            && d.population_count >= i64::from(quantity) + reserve && e.total_wealth >= 0)
+        .min_by_key(|(_, p, _, _, _)| &p.id)
+        .map(|(entity, p, d, e, _)| (entity, p.id.clone(),
+            (i128::from(e.total_wealth) * i128::from(quantity) / i128::from(d.population_count)) as i64))
+        .ok_or("insufficient_settlers")?;
+
+    if !store.contracts.mark_picked_up(contract_id) { return Err("inactive_passenger_contract"); }
+    store.contracts.get_mut(contract_id).unwrap().funding.as_mut().unwrap().embarked =
+        Some(EmbarkedPassengers { origin_population: origin.clone(), wealth });
+    world.get_mut::<PopDemographics>(household).unwrap().population_count -= i64::from(quantity);
+    world.get_mut::<PopEconomy>(household).unwrap().total_wealth -= wealth;
+    world.get_mut::<PopSentiment>(household).unwrap().dirty = true;
+    events.push(serde_json::json!({"kind":"passengers_embarked","contract_id":contract_id,
+        "ship_id":world.get::<ShipIdentity>(ship).unwrap().id,"source":source,
+        "origin_population":origin,"head_count":quantity,"wealth":wealth,"tick":tick}));
+    Ok((quantity as f32, 0))
+}
+
 fn deliver(
     world: &mut World,
     store: &mut AgentStore,
@@ -579,6 +635,7 @@ fn deliver(
         .credits
         .checked_add(payment)
         .ok_or("credit_overflow")?;
+    let ship_faction = identity.faction_id.clone();
     dock(world, store, ship, &c.destination_location)?;
     controller(world, store, ship, &c.destination_location)?;
     let household_delivery = c.funding.as_ref().is_some_and(|f|
@@ -636,6 +693,19 @@ fn deliver(
             destination_market = Some(market);
         }
     }
+    let passengers = if c.contract_type == ContractType::Passenger {
+        use sim_core::agents::population::{PopIdentity, PopDemographics, PopEconomy, PopSentiment};
+        let manifest = c.funding.as_ref().and_then(|f| f.embarked.as_ref())
+            .filter(|_| c.status == ContractStatus::PickedUp).ok_or("passengers_not_embarked")?;
+        let faction = c.faction_id.as_deref().unwrap_or(&ship_faction);
+        let recipient = world.query::<(Entity, &PopIdentity, &PopDemographics, &PopEconomy, &PopSentiment)>()
+            .iter(world).filter(|(_, p, _, _, _)| p.facility_location == c.destination_location && p.faction_id == faction)
+            .min_by_key(|(_, p, _, _, _)| &p.id)
+            .ok_or("missing_passenger_recipient")?;
+        Some((recipient.0,
+            recipient.2.population_count.checked_add(i64::from(c.quantity)).ok_or("population_overflow")?,
+            recipient.3.total_wealth.checked_add(manifest.wealth).ok_or("credit_overflow")?))
+    } else { None };
     // Status changes only after recipient, ownership, cargo and funding pass.
     let c = store
         .contracts
@@ -649,6 +719,13 @@ fn deliver(
         .as_mut()
     {
         funding.reserved -= payment;
+        funding.embarked = None;
+    }
+    if let Some((recipient, population, wealth)) = passengers {
+        use sim_core::agents::population::{PopDemographics, PopEconomy, PopSentiment};
+        world.get_mut::<PopDemographics>(recipient).unwrap().population_count = population;
+        world.get_mut::<PopEconomy>(recipient).unwrap().total_wealth = wealth;
+        world.get_mut::<PopSentiment>(recipient).unwrap().dirty = true;
     }
     let quantity = c.quantity;
     super::apply::commit_contract_delivery(world, store, ship, c, payment, events, tick);

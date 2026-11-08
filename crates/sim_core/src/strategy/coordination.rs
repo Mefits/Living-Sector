@@ -113,17 +113,39 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
     construction::run_cycle(world,board,relations,&mut preview_events,tick,mult);
     debug_assert!(preview_events.is_empty());
     world.resource_mut::<StrategyState>().mode = mode;
+    let colonies = colony::proposals(world, board, relations);
     let owners = crate::agents::faction_relations::market_controllers(world);
     let mut query = world.query::<(&MarketIdentity, &MarketPricing)>();
     let sources = sourcing::Sources::new(
         query.iter(world).map(|(id, market)| (id.facility_location.as_str(), market)),
         owners, relations,
     );
-    let decisions: Vec<_> = world.resource::<StrategyState>().factions.iter().map(|(id,view)| {
+    let mut decisions: Vec<_> = world.resource::<StrategyState>().factions.iter().map(|(id,view)| {
         let already = board.iter().any(|c| c.requestor_id == *id && c.posted_at_tick == tick &&
-            matches!(c.mission_category.as_deref(), Some(PROJECT_TAG) | Some(construction::PROJECT_TAG)));
+            matches!(c.mission_category.as_deref(), Some(PROJECT_TAG) | Some(construction::PROJECT_TAG) | Some(colony::PROJECT_TAG)));
         (id.clone(), decision(view, &sources, tick, mult, already))
     }).collect();
+    for (id, head) in &mut decisions {
+        let Some(plan) = colonies.get(id) else { continue; };
+        let ready = plan.reason == "ready";
+        head.proposals.push(Proposal {
+            administrator: "construction", goal: Some(plan.goal.clone()),
+            status: if ready { "proposed" } else { "blocked" }.into(),
+            reason: plan.reason.into(), requested_credits: plan.cost, priority: 1,
+        });
+        // Finish a viable expedition ahead of other projects. A new one can
+        // begin when current operational needs have no funded alternative.
+        if ready && head.reason != "already_commissioned_this_tick"
+            && (plan.site_id.is_some() || head.selected_option == "wait")
+        {
+            head.selected_administrator = Some("construction");
+            head.selected_option = if plan.site_id.is_none() { "found_colony" } else { "supply_colony" };
+            head.problem = Some(plan.goal.clone());
+            head.reason = "viable_expansion".into();
+            head.planned_spend = plan.cost;
+            head.alternatives.clear();
+        }
+    }
     let grants = decisions.iter().filter_map(|(id, decision)| Some((id.clone(), Grant {
         administrator: decision.selected_administrator?,
         goal: decision.problem.clone()?,
@@ -135,10 +157,16 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
         super::run_cycle(world,board,relations,tick,mult);
         construction::run_cycle(world,board,relations,events,tick,mult);
         world.remove_resource::<Grants>();
+        let approved: Vec<_> = world.resource::<StrategyState>().factions.iter().filter_map(|(id, view)| {
+            matches!(view.head.as_ref()?.selected_option, "found_colony" | "supply_colony").then(|| id.clone())
+        }).collect();
+        for id in approved {
+            colony::commission(world, board, events, &id, &colonies[&id], tick, mult);
+        }
         let mut state = world.resource_mut::<StrategyState>();
         for (id,view) in &mut state.factions {
             let committed: i64 = board.iter().filter(|c| c.requestor_id == *id && c.posted_at_tick == tick &&
-                matches!(c.mission_category.as_deref(), Some(PROJECT_TAG) | Some(construction::PROJECT_TAG)))
+                matches!(c.mission_category.as_deref(), Some(PROJECT_TAG) | Some(construction::PROJECT_TAG) | Some(colony::PROJECT_TAG)))
                 .filter_map(|c| c.funding.as_ref()).map(|f| f.reserved).sum();
             if let Some(head) = &mut view.head { head.committed_spend = committed; }
         }

@@ -152,6 +152,13 @@ pub enum ContractStatus {
 #[serde(rename_all = "snake_case")]
 pub enum FundingSource { Facility, Faction, Population }
 
+/// Household members and their savings carried by the assigned ship.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbarkedPassengers {
+    pub origin_population: String,
+    pub wealth: i64,
+}
+
 /// Explicit escrow for newly funded facility/faction contracts. None on a
 /// contract means legacy/unverified funding, never an inferred new balance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -159,6 +166,8 @@ pub struct ContractFunding {
     /// Stable dispatch metadata, persisted with the native commitment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub station_order: Option<crate::strategy::orders::Order>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embarked: Option<EmbarkedPassengers>,
     pub source: FundingSource,
     pub reserved: i64,
     pub agreed_payment: Option<i64>,
@@ -230,7 +239,7 @@ impl Contract {
         (funding.source == FundingSource::Faction
             && matches!(
                 self.mission_category.as_deref(),
-                Some(crate::strategy::PROJECT_TAG) | Some(crate::strategy::construction::PROJECT_TAG)
+                Some(crate::strategy::PROJECT_TAG) | Some(crate::strategy::construction::PROJECT_TAG) | Some(crate::strategy::colony::PROJECT_TAG)
             ))
         .then_some(self.initial_payment)
     }
@@ -314,7 +323,7 @@ impl ContractBoard {
     pub fn register_prepaid(&mut self, id: &str, source: FundingSource) {
         let c = self.contracts.get_mut(id).expect("newly posted contract");
         assert!(c.status == ContractStatus::Posted && c.funding.is_none() && c.initial_payment >= 0);
-        c.funding = Some(ContractFunding { station_order: None, source, reserved: c.initial_payment, agreed_payment: None });
+        c.funding = Some(ContractFunding { station_order: None, embarked: None, source, reserved: c.initial_payment, agreed_payment: None });
     }
 
     pub fn len(&self) -> usize {

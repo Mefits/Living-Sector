@@ -1820,10 +1820,8 @@ fn try_plan_contract(
         }
 
         let buy_cost: i64 = if is_passenger || is_courier || is_mission {
-            // No pre-buy for these kinds. Passenger pickup is implicit;
-            // courier's cargo is supplied by the poster; crew missions
-            // have no cargo at all — the ship just dwells at the posting
-            // station for the mission's duration_ticks and collects pay.
+            // Boarding passengers and taking a courier or crew-mission
+            // assignment require no purchase from a commodity market.
             0
         } else {
             // Prefer the ship's direct memory of the source market.
@@ -1967,6 +1965,7 @@ fn try_plan_contract(
                 &cand.source,
                 &cand.destination,
                 cand.id,
+                cand.qty,
                 fuel_bucket,
                 registry,
                 gate_pairs,
@@ -1979,6 +1978,7 @@ fn try_plan_contract(
                 &cand.source,
                 &cand.destination,
                 cand.id,
+                0,
                 fuel_bucket,
                 registry,
                 gate_pairs,
@@ -2102,13 +2102,14 @@ fn try_build_fulfill_crew_mission_bt_planned(
 }
 
 /// Build a passenger/courier BT. No Buy step; the ship just hops between
-/// source and destination and collects payment on Deliver.
+/// source and destination, boarding at the source for passenger contracts.
 #[allow(clippy::too_many_arguments)]
 fn build_fulfill_passenger_bt(
     current: &str,
     source: &str,
     destination: &str,
     contract_id: String,
+    passengers: u32,
     fuel_bucket: u8,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
@@ -2118,6 +2119,7 @@ fn build_fulfill_passenger_bt(
         source,
         destination,
         &contract_id,
+        passengers,
         fuel_bucket,
         registry,
         gate_pairs,
@@ -2128,27 +2130,26 @@ fn build_fulfill_passenger_bt(
 /// GOAP: forward planner for passenger / courier contracts. No
 /// cargo mechanics — goal is `delivered && fuel_bucket >= 2`, and
 /// the `passenger_catalog` has no Buy / SellAll / Refit operators
-/// so plans are naturally compact (just dock at source, undock,
-/// travel, dock at dest, deliver).
+/// so boarding and disembarkation use dedicated operations.
 fn try_build_fulfill_passenger_bt_planned(
     current: &str,
     source: &str,
     destination: &str,
     contract_id: &str,
+    passengers: u32,
     fuel_bucket: u8,
     registry: &WorldRegistry,
     gate_pairs: &StdHashMap<String, String>,
 ) -> Option<BtNode<ShipAction>> {
     use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
     let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
-    // Passenger contracts ignore commodity + quantity; pass a
-    // sentinel to satisfy LocMap's delivery constructor.
+    // Passenger plans use quantity to require boarding; courier plans use zero.
     let map = LocMap::delivery(
         current.to_string(),
         source.to_string(),
         destination.to_string(),
         Commodity::Food,
-        0,
+        passengers,
         contract_id.to_string(),
         cost(current, source),
         cost(source, destination),
@@ -2752,7 +2753,7 @@ fn resume_contract_bt(
     if c.contract_type == ContractType::Courier && have < c.quantity { return None; }
     let cost = |to: &str| estimate_fuel_bucket_cost(current, to, registry, gate_pairs);
     let map = LocMap::delivery(current.into(), c.source_location.clone(), c.destination_location.clone(),
-        c.commodity, c.quantity.saturating_sub(have), c.id.clone(),
+        c.commodity, if c.contract_type == ContractType::Passenger { c.quantity } else if c.contract_type == ContractType::CrewMission { 0 } else { c.quantity.saturating_sub(have) }, c.id.clone(),
         cost(&c.source_location), estimate_fuel_bucket_cost(&c.source_location, &c.destination_location, registry, gate_pairs),
         cost(&c.destination_location));
     let at = if current == c.destination_location { Loc::Dest }

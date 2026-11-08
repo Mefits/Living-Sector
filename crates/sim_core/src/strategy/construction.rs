@@ -90,13 +90,13 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
     );
     for (entity, account) in factions {
         let mut view = ConstructionView::new(tick);
-        let members: Vec<_> = facilities.iter().filter(|(i,_)| i.faction_id == account.id)
+        let members: Vec<_> = facilities.iter().filter(|(i,_)| i.faction_id == account.id && i.facility_type != super::colony::DOCK_TYPE)
             .map(|(_,l)| l.location_name.clone()).collect();
         let mut sites: Vec<_> = world.query::<&ConstructionSite>().iter(world)
-            .filter(|s| s.faction_id == account.id && !s.completed).cloned().collect();
+            .filter(|s| s.faction_id == account.id && !s.completed && s.labor.colony_source.is_none()).cloned().collect();
         sites.sort_by(|a,b| a.spawned_at_tick.cmp(&b.spawned_at_tick).then_with(|| a.id.cmp(&b.id)));
         let held = board.iter().filter(|c| c.requestor_id == account.id &&
-            c.contract_type == ContractType::Construction && outstanding(c))
+            c.contract_type == ContractType::Construction && c.mission_category.as_deref() != Some(super::colony::PROJECT_TAG) && outstanding(c))
             .min_by(|a,b| a.posted_at_tick.cmp(&b.posted_at_tick).then_with(|| a.id.cmp(&b.id)));
         // Prefer the oldest viable site. Keep blocked sites and their
         // delivered material while evaluating other shortages.

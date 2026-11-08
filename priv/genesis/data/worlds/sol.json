@@ -370,6 +370,16 @@
       }
     },
     {
+      "name": "Terran 02",
+      "location": "earth-station",
+      "class": "freighter",
+      "credits": 12000,
+      "faction_id": "terran-authority",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
       "name": "Raider 01",
       "location": "pirate-outpost",
       "class": "miner",

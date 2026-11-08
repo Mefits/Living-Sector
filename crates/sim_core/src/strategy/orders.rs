@@ -4,9 +4,9 @@ use std::collections::{HashMap, HashSet};
 use bevy_ecs::prelude::World;
 use serde::{Deserialize, Serialize};
 use crate::{
-    agents::{construction::ConstructionSite, faction_relations::{FactionRelations, commerce_allowed, market_controllers},
+    agents::{celestial_body::{BodyIdentity, BodyOrbit}, construction::ConstructionSite, faction_relations::{FactionRelations, commerce_allowed, market_controllers},
         market::{MarketIdentity, MarketPricing}, ship::{ShipIdentity, ShipPosition, ShipTransit, ShipCargo, ShipEconomy, ShipFuel}},
-    economy::{commodities::Commodity, contracts::{Contract, ContractBoard, ContractStatus}},
+    economy::{commodities::Commodity, contracts::{Contract, ContractBoard, ContractStatus, ContractType}},
     world::registry::WorldRegistry,
 };
 
@@ -62,7 +62,7 @@ pub fn builder_assigned(world:&mut World, ship:&str)->bool {
 }
 
 struct Carrier { id:String, faction:String, class:String, location:String, free:u32,
-    credits:i64, fuel:f32, busy:bool, reputation:HashMap<String,u8> }
+    credits:i64, fuel:f32, speed:f32, busy:bool, reputation:HashMap<String,u8> }
 fn distance(registry: &WorldRegistry, from: &str, to: &str) -> Option<u32> {
     if from==to { Some(0) } else { registry.travel_distance(from,to) }
 }
@@ -77,9 +77,14 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
     let owners=market_controllers(world);
     let markets:HashMap<_,_>=world.query::<(&MarketIdentity,&MarketPricing)>().iter(world)
         .map(|(id,p)|(id.facility_location.clone(),p.clone())).collect();
+    let orbits: HashMap<_, _> = world.query::<(&BodyIdentity, &BodyOrbit)>().iter(world)
+        .map(|(id, orbit)| (id.db_id, orbit.clone())).collect();
+    let reachable = |location: &str, speed| registry.locations.get(location)
+        .and_then(|location| orbits.get(&location.celestial_body_id))
+        .is_some_and(|orbit| super::colony::can_rendezvous(orbit, speed));
     let mut ships:Vec<_>=world.query::<(&ShipIdentity,&ShipPosition,&ShipTransit,&ShipCargo,&ShipEconomy,&ShipFuel)>().iter(world)
         .map(|(id,p,t,c,e,f)|Carrier {id:id.id.clone(),faction:id.faction_id.clone(),class:id.class.clone(),
-            location:p.location_name.clone().unwrap_or_default(),free:c.free(),credits:e.credits,fuel:f.fraction(),
+            location:p.location_name.clone().unwrap_or_default(),free:c.free(),credits:e.credits,fuel:f.fraction(),speed:f.speed_modifier,
             busy:t.transit.is_some() || e.active_contract_id.is_some() || e.transaction.pending.is_some() || c.used()>0,
             reputation:e.faction_reputation.clone()}).collect();
     ships.sort_by(|a,b|a.id.cmp(&b.id));
@@ -134,16 +139,23 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
         let faction=c.faction_id.as_deref().unwrap_or("");
         let source_owner=owners.get(&c.source_location).map_or("",String::as_str);
         let destination_owner=owners.get(&c.destination_location).map_or("",String::as_str);
-        let selected=ships.iter().filter(|s|!faction.is_empty() && s.faction==faction && !s.busy && !used.contains(&s.id) && s.free>=c.quantity)
+        let selected=ships.iter().filter(|s|!faction.is_empty() && s.faction==faction && !s.busy && !used.contains(&s.id))
             .filter_map(|s| {
                 if !commerce_allowed(relations,&s.faction,source_owner) || !commerce_allowed(relations,&s.faction,destination_owner) {return None;}
+                let route=distance(registry,&s.location,&c.source_location)?.saturating_add(distance(registry,&c.source_location,&c.destination_location)?);
+                if c.mission_category.as_deref() == Some(super::colony::PROJECT_TAG)
+                    && !reachable(&c.destination_location, s.speed) { return None; }
+                if c.contract_type == ContractType::Passenger {
+                    let seats = crate::simulation::config::ship_class(&s.class)?.passenger_capacity;
+                    return (seats >= c.quantity).then_some((s.fuel < 0.25, route, s.id.as_str()));
+                }
+                if s.free < c.quantity { return None; }
                 let market=markets.get(&c.source_location)?;
                 let stock=market.supply.get(&c.commodity).copied().unwrap_or(0.0);
                 if !stock.is_finite() || stock<c.quantity as f32 {return None;}
                 let cost=super::sourcing::purchase_cost(market.price(c.commodity),c.quantity,relations,&s.faction,
                     s.reputation.get(source_owner).copied().unwrap_or(0),source_owner)?;
                 if cost>=c.initial_payment || cost>s.credits {return None;}
-                let route=distance(registry,&s.location,&c.source_location)?.saturating_add(distance(registry,&c.source_location,&c.destination_location)?);
                 Some((s.fuel<0.25,route,s.id.as_str()))
             }).min().map(|(_,_,id)|id.to_string());
         let o=board.get_mut(&id).unwrap().funding.as_mut().unwrap().station_order.as_mut().unwrap();
@@ -156,7 +168,8 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
         let mut order=site.labor.station_order.clone().unwrap_or_else(||Order::new("construction",&site.id));
         if order.executor_id.is_none() && tick>=order.retry_after_tick {
             let selected=ships.iter().filter(|s|!site.faction_id.is_empty() && s.faction==site.faction_id && !s.busy && !used.contains(&s.id)
-                && crate::agents::construction::executor::capable(&s.class))
+                && crate::agents::construction::executor::capable(&s.class)
+                && (site.labor.colony_source.is_none() || reachable(&site.location_name, s.speed)))
                 .filter_map(|s|distance(registry,&s.location,&site.location_name).map(|d|(d,s.id.as_str())))
                 .min().map(|(_,id)|id.to_string());
             if let Some(ship)=selected {used.insert(ship.clone());order.assign(ship,tick);}
@@ -183,7 +196,7 @@ pub fn snapshot(world:&mut World, board:&ContractBoard)->Vec<OrderView> {
             _=>{},
         }
         OrderView {order,faction_id:c.faction_id.clone().unwrap_or_default(),location:c.destination_location.clone(),
-            kind:"delivery",target_id:c.id.clone(),commodity:Some(c.commodity),quantity:c.quantity,
+            kind:if c.contract_type == ContractType::Passenger { "passenger" } else { "delivery" },target_id:c.id.clone(),commodity:(c.contract_type != ContractType::Passenger).then_some(c.commodity),quantity:c.quantity,
             completed_quantity:if c.status==ContractStatus::Paid {c.quantity} else {0}}
     })).collect();
     for site in world.query::<&ConstructionSite>().iter(world) {

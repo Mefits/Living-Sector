@@ -126,6 +126,9 @@ pub async fn run() -> Result<()> {
     };
 
     // Load world
+    if std::env::var("LIVING_SECTOR_STRATEGY_MODE").as_deref() == Ok("execute") {
+        sim_db::spawner::chart_colony_routes(&pool).await?;
+    }
     let registry = sim_db::spawner::load_registry(&pool).await?;
     // ECS storage. After Phase B of the bevy_ecs migration, the World
     // is owned alongside the AgentStore (no longer inside it). The
@@ -133,26 +136,7 @@ pub async fn run() -> Result<()> {
     // through to per-phase helpers.
     let mut world = bevy_ecs::world::World::new();
     let mut store = sim_db::spawner::load_agents(&mut world, &pool, &registry, &config).await?;
-    // World-data faction policy: any faction seeded as `outlaw`
-    // begins at War with all other factions. Uses the shared diplomacy
-    // matrix, not a private pirate scenario or hard-coded faction ID.
-    {
-        use sim_core::agents::{
-            faction::FactionData,
-            faction_relations::TreatyKind,
-        };
-        let mut query = world.query::<&FactionData>();
-        let factions: Vec<(String, bool)> = query.iter(&world)
-            .map(|data| (data.id.clone(), data.faction_type == "outlaw"))
-            .collect();
-        for (i, (left, outlaw_left)) in factions.iter().enumerate() {
-            for (right, outlaw_right) in factions.iter().skip(i + 1) {
-                if *outlaw_left || *outlaw_right {
-                    store.relations.set_state(left, right, -100, TreatyKind::War, 0);
-                }
-            }
-        }
-    }
+    initialize_faction_relations(&mut world, &mut store);
     // Pump the contract board on a fresh seed so the first client to
     // connect isn't looking at an empty ledger. No-op when the board
     // was hydrated from DB by the loader.
@@ -308,6 +292,8 @@ pub async fn run() -> Result<()> {
                 persist_tx,
                 pool.clone(),
                 command_trace.clone(),
+                #[cfg(test)]
+                None,
             )
             .await;
         })
@@ -352,6 +338,28 @@ pub async fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// World-data policy: factions seeded as outlaw start at war with other factions.
+pub(crate) fn initialize_faction_relations(
+    world: &mut bevy_ecs::world::World,
+    store: &mut sim_core::simulation::spawner::AgentStore,
+) {
+    use sim_core::agents::{
+        faction::FactionData,
+        faction_relations::TreatyKind,
+    };
+    let mut query = world.query::<&FactionData>();
+    let factions: Vec<(String, bool)> = query.iter(world)
+        .map(|data| (data.id.clone(), data.faction_type == "outlaw"))
+        .collect();
+    for (i, (left, outlaw_left)) in factions.iter().enumerate() {
+        for (right, outlaw_right) in factions.iter().skip(i + 1) {
+            if *outlaw_left || *outlaw_right {
+                store.relations.set_state(left, right, -100, TreatyKind::War, 0);
+            }
+        }
+    }
 }
 
 /// Watchdog: poll `SPACESIM_PARENT_PID` every 2s; fire the notifier

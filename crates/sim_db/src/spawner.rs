@@ -23,6 +23,24 @@ use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use tracing::info;
 
+/// Chart ordinary travel nodes for prospective colonies. A charted node has
+/// no facility, market, resources or population. The faction must build those.
+pub async fn chart_colony_routes(pool: &SqlitePool) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("INSERT OR IGNORE INTO locations (name,loc_type,celestial_body_id)
+        SELECT body_id || '-colony','colony',id FROM celestial_bodies WHERE body_type='planet'")
+        .execute(&mut *tx).await?;
+    sqlx::query("INSERT OR IGNORE INTO travel_routes (from_location,to_location,distance)
+        SELECT a.name,b.name,MAX(8,CAST(8+10*ABS(origin.orbit_radius-destination.orbit_radius) AS INTEGER))
+        FROM locations a JOIN celestial_bodies origin ON origin.id=a.celestial_body_id
+        JOIN celestial_bodies destination ON destination.star_system_id=origin.star_system_id
+        JOIN locations b ON b.celestial_body_id=destination.id
+        WHERE a.id<>b.id AND (a.loc_type='colony' OR b.loc_type='colony')")
+        .execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Load the world registry (topology, routes, factions) from DB.
 pub async fn load_registry(pool: &SqlitePool) -> Result<WorldRegistry> {
     let mut registry = WorldRegistry::default();

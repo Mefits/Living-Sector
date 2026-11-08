@@ -344,7 +344,7 @@ fn run_bailout_cycle(world: &mut World) {
         let mut q = world.query::<(Entity, &FacilityIdentity, &FacilityOperations)>();
         q.iter(&world)
             .filter_map(|(e, id, ops)| {
-                if id.faction_id.is_empty() || ops.credits >= FACILITY_BAILOUT_FLOOR {
+                if id.faction_id.is_empty() || id.facility_type == crate::strategy::colony::DOCK_TYPE || ops.credits >= FACILITY_BAILOUT_FLOOR {
                     return None;
                 }
                 Some(Need {

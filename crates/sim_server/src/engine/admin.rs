@@ -297,6 +297,12 @@ pub(super) async fn admin_remove_ship(
     let Some(&entity) = store.ship_by_id.get(id) else {
         return;
     };
+    if store.contracts.iter().any(|c| c.fulfiller_id.as_deref() == Some(id)
+        && c.funding.as_ref().is_some_and(|f| f.embarked.is_some()))
+    {
+        events.push(serde_json::json!({"kind":"ship_removal_blocked","ship_id":id,"reason":"passengers_aboard"}));
+        return;
+    }
     // Capture retirement snapshot BEFORE despawn so the ledger has a
     // full last-known state. Phase 19g — kept even after the ships
     // row is deleted so the player can scroll back through
@@ -414,6 +420,15 @@ pub(super) async fn admin_remove_facility(
     let location_name = world
         .get::<FacilityLocation>(entity)
         .map(|l| l.location_name.clone());
+    if location_name.as_ref().is_some_and(|location| {
+        world.query::<&sim_core::agents::construction::ConstructionSite>().iter(world)
+            .any(|site| site.location_name == *location && site.labor.colony_source.is_some())
+        || store.contracts.iter().any(|c| c.destination_location == *location
+            && c.funding.as_ref().is_some_and(|f| f.embarked.is_some()))
+    }) {
+        events.push(serde_json::json!({"kind":"facility_removal_blocked","facility_id":id,"reason":"active_colony_or_passengers"}));
+        return;
+    }
     let paired_gate_id = world
         .get::<GateLink>(entity)
         .map(|g| g.paired_gate_id.clone());

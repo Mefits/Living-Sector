@@ -468,7 +468,8 @@ mod construction_site_orbit_tests {
         );
         assert!(((second.0 - first.0) + 2.0).abs() < 0.0001);
         assert!(((second.1 - first.1) - 4.0).abs() < 0.0001);
-        assert!(((first.0 - 5.0).hypot(first.1) - 0.15).abs() < 0.0001);
+        let radius = sim_core::agents::facility::FACILITY_ORBIT_RADIUS;
+        assert!(((first.0 - 5.0).hypot(first.1) - radius).abs() < 0.0001);
     }
 
     #[test]

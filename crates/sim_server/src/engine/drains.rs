@@ -70,7 +70,7 @@ pub(super) async fn drain_pending_materializations(
 #[derive(bevy_ecs::prelude::Resource)]
 struct ConstructionIds(i64);
 
-fn next_construction_id(world: &mut World) -> i64 {
+pub(super) fn next_construction_id(world: &mut World) -> i64 {
     if !world.contains_resource::<ConstructionIds>() {
         let mut q = world.query::<&sim_core::agents::facility::FacilityIdentity>();
         let next = q.iter(world).map(|id| id.db_id).min().unwrap_or(0).min(0)
@@ -119,6 +119,9 @@ pub(super) async fn drain_pending_decommissions(
         // default — we patch the event afterwards so the reason
         // matches the strike trigger ("bankruptcy" / "stagnation").
         admin_remove_ship(world, store, &ship_id, tick, events, persist_tx).await;
+        if store.ship_by_id.contains_key(&ship_id) {
+            continue; // An embarked household must first reach its destination.
+        }
         // Patch the most recent ship_decommissioned event's reason.
         if let Some(last) = events.last_mut() {
             if last.get("kind").and_then(|k| k.as_str()) == Some("ship_decommissioned") {

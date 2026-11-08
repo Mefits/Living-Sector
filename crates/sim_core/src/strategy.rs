@@ -8,6 +8,7 @@ use crate::agents::{faction::{self, FactionData}, facility::{FacilityIdentity, F
 use crate::economy::{commodities::Commodity, contracts::{ContractBoard, ContractStatus, FundingSource}};
 
 pub mod construction;
+pub mod colony;
 pub mod station;
 pub mod orders;
 pub mod coordination;
@@ -210,12 +211,12 @@ pub fn refresh(world: &mut World, contracts: &ContractBoard, tick: u64) {
             administrator: "logistics", status: "observing".into(), reason: "awaiting_cycle".into(), projects: Vec::new(), construction: None, head: None });
         view.treasury = treasury;
         let mut records: Vec<_> = contracts.iter().filter(|c| c.requestor_id == id &&
-            matches!(c.mission_category.as_deref(), Some(PROJECT_TAG) | Some(construction::PROJECT_TAG))).collect();
+            matches!(c.mission_category.as_deref(), Some(PROJECT_TAG) | Some(construction::PROJECT_TAG) | Some(colony::PROJECT_TAG))).collect();
         records.sort_by(|a,b| outstanding(b).cmp(&outstanding(a))
             .then_with(|| b.posted_at_tick.cmp(&a.posted_at_tick)).then_with(|| a.id.cmp(&b.id)));
         view.projects = records.into_iter().take(32).map(|c| Project {
             project_id: c.id.clone(), contract_id: c.id.clone(), administrator:
-                if c.mission_category.as_deref() == Some(construction::PROJECT_TAG) { "construction" } else { "logistics" },
+                if matches!(c.mission_category.as_deref(), Some(construction::PROJECT_TAG) | Some(colony::PROJECT_TAG)) { "construction" } else { "logistics" },
             state: match c.status { ContractStatus::Posted => "posted", ContractStatus::Accepted => "accepted",
                 ContractStatus::PickedUp => "picked_up", ContractStatus::Delivered => "delivered",
                 ContractStatus::Paid => "paid", ContractStatus::Expired => "expired" }.into(), executor_id: c.fulfiller_id.clone(),
