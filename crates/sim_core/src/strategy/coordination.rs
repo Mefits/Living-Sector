@@ -25,6 +25,8 @@ pub struct HeadDecision {
     pub selected_option: &'static str,
     pub horizon_ticks: u64,
     pub alternatives: Vec<options::Alternative>,
+    /// Read-only comparison; no grants, money changes or executor orders.
+    pub shadow_portfolio: Option<options::ShadowRecommendation>,
 }
 struct Grant {
     administrator: &'static str,
@@ -48,6 +50,7 @@ fn decision(
 ) -> HeadDecision {
     let limit = view.treasury.saturating_sub(faction::FACTION_SUBSIDY_FLOOR).max(0);
     let comparison = options::compare(view, sources, mult);
+    let shadow_portfolio = options::shadow_portfolio(view, sources, mult);
     let selected_option = if already_commissioned { "wait" }
         else { comparison.as_ref().map_or("wait", |c| c.selected) };
     let selected = match selected_option {
@@ -93,7 +96,7 @@ fn decision(
         observed_tick: tick, selected_administrator: selected, reason: reason.into(),
         treasury_before: view.treasury, spending_limit: limit, planned_spend: planned,
         committed_spend: 0, proposals, problem, selected_option,
-        horizon_ticks: options::horizon_ticks(mult), alternatives,
+        horizon_ticks: options::horizon_ticks(mult), alternatives, shadow_portfolio,
     }
 }
 
