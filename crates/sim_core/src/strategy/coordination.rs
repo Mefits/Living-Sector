@@ -207,6 +207,10 @@ mod tests {
         let head = view.head.as_ref().unwrap();
         assert_eq!(head.selected_administrator,Some("logistics"));
         assert_eq!(head.reason,"best_projected_relief"); assert_eq!(head.planned_spend,1600); assert_eq!(head.committed_spend,1600);
+        // Shadow advisor is an observation only: it must not replace the native grant.
+        let shadow = head.shadow_portfolio.as_ref().expect("positive portfolio option");
+        assert_eq!(shadow.mode, "shadow_only");
+        assert!(shadow.compared_valid_options > 0);
         assert_eq!(view.construction.as_ref().unwrap().reason,"head_priority");
         assert_eq!(w.query::<&ConstructionSite>().iter(&w).count(),0);
         assert_eq!(w.get::<FactionData>(owner).unwrap().treasury,78_400);
