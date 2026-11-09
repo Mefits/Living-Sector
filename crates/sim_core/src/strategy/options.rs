@@ -227,6 +227,81 @@ pub(super) fn compare(view: &FactionView, sources: &sourcing::Sources<'_>, mult:
     waiting
 }
 
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ShadowRecommendation {
+    pub goal_id: String,
+    pub destination: String,
+    pub commodity: Commodity,
+    pub action: &'static str,
+    pub estimated_net_value: f64,
+    pub strategic_value: f64,
+    pub urgency_multiplier: f64,
+    pub compared_valid_options: usize,
+    pub mode: &'static str,
+}
+
+/// Read-only challenger to the current urgency-first head policy.
+/// Evaluates all viable local shortages, but DOES NOT grant a contract.
+pub(super) fn shadow_portfolio(
+    view: &FactionView,
+    sources: &sourcing::Sources<'_>,
+    mult: u32,
+) -> Option<ShadowRecommendation> {
+    let mut goals = view.goals.clone();
+    if let Some(construction) = &view.construction {
+        for offer in &construction.offers {
+            if !goals.iter().any(|goal| same_problem(goal, &offer.goal)) {
+                goals.push(offer.goal.clone());
+            }
+        }
+    }
+    let mut best: Option<ShadowRecommendation> = None;
+    let mut considered = 0usize;
+    for goal in goals {
+        let priority = match goal.commodity {
+            Commodity::Food | Commodity::Water => 2,
+            Commodity::Fuel => 1,
+            _ => 0,
+        };
+        for option in alternatives(view, sources, &goal, mult) {
+            let input = super::portfolio_policy::Candidate {
+                estimated_net_value: option.estimated_net_value.unwrap_or(0.0),
+                ready: option.status == "ready",
+                projected_coverage: option.covered_units,
+                delay_ticks: option.estimated_delay_ticks,
+                horizon_ticks: horizon_ticks(mult),
+                treasury_after_commitment: option.treasury_after,
+                minimum_treasury_reserve: faction::FACTION_SUBSIDY_FLOOR,
+                shortage_ticks: goal.shortage_ticks,
+                criticality: priority,
+            };
+            let Some(rating) = super::portfolio_policy::evaluate(input) else { continue; };
+            considered += 1;
+            let replace = best.as_ref().is_none_or(|b| {
+                rating.strategic_value > b.strategic_value
+            });
+            if replace {
+                best = Some(ShadowRecommendation {
+                    goal_id: goal.goal_id.clone(),
+                    destination: goal.destination.clone(),
+                    commodity: goal.commodity,
+                    action: option.action,
+                    estimated_net_value: input.estimated_net_value,
+                    strategic_value: rating.strategic_value,
+                    urgency_multiplier: rating.urgency_multiplier,
+                    compared_valid_options: 0,
+                    mode: "shadow_only",
+                });
+            }
+        }
+    }
+    if let Some(recommendation) = best.as_mut() {
+        recommendation.compared_valid_options = considered;
+    }
+    best
+}
+
 pub(super) fn horizon_ticks(mult: u32) -> u64 {
     HORIZON * u64::from(mult.max(1))
 }
