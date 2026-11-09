@@ -27,6 +27,8 @@ pub struct HeadDecision {
     pub alternatives: Vec<options::Alternative>,
     /// Read-only comparison; no grants, money changes or executor orders.
     pub shadow_portfolio: Option<options::ShadowRecommendation>,
+    /// Native recipe-based dependency probe; not a construction or production order.
+    pub native_chain_probe: Option<options::NativeChainProbe>,
 }
 struct Grant {
     administrator: &'static str,
@@ -51,6 +53,7 @@ fn decision(
     let limit = view.treasury.saturating_sub(faction::FACTION_SUBSIDY_FLOOR).max(0);
     let comparison = options::compare(view, sources, mult);
     let shadow_portfolio = options::shadow_portfolio(view, sources, mult);
+    let native_chain_probe = options::native_chain_probe(comparison.as_ref().map(|c| &c.goal), sources);
     let selected_option = if already_commissioned { "wait" }
         else { comparison.as_ref().map_or("wait", |c| c.selected) };
     let selected = match selected_option {
@@ -96,7 +99,7 @@ fn decision(
         observed_tick: tick, selected_administrator: selected, reason: reason.into(),
         treasury_before: view.treasury, spending_limit: limit, planned_spend: planned,
         committed_spend: 0, proposals, problem, selected_option,
-        horizon_ticks: options::horizon_ticks(mult), alternatives, shadow_portfolio,
+        horizon_ticks: options::horizon_ticks(mult), alternatives, shadow_portfolio, native_chain_probe,
     }
 }
 
