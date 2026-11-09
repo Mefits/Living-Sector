@@ -302,6 +302,45 @@ pub(super) fn shadow_portfolio(
     best
 }
 
+
+#[derive(Clone, Debug, Serialize)]
+pub struct NativeChainProbe {
+    /// Only a small, fixed diagnostic demand; not a funded supply order.
+    pub requested_units: u64,
+    pub commodity: Commodity,
+    pub status: &'static str,
+    pub plan: Option<super::production_dependencies::DependencyPreview>,
+    pub blocked: Option<super::production_dependencies::Blocker>,
+}
+
+pub(super) fn native_chain_probe(
+    goal: Option<&Goal>,
+    sources: &sourcing::Sources<'_>,
+) -> Option<NativeChainProbe> {
+    let goal = goal?;
+    let stock: std::collections::HashMap<Commodity, u64> =
+        sources.market(&goal.destination)
+            .map(|market| market.supply.iter()
+                .filter(|(_, qty)| qty.is_finite() && **qty >= 0.0)
+                .map(|(&commodity, &quantity)| (commodity, quantity.floor() as u64))
+                .collect())
+            .unwrap_or_default();
+    const DIAGNOSTIC_QUANTITY: u64 = 10;
+    let result = super::production_dependencies::ingredients(
+        &[(goal.commodity, DIAGNOSTIC_QUANTITY)], &stock,
+    );
+    Some(match result {
+        Ok(plan) => NativeChainProbe {
+            requested_units: DIAGNOSTIC_QUANTITY, commodity: goal.commodity,
+            status: "feasible_ingredients_only", plan: Some(plan), blocked: None,
+        },
+        Err(blocker) => NativeChainProbe {
+            requested_units: DIAGNOSTIC_QUANTITY, commodity: goal.commodity,
+            status: "blocked_local_inputs", plan: None, blocked: Some(blocker),
+        },
+    })
+}
+
 pub(super) fn horizon_ticks(mult: u32) -> u64 {
     HORIZON * u64::from(mult.max(1))
 }
