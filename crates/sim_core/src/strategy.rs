@@ -14,6 +14,7 @@ pub mod orders;
 pub mod coordination;
 mod options;
 mod portfolio_policy;
+pub mod production_dependencies;
 pub(crate) mod sourcing;
 
 pub const PROJECT_TAG: &str = "strategy.logistics.v1";
