@@ -1,4 +1,4 @@
-name: Galaxy 0.4D - Verified eight-corridor runtime smoke
+name: Galaxy 0.4D - Final multi-hop and physical-route checkpoint
 
 on:
   push:
