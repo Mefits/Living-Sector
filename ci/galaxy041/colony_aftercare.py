@@ -22,10 +22,10 @@ pub const MARKET_TARGET: i64 = 700;""",
 """// The original 120 CR each 400 ticks lasted only a few purchase cycles
 // at a struggling colony. Allow targeted transition support, financed by
 // faction treasury and bounded by the recovered real ship earnings.
-pub const MAX_SPEND_PER_FACTION: i64 = 8_000;
-pub const HOUSEHOLD_MINIMUM: i64 = 100;
+pub const MAX_SPEND_PER_FACTION: i64 = 12_000;
+pub const HOUSEHOLD_MINIMUM: i64 = 300;
 pub const HOUSEHOLD_TARGET: i64 = 120;
-pub const COLONY_EMERGENCY_TARGET: i64 = 2_000;
+pub const COLONY_EMERGENCY_TARGET: i64 = 4_000;
 pub const MARKET_MINIMUM: i64 = 600;
 pub const MARKET_TARGET: i64 = 3_000;""")
 one(relief,
