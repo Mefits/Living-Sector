@@ -40,3 +40,4 @@ runpy.run_path(str(checkout / "ci/galaxy04/colony_stock.py"), run_name="__main__
 runpy.run_path(str(checkout / "ci/galaxy04/ship_liquidity.py"), run_name="__main__")
 runpy.run_path(str(checkout / "ci/galaxy04/order_reroute.py"), run_name="__main__")
 runpy.run_path(str(checkout / "ci/galaxy04/construction_diagnostics.py"), run_name="__main__")
+runpy.run_path(str(checkout / "ci/galaxy04/trade_run_liquidity.py"), run_name="__main__")
