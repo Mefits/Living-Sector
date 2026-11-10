@@ -144,7 +144,8 @@ class EventCapture:
 
     def close(self):
         self.stop.set()
-        self.thread.join(timeout=5)
+        if self.thread.is_alive():
+            self.thread.join(timeout=5)
 
 def metrics(report: dict, contracts: list, events: dict, elapsed: float):
     ships = v(report, "ships", [])
