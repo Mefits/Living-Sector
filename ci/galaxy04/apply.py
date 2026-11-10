@@ -64,3 +64,5 @@ runpy.run_path(str(checkout / "ci/galaxy041/unified.py"), run_name="__main__")
 runpy.run_path(str(checkout / "ci/galaxy041/colony_aftercare.py"), run_name="__main__")
 runpy.run_path(str(checkout / "ci/galaxy041/native_regressions.py"), run_name="__main__")
 runpy.run_path(str(checkout / "ci/galaxy041/expansion_gate.py"), run_name="__main__")
+# UI-only fix: distinguish completed buildings from construction and empty T1 sockets.
+runpy.run_path(str(checkout / "ci/galaxy041/station_slots_ui.py"), run_name="__main__")
