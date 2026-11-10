@@ -47,3 +47,5 @@ runpy.run_path(str(checkout / "ci/galaxy04/colony_home_priority.py"), run_name="
 runpy.run_path(str(checkout / "ci/galaxy04/resource_grade_snapshot.py"), run_name="__main__")
 runpy.run_path(str(checkout / "ci/galaxy04/galaxy_lanes.py"), run_name="__main__")
 runpy.run_path(str(checkout / "ci/galaxy04/corridors_report.py"), run_name="__main__")
+# Galaxy C: DOM-only inspector, no changes to server simulation.
+runpy.run_path(str(checkout / "ci/galaxy04/observer_priority.py"), run_name="__main__")
