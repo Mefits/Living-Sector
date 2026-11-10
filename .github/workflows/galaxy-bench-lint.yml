@@ -1,0 +1,47 @@
+name: Galaxy 0.4.1 - Lightweight bench script validation
+
+on:
+  push:
+    branches:
+      - feature/galaxy-041-unified-economic-recovery
+    paths:
+      - 'ci/galaxy041/*.py'
+      - 'ci/galaxy041/legacy_baseline.json'
+      - '.github/workflows/galaxy-bench-lint.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: galaxy-bench-lint
+  cancel-in-progress: true
+
+jobs:
+  bench-analyzer-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install WebSocket client (for test import)
+        run: python -m pip install --disable-pip-version-check "websockets==14.2"
+      - name: Validate analyzer Python syntax
+        run: python -m compileall -q ci/galaxy041
+      - name: Test real-API snapshot aggregation, money and 3+1 construction
+        run: python -m unittest discover -s ci/galaxy041 -p 'test_*.py' -v
+      - name: Validate frozen baseline data
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path("ci/galaxy041/legacy_baseline.json").read_text(encoding="utf8"))
+          checkpoints=data["snapshots"]
+          assert [x["tick"] for x in checkpoints]==[3404,10658,18448]
+          assert [x["colonies"] for x in checkpoints]==[3,6,6]
+          assert checkpoints[-1]["starving_colonies"]==4
+          print("Baseline checkpoints validated")
+          PY
