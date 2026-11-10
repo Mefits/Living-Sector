@@ -27,6 +27,19 @@ replace_once(observer/"app.js",
     'import {drawStationComplex,visualStationTier,stationScale,stationReveal} from "/observer/station-kit.js";\n'
     'import {renderPriorityInspector} from "/observer/priority-inspector.js";')
 
+replace_once(observer/"app.js",
+    '  const type = s.selection.type;\n  const typeNames = {',
+    '''  const type = s.selection.type;
+  // Galaxy 0.4 C: important server facts appear before technical names and
+  // engineering fields. Unsupported selections retain the legacy inspector.
+  if(renderPriorityInspector(els.inspectorBody,type,entity,{
+    report:s.report,index:s.index,
+    select:(kind,id)=>{s.selection={type:kind,id};renderInspector();}
+  })){
+    els.inspectorBody.scrollTop=previousScroll;
+    return;
+  }
+  const typeNames = {''')
 # Keep open technical details expanded on the same selection while live data
 # refreshes, otherwise a periodic render repeatedly collapses the panel.
 replace_once(observer/"app.js",
@@ -42,19 +55,6 @@ replace_once(observer/"app.js",
     '    if(keepTechnicalOpen && technical)technical.open=true;\n'
     '    els.inspectorBody.scrollTop=previousScroll;\n    return;\n  }\n  const typeNames = {')
 
-replace_once(observer/"app.js",
-    '  const type = s.selection.type;\n  const typeNames = {',
-    '''  const type = s.selection.type;
-  // Galaxy 0.4 C: important server facts appear before technical names and
-  // engineering fields. Unsupported selections retain the legacy inspector.
-  if(renderPriorityInspector(els.inspectorBody,type,entity,{
-    report:s.report,index:s.index,
-    select:(kind,id)=>{s.selection={type:kind,id};renderInspector();}
-  })){
-    els.inspectorBody.scrollTop=previousScroll;
-    return;
-  }
-  const typeNames = {''')
 replace_once(observer/"native.html",
     '  <link rel="stylesheet" href="/observer/styles.css">',
     '  <link rel="stylesheet" href="/observer/styles.css">\n'
