@@ -49,6 +49,13 @@ jobs:
             throw 'Art catalogue is incomplete (assets/stations/t1.svg missing).'
           }
 
+      - name: Apply Galaxy AI integration compile fixes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/fix_galaxy_sources.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy source overlay failed.' }
+
       - name: Build fresh Windows Genesis server (hybrid AI)
         shell: pwsh
         working-directory: work/source/Living-Sector-Galaxy-0.2
