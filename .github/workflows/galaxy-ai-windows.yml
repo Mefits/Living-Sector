@@ -1,4 +1,4 @@
-name: Galaxy 0.4D - Registered multi-hop fixture final verification
+name: Galaxy 0.4.1 - Unified economic recovery checkpoint
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - feature/galaxy-04-block-b-eight-systems-20261110
       - feature/galaxy-04-block-c-observer-priority-20261110
       - feature/galaxy-04-block-d-runtime-smoke-20261110
+      - feature/galaxy-041-unified-economic-recovery
     paths:
       - 'ci-input/*.zip'
       - '.github/workflows/galaxy-ai-windows.yml'
@@ -65,7 +66,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Apply Galaxy 0.4 Block A economy source
+      - name: Apply single Galaxy 0.4.1 economy and life-support patch
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -101,7 +102,7 @@ jobs:
             throw 'Priority inspector stylesheet not wired into native UI.'
           }
 
-      - name: Check Galaxy 0.4 A integration
+      - name: Check Galaxy 0.4.1 integrated Rust
         shell: pwsh
         working-directory: work/source/Living-Sector-Galaxy-0.2
         run: |
@@ -109,7 +110,7 @@ jobs:
           cargo check -p sim_core -p sim_server
           if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4 integration has Rust compilation errors.' }
 
-      - name: Focused Galaxy 0.4 A regression tests
+      - name: Core money-conservation and delivery regressions
         shell: pwsh
         working-directory: work/source/Living-Sector-Galaxy-0.2
         run: |
@@ -120,6 +121,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'A2-A6 integration tests failed.' }
           cargo test -p sim_core --lib strategy::orders::tests::station_order --quiet
           if ($LASTEXITCODE -ne 0) { throw 'Native station dispatch regression failed.' }
+          cargo test -p sim_core --lib galaxy041_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Unified Galaxy 0.4.1 money-flow invariants failed.' }
 
       - name: Focused Galaxy 0.4B resource metadata test
         shell: pwsh
@@ -128,6 +131,14 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cargo test -p sim_core --lib agents::celestial_body::tests::galaxy04_resource_grades_are_descriptive_only --quiet
           if ($LASTEXITCODE -ne 0) { throw 'Resource grade invariants failed.' }
+
+      - name: Engine transaction regressions for Galaxy 0.4.1
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_server --lib galaxy041_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4.1 fuel and stock trading tests failed.' }
 
       - name: Build fresh Windows Genesis server (hybrid AI)
         shell: pwsh
@@ -151,7 +162,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Galaxy-0.4-D-smoke-evidence
+          name: Galaxy-0.4.1-smoke-evidence
           path: smoke-results/
           if-no-files-found: warn
           retention-days: 14
@@ -161,7 +172,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $project = Join-Path (Get-Location) 'work/source/Living-Sector-Galaxy-0.2'
-          $dist = Join-Path (Get-Location) 'release/Living-Sector-Galaxy-0.4-D-Windows'
+          $dist = Join-Path (Get-Location) 'release/Living-Sector-Galaxy-0.4.1-Windows'
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
           Copy-Item -LiteralPath (Join-Path $project 'target/release/genesis_server.exe') -Destination (Join-Path $dist 'Genesis-Server.exe')
@@ -180,34 +191,99 @@ jobs:
           }
 
           $launcher = Get-Content -LiteralPath (Join-Path $project 'START-GALAXY.cmd') -Raw
-          $launcher = $launcher.Replace('living-galaxy-02.db', 'living-galaxy-04-d.db')
+          $launcher = $launcher.Replace('living-galaxy-02.db', 'living-galaxy-041.db')
           $launcher = $launcher.Replace('set "LIVING_SECTOR_STRATEGY_MODE=execute"', "set `"LIVING_SECTOR_STRATEGY_MODE=execute`"`r`nset `"LIVING_SECTOR_PLANNER=hybrid`"`r`nset `"LIVING_SECTOR_PLANNER_SHADOW=0`"`r`nset `"LIVING_SECTOR_PLANNER_COMPARE=0`"")
-          $launcher = $launcher.Replace('Living Galaxy 0.2', 'Living Galaxy 0.4 D AI')
+          $launcher = $launcher.Replace('Living Galaxy 0.2', 'Living Galaxy 0.4.1 AI')
           Set-Content -LiteralPath (Join-Path $dist 'START-GALAXY.cmd') -Value $launcher -Encoding ascii
 
           @'
-          Living Sector Galaxy 0.4-D Full Integration (EXPERIMENTAL)
+          Living Sector Galaxy 0.4.1 Unified Economy Fix (EXPERIMENTAL)
           1. Extract the ENTIRE archive to a writable folder.
           2. Double-click START-GALAXY.cmd. A server console opens and the
              graphical Observer map opens in your browser.
           3. Keep the server console open while playing. Ctrl+C stops it.
-          4. Saves use living-galaxy-04-d.db (separate from older builds).
+          4. Saves use living-galaxy-041.db (separate from older builds).
           5. Hybrid planner enabled. Simulation speed x16.
           6. Vector art catalogue shipped at observer/art-catalog/index.html.
              Those assets are reference placeholders; not every image is
              rendered on the Galaxy map yet.
-          Source: Galaxy 0.3 plus bounded native-credit economy relief and focused tests.
+          Source: Galaxy 0.4-D plus unified real-credit and physical-supply-cycle fixes.
           This artifact is a compiled integration candidate, not a stable release.
           '@ | Set-Content -LiteralPath (Join-Path $dist 'READ-ME-FIRST.txt') -Encoding utf8
 
           New-Item -ItemType Directory -Force -Path 'release' | Out-Null
-          Compress-Archive -LiteralPath $dist -DestinationPath 'release/Living-Sector-Galaxy-0.4-D-Windows.zip' -CompressionLevel Optimal -Force
-          Get-FileHash 'release/Living-Sector-Galaxy-0.4-D-Windows.zip' -Algorithm SHA256 | Format-List
+          Compress-Archive -LiteralPath $dist -DestinationPath 'release/Living-Sector-Galaxy-0.4.1-Windows.zip' -CompressionLevel Optimal -Force
+          Get-FileHash 'release/Living-Sector-Galaxy-0.4.1-Windows.zip' -Algorithm SHA256 | Format-List
 
       - name: Upload game ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: Living-Sector-Galaxy-0.4-D-Windows
-          path: release/Living-Sector-Galaxy-0.4-D-Windows.zip
+          name: Living-Sector-Galaxy-0.4.1-Windows
+          path: release/Living-Sector-Galaxy-0.4.1-Windows.zip
           if-no-files-found: error
           retention-days: 14
+
+
+  economy-soak:
+    name: Galaxy 0.4.1 autonomous 18k-tick economy bench
+    needs: windows-galaxy
+    # One full soak per successful release checkpoint. Edits that only
+    # touch the benchmark script do not trigger a full recompilation.
+    if: github.ref == 'refs/heads/feature/galaxy-041-unified-economic-recovery'
+    runs-on: windows-latest
+    timeout-minutes: 65
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up native WebSocket event capture
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "websockets==14.2"
+          if ($LASTEXITCODE -ne 0) { throw 'WebSocket dependency installation failed.' }
+          python -m py_compile ci/galaxy041/autonomous_bench.py
+          if ($LASTEXITCODE -ne 0) { throw 'Autonomous bench has Python syntax error.' }
+
+      - name: Download compiled and smoke-tested Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: Living-Sector-Galaxy-0.4.1-Windows
+          path: bench-input
+
+      - name: Extract portable game without rebuilding
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = 'bench-input/Living-Sector-Galaxy-0.4.1-Windows.zip'
+          if (!(Test-Path $zip)) { throw 'Missing game ZIP.' }
+          Expand-Archive -LiteralPath $zip -DestinationPath bench-game -Force
+          $exe = 'bench-game/Living-Sector-Galaxy-0.4.1-Windows/Genesis-Server.exe'
+          if (!(Test-Path $exe)) { throw 'Windows game executable missing.' }
+          $data = 'bench-game/Living-Sector-Galaxy-0.4.1-Windows/priv/galaxy/data'
+          if (!(Test-Path $data)) { throw 'Packaged game seed data missing.' }
+
+      - name: Live economy scenario — 3000, 10000 and 18000 ticks
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUNBUFFERED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy041/autonomous_bench.py --game-dir bench-game/Living-Sector-Galaxy-0.4.1-Windows --output autonomous-bench-results --targets 3000,10000,18000 --sample-every 600 --timeout-seconds 2700
+          if ($LASTEXITCODE -ne 0) { throw 'Economic soak failed; read evidence artifact.' }
+
+      - name: Upload economic evidence on success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy-0.4.1-autonomous-economy-bench
+          path: autonomous-bench-results/
+          if-no-files-found: warn
+          retention-days: 21
