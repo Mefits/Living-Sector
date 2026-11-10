@@ -60,14 +60,16 @@ fn cargo_liquidation_target(
                 owner,
             );
         if !price.is_finite() || price <= 0.0 { continue; }
-        // Small bounded lot reduces meaningless one-unit fills. If the hold
-        // is smaller than 10, its entire remainder must be affordable.
-        let required = (f64::from(price) * f64::from((*quantity).min(10))).floor();
+        // SellAll submits the whole commodity stack as one atomic sale.
+        // Checking only a 10-unit lot would still cause an infinite
+        // rejection when the market cannot pay for the full request.
+        let required = (f64::from(price) * f64::from(*quantity)).ceil();
         if !required.is_finite() || required < 1.0 || required > *available_credits as f64 {
             continue;
         }
         let distance = if location == at { 0 } else {
-            registry.travel_distance(at, location).unwrap_or(10_000)
+            let Some(d) = registry.travel_distance(at, location) else { continue; };
+            d
         };
         choices.push((distance, std::cmp::Reverse(*available_credits), location.clone()));
     }
@@ -218,7 +220,7 @@ mod galaxy04_liquidation_tests {
         let relations=crate::agents::faction_relations::FactionRelations::new();
         assert_eq!(cargo_liquidation_target("mars",&cargo,&memory,&balances,"civ",
             &economy,&WorldRegistry::default(),&relations),None);
-        balances.insert("mars".into(),Some(("civ".into(),1000)));
+        balances.insert("mars".into(),Some(("civ".into(),3000)));
         assert_eq!(cargo_liquidation_target("mars",&cargo,&memory,&balances,"civ",
             &economy,&WorldRegistry::default(),&relations),Some("mars".into()));
         // Known quotes are required: the SellAll action cannot use unknown
