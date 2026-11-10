@@ -1,0 +1,111 @@
+name: Galaxy 0.3 - Windows AI build
+
+on:
+  push:
+    branches:
+      - build/galaxy-03-ai-actions-20261110
+    paths:
+      - 'ci-input/*.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-galaxy:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout build harness
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Extract uploaded Galaxy sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = @(Get-ChildItem 'ci-input' -File | Where-Object { $_.Name -like 'LS-AI-BLOCK-IV-SOURCES*.zip' })
+          $art = @(Get-ChildItem 'ci-input' -File | Where-Object { $_.Name -like '*Art-Catalog*.zip' })
+          if ($source.Count -ne 1 -or $art.Count -ne 1) {
+            throw 'Upload exactly one LS-AI-BLOCK-IV-SOURCES.zip and one Living-Sector-Art-Catalog-v0.4.zip into ci-input, ideally in the same commit.'
+          }
+          New-Item -ItemType Directory -Force -Path 'work/source', 'work/art' | Out-Null
+          Expand-Archive -LiteralPath $source[0].FullName -DestinationPath 'work/source' -Force
+          Expand-Archive -LiteralPath $art[0].FullName -DestinationPath 'work/art' -Force
+          if (!(Test-Path 'work/source/Living-Sector-Galaxy-0.2/Cargo.lock')) {
+            throw 'Unexpected source archive layout: Cargo.lock not found at expected root.'
+          }
+          if (!(Test-Path 'work/art/assets/stations/t1.svg')) {
+            throw 'Art catalogue is incomplete (assets/stations/t1.svg missing).'
+          }
+
+      - name: Build fresh Windows Genesis server (hybrid AI)
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo build --release --locked -p sim_server --bin genesis_server
+          if ($LASTEXITCODE -ne 0) { throw 'Rust compilation failed. No Windows game was produced.' }
+          if (!(Test-Path 'target/release/genesis_server.exe')) {
+            throw 'Compiler reported success, but genesis_server.exe is missing.'
+          }
+
+      - name: Package portable playable Galaxy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = Join-Path (Get-Location) 'work/source/Living-Sector-Galaxy-0.2'
+          $dist = Join-Path (Get-Location) 'release/Living-Sector-Galaxy-0.3-Windows'
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
+          Copy-Item -LiteralPath (Join-Path $project 'target/release/genesis_server.exe') -Destination (Join-Path $dist 'Genesis-Server.exe')
+          Copy-Item -LiteralPath (Join-Path $project 'observer') -Destination (Join-Path $dist 'observer') -Recurse
+          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'priv/galaxy') | Out-Null
+          Copy-Item -LiteralPath (Join-Path $project 'priv/galaxy/data') -Destination (Join-Path $dist 'priv/galaxy/data') -Recurse
+
+          # Carry the selected vector-art set alongside the original Observer.
+          # The standalone catalogue is an art preview, NOT a claim that every
+          # proposed sprite is already wired into the in-game renderer.
+          $artDst = Join-Path $dist 'observer/art-catalog'
+          New-Item -ItemType Directory -Force -Path $artDst | Out-Null
+          Copy-Item -Path 'work/art/*' -Destination $artDst -Recurse -Force
+          if (Test-Path 'ci/visual-mapping.json') {
+            Copy-Item -LiteralPath 'ci/visual-mapping.json' -Destination (Join-Path $artDst 'visual-mapping.json')
+          }
+
+          $launcher = Get-Content -LiteralPath (Join-Path $project 'START-GALAXY.cmd') -Raw
+          $launcher = $launcher.Replace('living-galaxy-02.db', 'living-galaxy-03-ai.db')
+          $launcher = $launcher.Replace('set "LIVING_SECTOR_STRATEGY_MODE=execute"', "set `"LIVING_SECTOR_STRATEGY_MODE=execute`"`r`nset `"LIVING_SECTOR_PLANNER=hybrid`"`r`nset `"LIVING_SECTOR_PLANNER_SHADOW=0`"`r`nset `"LIVING_SECTOR_PLANNER_COMPARE=0`"")
+          $launcher = $launcher.Replace('Living Galaxy 0.2', 'Living Galaxy 0.3 AI')
+          Set-Content -LiteralPath (Join-Path $dist 'START-GALAXY.cmd') -Value $launcher -Encoding ascii
+
+          @'
+          Living Sector Galaxy 0.3 AI Integration (EXPERIMENTAL)
+          1. Extract the ENTIRE archive to a writable folder.
+          2. Double-click START-GALAXY.cmd. A server console opens and the
+             graphical Observer map opens in your browser.
+          3. Keep the server console open while playing. Ctrl+C stops it.
+          4. Saves use living-galaxy-03-ai.db (separate from older builds).
+          5. Hybrid planner enabled. Simulation speed x16.
+          6. Vector art catalogue shipped at observer/art-catalog/index.html.
+             Those assets are reference placeholders; not every image is
+             rendered on the Galaxy map yet.
+          Source: uploaded LS-AI-BLOCK-IV-SOURCES.zip; untested I-IV changes.
+          This artifact is a compiled integration candidate, not a stable release.
+          '@ | Set-Content -LiteralPath (Join-Path $dist 'READ-ME-FIRST.txt') -Encoding utf8
+
+          New-Item -ItemType Directory -Force -Path 'release' | Out-Null
+          Compress-Archive -LiteralPath $dist -DestinationPath 'release/Living-Sector-Galaxy-0.3-Windows.zip' -CompressionLevel Optimal -Force
+          Get-FileHash 'release/Living-Sector-Galaxy-0.3-Windows.zip' -Algorithm SHA256 | Format-List
+
+      - name: Upload game ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Galaxy-0.3-Windows
+          path: release/Living-Sector-Galaxy-0.3-Windows.zip
+          if-no-files-found: error
+          retention-days: 14
