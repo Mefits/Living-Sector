@@ -44,3 +44,4 @@ runpy.run_path(str(checkout / "ci/galaxy04/trade_run_liquidity.py"), run_name="_
 # Galaxy 0.4 B1: new-seed-only geography and pirate home.
 runpy.run_path(str(checkout / "ci/galaxy04/worlds08.py"), run_name="__main__")
 runpy.run_path(str(checkout / "ci/galaxy04/colony_home_priority.py"), run_name="__main__")
+runpy.run_path(str(checkout / "ci/galaxy04/resource_grade_snapshot.py"), run_name="__main__")
