@@ -74,6 +74,14 @@ pub fn core_tier(world:&bevy_ecs::prelude::World,id:&str)->StationTier{
         .and_then(|d|d.station_progress.get(id))
         .map_or(StationTier::T1,|state|state.tier)
 }
+pub fn location_tier(world:&mut bevy_ecs::prelude::World,faction:&str,location:&str)->StationTier{
+    use crate::agents::facility::{FacilityIdentity,FacilityLocation};
+    let id=world.query::<(&FacilityIdentity,&FacilityLocation)>()
+        .iter(world).find(|(id,loc)|id.facility_type=="station" &&
+            id.faction_id==faction && loc.location_name==location)
+        .map(|(id,_)|id.id.clone());
+    id.as_deref().map_or(StationTier::T1,|id|core_tier(world,id))
+}
 #[cfg(test)]
 mod galaxy05_core_progress_tests {
     use super::*;
