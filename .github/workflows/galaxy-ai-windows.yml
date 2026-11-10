@@ -28,14 +28,19 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $source = @(Get-ChildItem 'ci-input' -File | Where-Object { $_.Name -like 'LS-AI-BLOCK-IV-SOURCES*.zip' })
-          $art = @(Get-ChildItem 'ci-input' -File | Where-Object { $_.Name -like '*Art-Catalog*.zip' })
-          if ($source.Count -ne 1 -or $art.Count -ne 1) {
-            throw 'Upload exactly one LS-AI-BLOCK-IV-SOURCES.zip and one Living-Sector-Art-Catalog-v0.4.zip into ci-input, ideally in the same commit.'
+          $bundle = 'ci-input/LS-GALAXY-03-CI-INPUT.zip'
+          if (!(Test-Path $bundle)) {
+            throw 'Upload LS-GALAXY-03-CI-INPUT.zip into ci-input to trigger this build.'
           }
-          New-Item -ItemType Directory -Force -Path 'work/source', 'work/art' | Out-Null
-          Expand-Archive -LiteralPath $source[0].FullName -DestinationPath 'work/source' -Force
-          Expand-Archive -LiteralPath $art[0].FullName -DestinationPath 'work/art' -Force
+          New-Item -ItemType Directory -Force -Path 'work/input', 'work/source', 'work/art' | Out-Null
+          Expand-Archive -LiteralPath $bundle -DestinationPath 'work/input' -Force
+          $source = 'work/input/LS-AI-BLOCK-IV-SOURCES.zip'
+          $art = 'work/input/Living-Sector-Art-Catalog-v0.4.zip'
+          if (!(Test-Path $source) -or !(Test-Path $art)) {
+            throw 'The CI input bundle must contain both nested source and art ZIPs.'
+          }
+          Expand-Archive -LiteralPath $source -DestinationPath 'work/source' -Force
+          Expand-Archive -LiteralPath $art -DestinationPath 'work/art' -Force
           if (!(Test-Path 'work/source/Living-Sector-Galaxy-0.2/Cargo.lock')) {
             throw 'Unexpected source archive layout: Cargo.lock not found at expected root.'
           }
