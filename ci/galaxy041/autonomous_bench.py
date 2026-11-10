@@ -474,6 +474,7 @@ def main():
                                 json.dumps(cp,ensure_ascii=False,indent=2),encoding="utf-8")
                             summary["checkpoints"].append(cp)
                             summary["last_tick"]=snapshot_tick
+                            summary["world_seed"]=report.get("world_seed")
                             (out/"summary.json").write_text(json.dumps(summary,
                                 ensure_ascii=False,indent=2),encoding="utf-8")
                             print(f"CHECKPOINT {checkpoint}: actual={snapshot_tick}, "
@@ -509,6 +510,21 @@ def main():
         (out/"summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2),
                                         encoding="utf-8")
         emit_markdown(summary,out/"REPORT-RU.md")
+        # Descriptive old-vs-new snapshots: a different world seed means
+        # this cannot, by itself, prove causal improvement.
+        try:
+            from compare_baseline import make_comparison, render_markdown
+            old=json.loads((Path(__file__).parent/"legacy_baseline.json")
+                           .read_text(encoding="utf8"))
+            comparison=make_comparison(old,summary)
+            (out/"baseline_comparison.json").write_text(
+                json.dumps(comparison,ensure_ascii=False,indent=2)+"\n",
+                encoding="utf8")
+            (out/"BASELINE-COMPARISON-RU.md").write_text(
+                render_markdown(comparison),encoding="utf8")
+        except Exception as exception:
+            print(f"Baseline report failed: {type(exception).__name__}: {exception}",
+                  file=sys.stderr,flush=True)
         print(f"BENCH RESULT: {summary['status']}, "
               f"checkpoints={len(summary['checkpoints'])}, "
               f"warnings={len(summary['warnings'])}",flush=True)
