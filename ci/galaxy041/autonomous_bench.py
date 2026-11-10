@@ -355,6 +355,8 @@ def main():
     out.mkdir(parents=True,exist_ok=True)
     (out/"checkpoints").mkdir(exist_ok=True)
     import tempfile
+    import shutil
+    scratch=Path(tempfile.mkdtemp(prefix="galaxy041-bench-"))
     start=time.monotonic()
     summary={
         "format":"living-sector-autonomous-bench-v1",
@@ -366,12 +368,11 @@ def main():
     tap=EventCapture(out/"events.jsonl")
     process=None
     try:
-        with tempfile.TemporaryDirectory(prefix="galaxy041-bench-") as temp, (
-            out/"genesis_server.log").open("wb") as log:
+        with (out/"genesis_server.log").open("wb") as log:
             env=os.environ.copy()
             env.update({
                 "DATA_DIR":str(data),
-                "DATABASE_PATH":str(Path(temp)/"bench041.db"),
+                "DATABASE_PATH":str(scratch/"bench041.db"),
                 "LIVING_SECTOR_UI_DIR":str(observer),
                 "LIVING_SECTOR_GALAXY":"1",
                 "LIVING_SECTOR_STRATEGY_MODE":"execute",
@@ -505,6 +506,13 @@ def main():
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=6)
+        # The Windows server must terminate before SQLite's WAL/file handles
+        # can be removed. Never let temporary-file cleanup reclassify a
+        # completed 18k-tick game run as a failed runtime.
+        try:
+            shutil.rmtree(scratch)
+        except (OSError, PermissionError) as cleanup_error:
+            print(f"Deferred Windows scratch cleanup: {cleanup_error}",flush=True)
         summary["finished_utc"]=utc_now()
         summary["elapsed_seconds"]=int(time.monotonic()-start)
         (out/"summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2),
