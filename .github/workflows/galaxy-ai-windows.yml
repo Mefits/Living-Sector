@@ -1,4 +1,4 @@
-name: Galaxy 0.4D - Full runtime smoke integration
+name: Galaxy 0.4D - Verified eight-corridor runtime smoke
 
 on:
   push:
