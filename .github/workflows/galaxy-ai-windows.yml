@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - build/galaxy-03-ai-actions-20261110
+      - feature/galaxy-04-block-a-economy-20261110
     paths:
       - 'ci-input/*.zip'
       - '.github/workflows/galaxy-ai-windows.yml'
@@ -56,6 +57,18 @@ jobs:
           python ci/fix_galaxy_sources.py
           if ($LASTEXITCODE -ne 0) { throw 'Galaxy source overlay failed.' }
 
+      - name: Set up Python for reproducible source overlays
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply Galaxy 0.4 Block A economy source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy04/apply.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4 A source overlay failed.' }
+
       - name: Build fresh Windows Genesis server (hybrid AI)
         shell: pwsh
         working-directory: work/source/Living-Sector-Galaxy-0.2
@@ -67,12 +80,20 @@ jobs:
             throw 'Compiler reported success, but genesis_server.exe is missing.'
           }
 
+      - name: Focused Galaxy 0.4 A money-conservation tests
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_core --lib agents::faction::relief::tests --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4 A fiscal tests failed.' }
+
       - name: Package portable playable Galaxy
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $project = Join-Path (Get-Location) 'work/source/Living-Sector-Galaxy-0.2'
-          $dist = Join-Path (Get-Location) 'release/Living-Sector-Galaxy-0.3-Windows'
+          $dist = Join-Path (Get-Location) 'release/Living-Sector-Galaxy-0.4-A-Windows'
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
           Copy-Item -LiteralPath (Join-Path $project 'target/release/genesis_server.exe') -Destination (Join-Path $dist 'Genesis-Server.exe')
@@ -91,34 +112,34 @@ jobs:
           }
 
           $launcher = Get-Content -LiteralPath (Join-Path $project 'START-GALAXY.cmd') -Raw
-          $launcher = $launcher.Replace('living-galaxy-02.db', 'living-galaxy-03-ai.db')
+          $launcher = $launcher.Replace('living-galaxy-02.db', 'living-galaxy-04-a.db')
           $launcher = $launcher.Replace('set "LIVING_SECTOR_STRATEGY_MODE=execute"', "set `"LIVING_SECTOR_STRATEGY_MODE=execute`"`r`nset `"LIVING_SECTOR_PLANNER=hybrid`"`r`nset `"LIVING_SECTOR_PLANNER_SHADOW=0`"`r`nset `"LIVING_SECTOR_PLANNER_COMPARE=0`"")
-          $launcher = $launcher.Replace('Living Galaxy 0.2', 'Living Galaxy 0.3 AI')
+          $launcher = $launcher.Replace('Living Galaxy 0.2', 'Living Galaxy 0.4 A AI')
           Set-Content -LiteralPath (Join-Path $dist 'START-GALAXY.cmd') -Value $launcher -Encoding ascii
 
           @'
-          Living Sector Galaxy 0.3 AI Integration (EXPERIMENTAL)
+          Living Sector Galaxy 0.4-A Economy Integration (EXPERIMENTAL)
           1. Extract the ENTIRE archive to a writable folder.
           2. Double-click START-GALAXY.cmd. A server console opens and the
              graphical Observer map opens in your browser.
           3. Keep the server console open while playing. Ctrl+C stops it.
-          4. Saves use living-galaxy-03-ai.db (separate from older builds).
+          4. Saves use living-galaxy-04-a.db (separate from older builds).
           5. Hybrid planner enabled. Simulation speed x16.
           6. Vector art catalogue shipped at observer/art-catalog/index.html.
              Those assets are reference placeholders; not every image is
              rendered on the Galaxy map yet.
-          Source: uploaded LS-AI-BLOCK-IV-SOURCES.zip; untested I-IV changes.
+          Source: Galaxy 0.3 plus bounded native-credit economy relief and focused tests.
           This artifact is a compiled integration candidate, not a stable release.
           '@ | Set-Content -LiteralPath (Join-Path $dist 'READ-ME-FIRST.txt') -Encoding utf8
 
           New-Item -ItemType Directory -Force -Path 'release' | Out-Null
-          Compress-Archive -LiteralPath $dist -DestinationPath 'release/Living-Sector-Galaxy-0.3-Windows.zip' -CompressionLevel Optimal -Force
-          Get-FileHash 'release/Living-Sector-Galaxy-0.3-Windows.zip' -Algorithm SHA256 | Format-List
+          Compress-Archive -LiteralPath $dist -DestinationPath 'release/Living-Sector-Galaxy-0.4-A-Windows.zip' -CompressionLevel Optimal -Force
+          Get-FileHash 'release/Living-Sector-Galaxy-0.4-A-Windows.zip' -Algorithm SHA256 | Format-List
 
       - name: Upload game ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: Living-Sector-Galaxy-0.3-Windows
-          path: release/Living-Sector-Galaxy-0.3-Windows.zip
+          name: Living-Sector-Galaxy-0.4-A-Windows
+          path: release/Living-Sector-Galaxy-0.4-A-Windows.zip
           if-no-files-found: error
           retention-days: 14
