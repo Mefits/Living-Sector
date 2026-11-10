@@ -149,16 +149,24 @@ with tempfile.TemporaryDirectory(prefix="living-sector-galaxy04d-") as temp:
             strategy=doc("/api/strategy")
             checked("strategy API responds",isinstance(strategy,dict))
 
-            advanced=until(lambda: (h if int(h.get("tick",0)) >= 240 else None)
+            advanced=until(lambda: (h if int(h.get("tick",0)) >= 850 else None)
                            if (h:=doc("/api/health")) else None,
-                           85,"240 live simulation ticks")
-            checked("real tick progression >=240",int(advanced["tick"])>=240)
+                           125,"850 live simulation ticks (including first fleet levy)")
+            checked("real tick progression >=850",int(advanced["tick"])>=850)
             later=doc("/api/report")
             checked("world stayed coherent after ticks",
                     len(later.get("systems",[]))==8 and
                     len(later.get("facilities",[]))>=len(pirate))
             checked("first-run SQLite database created",
                     (td/"smoke04.db").is_file())
+            # Real ledger snapshot for later comparison with 3k/10k/18k
+            # diagnostics. These are balances, NOT a claim about minted cash.
+            result["account_balances"]={
+                "ships":sum(int(x.get("credits",0)) for x in later.get("ships",[])),
+                "facilities":sum(int(x.get("credits",0)) for x in later.get("facilities",[])),
+                "treasuries":sum(int(x.get("treasury",0)) for x in later.get("factions",[])),
+                "households":sum(int(x.get("total_wealth",0)) for x in later.get("populations",[])),
+            }
             result.update(result="passed",
                           tick=int(later.get("tick",0)),
                           systems=sorted(names),corridors=len(links),
