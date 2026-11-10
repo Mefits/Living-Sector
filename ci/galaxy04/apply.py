@@ -57,3 +57,5 @@ runpy.run_path(str(checkout / "ci/galaxy04/no_interstellar_mesh.py"), run_name="
 runpy.run_path(str(checkout / "ci/galaxy04/strategy_multihop.py"), run_name="__main__")
 # D5: physical transit cannot silently jump over absent graph edges.
 runpy.run_path(str(checkout / "ci/galaxy04/no_phantom_ship_travel.py"), run_name="__main__")
+# D6: only adjust legacy TEST fixtures to register their graph vertices.
+runpy.run_path(str(checkout / "ci/galaxy04/register_test_locations.py"), run_name="__main__")
