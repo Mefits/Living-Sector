@@ -146,6 +146,15 @@ one(p,"""    // Farm
                   (Commodity::Electronics, 2)],
         outputs: &[(Commodity::QuantumCores, 2)],
     },
+    // Retrofit for occupied T2 capitals. The live recipe gate checks
+    // both quantumtech3 and a physically upgraded station core.
+    Recipe {
+        id: "fabricate_quantum_cores_t3_retrofit",
+        facility_type: "factory",
+        inputs: &[(Commodity::CrystalOre, 3), (Commodity::Alloys, 2),
+                  (Commodity::Electronics, 2)],
+        outputs: &[(Commodity::QuantumCores, 2)],
+    },
     // Farm
     Recipe {
         id: "grow_food",""")
@@ -246,6 +255,13 @@ one(p,
                     !crate::strategy::director::has(world,&fac.faction_id,"alloytech2") {
                     continue;
                 }
+                if recipe.id=="fabricate_quantum_cores_t3_retrofit" &&
+                    (!crate::strategy::director::has(world,&fac.faction_id,"quantumtech3") ||
+                     crate::strategy::progression::location_tier(
+                        world,&fac.faction_id,&fac.location_name)
+                        < crate::strategy::progression::StationTier::T2) {
+                    continue;
+                }
                 let produced = if is_farm {""")
 one(p,
   """            for (commodity, richness) in body_resources {
@@ -267,11 +283,11 @@ one(p,
 # merchant starting wallet/market), discovered after survey only.
 # Compatible with the source archive + B-layer added Nadir bodies.
 places={
-    "sol.json":{"earth":{"rare_ore":0.16},"mars":{"rare_ore":0.28},"belt":{"rare_ore":0.45}},
-    "alpha_centauri.json":{"proxima":{"rare_ore":0.42}},
+    "sol.json":{"earth":{"rare_ore":0.16,"crystal_ore":0.035},"mars":{"rare_ore":0.28},"belt":{"rare_ore":0.45}},
+    "alpha_centauri.json":{"proxima":{"rare_ore":0.42,"crystal_ore":0.055}},
     "tau_ceti.json":{"slag-field":{"rare_ore":0.48,"crystal_ore":0.16}},
     "vega.json":{"vega-rim-belt":{"rare_ore":0.56,"crystal_ore":0.26}},
-    "nadir.json":{"nadir-wreckhold":{"rare_ore":0.20},
+    "nadir.json":{"nadir-wreckhold":{"rare_ore":0.20,"crystal_ore":0.045},
                   "nadir-black-belt":{"rare_ore":0.43,"crystal_ore":0.18}},
 }
 worlds=root/"priv/galaxy/data/worlds"
