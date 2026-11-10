@@ -271,7 +271,7 @@ function hubCard(parent,hub,index,report,select) {
   stationCard(parent,station,report,index);
   const sectionEl=section(parent,"ОБЪЕКТЫ УЗЛА");
   for(const fac of members.slice(0,30)) {
-    const button=node(doc,"button","priority-member",null);
+    const button=node(doc,"button","priority-member");
     button.type="button";
     button.append(node(doc,"span",null,ROLES[fac.type]??shown(fac.type)),
       node(doc,"small",null,shown(fac.name??fac.id)));
