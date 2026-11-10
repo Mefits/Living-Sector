@@ -45,3 +45,37 @@ jobs:
           assert checkpoints[-1]["starving_colonies"]==4
           print("Baseline checkpoints validated")
           PY
+
+
+  ship-glyph-scaling:
+    name: Verify 50-percent ship sprites without rebuilding game
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Extract ONLY browser renderer files from existing source ZIP
+        run: |
+          python - <<'PY'
+          import io
+          from pathlib import Path
+          from zipfile import ZipFile
+          outer=Path("ci-input/LS-GALAXY-03-CI-INPUT.zip")
+          with ZipFile(outer) as wrapper:
+              with ZipFile(io.BytesIO(wrapper.read("LS-AI-BLOCK-IV-SOURCES.zip"))) as archive:
+                  for filename in ("app.js","model.js","model.test.mjs","package.json"):
+                      path=f"Living-Sector-Galaxy-0.2/observer/{filename}"
+                      dest=Path("work/source")/path
+                      dest.parent.mkdir(parents=True,exist_ok=True)
+                      dest.write_bytes(archive.read(path))
+          print("Only 4 renderer files extracted, no Rust build needed")
+          PY
+      - name: Apply half-size ship rendering only
+        run: python ci/galaxy041/ship_glyphs_half.py
+      - name: Check JS and layout invariants for independent, parked and clustered ships
+        run: |
+          node --check work/source/Living-Sector-Galaxy-0.2/observer/app.js
+          node --test work/source/Living-Sector-Galaxy-0.2/observer/model.test.mjs
