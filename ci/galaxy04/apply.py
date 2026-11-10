@@ -37,3 +37,4 @@ print("Applied Galaxy 0.4 A financial-relief module")
 # The patch remains source-only; it does NOT trigger Windows CI per commit.
 import runpy
 runpy.run_path(str(checkout / "ci/galaxy04/colony_stock.py"), run_name="__main__")
+runpy.run_path(str(checkout / "ci/galaxy04/ship_liquidity.py"), run_name="__main__")
