@@ -6,6 +6,7 @@ on:
       - build/galaxy-03-ai-actions-20261110
     paths:
       - 'ci-input/*.zip'
+      - '.github/workflows/galaxy-ai-windows.yml'
   workflow_dispatch:
 
 permissions:
@@ -53,7 +54,7 @@ jobs:
         working-directory: work/source/Living-Sector-Galaxy-0.2
         run: |
           $ErrorActionPreference = 'Stop'
-          cargo build --release --locked -p sim_server --bin genesis_server
+          cargo build --release -p sim_server --bin genesis_server
           if ($LASTEXITCODE -ne 0) { throw 'Rust compilation failed. No Windows game was produced.' }
           if (!(Test-Path 'target/release/genesis_server.exe')) {
             throw 'Compiler reported success, but genesis_server.exe is missing.'
