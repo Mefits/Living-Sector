@@ -26,6 +26,22 @@ replace_once(observer/"app.js",
     'import {drawStationComplex,visualStationTier,stationScale,stationReveal} from "/observer/station-kit.js";',
     'import {drawStationComplex,visualStationTier,stationScale,stationReveal} from "/observer/station-kit.js";\n'
     'import {renderPriorityInspector} from "/observer/priority-inspector.js";')
+
+# Keep open technical details expanded on the same selection while live data
+# refreshes, otherwise a periodic render repeatedly collapses the panel.
+replace_once(observer/"app.js",
+    '  const previousScroll = selectionKey && selectionKey === lastInspectorSelection\n'
+    '    ? els.inspectorBody.scrollTop : 0;',
+    '  const previousScroll = selectionKey && selectionKey === lastInspectorSelection\n'
+    '    ? els.inspectorBody.scrollTop : 0;\n'
+    '  const keepTechnicalOpen = Boolean(selectionKey && selectionKey === lastInspectorSelection\n'
+    '    && els.inspectorBody.querySelector("details.priority-technical[open]"));')
+replace_once(observer/"app.js",
+    '    els.inspectorBody.scrollTop=previousScroll;\n    return;\n  }\n  const typeNames = {',
+    '    const technical = els.inspectorBody.querySelector("details.priority-technical");\n'
+    '    if(keepTechnicalOpen && technical)technical.open=true;\n'
+    '    els.inspectorBody.scrollTop=previousScroll;\n    return;\n  }\n  const typeNames = {')
+
 replace_once(observer/"app.js",
     '  const type = s.selection.type;\n  const typeNames = {',
     '''  const type = s.selection.type;
