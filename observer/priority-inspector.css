@@ -1,0 +1,35 @@
+/* Galaxy 0.4 Observer: task-first selection. Compact and readable without
+   invented ship routes, artificial stock capacity, or unsourced metrics. */
+.inspector-body .priority-header{position:relative;border-bottom:1px solid #355264;padding:4px 0 15px;margin-bottom:16px}
+.inspector-body .priority-kicker{color:#89a7b4;font-size:10px;letter-spacing:.14em;font-weight:700;text-transform:uppercase}
+.inspector-body .priority-faction{color:#e6f3f1;font-weight:750;font-size:18px;line-height:1.25;margin:7px 0 8px;overflow-wrap:anywhere}
+.inspector-body .priority-status{display:inline-block;background:#193438;border:1px solid #396d6a;color:#a8ded6;padding:3px 8px;border-radius:3px;font-size:10px}
+.inspector-body .priority-section{border:1px solid #304757;background:#101e29;border-radius:5px;padding:12px 13px;margin:0 0 10px;min-width:0}
+.inspector-body .priority-section-title{color:#82a7b8;font-size:10px;letter-spacing:.115em;font-weight:700;margin-bottom:9px}
+.inspector-body .priority-task{font-size:16px;color:#e5f4ee;font-weight:710;line-height:1.3;margin:1px 0 6px}
+.inspector-body .priority-line{display:grid;grid-template-columns:minmax(85px,42%) minmax(0,1fr);gap:10px;align-items:baseline;border-top:1px solid #233744;padding:7px 0;font-size:12px}
+.inspector-body .priority-line:first-of-type{border-top:none}
+.inspector-body .priority-label{color:#93aebb}
+.inspector-body .priority-value{color:#dae9e9;font-weight:620;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.inspector-body .priority-shortage .priority-value{color:#e5ad7a}
+.inspector-body .priority-muted{margin:8px 0 3px;color:#94a8b6;font-size:11px;line-height:1.4}
+.inspector-body .priority-warning{color:#dfad7e;font-size:11px;margin:8px 0 2px;line-height:1.4}
+.inspector-body .priority-progress{padding-top:8px;color:#9abac3;font-size:10px}
+.inspector-body .priority-progress-track{width:100%;height:6px;background:#1c313a;border:1px solid #31515a;border-radius:3px;margin-top:5px;overflow:hidden}
+.inspector-body .priority-progress-fill{height:100%;background:#67b3a5;transition:width .2s ease}
+.inspector-body .priority-technical{border-top:1px solid #345060;margin-top:11px;padding:9px 1px 12px}
+.inspector-body .priority-technical summary{font-size:11px;color:#86abb8;cursor:pointer;padding:5px 0;user-select:none}
+.inspector-body .priority-technical[open] summary{margin-bottom:10px}
+.inspector-body .priority-grade-line{display:grid;grid-template-columns:minmax(70px,1fr) 92px 38px;align-items:center;gap:10px;border-top:1px solid #2b4250;padding:9px 0;font-size:12px}
+.inspector-body .priority-grade-line>strong{font-size:10px;color:#dceae6;white-space:nowrap;font-variant-numeric:tabular-nums}
+.inspector-body .priority-grade-segments{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:3px;height:8px}
+.inspector-body .priority-grade-segments i{background:#253b47;border:1px solid #3a535f;border-radius:2px}
+.inspector-body .priority-grade-segments i.active{background:#67b3a5;border-color:#67b3a5}
+.inspector-body .priority-member{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;background:#152834;border:1px solid #304a59;padding:8px 9px;margin-top:5px;color:#d6e8eb;border-radius:3px;text-align:left;font-size:11px}
+.inspector-body .priority-member:hover,.inspector-body .priority-member:focus-visible{background:#214452}
+.inspector-body .priority-member small{color:#91adba;text-align:right;overflow-wrap:anywhere}
+@media(max-width:640px){
+  .inspector-body .priority-section{padding:10px}
+  .inspector-body .priority-header{margin-bottom:10px}
+  .inspector-body .priority-faction{font-size:16px}
+}
