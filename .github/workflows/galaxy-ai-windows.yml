@@ -1,4 +1,4 @@
-name: Galaxy 0.4C - Observer integration checkpoint
+name: Galaxy 0.4D - Full runtime smoke integration
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - feature/galaxy-04-block-a-economy-20261110
       - feature/galaxy-04-block-b-eight-systems-20261110
       - feature/galaxy-04-block-c-observer-priority-20261110
+      - feature/galaxy-04-block-d-runtime-smoke-20261110
     paths:
       - 'ci-input/*.zip'
       - '.github/workflows/galaxy-ai-windows.yml'
@@ -139,12 +140,28 @@ jobs:
             throw 'Compiler reported success, but genesis_server.exe is missing.'
           }
 
+      - name: Real Genesis gameplay smoke on fresh Windows database
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy04/smoke_run.py
+          if ($LASTEXITCODE -ne 0) { throw 'Live game startup, world and UI smoke failed.' }
+
+      - name: Upload standalone gameplay smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy-0.4-D-smoke-evidence
+          path: smoke-results/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Package portable playable Galaxy
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $project = Join-Path (Get-Location) 'work/source/Living-Sector-Galaxy-0.2'
-          $dist = Join-Path (Get-Location) 'release/Living-Sector-Galaxy-0.4-C-Windows'
+          $dist = Join-Path (Get-Location) 'release/Living-Sector-Galaxy-0.4-D-Windows'
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
           Copy-Item -LiteralPath (Join-Path $project 'target/release/genesis_server.exe') -Destination (Join-Path $dist 'Genesis-Server.exe')
@@ -163,18 +180,18 @@ jobs:
           }
 
           $launcher = Get-Content -LiteralPath (Join-Path $project 'START-GALAXY.cmd') -Raw
-          $launcher = $launcher.Replace('living-galaxy-02.db', 'living-galaxy-04-c.db')
+          $launcher = $launcher.Replace('living-galaxy-02.db', 'living-galaxy-04-d.db')
           $launcher = $launcher.Replace('set "LIVING_SECTOR_STRATEGY_MODE=execute"', "set `"LIVING_SECTOR_STRATEGY_MODE=execute`"`r`nset `"LIVING_SECTOR_PLANNER=hybrid`"`r`nset `"LIVING_SECTOR_PLANNER_SHADOW=0`"`r`nset `"LIVING_SECTOR_PLANNER_COMPARE=0`"")
-          $launcher = $launcher.Replace('Living Galaxy 0.2', 'Living Galaxy 0.4 C AI')
+          $launcher = $launcher.Replace('Living Galaxy 0.2', 'Living Galaxy 0.4 D AI')
           Set-Content -LiteralPath (Join-Path $dist 'START-GALAXY.cmd') -Value $launcher -Encoding ascii
 
           @'
-          Living Sector Galaxy 0.4-C Observer Integration (EXPERIMENTAL)
+          Living Sector Galaxy 0.4-D Full Integration (EXPERIMENTAL)
           1. Extract the ENTIRE archive to a writable folder.
           2. Double-click START-GALAXY.cmd. A server console opens and the
              graphical Observer map opens in your browser.
           3. Keep the server console open while playing. Ctrl+C stops it.
-          4. Saves use living-galaxy-04-c.db (separate from older builds).
+          4. Saves use living-galaxy-04-d.db (separate from older builds).
           5. Hybrid planner enabled. Simulation speed x16.
           6. Vector art catalogue shipped at observer/art-catalog/index.html.
              Those assets are reference placeholders; not every image is
@@ -184,13 +201,13 @@ jobs:
           '@ | Set-Content -LiteralPath (Join-Path $dist 'READ-ME-FIRST.txt') -Encoding utf8
 
           New-Item -ItemType Directory -Force -Path 'release' | Out-Null
-          Compress-Archive -LiteralPath $dist -DestinationPath 'release/Living-Sector-Galaxy-0.4-C-Windows.zip' -CompressionLevel Optimal -Force
-          Get-FileHash 'release/Living-Sector-Galaxy-0.4-C-Windows.zip' -Algorithm SHA256 | Format-List
+          Compress-Archive -LiteralPath $dist -DestinationPath 'release/Living-Sector-Galaxy-0.4-D-Windows.zip' -CompressionLevel Optimal -Force
+          Get-FileHash 'release/Living-Sector-Galaxy-0.4-D-Windows.zip' -Algorithm SHA256 | Format-List
 
       - name: Upload game ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: Living-Sector-Galaxy-0.4-C-Windows
-          path: release/Living-Sector-Galaxy-0.4-C-Windows.zip
+          name: Living-Sector-Galaxy-0.4-D-Windows
+          path: release/Living-Sector-Galaxy-0.4-D-Windows.zip
           if-no-files-found: error
           retention-days: 14
