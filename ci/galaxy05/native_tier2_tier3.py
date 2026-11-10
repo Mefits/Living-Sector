@@ -250,8 +250,10 @@ one(p,
 places={
     "sol.json":{"mars":{"rare_ore":0.28},"belt":{"rare_ore":0.45}},
     "alpha_centauri.json":{"proxima":{"rare_ore":0.42}},
-    "tau_ceti.json":{"tau-ceti-belt":{"rare_ore":0.48,"crystal_ore":0.16}},
+    "tau_ceti.json":{"slag-field":{"rare_ore":0.48,"crystal_ore":0.16}},
     "vega.json":{"vega-rim-belt":{"rare_ore":0.56,"crystal_ore":0.26}},
+    "nadir.json":{"nadir-wreckhold":{"rare_ore":0.20},
+                  "nadir-black-belt":{"rare_ore":0.43,"crystal_ore":0.18}},
 }
 worlds=root/"priv/galaxy/data/worlds"
 seeded=[]
@@ -267,6 +269,18 @@ for filename,target_ids in places.items():
                 body["resources"][key]=value
                 seeded.append((filename,body["id"],key))
     path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+"\n",encoding="utf8")
-if len(seeded)<3:
-    raise RuntimeError(f"Galaxy05 no rare deposits seeded: {seeded}")
-print("Galaxy05 E2-E4: four native commodities, paid research+recipes, tech-gated extraction and seeded geology",seeded)
+if len(seeded)<6 or not any(x[0]=="nadir.json" for x in seeded):
+    raise RuntimeError(f"Galaxy05 missing critical rare deposits: {seeded}")
+# Galaxy 0.4 grade metadata is still display-only, not an active mining
+# coefficient. Publish the new surveyable geology without changing yield.
+meta_path=root/"priv/galaxy/data/resource_grades.json"
+if meta_path.exists():
+    meta=json.loads(meta_path.read_text(encoding="utf8"))
+    for filename,body,key in seeded:
+        world=json.loads((worlds/filename).read_text(encoding="utf8"))
+        sys_id=world["system"]["id"]
+        richness=next(b["resources"][key] for b in world["bodies"] if b["id"]==body)
+        grade=1 if richness<.25 else 2 if richness<.45 else 3 if richness<.65 else 4 if richness<.85 else 5
+        meta["systems"].setdefault(sys_id,{}).setdefault(body,{})[key]=grade
+    meta_path.write_text(json.dumps(meta,ensure_ascii=False,indent=2)+"\n",encoding="utf8")
+print("Galaxy05 E2-E4: native commodities, paid research/recipes, surveyed extraction and geology",seeded)
