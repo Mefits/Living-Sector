@@ -51,3 +51,5 @@ runpy.run_path(str(checkout / "ci/galaxy04/corridors_report.py"), run_name="__ma
 runpy.run_path(str(checkout / "ci/galaxy04/observer_priority.py"), run_name="__main__")
 # Galaxy 0.4 D: register the new modular inspector as actual HTTP assets.
 runpy.run_path(str(checkout / "ci/galaxy04/runtime_ui_assets.py"), run_name="__main__")
+# Galaxy D3: only authoritative eight system lanes, never all-pairs shortcuts.
+runpy.run_path(str(checkout / "ci/galaxy04/no_interstellar_mesh.py"), run_name="__main__")
