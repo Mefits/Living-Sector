@@ -126,14 +126,13 @@ orders=core/"strategy/orders.rs"
 replace_once(orders,
     "    ids.sort();\n    let mut sites:",
     """    ids.sort_by(|a,b| {
-        let urgent=|id:&String|{
+        let priority=|id:&String|{
             let c=board.get(id).unwrap();
-            let priority=if matches!(c.commodity,Commodity::Food|Commodity::Water)
+            if matches!(c.commodity,Commodity::Food|Commodity::Water)
                 && c.contract_type!=ContractType::Passenger {0u8}
-                else if c.contract_type==ContractType::Passenger {1} else {2};
-            (priority,id)
+                else if c.contract_type==ContractType::Passenger {1} else {2}
         };
-        urgent(a).cmp(&urgent(b))
+        priority(a).cmp(&priority(b)).then_with(||a.cmp(b))
     });
     let mut sites:""")
 
