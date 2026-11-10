@@ -49,3 +49,13 @@ runpy.run_path(str(checkout / "ci/galaxy04/galaxy_lanes.py"), run_name="__main__
 runpy.run_path(str(checkout / "ci/galaxy04/corridors_report.py"), run_name="__main__")
 # Galaxy C: DOM-only inspector, no changes to server simulation.
 runpy.run_path(str(checkout / "ci/galaxy04/observer_priority.py"), run_name="__main__")
+# Galaxy 0.4 D: register the new modular inspector as actual HTTP assets.
+runpy.run_path(str(checkout / "ci/galaxy04/runtime_ui_assets.py"), run_name="__main__")
+# Galaxy D3: only authoritative eight system lanes, never all-pairs shortcuts.
+runpy.run_path(str(checkout / "ci/galaxy04/no_interstellar_mesh.py"), run_name="__main__")
+# D4: strategy can plan over connected corridors; ships still move leg by leg.
+runpy.run_path(str(checkout / "ci/galaxy04/strategy_multihop.py"), run_name="__main__")
+# D5: physical transit cannot silently jump over absent graph edges.
+runpy.run_path(str(checkout / "ci/galaxy04/no_phantom_ship_travel.py"), run_name="__main__")
+# D6: only adjust legacy TEST fixtures to register their graph vertices.
+runpy.run_path(str(checkout / "ci/galaxy04/register_test_locations.py"), run_name="__main__")
