@@ -1,4 +1,4 @@
-name: Galaxy 0.3 - Windows AI build
+name: Galaxy 0.4A - Economy checkpoint
 
 on:
   push:
@@ -69,6 +69,26 @@ jobs:
           python ci/galaxy04/apply.py
           if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4 A source overlay failed.' }
 
+      - name: Check Galaxy 0.4 A integration
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo check -p sim_core -p sim_server
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4 integration has Rust compilation errors.' }
+
+      - name: Focused Galaxy 0.4 A regression tests
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_core --lib agents::faction::relief::tests --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Credit conservation tests failed.' }
+          cargo test -p sim_core --lib galaxy04_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'A2-A6 integration tests failed.' }
+          cargo test -p sim_core --lib strategy::orders::tests::station_order --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Native station dispatch regression failed.' }
+
       - name: Build fresh Windows Genesis server (hybrid AI)
         shell: pwsh
         working-directory: work/source/Living-Sector-Galaxy-0.2
@@ -79,14 +99,6 @@ jobs:
           if (!(Test-Path 'target/release/genesis_server.exe')) {
             throw 'Compiler reported success, but genesis_server.exe is missing.'
           }
-
-      - name: Focused Galaxy 0.4 A money-conservation tests
-        shell: pwsh
-        working-directory: work/source/Living-Sector-Galaxy-0.2
-        run: |
-          $ErrorActionPreference = 'Stop'
-          cargo test -p sim_core --lib agents::faction::relief::tests --quiet
-          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4 A fiscal tests failed.' }
 
       - name: Package portable playable Galaxy
         shell: pwsh
