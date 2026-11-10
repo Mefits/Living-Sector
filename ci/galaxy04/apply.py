@@ -59,3 +59,7 @@ runpy.run_path(str(checkout / "ci/galaxy04/strategy_multihop.py"), run_name="__m
 runpy.run_path(str(checkout / "ci/galaxy04/no_phantom_ship_travel.py"), run_name="__main__")
 # D6: only adjust legacy TEST fixtures to register their graph vertices.
 runpy.run_path(str(checkout / "ci/galaxy04/register_test_locations.py"), run_name="__main__")
+# Galaxy 0.4.1: ONE combined economic fix from all 3 playtest snapshots.
+runpy.run_path(str(checkout / "ci/galaxy041/unified.py"), run_name="__main__")
+runpy.run_path(str(checkout / "ci/galaxy041/colony_aftercare.py"), run_name="__main__")
+runpy.run_path(str(checkout / "ci/galaxy041/native_regressions.py"), run_name="__main__")
