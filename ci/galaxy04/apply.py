@@ -55,3 +55,5 @@ runpy.run_path(str(checkout / "ci/galaxy04/runtime_ui_assets.py"), run_name="__m
 runpy.run_path(str(checkout / "ci/galaxy04/no_interstellar_mesh.py"), run_name="__main__")
 # D4: strategy can plan over connected corridors; ships still move leg by leg.
 runpy.run_path(str(checkout / "ci/galaxy04/strategy_multihop.py"), run_name="__main__")
+# D5: physical transit cannot silently jump over absent graph edges.
+runpy.run_path(str(checkout / "ci/galaxy04/no_phantom_ship_travel.py"), run_name="__main__")
