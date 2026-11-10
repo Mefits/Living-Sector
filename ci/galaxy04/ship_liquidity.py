@@ -50,7 +50,7 @@ fn cargo_liquidation_target(
         // recommend a market that will immediately reject its first lot.
         let first = cargo.cargo.iter()
             .filter(|(_, quantity)| **quantity > 0)
-            .filter(|(commodity, _)| prices.contains_key(commodity))
+            .filter(|(commodity, _)| prices.contains_key(*commodity))
             .min_by_key(|(commodity, _)| commodity.as_str());
         let Some((commodity, quantity)) = first else { continue; };
         let price = prices[commodity].price
