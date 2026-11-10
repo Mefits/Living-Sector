@@ -129,6 +129,15 @@ one(p,"""    // Farm
                   (Commodity::Fuel, 2)],
         outputs: &[(Commodity::Alloys, 5)],
     },
+    // A fully occupied T1 capital can retrofit its own refinery
+    // after buying this research; no free extra fifth facility needed.
+    Recipe {
+        id: "smelt_alloys_t2_retrofit",
+        facility_type: "refinery",
+        inputs: &[(Commodity::RareOre, 4), (Commodity::Metals, 4),
+                  (Commodity::Fuel, 2)],
+        outputs: &[(Commodity::Alloys, 5)],
+    },
     // T3 — dependent on T2 output and one second surveyed mineral.
     Recipe {
         id: "fabricate_quantum_cores_t3",
@@ -229,6 +238,16 @@ one(p,
             // Bundle 1.5: LOD gate — off-screen facilities skip
             // recipes on ticks they aren't firing.""")
 one(p,
+  """            for recipe in recipes::for_facility_type(&fac.facility_type) {
+                let produced = if is_farm {""",
+  """            for recipe in recipes::for_facility_type(&fac.facility_type) {
+                // Retrofit is a native, paid recipe available after research.
+                if recipe.id=="smelt_alloys_t2_retrofit" &&
+                    !crate::strategy::director::has(world,&fac.faction_id,"alloytech2") {
+                    continue;
+                }
+                let produced = if is_farm {""")
+one(p,
   """            for (commodity, richness) in body_resources {
                 if !richness.is_finite() || richness <= 0.0 { continue; }""",
   """            for (commodity, richness) in body_resources {
@@ -248,7 +267,7 @@ one(p,
 # merchant starting wallet/market), discovered after survey only.
 # Compatible with the source archive + B-layer added Nadir bodies.
 places={
-    "sol.json":{"mars":{"rare_ore":0.28},"belt":{"rare_ore":0.45}},
+    "sol.json":{"earth":{"rare_ore":0.16},"mars":{"rare_ore":0.28},"belt":{"rare_ore":0.45}},
     "alpha_centauri.json":{"proxima":{"rare_ore":0.42}},
     "tau_ceti.json":{"slag-field":{"rare_ore":0.48,"crystal_ore":0.16}},
     "vega.json":{"vega-rim-belt":{"rare_ore":0.56,"crystal_ore":0.26}},
