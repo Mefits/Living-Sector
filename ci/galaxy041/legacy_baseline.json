@@ -1,0 +1,57 @@
+{
+  "format": "living-sector-observer-baseline-v1",
+  "origin": "Three user-provided Galaxy 0.4-D Observer Diagnostics; different world seed from any new automated run",
+  "source_files": [
+    "LivingSector-Diagnostics-t3404-2026-11-10T21-09-36.172Z.json",
+    "LivingSector-Diagnostics-t10658-2026-11-10T21-17-40.648Z.json",
+    "LivingSector-Diagnostics-t18448-2026-11-10T21-26-23.580Z.json"
+  ],
+  "caution": "Descriptive comparison only. Random world seed, decision timing and colony count can differ. Lower colony count may hide failures; compare both absolute and per-colony rates.",
+  "snapshots": [
+    {
+      "tick": 3404,
+      "colonies": 3,
+      "ship_credits": 1408736,
+      "faction_treasuries": 743895,
+      "facility_credits": 301682,
+      "household_credits": 200776,
+      "starving_colonies": 3,
+      "colonies_without_food_stock": 3,
+      "zero_credit_colonies": 0,
+      "paid_food_contracts": 4,
+      "expired_food_contracts": 2,
+      "paid_metals_contracts": 14,
+      "stalled_material_sites": 2
+    },
+    {
+      "tick": 10658,
+      "colonies": 6,
+      "ship_credits": 1977329,
+      "faction_treasuries": 284655,
+      "facility_credits": 27324,
+      "household_credits": 276255,
+      "starving_colonies": 2,
+      "colonies_without_food_stock": 2,
+      "zero_credit_colonies": 1,
+      "paid_food_contracts": 11,
+      "expired_food_contracts": 12,
+      "paid_metals_contracts": 35,
+      "stalled_material_sites": 5
+    },
+    {
+      "tick": 18448,
+      "colonies": 6,
+      "ship_credits": 2048271,
+      "faction_treasuries": 67080,
+      "facility_credits": 18606,
+      "household_credits": 381139,
+      "starving_colonies": 4,
+      "colonies_without_food_stock": 3,
+      "zero_credit_colonies": 2,
+      "paid_food_contracts": 13,
+      "expired_food_contracts": 16,
+      "paid_metals_contracts": 41,
+      "stalled_material_sites": 4
+    }
+  ]
+}
