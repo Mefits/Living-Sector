@@ -63,3 +63,4 @@ runpy.run_path(str(checkout / "ci/galaxy04/register_test_locations.py"), run_nam
 runpy.run_path(str(checkout / "ci/galaxy041/unified.py"), run_name="__main__")
 runpy.run_path(str(checkout / "ci/galaxy041/colony_aftercare.py"), run_name="__main__")
 runpy.run_path(str(checkout / "ci/galaxy041/native_regressions.py"), run_name="__main__")
+runpy.run_path(str(checkout / "ci/galaxy041/expansion_gate.py"), run_name="__main__")
