@@ -66,7 +66,7 @@ jobs:
           outer=Path("ci-input/LS-GALAXY-03-CI-INPUT.zip")
           with ZipFile(outer) as wrapper:
               with ZipFile(io.BytesIO(wrapper.read("LS-AI-BLOCK-IV-SOURCES.zip"))) as archive:
-                  for filename in ("app.js","model.js","model.test.mjs","package.json"):
+                  for filename in ("app.js","model.js","model.test.mjs","package.json","native.html"):
                       path=f"Living-Sector-Galaxy-0.2/observer/{filename}"
                       dest=Path("work/source")/path
                       dest.parent.mkdir(parents=True,exist_ok=True)
