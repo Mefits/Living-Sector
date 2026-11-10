@@ -33,3 +33,7 @@ entry.write_text(text, encoding="utf-8")
 module.parent.mkdir(parents=True, exist_ok=True)
 shutil.copyfile(checkout / "ci/galaxy04/relief.rs", module)
 print("Applied Galaxy 0.4 A financial-relief module")
+# A2: estimate colony buffers using actual household purchase rates.
+# The patch remains source-only; it does NOT trigger Windows CI per commit.
+import runpy
+runpy.run_path(str(checkout / "ci/galaxy04/colony_stock.py"), run_name="__main__")
