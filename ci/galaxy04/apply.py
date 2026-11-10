@@ -53,3 +53,5 @@ runpy.run_path(str(checkout / "ci/galaxy04/observer_priority.py"), run_name="__m
 runpy.run_path(str(checkout / "ci/galaxy04/runtime_ui_assets.py"), run_name="__main__")
 # Galaxy D3: only authoritative eight system lanes, never all-pairs shortcuts.
 runpy.run_path(str(checkout / "ci/galaxy04/no_interstellar_mesh.py"), run_name="__main__")
+# D4: strategy can plan over connected corridors; ships still move leg by leg.
+runpy.run_path(str(checkout / "ci/galaxy04/strategy_multihop.py"), run_name="__main__")
