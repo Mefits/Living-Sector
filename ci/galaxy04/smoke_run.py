@@ -106,8 +106,22 @@ with tempfile.TemporaryDirectory(prefix="living-sector-galaxy04d-") as temp:
             checked("economy seeded",len(report.get("markets",[]))>=3 and
                     len(report.get("populations",[]))>=3)
             links=report.get("system_links",[])
-            checked("native interstellar corridors in report",
-                    isinstance(links,list) and len(links)>=8,links)
+            expected_lanes={
+                frozenset(("Sol","Alpha Centauri")),
+                frozenset(("Sol","Epsilon Eridani")),
+                frozenset(("Alpha Centauri","Tau Ceti")),
+                frozenset(("Epsilon Eridani","Tau Ceti")),
+                frozenset(("Tau Ceti","Vega")),
+                frozenset(("Vega","Lalande")),
+                frozenset(("Tau Ceti","Barnard's Star")),
+                frozenset(("Barnard's Star","Nadir")),
+            }
+            actual_lanes={frozenset((e.get("a"),e.get("b"))) for e in links}
+            checked("EXACTLY eight true interstellar corridors (no complete mesh)",
+                    isinstance(links,list) and len(links)==8 and
+                    actual_lanes==expected_lanes,
+                    {"expected":[sorted(a) for a in expected_lanes],
+                     "actual":links})
             for e in links:
                 checked("corridor endpoints correspond to real systems",
                         e.get("a") in names and e.get("b") in names
