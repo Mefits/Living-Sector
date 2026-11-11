@@ -1,0 +1,55 @@
+name: Galaxy 0.6.4 - player policy affects real head decisions
+
+on:
+  push:
+    branches:
+      - feature/galaxy-064-policy-effective-decisions
+    paths:
+      - 'native/crates/sim_core/src/strategy.rs'
+      - 'native/crates/sim_core/src/strategy/coordination.rs'
+      - 'native/crates/sim_core/src/strategy/director.rs'
+      - 'native/observer/governance-approvals.html'
+      - 'native/observer/governance-economy.html'
+      - 'native/observer/governance-charter.html'
+      - '.github/workflows/native-064-policy-effective-decisions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  policy-targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Only relevant existing and new Galaxy 0.6 player governance tests
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          cargo test --locked -p sim_core --lib galaxy06 -- --nocapture
+      - name: Verify syntax of the three changed native player panels
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          files=[
+            'observer/governance-approvals.html',
+            'observer/governance-economy.html',
+            'observer/governance-charter.html'
+          ]
+          for i,path in enumerate(files):
+            html=Path(path).read_text()
+            assert html.count('<script>')==1 and html.count('</script>')==1,path
+            Path(f'/tmp/living-sector-policy-{i}.js').write_text(
+              html.split('<script>',1)[1].split('</script>',1)[0])
+          PY
+          for f in /tmp/living-sector-policy-*.js; do node --check "$f"; done
+      - name: Acceptance boundary
+        if: always()
+        run: |
+          echo 'Policy decision, approval vs autonomy, exact grant, advisory/hold and UI; no full-world run or economy replay.' >> "$GITHUB_STEP_SUMMARY"
