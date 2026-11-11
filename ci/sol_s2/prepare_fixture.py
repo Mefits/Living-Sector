@@ -32,7 +32,7 @@ def prepare(source: Path, dest: Path):
         r.get("from"),r.get("to")}=={"earth-station","alpha-station"}]
     assert len(lanes)==1, "Expected original existing Sol-Alpha corridor"
     original_distance=lanes[0]["distance"]
-    lanes[0]["distance"]=6
+    lanes[0]["distance"]=1
 
     haulers=[s for s in sol["ships"] if s["class"]=="hauler"
         and s["faction_id"]=="terran-authority"]
@@ -50,7 +50,7 @@ def prepare(source: Path, dest: Path):
     return {"kind":"test-only-real-native-gas-fixture",
             "production_sources_unchanged":True,
             "sol_alpha_route_distance_original":original_distance,
-            "sol_alpha_route_distance_test":6,
+            "sol_alpha_route_distance_test":1,
             "hauler_start":"alpha-station",
             "hauler_start_credits":950,
             "hauler_fitting":hauler["fitting"],
