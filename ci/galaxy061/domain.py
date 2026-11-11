@@ -129,6 +129,21 @@ impl EconomicMandate {
         })
     }
 }
+/// A *built* native facility with a matching real recipe exists at the
+/// station. This is NOT proof of paid production: input goods, staffing,
+/// faction research and actual shift receipts are separate requirements.
+pub fn native_producer_exists(
+    world:&mut World,faction:&str,location:&str,commodity:Commodity
+)->bool{
+    use crate::agents::facility::{FacilityIdentity,FacilityLocation};
+    world.query::<(&FacilityIdentity,&FacilityLocation)>().iter(world).any(
+        |(id,loc)|id.faction_id==faction &&
+            loc.location_name==location &&
+            crate::economy::recipes::RECIPES.iter().any(
+                |recipe|recipe.facility_type==id.facility_type &&
+                    recipe.outputs.iter().any(|&(c,_)|c==commodity))
+    )
+}
 /// Existing per-shift/reward/escrow spending remains in Genesis. This
 /// is only authorization for an additional *mandated* native proposal.
 pub fn may_commission(m:&EconomicMandate,treasury:i64,payment:i64)->Result<(),&'static str>{
