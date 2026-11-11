@@ -4,9 +4,10 @@ use std::collections::{HashMap, HashSet};
 use bevy_ecs::prelude::World;
 use serde::{Deserialize, Serialize};
 use crate::{
-    agents::{celestial_body::{BodyIdentity, BodyOrbit}, construction::ConstructionSite, faction_relations::{FactionRelations, commerce_allowed, market_controllers},
-        market::{MarketIdentity, MarketPricing}, ship::{ShipIdentity, ShipPosition, ShipTransit, ShipCargo, ShipEconomy, ShipFuel}},
-    economy::{commodities::Commodity, contracts::{Contract, ContractBoard, ContractStatus, ContractType}},
+    agents::{celestial_body::{BodyIdentity, BodyOrbit}, construction::ConstructionSite, faction_relations::{FactionRelations, commerce_allowed, market_controllers, trade_pact_payment_multiplier},
+        facility::{FacilityIdentity, FacilityOperations},
+        market::{MarketIdentity, MarketPricing}, ship::{ShipIdentity, ShipPosition, ShipTransit, ShipCargo, ShipEconomy, ShipFuel, ShipFitting, CROSS_SYSTEM_SENSOR_RANGE_AU}},
+    economy::{commodities::Commodity, contracts::{Contract, ContractBoard, ContractStatus, ContractType, FundingSource}},
     world::registry::WorldRegistry,
 };
 
@@ -48,8 +49,14 @@ pub struct OrderView {
 
 pub fn contract_order(c: &Contract) -> Option<&Order> { c.funding.as_ref()?.station_order.as_ref() }
 pub fn may_accept(c: &Contract, ship: &str, faction: &str) -> bool {
-    contract_order(c).is_none_or(|o| c.faction_id.as_deref()==Some(faction)
-        && o.executor_id.as_deref()==Some(ship))
+    contract_order(c).is_none_or(|o| {
+        // Ordinary facility requests remain public while no native carrier
+        // is assigned. A blocked order must not monopolize the market.
+        if c.funding.as_ref().is_some_and(|f|f.source==FundingSource::Facility)
+            && o.executor_id.is_none() { return true; }
+        c.faction_id.as_deref()==Some(faction)
+            && o.executor_id.as_deref()==Some(ship)
+    })
 }
 pub fn assigned_contract<'a>(board: &'a ContractBoard, ship: &str) -> Option<&'a Contract> {
     board.iter().filter(|c| matches!(c.status, ContractStatus::Posted|ContractStatus::Accepted|ContractStatus::PickedUp)
@@ -62,7 +69,35 @@ pub fn builder_assigned(world:&mut World, ship:&str)->bool {
 }
 
 struct Carrier { id:String, faction:String, class:String, location:String, free:u32,
-    credits:i64, fuel:f32, speed:f32, busy:bool, reputation:HashMap<String,u8> }
+    credits:i64, fuel:f32, speed:f32, busy:bool, reputation:HashMap<String,u8>,
+    sensors:f32, comms_bonus:f32 }
+
+/// Only an already posted, actually escrowed facility *delivery* may be
+/// rescued by the station administrator. Never manufacture new contracts,
+/// broaden passenger/building jobs, or interfere with early private trades.
+fn facility_relief(c:&Contract,tick:u64)->bool {
+    c.status==ContractStatus::Posted && c.contract_type==ContractType::Delivery
+        && c.faction_id.as_deref().is_some_and(|id|!id.is_empty())
+        && c.funding.as_ref().is_some_and(|f|
+            f.source==FundingSource::Facility && f.reserved>0)
+        && tick.saturating_sub(c.posted_at_tick)>=super::UNASSIGNED_DIAGNOSTIC_AGE_TICKS
+}
+fn facility_order(c:&Contract)->bool {
+    c.contract_type==ContractType::Delivery && c.funding.as_ref().is_some_and(|f|
+        f.source==FundingSource::Facility && f.station_order.is_some())
+}
+
+/// The normal ship planner requires >=T2 sensors for a different system.
+/// Delegating a facility order must NOT unlock interstellar visibility for
+/// T1 ships (unlike specially surveyed prepaid faction projects).
+fn facility_sensors_allow(s:&Carrier,c:&Contract,location_system:&HashMap<String,String>)->bool {
+    if s.sensors >= CROSS_SYSTEM_SENSOR_RANGE_AU {return true;}
+    match (location_system.get(&s.location),location_system.get(&c.source_location),
+        location_system.get(&c.destination_location)) {
+        (Some(ship),Some(source),Some(dest))=>ship==source && source==dest,
+        _=>false, // fail closed if topology is unknown
+    }
+}
 fn distance(registry: &WorldRegistry, from: &str, to: &str) -> Option<u32> {
     if from==to { Some(0) } else { registry.shortest_distance(from,to) }
 }
@@ -83,17 +118,33 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
         .and_then(|location| orbits.get(&location.celestial_body_id))
         .is_some_and(|orbit| super::colony::can_rendezvous(orbit, speed));
     let galaxy = world.get_resource::<super::director::Director>().is_some();
+    let fittings:HashMap<String,(f32,f32)>=world.query::<(&ShipIdentity,&ShipFitting)>()
+        .iter(world).map(|(id,fit)|(id.id.clone(),(fit.derived.sensor_range_au,fit.derived.comms_bonus))).collect();
+    let facility_payers:HashMap<String,i64>=world.query::<(&FacilityIdentity,&FacilityOperations)>()
+        .iter(world).map(|(id,ops)|(id.id.clone(),ops.credits)).collect();
+    let body_systems:HashMap<i64,String>=world.query::<&BodyIdentity>().iter(world)
+        .map(|id|(id.db_id,id.system_name.clone())).collect();
+    let location_system:HashMap<String,String>=registry.locations.iter()
+        .filter_map(|(loc,info)|body_systems.get(&info.celestial_body_id)
+            .map(|sys|(loc.clone(),sys.clone()))).collect();
     let mut ships:Vec<_>=world.query::<(&ShipIdentity,&ShipPosition,&ShipTransit,&ShipCargo,&ShipEconomy,&ShipFuel)>().iter(world)
-        .map(|(id,p,t,c,e,f)|Carrier {id:id.id.clone(),faction:id.faction_id.clone(),class:id.class.clone(),
+        .map(|(id,p,t,c,e,f)|{
+            let (sensors,comms_bonus)=fittings.get(&id.id).copied().unwrap_or((1.0,0.0));
+            Carrier {id:id.id.clone(),faction:id.faction_id.clone(),class:id.class.clone(),
             location:p.location_name.clone().unwrap_or_default(),free:c.free(),credits:e.credits,fuel:f.fraction(),speed:f.speed_modifier,
             busy:t.transit.is_some() || e.active_contract_id.is_some() || e.transaction.pending.is_some() || (!galaxy && c.used()>0),
-            reputation:e.faction_reputation.clone()}).collect();
+            reputation:e.faction_reputation.clone(),sensors,comms_bonus}
+        }).collect();
     ships.sort_by(|a,b|a.id.cmp(&b.id));
     let alive:HashSet<_>=ships.iter().map(|s|s.id.as_str()).collect();
     let mut used:HashSet<String>=board.iter().filter(|c|matches!(c.status,ContractStatus::Accepted|ContractStatus::PickedUp|ContractStatus::Delivered))
         .filter_map(|c|c.fulfiller_id.clone()).collect();
-    let mut ids:Vec<_>=board.iter().filter(|c| c.fixed_strategy_reward().is_some()
-        && (contract_order(c).is_some() || c.fulfiller_id.as_ref().is_none_or(|id|ships.iter().any(|s|s.id==*id && c.faction_id.as_deref()==Some(s.faction.as_str()))))).map(|c|c.id.clone()).collect();
+    let mut ids:Vec<_>=board.iter().filter(|c|
+        c.fixed_strategy_reward().is_some() || facility_relief(c,tick) || facility_order(c))
+        .filter(|c|contract_order(c).is_some() ||
+            c.fulfiller_id.as_ref().is_none_or(|id|ships.iter().any(|s|
+                s.id==*id && c.faction_id.as_deref()==Some(s.faction.as_str()))))
+        .map(|c|c.id.clone()).collect();
     ids.sort_by(|a,b| {
         let priority=|id:&String|{
             let c=board.get(id).unwrap();
@@ -126,8 +177,12 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
         // A fixed strategy reward is authorized only when fully escrowed.
         // Prevent the station dispatcher from tying a carrier to an order
         // that the exclusive acceptance phase must reject.
-        let funded = c.fixed_strategy_reward().is_some_and(|reward|
-            c.funding_top_up(reward) == Ok(0));
+        let funded = if facility_order(c) || facility_relief(c,tick) {
+            c.funding.as_ref().is_some_and(|f|f.source==FundingSource::Facility
+                && f.reserved>0)
+        } else {
+            c.fixed_strategy_reward().is_some_and(|reward|c.funding_top_up(reward)==Ok(0))
+        };
         let o=c.funding.as_mut().unwrap().station_order.get_or_insert_with(||Order::new("delivery",id));
         match c.status {
             ContractStatus::Paid => {o.state="completed".into();o.blocked_reason=None;},
@@ -161,14 +216,21 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
     for id in ids {
         let c=board.get(&id).unwrap();
         let o=contract_order(c).unwrap();
+        let facility=c.funding.as_ref().is_some_and(|f|f.source==FundingSource::Facility);
+        let authorized=if facility {
+            c.contract_type==ContractType::Delivery &&
+                c.funding.as_ref().is_some_and(|f|f.reserved>0)
+        } else {c.fixed_strategy_reward().is_some_and(|reward|c.funding_top_up(reward)==Ok(0))};
         if c.status!=ContractStatus::Posted || o.executor_id.is_some() || tick<o.retry_after_tick
-            || !c.fixed_strategy_reward().is_some_and(|reward|c.funding_top_up(reward)==Ok(0)) {continue;}
+            || !authorized {continue;}
         let faction=c.faction_id.as_deref().unwrap_or("");
         let source_owner=owners.get(&c.source_location).map_or("",String::as_str);
         let destination_owner=owners.get(&c.destination_location).map_or("",String::as_str);
         let selected=ships.iter().filter(|s|!faction.is_empty() && s.faction==faction && !s.busy && !used.contains(&s.id))
             .filter_map(|s| {
                 if !commerce_allowed(relations,&s.faction,source_owner) || !commerce_allowed(relations,&s.faction,destination_owner) {return None;}
+                if facility && !facility_sensors_allow(s,c,&location_system) {return None;}
+                if facility && s.reputation.get(faction).copied().unwrap_or(0)<c.min_reputation {return None;}
                 let route=distance(registry,&s.location,&c.source_location)?.saturating_add(distance(registry,&c.source_location,&c.destination_location)?);
                 if c.mission_category.as_deref() == Some(super::colony::PROJECT_TAG)
                     && !reachable(&c.destination_location, s.speed) { return None; }
@@ -182,7 +244,18 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
                 if !stock.is_finite() || stock<c.quantity as f32 {return None;}
                 let cost=super::sourcing::purchase_cost(market.price(c.commodity),c.quantity,relations,&s.faction,
                     s.reputation.get(source_owner).copied().unwrap_or(0),source_owner)?;
-                if cost>=c.initial_payment || cost>s.credits {return None;}
+                let reward=if facility {
+                    // The exclusive native Accept path will repeat these
+                    // checks and atomically debit any escrow top-up.
+                    let treaty=trade_pact_payment_multiplier(relations,&s.faction,faction);
+                    let reward=c.acceptance_payment(s.comms_bonus,treaty).ok()?;
+                    let top_up=c.funding_top_up(reward).ok()?;
+                    if top_up>facility_payers.get(&c.requestor_id).copied().unwrap_or(-1) {
+                        return None;
+                    }
+                    reward
+                }else{c.initial_payment};
+                if cost>=reward || cost>s.credits {return None;}
                 Some((s.fuel<0.25,route,s.id.as_str()))
             }).min().map(|(_,_,id)|id.to_string());
         // Galaxy 0.4 A4: a prepaid station contract is a commitment to
@@ -191,7 +264,7 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
         // alternative market and a specific idle carrier can execute it.
         // Do NOT move money, create goods or change an accepted contract.
         let mut assignment = selected.map(|ship| (c.source_location.clone(), ship));
-        if assignment.is_none() && c.contract_type != ContractType::Passenger {
+        if assignment.is_none() && !facility && c.contract_type != ContractType::Passenger {
             let mut viable: Vec<(bool, u32, i64, String, String)> = Vec::new();
             for (other_source, market) in &markets {
                 if other_source == &c.source_location || other_source == &c.destination_location {
@@ -235,6 +308,10 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
                 None => "source_market_missing",
                 Some(m) if m.supply.get(&contract.commodity).copied().unwrap_or(0.0)
                     < contract.quantity as f32 => "source_stock_short",
+                _ if facility && !ships.iter().any(|s|s.faction==faction &&
+                    facility_sensors_allow(s,contract,&location_system)) => "no_sensor_qualified_carrier",
+                _ if facility && !ships.iter().any(|s|s.faction==faction &&
+                    !s.busy && !used.contains(&s.id)) => "all_carriers_busy",
                 _ => "no_viable_local_carrier",
             };
             contract.funding.as_mut().unwrap().station_order.as_mut().unwrap()
