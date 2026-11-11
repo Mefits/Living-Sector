@@ -17,6 +17,8 @@ addition=r'''    #[test]
         // Water is an ACTUAL existing source product, not a shadow yield.
         world.get_mut::<MarketPricing>(source).unwrap().supply
             .insert(Commodity::Water,500.0);
+        world.get_mut::<MarketPricing>(source).unwrap().prices
+            .insert(Commodity::Water,1.0);
         world.get_mut::<MarketPricing>(port).unwrap().demand
             .insert(Commodity::Water,80.0);
         world.insert_resource(director::Director::default());
@@ -41,6 +43,7 @@ addition=r'''    #[test]
         assert_eq!(board.iter().count(),0);
         assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,20_000);
 
+        world.resource_mut::<StrategyState>().mode=Mode::Execute;
         let mut events=Vec::new();
         coordination::run_cycle(&mut world,&mut board,&relations,&mut events,120,1);
         let funded:Vec<_>=board.iter().filter(|contract|
@@ -65,6 +68,8 @@ addition=r'''    #[test]
         let (mut world,mut board,owner,port,source)=fixture(Mode::Execute);
         world.get_mut::<MarketPricing>(source).unwrap().supply
             .insert(Commodity::Water,500.0);
+        world.get_mut::<MarketPricing>(source).unwrap().prices
+            .insert(Commodity::Water,1.0);
         world.get_mut::<MarketPricing>(port).unwrap().demand
             .insert(Commodity::Water,80.0);
         world.insert_resource(director::Director::default());
