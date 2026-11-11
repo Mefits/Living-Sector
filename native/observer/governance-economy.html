@@ -84,6 +84,17 @@ let live=null, pending=null, first=true;
 const numeric=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))
   ?Number(n).toLocaleString("ru-RU"):"—";
 const funds=n=>{const v=numeric(n);return v==="—"?"—":v+" CR";};
+const policyStatus={
+ hold:"Удерживать: поручение не выдаёт заказов",
+ advisory:"Советовать: цель видна, но не исполняется как приказ",
+ charter_autonomous:"Устав оставил автономное управление фракции",
+ survival_override:"Приоритет выживания выше поручения",
+ native_contract_linked:"Реальный оплаченный контракт привязан к поручению",
+ selected_by_head:"Глава выбрал поручение, исполнение подтверждается отдельно",
+ awaiting_specific_approval:"Требуется ваше одобрение конкретной сметы",
+ not_selected:"Поручение не выбрано в этом цикле"
+};
+
 function show(message,bad=false){el("notice").textContent=message;el("notice").classList.toggle("error",bad)}
 function addRow(node,label,value){
  const row=document.createElement("div");row.className="line";
@@ -152,6 +163,13 @@ function render(){
  const d=el("director");d.replaceChildren();
  addRow(d,"Решение главы",head?.selected_option||"—");
  addRow(d,"Причина",head?.reason||"—");
+ const policy=head?.policy_impacts?.find(p=>p.department==="economy");
+ addRow(d,"Влияние вашего поручения",policy
+   ? policyStatus[policy.status]||policy.status:"Нет данных от Главы");
+ addRow(d,"Приоритет по уставу",Number.isSafeInteger(policy?.priority)
+   ? policy.priority+"/100":"Устав не установлен");
+ addRow(d,"Причина выбора / блокировки",policy?.reason||"—");
+ if(policy?.funded_contract_id)addRow(d,"Оплаченный контракт",policy.funded_contract_id);
  addRow(d,"Запланированный расход",funds(head?.planned_spend));
  addRow(d,"Подтверждённый расход",funds(head?.committed_spend));
  const projects=(live.report.construction_sites||[]).filter(s=>s.faction_id===faction&&s.location_name===location);
