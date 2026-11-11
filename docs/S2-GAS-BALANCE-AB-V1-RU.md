@@ -22,3 +22,17 @@ Read-only source: https://github.com/Mefits/Living-Sector/actions/runs/430429956
 CI https://github.com/Mefits/Living-Sector/actions/runs/43044057840 must verify Rust regressions, build Windows Genesis directly from native source, run a single 1250-tick game on the SAME test-only physical geometry (Alpha 4,0 / nominal lane 1), then compare with the existing baseline artifact from run 43038799967. It must separately report exact native gas receipt quantity, Earth shortage count/positive stock observations, Alpha remaining gas, and whether new production causes unintended shortages.
 
 This is ONE seed, one shortened test geometry. Even if improved, it DOES NOT prove default-world sustainable economy, repeated-crisis resilience, save compatibility or full food/water support. Do not automatically merge this branch to main or stable. If variant worsens logistics or exhausts payer funds, reject it or adjust after inspecting native evidence.
+
+## Actual A/B results (complete, 11 Nov 2026)
+
+- [Direct-source Windows real S2 x16 A/B CI #43045539397](https://github.com/Mefits/Living-Sector/actions/runs/43045539397) SUCCESS: 4/4 focused Rust tests, Windows server release, one full genuine 1250-ish tick replay, archived evidence.
+- Original baseline #43038799967: last tick 1250; native gas deliveries 3, units 200; Earth final gas 0; shortage_ticks 384; Alpha gas 456; 2 positive-stock Earth snapshots.
+- Combined experiment: last tick 1271; native gas deliveries 3, units **400**; Earth final gas **0**; shortage_ticks **489**; Alpha gas 528; 0 positive-stock Earth snapshots. More cargo was delivered, but sustainable gas availability is NOT proven and the duration/sampling windows differ slightly.
+- Run verdict: delivery_verified=true, relief_verified=false, resilience_verified=not_tested. The CI is green because it proves the scenario ran and the comparison can be computed, NOT because the balance is accepted or improved.
+
+[Independent downstream materials audit #43047668057](https://github.com/Mefits/Living-Sector/actions/runs/43047668057) SUCCESS, reuses saved raw native data and does not rerun the simulation:
+- Alpha final: gas +72 vs baseline; fuel +851; polymers +771; water +50; food unchanged; components -78.
+- Earth final: gas unchanged at 0; fuel +26; polymers 0 both; **water -572, metals -1052, components -79**, food unchanged.
+- These are **net inventories**, not direct per-recipe production counters. One seed and a slightly longer variant cannot establish causality or long-run equilibrium.
+
+**Decision: DO NOT PROMOTE THE COMBINED TWEAK.** Keep PR #70 in draft. Splitting gas-recipe input changes and gas-contract quantity scaling into **two isolated, comparable experiments** is required before accepting any coefficient. Do not reduce mining globally (Alpha source inventory already falls steeply in both tests). Do not change ordinary goods, ship sensors, wallet rules or the production map on this evidence. Next gate also checks station payer balances and fuel/polymer/food/water, not just gas delivered.
