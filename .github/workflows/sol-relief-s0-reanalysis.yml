@@ -37,6 +37,12 @@ jobs:
           python -c "import json,pathlib; p=pathlib.Path('work/old-s0'); a=json.loads((p/'signal-inventory.json').read_text(encoding='utf8')); print(json.dumps(a,indent=2,ensure_ascii=True))"
           python -c "import json,pathlib; s=json.loads((pathlib.Path('work/old-s0/samples.jsonl').read_text(encoding='utf8').splitlines()[0])); r=s['report']; t=s['strategy']; print('first_tick:',s['health'].get('tick')); print('market_sample:',json.dumps(r.get('markets',[])[:3],ensure_ascii=True)[:4000]); print('station_sample:',json.dumps([x for x in r.get('facilities',[]) if x.get('type')=='station'][:3],ensure_ascii=True)[:3500]); print('contracts_sample:',json.dumps(s.get('contracts',[])[:3],ensure_ascii=True)[:3500]); print('strategy_keys:',sorted(t)); print('factions_shape:',str(type(t.get('factions')))); print('strategy_first_faction:',json.dumps(t.get('factions',[])[:1],ensure_ascii=True)[:4500])"
 
+      - name: Summarize real Genesis receipt fields and station trend without another game run
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -c "import json,pathlib; p=pathlib.Path('work/old-s0'); events=[json.loads(x)['event'] for x in (p/'events.jsonl').read_text(encoding='utf8').splitlines() if x.strip()]; matches=[e for e in events if e.get('kind')=='contract_delivered']; print('NATIVE_DELIVERY_EVENTS:',json.dumps(matches[:5],ensure_ascii=True)[:6500]); samples=[json.loads(x) for x in (p/'samples.jsonl').read_text(encoding='utf8').splitlines() if x.strip()]; station=[next((m for m in s['report']['markets'] if m['facility_location']=='earth-station'),{}) for s in (samples[0],samples[-1])]; print('EARTH_MARKETS_FIRST_LAST:',json.dumps([{k:m.get(k) for k in ('facility_location','shortage_ticks','supply','demand')} for m in station],ensure_ascii=True)[:4500]); print('EARTH_RELEVANT_CONTRACTS:',json.dumps([c for c in samples[-1].get('contracts',[]) if c.get('destination_location')=='earth-station' and c.get('commodity') in ('food','water','fuel')][:10],ensure_ascii=True)[:4500]); print('GENESIS_GOALS_AT_LAST_TICK:',json.dumps([f for f in samples[-1]['strategy']['factions'] if f.get('faction_id')=='terran-authority'],ensure_ascii=True)[:5000])"
+
       - name: Reevaluate saved snapshots without rerunning game
         shell: pwsh
         run: |
