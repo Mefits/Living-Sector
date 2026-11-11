@@ -34,12 +34,28 @@ with tempfile.TemporaryDirectory(prefix="strategy-smoke-") as tmp:
                     time.sleep(0.2)
             assert state["schema_version"] == 1, state
             assert state["mode"] == "execute", state
-            assert len(state["factions"]) == 2, state
+            # The faction roster comes from the loaded world, not from a
+            # long-obsolete two-faction fixture. A new Galaxy world has three.
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/report", timeout=2) as response:
+                report = json.load(response)
+            actual_ids = {f["id"] for f in report.get("factions", [])}
+            strategy_ids = {f["faction_id"] for f in state["factions"]}
+            assert actual_ids and strategy_ids == actual_ids, (strategy_ids, actual_ids)
             for faction in state["factions"]:
                 assert faction["administrator"] == "logistics"
                 assert isinstance(faction["goals"], list)
                 assert isinstance(faction["projects"], list)
-            print("PASS: migrated fresh Genesis world, two factions, strategy API v1, execute mode")
+            # Browser ES imports are only usable when the *native server* can
+            # actually serve them, not merely when Node syntax checks pass.
+            for path, expected in (
+                ("/observer/map-primitives.js", "export function"),
+                ("/observer/transport.js", "export async function getJSON"),
+            ):
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=2) as response:
+                    source = response.read().decode("utf8")
+                    assert "javascript" in response.headers.get("Content-Type", ""), path
+                    assert expected in source, path
+            print(f"PASS: native world, {len(actual_ids)} real factions, strategy API v1, both Observer ES imports")
         except Exception:
             log.flush()
             log.seek(0)
