@@ -25,12 +25,9 @@ pub const RECIPES: &[Recipe] = &[
         inputs: &[(Commodity::Ice, 8)],
         outputs: &[(Commodity::Water, 10), (Commodity::Fuel, 5)],
     },
-    Recipe {
-        id: "crack_fuel",
-        facility_type: "refinery",
-        inputs: &[(Commodity::Gas, 6)],
-        outputs: &[(Commodity::Fuel, 4)],
-    },
+    // T1 energy design gate: fuel already comes from processing Ice.
+    // Do NOT also burn Gas to make Fuel; Gas now feeds the polymer
+    // chain only. This isolated A/B does not introduce EnergyCells.
     Recipe {
         id: "refine_polymers",
         facility_type: "refinery",
@@ -290,6 +287,34 @@ mod tests {
             assert!(execute(recipe, &mut supply, efficiency, 5, None).is_empty());
             assert_eq!(supply, before);
         }
+    }
+
+    #[test]
+    fn gas_has_one_industrial_refinery_role_and_ice_still_provides_fuel() {
+        let gas_recipes: Vec<_> = for_facility_type("refinery")
+            .filter(|r| r.inputs.iter().any(|(c, _)| *c == Commodity::Gas))
+            .collect();
+        assert_eq!(gas_recipes.len(), 1, "Gas must not power two competing T1 refinery chains");
+        assert_eq!(gas_recipes[0].id, "refine_polymers");
+        assert_eq!(gas_recipes[0].inputs, &[(Commodity::Gas, 6)]);
+        assert!(RECIPES.iter().all(|r| r.id != "crack_fuel"));
+
+        // Existing Ice->Water+Fuel must remain productive (physical
+        // source of ship fuel, not a new infinite-energy recipe).
+        let ice = RECIPES.iter().find(|r| r.id == "process_ice").unwrap();
+        let mut inventory = HashMap::from([(Commodity::Ice, 80.0)]);
+        let output = execute(ice, &mut inventory, 1.0, 5, None);
+        assert_eq!(inventory[&Commodity::Ice], 40.0);
+        assert_eq!(output[&Commodity::Water], 50.0);
+        assert_eq!(output[&Commodity::Fuel], 25.0);
+
+        // Polymer processing spends physical Gas and creates no Fuel.
+        let mut gas = HashMap::from([(Commodity::Gas, 30.0)]);
+        let polymer = execute(gas_recipes[0], &mut gas, 1.0, 5, None);
+        assert_eq!(gas[&Commodity::Gas], 0.0);
+        assert_eq!(polymer[&Commodity::Polymers], 25.0);
+        assert!(!polymer.contains_key(&Commodity::Fuel));
+        assert!(execute(gas_recipes[0], &mut gas, 1.0, 5, None).is_empty());
     }
 
     #[test]
