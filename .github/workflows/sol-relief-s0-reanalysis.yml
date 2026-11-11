@@ -6,6 +6,8 @@ on:
       - feature/sol-relief-golden-s0
     paths:
       - '.github/workflows/sol-relief-s0-reanalysis.yml'
+      - 'ci/sol_s0/analyze.py'
+      - 'ci/sol_s0/test_analyze.py'
   workflow_dispatch:
 
 permissions:
@@ -42,6 +44,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           python -c "import json,pathlib; p=pathlib.Path('work/old-s0'); events=[json.loads(x)['event'] for x in (p/'events.jsonl').read_text(encoding='utf8').splitlines() if x.strip()]; matches=[e for e in events if e.get('kind')=='contract_delivered']; print('NATIVE_DELIVERY_EVENTS:',json.dumps(matches[:5],ensure_ascii=True)[:6500]); samples=[json.loads(x) for x in (p/'samples.jsonl').read_text(encoding='utf8').splitlines() if x.strip()]; station=[next((m for m in s['report']['markets'] if m['facility_location']=='earth-station'),{}) for s in (samples[0],samples[-1])]; print('EARTH_MARKETS_FIRST_LAST:',json.dumps([{k:m.get(k) for k in ('facility_location','shortage_ticks','supply','demand')} for m in station],ensure_ascii=True)[:4500]); print('EARTH_RELEVANT_CONTRACTS:',json.dumps([c for c in samples[-1].get('contracts',[]) if c.get('destination_location')=='earth-station' and c.get('commodity') in ('food','water','fuel')][:10],ensure_ascii=True)[:4500]); print('GENESIS_GOALS_AT_LAST_TICK:',json.dumps([f for f in samples[-1]['strategy']['factions'] if f.get('faction_id')=='terran-authority'],ensure_ascii=True)[:5000])"
+
+      - name: Report gas contract lifecycle and reject reasons from real WS
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -c "import json,pathlib,collections; p=pathlib.Path('work/old-s0'); samples=[json.loads(x) for x in (p/'samples.jsonl').read_text(encoding='utf8').splitlines() if x.strip()]; events=[json.loads(x) for x in (p/'events.jsonl').read_text(encoding='utf8').splitlines() if x.strip()]; gas=[(s['health'].get('tick'),c.get('id'),c.get('status'),c.get('source_location'),c.get('funding')) for s in samples for c in s.get('contracts',[]) if c.get('commodity')=='gas' and c.get('destination_location')=='earth-station' and c.get('faction_id')=='terran-authority']; reasons=collections.Counter(str(x['event'].get('reason')) for x in events if x['event'].get('kind')=='ship_transaction_rejected'); print('GAS_NATIVE_CONTRACT_TIMELINE:',json.dumps(gas,ensure_ascii=True)[:11000]); print('ALL_SHIP_REJECTION_REASONS_NOT_GAS_SCOPED:',reasons.most_common(16)); print('ALL_NATIVELY_DELIVERED_CONTRACT_COUNT:',sum(x['event'].get('kind')=='contract_delivered' for x in events))"
 
       - name: Reevaluate saved snapshots without rerunning game
         shell: pwsh
