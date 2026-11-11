@@ -654,6 +654,34 @@ pub async fn observer_app_js() -> impl IntoResponse {
     )
 }
 
+// Observer R1/R2 modules must be reachable by the browser, not just compile
+// under Node. Keep the exact-path allowlist and the embedded-file fallback.
+pub async fn observer_map_primitives_js() -> impl IntoResponse {
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        observer_asset(
+            "map-primitives.js",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/map-primitives.js")),
+        ),
+    )
+}
+
+pub async fn observer_transport_js() -> impl IntoResponse {
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        observer_asset(
+            "transport.js",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/transport.js")),
+        ),
+    )
+}
+
 pub async fn observer_model_js() -> impl IntoResponse {
     (
         [
