@@ -73,6 +73,10 @@ progress{width:100%;height:13px;accent-color:#82bec8}
 <article><h2>Фактическое состояние</h2><div id="state"></div></article>
 <article><h3>Склад выбранной станции</h3><div id="stock"></div></article>
 <article><h3>Работа администрации</h3><div id="director"></div></article>
+<article><h3>Варианты Главы · текущий цикл</h3>
+<p class="help">Это оценки реальных производственных и логистических вариантов, не обещание исполнения.
+Отсутствие входных ресурсов для первого производственного цикла не запрещает строить завод —
+их ещё можно доставить.</p><div id="portfolio"></div></article>
 </section>
 </main>
 <script>
@@ -138,7 +142,8 @@ function render(){
  const m=live.strategy.economic_mandates?.[faction];
  const f=allFactions().find(x=>x.id===faction);
  const market=(live.report.markets||[]).find(x=>x.facility_location===location);
- const stock=Number(market?.supply?.[commodity]??0);
+ const rawStock=market?.supply?.[commodity];
+ const stock=typeof rawStock==="number"&&Number.isFinite(rawStock)?rawStock:null;
  const state=el("state");state.replaceChildren();
  addRow(state,"Фракция",f?.name||faction);
  addRow(state,"Казна",funds(f?.treasury));
@@ -158,7 +163,8 @@ function render(){
  addRow(storage,"Рыночный спрос",numeric(market?.demand?.[commodity]));
  const bar=document.createElement("progress");
  bar.max=Math.max(10,Number(m?.location===location&&m?.commodity===commodity?m.min_stock:el("quantity").value)||300);
- bar.value=Math.min(bar.max,Math.max(0,stock));storage.append(bar);
+ bar.value=Math.min(bar.max,Math.max(0,stock??0));storage.append(bar);
+ if(stock===null)addRow(storage,"Измерение склада","Сервер не передал запас; пустая шкала не означает ноль");
  const head=live.strategy.factions?.find(x=>x.faction_id===faction)?.head;
  const d=el("director");d.replaceChildren();
  addRow(d,"Решение главы",head?.selected_option||"—");
@@ -174,6 +180,29 @@ function render(){
  addRow(d,"Подтверждённый расход",funds(head?.committed_spend));
  const projects=(live.report.construction_sites||[]).filter(s=>s.faction_id===faction&&s.location_name===location);
  addRow(d,"Местные стройки",projects.length);
+ const portfolio=el("portfolio");portfolio.replaceChildren();
+ const reviews=head?.goal_reviews||[];
+ if(!reviews.length)addRow(portfolio,"Оценки","Нет текущих вариантов или директор не активен");
+ for(const [idx,g] of reviews.slice(0,6).entries()){
+   const choice=g.selected_action==="wait"?"Ожидать":g.selected_action==="build"
+     ?"Строить":g.selected_action==="deliver"?"Доставить":g.selected_action;
+   addRow(portfolio,(idx+1)+". "+g.commodity+" · "+g.destination,
+     choice+" · оценка "+(Number.isFinite(g.score)?g.score.toFixed(1):"—"));
+   addRow(portfolio,"   Состояние",g.status==="ranked"?"Допустимый вариант":"Пока заблокирован");
+   addRow(portfolio,"   Причина",g.reason||"—");
+   if(g.selected_action!=="wait"){
+     addRow(portfolio,"   Первая выплата / весь проект",
+       funds(g.first_payment)+" / "+funds(g.total_commitment));
+   }
+   const gaps=g.local_inputs?.inputs?.filter(x=>x.missing>0)||[];
+   if(g.local_inputs){
+     addRow(portfolio,"   Первый производственный цикл",
+       gaps.length
+         ? "Не хватает местных входных материалов: "+
+           gaps.map(x=>x.commodity+" "+x.missing).join(", ")
+         : "Локальные ингредиенты для одной партии есть; производство не гарантировано");
+   }
+ }
  if(pending&&m&&m.location===pending.location&&m.commodity===pending.commodity&&
     m.kind===pending.kind&&m.mode===pending.mode&&m.budget_ceiling_cr===pending.budget){
   show("Мандат подтверждён игровым сервером. Результат будет известен по фактическому складу и стройкам.");
