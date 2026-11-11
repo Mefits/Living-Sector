@@ -1,0 +1,133 @@
+name: Genesis S1 - Preserve Huge-hauler T2 sensors from partial seed fittings
+
+on:
+  push:
+    branches:
+      - feature/native-062-gas-sensor-fix
+    paths:
+      - '.github/workflows/native-062-gas-sensor-fix.yml'
+      - 'native/crates/sim_db/src/spawner.rs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-size-baseline:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout clean editable native source tree
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Test missing vs explicitly chosen sensors (release deps shared)
+        shell: pwsh
+        working-directory: native
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --release -p sim_db --lib genesis_partial_ship_fitting_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Native size-baseline or explicit-retrofit test failed" }
+
+      - name: Build real Windows Genesis directly from patched Rust source
+        shell: pwsh
+        working-directory: native
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo build --release -p sim_server --bin genesis_server
+          if ($LASTEXITCODE -ne 0) { throw "Direct-source native build failed" }
+          Get-FileHash target/release/genesis_server.exe -Algorithm SHA256 | Format-List
+
+      - name: Prepare executable and native Observer for real runtime tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project='work/source/Living-Sector-Galaxy-0.2'
+          New-Item -ItemType Directory -Force -Path "$project/target/release","$project/priv/galaxy" | Out-Null
+          Copy-Item -LiteralPath 'native/target/release/genesis_server.exe' -Destination "$project/target/release/genesis_server.exe"
+          Copy-Item -LiteralPath 'native/observer' -Destination "$project/observer" -Recurse
+          Copy-Item -LiteralPath 'native/priv/galaxy/data' -Destination "$project/priv/galaxy/data" -Recurse
+          New-Item -ItemType Directory -Force -Path 'work/s1-game/priv/galaxy' | Out-Null
+          Copy-Item -LiteralPath 'native/target/release/genesis_server.exe' -Destination 'work/s1-game/Genesis-Server.exe'
+          Copy-Item -LiteralPath 'native/observer' -Destination 'work/s1-game/observer' -Recurse
+          Copy-Item -LiteralPath 'native/priv/galaxy/data' -Destination 'work/s1-game/priv/galaxy/data' -Recurse
+
+      - name: Native eight-system gameplay smoke, x16 and fresh SQLite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy04/smoke_run.py
+          if ($LASTEXITCODE -ne 0) { throw "Live native gameplay smoke failed" }
+
+      - name: Checkout PINNED diagnostic code without touching the game
+        uses: actions/checkout@v4
+        with:
+          ref: 8346307c1b49d3dd7c9adf60d5cc8cb55163edcf
+          path: work/s0-tools
+          sparse-checkout: |
+            ci/sol_s0
+          sparse-checkout-cone-mode: false
+
+      - name: Install only WebSocket trace-capture dependency
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "websockets==14.2"
+          if ($LASTEXITCODE -ne 0) { throw "WS capture dependency install failed" }
+
+      - name: Replay real gas pressure on new clean world (bounded 1800 ticks)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python work/s0-tools/ci/sol_s0/probe.py --game-dir work/s1-game --out native-gas-s1-results --ticks 1800 --sample-every 120 --max-seconds 750 --source-run direct-source-gas-sensor-fix
+          if ($LASTEXITCODE -ne 0) { throw "Real 1800-tick S1 probe failed" }
+
+      - name: Check live Huge hauler fitting, report native gas deliveries honestly
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          import json,pathlib
+          out=pathlib.Path("native-gas-s1-results")
+          samples=[json.loads(s) for s in (out/"samples.jsonl").read_text(encoding="utf8").splitlines() if s.strip()]
+          assert samples, "No real API data"
+          ships=[s for s in samples[0]["report"]["ships"] if s["id"]=="ship-terran-authority-hauler-5"]
+          assert len(ships)==1, "Large Genesis hauler not seeded"
+          hauler=ships[0]
+          stats=hauler.get("fitting",{}).get("stats",{})
+          print("Native seeded hauler fitting:",json.dumps(hauler.get("fitting"),ensure_ascii=True))
+          assert stats.get("sensor_range_au",0)>=2.0, "Partial comms seed wrongly lost Huge T2 sensors"
+          events=[json.loads(s) for s in (out/"events.jsonl").read_text(encoding="utf8").splitlines() if s.strip()]
+          gas=[e for e in events if e.get("event",{}).get("kind")=="contract_delivered"
+            and e["event"].get("commodity")=="gas"
+            and e["event"].get("destination")=="earth-station"]
+          last=samples[-1]
+          earth=next(m for m in last["report"]["markets"] if m["facility_location"]=="earth-station")
+          print("S1 verified gas delivery EVENTS (not inferred):",len(gas))
+          print("Latest Earth gas stock:",earth["supply"].get("gas"))
+          print("Latest Earth gas shortage_ticks:",earth.get("shortage_ticks",{}).get("gas"))
+          print("Important: delivery event alone != causal relief; Golden-v1 needs counterfactual receipts.")
+          result={"native_huge_hauler_t2_verified":True,
+             "real_gas_delivery_events":gas[:20],
+             "gas_delivery_count":len(gas),
+             "earth_gas_stock_last":earth["supply"].get("gas"),
+             "earth_gas_shortage_ticks_last":earth.get("shortage_ticks",{}).get("gas"),
+             "causal_relief_verified":"unknown",
+             "source_commit":"6ddedb89fe3a2c97f54a3b34b7090f7e3230c8a8"}
+          (out/"GAS-SENSOR-S1-RESULT.json").write_text(json.dumps(result,indent=2,ensure_ascii=False)+"\n",encoding="utf8")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw "Large-hauler native fitting regression" }
+
+      - name: Save short native execution proof, even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Native-Genesis-062-S1-Gas-Sensors-Real-Evidence
+          path: |
+            smoke-results/
+            native-gas-s1-results/
+          if-no-files-found: warn
+          retention-days: 21
