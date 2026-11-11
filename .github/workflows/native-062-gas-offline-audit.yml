@@ -1,0 +1,52 @@
+name: Sol S1 - Analyze existing gas contract evidence (no game run)
+
+on:
+  push:
+    branches:
+      - feature/native-062-gas-contract-audit
+    paths:
+      - 'ci/sol_s1/audit_gas_offline.py'
+      - '.github/workflows/native-062-gas-offline-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  analyze-cached-real-s1:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reuse previously captured native game evidence, do not rerun or recompile Genesis
+        uses: actions/download-artifact@v4
+        with:
+          name: Native-Genesis-062-S1-Gas-Sensors-Real-Evidence
+          run-id: 43011866774
+          repository: Mefits/Living-Sector
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: work/real-s1
+
+      - name: Analyze cached gas contracts and dispatcher blockers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/sol_s1/audit_gas_offline.py work/real-s1/native-gas-s1-results work/gas-price-audit
+          if ($LASTEXITCODE -ne 0) { throw "Failed to analyze stored real S1 evidence" }
+          $a=Get-Content 'work/gas-price-audit/gas-audit.json' -Raw | ConvertFrom-Json
+          "Gas contracts: $($a.gas_contract_ids.Count); observation ticks: $($a.ticks.Count)"
+          Get-Content 'work/gas-price-audit/GAS-AUDIT-RU.md' |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload diagnostic-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sol-S1-Cached-Gas-Contract-Causality-Audit
+          path: work/gas-price-audit/
+          if-no-files-found: warn
+          retention-days: 21
