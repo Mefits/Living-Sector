@@ -12,6 +12,7 @@ var _routes_by_location: Dictionary = {}
 var _source_path: String = ""
 var _seed_stats: Dictionary = {}
 var _loaded: bool = false
+var _seed_fingerprint: String = ""
 
 func load_seed(seed: Dictionary) -> bool:
     if seed.has("error") or not seed.has("worlds") or not seed.has("factions"):
@@ -57,6 +58,7 @@ func load_seed(seed: Dictionary) -> bool:
     _routes_by_location = routes
     _source_path = str(seed.get("source", ""))
     _seed_stats = seed.get("seed_stats", {}).duplicate(true)
+    _seed_fingerprint = JSON.stringify([_worlds, _factions]).sha256_text()
     _loaded = true
     return true
 
@@ -102,3 +104,46 @@ func seed_universe_position(system_id: String) -> Vector2:
         return Vector2.ZERO
     # Native universe_offset is an arbitrary world-space coordinate, NOT ly.
     return Vector2(float(coords[0]), float(coords[1]))
+
+## Rust BodyOrbit::advance: 360 / orbit_period * tick_scale, wrapped to 360.
+## Only orbital angles change in P1. Markets, stocks, ships and factions do NOT
+## advance until their Rust rules are actually ported.
+func advance_orbits(tick_scale: float) -> void:
+    if not _loaded or not is_finite(tick_scale) or tick_scale < 0.0:
+        return
+    for body_id in _bodies_by_id:
+        var info: Dictionary = _bodies_by_id[body_id]
+        var body: Dictionary = info["value"]
+        var period: float = float(body.get("orbit_period", 0.0))
+        if period <= 0.0:
+            continue
+        var old_angle: float = float(body.get("current_angle", 0.0))
+        body["current_angle"] = fposmod(
+            old_angle + (360.0 / period) * tick_scale, 360.0
+        )
+
+func seed_fingerprint() -> String:
+    return _seed_fingerprint
+
+func orbital_snapshot() -> Dictionary:
+    var angles: Dictionary = {}
+    for body_id in _bodies_by_id:
+        angles[body_id] = float(_bodies_by_id[body_id]["value"].get("current_angle", 0.0))
+    return angles
+
+func restore_orbital_snapshot(angles: Dictionary) -> bool:
+    # Full preflight before any mutation: invalid / partial saves fail atomically.
+    if not _loaded or angles.size() != _bodies_by_id.size():
+        return false
+    for body_id in _bodies_by_id:
+        if not angles.has(body_id):
+            return false
+        var value: Variant = angles[body_id]
+        if not (value is float or value is int):
+            return false
+        if not is_finite(float(value)) or float(value) < 0.0 or float(value) >= 360.0:
+            return false
+    for body_id in _bodies_by_id:
+        var body: Dictionary = _bodies_by_id[body_id]["value"]
+        body["current_angle"] = float(angles[body_id])
+    return true
