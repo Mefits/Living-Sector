@@ -1,0 +1,86 @@
+name: Native Genesis 0.6.2 - direct source Windows playable smoke (no overlays)
+
+on:
+  push:
+    branches:
+      - feature/native-062-direct-runtime-smoke
+    paths:
+      - '.github/workflows/native-062-direct-runtime-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  direct-native-game:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout canonical isolated native Git sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Verify source identity and compile standalone Windows Genesis
+        shell: pwsh
+        working-directory: native
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!(Test-Path 'Cargo.toml') -or !(Test-Path 'crates/sim_core/src/strategy/orders.rs')) {
+            throw 'Native source tree absent or incomplete'
+          }
+          cargo build --release -p sim_server --bin genesis_server
+          if ($LASTEXITCODE -ne 0) { throw 'Direct source build failed (no overlay used)' }
+          if (!(Test-Path 'target/release/genesis_server.exe')) {
+            throw 'Direct source build produced no executable'
+          }
+          Get-FileHash 'target/release/genesis_server.exe' -Algorithm SHA256 | Format-List
+          node --check observer/app.js
+          if ($LASTEXITCODE -ne 0) { throw 'Observer syntax failed' }
+
+      - name: Prepare legacy smoke harness path WITHOUT rebuilding or patching code
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project='work/source/Living-Sector-Galaxy-0.2'
+          New-Item -ItemType Directory -Force -Path "$project/target/release", "$project/priv/galaxy" | Out-Null
+          Copy-Item 'native/target/release/genesis_server.exe' "$project/target/release/genesis_server.exe"
+          Copy-Item 'native/priv/galaxy/data' "$project/priv/galaxy/data" -Recurse
+          Copy-Item 'native/observer' "$project/observer" -Recurse
+          if (!(Test-Path "$project/observer/native.html")) {
+            throw 'Observer source copy incomplete'
+          }
+          if (!(Test-Path "$project/priv/galaxy/data")) {
+            throw 'Galaxy world data copy incomplete'
+          }
+
+      - name: Windows gameplay smoke - fresh SQLite, actual x16, 8 systems, 850 ticks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy04/smoke_run.py
+          if ($LASTEXITCODE -ne 0) { throw 'Direct-source runtime failed native gameplay checks' }
+
+      - name: Upload native smoke evidence (including server log)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Direct-Native-062-Windows-Smoke-Evidence
+          path: smoke-results/
+          if-no-files-found: warn
+          retention-days: 21
+
+      - name: Record exact commit and scope
+        shell: pwsh
+        if: always()
+        run: |
+          $head=(git rev-parse HEAD).Trim()
+          "## Direct-source Genesis 0.6.2 smoke" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Git SHA: $head" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Built ONLY native/ source with cargo build release; NO source ZIP, overlay or Python patch." |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Existing stable/main and user save files unchanged." |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
