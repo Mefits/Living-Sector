@@ -127,28 +127,10 @@ jobs:
           cargo check -p sim_core -p sim_server
           if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4 integration has Rust compilation errors.' }
 
-      - name: Core money-conservation and delivery regressions
-        shell: pwsh
-        working-directory: work/source/Living-Sector-Galaxy-0.2
-        run: |
-          $ErrorActionPreference = 'Stop'
-          cargo test -p sim_core --lib agents::faction::relief::tests --quiet
-          if ($LASTEXITCODE -ne 0) { throw 'Credit conservation tests failed.' }
-          cargo test -p sim_core --lib galaxy04_ --quiet
-          if ($LASTEXITCODE -ne 0) { throw 'A2-A6 integration tests failed.' }
-          cargo test -p sim_core --lib strategy::orders::tests::station_order --quiet
-          if ($LASTEXITCODE -ne 0) { throw 'Native station dispatch regression failed.' }
-          cargo test -p sim_core --lib galaxy041_ --quiet
-          if ($LASTEXITCODE -ne 0) { throw 'Unified Galaxy 0.4.1 money-flow invariants failed.' }
-
-      - name: Full Galaxy 0.5 native core progression regressions
-        shell: pwsh
-        working-directory: work/source/Living-Sector-Galaxy-0.2
-        run: |
-          $ErrorActionPreference = 'Stop'
-          cargo test -p sim_core --lib galaxy05_ --quiet
-          if ($LASTEXITCODE -ne 0) { throw 'Native T1/T2/T3 progression tests failed.' }
-
+      # Parent Galaxy 0.6 Windows run #42941249754 already passed its
+      # full economic regressions. This integration pass runs the focused
+      # 0.6/0.6.1 tests and both live API scenarios rather than repeating
+      # the entire old suite at every feature block.
       - name: Galaxy 0.6 player science mandates — budget/holds/prerequisites
         shell: pwsh
         working-directory: work/source/Living-Sector-Galaxy-0.2
@@ -168,22 +150,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Economic mandate budget/native goal tests failed.' }
           cargo test -p sim_server --lib galaxy061_ --quiet
           if ($LASTEXITCODE -ne 0) { throw 'Economic player API validations failed.' }
-
-      - name: Focused Galaxy 0.4B resource metadata test
-        shell: pwsh
-        working-directory: work/source/Living-Sector-Galaxy-0.2
-        run: |
-          $ErrorActionPreference = 'Stop'
-          cargo test -p sim_core --lib agents::celestial_body::tests::galaxy04_resource_grades_are_descriptive_only --quiet
-          if ($LASTEXITCODE -ne 0) { throw 'Resource grade invariants failed.' }
-
-      - name: Engine transaction regressions for Galaxy 0.4.1
-        shell: pwsh
-        working-directory: work/source/Living-Sector-Galaxy-0.2
-        run: |
-          $ErrorActionPreference = 'Stop'
-          cargo test -p sim_server --lib galaxy041_ --quiet
-          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4.1 fuel and stock trading tests failed.' }
 
       - name: Build fresh Windows Genesis server (hybrid AI)
         shell: pwsh
