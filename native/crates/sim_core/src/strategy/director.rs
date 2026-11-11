@@ -171,6 +171,10 @@ pub struct Director {
     /// At most one quoted economic decision awaiting the player per faction.
     #[serde(default)]
     pub economic_proposals:BTreeMap<String,super::economic_proposal::EconomicProposal>,
+    /// Persistent industrial intent. Actual contracts/sites/paid shifts stay
+    /// in the native ECS, never in this strategic record.
+    #[serde(default)]
+    pub production_objectives:BTreeMap<String,super::long_term::ProductionObjective>,
 }
 #[derive(Clone,Copy,Debug,Serialize)]
 pub struct Technology {pub id:&'static str,pub name:&'static str,pub prerequisite:Option<&'static str>,pub work:u32,pub field:&'static str,pub effect:&'static str}
