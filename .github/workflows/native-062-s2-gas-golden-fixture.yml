@@ -1,0 +1,107 @@
+name: Golden S2 - Real Genesis gas supply receipt (test-only fast map)
+
+on:
+  push:
+    branches:
+      - feature/native-062-s2-gas-golden-fixture
+    paths:
+      - '.github/workflows/native-062-s2-gas-golden-fixture.yml'
+      - 'ci/sol_s2/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-gas-golden:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout native 0.6.2 + proposed facility rescue without ZIP/overlays
+        uses: actions/checkout@v4
+
+      - name: Prepare fixture and validate analysis code
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m py_compile ci/sol_s2/prepare_fixture.py ci/sol_s2/assess_fixture.py
+          if ($LASTEXITCODE -ne 0) { throw 'Python syntax error' }
+          python ci/sol_s2/prepare_fixture.py --source native/priv/galaxy/data --dest work/s2-game/priv/galaxy/data --manifest work/s2-fixture.json
+          if ($LASTEXITCODE -ne 0) { throw 'Controlled native fixture failed' }
+
+      - name: Install Rust stable Windows toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Direct-source release binary, no Python patch chain
+        shell: pwsh
+        working-directory: native
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo build --release -p sim_server --bin genesis_server
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows release compilation failed' }
+          if (!(Test-Path 'target/release/genesis_server.exe')) { throw 'Native executable absent' }
+          Get-FileHash 'target/release/genesis_server.exe' -Algorithm SHA256 | Format-List
+
+      - name: Prepare standalone direct-built native server and Observer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item -LiteralPath 'native/target/release/genesis_server.exe' -Destination 'work/s2-game/Genesis-Server.exe'
+          Copy-Item -LiteralPath 'native/observer' -Destination 'work/s2-game/observer' -Recurse
+          if (!(Test-Path 'work/s2-game/priv/galaxy/data/worlds/sol.json')) { throw 'Missing copied world' }
+
+      - name: Checkout PINNED real-API / WebSocket capture into separate tools folder
+        uses: actions/checkout@v4
+        with:
+          ref: 96e4a88a63eb51a7dfd5d944bd294f62a3497793
+          path: work/s0-tools
+          sparse-checkout: |
+            ci/sol_s0
+          sparse-checkout-cone-mode: false
+
+      - name: Install small live WebSocket client
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "websockets==14.2"
+          if ($LASTEXITCODE -ne 0) { throw 'WebSocket capture client install failed' }
+
+      - name: Real Windows Genesis pressure + native trade, max 1250 ticks x16
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python work/s0-tools/ci/sol_s0/probe.py --game-dir work/s2-game --out work/s2-raw --ticks 1250 --sample-every 12 --max-seconds 650 --source-run s2-direct-rust-test-fast-route
+          if ($LASTEXITCODE -ne 0) { throw 'Real Genesis short-run probe failed' }
+
+      - name: Require exact native facility-funded gas delivery event, report relief separately
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/sol_s2/assess_fixture.py --source work/s2-raw --out work/s2-assessment --require-delivery
+          if ($LASTEXITCODE -ne 0) { throw 'No verified gas receipt in bounded controlled native test' }
+          Get-Content 'work/s2-assessment/REPORT-RU.md' |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      - name: Publish raw evidence EVEN IF delivery fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Native-Gas-Golden-S2-Controlled-Evidence
+          path: |
+            work/s2-fixture.json
+            work/s2-raw/
+            work/s2-assessment/
+          if-no-files-found: warn
+          retention-days: 21
+      - name: State scope of the experiment
+        if: always()
+        shell: pwsh
+        run: |
+          "## Controlled native Golden S2" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Game built exclusively from native Rust source; no ZIP/overlay and no user SQLite." |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "TEST-ONLY shorter Sol-Alpha lane, relocated finite-cash carrier and pressure at Earth. No production balance claim." |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Delivery, observed relief and resilience must remain separate claims." |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
