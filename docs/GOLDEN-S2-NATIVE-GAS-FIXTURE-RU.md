@@ -57,3 +57,18 @@ Windows build #43027264221 SUCCESS, но собственный gate доста�
 5. Новая независимая Windows попытка запускается из direct-source на run #43038799967. При отрицательном исходе сначала читаем настоящее ship contract / WS evidence. Не заявляем Golden без записи `contract_delivered`.
 
 **Примечание:** такая физика движения — действующая механика проекта, её рефакторинг и баланс скоростей в этом блоке не меняются.
+
+## Принятый результат: физическая доставка и кратковременный relief (тестовая геометрия)
+
+**Native Windows CI #43038799967 — SUCCESS**. Тестовый мир \`system-alpha-centauri.universe_offset\` [40,10] → [4,0] и единственный существующий nominal lane 120 → 1 применены **только в копии**. 1250 ticks, 56 report/strategy/contracts snapshots, 2218 WebSocket events.
+
+**Независимое строгое расследование #43040340786 — SUCCESS**, без дополнительной симуляции. Удалось сопоставить реальные \`ship_transaction_applied\` accept, buy, deliver и \`contract_delivered\` по тому же ship ID, contract ID, источнику gas и destination Earth:
+- \`contract-4\`, Genesis Hauler: accept 51, buy 72, delivery 411, газ ×50.
+- \`contract-5\`, Ceti Hauler: accept 101, buy 122, delivery 482, газ ×100.
+- \`contract-21\`, Genesis Hauler: **station dispatcher assigned tick 680**, native accept 680, buy 690, delivery 863, газ ×50, итоговый \`station_order.state=completed\`.
+
+Суммарно 200 единиц газа физически доставлено, включая ранее не назначенную facility-funded заявку, которую корректно подхватил администратор. Прибытие/покупка/разгрузка — не синтетические статусы: зафиксированы нативные события и рыночные изменения.
+
+**Границы результата:** на тике 414 в Earth было 50 газа и \`shortage_ticks=0\`, то есть после первой доставки дефицит на время исчез. На тике 1250 — снова \`earth_gas=0\`, \`shortage_ticks=384\`. Значит \`delivery_verified=True\`, \`relief_verified=True\` *только как наблюдённый кратковременный relief*, \`resilience_verified=not_tested\`, **устойчивое снабжение не доказано**. Нельзя переносить этот результат на исходную дистанцию [40,10] без отдельного окна/эксперимента.
+
+Документ является отчётом о контролируемом Gate, а не релизом стабильной версии. PR #69 остаётся draft. Следующий gate: различить долгосрочный supply capacity vs спрос/потребление, проверить повторный дефицит и полноценный baseline Sol↔Alpha без изменения игровой физики или бессрочного спама заявок.
