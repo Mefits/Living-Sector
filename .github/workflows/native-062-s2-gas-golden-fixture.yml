@@ -71,8 +71,21 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python work/s0-tools/ci/sol_s0/probe.py --game-dir work/s2-game --out work/s2-raw --ticks 1250 --sample-every 12 --max-seconds 650 --source-run s2-direct-rust-test-fast-route
+          python work/s0-tools/ci/sol_s0/probe.py --game-dir work/s2-game --out work/s2-raw --ticks 1250 --sample-every 20 --max-seconds 650 --source-run s2-direct-rust-test-fast-route
           if ($LASTEXITCODE -ne 0) { throw 'Real Genesis short-run probe failed' }
+
+      - name: Stamp true Git source commit into the legacy capture manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = 'work/s2-raw/manifest.json'
+          if (!(Test-Path $manifest)) { throw 'Capture manifest absent' }
+          $d = Get-Content $manifest -Raw | ConvertFrom-Json
+          $head = (git rev-parse HEAD).Trim()
+          $d | Add-Member -Force -NotePropertyName 'actual_native_github_source_sha' -NotePropertyValue $head
+          $d | Add-Member -Force -NotePropertyName 'baseline_reconstructor_source_sha_not_actual_build' -NotePropertyValue $d.build_source_sha
+          $d | ConvertTo-Json -Depth 15 | Set-Content -Encoding utf8 $manifest
+          "Native source SHA: $head" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
       - name: Require exact native facility-funded gas delivery event, report relief separately
         shell: pwsh
