@@ -91,7 +91,7 @@ fn station_admin_head_direction_can_override_local_preference() {
         faction_id:"civ".into(),observed_tick:0,treasury:0,goals:vec![],assessments:vec![],selected_goal:None,
         administrator:"logistics",status:"idle".into(),reason:"test".into(),projects:vec![],construction:None,
         head:Some(crate::strategy::coordination::HeadDecision{observed_tick:0,selected_administrator:None,reason:"test".into(),treasury_before:0,
-            spending_limit:0,planned_spend:0,committed_spend:0,proposals:vec![],problem:Some(goal),selected_option:"wait",horizon_ticks:1,alternatives:vec![],shadow_portfolio:None,native_chain_probe:None,planning_shadow:None,htn_execution:None})});
+            spending_limit:0,planned_spend:0,committed_spend:0,proposals:vec![],problem:Some(goal),selected_option:"wait",horizon_ticks:1,alternatives:vec![],shadow_portfolio:None,native_chain_probe:None,policy_impacts:vec![],planning_shadow:None,htn_execution:None})});
     plan(&mut w,5);assert_eq!(assigned(&w,"a-farm"),6);
 }
 
