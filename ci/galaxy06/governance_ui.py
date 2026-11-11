@@ -171,7 +171,10 @@ function render(){
  for(const record of (commander?.history||[]).slice(-7).reverse()){
   field(activity,"Тик "+record.tick+" · "+record.action,record.reason);
  }
- if(pendingTarget&&m?.target_technology===pendingTarget){
+ if(pendingTarget&&m?.target_technology===pendingTarget.target &&
+   m?.mode===pendingTarget.mode &&
+   m?.budget_ceiling_cr===pendingTarget.budget &&
+   m?.treasury_floor_cr===pendingTarget.reserve){
   message("Мандат подтверждён состоянием игрового сервера.");pendingTarget=null;
  }
 }
@@ -200,7 +203,8 @@ el("mandate-form").onsubmit=async event=>{
  try{
   el("apply").disabled=true;
   await api("/api/player/research-mandate","POST",body);
-  pendingTarget=body.target_technology;
+  pendingTarget={target:body.target_technology,mode:body.mode,
+    budget:body.budget_ceiling_cr,reserve:body.treasury_floor_cr};
   message("Команда поставлена в очередь. Ожидаем подтверждения от симуляции…");
   await poll();
  }catch(e){message("Не принято: "+e.message,true);}
