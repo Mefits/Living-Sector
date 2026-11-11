@@ -157,7 +157,9 @@ pub fn clear_mandate(world:&mut World,faction:&str)->bool{
         })
         .is_some()
 }
-pub fn actual_commit(world:&mut World,faction:&str,amount:i64,tick:u64){
+pub fn actual_commit(
+    world:&mut World,faction:&str,amount:i64,contract_id:&str,action:&str,tick:u64
+){
     if amount<=0{return;}
     let mut recorded=false;
     if let Some(mut d)=world.get_resource_mut::<Director>(){
@@ -172,7 +174,7 @@ pub fn actual_commit(world:&mut World,faction:&str,amount:i64,tick:u64){
     }
     if recorded {
         super::charter::record_paid(world,faction,super::charter::Department::Economy,amount);
-        super::economic_proposal::native_paid(world,faction,amount,tick);
+        super::economic_proposal::native_paid(world,faction,amount,contract_id,action,tick);
     }
 }
 pub fn status(world:&mut World,faction:&str,reason:&str){
