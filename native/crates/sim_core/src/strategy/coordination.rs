@@ -10,6 +10,20 @@ pub struct Proposal {
     pub requested_credits: i64,
     pub priority: u8,
 }
+/// Observable relationship between a player policy and what the native head
+/// actually selected. No second decision maker and no inferred completion.
+#[derive(Clone, Debug, Serialize)]
+pub struct PolicyImpact {
+    pub department: &'static str,
+    pub mode: governance::MandateMode,
+    pub target: String,
+    pub priority: Option<u8>,
+    pub selected: bool,
+    pub status: &'static str,
+    pub reason: String,
+    pub funded_contract_id: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct HeadDecision {
     pub observed_tick: u64,
@@ -29,6 +43,9 @@ pub struct HeadDecision {
     pub shadow_portfolio: Option<options::ShadowRecommendation>,
     /// Native recipe-based dependency probe; not a construction or production order.
     pub native_chain_probe: Option<options::NativeChainProbe>,
+    /// What player directives did to this head decision (or why not).
+    /// A policy in advise/hold mode is visible but cannot issue paid orders.
+    pub policy_impacts: Vec<PolicyImpact>,
     /// Legacy decision expressed in the shared planner contract; diagnostic only.
     pub planning_shadow: Option<planning::ShadowTrace>,
     /// Real native planning dispatch (legacy key retained for Observer compatibility):
@@ -122,7 +139,7 @@ fn decision(
         treasury_before: view.treasury, spending_limit: limit, planned_spend: planned,
         committed_spend: 0, proposals, problem, selected_option,
         horizon_ticks: options::horizon_ticks(mult), alternatives, shadow_portfolio, native_chain_probe,
-        planning_shadow: None, htn_execution: None,
+        policy_impacts:Vec::new(),planning_shadow: None, htn_execution: None,
     }
 }
 
@@ -715,6 +732,67 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
             }
         };
         super::economic_mandate::status(world,&id,&reason);
+    }
+    // Read-only policy audit after all native grants and paid receipts.
+    // Delegated, advisory, and hold modes are distinct even when the AI
+    // independently chooses a similar supply or research objective.
+    let impacts:Vec<_>=world.get_resource::<director::Director>().map(|d|
+        d.commanders.keys().map(|id|{
+            let head=world.resource::<StrategyState>().factions.get(id)
+                .and_then(|v|v.head.as_ref());
+            let charter=d.faction_charters.get(id);
+            let mut items=Vec::new();
+            if let Some(m)=d.economic_mandates.get(id) {
+                let selected=head.is_some_and(|h|h.problem.as_ref().is_some_and(|g|
+                    g.goal_id==m.goal_id() && g.destination==m.location &&
+                    g.commodity==m.commodity) &&
+                    matches!((m.kind,h.selected_option),
+                        (super::economic_mandate::EconomicKind::Supply,"deliver")|
+                        (super::economic_mandate::EconomicKind::Industry,"build")));
+                let proposal=d.economic_proposals.get(id);
+                let funded=proposal.and_then(|p|p.funded_contract_id.clone());
+                let status=if m.mode==governance::MandateMode::Hold {"hold"}
+                    else if m.mode==governance::MandateMode::Advise {"advisory"}
+                    else if charter.is_some_and(|c|c.economy_authority==charter::Authority::Autonomous)
+                        {"charter_autonomous"}
+                    else if d.commanders.get(id).is_some_and(|c|c.crisis) {"survival_override"}
+                    else if funded.is_some() {"native_contract_linked"}
+                    else if selected {"selected_by_head"}
+                    else if proposal.is_some_and(|p|p.status==super::economic_proposal::ProposalStatus::Pending)
+                        {"awaiting_specific_approval"}
+                    else {"not_selected"};
+                items.push(PolicyImpact{
+                    department:"economy",mode:m.mode,
+                    target:format!("{} · {} · {}",m.goal_id(),m.location,m.commodity.as_str()),
+                    priority:charter.map(|c|c.economy_priority),
+                    selected: selected && m.mode==governance::MandateMode::Delegated,
+                    status,reason:m.last_reason.clone(),funded_contract_id:funded,
+                });
+            }
+            if let Some(m)=d.research_mandates.get(id) {
+                let selected=head.is_some_and(|h|h.selected_option=="research") &&
+                    m.mode==governance::MandateMode::Delegated &&
+                    charter.is_none_or(|c|c.research_authority!=charter::Authority::Autonomous);
+                let status=if m.mode==governance::MandateMode::Hold {"hold"}
+                    else if m.mode==governance::MandateMode::Advise {"advisory"}
+                    else if charter.is_some_and(|c|c.research_authority==charter::Authority::Autonomous)
+                        {"charter_autonomous"}
+                    else if d.commanders.get(id).is_some_and(|c|c.crisis) {"survival_override"}
+                    else if selected {"selected_by_head"}
+                    else {"not_selected"};
+                items.push(PolicyImpact{department:"research",mode:m.mode,
+                    target:m.target_technology.clone(),
+                    priority:charter.map(|c|c.research_priority),
+                    selected,status,reason:m.last_reason.clone(),funded_contract_id:None});
+            }
+            (id.clone(),items)
+        }).collect()
+    ).unwrap_or_default();
+    for (id,items) in impacts {
+        if let Some(head)=world.resource_mut::<StrategyState>().factions.get_mut(&id)
+            .and_then(|v|v.head.as_mut()) {
+            head.policy_impacts=items;
+        }
     }
     world.resource_mut::<StrategyState>().last_coordinated_tick = Some(tick);
 }
