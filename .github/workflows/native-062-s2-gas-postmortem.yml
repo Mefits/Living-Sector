@@ -3,7 +3,7 @@ name: Sol S2 - Offline causal gas blockers from previous REAL Windows trace
 on:
   push:
     branches:
-      - feature/native-062-s2-route1-postmortem
+      - feature/native-062-s2-confirmed-gas-audit
     paths:
       - '.github/workflows/native-062-s2-gas-postmortem.yml'
       - 'ci/sol_s2/audit_operations.py'
@@ -35,7 +35,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: Native-Gas-Golden-S2-Controlled-Evidence
-          run-id: 43029460803
+          run-id: 43038799967
           repository: Mefits/Living-Sector
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: work/s2-saved
@@ -51,7 +51,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Sol-S2-1257-Ticks-Route1-Exact-Postmortem
+          name: Sol-S2-1250-Ticks-Physical-Fixture-Proven-Receipt
           path: work/s2-diagnosis/
           if-no-files-found: warn
           retention-days: 21
