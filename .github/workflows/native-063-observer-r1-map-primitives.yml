@@ -1,0 +1,41 @@
+name: Observer R1 - pure map primitives (no game build)
+
+on:
+  push:
+    branches:
+      - feature/native-063-observer-r1-map-primitives
+    paths:
+      - 'native/observer/app.js'
+      - 'native/observer/map-primitives.js'
+      - 'native/observer/map-primitives.test.mjs'
+      - '.github/workflows/native-063-observer-r1-map-primitives.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pure-ui-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate unchanged module graph and extracted pure map primitives
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          node --check observer/app.js
+          node --check observer/map-primitives.js
+          node --test observer/map-primitives.test.mjs
+          git diff --check
+      - name: Document boundaries
+        if: always()
+        run: |
+          echo '## Observer R1 (narrow)' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Pure viewport bounds, palette, orbital radii and deterministic distant specks moved out of app.js.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No server/API, HTML, camera, input controls, animation or map appearance deliberately changed.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No Windows native compilation or long economy simulation for this small UI refactor.' >> "$GITHUB_STEP_SUMMARY"
