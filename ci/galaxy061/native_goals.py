@@ -23,12 +23,16 @@ one(p,
         let members = locations.get(&faction.id).cloned().unwrap_or_default();""",
     """    let player_economic_mandates=world.get_resource::<director::Director>()
         .map(|d|d.economic_mandates.clone()).unwrap_or_default();
+    let crisis_factions:std::collections::HashSet<String>=
+        world.get_resource::<director::Director>()
+        .map(|d|d.commanders.iter().filter(|(_,c)|c.crisis)
+            .map(|(id,_)|id.clone()).collect()).unwrap_or_default();
     for (entity, faction) in factions {
         let members = locations.get(&faction.id).cloned().unwrap_or_default();""")
 one(p,
     """        goals.sort_by(|a,b| b.score.total_cmp(&a.score)""",
     """        if let Some(m)=player_economic_mandates.get(&faction.id) {
-            if members.contains(&m.location)
+            if members.contains(&m.location) && !crisis_factions.contains(&faction.id)
                 && economic_mandate::may_commission(
                     m,faction.treasury,faction::SUBSIDY_BASE_PAYMENT*2).is_ok() {
                 if let Some((_,_,market))=markets.iter().find(|(loc,_,_)|*loc==m.location){
@@ -53,6 +57,9 @@ one(p,
             .and_then(|d|d.economic_mandates.get(&account.id)).cloned() {
             if m.kind==super::economic_mandate::EconomicKind::Industry &&
                 members.contains(&m.location) &&
+                !world.get_resource::<super::director::Director>()
+                    .and_then(|d|d.commanders.get(&account.id))
+                    .is_some_and(|c|c.crisis) &&
                 super::economic_mandate::may_commission(
                     &m,account.treasury,faction::CONSTRUCTION_BASE_PAYMENT).is_ok() {
                 if let Some((_,_,market))=markets.iter().find(|(loc,_,_)|*loc==m.location){
@@ -110,7 +117,7 @@ one(p,
                         }
                         let charge=comparison.alternatives.iter()
                             .find(|a|a.action==comparison.selected)
-                            .map_or(0,|a|a.first_payment);
+                            .map_or(0,|a|a.total_commitment.max(a.first_payment));
                         if super::economic_mandate::may_commission(
                             m,view.treasury,charge).is_ok() {
                             *head=decision(view,&sources,tick,mult,false,Some(c),
@@ -146,7 +153,7 @@ one(p,
                 g.commodity==m.commodity {
                 let charge=head.alternatives.iter()
                     .find(|a|a.action==head.selected_option)
-                    .map_or(0,|a|a.first_payment);
+                    .map_or(0,|a|a.total_commitment.max(a.first_payment));
                 let treasury=head.treasury_before;
                 if super::economic_mandate::may_commission(m,treasury,charge).is_err() {
                     head.problem=None;
