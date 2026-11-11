@@ -1,0 +1,46 @@
+name: Balance Lab S2 - actual gas stock and cargo fill (offline evidence)
+
+on:
+  push:
+    branches:
+      - feature/native-062-balance-audit-20261111
+    paths:
+      - 'ci/balance/gas_cargo_rates.py'
+      - '.github/workflows/native-062-gas-cargo-rate-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-real-economy:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download exact successful real native gas Golden evidence, no rerun
+        uses: actions/download-artifact@v4
+        with:
+          name: Native-Gas-Golden-S2-Controlled-Evidence
+          run-id: 43038799967
+          repository: Mefits/Living-Sector
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: work/native-s2
+      - name: Quantify net market gas and real ship hold utilization
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/balance/gas_cargo_rates.py --raw work/native-s2/s2-raw --out work/balance-diagnostic
+          if ($LASTEXITCODE -ne 0) { throw "Actual native data analysis failed" }
+          Get-Content 'work/balance-diagnostic/GAS-BALANCE-EVIDENCE-RU.md' |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Gas-Balance-Live-Rate-Cargo-Hold-Diagnostic
+          path: work/balance-diagnostic/
+          retention-days: 21
