@@ -22,7 +22,7 @@
 
 ## Интеграционный gate
 
-Targeted tests и server cargo check CI: https://github.com/Mefits/Living-Sector/actions/runs/43023237150 (проверить conclusion, не предполагать success). После green — один bounded live replay с горизонтом **достаточным для настоящего возвращения T2 Hauler**. Если газ всё ещё не доставляется, следующий узкий разбор должен смотреть причину `contract_accept` / `buy` / `deliver` для конкретного ID и native stop reason.
+Targeted tests и server cargo check: https://github.com/Mefits/Living-Sector/actions/runs/43023237150 — **SUCCESS**: 9 native station-order tests, 6 strategy tests, cargo check -p sim_server. Это не проверка live delivery. После green — один bounded live replay с горизонтом **достаточным для настоящего возвращения T2 Hauler**. Если газ всё ещё не доставляется, следующий узкий разбор должен смотреть причину `contract_accept` / `buy` / `deliver` для конкретного ID и native stop reason.
 
 ## Принцип для будущего планетарного слоя
 
