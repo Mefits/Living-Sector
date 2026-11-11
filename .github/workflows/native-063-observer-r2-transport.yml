@@ -1,0 +1,41 @@
+name: Observer R2 - transport isolation (no game build)
+
+on:
+  push:
+    branches:
+      - feature/native-063-observer-r2-transport
+    paths:
+      - 'native/observer/app.js'
+      - 'native/observer/transport.js'
+      - 'native/observer/transport.test.mjs'
+      - '.github/workflows/native-063-observer-r2-transport.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  network-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate syntax and HTTP/WebSocket behavior, without game simulation
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          node --check observer/app.js
+          node --check observer/transport.js
+          node --test observer/transport.test.mjs
+          node --test observer/map-primitives.test.mjs
+          git diff --check
+      - name: Confirm scope
+        if: always()
+        run: |
+          echo '## Observer R2' >> "$GITHUB_STEP_SUMMARY"
+          echo 'HTTP and WebSocket transport isolated. Rendering, camera, API paths, reconnect delay and control payloads unchanged.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Only small Node tests; no Rust compilation, long-running economic simulation or Windows packaging.' >> "$GITHUB_STEP_SUMMARY"
