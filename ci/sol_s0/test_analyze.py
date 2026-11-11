@@ -9,7 +9,8 @@ def snapshot(tick,stock=5,commodity="water",destination="earth-station",
         c={"id":"real-contract-11","commodity":commodity,
            "destination_location":destination,"status":status,
            "faction_id":"terran-authority",
-           "funding":{"reserved":25}}
+           "quantity":200,"contract_type":"delivery",
+           "funding":{"reserved":25,"source":"facility"}}
         if quantity is not None:c["delivered_units"]=quantity
         contracts=[c]
     return {"health":{"tick":tick},"report":{"tick":tick,"world_seed":7,
@@ -32,12 +33,21 @@ class AntiFalseGreen(unittest.TestCase):
         self.assertFalse(w["delivery_verified"])
         self.assertEqual(w["relief_verified"],"unknown")
         self.assertEqual(x["relief_verified"],"unknown")
-    def test_verified_cargo_still_does_not_prove_causal_relief(self):
-        xs=[snapshot(100,status="accepted"),
-            snapshot(200,stock=2,status="picked_up"),
-            snapshot(300,stock=9,status="delivered",quantity=7)]
-        w=assess(xs,[])["by_commodity"]["water"]
+    def test_actual_native_market_commit_proves_delivery_without_picked_up_state(self):
+        # Genesis normal deliveries transition Accepted -> Paid directly.
+        # The exact engine commit event omits quantity but atomically adds
+        # the actual contract quantity to destination market inventory.
+        xs=[snapshot(100,status="accepted"),snapshot(200,stock=2,status="accepted"),
+            snapshot(300,stock=9,status="paid")]
+        event={"tick":250,"event":{"kind":"contract_delivered",
+            "contract_id":"real-contract-11","contract_type":"delivery",
+            "commodity":"water","destination":"earth-station","payment":50}}
+        w=assess(xs,[event])["by_commodity"]["water"]
         self.assertEqual(w["contract_id"],"real-contract-11")
+        self.assertIsNone(w["t_pickup"])
+        self.assertEqual(w["t_delivered"],250)
+        self.assertEqual(w["delivered_units"],200)
+        self.assertEqual(w["delivery_quantity_source"],"exact_native_contract_quantity_on_commit_event")
         self.assertTrue(w["delivery_verified"])
         self.assertEqual(w["relief_verified"],"unknown")
     def test_unrelated_destination_does_not_count(self):
@@ -52,13 +62,49 @@ class AntiFalseGreen(unittest.TestCase):
         w=assess([s],[])["by_commodity"]["water"]
         self.assertIsNone(w["t_pressure"])
         self.assertIsNone(w["stock_before"])
-    def test_missing_delivery_amount_cannot_invent_units(self):
-        xs=[snapshot(100,status="accepted"),
-            snapshot(200,status="picked_up"),
-            snapshot(300,stock=50,status="delivered")]
-        w=assess(xs,[])["by_commodity"]["water"]
+    def test_paid_without_native_event_or_contract_quantity_is_not_delivery(self):
+        xs=[snapshot(100,status="accepted"),snapshot(200,status="paid")]
+        row={"tick":180,"event":{"kind":"contract_delivered",
+            "contract_id":"real-contract-11","contract_type":"delivery",
+            "commodity":"water","destination":"earth-station"}}
+        # Native contract quantity missing: never synthesize it from stock.
+        for s in xs:s["contracts"][0].pop("quantity")
+        w=assess(xs,[row])["by_commodity"]["water"]
         self.assertIsNone(w["delivered_units"])
         self.assertFalse(w["delivery_verified"])
+
+    def test_unrelated_contract_event_and_wrong_market_cannot_pass(self):
+        xs=[snapshot(100,status="accepted"),snapshot(200,status="paid")]
+        bad=[{"tick":170,"event":{"kind":"contract_delivered",
+            "contract_id":"unrelated-contract","contract_type":"delivery",
+            "commodity":"water","destination":"earth-station"}},
+             {"tick":180,"event":{"kind":"contract_delivered",
+            "contract_id":"real-contract-11","contract_type":"delivery",
+            "commodity":"water","destination":"mars"}}]
+        self.assertFalse(assess(xs,bad)["by_commodity"]["water"]["delivery_verified"])
+
+    def test_construction_delivery_does_not_add_to_market(self):
+        xs=[snapshot(100,status="accepted"),snapshot(200,status="paid")]
+        for s in xs:s["contracts"][0]["contract_type"]="construction"
+        event={"tick":170,"event":{"kind":"contract_delivered",
+            "contract_id":"real-contract-11","contract_type":"construction",
+            "commodity":"water","destination":"earth-station","quantity":200}}
+        self.assertFalse(assess(xs,[event])["by_commodity"]["water"]["delivery_verified"])
+
+    def test_household_consumption_is_not_market_relief(self):
+        xs=[snapshot(100,status="accepted"),snapshot(200,status="paid")]
+        for s in xs:s["contracts"][0]["funding"]["source"]="population"
+        event={"tick":170,"event":{"kind":"contract_delivered",
+            "contract_id":"real-contract-11","contract_type":"delivery",
+            "commodity":"water","destination":"earth-station"}}
+        self.assertFalse(assess(xs,[event])["by_commodity"]["water"]["delivery_verified"])
+
+    def test_native_event_cannot_override_conflicting_amount(self):
+        xs=[snapshot(100,status="accepted"),snapshot(200,status="paid")]
+        event={"tick":170,"event":{"kind":"contract_delivered",
+            "contract_id":"real-contract-11","contract_type":"delivery",
+            "commodity":"water","destination":"earth-station","quantity":999}}
+        self.assertFalse(assess(xs,[event])["by_commodity"]["water"]["delivery_verified"])
     def test_real_event_inventory_not_implied_contract_receipt(self):
         s=snapshot(100)
         inv=inventory([s],[{"tick":100,"event":{
