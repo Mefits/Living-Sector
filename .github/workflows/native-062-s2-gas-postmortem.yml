@@ -3,7 +3,7 @@ name: Sol S2 - Offline causal gas blockers from previous REAL Windows trace
 on:
   push:
     branches:
-      - feature/native-062-s2-native-chain-audit
+      - feature/native-062-s2-route1-postmortem
     paths:
       - '.github/workflows/native-062-s2-gas-postmortem.yml'
       - 'ci/sol_s2/audit_operations.py'
