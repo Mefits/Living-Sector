@@ -42,3 +42,7 @@ dist/
 
 # Raw, unprocessed screenshots (commit the processed docs/screenshots/*.png instead)
 Screenshot*.png
+
+# Prevent nested Rust compiler output from entering Git during source import
+**/target/
+**/target/**

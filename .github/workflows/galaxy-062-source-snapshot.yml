@@ -1,0 +1,110 @@
+name: Galaxy 0.6.2 - Reconstruct editable source snapshot from green CI
+
+on:
+  push:
+    branches:
+      - feature/galaxy-062-source-snapshot
+    paths:
+      - '.github/workflows/galaxy-062-source-snapshot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay-source:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source snapshot tooling only
+        uses: actions/checkout@v4
+
+      - name: Checkout EXACT 0.6.2 verified Windows compile source commit
+        uses: actions/checkout@v4
+        with:
+          ref: 4ffd80002ec74b4af3eccb0db5279578c1148e0a
+          path: work/harness
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify pinned commit and unpack nested original source archives
+        shell: pwsh
+        working-directory: work/harness
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $commit=(git rev-parse HEAD).Trim()
+          if ($commit -ne '4ffd80002ec74b4af3eccb0db5279578c1148e0a') {
+            throw "Unpinned source: $commit"
+          }
+          $bundle = 'ci-input/LS-GALAXY-03-CI-INPUT.zip'
+          if (!(Test-Path $bundle)) { throw 'Original input archive absent' }
+          New-Item -ItemType Directory -Force -Path 'work/input','work/source','work/art' | Out-Null
+          Expand-Archive -LiteralPath $bundle -DestinationPath 'work/input' -Force
+          if (!(Test-Path 'work/input/LS-AI-BLOCK-IV-SOURCES.zip')) {
+            throw 'Nested source zip missing'
+          }
+          if (!(Test-Path 'work/input/Living-Sector-Art-Catalog-v0.4.zip')) {
+            throw 'Original art archive missing'
+          }
+          Expand-Archive -LiteralPath 'work/input/LS-AI-BLOCK-IV-SOURCES.zip' -DestinationPath 'work/source' -Force
+          Expand-Archive -LiteralPath 'work/input/Living-Sector-Art-Catalog-v0.4.zip' -DestinationPath 'work/art' -Force
+          if (!(Test-Path 'work/source/Living-Sector-Galaxy-0.2/Cargo.lock')) {
+            throw 'Not the original Genesis source ZIP'
+          }
+
+      - name: Replay EXACT source overlays in Windows green CI order
+        shell: pwsh
+        working-directory: work/harness
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $layers = @(
+            'ci/fix_galaxy_sources.py',
+            'ci/galaxy04/apply.py',
+            'ci/galaxy05/apply.py',
+            'ci/galaxy06/apply.py',
+            'ci/galaxy061/apply.py',
+            'ci/galaxy062/apply.py'
+          )
+          foreach ($layer in $layers) {
+            python $layer
+            if ($LASTEXITCODE -ne 0) { throw "Pinned source overlay failed: $layer" }
+          }
+          python ci/galaxy04/verify_worlds08.py
+          if ($LASTEXITCODE -ne 0) { throw 'Native eight-system source topology invalid' }
+          node --check work/source/Living-Sector-Galaxy-0.2/observer/app.js
+          if ($LASTEXITCODE -ne 0) { throw 'Observer JS invalid' }
+
+      - name: Generate source SHA256 manifest and full ZIP (without compiling again)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/source_snapshot/make.py
+          if ($LASTEXITCODE -ne 0) { throw 'Source snapshot creation failed' }
+          if (!(Test-Path 'source-snapshot-results/Living-Sector-Galaxy-0.6.2-SOURCE.zip')) {
+            throw 'Full editable source archive missing'
+          }
+
+      - name: Publish editable source ZIP plus verifiable manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Galaxy-0.6.2-EDITABLE-SOURCE
+          path: |
+            source-snapshot-results/Living-Sector-Galaxy-0.6.2-SOURCE.zip
+            source-snapshot-results/SOURCE-MANIFEST.md
+            source-snapshot-results/SOURCE-MANIFEST.json
+            source-snapshot-results/SOURCE-FILES-SHA256.json
+            source-snapshot-results/ART-FILES-SHA256.json
+            source-snapshot-results/SOURCE-ZIP-SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Show source manifest
+        shell: pwsh
+        if: success()
+        run: |
+          Get-Content source-snapshot-results/SOURCE-MANIFEST.md |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
