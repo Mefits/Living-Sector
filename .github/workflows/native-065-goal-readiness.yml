@@ -1,0 +1,52 @@
+name: Galaxy 0.6.5 - native goal ranking and input readiness
+
+on:
+  push:
+    branches:
+      - feature/galaxy-065-decision-portfolio-readiness
+    paths:
+      - 'native/crates/sim_core/src/strategy/options.rs'
+      - 'native/crates/sim_core/src/strategy/coordination.rs'
+      - 'native/crates/sim_core/src/strategy/production_dependencies.rs'
+      - 'native/crates/sim_core/src/strategy/station/tests.rs'
+      - 'native/observer/governance-economy.html'
+      - 'native/observer/governance-approvals.html'
+      - '.github/workflows/native-065-goal-readiness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Small strategy and native-recipe regression group, no simulation
+        working-directory: native
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p sim_core --lib galaxy06 -- --nocapture
+          cargo test --locked -p sim_core --lib production_dependencies::tests -- --nocapture
+      - name: Check syntax for both affected existing Observer pages
+        working-directory: native
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          for i,name in enumerate(['governance-economy.html','governance-approvals.html']):
+              html=Path('observer',name).read_text()
+              assert html.count('<script>')==1 and html.count('</script>')==1,name
+              Path(f'/tmp/living-sector-065-{i}.js').write_text(
+                  html.split('<script>',1)[1].split('</script>',1)[0])
+          PY
+          for f in /tmp/living-sector-065-*.js; do node --check "$f"; done
+      - name: Acceptance boundaries
+        if: always()
+        run: |
+          echo 'Read-only head options, physical local recipe inputs, native blockers and browser rendering. No Windows package or extended economy run.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No saved-file migration; candidate forecasts are not proof of an order or output.' >> "$GITHUB_STEP_SUMMARY"
