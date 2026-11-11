@@ -1,0 +1,38 @@
+name: T1 EnergyCells future graph - fast native recipe source audit
+
+on:
+  push:
+    branches:
+      - feature/native-062-gas-single-polymer-chain
+    paths:
+      - 'ci/balance/recipe_graph_lab.py'
+      - 'ci/balance/test_recipe_graph_lab.py'
+      - '.github/workflows/native-062-energy-cells-graph-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Cheap catalog parity and hypothetical energy bootstrap invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s ci/balance -p test_recipe_graph_lab.py -v
+          python ci/balance/recipe_graph_lab.py > /tmp/energy-cells-graph-audit.json
+          cat /tmp/energy-cells-graph-audit.json
+      - name: Save precise bounded source graph, not a simulated economy
+        uses: actions/upload-artifact@v4
+        with:
+          name: T1-EnergyCells-Bootstrap-Structure-Only
+          path: /tmp/energy-cells-graph-audit.json
+          if-no-files-found: error
+          retention-days: 14
