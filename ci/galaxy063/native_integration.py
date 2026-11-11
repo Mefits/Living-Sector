@@ -42,7 +42,7 @@ one(p,
                             .map_or(0,|a|a.total_commitment.max(a.first_payment));
                         let ready=comparison.alternatives.iter().any(|a|
                             a.action==comparison.selected && a.status=="ready");
-                        let quoted_action=comparison.selected.clone();
+                        let quoted_action=comparison.selected.to_string();
                         if ready && super::economic_proposal::can_offer(
                             world,id,m,charge,view.treasury) {
                             specific_offers.push((id.clone(),m.clone(),
