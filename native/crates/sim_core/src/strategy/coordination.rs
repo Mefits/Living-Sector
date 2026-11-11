@@ -527,7 +527,9 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
         for id in science {let result=director::research(world,&id,tick);science_spend.insert(id.clone(),result.as_ref().copied().unwrap_or(0));let reason=result.as_ref().err().copied().unwrap_or("paid_research_shift");
             if let Some(c)=world.resource_mut::<director::Director>().commanders.get_mut(&id){director::record(c,tick,"research",reason,if result.is_ok(){"executed"}else{"blocked"});}
         }
-        let mut mandate_receipts=Vec::<(String,i64)>::new();
+        // One receipt per actual sanctioned order; faction-wide tick totals
+        // remain useful for display, but are NOT evidence of mandated spend.
+        let mut mandate_receipts=Vec::<(String,i64,String,String)>::new();
         let mut state = world.resource_mut::<StrategyState>();
         for (id,view) in &mut state.factions {
             let committed: i64 = board.iter().filter(|c| c.requestor_id == *id && c.posted_at_tick == tick &&
@@ -537,25 +539,70 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
             if let Some(head) = &mut view.head {
                 head.committed_spend=committed+science_spend.get(id).copied().unwrap_or(0);
                 if head.selected_option=="research"{head.planned_spend=head.committed_spend;}
-                if committed>0 && head.problem.as_ref().is_some_and(|goal|
-                    economic_intents.get(id).is_some_and(|m|
-                        m.active()&&goal.goal_id==m.goal_id() &&
-                        goal.destination==m.location&&goal.commodity==m.commodity)) {
-                    mandate_receipts.push((id.clone(),committed));
+                if let (Some(goal),Some(m))=(head.problem.as_ref(),economic_intents.get(id)) {
+                    if m.active() && goal.goal_id==m.goal_id() &&
+                        goal.destination==m.location && goal.commodity==m.commodity {
+                        // The chosen goal and action must agree with the
+                        // administrator's *new* paid native contract. In
+                        // particular, another faction project in this tick
+                        // cannot consume a player's approval token.
+                        let contract=match (m.kind,head.selected_option) {
+                            (super::economic_mandate::EconomicKind::Supply,"deliver")=>
+                                board.iter().find(|c| c.requestor_id==*id &&
+                                    c.posted_at_tick==tick &&
+                                    c.contract_type==crate::economy::contracts::ContractType::Subsidy &&
+                                    c.mission_category.as_deref()==Some(PROJECT_TAG) &&
+                                    c.destination_location==m.location &&
+                                    c.commodity==m.commodity),
+                            (super::economic_mandate::EconomicKind::Industry,"build")=>
+                                view.construction.as_ref()
+                                    .filter(|cv|cv.status=="commissioned" &&
+                                        cv.selected_goal.as_ref().is_some_and(|g|
+                                            g.destination==m.location &&
+                                            g.commodity==m.commodity))
+                                    .and_then(|cv|cv.contract_id.as_ref())
+                                    .and_then(|contract_id|board.get(contract_id))
+                                    .filter(|c| c.requestor_id==*id &&
+                                        c.posted_at_tick==tick &&
+                                        c.contract_type==crate::economy::contracts::ContractType::Construction &&
+                                        c.mission_category.as_deref()==Some(construction::PROJECT_TAG) &&
+                                        c.destination_location==m.location),
+                            _=>None,
+                        };
+                        if let Some(c)=contract {
+                            if let Some(funding)=c.funding.as_ref().filter(|f|
+                                f.source==FundingSource::Faction && f.reserved>0) {
+                                mandate_receipts.push((id.clone(),funding.reserved,
+                                    c.id.clone(),head.selected_option.into()));
+                            }
+                        }
+                    }
                 }
             }
         }
         drop(state);
-        for (id,actual_paid) in mandate_receipts {
-            super::economic_mandate::actual_commit(world,&id,actual_paid,tick);
+        for (id,actual_paid,contract_id,action) in mandate_receipts {
+            super::economic_mandate::actual_commit(
+                world,&id,actual_paid,&contract_id,&action,tick);
         }
     }
     // Expose physical blockers or verified local stock, not a simulated
     // success event. This runs AFTER the native administrator/driver cycle.
     super::economic_proposal::expire(world,tick);
     for (id,mandate,action,quote,treasury) in specific_offers {
-        super::economic_proposal::publish(
-            world,&id,&mandate,&action,quote,treasury,tick);
+        // Keep the receipt of an already funded delivery visible while the
+        // native carrier is still working. Replacing it with a new offer
+        // would destroy the player's only durable proposal->contract link.
+        let outstanding=world.get_resource::<director::Director>()
+            .and_then(|d|d.economic_proposals.get(&id))
+            .filter(|p|p.status==super::economic_proposal::ProposalStatus::Consumed)
+            .and_then(|p|p.funded_contract_id.as_deref())
+            .and_then(|contract_id|board.get(contract_id))
+            .is_some_and(|c|!matches!(c.status,ContractStatus::Paid|ContractStatus::Expired));
+        if !outstanding {
+            super::economic_proposal::publish(
+                world,&id,&mandate,&action,quote,treasury,tick);
+        }
     }
     let actual_economic_mandates=world.get_resource::<director::Director>()
         .map(|d|d.economic_mandates.clone()).unwrap_or_default();

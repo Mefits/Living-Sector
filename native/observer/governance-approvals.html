@@ -149,17 +149,28 @@ function render(){
  row(x,"3 · Согласование",p
    ? (stateNames[p.status]||p.status) : "Конкретное предложение не получено");
  row(x,"   Последнее основание",p?.last_reason);
- row(x,"4 · Оплаченное действие",p?.status==="consumed"
-   ? "Нативная квитанция зафиксирована для предложения"
-   : "Оплата по этому предложению не подтверждена");
- row(x,"   Зарегистрированный расход главы",fmt(head?.committed_spend));
+ // Only an exact server-side receipt identifies the commissioned contract.
+ // Similar commodity/destination projects are deliberately not inferred.
+ const linkedId=p?.funded_contract_id;
+ const verified=p?.status==="consumed" && typeof linkedId==="string" &&
+   linkedId.length>0 && Number.isSafeInteger(p?.funded_tick) &&
+   typeof p?.funded_payment_cr==="number" && p.funded_payment_cr>0;
+ const linked=verified?(factionView?.projects||[]).find(c=>
+   c.contract_id===linkedId):null;
+ row(x,"4 · Оплаченное действие",verified
+   ? "Контракт подтверждён нативным движком"
+   : p?.status==="consumed"
+     ? "Оплата отмечена старым форматом; ID контракта неизвестен"
+     : "Оплата по этому предложению не подтверждена");
+ row(x,"   Точная квитанция",verified
+   ? linkedId+" · "+fmt(p.funded_payment_cr)+" · тик "+p.funded_tick
+   : "—");
+ row(x,"   Расходы всей фракции в тике главы",fmt(head?.committed_spend));
+ row(x,"5 · Исполнение именно этого контракта",verified
+   ? linked?.state||"Состояние не входит в текущую выборку проектов"
+   : "Невозможно установить конкретный контракт");
  const targetLocation=p?.location??mandate?.location;
  const targetCommodity=p?.commodity??mandate?.commodity;
- const matching=(factionView?.projects||[]).filter(c=>
-   c.destination===targetLocation && c.commodity===targetCommodity);
- row(x,"5 · Контракты того же назначения",matching.length
-   ? matching.slice(0,3).map(c=>s(c.contract_id)+" ("+s(c.state)+")").join("; ")
-   : "В текущей выборке проектов не наблюдаются");
  const market=(live.report.markets||[]).find(m=>
    m.facility_location===targetLocation);
  const rawStock=market?.supply?.[targetCommodity];
@@ -170,11 +181,12 @@ function render(){
  if(mandate?.kind==="supply")row(x,"   Целевой запас",
    Number.isFinite(mandate.min_stock)?mandate.min_stock+" ед.":"—");
  row(x,"Доказанный эффект поручения",
-   "Не определён: API пока не связывает предложение, контракт и изменение запаса");
+   "Не определён: изменение запаса нельзя приписать одному контракту без расходной и приходной квитанции");
  const boundary=document.createElement("p");boundary.className="note";
- boundary.textContent="Совпадение ресурса и станции у контрактов не доказывает, "+
-   "что они созданы именно этим предложением. Текущий запас — снимок, "+
-   "а не измеренное изменение от решения игрока.";
+ boundary.textContent="Точный ID и оплаченная сумма теперь поступают из движка. "+
+   "Статус контракта взят из реального списка проектов. "+
+   "Но изменение запаса могло быть вызвано добычей, торговлей или потреблением, "+
+   "поэтому успешность самой поставки нельзя устанавливать по одной величине склада.";
  x.append(boundary);
  if(pending&&pending.faction_id===id&&p?.proposal_id===pending.proposal_id&&
     p.status===(pending.approve?"approved":"rejected")){
