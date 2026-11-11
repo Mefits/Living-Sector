@@ -1,0 +1,73 @@
+name: Integrate already verified S1-S2 logistics into native Galaxy 0.6.3 (no gameplay retune)
+
+on:
+  push:
+    branches:
+      - feature/galaxy-063-s2-integration-harness
+    paths:
+      - '.github/workflows/native-063-s2-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  merge-existing-fixes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout direct Galaxy 0.6.3 source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge documented, previously validated 0.6.2 S1-S2 branch WITHOUT resolving conflicts by force
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch --no-tags origin feature/native-062-facility-relief-dispatch
+          if ! git merge --no-commit --no-ff FETCH_HEAD; then
+            echo 'Conflict detected. NO merge committed or pushed.'
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+          test -f native/crates/sim_core/src/strategy/economic_proposal.rs
+          test -f native/observer/governance-approvals.html
+          test -f native/crates/sim_core/src/strategy/orders.rs
+          grep -q 'existing_contract_unassigned_stale' native/crates/sim_core/src/strategy.rs
+          grep -q 'facility_relief' native/crates/sim_core/src/strategy/orders.rs
+          git diff --check
+          echo 'Both existing feature sets are present in the merged source.'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: ONE direct source compiler check, no game simulation or balance retuning
+        working-directory: native
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --locked -p sim_core -p sim_server
+          node --check observer/app.js
+
+      - name: Commit isolated unified integration branch, do NOT modify stable/main
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=integration/galaxy-063-s2-logistics
+          if git ls-remote --exit-code --heads origin "refs/heads/$target"; then
+            echo 'Refusing to overwrite existing integration target'
+            exit 1
+          fi
+          git commit -m 'chore(integration): combine native Galaxy 0.6.3 governance with proven S1-S2 logistics'
+          git push origin "HEAD:refs/heads/$target"
+
+      - name: Record actual acceptance boundary
+        if: success()
+        shell: bash
+        run: |
+          echo '## Unified experimental source' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Native Galaxy 0.6.3 + S1/S2 sensor, station-order dispatch and source tests.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Branch: integration/galaxy-063-s2-logistics. Stable/main unchanged.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Compile gate only. Original-distance resilience and old SQLite migration still open.' >> "$GITHUB_STEP_SUMMARY"
