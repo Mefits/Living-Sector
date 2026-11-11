@@ -196,6 +196,38 @@ function render(){
  const sequence=el("sequence");sequence.replaceChildren();
  const construction=live.strategy.factions?.find(v=>v.faction_id===faction)?.construction;
  const chain=construction?.execution_chain;
+ const remembered=live.strategy.production_objectives?.[faction];
+ const stageNames={commission:"Постройка площадки",materials:"Доставка материалов",
+   labor:"Работа строителей",inputs:"Сырьё для предприятия",
+   first_output:"Первый подтверждённый выпуск",complete:"Цель выполнена"};
+ if(remembered){
+   addRow(sequence,"Долгосрочная цель Главы",
+     remembered.commodity+" · "+remembered.location+" · "+remembered.facility_type);
+   addRow(sequence,"Статус цели",
+     ({active:"Сохраняется и наблюдается",paused:"Пауза: приоритет выживания",
+       blocked:"Ожидает устранения препятствия",
+       completed:"Производство подтверждено"})[remembered.status]||
+       remembered.status||"—");
+   addRow(sequence,"Последний проверенный этап",
+     stageNames[remembered.next_stage]||remembered.next_stage||"—");
+   addRow(sequence,"Причина",remembered.reason||"—");
+   addRow(sequence,"Начата на тике",Number.isSafeInteger(remembered.created_tick)?
+     remembered.created_tick:"—");
+   if(remembered.site_id)addRow(sequence,"Строительная площадка",remembered.site_id);
+   if(remembered.contract_id)addRow(sequence,"Связанный контракт",remembered.contract_id);
+   if(Number.isSafeInteger(remembered.verified_output_tick)){
+     addRow(sequence,"Фактический выпуск",
+       "Тик "+remembered.verified_output_tick+" · "+
+       numeric(remembered.verified_output_units)+" ед.");
+   }
+   if(head?.selected_option!=="build" && remembered.status!=="completed"){
+     addRow(sequence,"Переключение Главы",
+       "Текущий выбор: "+(head?.selected_option||"—")+
+       ". Сохранённая цель не потеряна.");
+   }
+ }else{
+   addRow(sequence,"Долгосрочная цель","Нет физически начатого промышленного проекта");
+ }
  const stepNames={commission:"Проект и строительная площадка",
    materials:"Физическая доставка строительных материалов",
    labor:"Работа строителей (с оплатой)",

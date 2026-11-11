@@ -66,7 +66,7 @@ pub struct ConstructionView {
     pub(super) offers: Vec<Offer>,
 }
 impl ConstructionView {
-    fn new(tick: u64) -> Self {
+    pub(super) fn new(tick: u64) -> Self {
         Self { observed_tick: tick, status: "idle".into(), reason: "no_chronic_shortage".into(),
             selected_goal: None, site_id: None, facility_type: None,
             progress_delivered: 0, progress_required: 0, labor_completed: 0, labor_required: 0, labor_blocked_reason: None,
@@ -201,6 +201,37 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
                         }
                     }
                 }
+            }
+        }
+        // A real prepaid project can outlive the head's short-term choice
+        // and even a lost/expired site. Re-offer its *goal*, never its old
+        // quote, contract, source market or price. Normal eligibility, grant,
+        // station-slot, source-stock, treasury and construction gates below
+        // still apply. The retry cannot cancel or duplicate a funded project.
+        if let Some(objective)=world.get_resource::<super::director::Director>()
+            .and_then(|d|d.production_objectives.get(&account.id))
+        {
+            let crisis=world.get_resource::<super::director::Director>()
+                .and_then(|d|d.commanders.get(&account.id))
+                .is_some_and(|c|c.crisis);
+            let location=&objective.location;
+            let missing_site=!sites.iter().any(|s|
+                s.location_name==*location &&
+                s.facility_type==objective.facility_type);
+            let missing_producer=!facilities.iter().any(|(f,l)|
+                f.faction_id==account.id &&
+                l.location_name==*location &&
+                f.facility_type==objective.facility_type);
+            if objective.can_reoffer(crisis) &&
+                members.contains(location) && missing_site && missing_producer &&
+                producer(objective.commodity)==Some(objective.facility_type.as_str()) &&
+                !new_goals.iter().any(|g|g.destination==*location &&
+                    g.commodity==objective.commodity) {
+                new_goals.push(Goal {
+                    goal_id:"persistent_industry".into(),
+                    destination:location.clone(),commodity:objective.commodity,
+                    shortage_ticks:0,score:80.0,
+                });
             }
         }
         new_goals.sort_by(|a,b| b.score.total_cmp(&a.score).then_with(|| a.commodity.as_str().cmp(b.commodity.as_str()))
@@ -494,6 +525,50 @@ mod tests {
         // Nothing in the diagnostic path can spend or post.
         assert_eq!(board.iter().count(),contract_count);
         assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,treasury);
+    }
+    #[test]
+    fn galaxy067_committed_goal_survives_new_head_choice_and_can_recommission() {
+        let (mut world,mut board,owner,port,_)=fixture();
+        world.insert_resource(super::super::director::Director::default());
+        let mut events=Vec::new();
+        let relations=FactionRelations::new();
+        run_cycle(&mut world,&mut board,&relations,&mut events,200,1);
+        let original=world.resource::<super::super::director::Director>()
+            .production_objectives.get("own").cloned().expect("real paid site remembered");
+        assert_eq!(original.commodity,Commodity::Food);
+        assert_eq!(original.created_tick,200);
+        let first_contract=original.contract_id.clone().unwrap();
+        let first_site=world.query::<(Entity,&ConstructionSite)>()
+            .iter(&world).next().unwrap().0;
+        // Head works on science for a few cycles. A transient construction
+        // view disappears, but its objective remains in the saved Director.
+        world.resource_mut::<StrategyState>().factions
+            .get_mut("own").unwrap().construction=None;
+        super::super::refresh(&mut world,&board,210);
+        assert_eq!(world.resource::<super::super::director::Director>()
+            .production_objectives["own"].created_tick,200);
+        assert_eq!(board.iter().count(),1);
+        // No second site/order until the earlier funded native order ends.
+        world.despawn(first_site);
+        run_cycle(&mut world,&mut board,&relations,&mut events,300,1);
+        assert_eq!(board.iter().count(),1);
+        // A genuinely paid/finished (or expired) contract may be retried
+        // with a fresh quote; the goal survives but no stale route is reused.
+        {
+            let old=board.get_mut(&first_contract).unwrap();
+            old.status=ContractStatus::Paid;
+            old.funding.as_mut().unwrap().reserved=0;
+        }
+        world.get_mut::<MarketHistory>(port).unwrap().shortage_ticks.clear();
+        run_cycle(&mut world,&mut board,&relations,&mut events,400,1);
+        assert_eq!(board.iter().count(),2,
+            "saved target should be re-offered without a fresh shortage");
+        assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,60_000);
+        let remembered=&world.resource::<super::super::director::Director>()
+            .production_objectives["own"];
+        assert_eq!(remembered.created_tick,200,"not restarted at retry");
+        assert_eq!(remembered.location,"port");
+        assert_ne!(remembered.contract_id.as_deref(),Some(first_contract.as_str()));
     }
     #[test]
     fn strategy_block_construction_shadow_then_funded_site_and_hold() {
