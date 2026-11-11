@@ -66,7 +66,7 @@ pub struct ConstructionView {
     pub(super) offers: Vec<Offer>,
 }
 impl ConstructionView {
-    fn new(tick: u64) -> Self {
+    pub(super) fn new(tick: u64) -> Self {
         Self { observed_tick: tick, status: "idle".into(), reason: "no_chronic_shortage".into(),
             selected_goal: None, site_id: None, facility_type: None,
             progress_delivered: 0, progress_required: 0, labor_completed: 0, labor_required: 0, labor_blocked_reason: None,
@@ -201,6 +201,37 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard,
                         }
                     }
                 }
+            }
+        }
+        // A real prepaid project can outlive the head's short-term choice
+        // and even a lost/expired site. Re-offer its *goal*, never its old
+        // quote, contract, source market or price. Normal eligibility, grant,
+        // station-slot, source-stock, treasury and construction gates below
+        // still apply. The retry cannot cancel or duplicate a funded project.
+        if let Some(objective)=world.get_resource::<super::director::Director>()
+            .and_then(|d|d.production_objectives.get(&account.id))
+        {
+            let crisis=world.get_resource::<super::director::Director>()
+                .and_then(|d|d.commanders.get(&account.id))
+                .is_some_and(|c|c.crisis);
+            let location=&objective.location;
+            let missing_site=!sites.iter().any(|s|
+                s.location_name==*location &&
+                s.facility_type==objective.facility_type);
+            let missing_producer=!facilities.iter().any(|(f,l)|
+                f.faction_id==account.id &&
+                l.location_name==*location &&
+                f.facility_type==objective.facility_type);
+            if objective.can_reoffer(crisis) &&
+                members.contains(location) && missing_site && missing_producer &&
+                producer(objective.commodity)==Some(objective.facility_type.as_str()) &&
+                !new_goals.iter().any(|g|g.destination==*location &&
+                    g.commodity==objective.commodity) {
+                new_goals.push(Goal {
+                    goal_id:"persistent_industry".into(),
+                    destination:location.clone(),commodity:objective.commodity,
+                    shortage_ticks:0,score:80.0,
+                });
             }
         }
         new_goals.sort_by(|a,b| b.score.total_cmp(&a.score).then_with(|| a.commodity.as_str().cmp(b.commodity.as_str()))
