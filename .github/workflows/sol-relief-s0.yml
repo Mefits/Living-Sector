@@ -29,8 +29,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m py_compile ci/sol_s0/*.py
-          if ($LASTEXITCODE -ne 0) { throw "S0 Python parse failed" }
+          Get-ChildItem -LiteralPath 'ci/sol_s0' -Filter '*.py' | ForEach-Object {
+            python -m py_compile $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "S0 Python parse failed: $($_.Name)" }
+          }
           python -m unittest discover -s ci/sol_s0 -p 'test_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw "S0 false-green regression tests failed" }
 
