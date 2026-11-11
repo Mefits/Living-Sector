@@ -26,6 +26,15 @@ def prepare(source: Path, dest: Path):
     sm["demand"]["gas"]=8
     am["supply"]["gas"]=6000
     am["prices"]["gas"]=1.5
+    # Native Galaxy uses real WORLD coordinates for travel, not just the
+    # nominal route.distance field. A shorter lane number alone leaves
+    # Earth and Alpha physically ~40 world units apart; the prior run
+    # recorded real ETA≈1811 despite route.distance=1.
+    # Move the ENTIRE Alpha system closer in the disposable test seed.
+    old_alpha_offset=alpha["system"]["universe_offset"]
+    assert old_alpha_offset==[40,10], "Do not apply this fixture to other maps"
+    alpha["system"]["universe_offset"]=[4,0]
+    assert sol["system"]["universe_offset"]==[0,0]
     # Keep native topology intact and only accelerate ONE existing edge
     # in this throw-away copy (route is otherwise ~120 units).
     lanes=[r for r in sol["travel_routes"] if {
@@ -51,6 +60,9 @@ def prepare(source: Path, dest: Path):
             "production_sources_unchanged":True,
             "sol_alpha_route_distance_original":original_distance,
             "sol_alpha_route_distance_test":1,
+            "alpha_universe_offset_original":old_alpha_offset,
+            "alpha_universe_offset_test":alpha["system"]["universe_offset"],
+            "physical_distance_reason":"Native ship movement tracks world coordinates of moving bodies, not nominal lane distance",
             "hauler_start":"alpha-station",
             "hauler_start_credits":950,
             "hauler_fitting":hauler["fitting"],
