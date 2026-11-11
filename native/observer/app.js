@@ -8,6 +8,7 @@ import {
 } from "/observer/model.js";
 import {drawStationComplex,visualStationTier,stationScale,stationReveal} from "/observer/station-kit.js";
 import {renderPriorityInspector} from "/observer/priority-inspector.js";
+import {inCanvas,bodyColor,orbitScreenRadii,backdropSpeck} from "/observer/map-primitives.js";
 
 const byId = id => document.getElementById(id);
 const els = Object.fromEntries([
@@ -1230,9 +1231,6 @@ function camera(w,h) {
     })
   };
 }
-function inCanvas(p,w,h,pad=15) {
-  return p.x >= -pad && p.y >= -pad && p.x <= w+pad && p.y <= h+pad;
-}
 function drawGrid(w,h,cam) {
   // World-anchored grid. It moves with the map, rather than staying
   // fixed to the viewer's screen while planets slide over it.
@@ -1267,11 +1265,9 @@ function drawBackdrop(w,h) {
   // Purely decorative distant specks; never interactable or simulated stars.
   // Deterministic per screen size so the stars don't flicker across frames.
   for(let i=1;i<=88;i++){
-    const sx=((Math.sin(i*127.1)*43758.5453)%1+1)%1*w;
-    const sy=((Math.sin(i*311.7)*23421.123)%1+1)%1*h;
-    const a=.06+.13*((Math.sin(i*72.8)*2654)%1+1)%1;
-    ctx.fillStyle="rgba(177,204,223,"+a+")";
-    ctx.fillRect(sx,sy,i%13===0?1.8:1,i%13===0?1.8:1);
+    const star=backdropSpeck(i,w,h);
+    ctx.fillStyle="rgba(177,204,223,"+star.alpha+")";
+    ctx.fillRect(star.x,star.y,star.size,star.size);
   }
 }
 function circle(x,y,r,color,fill=true) {
@@ -1297,10 +1293,7 @@ function textChip(x,y,text,accent="#a5c0d0",max=170) {
 }
 function drawOrbits(sys,toScreen,scale,w,h) {
   const center=toScreen(sys);
-  const radii=[...new Set(sys.bodies.map(body=>{
-    const p=point(body);
-    return p ? Math.round(Math.hypot(p.x-sys.x,p.y-sys.y)*scale) : 0;
-  }).filter(r=>r>12&&r<Math.max(w,h)*2))].sort((a,b)=>a-b);
+  const radii=orbitScreenRadii(sys,scale,w,h);
   ctx.save();ctx.lineWidth=1;
   for(const radius of radii.slice(0,12)){
     ctx.beginPath();ctx.setLineDash([2,8]);
@@ -1320,15 +1313,6 @@ function drawSun(at) {
     circle(at.x,at.y,13,"rgba(255,222,165,.55)",false);
   }
   ctx.restore();
-}
-function bodyColor(body){
-  const biome=String(body.biome??"").toLowerCase();
-  if(body.type==="moon" || biome==="lifeless")return "#a8b5c9";
-  if(body.type==="belt" || body.type==="asteroid" || biome==="asteroid")return "#cba16c";
-  if(biome==="terrestrial")return "#4b9cc4";
-  if(biome==="desert" || biome==="molten")return "#bd8066";
-  if(biome==="gas_giant")return "#c4ae85";
-  return "#8eb0c7";
 }
 function drawBody(body,p,selected=false){
   const tint=bodyColor(body);
