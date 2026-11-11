@@ -1,0 +1,119 @@
+name: Balance S2 A/B - gas only for polymers, ice only for fuel
+
+on:
+  push:
+    branches:
+      - feature/native-062-gas-single-polymer-chain
+    paths:
+      - 'native/crates/sim_core/src/economy/recipes.rs'
+      - 'ci/balance/compare_runs.py'
+      - 'ci/balance/compare_downstream_products.py'
+      - '.github/workflows/native-062-gas-single-polymer-chain.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare-real-s2-economies:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify disposable test map and assessment script
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m py_compile ci/sol_s2/prepare_fixture.py ci/sol_s2/assess_fixture.py ci/balance/compare_runs.py
+          if ($LASTEXITCODE -ne 0) { throw 'Experiment Python compilation failed' }
+          python ci/sol_s2/prepare_fixture.py --source native/priv/galaxy/data --dest work/balance-game/priv/galaxy/data --manifest work/balance-fixture.json
+          if ($LASTEXITCODE -ne 0) { throw 'Test-only fixture build failed' }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Run bounded Rust unit regressions for gas supply and accounting
+        working-directory: native
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_core --lib economy::recipes::tests:: -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw 'Native refinery-chain regressions failed' }
+      - name: Compile actual Windows Genesis from direct Rust sources
+        working-directory: native
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo build --release -p sim_server --bin genesis_server
+          if ($LASTEXITCODE -ne 0) { throw 'Experiment Genesis build failed' }
+          Get-FileHash 'target/release/genesis_server.exe' -Algorithm SHA256 | Format-List
+      - name: Prepare native executable and unchanged Observer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item 'native/target/release/genesis_server.exe' 'work/balance-game/Genesis-Server.exe'
+          Copy-Item 'native/observer' 'work/balance-game/observer' -Recurse
+      - name: Checkout PINNED actual HTTP/WS probe without touching game code
+        uses: actions/checkout@v4
+        with:
+          ref: 96e4a88a63eb51a7dfd5d944bd294f62a3497793
+          path: work/s0-tools
+          sparse-checkout: |
+            ci/sol_s0
+          sparse-checkout-cone-mode: false
+      - name: Restore exact successful baseline data (no second baseline simulation)
+        uses: actions/download-artifact@v4
+        with:
+          name: Native-Gas-Golden-S2-Controlled-Evidence
+          run-id: 43038799967
+          repository: Mefits/Living-Sector
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: work/baseline
+      - name: Install lightweight WebSocket capture client
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "websockets==14.2"
+          if ($LASTEXITCODE -ne 0) { throw 'WS dependency failed' }
+      - name: One comparable real Genesis test-only 1250-tick x16 window
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python work/s0-tools/ci/sol_s0/probe.py --game-dir work/balance-game --out work/balance-raw --ticks 1250 --sample-every 20 --max-seconds 650 --source-run balance-gas-polymer-only-native
+          if ($LASTEXITCODE -ne 0) { throw 'Real Windows balance variant runtime failed' }
+      - name: Independently measure native market receipt and shortage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/sol_s2/assess_fixture.py --source work/balance-raw --out work/balance-assessment
+          if ($LASTEXITCODE -ne 0) { throw 'Actual receipt analysis failed' }
+          python ci/balance/compare_runs.py --baseline work/baseline/s2-assessment/result.json --experiment work/balance-assessment/result.json --out work/balance-comparison.json
+          if ($LASTEXITCODE -ne 0) { throw 'Baseline comparison unavailable' }
+          python ci/balance/compare_downstream_products.py --baseline work/baseline/s2-raw --variant work/balance-raw --out work/balance-downstream
+          if ($LASTEXITCODE -ne 0) { throw 'Downstream stock audit unavailable' }
+          @'
+          import json
+          r=json.load(open('work/balance-comparison.json',encoding='utf8'))
+          assert r['baseline']['delivery_verified'] is True, 'Stored known-good baseline lacks receipt'
+          assert r['experiment']['last_tick']>=1200, 'Insufficient native game window'
+          print('Experiment delivery verified:',r['experiment']['delivery_verified'])
+          print('Experiment relief:',r['experiment']['relief_verified'])
+          print('Baseline/experiment net comparison is descriptive; not automatic release approval.')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Native comparison sanity check failed' }
+          "## Single-run gas balance experiment vs identical real baseline" |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          Get-Content 'work/balance-comparison.json' -Raw |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+      - name: Save exact native evidence and baseline comparison even if run fails
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Native-Gas-Polymer-Only-S2-Real-Comparison
+          path: |
+            work/balance-fixture.json
+            work/balance-raw/
+            work/balance-assessment/
+            work/balance-downstream/
+            work/balance-comparison.json
+          if-no-files-found: warn
+          retention-days: 21
