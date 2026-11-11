@@ -1,0 +1,267 @@
+"""Galaxy06 self-contained in-game governance screen (not a static mockup).
+
+All visible data comes from the live /api/strategy and /api/factions.
+Submit buttons queue *real* engine commands; actual activation is
+confirmed only when the server publishes research_mandates next tick.
+"""
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[2]/"work/source/Living-Sector-Galaxy-0.2"
+observer=ROOT/"observer"
+
+path=observer/"governance.html"
+if path.exists():raise RuntimeError("Galaxy06 governance HTML already exists")
+path.write_text(r'''<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Living Sector — Командование</title>
+<style>
+:root{color-scheme:dark;font:14px system-ui, sans-serif;background:#0d1420;color:#d7e7f3}
+*{box-sizing:border-box}body{margin:0}header{display:flex;align-items:center;justify-content:space-between;
+padding:16px 24px;border-bottom:1px solid #283a4b;background:#101d2b;gap:14px;flex-wrap:wrap}
+header h1{font-size:18px;letter-spacing:.06em;margin:0}header small,small,.muted{color:#9bb0be}
+a{color:#91d8df;text-decoration:none}a:hover{text-decoration:underline}
+.layout{display:grid;grid-template-columns:minmax(290px,380px) minmax(320px,1fr);
+gap:18px;padding:20px;max-width:1320px;margin:auto}
+article{background:#142232;border:1px solid #304257;border-radius:8px;padding:18px;margin-bottom:14px}
+h2{font-size:18px;margin:0 0 14px}h3{font-size:15px;margin:0 0 9px}
+label{display:block;margin:13px 0 5px;color:#c4d3df}input,select,button{
+border:1px solid #425b71;color:#e2eff8;background:#192b3d;border-radius:6px;padding:10px;width:100%;font:inherit}
+button{cursor:pointer;background:#27515d;font-weight:600}
+button:hover{background:#316574}button.secondary{background:#253547}
+button:disabled{opacity:.55;cursor:not-allowed}
+.field-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.help{color:#9bb0be;line-height:1.5;margin-top:10px;font-size:12px}
+.notice{padding:11px;border-left:3px solid #719cb3;background:#1a3040;color:#d7e7f3;line-height:1.5}
+.error{border-color:#d57b71;color:#ffc0b6}
+.row{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #304257}
+.row:last-child{border-bottom:0}.row span:first-child{color:#a8bbc9}
+.value{font-variant-numeric:tabular-nums;font-weight:600;text-align:right}
+.stack{display:flex;flex-direction:column;gap:9px}.meter{height:9px;background:#233547;overflow:hidden;border-radius:4px}
+.meter>div{height:100%;background:#72b9c4;width:0}
+#activity{word-break:break-word}.hidden{display:none}
+@media(max-width:760px){.layout{grid-template-columns:1fr;padding:12px}.field-pair{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+ <div><h1>LIVING SECTOR · КОМАНДОВАНИЕ</h1><small>Игрок выбирает направление, Genesis исполняет реальные действия</small></div>
+ <div><a href="/observer/">← Галактика</a>　<a href="/observer/native.html">Инспектор</a></div>
+</header>
+<main class="layout">
+<section>
+ <article>
+  <h2>Научный мандат</h2>
+  <p class="help">Первый рабочий тип мандата. Не нужно раздавать задания кораблям: глава фракции самостоятельно проходит зависимости выбранной технологии.</p>
+  <form id="mandate-form">
+   <label for="faction">Фракция</label><select id="faction" required></select>
+   <label for="technology">Конечная технология</label><select id="technology" required></select>
+   <p class="help" id="dependencies">Зависимости появятся после подключения к серверу.</p>
+   <label for="mode">Режим управления</label>
+   <select id="mode">
+    <option value="delegated">Делегировать — ИИ самостоятельно исследует в рамках бюджета</option>
+    <option value="advise">Советовать — наблюдать без изменения решений ИИ</option>
+    <option value="hold">Приостановить — не оплачивать новые научные смены</option>
+   </select>
+   <div class="field-pair">
+    <div><label for="budget">Бюджет мандата, CR</label><input id="budget" type="number" min="100" max="1000000000" step="100" value="30000"></div>
+    <div><label for="reserve">Неприкосновенный резерв, CR</label><input id="reserve" type="number" min="10000" max="1000000000" step="1000" value="10000"></div>
+   </div>
+   <p class="help">Резерв ограничивает только расходы этого научного мандата. Вся остальная экономика пока действует по своим правилам; это не глобальный финансовый закон фракции.</p>
+   <div class="stack">
+    <button id="apply" type="submit">Отправить мандат</button>
+    <button id="cancel" type="button" class="secondary">Отменить мандат</button>
+   </div>
+  </form>
+  <p id="notice" role="status" class="notice">Подключение к настоящему игровому серверу…</p>
+ </article>
+ <article>
+  <h3>Границы версии 0.6</h3>
+  <p class="help">Мандат не создаёт ресурсы и не отменяет оплаченные грузы. Кризисы еды и воды сохраняют приоритет. Промышленность и снабжение следующим этапом получат такие же проверяемые полномочия.</p>
+ </article>
+</section>
+<section>
+ <article>
+  <h2>Фактическое исполнение</h2>
+  <div id="state">
+   <div class="row"><span>Связь с сервером</span><span class="value">—</span></div>
+  </div>
+ </article>
+ <article>
+  <h3>Наука фракции</h3>
+  <div id="research"></div>
+ </article>
+ <article>
+  <h3>Последние решения</h3>
+  <div id="activity" class="stack"></div>
+ </article>
+</section>
+</main>
+<script>
+"use strict";
+const el=id=>document.getElementById(id);
+let last=null;
+let pendingTarget=null;
+const fmt=n=>Number.isSafeInteger(n)?n.toLocaleString("ru-RU")+" CR":"—";
+const text=v=>v==null?"—":String(v);
+function field(root,label,value){
+ const row=document.createElement("div");row.className="row";
+ const a=document.createElement("span");a.textContent=label;
+ const b=document.createElement("span");b.className="value";b.textContent=text(value);
+ row.append(a,b);root.append(row);
+}
+async function api(url,method,body){
+ const request={cache:"no-store"};
+ if(method){request.method=method;request.headers={"Content-Type":"application/json"};if(body)request.body=JSON.stringify(body);}
+ const response=await fetch(url,request);
+ let obj={};try{obj=await response.json();}catch{}
+ if(!response.ok)throw Error(obj.error||("HTTP "+response.status));
+ return obj;
+}
+function message(s,error=false){el("notice").textContent=s;el("notice").classList.toggle("error",error);}
+function replaceOptions(select,items,getId,getLabel){
+ const original=select.value;
+ select.replaceChildren();
+ for(const obj of items){const option=document.createElement("option");option.value=getId(obj);option.textContent=getLabel(obj);select.append(option);}
+ if(items.some(i=>getId(i)===original))select.value=original;
+}
+function dependencies(){
+ const tech=last?.strategy?.technologies||[];
+ const byId=new Map(tech.map(t=>[t.id,t]));
+ let t=byId.get(el("technology").value),names=[];
+ for(let i=0;i<tech.length&&t;i++){
+   names.unshift(t.name);
+   t=t.prerequisite?byId.get(t.prerequisite):null;
+ }
+ el("dependencies").textContent="Путь исследований: "+(names.join(" → ")||"—");
+}
+function selected(){return el("faction").value;}
+function render(){
+ if(!last)return;
+ const {strategy,allFactions}=last;
+ const known=Object.entries(strategy.commanders||{});
+ const availableFactions=allFactions.filter(f=>known.some(([id])=>id===f.id));
+ if(availableFactions.length===0){message("Ждём инициализации глав фракций.");return;}
+ replaceOptions(el("faction"),availableFactions,f=>f.id,f=>f.name||f.id);
+ replaceOptions(el("technology"),strategy.technologies||[],t=>t.id,t=>t.name);
+ dependencies();
+ const faction=selected();
+ const commander=strategy.commanders?.[faction];
+ const m=strategy.research_mandates?.[faction];
+ const name=(strategy.technologies||[]).find(t=>t.id===m?.target_technology)?.name;
+ const state=el("state");state.replaceChildren();
+ field(state,"Фракция",availableFactions.find(f=>f.id===faction)?.name||faction);
+ field(state,"Активный мандат",m?(name||m.target_technology):"Автономное управление");
+ if(m){
+  field(state,"Режим",({delegated:"Делегирован",advise:"Совет",hold:"Пауза"})[m.mode]||m.mode);
+  field(state,"Лимит мандата",fmt(m.budget_ceiling_cr));
+  field(state,"Фактически потрачено",fmt(m.spent_cr));
+  field(state,"Доступно до лимита",fmt(m.budget_ceiling_cr-m.spent_cr));
+  field(state,"Резерв казны",fmt(m.treasury_floor_cr));
+  field(state,"Последняя квитанция",m.last_reason||"—");
+  field(state,"Цель изучена?",commander?.technologies?.includes(m.target_technology)?"Да":"Нет");
+ }
+ const research=el("research");research.replaceChildren();
+ const selectedTech=(strategy.technologies||[]).find(t=>t.id===commander?.research);
+ field(research,"Изучается сейчас",selectedTech?.name||"—");
+ field(research,"Оплаченное научное усилие",commander?(commander.progress+" / "+commander.research_required):"—");
+ field(research,"Изучено технологий",commander?.technologies?.length??"—");
+ field(research,"Кризис снабжения",commander?.crisis?"Да — приоритет выживания":"Нет");
+ const activity=el("activity");activity.replaceChildren();
+ for(const record of (commander?.history||[]).slice(-7).reverse()){
+  field(activity,"Тик "+record.tick+" · "+record.action,record.reason);
+ }
+ if(pendingTarget&&m?.target_technology===pendingTarget.target &&
+   m?.mode===pendingTarget.mode &&
+   m?.budget_ceiling_cr===pendingTarget.budget &&
+   m?.treasury_floor_cr===pendingTarget.reserve){
+  message("Мандат подтверждён состоянием игрового сервера.");pendingTarget=null;
+ }
+}
+let polling=false;
+async function poll(){
+ if(polling)return;
+ polling=true;
+ try{
+  const [strategy,factions]=await Promise.all([
+   api("/api/strategy"),api("/api/factions")]);
+  last={strategy,allFactions:Array.isArray(factions)?factions:(factions.factions||factions.data||[])};
+  render();
+ }catch(e){message("Нет связи с Genesis: "+e.message,true);}
+ finally{polling=false;}
+}
+el("faction").onchange=()=>render();
+el("technology").onchange=dependencies;
+el("mandate-form").onsubmit=async event=>{
+ event.preventDefault();
+ const body={faction_id:selected(),target_technology:el("technology").value,
+  mode:el("mode").value,budget_ceiling_cr:Number(el("budget").value),
+  treasury_floor_cr:Number(el("reserve").value)};
+ if(!Number.isSafeInteger(body.budget_ceiling_cr)||!Number.isSafeInteger(body.treasury_floor_cr)){
+  message("Введите целые суммы бюджета и резерва.",true);return;
+ }
+ try{
+  el("apply").disabled=true;
+  await api("/api/player/research-mandate","POST",body);
+  pendingTarget={target:body.target_technology,mode:body.mode,
+    budget:body.budget_ceiling_cr,reserve:body.treasury_floor_cr};
+  message("Команда поставлена в очередь. Ожидаем подтверждения от симуляции…");
+  await poll();
+ }catch(e){message("Не принято: "+e.message,true);}
+ finally{el("apply").disabled=false;}
+};
+el("cancel").onclick=async()=>{
+ try{
+  await api("/api/player/research-mandate/"+encodeURIComponent(selected()),"DELETE");
+  pendingTarget=null;
+  message("Отмена поставлена в очередь. Ранее оплаченная наука не откатывается.");
+  await poll();
+ }catch(e){message(e.message,true);}
+};
+poll();setInterval(poll,1800);
+</script>
+</body>
+</html>''',encoding="utf8")
+
+p=ROOT/"crates/sim_server/src/http/api.rs"
+s=p.read_text(encoding="utf8")
+needle="/// Read-only, versioned integration contract for the independent Observer team."
+if s.count(needle)!=1:raise RuntimeError("Galaxy06 governance page HTTP anchor drift")
+addition='''/// First live player mandate screen, same independent UI environment.
+pub async fn observer_governance_page() -> impl IntoResponse {
+    (
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        axum::response::Html(observer_asset(
+            "governance.html",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/governance.html")),
+        )),
+    )
+}
+
+'''
+p.write_text(s.replace(needle,addition+needle,1),encoding="utf8")
+
+p=ROOT/"crates/sim_server/src/runtime.rs"
+s=p.read_text(encoding="utf8")
+a='''        .route("/observer/", get(api::observer_page))'''
+b='''        .route("/observer/", get(api::observer_page))
+        .route("/observer/governance.html", get(api::observer_governance_page))'''
+if s.count(a)!=1:raise RuntimeError("Galaxy06 governance page route anchor drift")
+p.write_text(s.replace(a,b,1),encoding="utf8")
+
+p=observer/"galaxy.html"
+s=p.read_text(encoding="utf8")
+a='''<a class="button" href="/observer/native.html" target="_blank">Инспектор</a>'''
+b='''<a class="button" href="/observer/governance.html">Управление фракцией</a><a class="button" href="/observer/native.html" target="_blank">Инспектор</a>'''
+if s.count(a)!=1:raise RuntimeError("Galaxy06 Observer main button anchor drift")
+p.write_text(s.replace(a,b,1),encoding="utf8")
+
+p=observer/"native.html"
+s=p.read_text(encoding="utf8")
+a='''<button id="strategy-toggle" class="strategy-toolbar-button"'''
+b='''<a href="/observer/governance.html" class="strategy-toolbar-button" style="padding:6px 10px;text-decoration:none" title="Управление фракцией">Мандаты</a>
+        <button id="strategy-toggle" class="strategy-toolbar-button"'''
+if s.count(a)!=1:raise RuntimeError("Galaxy06 native map toolbar anchor drift")
+p.write_text(s.replace(a,b,1),encoding="utf8")
+
+print("Galaxy06: playable live governance page reachable from map and Observer, no unit control required")
