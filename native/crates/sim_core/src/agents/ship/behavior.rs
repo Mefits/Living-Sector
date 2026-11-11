@@ -1,0 +1,3350 @@
+//! Ship decision-making — planner, BT builders, and their helpers.
+//!
+//! This module hosts everything between "tick observed the world"
+//! (handled by `ship/mod.rs`'s tick passes) and "the dispatched
+//! action runs" (handled by `actions.rs`'s ShipAction executor):
+//!
+//!   * **Planner core** — [`decide_and_act`] is the per-ship inner
+//!     loop, called by `tick_ships` for each ship that's awake this
+//!     tick. It coordinates replan checks, runs the active BT until
+//!     it terminates, and on terminate calls [`plan_goal`] to pick a
+//!     new goal + matching BT.
+//!   * **Goal scoring** — [`plan_goal`] / [`score_strategic`] +
+//!     [`is_replan_eligible`] implement the unified utility scorer
+//!     that replaced the old priority-waterfall in Bundle 2.1.
+//!   * **Plan helpers** — [`try_plan_contract`] / [`try_plan_trade_run`]
+//!     produce candidates with profit estimates that `plan_goal`
+//!     scores. [`best_trade_route`] consults the ship's price memory
+//!     (with freshness decay + route-performance penalty) to find a
+//!     viable trade run.
+//!   * **Idle / explore** — [`smart_idle_fallback`] +
+//!     [`try_build_explore_bt`] — when no contract or trade run is
+//!     viable, ships escalate from sitting still into exploring an
+//!     adjacent system they haven't been to lately.
+//!   * **Rest / retrofit** — [`pick_rest_destination`] picks a
+//!     congestion-aware shore-leave target; [`find_retrofit_opportunity`]
+//!     scans for a reachable shipyard with a desired-tier module
+//!     in stock.
+//!   * **BT builders** — `build_*_bt` and `try_build_*_planned`
+//!     produce the BTs the planner returns. The hand-authored
+//!     `build_*_bt` shims now just call their planner counterparts;
+//!     when the GOAP planner can't synthesise a plan (extremely rare,
+//!     never observed in prod), they fall back to `BtNode::action(Idle)`
+//!     and let the next tick replan.
+//!   * **Combined goals** — `try_build_*_with_retrofit_planned`
+//!     interleave a shipyard detour into a delivery / trade-run plan
+//!     when the ship has retrofit points + a reachable upgrade.
+//!
+//! Every BT builder is parameterised over abstract `Loc` symbols
+//! (Origin / Source / Dest / Shipyard) that the GOAP planner solves
+//! against; [`compile_plan_to_bt`] flattens the synthesised action
+//! sequence back into a runnable BT.
+//!
+//! Extracted from `ship/mod.rs` in the Phase-21 god-module split.
+
+use crate::ai::behavior_tree::BtNode;
+use crate::economy::commodities::Commodity;
+use crate::simulation::commands::{CommandBuffer, SimCommand};
+use crate::world::registry::WorldRegistry;
+use bevy_ecs::prelude::{Entity, World};
+use std::collections::HashMap as StdHashMap;
+
+use super::actions::ShipAction;
+use super::*;
+
+
+/// Physical mining opportunities. The crew chooses whether a haul can earn
+/// money from a real buyer. Station consumption/production targets belong
+/// to the future station administrator, not to ship AI.
+#[derive(Debug, Clone)]
+struct IceMiningSite {
+    location: String,
+    body_id: String,
+    richness: f32,
+}
+
+#[derive(Debug, Clone)]
+struct IceMiningDepot {
+    location: String,
+    faction_id: String,
+    ice_unit_price: f32,
+    fuel_unit_price: f32,
+    buyer_credits: i64,
+}
+
+/// Expected return from one physical trip, not an artificial "water
+/// shortage" score. The selling market must have real credits, and the
+/// requested quantity cannot exceed ship capacity, physical Ice, or the
+/// buyer's estimated purchasing power. Execution checks all of this again.
+fn profitable_mining_quantity(
+    cargo_free: u32,
+    available_ice: u32,
+    unit_price: f32,
+    buyer_credits: i64,
+    distance: u32,
+    fuel_rate: f32,
+    fuel_price: f32,
+    speed_modifier: f32,
+) -> Option<(u32, i64)> {
+    if !unit_price.is_finite() || unit_price <= 0.0 ||
+        !fuel_rate.is_finite() || fuel_rate < 0.0 ||
+        !fuel_price.is_finite() || fuel_price < 0.0 ||
+        !speed_modifier.is_finite() || speed_modifier <= 0.0 ||
+        buyer_credits <= 0
+    { return None; }
+    let unit = unit_price as f64;
+    let payable = ((buyer_credits as f64) / unit).floor().min(u32::MAX as f64) as u32;
+    let qty = cargo_free.min(40).min(available_ice).min(payable);
+    if qty == 0 { return None; }
+    let revenue = (unit * qty as f64).floor();
+    // An estimated fuel opportunity cost, not money deducted out of thin air.
+    // Actual fuel and refuelling are still handled by existing ship systems.
+    let trip_cost = 2.0 * distance as f64 * fuel_rate as f64
+        * fuel_price as f64 / speed_modifier as f64;
+    let net = revenue - trip_cost;
+    if !net.is_finite() || net < 1.0 || net >= i64::MAX as f64 { return None; }
+    Some((qty, net.floor() as i64))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn choose_ice_mining_trip(
+    at: &str,
+    faction: &str,
+    carried_ice: u32,
+    cargo_free: u32,
+    fuel_rate: f32,
+    speed_modifier: f32,
+    personality: &crate::ai::personality::Personality,
+    registry: &WorldRegistry,
+    sites: &[IceMiningSite],
+    depots: &[IceMiningDepot],
+) -> Option<ScoredGoal> {
+    let mut options = Vec::new();
+    for depot in depots.iter().filter(|d| d.faction_id == faction) {
+        for site in sites.iter().filter(|s| carried_ice > 0
+            || (s.richness.is_finite() && s.richness > 0.0
+                && s.richness * crate::agents::facility::SALVAGE_UNITS_PER_RICHNESS >= 1.0))
+        {
+            let Some(distance) = registry.travel_distance(&depot.location, &site.location)
+                .or_else(|| registry.travel_distance(&site.location, &depot.location))
+            else { continue };
+            if at != depot.location && at != site.location { continue; }
+
+            let (score, qty) = if carried_ice > 0 {
+                // Return mined goods to an actual market; crew needs a
+                // proper dock even if the purchaser temporarily lacks cash.
+                // This is cargo housekeeping, not a station supply order.
+                (TIER_HOUSEKEEPING_WEIGHT * personality.profit.max(0.3) * 1.3, 0)
+            } else {
+                let available = (site.richness as f64
+                    * crate::agents::facility::SALVAGE_UNITS_PER_RICHNESS as f64)
+                    .floor().max(0.0) as u32;
+                let Some((qty, net)) = profitable_mining_quantity(
+                    cargo_free, available, depot.ice_unit_price, depot.buyer_credits,
+                    distance, fuel_rate, depot.fuel_unit_price, speed_modifier,
+                ) else { continue };
+                // Use the native strategic scorer and class miner's
+                // existing prefer_goals["mine"] instead of an ad hoc
+                // administrator-like shortage score.
+                let utility = score_strategic(net, "mine", personality, false);
+                (utility, qty)
+            };
+
+            let mut steps = Vec::new();
+            if carried_ice == 0 {
+                if at == depot.location {
+                    steps.push(BtNode::action(ShipAction::Undock));
+                    steps.push(BtNode::action(ShipAction::Travel {
+                        destination: site.location.clone(),
+                    }));
+                }
+                steps.push(BtNode::action(ShipAction::Mine {
+                    location: site.location.clone(),
+                    body_id: site.body_id.clone(),
+                    commodity: Commodity::Ice,
+                    quantity: qty,
+                }));
+            }
+            if at == site.location || carried_ice == 0 {
+                steps.push(BtNode::action(ShipAction::Travel {
+                    destination: depot.location.clone(),
+                }));
+            }
+            steps.push(BtNode::action(ShipAction::Dock));
+            steps.push(BtNode::action(ShipAction::Sell {
+                commodity: Commodity::Ice,
+                qty: 0,
+            }));
+            steps.push(BtNode::action(ShipAction::Undock));
+            options.push((score, distance, site.location.clone(), ScoredGoal {
+                name: if carried_ice > 0 { "deliver_mined_ice" } else { "mine_ice" },
+                score,
+                bt: BtNode::sequence(steps),
+            }));
+        }
+    }
+    options.sort_by(|a, b| b.0.total_cmp(&a.0)
+        .then_with(|| a.1.cmp(&b.1))
+        .then_with(|| a.2.cmp(&b.2)));
+    options.into_iter().next().map(|(_, _, _, plan)| plan)
+}
+
+
+/// Actual owning MARKET facility and spendable cash. A contested location
+/// with multiple markets is None: the planner must not guess which market the
+/// transaction engine will select.
+type BuyerLedger = StdHashMap<String, Option<(String, i64)>>;
+
+/// Find a market that can *actually* buy at least a small cargo lot. The
+/// engine still checks prices, reputation and cash at settlement time.
+/// Avoid re-issuing the same doomed sell every time an insolvent station is
+/// visited, and allow unloading at a reachable alternative station.
+fn cargo_liquidation_target(
+    at: &str,
+    cargo: &ShipCargo,
+    memory: &ShipMemory,
+    ledger: &BuyerLedger,
+    faction: &str,
+    economy: &ShipEconomy,
+    registry: &WorldRegistry,
+    relations: &crate::agents::faction_relations::FactionRelations,
+) -> Option<String> {
+    let mut choices = Vec::new();
+    for (location, record) in ledger {
+        let Some((owner, available_credits)) = record else { continue; };
+        if *available_credits <= 0 || !crate::agents::faction_relations::commerce_allowed(
+            relations, faction, owner
+        ) { continue; }
+        let Some(prices) = memory.price_knowledge.get(location) else { continue; };
+        // SellAll uses this same first-known-commodity ordering. Never
+        // recommend a market that will immediately reject its first lot.
+        let first = cargo.cargo.iter()
+            .filter(|(_, quantity)| **quantity > 0)
+            .filter(|(commodity, _)| prices.contains_key(*commodity))
+            .min_by_key(|(commodity, _)| commodity.as_str());
+        let Some((commodity, quantity)) = first else { continue; };
+        let price = prices[commodity].price
+            * crate::agents::faction_relations::market_buy_multiplier(
+                relations, faction,
+                economy.faction_reputation.get(owner).copied().unwrap_or(0),
+                owner,
+            );
+        if !price.is_finite() || price <= 0.0 { continue; }
+        // SellAll submits the whole commodity stack as one atomic sale.
+        // Checking only a 10-unit lot would still cause an infinite
+        // rejection when the market cannot pay for the full request.
+        let required = (f64::from(price) * f64::from(*quantity)).ceil();
+        if !required.is_finite() || required < 1.0 || required > *available_credits as f64 {
+            continue;
+        }
+        let distance = if location == at { 0 } else {
+            let Some(d) = registry.shortest_distance(at, location) else { continue; };
+            d
+        };
+        choices.push((distance, std::cmp::Reverse(*available_credits), location.clone()));
+    }
+    choices.sort();
+    choices.into_iter().next().map(|(_, _, location)| location)
+}
+
+/// Find the best profitable trade route from memory.
+/// Result of a successful trade-run plan — parallel shape to
+/// [`ContractCandidate`] so `plan_goal` can score the two options
+/// against each other via the ship's personality. Phase 18i.
+pub struct TradeRunCandidate {
+    pub profit: i64,
+    pub bt: BtNode<ShipAction>,
+    /// Raw trade-run params so callers can re-synthesise a combined
+    /// trade_run+retrofit BT without re-computing `best_trade_route`.
+    pub buy_loc: String,
+    pub sell_loc: String,
+    pub commodity: Commodity,
+}
+
+/// Try to build a trade_run BT + estimate its profit. Returns `None`
+/// when no margin-positive route exists in the ship's price memory.
+#[allow(clippy::too_many_arguments)]
+fn try_plan_trade_run(
+    at_loc: &str,
+    memory: &ShipMemory,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+    current_tick: u64,
+    fuel_bucket: u8,
+    ship_faction: &str,
+    controller_by_location: &StdHashMap<String, String>,
+    buyer_ledger: &BuyerLedger,
+    relations: &crate::agents::faction_relations::FactionRelations,
+) -> Option<TradeRunCandidate> {
+    let (commodity, buy_loc, sell_loc, _margin) =
+        best_trade_route_with_ownership(memory, current_tick, ship_faction,
+            controller_by_location, relations, Some(buyer_ledger))?;
+    let buy_price = memory
+        .price_knowledge
+        .get(&buy_loc)
+        .and_then(|m| m.get(&commodity))
+        .map(|p| p.price)
+        .unwrap_or(1.0);
+    let sell_price = memory
+        .price_knowledge
+        .get(&sell_loc)
+        .and_then(|m| m.get(&commodity))
+        .map(|p| p.price)
+        .unwrap_or(0.0);
+    let profit = ((sell_price - buy_price) * TRADE_QTY_DEFAULT as f32).round() as i64;
+    let bt = build_trade_run_bt(
+        at_loc,
+        &buy_loc,
+        &sell_loc,
+        commodity,
+        fuel_bucket,
+        registry,
+        gate_pairs,
+    );
+    Some(TradeRunCandidate {
+        profit,
+        bt,
+        buy_loc,
+        sell_loc,
+        commodity,
+    })
+}
+
+/// Phase 19h: median of every remembered price for `commodity`
+/// across the ship's `price_knowledge`. Used by `try_plan_contract`
+/// as a "reasonable guess" when the ship has never observed the
+/// contract's source location directly. Returns None when the ship
+/// has no memory of this commodity anywhere — then the planner
+/// falls back to skipping the contract.
+pub fn median_known_price(memory: &ShipMemory, commodity: Commodity) -> Option<f32> {
+    let mut prices: Vec<f32> = memory
+        .price_knowledge
+        .values()
+        .filter_map(|m| m.get(&commodity).map(|p| p.price))
+        .collect();
+    if prices.is_empty() {
+        return None;
+    }
+    prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mid = prices.len() / 2;
+    Some(prices[mid])
+}
+
+pub fn best_trade_route(
+    memory: &ShipMemory,
+    current_tick: u64,
+) -> Option<(Commodity, String, String, f32)> {
+    best_trade_route_with_ownership(
+        memory, current_tick, "", &StdHashMap::new(),
+        &crate::agents::faction_relations::FactionRelations::new(),
+        None,
+    )
+}
+
+/// Faction-neutral price discovery remains unchanged; the real ship
+/// planner also applies owner preference and rejects hostile markets.
+fn best_trade_route_with_ownership(
+    memory: &ShipMemory,
+    current_tick: u64,
+    ship_faction: &str,
+    controllers: &StdHashMap<String, String>,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    buyer_ledger: Option<&BuyerLedger>,
+) -> Option<(Commodity, String, String, f32)> {
+    let mut best: Option<(Commodity, String, String, f32)> = None;
+    let locs: Vec<_> = memory.price_knowledge.iter()
+        .filter(|(loc, _)| {
+            let owner = controllers.get(*loc).map(String::as_str).unwrap_or("");
+            crate::agents::faction_relations::commerce_allowed(relations, ship_faction, owner)
+        })
+        .collect();
+    for (i, (loc_a, prices_a)) in locs.iter().enumerate() {
+        for (loc_b, prices_b) in locs.iter().skip(i + 1) {
+            for (commodity, pa) in prices_a.iter() {
+                if let Some(pb) = prices_b.get(commodity) {
+                    let (buy, sell, lo, hi) = if pa.price < pb.price {
+                        ((*loc_a).clone(), (*loc_b).clone(), pa.price, pb.price)
+                    } else {
+                        ((*loc_b).clone(), (*loc_a).clone(), pb.price, pa.price)
+                    };
+                    // The speculative trade-run BT buys up to
+                    // TRADE_QTY_DEFAULT units then uses one atomic Sell.
+                    // Never choose an insolvent destination just because
+                    // its posted price is high. Check a full lot, not a
+                    // token partial sale, and select a different route if
+                    // this one cannot settle. No simulated transaction.
+                    if let Some(ledger) = buyer_ledger {
+                        let Some((_, buyer_cash)) = ledger.get(&sell)
+                            .and_then(Option::as_ref) else { continue; };
+                        let required = (f64::from(hi) *
+                            f64::from(TRADE_QTY_DEFAULT)).ceil();
+                        if !required.is_finite() || required <= 0.0
+                            || required > *buyer_cash as f64 { continue; }
+                    }
+                    // Bundle 1.2: freshness decay — discount routes
+                    // whose endpoint prices are stale. The route is
+                    // only as fresh as the older of its two
+                    // observations, so use the minimum of the two
+                    // weights.
+                    let freshness = price_freshness_weight(pa.tick, current_tick)
+                        .min(price_freshness_weight(pb.tick, current_tick));
+                    let raw_margin = (hi - lo) / lo.max(1.0) * freshness;
+                    // Phase 20: discount the margin when this ship's
+                    // actual history on (buy → sell, commodity)
+                    // underperforms what the current prices project.
+                    // After 3 attempts we trust the learned average;
+                    // if it's < 50% of the projected per-unit gap we
+                    // apply a strong (0.3×) penalty so the ship drifts
+                    // toward less-saturated routes. Ships with no
+                    // history keep the full raw margin — nothing
+                    // penalises an untried route.
+                    let expected_per_unit = hi - lo;
+                    let learned_mult = memory
+                        .route_performance
+                        .get(&(buy.clone(), sell.clone(), *commodity))
+                        .and_then(|stats| {
+                            if stats.attempts < 3 {
+                                return None;
+                            }
+                            let avg = stats.avg_profit_per_unit();
+                            if avg < expected_per_unit * 0.5 {
+                                Some(0.3_f32)
+                            } else {
+                                Some(1.0_f32)
+                            }
+                        })
+                        .unwrap_or(1.0);
+                    let real_margin = raw_margin * learned_mult;
+                    // Prefer internal commerce without forbidding neutral
+                    // trade. Both endpoints need to pass the relations filter.
+                    let owner_buy = controllers.get(&buy).map(String::as_str).unwrap_or("");
+                    let owner_sell = controllers.get(&sell).map(String::as_str).unwrap_or("");
+                    let boost = (crate::agents::faction_relations::own_market_priority(
+                        ship_faction, owner_buy,
+                    ) + crate::agents::faction_relations::own_market_priority(
+                        ship_faction, owner_sell,
+                    )) / 2.0;
+                    let margin = real_margin * boost;
+                    if real_margin > MIN_TRADE_MARGIN
+                        && best.as_ref().is_none_or(|b| margin > b.3)
+                    {
+                        best = Some((*commodity, buy, sell, margin));
+                    }
+                }
+            }
+        }
+    }
+    best
+}
+
+/// Pass 3: decide + act on each ship.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn decide_and_act(
+    world: &mut World,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+    contracts: &crate::economy::contracts::ContractBoard,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    commands: &mut CommandBuffer,
+    tick: u64,
+    tick_multiplier: u32,
+    active: &ShipLodGate,
+) {
+    let config = crate::simulation::config::TickConfig {
+        ticks_per_second: 8,
+        world_speed: if tick_multiplier == 0 { 0.25 } else { 8.0 / tick_multiplier as f32 },
+    };
+
+    // Phase 18f: one location → system name index, used by
+    // - shipyard inventory tagging (retrofit proximity)
+    // - cross-system contract gating in try_plan_contract
+    let location_to_system: std::collections::HashMap<String, String> = {
+        use crate::agents::celestial_body::BodyIdentity;
+        let body_db_to_system: std::collections::HashMap<i64, String> = {
+            let mut q = world.query::<&BodyIdentity>();
+            q.iter(world)
+                .map(|id| (id.db_id, id.system_name.clone()))
+                .collect()
+        };
+        registry
+            .locations
+            .iter()
+            .filter_map(|(name, info)| {
+                let sys = body_db_to_system.get(&info.celestial_body_id)?;
+                Some((name.clone(), sys.clone()))
+            })
+            .collect()
+    };
+
+    // Native body resources and market stocks are snapshotted before the
+    // parallel ship query. The apply phase alone commits extraction.
+    let mining_sites: Vec<IceMiningSite> = {
+        use crate::agents::celestial_body::{BodyIdentity, BodyResources};
+        let by_db: StdHashMap<i64, (String, f32)> = {
+            let mut q = world.query::<(&BodyIdentity, &BodyResources)>();
+            q.iter(world).map(|(id, res)| (
+                id.db_id,
+                (id.body_id.clone(),
+                 res.resources.get(&Commodity::Ice).copied().unwrap_or(0.0))
+            )).collect()
+        };
+        registry.locations.iter().filter_map(|(name, loc)| {
+            if loc.loc_type != "mining_site" { return None; }
+            let (body_id, richness) = by_db.get(&loc.celestial_body_id)?;
+            if name != &format!("mine-{body_id}") { return None; }
+            Some(IceMiningSite { location: name.clone(),
+                body_id: body_id.clone(), richness: *richness })
+        }).collect()
+    };
+    let mining_depots: Vec<IceMiningDepot> = {
+        use crate::agents::{
+            facility::{FacilityIdentity, FacilityOperations},
+            market::{MarketIdentity, MarketPricing}
+        };
+        let mut q = world.query::<(&MarketIdentity, &MarketPricing)>();
+        q.iter(world).filter_map(|(id, pricing)| {
+            let owner = world.get::<FacilityIdentity>(id.facility)?;
+            let cash = world.get::<FacilityOperations>(id.facility)?.credits;
+            Some(IceMiningDepot {
+                location: id.facility_location.clone(),
+                faction_id: owner.faction_id.clone(),
+                ice_unit_price: pricing.price(Commodity::Ice),
+                fuel_unit_price: pricing.price(Commodity::Fuel),
+                buyer_credits: cash,
+            })
+        }).collect()
+    };
+
+    // Galaxy 0.4 A3: look up the actual market buyer's cash, rather than
+    // inferring liquidity from posted prices or the faction treasury.
+    // Ambiguous multi-market locations are rejected conservatively.
+    let market_buyer_ledger: BuyerLedger = {
+        use crate::agents::facility::{FacilityIdentity, FacilityOperations};
+        use crate::agents::market::MarketIdentity;
+        let mut buyers: BuyerLedger = StdHashMap::new();
+        let mut query = world.query::<&MarketIdentity>();
+        for market in query.iter(world) {
+            let candidate = world.get::<FacilityIdentity>(market.facility)
+                .zip(world.get::<FacilityOperations>(market.facility))
+                .map(|(owner, wallet)| (owner.faction_id.clone(), wallet.credits));
+            match buyers.entry(market.facility_location.clone()) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(candidate);
+                },
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    entry.insert(None);
+                },
+            }
+        }
+        buyers
+    };
+
+    // Bundle D: contested-destination snapshot. A `location_name` ends
+    // up here when its host body is flagged `contested`. Built once
+    // per ship-tick (cheap — bounded by body count) and read by
+    // `score_strategic` to give aggressive captains a bonus on
+    // contracts pulling toward those zones. Skip the work if no body
+    // has BodyTerritory yet (cold-start before the first faction cycle
+    // — `derive_territorial_control` populates them).
+    let contested_destinations: std::collections::HashSet<String> = {
+        use crate::agents::celestial_body::{BodyIdentity, BodyTerritory};
+        use crate::agents::facility::{FacilityIdentity, FacilityLocation};
+        let contested_body_ids: std::collections::HashSet<String> = {
+            let mut q = world.query::<(&BodyIdentity, &BodyTerritory)>();
+            q.iter(world)
+                .filter(|(_, t)| t.contested)
+                .map(|(id, _)| id.body_id.clone())
+                .collect()
+        };
+        if contested_body_ids.is_empty() {
+            std::collections::HashSet::new()
+        } else {
+            let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+            q.iter(world)
+                .filter_map(|(id, loc)| {
+                    if contested_body_ids.contains(&id.body_id) {
+                        Some(loc.location_name.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
+    };
+
+    // Phase 18L: per-location dock congestion snapshot.
+    // `(total_capacity, total_docked_count, total_queued_count)`
+    // summed across every non-gate facility at the location. Used
+    // by the congestion-aware rest planner so ships with low
+    // morale don't route to a fully-saturated station when a
+    // nearby one has space.
+    //
+    // Post-tick-21k-spiral fix: queue length is tracked alongside
+    // docked count so a station with 25/25 docked + 44 queued is
+    // recognized as saturated even though the literal dock count
+    // equals capacity. Without this, `pick_rest_destination` saw
+    // "docked==cap" only when docks were exactly full, ignoring
+    // the massive queue pressure, and 170+ ships piled onto the
+    // same over-full station.
+    //
+    // Read-only; built once per call. Gates are excluded (they're
+    // not meant to host resting crews).
+    let dock_congestion: std::collections::HashMap<String, (u32, u32, u32)> = {
+        use crate::agents::facility::{
+            FacilityIdentity, FacilityLocation, FacilityOperations, FacilityStorage,
+        };
+        let mut out: std::collections::HashMap<String, (u32, u32, u32)> =
+            std::collections::HashMap::new();
+        let mut q = world.query::<(
+            &FacilityIdentity,
+            &FacilityLocation,
+            &FacilityOperations,
+            &FacilityStorage,
+        )>();
+        for (id, loc, ops, storage) in q.iter(world)
+        {
+            if id.facility_type == "gate" || ops.docking_capacity == 0 {
+                continue;
+            }
+            let entry = out.entry(loc.location_name.clone()).or_insert((0, 0, 0));
+            entry.0 = entry.0.saturating_add(ops.docking_capacity);
+            entry.1 = entry.1.saturating_add(storage.docked_ships.len() as u32);
+            entry.2 = entry.2.saturating_add(storage.dock_queue.len() as u32);
+        }
+        out
+    };
+
+    // Bundle C: market-controlling faction per location. Majority of
+    // facility count at each location wins (tiebreak: first-seen).
+    // A market's controller governs the posture multiplier applied
+    // to every Buy / Sell at that location, so prices for a given
+    // ship depend on their personal rep with this faction.
+    //
+    // Built once per tick because facility ownership changes on the
+    // construction-completion + admin-delete paths (rare) and a
+    // per-ship rebuild would be wasteful.
+    let controller_by_location: std::collections::HashMap<String, String> = {
+        use crate::agents::facility::{FacilityIdentity, FacilityLocation};
+        let mut counts: std::collections::HashMap<String, std::collections::HashMap<String, u32>> =
+            std::collections::HashMap::new();
+        let mut q = world.query::<(&FacilityIdentity, &FacilityLocation)>();
+        for (id, loc) in q.iter(world)
+        {
+            if id.faction_id.is_empty() {
+                continue;
+            }
+            *counts
+                .entry(loc.location_name.clone())
+                .or_default()
+                .entry(id.faction_id.clone())
+                .or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .filter_map(|(loc, per_faction)| {
+                let winner = per_faction
+                    .into_iter()
+                    .max_by_key(|(_, n)| *n)
+                    .map(|(fac, _)| fac)?;
+                Some((loc, winner))
+            })
+            .collect()
+    };
+
+    // Phase 18d: snapshot shipyard inventories once per call so per-ship
+    // retrofit planning doesn't re-query hecs. Each entry is (location,
+    // system_id, slug → qty). Skipping abandoned shipyards matches the
+    // existing "abandoned facilities don't service ships" pattern. The
+    // system tag lets `find_retrofit_opportunity` prefer same-system
+    // yards so Tau Ceti ships don't fly across gates for a tier-2
+    // engine when their local Anvil yard has one in stock.
+    let shipyard_inventory: ShipyardInventorySnapshot = {
+        use crate::agents::facility::{
+            FacilityIdentity, FacilityLifecycle, FacilityLocation, ModuleStock,
+        };
+        let mut q = world
+            .query::<(&FacilityIdentity, &FacilityLocation, &FacilityLifecycle, &ModuleStock)>();
+        q.iter(world)
+            .filter(|(id, _, life, _)| id.facility_type == "shipyard" && !life.abandoned)
+            .map(|(_, loc, _, stock)| {
+                let system = location_to_system
+                    .get(&loc.location_name)
+                    .cloned()
+                    .unwrap_or_default();
+                (loc.location_name.clone(), system, stock.stock.clone())
+            })
+            .collect()
+    };
+
+    // B1: payer accounts are read ONCE, before parallel ship decisions.
+    // A quote is ship-specific, so we snapshot only authoritative balances
+    // here and evaluate the exact quote in the per-ship planner.
+    let contract_payer_balances: StdHashMap<String, Option<i64>> = {
+        use crate::agents::{facility::{FacilityIdentity, FacilityOperations},
+            faction::FactionData, population::{PopIdentity, PopEconomy}};
+        use crate::economy::contracts::FundingSource;
+        let facilities: StdHashMap<_,_> = world.query::<(&FacilityIdentity,&FacilityOperations)>()
+            .iter(world).map(|(id,op)|(id.id.clone(),op.credits)).collect();
+        let factions: StdHashMap<_,_> = world.query::<&FactionData>()
+            .iter(world).map(|f|(f.id.clone(),f.treasury)).collect();
+        let populations: StdHashMap<_,_> = world.query::<(&PopIdentity,&PopEconomy)>()
+            .iter(world).map(|(id,ec)|(id.id.clone(),ec.total_wealth)).collect();
+        contracts.iter().map(|c| {
+            let available = c.funding.as_ref().and_then(|f| match f.source {
+                FundingSource::Facility => facilities.get(&c.requestor_id).copied(),
+                FundingSource::Faction => factions.get(&c.requestor_id).copied(),
+                FundingSource::Population => populations.get(&c.requestor_id).copied(),
+            });
+            (c.id.clone(), available)
+        }).collect()
+    };
+
+    // Phase C step 3d: parallel ship-decision pass.
+    //
+    // Each ship's BT execution is independent — it mutates only its own
+    // 9 mut components and reads pre-built snapshots (shipyard_inventory,
+    // controller_by_location, contracts/relations refs, etc.). The only
+    // shared mutable target is the SimCommand buffer, which we replace
+    // with a per-closure local CommandBuffer that gets merged under a
+    // single Mutex once per ship at end-of-closure (≤1 lock/ship rather
+    // than 1 lock/command). After the parallel pass, the merged buffer
+    // is sorted by actor-entity bits before flushing into the outer
+    // CommandBuffer so apply ordering stays deterministic across runs
+    // regardless of TaskPool worker scheduling.
+    //
+    // ShipIdentity / ShipFitting / ShipProgression were previously
+    // fetched via separate `world.get<>` calls; they're now in the
+    // query as immutable refs alongside the 9 muts so the parallel
+    // closure has no need to touch the World outside its own slice.
+    let station_execute=crate::strategy::executing(world);
+    let construction_offers = crate::agents::construction::executor::offers(world);
+    let cmd_mutex = std::sync::Mutex::new(CommandBuffer::new());
+    let mut q = world.query::<(
+        Entity,
+        &ShipIdentity,
+        &ShipFitting,
+        &ShipProgression,
+        &mut ShipPosition,
+        &mut ShipTransit,
+        &mut ShipCargo,
+        &mut ShipFuel,
+        &mut ShipEconomy,
+        &mut ShipAI,
+        &mut ShipMemory,
+        &mut ShipLifecycle,
+        &mut ShipCrew,
+    )>();
+    q.par_iter_mut(world).for_each(|(
+        entity,
+        identity,
+        fitting,
+        progression,
+        mut position,
+        mut transit,
+        mut cargo,
+        mut fuel,
+        mut economy,
+        mut ai,
+        mut memory,
+        mut lifecycle,
+        mut crew,
+    )| {
+        // LOD gate — LOD'd-out ships don't replan or execute BT steps
+        // this round. They'll pick back up on their next fire.
+        if !active.contains_key(&entity) {
+            return;
+        }
+
+        // Per-closure local command buffer — drained into the shared
+        // mutex once at end-of-body to minimize contention.
+        let mut local_buf = CommandBuffer::new();
+        let commands: &mut CommandBuffer = &mut local_buf;
+
+        // Ship's string id (used for contract acceptance) + faction id
+        // (used by Bundle B's treaty-implied rep floor) — pulled from
+        // the query's read-only ShipIdentity ref instead of a separate
+        // world.get<> call.
+        let ship_id: String = identity.id.clone();
+        let ship_faction: String = identity.faction_id.clone();
+        let funding_gate = ContractFundingGate {
+            payer_balances: &contract_payer_balances,
+            comms_bonus: fitting.derived.comms_bonus,
+            tick,
+        };
+
+        // Snapshot crew state for the planner. The mut borrow hasn't
+        // changed crew yet, so cloning here gives the same pre-mutation
+        // view the old `world.get::<ShipCrew>` did.
+        let crew_snapshot: Option<ShipCrew> = Some((*crew).clone());
+
+        // Phase 18d: compute a retrofit opportunity. Reads come from
+        // the query's read-only refs + the snapshotted shipyard
+        // inventory; no World access needed.
+        let retrofit_plan: Option<RetrofitPlan> = (|| {
+            if progression.retrofit_points == 0 {
+                return None;
+            }
+            let ship_location = position.location_name.clone().unwrap_or_default();
+            let ship_system = position.system_id.clone();
+            find_retrofit_opportunity(
+                fitting,
+                &shipyard_inventory,
+                economy.credits,
+                &ship_location,
+                &ship_system,
+            )
+        })();
+
+        // Phase 18f: sensor range determines cross-system contract
+        // visibility. Read directly off the fitting in-query.
+        let sensor_range_au: f32 = fitting.derived.sensor_range_au;
+
+        let position = &mut *position;
+        let transit = &mut *transit;
+        let cargo = &mut *cargo;
+        let fuel = &mut *fuel;
+        let economy = &mut *economy;
+        let ai = &mut *ai;
+        let memory = &mut *memory;
+        let lifecycle = &mut *lifecycle;
+        let crew = &mut *crew;
+
+        if transit.transit.is_some() {
+            // Keep `current_goal` as whatever the plan picked (e.g.
+            // "fulfill_delivery") so the UI can show what the ship is
+            // actually doing mid-flight. The BT's Travel node returns
+            // Running, so we don't re-tick the BT here.
+            // (Drain local_buf before returning — currently empty at
+            // this point but defensive against future edits adding
+            // pre-transit emissions.)
+            if !local_buf.is_empty() {
+                if let Ok(mut shared) = cmd_mutex.lock() {
+                    shared.append(&mut local_buf);
+                }
+            }
+            return;
+        }
+
+        // Rebuild missing execution from committed contract/cargo state. This
+        // also handles restart: accepting again would reserve a second reward
+        // or release the original agreement merely because BT is transient.
+        if let Some(cid) = economy.active_contract_id.clone() {
+            use crate::economy::contracts::ContractStatus;
+            let held = contracts.get(&cid).filter(|c|
+                c.fulfiller_id.as_deref() == Some(ship_id.as_str()) &&
+                matches!(c.status, ContractStatus::Accepted | ContractStatus::PickedUp));
+            if let Some(c) = held {
+                if ai.current_bt.is_none() {
+                    ai.current_bt = Some(resume_contract_bt(
+                        position.location_name.as_deref().unwrap_or(""),
+                        position.docked_at.is_some(), cargo, fuel, c, registry, gate_pairs,
+                    ).unwrap_or_else(|| BtNode::action(ShipAction::Idle)));
+                    ai.current_goal = match c.contract_type {
+                        crate::economy::contracts::ContractType::CrewMission => "do_crew_mission",
+                        crate::economy::contracts::ContractType::Passenger => "fulfill_passenger_transport",
+                        crate::economy::contracts::ContractType::Construction => "fulfill_construction",
+                        _ => "fulfill_delivery",
+                    }.into();
+                    ai.last_plan_tick = tick;
+                    economy.transaction.pending = None;
+                    lifecycle.dirty = true;
+                }
+            } else {
+                economy.active_contract_id = None;
+                ai.current_bt = None;
+                economy.transaction.pending = None;
+                lifecycle.dirty = true;
+            }
+        }
+
+        if ai.current_goal == "construct" {
+            let wanted = ai.current_bt.as_ref().and_then(crate::agents::construction::executor::target);
+            if !construction_offers.iter().any(|o| Some(o.site_id.as_str()) == wanted
+                && o.claimed_by.as_deref().is_none_or(|owner| owner == ship_id)) {
+                ai.current_bt = None;
+            }
+        }
+        let assigned_delivery=crate::strategy::orders::assigned_contract(contracts,&ship_id);
+        let assigned_builder=station_execute && construction_offers.iter().any(|o|o.claimed_by.as_deref()==Some(ship_id.as_str()));
+        // Only uncommitted commercial plans can be preempted by new orders.
+        if (assigned_delivery.is_some() || assigned_builder) && economy.active_contract_id.is_none()
+            && economy.transaction.pending.is_none()
+            && !ai.current_goal.starts_with("fulfill_")
+            && !matches!(ai.current_goal.as_str(), "construct"|"refuel"|"rest_crew") {
+            ai.current_bt=None;
+        }
+        let needs_plan = ai.current_bt.is_none();
+        // Bundle 2.2: mid-action replan check. If the current goal is
+        // replan-eligible, we've been committed for the minimum dwell,
+        // and it's this ship's check-interval tick, re-run the planner
+        // and switch if the new top candidate clears the
+        // REPLAN_SCORE_RATIO bar. Prevents ships from locking into
+        // stale trade runs when a juicy subsidy lands mid-flight.
+        //
+        // Perf tune: the trigger used to be `tick % INTERVAL == 0`
+        // which synced every eligible ship onto the same ticks and
+        // created p99 spikes. Now each ship gets a per-id hash
+        // offset so checks spread across all ticks evenly — same
+        // overall check frequency, flatter CPU profile.
+        let elapsed_since_plan = tick.saturating_sub(ai.last_plan_tick);
+        let ship_offset: u64 = {
+            // Cheap deterministic hash — FNV-style on the id bytes.
+            let mut h: u64 = 14695981039346656037;
+            for b in ship_id.as_bytes() {
+                h ^= *b as u64;
+                h = h.wrapping_mul(1099511628211);
+            }
+            h % REPLAN_CHECK_INTERVAL_TICKS
+        };
+        let replan_check_due = !needs_plan
+            && economy.transaction.pending.is_none()
+            && !(assigned_delivery.is_some() && economy.active_contract_id.is_some())
+            && !assigned_builder
+            && is_replan_eligible(&ai.current_goal)
+            && elapsed_since_plan >= REPLAN_MIN_COMMIT_TICKS
+            && (tick + ship_offset) % REPLAN_CHECK_INTERVAL_TICKS == 0;
+
+        if needs_plan || replan_check_due {
+            // Bundle B: merge the ship's explicit reputation with
+            // treaty-implied floors so a TradePact grants visibility
+            // of the 50-rep tier, Allied grants 70. Merge max()s in
+            // favour of explicit rep, so a heavily-decorated ship
+            // doesn't get *downgraded* by a treaty with a lesser ally.
+            let effective_reputation: StdHashMap<String, u8> = {
+                let floors =
+                    crate::agents::faction_relations::treaty_rep_floors(
+                        relations,
+                        &ship_faction,
+                    );
+                let mut out = economy.faction_reputation.clone();
+                for (fac, floor) in floors {
+                    let entry = out.entry(fac).or_insert(0);
+                    if *entry < floor {
+                        *entry = floor;
+                    }
+                }
+                out
+            };
+            let mut candidate = plan_goal(
+                position,
+                cargo,
+                fuel,
+                economy,
+                memory,
+                crew_snapshot.as_ref(),
+                contracts,
+                &effective_reputation,
+                &ship_id,
+                &ship_faction,
+                relations,
+                &controller_by_location,
+                &market_buyer_ledger,
+                registry,
+                gate_pairs,
+                retrofit_plan.as_ref(),
+                sensor_range_au,
+                &location_to_system,
+                &contested_destinations,
+                &ai.personality,
+                &dock_congestion,
+                lifecycle.idle_ticks,
+                tick,
+                &funding_gate,
+            );
+            // Mining is another native economic option, not a scripted
+            // faction order. Only miner-class hulls can offer it, and its
+            // score competes with contracts, refuel and crew rest.
+            if identity.class == "miner" && economy.active_contract_id.is_none() {
+                if let Some(mining) = choose_ice_mining_trip(
+                    position.location_name.as_deref().unwrap_or(""),
+                    &ship_faction,
+                    cargo.cargo.get(&Commodity::Ice).copied().unwrap_or(0),
+                    cargo.free(), fuel.fuel_consumption_rate, fuel.speed_modifier,
+                    &ai.personality, registry, &mining_sites, &mining_depots,
+                ) {
+                    if mining.score > candidate.score {
+                        candidate = mining;
+                    }
+                }
+            }
+            // Construction is faction engineering duty, scored by loyalty rather
+            // than inventing a commercial reward. Biological priorities still win.
+            if let Some(offer) = crate::agents::construction::executor::choose(&construction_offers,
+                &ship_id, &ship_faction, &identity.class, position.location_name.as_deref(),
+                &location_to_system, ai.personality.loyalty, if assigned_builder && !matches!(candidate.name,"refuel"|"rest_crew") { -1.0 } else {candidate.score}, economy.active_contract_id.is_some()) {
+                let mut actions = vec![ShipAction::Undock];
+                actions.extend(route_actions(position.location_name.as_deref().unwrap(), &offer.location, registry, gate_pairs));
+                actions.push(ShipAction::Dock);
+                actions.push(ShipAction::Construct { site_id:offer.site_id.clone(), location:offer.location.clone() });
+                candidate = ScoredGoal { name:"construct",score:crate::agents::construction::executor::utility(ai.personality.loyalty),
+                    bt:BtNode::sequence(actions.into_iter().map(BtNode::action).collect()) };
+            }
+            // Obligation-aware replan bar. A ship holding an active
+            // contract treats it as a real commitment — the bar to
+            // replace it rises by a fixed obligation weight plus a
+            // personality-loyalty multiplier. Without this, the
+            // scorer treated in-flight contracts as sunk cost and
+            // dropped them for marginal improvements, which showed
+            // up as a 43% contract breach rate in the Bundle-A
+            // diagnostic. Honest replans for genuinely much-better
+            // opportunities still fire.
+            let effective_ratio = if economy.active_contract_id.is_some() {
+                REPLAN_SCORE_RATIO
+                    + CONTRACT_OBLIGATION_WEIGHT
+                    + ai.personality.loyalty.clamp(0.0, 1.0)
+                        * LOYALTY_REPLAN_MULTIPLIER
+            } else {
+                REPLAN_SCORE_RATIO
+            };
+            let accept = needs_plan
+                || candidate.score >= ai.current_goal_score * effective_ratio;
+            if accept {
+                economy.transaction.pending = None;
+                // Release any active contract we were committed to
+                // before swapping plans — otherwise the ship can end
+                // up with an active_contract_id that no current BT is
+                // working. ReleaseContract apply phase tolerates
+                // stale ids safely.
+                if replan_check_due {
+                    if let Some(cid) = economy.active_contract_id.take() {
+                        commands.push(SimCommand::ReleaseContract {
+                            ship_id: ship_id.clone(),
+                            contract_id: cid,
+                            reason: "replan",
+                        });
+                    }
+                }
+                ai.current_goal = candidate.name.into();
+                ai.current_goal_score = candidate.score;
+                ai.current_bt = Some(candidate.bt);
+                ai.last_plan_tick = tick;
+            }
+        }
+
+        // Phase 19h: track how long the ship has been in an idle-ish
+        // state so the explore escalation fires at the right time.
+        // Any goal starting with "idle" counts; anything else resets.
+        // Using starts_with lets future variants ("idle_seek_station")
+        // share the counter without manual enumeration.
+        if ai.current_goal.starts_with("idle") {
+            lifecycle.idle_ticks = lifecycle.idle_ticks.saturating_add(1);
+        } else {
+            lifecycle.idle_ticks = 0;
+        }
+
+        // --- Strike accumulation (adaptive-fleet retirement, Phase 19-tail) ---
+        //
+        // Evaluated on a slow cadence so a ship that briefly dips below
+        // the credits floor doesn't take a strike on every tick. Strikes
+        // reset when the ship recovers; 3 of either kind triggers
+        // decommission via SimCommand::DecommissionShip (engine emits the
+        // retirement row + queues a replacement spawn).
+        let strike_interval = STRIKE_CHECK_INTERVAL_BASE * tick_multiplier as u64;
+        if strike_interval > 0 && tick % strike_interval == 0 {
+            // Broke strike: nothing to sell, no one paying us, no cash.
+            let cargo_empty = cargo.used() == 0;
+            let no_contract = economy.active_contract_id.is_none();
+            if economy.credits < BROKE_CREDITS_THRESHOLD && cargo_empty && no_contract {
+                lifecycle.broke_strikes = lifecycle.broke_strikes.saturating_add(1);
+            } else if economy.credits >= BROKE_RECOVERY_THRESHOLD {
+                lifecycle.broke_strikes = 0;
+            }
+            // Hoard strike: lots of credits, long idle window. Reset
+            // happens on confirmed delivery apply (see engine.rs).
+            if economy.credits > HOARD_CREDITS_THRESHOLD
+                && lifecycle.idle_ticks > HOARD_IDLE_THRESHOLD
+            {
+                lifecycle.hoard_strikes = lifecycle.hoard_strikes.saturating_add(1);
+            }
+
+            if lifecycle.broke_strikes >= MAX_STRIKES {
+                commands.push(SimCommand::DecommissionShip {
+                    ship: entity,
+                    reason: "bankruptcy",
+                });
+            } else if lifecycle.hoard_strikes >= MAX_STRIKES {
+                commands.push(SimCommand::DecommissionShip {
+                    ship: entity,
+                    reason: "stagnation",
+                });
+            }
+        }
+
+        // --- Execute one BT step ---
+        if let Some(mut bt) = ai.current_bt.take() {
+            // B1: record rejected acceptance before the BT consumes its
+            // one-shot receipt. The key is derived from payer, escrow, quote
+            // and contract status; any material change lifts the cooldown.
+            if let Some(pending) = economy.transaction.pending.as_ref() {
+                if let ShipTransaction::Accept { contract_id } = &pending.request {
+                    if let Some(Err(reason)) = pending.result.as_ref() {
+                        let key = contracts.get(contract_id)
+                            .map(|c| contract_funding_key(c, &funding_gate, &ship_faction, relations))
+                            .unwrap_or_else(|| "missing_contract".to_owned());
+                        memory.reject_contract(contract_id, reason, key, tick, REPLAN_MIN_COMMIT_TICKS);
+                    } else if pending.result == Some(Ok(())) {
+                        memory.contract_rejections.remove(contract_id);
+                    }
+                }
+            }
+            // A requestor that cannot pay is not a breach by the carrier.
+            // Capture the receipt before the action consumes its mailbox.
+            let issuer_funding_failure = economy.transaction.pending.as_ref().is_some_and(|p| {
+                matches!(p.result, Some(Err("insufficient_contract_funding" | "missing_contract_payer" | "invalid_prepaid_amount")))
+            });
+            let mut bb = Blackboard::new();
+            let status = {
+                let ship_id_ref = &ship_id;
+                let ship_faction_ref = &ship_faction;
+                let mut dispatch = |action: &ShipAction, bb: &mut Blackboard| -> BtStatus {
+                    execute_ship_action(
+                        action,
+                        entity,
+                        ship_id_ref,
+                        ship_faction_ref,
+                        crew,
+                        position,
+                        transit,
+                        cargo,
+                        fuel,
+                        economy,
+                        memory,
+                        registry,
+                        relations,
+                        &controller_by_location,
+                        commands,
+                        tick,
+                        &config,
+                        bb,
+                    )
+                };
+                bt.tick(&mut bb, &mut dispatch)
+            };
+
+            // Bundle 1.4: drift personality in response to BT events
+            // surfaced via the blackboard. Only `rest_timed_out`
+            // today; delivery-success drift happens in the engine
+            // apply phase (direct world access on confirmed delivery).
+            if bb.get_bool("rest_timed_out") {
+                ai.personality
+                    .drift(crate::ai::personality::Axis::Safety, DRIFT_REST_TIMEOUT_SAFETY);
+            }
+
+            match status {
+                BtStatus::Running => ai.current_bt = Some(bt),
+                BtStatus::Success => {
+                    // Plan done — clear. Next tick replans.
+                    ai.current_bt = None;
+                    economy.transaction.pending = None;
+                }
+                BtStatus::Failure => {
+                    ai.current_bt = None;
+                    economy.transaction.pending = None;
+                    // If the failing plan was a contract run, release
+                    // the contract back to the board so another ship
+                    // can pick it up (and we can re-plan freely). The
+                    // guarded `ReleaseContract` apply is a no-op if
+                    // we aren't actually the named fulfiller — which
+                    // protects against losing-speculative-accept
+                    // ships yanking contracts the winning ship is
+                    // still working.
+                    if let Some(cid) = economy.active_contract_id.take() {
+                        commands.push(SimCommand::ReleaseContract {
+                            ship_id: ship_id.clone(),
+                            contract_id: cid,
+                            reason: if issuer_funding_failure { "issuer_funding_failure" } else { "bt_failure" },
+                        });
+                    }
+                }
+            }
+        }
+
+        lifecycle.dirty = true;
+
+        // Flush this ship's accumulated commands into the shared
+        // mutex. One acquire per ship rather than one per push.
+        if !local_buf.is_empty() {
+            if let Ok(mut shared) = cmd_mutex.lock() {
+                shared.append(&mut local_buf);
+            }
+        }
+    });
+
+    // Drain the merged buffer, sort by actor entity id for
+    // deterministic apply ordering across runs (par_iter_mut worker
+    // scheduling is otherwise non-deterministic), and append to the
+    // outer CommandBuffer the caller passed in.
+    let mut merged = cmd_mutex.into_inner().unwrap_or_default();
+    merged.commands.sort_by_key(|cmd| {
+        cmd.actor_ship().map(|e| e.to_bits()).unwrap_or(u64::MAX)
+    });
+    commands.append(&mut merged);
+}
+
+/// Bundle 2.1: tier weights for the unified utility scorer. Each
+/// candidate goal's raw signal is multiplied by the matching tier
+/// weight, so biological needs (rest, refuel) dominate when urgency
+/// is high, housekeeping (sell_cargo, retrofit) beats strategic
+/// when present, and strategic goals (contracts, trades, explore)
+/// compete among themselves on their natural log-profit scale. The
+/// waterfall is *emergent* rather than hardcoded — a 1% fuel reading
+/// produces a score so high no trade can out-bid it, but a 40% fuel
+/// reading leaves room for contracts to win if they're profitable.
+pub const TIER_BIO_WEIGHT: f32 = 100.0;
+pub const TIER_HOUSEKEEPING_WEIGHT: f32 = 40.0;
+pub const TIER_STRATEGIC_WEIGHT: f32 = 3.0;
+pub const TIER_EXPLORE_WEIGHT: f32 = 6.0;
+pub const TIER_IDLE_FLOOR: f32 = 0.5;
+
+/// Onset threshold for the refuel urgency curve. Below this the ship
+/// increasingly prioritises refuel; above it, the refuel score goes
+/// to 0 (no candidate). Set higher than the former `FUEL_CRITICAL_FRACTION`
+/// so the scorer sees the pressure building earlier but only actually
+/// dominates when fuel is genuinely low.
+pub const FUEL_URGENCY_ONSET: f32 = 0.45;
+
+/// Produced by the per-tick planner for each goal a ship could pursue
+/// this tick. The max-scored candidate wins. `score` ≥ 0; 0 means
+/// "don't pick this candidate".
+#[derive(Debug, Clone)]
+pub struct ScoredGoal {
+    pub name: &'static str,
+    pub score: f32,
+    pub bt: BtNode<ShipAction>,
+}
+
+/// Bundle 2.2: minimum-commit dwell before a ship may re-plan mid-
+/// action. Prevents thrashing when two goals have near-equal scores
+/// and the scorer narrowly flips one way then the other.
+pub const REPLAN_MIN_COMMIT_TICKS: u64 = 40;
+
+/// Bundle 2.2: cadence for the mid-action replan check. At 8 tps
+/// this fires every ~5 seconds of wall-clock — often enough to
+/// catch a fresh opportunity, rare enough to keep overhead low
+/// (a replan check rebuilds candidate BTs, which isn't free).
+///
+/// Perf tune 2026-04: bumped from 20 → 40 to halve the number
+/// of replan-check ticks. Combined with the per-ship stagger
+/// below (a hash-derived offset makes ship A check at tick 40,
+/// ship B at tick 41, etc.), the plan_goal work per tick is
+/// both halved AND smoothed — no more cliff at every
+/// multiple-of-20 tick where every eligible ship plans at once.
+pub const REPLAN_CHECK_INTERVAL_TICKS: u64 = 40;
+
+/// Bundle 2.2: how much better the best alternative needs to be
+/// before we interrupt the current plan. 1.30 = +30% — enough to
+/// tell signal from noise in the personality-weighted score.
+pub const REPLAN_SCORE_RATIO: f32 = 1.30;
+
+/// Added to `REPLAN_SCORE_RATIO` when the ship is holding an active
+/// contract, on top of the loyalty axis below. Represents the
+/// economic weight of the breach itself — rep damage + lost future
+/// visibility — that the scorer would otherwise ignore. Empirically
+/// motivated: diagnostic showed 91% of breaches were planner-driven
+/// replans scoring marginally better than the held contract, even
+/// though the breach cost (rep penalty + standing hit) made the
+/// switch net-negative. +0.5 raises the floor to 1.80× so the
+/// alternative must be nearly 2× better to be worth abandoning.
+pub const CONTRACT_OBLIGATION_WEIGHT: f32 = 0.5;
+
+/// Multiplier on `personality.loyalty` (0..=1) added to the
+/// in-contract replan ratio. A `reliable_trucker` (loyalty=0.9)
+/// gets +0.45 on top of obligation weight — an aggressive_trader
+/// (loyalty=0.3) gets +0.15. Makes the loyalty axis load-bearing
+/// where it used to be decorative.
+pub const LOYALTY_REPLAN_MULTIPLIER: f32 = 0.5;
+
+/// Bundle 2.2: which goals may be interrupted mid-execution.
+/// Biological needs (rest_crew, refuel) stay committed — the BT
+/// self-terminates on recovery anyway, so interrupting mid-action
+/// just loses progress. Housekeeping and retrofit are long-horizon
+/// investments the ship shouldn't abandon. Strategic + idle goals
+/// are fair game.
+pub fn is_replan_eligible(goal: &str) -> bool {
+    !matches!(
+        goal,
+        "rest_crew"
+            | "refuel"
+            | "seek_retrofit"
+            | "sell_cargo"
+            | "fulfill_delivery_with_retrofit"
+            | "trade_run_with_retrofit"
+            | "mine_ice"
+            | "deliver_mined_ice"
+    )
+}
+
+/// Read-only funding inputs, scoped to a single ship decision.
+struct ContractFundingGate<'a> {
+    payer_balances: &'a StdHashMap<String, Option<i64>>,
+    comms_bonus: f32,
+    tick: u64,
+}
+
+fn contract_funding_key(c: &crate::economy::contracts::Contract,
+    gate: &ContractFundingGate<'_>, ship_faction: &str,
+    relations: &crate::agents::faction_relations::FactionRelations) -> String {
+    let treaty = c.faction_id.as_deref().map(|f|
+        crate::agents::faction_relations::trade_pact_payment_multiplier(relations, ship_faction, f)
+    ).unwrap_or(1.0);
+    let quote = c.acceptance_payment(gate.comms_bonus, treaty);
+    let (source, reserved) = c.funding.as_ref()
+        .map(|f| (format!("{:?}",f.source),f.reserved))
+        .unwrap_or_else(|| ("none".into(),-1));
+    let commerce_allowed = c.faction_id.as_deref().is_none_or(|owner|
+        crate::agents::faction_relations::commerce_allowed(relations, ship_faction, owner));
+    format!("{:?}:{}:{}:{}:{:?}:{:?}:{}", c.status, c.payment, source, reserved,
+        quote, gate.payer_balances.get(&c.id).copied().flatten(), commerce_allowed)
+}
+
+/// Planner: pick a goal + build its BT.
+///
+/// Bundle 2.1 (A): unified utility scoring. Instead of a hardcoded
+/// priority cascade, every candidate goal is scored this tick and
+/// the highest-scoring one wins. Scale is set by tier weights above
+/// so biological needs at high urgency beat anything strategic, but
+/// at modest urgency contracts can compete. Ties and edge cases
+/// resolve deterministically by candidate order.
+///
+/// The goal set is:
+/// - **rest_crew** — when morale below CREW_REST_TRIGGER
+/// - **refuel** — when fuel below FUEL_URGENCY_ONSET
+/// - **sell_cargo** — when cargo onboard
+/// - **seek_retrofit** — when caller produced a RetrofitPlan
+/// - **fulfill_delivery / contract / passenger / courier / crew_mission** —
+///   from `try_plan_contract`, log-profit scored with `prefer_goals` bonus
+/// - **trade_run** — from `try_plan_trade_run`, same scoring
+/// - **explore / idle_seek_station / idle** — from `smart_idle_fallback`
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
+fn plan_goal(
+    position: &ShipPosition,
+    cargo: &ShipCargo,
+    fuel: &ShipFuel,
+    economy: &ShipEconomy,
+    memory: &ShipMemory,
+    crew: Option<&ShipCrew>,
+    contracts: &crate::economy::contracts::ContractBoard,
+    effective_reputation: &StdHashMap<String, u8>,
+    ship_id: &str,
+    ship_faction: &str,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    controller_by_location: &StdHashMap<String, String>,
+    market_buyer_ledger: &BuyerLedger,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+    retrofit: Option<&RetrofitPlan>,
+    sensor_range_au: f32,
+    location_to_system: &StdHashMap<String, String>,
+    contested_destinations: &std::collections::HashSet<String>,
+    personality: &crate::ai::personality::Personality,
+    dock_congestion: &StdHashMap<String, (u32, u32, u32)>,
+    idle_ticks: u32,
+    current_tick: u64,
+    funding_gate: &ContractFundingGate<'_>,
+) -> ScoredGoal {
+    let at_loc = match &position.location_name {
+        Some(l) => l.clone(),
+        None => {
+            return ScoredGoal {
+                name: "idle",
+                score: TIER_IDLE_FLOOR,
+                bt: BtNode::action(ShipAction::Idle),
+            };
+        }
+    };
+
+    let mut candidates: Vec<ScoredGoal> = Vec::new();
+    // Compute the ship's fuel bucket once — passed into every
+    // planner BT builder so synthesised plans reason about real
+    // fuel state rather than a full-tank assumption.
+    let fuel_bucket = crate::ai::planner::fuel_fraction_to_bucket(fuel.fraction());
+
+    // --- Biological tier: rest + refuel ---
+    // Urgency is in [0, 1], steepest near 1.0 so a near-crisis
+    // reading blows past housekeeping scores. Personality's
+    // morale / safety axes scale how strongly a ship reacts.
+    if let Some(c) = crew {
+        if c.morale < CREW_REST_TRIGGER
+            && any_rest_destination_viable(&at_loc, dock_congestion, location_to_system)
+        {
+            let urgency = (1.0 - c.morale / CREW_REST_TRIGGER).clamp(0.0, 1.0);
+            let score = urgency * personality.morale.max(0.2) * TIER_BIO_WEIGHT;
+            // Phase 18L: congestion-aware rest target lookup.
+            let target = pick_rest_destination(&at_loc, dock_congestion, location_to_system);
+            candidates.push(ScoredGoal {
+                name: "rest_crew",
+                score,
+                bt: build_rest_crew_bt_to(&at_loc, &target, fuel_bucket, registry, gate_pairs),
+            });
+        }
+        // When no viable rest target exists (every same-system station
+        // at saturation), skip generating the candidate — the ship
+        // will pick another goal (trade_run, fulfill_delivery, explore,
+        // idle) and keep moving instead of looping through
+        // Dock-timeout-replan at a permanently-full station.
+    }
+    if fuel.fraction() < FUEL_URGENCY_ONSET {
+        let urgency = (1.0 - fuel.fraction() / FUEL_URGENCY_ONSET).clamp(0.0, 1.0);
+        let score = urgency * personality.safety.max(0.2) * TIER_BIO_WEIGHT;
+        candidates.push(ScoredGoal {
+            name: "refuel",
+            score,
+            bt: build_refuel_bt(),
+        });
+    }
+
+    if crate::strategy::orders::assigned_contract(contracts,ship_id).is_some() {
+        if let Some(c)=try_plan_contract(&at_loc,cargo,economy,effective_reputation,memory,contracts,
+            ship_id,ship_faction,relations,controller_by_location,registry,gate_pairs,sensor_range_au,
+            fuel_bucket,location_to_system,dock_congestion,funding_gate) {
+            candidates.push(ScoredGoal {name:c.goal_name,score:35.0,bt:c.bt});
+        } else {
+            candidates.push(ScoredGoal {name:"idle_station_order",score:TIER_IDLE_FLOOR,bt:BtNode::action(ShipAction::Idle)});
+        }
+        return candidates.into_iter().max_by(|a,b|a.score.total_cmp(&b.score)).unwrap();
+    }
+
+    // --- Housekeeping tier: sell_cargo + retrofit ---
+    // Strong enough to beat strategic when present (ships unload
+    // before chasing new contracts), weak enough that a biological
+    // crisis still wins. Cargo-fraction scaling means a ship with
+    // only a trickle of cargo can still opt to chase a hot
+    // contract instead of selling early.
+    if cargo.used() > 0 {
+        if let Some(buyer) = cargo_liquidation_target(&at_loc, cargo, memory,
+            market_buyer_ledger, ship_faction, economy, registry, relations) {
+        let frac = cargo.used() as f32 / cargo.capacity.max(1) as f32;
+        // Scale starts at ~0.5 even for tiny cargo so a bit of
+        // cargo is still a reason to unload; asymptotes to 1.0 as
+        // the hold fills.
+        let scaled = 0.5 + frac.clamp(0.0, 1.0) * 0.5;
+        candidates.push(ScoredGoal {
+            name: "sell_cargo",
+            score: scaled * personality.profit.max(0.3) * TIER_HOUSEKEEPING_WEIGHT,
+            bt: build_sell_cargo_bt_to(&at_loc, &buyer, registry, gate_pairs),
+        });
+        }
+    }
+    // 4. Retrofit opportunity (Phase 18d). The caller already checked
+    //    retrofit_points > 0 + credits + stock + fitting-tier.
+    if let Some(plan) = retrofit {
+        // Retrofit is a long-horizon investment: score moderately
+        // so it only fires when nothing more urgent exists. The
+        // ship's profit axis reflects "I want to grow my business."
+        let score = 0.9 * personality.profit.max(0.3) * TIER_HOUSEKEEPING_WEIGHT;
+        candidates.push(ScoredGoal {
+            name: "seek_retrofit",
+            score,
+            bt: build_retrofit_bt(&at_loc, plan, fuel_bucket, registry, gate_pairs),
+        });
+    }
+
+    // --- Strategic tier: contracts + trade_run ---
+    // Log-scaled profit × (1 + prefer_goals bonus) × strategic
+    // weight. Archetype `prefer_goals` entries tilt the pick so
+    // the fleet fans out instead of every ship running the same
+    // waterfall.
+    if let Some(c) = try_plan_contract(
+        &at_loc,
+        cargo,
+        economy,
+        effective_reputation,
+        memory,
+        contracts,
+        ship_id,
+        ship_faction,
+        relations,
+        controller_by_location,
+        registry,
+        gate_pairs,
+        sensor_range_au,
+        fuel_bucket,
+        location_to_system,
+        dock_congestion,
+        funding_gate,
+    ) {
+        // Bundle D: aggressive captains gravitate toward contested
+        // bodies. The flag is true when the contract's destination is
+        // a body where ≥2 factions each own ≥1 facility. `personality
+        // .aggression > 0.5` gates the bonus inside `score_strategic`,
+        // so cautious ships ignore it.
+        let contested = contested_destinations.contains(&c.destination);
+        let owner = controller_by_location.get(&c.destination).map(String::as_str).unwrap_or("");
+        let loyalty = if c.own_strategy {
+            1.0 + personality.loyalty.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let score = score_strategic(c.profit, c.goal_name, personality, contested)
+            * crate::agents::faction_relations::own_market_priority(ship_faction, owner)
+            * loyalty;
+        // GOAP combined goal: if we have a retrofit plan AND the
+        // contract is delivery-class, try to synthesise a single
+        // BT that picks up cargo, detours through the shipyard,
+        // delivers. When the planner succeeds, register the
+        // combined candidate with a small bonus — the ship
+        // accomplishes two goals in one trip. Fall through to the
+        // plain contract + separate seek_retrofit candidates when
+        // the planner bails, so nothing is worse than before.
+        if let (Some(rp), Some(dp)) = (retrofit, c.delivery_params.as_ref()) {
+            if let Some(combo_bt) = try_build_fulfill_delivery_with_retrofit_planned(
+                &at_loc,
+                &dp.source,
+                &dp.destination,
+                dp.commodity,
+                dp.quantity,
+                &dp.contract_id,
+                rp,
+                fuel_bucket,
+                registry,
+                gate_pairs,
+            ) {
+                // Bonus is small (~20%) — we want combined plans
+                // to win when roughly on par, not dominate when
+                // delivery alone is clearly better.
+                let combo_score = score * 1.20
+                    + score_strategic(rp.cost / 5, "seek_retrofit", personality, false);
+                candidates.push(ScoredGoal {
+                    name: "fulfill_delivery_with_retrofit",
+                    score: combo_score,
+                    bt: combo_bt,
+                });
+            }
+        }
+        candidates.push(ScoredGoal {
+            name: c.goal_name,
+            score,
+            bt: c.bt,
+        });
+    }
+    if let Some(t) = try_plan_trade_run(
+        &at_loc, memory, registry, gate_pairs, current_tick, fuel_bucket,
+        ship_faction, controller_by_location, market_buyer_ledger, relations,
+    ) {
+        // Bundle D: trade run counts as contested when either endpoint
+        // is — the ship is risking exposure on either leg of the run.
+        let contested = contested_destinations.contains(&t.buy_loc)
+            || contested_destinations.contains(&t.sell_loc);
+        let owner_buy = controller_by_location.get(&t.buy_loc).map(String::as_str).unwrap_or("");
+        let owner_sell = controller_by_location.get(&t.sell_loc).map(String::as_str).unwrap_or("");
+        let preference = (
+            crate::agents::faction_relations::own_market_priority(ship_faction, owner_buy)
+            + crate::agents::faction_relations::own_market_priority(ship_faction, owner_sell)
+        ) / 2.0;
+        let score = score_strategic(t.profit, "trade_run", personality, contested) * preference;
+        // GOAP combined goal: trade_run + retrofit. Same pattern as
+        // delivery + retrofit. When the planner folds refit into
+        // the trade-run path it wins on two fronts in one trip.
+        if let Some(rp) = retrofit {
+            if let Some(combo_bt) = try_build_trade_run_with_retrofit_planned(
+                &at_loc,
+                &t.buy_loc,
+                &t.sell_loc,
+                t.commodity,
+                rp,
+                fuel_bucket,
+                registry,
+                gate_pairs,
+            ) {
+                let combo_score = score * 1.20
+                    + score_strategic(rp.cost / 5, "seek_retrofit", personality, false);
+                candidates.push(ScoredGoal {
+                    name: "trade_run_with_retrofit",
+                    score: combo_score,
+                    bt: combo_bt,
+                });
+            }
+        }
+        candidates.push(ScoredGoal {
+            name: "trade_run",
+            score,
+            bt: t.bt,
+        });
+    }
+
+    // --- Exploration / idle fallback tier ---
+    // smart_idle_fallback's ladder (explore → idle_seek_station →
+    // plain idle) is always at least a low-score baseline so
+    // something is always pickable. Exploration scores a bit
+    // higher when the ship's personality actually wants it.
+    let (idle_name, idle_bt) = smart_idle_fallback(
+        &at_loc,
+        position,
+        economy,
+        fuel,
+        memory,
+        registry,
+        gate_pairs,
+        location_to_system,
+        personality,
+        idle_ticks,
+    );
+    let idle_score = match idle_name {
+        "explore" => personality.exploration.max(0.2) * TIER_EXPLORE_WEIGHT,
+        "idle_seek_station" => 0.8 * TIER_EXPLORE_WEIGHT,
+        _ => TIER_IDLE_FLOOR,
+    };
+    if let Some(bt) = idle_bt {
+        candidates.push(ScoredGoal {
+            name: idle_name,
+            score: idle_score,
+            bt,
+        });
+    } else {
+        // Shouldn't happen (smart_idle_fallback always returns a BT)
+        // but keep a belt-and-braces fallback so we always return
+        // something pickable.
+        candidates.push(ScoredGoal {
+            name: "idle",
+            score: TIER_IDLE_FLOOR,
+            bt: BtNode::action(ShipAction::Idle),
+        });
+    }
+
+    // Pick max-score candidate. Ties resolve by earliest-pushed
+    // (biological / housekeeping / strategic / idle order above),
+    // which matches the Phase-18i waterfall's tie-breaks.
+    candidates
+        .into_iter()
+        .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+        .expect("idle fallback guarantees at least one candidate")
+}
+
+/// Bundle 2.1: shared scoring for the strategic tier (contracts,
+/// trade_run). Log-scales profit so a 100k-credit subsidy doesn't
+/// automatically swamp a 1.5k courier run, multiplies by
+/// `1.0 + prefer_goals[goal]` so archetype bonuses tilt the pick,
+/// then by the ship's profit axis and the tier weight.
+///
+/// Bundle D: when `contested_zone` is true (the contract / trade run
+/// touches a body whose facilities are split across factions), an
+/// aggressive personality gets a stacking bonus on top of
+/// `prefer_goals`. Cautious ships (`aggression ≤ 0.5`) ignore the
+/// flag entirely — they still pick the safer market. The +0.4 ceiling
+/// is small enough that a much more profitable safe contract still
+/// wins, but big enough that two roughly-equal contracts tilt the
+/// fleet's aggressive captains toward the contested side.
+pub(super) fn score_strategic(
+    profit: i64,
+    goal_name: &str,
+    personality: &crate::ai::personality::Personality,
+    contested_zone: bool,
+) -> f32 {
+    if profit <= 0 {
+        return 0.0;
+    }
+    let log_profit = (profit as f32).max(1.0).ln();
+    let bonus = personality
+        .prefer_goals
+        .get(goal_name)
+        .copied()
+        .unwrap_or(0.0);
+    let contested_bonus = if contested_zone && personality.aggression > 0.5 {
+        personality.aggression * 0.4
+    } else {
+        0.0
+    };
+    log_profit
+        * (1.0 + bonus + contested_bonus)
+        * personality.profit.max(0.3)
+        * TIER_STRATEGIC_WEIGHT
+}
+
+/// Phase 19h: smart idle branch. When the contract / trade_run
+/// planners both struck out, we pick from a ladder:
+///
+///   1. **Ship has been idling at a station a while + fuel + credits
+///      OK + personality leans adventurous**: pick a neighbour system
+///      not in `recent_systems`, build an explore BT that travels to
+///      the outbound gate, jumps, travels to a station in the new
+///      system, docks, dwells ~5s to catch a posting cycle, undocks.
+///      Goal = `"explore"`.
+///   2. **At a location without any dockable facility** (weird spawn
+///      or gate-only locations): travel to the nearest same-system
+///      dockable station. Goal = `"idle_seek_station"`. Gives the
+///      ship a chance to observe prices + refuel while resting.
+///   3. **Otherwise**: plain Idle — the ship stays where it is. Some
+///      captains just want quiet.
+#[allow(clippy::too_many_arguments)]
+fn smart_idle_fallback(
+    at_loc: &str,
+    position: &ShipPosition,
+    economy: &ShipEconomy,
+    fuel: &ShipFuel,
+    memory: &ShipMemory,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+    location_to_system: &StdHashMap<String, String>,
+    personality: &crate::ai::personality::Personality,
+    idle_ticks: u32,
+) -> (&'static str, Option<BtNode<ShipAction>>) {
+    let fuel_ok = fuel.fraction() >= EXPLORE_MIN_FUEL_FRACTION;
+    let credits_ok = economy.credits >= EXPLORE_MIN_CREDITS;
+
+    // Personality tilts the idle-duration trigger. High `exploration`
+    // → leaves sooner; high `safety` → lingers longer; low credits
+    // also bias toward desperation.
+    let explore_bonus = personality.exploration - personality.safety * 0.5;
+    let desperation = if economy.credits < 5000 { 0.3 } else { 0.0 };
+    let trigger_scale = (1.0 - explore_bonus - desperation).max(0.25);
+    let effective_trigger = (IDLE_EXPLORE_TICKS as f32 * trigger_scale) as u32;
+
+    let should_explore = idle_ticks >= effective_trigger && fuel_ok && credits_ok;
+
+    if should_explore {
+        if let Some(bt) =
+            try_build_explore_bt(at_loc, memory, registry, gate_pairs, location_to_system)
+        {
+            return ("explore", Some(bt));
+        }
+    }
+
+    // Dock-less location? Travel to a same-system station.
+    if position.docked_at.is_none() && !has_dockable_here(at_loc, registry) {
+        if let Some(station) = pick_same_system_station(at_loc, registry, location_to_system) {
+            let mut steps: Vec<BtNode<ShipAction>> = Vec::new();
+            for a in route_actions(at_loc, &station, registry, gate_pairs) {
+                steps.push(BtNode::action(a));
+            }
+            steps.push(BtNode::action(ShipAction::Dock));
+            steps.push(BtNode::action(ShipAction::DockDwell {
+                seconds: EXPLORE_CHECK_BOARD_SECONDS,
+            }));
+            steps.push(BtNode::action(ShipAction::Undock));
+            return ("idle_seek_station", Some(BtNode::sequence(steps)));
+        }
+    }
+
+    // Default: stay put.
+    ("idle", Some(BtNode::action(ShipAction::Idle)))
+}
+
+/// Pick an adjacent star system not in `memory.recent_systems` and
+/// build the explore BT to reach it. Returns `None` when the ship has
+/// no outbound gate or every neighbor is already in the recent-visits
+/// set (the rare deep-exploration case — we'll re-plan next cycle).
+fn try_build_explore_bt(
+    at_loc: &str,
+    memory: &ShipMemory,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+    location_to_system: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    let current_system = location_to_system.get(at_loc)?;
+
+    // Walk this system's gates, find ones whose paired gate lands in
+    // a system not currently in the ship's recent-systems window.
+    // Fall back to any neighbour if every candidate is on the list
+    // (prevents total stall when memory has cycled through the
+    // whole connected graph).
+    let mut preferred: Vec<(String, String, String)> = Vec::new();
+    let mut any: Vec<(String, String, String)> = Vec::new();
+    for (src_gate, dst_gate) in gate_pairs {
+        let Some(src_sys) = location_to_system.get(src_gate) else {
+            continue;
+        };
+        if src_sys != current_system {
+            continue;
+        }
+        let Some(dst_sys) = location_to_system.get(dst_gate) else {
+            continue;
+        };
+        let entry = (src_gate.clone(), dst_gate.clone(), dst_sys.clone());
+        if !memory.recent_systems.iter().any(|s| s == dst_sys) {
+            preferred.push(entry.clone());
+        }
+        any.push(entry);
+    }
+    let (src_gate, dst_gate, dst_system) = if let Some(p) = preferred.first() {
+        p.clone()
+    } else {
+        any.first()?.clone()
+    };
+
+    // Landing target: a dockable station in the destination system
+    // (not the gate itself — gates aren't where contracts are). Pick
+    // the first station we find; `pick_same_system_station` handles
+    // the has-dockable check for us.
+    let landing_station = pick_same_system_station(&dst_gate, registry, location_to_system)
+        .unwrap_or_else(|| dst_gate.clone());
+
+    let mut steps: Vec<BtNode<ShipAction>> = Vec::new();
+    // Travel to the outbound gate.
+    for a in route_actions(at_loc, &src_gate, registry, gate_pairs) {
+        steps.push(BtNode::action(a));
+    }
+    // Gate jump.
+    steps.push(BtNode::action(ShipAction::GateJump {
+        src_gate,
+        dest_gate: dst_gate.clone(),
+    }));
+    // Travel to the landing station + dwell "check the board".
+    for a in route_actions(&dst_gate, &landing_station, registry, gate_pairs) {
+        steps.push(BtNode::action(a));
+    }
+    steps.push(BtNode::action(ShipAction::Dock));
+    steps.push(BtNode::action(ShipAction::DockDwell {
+        seconds: EXPLORE_CHECK_BOARD_SECONDS,
+    }));
+    steps.push(BtNode::action(ShipAction::Undock));
+
+    let _ = dst_system; // silence warnings if we later use it for events
+    Some(BtNode::sequence(steps))
+}
+
+/// Is there a dockable (non-gate, capacity > 0) facility at this
+/// location? Used by the idle-at-station logic to decide whether the
+/// ship should wander to a real port.
+fn has_dockable_here(at_loc: &str, registry: &WorldRegistry) -> bool {
+    registry.locations.get(at_loc)
+        .is_some_and(|location| location.loc_type != "mining_site"
+            && location.loc_type != "gate")
+}
+
+/// Pick any non-gate station in the same star system as `at_loc`.
+/// First-match rather than optimised — idle-seeking doesn't need the
+/// best pick, just a pick. Skips the caller's current location so
+/// the ship actually goes somewhere.
+fn pick_same_system_station(
+    at_loc: &str,
+    registry: &WorldRegistry,
+    location_to_system: &StdHashMap<String, String>,
+) -> Option<String> {
+    let current_system = location_to_system.get(at_loc)?;
+    for (name, info) in registry.locations.iter() {
+        if name == at_loc || info.loc_type == "mining_site" {
+            continue;
+        }
+        if name.contains("gate") {
+            // Gates are technically locations but they don't host
+            // contracts or markets — bad "chill here" targets.
+            continue;
+        }
+        if let Some(sys) = location_to_system.get(name) {
+            if sys == current_system {
+                return Some(name.clone());
+            }
+        }
+    }
+    None
+}
+
+/// Try to find a profitable fulfill plan from the board. Handles both
+/// delivery contracts (ship must pre-buy the commodity at source, must
+/// profit after cost) and passenger / courier contracts (no buy step —
+/// the ship just shuttles between source and destination).
+/// Result of a successful contract plan: the personality-facing goal
+/// name (matches archetype `prefer_goals` keys), the profit the planner
+/// thinks the ship can collect after cost, and the BT to execute.
+/// Phase 18i: returned instead of just a BT so `plan_goal` can score it
+/// against competing goals (trade_run) via the ship's personality.
+pub struct ContractCandidate {
+    pub goal_name: &'static str,
+    pub profit: i64,
+    pub bt: BtNode<ShipAction>,
+    /// A profitable, fully funded strategic job from the ship's own faction.
+    own_strategy: bool,
+    /// Destination location_name. Populated for every contract kind —
+    /// `plan_goal` reads this to check the contested-zone bonus. For
+    /// delivery / passenger / courier the value is the cargo or
+    /// passengers' end stop; for crew-mission it's the requestor's
+    /// own location (which is also a viable contested-flag check
+    /// since the ship is heading there to dwell).
+    pub destination: String,
+    /// Raw delivery params when the contract is a delivery-class
+    /// kind (Delivery / Subsidy / Construction). Used by `plan_goal`
+    /// to re-synthesise a combined delivery+retrofit BT when both
+    /// opportunities align. `None` for Passenger / Courier /
+    /// CrewMission / other non-delivery variants.
+    pub delivery_params: Option<DeliveryParams>,
+}
+
+/// Raw delivery parameters for combined-goal BT synthesis. Mirrors
+/// the args `build_fulfill_delivery_bt` takes so a caller can build
+/// an alternate BT (retrofit-on-route, e.g.) without threading the
+/// entire contract board through.
+#[derive(Debug, Clone)]
+pub struct DeliveryParams {
+    pub source: String,
+    pub destination: String,
+    pub commodity: Commodity,
+    pub quantity: u32,
+    pub contract_id: String,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_plan_contract(
+    at_loc: &str,
+    cargo: &ShipCargo,
+    economy: &ShipEconomy,
+    effective_reputation: &StdHashMap<String, u8>,
+    memory: &ShipMemory,
+    contracts: &crate::economy::contracts::ContractBoard,
+    ship_id: &str,
+    ship_faction: &str,
+    relations: &crate::agents::faction_relations::FactionRelations,
+    controllers: &StdHashMap<String, String>,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+    sensor_range_au: f32,
+    fuel_bucket: u8,
+    location_to_system: &StdHashMap<String, String>,
+    dock_congestion: &StdHashMap<String, (u32, u32, u32)>,
+    funding_gate: &ContractFundingGate<'_>,
+) -> Option<ContractCandidate> {
+    use crate::economy::contracts::ContractType;
+
+    // Phase 18f: cross-system contracts are invisible to ships with
+    // short-range sensors. A contract counts as cross-system when its
+    // source + destination resolve to different star systems; ships
+    // below the threshold skip those, simulating "the comms relay
+    // just isn't picking up interstellar job boards." Larger hulls
+    // (size ≥ 5) ship with tier-2 sensors by default and see them
+    // day one; small ships need a sensor retrofit.
+    let ship_system = location_to_system.get(at_loc);
+
+    #[derive(Clone)]
+    struct Candidate {
+        id: String,
+        source: String,
+        destination: String,
+        commodity: Commodity,
+        qty: u32,
+        payment: i64,
+        cost: i64,
+        /// Phase 19f: effective profit used for comparison — raw
+        /// profit adjusted by a fill-ratio quality multiplier for
+        /// delivery kinds. The `profit` passed to the planner's
+        /// `score_goal` scoring still uses raw profit, so the
+        /// cross-goal (trade_run vs delivery) comparison stays
+        /// consistent with the old rules.
+        score: i64,
+        kind: ContractType,
+        own_strategy: bool,
+    }
+    let mut best: Option<Candidate> = None;
+
+    let assigned=crate::strategy::orders::assigned_contract(contracts,ship_id);
+    let offers=if let Some(c)=assigned.filter(|c|c.status==crate::economy::contracts::ContractStatus::Posted) {
+        vec![c] // Membership-based assignment does not wait for public reputation aging.
+    } else {contracts.posted_for_ship(effective_reputation)};
+    for c in offers {
+        let funding_key = contract_funding_key(c, funding_gate, ship_faction, relations);
+        if memory.contract_deferred(&c.id, &funding_key, funding_gate.tick) { continue; }
+        // Non-mutating quote + escrow validation before scoring a contract.
+        // The exclusive apply phase repeats checks with the live ECS world.
+        let treaty = c.faction_id.as_deref().map(|f|
+            crate::agents::faction_relations::trade_pact_payment_multiplier(relations,ship_faction,f)
+        ).unwrap_or(1.0);
+        let Ok(quoted_payment) = c.acceptance_payment(funding_gate.comms_bonus,treaty) else {continue;};
+        let Ok(top_up) = c.funding_top_up(quoted_payment) else {continue;};
+        if top_up > 0 && funding_gate.payer_balances.get(&c.id)
+            .copied().flatten().is_none_or(|credits| credits < top_up) { continue; }
+        if !crate::strategy::orders::may_accept(c,ship_id,ship_faction)
+            || assigned.is_some_and(|a|a.id!=c.id) {continue;}
+        let fixed_reward = c.fixed_strategy_reward();
+        let own_strategy = c.requestor_id == ship_faction
+            && fixed_reward.is_some_and(|reward| {
+                reward > 0 && c.funding.as_ref().is_some_and(|f| f.reserved >= reward)
+            });
+        // The requesting faction AND both physical endpoints must be
+        // non-hostile. Reputation/aged-open contracts cannot bypass war.
+        if let Some(owner) = c.faction_id.as_deref() {
+            if !crate::agents::faction_relations::commerce_allowed(
+                relations, ship_faction, owner,
+            ) {
+                continue;
+            }
+        }
+        if [&c.source_location, &c.destination_location].iter().any(|location| {
+            let owner = controllers.get(*location).map(String::as_str).unwrap_or("");
+            !crate::agents::faction_relations::commerce_allowed(relations, ship_faction, owner)
+        }) {
+            continue;
+        }
+        // Phase 18f: sensor-range gate for cross-system contracts.
+        // If the contract's source and destination span different
+        // systems (or leave the ship's system) and the ship's
+        // sensor range is below the cross-system threshold, skip.
+        // An assigned faction order supplies surveyed coordinates; private offers still require sensors.
+        if sensor_range_au < CROSS_SYSTEM_SENSOR_RANGE_AU && !(own_strategy && assigned.is_some()) {
+            let src_sys = location_to_system.get(&c.source_location);
+            let dst_sys = location_to_system.get(&c.destination_location);
+            let is_cross_system = match (ship_system, src_sys, dst_sys) {
+                (Some(ship), Some(src), Some(dst)) => ship != src || src != dst,
+                // Missing system data for any of the three means we
+                // can't prove same-system — fall back to "visible"
+                // rather than blocking everything during startup.
+                _ => false,
+            };
+            if is_cross_system {
+                continue;
+            }
+        }
+        // 2026-04-24: pre-accept congestion gate. A 20-minute soak
+        // revealed 50+ ships piling on a single 10-cap farm because
+        // the scorer only evaluated contract *profit*, not whether
+        // the ship could actually complete the delivery in finite
+        // time. Don't accept a contract whose source OR destination
+        // is already choked to 3× capacity — let another ship take
+        // it once the queue drains, or let the faction post a
+        // construction contract for a second facility. Skips when
+        // the location isn't in `dock_congestion` (e.g. gate-only
+        // locations, startup race).
+        if contract_destination_is_saturated(&c.source_location, dock_congestion)
+            || contract_destination_is_saturated(&c.destination_location, dock_congestion)
+        {
+            continue;
+        }
+        // Passenger / courier / crew-mission contracts don't occupy cargo
+        // slots — treat them as "hop-around" jobs in the planner.
+        let is_passenger = c.contract_type == ContractType::Passenger;
+        let is_courier = c.contract_type == ContractType::Courier;
+        let is_mission = c.contract_type == ContractType::CrewMission;
+        if !is_passenger && !is_mission && c.quantity > cargo.capacity {
+            continue;
+        }
+
+        let buy_cost: i64 = if is_passenger || is_courier || is_mission {
+            // Boarding passengers and taking a courier or crew-mission
+            // assignment require no purchase from a commodity market.
+            0
+        } else {
+            // Prefer the ship's direct memory of the source market.
+            // Phase 19h: when memory is missing (comms-tier-limited
+            // ships rarely know far-flung markets), fall back to a
+            // median across the ship's OTHER remembered markets for
+            // this commodity — a heuristic "prices are probably
+            // similar" guess. That lets tier-1 comms ships
+            // speculatively price cross-system contracts instead of
+            // skipping every one. Buy cost is still validated on
+            // arrival at the source market, so a bad guess just
+            // means the BT might bail on Buy (Failure → release
+            // contract). No new state threading required.
+            let src_price_known = memory
+                .price_knowledge
+                .get(&c.source_location)
+                .and_then(|m| m.get(&c.commodity))
+                .map(|p| p.price);
+            let src_price = src_price_known
+                .or_else(|| median_known_price(memory, c.commodity));
+            match src_price {
+                Some(price) if fixed_reward.is_some() => {
+                    let owner = controllers.get(&c.source_location).map_or("", String::as_str);
+                    let reputation = economy.faction_reputation.get(owner).copied().unwrap_or(0);
+                    let Some(cost) = crate::strategy::sourcing::purchase_cost(
+                        price, c.quantity, relations, ship_faction, reputation, owner,
+                    ) else {
+                        continue;
+                    };
+                    cost
+                }
+                Some(p) => (p * c.quantity as f32) as i64,
+                // No memory of this commodity at ANY market → can't
+                // even guess. Skip as before.
+                None => continue,
+            }
+        };
+        // Rough upper-bound estimate of gate fees along the full route
+        // (current → source → destination). Uses default fees; real
+        // fees are whatever the gate facility carries. We don't know
+        // cargo-at-pickup yet, so approximate with contract quantity.
+        let gate_fees = estimate_route_gate_fees(
+            &[
+                (at_loc, &c.source_location),
+                (&c.source_location, &c.destination_location),
+            ],
+            gate_pairs,
+            c.quantity,
+        );
+        let payment = quoted_payment;
+        let cost = buy_cost.saturating_add(gate_fees);
+        if cost >= payment {
+            continue;
+        }
+        if economy.credits < cost {
+            continue;
+        }
+        let profit = payment - cost;
+
+        // Phase 19f: fill-ratio scoring. For delivery contracts, reward
+        // runs that make good use of the ship's cargo capacity. A
+        // hauler with capacity 2000 picking up a 50-unit delivery
+        // wastes 97.5% of the hold — sqrt(0.025) ≈ 0.16, so that
+        // delivery scores only ~16% of its raw profit in the planner
+        // comparison. Applied only to kinds that actually load cargo.
+        let fill_quality: f32 = if matches!(
+            c.contract_type,
+            ContractType::Delivery | ContractType::Construction
+        ) && cargo.capacity > 0
+        {
+            let ratio = (c.quantity as f32 / cargo.capacity as f32).clamp(0.0, 1.0);
+            // sqrt curve: gentle at the top (90% fill → 0.95), steep
+            // at the bottom (5% fill → 0.22). Small contracts on big
+            // hulls are still takeable, just unattractive compared
+            // to better-fitting alternatives.
+            ratio.sqrt().max(0.1)
+        } else {
+            1.0
+        };
+        let effective_profit: i64 = ((profit as f32) * fill_quality).round() as i64;
+
+        let better = best
+            .as_ref()
+            .is_none_or(|b| (own_strategy, effective_profit) > (b.own_strategy, b.score));
+        if better {
+            best = Some(Candidate {
+                id: c.id.clone(),
+                source: c.source_location.clone(),
+                destination: c.destination_location.clone(),
+                commodity: c.commodity,
+                qty: c.quantity,
+                payment,
+                cost,
+                score: effective_profit,
+                kind: c.contract_type,
+                own_strategy,
+            });
+        }
+    }
+    let cand = best?;
+    let profit = cand.payment - cand.cost;
+
+    // Snapshot the destination + delivery params before `cand.id` gets
+    // moved into the BT builders below. The destination is also
+    // surfaced on the public `ContractCandidate` so `plan_goal` can
+    // check the contested-zone bonus without re-walking the contract.
+    let candidate_destination = cand.destination.clone();
+    let delivery_params = match cand.kind {
+        ContractType::Delivery | ContractType::Subsidy | ContractType::Construction => {
+            Some(DeliveryParams {
+                source: cand.source.clone(),
+                destination: cand.destination.clone(),
+                commodity: cand.commodity,
+                quantity: cand.qty,
+                contract_id: cand.id.clone(),
+            })
+        }
+        _ => None,
+    };
+
+    // Kind-specific goal name — matches the personality archetype
+    // `prefer_goals` keys (e.g. `courier` archetype weights
+    // `fulfill_passenger_transport`, `reliable_trucker` weights
+    // `fulfill_delivery`, etc). Phase 18i.
+    let (goal_name, bt) = match cand.kind {
+        ContractType::CrewMission => (
+            "do_crew_mission",
+            build_fulfill_crew_mission_bt(
+                at_loc,
+                &cand.source,
+                cand.id,
+                fuel_bucket,
+                registry,
+                gate_pairs,
+            ),
+        ),
+        ContractType::Passenger => (
+            "fulfill_passenger_transport",
+            build_fulfill_passenger_bt(
+                at_loc,
+                &cand.source,
+                &cand.destination,
+                cand.id,
+                cand.qty,
+                fuel_bucket,
+                registry,
+                gate_pairs,
+            ),
+        ),
+        ContractType::Courier => (
+            "fulfill_courier",
+            build_fulfill_passenger_bt(
+                at_loc,
+                &cand.source,
+                &cand.destination,
+                cand.id,
+                0,
+                fuel_bucket,
+                registry,
+                gate_pairs,
+            ),
+        ),
+        ContractType::Subsidy => (
+            "fulfill_contract",
+            build_fulfill_delivery_bt(
+                at_loc,
+                &cand.source,
+                &cand.destination,
+                cand.commodity,
+                cand.qty,
+                cand.id,
+                fuel_bucket,
+                registry,
+                gate_pairs,
+            ),
+        ),
+        ContractType::Construction => (
+            "fulfill_construction",
+            build_fulfill_delivery_bt(
+                at_loc,
+                &cand.source,
+                &cand.destination,
+                cand.commodity,
+                cand.qty,
+                cand.id,
+                fuel_bucket,
+                registry,
+                gate_pairs,
+            ),
+        ),
+        _ => (
+            "fulfill_delivery",
+            build_fulfill_delivery_bt(
+                at_loc,
+                &cand.source,
+                &cand.destination,
+                cand.commodity,
+                cand.qty,
+                cand.id,
+                fuel_bucket,
+                registry,
+                gate_pairs,
+            ),
+        ),
+    };
+    Some(ContractCandidate {
+        goal_name,
+        profit,
+        bt,
+        own_strategy: cand.own_strategy,
+        destination: candidate_destination,
+        delivery_params,
+    })
+}
+
+/// Build a crew-mission BT. Travel to the station, dock, refuel, rest
+/// (the dwell — Rest returns Running until morale >= target, which
+/// approximates the mission's duration_ticks). Then Deliver claims the
+/// payout; Undock.
+#[allow(clippy::too_many_arguments)]
+fn build_fulfill_crew_mission_bt(
+    current: &str,
+    station: &str,
+    contract_id: String,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    // Hand-authored fallback retired — the planner owns this goal.
+    // If the planner somehow fails (bug, depth cap exceeded), the
+    // ship returns an Idle BT for one tick and replans next tick
+    // with whatever state has changed. See the GOAP arc commits.
+    try_build_fulfill_crew_mission_bt_planned(
+        current,
+        station,
+        &contract_id,
+        fuel_bucket,
+        registry,
+        gate_pairs,
+    )
+    .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
+}
+
+/// GOAP: crew-mission planner. Single-station mission (travel →
+/// dock → refuel → rest → deliver payout → undock). Ordering is
+/// enforced by the Rest precondition and the
+/// `delivered && rested` goal predicate.
+fn try_build_fulfill_crew_mission_bt_planned(
+    current: &str,
+    station: &str,
+    contract_id: &str,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+    let map = LocMap::delivery(
+        current.to_string(),
+        current.to_string(), // Source placeholder (unused by crew_mission_catalog)
+        station.to_string(),
+        Commodity::Food,
+        0,
+        contract_id.to_string(),
+        0,
+        0,
+        cost(current, station),
+    );
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan(
+        initial,
+        |s| s.delivered && s.rested && s.fuel_bucket >= 2,
+        Operator::crew_mission_catalog(),
+        &map,
+        20,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+/// Build a passenger/courier BT. No Buy step; the ship just hops between
+/// source and destination, boarding at the source for passenger contracts.
+#[allow(clippy::too_many_arguments)]
+fn build_fulfill_passenger_bt(
+    current: &str,
+    source: &str,
+    destination: &str,
+    contract_id: String,
+    passengers: u32,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    try_build_fulfill_passenger_bt_planned(
+        current,
+        source,
+        destination,
+        &contract_id,
+        passengers,
+        fuel_bucket,
+        registry,
+        gate_pairs,
+    )
+    .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
+}
+
+/// GOAP: forward planner for passenger / courier contracts. No
+/// cargo mechanics — goal is `delivered && fuel_bucket >= 2`, and
+/// the `passenger_catalog` has no Buy / SellAll / Refit operators
+/// so boarding and disembarkation use dedicated operations.
+fn try_build_fulfill_passenger_bt_planned(
+    current: &str,
+    source: &str,
+    destination: &str,
+    contract_id: &str,
+    passengers: u32,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+    // Passenger plans use quantity to require boarding; courier plans use zero.
+    let map = LocMap::delivery(
+        current.to_string(),
+        source.to_string(),
+        destination.to_string(),
+        Commodity::Food,
+        passengers,
+        contract_id.to_string(),
+        cost(current, source),
+        cost(source, destination),
+        cost(current, destination),
+    );
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan(
+        initial,
+        |s| s.delivered && s.fuel_bucket >= 2,
+        Operator::passenger_catalog(),
+        &map,
+        16,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+// --- BT builders ---
+
+/// Wall-clock dwell (seconds) injected after Dock and before Undock so
+/// the ship visibly sits at the pad doing "station business" — cargo
+/// handling, crew embark/disembark, paperwork — instead of the whole
+/// dock sequence rattling through in 3 ticks. Kept small so it doesn't
+/// cripple the economy; refuel + sell multi-tick actions do most of the
+/// real dwell work.
+const DOCK_ARRIVE_DWELL_SECS: u8 = 2;
+const DOCK_DEPART_DWELL_SECS: u8 = 2;
+
+fn build_refuel_bt() -> BtNode<ShipAction> {
+    BtNode::sequence(vec![
+        BtNode::action(ShipAction::Dock),
+        BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }),
+        BtNode::action(ShipAction::Refuel),
+        BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }),
+        BtNode::action(ShipAction::Undock),
+    ])
+}
+
+fn build_sell_cargo_bt_to(
+    from: &str, buyer: &str, registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    let mut steps = Vec::new();
+    if from != buyer {
+        steps.push(BtNode::action(ShipAction::Undock));
+        steps.extend(route_actions(from, buyer, registry, gate_pairs)
+            .into_iter().map(BtNode::action));
+    }
+    steps.extend([
+        BtNode::action(ShipAction::Dock),
+        BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }),
+        BtNode::action(ShipAction::SellAll),
+        BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }),
+        BtNode::action(ShipAction::Undock),
+    ]);
+    BtNode::sequence(steps)
+}
+
+#[allow(dead_code)]
+fn build_rest_crew_bt() -> BtNode<ShipAction> {
+    BtNode::sequence(vec![
+        BtNode::action(ShipAction::Dock),
+        BtNode::action(ShipAction::DockDwell { seconds: DOCK_ARRIVE_DWELL_SECS }),
+        BtNode::action(ShipAction::Refuel),
+        BtNode::action(ShipAction::Rest),
+        BtNode::action(ShipAction::DockDwell { seconds: DOCK_DEPART_DWELL_SECS }),
+        BtNode::action(ShipAction::Undock),
+    ])
+}
+
+/// Phase 18L: congestion-aware rest-crew BT. Routes to `target`
+/// (which may differ from `current` when the current location is
+/// saturated), then dock + refuel + rest + undock. If target ==
+/// current, the route leg is empty — identical behavior to the
+/// pre-18L flat sequence.
+#[allow(clippy::too_many_arguments)]
+fn build_rest_crew_bt_to(
+    current: &str,
+    target: &str,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    try_build_rest_crew_bt_to_planned(current, target, fuel_bucket, registry, gate_pairs)
+        .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
+}
+
+/// GOAP: rest_crew planner. Goal =
+/// `rested && !docked && at == Dest && fuel_bucket >= 2`. The
+/// `rest_crew_catalog` has no cargo / contract ops so plans are
+/// tightly scoped to travel-dock-rest-undock.
+fn try_build_rest_crew_bt_to_planned(
+    current: &str,
+    target: &str,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+    let map = LocMap::delivery(
+        current.to_string(),
+        current.to_string(), // Source placeholder (unused by rest_crew_catalog)
+        target.to_string(),
+        Commodity::Food,
+        0,
+        String::new(), // no contract
+        0,
+        0,
+        cost(current, target),
+    );
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan(
+        initial,
+        |s| s.rested && !s.docked && s.at == Loc::Dest && s.fuel_bucket >= 2,
+        Operator::rest_crew_catalog(),
+        &map,
+        16,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+/// Saturation threshold for "effectively full" — effective_load
+/// (docked + queued) / capacity >= this → treat as unavailable for
+/// new arrivals. 1.2 so a station with a queue equal to 20% of its
+/// dock capacity is still considered viable, but the moment the
+/// queue grows large enough that new arrivals face a long wait,
+/// the planner routes elsewhere. Post-tick-21k-spiral fix: the
+/// prior check (docked >= cap) missed queue pressure entirely and
+/// 170 ships piled onto one 25-slot station.
+pub const DOCK_SATURATION_THRESHOLD: f32 = 1.2;
+
+/// True when a location is effectively saturated: no capacity, OR
+/// `(docked + queued) / capacity >= DOCK_SATURATION_THRESHOLD`.
+/// Returns `true` for unknown locations so unknown targets are
+/// never picked.
+fn location_saturated(cap: u32, docked: u32, queued: u32) -> bool {
+    if cap == 0 {
+        return true;
+    }
+    let effective_load = docked as f32 + queued as f32;
+    effective_load / cap as f32 >= DOCK_SATURATION_THRESHOLD
+}
+
+/// Multiplier applied to capacity for the contract-acceptance
+/// congestion gate (see `contract_destination_is_saturated`). Much
+/// higher than the rest-destination threshold because contracts
+/// are longer-committed: a rest decision reverses cheaply, a
+/// contract acceptance commits the ship for many ticks. 3× means
+/// a 10-cap farm has to be choked past 30 queued before ships
+/// stop signing up for deliveries to/from it.
+pub const CONTRACT_ACCEPT_QUEUE_MULTIPLIER: f32 = 3.0;
+
+/// Pre-accept congestion gate for contract candidates. True when
+/// `location`'s aggregated queue length exceeds
+/// `CONTRACT_ACCEPT_QUEUE_MULTIPLIER × capacity`. Missing
+/// entries in `dock_congestion` (gate-only locations, startup
+/// race) return false — don't block when we can't prove
+/// saturation.
+fn contract_destination_is_saturated(
+    location: &str,
+    dock_congestion: &StdHashMap<String, (u32, u32, u32)>,
+) -> bool {
+    let Some(&(cap, _docked, queued)) = dock_congestion.get(location) else {
+        return false;
+    };
+    if cap == 0 {
+        return false;
+    }
+    queued as f32 >= CONTRACT_ACCEPT_QUEUE_MULTIPLIER * cap as f32
+}
+
+/// Phase 18L + post-21k-spiral fix: pick the best rest destination
+/// given current location and a per-location congestion snapshot.
+/// Prefers the current location if it has free slots (and isn't
+/// overly queued); otherwise picks the least-congested station in
+/// the same system. Falls back to current if every same-system
+/// alternative is also saturated.
+///
+/// Congestion scored as `(docked + queued) / capacity` — queue
+/// pressure counts against a station for routing decisions, so
+/// ships don't pile onto an already-queue-bloated dock.
+/// Same-system constraint so ships don't pathfind across gates
+/// just for shore leave.
+pub fn pick_rest_destination(
+    current: &str,
+    congestion: &StdHashMap<String, (u32, u32, u32)>,
+    location_to_system: &StdHashMap<String, String>,
+) -> String {
+    let current_load = congestion.get(current);
+    // Short-circuit: if current has a free dock slot RIGHT NOW,
+    // stay here — no fuel cost to travelling.
+    if let Some(&(cap, docked, _)) = current_load {
+        if cap > 0 && docked < cap {
+            return current.to_string();
+        }
+    }
+    // Otherwise, compare current against siblings by effective
+    // load (docked + queued) / cap. Skip over-saturated siblings
+    // entirely; pick the strictly-less-loaded one; fall back to
+    // current when no sibling is a strict improvement.
+    let current_sat = current_load
+        .map(|&(cap, docked, queued)| {
+            (docked as f32 + queued as f32) / cap.max(1) as f32
+        })
+        .unwrap_or(f32::INFINITY);
+    let ship_sys = location_to_system.get(current);
+    let mut best: Option<(String, f32)> = None;
+    for (loc, &(cap, docked, queued)) in congestion.iter() {
+        if location_saturated(cap, docked, queued) {
+            continue;
+        }
+        let loc_sys = location_to_system.get(loc);
+        if ship_sys.is_some() && ship_sys != loc_sys {
+            continue;
+        }
+        let saturation = (docked as f32 + queued as f32) / cap as f32;
+        if best.as_ref().is_none_or(|(_, s)| saturation < *s) {
+            best = Some((loc.clone(), saturation));
+        }
+    }
+    // Route to sibling only if it's strictly less loaded than
+    // current — ties go to current (stay, skip the fuel cost).
+    match best {
+        Some((loc, sat)) if sat < current_sat => loc,
+        _ => current.to_string(),
+    }
+}
+
+/// Fix 2: rest-crew viability check. Returns true when at least one
+/// same-system station has free effective capacity. Called before
+/// `plan_goal` generates a `rest_crew` candidate — if no viable
+/// target exists anywhere in the ship's system, the ship lets
+/// other goals compete rather than queue-forever at a saturated
+/// station. Without this, 170 ships all picked `rest_crew` at
+/// forge-smelter (25 slots) and pinned the fleet into a
+/// replan-queue-timeout death spiral.
+pub(super) fn any_rest_destination_viable(
+    current: &str,
+    congestion: &StdHashMap<String, (u32, u32, u32)>,
+    location_to_system: &StdHashMap<String, String>,
+) -> bool {
+    // Current location viable? Short-circuit.
+    if let Some(&(cap, docked, queued)) = congestion.get(current) {
+        if !location_saturated(cap, docked, queued) {
+            return true;
+        }
+    }
+    // Any other same-system station viable?
+    let ship_sys = location_to_system.get(current);
+    congestion.iter().any(|(loc, &(cap, docked, queued))| {
+        if location_saturated(cap, docked, queued) {
+            return false;
+        }
+        let loc_sys = location_to_system.get(loc);
+        ship_sys.is_some() && ship_sys == loc_sys
+    })
+}
+
+/// Build a trade_run BT. Start at `current`, visit `buy_loc`, buy `commodity`,
+/// travel to `sell_loc`, sell, end at sell_loc.
+///
+/// If `current == buy_loc`, skip the initial travel leg.
+/// Proposed retrofit the planner has already costed and located. Built
+/// by [`find_retrofit_opportunity`] from a ship's fitting + a per-tick
+/// snapshot of shipyard inventories. The planner turns this into a
+/// `build_retrofit_bt` goal when the ship qualifies (has points +
+/// credits + isn't in a higher-priority state).
+#[derive(Debug, Clone)]
+pub struct RetrofitPlan {
+    pub shipyard_location: String,
+    pub slot: crate::modules::Slot,
+    pub slug: &'static str,
+    pub cost: i64,
+}
+
+/// Snapshot of every shipyard's available inventory, built once per
+/// `decide_and_act` call so each ship's planner can consult it without
+/// re-querying hecs. `Vec` keeps order deterministic run-over-run.
+///
+/// Each entry is `(location_name, system_id, stock)` — system is
+/// derived from the yard's body via `BodyIdentity.system_name` and
+/// powers the "same-system first" retrofit preference.
+pub type ShipyardInventorySnapshot =
+    Vec<(String, String, std::collections::HashMap<String, u32>)>;
+
+/// Credits floor a ship keeps in reserve before considering an
+/// autonomous retrofit. Refits are meant to be rare; no ship burns
+/// its last coins on a cargo-bay upgrade. Keep well above the
+/// cheapest tier-2 module (5500 cr) so the ship still has operating
+/// credits after a purchase.
+pub const RETROFIT_CREDIT_RESERVE: i64 = 12_000;
+
+/// Given a ship's current fitting and the global shipyard inventory
+/// snapshot, pick at most one concrete retrofit target: which slot to
+/// upgrade, to which slug, and where. Returns `None` if no eligible
+/// swap exists — every slot already at tier 3, or no shipyard carries
+/// a matching upgrade in stock.
+///
+/// Selection policy:
+///  - Walk slots in canonical order (engine, cargo, sensors, reactor, comms).
+///  - Target `current_tier + 1` (skip if already at 3).
+///  - Among yards carrying the target slug, prefer (in order): same
+///    location (no travel), same system (no gate hop), any other.
+///    Keeps Tau Ceti ships from flying to Earth for a routine refit
+///    when their home yard has stock.
+pub fn find_retrofit_opportunity(
+    fitting: &ShipFitting,
+    inventory: &ShipyardInventorySnapshot,
+    ship_credits: i64,
+    ship_location: &str,
+    ship_system: &str,
+) -> Option<RetrofitPlan> {
+    if ship_credits < RETROFIT_CREDIT_RESERVE {
+        return None;
+    }
+    for slot in crate::modules::SLOTS.iter().copied() {
+        // Determine current tier in this slot (1 when empty — nothing
+        // to upgrade toward past 3).
+        let current_tier = fitting
+            .slot_slug(slot)
+            .and_then(crate::modules::get)
+            .map(|d| d.tier)
+            .unwrap_or(1);
+        if current_tier >= 3 {
+            continue;
+        }
+        let target_tier = current_tier + 1;
+        // Canonical slug for {slot}_t{target_tier} — matches how the
+        // catalog names entries. A richer catalog (same slot, multiple
+        // same-tier variants) would need a lookup; keep it simple.
+        let slug_owned = format!("{}_t{}", slot.as_str(), target_tier);
+        let Some(def) = crate::modules::get(&slug_owned) else {
+            continue;
+        };
+        let Some(recipe) = crate::economy::module_production::get(def.slug) else {
+            continue;
+        };
+        // Need to afford the purchase AND stay above reserve afterwards.
+        if ship_credits - recipe.base_cost_credits < RETROFIT_CREDIT_RESERVE {
+            continue;
+        }
+        // Rank yards carrying this slug by proximity: same location
+        // first, then same system, then anywhere else. `min_by_key`
+        // picks the lowest score; ties broken by Vec iteration order
+        // (deterministic per run).
+        let Some((loc, _, _)) = inventory
+            .iter()
+            .filter(|(_, _, stock)| stock.get(def.slug).copied().unwrap_or(0) > 0)
+            .min_by_key(|(loc, system, _)| {
+                if loc == ship_location {
+                    0u8
+                } else if !ship_system.is_empty() && system == ship_system {
+                    1
+                } else {
+                    2
+                }
+            })
+        else {
+            continue;
+        };
+        return Some(RetrofitPlan {
+            shipyard_location: loc.clone(),
+            slot,
+            slug: def.slug,
+            cost: recipe.base_cost_credits,
+        });
+    }
+    None
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_retrofit_bt(
+    current: &str,
+    plan: &RetrofitPlan,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    try_build_retrofit_bt_planned(current, plan, fuel_bucket, registry, gate_pairs)
+        .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
+}
+
+/// GOAP: forward planner for standalone retrofit. Uses the
+/// `retrofit_catalog` which has no cargo operators. Goal =
+/// `retrofitted && fuel_bucket >= 2`. Travel is only meaningful
+/// to the shipyard, so we populate only origin + shipyard costs.
+fn try_build_retrofit_bt_planned(
+    current: &str,
+    retrofit: &RetrofitPlan,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan as plan_search, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+    // Retrofit-only LocMap — Source/Dest are unused by the
+    // retrofit_catalog so their strings and costs don't matter.
+    // Shipyard fields carry the real target.
+    let mut map = LocMap::delivery(
+        current.to_string(),
+        current.to_string(), // Source placeholder (unused)
+        current.to_string(), // Dest placeholder (unused)
+        Commodity::Food,
+        0,
+        String::new(), // no contract
+        0,
+        0,
+        0,
+    );
+    map.shipyard = Some(retrofit.shipyard_location.clone());
+    map.refit_slot = Some(retrofit.slot);
+    map.refit_slug = Some(retrofit.slug);
+    map.cost_origin_to_shipyard = cost(current, &retrofit.shipyard_location);
+    map.cost_source_to_shipyard = 0;
+    map.cost_shipyard_to_dest = 0;
+
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan_search(
+        initial,
+        |s| s.retrofitted && s.fuel_bucket >= 2,
+        Operator::retrofit_catalog(),
+        &map,
+        16,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_trade_run_bt(
+    current: &str,
+    buy_loc: &str,
+    sell_loc: &str,
+    commodity: Commodity,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    try_build_trade_run_bt_planned(
+        current,
+        buy_loc,
+        sell_loc,
+        commodity,
+        fuel_bucket,
+        registry,
+        gate_pairs,
+    )
+    .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
+}
+
+/// GOAP expansion: run the forward planner for a trade run. Goal =
+/// `sold && fuel_bucket >= 2`. `trade_run_catalog` swaps DeliverCargo
+/// for SellAll at the destination — no contract, just a market sell.
+/// Takes the ship's real `fuel_bucket` so fuel-aware optimisations
+/// can emerge: a flush ship skips refuels, a thirsty ship forces
+/// one in at the first dockable stop.
+#[allow(clippy::too_many_arguments)]
+fn try_build_trade_run_bt_planned(
+    current: &str,
+    buy_loc: &str,
+    sell_loc: &str,
+    commodity: Commodity,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+    let map = LocMap::trade_run(
+        current.to_string(),
+        buy_loc.to_string(),
+        sell_loc.to_string(),
+        commodity,
+        TRADE_QTY_DEFAULT,
+        cost(current, buy_loc),
+        cost(buy_loc, sell_loc),
+        cost(current, sell_loc),
+    );
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan(
+        initial,
+        |s| s.sold && s.fuel_bucket >= 2,
+        Operator::trade_run_catalog(),
+        &map,
+        20,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+/// Shared fuel-bucket cost estimator used by planned BT builders.
+/// Walks the real leg sequence via the pathfinder and rolls the
+/// summed distance into fuel buckets (~50 units per bucket).
+fn estimate_fuel_bucket_cost(
+    from: &str,
+    to: &str,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> u8 {
+    if from == to {
+        return 0;
+    }
+    let ctx = crate::world::pathfinder::PathfinderCtx { registry, gate_pairs };
+    let legs = match ctx.find_route(from, to) {
+        Some(l) => l,
+        None => return 1,
+    };
+    let total_distance: u32 = legs.iter().map(|l| l.distance.max(1)).sum();
+    let buckets = ((total_distance as f32) / 50.0).ceil().max(1.0) as u32;
+    buckets.min(10) as u8
+}
+
+/// Build a fulfill_delivery BT:
+///   accept → travel to source → dock → refuel → buy → undock →
+///   travel to destination → dock → deliver → undock
+#[allow(clippy::too_many_arguments)]
+fn build_fulfill_delivery_bt(
+    current: &str,
+    source: &str,
+    destination: &str,
+    commodity: Commodity,
+    quantity: u32,
+    contract_id: String,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    try_build_fulfill_delivery_bt_planned(
+        current,
+        source,
+        destination,
+        commodity,
+        quantity,
+        &contract_id,
+        fuel_bucket,
+        registry,
+        gate_pairs,
+    )
+    .unwrap_or_else(|| BtNode::action(ShipAction::Idle))
+}
+
+/// GOAP MVP: run the forward planner to synthesise a delivery BT.
+/// Returns `None` when the planner can't find a plan within its
+/// depth cap (caller falls back to the hand-authored sequence).
+///
+/// This is where combined goals will live as the MVP expands. For
+/// now the goal is simple `delivered == true AND fuel_bucket ≥ 2`
+/// so the planner decides whether to insert a Refuel based on
+/// travel-cost budgets — same emergent behaviour the hand-authored
+/// builder has hardcoded, but derived rather than asserted.
+#[allow(clippy::too_many_arguments)]
+fn try_build_fulfill_delivery_bt_planned(
+    current: &str,
+    source: &str,
+    destination: &str,
+    commodity: Commodity,
+    quantity: u32,
+    contract_id: &str,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, LocMap, Loc, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+
+    let map = LocMap::delivery(
+        current.to_string(),
+        source.to_string(),
+        destination.to_string(),
+        commodity,
+        quantity,
+        contract_id.to_string(),
+        cost(current, source),
+        cost(source, destination),
+        cost(current, destination),
+    );
+
+    // Start state uses the ship's real fuel bucket so fuel-aware
+    // optimisations can emerge — a flush ship skips unnecessary
+    // refuels, a thirsty ship forces one at the first dockable
+    // stop. The BT's real executors still re-check fuel at
+    // execution time as a belt-and-braces.
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan(
+        initial,
+        |s| s.delivered && s.fuel_bucket >= 2,
+        Operator::delivery_catalog(),
+        &map,
+        20,
+    )?;
+
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+/// Resume a held contract without accepting it or purchasing cargo already
+/// present in the committed hold. No mutations to board, escrow or inventory.
+fn resume_contract_bt(
+    current: &str,
+    docked: bool,
+    cargo: &ShipCargo,
+    fuel: &ShipFuel,
+    c: &crate::economy::contracts::Contract,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, fuel_fraction_to_bucket, Loc, LocMap, Operator, WorldState};
+    use crate::economy::contracts::{ContractStatus, ContractType};
+    if current.is_empty() { return None; }
+    let physical = !matches!(c.contract_type, ContractType::Passenger | ContractType::CrewMission);
+    let have = cargo.cargo.get(&c.commodity).copied().unwrap_or(0);
+    // Courier has no legitimate Buy/pickup implementation. Never synthesize
+    // its cargo just to recover a save; wait for a valid physical load.
+    if c.contract_type == ContractType::Courier && have < c.quantity { return None; }
+    let cost = |to: &str| estimate_fuel_bucket_cost(current, to, registry, gate_pairs);
+    let map = LocMap::delivery(current.into(), c.source_location.clone(), c.destination_location.clone(),
+        c.commodity, if c.contract_type == ContractType::Passenger { c.quantity } else if c.contract_type == ContractType::CrewMission { 0 } else { c.quantity.saturating_sub(have) }, c.id.clone(),
+        cost(&c.source_location), estimate_fuel_bucket_cost(&c.source_location, &c.destination_location, registry, gate_pairs),
+        cost(&c.destination_location));
+    let at = if current == c.destination_location { Loc::Dest }
+        else if current == c.source_location { Loc::Source } else { Loc::Origin };
+    let mut initial = WorldState::new(at, fuel_fraction_to_bucket(
+        if fuel.fuel_capacity > 0.0 { fuel.fuel / fuel.fuel_capacity } else { 0.0 }));
+    initial.docked = docked;
+    initial.cargo_loaded = if physical { have >= c.quantity } else { c.status == ContractStatus::PickedUp };
+    let crew = c.contract_type == ContractType::CrewMission;
+    let catalog = if crew { Operator::crew_mission_catalog() }
+        else if c.contract_type == ContractType::Passenger { Operator::passenger_catalog() }
+        else { Operator::delivery_catalog() };
+    let synth = plan(initial, |s| s.delivered && (!crew || s.rested), catalog, &map, 20)?;
+    let mut bt = compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs);
+    if let BtNode::Sequence { children, .. } = &mut bt {
+        if matches!(children.first(), Some(BtNode::Action(ShipAction::AcceptContract { .. }))) {
+            children.remove(0);
+        }
+    }
+    Some(bt)
+}
+
+/// Expand a planner-emitted action sequence into a real BT. Abstract
+/// `Travel { destination }` steps get resolved to the actual multi-
+/// leg pathfinder output (gate jumps etc.); `Dock` / `DockAtShipyard` /
+/// `Undock` steps are wrapped with `DockDwell` so the visual pacing
+/// matches the hand-authored builders. `AcceptContract` is prepended
+/// only when the map carries a contract_id — trade-run plans skip
+/// it entirely.
+fn compile_plan_to_bt(
+    plan_actions: &[ShipAction],
+    map: &crate::ai::planner::LocMap,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> BtNode<ShipAction> {
+    let mut steps: Vec<BtNode<ShipAction>> = Vec::with_capacity(plan_actions.len() * 2 + 2);
+    if !map.contract_id.is_empty() {
+        steps.push(BtNode::action(ShipAction::AcceptContract {
+            contract_id: map.contract_id.clone(),
+        }));
+    }
+    let mut current_loc = map.origin.clone();
+    for a in plan_actions {
+        match a {
+            ShipAction::Travel { destination } => {
+                for leg in route_actions(&current_loc, destination, registry, gate_pairs) {
+                    steps.push(BtNode::action(leg));
+                }
+                current_loc = destination.clone();
+            }
+            ShipAction::Dock | ShipAction::DockAtShipyard => {
+                steps.push(BtNode::action(a.clone()));
+                steps.push(BtNode::action(ShipAction::DockDwell {
+                    seconds: DOCK_ARRIVE_DWELL_SECS,
+                }));
+            }
+            ShipAction::Undock => {
+                steps.push(BtNode::action(ShipAction::DockDwell {
+                    seconds: DOCK_DEPART_DWELL_SECS,
+                }));
+                steps.push(BtNode::action(ShipAction::Undock));
+            }
+            other => steps.push(BtNode::action(other.clone())),
+        }
+    }
+    BtNode::sequence(steps)
+}
+
+/// GOAP expansion: synthesise a combined delivery+retrofit plan.
+/// Returns `None` when the planner can't fold both goals within its
+/// depth cap — caller falls back to the plain delivery builder,
+/// meaning the retrofit runs as a separate plan later. This is the
+/// first plan the hand-authored BTs literally cannot produce: a
+/// single BT that picks up contract cargo, detours through a
+/// shipyard for a refit, then delivers.
+#[allow(clippy::too_many_arguments)]
+fn try_build_fulfill_delivery_with_retrofit_planned(
+    current: &str,
+    source: &str,
+    destination: &str,
+    commodity: Commodity,
+    quantity: u32,
+    contract_id: &str,
+    retrofit: &RetrofitPlan,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+
+    let mut map = LocMap::delivery(
+        current.to_string(),
+        source.to_string(),
+        destination.to_string(),
+        commodity,
+        quantity,
+        contract_id.to_string(),
+        cost(current, source),
+        cost(source, destination),
+        cost(current, destination),
+    );
+    map.shipyard = Some(retrofit.shipyard_location.clone());
+    map.refit_slot = Some(retrofit.slot);
+    map.refit_slug = Some(retrofit.slug);
+    map.cost_origin_to_shipyard = cost(current, &retrofit.shipyard_location);
+    map.cost_source_to_shipyard = cost(source, &retrofit.shipyard_location);
+    map.cost_shipyard_to_dest = cost(&retrofit.shipyard_location, destination);
+
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan(
+        initial,
+        |s| s.delivered && s.retrofitted && s.fuel_bucket >= 2,
+        Operator::delivery_catalog(),
+        &map,
+        28,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+/// GOAP: combined trade_run + retrofit. Mirror of the delivery+retrofit
+/// variant for trade-class plans — ship buys at source, detours
+/// through the shipyard for a refit, sells at dest. Uses
+/// `trade_run_catalog` (SellAll at dest instead of DeliverCargo).
+#[allow(clippy::too_many_arguments)]
+fn try_build_trade_run_with_retrofit_planned(
+    current: &str,
+    buy_loc: &str,
+    sell_loc: &str,
+    commodity: Commodity,
+    retrofit: &RetrofitPlan,
+    fuel_bucket: u8,
+    registry: &WorldRegistry,
+    gate_pairs: &StdHashMap<String, String>,
+) -> Option<BtNode<ShipAction>> {
+    use crate::ai::planner::{plan, Loc, LocMap, Operator, WorldState};
+    let cost = |from: &str, to: &str| -> u8 { estimate_fuel_bucket_cost(from, to, registry, gate_pairs) };
+
+    let mut map = LocMap::trade_run(
+        current.to_string(),
+        buy_loc.to_string(),
+        sell_loc.to_string(),
+        commodity,
+        TRADE_QTY_DEFAULT,
+        cost(current, buy_loc),
+        cost(buy_loc, sell_loc),
+        cost(current, sell_loc),
+    );
+    map.shipyard = Some(retrofit.shipyard_location.clone());
+    map.refit_slot = Some(retrofit.slot);
+    map.refit_slug = Some(retrofit.slug);
+    map.cost_origin_to_shipyard = cost(current, &retrofit.shipyard_location);
+    map.cost_source_to_shipyard = cost(buy_loc, &retrofit.shipyard_location);
+    map.cost_shipyard_to_dest = cost(&retrofit.shipyard_location, sell_loc);
+
+    let initial = WorldState::new(Loc::Origin, fuel_bucket);
+    let synth = plan(
+        initial,
+        |s| s.sold && s.retrofitted && s.fuel_bucket >= 2,
+        Operator::trade_run_catalog(),
+        &map,
+        28,
+    )?;
+    Some(compile_plan_to_bt(&synth.actions, &map, registry, gate_pairs))
+}
+
+#[cfg(test)]
+mod flight_recovery_tests {
+    use super::*;
+    #[test]
+    fn flight_recovery_rebuilds_only_remaining_work_without_accepting_again() {
+        use crate::economy::contracts::{ContractBoard, FundingSource};
+        let mut board = ContractBoard::new();
+        let id = board.post_delivery_for("issuer".into(), None, Commodity::Ore, 10,
+            "source".into(), "port".into(), 120, 0, 1000);
+        board.register_prepaid(&id, FundingSource::Facility);
+        assert!(board.accept(&id, "ship".into(), 1));
+        board.get_mut(&id).unwrap().funding.as_mut().unwrap().agreed_payment = Some(120);
+        let c = board.get(&id).unwrap();
+        let before = serde_json::to_string(c).unwrap();
+        let fuel = ShipFuel { fuel: 100.0, fuel_capacity: 100.0, fuel_consumption_rate: 0.05, speed_modifier: 1.0 };
+        for (have, expected_buy) in [(0, 10), (4, 6), (10, 0)] {
+            let cargo = ShipCargo { cargo: [(Commodity::Ore, have)].into(), capacity: 100,
+                cargo_age: Default::default(), cargo_origin: Default::default() };
+            let bt = resume_contract_bt("port", true, &cargo, &fuel, c,
+                &WorldRegistry::default(), &StdHashMap::new()).expect("resumable contract");
+            let BtNode::Sequence { children, .. } = bt else { panic!("sequence expected"); };
+            assert!(!children.iter().any(|n| matches!(n, BtNode::Action(ShipAction::AcceptContract { .. }))));
+            let bought: u32 = children.iter().filter_map(|n| match n {
+                BtNode::Action(ShipAction::Buy { qty, .. }) => Some(*qty), _ => None,
+            }).sum();
+            assert_eq!(bought, expected_buy);
+            assert!(children.iter().any(|n| matches!(n, BtNode::Action(ShipAction::DeliverCargo { contract_id }) if contract_id == &id)));
+            assert_eq!(serde_json::to_string(c).unwrap(), before);
+        }
+    }
+}
+
+#[cfg(test)]
+mod station_order_planner_tests {
+    use super::*;
+    #[test]
+    fn station_order_planner_obeys_assignment_without_public_reputation_and_keeps_refuel() {
+        use crate::{economy::contracts::{ContractBoard,FundingSource},strategy::orders::Order};
+        let mut board=ContractBoard::new();
+        let id=board.post_subsidy("civ".into(),Commodity::Ore,10,"port".into(),"port".into(),500,0,1000);
+        board.register_prepaid(&id,FundingSource::Faction);
+        let mut order=Order::new("delivery",&id);order.executor_id=Some("ship".into());
+        let c=board.get_mut(&id).unwrap();c.mission_category=Some(crate::strategy::PROJECT_TAG.into());
+        c.funding.as_mut().unwrap().station_order=Some(order);
+        let cargo=ShipCargo {cargo:Default::default(),capacity:100,cargo_age:Default::default(),cargo_origin:Default::default()};
+        let economy=ShipEconomy {transaction:Default::default(),credits:1000,efficiency:1.,active_contract_id:None,faction_reputation:Default::default(),dock_dwell_start_tick:None,rest_start_tick:None,dock_attempt_start_tick:None};
+        let memory=ShipMemory {price_knowledge:[("port".into(),[(Commodity::Ore,crate::economy::commodities::PriceMemory {price:10.,tick:0})].into())].into(),visited:vec![],recent_systems:Default::default(),route_performance:Default::default(),contract_rejections:Default::default()};
+        let position=ShipPosition {location_name:Some("port".into()),docked_at:None,system_id:"sol".into(),universe_offset:(0.,0.),position:(0.,0.)};
+        let mut fuel=ShipFuel {fuel:100.,fuel_capacity:100.,fuel_consumption_rate:0.05,speed_modifier:1.};
+        let mut personality=crate::ai::personality::Personality::balanced_trader();personality.safety=1.;
+        let balances = StdHashMap::new();
+        let gate = ContractFundingGate { payer_balances: &balances, comms_bonus: 0.0, tick: 1 };
+        let choose=|fuel:&ShipFuel|plan_goal(&position,&cargo,fuel,&economy,&memory,None,&board,&Default::default(),"ship","civ",
+            &Default::default(),&Default::default(),&Default::default(),&WorldRegistry::default(),&Default::default(),None,1000.,&Default::default(),
+            &Default::default(),&personality,&Default::default(),0,1,&gate);
+        assert_eq!(choose(&fuel).name,"fulfill_contract");
+        fuel.fuel=0.;assert_eq!(choose(&fuel).name,"refuel");
+        assert!(try_plan_contract("port",&cargo,&economy,&Default::default(),&memory,&board,"independent","independent",
+            &Default::default(),&Default::default(),&WorldRegistry::default(),&Default::default(),1000.,10,&Default::default(),&Default::default(),&gate).is_none());
+    }
+}
+
+
+#[cfg(test)]
+mod native_ice_mining_route_tests {
+    use super::*;
+    use crate::world::registry::Route;
+    use crate::ai::personality::Personality;
+
+    fn fixture() -> (WorldRegistry, Vec<IceMiningSite>, Vec<IceMiningDepot>) {
+        let mut registry = WorldRegistry::default();
+        registry.routes.insert("pirate-outpost".into(), vec![
+            Route { to: "mine-callisto".into(), distance: 18 }
+        ]);
+        registry.routes.insert("mine-callisto".into(), vec![
+            Route { to: "pirate-outpost".into(), distance: 18 }
+        ]);
+        (registry,
+         vec![IceMiningSite {
+            location: "mine-callisto".into(),
+            body_id: "callisto".into(),
+            richness: 0.65,
+         }],
+         vec![IceMiningDepot {
+            location: "pirate-outpost".into(),
+            faction_id: "pirates".into(),
+            ice_unit_price: 10.0,
+            fuel_unit_price: 25.0,
+            buyer_credits: 30_000,
+         }])
+    }
+
+    fn choose(
+        at: &str, faction: &str, carried: u32,
+        registry: &WorldRegistry, sites: &[IceMiningSite], depots: &[IceMiningDepot],
+    ) -> Option<ScoredGoal> {
+        choose_ice_mining_trip(
+            at, faction, carried, 200, 0.05, 1.0,
+            &Personality::miner(), registry, sites, depots
+        )
+    }
+
+    #[test]
+    fn paid_profitable_ice_route_is_independent_of_water_and_ice_stock_thresholds() {
+        let (registry, sites, depots) = fixture();
+        let trip = choose("pirate-outpost", "pirates", 0, &registry, &sites, &depots).unwrap();
+        assert_eq!(trip.name, "mine_ice");
+        assert!(trip.score > 0.0);
+        let home = choose("mine-callisto", "pirates", 40, &registry, &sites, &depots).unwrap();
+        assert_eq!(home.name, "deliver_mined_ice");
+    }
+
+    #[test]
+    fn no_free_mining_when_buyer_cannot_pay_or_route_would_lose_money() {
+        let (mut registry, sites, mut depots) = fixture();
+        assert!(choose("pirate-outpost", "terran-authority", 0,
+            &registry, &sites, &depots).is_none());
+        depots[0].buyer_credits = 0;
+        assert!(choose("pirate-outpost", "pirates", 0,
+            &registry, &sites, &depots).is_none());
+        depots[0].buyer_credits = 30_000;
+        depots[0].ice_unit_price = 0.01;
+        assert!(choose("pirate-outpost", "pirates", 0,
+            &registry, &sites, &depots).is_none());
+        registry.routes.clear();
+        assert!(choose("pirate-outpost", "pirates", 0,
+            &registry, &sites, &depots).is_none());
+    }
+
+    #[test]
+    fn depleted_site_must_still_allow_miner_to_return_with_existing_cargo() {
+        let (registry, mut sites, depots) = fixture();
+        sites[0].richness = 0.0;
+        assert!(choose("pirate-outpost", "pirates", 0,
+            &registry, &sites, &depots).is_none());
+        assert_eq!(choose("mine-callisto", "pirates", 40,
+            &registry, &sites, &depots).unwrap().name, "deliver_mined_ice");
+        assert!(!has_dockable_here("mine-callisto", &{
+            let mut r = WorldRegistry::default();
+            r.locations.insert("mine-callisto".into(),
+                crate::world::registry::LocationInfo {
+                    db_id: 9, name: "mine-callisto".into(),
+                    loc_type: "mining_site".into(), celestial_body_id: 7
+                });
+            r
+        }));
+    }
+
+    #[test]
+    fn mine_quantity_is_capped_by_real_buyer_cash_hold_and_body() {
+        let enough = profitable_mining_quantity(200, 400, 10.0, 1000,
+            18, 0.05, 25.0, 1.0).unwrap();
+        assert_eq!(enough.0, 40);
+        let reduced = profitable_mining_quantity(15, 20, 10.0, 200,
+            18, 0.05, 25.0, 1.0).unwrap();
+        assert_eq!(reduced.0, 15);
+        assert!(profitable_mining_quantity(200, 400, 10.0, 0,
+            18, 0.05, 25.0, 1.0).is_none());
+    }
+}
+
+
+#[cfg(test)]
+mod galaxy04_liquidation_tests {
+    use super::*;
+    use crate::economy::commodities::PriceMemory;
+
+    #[test]
+    fn avoid_infinite_repeated_sale_when_buyer_is_broke() {
+        let mut memory = ShipMemory {
+            price_knowledge: [("mars".into(),[(
+                Commodity::Food,PriceMemory{price:20.0,tick:0}
+            )].into())].into(),
+            visited: vec![], recent_systems:Default::default(),
+            route_performance:Default::default(), contract_rejections:Default::default(),
+        };
+        let cargo = ShipCargo {
+            cargo:[(Commodity::Food,100)].into(),capacity:100,
+            cargo_age:Default::default(),cargo_origin:Default::default()
+        };
+        let economy=ShipEconomy {
+            transaction:Default::default(),credits:1000,efficiency:1.,
+            active_contract_id:None,faction_reputation:Default::default(),
+            dock_dwell_start_tick:None,rest_start_tick:None,dock_attempt_start_tick:None
+        };
+        let mut balances:BuyerLedger = [("mars".into(),Some(("civ".into(),0)))].into();
+        let relations=crate::agents::faction_relations::FactionRelations::new();
+        assert_eq!(cargo_liquidation_target("mars",&cargo,&memory,&balances,"civ",
+            &economy,&WorldRegistry::default(),&relations),None);
+        balances.insert("mars".into(),Some(("civ".into(),3000)));
+        assert_eq!(cargo_liquidation_target("mars",&cargo,&memory,&balances,"civ",
+            &economy,&WorldRegistry::default(),&relations),Some("mars".into()));
+        // Known quotes are required: the SellAll action cannot use unknown
+        // prices even if the station happens to have cash.
+        memory.price_knowledge.clear();
+        assert_eq!(cargo_liquidation_target("mars",&cargo,&memory,&balances,"civ",
+            &economy,&WorldRegistry::default(),&relations),None);
+    }
+}
+
+
+#[cfg(test)]
+mod galaxy04_trade_market_liquidity_tests {
+    use super::*;
+    use crate::economy::commodities::PriceMemory;
+
+    fn prices() -> ShipMemory {
+        ShipMemory {
+            price_knowledge: [
+                ("home".into(),[(Commodity::Ore,PriceMemory{price:2.0,tick:10})].into()),
+                ("far".into(),[(Commodity::Ore,PriceMemory{price:20.0,tick:10})].into()),
+            ].into(),
+            visited:vec![],recent_systems:Default::default(),
+            route_performance:Default::default(),contract_rejections:Default::default(),
+        }
+    }
+    #[test]
+    fn trade_run_rejects_insolvent_high_price_destination() {
+        let memory=prices();
+        let relations=crate::agents::faction_relations::FactionRelations::new();
+        let controller=StdHashMap::new();
+        let broke:BuyerLedger=[("far".into(),Some(("civ".into(),0)))].into();
+        assert!(best_trade_route_with_ownership(&memory,10,"civ",
+            &controller,&relations,Some(&broke)).is_none());
+        let solvent:BuyerLedger=[("far".into(),Some(("civ".into(),100_000)))].into();
+        let route=best_trade_route_with_ownership(&memory,10,"civ",
+            &controller,&relations,Some(&solvent)).unwrap();
+        assert_eq!(route.1,"home");
+        assert_eq!(route.2,"far");
+    }
+}

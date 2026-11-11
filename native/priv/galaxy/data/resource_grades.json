@@ -1,0 +1,234 @@
+{
+  "active": false,
+  "coefficients": {
+    "1": 0.75,
+    "2": 0.9,
+    "3": 1.0,
+    "4": 1.15,
+    "5": 1.3
+  },
+  "systems": {
+    "system-sol": {
+      "mercury": {
+        "ore": 4,
+        "gas": 1
+      },
+      "venus": {
+        "gas": 4,
+        "ice": 1
+      },
+      "earth": {
+        "ore": 4,
+        "ice": 2,
+        "rare_ore": 1,
+        "crystal_ore": 1
+      },
+      "luna": {
+        "ore": 2,
+        "ice": 2
+      },
+      "mars": {
+        "ore": 2,
+        "ice": 3,
+        "gas": 1,
+        "rare_ore": 2
+      },
+      "belt": {
+        "ore": 5,
+        "ice": 2,
+        "gas": 1,
+        "rare_ore": 3
+      },
+      "jupiter": {
+        "gas": 5
+      },
+      "saturn": {
+        "gas": 4,
+        "ice": 5
+      },
+      "trojan-cluster": {
+        "ore": 4,
+        "ice": 2
+      },
+      "hilda-group": {
+        "ore": 3,
+        "gas": 2
+      },
+      "near-earth": {
+        "ore": 3,
+        "ice": 1
+      },
+      "kuiper": {
+        "ice": 5,
+        "gas": 3
+      },
+      "callisto": {
+        "ore": 4,
+        "ice": 4
+      }
+    },
+    "system-alpha-centauri": {
+      "proxima": {
+        "ore": 3,
+        "ice": 4,
+        "gas": 2,
+        "rare_ore": 2,
+        "crystal_ore": 1
+      },
+      "haven": {
+        "ice": 2,
+        "gas": 1
+      },
+      "refuge": {
+        "ice": 5,
+        "gas": 3
+      },
+      "ac-belt": {
+        "ore": 4,
+        "ice": 3
+      },
+      "outer-rocks": {
+        "ore": 2,
+        "ice": 4
+      }
+    },
+    "system-nadir": {
+      "nadir-wreckhold": {
+        "ore": 3,
+        "ice": 3,
+        "gas": 1,
+        "rare_ore": 1,
+        "crystal_ore": 1
+      },
+      "nadir-ashfall": {
+        "ore": 4,
+        "gas": 1
+      },
+      "nadir-deep-freeze": {
+        "ice": 5,
+        "gas": 3
+      },
+      "nadir-goliath": {
+        "gas": 5
+      },
+      "nadir-black-belt": {
+        "ore": 4,
+        "ice": 2,
+        "rare_ore": 2,
+        "crystal_ore": 1
+      },
+      "nadir-wreck-field": {
+        "ore": 2,
+        "ice": 1,
+        "gas": 1
+      }
+    },
+    "system-epsilon-eridani": {
+      "ee-meridian": {
+        "ore": 3,
+        "ice": 2
+      },
+      "ee-ember": {
+        "ore": 4,
+        "gas": 1
+      },
+      "ee-borealis": {
+        "ice": 5,
+        "gas": 2
+      },
+      "ee-maelstrom": {
+        "gas": 5
+      },
+      "ee-belt": {
+        "ore": 4,
+        "ice": 2
+      }
+    },
+    "system-barnard": {
+      "yeoman": {
+        "ore": 3,
+        "ice": 1
+      },
+      "barnard-belt": {
+        "ore": 5,
+        "ice": 2
+      },
+      "outpost-gamma": {
+        "ice": 5,
+        "gas": 3
+      },
+      "barnard-deep-asteroid": {
+        "ore": 4,
+        "ice": 2
+      }
+    },
+    "system-lalande": {
+      "kinship": {
+        "ore": 2,
+        "ice": 2
+      },
+      "lalande-belt": {
+        "ore": 5,
+        "ice": 2
+      },
+      "lalande-outer": {
+        "gas": 5,
+        "ice": 3
+      },
+      "lalande-drift": {
+        "ore": 4,
+        "ice": 3
+      }
+    },
+    "system-tau-ceti": {
+      "forge": {
+        "ore": 5,
+        "gas": 2
+      },
+      "anvil": {
+        "ore": 4,
+        "ice": 2
+      },
+      "crucible": {
+        "ore": 5,
+        "ice": 3,
+        "gas": 1
+      },
+      "frostheim": {
+        "ice": 5,
+        "gas": 4
+      },
+      "slag-field": {
+        "ore": 5,
+        "ice": 1,
+        "rare_ore": 3,
+        "crystal_ore": 1
+      },
+      "deep-ice": {
+        "ice": 4,
+        "gas": 3
+      }
+    },
+    "system-vega": {
+      "veritas": {
+        "ore": 2,
+        "ice": 2
+      },
+      "orison": {
+        "ore": 4,
+        "gas": 1
+      },
+      "vega-rim-belt": {
+        "ore": 5,
+        "ice": 2,
+        "gas": 1,
+        "rare_ore": 3,
+        "crystal_ore": 2
+      },
+      "vega-ice-field": {
+        "ice": 5,
+        "gas": 4
+      }
+    }
+  }
+}

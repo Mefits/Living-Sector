@@ -1,0 +1,95 @@
+{
+  "system": {
+    "id": "system-epsilon-eridani",
+    "name": "Epsilon Eridani",
+    "universe_offset": [
+      64,
+      -96
+    ],
+    "star_type": "K"
+  },
+  "bodies": [
+    {
+      "id": "ee-meridian",
+      "name": "Meridian",
+      "type": "planet",
+      "orbit_radius": 2.1,
+      "orbit_period": 720,
+      "current_angle": 30,
+      "biome": "terrestrial",
+      "resources": {
+        "ore": 0.52,
+        "ice": 0.32
+      }
+    },
+    {
+      "id": "ee-ember",
+      "name": "Ember",
+      "type": "planet",
+      "orbit_radius": 1.1,
+      "orbit_period": 400,
+      "current_angle": 170,
+      "biome": "desert",
+      "resources": {
+        "ore": 0.65,
+        "gas": 0.12
+      }
+    },
+    {
+      "id": "ee-borealis",
+      "name": "Borealis",
+      "type": "planet",
+      "orbit_radius": 4.4,
+      "orbit_period": 1550,
+      "current_angle": 260,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.85,
+        "gas": 0.3
+      }
+    },
+    {
+      "id": "ee-maelstrom",
+      "name": "Maelstrom",
+      "type": "planet",
+      "orbit_radius": 6.4,
+      "orbit_period": 2200,
+      "current_angle": 70,
+      "biome": "gas_giant",
+      "resources": {
+        "gas": 0.88
+      }
+    },
+    {
+      "id": "ee-belt",
+      "name": "Epsilon Belt",
+      "type": "asteroid",
+      "orbit_radius": 3.3,
+      "orbit_period": 1150,
+      "current_angle": 315,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.77,
+        "ice": 0.25
+      }
+    }
+  ],
+  "travel_routes": [
+    {
+      "from": "lane-epsilon",
+      "to": "lane-tau",
+      "distance": 150
+    }
+  ],
+  "facilities": [],
+  "markets": [],
+  "ships": [],
+  "populations": [],
+  "nav_sites": [
+    {
+      "name": "lane-epsilon",
+      "type": "navigation_lane",
+      "body": "ee-meridian"
+    }
+  ]
+}

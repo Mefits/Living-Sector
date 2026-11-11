@@ -1,0 +1,20 @@
+[package]
+name = "sim_core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rayon = { workspace = true }
+rand = { workspace = true }
+ordered-float = { workspace = true }
+thiserror = { workspace = true }
+bevy_ecs = { workspace = true }
+# Use exactly the upstream HTN crate pinned in original AI Bench.
+htn = "=0.2.1"
+# Real GOAP structural guide, pinned to the AI Bench v1.3 research version.
+telic = "=0.1.0"
+
+[dev-dependencies]
+# nothing special needed — all tests are pure

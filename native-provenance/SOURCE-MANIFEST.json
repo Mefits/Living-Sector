@@ -1,0 +1,67 @@
+{
+  "schema_version": "living-sector-source-snapshot-v1",
+  "origin": "exact overlay replay, no Cargo compilation in this job",
+  "original_windows_ci_run_id": "42990801593",
+  "verified_replay_commit": "4ffd80002ec74b4af3eccb0db5279578c1148e0a",
+  "snapshot_workflow_commit": "4e3eb09ebaba94c6d25411da6011f9d93e62c42d",
+  "rustc_version_on_snapshot_runner": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "python_version": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "node_version_on_snapshot_runner": "v22.23.4",
+  "input_archives": {
+    "outer_bundle": {
+      "path": "ci-input/LS-GALAXY-03-CI-INPUT.zip",
+      "sha256": "bff25ce5e7f8b7f4961f04ac46fc6f8173329e01298174d911af8fcebce84d13"
+    },
+    "base_source_bundle": {
+      "path": "work/input/LS-AI-BLOCK-IV-SOURCES.zip",
+      "sha256": "b31c5fee4c3266f15651771de77b20d04c977a2931a46ebab0cb8caf5d5604dc"
+    },
+    "reference_art_bundle": {
+      "path": "work/input/Living-Sector-Art-Catalog-v0.4.zip",
+      "sha256": "9009eeeabb3a0a56a8f250a2735a8b14c267b224fc93211d2aa52fdfab5bc25a"
+    }
+  },
+  "overlays_in_applied_order": [
+    {
+      "path": "ci/fix_galaxy_sources.py",
+      "sha256": "dd8a4d19a85c8add8e4784d4ba717a64fd280764d8a9323f0de4e9a468d3c84c"
+    },
+    {
+      "path": "ci/galaxy04/apply.py",
+      "sha256": "77092834d5386a9587961bdd879a1bc275ede46df74b156cf5d23befb897df8b"
+    },
+    {
+      "path": "ci/galaxy05/apply.py",
+      "sha256": "b58e99990ce00511e3cd3cd54c02b45c25c2c1f82f460eed7e64044c566209c7"
+    },
+    {
+      "path": "ci/galaxy06/apply.py",
+      "sha256": "ecef1fff617cc6327f181de7a2baacd5b5f6c2f054b5946e098fb4c96d091c67"
+    },
+    {
+      "path": "ci/galaxy061/apply.py",
+      "sha256": "1b1d8fc40914698dfac859b9325bc75767d6fe0da531efa4719868bcc37dd0c0"
+    },
+    {
+      "path": "ci/galaxy062/apply.py",
+      "sha256": "b3db862fae5c5a47548ff4c76296eb312542e87cb1c137a4f21da8e8870bae5f"
+    }
+  ],
+  "cargo_lock_sha256": "d241d884ba5e5a7a041009923ad2b81fdd2b8ef8ebe2c872d57052ac7b6d3061",
+  "tree_hash_algorithm": "SHA256(join sorted(relative_path + NUL + content_SHA256 + LF))",
+  "full_source_tree_sha256": "62c4945dfbc641e0dbeea578d35e470312fb024585bc4589bd4829d22408a3c9",
+  "source_files": 409,
+  "artifact_files_excluded": [
+    "target",
+    ".git",
+    "__pycache__",
+    "node_modules"
+  ],
+  "reference_art_files": 114,
+  "notes": [
+    "This source is replayed from the EXACT Git commit used by the passing 0.6.2 Windows workflow.",
+    "It is not proven byte-for-byte equal to the Rust compiler's generated binary.",
+    "No new gameplay features, no main/stable branch edits, no DB migrations.",
+    "Future source patches should target a git branch imported from THIS tree, not append Python text replacements."
+  ]
+}

@@ -1,0 +1,21 @@
+[package]
+name = "ls-ai-bench"
+version = "1.2.0"
+edition = "2024"
+
+[dependencies]
+telic = "=0.1.0"
+htn = "=0.2.1"
+cranium = { version = "=0.3.0", default-features = false, features = ["std"] }
+cranium-core = { version = "=0.3.0", default-features = false, features = ["std"] }
+bevy_ecs = { version = "=0.19.1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+indexmap = { version = "2", features = ["serde"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
+[profile.release]
+opt-level = 2
+strip = true

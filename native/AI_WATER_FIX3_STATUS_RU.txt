@@ -1,0 +1,17 @@
+WATER CHAIN FIX3 — ТОЛЬКО исправление Rust E0502
+
+Исходный тест: AI-HYBRID-PLAYTEST-RESULTS(2).zip
+Ошибка: sim_core/src/strategy/planning/native_execution.rs:422 —
+       нельзя одновременно удерживать immutable borrow action из plan и
+       менять plan.ledger / plan.production_accounted.
+Исправление: ActionSpec (уже Clone) клонируется перед обновлением ledger.
+Расчёты выпуска, условия подтверждения, экономика, сценарий не менялись.
+
+Проверено в среде подготовки: 17 Python-тестов успешно, ZIP CRC OK.
+Rust/Cargo здесь недоступен. Rust-компиляция и игровой прогон ожидаются.
+
+Чтобы повторить: в корне исходного проекта запустить
+PLAYTEST-HYBRID-ONE-CLICK.cmd, прислать AI-HYBRID-PLAYTEST-RESULTS.zip.
+
+Отдельные старые JS-тесты genesis-seed.test.mjs несоответствуют
+актуальной стартовой галактике и не являются проверкой этого исправления.

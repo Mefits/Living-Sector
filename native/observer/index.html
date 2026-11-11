@@ -1,0 +1,2117 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#050a10">
+<title>Living Sector — Observer V5 · Factions & Chronicle</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #050a10;
+  --bg2: #0a121a;
+  --panel: #0d1822;
+  --panel2: #12202c;
+  --border: #1e3340;
+  --border2: #2a4555;
+  --txt: #e6f1f5;
+  --soft: #a8c4d0;
+  --muted: #6e8f9e;
+  --accent: #5ecfba;
+  --accent2: #3aa896;
+  --cyan: #7ec8d8;
+  --amber: #e0b06a;
+  --red: #e07a72;
+  --blue: #7a9bc4;
+  --glow: 0 0 24px rgba(94, 207, 186, 0.15);
+  --shadow: 0 12px 40px rgba(0,0,0,0.45);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--txt); font-size: 13px; line-height: 1.4; overflow: hidden; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; border: none; background: none; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+/* ===== APP SHELL ===== */
+.app {
+  display: grid;
+  grid-template-rows: 52px 1fr;
+  height: 100dvh;
+  width: 100%;
+}
+
+/* TOPBAR */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 18px;
+  background: linear-gradient(180deg, #0c1620, #0a121a);
+  border-bottom: 1px solid var(--border);
+  z-index: 20;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+.brand-glyph {
+  width: 28px; height: 28px;
+  border: 1px solid #3d7a74;
+  border-radius: 6px;
+  display: grid; place-items: center;
+  background: #0f2a2e;
+  color: var(--accent);
+  font-size: 16px;
+}
+.brand b { font-size: 12px; display: block; }
+.brand small { font-size: 9px; color: var(--muted); letter-spacing: 0.14em; }
+.bar-divider { width: 1px; height: 22px; background: var(--border); }
+.context {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; letter-spacing: 0.06em; color: var(--soft);
+}
+.pulse {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.badge {
+  padding: 5px 9px; border-radius: 4px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+  border: 1px solid #5a4a32; background: #2a2318; color: var(--amber);
+}
+.badge.live { border-color: #2e6a5e; background: #0f2a24; color: var(--accent); }
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 11px; border-radius: 5px;
+  background: var(--panel2); border: 1px solid var(--border2);
+  color: var(--soft); font-size: 11px; transition: .15s;
+}
+.btn:hover { background: #1a3040; border-color: #3d6a6a; color: var(--txt); }
+.btn .i { font-size: 14px; color: var(--accent); }
+.btn-icon { padding: 6px 10px; font-size: 15px; }
+
+/* MAIN LAYOUT: sidebar | map | detail */
+.main {
+  display: grid;
+  grid-template-columns: 200px 1fr 380px;
+  min-height: 0;
+  transition: grid-template-columns .25s ease;
+}
+.main.map-focus { grid-template-columns: 200px 1fr 0; }
+.main.detail-wide { grid-template-columns: 180px 1fr 460px; }
+
+/* SIDEBAR */
+.side {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+.side-head { padding: 16px 14px 10px; }
+.eyebrow {
+  font-size: 9px; letter-spacing: 0.16em; color: var(--accent2);
+  font-weight: 700; text-transform: uppercase;
+}
+.side-head h2 { font-size: 15px; margin: 4px 0 2px; font-weight: 650; }
+.side-meta { font-size: 10px; color: var(--muted); }
+.search {
+  margin: 0 10px 8px;
+  display: flex; align-items: center;
+  background: #071018; border: 1px solid var(--border);
+  border-radius: 5px; color: var(--muted);
+}
+.search span { padding-left: 9px; font-size: 14px; }
+.search input {
+  background: transparent; border: none; outline: none;
+  padding: 8px 8px; width: 100%; color: var(--txt); font-size: 12px;
+}
+.search input::placeholder { color: #4d6a78; }
+.section-label {
+  display: flex; justify-content: space-between;
+  padding: 10px 14px 6px; font-size: 9px;
+  letter-spacing: 0.14em; color: var(--muted); font-weight: 700;
+}
+.station-list {
+  flex: 1; overflow-y: auto; padding: 0 8px 12px;
+  scrollbar-width: thin; scrollbar-color: #2a4555 transparent;
+}
+.station-btn {
+  width: 100%; text-align: left;
+  display: flex; gap: 9px; align-items: flex-start;
+  padding: 9px 10px; border-radius: 6px;
+  border: 1px solid transparent; margin-bottom: 3px;
+  transition: .12s;
+}
+.station-btn:hover { background: #122530; }
+.station-btn.selected {
+  background: #14333a; border-color: #2e7a72;
+}
+.station-icon {
+  width: 11px; height: 11px; margin-top: 3px; flex: none;
+  border: 2px solid #6a9a98; transform: rotate(45deg); border-radius: 2px;
+}
+.station-btn.selected .station-icon {
+  background: var(--accent); border-color: #a8f0e0;
+}
+.station-btn strong {
+  display: block; font-size: 11px; font-weight: 650;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.station-btn small { font-size: 10px; color: var(--muted); }
+.side-foot {
+  padding: 10px 12px; border-top: 1px solid var(--border);
+  font-size: 10px; color: var(--muted); line-height: 1.5;
+}
+.side-foot a { color: var(--accent); text-decoration: none; }
+.side-foot a:hover { text-decoration: underline; }
+
+/* MAP PANE */
+.map-pane {
+  position: relative;
+  background: radial-gradient(ellipse at 40% 45%, #152a38 0%, #0c1a26 40%, #071018 75%, #04080e 100%);
+  overflow: hidden;
+  min-width: 0;
+}
+.map-pane::before {
+  content: ""; position: absolute; inset: 0; opacity: 0.12; pointer-events: none;
+  background-image:
+    radial-gradient(circle at 20% 30%, #a0c0c8 0.7px, transparent 1px),
+    radial-gradient(circle at 70% 60%, #80a8b0 0.5px, transparent 1px);
+  background-size: 48px 60px, 72px 56px;
+}
+.map-toolbar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+  height: 44px; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px;
+  background: linear-gradient(180deg, rgba(8,16,24,0.92), rgba(8,16,24,0.6));
+  border-bottom: 1px solid rgba(40,70,85,0.4);
+}
+.map-title { font-size: 10px; letter-spacing: 0.12em; color: var(--soft); font-weight: 700; }
+.map-controls { display: flex; align-items: center; gap: 4px; }
+.chip {
+  padding: 5px 9px; border-radius: 4px;
+  background: rgba(20,40,52,0.85); border: 1px solid var(--border2);
+  color: var(--soft); font-size: 11px;
+}
+.chip:hover { background: #1e3a48; }
+.zoom-btn { font-size: 16px; padding: 2px 9px; }
+#zoomLabel { font-size: 10px; color: var(--muted); min-width: 36px; text-align: center; }
+
+.map-canvas {
+  position: absolute; inset: 44px 0 0;
+  overflow: hidden; cursor: grab; touch-action: none;
+}
+.map-canvas.dragging { cursor: grabbing; }
+.map-layer {
+  position: absolute; left: 50%; top: 50%;
+  width: 820px; height: 780px;
+  transform-origin: 50% 50%;
+  translate: -50% -50%;
+  will-change: transform;
+}
+.map-grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(50,90,105,0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(50,90,105,0.08) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse, #000 20%, transparent 70%);
+}
+.nebula {
+  position: absolute; left: 5%; top: 18%; width: 50%; height: 70%;
+  background: radial-gradient(ellipse, rgba(50,120,130,0.07) 0%, transparent 70%);
+  filter: blur(40px);
+}
+.system-paths { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.system-paths path {
+  stroke: rgba(70,130,145,0.28); stroke-width: 1.3;
+  stroke-dasharray: 5 10; fill: none;
+}
+.map-orbit {
+  position: absolute; border: 1px solid rgba(80,130,145,0.18);
+  border-radius: 50%; transform: translate(-50%,-50%); pointer-events: none;
+}
+.orbit-1 { width: 190px; height: 190px; }
+.orbit-2 { width: 360px; height: 360px; }
+.orbit-3 { width: 560px; height: 560px; border-color: rgba(70,120,135,0.1); }
+.map-system {
+  position: absolute; transform: translate(-50%,-50%);
+  display: grid; justify-items: center; gap: 6px;
+  pointer-events: none; z-index: 1;
+}
+.map-system strong {
+  font-size: 10px; letter-spacing: 0.16em; color: #c8e8e8;
+  text-shadow: 0 1px 8px #000;
+}
+.map-system small { font-size: 9px; color: #5a8090; letter-spacing: 0.1em; }
+.map-system.muted { opacity: 0.5; }
+.star-sun {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: #ebe3c0;
+  box-shadow: 0 0 16px 5px rgba(230,190,120,0.45), 0 0 50px rgba(200,160,80,0.25);
+}
+.star-mini {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: #b8c4d8;
+  box-shadow: 0 0 12px 3px rgba(160,180,210,0.3);
+}
+.map-station {
+  position: absolute; z-index: 3;
+  transform: translate(-50%,-50%);
+  display: flex; gap: 8px; align-items: center;
+  padding: 8px 12px; border-radius: 7px;
+  background: rgba(12,32,42,0.92); border: 1px solid #3d6a75;
+  color: #c8e4ec; white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+  transition: .15s;
+}
+.map-station:hover { background: #1a3c4a; border-color: #6ab0b8; }
+.map-station.selected {
+  background: #163c42; border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(94,207,186,0.18), 0 10px 28px rgba(0,0,0,0.5);
+}
+.map-station .diamond {
+  width: 9px; height: 9px; border: 2px solid #7ab0b8;
+  transform: rotate(45deg); border-radius: 1px; flex: none;
+}
+.map-station.selected .diamond { background: var(--accent); border-color: #b0f0e4; }
+.map-station strong { font-size: 11px; display: block; }
+.map-station small { font-size: 9px; color: #7a9aa8; display: block; margin-top: 1px; }
+.map-crosshair {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%,-50%);
+  opacity: 0.12; color: #80b0b8; font-size: 20px; pointer-events: none;
+}
+.map-bottom {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 5;
+  padding: 12px 16px;
+  background: linear-gradient(transparent, rgba(6,12,18,0.92) 35%);
+  display: flex; align-items: flex-end; justify-content: space-between;
+}
+.map-legend {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  font-size: 10px; color: var(--muted);
+}
+.map-legend span { display: flex; align-items: center; gap: 5px; }
+.map-legend i {
+  display: inline-block; width: 8px; height: 8px;
+}
+.star-key { background: #d0c8a0; border-radius: 50%; }
+.station-key { border: 1px solid #80b0b8; transform: rotate(45deg); }
+.selected-key { background: var(--accent); border: 1px solid #b0f0e4; transform: rotate(45deg); }
+.map-note { font-size: 9px; color: #4a6878; margin-top: 5px; }
+
+/* DETAIL PANEL */
+.detail {
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  min-width: 0; min-height: 0;
+  overflow: hidden;
+}
+.detail-head {
+  flex: none;
+  padding: 12px 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.detail-title {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  margin-bottom: 10px;
+}
+.detail-title h2 {
+  font-size: 15px; font-weight: 650; line-height: 1.25;
+}
+.detail-title .sub {
+  font-size: 10px; color: var(--muted); margin-top: 3px;
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.status-pill {
+  padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 650;
+  white-space: nowrap; align-self: flex-start;
+  background: #15352f; border: 1px solid #2e6a5e; color: var(--accent);
+}
+.status-pill.warn { background: #352a1e; border-color: #7a5a30; color: var(--amber); }
+.status-pill.danger { background: #352020; border-color: #7a3a35; color: var(--red); }
+.status-pill.unknown { background: #1a2a32; border-color: #3a5058; color: var(--muted); }
+
+.tabs {
+  display: flex; gap: 2px; overflow-x: auto;
+  scrollbar-width: none; padding-bottom: 0;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  padding: 8px 11px; font-size: 11px; color: var(--muted);
+  border-bottom: 2px solid transparent; white-space: nowrap;
+  transition: .12s;
+}
+.tab:hover { color: var(--soft); }
+.tab.active {
+  color: var(--accent); border-bottom-color: var(--accent);
+}
+.detail-body {
+  flex: 1; overflow-y: auto; padding: 14px;
+  scrollbar-width: thin; scrollbar-color: #2a4555 transparent;
+}
+.detail-empty {
+  display: grid; place-items: center; height: 100%;
+  color: var(--muted); text-align: center; padding: 30px;
+  font-size: 13px;
+}
+
+/* COMPONENTS */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px; margin-bottom: 14px;
+}
+.kpi {
+  background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px 12px;
+}
+.kpi > span { display: block; font-size: 9px; color: var(--muted); letter-spacing: 0.03em; }
+.kpi strong {
+  display: block; font-size: 16px; font-variant-numeric: tabular-nums;
+  margin-top: 3px; color: var(--txt);
+}
+.kpi small { display: block; font-size: 9px; color: #5a7a88; margin-top: 2px; }
+.kpi.warn { border-color: #6a4a28; }
+.kpi.warn strong { color: var(--amber); }
+
+.section {
+  margin-bottom: 16px;
+}
+.section-h {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 8px; gap: 8px;
+}
+.section-h strong {
+  font-size: 10px; letter-spacing: 0.1em; color: var(--soft);
+  text-transform: uppercase;
+}
+.section-h small { font-size: 10px; color: var(--muted); }
+
+.card {
+  background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 7px; padding: 11px; margin-bottom: 8px;
+  transition: .12s;
+}
+.card:hover { border-color: #3a5a65; }
+.card.clickable { cursor: pointer; }
+.card.clickable:hover { border-color: #4a8a80; background: #16303a; }
+.card-top {
+  display: flex; gap: 9px; align-items: center;
+}
+.card-icon {
+  width: 30px; height: 30px; border-radius: 6px;
+  background: #1a3540; border: 1px solid #2e5560;
+  display: grid; place-items: center; font-size: 14px; color: var(--cyan);
+  flex: none;
+}
+.card-top b { font-size: 12px; display: block; }
+.card-top small { font-size: 10px; color: var(--muted); }
+.tag {
+  padding: 2px 6px; border-radius: 3px; font-size: 9px;
+  border: 1px solid #3a5560; color: var(--soft); white-space: nowrap;
+}
+.tag.warn { border-color: #6a5030; color: var(--amber); background: #2a2218; }
+.tag.ok { border-color: #2e6a5e; color: var(--accent); background: #0f2a24; }
+.tag.danger { border-color: #6a3a35; color: var(--red); background: #2a1a18; }
+
+.bar {
+  height: 7px; border-radius: 4px; background: #071018;
+  border: 1px solid #2a4550; overflow: hidden; margin: 7px 0 4px;
+}
+.bar > div {
+  height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, #2e7a72, var(--accent));
+  transition: width .2s;
+}
+.bar.low > div { background: linear-gradient(90deg, #8a5a28, var(--amber)); }
+.bar.unknown { border-style: dashed; background: repeating-linear-gradient(90deg,#152530,#152530 8px,#1e3040 8px,#1e3040 16px); }
+.bar.unknown > div { display: none; }
+
+.row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 6px 0; border-bottom: 1px solid rgba(40,65,80,0.5);
+  font-size: 12px;
+}
+.row:last-child { border: 0; }
+.row span { color: var(--muted); }
+.row b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.row .good { color: var(--accent); }
+.row .bad { color: var(--amber); }
+
+.res-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.res-item {
+  background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px;
+}
+.res-item .name {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 11px; font-weight: 650; margin-bottom: 4px;
+}
+.res-item .name span { color: var(--cyan); margin-right: 5px; }
+.res-item .meta { font-size: 10px; color: var(--muted); margin-top: 4px; }
+.flow { font-size: 10px; }
+.flow.good { color: var(--accent); }
+.flow.bad { color: var(--amber); }
+
+.signal {
+  display: flex; gap: 9px; padding: 9px 10px;
+  background: #152830; border-left: 3px solid #4a8a85;
+  border-radius: 0 5px 5px 0; margin-bottom: 6px;
+}
+.signal.warn { background: #2a241c; border-left-color: var(--amber); }
+.signal.danger { background: #2a1e1e; border-left-color: var(--red); }
+.signal-icon { font-size: 14px; flex: none; margin-top: 1px; }
+.signal strong { display: block; font-size: 11px; }
+.signal small { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+.event {
+  padding: 7px 9px; background: #0e2030; border: 1px solid var(--border);
+  border-radius: 5px; margin-bottom: 4px;
+}
+.event span { display: block; font-size: 9px; color: var(--muted); }
+.event b { display: block; font-size: 11px; font-weight: 500; margin-top: 2px; }
+
+.recipe {
+  font-size: 11px; color: var(--soft); margin: 6px 0;
+  font-variant-numeric: tabular-nums;
+}
+.recipe .in { color: var(--amber); }
+.recipe .out { color: var(--accent); }
+.recipe .arrow { color: var(--muted); margin: 0 4px; }
+
+.need {
+  display: grid; grid-template-columns: 90px 1fr 42px;
+  gap: 8px; align-items: center; margin: 8px 0;
+}
+.need b { font-size: 11px; }
+.need small { display: block; font-size: 9px; color: var(--muted); }
+.need strong { text-align: right; font-size: 11px; }
+
+.mini-table {
+  border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  margin: 8px 0;
+}
+.mt-head, .mt-row {
+  display: grid; grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 6px; padding: 8px 10px; font-size: 11px; align-items: center;
+}
+.mt-head { background: #1a3040; color: var(--muted); font-weight: 700; font-size: 10px; }
+.mt-row { border-top: 1px solid var(--border); }
+.mt-row:nth-child(odd) { background: rgba(10,25,35,0.5); }
+.mt-row b { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mt-row.clickable { cursor: pointer; }
+.mt-row.clickable:hover { background: #1a3a40; }
+
+.build-card { margin-bottom: 10px; }
+.build-progress { margin: 6px 0; }
+.build-progress > div {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: var(--muted); margin-bottom: 3px;
+}
+
+.chart-tabs {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px;
+}
+.chart-tabs button {
+  padding: 5px 9px; border-radius: 4px; font-size: 10px;
+  background: #102030; border: 1px solid var(--border2); color: var(--muted);
+}
+.chart-tabs button.active {
+  background: #1e4a45; border-color: #3a8a7a; color: var(--accent);
+}
+.chart-svg {
+  width: 100%; height: auto; display: block;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: #0a1822;
+}
+.spark {
+  width: 100%; height: 42px; display: block; margin-top: 4px;
+}
+
+.foot-note {
+  font-size: 10px; color: #5a7a88; line-height: 1.55;
+  border-top: 1px solid var(--border); padding-top: 10px; margin-top: 12px;
+}
+
+/* OVERLAYS */
+.overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+  z-index: 80; display: grid; place-items: center;
+}
+.modal {
+  width: min(520px, 94vw); max-height: 85vh;
+  background: var(--panel); border: 1px solid var(--border2);
+  border-radius: 10px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+ .modal.wide { width: min(780px, 96vw); }
+ .modal-body .foot-note { margin-top: 14px; }
+ .inspector-nav { display:flex; flex-wrap:wrap; gap:5px; margin:0 0 14px; }
+ .inspector-nav button { padding:7px 10px; font-size:11px; border-radius:5px; color:var(--soft); background:#102432; border:1px solid var(--border2); }
+ .inspector-nav button.active { color:var(--accent); background:#123a36; border-color:#3c877a; }
+ .inspector-nav button:hover { border-color:#4d837b; }
+ .inspector-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:10px 0 15px; }
+ .inspector-column { min-width:0; }
+ .inspector-block { background:var(--panel2); border:1px solid var(--border); border-radius:7px; padding:12px; margin-bottom:9px; }
+ .inspector-block h4 { font-size:10px; color:var(--soft); text-transform:uppercase; letter-spacing:.09em; margin:0 0 7px; }
+ .inspector-block p { font-size:12px; color:var(--txt); line-height:1.5; overflow-wrap:anywhere; }
+ .inspector-block .small-note { font-size:10px; color:var(--muted); margin-top:6px; line-height:1.45; }
+ .inspector-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:11px; }
+ .inspector-card-head h3 { font-size:17px; font-weight:650; }
+ .inspector-card-head p { font-size:11px; color:var(--muted); margin-top:3px; }
+ .inspector-item { background:#0b1924; border:1px solid var(--border); border-radius:6px; padding:9px 11px; margin-bottom:7px; }
+ .inspector-item strong { display:block; font-size:11px; margin-bottom:3px; }
+ .inspector-item small { display:block; color:var(--muted); font-size:10px; line-height:1.55; }
+ .inspector-item .item-meta { color:var(--cyan); font-size:9px; letter-spacing:.05em; margin-bottom:4px; }
+ .inspector-empty { background:#0b1c27; border:1px dashed var(--border2); border-radius:6px; padding:14px; color:var(--muted); font-size:11px; line-height:1.5; }
+ .inspector-link { background:none; color:var(--accent); border:0; text-decoration:none; font-size:11px; padding:0; text-align:left; }
+ .inspector-link:hover { text-decoration:underline; }
+ .data-line { display:flex; justify-content:space-between; align-items:baseline; gap:12px; border-bottom:1px solid var(--border); padding:7px 0; }
+ .data-line:last-child { border:0; }
+ .data-line > span { font-size:11px; color:var(--muted); }
+ .data-line > b { font-size:11px; font-weight:600; text-align:right; overflow-wrap:anywhere; }
+ .chronicle-item { display:grid; grid-template-columns:58px minmax(0,1fr); gap:10px; border-bottom:1px solid var(--border); padding:11px 0; }
+ .chronicle-item:last-child { border:0; }
+ .chronicle-tick { font-size:11px; color:var(--cyan); font-weight:700; }
+ .chronicle-title { font-size:11px; font-weight:650; margin:2px 0 4px; }
+ .chronicle-desc { font-size:11px; color:var(--soft); line-height:1.45; }
+ .chronicle-meta { font-size:10px; color:var(--muted); }
+ .chronicle-tone { width:5px; height:5px; display:inline-block; border-radius:50%; background:var(--accent); margin-right:5px; vertical-align:middle; }
+ .chronicle-tone.warn { background:var(--amber); }
+ .chronicle-tone.danger { background:var(--red); }
+ .modal .primary { max-width:260px; }
+ @media (max-width:640px){.inspector-grid { grid-template-columns:1fr; }.modal.wide{width:96vw;}.global-actions{gap:3px}.global-actions button{font-size:9px;padding:4px 6px}.chronicle-item{grid-template-columns:43px minmax(0,1fr);} }
+
+ .modal-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+}
+.modal-head h3 { font-size: 14px; }
+.modal-body { padding: 16px; overflow-y: auto; flex: 1; }
+.modal-close {
+  width: 28px; height: 28px; border-radius: 5px;
+  font-size: 16px; color: var(--muted);
+}
+.modal-close:hover { background: #1a3040; color: var(--txt); }
+
+.settings-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(360px, 100%);
+  background: var(--panel); border-left: 1px solid var(--border2);
+  z-index: 90; padding: 20px; box-shadow: -16px 0 40px rgba(0,0,0,0.4);
+  overflow-y: auto;
+}
+.settings-panel h2 { font-size: 16px; margin: 4px 0 16px; }
+.settings-label {
+  display: block; font-size: 11px; font-weight: 650; color: var(--soft);
+  margin: 16px 0 6px;
+}
+.settings-panel input {
+  width: 100%; padding: 9px 11px; border-radius: 5px;
+  background: #071018; border: 1px solid var(--border2); color: var(--txt);
+}
+.settings-help { font-size: 10px; color: var(--muted); line-height: 1.6; margin-top: 6px; }
+.settings-help b { color: var(--amber); }
+.primary {
+  width: 100%; padding: 10px; border-radius: 5px; margin-top: 14px;
+  background: #1e5a52; border: 1px solid #3a9a88; color: #e0fff6;
+  font-weight: 650; font-size: 12px;
+}
+.primary:hover { background: #256e64; }
+.secondary {
+  width: 100%; padding: 10px; border-radius: 5px; margin-top: 8px;
+  background: #1a3040; border: 1px solid var(--border2); color: var(--soft);
+  font-size: 12px;
+}
+
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: #1a4038; border: 1px solid #3a8a78; border-radius: 6px;
+  padding: 10px 18px; z-index: 100; color: #e0f8f0;
+  font-size: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+/* GLOBAL ACTIONS in detail head */
+.global-actions {
+  display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.global-actions button {
+  padding: 4px 8px; font-size: 10px; border-radius: 4px;
+  background: #122530; border: 1px solid var(--border); color: var(--muted);
+}
+.global-actions button:hover { color: var(--soft); border-color: #3a6a65; }
+
+/* RESPONSIVE */
+@media (max-width: 1200px) {
+  .main { grid-template-columns: 180px 1fr 340px; }
+  .res-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  .main {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  .side {
+    max-height: 160px; border-right: 0; border-bottom: 1px solid var(--border);
+  }
+  .station-list {
+    display: flex; flex-direction: row; overflow-x: auto; max-height: none;
+    padding: 4px 8px 10px; gap: 4px;
+  }
+  .station-btn { min-width: 140px; margin: 0; }
+  .map-pane { min-height: 320px; }
+  .detail { max-height: 45vh; border-left: 0; border-top: 1px solid var(--border); }
+  .side-foot, .search, .section-label { display: none; }
+  .side-head { padding: 10px 12px 4px; }
+}
+@media (max-width: 560px) {
+  .topbar { padding: 0 10px; gap: 8px; }
+  .context, .bar-divider, .btn span:not(.i) { display: none; }
+  .kpi-row { grid-template-columns: 1fr 1fr; }
+  .detail-body { padding: 10px; }
+}
+
+/* Live shell: keep V5.1 exact layout; native Rust map is embedded as a working canvas. */
+body.v51-live .map-layer,body.v51-live .map-crosshair {display:none!important}
+.v51-live-controls .sr-only {position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+body.v51-live .map-bottom .map-legend {display:none!important}
+.native-map-frame {display:none;position:absolute;inset:0;width:100%;height:100%;border:0;background:#07121d}
+body.v51-live .native-map-frame {display:block}
+body.v51-live .map-canvas {cursor:default}
+body.v51-live #restoreDemoBtn {display:none!important}
+.v51-live-controls {display:flex;align-items:center;gap:5px}
+.v51-live-controls .btn {padding:6px 9px;font-variant-numeric:tabular-nums}
+.v51-live-controls select {padding:6px 8px;background:var(--panel2);color:var(--txt);border:1px solid var(--border2);border-radius:5px;font-size:11px}
+.v51-live-controls .runtime-status {display:flex;gap:7px;align-items:center;font-size:10px;color:var(--muted);white-space:nowrap}
+.v51-live-controls .runtime-status b {color:var(--accent);font-variant-numeric:tabular-nums}
+.v51-native-link {display:inline-flex;align-items:center;padding:6px 8px;color:var(--cyan);text-decoration:none;background:var(--panel2);border:1px solid var(--border2);border-radius:5px;font-size:11px}
+.v51-native-link:hover {border-color:var(--accent);color:#fff}
+@media(max-width:1180px){.v51-live-controls .runtime-status{display:none}.v51-live-controls .btn{padding:6px}}
+@media(max-width:900px){.topbar{gap:8px;padding:0 9px}.top-actions{gap:4px}.v51-native-link{display:none!important}.v51-live-controls select{max-width:68px}}
+
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-glyph">◈</span>
+      <span><b>LIVING SECTOR</b><small>OBSERVER · V5.1</small></span>
+    </div>
+    <div class="bar-divider"></div>
+    <div class="context">
+      <span class="pulse"></span>
+      <b>ЭКОНОМИКА СЕКТОРА</b>
+    </div>
+    <div class="top-actions">
+      <div class="v51-live-controls" id="v51LiveControls" hidden>
+        <div class="runtime-status">ТИК <b id="v51LiveTick">—</b></div>
+        <button class="btn" id="v51Pause" type="button" disabled title="Пауза или продолжение">⏯ Пауза</button>
+        <label class="sr-only" for="v51Speed">Скорость симуляции</label>
+        <select id="v51Speed" title="Скорость игры" disabled><option value="0.25">0.25×</option><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option><option value="16">16×</option></select>
+        <a href="/observer/native.html" target="_blank" rel="noopener" class="v51-native-link" title="Исходный Observer с полной картой и инспектором">Полный Observer</a>
+      </div>
+      <span class="badge" id="sourceBadge">ОЖИДАНИЕ ИГРЫ</span>
+      <button class="btn" id="loadFileBtn" title="Загрузить JSON"><span class="i">↥</span><span>JSON</span></button>
+      <button class="btn" id="connectBtn" title="Обновить с API"><span class="i">⟳</span><span>API</span></button>
+      <button class="btn btn-icon" id="settingsBtn" title="Настройки">⚙</button>
+    </div>
+  </header>
+
+  <div class="main" id="main">
+    <!-- SIDEBAR -->
+    <aside class="side">
+      <div class="side-head">
+        <div class="eyebrow">Сектор</div>
+        <h2>Genesis</h2>
+        <div class="side-meta" id="worldMeta">6 систем · 3 станции</div>
+      </div>
+      <div class="search">
+        <span>⌕</span>
+        <input id="stationSearch" type="search" placeholder="Станция..." aria-label="Поиск">
+      </div>
+      <div class="section-label">СТАНЦИИ <span id="stationCount">03</span></div>
+      <nav class="station-list" id="stationList"></nav>
+      <div class="side-foot">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+          <span class="pulse" style="width:6px;height:6px;"></span>
+          <span id="connectionState">Демо · не подключено</span>
+        </div>
+        <div id="v51FooterNote">Данные иллюстративны. Коэффициенты — для прототипа.</div>
+      </div>
+    </aside>
+
+    <!-- MAP -->
+    <section class="map-pane" id="mapPane">
+      <div class="map-toolbar">
+        <div class="map-title">◈ СЕКТОР · НАВИГАЦИЯ</div>
+        <div class="map-controls">
+          <button class="chip" id="mapResetBtn" title="Центр">⌖</button>
+          <button class="chip zoom-btn" id="mapZoomOut">−</button>
+          <span id="zoomLabel">100%</span>
+          <button class="chip zoom-btn" id="mapZoomIn">+</button>
+          <button class="chip" id="toggleDetailBtn" title="Скрыть/показать панель">◫</button>
+        </div>
+      </div>
+      <div class="map-canvas" id="mapCanvas" tabindex="0">
+        <iframe id="v51NativeMap" class="native-map-frame" src="/observer/native.html?embed=map" title="Карта живого игрового мира" loading="eager"></iframe>
+        <div class="map-layer" id="mapLayer">
+          <div class="nebula"></div>
+          <div class="map-grid"></div>
+          <svg class="system-paths" viewBox="0 0 820 780" preserveAspectRatio="none">
+            <path d="M 160 340 Q 360 40 600 190"/>
+            <path d="M 160 340 Q 480 520 610 610"/>
+            <path d="M 160 340 Q 200 680 610 610"/>
+          </svg>
+          <div class="map-system" style="left:160px;top:340px">
+            <span class="star-sun"></span>
+            <strong>SOL</strong>
+            <small>СОЛНЕЧНАЯ СИСТЕМА</small>
+          </div>
+          <div class="map-orbit orbit-1" style="left:160px;top:340px"></div>
+          <div class="map-orbit orbit-2" style="left:160px;top:340px"></div>
+          <div class="map-orbit orbit-3" style="left:160px;top:340px"></div>
+          <div class="map-system" style="left:600px;top:190px">
+            <span class="star-mini"></span>
+            <strong>ALPHA CENTAURI</strong>
+          </div>
+          <div class="map-system muted" style="left:610px;top:610px">
+            <span class="star-mini"></span>
+            <strong>BARNARD</strong>
+          </div>
+          <div id="mapStations"></div>
+        </div>
+        <div class="map-crosshair">+</div>
+      </div>
+      <div class="map-bottom">
+        <div>
+          <div class="map-legend">
+            <span><i class="star-key"></i> Система</span>
+            <span><i class="station-key"></i> Станция</span>
+            <span><i class="selected-key"></i> Выбрана</span>
+          </div>
+          <div class="map-note">Физический мир · реальные орбиты и игровые ассеты</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DETAIL PANEL -->
+    <aside class="detail" id="detailPanel">
+      <div class="detail-head" id="detailHead">
+        <div class="global-actions">
+          <button data-open-modal="sector">Сектор</button>
+          <button data-open-modal="balance">Баланс</button>
+           <button data-open-modal="factions">Фракции</button>
+           <button data-open-modal="chronicle">Хроника</button>
+        </div>
+        <div class="detail-title">
+          <div>
+            <h2 id="detailName">—</h2>
+            <div class="sub" id="detailSub"></div>
+          </div>
+          <span class="status-pill" id="detailStatus">—</span>
+        </div>
+        <div class="tabs" id="tabs">
+          <button class="tab active" data-tab="overview">Обзор</button>
+          <button class="tab" data-tab="resources">Ресурсы</button>
+          <button class="tab" data-tab="industry">Производство</button>
+          <button class="tab" data-tab="population">Население</button>
+          <button class="tab" data-tab="market">Рынок</button>
+          <button class="tab" data-tab="fleet">Флот</button>
+          <button class="tab" data-tab="signals">Сигналы</button>
+          <button class="tab" data-tab="analytics">Графики</button>
+        </div>
+      </div>
+      <div class="detail-body" id="detailBody">
+        <div class="detail-empty">Выберите станцию на карте или в списке</div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="overlay" id="settingsBackdrop" hidden></div>
+  <aside class="settings-panel" id="settingsPanel" hidden>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div class="eyebrow">Настройки</div>
+        <h2>Рабочее пространство</h2>
+      </div>
+      <button class="modal-close" id="closeSettingsBtn">✕</button>
+    </div>
+    <label class="settings-label" for="capacityInput">Ориентир шкалы запасов</label>
+    <input id="capacityInput" type="number" min="1" max="10000000" step="100" value="5000">
+    <p class="settings-help"><b>Условная визуальная шкала.</b> В реальных отчётах используются только подтверждённые вместимости.</p>
+    <label class="settings-label" for="apiInput">Адрес GET-снимка</label>
+    <input id="apiInput" type="text" value="/api/report" placeholder="/api/report">
+    <p class="settings-help">Только GET. При кросс-домене нужен CORS. Можно загрузить JSON-файл.</p>
+    <button class="primary" id="saveSettingsBtn">Сохранить</button>
+    <button class="secondary" id="restoreDemoBtn">Вернуться к демо</button>
+    <p class="settings-help" style="margin-top:20px;">Версия макета: 5.0 · карта в приоритете</p>
+  </aside>
+
+  <!-- MODALS -->
+  <div class="overlay" id="modalBackdrop" hidden>
+    <div class="modal" id="modal">
+      <div class="modal-head">
+        <h3 id="modalTitle">—</h3>
+        <button class="modal-close" id="closeModalBtn">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+  <input type="file" id="fileInput" accept=".json,application/json" hidden>
+</div>
+
+<script src="/observer/v51-live-adapter.js"></script>
+<script>
+(() => {
+'use strict';
+
+const $ = id => document.getElementById(id);
+const safe = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const arr = x => Array.isArray(x) ? x : [];
+const num = x => (x === undefined || x === null || x === '' || !Number.isFinite(Number(x))) ? null : Number(x);
+const val = (x, fb = 0) => num(x) ?? fb;
+const fmt = (x, d = 1) => num(x) === null ? '—' : Number(x).toLocaleString('ru-RU', { maximumFractionDigits: d });
+const money = x => num(x) === null ? '—' : fmt(x, 1) + ' CR';
+const pct = x => num(x) === null ? '—' : fmt(x, 0) + '%';
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const nameKey = x => String(x ?? '').trim().toLowerCase();
+const exists = x => num(x) !== null;
+
+const BALANCE = {
+  version: 'Рабочая база · средний пресет 0.3',
+  status: 'Предварительно принято для настройки; не подтверждено в ядре Rust',
+  population: { 'earth-station': 50, 'pirate-outpost': 24, 'alpha-station': 30 },
+  people: { food: 0.12, water: 0.13, wage: 1, workforceShare: 0.62 },
+  storage: { defaultPerResource: 5000 },
+  resources: { food: 1.4, water: 0.85, ice: 0.58, ore: 0.8, fuel: 1.6, metals: 4.5 },
+  recipes: [
+    { id: 'farm', name: 'Гидропонная ферма', input: { water: 3 }, output: { food: 10 }, workers: 6, ticks: 1 },
+    { id: 'ice-refinery', name: 'Переработка льда', input: { ice: 8 }, output: { water: 10, fuel: 5 }, workers: 4, ticks: 1 },
+    { id: 'ice-mine', name: 'Ледодобыча', input: {}, output: { ice: 18 }, workers: 5, ticks: 1 },
+    { id: 'ore-mine', name: 'Рудодобыча', input: {}, output: { ore: 10 }, workers: 5, ticks: 1 },
+    { id: 'smelter', name: 'Металлургия', input: { ore: 6, fuel: 2 }, output: { metals: 4 }, workers: 6, ticks: 1 }
+  ],
+  construction: {
+    farm: { name: 'Ферма', metals: 16, fuel: 2, work: 14 },
+    refinery: { name: 'Переработчик', metals: 18, fuel: 2, work: 16 },
+    iceMine: { name: 'Ледодобыча', metals: 15, fuel: 2, work: 14 },
+    oreMine: { name: 'Рудодобыча', metals: 15, fuel: 2, work: 14 },
+    freighter: { name: 'Грузовой корабль', metals: 28, fuel: 8, work: 21 },
+    warehouse: { name: 'Склад +500', metals: 30, fuel: 3, work: 24 }
+  },
+  logistics: { shipCapacity: 65, routeTicks: 4 },
+  notes: 'Производственные значения — на один цикл в один тик при полной загрузке. Строительный труд — человеко-тики. Данные базового пресета иллюстрируют интерфейс.'
+};
+
+const GOODS = {
+  food: ['Еда', '◈'], water: ['Вода', '◉'], ice: ['Лёд', '❖'], ore: ['Руда', '⬡'],
+  fuel: ['Топливо', '✦'], metals: ['Металлы', '▤'], gas: ['Газ', '◇'], polymers: ['Полимеры', '⬟'],
+  components: ['Компоненты', '⚙'], electronics: ['Электроника', '⌘'], tools: ['Инструменты', '⚒'],
+  medical: ['Медикаменты', '✚'], luxury: ['Роскошь', '✧']
+};
+const TYPES = {
+  station: 'Станция', farm: 'Гидропонная ферма', refinery: 'Переработчик', mining_rig: 'Добывающая платформа',
+  smelter: 'Плавильня', cargo_warehouse: 'Грузовой склад', shipyard: 'Верфь', factory: 'Завод',
+  repair_dock: 'Ремонтный док', fuel_depot: 'Топливное депо',
+  freighter: 'Грузовой корабль', courier:'Курьер', miner:'Шахтёр', tanker:'Танкер',
+  builder:'Строитель', patrol_ship:'Патрульный корабль', scout:'Разведчик', frigate:'Фрегат'
+};
+const BLOCKS = {
+  insufficient_workers: 'Не хватает работников', insufficient_payroll_budget: 'Недостаточно денег для зарплат',
+  no_extractable_resource: 'Нет сырья для добычи', no_viable_recipe: 'Недоступен рецепт',
+  missing_input: 'Не хватает сырья', storage_full: 'Заполнен склад', repair_required: 'Нужен ремонт'
+};
+
+function byId(id) { return BALANCE.recipes.find(r => r.id === id); }
+
+function demoFacility(id, name, type, location, recipe, workers, other = {}) {
+  const r = byId(recipe);
+  return {
+    id, name, type, location, recipe_id: recipe,
+    crew: {
+      crew_count: workers, assigned: workers, required: r?.workers ?? workers, morale: 87,
+      work_shift: { wages: workers * BALANCE.people.wage, tick: 112, workers: [[id, workers]] }
+    },
+    condition: other.condition ?? 0.93, progress: other.progress ?? 0.37,
+    efficiency: other.efficiency ?? 0.91, status: other.status ?? 'В работе',
+    status_reason: other.status_reason ?? '', credits: other.credits ?? 500,
+    level: other.level ?? 1, reserves: other.reserves ?? {}, cycles_completed: other.cycles_completed ?? 68,
+    costs: { payroll: workers, maintenance: 1.3 }, ...other
+  };
+}
+
+function createDemo() {
+  const fac = [
+    { id: 'station-earth', name: 'Genesis Station T1', type: 'station', location: 'earth-station', faction_id: 'terran-authority', __system: 'Sol', credits: 5000, level: 1, capacity: 5000, condition: 0.95, abandoned: false },
+    demoFacility('earth-farm-1', 'Гидропоника «Вега»', 'farm', 'earth-station', 'farm', 6, { progress: 0.64, credits: 830 }),
+    demoFacility('earth-farm-2', 'Ферма «Селена»', 'farm', 'earth-station', 'farm', 6, { progress: 0.29, credits: 470 }),
+    demoFacility('earth-refinery', 'Переработка льда T1', 'refinery', 'earth-station', 'ice-refinery', 4, { progress: 0.83, credits: 600, reserves: { ice: 42 } }),
+    demoFacility('earth-store', 'Складской комплекс', 'cargo_warehouse', 'earth-station', null, 0, { status: 'Резерв', credits: 160, reserves: { food: 220, water: 130 } }),
+    { id: 'station-pirate', name: 'Pirate Station T1', type: 'station', location: 'pirate-outpost', faction_id: 'pirates', __system: 'Sol', credits: 3500, level: 1, capacity: 5000, condition: 0.82, abandoned: false },
+    demoFacility('pirate-ice', 'Ледодобыча Юпитера', 'mining_rig', 'pirate-outpost', 'ice-mine', 5, { progress: 0.46, credits: 480, reserves: { ice: 210 } }),
+    demoFacility('pirate-ore', 'Рудодобывающий модуль', 'mining_rig', 'pirate-outpost', 'ore-mine', 5, { progress: 0.16, credits: 420, reserves: { ore: 75 }, condition: 0.75 }),
+    demoFacility('pirate-store', 'Склад контрабандистов', 'cargo_warehouse', 'pirate-outpost', null, 0, { status: 'Резерв', credits: 110, reserves: { ice: 240, ore: 130 } }),
+    { id: 'station-alpha', name: 'Alpha Station T1', type: 'station', location: 'alpha-station', faction_id: 'ceti-freeholds', __system: 'Alpha Centauri', credits: 3000, level: 1, capacity: 5000, condition: 0.88, abandoned: false },
+    demoFacility('alpha-refinery', 'Ледоперерабатывающий завод', 'refinery', 'alpha-station', 'ice-refinery', 4, { progress: 0.57, credits: 580, reserves: { ice: 85 } }),
+    demoFacility('alpha-smelter', 'Плавильня «Альфа»', 'smelter', 'alpha-station', 'smelter', 6, { progress: 0.91, credits: 920, reserves: { ore: 90, fuel: 17 }, condition: 0.78 }),
+    demoFacility('alpha-repair', 'Ремонтный док', 'repair_dock', 'alpha-station', null, 0, { status: 'Резерв', credits: 320 })
+  ];
+  const markets = [
+    { id: 'm-earth', facility_location: 'earth-station', supply: { food: 1000, water: 1000, fuel: 90, metals: 10, ice: 55 }, demand: { food: 6, water: 7, fuel: 3, ice: 8, ore: 4, metals: 5 }, prices: { food: 1.4, water: .85, fuel: 1.6, ice: .58, metals: 4.5 }, flows: { food: { production: 20, consumption: 6 }, water: { production: 10, consumption: 12.5 }, ice: { production: 0, consumption: 8 }, fuel: { production: 5, consumption: 0 }, metals: { production: 0, consumption: 0 } }, capacity: { food: 5000, water: 5000, fuel: 5000, ice: 5000, metals: 5000 } },
+    { id: 'm-pirate', facility_location: 'pirate-outpost', supply: { food: 90, water: 150, fuel: 140, ice: 600, ore: 250, metals: 5 }, demand: { food: 3, water: 4, fuel: 3, ice: 8, ore: 6, metals: 5 }, prices: { food: 1.7, water: 1.05, ice: .52, ore: .7, fuel: 1.9, metals: 5.0 }, flows: { food: { production: 0, consumption: 2.88 }, water: { production: 0, consumption: 3.12 }, ice: { production: 18, consumption: 0 }, ore: { production: 10, consumption: 0 } }, capacity: { food: 5000, water: 5000, fuel: 5000, ice: 5000, ore: 5000, metals: 5000 } },
+    { id: 'm-alpha', facility_location: 'alpha-station', supply: { food: 100, water: 135, ice: 120, ore: 150, fuel: 120, metals: 80 }, demand: { food: 4, water: 6, ice: 8, ore: 6, fuel: 3, metals: 5 }, prices: { food: 1.55, water: 1.25, ice: .62, ore: .9, fuel: 1.72, metals: 4.2 }, flows: { food: { production: 0, consumption: 3.6 }, water: { production: 10, consumption: 3.9 }, ice: { production: 0, consumption: 8 }, ore: { production: 0, consumption: 6 }, fuel: { production: 5, consumption: 2 }, metals: { production: 4, consumption: 0 } }, capacity: { food: 5000, water: 5000, fuel: 5000, ice: 5000, ore: 5000, metals: 5000 } }
+  ];
+  for (let j = 0; j < markets.length; j++) {
+    const m = markets[j];
+    m.trend_samples = Array.from({ length: 42 }, (_, i) => {
+      let t = i - 41;
+      const supply = {};
+      for (const [idx, k] of Object.keys(m.supply).entries()) {
+        const net = val(m.flows?.[k]?.production) - val(m.flows?.[k]?.consumption);
+        supply[k] = Math.round(Math.max(0, m.supply[k] + t * (net * .65) + Math.sin((i + j + idx) * .6) * (8 + idx * 3)));
+      }
+      return { tick: 71 + i, supply };
+    });
+  }
+  const ships = [
+    { id: 'cargo-01', name: 'Грузовик 01 / Genesis', type: 'freighter', faction_id: 'terran-authority', location: 'earth-station', from: 'pirate-outpost', to: 'earth-station', status: 'В пути', progress: 0.72, eta: 1, cargo: { ice: 65 }, capacity: 65, fuel: 73, fuel_max: 100, condition: 0.95, credits: 1700, objective: 'Закрыть потребность переработки во льде' },
+    { id: 'cargo-02', name: 'Грузовик 02 / Genesis', type: 'freighter', faction_id: 'terran-authority', location: 'earth-station', from: 'earth-station', to: 'alpha-station', status: 'В пути', progress: 0.41, eta: 3, cargo: { food: 42 }, capacity: 65, fuel: 89, fuel_max: 100, condition: 0.86, credits: 920, objective: 'Доставить продовольствие' },
+    { id: 'cargo-03', name: 'Рейдер / Пираты', type: 'freighter', faction_id: 'pirates', location: 'pirate-outpost', from: 'pirate-outpost', to: 'alpha-station', status: 'Ожидает рейс', progress: 0, cargo: {}, capacity: 65, fuel: 98, fuel_max: 100, condition: 0.8, credits: 420, objective: 'Найти выгодный груз' },
+    { id: 'cargo-04', name: 'Перевозчик / Ceti', type: 'freighter', faction_id: 'ceti-freeholds', location: 'alpha-station', from: 'alpha-station', to: 'pirate-outpost', status: 'В пути', progress: 0.18, eta: 4, cargo: { metals: 22 }, capacity: 65, fuel: 64, fuel_max: 100, condition: 0.9, credits: 800, objective: 'Торговый заказ на металл' }
+  ];
+  const populations = [
+    { facility_location: 'earth-station', count: 50, eligible: 31, employed: 16, household_credits: 1200, health: 95, morale: 86, needs: { food: { demand: 6, delivered: 6 }, water: { demand: 6.5, delivered: 6.2 } }, migration: { incoming: 2, outgoing: 0 }, income_per_tick: 16, spending_per_tick: 13.7 },
+    { facility_location: 'pirate-outpost', count: 24, eligible: 15, employed: 10, household_credits: 650, health: 89, morale: 72, needs: { food: { demand: 2.88, delivered: 2.88 }, water: { demand: 3.12, delivered: 2.86 } }, migration: { incoming: 0, outgoing: 1 }, income_per_tick: 10, spending_per_tick: 7.8 },
+    { facility_location: 'alpha-station', count: 30, eligible: 19, employed: 10, household_credits: 750, health: 94, morale: 83, needs: { food: { demand: 3.6, delivered: 3.5 }, water: { demand: 3.9, delivered: 3.9 } }, migration: { incoming: 1, outgoing: 0 }, income_per_tick: 10, spending_per_tick: 9.8 }
+  ];
+  const construction_sites = [
+    { id: 'build-alpha-shipyard', location: 'alpha-station', name: 'Новая верфь T1', facility_type: 'shipyard', status: 'Строится', owner: 'Ceti Freeholds', materials: { metals: { required: 30, delivered: 18 }, fuel: { required: 3, delivered: 3 } }, labor: { required: 24, completed: 12, workers: 3 }, payroll_remaining: 12, progress: 0.50, reason: 'Ожидание доставки металлов' },
+    { id: 'build-pirate-freighter', location: 'pirate-outpost', name: 'Грузовой корабль 05', facility_type: 'freighter', status: 'Ожидает материалы', owner: 'Пираты', materials: { metals: { required: 28, delivered: 7 }, fuel: { required: 8, delivered: 4 } }, labor: { required: 21, completed: 4, workers: 3 }, payroll_remaining: 17, progress: 0.19, reason: 'Недостаточно металлов' }
+  ];
+  const ui = {
+    is_fixture: true, tick: 112, scenario: 'Средний баланс / Observer V5',
+    events: [
+      { tick: 112, kind: 'Производство', severity: 'ok', station: 'earth-station', message: 'Ферма «Вега» выполнила цикл: +10 еды; −3 воды' },
+      { tick: 111, kind: 'Перевозка', severity: 'info', station: 'alpha-station', message: 'Грузовик 04 взял заказ: 22 металла' },
+      { tick: 111, kind: 'Стройка', severity: 'warn', station: 'pirate-outpost', message: 'Грузовой корабль 05 ожидает 21 металл и 4 топлива' },
+      { tick: 110, kind: 'Население', severity: 'info', station: 'earth-station', message: 'Оплачено 16 рабочих смен — 16 CR' },
+      { tick: 110, kind: 'Торговля', severity: 'ok', station: 'pirate-outpost', message: 'Продано 65 льда для переработки' },
+      { tick: 109, kind: 'Ремонт', severity: 'warn', station: 'alpha-station', message: 'Плавильня: состояние корпуса 78%, плановое обслуживание' },
+      { tick: 107, kind: 'Администратор', severity: 'info', station: 'earth-station', faction_id: 'terran-authority', message: 'Приоритет: запасы воды на 10 тиков' },
+      { tick: 105, kind: 'Решение фракции', severity: 'info', faction_id: 'pirates', station: 'pirate-outpost', message: 'Совет подтвердил приоритет строительства грузового корабля' },
+      { tick: 101, kind: 'Стройка', severity: 'info', faction_id: 'ceti-freeholds', station: 'alpha-station', message: 'Начато оснащение площадки новой верфи' },
+      { tick: 94, kind: 'Решение фракции', severity: 'info', faction_id: 'terran-authority', station: 'earth-station', message: 'Совет отложил основание колонии из-за риска дефицита снабжения' },
+      { tick: 88, kind: 'Логистика', severity: 'ok', faction_id: 'ceti-freeholds', station: 'alpha-station', message: 'Перевозчик получил заказ на вывоз металлопродукции' },
+      { tick: 76, kind: 'Решение фракции', severity: 'info', faction_id: 'terran-authority', station: 'earth-station', message: 'Сохранение продовольственного резерва объявлено приоритетом' }
+    ],
+    // UI-only example of faction leader's published decisions, NOT chain-of-thought.
+    // Production snapshots may expose ui.faction_leaders[faction_id] or factions[].leadership.
+    faction_leaders: {
+      'terran-authority': {
+        name: 'Совет Genesis', status: 'Расширение экономики',
+        goal: 'Построить устойчивую производственную и транспортную сеть',
+        priority: 'Стабилизировать водоснабжение и доставку сырья',
+        decision: 'Усилить снабжение переработчика льдом',
+        reason: 'Вода расходуется на фермах и населением; перебои поставок ограничивают выпуск еды',
+        risks: ['Зависимость от импорта льда', 'Ограниченное число грузовых кораблей'],
+        goals: [
+          { title: 'Стабилизировать запасы воды', status: 'Исполняется' },
+          { title: 'Расширить грузовой флот', status: 'На рассмотрении' },
+          { title: 'Подготовить дополнительную колонию', status: 'Отложено' }
+        ],
+        decisions: [
+          { tick: 107, action: 'Повысить приоритет доставки льда', reason: 'Местный выпуск воды не перекрывает расход', state: 'Исполняется' },
+          { tick: 94, action: 'Не начинать новую колонию', reason: 'Сначала необходимо обеспечить устойчивые поставки', state: 'Отложено' },
+          { tick: 76, action: 'Сохранить резерв продуктов', reason: 'Население зависит от стабильной работы ферм', state: 'Исполнено' }
+        ]
+      },
+      'pirates': {
+        name: 'Пиратский совет', status: 'Развитие снабжения',
+        goal: 'Повысить автономность форпоста',
+        priority: 'Завершить строительство собственного грузовика',
+        decision: 'Закупить недостающие металлы и топливо',
+        reason: 'Проект нового перевозчика остановлен недостатком строительных материалов',
+        risks: ['Недостаток металлов', 'Низкие запасы продовольствия'],
+        goals: [
+          { title: 'Построить грузовой корабль', status: 'Ожидает материалы' },
+          { title: 'Увеличить торговые поступления', status: 'Исполняется' },
+          { title: 'Снизить зависимость от импорта еды', status: 'План' }
+        ],
+        decisions: [
+          { tick: 111, action: 'Повысить приоритет поставок металла', reason: 'Строительство грузовика заблокировано', state: 'Исполняется' },
+          { tick: 102, action: 'Поддерживать экспорт льда', reason: 'Нужна выручка для закупки оборудования', state: 'Исполняется' }
+        ]
+      },
+      'ceti-freeholds': {
+        name: 'Собрание Ceti', status: 'Промышленное развитие',
+        goal: 'Создать независимый промышленно-логистический узел',
+        priority: 'Завершить строительство верфи',
+        decision: 'Сосредоточить материалы и рабочую силу на верфи',
+        reason: 'Дополнительные мощности по ремонту и строительству помогут расширению',
+        risks: ['Износ плавильни', 'Зависимость от поставок руды'],
+        goals: [
+          { title: 'Завершить верфь', status: 'Исполняется' },
+          { title: 'Обслужить плавильню', status: 'План' },
+          { title: 'Обеспечить импорт руды', status: 'Исполняется' }
+        ],
+        decisions: [
+          { tick: 109, action: 'Запланировать обслуживание плавильни', reason: 'Состояние оборудования ухудшается', state: 'План' },
+          { tick: 97, action: 'Сосредоточить металлы на верфи', reason: 'Незавершённый проект требует ресурсов', state: 'Исполняется' }
+        ]
+      }
+    },
+    finance: {
+      'earth-station': { company: 5000, households: 1200, treasury: 380, wages: 16, purchases: 13.7, sales: 43.2, maintenance: 4.1, logistics: 5.3, imports: 26.6, taxes: 0 },
+      'pirate-outpost': { company: 3500, households: 650, treasury: 200, wages: 10, purchases: 7.8, sales: 31.5, maintenance: 3.3, logistics: 4, imports: 17.5, taxes: 0 },
+      'alpha-station': { company: 3000, households: 750, treasury: 320, wages: 10, purchases: 9.8, sales: 40.2, maintenance: 6, logistics: 5.5, imports: 30.4, taxes: 0 }
+    },
+    administrators: {
+      'earth-station': { leader: 'Совет Genesis', strategy: 'Устойчивость базовых потребностей', administrator: 'Администратор жилого сектора', priority: 'Обеспечить воду и питание', reason: 'Поддержание резерва на 10 тиков', orders: [{ name: 'Закупать лёд', state: 'Исполняется', priority: 1 }, { name: 'Поддерживать работников на фермах', state: 'Исполняется', priority: 2 }, { name: 'Рассмотреть строительство склада', state: 'План', priority: 3 }] },
+      'pirate-outpost': { leader: 'Пиратский совет', strategy: 'Расширение автономии', administrator: 'Управляющий форпостом', priority: 'Обеспечить металлы для грузовика', reason: 'Текущий проект заблокирован поставками', orders: [{ name: 'Купить 21 металл', state: 'Ожидается', priority: 1 }, { name: 'Добывать лёд', state: 'Исполняется', priority: 2 }] },
+      'alpha-station': { leader: 'Ceti Freeholds', strategy: 'Промышленный рост', administrator: 'Промышленный диспетчер', priority: 'Завершить верфь', reason: 'Верфь повысит транспортные возможности', orders: [{ name: 'Доставить металлы на стройку', state: 'Исполняется', priority: 1 }, { name: 'Обслужить плавильню', state: 'План', priority: 2 }] }
+    },
+    trades: [
+      { id: 'trade-1', from: 'pirate-outpost', to: 'earth-station', resource: 'ice', quantity: 65, price: .61, status: 'В пути', ship: 'cargo-01' },
+      { id: 'trade-2', from: 'earth-station', to: 'alpha-station', resource: 'food', quantity: 42, price: 1.58, status: 'В пути', ship: 'cargo-02' },
+      { id: 'trade-3', from: 'alpha-station', to: 'pirate-outpost', resource: 'metals', quantity: 22, price: 4.9, status: 'В пути', ship: 'cargo-04' }
+    ],
+    world_history: Array.from({ length: 42 }, (_, i) => ({
+      tick: 71 + i, population: 104 + Math.floor(i / 25), money: 14380,
+      coverage: 95.5 + Math.sin(i * .22) * 2.1, production: 43 + Math.sin(i * .15) * 5, employed: 36, ships: 4
+    })),
+    warnings: [
+      { station: 'pirate-outpost', level: 'warn', title: 'Стройка без металлов', desc: 'Грузовой корабль 05: требуется 21 металл' },
+      { station: 'alpha-station', level: 'warn', title: 'Износ плавильни', desc: 'Состояние 78%, сервис рекомендуется' },
+      { station: 'earth-station', level: 'info', title: 'Запас воды медленно снижается', desc: 'Расход воды на фермах больше местного производства; требуется доставка' }
+    ]
+  };
+  return {
+    factions: [
+      { id: 'terran-authority', name: 'Genesis Initiative' },
+      { id: 'pirates', name: 'Пираты' },
+      { id: 'ceti-freeholds', name: 'Ceti Freeholds' }
+    ],
+    systems: [
+      { name: 'Sol', bodies: [] }, { name: 'Alpha Centauri', bodies: [] },
+      { name: 'Barnard', bodies: [] }, { name: 'Lalande', bodies: [] },
+      { name: 'Tau Ceti', bodies: [] }, { name: 'Vega', bodies: [] }
+    ],
+    facilities: fac, markets, populations, construction_sites, ships, ui
+  };
+}
+
+const DEMO = createDemo();
+const SAVE_KEY = 'living-sector-observer-v5';
+const defaults = {
+  location: 'earth-station', tab: 'overview', capacity: 5000, api: '/api/report',
+  detailOpen: true, chart: 'water'
+};
+let saved = {};
+try { saved = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}'); } catch {}
+const state = {
+  ...defaults, ...saved,
+  report: DEMO, isDemo: true,
+  mapZoom: 0.88, mapPan: { x: 0, y: 0 },
+  selectedFacility: null, selectedShip: null, selectedBody:null, selectedSystem:null,
+  factionId: null, eventFilter: 'all', eventFaction: 'all'
+};
+
+const persist = () => {
+  try {
+    const x = {};
+    Object.keys(defaults).forEach(k => x[k] = state[k]);
+    localStorage.setItem(SAVE_KEY, JSON.stringify(x));
+  } catch {}
+};
+
+let toastTimer;
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.hidden = true, 3200);
+}
+
+function facilities() { return arr(state.report.facilities); }
+function stations() { return facilities().filter(f => f?.type === 'station' && f.location); }
+function selected() { return stations().find(f => nameKey(f.location) === nameKey(state.location)) || stations()[0] || null; }
+function factionName(id) { return arr(state.report.factions).find(f => f.id === id)?.name || id || '—'; }
+function hub() {
+  const st = selected();
+  if (!st) return null;
+  const loc = st.location;
+  return {
+    st, loc,
+    members: facilities().filter(f => f.location === loc),
+    businesses: facilities().filter(f => f.location === loc && f.id !== st.id),
+    market: arr(state.report.markets).find(x => x.facility_location === loc) || null,
+    pop: arr(state.report.populations).find(x => x.facility_location === loc) || null,
+    sites: arr(state.report.construction_sites).filter(x => x.location === loc),
+    ships: arr(state.report.ships).filter(x => x.location === loc || x.from === loc || x.to === loc),
+    fin: state.report.ui?.finance?.[loc] || null,
+    admin: state.report.ui?.administrators?.[loc] || null
+  };
+}
+
+const goodName = k => GOODS[k]?.[0] || String(k ?? '—');
+const typ = t => TYPES[t] || String(t || 'Объект');
+
+function pillClass(status) {
+  const k = nameKey(status);
+  if (/работ|в пути|испол|норм|выполн|действует/.test(k)) return 'ok';
+  if (/блок|недостат|ожид|ремонт|простой|нехват|заброш/.test(k)) return 'warn';
+  return '';
+}
+
+function bar(value, max, opts = {}) {
+  const has = exists(value) && exists(max) && max > 0;
+  const v = has ? clamp(Number(value) / Number(max) * 100, 0, 100) : 0;
+  const low = opts.warn ? ' low' : '';
+  return `<div class="bar ${!has ? 'unknown' : ''}${low}"><div style="width:${v.toFixed(1)}%"></div></div>`;
+}
+
+function recipeLine(r) {
+  if (!r) return '<span style="color:var(--muted)">Нет рецепта</span>';
+  const io = obj => Object.entries(obj || {}).map(([k, v]) => `${fmt(v)} ${goodName(k).toLowerCase()}`).join(' + ') || 'добыча';
+  return `<span class="recipe"><span class="in">${safe(io(r.input))}</span><span class="arrow">→</span><span class="out">${safe(io(r.output))}</span></span>`;
+}
+
+function spark(values, h = 40) {
+  const vv = values.map(v => num(v)).filter(v => v !== null);
+  if (vv.length < 2) return '<div style="height:40px;display:grid;place-items:center;color:var(--muted);font-size:10px;border:1px dashed var(--border);border-radius:4px;">Нет данных</div>';
+  const lo = Math.min(...vv), hi = Math.max(...vv), diff = Math.max(1, hi - lo);
+  const p = vv.map((v, i) => `${(i / (vv.length - 1) * 280).toFixed(1)},${(h - 4 - (v - lo) / diff * (h - 10)).toFixed(1)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 280 ${h}" preserveAspectRatio="none"><polyline points="${p}" fill="none" stroke="#5ecfba" stroke-width="2" stroke-linejoin="round"/></svg>`;
+}
+
+function lineChart(series) {
+  const all = series.flatMap(x => x.points.map(y => num(y)).filter(y => y !== null));
+  if (all.length < 2) return '<div style="padding:30px;text-align:center;color:var(--muted);border:1px dashed var(--border);border-radius:6px;">Нет истории</div>';
+  const max = Math.max(...all, 1), min = Math.min(...all, 0), span = Math.max(max - min, 1);
+  const w = 480, h = 160, L = 36, R = 8, T = 10, B = 18;
+  let html = '';
+  for (let i = 0; i < 4; i++) {
+    const y = T + i * (h - T - B) / 3;
+    const v = max - (max - min) * i / 3;
+    html += `<line x1="${L}" y1="${y}" x2="${w - R}" y2="${y}" stroke="#2a4555" stroke-width="1"/><text x="${L - 5}" y="${y + 3}" fill="#6e8f9e" text-anchor="end" font-size="9">${safe(fmt(v, 0))}</text>`;
+  }
+  for (const s of series) {
+    const ps = s.points.map((v, i) => {
+      if (!exists(v)) return null;
+      return [(L + i * (w - L - R) / (s.points.length - 1 || 1)).toFixed(1), (T + (max - Number(v)) / span * (h - T - B)).toFixed(1)].join(',');
+    }).filter(Boolean);
+    if (ps.length > 1) html += `<polyline points="${ps.join(' ')}" fill="none" stroke="${s.color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  return `<svg viewBox="0 0 ${w} ${h}" class="chart-svg">${html}</svg>`;
+}
+
+function goods(m) {
+  if (!m) return [];
+  const keys = new Set(['food', 'water', 'fuel', ...Object.keys(m.supply || {}), ...Object.keys(m.demand || {}), ...Object.keys(m.flows || {})]);
+  return [...keys].map(k => {
+    const stock = m.supply && Object.prototype.hasOwnProperty.call(m.supply, k) ? num(m.supply[k]) : null;
+    const capacity = state.isDemo ? num(state.capacity) : num(m.capacity?.[k]);
+    const flow = m.flows?.[k];
+    return {
+      key: k, stock, capacity,
+      production: num(flow?.production), consumption: num(flow?.consumption),
+      price: num(m.prices?.[k]), demand: num(m.demand?.[k]),
+      hist: arr(m.trend_samples).map(s => num(s?.supply?.[k]))
+    };
+  }).sort((a, b) => {
+    const order = ['food', 'water', 'fuel', 'ice', 'ore', 'metals'];
+    const pa = order.indexOf(a.key); const pb = order.indexOf(b.key);
+    return (pa === -1 ? 20 : pa) - (pb === -1 ? 20 : pb);
+  });
+}
+
+/* ========== RENDER TABS ========== */
+function renderOverview(h) {
+  if (!h) return '';
+  const st = h.st, p = h.pop, m = h.market;
+  const ins = h.businesses.filter(x => x.recipe_id);
+  const warn = arr(state.report.ui?.warnings).filter(x => x.station === h.loc);
+  const stockWater = num(m?.supply?.water), stockFood = num(m?.supply?.food);
+
+  let html = `<div class="kpi-row">
+    ${kpi('Население', fmt(p?.count, 0), 'жителей')}
+    ${kpi('Касса', money(st.credits), 'станции')}
+    ${kpi('Предприятия', fmt(ins.length, 0), 'активных: ' + ins.filter(x => x.status === 'В работе').length)}
+    ${kpi('Рабочие', p && exists(p.employed) ? `${fmt(p.employed, 0)}/${fmt(p.eligible, 0)}` : '—', 'заняты / доступны')}
+    ${kpi('Еда', stockFood !== null ? fmt(stockFood, 0) : '—', 'на рынке')}
+    ${kpi('Вода', stockWater !== null ? fmt(stockWater, 0) : '—', 'на рынке')}
+    ${kpi('Стройки', fmt(h.sites.length, 0), 'проектов')}
+    ${kpi('Сигналы', fmt(warn.length, 0), 'требуют внимания', warn.length ? 'warn' : '')}
+  </div>`;
+
+  if (warn.length) {
+    html += `<div class="section"><div class="section-h"><strong>Требуют внимания</strong></div>`;
+    html += warn.map(w => signal(w.title, w.desc, w.level)).join('');
+    html += `</div>`;
+  }
+
+  if (h.admin) {
+    html += `<div class="section"><div class="section-h"><strong>Администрация</strong></div>
+      <div class="row"><span>Приоритет</span><b>${safe(h.admin.priority)}</b></div>
+      <div class="row"><span>Стратегия</span><b>${safe(h.admin.strategy)}</b></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;">${safe(h.admin.reason)}</div>
+    </div>`;
+  }
+
+  html += `<div class="foot-note">${state.isDemo ? 'Демонстрационные данные. Соответствуют структуре Observer, но не являются результатами игрового ядра.' : 'Загруженный снимок. Недоступные поля — «—».'}</div>`;
+  return html;
+}
+
+function kpi(label, value, note = '', tone = '') {
+  return `<div class="kpi ${tone}"><span>${safe(label)}</span><strong>${safe(value)}</strong><small>${safe(note)}</small></div>`;
+}
+
+function signal(title, desc, level = 'info') {
+  const cls = level === 'bad' || level === 'danger' ? 'danger' : level === 'warn' ? 'warn' : '';
+  const icon = cls === 'danger' ? '✕' : cls === 'warn' ? '⚠' : '○';
+  return `<div class="signal ${cls}"><span class="signal-icon">${icon}</span><div><strong>${safe(title)}</strong><small>${safe(desc)}</small></div></div>`;
+}
+
+function renderResources(h) {
+  if (!h?.market) return '<div class="detail-empty">Нет данных рынка</div>';
+  const all = goods(h.market).filter(x => ['food', 'water', 'fuel', 'ice', 'ore', 'metals'].includes(x.key));
+  let html = `<div class="section-h"><strong>Запасы рынка</strong><small>основные ресурсы</small></div><div class="res-grid">`;
+  for (const g of all) {
+    const net = exists(g.production) && exists(g.consumption) ? g.production - g.consumption : null;
+    const flowCls = net === null ? '' : net < 0 ? 'bad' : net > 0 ? 'good' : '';
+    const flowTxt = net === null ? '' : `${net >= 0 ? '+' : ''}${fmt(net)} / тик`;
+    html += `<div class="res-item">
+      <div class="name"><span>${GOODS[g.key]?.[1] || '▧'}</span>${safe(goodName(g.key))}
+        <b style="font-size:13px;">${fmt(g.stock, 0)}</b></div>
+      ${bar(g.stock, g.capacity, { warn: g.stock !== null && g.capacity !== null && g.stock < g.capacity * 0.05 })}
+      <div class="meta">${g.capacity !== null && g.stock !== null ? fmt(100 * g.stock / g.capacity, 0) + '% склада' : 'ёмкость ?'}
+        ${flowTxt ? ` · <span class="flow ${flowCls}">${flowTxt}</span>` : ''}</div>
+      <div class="meta">Произв. ${fmt(g.production)} · Расход ${fmt(g.consumption)} · ${money(g.price)}</div>
+    </div>`;
+  }
+  html += `</div><div class="foot-note">Запасы рынка и резервы предприятий разделены. Потоки — при наличии поля flows.</div>`;
+  return html;
+}
+
+function renderIndustry(h) {
+  if (!h) return '';
+  const active = h.businesses.filter(x => x.recipe_id);
+  const other = h.businesses.filter(x => !x.recipe_id);
+  let html = `<div class="section-h"><strong>Производство</strong><small>${active.length} модулей</small></div>`;
+  for (const f of active) {
+    const r = byId(f.recipe_id);
+    const emp = num(f.crew?.assigned ?? f.crew?.crew_count);
+    const req = r?.workers ?? num(f.crew?.required);
+    const status = f.status || '—';
+    html += `<div class="card clickable" data-facility="${safe(f.id)}">
+      <div class="card-top">
+        <span class="card-icon">▣</span>
+        <div style="flex:1;min-width:0"><b>${safe(f.name)}</b><small>${safe(typ(f.type))}</small></div>
+        <span class="tag ${pillClass(status)}">${safe(status)}</span>
+      </div>
+      ${recipeLine(r)}
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px;">
+        <span>Цикл ${exists(f.progress) ? fmt(f.progress * 100, 0) + '%' : '—'}</span>
+        <span>Персонал ${fmt(emp, 0)}/${fmt(req, 0)}</span>
+        <span>Сост. ${pct(exists(f.condition) ? f.condition * 100 : null)}</span>
+      </div>
+      ${bar(exists(f.progress) ? f.progress * 100 : null, 100)}
+    </div>`;
+  }
+  if (other.length) {
+    html += `<div class="section-h" style="margin-top:12px;"><strong>Инфраструктура</strong></div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;">
+        ${other.map(x => `<button class="tag" style="cursor:pointer;padding:4px 8px" data-facility="${safe(x.id)}">${safe(x.name)}</button>`).join('')}
+      </div>`;
+  }
+  html += `<div class="foot-note">Клик по карточке откроет детали. Наличие здания ≠ работа.</div>`;
+  return html;
+}
+
+function renderPopulation(h) {
+  if (!h) return '';
+  const p = h.pop;
+  if (!p) return '<div class="detail-empty">Население не опубликовано</div>';
+  const n = val(p.count);
+  const food = val(p.needs?.food?.delivered);
+  const foodNeed = val(p.needs?.food?.demand, n * BALANCE.people.food);
+  const water = val(p.needs?.water?.delivered);
+  const waterNeed = val(p.needs?.water?.demand, n * BALANCE.people.water);
+
+  let html = `<div class="kpi-row">
+    ${kpi('Жители', fmt(n, 0))}
+    ${kpi('Здоровье', pct(p.health))}
+    ${kpi('Мораль', pct(p.morale))}
+    ${kpi('Деньги семей', money(p.household_credits))}
+  </div>
+  <div class="section"><div class="section-h"><strong>Потребности</strong></div>
+    <div class="need"><div><b>Еда</b><small>${fmt(food)} / ${fmt(foodNeed)}</small></div>${bar(food, foodNeed)}<strong>${foodNeed ? pct(100 * food / foodNeed) : '—'}</strong></div>
+    <div class="need"><div><b>Вода</b><small>${fmt(water)} / ${fmt(waterNeed)}</small></div>${bar(water, waterNeed, { warn: water < waterNeed })}<strong>${waterNeed ? pct(100 * water / waterNeed) : '—'}</strong></div>
+  </div>
+  <div class="section"><div class="section-h"><strong>Труд</strong></div>
+    <div class="row"><span>Трудоспособны</span><b>${fmt(p.eligible, 0)}</b></div>
+    <div class="row"><span>Заняты</span><b>${fmt(p.employed, 0)}</b></div>
+    <div class="row"><span>Свободны</span><b>${exists(p.eligible) && exists(p.employed) ? fmt(p.eligible - p.employed, 0) : '—'}</b></div>
+    <div class="row"><span>Прибыло / убыло</span><b>${fmt(p.migration?.incoming, 0)} / ${fmt(p.migration?.outgoing, 0)}</b></div>
+  </div>`;
+
+  // Workforce table
+  const m = h.businesses.filter(x => x.recipe_id);
+  if (m.length) {
+    html += `<div class="section"><div class="section-h"><strong>Распределение</strong></div><div class="mini-table">
+      <div class="mt-head"><span>Объект</span><span>Занято</span><span>Зарплата</span></div>
+      ${m.map(f => `<div class="mt-row"><span>${safe(f.name)}</span><b>${fmt(f.crew?.assigned ?? f.crew?.crew_count, 0)} / ${fmt(byId(f.recipe_id)?.workers, 0)}</b><b>${money(f.crew?.work_shift?.wages)}</b></div>`).join('')}
+    </div></div>`;
+  }
+  html += `<div class="foot-note">База: 62% трудоспособных, 1 CR зарплата, 0.12 еды и 0.13 воды на человека/тик.</div>`;
+  return html;
+}
+
+function renderMarket(h) {
+  if (!h) return '';
+  const m = h.market;
+  if (!m) return '<div class="detail-empty">Нет рынка</div>';
+  const tt = goods(m).filter(g => g.stock !== null);
+  const trades = arr(state.report.ui?.trades).filter(t => t.from === h.loc || t.to === h.loc);
+  const f = h.fin;
+
+  let html = `<div class="section"><div class="section-h"><strong>Товары и цены</strong></div>
+    <div class="mini-table"><div class="mt-head"><span>Товар</span><span>Запас</span><span>Цена</span></div>
+    ${tt.map(g => `<div class="mt-row"><span>${safe(goodName(g.key))}</span><b>${fmt(g.stock, 0)}</b><b>${money(g.price)}</b></div>`).join('')}
+    </div></div>`;
+
+  if (trades.length) {
+    html += `<div class="section"><div class="section-h"><strong>Контракты</strong><small>${trades.length}</small></div>`;
+    for (const t of trades) {
+      html += `<div class="row"><span>${safe(goodName(t.resource))} · ${fmt(t.quantity, 0)} ед.<br><small style="color:var(--muted)">${safe(t.from)} → ${safe(t.to)}</small></span><b>${money(t.price)}</b></div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (f || exists(h.st.credits)) {
+    html += `<div class="section"><div class="section-h"><strong>Финансы</strong></div>
+      <div class="kpi-row">
+        ${kpi('Компании', money(f?.company ?? h.st.credits))}
+        ${kpi('Семьи', money(f?.households ?? h.pop?.household_credits))}
+        ${kpi('Зарплаты', money(f?.wages), '/ тик')}
+        ${kpi('Продажи', money(f?.sales), '/ тик')}
+      </div>
+      <div class="row"><span>Закупки / импорт</span><b>${money(f?.imports)}</b></div>
+      <div class="row"><span>Содержание</span><b>${money(f?.maintenance)}</b></div>
+      <div class="row"><span>Логистика</span><b>${money(f?.logistics)}</b></div>
+    </div>`;
+  }
+  html += `<div class="foot-note">Деньги переходят между субъектами, а не создаются производством.</div>`;
+  return html;
+}
+
+function renderFleet(h) {
+  const ships = arr(state.report.ships);
+  let html = `<div class="section-h"><strong>Флот сектора</strong><small>${ships.length} кораблей</small></div>`;
+  for (const s of ships) {
+    const cargo = Object.entries(s.cargo || {}).map(([k, v]) => `${fmt(v, 0)} ${goodName(k).toLowerCase()}`).join(', ') || 'Пусто';
+    const local = s.location === h?.loc || s.from === h?.loc || s.to === h?.loc;
+    html += `<div class="card clickable ${local ? '' : ''}" data-ship="${safe(s.id)}" style="${local ? 'border-color:#3a7a72;' : ''}">
+      <div class="card-top">
+        <span class="card-icon">✈</span>
+        <div style="flex:1;min-width:0"><b>${safe(s.name || s.id)}</b><small>${safe(factionName(s.faction_id))} · ${safe(s.status || '—')}</small></div>
+        <span class="tag">${s.eta != null ? 'ETA ' + fmt(s.eta, 0) : '—'}</span>
+      </div>
+      <div style="font-size:11px;color:var(--soft);margin:6px 0;">${safe(s.from || s.location || '?')} <span style="color:var(--accent)">→</span> ${safe(s.to || '—')}</div>
+      ${bar(exists(s.progress) ? s.progress * 100 : null, 100)}
+      <div style="font-size:10px;color:var(--muted);display:flex;justify-content:space-between;">
+        <span>${safe(cargo)}</span>
+        <span>${fmt(Object.values(s.cargo || {}).reduce((a, x) => a + val(x), 0), 0)} / ${fmt(s.capacity, 0)}</span>
+      </div>
+    </div>`;
+  }
+
+  // Construction
+  const sites = h ? h.sites : arr(state.report.construction_sites);
+  if (sites.length) {
+    html += `<div class="section-h" style="margin-top:14px;"><strong>Строительство</strong><small>${sites.length}</small></div>`;
+    for (const s of sites) {
+      const ls = s.labor || {};
+      html += `<div class="card build-card">
+        <div class="card-top">
+          <span class="card-icon">⚒</span>
+          <div style="flex:1;"><b>${safe(s.name || s.id)}</b><small>${safe(s.owner || '—')} · ${safe(s.status || '')}</small></div>
+          <span class="tag ${pillClass(s.status)}">${exists(s.progress) ? pct(s.progress * 100) : '—'}</span>
+        </div>
+        ${Object.entries(s.materials || {}).map(([k, v]) => `
+          <div class="build-progress"><div><span>${safe(goodName(k))}</span><b>${fmt(v.delivered)} / ${fmt(v.required)}</b></div>
+          ${bar(v.delivered, v.required)}</div>`).join('')}
+        <div class="build-progress"><div><span>Труд</span><b>${fmt(ls.completed)} / ${fmt(ls.required)}</b></div>
+        ${bar(ls.completed, ls.required)}</div>
+        ${s.reason ? signal('Узкое место', s.reason, 'warn') : ''}
+      </div>`;
+    }
+  }
+  html += `<div class="foot-note">Клик по кораблю — детали. Стройки требуют материалы + труд + зарплату.</div>`;
+  return html;
+}
+
+function renderSignals(h) {
+  if (!h) return '';
+  const alerts = arr(state.report.ui?.warnings).filter(x => x.station === h.loc);
+  const blocks = h.businesses.filter(f => f.status_reason || f.crew?.work_blocked_reason)
+    .map(f => ({ level: 'warn', title: f.name, desc: f.status_reason || BLOCKS[f.crew?.work_blocked_reason] || f.crew?.work_blocked_reason }));
+  const events = arr(state.report.ui?.events).filter(x => x.station === h.loc);
+
+  let html = `<div class="section"><div class="section-h"><strong>Риски и простои</strong></div>
+    ${[...alerts, ...blocks].map(x => signal(x.title, x.desc, x.level)).join('') || signal('Нет сигналов', 'Это не значит, что всё идеально.', 'info')}
+  </div>
+  <div class="section"><div class="section-h"><strong>События</strong><small>${events.length}</small></div>
+    ${events.map(e => `<div class="event"><span>Т${fmt(e.tick, 0)} · ${safe(e.kind)}</span><b>${safe(e.message)}</b></div>`).join('') || '<div style="color:var(--muted);font-size:11px;">Нет событий в снимке</div>'}
+  </div>`;
+
+  if (h.admin) {
+    html += `<div class="section"><div class="section-h"><strong>Приказы</strong></div>
+      ${arr(h.admin.orders).map(o => `<div class="row"><span><span class="tag" style="margin-right:6px;">P${fmt(o.priority, 0)}</span>${safe(o.name)}</span><span class="tag ${pillClass(o.state)}">${safe(o.state)}</span></div>`).join('')}
+    </div>`;
+  }
+  return html;
+}
+
+function renderAnalytics(h) {
+  if (!h) return '';
+  const m = h.market;
+  const chartKeys = ['food', 'water', 'fuel', 'ice', 'ore', 'metals'];
+  const selectedKey = state.chart;
+  const gList = goods(m);
+  const g = gList.find(x => x.key === selectedKey);
+  const points = g?.hist.filter(v => v !== null) || [];
+  const history = arr(state.report.ui?.world_history);
+
+  const series = selectedKey === 'sector-people'
+    ? [{ name: 'Жители', color: '#5ecfba', points: history.map(x => num(x.population)) }]
+    : selectedKey === 'sector-coverage'
+      ? [{ name: 'Обеспеченность', color: '#e0b06a', points: history.map(x => num(x.coverage)) }]
+      : [{ name: goodName(selectedKey), color: '#5ecfba', points }];
+
+  let html = `<div class="section-h"><strong>История</strong><small>${state.isDemo ? '42 демо-тика' : 'из отчёта'}</small></div>
+    <div class="chart-tabs">
+      ${chartKeys.map(k => `<button class="${selectedKey === k ? 'active' : ''}" data-chart="${k}">${safe(goodName(k))}</button>`).join('')}
+      <button class="${selectedKey === 'sector-people' ? 'active' : ''}" data-chart="sector-people">Жители</button>
+      <button class="${selectedKey === 'sector-coverage' ? 'active' : ''}" data-chart="sector-coverage">Потребности</button>
+    </div>
+    ${lineChart(series)}
+    <div style="margin:10px 0;font-size:11px;color:var(--muted);">
+      ${safe(series[0].name)}: <b style="color:var(--txt)">${points.length ? fmt(points.at(-1), 0) : selectedKey === 'sector-people' ? fmt(history.at(-1)?.population, 0) : selectedKey === 'sector-coverage' ? pct(history.at(-1)?.coverage) : '—'}</b>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+      ${gList.filter(x => ['food', 'water', 'fuel'].includes(x.key)).map(x => `
+        <div style="background:var(--panel2);border:1px solid var(--border);border-radius:5px;padding:8px;">
+          <span style="font-size:10px;color:var(--muted);">${safe(goodName(x.key))}</span>
+          <b style="display:block;font-size:14px;">${fmt(x.stock, 0)}</b>
+          ${spark(x.hist.filter(v => v !== null))}
+        </div>`).join('')}
+    </div>
+    <div class="foot-note">Графики из trend_samples / world_history. Нет данных — показываем отсутствие, а не выдумку.</div>`;
+  return html;
+}
+
+/* ========== DETAIL RENDER ========== */
+function renderDetail() {
+  const h = hub();
+  const st = selected();
+  if (!st) {
+    $('detailName').textContent = '—';
+    $('detailSub').innerHTML = '';
+    $('detailStatus').textContent = '—';
+    $('detailStatus').className = 'status-pill unknown';
+    $('detailBody').innerHTML = '<div class="detail-empty">Выберите станцию на карте или в списке</div>';
+    return;
+  }
+
+  $('detailName').textContent = st.name || st.location;
+  $('detailSub').innerHTML = `
+    <button class="inspector-link" data-open-faction="${safe(st.faction_id || '')}" title="Показать решения руководства фракции">◈ ${safe(factionName(st.faction_id))}</button>
+    <span>${safe(st.__system || '—')}</span>
+    <span>Тик ${safe(fmt(state.report.ui?.tick, 0))}</span>`;
+  const statusTxt = st.abandoned === true ? 'Заброшена' : st.abandoned === false ? 'Действует' : 'Неизвестно';
+  $('detailStatus').textContent = statusTxt;
+  $('detailStatus').className = 'status-pill ' + (st.abandoned === true ? 'danger' : st.abandoned === false ? '' : 'unknown');
+
+  // tabs active
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === state.tab));
+
+  let content = '';
+  switch (state.tab) {
+    case 'overview': content = renderOverview(h); break;
+    case 'resources': content = renderResources(h); break;
+    case 'industry': content = renderIndustry(h); break;
+    case 'population': content = renderPopulation(h); break;
+    case 'market': content = renderMarket(h); break;
+    case 'fleet': content = renderFleet(h); break;
+    case 'signals': content = renderSignals(h); break;
+    case 'analytics': content = renderAnalytics(h); break;
+    default: content = renderOverview(h);
+  }
+  $('detailBody').innerHTML = content;
+}
+
+/* ========== SIDEBAR + MAP ========== */
+const POS = { 'earth-station': [300, 260], 'pirate-outpost': [340, 510], 'alpha-station': [620, 260] };
+function position(name) {
+  if (POS[name]) return POS[name];
+  const seed = [...String(name)].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7);
+  return [220 + seed % 420, 140 + (seed >>> 9) % 460];
+}
+
+function renderStations() {
+  const q = nameKey($('stationSearch').value);
+  const st = stations();
+  $('stationCount').textContent = String(st.length).padStart(2, '0');
+  $('worldMeta').textContent = `${arr(state.report.systems).length || '—'} систем · ${st.length} станции`;
+  $('stationList').innerHTML = st
+    .filter(f => !q || nameKey(f.name + ' ' + f.location + ' ' + factionName(f.faction_id)).includes(q))
+    .map(f => `<button class="station-btn ${f.location === state.location ? 'selected' : ''}" data-select="${safe(f.location)}">
+      <span class="station-icon"></span>
+      <span><strong>${safe(f.name || f.location)}</strong><small>${safe(factionName(f.faction_id))}</small></span>
+    </button>`).join('') || '<div style="padding:10px;color:var(--muted);font-size:11px;">Нет результатов</div>';
+}
+
+function renderMap() {
+  const st = stations();
+  $('mapStations').innerHTML = st.map(f => {
+    const p = position(f.location);
+    return `<button class="map-station ${f.location === state.location ? 'selected' : ''}" style="left:${p[0]}px;top:${p[1]}px" data-select="${safe(f.location)}">
+      <span class="diamond"></span>
+      <span><strong>${safe(f.name || f.location)}</strong><small>${safe(factionName(f.faction_id))}</small></span>
+    </button>`;
+  }).join('');
+}
+
+function renderAll() {
+  if (!stations().some(f => f.location === state.location)) state.location = stations()[0]?.location || '';
+  $('sourceBadge').textContent = state.isDemo ? 'ДЕМО · БАЗА 0.3' : 'СНИМОК API / JSON';
+  $('sourceBadge').classList.toggle('live', !state.isDemo);
+  $('connectionState').textContent = state.isDemo ? 'Демо · не подключено' : 'Снимок · только чтение';
+  renderStations();
+  renderMap();
+  renderDetail();
+  mapTransform();
+}
+
+/* ========== MAP INTERACTION ========== */
+function mapTransform() {
+  $('mapLayer').style.transform = `translate(${state.mapPan.x}px,${state.mapPan.y}px) scale(${state.mapZoom})`;
+  $('zoomLabel').textContent = Math.round(state.mapZoom * 100) + '%';
+}
+function mapZoom(dx) {
+  state.mapZoom = clamp(Math.round((state.mapZoom + dx) * 100) / 100, 0.5, 2.2);
+  mapTransform();
+}
+function initMap() {
+  const area = $('mapCanvas');
+  let drag = null;
+  area.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || e.target.closest('.map-station')) return;
+    drag = { x: e.clientX, y: e.clientY, sx: state.mapPan.x, sy: state.mapPan.y };
+    area.setPointerCapture(e.pointerId);
+    area.classList.add('dragging');
+  });
+  area.addEventListener('pointermove', e => {
+    if (!drag) return;
+    state.mapPan.x = drag.sx + e.clientX - drag.x;
+    state.mapPan.y = drag.sy + e.clientY - drag.y;
+    mapTransform();
+  });
+  const stop = () => { drag = null; area.classList.remove('dragging'); };
+  area.addEventListener('pointerup', stop);
+  area.addEventListener('pointercancel', stop);
+  area.addEventListener('wheel', e => { e.preventDefault(); mapZoom(e.deltaY > 0 ? -0.08 : 0.08); }, { passive: false });
+  $('mapZoomIn').onclick = () => mapZoom(0.15);
+  $('mapZoomOut').onclick = () => mapZoom(-0.15);
+  $('mapResetBtn').onclick = () => { state.mapZoom = 0.88; state.mapPan = { x: 0, y: 0 }; mapTransform(); };
+  $('toggleDetailBtn').onclick = () => {
+    state.detailOpen = !state.detailOpen;
+    $('main').classList.toggle('map-focus', !state.detailOpen);
+    persist();
+  };
+  mapTransform();
+}
+
+/* ========== FACTONS / OBJECT INSPECTORS / SECTOR CHRONICLE ========== */
+// This Observer is read-only. For real data, display only supplied facts; missing
+// leader thinking/decisions remain empty until the Rust report explicitly publishes them.
+function displayText(v) { return v === undefined || v === null || String(v).trim() === '' ? 'Нет данных' : String(v); }
+function emptyInfo(message) { return `<div class="inspector-empty">${safe(message)}</div>`; }
+function dataLine(label, value) {
+  return `<div class="data-line"><span>${safe(label)}</span><b>${safe(displayText(value))}</b></div>`;
+}
+function miniTag(value) { return `<span class="tag ${pillClass(value)}">${safe(displayText(value))}</span>`; }
+function sectionBlock(title, body, extra='') {
+  return `<div class="inspector-block"><h4>${safe(title)}</h4>${body || emptyInfo('Нет данных в снимке.')}${extra}</div>`;
+}
+function currentFactions() { return arr(state.report.factions); }
+function selectedFactionId() {
+  const all=currentFactions();
+  if (all.some(x=>x.id===state.factionId)) return state.factionId;
+  return selected()?.faction_id || all[0]?.id || null;
+}
+function factionLeader(faction) {
+  if (!faction) return {};
+  const all=state.report.ui?.faction_leaders ?? state.report.faction_leaders;
+  const data = Array.isArray(all) ? all.find(x=>x.faction_id===faction.id || x.id===faction.id) : all?.[faction.id];
+  // The station administration snapshot is intentionally NOT used as faction AI.
+  return data ?? faction.leadership ?? faction.leader_ai ?? faction.ai ?? {};
+}
+function factionSummary(id) {
+  const st=stations().filter(x=>x.faction_id===id);
+  const locs=new Set(st.map(x=>x.location));
+  const res=arr(state.report.populations).filter(x=>locs.has(x.facility_location));
+  const ships=arr(state.report.ships).filter(x=>x.faction_id===id);
+  const units=facilities().filter(x=>x.faction_id===id && x.type!=='station');
+  const builds=arr(state.report.construction_sites).filter(x=>locs.has(x.location));
+  return {st,ships,units,builds,pop:res.reduce((n,p)=>n+val(p.count),0),knownPeople:res.length};
+}
+function renderFactionsModal() {
+  const fc=currentFactions();
+  if (!fc.length) return emptyInfo('В снимке отсутствуют фракции (factions[]).');
+  const selectedId=selectedFactionId();
+  const faction=fc.find(x=>x.id===selectedId)||fc[0];
+  state.factionId=faction.id;
+  const lead=factionLeader(faction);
+  const stats=factionSummary(faction.id);
+  const tasks=arr(lead.goals ?? lead.tasks ?? lead.objectives);
+  const decisions=arr(lead.decisions ?? lead.history ?? lead.decision_log);
+  const reasoning=lead.reason ?? lead.rationale ?? lead.decision_reason;
+  const name=lead.name ?? lead.title ?? faction.leader_name ?? (typeof faction.leader==='string'?faction.leader:faction.leader?.name);
+  const priority=lead.priority ?? lead.focus;
+  const current=lead.decision ?? lead.current_decision ?? lead.last_decision;
+  const goal=lead.goal ?? lead.strategy_goal ?? (typeof lead.strategy==='string'?lead.strategy:null);
+  let html=`<div class="inspector-nav" aria-label="Выбор фракции">
+    ${fc.map(f=>`<button class="${f.id===faction.id?'active':''}" data-faction-select="${safe(f.id)}">${safe(f.name||f.id)}</button>`).join('')}
+  </div>
+  <div class="inspector-card-head"><div><h3>${safe(faction.name||faction.id)}</h3><p>Руководство: ${safe(displayText(name))}</p></div>${miniTag(lead.status ?? 'Нет статуса')}</div>
+  <div class="kpi-row" style="grid-template-columns:repeat(4,minmax(0,1fr));">
+    ${kpi('Станций',fmt(stats.st.length,0))}${kpi('Население',stats.knownPeople?fmt(stats.pop,0):'—')}
+    ${kpi('Кораблей',fmt(stats.ships.length,0))}${kpi('Строек',fmt(stats.builds.length,0))}
+  </div>
+  <div class="inspector-grid">
+    <div class="inspector-column">
+      ${sectionBlock('Стратегическая цель',`<p>${safe(displayText(goal))}</p>`)}
+      ${sectionBlock('Текущий приоритет',`<p>${safe(displayText(priority))}</p>`)}
+      ${sectionBlock('Последнее решение главы',`<p>${safe(displayText(current))}</p>`,
+         `<p class="small-note">${safe(displayText(reasoning))}</p>`)}
+      ${sectionBlock('Ограничения и риски',arr(lead.risks ?? lead.constraints).length
+         ? arr(lead.risks ?? lead.constraints).map(x=>`<div class="data-line"><span>${safe(displayText(x))}</span></div>`).join('')
+         : emptyInfo('Риски не публикуются.'))}
+    </div>
+    <div class="inspector-column">
+      ${sectionBlock('Задачи руководства',tasks.length
+        ? tasks.map((x,i)=>`<div class="inspector-item"><strong>${safe(displayText(typeof x==='string'?x:x.title??x.name??x.goal))}</strong>
+            ${typeof x==='string'?'':`<small>${safe(displayText(x.status??x.state))}${x.reason?' · '+safe(x.reason):''}</small>`}</div>`).join('')
+        : emptyInfo('Нет списка стратегических задач.'))}
+      ${sectionBlock('История решений',decisions.length
+        ? decisions.slice().sort((a,b)=>val(b.tick)-val(a.tick)).slice(0,12).map(x=>`<div class="inspector-item">
+            <div class="item-meta">${exists(x.tick)?'ТИК '+safe(fmt(x.tick,0)):'ТИК НЕИЗВЕСТЕН'} ${x.state?' · '+safe(x.state):''}</div>
+            <strong>${safe(displayText(x.action??x.title??x.decision))}</strong><small>${safe(displayText(x.reason??x.rationale))}</small>
+          </div>`).join('')
+        : emptyInfo('Журнал решений главы фракции отсутствует в снимке.'))}
+    </div>
+  </div>
+  <div class="section-h"><strong>Станции фракции</strong></div>
+  ${stats.st.length ? stats.st.map(st=>`<button class="btn" style="margin:0 6px 7px 0" data-select="${safe(st.location)}">◈ ${safe(st.name||st.location)}</button>`).join('') : emptyInfo('Нет станций')}
+  <div class="foot-note">Раздел показывает решения и их обоснования, опубликованные симуляцией. Это не внутренние рассуждения модели: Observer ничего не придумывает. ${state.isDemo?'Сейчас отображаются демонстрационные записи.':'При отсутствии этих полей в JSON показывается «Нет данных».'}</div>`;
+  return html;
+}
+function normalizedEvents() {
+  // Only events published in the snapshot are displayed; no inferred incident generation.
+  const report=state.report;
+  const list=report.ui?.events ?? report.events ?? report.event_log ?? [];
+  return arr(list).map((e,i)=>{
+    const station=e.station ?? e.facility_location ?? e.location ?? null;
+    const match=stations().find(s=>s.location===station);
+    return {
+      ...e, _index:i,
+      tick:num(e.tick??e.at_tick),
+      station,
+      faction_id:e.faction_id??e.faction??match?.faction_id??null,
+      kind:String(e.kind??e.type??e.category??'Событие'),
+      message:String(e.message??e.description??e.title??''),
+      severity:e.severity??e.level??'info'
+    };
+  }).sort((a,b)=>(b.tick??-1)-(a.tick??-1)||a._index-b._index);
+}
+function eventClass(e) {
+  const k=nameKey(e.kind);
+  if (/стро|кораб|верф|проект/.test(k)) return 'construction';
+  if (/администр|решен|глав|фракци|стратег/.test(k)) return 'leaders';
+  if (/бой|пиратск.*налет|атак|сраж|опасн|безопасн/.test(k)) return 'conflict';
+  return 'economy';
+}
+function renderChronicleModal() {
+  const all=normalizedEvents(), f=state.eventFilter||'all';
+  const factions=currentFactions();
+  const selectedFc=state.eventFaction||'all';
+  const filtered=all.filter(x=>(f==='all'||eventClass(x)===f)&&(selectedFc==='all'||x.faction_id===selectedFc));
+  const categories=[['all','Все события'],['economy','Экономика'],['construction','Строительство'],['leaders','Решения'],['conflict','Конфликты']];
+  return `<div class="inspector-card-head"><div><h3>Хроника цивилизаций</h3><p>Что происходило в секторе и почему</p></div>${miniTag(state.isDemo?'Демо-история':'Снимок')}</div>
+  <div class="inspector-nav" aria-label="Фильтр событий">
+    ${categories.map(([id,title])=>`<button class="${f===id?'active':''}" data-event-filter="${id}">${title}</button>`).join('')}
+  </div>
+  <div class="inspector-nav" aria-label="Фракция события">
+    <button class="${selectedFc==='all'?'active':''}" data-event-faction="all">Все фракции</button>
+    ${factions.map(x=>`<button class="${selectedFc===x.id?'active':''}" data-event-faction="${safe(x.id)}">${safe(x.name||x.id)}</button>`).join('')}
+  </div>
+  <div class="section-h"><strong>Журнал событий</strong><small>${filtered.length} из ${all.length}</small></div>
+  ${filtered.length ? filtered.map(e=>`<div class="chronicle-item">
+    <div class="chronicle-tick">${e.tick===null?'—':'Т'+safe(fmt(e.tick,0))}</div>
+    <div><div class="chronicle-meta"><i class="chronicle-tone ${e.severity==='warn'?'warn':e.severity==='danger'?'danger':''}"></i>${safe(e.kind)} · ${safe(e.faction_id?factionName(e.faction_id):'Фракция не указана')}</div>
+    <div class="chronicle-title">${safe(e.message||'Событие без описания')}</div>
+    ${e.reason?`<div class="chronicle-desc">Причина: ${safe(e.reason)}</div>`:''}
+    ${e.station?`<button class="inspector-link" data-select="${safe(e.station)}">◈ ${safe(stations().find(x=>x.location===e.station)?.name||e.station)}</button>`:''}</div>
+  </div>`).join('') : emptyInfo('Нет событий в выбранной категории. В реальном режиме журнал появится, когда движок начнёт публиковать события.')}
+  <div class="foot-note">События поступают из ui.events / events / event_log. Хроника не воспроизводит симуляцию и не генерирует события сама.</div>`;
+}
+function readFacilityModal() {
+  const f=facilities().find(x=>x.id===state.selectedFacility);
+  if (!f) return emptyInfo('Предприятие не найдено в текущем снимке.');
+  const st=stations().find(x=>x.location===f.location);
+  const r=byId(f.recipe_id);
+  const crew=f.crew||{};
+  const working=crew.work_shift||{};
+  const reserves=Object.entries(f.reserves||{});
+  const events=normalizedEvents().filter(x=>x.facility_id===f.id||x.entity_id===f.id).slice(0,5);
+  return `<div class="inspector-card-head"><div><h3>${safe(f.name||f.id)}</h3><p>${safe(typ(f.type))} · ${safe(st?.name||f.location||'Нет локации')} · ${safe(factionName(f.faction_id||st?.faction_id))}</p></div>${miniTag(f.status)}</div>
+    <div class="kpi-row" style="grid-template-columns:repeat(4,minmax(0,1fr));">
+      ${kpi('Касса',money(f.credits))}${kpi('Эффективность',pct(exists(f.efficiency)?f.efficiency*100:null))}
+      ${kpi('Состояние',pct(exists(f.condition)?f.condition*100:null))}${kpi('Персонал',`${fmt(crew.assigned??crew.crew_count,0)} / ${fmt(crew.required??r?.workers,0)}`)}
+    </div>
+    <div class="inspector-grid"><div class="inspector-column">
+      ${sectionBlock('Производственный процесс',
+        `${r?recipeLine(r):emptyInfo('В отчёте нет активного рецепта.')}
+         <div class="data-line"><span>Текущий рецепт</span><b>${safe(displayText(f.recipe_id))}</b></div>
+         <div class="data-line"><span>Выполнено циклов</span><b>${fmt(f.cycles_completed,0)}</b></div>
+         <div class="data-line"><span>Прогресс цикла</span><b>${exists(f.progress)?pct(f.progress*100):'—'}</b></div>
+         ${bar(exists(f.progress)?f.progress*100:null,100)}
+         ${r?'<p class="small-note">Рецепт из справочника баланса: возможный выпуск при полной загрузке, не подтверждённая выработка за текущий тик.</p>':''}`)}
+      ${sectionBlock('Работники и зарплата',
+        dataLine('Сотрудников',fmt(crew.assigned??crew.crew_count,0))+
+        dataLine('Требуется',fmt(crew.required??r?.workers,0))+
+        dataLine('Мораль',pct(crew.morale))+
+        dataLine('Последняя выплата',money(working.wages))+
+        dataLine('Тик выплаты',fmt(working.tick,0)))}
+    </div><div class="inspector-column">
+      ${sectionBlock('Запасы предприятия',reserves.length
+        ? reserves.map(([k,v])=>`<div class="data-line"><span>${safe(goodName(k))}</span><b>${fmt(v)}</b></div>
+           ${f.storage_capacity?.[k]!=null?bar(v,num(f.storage_capacity[k])):''}`).join('')
+        : emptyInfo('Запасы этого объекта не опубликованы. Рыночные остатки отдельно.'))}
+      ${sectionBlock('Рабочий статус',
+        dataLine('Состояние',f.status)+dataLine('Причина блокировки',
+        f.status_reason??BLOCKS[crew.work_blocked_reason]??crew.work_blocked_reason)+
+        dataLine('Уровень',fmt(f.level,0))+
+        dataLine('Содержание / тик',money(f.costs?.maintenance)))}
+      ${events.length?sectionBlock('События этого объекта',events.map(x=>`<div class="inspector-item"><strong>Т${fmt(x.tick,0)} · ${safe(x.kind)}</strong><small>${safe(x.message)}</small></div>`).join('')):''}
+    </div></div>
+    ${st?`<button class="btn" data-select="${safe(st.location)}">◈ Перейти к станции</button>`:''}
+    <div class="foot-note">Данные взяты из объекта facilities[]. Отсутствующие поля не заполняются предположениями. ${state.isDemo?'Показаны демонстрационные значения.':''}</div>`;
+}
+function readShipModal() {
+  const sh=arr(state.report.ships).find(x=>x.id===state.selectedShip);
+  if (!sh) return emptyInfo('Корабль отсутствует в текущем снимке.');
+  const entries=Object.entries(sh.cargo||{});
+  const used=entries.reduce((a,x)=>a+val(x[1]),0);
+  const events=normalizedEvents().filter(x=>x.ship_id===sh.id||x.entity_id===sh.id).slice(0,5);
+  const near=stations().find(x=>x.location===sh.location||x.location===sh.to||x.location===sh.from);
+  return `<div class="inspector-card-head"><div><h3>${safe(sh.name||sh.id)}</h3><p>${safe(typ(sh.type))} · ${safe(factionName(sh.faction_id))}</p></div>${miniTag(sh.status)}</div>
+    <div class="kpi-row" style="grid-template-columns:repeat(4,minmax(0,1fr);">
+      ${kpi('Груз',fmt(used,0)+' / '+fmt(sh.capacity,0))}${kpi('Топливо',fmt(sh.fuel,0)+' / '+fmt(sh.fuel_max,0))}
+      ${kpi('Состояние',pct(exists(sh.condition)?sh.condition*100:null))}${kpi('Средства',money(sh.credits))}
+    </div>
+    <div class="inspector-grid"><div class="inspector-column">
+      ${sectionBlock('Рейс и задача',
+        dataLine('Откуда',sh.from??sh.location)+dataLine('Куда',sh.to)+dataLine('Осталось тиков',fmt(sh.eta,0))+
+        dataLine('Прогресс пути',exists(sh.progress)?pct(sh.progress*100):'—')+
+        bar(exists(sh.progress)?sh.progress*100:null,100)+
+        `<p class="small-note">Задача: ${safe(displayText(sh.objective??sh.goal))}</p>`)}
+      ${sectionBlock('Техническое состояние',
+        dataLine('Топливо',fmt(sh.fuel,0)+' / '+fmt(sh.fuel_max,0))+bar(sh.fuel,sh.fuel_max)+
+        dataLine('Корпус',exists(sh.condition)?pct(sh.condition*100):'—')+
+        bar(exists(sh.condition)?sh.condition*100:null,100))}
+    </div><div class="inspector-column">
+      ${sectionBlock('Грузовой отсек',
+        `<div class="data-line"><span>Занято</span><b>${fmt(used,0)} / ${fmt(sh.capacity,0)}</b></div>${bar(used,sh.capacity)}`+
+        (entries.length?entries.map(([k,v])=>dataLine(goodName(k),fmt(v,0))).join(''):emptyInfo('Отсек пуст')))}
+      ${events.length?sectionBlock('Последние события',events.map(x=>`<div class="inspector-item"><strong>Т${fmt(x.tick,0)} · ${safe(x.kind)}</strong><small>${safe(x.message)}</small></div>`).join('')):''}
+      ${sectionBlock('Принадлежность',dataLine('Фракция',factionName(sh.faction_id))+dataLine('Текущая локация',sh.location))}
+    </div></div>
+    ${near?`<button class="btn" data-select="${safe(near.location)}">◈ Найти связанную станцию</button>`:''}
+    <div class="foot-note">Показаны сведения ships[]; модель, маршрут и ранее созданные игровые ассеты не изменяются.</div>`;
+}
+
+function readNativeBodyModal() {
+  const id=state.selectedBody;
+  const sys=arr(state.report.systems).find(x=>arr(x.bodies).some(b=>b.id===id));
+  const b=arr(sys?.bodies).find(x=>x.id===id);
+  if(!b)return emptyInfo('Тело не найдено в текущем снимке /api/report.');
+  const resources=Object.entries(b.resources||{});
+  const bodyRows=[
+    dataLine('Система',sys?.name),
+    dataLine('Тип',b.type),
+    dataLine('Орбитальный радиус',exists(b.orbit_radius)?fmt(b.orbit_radius,2):null),
+    dataLine('Период орбиты',exists(b.orbit_period)?fmt(b.orbit_period,0):null)
+  ].join('');
+  return '<div class="inspector-card-head"><div><h3>'+safe(b.name||b.id)+'</h3><p>'+
+    safe(sys?.name||'Система неизвестна')+'</p></div></div>'+
+    sectionBlock('Физическое тело',bodyRows)+
+    sectionBlock('Месторождения',resources.length?resources.map(([k,v])=>dataLine(goodName(k),fmt(v,0))).join(''):
+      emptyInfo('Ресурсы не указаны в снимке.'))+
+    '<p class="foot-note">Фактические характеристики тела из /api/report; карта и орбиты рассчитываются нативным движком.</p>';
+}
+function readNativeSystemModal() {
+  const sys=arr(state.report.systems).find(x=>x.name===state.selectedSystem);
+  if(!sys)return emptyInfo('Система не найдена в отчёте.');
+  return '<div class="inspector-card-head"><div><h3>'+safe(sys.name)+'</h3><p>Физическая система</p></div></div>'+
+    sectionBlock('Состав',dataLine('Небесные тела',fmt(arr(sys.bodies).length,0))+
+      dataLine('Смещение',Array.isArray(sys.universe_offset)?sys.universe_offset.join(', '):null))+
+    sectionBlock('Небесные тела',arr(sys.bodies).map(b=>'<div class="data-line"><span>'+safe(b.name||b.id)+
+      '</span><b>'+safe(b.type||'—')+'</b></div>').join(''));
+}
+
+/* ========== MODALS ========== */
+function openModal(type) {
+  const titles = {sector:'Сводка по сектору',balance:'Базовые коэффициенты',factions:'Главы фракций · решения',chronicle:'Хроника сектора',facility:'Карточка предприятия',ship:'Карточка корабля',body:'Небесное тело',system:'Звёздная система'};
+  $('modalTitle').textContent = titles[type] || 'Сведения';
+  $('modal').classList.toggle('wide', ['factions','chronicle','facility','ship','body','system'].includes(type));
+  let body = '';
+  if (type === 'factions') {
+    body=renderFactionsModal();
+  } else if (type === 'chronicle') {
+    body=renderChronicleModal();
+  } else if (type === 'facility') {
+    body=readFacilityModal();
+  } else if (type === 'ship') {
+    body=readShipModal();
+  } else if (type === 'body') {
+    body=readNativeBodyModal();
+  } else if (type === 'system') {
+    body=readNativeSystemModal();
+  } else if (type === 'sector') {
+    const st = stations();
+    const pop = arr(state.report.populations).reduce((s, x) => s + val(x.count), 0);
+    const ships = arr(state.report.ships).length;
+    const sites = arr(state.report.construction_sites).length;
+    const cash = st.reduce((s, x) => s + val(x.credits), 0);
+    body = `<div class="kpi-row">
+      ${kpi('Станций', fmt(st.length, 0))}
+      ${kpi('Население', fmt(pop, 0))}
+      ${kpi('Флот', fmt(ships, 0))}
+      ${kpi('Стройки', fmt(sites, 0))}
+      ${kpi('Счета станций', money(cash))}
+      ${kpi('Системы', fmt(arr(state.report.systems).length, 0))}
+    </div>
+    <div class="mini-table"><div class="mt-head"><span>Узел</span><span>Жители</span><span>Объекты</span></div>
+    ${st.map(s => {
+      const loc = s.location;
+      return `<div class="mt-row clickable" data-select="${safe(loc)}"><span>${safe(s.name)}</span>
+        <b>${fmt(arr(state.report.populations).find(x => x.facility_location === loc)?.count, 0)}</b>
+        <b>${fmt(facilities().filter(f => f.location === loc && f.type !== 'station').length, 0)}</b></div>`;
+    }).join('')}
+    </div>
+    <div class="foot-note">Секторная сводка не заменяет локальные склады и реальные перевозки.</div>`;
+  } else {
+    body = `<div class="kpi-row">
+      ${kpi('Население', Object.values(BALANCE.population).join(' / '), 'Genesis / Пираты / Alpha')}
+      ${kpi('Еда', fmt(BALANCE.people.food, 2), 'на чел./тик')}
+      ${kpi('Вода', fmt(BALANCE.people.water, 2), 'на чел./тик')}
+      ${kpi('Зарплата', money(BALANCE.people.wage), 'работник/тик')}
+    </div>
+    <div class="section-h"><strong>Рецепты</strong></div>
+    ${BALANCE.recipes.map(r => `<div class="card" style="margin-bottom:6px;"><b style="font-size:12px;">${safe(r.name)}</b>${recipeLine(r)}
+      <div style="font-size:10px;color:var(--muted);margin-top:4px;">${fmt(r.workers, 0)} раб. · ${fmt(r.ticks, 0)} тик</div></div>`).join('')}
+    <div class="section-h" style="margin-top:12px;"><strong>Постройки</strong></div>
+    <div class="mini-table"><div class="mt-head"><span>Постройка</span><span>Металлы</span><span>Труд</span></div>
+    ${Object.values(BALANCE.construction).map(r => `<div class="mt-row"><span>${safe(r.name)}</span><b>${fmt(r.metals, 0)}</b><b>${fmt(r.work, 0)}</b></div>`).join('')}
+    </div>
+    <div class="foot-note">${safe(BALANCE.notes)}</div>
+    <button class="primary" style="margin-top:12px;" data-export-balance="1">↓ Экспорт JSON баланса</button>`;
+  }
+  $('modalBody').innerHTML = body;
+  $('modalBackdrop').hidden = false;
+}
+
+function closeModal() { $('modalBackdrop').hidden = true; }
+
+/* ========== LOAD ========== */
+async function loadJSON(raw) {
+  window.LivingSectorV51?.pauseLiveForImport?.();
+  const report = raw?.report ?? raw?.data ?? raw;
+  if (!Array.isArray(report?.facilities)) throw Error('Ожидается JSON с facilities[]');
+  if (!Array.isArray(report.markets)) report.markets = [];
+  state.report = report;
+  state.isDemo = false;
+  state.location = stations()[0]?.location || '';
+  state.selectedFacility = null;
+  state.selectedShip = null;
+  state.factionId = null;
+  renderAll();
+  toast('Снимок загружен');
+}
+
+/* ========== EVENTS ========== */
+function handleClick(e) {
+  const t = e.target.closest('[data-select],[data-tab],[data-chart],[data-facility],[data-ship],[data-open-modal],[data-export-balance],[data-faction-select],[data-open-faction],[data-event-filter],[data-event-faction]');
+  if (!t) return;
+
+  if (t.hasAttribute('data-faction-select')) {
+    state.factionId=t.dataset.factionSelect;
+    openModal('factions');
+    return;
+  }
+  if (t.hasAttribute('data-open-faction')) {
+    state.factionId=t.dataset.openFaction;
+    openModal('factions');
+    return;
+  }
+  if (t.hasAttribute('data-event-filter')) {
+    state.eventFilter=t.dataset.eventFilter;
+    openModal('chronicle');
+    return;
+  }
+  if (t.hasAttribute('data-event-faction')) {
+    state.eventFaction=t.dataset.eventFaction;
+    openModal('chronicle');
+    return;
+  }
+  if (t.dataset.select) {
+    state.location = t.dataset.select;
+    state.selectedFacility = null;
+    persist();
+    renderAll();
+    closeModal();
+    return;
+  }
+  if (t.dataset.tab) {
+    state.tab = t.dataset.tab;
+    persist();
+    renderDetail();
+    return;
+  }
+  if (t.dataset.chart) {
+    state.chart = t.dataset.chart;
+    persist();
+    renderDetail();
+    return;
+  }
+  if (t.dataset.facility) {
+    state.selectedFacility = t.dataset.facility;
+    openModal('facility');
+    return;
+  }
+  if (t.dataset.ship) {
+    state.selectedShip = t.dataset.ship;
+    openModal('ship');
+    return;
+  }
+  if (t.dataset.openModal) {
+    openModal(t.dataset.openModal);
+    return;
+  }
+  if (t.dataset.exportBalance) {
+    const blob = new Blob([JSON.stringify(BALANCE, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'living-sector-balance-0.3.json';
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 800);
+    toast('Баланс экспортирован');
+  }
+}
+
+function init() {
+  if(window.LivingSectorV51?.isLive?.()) { state.report={facilities:[],markets:[],systems:[],ships:[],populations:[],factions:[],construction_sites:[]};state.isDemo=false; }
+  if (!state.detailOpen) $('main').classList.add('map-focus');
+  renderAll();
+  initMap();
+
+  document.body.addEventListener('click', handleClick);
+  $('stationSearch').addEventListener('input', renderStations);
+
+  $('loadFileBtn').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try { await loadJSON(JSON.parse(await file.text())); }
+    catch (err) { toast('Ошибка: ' + err.message); }
+    e.target.value = '';
+  });
+
+  $('connectBtn').addEventListener('click', async () => {
+    if (window.LivingSectorV51?.isLive?.()) {window.LivingSectorV51.refresh(true);return;}
+    try {
+      const res = await fetch(state.api || '/api/report', { method: 'GET', cache: 'no-store' });
+      if (!res.ok) throw Error('HTTP ' + res.status);
+      await loadJSON(await res.json());
+      toast('Получен JSON /api/report');
+    } catch (err) { toast('API недоступен: ' + err.message); }
+  });
+
+  $('settingsBtn').addEventListener('click', () => {
+    $('capacityInput').value = state.capacity;
+    $('apiInput').value = state.api;
+    $('settingsBackdrop').hidden = false;
+    $('settingsPanel').hidden = false;
+  });
+  $('settingsBackdrop').addEventListener('click', closeSettings);
+  $('closeSettingsBtn').addEventListener('click', closeSettings);
+  $('saveSettingsBtn').addEventListener('click', () => {
+    state.capacity = clamp(val($('capacityInput').value, 5000), 1, 1e7);
+    state.api = $('apiInput').value.trim() || '/api/report';
+    persist();
+    closeSettings();
+    renderAll();
+    toast('Настройки сохранены');
+  });
+  $('restoreDemoBtn').addEventListener('click', () => {
+    state.report = DEMO;
+    state.isDemo = true;
+    state.location = 'earth-station';
+    state.selectedFacility = null;
+    state.selectedShip = null;
+    state.factionId = null;
+    closeSettings();
+    renderAll();
+    toast('Демо восстановлено');
+  });
+
+  $('closeModalBtn').addEventListener('click', closeModal);
+  $('modalBackdrop').addEventListener('click', e => { if (e.target === $('modalBackdrop')) closeModal(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeSettings(); closeModal(); }
+  });
+}
+
+function closeSettings() {
+  $('settingsBackdrop').hidden = true;
+  $('settingsPanel').hidden = true;
+}
+
+init();
+if(window.LivingSectorV51?.isLive?.()) window.LivingSectorV51.start({state,renderAll,renderDetail,renderStations,renderMap,openModal,toast,nativeFrame:$('v51NativeMap')});
+})();
+</script>
+</body>
+</html>

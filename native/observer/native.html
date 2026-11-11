@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Living Sector — Observer</title>
+  <link rel="stylesheet" href="/observer/styles.css">
+  <link rel="stylesheet" href="/observer/priority-inspector.css">
+
+<script>
+  if (new URLSearchParams(location.search).get('embed') === 'map') document.documentElement.classList.add('native-map-embedded');
+</script>
+<style>
+  html.native-map-embedded, html.native-map-embedded body { width:100%; height:100%; overflow:hidden; margin:0; }
+  html.native-map-embedded .shell { display:block !important; width:100%; height:100%; min-height:0; position:relative; }
+  html.native-map-embedded .sidebar,
+  html.native-map-embedded .toolbar,
+  html.native-map-embedded .timeline,
+  html.native-map-embedded .telemetry-drawer,
+  html.native-map-embedded .telemetry-backdrop,
+  html.native-map-embedded .strategy-drawer,
+  html.native-map-embedded .strategy-backdrop { display:none !important; }
+  html.native-map-embedded .main { display:flex !important; position:relative; flex-direction:column; width:100%; height:100%; min-height:0; }
+  html.native-map-embedded .map-section { display:flex; flex:1; min-height:0; }
+  html.native-map-embedded .map-top { min-height:45px; height:auto; flex-wrap:wrap; gap:4px; padding:5px 10px; }
+  html.native-map-embedded .map-top .map-tools { flex-wrap:wrap; gap:6px; }
+  html.native-map-embedded .map-help { max-width:74%; font-size:10px; }
+  html.native-map-embedded .map-legend { max-width:60%; }
+  html.native-map-embedded .first-run-guide { max-width:330px; }
+</style>
+
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <header class="identity">
+      <div class="brand"><span class="brand-mark">◈</span><span>LIVING <strong>SECTOR</strong><small>OBSERVER · SYSTEM VIEW</small></span></div>
+      <div id="connection" class="status" role="status"><span class="status-dot"></span>Подключение…</div>
+    </header>
+    <div class="sidebar-content">
+      <div class="section-heading"><span>ЗВЁЗДНЫЕ СИСТЕМЫ</span><span id="system-count">—</span></div>
+      <label class="sr-only" for="system-search">Поиск системы</label>
+      <input id="system-search" class="search" type="search" placeholder="Поиск системы…" autocomplete="off">
+      <div id="system-list" class="system-list"><div class="empty">Ожидание данных симуляции</div></div>
+      <div class="section-heading shift"><span>ФРАКЦИИ</span><span id="faction-count">—</span></div>
+      <div id="faction-legend" class="faction-list"><div class="empty">—</div></div>
+    </div>
+    <footer class="sidebar-footer">
+      <span>Источник: The Space Project / Rust</span>
+      <span>Данные — только из работающего симулятора</span>
+    </footer>
+  </aside>
+
+  <main class="main">
+    <header class="toolbar">
+      <div class="title-group">
+        <span class="overline">SIMULATION</span>
+        <span id="world-title" class="world-title">Обзор сектора</span>
+        <span id="world-subtitle" class="sub-title">—</span>
+      </div>
+      <div class="controls">
+        <button id="telemetry-toggle" class="telemetry-toolbar-button" type="button" aria-controls="telemetry-drawer" aria-expanded="false">▤ Статистика</button>
+        <a href="/observer/governance.html" class="strategy-toolbar-button" style="padding:6px 10px;text-decoration:none" title="Управление фракцией">Мандаты</a>
+        <button id="strategy-toggle" class="strategy-toolbar-button" type="button" aria-controls="strategy-drawer" aria-expanded="false">◈ Стратегия</button>
+        <div class="readout"><span>ТИК</span><strong id="tick">—</strong></div>
+        <div class="readout"><span>АГЕНТЫ</span><strong id="agent-count">—</strong></div>
+        <div class="overview-counts" aria-label="Масштаб текущего мира"><span>Корабли <b id="ship-total">—</b></span><span>Объекты <b id="facility-total">—</b></span><span>Рынки <b id="market-total">—</b></span></div>
+        <button id="pause-btn" class="control-button" disabled aria-label="Пауза или продолжение">⏯ Пауза</button>
+        <label for="speed-select" class="sr-only">Скорость симуляции</label>
+        <select id="speed-select" class="control-button" disabled>
+          <option value="0.25">0.25×</option>
+          <option value="1">1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+          <option value="8">8×</option>
+          <option value="16">16×</option>
+        </select>
+      </div>
+    </header>
+
+    <section class="map-section" aria-label="Карта живого сектора">
+      <div class="map-top">
+        <div class="view-tabs">
+          <button id="sector-tab" class="tab active">СЕКТОР</button>
+          <button id="system-tab" class="tab" disabled>СИСТЕМА</button>
+        </div>
+        <div id="focus-picker" class="map-focus-picker" role="group" aria-label="Область обзора системы" hidden>
+          <div class="focus-button-row">
+            <button type="button" id="focus-inner-btn" class="focus-button active" aria-pressed="true">Ближняя зона</button>
+            <button type="button" id="focus-full-btn" class="focus-button" aria-pressed="false">Вся система</button>
+          </div>
+          <div id="focus-caption" class="focus-caption">Ближние планеты · пояс</div>
+        </div>
+        <div class="map-tools">
+          <label class="toggle"><input id="ships-toggle" type="checkbox"> Корабли</label>
+          <label class="toggle"><input id="modules-toggle" type="checkbox" checked> Сооружения</label>
+          <label class="toggle"><input id="links-toggle" type="checkbox" checked> Врата</label>
+          <label class="toggle"><input id="labels-toggle" type="checkbox" checked> Подписи</label>
+          <button id="follow-btn" class="small-button" title="Зафиксировать камеру на выбранной планете, станции или корабле" disabled aria-pressed="false">Следить за объектом</button>
+          <button id="fit-btn" class="small-button" title="Отключить слежение, сбросить масштаб и сдвиг">Сброс вида</button>
+        </div>
+      </div>
+      <div id="canvas-holder" class="canvas-holder">
+        <canvas id="map" tabindex="0" aria-label="Интерактивная карта; колесо — масштаб, перетаскивание — сдвиг, клик — выбрать объект"></canvas>
+        <div class="map-stamp">SYSTEM DATA <span id="data-tick">—</span> · LIVE COORDINATES</div>
+
+        <div id="hover-label" class="hover-label" hidden></div>
+        <div id="map-error" class="map-error" hidden>Нет прямого соединения с симулятором. Показаны только ранее полученные данные.</div>
+        <div id="first-run-guide" class="first-run-guide" hidden>
+          <span class="guide-eyebrow">С ЧЕГО НАЧАТЬ</span>
+          <h2>Начни с одной системы</h2>
+          <p>Карта показывает настоящий мир симуляции. Выбери систему, затем станцию или корабль, чтобы увидеть их работу.</p>
+          <div class="guide-actions"><button id="start-system-btn" class="guide-primary" disabled>Открыть систему</button><button id="dismiss-guide-btn" class="small-button">Показать карту</button></div>
+          <p class="guide-note">Состояние симуляции показано сверху. Для спокойного осмотра можно нажать «Пауза».</p>
+        </div>
+        <div class="map-legend" aria-label="Условные обозначения"><span><i class="legend-body"></i> Планеты</span><span><i class="legend-major"></i> Крупный хаб</span><span><i class="legend-module legend-extract"></i> Добыча</span><span><i class="legend-module legend-processing"></i> Переработка</span><span><i class="legend-module legend-logistics"></i> Логистика</span><span><i class="legend-site"></i> Стройка</span><span><i class="legend-ship"></i> Корабль</span></div>
+        <div class="map-help">Станции движутся по собственным орбитам · Выбери объект и нажми «Следить» (или дважды щёлкни) · Перетаскивание освобождает камеру</div>
+      </div>
+    </section>
+
+    <section class="timeline" aria-label="Реальные события симуляции">
+      <header class="timeline-title">
+        <span>СОБЫТИЯ МИРА</span>
+        <span class="hint">WebSocket · без сгенерированных событий</span>
+        <button id="export-diagnostics" class="flat-button" type="button" title="Выгрузить снимки API и последние события Observer в JSON">Выгрузить диагностику</button>
+        <button id="clear-events" class="flat-button">Очистить экран</button>
+      </header>
+      <div id="event-feed" class="event-feed"><div class="empty">События появятся по мере работы симуляции</div></div>
+    </section>
+  </main>
+
+  <div id="telemetry-backdrop" class="telemetry-backdrop" hidden></div>
+  <aside id="telemetry-drawer" class="telemetry-drawer" role="dialog" aria-modal="true" aria-label="Экономика и статистика сектора" hidden>
+    <header class="telemetry-drawer-head">
+      <div><small>LIVING SECTOR / TELEMETRY</small><h2>Экономика сектора</h2><p>Живые данные · графики · без управления симуляцией</p></div>
+      <button id="telemetry-close" class="telemetry-close" type="button" aria-label="Закрыть статистику">×</button>
+    </header>
+    <div class="telemetry-scope-row">
+      <label for="telemetry-scope">ПОКАЗАТЕЛИ</label>
+      <select id="telemetry-scope" aria-label="Фильтр по фракции"><option value="all">Весь сектор</option></select>
+      <strong id="telemetry-tick">ТИК —</strong>
+    </div>
+    <nav id="telemetry-tabs" class="telemetry-tabs" aria-label="Разделы статистики">
+      <button type="button" class="active" data-tab="overview">Обзор</button>
+      <button type="button" data-tab="resources">Ресурсы</button>
+      <button type="button" data-tab="industry">Производство</button>
+      <button type="button" data-tab="population">Население</button>
+      <button type="button" data-tab="market">Рынок</button>
+      <button type="button" data-tab="fleet">Флот</button>
+      <button type="button" data-tab="signals">События</button>
+      <button type="button" data-tab="analytics">Графики</button>
+    </nav>
+    <div id="telemetry-content" class="telemetry-scroll"><p class="telemetry-note">Данные появятся после подключения к симуляции.</p></div>
+  </aside>
+  <div id="strategy-backdrop" class="strategy-backdrop" hidden></div>
+  <aside id="strategy-drawer" class="strategy-drawer" role="dialog" aria-modal="true" aria-label="Стратегическое управление фракциями" hidden>
+    <header class="strategy-drawer-header">
+      <div>
+        <span class="strategy-title-label">LIVING SECTOR / УПРАВЛЕНИЕ</span>
+        <h2>Стратегия фракций</h2>
+        <p>Решения главы и реальные проекты симуляции</p>
+      </div>
+      <button id="strategy-close" class="strategy-close" type="button" aria-label="Закрыть стратегию">×</button>
+    </header>
+    <div class="strategy-meta">
+      <span id="strategy-mode" class="strategy-mode">Нет данных</span>
+      <span id="strategy-update" class="strategy-update" role="status">Ожидание ответа API</span>
+    </div>
+    <div class="strategy-picker">
+      <label for="strategy-faction">ФРАКЦИЯ</label>
+      <select id="strategy-faction" aria-label="Выбрать фракцию"></select>
+      <button id="strategy-refresh" class="strategy-refresh" type="button" title="Обновить данные с сервера" aria-label="Обновить стратегию">↻</button>
+    </div>
+    <div id="strategy-content" class="strategy-content">
+      <section class="strategy-section" aria-label="Решение главы">
+        <header class="strategy-section-heading"><h3>ГЛАВА ФРАКЦИИ</h3><small>Координация · S4</small></header>
+        <div id="strategy-head"></div>
+      </section>
+      <section class="strategy-section" aria-label="Исполнение нативных планов ИИ">
+        <header class="strategy-section-heading"><h3>HTN / GOAP / BEAM · ИСПОЛНЕНИЕ</h3><small>Факты из Genesis</small></header>
+        <div id="strategy-ai-native"><p class="strategy-empty">Ожидание данных.</p></div>
+      </section>
+      <section class="strategy-section" aria-label="Логистический администратор">
+        <header class="strategy-section-heading"><h3>АДМИНИСТРАТОР: ЛОГИСТИКА</h3><small>Снабжение</small></header>
+        <div id="strategy-summary"><p class="strategy-empty">Ожидание данных.</p></div>
+      </section>
+      <section class="strategy-section" aria-label="Оценка потребностей">
+        <header class="strategy-section-heading"><h3>ЦЕЛИ СНАБЖЕНИЯ</h3><small>Доступность · S2</small></header>
+        <div id="strategy-goals"></div>
+      </section>
+      <section class="strategy-section" aria-label="Строительный администратор">
+        <header class="strategy-section-heading"><h3>АДМИНИСТРАТОР: СТРОИТЕЛЬСТВО</h3><small>Площадки · S3</small></header>
+        <div id="strategy-construction"></div>
+      </section>
+      <section class="strategy-section" aria-label="Штатные стратегические контракты">
+        <header class="strategy-section-heading"><h3>СТРАТЕГИЧЕСКИЕ КОНТРАКТЫ</h3><small>Доставка ≠ построенный объект</small></header>
+        <div id="strategy-projects"></div>
+      </section>
+      <section class="strategy-section" aria-label="Администраторы станций">
+        <header class="strategy-section-heading"><h3>АДМИНИСТРАТОРЫ СТАНЦИЙ</h3><small>A1 · Персонал и производство</small></header>
+        <div id="strategy-stations"></div>
+      </section>
+      <section class="strategy-section" aria-label="Приказы станций">
+        <header class="strategy-section-heading"><h3>СТАНЦИОННЫЕ ПРИКАЗЫ</h3><small>A2 · Доставка и стройка</small></header>
+        <div id="strategy-orders"></div>
+      </section>
+      <section class="strategy-section" aria-label="История наблюдаемых изменений">
+        <header class="strategy-section-heading">
+          <h3>ИЗМЕНЕНИЯ В ЭТОМ ОКНЕ</h3>
+          <button id="strategy-clear-history" type="button" class="strategy-clear">Очистить</button>
+        </header>
+        <div id="strategy-history"></div>
+        <p class="strategy-note">Сравнение периодических снимков API. Промежуточные переходы могут быть пропущены; это не серверный журнал решений.</p>
+      </section>
+    </div>
+    <footer class="strategy-footer">
+      Панель только читает GET /api/strategy v1. Режим выполнения задаётся при запуске сервера;
+      из Observer нельзя изменить стратегию или потратить ресурсы.
+    </footer>
+  </aside>
+
+  <aside class="inspector">
+    <header class="inspector-header">
+      <span>ИНСПЕКТОР</span>
+      <button id="clear-selection" class="flat-button">Сброс</button>
+    </header>
+    <div id="inspector-body" class="inspector-body">
+      <div class="placeholder-icon">◎</div>
+      <h2>Выберите объект</h2>
+      <p>Звёздную систему, планету, станцию или корабль. Параметры берутся из текущего состояния симуляции.</p>
+    </div>
+
+  </aside>
+</div>
+<script type="module" src="/observer/app.js"></script>
+</body>
+</html>

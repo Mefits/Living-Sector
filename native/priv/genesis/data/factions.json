@@ -1,0 +1,78 @@
+[
+  {
+    "id": "terran-authority",
+    "name": "Genesis Initiative",
+    "type": "government",
+    "description": "Initial Genesis trial faction: bootstrap local resource extraction and industry.",
+    "home_system": "system-sol",
+    "personality": {
+      "profit": 0.4,
+      "safety": 0.9,
+      "morale": 0.6,
+      "exploration": 0.2,
+      "loyalty": 0.8,
+      "aggression": 0.1,
+      "prefer_goals": {
+        "secure_food": 0.45,
+        "secure_ore": 0.3,
+        "secure_water": 0.25
+      }
+    },
+    "colors": {
+      "primary": "#3b82f6",
+      "secondary": "#1e40af"
+    },
+    "treasury": 90000
+  },
+  {
+    "id": "pirates",
+    "name": "Пираты",
+    "type": "outlaw",
+    "description": "Primitive hostile/outlaw economy; war with regular factions; no ordinary cross-faction commerce.",
+    "home_system": "system-sol",
+    "treasury": 80000,
+    "personality": {
+      "profit": 0.76,
+      "safety": 0.21,
+      "morale": 0.5,
+      "exploration": 0.2,
+      "loyalty": 0.82,
+      "aggression": 0.9,
+      "prefer_goals": {
+        "secure_fuel": 0.85,
+        "secure_gas": 0.7,
+        "secure_food": 0.2,
+        "secure_metals": 0.45
+      }
+    },
+    "colors": {
+      "primary": "#dc6b5c",
+      "secondary": "#8f342c"
+    }
+  },
+  {
+    "id": "ceti-freeholds",
+    "name": "Ceti Freeholds",
+    "type": "independent",
+    "description": "Third peaceful experimental faction based at Proxima, Alpha Centauri.",
+    "home_system": "system-alpha-centauri",
+    "treasury": 85000,
+    "personality": {
+      "profit": 0.6,
+      "safety": 0.7,
+      "morale": 0.7,
+      "exploration": 0.35,
+      "loyalty": 0.6,
+      "aggression": 0.1,
+      "prefer_goals": {
+        "secure_food": 0.5,
+        "secure_ore": 0.4,
+        "secure_water": 0.5
+      }
+    },
+    "colors": {
+      "primary": "#27a5ab",
+      "secondary": "#1c5e65"
+    }
+  }
+]

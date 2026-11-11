@@ -1,0 +1,65 @@
+[package]
+name = "client_bevy"
+version.workspace = true
+edition.workspace = true
+authors = ["David Clausen"]
+
+# Bevy client for the spaceproject simulator. Embeds `sim_core` directly
+# — same process, same memory, zero network. The Godot client at
+# `../../../client/` stays as reference until parity lands.
+#
+# Structure:
+#   src/main.rs       ← app bootstrap + plugin wiring
+#   src/sim/          ← Sim Resource + startup seeding + tick system
+#   src/world/        ← Bevy entity mirror of hecs state
+#   src/render/       ← mesh / material / instancing systems
+#   src/camera/       ← isometric cam + zoom / pan
+#   src/ui/           ← egui inspector panels
+#   src/hud/          ← in-world HUD (labels, selection ring)
+#   src/admin/        ← admin actions (direct function calls on Sim)
+
+[dependencies]
+# The sim itself, embedded as a library. All tick logic, types,
+# seeders, and state live here.
+sim_core = { path = "../sim_core" }
+# Persistence + seeder + spawner for loading the world on startup
+# and flushing changes back to SQLite.
+sim_db = { path = "../sim_db" }
+# sim_server exposes the command-apply phase + admin helpers as a
+# library surface (see crates/sim_server/src/lib.rs). Pulls in
+# axum/tower as transitive deps even though we don't use them —
+# that's the cost of the minimum-friction 2b.4 plan, which favours
+# a small code change over moving ~1200 lines of apply helpers to
+# sim_core.
+sim_server = { path = "../sim_server" }
+
+# Workspace-shared (resolved once across sim + client).
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+# tracing-subscriber: only used by the `--headless` branch in main.rs
+# to install its own EnvFilter-backed subscriber (the windowed branch
+# defers to bevy::log::LogPlugin).
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+rand = { workspace = true }
+# Tokio for the one-shot Startup runtime that runs async sqlx
+# operations (seed + spawn) synchronously from Bevy's Startup
+# system, plus the persistence worker running on a side thread.
+tokio = { workspace = true }
+
+# Engine + render stack — client-only deps, declared here directly.
+# Version-pinned intentionally: Bevy's API moves; bundle-by-bundle
+# upgrades are allowed, mid-bundle upgrades are not.
+bevy = "0.18"
+bevy_egui = "0.39"
+# egui_extras with the `svg` feature gives us runtime SVG image
+# loaders — we feed it the SVGs already lifted into
+# `assets/icons/` from the Godot client. Without it, top-bar
+# buttons stay text-only. egui_extras 0.33 matches bevy_egui
+# 0.39's egui 0.33 dependency.
+egui_extras = { version = "0.33", features = ["svg"] }
+# GPU particle system. 0.18 targets Bevy 0.18. Drives engine trails
+# on in-transit ships — see `render::particles`. Default features
+# include both 2d + 3d backends; we only use 3d.
+bevy_hanabi = { version = "0.18", default-features = false, features = ["3d"] }

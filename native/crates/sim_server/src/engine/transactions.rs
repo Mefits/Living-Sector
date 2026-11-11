@@ -1,0 +1,755 @@
+//! Exclusive economic commits. A failed validation changes no economic state.
+//! Receipts live with the current BT, not in a durable transaction journal.
+
+use bevy_ecs::prelude::{Entity, World};
+use sim_core::agents::{
+    celestial_body::{BodyIdentity, BodyOrbit, BodyResources},
+    facility::{
+        FacilityIdentity, FacilityLifecycle, FacilityLocation, FacilityOperations, FacilityStorage,
+        REFUEL_PRICE_PER_UNIT, REFUEL_UNITS_PER_TICK,
+    },
+    faction_relations::{commerce_allowed, market_buy_multiplier, market_controllers},
+    market::{MarketHistory, MarketIdentity, MarketPricing},
+    ship::{
+        CrewTask, ShipCargo, ShipCrew, ShipCrewSkills, ShipEconomy, ShipFuel, ShipIdentity,
+        ShipLifecycle, ShipPosition, ShipTransaction, ShipTransit,
+    },
+};
+use sim_core::economy::{
+    commodities::Commodity,
+    contracts::{ContractStatus, ContractType},
+};
+use sim_core::simulation::spawner::AgentStore;
+
+type Rejection = &'static str;
+
+pub(super) fn apply_transaction(
+    world: &mut World,
+    store: &mut AgentStore,
+    ship: Entity,
+    request_id: u64,
+    events: &mut Vec<serde_json::Value>,
+    tick: u64,
+) {
+    let Some(request) = world
+        .get::<ShipEconomy>(ship)
+        .and_then(|e| e.transaction.pending.as_ref())
+        .filter(|p| p.id == request_id && p.result.is_none())
+        .map(|p| p.request.clone())
+    else {
+        return;
+    };
+    let outcome = match &request {
+        ShipTransaction::Accept { contract_id } => {
+            super::contract_funding::accept(world, store, ship, contract_id, events, tick)
+        }
+        ShipTransaction::Buy {
+            location,
+            commodity,
+            quantity,
+            max_unit_price,
+        } => buy(
+            world,
+            store,
+            ship,
+            location,
+            *commodity,
+            *quantity,
+            *max_unit_price,
+            tick,
+        ),
+        ShipTransaction::Sell { location, commodity, quantity, min_unit_price } =>
+            sell(world, store, ship, location, *commodity, *quantity, *min_unit_price),
+        ShipTransaction::Refuel { location } => refuel(world, store, ship, location),
+        ShipTransaction::Mine { location, body_id, commodity, quantity } =>
+            mine(world, store, ship, location, body_id, *commodity, *quantity, tick),
+        ShipTransaction::Embark { contract_id } => {
+            embark(world, store, ship, contract_id, events, tick)
+        }
+        ShipTransaction::Deliver { contract_id } => {
+            deliver(world, store, ship, contract_id, events, tick)
+        }
+    };
+    if let Some(mut economy) = world.get_mut::<ShipEconomy>(ship) {
+        if let Some(pending) = economy.transaction.pending.as_mut() {
+            pending.result = Some(outcome.as_ref().map(|_| ()).map_err(|e| *e));
+        }
+    }
+    if outcome.is_ok() {
+        if let Some(mut lifecycle) = world.get_mut::<ShipLifecycle>(ship) {
+            lifecycle.dirty = true;
+        }
+    }
+    let (location, commodity, contract_id, requested_quantity) = match &request {
+        ShipTransaction::Buy { location, commodity, quantity, .. }
+        | ShipTransaction::Sell { location, commodity, quantity, .. } => (
+            Some(location.as_str()),
+            Some(commodity.as_str()),
+            None,
+            Some(*quantity),
+        ),
+        ShipTransaction::Refuel { location } => (Some(location.as_str()), Some("fuel"), None, None),
+        ShipTransaction::Mine { location, commodity, quantity, .. } =>
+            (Some(location.as_str()), Some(commodity.as_str()), None, Some(*quantity)),
+        ShipTransaction::Deliver { contract_id } | ShipTransaction::Accept { contract_id }
+        | ShipTransaction::Embark { contract_id } => {
+            (None, None, Some(contract_id.as_str()), None)
+        }
+    };
+    let active_contract = world.get::<ShipEconomy>(ship).and_then(|e| e.active_contract_id.as_deref());
+    events.push(serde_json::json!({
+        "kind": if outcome.is_ok() { "ship_transaction_applied" } else { "ship_transaction_rejected" },
+        "ship_id": world.get::<ShipIdentity>(ship).map(|id| id.id.as_str()),
+        "request_id": request_id, "operation": request.kind(), "tick": tick,
+        "location": location, "commodity": commodity, "contract_id": contract_id.or(active_contract), "requested_quantity": requested_quantity,
+        "reason": outcome.as_ref().err(),
+        "quantity": outcome.as_ref().ok().map(|v| v.0),
+        "payment": outcome.as_ref().ok().map(|v| v.1),
+    }));
+}
+
+/// Explicit physical extraction. Only a miner at its body-linked waypoint
+/// can mine: no local market, synthetic station, or cash-generation path.
+/// The body fraction represents a finite in-world stock that also participates
+/// in the ordinary biome resource-regeneration rules.
+fn mine(
+    world: &mut World,
+    store: &AgentStore,
+    ship: Entity,
+    location: &str,
+    body_id: &str,
+    commodity: Commodity,
+    requested: u32,
+    tick: u64,
+) -> Result<(f32, i64), Rejection> {
+    const MAX_PER_SHIFT: u32 = 40;
+    use sim_core::agents::facility::SALVAGE_UNITS_PER_RICHNESS;
+    let identity = world.get::<ShipIdentity>(ship).ok_or("missing_ship")?;
+    if identity.class != "miner" { return Err("requires_miner"); }
+    if commodity != Commodity::Ice { return Err("unsupported_mining_commodity"); }
+    if requested == 0 || requested > MAX_PER_SHIFT { return Err("invalid_mining_quantity"); }
+    // Stable canonical waypoint ids are seeded only for named body locations.
+    // The ship cannot mine while in transit, docked, or somewhere else.
+    if location != format!("mine-{body_id}") { return Err("not_a_mining_waypoint"); }
+    let position = world.get::<ShipPosition>(ship).ok_or("missing_position")?;
+    if position.location_name.as_deref() != Some(location)
+        || position.docked_at.is_some()
+        || world.get::<ShipTransit>(ship).ok_or("missing_transit")?.transit.is_some()
+    { return Err("wrong_mining_location"); }
+    let body = *store.body_by_id.get(body_id).ok_or("missing_mining_body")?;
+    let body_identity = world.get::<BodyIdentity>(body).ok_or("missing_mining_body")?;
+    if body_identity.body_id != body_id { return Err("mismatched_mining_body"); }
+    // ShipPosition.system_id stores the seed slug ("system-sol"), while
+    // BodyIdentity.system_name stores the display name ("Sol"). Comparing
+    // them directly would reject every valid mining trip.
+    let body_orbit = world.get::<BodyOrbit>(body).ok_or("missing_body_orbit")?;
+    if position.universe_offset != body_orbit.universe_offset {
+        return Err("mining_other_system");
+    }
+    let resources = world.get::<BodyResources>(body).ok_or("missing_body_resources")?;
+    let richness = resources.resources.get(&commodity).copied().unwrap_or(0.0);
+    if !richness.is_finite() || !(0.0..=1.0).contains(&richness) {
+        return Err("invalid_body_resource");
+    }
+    let available = (richness as f64 * SALVAGE_UNITS_PER_RICHNESS as f64)
+        .floor().max(0.0) as u32;
+    let capacity = world.get::<ShipCargo>(ship).ok_or("missing_cargo")?.free();
+    let extracted = requested.min(capacity).min(available);
+    if extracted == 0 { return Err("exhausted_deposit_or_full_hold"); }
+    let remaining = (richness as f64
+        - extracted as f64 / SALVAGE_UNITS_PER_RICHNESS as f64).max(0.0) as f32;
+    // All validation precedes mutations. Body inventory decreases exactly
+    // when ship cargo increases; market supply remains untouched in space.
+    world.get_mut::<BodyResources>(body).unwrap().resources.insert(commodity, remaining);
+    let mut cargo = world.get_mut::<ShipCargo>(ship).unwrap();
+    *cargo.cargo.entry(commodity).or_insert(0) += extracted;
+    cargo.cargo_age.entry(commodity).or_insert(tick);
+    if let Some(mut crew) = world.get_mut::<ShipCrew>(ship) {
+        crew.current_task = CrewTask::Engineering;
+        crew.dirty = true;
+    }
+    if let Some(mut skills) = world.get_mut::<ShipCrewSkills>(ship) {
+        skills.grant("engineering", 1);
+    }
+    Ok((extracted as f32, 0))
+}
+
+fn dock(
+    world: &World,
+    store: &AgentStore,
+    ship: Entity,
+    location: &str,
+) -> Result<Entity, Rejection> {
+    let position = world.get::<ShipPosition>(ship).ok_or("missing_position")?;
+    if position.location_name.as_deref() != Some(location)
+        || world
+            .get::<ShipTransit>(ship)
+            .ok_or("missing_transit")?
+            .transit
+            .is_some()
+    {
+        return Err("wrong_location");
+    }
+    let facility = position.docked_at.ok_or("not_docked")?;
+    if world
+        .get::<FacilityLocation>(facility)
+        .ok_or("missing_dock")?
+        .location_name
+        != location
+        || !world
+            .get::<FacilityStorage>(facility)
+            .ok_or("missing_dock_storage")?
+            .docked_ships
+            .contains(&ship)
+        || world
+            .get::<FacilityLifecycle>(facility)
+            .is_some_and(|l| l.abandoned)
+    {
+        return Err("invalid_dock");
+    }
+    let faction = &world
+        .get::<ShipIdentity>(ship)
+        .ok_or("missing_ship")?
+        .faction_id;
+    let owner = &world
+        .get::<FacilityIdentity>(facility)
+        .ok_or("missing_dock_owner")?
+        .faction_id;
+    if !commerce_allowed(&store.relations, faction, owner) {
+        return Err("embargo");
+    }
+    Ok(facility)
+}
+
+fn controller(
+    world: &mut World,
+    store: &AgentStore,
+    ship: Entity,
+    location: &str,
+) -> Result<String, Rejection> {
+    let owner = market_controllers(world)
+        .remove(location)
+        .unwrap_or_default();
+    let faction = &world
+        .get::<ShipIdentity>(ship)
+        .ok_or("missing_ship")?
+        .faction_id;
+    if !commerce_allowed(&store.relations, faction, &owner) {
+        return Err("embargo");
+    }
+    Ok(owner)
+}
+
+fn dirty_market(world: &mut World, market: Entity) {
+    if let Some(mut history) = world.get_mut::<MarketHistory>(market) {
+        history.dirty = true;
+    }
+}
+
+fn crew_success(world: &mut World, ship: Entity, task: CrewTask, navigation: bool) {
+    if let Some(mut crew) = world.get_mut::<ShipCrew>(ship) {
+        crew.current_task = task;
+        crew.dirty = true;
+    }
+    if let Some(mut skills) = world.get_mut::<ShipCrewSkills>(ship) {
+        skills.grant("trading", 1);
+        if navigation {
+            skills.grant("navigation", 1);
+        }
+    }
+}
+
+fn market_at(
+    world: &World,
+    store: &AgentStore,
+    ship: Entity,
+    location: &str,
+) -> Result<(Entity, Entity), Rejection> {
+    let market = *store
+        .market_at_location
+        .get(location)
+        .ok_or("missing_market")?;
+    let seller = world
+        .get::<MarketIdentity>(market)
+        .ok_or("missing_market_owner")?
+        .facility;
+    let seller_faction = &world
+        .get::<FacilityIdentity>(seller)
+        .ok_or("missing_seller")?
+        .faction_id;
+    let faction = &world
+        .get::<ShipIdentity>(ship)
+        .ok_or("missing_ship")?
+        .faction_id;
+    if !commerce_allowed(&store.relations, faction, seller_faction) {
+        return Err("embargo");
+    }
+    if world
+        .get::<FacilityLifecycle>(seller)
+        .is_some_and(|l| l.abandoned)
+    {
+        return Err("seller_abandoned");
+    }
+    if world
+        .get::<MarketIdentity>(market)
+        .unwrap()
+        .facility_location
+        != location
+        || world
+            .get::<FacilityLocation>(seller)
+            .ok_or("missing_market_location")?
+            .location_name
+            != location
+    {
+        return Err("wrong_market_location");
+    }
+    Ok((market, seller))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn buy(
+    world: &mut World,
+    store: &AgentStore,
+    ship: Entity,
+    location: &str,
+    commodity: Commodity,
+    quantity: u32,
+    max_unit_price: f32,
+    tick: u64,
+) -> Result<(f32, i64), Rejection> {
+    dock(world, store, ship, location)?;
+    let owner = controller(world, store, ship, location)?;
+    let (market, seller) = market_at(world, store, ship, location)?;
+    let faction = &world
+        .get::<ShipIdentity>(ship)
+        .ok_or("missing_ship")?
+        .faction_id;
+    let pricing = world
+        .get::<MarketPricing>(market)
+        .ok_or("missing_pricing")?;
+    let economy = world.get::<ShipEconomy>(ship).ok_or("missing_economy")?;
+    let price = pricing.price(commodity)
+        * market_buy_multiplier(
+            &store.relations,
+            faction,
+            economy.faction_reputation.get(&owner).copied().unwrap_or(0),
+            &owner,
+        );
+    if !price.is_finite() || price <= 0.0 || !max_unit_price.is_finite() || price > max_unit_price {
+        return Err("invalid_or_changed_price");
+    }
+    let supply = pricing.supply.get(&commodity).copied().unwrap_or(0.0);
+    if quantity == 0 || quantity > (1 << 24) || !supply.is_finite() || supply < quantity as f32 {
+        return Err("insufficient_stock");
+    }
+    let cargo = world.get::<ShipCargo>(ship).ok_or("missing_cargo")?;
+    if cargo.free() < quantity {
+        return Err("insufficient_capacity");
+    }
+    let cost = (price as f64 * quantity as f64).ceil();
+    if cost >= i64::MAX as f64 || cost > economy.credits as f64 {
+        return Err("insufficient_credits");
+    }
+    let cost = cost as i64;
+    // Recheck as integers; f64 cannot represent every large credit balance.
+    if economy.credits < cost {
+        return Err("insufficient_credits");
+    }
+    let seller_credits = world
+        .get::<FacilityOperations>(seller)
+        .ok_or("missing_seller_economy")?
+        .credits
+        .checked_add(cost)
+        .ok_or("credit_overflow")?;
+
+    // All fallible checks precede all writes; exclusive World access prevents interleaving.
+    world
+        .get_mut::<MarketPricing>(market)
+        .unwrap()
+        .supply
+        .insert(commodity, supply - quantity as f32);
+    world.get_mut::<ShipEconomy>(ship).unwrap().credits -= cost;
+    let mut ops = world.get_mut::<FacilityOperations>(seller).unwrap();
+    ops.credits = seller_credits;
+    ops.dirty = true;
+    let mut cargo = world.get_mut::<ShipCargo>(ship).unwrap();
+    *cargo.cargo.entry(commodity).or_insert(0) += quantity;
+    cargo.cargo_age.insert(commodity, tick);
+    cargo
+        .cargo_origin
+        .insert(commodity, (location.into(), cost as f32 / quantity as f32));
+    dirty_market(world, market);
+    crew_success(world, ship, CrewTask::Loading, false);
+    Ok((quantity as f32, cost))
+}
+
+/// Largest payable portion of one sale, using the same floor rounding as
+/// the actual settlement. A buyer never borrows or creates money. This only
+/// scales the quantity of an otherwise valid transaction.
+fn affordable_sale_quantity(requested: u32, unit_price: f32, buyer_cash: i64) -> u32 {
+    if requested == 0 || buyer_cash <= 0 || !unit_price.is_finite() || unit_price <= 0.0 {
+        return 0;
+    }
+    let mut low = 0_u32;
+    let mut high = requested;
+    while low < high {
+        let middle = low + (high - low + 1) / 2;
+        let payment = (unit_price as f64 * middle as f64).floor();
+        if payment >= 1.0 && payment < i64::MAX as f64 && payment <= buyer_cash as f64 {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    low
+}
+
+/// The market operator buys inventory with its own cash. No order-book
+/// placeholder, faction treasury, or other station is an implicit guarantor.
+fn sell(
+    world: &mut World, store: &AgentStore, ship: Entity, location: &str,
+    commodity: Commodity, quantity: u32, min_unit_price: f32,
+) -> Result<(f32, i64), Rejection> {
+    dock(world, store, ship, location)?;
+    let owner = controller(world, store, ship, location)?;
+    let (market, buyer) = market_at(world, store, ship, location)?;
+    let pricing = world.get::<MarketPricing>(market).ok_or("missing_pricing")?;
+    // Use the public quote on both sides. Reciprocal friendship premiums
+    // created a guaranteed same-port buy/sell arbitrage in the old path.
+    let economy = world.get::<ShipEconomy>(ship).ok_or("missing_economy")?;
+    let faction = &world.get::<ShipIdentity>(ship).ok_or("missing_ship")?.faction_id;
+    let price = pricing.price(commodity) * market_buy_multiplier(&store.relations, faction,
+        economy.faction_reputation.get(&owner).copied().unwrap_or(0), &owner);
+    if !price.is_finite() || price <= 0.0 || !min_unit_price.is_finite()
+        || min_unit_price <= 0.0 || price < min_unit_price {
+        return Err("invalid_or_changed_price");
+    }
+    let stock = pricing.supply.get(&commodity).copied().unwrap_or(0.0);
+    let cargo = world.get::<ShipCargo>(ship).ok_or("missing_cargo")?;
+    let have = cargo.cargo.get(&commodity).copied().unwrap_or(0);
+    if quantity == 0 || quantity > (1 << 24) || have < quantity { return Err("insufficient_cargo"); }
+    let buyer_cash = world.get::<FacilityOperations>(buyer).ok_or("missing_buyer_economy")?.credits;
+    // A real market operator can buy only what its cash covers. Full
+    // quantities still settle as before, while a partial fill leaves
+    // the rest in the ship's hold for a later market/transaction.
+    let sold = affordable_sale_quantity(quantity, price, buyer_cash);
+    if sold == 0 { return Err("insufficient_buyer_credits"); }
+    let after = stock + sold as f32;
+    let delta=(f64::from(after)-f64::from(stock)-f64::from(sold)).abs();
+    let tolerance=(f64::from(sold)*0.000_01).max(0.001);
+    if !stock.is_finite() || stock<0.0 || !after.is_finite() || after<=stock
+        || delta>tolerance {return Err("invalid_destination_stock");}
+    let value = (price as f64 * sold as f64).floor();
+    if value < 1.0 || value >= i64::MAX as f64 { return Err("invalid_payment"); }
+    let payment = value as i64;
+    if buyer_cash < payment { return Err("insufficient_buyer_credits"); }
+    let ship_cash = world.get::<ShipEconomy>(ship).ok_or("missing_economy")?.credits
+        .checked_add(payment).ok_or("credit_overflow")?;
+    let origin = cargo.cargo_origin.get(&commodity).cloned();
+
+    world.get_mut::<ShipEconomy>(ship).unwrap().credits = ship_cash;
+    let mut ops = world.get_mut::<FacilityOperations>(buyer).unwrap();
+    ops.credits -= payment;
+    ops.dirty = true;
+    world.get_mut::<MarketPricing>(market).unwrap().supply.insert(commodity, after);
+    let mut cargo = world.get_mut::<ShipCargo>(ship).unwrap();
+    if have == sold {
+        cargo.cargo.remove(&commodity);
+        cargo.cargo_age.remove(&commodity);
+        cargo.cargo_origin.remove(&commodity);
+    } else { cargo.cargo.insert(commodity, have - sold); }
+    if have == sold {
+        if let (Some((origin, cost)), Some(mut memory)) =
+            (origin, world.get_mut::<sim_core::agents::ship::ShipMemory>(ship)) {
+            if origin != location {
+                memory.route_performance.entry((origin, location.into(), commodity))
+                    .or_default().record(payment as f32 / sold as f32 - cost);
+            }
+        }
+    }
+    if let Some(mut history) = world.get_mut::<MarketHistory>(market) {
+        *history.trade_volume.entry(commodity).or_default() += sold as f32;
+        history.dirty = true;
+    }
+    crew_success(world, ship, CrewTask::Unloading, false);
+    Ok((sold as f32, payment))
+}
+
+fn refuel(
+    world: &mut World,
+    store: &AgentStore,
+    ship: Entity,
+    location: &str,
+) -> Result<(f32, i64), Rejection> {
+    let facility = dock(world, store, ship, location)?;
+    controller(world, store, ship, location)?;
+    let fuel = world.get::<ShipFuel>(ship).ok_or("missing_fuel")?;
+    let reserve = world
+        .get::<FacilityStorage>(facility)
+        .unwrap()
+        .reserves
+        .get(&Commodity::Fuel)
+        .copied()
+        .unwrap_or(0.0);
+    if !fuel.fuel.is_finite()
+        || !fuel.fuel_capacity.is_finite()
+        || fuel.fuel < 0.0
+        || fuel.fuel_capacity <= 0.0
+        || fuel.fuel > fuel.fuel_capacity
+        || !reserve.is_finite()
+        || reserve < 0.0
+    {
+        return Err("invalid_fuel_state");
+    }
+    let backed_market=market_at(world,store,ship,location).ok()
+        .filter(|(_,seller)|*seller==facility)
+        .and_then(|(market,_)|world.get::<MarketPricing>(market)
+            .map(|pricing|(market,pricing.supply.get(&Commodity::Fuel)
+                .copied().unwrap_or(0.0))));
+    let market_fuel=backed_market.map_or(0.0,|(_,stock)|stock);
+    if !market_fuel.is_finite() || market_fuel<0.0 {return Err("invalid_fuel_state");}
+    let amount=REFUEL_UNITS_PER_TICK
+        .min(fuel.fuel_capacity-fuel.fuel).min(reserve+market_fuel);
+    if amount <= 0.0 {return Err("no_fuel_transfer");}
+    let from_reserve=amount.min(reserve);
+    let from_market=amount-from_reserve;
+    let payment = (amount.ceil() as i64)
+        .checked_mul(REFUEL_PRICE_PER_UNIT)
+        .ok_or("credit_overflow")?;
+    if world
+        .get::<ShipEconomy>(ship)
+        .ok_or("missing_economy")?
+        .credits
+        < payment
+    {
+        return Err("insufficient_credits");
+    }
+    let facility_credits = world
+        .get::<FacilityOperations>(facility)
+        .ok_or("missing_dock_economy")?
+        .credits
+        .checked_add(payment)
+        .ok_or("credit_overflow")?;
+    world.get_mut::<ShipFuel>(ship).unwrap().fuel += amount;
+    world.get_mut::<ShipEconomy>(ship).unwrap().credits -= payment;
+    world
+        .get_mut::<FacilityStorage>(facility)
+        .unwrap()
+        .reserves
+        .insert(Commodity::Fuel, reserve - from_reserve);
+    if from_market>0.0 {
+        if let Some((market,_))=backed_market {
+            world.get_mut::<MarketPricing>(market).unwrap()
+                .supply.insert(Commodity::Fuel, market_fuel-from_market);
+            dirty_market(world,market);
+        }
+    }
+    let mut ops = world.get_mut::<FacilityOperations>(facility).unwrap();
+    ops.credits = facility_credits;
+    ops.dirty = true;
+    Ok((amount, payment))
+}
+
+fn embark(
+    world: &mut World,
+    store: &mut AgentStore,
+    ship: Entity,
+    contract_id: &str,
+    events: &mut Vec<serde_json::Value>,
+    tick: u64,
+) -> Result<(f32, i64), Rejection> {
+    use sim_core::agents::population::{PopIdentity, PopDemographics, PopEconomy, PopSentiment};
+    use sim_core::economy::contracts::EmbarkedPassengers;
+
+    let c = store.contracts.get(contract_id).ok_or("missing_contract")?;
+    let identity = world.get::<ShipIdentity>(ship).ok_or("missing_ship")?;
+    let economy = world.get::<ShipEconomy>(ship).ok_or("missing_economy")?;
+    if c.contract_type != ContractType::Passenger || c.status != ContractStatus::Accepted
+        || c.fulfiller_id.as_deref() != Some(&identity.id)
+        || economy.active_contract_id.as_deref() != Some(contract_id)
+        || c.funding.as_ref().is_none_or(|f| f.agreed_payment.is_none() || f.embarked.is_some())
+    {
+        return Err("inactive_passenger_contract");
+    }
+    let faction = c.faction_id.as_deref().unwrap_or(&identity.faction_id).to_owned();
+    let source = c.source_location.clone();
+    let quantity = c.quantity;
+    let seats = sim_core::simulation::config::ship_class(&identity.class).map_or(0, |class| class.passenger_capacity);
+    if quantity == 0 || quantity > seats { return Err("insufficient_passenger_capacity"); }
+    dock(world, store, ship, &source)?;
+    controller(world, store, ship, &source)?;
+    let reserve = if c.mission_category.as_deref() == Some(sim_core::strategy::colony::PROJECT_TAG) {
+        i64::from(sim_core::strategy::colony::SETTLERS)
+    } else { 0 };
+    let (household, origin, wealth) = world.query::<(Entity, &PopIdentity, &PopDemographics, &PopEconomy, &PopSentiment)>()
+        .iter(world).filter(|(_, p, d, e, _)| p.facility_location == source && p.faction_id == faction
+            && d.population_count >= i64::from(quantity) + reserve && e.total_wealth >= 0)
+        .min_by_key(|(_, p, _, _, _)| &p.id)
+        .map(|(entity, p, d, e, _)| (entity, p.id.clone(),
+            (i128::from(e.total_wealth) * i128::from(quantity) / i128::from(d.population_count)) as i64))
+        .ok_or("insufficient_settlers")?;
+
+    if !store.contracts.mark_picked_up(contract_id) { return Err("inactive_passenger_contract"); }
+    store.contracts.get_mut(contract_id).unwrap().funding.as_mut().unwrap().embarked =
+        Some(EmbarkedPassengers { origin_population: origin.clone(), wealth });
+    world.get_mut::<PopDemographics>(household).unwrap().population_count -= i64::from(quantity);
+    world.get_mut::<PopEconomy>(household).unwrap().total_wealth -= wealth;
+    world.get_mut::<PopSentiment>(household).unwrap().dirty = true;
+    events.push(serde_json::json!({"kind":"passengers_embarked","contract_id":contract_id,
+        "ship_id":world.get::<ShipIdentity>(ship).unwrap().id,"source":source,
+        "origin_population":origin,"head_count":quantity,"wealth":wealth,"tick":tick}));
+    Ok((quantity as f32, 0))
+}
+
+fn deliver(
+    world: &mut World,
+    store: &mut AgentStore,
+    ship: Entity,
+    contract_id: &str,
+    events: &mut Vec<serde_json::Value>,
+    tick: u64,
+) -> Result<(f32, i64), Rejection> {
+    let c = store
+        .contracts
+        .get(contract_id)
+        .ok_or("missing_contract")?
+        .clone();
+    let identity = world.get::<ShipIdentity>(ship).ok_or("missing_ship")?;
+    let economy = world.get::<ShipEconomy>(ship).ok_or("missing_economy")?;
+    if c.fulfiller_id.as_deref() != Some(identity.id.as_str())
+        || economy.active_contract_id.as_deref() != Some(contract_id)
+    {
+        return Err("wrong_fulfiller");
+    }
+    if !matches!(
+        c.status,
+        ContractStatus::Accepted | ContractStatus::PickedUp
+    ) {
+        return Err("inactive_contract");
+    }
+    if c.faction_id
+        .as_deref()
+        .is_some_and(|owner| !commerce_allowed(&store.relations, &identity.faction_id, owner))
+    {
+        return Err("embargo");
+    }
+    let payment = if let Some(funding) = &c.funding {
+        let agreed = funding
+            .agreed_payment
+            .ok_or("contract_not_funded_for_ship")?;
+        if agreed < 0 || funding.reserved < agreed {
+            return Err("invalid_contract_escrow");
+        }
+        agreed
+    } else {
+        // A historic initial_payment is not proof of a debit. Keep the row
+        // intact for explicit recovery instead of minting or charging twice.
+        return Err("unverified_legacy_funding");
+    };
+    economy
+        .credits
+        .checked_add(payment)
+        .ok_or("credit_overflow")?;
+    let ship_faction = identity.faction_id.clone();
+    dock(world, store, ship, &c.destination_location)?;
+    controller(world, store, ship, &c.destination_location)?;
+    let household_delivery = c.funding.as_ref().is_some_and(|f|
+        f.source == sim_core::economy::contracts::FundingSource::Population)
+        && c.contract_type == ContractType::Delivery;
+    if household_delivery {
+        let pop = *store.population_by_id.get(&c.requestor_id).ok_or("missing_contract_recipient")?;
+        let identity = world.get::<sim_core::agents::population::PopIdentity>(pop).ok_or("missing_contract_recipient")?;
+        if identity.facility_location != c.destination_location || c.commodity != Commodity::Food {
+            return Err("invalid_household_delivery");
+        }
+        if !world.get::<sim_core::agents::population::PopDemographics>(pop).is_some_and(|p| p.population_count > 0)
+            || world.get::<sim_core::agents::population::PopSentiment>(pop).is_none() {
+            return Err("missing_contract_recipient");
+        }
+    }
+    let physical = !matches!(
+        c.contract_type,
+        ContractType::Passenger | ContractType::CrewMission
+    );
+    let mut destination_market = None;
+    if physical {
+        let cargo = world.get::<ShipCargo>(ship).ok_or("missing_cargo")?;
+        if c.quantity == 0 || cargo.cargo.get(&c.commodity).copied().unwrap_or(0) < c.quantity {
+            return Err("insufficient_cargo");
+        }
+        if c.contract_type == ContractType::Construction {
+            use sim_core::agents::construction::{find_site, ConstructionSite};
+            let site = find_site(world, &c.destination_location, c.commodity)
+                .ok_or("missing_construction_site")?;
+            let site = world.get::<ConstructionSite>(site).unwrap();
+            if site.remaining() < c.quantity {
+                return Err("construction_overdelivery");
+            }
+            let faction = &world.get::<ShipIdentity>(ship).unwrap().faction_id;
+            if !commerce_allowed(&store.relations, faction, &site.faction_id) {
+                return Err("embargo");
+            }
+            // Old helper finds by location/commodity; reject a different owner's site.
+            if c.faction_id
+                .as_deref()
+                .is_some_and(|f| f != site.faction_id)
+            {
+                return Err("wrong_construction_owner");
+            }
+        } else if !household_delivery {
+            let (market, _) = market_at(world, store, ship, &c.destination_location)?;
+            let pricing = world
+                .get::<MarketPricing>(market)
+                .ok_or("missing_destination_pricing")?;
+            let supply = pricing.supply.get(&c.commodity).copied().unwrap_or(0.0);
+            if !supply.is_finite() || supply < 0.0 || !(supply + c.quantity as f32).is_finite() {
+                return Err("invalid_destination_stock");
+            }
+            destination_market = Some(market);
+        }
+    }
+    let passengers = if c.contract_type == ContractType::Passenger {
+        use sim_core::agents::population::{PopIdentity, PopDemographics, PopEconomy, PopSentiment};
+        let manifest = c.funding.as_ref().and_then(|f| f.embarked.as_ref())
+            .filter(|_| c.status == ContractStatus::PickedUp).ok_or("passengers_not_embarked")?;
+        let faction = c.faction_id.as_deref().unwrap_or(&ship_faction);
+        let recipient = world.query::<(Entity, &PopIdentity, &PopDemographics, &PopEconomy, &PopSentiment)>()
+            .iter(world).filter(|(_, p, _, _, _)| p.facility_location == c.destination_location && p.faction_id == faction)
+            .min_by_key(|(_, p, _, _, _)| &p.id)
+            .ok_or("missing_passenger_recipient")?;
+        Some((recipient.0,
+            recipient.2.population_count.checked_add(i64::from(c.quantity)).ok_or("population_overflow")?,
+            recipient.3.total_wealth.checked_add(manifest.wealth).ok_or("credit_overflow")?))
+    } else { None };
+    // Status changes only after recipient, ownership, cargo and funding pass.
+    let c = store
+        .contracts
+        .mark_delivered(contract_id)
+        .ok_or("inactive_contract")?;
+    if let Some(funding) = store
+        .contracts
+        .get_mut(contract_id)
+        .unwrap()
+        .funding
+        .as_mut()
+    {
+        funding.reserved -= payment;
+        funding.embarked = None;
+    }
+    if let Some((recipient, population, wealth)) = passengers {
+        use sim_core::agents::population::{PopDemographics, PopEconomy, PopSentiment};
+        world.get_mut::<PopDemographics>(recipient).unwrap().population_count = population;
+        world.get_mut::<PopEconomy>(recipient).unwrap().total_wealth = wealth;
+        world.get_mut::<PopSentiment>(recipient).unwrap().dirty = true;
+    }
+    let quantity = c.quantity;
+    super::apply::commit_contract_delivery(world, store, ship, c, payment, events, tick);
+    if let Some(market) = destination_market {
+        dirty_market(world, market);
+    }
+    crew_success(world, ship, CrewTask::Unloading, true);
+    Ok((quantity as f32, payment))
+}
+
+#[cfg(test)]
+mod tests;

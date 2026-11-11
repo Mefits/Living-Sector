@@ -1,0 +1,129 @@
+{
+  "version": "Рабочая база · средний пресет 0.3",
+  "status": "Предварительно принято для настройки; не подтверждено в ядре Rust",
+  "population": {
+    "earth-station": 50,
+    "pirate-outpost": 24,
+    "alpha-station": 30
+  },
+  "people": {
+    "food": 0.12,
+    "water": 0.13,
+    "wage": 1,
+    "workforceShare": 0.62
+  },
+  "storage": {
+    "defaultPerResource": 5000
+  },
+  "resources": {
+    "food": 1.4,
+    "water": 0.85,
+    "ice": 0.58,
+    "ore": 0.8,
+    "fuel": 1.6,
+    "metals": 4.5
+  },
+  "recipes": [
+    {
+      "id": "farm",
+      "name": "Гидропонная ферма",
+      "input": {
+        "water": 3
+      },
+      "output": {
+        "food": 10
+      },
+      "workers": 6,
+      "ticks": 1
+    },
+    {
+      "id": "ice-refinery",
+      "name": "Переработка льда",
+      "input": {
+        "ice": 8
+      },
+      "output": {
+        "water": 10,
+        "fuel": 5
+      },
+      "workers": 4,
+      "ticks": 1
+    },
+    {
+      "id": "ice-mine",
+      "name": "Ледодобыча",
+      "input": {},
+      "output": {
+        "ice": 18
+      },
+      "workers": 5,
+      "ticks": 1
+    },
+    {
+      "id": "ore-mine",
+      "name": "Рудодобыча",
+      "input": {},
+      "output": {
+        "ore": 10
+      },
+      "workers": 5,
+      "ticks": 1
+    },
+    {
+      "id": "smelter",
+      "name": "Металлургия",
+      "input": {
+        "ore": 6,
+        "fuel": 2
+      },
+      "output": {
+        "metals": 4
+      },
+      "workers": 6,
+      "ticks": 1
+    }
+  ],
+  "construction": {
+    "farm": {
+      "name": "Ферма",
+      "metals": 16,
+      "fuel": 2,
+      "work": 14
+    },
+    "refinery": {
+      "name": "Переработчик",
+      "metals": 18,
+      "fuel": 2,
+      "work": 16
+    },
+    "iceMine": {
+      "name": "Ледодобыча",
+      "metals": 15,
+      "fuel": 2,
+      "work": 14
+    },
+    "oreMine": {
+      "name": "Рудодобыча",
+      "metals": 15,
+      "fuel": 2,
+      "work": 14
+    },
+    "freighter": {
+      "name": "Грузовой корабль",
+      "metals": 28,
+      "fuel": 8,
+      "work": 21
+    },
+    "warehouse": {
+      "name": "Склад +500",
+      "metals": 30,
+      "fuel": 3,
+      "work": 24
+    }
+  },
+  "logistics": {
+    "shipCapacity": 65,
+    "routeTicks": 4
+  },
+  "notes": "Производственные значения — на один цикл в один тик при полной загрузке. Строительный труд — человеко-тики (условные единицы). Данные базового пресета иллюстрируют интерфейс; фактические игровые коэффициенты могут отличаться."
+}

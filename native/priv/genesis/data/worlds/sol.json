@@ -1,0 +1,437 @@
+{
+  "system": {
+    "id": "system-sol",
+    "name": "Sol",
+    "universe_offset": [
+      0,
+      0
+    ],
+    "star_type": "G"
+  },
+  "bodies": [
+    {
+      "id": "mercury",
+      "name": "Mercury",
+      "type": "planet",
+      "orbit_radius": 0.8,
+      "orbit_period": 88,
+      "current_angle": 30,
+      "biome": "molten",
+      "resources": {
+        "ore": 0.7,
+        "gas": 0.1
+      }
+    },
+    {
+      "id": "venus",
+      "name": "Venus",
+      "type": "planet",
+      "orbit_radius": 1.4,
+      "orbit_period": 225,
+      "current_angle": 160,
+      "biome": "molten",
+      "resources": {
+        "gas": 0.8,
+        "ice": 0.2
+      }
+    },
+    {
+      "id": "earth",
+      "name": "Earth",
+      "type": "planet",
+      "orbit_radius": 2,
+      "orbit_period": 365,
+      "current_angle": 0,
+      "biome": "terrestrial",
+      "resources": {
+        "ore": 0.65,
+        "ice": 0.3
+      }
+    },
+    {
+      "id": "luna",
+      "name": "Luna",
+      "type": "moon",
+      "orbit_radius": 2.1,
+      "orbit_period": 365,
+      "current_angle": 10,
+      "biome": "lifeless",
+      "resources": {
+        "ore": 0.3,
+        "ice": 0.4
+      }
+    },
+    {
+      "id": "mars",
+      "name": "Mars",
+      "type": "planet",
+      "orbit_radius": 3.04,
+      "orbit_period": 687,
+      "current_angle": 45,
+      "biome": "desert",
+      "resources": {
+        "ore": 0.4,
+        "ice": 0.5,
+        "gas": 0.2
+      }
+    },
+    {
+      "id": "belt",
+      "name": "Asteroid Belt",
+      "type": "belt",
+      "orbit_radius": 5.4,
+      "orbit_period": 1680,
+      "current_angle": 120,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.9,
+        "ice": 0.3,
+        "gas": 0.1
+      }
+    },
+    {
+      "id": "jupiter",
+      "name": "Jupiter",
+      "type": "planet",
+      "orbit_radius": 10.4,
+      "orbit_period": 4333,
+      "current_angle": 200,
+      "biome": "gas_giant",
+      "resources": {
+        "gas": 0.9
+      }
+    },
+    {
+      "id": "saturn",
+      "name": "Saturn",
+      "type": "planet",
+      "orbit_radius": 19,
+      "orbit_period": 10759,
+      "current_angle": 280,
+      "biome": "gas_giant",
+      "resources": {
+        "gas": 0.8,
+        "ice": 0.9
+      }
+    },
+    {
+      "id": "trojan-cluster",
+      "name": "Trojan Cluster",
+      "type": "asteroid",
+      "orbit_radius": 10,
+      "orbit_period": 4333,
+      "current_angle": 180,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.8,
+        "ice": 0.3
+      }
+    },
+    {
+      "id": "hilda-group",
+      "name": "Hilda Group",
+      "type": "asteroid",
+      "orbit_radius": 8,
+      "orbit_period": 3200,
+      "current_angle": 240,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.6,
+        "gas": 0.4
+      }
+    },
+    {
+      "id": "near-earth",
+      "name": "Near-Earth Asteroid",
+      "type": "asteroid",
+      "orbit_radius": 2.4,
+      "orbit_period": 480,
+      "current_angle": 300,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.5,
+        "ice": 0.2
+      }
+    },
+    {
+      "id": "kuiper",
+      "name": "Kuiper Object",
+      "type": "asteroid",
+      "orbit_radius": 24,
+      "orbit_period": 15000,
+      "current_angle": 90,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.9,
+        "gas": 0.5
+      }
+    },
+    {
+      "id": "callisto",
+      "name": "Callisto",
+      "type": "moon",
+      "orbit_radius": 10.76,
+      "orbit_period": 4350,
+      "current_angle": 325,
+      "biome": "lifeless",
+      "resources": {
+        "ore": 0.78,
+        "ice": 0.65
+      }
+    }
+  ],
+  "travel_routes": [
+    {
+      "from": "earth-station",
+      "to": "mine-near-earth",
+      "distance": 12
+    },
+    {
+      "from": "pirate-outpost",
+      "to": "mine-callisto",
+      "distance": 18
+    }
+  ],
+  "facilities": [
+    {
+      "id": "facility-earth-station",
+      "name": "Genesis Station T1",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "station",
+      "docking_capacity": 12,
+      "services": [
+        "market"
+      ],
+      "reserves": {}
+    },
+    {
+      "id": "facility-earth-mine-module",
+      "name": "Genesis Primitive Extraction (preview)",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "mining_rig",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    },
+    {
+      "id": "facility-earth-refinery-module",
+      "name": "Genesis Primitive Refining (preview)",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "refinery",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    },
+    {
+      "id": "facility-pirate-station",
+      "name": "Pirate Station T1",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "jupiter",
+      "type": "station",
+      "docking_capacity": 12,
+      "services": [
+        "market"
+      ],
+      "reserves": {}
+    },
+    {
+      "id": "facility-pirate-mine-module",
+      "name": "Pirate Primitive Extraction (preview)",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "jupiter",
+      "type": "mining_rig",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    },
+    {
+      "id": "facility-pirate-refinery-module",
+      "name": "Pirate Primitive Refining (preview)",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "jupiter",
+      "type": "refinery",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    },
+    {
+      "id": "facility-earth-station-farm-module",
+      "name": "Genesis Primitive Farm (preview)",
+      "faction_id": "terran-authority",
+      "location": "earth-station",
+      "body": "earth",
+      "type": "farm",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    },
+    {
+      "id": "facility-pirate-outpost-farm-module",
+      "name": "Pirate Primitive Farm (preview)",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "jupiter",
+      "type": "farm",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {}
+    }
+  ],
+  "markets": [
+    {
+      "id": "market-earth-station",
+      "facility_id": "earth-station",
+      "price_elasticity": 0.02,
+      "prices": {
+        "ore": 15,
+        "ice": 10,
+        "gas": 20,
+        "metals": 45,
+        "fuel": 25,
+        "polymers": 40,
+        "water": 12,
+        "components": 80,
+        "electronics": 120,
+        "tools": 90,
+        "food": 18,
+        "medical": 100,
+        "luxury": 150
+      },
+      "supply": {
+        "food": 1000,
+        "water": 1000
+      },
+      "demand": {
+        "food": 2,
+        "water": 2,
+        "ore": 8,
+        "ice": 8,
+        "gas": 8,
+        "metals": 4,
+        "fuel": 4
+      },
+      "production": {},
+      "consumption": {}
+    },
+    {
+      "id": "market-pirate-outpost",
+      "facility_id": "pirate-outpost",
+      "price_elasticity": 0.02,
+      "prices": {
+        "ore": 15,
+        "ice": 10,
+        "gas": 20,
+        "metals": 45,
+        "fuel": 25,
+        "polymers": 40,
+        "water": 12,
+        "components": 80,
+        "electronics": 120,
+        "tools": 90,
+        "food": 18,
+        "medical": 100,
+        "luxury": 150
+      },
+      "supply": {
+        "food": 1000,
+        "water": 1000
+      },
+      "demand": {
+        "food": 2,
+        "water": 2,
+        "ore": 8,
+        "ice": 8,
+        "gas": 8,
+        "metals": 4,
+        "fuel": 4
+      },
+      "production": {},
+      "consumption": {}
+    }
+  ],
+  "ships": [
+    {
+      "name": "Terran 01",
+      "location": "earth-station",
+      "class": "miner",
+      "credits": 12000,
+      "faction_id": "terran-authority",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "Terran 02",
+      "location": "earth-station",
+      "class": "freighter",
+      "credits": 12000,
+      "faction_id": "terran-authority",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "Raider 01",
+      "location": "pirate-outpost",
+      "class": "miner",
+      "credits": 12000,
+      "faction_id": "pirates",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    }
+  ],
+  "populations": [
+    {
+      "label": "Residents earth-station",
+      "demographic": "workers",
+      "facility_id": "earth-station",
+      "faction_id": "terran-authority",
+      "population_count": 50,
+      "total_wealth": 1000,
+      "food_satisfaction": 70,
+      "consumption": {
+        "food": 5,
+        "water": 3
+      },
+      "production_commodity": null,
+      "production_amount": 0
+    },
+    {
+      "label": "Residents pirate-outpost",
+      "demographic": "workers",
+      "facility_id": "pirate-outpost",
+      "faction_id": "pirates",
+      "population_count": 24,
+      "total_wealth": 1000,
+      "food_satisfaction": 70,
+      "consumption": {
+        "food": 5,
+        "water": 3
+      },
+      "production_commodity": null,
+      "production_amount": 0
+    }
+  ],
+  "nav_sites": [
+    {
+      "name": "mine-near-earth",
+      "type": "mining_site",
+      "body": "near-earth"
+    },
+    {
+      "name": "mine-callisto",
+      "type": "mining_site",
+      "body": "callisto"
+    }
+  ]
+}

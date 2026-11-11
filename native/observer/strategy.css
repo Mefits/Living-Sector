@@ -1,0 +1,159 @@
+/* Read-only faction strategy drawer, styled to match the existing Observer. */
+.strategy-toolbar-button {
+  background: #183039; color: #c6eee8; border: 1px solid #3a7774;
+  border-radius: 5px; padding: 8px 12px; font-size: 11px;
+  font-weight: 730; letter-spacing: .045em; white-space: nowrap;
+}
+.strategy-toolbar-button:hover, .strategy-toolbar-button[aria-expanded="true"] {
+  background: #24494b; border-color: #64b2a9;
+}
+.strategy-backdrop { position: fixed; inset: 0; background: #030910b3; z-index: 19; }
+.strategy-drawer {
+  position: fixed; inset: 0 0 0 auto; width: min(552px, 100vw);
+  z-index: 20; display: flex; flex-direction: column; min-height: 0;
+  background: #0d1721; border-left: 1px solid #426070;
+  box-shadow: -16px 0 60px #000a; color: #e1eaf0;
+}
+.strategy-drawer-header { display: flex; align-items: start; gap: 12px; justify-content: space-between;
+  padding: 24px 22px 17px; border-bottom: 1px solid #273b49;
+  background: linear-gradient(110deg,#17303a,#0d1721 75%); }
+.strategy-title-label { color: #76b7b5; font-size: 10px; letter-spacing: .14em; font-weight: 740; }
+.strategy-drawer-header h2 { font-size: 21px; font-weight: 650; letter-spacing: .01em; margin: 5px 0 5px; line-height: 1.2; }
+.strategy-drawer-header p { color: #9bb1c0; font-size: 11px; margin: 0; }
+.strategy-close { flex: none; width: 30px; height: 30px; background:#1a2b37;
+  color:#c7d7df; border:1px solid #38515e; border-radius:5px; font-size:22px; line-height:1; }
+.strategy-close:hover { background: #2a414c; }
+.strategy-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 12px 22px; border-bottom: 1px solid #263a47; background: #101e28; }
+.strategy-mode { padding: 4px 9px; font-size: 10px; font-weight: 750; letter-spacing: .075em;
+  background: #203946; border: 1px solid #456373; border-radius:4px; white-space:nowrap; }
+.strategy-mode[data-mode="shadow"] { color: #b5d7e7; }
+.strategy-mode[data-mode="execute"] { color: #aee5c9; background:#1c4139; border-color: #427f68; }
+.strategy-update { color:#96aab8; text-align:right; font-size:10px; overflow-wrap:anywhere; }
+.strategy-error { color:#e5ac9c; }
+.strategy-picker { display:flex; gap:12px; align-items:center; padding:15px 22px;
+  border-bottom:1px solid #233644; background:#101b25; }
+.strategy-picker label { color:#9aafbd; font-size:11px; font-weight:700; white-space:nowrap; }
+.strategy-picker select { flex:1; min-width:0; color:#e0e9ef; border:1px solid #40596a;
+  border-radius:5px; padding:8px 11px; background:#152633; }
+.strategy-refresh { border:1px solid #40596a; background:#1a2b39; color:#cfe5e6;
+  padding:8px 10px; border-radius:5px; }
+.strategy-refresh:hover { background: #294452; }
+.strategy-content { flex:1; min-height:0; overflow:auto; padding:18px 22px 30px; scrollbar-color:#345266 #0d1721; }
+.strategy-section { margin-bottom:23px; }
+.strategy-section-heading { display:flex; align-items:center; justify-content:space-between;
+  gap:10px; margin:0 0 11px; }
+.strategy-section-heading h3 { margin:0; font-size:11px; letter-spacing:.12em;
+  color:#a9bfca; font-weight:760; }
+.strategy-section-heading small { color:#718a9a; font-size:10px; }
+.strategy-summary-card { padding:17px; border:1px solid #335060; border-radius:7px;
+  background:linear-gradient(150deg,#192e38,#13222e 68%); }
+.strategy-section-header { display:flex; align-items:center; justify-content:space-between;gap:8px }
+.strategy-eyebrow { color:#83adba; text-transform:uppercase; font-size:10px; letter-spacing:.12em; font-weight:720; }
+.strategy-state { color:#a7e2d8; background:#20433f; font-size:10px; font-weight:650;
+  padding:4px 7px; border-radius:4px; }
+.strategy-faction-name { margin:11px 0 4px; font-size:18px; font-weight:680; }
+.strategy-decision-reason { font-size:12px; color:#b0c5d0; margin:0 0 13px; line-height:1.55; }
+.strategy-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin:14px 0; }
+.strategy-metric { display:flex; flex-direction:column; gap:4px; padding:10px 8px; background:#0c1a24a6;
+  border:1px solid #2b4655; border-radius:4px; min-width:0; }
+.strategy-metric span { color:#88a0af; font-size:9px; }
+.strategy-metric strong { color:#e8f1f3; font-size:13px; font-weight:680; font-variant-numeric:tabular-nums;
+  overflow-wrap:anywhere; }
+.strategy-field { display:grid; grid-template-columns:126px minmax(0,1fr);
+  gap:10px; border-top:1px solid #27414e; padding:8px 0; font-size:11px; }
+.strategy-field-label { color:#8ea5b5; }
+.strategy-field-value { text-align:right; color:#d1e0e8; overflow-wrap:anywhere; }
+.strategy-note { color:#829ba9; margin:10px 0 0; font-size:10px; line-height:1.6; }
+.strategy-goal-card, .strategy-project-card { padding:13px 14px; border:1px solid #263e4c;
+  border-radius:6px; background:#13212c; margin:7px 0; }
+.strategy-goal-selected { border-color:#4a958b; background:#193439; box-shadow:inset 3px 0 #64bbae; }
+.strategy-goal-heading, .strategy-project-top { display:flex; justify-content:space-between;
+  gap:10px; align-items:center; font-size:12px; font-weight:680; }
+.strategy-goal-heading > span:first-child { min-width:0; overflow-wrap:anywhere; }
+.strategy-selection-tag { flex:none; color:#a4e6da; font-size:10px;
+  background:#235049; border-radius:3px; padding:3px 6px; }
+.strategy-goal-details { display:flex; align-items:flex-start; justify-content:space-between;
+  flex-wrap:wrap; gap:3px 12px; color:#afc4d0; margin-top:9px; font-size:11px; }
+.strategy-score { color:#7895a8; font-size:10px; margin-top:9px; }
+.strategy-project-state { color:#a5cfca; font-size:10px; padding:3px 6px;
+  border:1px solid #35625e; border-radius:4px; font-weight:700; }
+.strategy-route { padding:11px 0 7px; font-size:12px; color:#c3d5dc; word-break:break-word; }
+.strategy-project-card .strategy-field { grid-template-columns:130px minmax(0,1fr); }
+.strategy-empty { color:#839dac; font-size:11px; line-height:1.7; padding:14px;
+  border:1px dashed #334857; border-radius:5px; margin:0; }
+.strategy-history-row { display:grid; grid-template-columns:72px minmax(0,1fr);
+  gap:9px; padding:10px 0; border-bottom:1px solid #233645;
+  font-size:11px; color:#bacbd4; overflow-wrap:anywhere; }
+.strategy-history-row time { color:#7e9aa9; font-variant-numeric:tabular-nums; }
+.strategy-clear { font-size:10px; color:#9bbcbc; background:none; border:0; padding:2px; }
+.strategy-clear:hover { text-decoration:underline; }
+.strategy-footer { padding:12px 22px; border-top:1px solid #2a404d;
+  font-size:10px; color:#849bab; line-height:1.55; background:#111e29; }
+body.strategy-open .inspector { display:none!important; }
+.faction-item.strategy-faction-link { cursor:pointer; border:1px solid transparent;
+  background:transparent; text-align:left; width:100%; font:inherit; }
+.faction-item.strategy-faction-link:hover, .faction-item.strategy-faction-link:focus-visible {
+  background:#1c303b; border-color:#39625f; border-radius:4px; color:#d2eee8;
+}
+@media(max-width:640px) {
+  .strategy-drawer { width:100vw; }
+  .strategy-drawer-header { padding:18px 17px 13px; }
+  .strategy-meta, .strategy-picker { padding:11px 17px; }
+  .strategy-content { padding:16px 17px; }
+  .strategy-footer { padding:10px 17px; }
+  .strategy-toolbar-button { padding:6px 9px; }
+}
+
+/* S2–S4 diagnostic layers, not speculative "strategy" badges. */
+.strategy-head-card { border-color:#4a7b79; background:linear-gradient(140deg,#1a3a3e,#112731 72%); }
+.strategy-head-card .strategy-field { grid-template-columns:160px minmax(0,1fr); }
+.strategy-subheading { margin:16px 2px 8px; font-size:10px; font-weight:760;
+  letter-spacing:.07em; color:#9cb8c6; }
+.strategy-proposal-card, .strategy-construction-card { border:1px solid #34505e;
+  border-radius:6px; background:#152630; padding:13px 14px; margin:7px 0; }
+.strategy-proposal-chosen { border-color:#64a7a0; background:#1b3537;
+  box-shadow:inset 3px 0 #60b5aa; }
+.strategy-proposal-card .strategy-field, .strategy-construction-card .strategy-field {
+  grid-template-columns:150px minmax(0,1fr);
+}
+.strategy-proposal-card .strategy-field-value { font-size:10px; }
+.strategy-construction-card .strategy-decision-reason { margin:11px 0; }
+.strategy-assessment { border-radius:4px; font-size:10px;
+  padding:7px 9px; margin-top:9px; }
+.strategy-assessment.ready { background:#1a3932; color:#a2dbc1; }
+.strategy-assessment.blocked { background:#3a2b28; color:#e5c1b4; }
+.strategy-site-progress { margin:14px 0 5px; padding:10px 11px; background:#0c2029;
+  border:1px solid #33515c; border-radius:5px; }
+.strategy-site-progress progress { width:100%; height:9px; margin-top:10px;
+  accent-color:#63bcae; border-radius:6px; }
+.strategy-site-progress progress::-webkit-progress-bar { background:#0b151d; border-radius:6px; }
+.strategy-site-progress progress::-webkit-progress-value { background:#63bcae; border-radius:6px; }
+.strategy-site-progress progress::-moz-progress-bar { background:#63bcae; border-radius:6px; }
+@media(max-width:460px) {
+  .strategy-head-card .strategy-field,
+  .strategy-proposal-card .strategy-field,
+  .strategy-construction-card .strategy-field { grid-template-columns:120px minmax(0,1fr); }
+}
+
+/* S7 head alternatives: delivery, construction, waiting. */
+.strategy-problem-title { margin:14px 2px 0; padding:10px 12px;
+  border-left:3px solid #649eaf; color:#d8e8ed; background:#152a36;
+  border-radius:4px; font-weight:670; font-size:12px; overflow-wrap:anywhere; }
+.strategy-option-card { margin:8px 0; padding:13px 14px; border:1px solid #2f4b58;
+  border-radius:6px; background:#132531; }
+.strategy-option-card .strategy-field { grid-template-columns:160px minmax(0,1fr); }
+.strategy-option-reason { margin:8px 0 6px; font-size:11px; color:#acc6d2; }
+@media(max-width:460px) {
+  .strategy-option-card .strategy-field { grid-template-columns:120px minmax(0,1fr); }
+}
+
+/* AI runtime receipts: observation only. Keep the identity of each native step. */
+.strategy-ai-plan, .strategy-ai-terminal, .strategy-ai-deferred { margin-bottom: 10px; }
+.strategy-ai-track { margin-top: 13px; display: grid; gap: 8px; }
+.strategy-ai-step, .strategy-ai-terminal, .strategy-ai-deferred {
+  padding: 11px 12px; background: #132431; border: 1px solid #2b4351; border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+.strategy-ai-step .strategy-field, .strategy-ai-terminal .strategy-field { margin-top: 6px; }
+.strategy-ai-plan .strategy-faction-name { overflow-wrap: anywhere; }

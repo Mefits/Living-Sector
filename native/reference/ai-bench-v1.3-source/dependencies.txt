@@ -1,0 +1,10 @@
+ls-ai-bench v1.2.0
+├── bevy_ecs v0.19.1
+├── cranium v0.3.0
+├── cranium-core v0.3.0
+├── htn v0.2.1
+├── indexmap v2.14.2
+├── serde v1.0.229
+├── serde_json v1.0.154
+├── telic v0.1.0
+└── windows-sys v0.61.2

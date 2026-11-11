@@ -42,3 +42,7 @@ dist/
 
 # Raw, unprocessed screenshots (commit the processed docs/screenshots/*.png instead)
 Screenshot*.png
+
+# Cargo build outputs in checked-in native source tree (never source code)
+**/target/
+**/target/**

@@ -1,0 +1,11 @@
+{
+  "pass": true,
+  "factions": 3,
+  "selected": "Ceti Freeholds",
+  "pause": true,
+  "speed": 1,
+  "ticks_per_second": 1,
+  "tick": 108,
+  "detailsStayOpen": true,
+  "errors": []
+}

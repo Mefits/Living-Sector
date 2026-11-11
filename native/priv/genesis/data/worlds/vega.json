@@ -1,0 +1,71 @@
+{
+  "system": {
+    "id": "system-vega",
+    "name": "Vega",
+    "universe_offset": [
+      120,
+      -60
+    ],
+    "star_type": "A"
+  },
+  "bodies": [
+    {
+      "id": "veritas",
+      "name": "Veritas",
+      "type": "planet",
+      "orbit_radius": 1.6,
+      "orbit_period": 260,
+      "current_angle": 30,
+      "biome": "temperate",
+      "resources": {
+        "ore": 0.4,
+        "ice": 0.3
+      }
+    },
+    {
+      "id": "orison",
+      "name": "Orison",
+      "type": "planet",
+      "orbit_radius": 3,
+      "orbit_period": 500,
+      "current_angle": 190,
+      "biome": "desert",
+      "resources": {
+        "ore": 0.7,
+        "gas": 0.2
+      }
+    },
+    {
+      "id": "vega-rim-belt",
+      "name": "Vega Rim Belt",
+      "type": "belt",
+      "orbit_radius": 4.8,
+      "orbit_period": 900,
+      "current_angle": 60,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.85,
+        "ice": 0.4,
+        "gas": 0.2
+      }
+    },
+    {
+      "id": "vega-ice-field",
+      "name": "Vega Ice Field",
+      "type": "asteroid",
+      "orbit_radius": 6.4,
+      "orbit_period": 1300,
+      "current_angle": 270,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.9,
+        "gas": 0.7
+      }
+    }
+  ],
+  "travel_routes": [],
+  "facilities": [],
+  "markets": [],
+  "ships": [],
+  "populations": []
+}

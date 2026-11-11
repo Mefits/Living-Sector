@@ -1,0 +1,1089 @@
+{
+  "system": {
+    "id": "system-tau-ceti",
+    "name": "Tau Ceti",
+    "universe_offset": [
+      40.0,
+      -10.0
+    ],
+    "star_type": "F"
+  },
+  "bodies": [
+    {
+      "id": "forge",
+      "name": "Forge",
+      "type": "planet",
+      "orbit_radius": 0.6,
+      "orbit_period": 200,
+      "current_angle": 50.0,
+      "biome": "molten",
+      "resources": {
+        "ore": 0.95,
+        "gas": 0.3
+      }
+    },
+    {
+      "id": "anvil",
+      "name": "Anvil",
+      "type": "planet",
+      "orbit_radius": 1.2,
+      "orbit_period": 400,
+      "current_angle": 150.0,
+      "biome": "industrial",
+      "resources": {
+        "ore": 0.8,
+        "ice": 0.4
+      }
+    },
+    {
+      "id": "crucible",
+      "name": "Crucible",
+      "type": "belt",
+      "orbit_radius": 2.0,
+      "orbit_period": 700,
+      "current_angle": 260.0,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.95,
+        "ice": 0.5,
+        "gas": 0.2
+      }
+    },
+    {
+      "id": "frostheim",
+      "name": "Frostheim",
+      "type": "planet",
+      "orbit_radius": 3.5,
+      "orbit_period": 1200,
+      "current_angle": 10.0,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.9,
+        "gas": 0.8
+      }
+    },
+    {
+      "id": "slag-field",
+      "name": "Slag Field",
+      "type": "asteroid",
+      "orbit_radius": 0.9,
+      "orbit_period": 280,
+      "current_angle": 110.0,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.9,
+        "ice": 0.2
+      }
+    },
+    {
+      "id": "deep-ice",
+      "name": "Deep Ice",
+      "type": "asteroid",
+      "orbit_radius": 2.8,
+      "orbit_period": 900,
+      "current_angle": 260.0,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.8,
+        "gas": 0.6
+      }
+    }
+  ],
+  "travel_routes": [
+    {
+      "from": "forge-smelter",
+      "to": "anvil-depot",
+      "distance": 70
+    },
+    {
+      "from": "anvil-depot",
+      "to": "crucible-mine",
+      "distance": 80
+    },
+    {
+      "from": "forge-smelter",
+      "to": "crucible-mine",
+      "distance": 120
+    },
+    {
+      "from": "crucible-mine",
+      "to": "frostheim-station",
+      "distance": 100
+    },
+    {
+      "from": "anvil-depot",
+      "to": "frostheim-station",
+      "distance": 140
+    },
+    {
+      "from": "forge-smelter",
+      "to": "slag-mine",
+      "distance": 30
+    },
+    {
+      "from": "anvil-depot",
+      "to": "slag-mine",
+      "distance": 40
+    },
+    {
+      "from": "frostheim-station",
+      "to": "deep-ice-station",
+      "distance": 50
+    },
+    {
+      "from": "crucible-mine",
+      "to": "deep-ice-station",
+      "distance": 60
+    },
+    {
+      "from": "anvil-depot",
+      "to": "tc-ac-gate",
+      "distance": 40
+    },
+    {
+      "from": "forge-smelter",
+      "to": "tc-ac-gate",
+      "distance": 55
+    },
+    {
+      "from": "crucible-mine",
+      "to": "tc-ac-gate",
+      "distance": 65
+    },
+    {
+      "from": "frostheim-station",
+      "to": "tc-sol-gate",
+      "distance": 30
+    },
+    {
+      "from": "crucible-mine",
+      "to": "tc-sol-gate",
+      "distance": 70
+    },
+    {
+      "from": "anvil-depot",
+      "to": "tc-sol-gate",
+      "distance": 60
+    },
+    {
+      "from": "anvil-depot",
+      "to": "tc-vega-gate",
+      "distance": 90
+    },
+    {
+      "from": "frostheim-station",
+      "to": "tc-vega-gate",
+      "distance": 60
+    },
+    {
+      "from": "deep-ice-station",
+      "to": "tc-vega-gate",
+      "distance": 50
+    },
+    {
+      "from": "crucible-mine",
+      "to": "tc-vega-gate",
+      "distance": 75
+    },
+    {
+      "from": "tc-sol-gate",
+      "to": "tc-vega-gate",
+      "distance": 130
+    },
+    {
+      "from": "tc-ac-gate",
+      "to": "tc-vega-gate",
+      "distance": 140
+    }
+  ],
+  "facilities": [
+    {
+      "id": "facility-forge-smelter",
+      "name": "Forge Smelter",
+      "faction_id": "crucible-mining",
+      "location": "forge-smelter",
+      "body": "forge",
+      "type": "refinery",
+      "docking_capacity": 25,
+      "services": [
+        "refuel",
+        "market"
+      ],
+      "reserves": {
+        "ore": 5000,
+        "fuel": 2000,
+        "metals": 1500
+      }
+    },
+    {
+      "id": "facility-anvil-depot",
+      "name": "Anvil Depot",
+      "faction_id": "crucible-mining",
+      "location": "anvil-depot",
+      "body": "anvil",
+      "type": "station",
+      "docking_capacity": 40,
+      "services": [
+        "refuel",
+        "repair",
+        "medical",
+        "market"
+      ],
+      "reserves": {
+        "fuel": 3000,
+        "food": 1000,
+        "medical": 200,
+        "metals": 500,
+        "tools": 200
+      }
+    },
+    {
+      "id": "facility-anvil-shipyard",
+      "name": "Crucible Foundry Yards",
+      "faction_id": "crucible-mining",
+      "location": "anvil-depot",
+      "body": "anvil",
+      "type": "shipyard",
+      "docking_capacity": 20,
+      "services": [
+        "refuel",
+        "repair",
+        "market",
+        "shipyard"
+      ],
+      "reserves": {
+        "metals": 700,
+        "electronics": 300,
+        "components": 250,
+        "tools": 250,
+        "polymers": 150
+      },
+      "fitting": {
+        "production": "production_t2",
+        "automation": "automation_t1"
+      },
+      "module_stock": {
+        "engine_t2": 1,
+        "reactor_t2": 2,
+        "cargo_bay_t2": 1,
+        "engine_t3": 1
+      }
+    },
+    {
+      "id": "facility-anvil-mine",
+      "name": "Anvil Deep Mine",
+      "faction_id": "crucible-mining",
+      "location": "anvil-depot",
+      "body": "anvil",
+      "type": "mining_rig",
+      "docking_capacity": 15,
+      "services": [
+        "market"
+      ],
+      "reserves": {
+        "ore": 8000,
+        "fuel": 500
+      }
+    },
+    {
+      "id": "facility-anvil-refinery",
+      "name": "Anvil Processing",
+      "faction_id": "crucible-mining",
+      "location": "anvil-depot",
+      "body": "anvil",
+      "type": "refinery",
+      "docking_capacity": 15,
+      "services": [],
+      "reserves": {
+        "ore": 2000,
+        "ice": 1000,
+        "fuel": 500
+      }
+    },
+    {
+      "id": "facility-anvil-farm",
+      "name": "Anvil Hydro Bay",
+      "faction_id": "crucible-mining",
+      "location": "anvil-depot",
+      "body": "anvil",
+      "type": "farm",
+      "docking_capacity": 10,
+      "services": [],
+      "reserves": {
+        "water": 1500,
+        "fuel": 200
+      }
+    },
+    {
+      "id": "facility-crucible-mine",
+      "name": "Crucible Extraction",
+      "faction_id": "crucible-mining",
+      "location": "crucible-mine",
+      "body": "crucible",
+      "type": "mining_rig",
+      "docking_capacity": 20,
+      "services": [
+        "refuel",
+        "market"
+      ],
+      "reserves": {
+        "ore": 10000,
+        "ice": 3000,
+        "fuel": 1500,
+        "food": 300
+      }
+    },
+    {
+      "id": "facility-frostheim-station",
+      "name": "Frostheim Ice Station",
+      "faction_id": "crucible-mining",
+      "location": "frostheim-station",
+      "body": "frostheim",
+      "type": "mining_rig",
+      "docking_capacity": 30,
+      "services": [
+        "refuel",
+        "market"
+      ],
+      "reserves": {
+        "ice": 8000,
+        "gas": 5000,
+        "fuel": 1000,
+        "food": 200
+      }
+    },
+    {
+      "id": "facility-slag-mine",
+      "name": "Slag Field Operations",
+      "faction_id": "crucible-mining",
+      "location": "slag-mine",
+      "body": "slag-field",
+      "type": "mining_rig",
+      "docking_capacity": 20,
+      "services": [
+        "refuel",
+        "market"
+      ],
+      "reserves": {
+        "fuel": 1500,
+        "food": 300,
+        "ore": 4000
+      }
+    },
+    {
+      "id": "facility-deep-ice-mine",
+      "name": "Deep Ice Extraction",
+      "faction_id": "crucible-mining",
+      "location": "deep-ice-station",
+      "body": "deep-ice",
+      "type": "mining_rig",
+      "docking_capacity": 15,
+      "services": [
+        "refuel",
+        "market"
+      ],
+      "reserves": {
+        "fuel": 1000,
+        "food": 200,
+        "ice": 3000
+      }
+    },
+    {
+      "id": "facility-frostheim-refinery",
+      "name": "Frostheim Refinery",
+      "faction_id": "crucible-mining",
+      "location": "frostheim-station",
+      "body": "frostheim",
+      "type": "refinery",
+      "docking_capacity": 15,
+      "services": [
+        "market"
+      ],
+      "reserves": {
+        "ice": 2000,
+        "gas": 2000,
+        "fuel": 500
+      }
+    },
+    {
+      "id": "facility-anvil-factory",
+      "name": "Anvil Manufacturing",
+      "faction_id": "crucible-mining",
+      "location": "anvil-depot",
+      "body": "anvil",
+      "type": "factory",
+      "docking_capacity": 15,
+      "services": [
+        "market"
+      ],
+      "reserves": {
+        "metals": 1500,
+        "polymers": 800,
+        "components": 200,
+        "fuel": 400
+      }
+    },
+    {
+      "id": "facility-forge-factory",
+      "name": "Forge Fabrication",
+      "faction_id": "crucible-mining",
+      "location": "forge-smelter",
+      "body": "forge",
+      "type": "factory",
+      "docking_capacity": 15,
+      "services": [
+        "market"
+      ],
+      "reserves": {
+        "metals": 1000,
+        "polymers": 500,
+        "fuel": 300
+      }
+    },
+    {
+      "id": "facility-frostheim-factory",
+      "name": "Frostheim Assembly",
+      "faction_id": "independent",
+      "location": "frostheim-station",
+      "body": "frostheim",
+      "type": "factory",
+      "docking_capacity": 15,
+      "services": [
+        "market"
+      ],
+      "reserves": {
+        "metals": 500,
+        "polymers": 200,
+        "components": 100
+      }
+    },
+    {
+      "id": "facility-crucible-factory",
+      "name": "Crucible Works",
+      "faction_id": "independent",
+      "location": "crucible-mine",
+      "body": "crucible",
+      "type": "factory",
+      "docking_capacity": 15,
+      "services": [
+        "market"
+      ],
+      "reserves": {
+        "metals": 500,
+        "polymers": 200,
+        "components": 100
+      }
+    },
+    {
+      "id": "facility-tc-sol-gate",
+      "name": "Frontier Portal",
+      "faction_id": "crucible-mining",
+      "location": "tc-sol-gate",
+      "body": "frostheim",
+      "type": "gate",
+      "docking_capacity": 25,
+      "services": [
+        "refuel",
+        "gate"
+      ],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-sol-tc-gate-outer-rim-gate"
+    },
+    {
+      "id": "facility-tc-ac-gate",
+      "name": "Anvil Junction",
+      "faction_id": "crucible-mining",
+      "location": "tc-ac-gate",
+      "body": "anvil",
+      "type": "gate",
+      "docking_capacity": 25,
+      "services": [
+        "refuel",
+        "gate"
+      ],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-ac-tc-gate-refuge-bridge"
+    },
+    {
+      "id": "facility-tc-vega-gate",
+      "name": "Stellar Bridge",
+      "faction_id": "vega-conclave",
+      "location": "tc-vega-gate",
+      "body": "frostheim",
+      "type": "gate",
+      "docking_capacity": 25,
+      "services": [
+        "refuel",
+        "gate"
+      ],
+      "reserves": {
+        "fuel": 5000
+      },
+      "gate_paired_id": "facility-vega-tc-gate-tau-approach"
+    }
+  ],
+  "markets": [
+    {
+      "id": "market-forge-smelter",
+      "facility_id": "forge-smelter",
+      "prices": {
+        "ore": 8.0,
+        "metals": 35.0,
+        "fuel": 20.0,
+        "food": 80.0,
+        "water": 30.0,
+        "ice": 15.0,
+        "gas": 10.0,
+        "polymers": 45.0,
+        "components": 110.0,
+        "electronics": 150.0,
+        "tools": 100.0,
+        "medical": 140.0,
+        "luxury": 220.0
+      },
+      "supply": {
+        "ore": 3000,
+        "metals": 1000,
+        "fuel": 1000,
+        "gas": 500,
+        "ice": 200,
+        "food": 100
+      },
+      "demand": {
+        "food": 10,
+        "fuel": 12,
+        "medical": 3,
+        "tools": 5
+      },
+      "consumption": {
+        "fuel": 1
+      },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-anvil-depot",
+      "facility_id": "anvil-depot",
+      "prices": {
+        "ore": 10.0,
+        "metals": 40.0,
+        "fuel": 22.0,
+        "food": 70.0,
+        "water": 28.0,
+        "ice": 12.0,
+        "gas": 12.0,
+        "polymers": 48.0,
+        "components": 105.0,
+        "electronics": 145.0,
+        "tools": 95.0,
+        "medical": 135.0,
+        "luxury": 210.0
+      },
+      "supply": {
+        "ore": 5000,
+        "metals": 500,
+        "fuel": 1500,
+        "ice": 1000,
+        "gas": 300,
+        "food": 500,
+        "tools": 100,
+        "medical": 50,
+        "components": 50
+      },
+      "demand": {
+        "food": 25,
+        "fuel": 15,
+        "medical": 8,
+        "tools": 8,
+        "components": 5,
+        "luxury": 3
+      },
+      "consumption": {
+        "fuel": 1
+      },
+      "production": {
+        "fuel": 1
+      },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-crucible-mine",
+      "facility_id": "crucible-mine",
+      "prices": {
+        "ore": 6.0,
+        "metals": 55.0,
+        "fuel": 28.0,
+        "food": 90.0,
+        "water": 35.0,
+        "ice": 8.0,
+        "gas": 10.0,
+        "polymers": 50.0,
+        "components": 115.0,
+        "electronics": 155.0,
+        "tools": 105.0,
+        "medical": 145.0,
+        "luxury": 230.0
+      },
+      "supply": {
+        "ore": 8000,
+        "ice": 2000,
+        "gas": 500,
+        "fuel": 500,
+        "food": 100
+      },
+      "demand": {
+        "food": 12,
+        "fuel": 10,
+        "tools": 3
+      },
+      "consumption": {
+        "fuel": 1
+      },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-frostheim-station",
+      "facility_id": "frostheim-station",
+      "prices": {
+        "ore": 60.0,
+        "metals": 65.0,
+        "fuel": 15.0,
+        "food": 95.0,
+        "water": 5.0,
+        "ice": 3.0,
+        "gas": 4.0,
+        "polymers": 30.0,
+        "components": 120.0,
+        "electronics": 160.0,
+        "tools": 110.0,
+        "medical": 150.0,
+        "luxury": 240.0
+      },
+      "supply": {
+        "ice": 6000,
+        "gas": 4000,
+        "fuel": 800,
+        "water": 2000,
+        "food": 80
+      },
+      "demand": {
+        "food": 8,
+        "fuel": 8,
+        "components": 2
+      },
+      "consumption": {
+        "fuel": 1
+      },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-slag-mine",
+      "facility_id": "slag-mine",
+      "prices": {
+        "ore": 6.0,
+        "ice": 20.0,
+        "fuel": 35.0,
+        "food": 65.0,
+        "metals": 50.0
+      },
+      "supply": {
+        "ore": 4000,
+        "ice": 300,
+        "fuel": 1500,
+        "food": 300
+      },
+      "demand": {
+        "food": 8,
+        "fuel": 6
+      },
+      "consumption": {
+        "fuel": 1
+      },
+      "price_elasticity": 0.02
+    },
+    {
+      "id": "market-deep-ice-station",
+      "facility_id": "deep-ice-station",
+      "prices": {
+        "ice": 4.0,
+        "gas": 8.0,
+        "fuel": 30.0,
+        "food": 70.0,
+        "ore": 55.0
+      },
+      "supply": {
+        "ice": 3000,
+        "gas": 1000,
+        "fuel": 1000,
+        "food": 200
+      },
+      "demand": {
+        "food": 5,
+        "fuel": 5
+      },
+      "consumption": {
+        "fuel": 1
+      },
+      "price_elasticity": 0.02
+    }
+  ],
+  "ships": [
+    {
+      "name": "Forge Hauler",
+      "location": "anvil-depot",
+      "class": "hauler",
+      "credits": 15000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "TC Bulwark",
+      "location": "anvil-depot",
+      "class": "tanker",
+      "credits": 22000,
+      "faction_id": "crucible-mining",
+      "size": "huge",
+      "fitting": {
+        "engine": "engine_t2",
+        "cargo_bay": "cargo_bay_t2",
+        "sensors": "sensors_t2",
+        "reactor": "reactor_t2",
+        "comms": "comms_t1"
+      },
+      "progression": {
+        "level": 3,
+        "xp": 80,
+        "retrofit_points": 1
+      }
+    },
+    {
+      "name": "TC Skiff",
+      "location": "forge-smelter",
+      "class": "courier",
+      "credits": 4000,
+      "faction_id": "crucible-mining",
+      "size": "tiny",
+      "progression": {
+        "level": 2,
+        "xp": 20,
+        "retrofit_points": 1
+      }
+    },
+    {
+      "name": "Anvil Runner",
+      "location": "anvil-depot",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Crucible Mule",
+      "location": "crucible-mine",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Frost Tanker",
+      "location": "frostheim-station",
+      "class": "tanker",
+      "credits": 12000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Deep Space One",
+      "location": "anvil-depot",
+      "class": "hauler",
+      "credits": 20000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Golden Falcon",
+      "location": "crucible-mine",
+      "class": "tanker",
+      "credits": 12000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Copper Panther",
+      "location": "anvil-depot",
+      "class": "hauler",
+      "credits": 15000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Copper Bear",
+      "location": "anvil-depot",
+      "class": "hauler",
+      "credits": 15000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Iron Raven",
+      "location": "frostheim-station",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Copper Cobra",
+      "location": "forge-smelter",
+      "class": "tanker",
+      "credits": 12000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Titan Shark",
+      "location": "frostheim-station",
+      "class": "freighter",
+      "credits": 5000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Silver Moth",
+      "location": "anvil-depot",
+      "class": "freighter",
+      "credits": 5000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Pearl Mantis",
+      "location": "frostheim-station",
+      "class": "tanker",
+      "credits": 12000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Jade Osprey",
+      "location": "frostheim-station",
+      "class": "hauler",
+      "credits": 5000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Nebula Coyote",
+      "location": "crucible-mine",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Ash Eagle",
+      "location": "crucible-mine",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Ruby Crane",
+      "location": "anvil-depot",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Echo Hydra",
+      "location": "frostheim-station",
+      "class": "freighter",
+      "credits": 15000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Orion Fox",
+      "location": "anvil-depot",
+      "class": "tanker",
+      "credits": 10000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Iron Griffin",
+      "location": "frostheim-station",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Shadow Hydra",
+      "location": "frostheim-station",
+      "class": "freighter",
+      "credits": 12000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Copper Lynx",
+      "location": "forge-smelter",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Echo Mongoose",
+      "location": "crucible-mine",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Dark Lion",
+      "location": "frostheim-station",
+      "class": "tanker",
+      "credits": 10000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Bold Raven",
+      "location": "anvil-depot",
+      "class": "tanker",
+      "credits": 15000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Ember Shark",
+      "location": "frostheim-station",
+      "class": "tanker",
+      "credits": 10000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Star Minotaur",
+      "location": "anvil-depot",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Titan Wolf",
+      "location": "forge-smelter",
+      "class": "tanker",
+      "credits": 12000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Pulse Heron",
+      "location": "forge-smelter",
+      "class": "tanker",
+      "credits": 15000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Copper Hawk",
+      "location": "frostheim-station",
+      "class": "freighter",
+      "credits": 10000,
+      "faction_id": "independent"
+    },
+    {
+      "name": "Slag Rat",
+      "location": "slag-mine",
+      "class": "miner",
+      "credits": 3000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Slag Hound",
+      "location": "slag-mine",
+      "class": "miner",
+      "credits": 3000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Ice Borer",
+      "location": "deep-ice-station",
+      "class": "miner",
+      "credits": 3000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Crucible Picker",
+      "location": "crucible-mine",
+      "class": "miner",
+      "credits": 3000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Frostheim Drill",
+      "location": "frostheim-station",
+      "class": "miner",
+      "credits": 3000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "TC Courier One",
+      "location": "anvil-depot",
+      "class": "courier",
+      "credits": 5000,
+      "faction_id": "crucible-mining"
+    },
+    {
+      "name": "Forge Runner",
+      "location": "forge-smelter",
+      "class": "freighter",
+      "credits": 8000,
+      "faction_id": "crucible-mining"
+    }
+  ],
+  "populations": [
+    {
+      "id": "pop-anvil-crew",
+      "label": "Anvil Depot Crew",
+      "facility_id": "anvil-depot",
+      "demographic": "workers",
+      "faction_id": "crucible-mining",
+      "population_count": 8000,
+      "food_satisfaction": 35,
+      "total_wealth": 400000,
+      "consumption": {
+        "food": 15
+      },
+      "production_commodity": "ore",
+      "production_amount": 40
+    },
+    {
+      "id": "pop-crucible-miners",
+      "label": "Crucible Miners",
+      "facility_id": "crucible-mine",
+      "demographic": "workers",
+      "faction_id": "crucible-mining",
+      "population_count": 5000,
+      "food_satisfaction": 30,
+      "total_wealth": 250000,
+      "consumption": {
+        "food": 10
+      },
+      "production_commodity": "ore",
+      "production_amount": 50
+    },
+    {
+      "id": "pop-frostheim-crew",
+      "label": "Frostheim Crew",
+      "facility_id": "frostheim-station",
+      "demographic": "workers",
+      "faction_id": "crucible-mining",
+      "population_count": 2000,
+      "food_satisfaction": 25,
+      "total_wealth": 150000,
+      "consumption": {
+        "food": 5
+      },
+      "production_commodity": "ice",
+      "production_amount": 35
+    },
+    {
+      "id": "pop-forge-workers",
+      "label": "Forge Smelter Workers",
+      "facility_id": "forge-smelter",
+      "demographic": "workers",
+      "faction_id": "crucible-mining",
+      "population_count": 3000,
+      "food_satisfaction": 30,
+      "total_wealth": 200000,
+      "consumption": {
+        "food": 8
+      },
+      "production_commodity": "ore",
+      "production_amount": 25
+    }
+  ]
+}

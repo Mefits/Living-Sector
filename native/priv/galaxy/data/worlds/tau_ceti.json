@@ -1,0 +1,117 @@
+{
+  "system": {
+    "id": "system-tau-ceti",
+    "name": "Tau Ceti",
+    "universe_offset": [
+      80,
+      -20
+    ],
+    "star_type": "F"
+  },
+  "bodies": [
+    {
+      "id": "forge",
+      "name": "Forge",
+      "type": "planet",
+      "orbit_radius": 1.2,
+      "orbit_period": 420,
+      "current_angle": 50,
+      "biome": "molten",
+      "resources": {
+        "ore": 0.95,
+        "gas": 0.3
+      }
+    },
+    {
+      "id": "anvil",
+      "name": "Anvil",
+      "type": "planet",
+      "orbit_radius": 2.4,
+      "orbit_period": 840,
+      "current_angle": 150,
+      "biome": "industrial",
+      "resources": {
+        "ore": 0.8,
+        "ice": 0.4
+      }
+    },
+    {
+      "id": "crucible",
+      "name": "Crucible",
+      "type": "belt",
+      "orbit_radius": 4,
+      "orbit_period": 1400,
+      "current_angle": 260,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.95,
+        "ice": 0.5,
+        "gas": 0.2
+      }
+    },
+    {
+      "id": "frostheim",
+      "name": "Frostheim",
+      "type": "planet",
+      "orbit_radius": 7,
+      "orbit_period": 2450,
+      "current_angle": 10,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.9,
+        "gas": 0.8
+      }
+    },
+    {
+      "id": "slag-field",
+      "name": "Slag Field",
+      "type": "asteroid",
+      "orbit_radius": 1.8,
+      "orbit_period": 630,
+      "current_angle": 110,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.9,
+        "ice": 0.2,
+        "rare_ore": 0.48,
+        "crystal_ore": 0.16
+      }
+    },
+    {
+      "id": "deep-ice",
+      "name": "Deep Ice",
+      "type": "asteroid",
+      "orbit_radius": 5.6,
+      "orbit_period": 1959,
+      "current_angle": 260,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.8,
+        "gas": 0.6
+      }
+    }
+  ],
+  "travel_routes": [
+    {
+      "from": "lane-tau",
+      "to": "lane-vega",
+      "distance": 135
+    },
+    {
+      "from": "lane-tau",
+      "to": "lane-barnard",
+      "distance": 200
+    }
+  ],
+  "facilities": [],
+  "markets": [],
+  "ships": [],
+  "populations": [],
+  "nav_sites": [
+    {
+      "name": "lane-tau",
+      "type": "navigation_lane",
+      "body": "anvil"
+    }
+  ]
+}

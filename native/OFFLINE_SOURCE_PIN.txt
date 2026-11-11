@@ -1,0 +1,8 @@
+﻿PINNED C1 SOURCE SNAPSHOT
+Repository: Mefits/Living-Sector
+Commit: 65ce7bf53babf5abf47992558cccf1d371068589
+Export mode: text source code, data files and scripts only. No textures/music/models/EXE.
+Kept entries: 281
+Excluded entries: 139
+Important: rust build/run may need missing upstream asset bundles; source is for AI integration and review.
+The new strategy modules have not passed an independently verified Rust compilation.

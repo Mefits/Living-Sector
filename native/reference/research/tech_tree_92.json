@@ -1,0 +1,1778 @@
+{
+  "version": "0.5",
+  "date": "2026-11-08",
+  "status": "proposal/not implementation",
+  "scope": "T1-T4",
+  "rules": [
+    "needs=AND list of prerequisite capabilities",
+    "materials=construction bill of materials; quantities TBD",
+    "all production nonmagical",
+    "ore deposits seeded in world, discovery per-faction",
+    "standalone orbital industry does not occupy station slots",
+    "T3 factory and T3 drill researched/buildable at T2",
+    "no megastructure required to unlock another megastructure"
+  ],
+  "nodes": [
+    {
+      "id": "origin",
+      "tier": 1,
+      "lane": "Строительство",
+      "kind": "milestone",
+      "label": "Стартовый комплект T1",
+      "requires": [],
+      "materials": [],
+      "description": "Один раз при генерации; стартовые станция, базовые предприятия и запас ресурсов. Не восполняется бесплатно.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "hybrid"
+    },
+    {
+      "id": "station1",
+      "tier": 1,
+      "lane": "Строительство",
+      "kind": "building",
+      "label": "Станция T1",
+      "requires": [
+        "origin"
+      ],
+      "materials": [
+        "metals",
+        "components"
+      ],
+      "description": "4 слота, до 100 жителей [проект]. Управление, население, склад и рынок.",
+      "location": "орбита тела",
+      "operates": "Поддержание экипажа; обмен товарами",
+      "note": "",
+      "status": "hybrid"
+    },
+    {
+      "id": "mine1",
+      "tier": 1,
+      "lane": "Ресурсы",
+      "kind": "building",
+      "label": "Базовая добыча",
+      "requires": [
+        "origin"
+      ],
+      "materials": [],
+      "description": "Обычный карьер/добывающая платформа; локальные рудные, ледяные или газовые залежи.",
+      "location": "тело с доступным сырьём",
+      "operates": "Труд, топливо и обслуживание",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "refinery1",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "building",
+      "label": "НПЗ / плавильня T1",
+      "requires": [
+        "origin"
+      ],
+      "materials": [],
+      "description": "Существующий refinery. Стартует в исходном мире; последующие строятся по обычным контрактам.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "farm1",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "building",
+      "label": "Ферма T1",
+      "requires": [
+        "origin"
+      ],
+      "materials": [],
+      "description": "Существующий farm.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "ore",
+      "tier": 1,
+      "lane": "Ресурсы",
+      "kind": "resource",
+      "label": "Руда",
+      "requires": [
+        "mine1"
+      ],
+      "materials": [],
+      "description": "Обычный ore; конечные залежи [конечность всех источников проверить].",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "ice",
+      "tier": 1,
+      "lane": "Ресурсы",
+      "kind": "resource",
+      "label": "Лёд",
+      "requires": [
+        "mine1"
+      ],
+      "materials": [],
+      "description": "Обычный ice.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "gas",
+      "tier": 1,
+      "lane": "Ресурсы",
+      "kind": "resource",
+      "label": "Газ",
+      "requires": [
+        "mine1"
+      ],
+      "materials": [],
+      "description": "Обычный gas.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "fuel",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Топливо",
+      "requires": [
+        "refinery1",
+        "ice"
+      ],
+      "materials": [],
+      "description": "8 ice → 5 fuel + 10 water; альтернатива: 6 gas → 4 fuel.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "water",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Вода",
+      "requires": [
+        "refinery1",
+        "ice"
+      ],
+      "materials": [],
+      "description": "8 ice → 10 water (+5 fuel).",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "polymers",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Полимеры",
+      "requires": [
+        "refinery1",
+        "gas"
+      ],
+      "materials": [],
+      "description": "6 gas → 5 polymers.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "metals",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Металлы",
+      "requires": [
+        "refinery1",
+        "ore",
+        "fuel"
+      ],
+      "materials": [],
+      "description": "10 ore + 1 fuel → 8 metals.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "food",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Пища",
+      "requires": [
+        "farm1",
+        "water"
+      ],
+      "materials": [],
+      "description": "3 water → 10 food.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "factory1",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "building",
+      "label": "Завод T1",
+      "requires": [
+        "metals",
+        "polymers"
+      ],
+      "materials": [
+        "metals"
+      ],
+      "description": "Обычный factory; выпускает компоненты, электронику, инструменты, медицину, роскошь.",
+      "location": "промышленная площадка/орбита",
+      "operates": "Сырьё, труд, зарплаты",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "components",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Компоненты",
+      "requires": [
+        "factory1",
+        "metals",
+        "polymers"
+      ],
+      "materials": [],
+      "description": "3 metals + 1 polymers → 5 components.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "tools",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Инструменты",
+      "requires": [
+        "factory1",
+        "metals",
+        "polymers"
+      ],
+      "materials": [],
+      "description": "2 metals + 1 polymers → 4 tools.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "electronics",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Электроника",
+      "requires": [
+        "factory1",
+        "components",
+        "metals"
+      ],
+      "materials": [],
+      "description": "2 components + 1 metals → 3 electronics.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "medical",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Медицина",
+      "requires": [
+        "factory1",
+        "water",
+        "components"
+      ],
+      "materials": [],
+      "description": "2 water + 1 components → 4 medical.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "luxury",
+      "tier": 1,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Предметы роскоши",
+      "requires": [
+        "factory1",
+        "components",
+        "polymers"
+      ],
+      "materials": [],
+      "description": "2 components + 1 polymers → 1 luxury.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "code"
+    },
+    {
+      "id": "solar1",
+      "tier": 1,
+      "lane": "Энергетика",
+      "kind": "building",
+      "label": "Орбитальная СЭС T1",
+      "requires": [
+        "metals",
+        "components"
+      ],
+      "materials": [
+        "metals",
+        "components",
+        "tools"
+      ],
+      "description": "Внешнее предприятие; солнечный поток → energy_cells. Строится без готовых energy_cells.",
+      "location": "освещённая орбита звезды",
+      "operates": "Солнечная мощность + труд/износ",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "shipyard1",
+      "tier": 1,
+      "lane": "Корабли и логистика",
+      "kind": "building",
+      "label": "Верфь T1",
+      "requires": [
+        "metals",
+        "components",
+        "station1"
+      ],
+      "materials": [
+        "metals",
+        "components",
+        "tools"
+      ],
+      "description": "В текущем коде выпускает корабельные модули. Строительство корпусов T1 — новая проектная возможность.",
+      "location": "самостоятельный орбитальный объект",
+      "operates": "Труд, комплектующие",
+      "note": "",
+      "status": "hybrid"
+    },
+    {
+      "id": "lab1",
+      "tier": 1,
+      "lane": "Наука",
+      "kind": "building",
+      "label": "Лаборатория T1",
+      "requires": [
+        "station1",
+        "electronics",
+        "food"
+      ],
+      "materials": [
+        "electronics",
+        "components"
+      ],
+      "description": "Станционный научный модуль; занимает один слот. Исследования требуют учёных, времени, снабжения и данных.",
+      "location": "станция T1+",
+      "operates": "Учёные, зарплаты, потребности",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "energy_cells",
+      "tier": 1,
+      "lane": "Энергетика",
+      "kind": "resource",
+      "label": "Энергоячейки",
+      "requires": [
+        "solar1"
+      ],
+      "materials": [],
+      "description": "Единый перевозимый товар энергии T1–T4. Солнце — внешний источник, не предмет из склада.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "civilian_hulls1",
+      "tier": 1,
+      "lane": "Корабли и логистика",
+      "kind": "technology",
+      "label": "Базовые корпуса T1",
+      "requires": [
+        "lab1",
+        "shipyard1"
+      ],
+      "materials": [],
+      "description": "Чертежи транспортов, шахтёров, разведчиков; текущие классы кораблей есть, выпуск корпусов проектируется.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "transport1",
+      "tier": 1,
+      "lane": "Корабли и логистика",
+      "kind": "building",
+      "label": "Транспорт и шахтёр T1",
+      "requires": [
+        "civilian_hulls1",
+        "components",
+        "fuel"
+      ],
+      "materials": [
+        "metals",
+        "components",
+        "electronics"
+      ],
+      "description": "Грузоперевозки, снабжение, обычная добыча и доставка; отдельные корабли в ECS существуют.",
+      "location": "верфь T1",
+      "operates": "Топливо/экипаж",
+      "note": "",
+      "status": "hybrid"
+    },
+    {
+      "id": "scout1",
+      "tier": 1,
+      "lane": "Наука",
+      "kind": "building",
+      "label": "Исследователь T1",
+      "requires": [
+        "civilian_hulls1",
+        "electronics",
+        "fuel"
+      ],
+      "materials": [
+        "metals",
+        "components",
+        "electronics"
+      ],
+      "description": "Разведывает доступные обычные месторождения; создаёт фракционные данные.",
+      "location": "верфь T1",
+      "operates": "Топливо/экипаж",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "patrol1",
+      "tier": 1,
+      "lane": "Военное дело",
+      "kind": "technology",
+      "label": "Патруль и охрана T1",
+      "requires": [
+        "civilian_hulls1",
+        "electronics"
+      ],
+      "materials": [],
+      "description": "Базовые патрульные корабли и охранные приказы. Полноценная боевая модель в текущей ветке не подтверждена.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "nav1",
+      "tier": 1,
+      "lane": "Корабли и логистика",
+      "kind": "technology",
+      "label": "Межстанционная логистика",
+      "requires": [
+        "transport1",
+        "station1"
+      ],
+      "materials": [],
+      "description": "Контракты и физические перевозки; существующая механика, обобщение для новых предприятий.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "hybrid"
+    },
+    {
+      "id": "survey1",
+      "tier": 1,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Базовая разведка",
+      "requires": [
+        "scout1",
+        "lab1"
+      ],
+      "materials": [],
+      "description": "Открытие геологических данных для доступных тел; предпосылка глубокой геологии.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "science_base",
+      "tier": 1,
+      "lane": "Наука",
+      "kind": "milestone",
+      "label": "Освоена наука T1",
+      "requires": [
+        "lab1",
+        "survey1"
+      ],
+      "materials": [],
+      "description": "Общая научная база для открытия T2; не новый ресурс.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "geo2",
+      "tier": 2,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Глубинная геология",
+      "requires": [
+        "science_base"
+      ],
+      "materials": [],
+      "description": "Изучается в лаборатории T1; открывает разведку редкой руды.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "alloytech2",
+      "tier": 2,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Технология сплавов",
+      "requires": [
+        "science_base",
+        "metals"
+      ],
+      "materials": [],
+      "description": "Знание переработки T2; исследуется в лаборатории T1.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "solartech2",
+      "tier": 2,
+      "lane": "Энергетика",
+      "kind": "technology",
+      "label": "Улучшенные солнечные массивы",
+      "requires": [
+        "science_base",
+        "solar1"
+      ],
+      "materials": [],
+      "description": "Изучаются до специализированной энергетики T2.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "nav2",
+      "tier": 2,
+      "lane": "Корабли и логистика",
+      "kind": "technology",
+      "label": "Межсистемная навигация T2",
+      "requires": [
+        "nav1",
+        "science_base",
+        "electronics"
+      ],
+      "materials": [],
+      "description": "Обычные межзвёздные маршруты доступны ещё до редких месторождений, чтобы фракция могла искать их за пределами стартовой системы; не T4 мегаврата.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "sensor2",
+      "tier": 2,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Спектральный сканер T2",
+      "requires": [
+        "geo2",
+        "electronics"
+      ],
+      "materials": [],
+      "description": "Разведывательный прибор из T1 электроники/инструментов.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "drilltech2",
+      "tier": 2,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Глубокое бурение T2",
+      "requires": [
+        "geo2",
+        "tools"
+      ],
+      "materials": [],
+      "description": "Изучается на T1; бур изготавливается из доступных T1 материалов.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "alloyplant2",
+      "tier": 2,
+      "lane": "Промышленность",
+      "kind": "building",
+      "label": "Сплавной завод T2",
+      "requires": [
+        "alloytech2",
+        "metals",
+        "components",
+        "energy_cells"
+      ],
+      "materials": [
+        "metals",
+        "components",
+        "electronics"
+      ],
+      "description": "Самостоятельное производство T2. Корпус строится на T1 материалах, ещё до появления alloys.",
+      "location": "орбитальный/наземный промышленный участок",
+      "operates": "Энергоячейки, рабочие, топливо",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "structuretech2",
+      "tier": 2,
+      "lane": "Строительство",
+      "kind": "technology",
+      "label": "Усиленные конструкции T2",
+      "requires": [
+        "science_base",
+        "alloytech2"
+      ],
+      "materials": [],
+      "description": "Чертёж T2 строительных корпусов, доступен на T1 научном уровне.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "hulltech2",
+      "tier": 2,
+      "lane": "Корабли и логистика",
+      "kind": "technology",
+      "label": "Усиленные корпуса и двигатели",
+      "requires": [
+        "science_base",
+        "alloytech2"
+      ],
+      "materials": [],
+      "description": "Чертежи грузовых, добывающих, эскортных вариантов T2.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "defensetech2",
+      "tier": 2,
+      "lane": "Военное дело",
+      "kind": "technology",
+      "label": "Оборонные платформы T2",
+      "requires": [
+        "patrol1",
+        "alloytech2"
+      ],
+      "materials": [],
+      "description": "Проекты автономных оборонительных платформ и эскорта.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "survey2",
+      "tier": 2,
+      "lane": "Ресурсы",
+      "kind": "action",
+      "label": "Разведка редких залежей",
+      "requires": [
+        "sensor2",
+        "scout1"
+      ],
+      "materials": [],
+      "description": "Сканирование конкретного тела; редкая руда появляется не от исследования, а раскрывается из seed мира.",
+      "location": "тело с заранее заданной rare_ore",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "drill2",
+      "tier": 2,
+      "lane": "Ресурсы",
+      "kind": "building",
+      "label": "Глубокий бур T2",
+      "requires": [
+        "drilltech2",
+        "survey2",
+        "energy_cells"
+      ],
+      "materials": [
+        "metals",
+        "components",
+        "electronics",
+        "tools"
+      ],
+      "description": "Независимая площадка на обнаруженной редкой залежи; не занимает станционный слот.",
+      "location": "обнаруженная rare_ore",
+      "operates": "Энергоячейки, труд и инструменты",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "rare_ore",
+      "tier": 2,
+      "lane": "Ресурсы",
+      "kind": "resource",
+      "label": "Редкая руда",
+      "requires": [
+        "drill2"
+      ],
+      "materials": [],
+      "description": "Товар T2, извлекаемый из конечной залежи; может импортироваться.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "alloys",
+      "tier": 2,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Сплавы T2",
+      "requires": [
+        "alloyplant2",
+        "rare_ore",
+        "metals",
+        "fuel",
+        "energy_cells"
+      ],
+      "materials": [],
+      "description": "Проект рецепта: rare_ore + metals + fuel + energy_cells → alloys; точные количества TBD.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "solar2",
+      "tier": 2,
+      "lane": "Энергетика",
+      "kind": "building",
+      "label": "СЭС T2",
+      "requires": [
+        "solartech2",
+        "alloys",
+        "energy_cells"
+      ],
+      "materials": [
+        "alloys",
+        "electronics",
+        "components"
+      ],
+      "description": "Больше energy_cells, та же товарная форма; проектируемая модернизация/новая площадка.",
+      "location": "подходящая орбита",
+      "operates": "Труд/сервис",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "station2",
+      "tier": 2,
+      "lane": "Строительство",
+      "kind": "building",
+      "label": "Ядро станции T2",
+      "requires": [
+        "structuretech2",
+        "alloys",
+        "components"
+      ],
+      "materials": [
+        "alloys",
+        "metals",
+        "components",
+        "tools"
+      ],
+      "description": "Модернизация ядра: до 5 слотов / 200 жителей [проект]. Не требуется для первого сплава.",
+      "location": "существующая станция T1",
+      "operates": "Труд/логистика",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "lab2",
+      "tier": 2,
+      "lane": "Наука",
+      "kind": "building",
+      "label": "Лаборатория T2",
+      "requires": [
+        "lab1",
+        "alloys",
+        "structuretech2"
+      ],
+      "materials": [
+        "alloys",
+        "electronics",
+        "components"
+      ],
+      "description": "Замена/апгрейд лаборатории в том же станционном слоте, без требования ядра T2.",
+      "location": "станция T1+",
+      "operates": "Учёные/энергоячейки",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "shipyard2",
+      "tier": 2,
+      "lane": "Корабли и логистика",
+      "kind": "building",
+      "label": "Верфь T2",
+      "requires": [
+        "shipyard1",
+        "hulltech2",
+        "alloys"
+      ],
+      "materials": [
+        "alloys",
+        "electronics",
+        "components"
+      ],
+      "description": "Обслуживание и сборка кораблей T2 на независимом объекте.",
+      "location": "орбитальная верфь",
+      "operates": "Энергоячейки/работники",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "defense2",
+      "tier": 2,
+      "lane": "Военное дело",
+      "kind": "building",
+      "label": "Платформа обороны T2",
+      "requires": [
+        "defensetech2",
+        "alloys",
+        "energy_cells"
+      ],
+      "materials": [
+        "alloys",
+        "electronics",
+        "components"
+      ],
+      "description": "Стационарная оборона под контролем фракции; не станционный модуль.",
+      "location": "орбита стратегического объекта",
+      "operates": "Энергоячейки, ремонт, охрана",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "tier2_base",
+      "tier": 2,
+      "lane": "Наука",
+      "kind": "milestone",
+      "label": "Индустрия T2 освоена",
+      "requires": [
+        "lab2",
+        "alloys",
+        "nav2"
+      ],
+      "materials": [],
+      "description": "Доступ к исследованиям и объектам T3. Не означает, что фракция обязана обладать всеми ресурсами в каждой системе.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "crystaltech3",
+      "tier": 3,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Кристаллография T3",
+      "requires": [
+        "lab2",
+        "geo2"
+      ],
+      "materials": [],
+      "description": "Исследуется на T2; раскрывает перспективные кристаллические залежи.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "solartech3",
+      "tier": 3,
+      "lane": "Энергетика",
+      "kind": "technology",
+      "label": "Солнечные концентраторы T3",
+      "requires": [
+        "lab2",
+        "solartech2"
+      ],
+      "materials": [],
+      "description": "Исследуются лабораторией T2; открывают высокопроизводительную энергетику.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "structuretech3",
+      "tier": 3,
+      "lane": "Строительство",
+      "kind": "technology",
+      "label": "Композитные конструкции T3",
+      "requires": [
+        "lab2",
+        "structuretech2"
+      ],
+      "materials": [],
+      "description": "Проекты крупных/модульных сооружений T3 и монтажных платформ.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "hulltech3",
+      "tier": 3,
+      "lane": "Корабли и логистика",
+      "kind": "technology",
+      "label": "Крупные корпуса и флот T3",
+      "requires": [
+        "lab2",
+        "hulltech2",
+        "alloys"
+      ],
+      "materials": [],
+      "description": "Исследование T3 кораблей, разработка возможна до мегаверфи.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "commandtech3",
+      "tier": 3,
+      "lane": "Военное дело",
+      "kind": "technology",
+      "label": "Сетевое командование T3",
+      "requires": [
+        "lab2",
+        "defensetech2",
+        "electronics"
+      ],
+      "materials": [],
+      "description": "Связывает оборонные платформы и военный флот; нет отдельного товарного ресурса «приказы».",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "transport2",
+      "tier": 2,
+      "lane": "Корабли и логистика",
+      "kind": "building",
+      "label": "Спецфлот T2",
+      "requires": [
+        "shipyard2",
+        "alloys",
+        "energy_cells"
+      ],
+      "materials": [
+        "alloys",
+        "electronics",
+        "components"
+      ],
+      "description": "Дальнобойный грузовик, глубокий шахтёр, усиленный разведчик/эскорт.",
+      "location": "верфь T2",
+      "operates": "Топливо/экипаж",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "sensor3",
+      "tier": 3,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Прецизионный сканер",
+      "requires": [
+        "crystaltech3",
+        "alloys",
+        "electronics"
+      ],
+      "materials": [],
+      "description": "Строится из T2 сплавов и T1 электроники; не требует квантовых ядер.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "drilltech3",
+      "tier": 3,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Прецизионное бурение T3",
+      "requires": [
+        "lab2",
+        "crystaltech3"
+      ],
+      "materials": [],
+      "description": "Изучается в T2 лаборатории.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "qfabtech3",
+      "tier": 3,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Квантовая фабрика (чертёж)",
+      "requires": [
+        "lab2",
+        "crystaltech3",
+        "alloytech2"
+      ],
+      "materials": [],
+      "description": "**Ключ:** технология T3 переработки открывается средствами лаборатории T2 ДО появления quantum_cores.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "mass_construct3",
+      "tier": 3,
+      "lane": "Строительство",
+      "kind": "technology",
+      "label": "Массовое орбитальное строительство",
+      "requires": [
+        "lab2",
+        "structuretech3",
+        "transport2"
+      ],
+      "materials": [],
+      "description": "Тяжёлая сборка; освоена до мегаструктур.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "survey3",
+      "tier": 3,
+      "lane": "Ресурсы",
+      "kind": "action",
+      "label": "Разведка кристаллических залежей",
+      "requires": [
+        "sensor3",
+        "transport2"
+      ],
+      "materials": [],
+      "description": "Обнаружение заранее существующей crystal_ore в конкретном небесном теле; данные фракционные.",
+      "location": "тело с crystal_ore",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "qfab3",
+      "tier": 3,
+      "lane": "Промышленность",
+      "kind": "building",
+      "label": "Квантовый фабрикатор T3",
+      "requires": [
+        "qfabtech3",
+        "alloys",
+        "electronics",
+        "energy_cells"
+      ],
+      "materials": [
+        "alloys",
+        "electronics",
+        "components",
+        "tools"
+      ],
+      "description": "Завод можно построить из T1/T2 товаров; не требует quantum_cores для корпуса.",
+      "location": "самостоятельный промышленный объект",
+      "operates": "Энергоячейки/рабочие",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "drill3",
+      "tier": 3,
+      "lane": "Ресурсы",
+      "kind": "building",
+      "label": "Прецизионный бур T3",
+      "requires": [
+        "drilltech3",
+        "survey3",
+        "alloys",
+        "energy_cells"
+      ],
+      "materials": [
+        "alloys",
+        "electronics",
+        "tools",
+        "components"
+      ],
+      "description": "Строится из T2+T1 до получения crystal_ore/quantum_cores.",
+      "location": "обнаруженная crystal_ore",
+      "operates": "Энергоячейки/обслуживание/работники",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "crystal_ore",
+      "tier": 3,
+      "lane": "Ресурсы",
+      "kind": "resource",
+      "label": "Кристаллическое сырьё",
+      "requires": [
+        "drill3"
+      ],
+      "materials": [],
+      "description": "Конечные разведанные залежи; добывается буром или импортируется.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "quantum_cores",
+      "tier": 3,
+      "lane": "Промышленность",
+      "kind": "resource",
+      "label": "Квантовые ядра T3",
+      "requires": [
+        "qfab3",
+        "crystal_ore",
+        "alloys",
+        "electronics",
+        "energy_cells"
+      ],
+      "materials": [],
+      "description": "Проект: crystal_ore + alloys + electronics + energy_cells → quantum_cores; количества TBD.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "solar3",
+      "tier": 3,
+      "lane": "Энергетика",
+      "kind": "building",
+      "label": "Солнечный концентратор T3",
+      "requires": [
+        "solartech3",
+        "quantum_cores",
+        "alloys"
+      ],
+      "materials": [
+        "alloys",
+        "quantum_cores",
+        "electronics"
+      ],
+      "description": "Единый energy_cells с более высокой производительностью, без нового товара.",
+      "location": "орбитальная освещённая площадка",
+      "operates": "Труд/износ",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "station3",
+      "tier": 3,
+      "lane": "Строительство",
+      "kind": "building",
+      "label": "Ядро станции T3",
+      "requires": [
+        "structuretech3",
+        "quantum_cores",
+        "alloys"
+      ],
+      "materials": [
+        "alloys",
+        "quantum_cores",
+        "metals",
+        "electronics"
+      ],
+      "description": "До 6 слотов / 300 жителей [проект]. Не требуется для разработки и сборки первых quantum_cores.",
+      "location": "станция T2",
+      "operates": "Труд/снабжение",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "lab3",
+      "tier": 3,
+      "lane": "Наука",
+      "kind": "building",
+      "label": "Лаборатория T3",
+      "requires": [
+        "lab2",
+        "quantum_cores",
+        "structuretech3"
+      ],
+      "materials": [
+        "quantum_cores",
+        "alloys",
+        "electronics"
+      ],
+      "description": "Апгрейд внутри того же станционного слота; открывает научные проекты T4.",
+      "location": "станция T1+ при выполнении требований на апгрейд",
+      "operates": "Учёные/energy_cells",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "assembly3",
+      "tier": 3,
+      "lane": "Строительство",
+      "kind": "building",
+      "label": "Орбитальный монтажный комплекс T3",
+      "requires": [
+        "mass_construct3",
+        "quantum_cores",
+        "alloys"
+      ],
+      "materials": [
+        "alloys",
+        "quantum_cores",
+        "components",
+        "tools"
+      ],
+      "description": "Самостоятельный объект: крупные секции, сборочные суда, многоэтапные площадки.",
+      "location": "орбита, допустимая для монтажа",
+      "operates": "Энергоячейки, экипажи, логистика",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "shipyard3",
+      "tier": 3,
+      "lane": "Корабли и логистика",
+      "kind": "building",
+      "label": "Верфь T3",
+      "requires": [
+        "shipyard2",
+        "hulltech3",
+        "quantum_cores"
+      ],
+      "materials": [
+        "alloys",
+        "quantum_cores",
+        "electronics"
+      ],
+      "description": "Строит тяжелые корабли T3; не требует T4 мегаверфи.",
+      "location": "орбитальная верфь",
+      "operates": "Энергоячейки/персонал",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "megagalog3",
+      "tier": 3,
+      "lane": "Корабли и логистика",
+      "kind": "technology",
+      "label": "Сверхдальняя логистика T3",
+      "requires": [
+        "lab2",
+        "nav2",
+        "quantum_cores"
+      ],
+      "materials": [],
+      "description": "Усиленная навигация и энергосвязь, основа межзвёздных мегаврат.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "command3",
+      "tier": 3,
+      "lane": "Военное дело",
+      "kind": "building",
+      "label": "Военный штаб T3",
+      "requires": [
+        "commandtech3",
+        "defense2",
+        "quantum_cores"
+      ],
+      "materials": [
+        "alloys",
+        "quantum_cores",
+        "electronics"
+      ],
+      "description": "Управление силами системы, подготовка цитадели.",
+      "location": "станция или отдельный штабной объект",
+      "operates": "Люди/питание/связь",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "advanced_astrophysics3",
+      "tier": 3,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Звёздная астрофизика T3",
+      "requires": [
+        "lab3",
+        "sensor3"
+      ],
+      "materials": [],
+      "description": "Разведка звёздных условий для сферы Дайсона и научного массива.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "distributed_science3",
+      "tier": 3,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Распределённые вычисления T3",
+      "requires": [
+        "lab3",
+        "electronics",
+        "quantum_cores"
+      ],
+      "materials": [],
+      "description": "Научная инфраструктура для массивов наблюдений; T4 исследование не требуется.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "geoengineering3",
+      "tier": 3,
+      "lane": "Ресурсы",
+      "kind": "technology",
+      "label": "Геоинженерия T3",
+      "requires": [
+        "lab3",
+        "drilltech3",
+        "mass_construct3"
+      ],
+      "materials": [],
+      "description": "Обоснование больших добывающих корпусов без создания новой руды.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "megayardtech3",
+      "tier": 3,
+      "lane": "Корабли и логистика",
+      "kind": "technology",
+      "label": "Модульная мегасборка T3",
+      "requires": [
+        "lab3",
+        "hulltech3",
+        "mass_construct3"
+      ],
+      "materials": [],
+      "description": "Подготовка схем тяжёлой многопоточной верфи.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "tier3_base",
+      "tier": 3,
+      "lane": "Наука",
+      "kind": "milestone",
+      "label": "Индустрия T3 освоена",
+      "requires": [
+        "lab3",
+        "assembly3",
+        "quantum_cores"
+      ],
+      "materials": [],
+      "description": "Общая база T4; не требует наличия иной мегаструктуры.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "transport3",
+      "tier": 3,
+      "lane": "Корабли и логистика",
+      "kind": "building",
+      "label": "Тяжёлый флот T3",
+      "requires": [
+        "shipyard3",
+        "quantum_cores",
+        "alloys"
+      ],
+      "materials": [
+        "alloys",
+        "quantum_cores",
+        "electronics",
+        "energy_cells"
+      ],
+      "description": "Крупные грузовые, инженерные и боевые корпуса.",
+      "location": "верфь T3",
+      "operates": "Топливо/экипаж/ремонт",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "gatephysics3",
+      "tier": 3,
+      "lane": "Корабли и логистика",
+      "kind": "technology",
+      "label": "Физика мегаврат T3",
+      "requires": [
+        "lab3",
+        "megagalog3"
+      ],
+      "materials": [],
+      "description": "Парное соединение систем с конечной пропускной способностью.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "citadeltech3",
+      "tier": 3,
+      "lane": "Военное дело",
+      "kind": "technology",
+      "label": "Секторная фортификация T3",
+      "requires": [
+        "lab3",
+        "command3",
+        "hulltech3"
+      ],
+      "materials": [],
+      "description": "Крупная оборонительная инженерия и флотское обслуживание.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "dyson_bp",
+      "tier": 4,
+      "lane": "Энергетика",
+      "kind": "technology",
+      "label": "Чертёж сферы Дайсона",
+      "requires": [
+        "advanced_astrophysics3",
+        "tier3_base",
+        "solartech3"
+      ],
+      "materials": [],
+      "description": "Исследование комплекса звёздных коллекторов T4; может вестись на лаборатории T3.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "extractor_bp",
+      "tier": 4,
+      "lane": "Ресурсы",
+      "kind": "technology",
+      "label": "Чертёж планетарного экстрактора",
+      "requires": [
+        "geoengineering3",
+        "tier3_base"
+      ],
+      "materials": [],
+      "description": "Технология крупномасштабной добычи с проверкой остаточных запасов тела.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "megayard_bp",
+      "tier": 4,
+      "lane": "Корабли и логистика",
+      "kind": "technology",
+      "label": "Чертёж орбитального кольца",
+      "requires": [
+        "megayardtech3",
+        "tier3_base"
+      ],
+      "materials": [],
+      "description": "Технология параллельной сборки крупных корпусов.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "research_bp",
+      "tier": 4,
+      "lane": "Наука",
+      "kind": "technology",
+      "label": "Чертёж звёздного исследовательского массива",
+      "requires": [
+        "distributed_science3",
+        "advanced_astrophysics3",
+        "tier3_base"
+      ],
+      "materials": [],
+      "description": "Не является обязательным для разблокировки других T4 объектов.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "megagate_bp",
+      "tier": 4,
+      "lane": "Корабли и логистика",
+      "kind": "technology",
+      "label": "Чертёж межзвёздных мегаврат",
+      "requires": [
+        "gatephysics3",
+        "tier3_base"
+      ],
+      "materials": [],
+      "description": "Доступ к строительству парных узлов; обычные перевозки доступны и без мегаврат.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "citadel_bp",
+      "tier": 4,
+      "lane": "Военное дело",
+      "kind": "technology",
+      "label": "Чертёж цитадели сектора",
+      "requires": [
+        "citadeltech3",
+        "tier3_base"
+      ],
+      "materials": [],
+      "description": "Мегаструктура обороны. Военный путь не нужен другим мегаструктурам.",
+      "location": "",
+      "operates": "",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "dyson",
+      "tier": 4,
+      "lane": "Энергетика",
+      "kind": "mega",
+      "label": "Сфера Дайсона",
+      "requires": [
+        "dyson_bp",
+        "assembly3",
+        "transport3",
+        "alloys",
+        "quantum_cores",
+        "energy_cells"
+      ],
+      "materials": [
+        "metals",
+        "alloys",
+        "quantum_cores",
+        "electronics",
+        "components",
+        "tools"
+      ],
+      "description": "Массовое производство energy_cells из звездного излучения; доставки через реальную логистику.",
+      "location": "стабильная звёздная орбита + сборочные зоны",
+      "operates": "Износ, ремонт, техперсонал, повреждения",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "extractor",
+      "tier": 4,
+      "lane": "Ресурсы",
+      "kind": "mega",
+      "label": "Планетарный экстрактор",
+      "requires": [
+        "extractor_bp",
+        "assembly3",
+        "drill3",
+        "alloys",
+        "quantum_cores",
+        "energy_cells"
+      ],
+      "materials": [
+        "metals",
+        "alloys",
+        "quantum_cores",
+        "components",
+        "tools"
+      ],
+      "description": "Массовая добыча с уменьшением реальных запасов и обязательным вывозом.",
+      "location": "подходящая планета/спутник с запасами",
+      "operates": "Много energy_cells и работников",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "megayard",
+      "tier": 4,
+      "lane": "Корабли и логистика",
+      "kind": "mega",
+      "label": "Орбитальное кольцо / мегаверфь",
+      "requires": [
+        "megayard_bp",
+        "assembly3",
+        "shipyard3",
+        "alloys",
+        "quantum_cores",
+        "energy_cells"
+      ],
+      "materials": [
+        "metals",
+        "alloys",
+        "quantum_cores",
+        "electronics",
+        "components"
+      ],
+      "description": "Параллельная сборка крупных кораблей из реальных компонентов; не печатает корабли бесплатно.",
+      "location": "стабильная орбита промышленной планеты",
+      "operates": "Энергия, рабочие смены, доставка материалов",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "research_array",
+      "tier": 4,
+      "lane": "Наука",
+      "kind": "mega",
+      "label": "Звёздный научный массив",
+      "requires": [
+        "research_bp",
+        "assembly3",
+        "transport3",
+        "alloys",
+        "quantum_cores",
+        "energy_cells"
+      ],
+      "materials": [
+        "alloys",
+        "quantum_cores",
+        "electronics",
+        "components"
+      ],
+      "description": "Ускоряет исследования, даёт новые данные; фундамент T5+. Не должен иметь готовый бонус «все T4 уже открыты».",
+      "location": "подходящая звёздная зона",
+      "operates": "Учёные, энергия, поддержка",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "megagate",
+      "tier": 4,
+      "lane": "Корабли и логистика",
+      "kind": "mega",
+      "label": "Межзвёздные мегаврата (пара)",
+      "requires": [
+        "megagate_bp",
+        "assembly3",
+        "megagalog3",
+        "alloys",
+        "quantum_cores",
+        "energy_cells"
+      ],
+      "materials": [
+        "alloys",
+        "quantum_cores",
+        "electronics",
+        "components"
+      ],
+      "description": "Два физических узла; до готовности обоих и активации проход невозможен. Тратится energy_cells за транзит.",
+      "location": "два места в разных системах",
+      "operates": "Энергия за проход, ограниченная пропускная способность",
+      "note": "",
+      "status": "design"
+    },
+    {
+      "id": "citadel",
+      "tier": 4,
+      "lane": "Военное дело",
+      "kind": "mega",
+      "label": "Цитадель сектора",
+      "requires": [
+        "citadel_bp",
+        "assembly3",
+        "command3",
+        "transport3",
+        "alloys",
+        "quantum_cores",
+        "energy_cells"
+      ],
+      "materials": [
+        "metals",
+        "alloys",
+        "quantum_cores",
+        "electronics",
+        "components",
+        "tools"
+      ],
+      "description": "Системная оборона, патрули, ремонт и базирование флота. Деградирует при нехватке энергии/снабжения.",
+      "location": "стратегическая орбита системы",
+      "operates": "Энергия, компоненты для ремонта, экипажи",
+      "note": "",
+      "status": "design"
+    }
+  ]
+}

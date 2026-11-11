@@ -1,0 +1,313 @@
+{
+  "system": {
+    "id": "system-alpha-centauri",
+    "name": "Alpha Centauri",
+    "universe_offset": [
+      40,
+      10
+    ],
+    "star_type": "K"
+  },
+  "bodies": [
+    {
+      "id": "proxima",
+      "name": "Proxima",
+      "type": "planet",
+      "orbit_radius": 1.6,
+      "orbit_period": 560,
+      "current_angle": 90,
+      "biome": "desert",
+      "resources": {
+        "ore": 0.6,
+        "ice": 0.7,
+        "gas": 0.3,
+        "rare_ore": 0.42,
+        "crystal_ore": 0.055
+      }
+    },
+    {
+      "id": "haven",
+      "name": "Haven",
+      "type": "planet",
+      "orbit_radius": 3.6,
+      "orbit_period": 1260,
+      "current_angle": 200,
+      "biome": "terrestrial",
+      "resources": {
+        "ice": 0.4,
+        "gas": 0.2
+      }
+    },
+    {
+      "id": "refuge",
+      "name": "Refuge",
+      "type": "planet",
+      "orbit_radius": 5,
+      "orbit_period": 1750,
+      "current_angle": 320,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.9,
+        "gas": 0.5
+      }
+    },
+    {
+      "id": "ac-belt",
+      "name": "AC Belt",
+      "type": "asteroid",
+      "orbit_radius": 2.4,
+      "orbit_period": 840,
+      "current_angle": 60,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.7,
+        "ice": 0.5
+      }
+    },
+    {
+      "id": "outer-rocks",
+      "name": "Outer Rocks",
+      "type": "asteroid",
+      "orbit_radius": 6,
+      "orbit_period": 2100,
+      "current_angle": 200,
+      "biome": "ice",
+      "resources": {
+        "ore": 0.4,
+        "ice": 0.8
+      }
+    }
+  ],
+  "travel_routes": [
+    {
+      "from": "alpha-station",
+      "to": "mine-ac-belt",
+      "distance": 12
+    },
+    {
+      "from": "alpha-station",
+      "to": "lane-tau",
+      "distance": 155
+    }
+  ],
+  "facilities": [
+    {
+      "id": "facility-alpha-station",
+      "name": "Ceti Freeholds · Столица",
+      "faction_id": "ceti-freeholds",
+      "location": "alpha-station",
+      "body": "proxima",
+      "type": "station",
+      "docking_capacity": 12,
+      "services": [
+        "market",
+        "repair",
+        "refuel"
+      ],
+      "reserves": {},
+      "credits": 60000
+    },
+    {
+      "id": "facility-alpha-mine-module",
+      "name": "Alpha  Extraction",
+      "faction_id": "ceti-freeholds",
+      "location": "alpha-station",
+      "body": "proxima",
+      "type": "mining_rig",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {},
+      "credits": 60000
+    },
+    {
+      "id": "facility-alpha-refinery-module",
+      "name": "Alpha  Refining",
+      "faction_id": "ceti-freeholds",
+      "location": "alpha-station",
+      "body": "proxima",
+      "type": "refinery",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {},
+      "credits": 60000
+    },
+    {
+      "id": "facility-alpha-station-farm-module",
+      "name": "Alpha  Farm",
+      "faction_id": "ceti-freeholds",
+      "location": "alpha-station",
+      "body": "proxima",
+      "type": "farm",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {},
+      "credits": 60000
+    },
+    {
+      "id": "facility-alpha-station-factory",
+      "name": "Промышленный комплекс",
+      "faction_id": "ceti-freeholds",
+      "location": "alpha-station",
+      "body": "proxima",
+      "type": "factory",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {},
+      "credits": 60000
+    }
+  ],
+  "markets": [
+    {
+      "id": "market-alpha-station",
+      "facility_id": "alpha-station",
+      "price_elasticity": 0.02,
+      "prices": {
+        "ore": 15,
+        "ice": 10,
+        "gas": 20,
+        "metals": 45,
+        "fuel": 25,
+        "polymers": 40,
+        "water": 12,
+        "components": 80,
+        "electronics": 120,
+        "tools": 90,
+        "food": 18,
+        "medical": 100,
+        "luxury": 150
+      },
+      "supply": {
+        "ore": 600,
+        "ice": 600,
+        "gas": 600,
+        "metals": 1000,
+        "fuel": 1000,
+        "polymers": 600,
+        "water": 1000,
+        "components": 600,
+        "electronics": 600,
+        "tools": 600,
+        "food": 1000,
+        "medical": 600,
+        "luxury": 600
+      },
+      "demand": {
+        "food": 2,
+        "water": 2,
+        "ore": 8,
+        "ice": 5,
+        "gas": 5,
+        "metals": 5,
+        "fuel": 5
+      },
+      "production": {},
+      "consumption": {}
+    }
+  ],
+  "ships": [
+    {
+      "name": "ceti-freeholds miner 1",
+      "location": "alpha-station",
+      "class": "miner",
+      "credits": 40000,
+      "faction_id": "ceti-freeholds",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "ceti-freeholds freighter 2",
+      "location": "alpha-station",
+      "class": "freighter",
+      "credits": 40000,
+      "faction_id": "ceti-freeholds",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "ceti-freeholds freighter 3",
+      "location": "alpha-station",
+      "class": "freighter",
+      "credits": 40000,
+      "faction_id": "ceti-freeholds",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "ceti-freeholds courier 4",
+      "location": "alpha-station",
+      "class": "courier",
+      "credits": 40000,
+      "faction_id": "ceti-freeholds",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "ceti-freeholds hauler 5",
+      "location": "alpha-station",
+      "class": "hauler",
+      "credits": 40000,
+      "faction_id": "ceti-freeholds",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "ceti-freeholds tanker 6",
+      "location": "alpha-station",
+      "class": "tanker",
+      "credits": 40000,
+      "faction_id": "ceti-freeholds",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "ceti-freeholds colonizer 7",
+      "location": "alpha-station",
+      "class": "colonizer",
+      "credits": 40000,
+      "faction_id": "ceti-freeholds",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "ceti-freeholds colonizer 8",
+      "location": "alpha-station",
+      "class": "colonizer",
+      "credits": 40000,
+      "faction_id": "ceti-freeholds",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    }
+  ],
+  "populations": [
+    {
+      "label": "Residents alpha-station",
+      "demographic": "workers",
+      "facility_id": "alpha-station",
+      "faction_id": "ceti-freeholds",
+      "population_count": 200,
+      "total_wealth": 60000,
+      "food_satisfaction": 70,
+      "consumption": {
+        "food": 5,
+        "water": 3
+      },
+      "production_commodity": null,
+      "production_amount": 0
+    }
+  ],
+  "nav_sites": [
+    {
+      "name": "mine-ac-belt",
+      "type": "mining_site",
+      "body": "ac-belt"
+    }
+  ]
+}

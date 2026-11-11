@@ -1,0 +1,333 @@
+{
+  "system": {
+    "id": "system-nadir",
+    "name": "Nadir",
+    "universe_offset": [
+      255,
+      -190
+    ],
+    "star_type": "M"
+  },
+  "bodies": [
+    {
+      "id": "nadir-wreckhold",
+      "name": "Wreckhold",
+      "type": "moon",
+      "orbit_radius": 2.8,
+      "orbit_period": 890,
+      "current_angle": 65,
+      "biome": "lifeless",
+      "resources": {
+        "ore": 0.6,
+        "ice": 0.6,
+        "gas": 0.2,
+        "rare_ore": 0.2,
+        "crystal_ore": 0.045
+      }
+    },
+    {
+      "id": "nadir-ashfall",
+      "name": "Ashfall",
+      "type": "planet",
+      "orbit_radius": 1.7,
+      "orbit_period": 670,
+      "current_angle": 155,
+      "biome": "molten",
+      "resources": {
+        "ore": 0.8,
+        "gas": 0.2
+      }
+    },
+    {
+      "id": "nadir-deep-freeze",
+      "name": "Deep Freeze",
+      "type": "planet",
+      "orbit_radius": 4.3,
+      "orbit_period": 1430,
+      "current_angle": 285,
+      "biome": "ice",
+      "resources": {
+        "ice": 0.95,
+        "gas": 0.45
+      }
+    },
+    {
+      "id": "nadir-goliath",
+      "name": "Goliath",
+      "type": "planet",
+      "orbit_radius": 7.2,
+      "orbit_period": 2530,
+      "current_angle": 210,
+      "biome": "gas_giant",
+      "resources": {
+        "gas": 0.95
+      }
+    },
+    {
+      "id": "nadir-black-belt",
+      "name": "Black Belt",
+      "type": "belt",
+      "orbit_radius": 5.7,
+      "orbit_period": 1860,
+      "current_angle": 40,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.83,
+        "ice": 0.3,
+        "rare_ore": 0.43,
+        "crystal_ore": 0.18
+      }
+    },
+    {
+      "id": "nadir-wreck-field",
+      "name": "Wreck Field",
+      "type": "asteroid",
+      "orbit_radius": 8.8,
+      "orbit_period": 3150,
+      "current_angle": 130,
+      "biome": "asteroid",
+      "resources": {
+        "ore": 0.35,
+        "ice": 0.23,
+        "gas": 0.1
+      }
+    }
+  ],
+  "travel_routes": [
+    {
+      "from": "pirate-outpost",
+      "to": "mine-nadir-black-belt",
+      "distance": 14
+    },
+    {
+      "from": "pirate-outpost",
+      "to": "mine-nadir-wreck-field",
+      "distance": 18
+    }
+  ],
+  "facilities": [
+    {
+      "id": "facility-pirate-station",
+      "name": "Пираты · Столица",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "nadir-wreckhold",
+      "type": "station",
+      "docking_capacity": 12,
+      "services": [
+        "market",
+        "repair",
+        "refuel"
+      ],
+      "reserves": {},
+      "credits": 60000
+    },
+    {
+      "id": "facility-pirate-mine-module",
+      "name": "Pirate  Extraction",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "nadir-wreckhold",
+      "type": "mining_rig",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {},
+      "credits": 60000
+    },
+    {
+      "id": "facility-pirate-refinery-module",
+      "name": "Pirate  Refining",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "nadir-wreckhold",
+      "type": "refinery",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {},
+      "credits": 60000
+    },
+    {
+      "id": "facility-pirate-outpost-farm-module",
+      "name": "Pirate  Farm",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "nadir-wreckhold",
+      "type": "farm",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {},
+      "credits": 60000
+    },
+    {
+      "id": "facility-pirate-outpost-factory",
+      "name": "Промышленный комплекс",
+      "faction_id": "pirates",
+      "location": "pirate-outpost",
+      "body": "nadir-wreckhold",
+      "type": "factory",
+      "docking_capacity": 2,
+      "services": [],
+      "reserves": {},
+      "credits": 60000
+    }
+  ],
+  "markets": [
+    {
+      "id": "market-pirate-outpost",
+      "facility_id": "pirate-outpost",
+      "price_elasticity": 0.02,
+      "prices": {
+        "ore": 15,
+        "ice": 10,
+        "gas": 20,
+        "metals": 45,
+        "fuel": 25,
+        "polymers": 40,
+        "water": 12,
+        "components": 80,
+        "electronics": 120,
+        "tools": 90,
+        "food": 18,
+        "medical": 100,
+        "luxury": 150
+      },
+      "supply": {
+        "ore": 600,
+        "ice": 600,
+        "gas": 600,
+        "metals": 1000,
+        "fuel": 1000,
+        "polymers": 600,
+        "water": 1000,
+        "components": 600,
+        "electronics": 600,
+        "tools": 600,
+        "food": 1000,
+        "medical": 600,
+        "luxury": 600
+      },
+      "demand": {
+        "food": 2,
+        "water": 2,
+        "ore": 8,
+        "ice": 8,
+        "gas": 8,
+        "metals": 4,
+        "fuel": 4
+      },
+      "production": {},
+      "consumption": {}
+    }
+  ],
+  "ships": [
+    {
+      "name": "pirates miner 1",
+      "location": "pirate-outpost",
+      "class": "miner",
+      "credits": 40000,
+      "faction_id": "pirates",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "pirates freighter 2",
+      "location": "pirate-outpost",
+      "class": "freighter",
+      "credits": 40000,
+      "faction_id": "pirates",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "pirates freighter 3",
+      "location": "pirate-outpost",
+      "class": "freighter",
+      "credits": 40000,
+      "faction_id": "pirates",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "pirates courier 4",
+      "location": "pirate-outpost",
+      "class": "courier",
+      "credits": 40000,
+      "faction_id": "pirates",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "pirates hauler 5",
+      "location": "pirate-outpost",
+      "class": "hauler",
+      "credits": 40000,
+      "faction_id": "pirates",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "pirates tanker 6",
+      "location": "pirate-outpost",
+      "class": "tanker",
+      "credits": 40000,
+      "faction_id": "pirates",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "pirates colonizer 7",
+      "location": "pirate-outpost",
+      "class": "colonizer",
+      "credits": 40000,
+      "faction_id": "pirates",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    },
+    {
+      "name": "pirates colonizer 8",
+      "location": "pirate-outpost",
+      "class": "colonizer",
+      "credits": 40000,
+      "faction_id": "pirates",
+      "fitting": {
+        "comms": "comms_t2"
+      }
+    }
+  ],
+  "populations": [
+    {
+      "label": "Residents pirate-outpost",
+      "demographic": "workers",
+      "facility_id": "pirate-outpost",
+      "faction_id": "pirates",
+      "population_count": 200,
+      "total_wealth": 60000,
+      "food_satisfaction": 70,
+      "consumption": {
+        "food": 5,
+        "water": 3
+      },
+      "production_commodity": null,
+      "production_amount": 0
+    }
+  ],
+  "nav_sites": [
+    {
+      "name": "mine-nadir-black-belt",
+      "type": "mining_site",
+      "body": "nadir-black-belt"
+    },
+    {
+      "name": "mine-nadir-wreck-field",
+      "type": "mining_site",
+      "body": "nadir-wreck-field"
+    }
+  ]
+}

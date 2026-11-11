@@ -1,0 +1,804 @@
+--- /dev/null
++++ b/AI_BLOCK_C_STATUS_RU.md
+@@ -0,0 +1,11 @@
++# AI Block C — краткая передача
++
++**База:** Block B из `LS-AI-BlockB-SOURCES.zip` (исходники B всё ещё не скомпилированы пользователем).
++
++**Готово в исходниках:** `HybridPlanner` — Utility/Personality из директора выбирает цели; HTN 0.2.1 декомпозирует; GOAP/Telic 0.1.0 может решать фактическую подзадачу снабжения перед HTN-производством; Beam вызывается только при альтернативных путях или отсутствии решения. Тот же безопасный нативный исполнитель Block A выбирается через `LIVING_SECTOR_PLANNER=hybrid`. Модель склада/денег и механизм сохранения не заменены.
++
++**Проверено здесь:** 13/13 Node-тестов Observer, баланс скобок в изменённых Rust-файлах, комплектность исходников и архив ZIP. **Не проверено:** компиляция Rust B/C, запуск нового сервера, реальное выполнение гибридных приказов. Нельзя считать этот блок работающим только по имеющемуся коду.
++
++**Тебе нужен один запуск:** `VERIFY-AI-BLOCK-BC.cmd` → `AI-BLOCK-BC-RESULTS.zip`. Установка Rust уже есть. В тест входят B и C, поэтому отдельно B запускать не надо.
++
++**Для следующего исполнителя:** подробности в `docs/living-sector/AI_BLOCK_C_HYBRID_RU.md`. При ошибке Cargo сначала починить именно сборку и целевые тесты, не расширяя игру. При успехе следующий этап — ограниченный реальный сценарий доставки/производства/квитанций и сравнение baseline / HTN / hybrid по одинаковому состоянию.
+--- /dev/null
++++ b/RUN-HYBRID-BLOCK-C.cmd
+@@ -0,0 +1,21 @@
++@echo off
++setlocal
++cd /d "%~dp0"
++if not exist "target\debug\genesis_server.exe" (
++  echo First run VERIFY-AI-BLOCK-BC.cmd and fix any compile errors.
++  pause
++  exit /b 1
++)
++set "BIND_ADDR=127.0.0.1:18081"
++set "DATA_DIR=%~dp0priv\galaxy\data"
++set "DATABASE_PATH=%~dp0ai-block-c-hybrid.db"
++set "LIVING_SECTOR_UI_DIR=%~dp0observer"
++set "LIVING_SECTOR_GALAXY=1"
++set "LIVING_SECTOR_STRATEGY_MODE=execute"
++set "LIVING_SECTOR_PLANNER=hybrid"
++set "LIVING_SECTOR_PLANNER_SHADOW=1"
++set "WORLD_SPEED=16"
++echo HYBRID is experimental. Isolated database: ai-block-c-hybrid.db
++start "Living Sector Hybrid test" /D "%~dp0" "target\debug\genesis_server.exe"
++powershell -NoProfile -Command "$ready=$false;for($i=0;$i -lt 45;$i++){try{Invoke-WebRequest 'http://127.0.0.1:18081/api/health' -UseBasicParsing -TimeoutSec 2|Out-Null;$ready=$true;break}catch{};Start-Sleep -Seconds 1};if($ready){Start-Process 'http://127.0.0.1:18081/observer'}else{Write-Host 'Server not ready: check the server console.'}"
++endlocal
+--- /dev/null
++++ b/VERIFY-AI-BLOCK-BC.cmd
+@@ -0,0 +1,49 @@
++@echo off
++setlocal
++cd /d "%~dp0"
++if not exist "ai-block-bc-results" mkdir "ai-block-bc-results"
++where cargo >nul 2>nul
++if errorlevel 1 (
++  echo BLOCKED: Rust/Cargo missing. > "ai-block-bc-results\RESULT.txt"
++  pause
++  exit /b 127
++)
++rustc --version > "ai-block-bc-results\toolchain.txt" 2>&1
++cargo --version >> "ai-block-bc-results\toolchain.txt" 2>&1
++REM First check updates Cargo.lock with pinned Telic 0.1.0 (Block B was not checked).
++call :step check "cargo check -p sim_core -p sim_server -p sim_db"
++if errorlevel 1 goto failed
++call :step planning "cargo test --locked -p sim_core strategy::planning"
++if errorlevel 1 goto failed
++call :step coordination "cargo test --locked -p sim_core strategy::coordination"
++if errorlevel 1 goto failed
++call :step station "cargo test --locked -p sim_core strategy::station"
++if errorlevel 1 goto failed
++call :step server_build "cargo build --locked -p sim_server --bin genesis_server"
++if errorlevel 1 goto failed
++call :step compare_B "cargo run --locked -q -p sim_core --example compare_ai_native -- tests\ai_block_b_fixture.json"
++if errorlevel 1 goto failed
++call :step compare_C "cargo run --locked -q -p sim_core --example compare_ai_hybrid -- tests\ai_block_b_fixture.json"
++if errorlevel 1 goto failed
++call :step runtime_smoke "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-hybrid-runtime.ps1"
++if errorlevel 1 goto failed
++echo PASSED: Blocks B+C compiled, selected tests, fixture comparisons and new server API smoke passed. Native paid delivery still NOT proved. > "ai-block-bc-results\RESULT.txt"
++powershell -NoProfile -Command "Compress-Archive -Path 'ai-block-bc-results','Cargo.lock' -DestinationPath 'AI-BLOCK-BC-RESULTS.zip' -Force"
++echo Ready. Send AI-BLOCK-BC-RESULTS.zip to ChatGPT.
++pause
++exit /b 0
++:step
++echo Running %~1 ...
++%ComSpec% /d /c "%~2" > "ai-block-bc-results\%~1.log" 2>&1
++if errorlevel 1 (
++  echo FAIL at %~1 > "ai-block-bc-results\RESULT.txt"
++  echo FAIL at %~1. Send logs.
++  exit /b 1
++)
++echo PASS %~1
++exit /b 0
++:failed
++powershell -NoProfile -Command "Compress-Archive -Path 'ai-block-bc-results','Cargo.lock' -DestinationPath 'AI-BLOCK-BC-RESULTS.zip' -Force"
++echo One block failed: send AI-BLOCK-BC-RESULTS.zip, no need to rerun repeatedly.
++pause
++exit /b 1
+--- /dev/null
++++ b/crates/sim_core/examples/compare_ai_hybrid.rs
+@@ -0,0 +1,35 @@
++//! Same actual Genesis-style projection used by Block B, with Block C hybrid
++//! role tracing. NO live server, orders, database writes, or synthetic world.
++//! cargo run -p sim_core --example compare_ai_hybrid -- tests/ai_block_b_fixture.json
++use std::{env, fs, process};
++use serde::Deserialize;
++use sim_core::strategy::planning::{ActionSpec,GoalSpec,HybridPlanner,
++    HybridPreferences,PlanningSnapshot,PlanStatus,SearchBudget,validate_plan};
++
++#[derive(Deserialize)]
++struct Input {
++    snapshot:PlanningSnapshot,goal:GoalSpec,actions:Vec<ActionSpec>,
++    #[serde(default)] max_nodes:Option<u32>,
++    #[serde(default)] max_depth:Option<usize>,
++}
++fn main(){
++    let Some(path)=env::args().nth(1) else {
++        eprintln!("usage: compare_ai_hybrid <native-fixture.json>");process::exit(2)
++    };
++    let input=fs::read_to_string(&path).unwrap_or_else(|error|{
++        eprintln!("read {path}: {error}");process::exit(2)
++    });
++    let fixture:Input=serde_json::from_str(&input).unwrap_or_else(|error|{
++        eprintln!("invalid native fixture: {error}");process::exit(2)
++    });
++    let budget=SearchBudget{max_nodes:fixture.max_nodes.unwrap_or(2_000),
++        max_depth:fixture.max_depth.unwrap_or(12)};
++    let planner=HybridPlanner{preferences:HybridPreferences::default()};
++    let result=planner.decide(&fixture.snapshot,&fixture.goal,&fixture.actions,budget);
++    println!("{}",serde_json::to_string_pretty(&result).unwrap());
++    if result.result.status!=PlanStatus::Ready ||
++        validate_plan(&fixture.snapshot,&fixture.goal,&fixture.actions,&result.result,budget).is_err() {
++        eprintln!("hybrid did not produce a valid full plan for the supplied acceptance fixture");
++        process::exit(1);
++    }
++}
+--- a/crates/sim_core/src/strategy/coordination.rs
++++ b/crates/sim_core/src/strategy/coordination.rs
+@@ -31,7 +31,8 @@
+     pub native_chain_probe: Option<options::NativeChainProbe>,
+     /// Legacy decision expressed in the shared planner contract; diagnostic only.
+     pub planning_shadow: Option<planning::ShadowTrace>,
+-    /// Real native HTN dispatch, separate from predicted plans / read-only shadow.
++    /// Real native planning dispatch (legacy key retained for Observer compatibility):
++    /// planner_id/mode distinguish HTN and hybrid. Forecasts are not receipts.
+     #[serde(skip_serializing_if="Option::is_none")]
+     pub htn_execution: Option<planning::NativeDriveReport>,
+ }
+@@ -184,20 +185,21 @@
+         memory.reason=head.reason.clone();memory.candidates=candidates;
+         director::record(memory,tick,head.selected_option,&head.reason,"selected");
+     }
+-    // HTN is explicitly opt-in. All money, orders, ships and materials still
++    // HTN and hybrid are explicitly opt-in. All money, orders, ships and materials still
+     // belong to Genesis. Active plans suppress a competing legacy head grant;
+     // unsupported snapshots fall back to the old director without mutation.
+     if mode == Mode::Execute && planning::execution_enabled() {
+         for (id, head) in &mut decisions {
+             if let Some(report) = planning::drive_native_htn(world, board, relations, tick, mult, id, head) {
+-                head.selected_option = "htn_native";
++                let dispatch_kind = if report.mode == "native_hybrid_opt_in" {"hybrid_native"} else {"htn_native"};
++                head.selected_option = dispatch_kind;
+                 head.selected_administrator = None;
+                 head.planned_spend = report.committed_credits;
+                 head.reason = report.reason.clone();
+                 if let Some(c) = world.resource_mut::<director::Director>().commanders.get_mut(id) {
+-                    c.intent = "htn_native".into();
++                    c.intent = dispatch_kind.into();
+                     c.reason = report.reason.clone();
+-                    director::record(c, tick, "htn_native", &report.reason, &report.status);
++                    director::record(c, tick, dispatch_kind, &report.reason, &report.status);
+                 }
+                 head.htn_execution = Some(report);
+             }
+--- /dev/null
++++ b/crates/sim_core/src/strategy/planning/hybrid.rs
+@@ -0,0 +1,365 @@
++//! Block C: genuinely cooperating, *pure* faction planner.
++//!
++//! Genesis Utility/Personality chooses the strategic goal before this module
++//! runs. HTN decomposes that goal; where it ends in a simple native recipe,
++//! Telic-guided GOAP may solve the missing-ingredient subgoal and feed its
++//! result into the HTN production milestone. Otherwise GOAP acts as a full-goal
++//! fallback. Beam is only invoked when viable alternatives disagree (or both
++//! structural planners fail). All candidates must replay through the *same*
++//! conservative quantity/cash domain, with one shared node budget.
++//!
++//! The result is a forecast, never a ship order or a production receipt.
++//! NativeExecution is the ONLY component permitted to dispatch a plan.
++
++use serde::Serialize;
++use super::{ActionKind, ActionSpec, ControlBeamAdapter, GoalSpec, HtnAdapter,
++    Planner, PlanningSnapshot, PlanResult, PlanStatus, PlanStep, SearchBudget,
++    TelicGoapAdapter, validate_plan};
++use super::htn_adapter::domain_from_native;
++
++/// Preferences are derived from the EXISTING Genesis commander profile; not
++/// a second personality system. Never relaxes a resource/legal precondition.
++#[derive(Clone, Copy, Debug, PartialEq)]
++pub struct HybridPreferences {
++    pub cost_weight: f64,
++    pub speed_weight: f64,
++    pub caution_weight: f64,
++}
++impl Default for HybridPreferences {
++    fn default() -> Self {Self { cost_weight:1.0, speed_weight:1.0, caution_weight:0.5 }}
++}
++impl HybridPreferences {
++    pub fn bounded(self) -> Self {
++        let f=|v:f64| if v.is_finite() {v.clamp(0.1, 8.0)} else {1.0};
++        Self {cost_weight:f(self.cost_weight),speed_weight:f(self.speed_weight),
++            caution_weight:f(self.caution_weight)}
++    }
++}
++
++#[derive(Clone, Debug, Serialize)]
++pub struct HybridRoleTrace {
++    pub htn_status: PlanStatus,
++    pub goap_status: PlanStatus,
++    pub goap_full_status: Option<PlanStatus>,
++    pub beam_status: Option<PlanStatus>,
++    pub goap_role: &'static str,
++    pub beam_reason: &'static str,
++    pub selected_source: String,
++    pub nodes_htn: u32,
++    pub nodes_goap: u32,
++    pub nodes_beam: u32,
++    pub note: &'static str,
++}
++
++#[derive(Clone, Debug, Serialize)]
++pub struct HybridDecision {
++    pub result: PlanResult,
++    pub roles: HybridRoleTrace,
++}
++
++#[derive(Clone, Copy, Debug)]
++pub struct HybridPlanner {pub preferences: HybridPreferences}
++impl Default for HybridPlanner {
++    fn default() -> Self { Self { preferences: HybridPreferences::default() } }
++}
++
++fn rejected(goal:&GoalSpec, status:PlanStatus, nodes:u32, reason:&str) -> PlanResult {
++    PlanResult{status,goal_id:goal.goal_id.clone(),planner_id:"hybrid_utility_htn_goap_beam".into(),
++        steps:Vec::new(),forecast_credits:0,forecast_ticks:0,nodes_expanded:nodes,
++        explanation:reason.into()}
++}
++
++/// All candidate steps must actually consume/create goods through the trusted
++/// model. The shared structural validator alone cannot prove stock conservation.
++fn safe_candidate(snapshot:&PlanningSnapshot, goal:&GoalSpec,
++    actions:&[ActionSpec], result:&PlanResult, budget:SearchBudget) -> bool {
++    if result.status!=PlanStatus::Ready ||
++        validate_plan(snapshot,goal,actions,result,budget).is_err() {return false;}
++    let Ok(domain)=domain_from_native(snapshot,goal,actions) else{return false;};
++    let mut state=domain.initial.clone();
++    for step in &result.steps {
++        let Some(index)=actions.iter().position(|a|a.action_id==step.action_id) else {return false;};
++        let Some(native)=domain.actions.iter().find(|n|n.catalogue_index==index) else {return false;};
++        let Some(after)=native.apply(&state) else{return false;};
++        state=after;
++    }
++    state[domain.goal_field]>=domain.goal_amount
++}
++
++/// Build one GOAP-supplied *ingredient* subplan plus the final HTN recipe step.
++/// Only this provably simple decomposition is executable at present. For more
++/// complex/multi-input trees, preserve the entire safe HTN plan unchanged.
++fn compose_ingredient_route(snapshot:&PlanningSnapshot, goal:&GoalSpec,
++    actions:&[ActionSpec], htn:&PlanResult, goap:&PlanResult) -> Option<PlanResult> {
++    if htn.status!=PlanStatus::Ready || goap.status!=PlanStatus::Ready {return None;}
++    let final_step=htn.steps.last()?;
++    let recipe=actions.iter().find(|a|a.action_id==final_step.action_id)?;
++    if recipe.kind!=ActionKind::Produce || recipe.inputs.len()!=1 ||
++        !recipe.outputs.iter().any(|(c,_)| *c==goal.commodity) ||
++        recipe.destination_id!=goal.destination_id {return None;}
++    let mut steps=Vec::new();
++    let mut credits=0_i64;
++    let mut ticks=0_u64;
++    for (i,step) in goap.steps.iter().enumerate() {
++        let action=actions.iter().find(|a|a.action_id==step.action_id)?;
++        credits=credits.checked_add(action.cost_credits)?;
++        ticks=ticks.checked_add(action.expected_ticks)?;
++        let previous=(i>0).then(||format!("hybrid-s{}",i));
++        steps.push(PlanStep{step_id:format!("hybrid-s{}",i+1),
++            action_id:action.action_id.clone(),depends_on:previous.into_iter().collect(),
++            expected_condition:step.expected_condition.clone()});
++    }
++    credits=credits.checked_add(recipe.cost_credits)?;
++    ticks=ticks.checked_add(recipe.expected_ticks)?;
++    let previous=steps.last().map(|s|s.step_id.clone());
++    steps.push(PlanStep{step_id:format!("hybrid-s{}",steps.len()+1),
++        action_id:recipe.action_id.clone(),depends_on:previous.into_iter().collect(),
++        expected_condition:final_step.expected_condition.clone()});
++    let combined=PlanResult{status:PlanStatus::Ready,goal_id:goal.goal_id.clone(),
++        planner_id:"hybrid_utility_htn_goap_beam".into(),steps,forecast_credits:credits,
++        forecast_ticks:ticks,nodes_expanded:htn.nodes_expanded.saturating_add(goap.nodes_expanded),
++        explanation:"HTN recipe milestone with GOAP ingredient-acquisition subplan".into()};
++    let budget=SearchBudget{max_nodes:combined.nodes_expanded.max(1),max_depth:12};
++    safe_candidate(snapshot,goal,actions,&combined,budget).then_some(combined)
++}
++
++fn score(plan:&PlanResult, actions:&[ActionSpec], p:HybridPreferences) -> f64 {
++    let p=p.bounded();
++    let predicted_payroll_risk=plan.steps.iter().filter(|step|actions.iter()
++        .any(|a|a.action_id==step.action_id && a.kind==ActionKind::Produce)).count() as f64;
++    p.cost_weight * plan.forecast_credits as f64 / 1000.0
++       + p.speed_weight * plan.forecast_ticks as f64 / 100.0
++       + p.caution_weight * (plan.steps.len() as f64 * 0.15 + predicted_payroll_risk)
++}
++
++impl HybridPlanner {
++    pub fn decide(&self,snapshot:&PlanningSnapshot,goal:&GoalSpec,
++        actions:&[ActionSpec], budget:SearchBudget) -> HybridDecision {
++        const NOTE:&str="Native Utility selected goal; forecast never implies native completion";
++        let no=PlanStatus::NoPlan;
++        let mut trace=HybridRoleTrace {htn_status:no,goap_status:no,goap_full_status:None,beam_status:None,
++            goap_role:"not_invoked",beam_reason:"not_invoked",selected_source:"none".into(),
++            nodes_htn:0,nodes_goap:0,nodes_beam:0,note:NOTE};
++        if budget.max_nodes<3 || budget.max_depth==0 {
++            return HybridDecision{result:rejected(goal,PlanStatus::BudgetExhausted,0,"insufficient shared planning budget"),roles:trace};
++        }
++        // Fixed allocation prevents stacking N independent full budgets.
++        let htn_nodes=(budget.max_nodes.saturating_mul(2)/5).max(1);
++        let goap_nodes=(budget.max_nodes.saturating_mul(2)/5).max(1);
++        let beam_nodes=budget.max_nodes.saturating_sub(htn_nodes).saturating_sub(goap_nodes);
++        let htn_budget=SearchBudget{max_nodes:htn_nodes,max_depth:budget.max_depth};
++        let goap_budget=SearchBudget{max_nodes:goap_nodes,max_depth:budget.max_depth};
++        let htn=HtnAdapter.plan(snapshot,goal,actions,htn_budget);
++        trace.nodes_htn=htn.nodes_expanded;
++        trace.htn_status=htn.status;
++        let htn_ok=safe_candidate(snapshot,goal,actions,&htn,htn_budget);
++        let mut alternatives:Vec<(&'static str,PlanResult)>=Vec::new();
++        if htn_ok {alternatives.push(("htn_decomposition",htn.clone()));}
++        // Delegate a true HTN-produced intermediate goal to GOAP when possible.
++        // Otherwise GOAP searches the original goal as a separate fallback.
++        let intermediate=if htn_ok {
++            htn.steps.last().and_then(|step|actions.iter().find(|a|a.action_id==step.action_id))
++                .and_then(|recipe|{
++                    if recipe.kind!=ActionKind::Produce || recipe.inputs.len()!=1 ||
++                        recipe.destination_id!=goal.destination_id ||
++                        !recipe.outputs.iter().any(|(c,_)|*c==goal.commodity) {return None;}
++                    let (input,required)=recipe.inputs[0];
++                    let market=snapshot.owned_markets.iter().find(|m|m.location_id==goal.destination_id)?;
++                    let present=market.stock.get(input.as_str()).copied().unwrap_or(0.0);
++                    if !present.is_finite() || present<0.0 || present>=f64::from(required) {return None;}
++                    Some(GoalSpec{goal_id:format!("{}:ingredient:{}",goal.goal_id,input.as_str()),
++                        destination_id:goal.destination_id.clone(),commodity:input,
++                        target_units:required,priority:goal.priority})
++                })
++        } else {None};
++        let (goap_goal,role)=match &intermediate {
++            Some(subgoal)=>(subgoal,"htn_ingredient_subgoal_and_full_goal"),
++            None=>(goal,"full_goal_alternative"),
++        };
++        trace.goap_role=role;
++        // When HTN supplies an ingredient milestone, GOAP's allotted budget
++        // is divided between that REAL subgoal and an independent full-goal
++        // alternative. This allows direct supply to compete with a refinery.
++        let ingredient_budget=if intermediate.is_some() {(goap_nodes/2).max(1)} else {goap_nodes};
++        let partial_budget=SearchBudget{max_nodes:ingredient_budget,max_depth:budget.max_depth};
++        let goap=TelicGoapAdapter.plan(snapshot,goap_goal,actions,partial_budget);
++        trace.nodes_goap=goap.nodes_expanded;
++        trace.goap_status=goap.status;
++        if safe_candidate(snapshot,goap_goal,actions,&goap,partial_budget) {
++            if intermediate.is_some() {
++                if let Some(composed)=compose_ingredient_route(snapshot,goal,actions,&htn,&goap) {
++                    if composed.steps.len()<=budget.max_depth &&
++                        composed.nodes_expanded<=budget.max_nodes {
++                        alternatives.push(("htn_plus_telic_goap",composed));
++                    }
++                }
++            } else {
++                alternatives.push(("telic_goap_fallback",goap));
++            }
++        }
++        if intermediate.is_some() && goap_nodes>ingredient_budget {
++            let full_budget=SearchBudget{max_nodes:goap_nodes-ingredient_budget,max_depth:budget.max_depth};
++            let full=TelicGoapAdapter.plan(snapshot,goal,actions,full_budget);
++            trace.nodes_goap=trace.nodes_goap.saturating_add(full.nodes_expanded);
++            trace.goap_full_status=Some(full.status);
++            if safe_candidate(snapshot,goal,actions,&full,full_budget) {
++                alternatives.push(("telic_goap_direct",full));
++            }
++        }
++        // Beam is not run on every faction or every tick: disagreement must
++        // be material, or both structural options must fail.
++        let disagreement=alternatives.first().is_some_and(|(_,first)|{
++            alternatives.iter().skip(1).any(|(_,other)|first.steps.iter()
++                .map(|s|&s.action_id).ne(other.steps.iter().map(|s|&s.action_id)))
++        });
++        let need_beam=alternatives.is_empty() || disagreement;
++        if need_beam && beam_nodes>0 {
++            trace.beam_reason=if alternatives.is_empty() {"no_valid_structural_plan"}
++                else {"candidate_paths_disagree"};
++            let beam_budget=SearchBudget{max_nodes:beam_nodes,max_depth:budget.max_depth};
++            let beam=ControlBeamAdapter.plan(snapshot,goal,actions,beam_budget);
++            trace.nodes_beam=beam.nodes_expanded;
++            trace.beam_status=Some(beam.status);
++            if safe_candidate(snapshot,goal,actions,&beam,beam_budget) {
++                alternatives.push(("selective_beam",beam));
++            }
++        }
++        let used=trace.nodes_htn.saturating_add(trace.nodes_goap).saturating_add(trace.nodes_beam);
++        // Stable order on ties; no stochastic tests or hidden personal bias.
++        // Prefer a successful HTN+GOAP cooperative decomposition at equal
++        // forecast utility; otherwise use deterministic stable labels.
++        let source_rank=|name:&str|match name {
++            "htn_plus_telic_goap"=>0, "htn_decomposition"=>1,
++            "telic_goap_direct"=>2, "telic_goap_fallback"=>3,
++            "selective_beam"=>4, _=>5,
++        };
++        let selected=alternatives.into_iter().min_by(|(name_a,a),(name_b,b)|{
++            score(a,actions,self.preferences).total_cmp(&score(b,actions,self.preferences))
++                .then_with(||source_rank(name_a).cmp(&source_rank(name_b)))
++        });
++        let result=if let Some((source,mut plan))=selected {
++            trace.selected_source=source.into();
++            plan.nodes_expanded=used;
++            plan.planner_id="hybrid_utility_htn_goap_beam".into();
++            plan.explanation=format!("Utility goal; HTN={:?}; GOAP={} ({:?})/full={:?}; Beam={}; selected={source}; forecast only",
++                trace.htn_status,trace.goap_role,trace.goap_status,
++                trace.goap_full_status,trace.beam_reason);
++            plan
++        } else {
++            let status=if [Some(trace.htn_status),Some(trace.goap_status),trace.goap_full_status,trace.beam_status]
++                .into_iter().flatten().any(|s|s==PlanStatus::BudgetExhausted){
++                PlanStatus::BudgetExhausted
++            } else if [Some(trace.htn_status),Some(trace.goap_status),trace.goap_full_status,trace.beam_status]
++                .into_iter().flatten().any(|s|s==PlanStatus::InvalidSnapshot){
++                PlanStatus::InvalidSnapshot
++            } else {PlanStatus::NoPlan};
++            rejected(goal,status,used,"No valid HTN / GOAP / selective Beam path within shared budget")
++        };
++        HybridDecision{result,roles:trace}
++    }
++}
++impl Planner for HybridPlanner {
++    fn id(&self)->&'static str {"hybrid_utility_htn_goap_beam"}
++    fn plan(&self,snapshot:&PlanningSnapshot,goal:&GoalSpec,
++        actions:&[ActionSpec],budget:SearchBudget)->PlanResult {
++        self.decide(snapshot,goal,actions,budget).result
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use super::super::{FacilityEntry, MarketEntry, RecipeEntry, ShipEntry, SCHEMA_VERSION};
++    use crate::economy::commodities::Commodity;
++    use std::collections::BTreeMap;
++    fn stock(id:&str,location:&str,commodity:Commodity,amount:f64)->MarketEntry{
++        MarketEntry{market_id:id.into(),facility_id:format!("facility-{id}"),location_id:location.into(),
++            stock:[(commodity.as_str().to_string(),amount)].into(),demand:BTreeMap::new(),prices:BTreeMap::new()}
++    }
++    fn fixture()->(PlanningSnapshot,GoalSpec,Vec<ActionSpec>){
++        let s=PlanningSnapshot{schema_version:SCHEMA_VERSION,tick:100,faction_id:"f".into(),
++            treasury_credits:30_000,treasury_floor_credits:10_000,
++            owned_markets:vec![stock("belt","belt",Commodity::Ice,8.0),stock("refinery","colony",Commodity::Water,0.0)],
++            facilities:vec![FacilityEntry{facility_id:"facility-refinery".into(),location_id:"colony".into(),facility_type:"refinery".into()}],
++            ships:vec![ShipEntry{ship_id:"ship".into(),class:"courier".into(),location_id:Some("belt".into()),
++                in_transit:false,free_cargo:20,fuel:100.0}],active_commitments:vec![],technologies:vec![],
++            recipes:vec![RecipeEntry{recipe_id:"ice".into(),facility_type:"refinery".into(),
++                inputs:vec![(Commodity::Ice,8)],outputs:vec![(Commodity::Water,10)]}]};
++        let goal=GoalSpec{goal_id:"water".into(),destination_id:"colony".into(),commodity:Commodity::Water,
++            target_units:10,priority:100};
++        let actions=vec![
++            ActionSpec{action_id:"deliver-ice".into(),kind:ActionKind::Deliver,source_id:Some("belt".into()),
++                destination_id:"colony".into(),commodity:Some(Commodity::Ice),units:8,cost_credits:200,
++                expected_ticks:80,inputs:vec![],outputs:vec![],required_facility_type:None},
++            ActionSpec{action_id:"refine".into(),kind:ActionKind::Produce,source_id:None,destination_id:"colony".into(),
++                commodity:Some(Commodity::Water),units:10,cost_credits:100,expected_ticks:40,
++                inputs:vec![(Commodity::Ice,8)],outputs:vec![(Commodity::Water,10)],
++                required_facility_type:Some("refinery".into())}];
++        (s,goal,actions)
++    }
++    #[test]
++    fn htn_decomposes_then_goap_can_supply_a_real_ingredient(){
++        let (s,g,a)=fixture();
++        let before=serde_json::to_vec(&s).unwrap();
++        let result=HybridPlanner::default().decide(&s,&g,&a,SearchBudget::default());
++        assert_eq!(result.result.status,PlanStatus::Ready,"{}",result.result.explanation);
++        assert_eq!(result.roles.goap_role,"htn_ingredient_subgoal_and_full_goal");
++        assert_eq!(result.roles.selected_source,"htn_plus_telic_goap");
++        assert!(result.roles.beam_status.is_none());
++        assert_eq!(result.roles.goap_full_status,Some(PlanStatus::Ready));
++        assert_eq!(result.result.steps.iter().map(|x|x.action_id.as_str()).collect::<Vec<_>>(),vec!["deliver-ice","refine"]);
++        assert!(safe_candidate(&s,&g,&a,&result.result,SearchBudget::default()));
++        assert_eq!(before,serde_json::to_vec(&s).unwrap());
++    }
++    #[test]
++    fn empty_source_never_creates_ice(){
++        let (mut s,g,a)=fixture();
++        s.owned_markets[0].stock.insert("ice".into(),0.0);
++        let result=HybridPlanner::default().decide(&s,&g,&a,SearchBudget::default());
++        assert_ne!(result.result.status,PlanStatus::Ready);
++    }
++    #[test]
++    fn shared_budget_is_not_counted_three_times(){
++        let (s,g,a)=fixture();
++        let budget=SearchBudget{max_nodes:15,max_depth:12};
++        let result=HybridPlanner::default().decide(&s,&g,&a,budget);
++        assert!(result.result.nodes_expanded<=15);
++        if result.result.status==PlanStatus::Ready {
++            assert!(safe_candidate(&s,&g,&a,&result.result,budget));
++        }
++    }
++    #[test]
++    fn multiple_markets_are_not_combined(){
++        let (mut s,g,a)=fixture();
++        s.owned_markets.push(stock("another","colony",Commodity::Water,100.0));
++        let result=HybridPlanner::default().decide(&s,&g,&a,SearchBudget::default());
++        assert_ne!(result.result.status,PlanStatus::Ready);
++    }
++    #[test]
++    fn preferences_are_bounded_even_if_loaded_profile_is_corrupt(){
++        let p=HybridPreferences{cost_weight:f64::NAN,speed_weight:f64::INFINITY,caution_weight:-8.0}.bounded();
++        assert_eq!(p,HybridPreferences{cost_weight:1.0,speed_weight:1.0,caution_weight:0.1});
++    }
++    #[test]
++    fn personality_weights_change_choice_between_price_and_speed(){
++        let (s,g,a)=fixture();
++        let mut cheap=HybridPlanner::default().plan(&s,&g,&a,SearchBudget::default());
++        cheap.forecast_credits=400;
++        cheap.forecast_ticks=600;
++        let mut fast=cheap.clone();
++        fast.forecast_credits=7_000;
++        fast.forecast_ticks=50;
++        let economist=HybridPreferences{cost_weight:4.0,speed_weight:0.2,caution_weight:0.5};
++        let urgent=HybridPreferences{cost_weight:0.2,speed_weight:5.0,caution_weight:0.5};
++        assert!(score(&cheap,&a,economist)<score(&fast,&a,economist));
++        assert!(score(&fast,&a,urgent)<score(&cheap,&a,urgent));
++    }
++    #[test]
++    fn dispatcher_cannot_be_justified_by_a_forged_output(){
++        let (s,g,a)=fixture();
++        let mut bogus=HybridPlanner::default().plan(&s,&g,&a,SearchBudget::default());
++        assert_eq!(bogus.status,PlanStatus::Ready);
++        bogus.steps[0].action_id="magic-ice".into();
++        assert!(!safe_candidate(&s,&g,&a,&bogus,SearchBudget::default()));
++    }
++}
+--- a/crates/sim_core/src/strategy/planning/mod.rs
++++ b/crates/sim_core/src/strategy/planning/mod.rs
+@@ -28,6 +28,8 @@
+ mod telic_goap;
+ mod control_beam;
+ mod comparison;
++mod hybrid;
++pub use hybrid::{HybridPlanner, HybridPreferences, HybridDecision, HybridRoleTrace};
+ pub use telic_goap::TelicGoapAdapter;
+ pub use control_beam::ControlBeamAdapter;
+ pub use comparison::{compare_planners, PlannerComparison, ComparedPlanner};
+--- a/crates/sim_core/src/strategy/planning/native_catalogue.rs
++++ b/crates/sim_core/src/strategy/planning/native_catalogue.rs
+@@ -185,6 +185,31 @@
+     Ok((projected, actions, goal, result))
+ }
+ 
++/// Block C: the same conservative native catalogue used by HTN, GOAP and
++/// selective Beam. The native dispatcher still revalidates every commitment.
++/// Only an explicit hybrid opt-in calls this from the live director.
++pub(super) fn hybrid_native_candidate(
++    snapshot:&PlanningSnapshot, native_goal:&GoalSpec,
++    preferences:super::HybridPreferences,
++) -> Result<(PlanningSnapshot, Vec<ActionSpec>, GoalSpec, PlanResult, String), &'static str> {
++    use super::HybridPlanner;
++    let (projected,actions,goal)=comparison_case(snapshot,native_goal)?;
++    let budget=SearchBudget{max_nodes:MAX_SHADOW_NODES,max_depth:MAX_SHADOW_DEPTH};
++    let decision=HybridPlanner{preferences}.decide(&projected,&goal,&actions,budget);
++    if decision.result.status!=PlanStatus::Ready {return Err("hybrid_no_ready_plan");}
++    validate_plan(&projected,&goal,&actions,&decision.result,budget)
++        .map_err(|_|"hybrid_invalid_plan")?;
++    if decision.result.steps.iter().any(|step|actions.iter()
++        .find(|a|a.action_id==step.action_id)
++        .is_none_or(|a|!matches!(&a.kind,ActionKind::Deliver|ActionKind::Produce))) {
++        return Err("hybrid_action_not_dispatchable");
++    }
++    let reason=format!("HTN={:?}, GOAP={:?} as {}, Beam={}, selected={}; {}",
++        decision.roles.htn_status,decision.roles.goap_status,decision.roles.goap_role,
++        decision.roles.beam_reason,decision.roles.selected_source,decision.result.explanation);
++    Ok((projected,actions,goal,decision.result,reason))
++}
++
+ /// Same game tick, same faction, no mutation, no order submission.
+ /// The HTN result is useful for debugging dependencies, not yet for gameplay.
+ pub fn htn_native_shadow(snapshot: &PlanningSnapshot, native_goal: &GoalSpec) -> HtnNativeShadow {
+--- a/crates/sim_core/src/strategy/planning/native_execution.rs
++++ b/crates/sim_core/src/strategy/planning/native_execution.rs
+@@ -26,12 +26,15 @@
+ use super::{
+     native_catalogue, ActionKind, ActionSpec, ExecutionReceipt, GoalSpec,
+     PlanGate, PlanLedger, PlanningSnapshot, ReceiptStatus,
+-    SearchBudget,
++    SearchBudget, HybridPreferences,
+ };
+ 
+ /// The original Genesis director is still the default and emergency fallback.
+ pub fn execution_enabled() -> bool {
+-    std::env::var("LIVING_SECTOR_PLANNER").as_deref() == Ok("htn")
++    matches!(std::env::var("LIVING_SECTOR_PLANNER").as_deref(), Ok("htn") | Ok("hybrid"))
++}
++fn hybrid_enabled() -> bool {
++    std::env::var("LIVING_SECTOR_PLANNER").as_deref() == Ok("hybrid")
+ }
+ 
+ #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+@@ -53,6 +56,9 @@
+     pub production_started_tick: Option<u64>,
+     #[serde(default)]
+     pub last_reason: String,
++    /// Explanation from the planning roles, persisted with its real orders.
++    #[serde(default)]
++    pub planner_rationale: String,
+ }
+ 
+ #[derive(Clone, Debug, Serialize)]
+@@ -65,16 +71,18 @@
+     pub step_id: Option<String>,
+     pub native_order_id: Option<String>,
+     pub committed_credits: i64,
++    pub planner_rationale: String,
+ }
+ 
+ fn report(plan: &NativePlan, status: &'static str, reason: &str, committed: i64) -> NativeDriveReport {
+     let entry = plan.ledger.steps.iter().find(|r|r.phase != super::StepPhase::Succeeded);
+     NativeDriveReport {
+-        mode: "native_htn_opt_in", planner_id: plan.ledger.planner_id.clone(),
++        mode: if plan.ledger.planner_id.starts_with("hybrid_") {"native_hybrid_opt_in"} else {"native_htn_opt_in"},
++        planner_id: plan.ledger.planner_id.clone(),
+         plan_id: plan.ledger.plan_id.clone(), status,
+         reason: reason.into(), step_id: entry.map(|r|r.step.step_id.clone()),
+         native_order_id: entry.and_then(|r|r.native_order_id.clone()),
+-        committed_credits: committed,
++        committed_credits: committed, planner_rationale:plan.planner_rationale.clone(),
+     }
+ }
+ 
+@@ -265,12 +273,28 @@
+             problem.destination,problem.commodity.as_str()),
+             destination_id:problem.destination.clone(),commodity:problem.commodity,
+             target_units:10,priority:problem.score.max(0.0) as u32};
+-        let (_,actions,goal,result)=native_catalogue::native_candidate(&snap,&goal).ok()?;
+-        let plan_id=format!("native-htn:{}:{}:{}",faction_id,tick,goal.goal_id);
++        // Personality has ALREADY selected the head's goal. These preferences
++        // affect only choice among physically valid plans for that same goal.
++        let preferences=world.get_resource::<director::Director>()
++            .and_then(|d|d.commanders.get(faction_id))
++            .map(|c|HybridPreferences {
++                cost_weight:c.profile.industry,
++                speed_weight:if c.crisis {3.0} else {c.profile.expansion.max(0.25)},
++                caution_weight:c.profile.caution,
++            }).unwrap_or_default();
++        let (actions,goal,result,rationale)=if hybrid_enabled() {
++            let (_,actions,goal,result,reason)=native_catalogue::hybrid_native_candidate(&snap,&goal,preferences).ok()?;
++            (actions,goal,result,reason)
++        } else {
++            let (_,actions,goal,result)=native_catalogue::native_candidate(&snap,&goal).ok()?;
++            (actions,goal,result,"legacy HTN single-planner proposal".into())
++        };
++        let plan_id=format!("native-{}:{}:{}:{}",
++            if hybrid_enabled(){"hybrid"}else{"htn"},faction_id,tick,goal.goal_id);
+         let ledger=PlanLedger::from_proposal(&snap,&goal,&actions,&result,
+             SearchBudget{max_nodes:350,max_depth:12},&plan_id).ok()?;
+         active=Some(NativePlan {ledger,goal,actions,production_started_tick:None,
+-            last_reason:"native_htn_plan_accepted".into()});
++            last_reason:"native_plan_accepted".into(),planner_rationale:rationale});
+     }
+     let mut plan=active?;
+     let next=plan.ledger.next();
+@@ -390,7 +414,7 @@
+             forecast_credits:1000,forecast_ticks:100,nodes_expanded:1,explanation:"test".into()};
+         NativePlan{ledger:PlanLedger::from_proposal(&snap,&goal,&actions,&result,
+             SearchBudget::default(),"p1").unwrap(),goal,actions,
+-            production_started_tick:None,last_reason:String::new()}
++            production_started_tick:None,last_reason:String::new(),planner_rationale:String::new()}
+     }
+ 
+     #[test]
+@@ -447,6 +471,25 @@
+         assert!(matches!(plan.ledger.next(),PlanGate::NeedsReplan{..}));
+     }
+     #[test]
++    fn old_native_plan_without_hybrid_rationale_loads_safely() {
++        let plan=dummy_plan();
++        let mut serialized=serde_json::to_value(&plan).unwrap();
++        serialized.as_object_mut().unwrap().remove("planner_rationale");
++        let restored:NativePlan=serde_json::from_value(serialized).unwrap();
++        assert!(restored.planner_rationale.is_empty());
++        assert_eq!(restored.ledger.plan_id,plan.ledger.plan_id);
++    }
++    #[test]
++    fn reporting_identifies_hybrid_without_rewriting_legacy_receipts() {
++        let mut plan=dummy_plan();
++        plan.ledger.planner_id="hybrid_utility_htn_goap_beam".into();
++        plan.planner_rationale="GOAP planned input before HTN recipe".into();
++        let result=report(&plan,"waiting","await_native",0);
++        assert_eq!(result.mode,"native_hybrid_opt_in");
++        assert!(result.planner_rationale.contains("GOAP"));
++        assert_eq!(result.plan_id,plan.ledger.plan_id);
++    }
++    #[test]
+     fn restarting_with_prepared_step_does_not_issue_duplicate() {
+         let mut plan=dummy_plan();
+         plan.ledger.prepare("s1",11).unwrap();
+--- /dev/null
++++ b/docs/living-sector/AI_BLOCK_C_HYBRID_RU.md
+@@ -0,0 +1,53 @@
++# Living Sector — блок C: гибрид Utility + HTN + GOAP + Beam
++
++**Статус:** исходники подготовлены поверх **непроверенного компиляцией блока B**. Тесты Rust и реальное исполнение новой версии **ещё не подтверждены**. Не заявлять «готовая гибридная галактика» до результатов `VERIFY-AI-BLOCK-BC.cmd` и реального сценария перевозки.
++
++## Что теперь соединено
++
++1. **Utility и личности Genesis** остаются в `strategy/coordination.rs` / `strategy/director.rs`. Они выбирают важную **игровую цель** (снабжение, исследование, экспансия). Никакой второй таблицы черт характера не создано.
++2. **HTN 0.2.1** предлагает декомпозицию локальной товарной задачи на последовательность реальных действий (`Deliver` / `Produce`).
++3. **Telic 0.1.0 + точный GOAP-поиск** получает *подзадачу по входящему товару* для одновходовой финальной производственной операции HTN. Если он находит путь, система составляет единый проверяемый план `GOAP снабжение → HTN производство`. Из того же ограниченного бюджета GOAP дополнительно проверяет **прямую альтернативу** всей цели (например, готовая вода вместо переработки льда). При сложной структуре HTN, которую пока нельзя безопасно разделить, GOAP решает полную цель как альтернативу.
++4. **Beam Search** с ограниченным бюджетом вызывается **избирательно**: когда валидные пути расходятся или HTN+GOAP не нашли исполнимого решения.
++5. **Оценка кандидатов** принимает предпочтения существующего командира: экономический вес, срочность, осторожность. Профиль влияет на выбор **между разрешёнными** планами; не делает недопустимую перевозку допустимой.
++6. **Реальное исполнение** — ровно существующий `NativeExecution` блока A: нативная доска контрактов, гарантия оплаты, реальные корабли, квитанции производства и сохранение с директором. Не создаются ресурсы или деньги из прогнозов. Старые HTN-планы в сохранениях продолжаются без миграции.
++
++Для проверки: `crates/sim_core/src/strategy/planning/hybrid.rs`, `native_catalogue.rs`, `native_execution.rs`, `coordination.rs`.
++
++## Безопасность и ограничения
++
++- По умолчанию всё как было: `LIVING_SECTOR_PLANNER` не задан → работает обычный Genesis.
++- Старый режим `LIVING_SECTOR_PLANNER=htn` не меняет алгоритм (только поля отчёта расширены совместимым образом).
++- **Новый режим `LIVING_SECTOR_PLANNER=hybrid`** должен выбираться пользователем явно; отделён от штатного сохранения при запуске тестового CMD.
++- Все планировщики видят один `PlanningSnapshot`, один каталог `ActionSpec`, одну казну и один набор прогнозных остатков. Никаких независимых «виртуальных» складов/банков.
++- `validate_plan` + повторное последовательное применение всех нативных количественных эффектов (`safe_candidate`) для каждого предлагаемого плана. Исполнитель повторно проверяет **живое** ECS и контракты до любого реального расхода.
++- Единый ограниченный бюджет **350 узлов для всего гибридного поиска**, а не 350 на каждый алгоритм; распределяется 40/40/20 % между HTN / GOAP / опциональным Beam. При проверке ингредиента GOAP делит собственную долю между подцелью и полной альтернативой. Лимит глубины 12.
++- Один активный план/фракцию; шаги, квитанции и связанные контракты сохраняются. `NativePlan.planner_rationale` имеет serde-default для старых сохранений.
++- Новый отчёт содержит `planner_id`, `planner_rationale` и mode `native_hybrid_opt_in`; ради обратной совместимости API поле головы пока называется `htn_execution` — оно несёт отчёт как HTN, так и hybrid.
++- GOAP не обязан уступать HTN при разных прогнозных расходах; если совместная цепочка эквивалентна HTN, при равенстве предпочитается именно **кооперация** HTN+GOAP.
++
++## Чего блок C пока НЕ умеет
++
++- Не строит через HTN произвольную цепь технологий T1–T4 и не командует военными флотами.
++- Нативный исполнитель сейчас умеет **контракты перевозок и наблюдение за реальной производственной сменой**, но не создаёт через гибрид напрямую заводы, исследования или колонии. Для них остаётся существующий директор Genesis.
++- Периодически невозможно получить однозначные рынки, свободные корабли или полную цепочку: корректный результат — fallback на Genesis с причиной. Это не доказательство «плохого» планировщика.
++- У Beam нет гарантии нахождения лучшего пути. Не запускать все алгоритмы постоянно.
++- Отложено детальное сравнение автономных кампаний с одинаковым RNG/временем и устойчивая верификация на 100 системах.
++- Даже после успешной компиляции короткий запуск API докажет только запуск **нового** бинарника, а не успешную реальную доставку по гибридному плану. Для этого нужен отдельный контролируемый runtime-сценарий с подтверждённой оплатой/прибытием и сравнением с baseline.
++
++## Одна проверка B+C на Windows
++
++Из корня проекта запустить **`VERIFY-AI-BLOCK-BC.cmd`**. Это **один** пакет, объединяющий:
++
++- Cargo check `sim_core` + `sim_server` + `sim_db` (первый запуск разрешает `telic = 0.1.0` в lockfile);
++- короткие unit-тесты планирования, координации и администраторов;
++- сборку нового `genesis_server.exe`;
++- два фиксированных чистых сравнительных примера B и C по `tests/ai_block_b_fixture.json`;
++- короткую проверку, что **новый** Windows-сервер с `LIVING_SECTOR_PLANNER=hybrid` открывает `/api/health` и `/api/strategy` на **отдельной временной базе**. Стратегическое событие может не наступить за время smoke — это честно только API-проверка.
++
++Все логи и `Cargo.lock` упакуются в **`AI-BLOCK-BC-RESULTS.zip`**. При ошибке не нужно запускать тесты многократно: передать архив с ошибкой. На рабочую БД Galaxy эти проверки не пишут.
++
++После успешных проверок ручной экспериментальный запуск (при необходимости): `RUN-HYBRID-BLOCK-C.cmd` — отдельная БД, порт 18081, Observer. Не объединять результаты с исходным сохранением.
++
++## Следующий крупный этап после B+C
++
++Один *реальный контролируемый* сценарий Genesis: вода отсутствует в колонии → лёд добыт в другом месте → HTN разбивает задачу → GOAP выбирает доставку → нативный контракт принят/оплачен/довезён → refinery выполняет реальный оплаченный выпуск → ИИ видит квитанцию и сохраняет прогресс после рестарта. Измерить затраты и число неудачных приказов, сравнить со старым Genesis и одиночным HTN. **Не расширять баланс T1–T4 до доказательства этой цепочки.**
+--- /dev/null
++++ b/scripts/verify-hybrid-runtime.ps1
+@@ -0,0 +1,48 @@
++# Short, isolated Windows STARTUP smoke of the newly compiled hybrid server.
++# Not a campaign-quality or native-execution-success test.
++$ErrorActionPreference = 'Stop'
++Set-Location (Join-Path $PSScriptRoot '..')
++$root = (Get-Location).Path
++$folder = Join-Path $root 'ai-block-bc-results'
++New-Item -ItemType Directory -Force -Path $folder | Out-Null
++$binary = Join-Path $root 'target\debug\genesis_server.exe'
++if (-not (Test-Path $binary)) { throw 'New binary missing; cargo build must finish first' }
++$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
++$env:BIND_ADDR = '127.0.0.1:18082'
++$env:DATA_DIR = Join-Path $root 'priv\galaxy\data'
++$env:DATABASE_PATH = Join-Path $folder ("hybrid-test-$stamp.db")
++$env:LIVING_SECTOR_UI_DIR = Join-Path $root 'observer'
++$env:LIVING_SECTOR_GALAXY = '1'
++$env:LIVING_SECTOR_STRATEGY_MODE = 'execute'
++$env:LIVING_SECTOR_PLANNER = 'hybrid'
++$env:LIVING_SECTOR_PLANNER_SHADOW = '1'
++$env:WORLD_SPEED = '16'
++$stdout = Join-Path $folder 'runtime-server-stdout.log'
++$stderr = Join-Path $folder 'runtime-server-stderr.log'
++$health = 'http://127.0.0.1:18082/api/health'
++$strategy = 'http://127.0.0.1:18082/api/strategy'
++$process = $null
++try {
++  $process = Start-Process -FilePath $binary -WorkingDirectory $root -PassThru -NoNewWindow `
++      -RedirectStandardOutput $stdout -RedirectStandardError $stderr
++  $response = $null
++  for ($i = 0; $i -lt 45; $i++) {
++    Start-Sleep -Seconds 1
++    if ($process.HasExited) { throw "New server exited before ready: $($process.ExitCode)" }
++    try { $response = Invoke-WebRequest -Uri $health -UseBasicParsing -TimeoutSec 2; break }
++    catch { }
++  }
++  if ($null -eq $response -or $response.StatusCode -ne 200) { throw 'Hybrid runtime health did not become ready' }
++  $response.Content | Out-File -Encoding utf8 (Join-Path $folder 'runtime-health.json')
++  $api = Invoke-WebRequest -Uri $strategy -UseBasicParsing -TimeoutSec 10
++  if ($api.StatusCode -ne 200) { throw "Strategy API returned $($api.StatusCode)" }
++  $api.Content | Out-File -Encoding utf8 (Join-Path $folder 'runtime-strategy.json')
++  # This verifies startup and API only. A valid native paid receipt requires a
++  # separate controlled scenario and cannot be inferred from HTTP status 200.
++  'PASSED: newly built hybrid server starts and serves health/strategy. No claim of successful hybrid delivery.' `
++      | Out-File -Encoding utf8 (Join-Path $folder 'runtime-summary.txt')
++} finally {
++  if ($null -ne $process) {
++    try { if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction Stop } } catch { }
++  }
++}

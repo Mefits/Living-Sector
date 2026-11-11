@@ -1,0 +1,28 @@
+{
+  "snapshot": {
+    "schema_version": 1,
+    "tick": 100,
+    "faction_id": "genesis",
+    "treasury_credits": 30000,
+    "treasury_floor_credits": 10000,
+    "owned_markets": [
+      {"market_id":"belt-1","facility_id":"mine-1","location_id":"belt","stock":{"ice":8.0},"demand":{},"prices":{"ice":10.0}},
+      {"market_id":"colony-1","facility_id":"refinery-1","location_id":"colony","stock":{"water":0.0},"demand":{"water":10.0},"prices":{}}
+    ],
+    "facilities": [
+      {"facility_id":"mine-1","location_id":"belt","facility_type":"station"},
+      {"facility_id":"refinery-1","location_id":"colony","facility_type":"refinery"}
+    ],
+    "ships": [{"ship_id":"carrier","class":"courier","location_id":"belt","in_transit":false,"free_cargo":20,"fuel":100.0}],
+    "active_commitments": [],
+    "technologies": [],
+    "recipes": [{"recipe_id":"process_ice","facility_type":"refinery","inputs":[["ice",8]],"outputs":[["water",10]]}]
+  },
+  "goal": {"goal_id":"colony-water","destination_id":"colony","commodity":"water","target_units":10,"priority":100},
+  "actions": [
+    {"action_id":"ship-ice","kind":"deliver","source_id":"belt","destination_id":"colony","commodity":"ice","units":8,"cost_credits":200,"expected_ticks":80,"inputs":[],"outputs":[],"required_facility_type":null},
+    {"action_id":"refine","kind":"produce","source_id":null,"destination_id":"colony","commodity":"water","units":10,"cost_credits":100,"expected_ticks":40,"inputs":[["ice",8]],"outputs":[["water",10]],"required_facility_type":"refinery"}
+  ],
+  "max_nodes": 2000,
+  "max_depth": 12
+}
