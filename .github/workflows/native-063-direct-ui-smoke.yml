@@ -1,0 +1,81 @@
+name: Galaxy 0.6.3 - direct-source Windows release + ONE short player-approval smoke
+
+on:
+  push:
+    branches:
+      - integration/galaxy-063-native-sources
+    paths:
+      - '.github/workflows/native-063-direct-ui-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  short-native-063-play:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout canonical direct native 0.6.3 sources, NO ZIP/Python overlay
+        uses: actions/checkout@v4
+
+      - name: Checkout PINNED short approval test harness ONLY (never as build sources)
+        uses: actions/checkout@v4
+        with:
+          ref: bc26814f9819ad64e32eafe32cd2601e1aa5b201
+          path: work/063-harness
+          sparse-checkout: |
+            ci/galaxy063/smoke_specific_approval.py
+          sparse-checkout-cone-mode: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Direct-source Windows server RELEASE compile, one time
+        shell: pwsh
+        working-directory: native
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo build --locked --release -p sim_server --bin genesis_server
+          if ($LASTEXITCODE -ne 0) { throw 'Direct native 0.6.3 release compilation failed' }
+          if (!(Test-Path 'target/release/genesis_server.exe')) { throw 'No Windows executable' }
+          Get-FileHash 'target/release/genesis_server.exe' -Algorithm SHA256 | Format-List
+
+      - name: Prepare standalone game using ONLY direct source binary, world data and Observer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = 'work/063-harness/work/source/Living-Sector-Galaxy-0.2'
+          New-Item -ItemType Directory -Force "$project/target/release", "$project/priv/galaxy" | Out-Null
+          Copy-Item 'native/target/release/genesis_server.exe' "$project/target/release/genesis_server.exe"
+          Copy-Item 'native/priv/galaxy/data' "$project/priv/galaxy/data" -Recurse
+          Copy-Item 'native/observer' "$project/observer" -Recurse
+          if (!(Test-Path "$project/observer/governance-approvals.html")) { throw 'Direct UI migration missing' }
+
+      - name: Only short actual native game run - player approval origin, IDs and persisted state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python work/063-harness/ci/galaxy063/smoke_specific_approval.py
+          if ($LASTEXITCODE -ne 0) { throw 'Real native player governance smoke failed' }
+          $report='work/063-harness/specific-approval-smoke-results/specific-approval-smoke.json'
+          $result=Get-Content $report -Raw | ConvertFrom-Json
+          if ($result.status -ne 'passed') { throw 'Real server did not pass approval smoke' }
+          "## Direct Galaxy 0.6.3 Windows short approval test" |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Game source: $(git rev-parse HEAD), no overlay applied at build time." |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Checks: $($result.checks -join ', ')" |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Save migration and long-run economy NOT tested by this short smoke." |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      - name: Preserve only native runtime proof, including failures
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Galaxy-063-Direct-Native-Short-Approval-Smoke
+          path: work/063-harness/specific-approval-smoke-results/
+          if-no-files-found: warn
+          retention-days: 21
