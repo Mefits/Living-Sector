@@ -44,10 +44,24 @@ struct Grant {
 #[derive(Resource)]
 struct Grants(BTreeMap<String, Grant>);
 
+/// A player's grant is not interchangeable with an autonomous shortage of
+/// the same commodity at the same station. Construction is the one allowed
+/// alias: an existing site's "expand_production" goal continues the very
+/// same player industry target. All other player-policy identity is exact.
+fn granted_goal_matches(grant: &Goal, goal: &Goal, administrator: &str) -> bool {
+    if !options::same_problem(grant, goal) {return false;}
+    match grant.goal_id.as_str() {
+        "player_supply" => goal.goal_id=="player_supply",
+        "player_industry" => administrator=="construction" &&
+            matches!(goal.goal_id.as_str(), "player_industry"|"expand_production"),
+        _ => !goal.goal_id.starts_with("player_"),
+    }
+}
 pub(super) fn authorized(world: &World, faction: &str, administrator: &str, goal: &Goal) -> bool {
     world.get_resource::<Grants>().is_none_or(|grants| {
         grants.0.get(faction).is_some_and(|grant| {
-            grant.administrator == administrator && options::same_problem(&grant.goal, goal)
+            grant.administrator == administrator &&
+                granted_goal_matches(&grant.goal, goal, administrator)
         })
     })
 }
