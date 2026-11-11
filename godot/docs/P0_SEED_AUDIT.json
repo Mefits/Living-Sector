@@ -1,0 +1,73 @@
+{
+  "kind": "Rust frozen seed JSON verification (no Godot runtime)",
+  "rust_branch": "archive/rust-galaxy-067-reference",
+  "rust_commit": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "world_source": "native/priv/galaxy/data",
+  "checks": {
+    "all_json_valid": true,
+    "system_ids_unique": true,
+    "body_ids_unique": true,
+    "facility_ids_unique": true,
+    "faction_ids_unique": true,
+    "facility_faction_links_valid": true,
+    "ship_faction_links_valid": true,
+    "resource_grades_disabled": true
+  },
+  "counts": {
+    "systems": 8,
+    "factions": 3,
+    "bodies": 47,
+    "facilities": 15,
+    "ships": 24,
+    "markets": 3,
+    "populations": 3,
+    "routes": 12
+  },
+  "files": [
+    {
+      "path": "native/priv/galaxy/data/worlds/alpha_centauri.json",
+      "git_blob": "7740904e8c312785365635a4e218da86a0579f03"
+    },
+    {
+      "path": "native/priv/galaxy/data/worlds/barnard.json",
+      "git_blob": "5ad26959775bf11f27c634618e4fbf994fbc8e83"
+    },
+    {
+      "path": "native/priv/galaxy/data/worlds/epsilon_eridani.json",
+      "git_blob": "f02c16a741551a2f30f62893bdfe75276859458d"
+    },
+    {
+      "path": "native/priv/galaxy/data/worlds/lalande.json",
+      "git_blob": "4e839a065e3cd4af24eebf223432d92026d2a3e4"
+    },
+    {
+      "path": "native/priv/galaxy/data/worlds/nadir.json",
+      "git_blob": "e9ffb81292ce1321a04b2c7763f4e6a1e3ec0337"
+    },
+    {
+      "path": "native/priv/galaxy/data/worlds/sol.json",
+      "git_blob": "0eeefd60b843b5027b5a8b3e2c3f343a4515e5b9"
+    },
+    {
+      "path": "native/priv/galaxy/data/worlds/tau_ceti.json",
+      "git_blob": "7d898c7e08e12fb528c1f32911276cbcf76e6ccd"
+    },
+    {
+      "path": "native/priv/galaxy/data/worlds/vega.json",
+      "git_blob": "41b21d30f2ded13f0105a4869366dd789edce5de"
+    },
+    {
+      "path": "native/priv/galaxy/data/factions.json",
+      "git_blob": "c15e8712d74eb6e76f0c892861aac3651f2f389a"
+    },
+    {
+      "path": "native/priv/galaxy/data/resource_grades.json",
+      "git_blob": "c822b8179bebf8c3b0b097751486a3e3db4e96cb"
+    },
+    {
+      "path": "native/priv/galaxy/data/tuning.json",
+      "git_blob": "899930b1a01242990a47f1bd26f176d00a95a592"
+    }
+  ],
+  "note": "Valid JSON, references, expected totals and source blob SHAs. Does not validate GDScript or game tick."
+}

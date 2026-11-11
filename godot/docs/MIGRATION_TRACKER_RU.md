@@ -5,12 +5,12 @@
 
 **Внимание:** `VERIFIED` допустим только при наличии доказательства. `CODE_UNVERIFIED` значит скрипты написаны, но Godot не запускался. `DEFERRED_PRESERVED` — сохранено для будущего, не удалено. `TODO` — не начато. Игровой перенос пока **0 функциональных задач с подтверждённым Godot runtime**.
 
-## Общий статус — 12 ноября 2026
+## Общий статус — 12 ноября 2026 (начат P0 перенос, блок 1)
 
 | Этап | Проверено / всего | Текущее состояние |
 |---|---:|---|
-| P0 · Аудит и запускаемый каркас | 2/9 | 3 файла/задачи в коде без запуска; выполнено только архивирование/инвентаризация |
-| P1 · Модель мира, тики, сохранения | 0/9 | ожидает переноса |
+| P0 · Аудит и запускаемый каркас | 3/9 | 3 проверены по архиву/JSON, 4 написаны без запуска Godot, 1 ревизия в работе, 1 не начата |
+| P1 · Модель мира, тики, сохранения | 0/9 | задел: 1 код без Godot-проверки и 3 частичные задачи; без реальных тиков и сохранений |
 | P2 · Экономика, население, производство | 0/11 | ожидает переноса |
 | P3 · Корабли, логистика, договоры | 0/12 | ожидает переноса |
 | P4 · Стройки, станции и колонии | 0/9 | ожидает переноса |
@@ -33,24 +33,24 @@
 |---|---|---|---|---|
 | `P0-01` | Зафиксировать неизменный эталон Rust → `archive 6e40615` | `archive/rust-galaxy-067-reference` | `VERIFIED` | **Ветка есть, SHA зафиксирован**; [эталон](https://github.com/Mefits/Living-Sector/tree/archive/rust-galaxy-067-reference) |
 | `P0-02` | Перечислить все файлы эталона и хеши → `SOURCE_INVENTORY.json` | `весь git tree Rust` | `VERIFIED` | **793 файла; Git tree не обрезан**; [эталон](https://github.com/Mefits/Living-Sector/tree/archive/rust-galaxy-067-reference) |
-| `P0-03` | Разобрать 91 уникальный и 41 отличающийся файл корневого crates → `матрица решений по уникальному поведению` | `crates/ ↔ native/crates/` | `TODO` | Ни одна уникальная механика не исчезла |
+| `P0-03` | Разобрать 91 уникальный и 41 отличающийся файл корневого crates → `матрица решений по уникальному поведению` | `crates/ ↔ native/crates/` | `IN_REVIEW` | Ни одна уникальная механика не исчезла; **Обновление 12.11:** [132 несовпадающих файла сопоставлены по SHA](ROOT_TREE_DELTA_RU.md); смысловой разбор и лицензии ещё в работе |
 | `P0-04` | Открыть Godot-проект/сцену → `Godot Editor` | `godot/project.godot` | `CODE_UNVERIFIED` | F5 без ошибок, Windows-снимок/лог; [код P0](https://github.com/Mefits/Living-Sector/pull/84) |
-| `P0-05` | Загрузить 8 систем / 3 фракции из JSON → `scripts/native_data.gd` | `native/priv/galaxy/data/` | `CODE_UNVERIFIED` | Реальные JSON 8/3, без изменения ID; [код P0](https://github.com/Mefits/Living-Sector/pull/84) |
-| `P0-06` | Выбор и обзор звёздной системы → `scenes/main.tscn; system_map.gd` | `native worlds/*.json` | `CODE_UNVERIFIED` | Клик, реальные тела/координаты; [код P0](https://github.com/Mefits/Living-Sector/pull/84) |
-| `P0-07` | Сравнить старые наборы миров, ресурсы и настройки → `versioned import policy` | `native/priv/data; genesis; galaxy; priv/` | `TODO` | Нет случайного смешения стартов |
+| `P0-05` | Загрузить 8 систем / 3 фракции из JSON → `scripts/native_data.gd` | `native/priv/galaxy/data/` | `CODE_UNVERIFIED` | Реальные JSON 8/3, без изменения ID; [код P0](https://github.com/Mefits/Living-Sector/pull/84); **Обновление 12.11:** [Строгий импорт 8/3 + аудит seed JSON](P0_SEED_AUDIT.json); реальный Godot запуск не проведён |
+| `P0-06` | Выбор и обзор звёздной системы → `scenes/main.tscn; system_map.gd` | `native worlds/*.json` | `CODE_UNVERIFIED` | Клик, реальные тела/координаты; [код P0](https://github.com/Mefits/Living-Sector/pull/84); **Обновление 12.11:** [Карта: выбор, панорамирование, масштабирование, исходные объекты](https://github.com/Mefits/Living-Sector/tree/feature/godot-p0-world-inspector-and-audit/godot/scripts); не проверено в Godot |
+| `P0-07` | Сравнить старые наборы миров, ресурсы и настройки → `versioned import policy` | `native/priv/data; genesis; galaxy; priv/` | `VERIFIED` | Нет случайного смешения стартов; **Обновление 12.11:** [4 набора миров разведены, 8/3/47/15/24 по данным](WORLD_SOURCE_POLICY_RU.md), [хеши](P0_SEED_AUDIT.json). Проверка исходников, не Godot runtime |
 | `P0-08` | Проверить ассеты и лицензии → `asset licensing log` | `crates/client_bevy/assets; native/observer` | `TODO` | Нет неразрешённого переноса медиа/шрифтов |
-| `P0-09` | Подготовить обновление проекта одной кнопкой → `UPDATE_AND_PLAY.cmd` | `GitHub; Godot source tree` | `TODO` | Обновить/запустить без Rust и платного Actions |
+| `P0-09` | Подготовить обновление проекта одной кнопкой → `UPDATE_AND_PLAY.cmd` | `GitHub; Godot source tree` | `CODE_UNVERIFIED` | Обновить/запустить без Rust и платного Actions; **Обновление 12.11:** [UPDATE_AND_PLAY.cmd](../UPDATE_AND_PLAY.cmd) + [SAVE_DIAGNOSTICS.cmd](../SAVE_DIAGNOSTICS.cmd); Windows-запуск не подтверждён |
 
 ### P1 — Модель мира, тики, сохранения
 
 | ID | Переносимый результат | Источник | Статус | Мини-критерий / доказательство |
 |---|---|---|---|---|
-| `P1-01` | Каталог типизированных ID и сущностей → `sim/entities` | `agents/*; world/registry.rs` | `TODO` | Идентичность объектов стабильна |
-| `P1-02` | Данные орбит, координат, систем и маршрутов → `sim/world` | `world/*; agents/celestial_body.rs` | `TODO` | Координаты и маршруты из родного JSON |
-| `P1-03` | Единая SimWorld без графического состояния → `sim/world_model` | `sim_core/lib.rs; AgentStore` | `TODO` | UI не владеет складами/казной |
+| `P1-01` | Каталог типизированных ID и сущностей → `sim/entities` | `agents/*; world/registry.rs` | `IN_REVIEW` | Идентичность объектов стабильна; **Обновление 12.11:** [Read-only каталоги ID](../scripts/sim/world_model.gd) заложены; полные типы игровых сущностей не перенесены |
+| `P1-02` | Данные орбит, координат, систем и маршрутов → `sim/world` | `world/*; agents/celestial_body.rs` | `IN_REVIEW` | Координаты и маршруты из родного JSON; **Обновление 12.11:** В модель перенесены исходные offsets и таблицы маршрутов; орбиты/переходы не исполняются |
+| `P1-03` | Единая SimWorld без графического состояния → `sim/world_model` | `sim_core/lib.rs; AgentStore` | `CODE_UNVERIFIED` | UI не владеет складами/казной; **Обновление 12.11:** Слой world_model.gd вне SceneTree реализован, но экономическое состояние и тики не подключены |
 | `P1-04` | Порядок фаз и очередь команд → `sim/tick_runner` | `sim_server/engine.rs; engine/apply.rs` | `TODO` | Команды применяются один раз в верном порядке |
 | `P1-05` | Фиксированные тики, пауза, ×1–×16 → `sim/clock` | `simulation/config.rs; engine.rs` | `TODO` | FPS не меняет экономический тик |
-| `P1-06` | Инициализация мира из данных Galaxy → `sim/world_loader` | `sim_db/seeder.rs; spawner.rs` | `TODO` | 8 систем/3 фракции/проверенные ID |
+| `P1-06` | Инициализация мира из данных Galaxy → `sim/world_loader` | `sim_db/seeder.rs; spawner.rs` | `IN_REVIEW` | 8 систем/3 фракции/проверенные ID; **Обновление 12.11:** Строгий импорт замороженного мира с ID; настоящий игровой SimWorld ещё не создан |
 | `P1-07` | Снимки состояния, события, дебаг → `sim/snapshots; debug` | `sim_protocol; snapshot.rs` | `TODO` | Статистика не выдумывается |
 | `P1-08` | Первое Godot сохранение/загрузка → `sim/saves` | `sim_db/persistence.rs` | `TODO` | После load тот же тик, состояние и деньги |
 | `P1-09` | Тест неизменности чистого мира → `tests/world_parity` | `native/tests; rust test fixtures` | `TODO` | Короткий сценарий без движения ресурсов |
