@@ -277,11 +277,15 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
                         m.goal_id(),m.location,m.commodity.as_str());
                     if let Some(mut comparison)=options::compare_director_target(
                         view,&sources,mult,c,&target) {
-                        if m.kind==super::economic_mandate::EconomicKind::Industry &&
-                            comparison.alternatives.iter().any(|a|
-                                a.action=="build"&&a.status=="ready") {
-                            comparison.selected="build";
-                        }
+                        // A supply policy authorizes physical deliveries, not a
+                        // substitute building. Industry authorizes a real build,
+                        // never a one-off import. If the right native alternative
+                        // is unavailable, leave the head's autonomous plan intact.
+                        let intended=super::economic_mandate::required_native_action(m.kind);
+                        comparison.selected=if comparison.alternatives.iter()
+                            .any(|a|a.action==intended && a.status=="ready") {
+                            intended
+                        }else{"wait"};
                         let charge=comparison.alternatives.iter()
                             .find(|a|a.action==comparison.selected)
                             .map_or(0,|a|a.total_commitment.max(a.first_payment));
