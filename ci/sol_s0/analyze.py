@@ -9,7 +9,7 @@ import argparse,json
 from collections import Counter
 from pathlib import Path
 
-COMMODITIES=("food","water","fuel")
+COMMODITIES=("food","water","fuel","gas")
 STATION="earth-station"
 FACTION="terran-authority"
 
@@ -119,7 +119,9 @@ def assess(samples,events,build_sha=None):
            "contract_id":None,"native_order_id":None,"delivered_units":None,
            "stock_before":None,"stock_after":None,
            "delivery_verified":False,"relief_verified":"unknown",
-           "blockers":[],"market_series":[],"contracts_seen":{}}
+           "blockers":[],"market_series":[],"contracts_seen":{},
+           "native_goal_last":None,"native_assessments_last":[],
+           "head_last":None,"construction_last":None}
         contracts={}
         for s in samples:
             tick=int(D(s.get("health")).get("tick",D(s.get("report")).get("tick",0)))
@@ -130,7 +132,31 @@ def assess(samples,events,build_sha=None):
                 x["t_pressure"]=tick
                 x["stock_before"]=obs["stock"]
                 x["pressure_kind"]=obs["pressure_kind"]
-            gs=goals(D(s.get("strategy")),STATION,item,faction)
+            strat=D(s.get("strategy"))
+            gs=goals(strat,STATION,item,faction)
+            fv=next((D(f) for f in L(strat.get("factions"))
+                     if D(f).get("faction_id")==faction),{})
+            x["native_goal_last"]=next((g for g in L(fv.get("goals"))
+                if D(g).get("commodity")==item
+                and D(g).get("destination")==STATION),None)
+            x["native_assessments_last"]=[
+                a for a in L(fv.get("assessments"))
+                if D(D(a).get("goal")).get("commodity")==item
+                and D(D(a).get("goal")).get("destination")==STATION]
+            head=D(fv.get("head"))
+            if D(head.get("problem")).get("commodity")==item or (
+                D(head.get("native_chain_probe")).get("commodity")==item):
+                x["head_last"]={"selected_option":head.get("selected_option"),
+                   "reason":head.get("reason"),
+                   "problem":head.get("problem"),
+                   "native_chain_probe":head.get("native_chain_probe")}
+            construction=D(fv.get("construction"))
+            if D(construction.get("selected_goal")).get("commodity")==item:
+                x["construction_last"]={
+                   "status":construction.get("status"),
+                   "reason":construction.get("reason"),
+                   "contract_id":construction.get("contract_id"),
+                   "delivery_block_reason":construction.get("delivery_block_reason")}
             if gs and x["t_goal"] is None:
                 x["t_goal"]=tick;x["goal_id"]=gs[0]["goal_id"]
             for c in L(s.get("contracts")):
