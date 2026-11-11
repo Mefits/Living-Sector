@@ -38,9 +38,14 @@ one(p,
                 if let Some((_,_,market))=markets.iter().find(|(loc,_,_)|*loc==m.location){
                     let stock=market.supply.get(&m.commodity).copied().unwrap_or(0.0);
                     if let Some(goal)=m.goal(stock){
-                        // The ordinary shortlist retains its own crisis goals.
-                        // This is a requested need, not an artificial stock.
-                        goals.push(goal);
+                        // A request for new industry is satisfied only by
+                        // checking real installed producers, not by temporary
+                        // inventory from traders.
+                        if m.kind!=economic_mandate::EconomicKind::Industry ||
+                            !economic_mandate::native_producer_exists(
+                                world,&faction.id,&m.location,m.commodity) {
+                            goals.push(goal);
+                        }
                     }
                 }
             }
@@ -65,8 +70,10 @@ one(p,
                 if let Some((_,_,market))=markets.iter().find(|(loc,_,_)|*loc==m.location){
                     let stock=market.supply.get(&m.commodity).copied().unwrap_or(0.0);
                     if let Some(goal)=m.goal(stock) {
-                        if !new_goals.iter().any(|g|
-                            g.destination==goal.destination && g.commodity==goal.commodity) {
+                        if !super::economic_mandate::native_producer_exists(
+                            world,&account.id,&m.location,m.commodity) &&
+                            !new_goals.iter().any(|g|
+                                g.destination==goal.destination && g.commodity==goal.commodity) {
                             new_goals.push(goal);
                         }
                     }
@@ -151,6 +158,18 @@ one(p,
         if let (Some(g),Some(m))=(head.problem.as_ref(),economic_intents.get(id)) {
             if g.goal_id==m.goal_id() && g.destination==m.location &&
                 g.commodity==m.commodity {
+                if m.kind==super::economic_mandate::EconomicKind::Industry &&
+                    head.selected_option!="build" {
+                    // Industrial mandate must not silently degrade into
+                    // a one-off imported delivery. Native construction
+                    // administrator must physically build a producer.
+                    head.problem=None;
+                    head.selected_option="wait";
+                    head.selected_administrator=None;
+                    head.planned_spend=0;
+                    head.reason="industry_requires_native_build".into();
+                    continue;
+                }
                 let charge=head.alternatives.iter()
                     .find(|a|a.action==head.selected_option)
                     .map_or(0,|a|a.total_commitment.max(a.first_payment));
