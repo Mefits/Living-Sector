@@ -183,17 +183,21 @@ pub fn decide(
         return Err("director_not_ready");
     };
     if !d.commanders.contains_key(faction){return Err("unknown_faction");}
+    // Validate from immutable state first. Mutate the charter and proposal
+    // in separate steps; ResourceMut<Director> cannot hold simultaneous
+    // immutable/mutable borrows via its DerefMut (Rust E0502).
     let m=d.economic_mandates.get(faction).ok_or("economic_mandate_missing")?;
     if !m.active(){return Err("mandate_is_not_delegated");}
-    let c=d.faction_charters.get_mut(faction).ok_or("faction_charter_missing")?;
+    let c=d.faction_charters.get(faction).ok_or("faction_charter_missing")?;
     if c.economy_authority!=Authority::Review{
         return Err("charter_not_in_economic_review");
     }
-    let p=d.economic_proposals.get_mut(faction)
+    let p=d.economic_proposals.get(faction)
         .ok_or("specific_proposal_missing")?;
     if p.proposal_id!=proposal_id{return Err("stale_proposal_id");}
     if p.status!=ProposalStatus::Pending{return Err("proposal_already_decided");}
     if tick>p.valid_until_tick {
+        let p=d.economic_proposals.get_mut(faction).unwrap();
         p.status=ProposalStatus::Expired;
         p.last_reason="proposal_expired_before_player_decision".into();
         return Err("approval_quote_expired");
@@ -202,6 +206,7 @@ pub fn decide(
         return Err("proposal_target_changed");
     }
     if !approve{
+        let p=d.economic_proposals.get_mut(faction).unwrap();
         p.status=ProposalStatus::Rejected;
         p.last_reason="player_rejected_specific_action".into();
         return Ok(());
@@ -214,12 +219,14 @@ pub fn decide(
     if c.spent_cr.checked_add(quote).is_none_or(|v|v>c.shared_ceiling_cr){
         return Err("charter_limit_changed_since_quote");
     }
-    // The token is not a debit. Raising the allowed cumulative review
-    // tranche for THIS ONE action is harmless without the matching token.
+    // Approval is not payment. An already approved tranche can only be
+    // consumed through the matching one-shot proposal and native receipt.
     let allowed=c.spent_economy_cr.checked_add(quote)
         .ok_or("approval_tranche_overflow")?;
     if allowed>1_000_000_000{return Err("approval_tranche_out_of_bounds");}
-    c.approved_economy_cr=c.approved_economy_cr.max(allowed);
+    let approved=c.approved_economy_cr.max(allowed);
+    d.faction_charters.get_mut(faction).unwrap().approved_economy_cr=approved;
+    let p=d.economic_proposals.get_mut(faction).unwrap();
     p.status=ProposalStatus::Approved;
     p.last_reason="player_approved_exact_native_quote_not_funded".into();
     Ok(())
