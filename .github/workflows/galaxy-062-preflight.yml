@@ -202,3 +202,20 @@ jobs:
             crates/sim_server/src/engine.rs; do
             rustfmt --edition 2021 --emit stdout "$root/$file" >/dev/null
           done
+
+      - name: Guard actual-receipt-only cross-mandate accounting
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root=Path('work/source/Living-Sector-Galaxy-0.2/crates/sim_core/src/strategy')
+          c=(root/'charter.rs').read_text()
+          g=(root/'governance.rs').read_text()
+          e=(root/'economic_mandate.rs').read_text()
+          coord=(root/'coordination.rs').read_text()
+          assert 'record_paid(world,faction,super::charter::Department::Research,cost)' in g
+          assert 'record_paid(world,faction,super::charter::Department::Economy,amount)' in e
+          assert 'approved_research_cr' in c and 'approved_economy_cr' in c
+          assert 'charter::authorize' in coord
+          assert 'native_paid_receipt_recorded' in c
+          print('Cumulative approvals and paid-only cross-mandate ledger wired')
+          PY
