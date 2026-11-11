@@ -185,6 +185,7 @@ def main():
     for c in result["gas_contract_timelines"]:
         summary.append(f"- {c['contract_id']}: "+", ".join(c["phases_seen"])+
             f"; до тика {c['last_seen_tick']}")
+        summary.append("  last_record: "+json.dumps(c["last_observation"],ensure_ascii=True))
     summary+=["",
         "Это инструмент расследования, не фиксация ошибки планировщика.",
         "Ни один общий отказ корабля не приписывается газу без ID.",
