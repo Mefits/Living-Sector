@@ -83,6 +83,14 @@ one(p,
         return false;
     }
     let occupied=workforce::occupied_workers(world,tick);""")
+one(p,
+  """        treasury>(p.price(Commodity::Electronics)).ceil() as i64+10010&&
+        world.query::<(&PopIdentity,&PopDemographics)>().iter(world).any(""",
+  """        treasury>(p.price(Commodity::Electronics)).ceil() as i64+10010&&
+        super::governance::authorize_research(world,id,
+            (p.price(Commodity::Electronics)).ceil() as i64+10,treasury).is_ok()&&
+        world.query::<(&PopIdentity,&PopDemographics)>().iter(world).any(""")
+
 
 p=CORE/"strategy/coordination.rs"
 one(p,
