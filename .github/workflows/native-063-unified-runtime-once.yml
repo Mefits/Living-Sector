@@ -1,0 +1,48 @@
+name: Native 0.6.3 unified source - single short runtime smoke
+
+on:
+  push:
+    branches:
+      - integration/galaxy-063-s2-observer-r2
+    paths:
+      - '.github/workflows/native-063-unified-runtime-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  one-short-native-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify old 0.6.2 and new 0.6.3 SQLite migrations are identical
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin integration/galaxy-062-native-sources
+          git diff --exit-code FETCH_HEAD HEAD -- native/crates/sim_db/migrations
+          echo 'SQLx migration history unchanged relative to native 0.6.2'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build ONE unified source server (not a Windows package)
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          cargo build --locked -p sim_server --bin genesis_server
+      - name: Run only a fresh-world bounded native HTTP smoke
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          python3 tests/strategy-runtime-smoke.py target/debug/genesis_server
+      - name: Record precise acceptance boundary
+        if: always()
+        shell: bash
+        run: |
+          echo '## 0.6.3 unified short runtime' >> "$GITHUB_STEP_SUMMARY"
+          echo 'One fresh-world smoke on 0.6.3 + S1/S2 + Observer R1/R2. No multi-hour economy replay.' >> "$GITHUB_STEP_SUMMARY"
+          echo '0.6.2/0.6.3 SQL migration files compared. Real user saved SQLite copies NOT exercised here.' >> "$GITHUB_STEP_SUMMARY"
