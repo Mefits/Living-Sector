@@ -6,6 +6,7 @@ on:
       - feature/galaxy-06-player-mandates-v1
     paths:
       - '.github/workflows/galaxy-06-preflight.yml'
+      - 'ci/galaxy06/*.py'
   workflow_dispatch:
 
 permissions:
