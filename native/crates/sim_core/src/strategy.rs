@@ -497,6 +497,11 @@ mod tests {
             .insert(Commodity::Water,500.0);
         world.get_mut::<MarketPricing>(source).unwrap().prices
             .insert(Commodity::Water,1.0);
+        // Isolate the explicit review: no unrelated ordinary ore contract
+        // should reserve the one-per-cycle logistics executor during this test.
+        // A separate Galaxy 0.6.4 test verifies autonomous ore still proceeds
+        // independently when a water approval is pending.
+        world.get_mut::<MarketPricing>(source).unwrap().supply.remove(&Commodity::Ore);
         world.get_mut::<MarketPricing>(port).unwrap().demand
             .insert(Commodity::Water,80.0);
         world.insert_resource(director::Director::default());
