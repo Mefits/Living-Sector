@@ -73,14 +73,37 @@ progress{width:100%;height:13px;accent-color:#82bec8}
 <article><h2>Фактическое состояние</h2><div id="state"></div></article>
 <article><h3>Склад выбранной станции</h3><div id="stock"></div></article>
 <article><h3>Работа администрации</h3><div id="director"></div></article>
+<article><h3>Последовательность действий · реальные данные</h3>
+<p class="help">Каждый этап отражает текущее состояние нативной стройки, поставок,
+оплаченного труда и производственных квитанций. «Ожидается» не означает
+«выполнено». План сам по себе не создаёт ни заказов, ни ресурсов.</p>
+<div id="sequence"></div></article>
+<article><h3>Варианты Главы · текущий цикл</h3>
+<p class="help">Это оценки реальных производственных и логистических вариантов, не обещание исполнения.
+Отсутствие входных ресурсов для первого производственного цикла не запрещает строить завод —
+их ещё можно доставить.</p><div id="portfolio"></div></article>
 </section>
 </main>
 <script>
 "use strict";
 const el=id=>document.getElementById(id);
 let live=null, pending=null, first=true;
-const numeric=n=>Number.isFinite(Number(n))?Number(n).toLocaleString("ru-RU"):"—";
-const funds=n=>numeric(n)+" CR";
+// A missing value is unknown, not an actual zero balance. Text input
+// values such as "300" remain valid for the editable target field.
+const numeric=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))
+  ?Number(n).toLocaleString("ru-RU"):"—";
+const funds=n=>{const v=numeric(n);return v==="—"?"—":v+" CR";};
+const policyStatus={
+ hold:"Удерживать: поручение не выдаёт заказов",
+ advisory:"Советовать: цель видна, но не исполняется как приказ",
+ charter_autonomous:"Устав оставил автономное управление фракции",
+ survival_override:"Приоритет выживания выше поручения",
+ native_contract_linked:"Реальный оплаченный контракт привязан к поручению",
+ selected_by_head:"Глава выбрал поручение, исполнение подтверждается отдельно",
+ awaiting_specific_approval:"Требуется ваше одобрение конкретной сметы",
+ not_selected:"Поручение не выбрано в этом цикле"
+};
+
 function show(message,bad=false){el("notice").textContent=message;el("notice").classList.toggle("error",bad)}
 function addRow(node,label,value){
  const row=document.createElement("div");row.className="line";
@@ -124,7 +147,8 @@ function render(){
  const m=live.strategy.economic_mandates?.[faction];
  const f=allFactions().find(x=>x.id===faction);
  const market=(live.report.markets||[]).find(x=>x.facility_location===location);
- const stock=Number(market?.supply?.[commodity]??0);
+ const rawStock=market?.supply?.[commodity];
+ const stock=typeof rawStock==="number"&&Number.isFinite(rawStock)?rawStock:null;
  const state=el("state");state.replaceChildren();
  addRow(state,"Фракция",f?.name||faction);
  addRow(state,"Казна",funds(f?.treasury));
@@ -144,15 +168,127 @@ function render(){
  addRow(storage,"Рыночный спрос",numeric(market?.demand?.[commodity]));
  const bar=document.createElement("progress");
  bar.max=Math.max(10,Number(m?.location===location&&m?.commodity===commodity?m.min_stock:el("quantity").value)||300);
- bar.value=Math.min(bar.max,Math.max(0,stock));storage.append(bar);
+ bar.value=Math.min(bar.max,Math.max(0,stock??0));storage.append(bar);
+ if(stock===null)addRow(storage,"Измерение склада","Сервер не передал запас; пустая шкала не означает ноль");
  const head=live.strategy.factions?.find(x=>x.faction_id===faction)?.head;
  const d=el("director");d.replaceChildren();
  addRow(d,"Решение главы",head?.selected_option||"—");
  addRow(d,"Причина",head?.reason||"—");
+ const policy=head?.policy_impacts?.find(p=>p.department==="economy");
+ addRow(d,"Влияние вашего поручения",policy
+   ? policyStatus[policy.status]||policy.status:"Нет данных от Главы");
+ addRow(d,"Приоритет по уставу",Number.isSafeInteger(policy?.priority)
+   ? policy.priority+"/100":"Устав не установлен");
+ addRow(d,"Причина выбора / блокировки",policy?.reason||"—");
+ if(policy?.funded_contract_id)addRow(d,"Оплаченный контракт",policy.funded_contract_id);
  addRow(d,"Запланированный расход",funds(head?.planned_spend));
  addRow(d,"Подтверждённый расход",funds(head?.committed_spend));
- const projects=(live.report.construction_sites||[]).filter(s=>s.faction_id===faction&&s.location_name===location);
+ const projects=(live.report.construction_sites||[]).filter(s=>
+   s.faction_id===faction&&(s.location??s.location_name)===location);
  addRow(d,"Местные стройки",projects.length);
+ const stationState=live.strategy.stations?.find(s=>
+   s.faction_id===faction && s.location===location);
+ if(stationState?.head_priority && head?.problem?.commodity &&
+    stationState.head_priority!==head.problem.commodity){
+   addRow(d,"Промежуточный ресурс для производства",
+     stationState.head_priority+" (цель Главы: "+head.problem.commodity+")");
+ }
+ const sequence=el("sequence");sequence.replaceChildren();
+ const construction=live.strategy.factions?.find(v=>v.faction_id===faction)?.construction;
+ const chain=construction?.execution_chain;
+ const remembered=live.strategy.production_objectives?.[faction];
+ const stageNames={commission:"Постройка площадки",materials:"Доставка материалов",
+   labor:"Работа строителей",inputs:"Сырьё для предприятия",
+   first_output:"Первый подтверждённый выпуск",complete:"Цель выполнена"};
+ if(remembered){
+   addRow(sequence,"Долгосрочная цель Главы",
+     remembered.commodity+" · "+remembered.location+" · "+remembered.facility_type);
+   addRow(sequence,"Статус цели",
+     ({active:"Сохраняется и наблюдается",paused:"Пауза: приоритет выживания",
+       blocked:"Ожидает устранения препятствия",
+       completed:"Производство подтверждено"})[remembered.status]||
+       remembered.status||"—");
+   addRow(sequence,"Последний проверенный этап",
+     stageNames[remembered.next_stage]||remembered.next_stage||"—");
+   addRow(sequence,"Причина",remembered.reason||"—");
+   addRow(sequence,"Начата на тике",Number.isSafeInteger(remembered.created_tick)?
+     remembered.created_tick:"—");
+   if(remembered.site_id)addRow(sequence,"Строительная площадка",remembered.site_id);
+   if(remembered.contract_id)addRow(sequence,"Связанный контракт",remembered.contract_id);
+   if(Number.isSafeInteger(remembered.verified_output_tick)){
+     addRow(sequence,"Фактический выпуск",
+       "Тик "+remembered.verified_output_tick+" · "+
+       numeric(remembered.verified_output_units)+" ед.");
+   }
+   if(head?.selected_option!=="build" && remembered.status!=="completed"){
+     addRow(sequence,"Переключение Главы",
+       "Текущий выбор: "+(head?.selected_option||"—")+
+       ". Сохранённая цель не потеряна.");
+   }
+ }else{
+   addRow(sequence,"Долгосрочная цель","Нет физически начатого промышленного проекта");
+ }
+ const stepNames={commission:"Проект и строительная площадка",
+   materials:"Физическая доставка строительных материалов",
+   labor:"Работа строителей (с оплатой)",
+   inputs:"Входные ресурсы для первой партии",
+   first_output:"Реальный выпуск продукции"};
+ const stepStatuses={complete:"Подтверждено",active:"В работе",
+   blocked:"Заблокировано",queued:"Ожидается"};
+ if(!chain){
+   addRow(sequence,"Строительная цепочка",
+     "Нет выбранного нативного строительного проекта");
+ } else {
+   addRow(sequence,"Цель",chain.commodity+" · "+chain.destination+
+     " · "+chain.facility_type);
+   addRow(sequence,"Следующий необходимый этап",
+     stepNames[chain.next_stage]||chain.next_stage);
+   addRow(sequence,"Ответственный",
+     ({logistics:"Логистика",construction:"Строительство",
+       station:"Администратор станции",none:"—"})[chain.next_administrator]||
+     chain.next_administrator);
+   for(const step of chain.steps||[]){
+     addRow(sequence,stepNames[step.key]||step.key,
+       (stepStatuses[step.status]||step.status)+" · "+(step.reason||"—"));
+     if(Number.isFinite(step.required)&&step.required>1){
+       addRow(sequence,"   Реальный прогресс",
+         step.actual+" из "+step.required);
+     }
+     if(step.contract_id)addRow(sequence,"   Нативный контракт",step.contract_id);
+   }
+   const gaps=chain.local_inputs?.inputs?.filter(i=>i.missing>0)||[];
+   if(gaps.length)addRow(sequence,"Не хватает на первую партию",
+     gaps.map(g=>g.commodity+": "+g.missing+" ед.").join("; "));
+   if(Number.isSafeInteger(chain.last_output_tick)&&
+       typeof chain.cumulative_produced_units==="number"){
+     addRow(sequence,"Последний подтверждённый выпуск",
+       "Тик "+chain.last_output_tick+" · накоплено "+
+       numeric(chain.cumulative_produced_units)+" ед. по рецепту");
+   }
+ }
+ const portfolio=el("portfolio");portfolio.replaceChildren();
+ const reviews=head?.goal_reviews||[];
+ if(!reviews.length)addRow(portfolio,"Оценки","Нет текущих вариантов или директор не активен");
+ for(const [idx,g] of reviews.slice(0,6).entries()){
+   const choice=g.selected_action==="wait"?"Ожидать":g.selected_action==="build"
+     ?"Строить":g.selected_action==="deliver"?"Доставить":g.selected_action;
+   addRow(portfolio,(idx+1)+". "+g.commodity+" · "+g.destination,
+     choice+" · оценка "+(Number.isFinite(g.score)?g.score.toFixed(1):"—"));
+   addRow(portfolio,"   Состояние",g.status==="ranked"?"Допустимый вариант":"Пока заблокирован");
+   addRow(portfolio,"   Причина",g.reason||"—");
+   if(g.selected_action!=="wait"){
+     addRow(portfolio,"   Первая выплата / весь проект",
+       funds(g.first_payment)+" / "+funds(g.total_commitment));
+   }
+   const gaps=g.local_inputs?.inputs?.filter(x=>x.missing>0)||[];
+   if(g.local_inputs){
+     addRow(portfolio,"   Первый производственный цикл",
+       gaps.length
+         ? "Не хватает местных входных материалов: "+
+           gaps.map(x=>x.commodity+" "+x.missing).join(", ")
+         : "Локальные ингредиенты для одной партии есть; производство не гарантировано");
+   }
+ }
  if(pending&&m&&m.location===pending.location&&m.commodity===pending.commodity&&
     m.kind===pending.kind&&m.mode===pending.mode&&m.budget_ceiling_cr===pending.budget){
   show("Мандат подтверждён игровым сервером. Результат будет известен по фактическому складу и стройкам.");

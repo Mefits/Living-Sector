@@ -1,0 +1,64 @@
+name: Galaxy 0.6.7 unified - one live eight-system playtest
+
+on:
+  push:
+    branches:
+      - integration/galaxy-067-unified-playtest
+    paths:
+      - '.github/workflows/galaxy-067-unified-playtest.yml'
+      - 'native/tests/galaxy-unified-playtest.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  one-galaxy-live-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compare legacy 0.6.2 SQLite migration history (no save conversion)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin integration/galaxy-062-native-sources
+          git diff --exit-code FETCH_HEAD HEAD -- native/crates/sim_db/migrations
+          echo 'No migration mismatch relative to native 0.6.2.'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the exact unified Linux server ONCE
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          cargo build --locked -p sim_server --bin genesis_server
+      - name: One short real Galaxy game, 3 factions and 8 systems
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tests/galaxy-unified-playtest.py
+          python3 tests/galaxy-unified-playtest.py target/debug/genesis_server test-results/galaxy-unified.json
+      - name: Node parser and isolated Observer R1/R2 module checks
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          node --check observer/app.js
+          node --test observer/map-primitives.test.mjs observer/transport.test.mjs
+      - name: Preserve a small inspectable playtest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: galaxy-067-unified-playtest-report
+          path: native/test-results/galaxy-unified.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Acceptance boundaries
+        if: always()
+        run: |
+          echo '## Unified PR #76-82 — one actual eight-system Galaxy test' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Fresh temporary SQLite; no user saves modified. Gameplay: three real factions, strategy API, HOLD mandate processed by native engine, real head decision, Observer browser resources.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Not a Windows build, a long-run economy test, or verification of an actual old SQLite database.' >> "$GITHUB_STEP_SUMMARY"

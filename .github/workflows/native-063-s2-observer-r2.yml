@@ -1,0 +1,37 @@
+name: Galaxy 0.6.3 S2 + Observer R1/R2 — quick integration gate
+
+on:
+  push:
+    branches:
+      - integration/galaxy-063-s2-observer-r2
+    paths:
+      - 'native/observer/app.js'
+      - 'native/observer/map-primitives.js'
+      - 'native/observer/map-primitives.test.mjs'
+      - 'native/observer/transport.js'
+      - 'native/observer/transport.test.mjs'
+      - '.github/workflows/native-063-s2-observer-r2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  js-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: One minimal Observer R1/R2 regression pass, no game simulation
+        working-directory: native
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check observer/app.js
+          node --check observer/map-primitives.js
+          node --check observer/transport.js
+          node --test observer/map-primitives.test.mjs observer/transport.test.mjs
+          git diff --check

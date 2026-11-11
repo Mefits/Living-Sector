@@ -1,0 +1,56 @@
+name: Galaxy 0.6.7 - durable production objective
+
+on:
+  push:
+    branches:
+      - feature/galaxy-067-persistent-production-objective
+    paths:
+      - 'native/crates/sim_core/src/strategy.rs'
+      - 'native/crates/sim_core/src/strategy/long_term.rs'
+      - 'native/crates/sim_core/src/strategy/director.rs'
+      - 'native/crates/sim_core/src/strategy/construction.rs'
+      - 'native/crates/sim_server/src/snapshot.rs'
+      - 'native/observer/governance-economy.html'
+      - '.github/workflows/native-067-production-objective.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Four focused persistence / recovery tests plus previous causal chain
+        working-directory: native
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p sim_core --lib galaxy067 -- --nocapture
+          cargo test --locked -p sim_core --lib galaxy066 -- --nocapture
+      - name: Check server strategy snapshot compiles, no game run
+        working-directory: native
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --locked -p sim_server --bin genesis_server
+      - name: Check economic control page script syntax
+        working-directory: native
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          html=Path('observer/governance-economy.html').read_text()
+          assert html.count('<script>')==1 and html.count('</script>')==1
+          Path('/tmp/ls-067.js').write_text(html.split('<script>',1)[1].split('</script>',1)[0])
+          PY
+          node --check /tmp/ls-067.js
+      - name: Scope boundary
+        if: always()
+        run: |
+          echo 'Objective survives strategy switches and restarts in existing saved Director JSON. Only physical native gates can commission work.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No balance sweep, full simulation, Windows package, or SQLite migration.' >> "$GITHUB_STEP_SUMMARY"

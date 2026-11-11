@@ -31,6 +31,13 @@ pub struct EconomicMandate {
     #[serde(default)]
     pub last_reason:String,
 }
+/// Player policies set an objective, but not an arbitrary substitution:
+/// supplying stock is a delivery; adding native capacity is construction.
+/// A quote for the other action must never consume the policy approval.
+pub fn required_native_action(kind:EconomicKind)->&'static str{
+    match kind {EconomicKind::Supply=>"deliver",EconomicKind::Industry=>"build"}
+}
+
 impl EconomicMandate {
     pub fn validate(&self)->Result<(),&'static str>{
         if self.location.is_empty()||self.location.len()>160
@@ -157,7 +164,9 @@ pub fn clear_mandate(world:&mut World,faction:&str)->bool{
         })
         .is_some()
 }
-pub fn actual_commit(world:&mut World,faction:&str,amount:i64,tick:u64){
+pub fn actual_commit(
+    world:&mut World,faction:&str,amount:i64,contract_id:&str,action:&str,tick:u64
+){
     if amount<=0{return;}
     let mut recorded=false;
     if let Some(mut d)=world.get_resource_mut::<Director>(){
@@ -172,7 +181,7 @@ pub fn actual_commit(world:&mut World,faction:&str,amount:i64,tick:u64){
     }
     if recorded {
         super::charter::record_paid(world,faction,super::charter::Department::Economy,amount);
-        super::economic_proposal::native_paid(world,faction,amount,tick);
+        super::economic_proposal::native_paid(world,faction,amount,contract_id,action,tick);
     }
 }
 pub fn status(world:&mut World,faction:&str,reason:&str){
@@ -218,6 +227,11 @@ mod galaxy061_economic_mandates_tests {
             Err("player_mandate_treasury_floor"));
         assert_eq!(may_commission(&m,20000,0),
             Err("invalid_mandated_native_payment"));
+    }
+    #[test]
+    fn galaxy064_supply_cannot_silently_turn_into_a_build_authorization(){
+        assert_eq!(required_native_action(EconomicKind::Supply),"deliver");
+        assert_eq!(required_native_action(EconomicKind::Industry),"build");
     }
     #[test]
     fn type_and_amount_validation_is_explicit(){

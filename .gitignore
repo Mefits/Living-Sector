@@ -46,3 +46,7 @@ Screenshot*.png
 # Cargo build outputs in checked-in native source tree (never source code)
 **/target/
 **/target/**
+
+# Free local Windows Galaxy playtest: toolchain, reports and generated game ZIPs
+/native/.local-galaxy-rust-tools/
+/native/local-playtest-results/

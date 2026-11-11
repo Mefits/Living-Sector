@@ -120,6 +120,22 @@ pub fn retain_or_switch(memory:&mut StrategicMemory, offers:&[Candidate], tick:u
     memory.reason="alternative_pending_confirmation".into();
     Some((old.clone(),"alternative_pending_confirmation"))
 }
+/// An explicitly authorized and best-ranked player mandate should take
+/// effect at the next decision, not spend two cycles in the autonomous
+/// hysteresis queue. Caller must first validate native feasibility, budget,
+/// charter approval, life support and outstanding paid plans.
+pub fn accept_authorized_player_priority(
+    memory:&mut StrategicMemory,offer:&Candidate,tick:u64,
+)->(Candidate,&'static str){
+    if memory.kind!=offer.action||memory.target!=offer.target {memory.since=tick;}
+    memory.kind=offer.action.clone();
+    memory.target=offer.target.clone();
+    memory.score=offer.score;
+    memory.reason="player_delegated_priority".into();
+    memory.pending=None;
+    (offer.clone(),"player_delegated_priority")
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Record {pub tick:u64,pub action:String,pub reason:String,pub outcome:String}
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -155,6 +171,10 @@ pub struct Director {
     /// At most one quoted economic decision awaiting the player per faction.
     #[serde(default)]
     pub economic_proposals:BTreeMap<String,super::economic_proposal::EconomicProposal>,
+    /// Persistent industrial intent. Actual contracts/sites/paid shifts stay
+    /// in the native ECS, never in this strategic record.
+    #[serde(default)]
+    pub production_objectives:BTreeMap<String,super::long_term::ProductionObjective>,
 }
 #[derive(Clone,Copy,Debug,Serialize)]
 pub struct Technology {pub id:&'static str,pub name:&'static str,pub prerequisite:Option<&'static str>,pub work:u32,pub field:&'static str,pub effect:&'static str}
@@ -328,6 +348,28 @@ pub fn research_ready(world:&mut World,id:&str,tick:u64)->bool {
         let a=Profile::from_personality(&p);assert!((a.archetypes.values().sum::<f64>()-1.0).abs()<1e-9);assert!(a.science>a.expansion);
         p.prefer_goals.clear();p.prefer_goals.insert("leader_aggressor".into(),1.0);p.prefer_goals.insert("leader_expansionist".into(),2.0);
         let b=Profile::from_personality(&p);assert!(b.expansion>b.science);assert!(b.expansion>a.expansion);assert!(a.caution>b.caution);
+    }
+    #[test] fn galaxy064_player_policy_switch_is_immediate_only_after_authorization(){
+        let mut memory=StrategicMemory {kind:"research".into(),
+            target:Some("industrial_methods".into()),score:110.0,since:10,
+            ..Default::default()};
+        let policy=Candidate{action:"supply".into(),target:Some("player_supply|port|water".into()),
+            score:160.0,reason:"native_quote_authorized".into(),available:true};
+        let research=Candidate{action:"research".into(),target:memory.target.clone(),
+            score:110.0,reason:"science".into(),available:true};
+        let mut ordinary=memory.clone();
+        let (_,reason)=retain_or_switch(&mut ordinary,&[policy.clone(),research],20,
+            false,false,StrategySwitchPolicy::default()).unwrap();
+        assert_eq!(reason,"alternative_pending_confirmation");
+        assert_eq!(ordinary.kind,"research");
+        // The coordinator calls this ONLY for a legally approved, top-ranked
+        // player offer with no outstanding native commitment.
+        let (chosen,why)=accept_authorized_player_priority(&mut memory,&policy,20);
+        assert_eq!(why,"player_delegated_priority");
+        assert_eq!(chosen.target,policy.target);
+        assert_eq!(memory.kind,"supply");
+        assert!(memory.pending.is_none());
+        assert_eq!(memory.since,20);
     }
     #[test] fn technology_graph_is_closed_and_acyclic(){
         let mut reached=vec![];

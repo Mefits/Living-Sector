@@ -25,6 +25,9 @@ pub struct Alternative {
     pub first_purchase_cost: Option<i64>,
     pub covered_units: f64,
     pub estimated_net_value: Option<f64>,
+    /// Diagnostic from one actual local recipe batch; NOT a construction gate.
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub local_inputs: Option<super::production_dependencies::LocalInputReadiness>,
 }
 
 pub(super) fn same_problem(a: &Goal, b: &Goal) -> bool {
@@ -110,7 +113,7 @@ impl Alternative {
             first_payment: 0, total_commitment: 0, treasury_after: treasury,
             estimated_delay_ticks: 0, shipment_count: 0, material: None, site_id: None,
             source_stock: None, first_purchase_cost: None, covered_units: 0.0,
-            estimated_net_value: Some(0.0),
+            estimated_net_value: Some(0.0),local_inputs:None,
         }
     }
 
@@ -173,6 +176,17 @@ fn alternatives(
         build.material = Some(offer.material);
         build.source = offer.source.clone();
         build.site_id = offer.site_id.clone();
+        // A paid construction contract may still need a *separate* source
+        // of industrial inputs. Observe a real first production shift;
+        // do not fabricate future supply or reject physical construction.
+        if let (Some(kind),Some(market))=(offer.facility_type.as_deref(),need.market){
+            let stock=market.supply.iter()
+                .filter(|(_,qty)|qty.is_finite()&&**qty>=0.0)
+                .map(|(&commodity,&qty)|(commodity,qty.floor() as u64))
+                .collect();
+            build.local_inputs=super::production_dependencies::local_inputs_for_one_batch(
+                goal.commodity,kind,&stock);
+        }
         if let Some(source) = &build.source {
             build.source_stock = sources.market(source).map(|m| finite_stock(m.supply.get(&offer.material)));
             build.first_purchase_cost = sources.quote(&view.faction_id, source, offer.material,
@@ -348,16 +362,85 @@ pub(super) fn horizon_ticks(mult: u32) -> u64 {
     HORIZON * u64::from(mult.max(1))
 }
 
-pub(super) fn compare_director(view:&FactionView,sources:&sourcing::Sources<'_>,mult:u32,c:&director::Commander)->Option<Comparison>{
+/// All CURRENT native alternatives for a head, including blocked ones.
+/// This same ranked list drives actual decision choice and UI diagnostics.
+fn evaluated_director_goals(
+    view:&FactionView,sources:&sourcing::Sources<'_>,mult:u32,c:&director::Commander
+)->Vec<(f64,Comparison)>{
     let mut goals=view.goals.clone();
-    if let Some(build)=&view.construction {for offer in &build.offers {if !goals.iter().any(|g|same_problem(g,&offer.goal)){goals.push(offer.goal.clone());}}}
-    goals.sort_by(|a,b|a.destination.cmp(&b.destination).then_with(||a.commodity.as_str().cmp(b.commodity.as_str())));
-    let mut best:Option<(f64,Comparison)>=None;
-    for goal in goals {let alternatives=alternatives(view,sources,&goal,mult);
-        let chosen=alternatives.iter().map(|a|(director::option_score(c,&goal,a),a.action)).filter(|(s,_)|*s>0.0).max_by(|a,b|a.0.total_cmp(&b.0));
-        if let Some((score,selected))=chosen {if best.as_ref().is_none_or(|(old,_)|score>*old){best=Some((score,Comparison{goal,alternatives,selected}));}}
+    if let Some(build)=&view.construction {
+        for offer in &build.offers {
+            if !goals.iter().any(|g|same_problem(g,&offer.goal)){
+                goals.push(offer.goal.clone());
+            }
+        }
     }
-    best.map(|(_,v)|v).or_else(||compare(view,sources,mult))
+    // Stable ties across save/reload: never depend on market hashmap order.
+    goals.sort_by(|a,b|a.destination.cmp(&b.destination)
+        .then_with(||a.commodity.as_str().cmp(b.commodity.as_str())));
+    let mut ranked=Vec::with_capacity(goals.len());
+    for goal in goals {
+        let alternatives=alternatives(view,sources,&goal,mult);
+        let chosen=alternatives.iter()
+            .map(|a|(director::option_score(c,&goal,a),a.action))
+            .filter(|(score,_)|*score>0.0)
+            .max_by(|a,b|a.0.total_cmp(&b.0));
+        let (score,selected)=chosen.unwrap_or((0.0,"wait"));
+        ranked.push((score,Comparison{goal,alternatives,selected}));
+    }
+    ranked.sort_by(|a,b|b.0.total_cmp(&a.0)
+        .then_with(||a.1.goal.destination.cmp(&b.1.goal.destination))
+        .then_with(||a.1.goal.commodity.as_str().cmp(b.1.goal.commodity.as_str())));
+    ranked
+}
+
+#[derive(Clone,Debug,Serialize)]
+pub struct GoalReview {
+    pub goal_id:String,
+    pub destination:String,
+    pub commodity:Commodity,
+    pub selected_action:&'static str,
+    pub score:f64,
+    pub status:&'static str,
+    pub reason:String,
+    pub first_payment:i64,
+    pub total_commitment:i64,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub local_inputs:Option<super::production_dependencies::LocalInputReadiness>,
+}
+
+/// Bounded read-only portfolio, not an instruction to move units or pay.
+/// Every row is scored by the same function used to select the native goal.
+pub(super) fn review_director_goals(
+    view:&FactionView,sources:&sourcing::Sources<'_>,mult:u32,c:&director::Commander
+)->Vec<GoalReview>{
+    evaluated_director_goals(view,sources,mult,c).into_iter().take(8)
+        .map(|(score,cmp)|{
+            let matching=cmp.alternatives.iter().find(|a|a.action==cmp.selected);
+            let relevant=if cmp.selected=="wait" {
+                cmp.alternatives.iter().filter(|a|a.action!="wait")
+                    .find(|a|a.status=="blocked"&&a.reason!="no_current_shortage")
+                    .or_else(||cmp.alternatives.iter().find(|a|a.action!="wait"))
+            }else{matching};
+            let reason=relevant.map_or("no_native_alternative",|a|a.reason.as_str());
+            GoalReview{
+                goal_id:cmp.goal.goal_id,
+                destination:cmp.goal.destination,commodity:cmp.goal.commodity,
+                selected_action:cmp.selected,score,status:if score>0.0{"ranked"}else{"blocked"},
+                reason:reason.into(),
+                first_payment:matching.map_or(0,|a|a.first_payment),
+                total_commitment:matching.map_or(0,|a|a.total_commitment),
+                local_inputs:relevant.and_then(|a|a.local_inputs.clone()),
+            }
+        }).collect()
+}
+pub(super) fn compare_director(
+    view:&FactionView,sources:&sourcing::Sources<'_>,mult:u32,c:&director::Commander
+)->Option<Comparison>{
+    evaluated_director_goals(view,sources,mult,c).into_iter()
+        .find(|(score,_)|*score>0.0)
+        .map(|(_,comparison)|comparison)
+        .or_else(||compare(view,sources,mult))
 }
 
 /// Re-evaluate an existing supply commitment on the *current* native snapshot.

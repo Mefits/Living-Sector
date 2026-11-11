@@ -76,7 +76,9 @@ const el=id=>document.getElementById(id);
 const numbers=["research_priority","economy_priority","shared_ceiling_cr",
 "protected_treasury_cr","approved_research_cr","approved_economy_cr"];
 let state=null,pending=null,lastFaction=null;
-const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString("ru-RU")+" CR":"—";
+// Undefined and null financial values are not zero commitments.
+const fmt=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))
+  ?Number(n).toLocaleString("ru-RU")+" CR":"—";
 function row(target,key,value){
  const r=document.createElement("div");r.className="line";
  const a=document.createElement("span"),b=document.createElement("strong");
@@ -127,6 +129,17 @@ function render(){
  const d=el("decision");d.replaceChildren();
  row(d,"Выбор",head?.selected_option);
  row(d,"Причина",head?.reason);
+ const effects=head?.policy_impacts||[];
+ for(const p of effects) {
+   const key=p.department==="research"?"Наука":"Экономика";
+   const status=({hold:"Удерживается",advisory:"Только совет",
+     charter_autonomous:"Автономия",survival_override:"Кризис выживания",
+     native_contract_linked:"Оплаченный контракт",
+     selected_by_head:"Приоритет выбран",awaiting_specific_approval:"Ждёт согласования",
+     not_selected:"В этом цикле не выбран"})[p.status]||p.status;
+   row(d,key+" · влияние устава",status);
+   row(d,key+" · причина",p.reason||"—");
+ }
  row(d,"Фактически потрачено",fmt(head?.committed_spend));
  row(d,"Научный мандат",state.strategy.research_mandates?.[id]?.target_technology||"—");
  const econ=state.strategy.economic_mandates?.[id];
