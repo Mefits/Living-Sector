@@ -59,6 +59,32 @@ def contract_match(c,loc,resource,faction):
             c.get("faction_id")==faction and
             isinstance(c.get("id"),str) and bool(c["id"]))
 
+def native_market_receipt_qty(record,c,location,commodity):
+    """A *native* commit event plus matching immutable contract metadata.
+
+    Genesis standard delivery has no intermediate PickedUp/Delivered status:
+    Accepted -> Paid. Engine apply::commit_contract_delivery emits
+    contract_delivered AFTER applying quantity to destination market.
+    Standard event omits quantity, so recover only the exact quantity of
+    the matching native contract ID. Do NOT treat construction materials
+    or household food (consumed directly by population) as market inflow.
+    """
+    event=D(D(record).get("event",record))
+    if (event.get("kind")!="contract_delivered"
+        or event.get("contract_id")!=c.get("id")
+        or event.get("commodity")!=commodity
+        or event.get("destination")!=location
+        or event.get("contract_type")!=c.get("contract_type")
+        or c.get("contract_type") not in ("delivery","subsidy","courier","supply")
+        or D(c.get("funding")).get("source") not in ("facility","faction")):
+        return None
+    qty=N(c.get("quantity"))
+    if qty is None or qty<=0:return None
+    event_qty=N(event.get("quantity"))
+    if event_qty is not None and event_qty!=qty:return None
+    return qty
+
+
 def inventory(samples,events):
     report_keys,strategy_keys,contract_keys,event_keys=set(),set(),set(),set()
     event_kinds=Counter();contract_statuses=set();scoped_paths=set()
@@ -117,6 +143,7 @@ def assess(samples,events,build_sha=None):
         x={"t_pressure":None,"pressure_kind":None,"t_goal":None,"goal_id":None,
            "t_funded":None,"t_pickup":None,"t_delivered":None,
            "contract_id":None,"native_order_id":None,"delivered_units":None,
+           "delivery_quantity_source":None,"t_paid":None,
            "stock_before":None,"stock_after":None,
            "delivery_verified":False,"relief_verified":"unknown",
            "blockers":[],"market_series":[],"contracts_seen":{},
@@ -163,31 +190,52 @@ def assess(samples,events,build_sha=None):
                 c=D(c)
                 if contract_match(c,STATION,item,faction):
                     contracts.setdefault(c["id"],[]).append((tick,c))
-        for cid,history in contracts.items():
+        # Keep the FIRST funded candidate for the backlog report. Prefer
+        # a verified physical receipt only if its exact ID, location, cargo
+        # and actual native escrow can all be proven. "Paid" alone fails.
+        candidates=[]
+        for cid,history in sorted(contracts.items()):
             phases=[str(c.get("status","unknown")).lower() for _,c in history]
             x["contracts_seen"][cid]=phases
             funding=next(((t,c) for t,c in history if
                 (N(D(c.get("funding")).get("reserved")) or 0)>0),None)
             pickup=next(((t,c) for t,c in history if
                 str(c.get("status","")).lower()=="picked_up"),None)
-            delivered=next(((t,c) for t,c in history if
-                str(c.get("status","")).lower()=="delivered"),None)
-            if funding and x["contract_id"] is None:
-                x["contract_id"]=cid;x["t_funded"]=funding[0]
-                x["t_pickup"]=pickup[0] if pickup else None
-                x["t_delivered"]=delivered[0] if delivered else None
-                c=delivered[1] if delivered else {}
-                q=N(c.get("delivered_units",c.get("quantity_delivered")))
-                x["delivered_units"]=q
-                x["delivery_verified"]=bool(pickup and delivered and
-                    q is not None and q>0 and funding[0]<=pickup[0]<=delivered[0])
+            paid=next(((t,c) for t,c in history if
+                str(c.get("status","")).lower()=="paid"),None)
+            found=None
+            if funding:
+                for row in events:
+                    t=D(row).get("tick")
+                    if not isinstance(t,(int,float)) or t<funding[0]:continue
+                    qty=native_market_receipt_qty(row,funding[1],STATION,item)
+                    if qty is not None:
+                        found=(int(t),qty)
+                        break
+            candidates.append({"cid":cid,"funding":funding,"pickup":pickup,
+                "paid":paid,"receipt":found,
+                "native_order_id":D(D(history[0][1].get("funding")).get(
+                    "station_order")).get("order_id")})
+        chosen=next((v for v in candidates if v["receipt"] is not None),None)
+        if chosen is None:
+            chosen=next((v for v in candidates if v["funding"] is not None),None)
+        if chosen:
+            x["contract_id"]=chosen["cid"]
+            x["t_funded"]=chosen["funding"][0]
+            x["t_pickup"]=chosen["pickup"][0] if chosen["pickup"] else None
+            x["t_paid"]=chosen["paid"][0] if chosen["paid"] else None
+            x["native_order_id"]=chosen["native_order_id"]
+            if chosen["receipt"] is not None:
+                x["t_delivered"],x["delivered_units"]=chosen["receipt"]
+                x["delivery_quantity_source"]="exact_native_contract_quantity_on_commit_event"
+                x["delivery_verified"]=True
         x["stock_after"]=next((v["stock"] for v in reversed(x["market_series"])
             if v["stock"] is not None),None)
         if x["t_pressure"] is None:x["blockers"].append("pressure_not_observed")
         if x["t_goal"] is None:x["blockers"].append("no_matching_goal_in_strategy")
         if x["t_funded"] is None:x["blockers"].append("no_funded_matching_native_contract")
-        if x["t_delivered"] is None:x["blockers"].append("no_delivery_phase_observed")
-        if x["delivered_units"] is None:x["blockers"].append("no_proven_delivery_units")
+        if x["t_delivered"] is None:x["blockers"].append("no_matching_native_market_delivery_commit_event")
+        if x["delivered_units"] is None:x["blockers"].append("no_matching_contract_quantity_and_native_receipt")
         x["blockers"].append("no_verified_causal_background_for_stock_delta")
         result["by_commodity"][item]=x
     result["delivery_verified"]=any(x["delivery_verified"]
