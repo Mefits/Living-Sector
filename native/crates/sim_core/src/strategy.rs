@@ -24,6 +24,7 @@ mod options;
 mod portfolio_policy;
 pub mod production_dependencies;
 pub mod production_chain;
+pub mod long_term;
 pub(crate) mod sourcing;
 
 pub const PROJECT_TAG: &str = "strategy.logistics.v1";
@@ -138,6 +139,9 @@ pub struct Snapshot {
     pub faction_charters: BTreeMap<String,charter::FactionCharter>,
     #[serde(default)]
     pub economic_proposals: BTreeMap<String,economic_proposal::EconomicProposal>,
+    /// Durable strategic industrial goal; physical milestones are re-checked.
+    #[serde(default)]
+    pub production_objectives: BTreeMap<String,long_term::ProductionObjective>,
     /// Read-only persisted plan ledger for runtime diagnostics. Never a forecast of success.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_execution: Option<planning::NativeExecution>,
@@ -158,7 +162,8 @@ impl StrategyState {
             research_mandates:BTreeMap::new(),
             economic_mandates:BTreeMap::new(),
             faction_charters:BTreeMap::new(),
-            economic_proposals:BTreeMap::new(), ai_execution:None }
+            economic_proposals:BTreeMap::new(),production_objectives:BTreeMap::new(),
+            ai_execution:None }
     }
 }
 pub fn executing(world: &World) -> bool {
@@ -389,6 +394,8 @@ pub fn refresh(world: &mut World, contracts: &ContractBoard, tick: u64) {
             v.execution_chain=chain;
         }
     }
+    drop(state);
+    long_term::refresh(world,contracts,tick);
 }
 
 #[cfg(test)]
