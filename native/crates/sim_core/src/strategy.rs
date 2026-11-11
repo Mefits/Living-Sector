@@ -181,6 +181,8 @@ fn existing_delivery_reason(pending: &PendingDelivery) -> &'static str {
         "posted" if pending.fulfiller_id.is_none()
             && pending.station_order_executor_id.is_none() =>
             "existing_contract_unassigned",
+        "posted" if pending.station_order_executor_id.is_some() =>
+            "existing_contract_assigned",
         "expired" => "existing_contract_refund_pending",
         _ => "existing_contract",
     }
