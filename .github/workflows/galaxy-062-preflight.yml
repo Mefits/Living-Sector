@@ -1,0 +1,204 @@
+name: Galaxy 0.6.2 - Faction charter native governance preflight
+
+on:
+  push:
+    branches:
+      - feature/galaxy-062-faction-charter
+    paths:
+      - '.github/workflows/galaxy-061-preflight.yml'
+      - 'ci/galaxy061/*.py'
+      - 'ci/galaxy062/*.py'
+      - 'docs/GALAXY-062-FACTION-CHARTER-RU.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Extract original native source and art package
+        run: |
+          python - <<'PY'
+          import io
+          from pathlib import Path
+          from zipfile import ZipFile
+          outer=Path('ci-input/LS-GALAXY-03-CI-INPUT.zip')
+          with ZipFile(outer) as wrapper:
+              Path('work/source').mkdir(parents=True,exist_ok=True)
+              Path('work/art').mkdir(parents=True,exist_ok=True)
+              with ZipFile(io.BytesIO(wrapper.read('LS-AI-BLOCK-IV-SOURCES.zip'))) as src:
+                  src.extractall('work/source')
+              with ZipFile(io.BytesIO(wrapper.read('Living-Sector-Art-Catalog-v0.4.zip'))) as art:
+                  art.extractall('work/art')
+          PY
+      - name: Apply prior Galaxy 0.4.1 overlays once
+        run: |
+          python ci/fix_galaxy_sources.py
+          python ci/galaxy04/apply.py
+      - name: Apply all Galaxy 0.5 large-block changes
+        run: python ci/galaxy05/apply.py
+      - name: Apply Galaxy 0.6 research-mandate architecture and in-game UI
+        run: python ci/galaxy06/apply.py
+      - name: Apply 0.6.1 native supply/industry mandates + server + UI
+        run: python ci/galaxy061/apply.py
+      - name: Apply 0.6.2 charter and budget arbitration to the same Genesis source
+        run: python ci/galaxy062/apply.py
+      - name: Check real economic-mandate integration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root=Path('work/source/Living-Sector-Galaxy-0.2')
+          econ=(root/'crates/sim_core/src/strategy/economic_mandate.rs').read_text()
+          server=(root/'crates/sim_server/src/http/player.rs').read_text()
+          page=(root/'observer/governance-economy.html').read_text()
+          director=(root/'crates/sim_core/src/strategy/director.rs').read_text()
+          coordination=(root/'crates/sim_core/src/strategy/coordination.rs').read_text()
+          for symbol in ('EconomicMandate','may_commission','actual_commit','station_not_owned_by_faction'):
+              assert symbol in econ
+          assert 'economic_mandates:' in director
+          assert 'player_economic_mandate' in coordination
+          assert 'set_economic_mandate' in server
+          assert '/api/player/economic-mandate' in page
+          print('Economic domain + real grants + engine queued API + live UI integrated')
+          PY
+      - name: Verify 0.6 schema and three execution modes (no cargo)
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root=Path('work/source/Living-Sector-Galaxy-0.2')
+          p=root/'crates/sim_core/src/strategy/governance.rs'
+          text=p.read_text()
+          for item in ('MandateMode','Delegated','Advise','Hold',
+                       'authorize_research','budget_ceiling_cr','paid_research'):
+              assert item in text,item
+          server=(root/'crates/sim_server/src/http/player.rs').read_text()
+          assert 'foreign_origin' in server and '"queued"' in server
+          html=(root/'observer/governance.html').read_text()
+          assert 'Управление' not in html or '/api/player/research-mandate' in html
+          print('Real authorizations, engine API, and governance page integrated')
+          PY
+      - name: Verify new native Rust source structures (no cargo)
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root=Path('work/source/Living-Sector-Galaxy-0.2')
+          data=(root/'crates/sim_core/src/economy/commodities.rs').read_text()
+          director=(root/'crates/sim_core/src/strategy/director.rs').read_text()
+          progression=(root/'crates/sim_core/src/strategy/progression.rs').read_text()
+          recipes=(root/'crates/sim_core/src/economy/recipes.rs').read_text()
+          for name in ('RareOre','CrystalOre','Alloys','QuantumCores'):
+              assert name in data,name
+          for tech in ('alloytech2','survey2','drilltech2','structuretech2',
+                       'survey3','drill3','quantumtech3','structuretech3'):
+              assert tech in director,tech
+          for field in ('tick_native_upgrades','StationDevelopment','native_upgrade_bill',
+                        'location_tier','available_slot'):
+              assert field in progression,field
+          for recipe in ('smelt_alloys_t2','smelt_alloys_t2_retrofit',
+                         'fabricate_quantum_cores_t3','fabricate_quantum_cores_t3_retrofit'):
+              assert recipe in recipes,recipe
+          print("T2/T3 goods, prerequisites, upgrades and recipes present")
+          PY
+      - name: Parse economic Rust policy and engine integration
+        run: |
+          root=work/source/Living-Sector-Galaxy-0.2
+          for file in \
+            crates/sim_core/src/strategy/economic_mandate.rs \
+            crates/sim_core/src/strategy.rs \
+            crates/sim_core/src/strategy/coordination.rs \
+            crates/sim_core/src/strategy/construction.rs \
+            crates/sim_server/src/http/player.rs \
+            crates/sim_server/src/engine.rs; do
+            rustfmt --edition 2021 --emit stdout "$root/$file" > /dev/null
+          done
+      - name: Verify economic UI JavaScript parses
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('work/source/Living-Sector-Galaxy-0.2/observer/governance-economy.html').read_text()
+          Path('/tmp/economic-mandates.js').write_text(s.split('<script>',1)[1].split('</script>',1)[0])
+          PY
+          node --check /tmp/economic-mandates.js
+      - name: Syntax parse governance policy, control and API
+        run: |
+          root=work/source/Living-Sector-Galaxy-0.2
+          for file in \
+            crates/sim_core/src/strategy/governance.rs \
+            crates/sim_core/src/strategy/director.rs \
+            crates/sim_core/src/strategy/coordination.rs \
+            crates/sim_server/src/http/player.rs \
+            crates/sim_server/src/control.rs; do
+              rustfmt --edition 2021 --emit stdout "$root/$file" >/dev/null
+          done
+      - name: Parse live governance UI script
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('work/source/Living-Sector-Galaxy-0.2/observer/governance.html').read_text()
+          Path('/tmp/governance.js').write_text(s.split('<script>',1)[1].split('</script>',1)[0])
+          PY
+          node --check /tmp/governance.js
+      - name: Syntax parse newly touched Rust files
+        run: |
+          rustfmt --edition 2021 --emit stdout work/source/Living-Sector-Galaxy-0.2/crates/sim_core/src/strategy/progression.rs > /dev/null
+          rustfmt --edition 2021 --emit stdout work/source/Living-Sector-Galaxy-0.2/crates/sim_core/src/strategy/director.rs > /dev/null
+          rustfmt --edition 2021 --emit stdout work/source/Living-Sector-Galaxy-0.2/crates/sim_core/src/economy/commodities.rs > /dev/null
+          rustfmt --edition 2021 --emit stdout work/source/Living-Sector-Galaxy-0.2/crates/sim_core/src/economy/recipes.rs > /dev/null
+      - name: Verify Observer JavaScript and model tests
+        run: |
+          root=work/source/Living-Sector-Galaxy-0.2/observer
+          node --check "$root/priority-inspector.js"
+          node --check "$root/app.js"
+          node --test "$root/priority-inspector.test.mjs" "$root/model.test.mjs"
+      - name: Parse campaign report builder
+        run: |
+          python -m compileall -q ci/galaxy05
+          python ci/galaxy05/campaign_acceptance.py --help
+
+      - name: Validate charter module, no mock economy and all preflight Python
+        run: |
+          python -m py_compile ci/galaxy062/*.py
+          python - <<'PY'
+          from pathlib import Path
+          root=Path('work/source/Living-Sector-Galaxy-0.2')
+          charter=(root/'crates/sim_core/src/strategy/charter.rs').read_text()
+          strategy=(root/'crates/sim_core/src/strategy.rs').read_text()
+          director=(root/'crates/sim_core/src/strategy/director.rs').read_text()
+          engine=(root/'crates/sim_server/src/engine.rs').read_text()
+          api=(root/'crates/sim_server/src/http/player.rs').read_text()
+          page=(root/'observer/governance-charter.html').read_text()
+          for symbol in ('shared_ceiling_cr','approved_research_cr','approved_economy_cr',
+                         'record_paid','player_approval_required'):
+              assert symbol in charter,symbol
+          assert 'pub faction_charters:' in strategy
+          assert 'pub faction_charters:' in director
+          assert 'PlayerSetFactionCharter' in engine
+          assert 'set_faction_charter' in api
+          assert '/api/player/faction-charter' in page
+          Path('/tmp/charter-ui.js').write_text(
+              page.split('<script>',1)[1].split('</script>',1)[0])
+          print('Charter persisted and its UI/control connected to native source')
+          PY
+          node --check /tmp/charter-ui.js
+      - name: Parse new charter Rust code and modified native modules
+        run: |
+          root=work/source/Living-Sector-Galaxy-0.2
+          for file in \
+            crates/sim_core/src/strategy/charter.rs \
+            crates/sim_core/src/strategy/governance.rs \
+            crates/sim_core/src/strategy/economic_mandate.rs \
+            crates/sim_core/src/strategy/director.rs \
+            crates/sim_core/src/strategy.rs \
+            crates/sim_core/src/strategy/coordination.rs \
+            crates/sim_server/src/http/player.rs \
+            crates/sim_server/src/engine.rs; do
+            rustfmt --edition 2021 --emit stdout "$root/$file" >/dev/null
+          done
