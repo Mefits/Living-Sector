@@ -38,7 +38,14 @@ b="""    // Expose physical blockers or verified local stock, not a simulated
             "advisory_only".to_owned()
         }else if market.is_none(){
             "market_unavailable".to_owned()
-        }else if supply.is_some_and(|n|n.is_finite()&&n>=m.min_stock as f32){
+        }else if m.kind==super::economic_mandate::EconomicKind::Industry &&
+            super::economic_mandate::native_producer_exists(
+                world,&id,&m.location,m.commodity) {
+            // Built capacity is an ECS fact; actual production shifts and
+            // their input/wage payment are independent receipts.
+            "native_producer_present_actual_output_unverified".to_owned()
+        }else if m.kind==super::economic_mandate::EconomicKind::Supply &&
+            supply.is_some_and(|n|n.is_finite()&&n>=m.min_stock as f32) {
             "observed_stock_target_reached".to_owned()
         }else if life_support_blockers.contains(&id){
             "life_support_overrides_player_policy".to_owned()
