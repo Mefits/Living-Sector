@@ -8,6 +8,8 @@ on:
       - '.github/workflows/sol-relief-s0-reanalysis.yml'
       - 'ci/sol_s0/analyze.py'
       - 'ci/sol_s0/test_analyze.py'
+      - 'ci/sol_s0/triage_gas.py'
+      - 'ci/sol_s0/test_triage_gas.py'
   workflow_dispatch:
 
 permissions:
@@ -60,6 +62,13 @@ jobs:
           python ci/sol_s0/analyze.py --samples work/old-s0/samples.jsonl --events work/old-s0/events.jsonl --output sol-s0-reanalysis --build-sha 4ffd80002ec74b4af3eccb0db5279578c1148e0a
           if ($LASTEXITCODE -ne 0) { throw "Cached real data analysis failed" }
 
+      - name: Native gas backlog triage from cached events and contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/sol_s0/triage_gas.py --samples work/old-s0/samples.jsonl --events work/old-s0/events.jsonl --out sol-s0-reanalysis
+          if ($LASTEXITCODE -ne 0) { throw "Failed to correlate native gas contracts" }
+
       - name: Upload reanalysis and keep original unchanged
         if: always()
         uses: actions/upload-artifact@v4
@@ -75,4 +84,5 @@ jobs:
         run: |
           if (Test-Path 'sol-s0-reanalysis/REPORT-RU.md') {
             Get-Content 'sol-s0-reanalysis/REPORT-RU.md' | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            Get-Content 'sol-s0-reanalysis/GAS-TRIAGE-RU.md' | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           }
