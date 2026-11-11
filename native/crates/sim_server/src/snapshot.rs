@@ -103,6 +103,8 @@ impl SnapshotCache {
                     .map(|d|d.economic_mandates.clone()).unwrap_or_default();
                 snapshot.faction_charters = world.get_resource::<sim_core::strategy::director::Director>()
                     .map(|d|d.faction_charters.clone()).unwrap_or_default();
+                snapshot.economic_proposals = world.get_resource::<sim_core::strategy::director::Director>()
+                    .map(|d|d.economic_proposals.clone()).unwrap_or_default();
                 // Expose durable native receipts, not only the last ephemeral head decision.
                 // The plan state is already saved with the economic frame; this is read-only.
                 snapshot.ai_execution = world.get_resource::<sim_core::strategy::director::Director>()

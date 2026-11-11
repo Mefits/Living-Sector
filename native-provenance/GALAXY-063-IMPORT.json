@@ -1,0 +1,97 @@
+{
+  "schema": "living-sector-galaxy063-native-promotion-v1",
+  "source_version": "Galaxy 0.6.2 editable native Git tree",
+  "target_version": "Galaxy 0.6.3 direct native Git tree",
+  "base_native_checkout_git_sha": "8bc4f360b6d6a0898a7c042d15b60b7894dc1b30",
+  "one_time_overlay_source_sha": "bc26814f9819ad64e32eafe32cd2601e1aa5b201",
+  "overlay_used_only_for_one_time_source_migration": true,
+  "regular_builds_require_no_overlay": true,
+  "files_modified": 15,
+  "before_source_files": 409,
+  "after_source_files": 411,
+  "changed_paths": [
+    {
+      "path": "crates/sim_core/src/strategy.rs",
+      "sha256_before": "2d598adc379dd7c0d4f82000e349f913ce459930011775e215138132c924a953",
+      "sha256_after": "d44949fd35500fdf78a803eebde4ad0e2c03d7ad67a12fbce8ad510d33d02765"
+    },
+    {
+      "path": "crates/sim_core/src/strategy/coordination.rs",
+      "sha256_before": "ee36b9e3ab8ea63fda4f8ce284ba2bd081b8a957ce913e91f094bde5d796e5df",
+      "sha256_after": "9e87dfa1381fd8190467256252b43503562e397294bef8469c0d16f947366f4d"
+    },
+    {
+      "path": "crates/sim_core/src/strategy/director.rs",
+      "sha256_before": "d626872ef7449617bcbccdd102a79099f23de46e61bd138ab351c17f8f267f34",
+      "sha256_after": "270ff9f02c984059e08d3d7969a3ebc6471e0a7a7639750b4981f1e08aa65da2"
+    },
+    {
+      "path": "crates/sim_core/src/strategy/economic_mandate.rs",
+      "sha256_before": "b194236b4a66beccfc6e540278dc9a0814d5b5f547a4dd4e2155546267f55541",
+      "sha256_after": "202c09a4b392347f68bc1d53db8ff7263963c494a7799fd12c0b4ced25bbba6b"
+    },
+    {
+      "path": "crates/sim_core/src/strategy/economic_proposal.rs",
+      "sha256_before": null,
+      "sha256_after": "dfb7507234c3d16b656d28bbb88b73c3b51a8499b614e05fff2606b5961b37d4"
+    },
+    {
+      "path": "crates/sim_server/src/control.rs",
+      "sha256_before": "fb53abec1a3689d9ff61659c26cac4912657a9f5a31744c174da13cc283ec1ba",
+      "sha256_after": "0bf122542d4bb152edf287c048d6f6d91a4f69daee73fb1df8a15da74c6c7847"
+    },
+    {
+      "path": "crates/sim_server/src/engine.rs",
+      "sha256_before": "daab3a1ca4cb6f23ce14fa78e7fe42384879285a3f1521e9d01f3c5232158ca9",
+      "sha256_after": "17712be3abbe7786bd5bdb4411a52a34bc90be93e4abd3c319197c7cb7a4e5e6"
+    },
+    {
+      "path": "crates/sim_server/src/http/api.rs",
+      "sha256_before": "9c215234d38576ff314c23e39a164ade04a2fe90f33838242ef8a3b961eb83f2",
+      "sha256_after": "d48afc2f42c24960b15ebf5822a9b8ef9cf169493c1765c24b77103a25b79202"
+    },
+    {
+      "path": "crates/sim_server/src/http/player.rs",
+      "sha256_before": "5c76378ba469108a911e0231c1a2bb1274472ba03a6a052dc1e556691eed7d17",
+      "sha256_after": "58e43b85d5d1481021cae12d5d8297bf437025f417177be828892916fcd3a207"
+    },
+    {
+      "path": "crates/sim_server/src/runtime.rs",
+      "sha256_before": "fb2098fe67dac987adce9968dc279949fc62f9dfb829f9cc517525489a252ac2",
+      "sha256_after": "a7354a1b43ce4765be9e1c5b3a75923c07d5efa9d090551a47f4eb90d8a5d15e"
+    },
+    {
+      "path": "crates/sim_server/src/snapshot.rs",
+      "sha256_before": "27742971efcd80c964c66d98a1e6f2c7e005f641b9eaf76ddb31aacec7f7b4e7",
+      "sha256_after": "f02361a50aae3fcee8db4c13443cb54550f964b5e60b9f6fde47e1aa48414880"
+    },
+    {
+      "path": "observer/governance-approvals.html",
+      "sha256_before": null,
+      "sha256_after": "1df02eb51cb8034912b408474f46d5279f9ba587c4a7581296f95010ef715ff5"
+    },
+    {
+      "path": "observer/governance-charter.html",
+      "sha256_before": "4b56ffd13d0c0d1a1e165ff7059d5bee93ff11bc483b42621a0ebf9a41f8bc40",
+      "sha256_after": "9d93464e80ccbf52ed2920a68aca0dfcc6e232ad3d8382e31569d0924142fd8e"
+    },
+    {
+      "path": "observer/governance-economy.html",
+      "sha256_before": "10edd747facfb3ec93deb3d6fc90355abfc1fe0be538a702ec9d9ba12fdb68bf",
+      "sha256_after": "b77ce4f9adb4ab12f41288f8c56bedbe581e44830a8333f9bd953bcf086d4b89"
+    },
+    {
+      "path": "observer/governance.html",
+      "sha256_before": "aa1977ae34f84d736845a97db7d083cc9fefd99ec644f5c4ac827c42ba0a7a55",
+      "sha256_after": "5e82ce2d4b2c06360d935f03c6584f5cb14652c815ebb463a85c262e0e143337"
+    }
+  ],
+  "full_after_tree_sha256": "4fb04772ae634e4ba8edc534a63587cdda7a175d6fe5181c92a1bae3ae826306",
+  "scope": "0.6.3 approval proposals, native command, decision console, tests",
+  "explicitly_not_included": [
+    "experimental gas balance PR #70",
+    "S1/S2 gas dispatch corrections on separate branches",
+    "planetary gameplay",
+    "real save compatibility proof"
+  ]
+}

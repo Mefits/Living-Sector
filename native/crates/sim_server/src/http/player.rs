@@ -253,3 +253,57 @@ mod galaxy062_player_charter_http_tests {
         assert_eq!(charter.validate(),Err("invalid_charter_priority"));
     }
 }
+
+
+#[derive(Deserialize)]
+pub struct EconomicProposalDecisionRequest {
+    pub faction_id:String,
+    pub proposal_id:String,
+    pub approve:bool,
+}
+pub async fn decide_economic_proposal(
+    State(state):State<AppState>,headers:HeaderMap,
+    Json(body):Json<EconomicProposalDecisionRequest>
+)->(StatusCode,Json<Value>){
+    if !origin_is_same_host(&headers){
+        return (StatusCode::FORBIDDEN,Json(json!({"error":"foreign_origin"})));
+    }
+    if body.faction_id.is_empty()||body.faction_id.len()>100 {
+        return (StatusCode::BAD_REQUEST,Json(json!({"error":"invalid_faction_id"})));
+    }
+    if body.proposal_id.is_empty()||body.proposal_id.len()>240||
+        body.proposal_id.bytes().any(|c|c<33||c>126) {
+        return (StatusCode::BAD_REQUEST,Json(json!({"error":"invalid_proposal_id"})));
+    }
+    if !faction_known(&state,&body.faction_id){
+        return (StatusCode::NOT_FOUND,
+            Json(json!({"error":"unknown_faction_or_world_not_ready"})));
+    }
+    if state.control_tx.send(ControlCommand::PlayerDecideEconomicProposal{
+        faction_id:body.faction_id.clone(),
+        proposal_id:body.proposal_id.clone(),
+        approve:body.approve,
+    }).await.is_err(){
+        return (StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error":"engine_unavailable"})));
+    }
+    (StatusCode::ACCEPTED,Json(json!({
+        "status":"queued","faction_id":body.faction_id,
+        "proposal_id":body.proposal_id,
+        "note":"Only engine confirmation in /api/strategy.economic_proposals changes the proposal state."
+    })))
+}
+#[cfg(test)]
+mod galaxy063_player_specific_action_http_tests {
+    use super::*;
+    #[test]
+    fn request_does_not_contain_client_selected_price_or_action(){
+        let request=r#"{"faction_id":"own","proposal_id":"economic-own-120",
+            "approve":true,"quoted_commitment_cr":1,"action":"build"}"#;
+        let p:EconomicProposalDecisionRequest=serde_json::from_str(request).unwrap();
+        assert_eq!(p.proposal_id,"economic-own-120");
+        assert!(p.approve);
+        // Extra browser keys are ignored by the DTO; the native engine
+        // reads the original persisted proposal's exact quote instead.
+    }
+}

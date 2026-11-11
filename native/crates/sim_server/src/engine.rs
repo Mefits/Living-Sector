@@ -326,6 +326,20 @@ pub async fn run_tick_loop(
                         "reason":result.err(),
                     }));
                 }
+                ControlCommand::PlayerDecideEconomicProposal {
+                    faction_id,proposal_id,approve
+                } => {
+                    let now=tick_counter.load(Ordering::Relaxed);
+                    let result=sim_core::strategy::economic_proposal::decide(
+                        &mut world,&faction_id,&proposal_id,approve,now);
+                    events.push(serde_json::json!({
+                        "kind":"player_economic_proposal_reviewed",
+                        "tick":now,"faction_id":faction_id,
+                        "proposal_id":proposal_id,"approve":approve,
+                        "status":if result.is_ok(){"applied"}else{"rejected"},
+                        "reason":result.err(),
+                    }));
+                }
                 ControlCommand::AdminSetRelations { a, b, standing, treaty } => {
                     admin_set_relations(
                         &mut store,

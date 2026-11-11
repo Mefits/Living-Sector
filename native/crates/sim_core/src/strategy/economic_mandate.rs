@@ -142,12 +142,19 @@ pub fn set_mandate(
     }
     incoming.validate()?;
     incoming.last_reason="approved_native_governance".into();
+    // A newly chosen objective never inherits an old approval token.
+    if d.economic_mandates.get(faction).is_some_and(|old|old.key()!=incoming.key()){
+        d.economic_proposals.remove(faction);
+    }
     d.economic_mandates.insert(faction.to_owned(),incoming);
     Ok(())
 }
 pub fn clear_mandate(world:&mut World,faction:&str)->bool{
     world.get_resource_mut::<Director>()
-        .and_then(|mut d|d.economic_mandates.remove(faction))
+        .and_then(|mut d|{
+            d.economic_proposals.remove(faction);
+            d.economic_mandates.remove(faction)
+        })
         .is_some()
 }
 pub fn actual_commit(world:&mut World,faction:&str,amount:i64,tick:u64){
@@ -165,6 +172,7 @@ pub fn actual_commit(world:&mut World,faction:&str,amount:i64,tick:u64){
     }
     if recorded {
         super::charter::record_paid(world,faction,super::charter::Department::Economy,amount);
+        super::economic_proposal::native_paid(world,faction,amount,tick);
     }
 }
 pub fn status(world:&mut World,faction:&str,reason:&str){
