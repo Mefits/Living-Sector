@@ -1,11 +1,19 @@
 extends Control
-## Godot P0: view the real Galaxy seed, never pretend this is a running sim.
+## P1: real orbital ticks, time controls and versioned P1 saves.
+## No trade, production, ship movement or AI yet.
 
 const NativeData = preload("res://scripts/native_data.gd")
-const WorldModel = preload("res://scripts/sim/world_model.gd")
+const TickRunner = preload("res://scripts/sim/tick_runner.gd")
+const SaveState = preload("res://scripts/sim/save_state.gd")
+const SPEEDS = [0.25, 1.0, 2.0, 4.0, 8.0, 16.0]
 const SystemMap = preload("res://scripts/system_map.gd")
 
 var _model
+var _runner
+var _seed: Dictionary = {}
+var _selected_system: String = "system-sol"
+var _notice: String = ""
+var _pause_button: Button
 var _map: Control
 var _details: RichTextLabel
 var _status: Label
@@ -30,7 +38,7 @@ func _ready() -> void:
     var heading := HBoxContainer.new()
     root.add_child(heading)
     var title := Label.new()
-    title.text = "LIVING SECTOR  /  GODOT P0"
+    title.text = "LIVING SECTOR  /  GODOT P1"
     title.add_theme_font_size_override("font_size", 23)
     title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     heading.add_child(title)
@@ -43,6 +51,31 @@ func _ready() -> void:
     _status.text = "Загрузка замороженных JSON Galaxy 0.6.7..."
     _status.add_theme_color_override("font_color", Color("#9fb9c9"))
     root.add_child(_status)
+
+    var toolbar := HBoxContainer.new()
+    toolbar.add_theme_constant_override("separation", 8)
+    root.add_child(toolbar)
+    _pause_button = Button.new()
+    _pause_button.text = "Пауза"
+    _pause_button.pressed.connect(_toggle_pause)
+    toolbar.add_child(_pause_button)
+    for spec in [{"text":"+1 тик", "count":1}, {"text":"+8 тиков", "count":8}]:
+        var step_button := Button.new()
+        step_button.text = str(spec["text"])
+        step_button.pressed.connect(_step.bind(int(spec["count"])))
+        toolbar.add_child(step_button)
+    var speed_menu := OptionButton.new()
+    for speed in SPEEDS:
+        speed_menu.add_item("×" + str(speed))
+    speed_menu.selected = 0
+    speed_menu.item_selected.connect(_change_speed)
+    toolbar.add_child(speed_menu)
+    for action in [{"text":"Сохранить", "callback":_save_game},
+                   {"text":"Загрузить", "callback":_load_game}]:
+        var action_button := Button.new()
+        action_button.text = str(action["text"])
+        action_button.pressed.connect(action["callback"])
+        toolbar.add_child(action_button)
 
     var columns := HBoxContainer.new()
     columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -72,7 +105,7 @@ func _ready() -> void:
     details_panel.add_child(_details)
 
     var footer := Label.new()
-    footer.text = "P0 · данные только для чтения · экономика, контракты, корабельные тики и ИИ ещё не перенесены"
+    footer.text = "P1 · реальные тики орбит · экономика / корабли / контракты / ИИ ещё не перенесены"
     footer.add_theme_color_override("font_color", Color("#8da6b5"))
     root.add_child(footer)
 
@@ -83,13 +116,16 @@ func _ready() -> void:
         push_error(str(data["error"]))
         return
 
-    _model = WorldModel.new()
-    if not _model.load_seed(data):
+    _seed = data
+    _runner = TickRunner.new()
+    if not _runner.start_from_seed(_seed):
         _status.text = "Ошибка индексации исходного мира"
         _details.text = "Godot не смог построить read-only индексы исходных JSON."
         push_error(_details.text)
         return
 
+    _model = _runner.world
+    _runner.tick_completed.connect(_on_tick_completed)
     var stats: Dictionary = _model.seed_stats()
     _status.text = "Исходный Galaxy: %d систем · %d фракции · %d тел · %d объектов · %d корабля" % [
         stats.get("systems", 0), stats.get("factions", 0),
@@ -104,7 +140,79 @@ func _ready() -> void:
         initial = worlds[0]
     if not initial.is_empty():
         _select_world(initial)
-    print("GODOT_P0_SEED_LOADED ", JSON.stringify(stats))
+    print("GODOT_P1_SEED_LOADED ", JSON.stringify(stats))
+    _update_status()
+
+func _process(delta: float) -> void:
+    if _runner:
+        _runner.advance_frame(delta)
+
+func _toggle_pause() -> void:
+    if not _runner:
+        return
+    _runner.queue_control("resume" if _runner.clock.paused else "pause")
+    _runner.advance_frame(0.0)
+    _update_status()
+
+func _step(count: int) -> void:
+    if not _runner:
+        return
+    _runner.queue_control("pause")
+    _runner.queue_control("step", count)
+    _runner.advance_frame(0.0)
+    _update_status()
+
+func _change_speed(index: int) -> void:
+    if not _runner or index < 0 or index >= SPEEDS.size():
+        return
+    _runner.queue_control("speed", float(SPEEDS[index]))
+    _runner.advance_frame(0.0)
+    _update_status()
+
+func _save_game() -> void:
+    if not _runner:
+        return
+    _runner.advance_frame(0.0)
+    var result: Error = SaveState.save_runner(_runner)
+    _notice = "Состояние орбит сохранено (P1)" if result == OK else "Ошибка сохранения: " + str(result)
+    _update_status()
+
+func _load_game() -> void:
+    if not _runner:
+        return
+    var result: Dictionary = SaveState.load_runner(_runner, _seed)
+    if result.get("ok", false):
+        _model = _runner.world
+        _notice = "Загружено сохранение P1, тик " + str(result.get("tick", "—"))
+        _refresh_selection()
+    else:
+        _notice = str(result.get("error", "Не удалось загрузить"))
+    _update_status()
+
+func _on_tick_completed(tick: int) -> void:
+    if tick % 8 == 0:
+        _refresh_selection()
+    _update_status()
+
+func _update_status() -> void:
+    if not _runner:
+        return
+    var totals: Dictionary = _model.seed_stats()
+    _status.text = "%d систем · %d фракции · %d тел   |   Тик %d   |   ×%s   |   %s%s" % [
+        totals.get("systems", 0), totals.get("factions", 0),
+        totals.get("bodies", 0), _runner.tick_count,
+        str(_runner.clock.world_speed),
+        "Пауза" if _runner.clock.paused else "Идёт время",
+        "   |   " + _notice if not _notice.is_empty() else ""
+    ]
+    _pause_button.text = "Продолжить" if _runner.clock.paused else "Пауза"
+
+func _refresh_selection() -> void:
+    if not _runner:
+        return
+    var selected: Dictionary = _model.system_by_id(_selected_system)
+    if not selected.is_empty():
+        _select_world(selected)
 
 func _reset_map() -> void:
     if _map:
@@ -113,6 +221,12 @@ func _reset_map() -> void:
 func _select_world(world: Dictionary) -> void:
     var system: Dictionary = world.get("system", {})
     var sid: String = str(system.get("id", ""))
+    _selected_system = sid
+    if _model:
+        var current: Dictionary = _model.system_by_id(sid)
+        if not current.is_empty():
+            world = current
+            system = world.get("system", {})
     _map.call("select_system", sid)
     var bodies: Array = world.get("bodies", [])
     var facilities: Array = world.get("facilities", [])
@@ -134,8 +248,9 @@ func _select_world(world: Dictionary) -> void:
     lines.append("")
     lines.append("НЕБЕСНЫЕ ТЕЛА")
     for body in bodies:
-        lines.append(" • %s [%s]  биом: %s" % [
-            body.get("name", "—"), body.get("type", "—"), body.get("biome", "—")
+        lines.append(" • %s [%s] биом: %s угол: %.2f°" % [
+            body.get("name", "—"), body.get("type", "—"), body.get("biome", "—"),
+            float(body.get("current_angle", 0.0))
         ])
     lines.append("")
     lines.append("ПРЕДПРИЯТИЯ / СТАНЦИИ")
@@ -163,5 +278,6 @@ func _select_world(world: Dictionary) -> void:
         ])
     lines.append("")
     lines.append("Все числовые ресурсы в JSON остаются исходными.")
-    lines.append("Изменения запасов и тики на этом этапе не выполняются.")
+    lines.append("Изменяются только орбитальные углы, по точной формуле Rust.")
+    lines.append("Запасы, контракты, производство и корабли не симулируются.")
     _details.text = "\n".join(lines)
