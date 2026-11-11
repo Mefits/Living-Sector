@@ -188,7 +188,16 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
         let already = board.iter().any(|c| c.requestor_id == *id && c.posted_at_tick == tick &&
             matches!(c.mission_category.as_deref(), Some(PROJECT_TAG) | Some(construction::PROJECT_TAG) |
                 Some(colony::PROJECT_TAG) | Some(colony_development::MIGRATION_TAG)));
-        (id.clone(), decision(view, &sources, tick, mult, already,commanders.get(id),None))
+        // Ordinary autonomy must not accidentally choose an unapproved
+        // player proposal merely because it is in the preview goal list.
+        // The mandate is evaluated separately below with its exact quote,
+        // permissions, and budget. Keep unrelated native alternatives.
+        let mut baseline=view.clone();
+        baseline.goals.retain(|g|!g.goal_id.starts_with("player_"));
+        if let Some(construction)=baseline.construction.as_mut(){
+            construction.offers.retain(|o|!o.goal.goal_id.starts_with("player_"));
+        }
+        (id.clone(),decision(&baseline,&sources,tick,mult,already,commanders.get(id),None))
     }).collect();
     for (id, head) in &mut decisions {
         let Some(plan) = colonies.get(id) else { continue; };
@@ -223,6 +232,8 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
     let mut specific_offers=Vec::<(
         String,super::economic_mandate::EconomicMandate,String,i64,i64
     )>::new();
+    // Only a fully authorized quote may influence the head's scoring.
+    let mut authorized_mandates=std::collections::HashSet::<String>::new();
     for (id,head) in &mut decisions {
         let Some(c)=commanders.get(id) else{continue;};
         // A funded native plan owns its sequence until receipts finish. Even a
@@ -272,6 +283,7 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
                             *head=decision(view,&sources,tick,mult,false,Some(c),
                                 Some(comparison));
                             head.reason="player_economic_mandate".into();
+                            authorized_mandates.insert(id.clone());
                         }
                     }
                 }
@@ -280,10 +292,11 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
         let native_score=head.problem.as_ref().and_then(|g|head.alternatives.iter()
             .find(|a|a.action==head.selected_option)
             .map(|a|director::option_score(c,g,a))).unwrap_or(0.0).max(0.0);
-        let economic_selected=head.problem.as_ref().is_some_and(|g|
-            economic_intents.get(id).is_some_and(|m|
-                m.active() && g.goal_id==m.goal_id() &&
-                g.destination==m.location && g.commodity==m.commodity));
+        let economic_selected=authorized_mandates.contains(id) &&
+            head.problem.as_ref().is_some_and(|g|
+                economic_intents.get(id).is_some_and(|m|
+                    m.active() && g.goal_id==m.goal_id() &&
+                    g.destination==m.location && g.commodity==m.commodity));
         let native_score=if economic_selected&&!c.crisis {
             native_score.max(super::charter::priority_score(
                 world,id,super::charter::Department::Economy,160.0))
@@ -345,8 +358,31 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
              (old_essential && a.target.as_deref()==previous_target.as_deref())));
         // Priority of a *survival* supply alternative must outrank benign
         // strategy choices, but it still needs a valid native option.
-        let chosen=director::retain_or_switch(&mut strategic,&candidates,tick,survival,
-            native_active.contains(id),switch_policy);
+        let funded_native_order=board.iter().any(|contract|
+            contract.requestor_id==*id &&
+            contract.funding.as_ref().is_some_and(|f|f.reserved>0) &&
+            !matches!(contract.status,ContractStatus::Paid|ContractStatus::Expired) &&
+            matches!(contract.mission_category.as_deref(),
+                Some(PROJECT_TAG)|Some(construction::PROJECT_TAG)|
+                Some(colony::PROJECT_TAG)|Some(colony_development::MIGRATION_TAG)));
+        // A NEW, legally approved player priority should be acted on at the
+        // next cycle if it is the highest-ranked choice. Autonomous inertia
+        // (two-cycle hysteresis) still governs all other strategy changes.
+        // Never displace an existing funded physical commitment or crisis.
+        let player_top=economic_selected && !c.crisis &&
+            !native_active.contains(id) && !funded_native_order &&
+            candidates.first().is_some_and(|choice|
+                choice.available && choice.action=="supply" &&
+                choice.target==native_target);
+        let needs_switch=player_top &&
+            (strategic.kind!="supply" || strategic.target!=native_target);
+        let chosen=if needs_switch {
+            Some(director::accept_authorized_player_priority(
+                &mut strategic,&candidates[0],tick))
+        }else{
+            director::retain_or_switch(&mut strategic,&candidates,tick,survival,
+                native_active.contains(id)||funded_native_order,switch_policy)
+        };
         if let Some((choice,decision_reason))=chosen {
             match choice.action.as_str() {
                 "research" => {
