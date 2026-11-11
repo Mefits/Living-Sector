@@ -275,10 +275,10 @@ where F: FnMut(u32) -> Option<String> {
     loop {
         let minimum_payment = (qty as i64)
             .saturating_mul(DELIVERY_CONTRACT_BASE_PAYMENT_PER_UNIT);
-        if (commodity != Commodity::Gas || available_credits >= minimum_payment)
-            && let Some(source) = source_for_qty(qty)
-        {
-            return Some((qty,source));
+        if commodity != Commodity::Gas || available_credits >= minimum_payment {
+            if let Some(source) = source_for_qty(qty) {
+                return Some((qty, source));
+            }
         }
         if qty == ordinary_qty {break;}
         qty = qty.saturating_sub(25).max(ordinary_qty);
