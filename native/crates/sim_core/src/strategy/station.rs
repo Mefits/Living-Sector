@@ -106,7 +106,30 @@ pub fn plan(world:&mut World,tick:u64) {
     for ((faction,location),mut facilities) in groups {
         facilities.sort_by(|a,b|a.1.id.cmp(&b.1.id));
         let (workforce,working)=population.get(&(faction.clone(),location.clone())).copied().unwrap_or_default();
-        let head=priorities.get(&(faction.clone(),location.clone())).copied();
+        let requested=priorities.get(&(faction.clone(),location.clone())).copied();
+        // Prefer the first physically producible missing ingredient of the
+        // head's intended product when an existing local module can supply it.
+        // E.g. a farm lacks water but a staffed refinery can process ice:
+        // allocate workers to water FIRST. This changes worker priority only;
+        // native recipes, stock, wages, and production gates remain unchanged.
+        let head=requested.map(|output|{
+            let installed:Vec<_>=facilities.iter()
+                .map(|(_,id,_,_)|id.facility_type.as_str()).collect();
+            if let Some((_,market,_))=markets.get(&location) {
+                let local=market.supply.iter()
+                    .filter(|(_,v)|v.is_finite()&&**v>=0.0)
+                    .map(|(&c,&qty)|(c,qty.floor() as u64))
+                    .collect();
+                let producer_kind=installed.iter().copied().find(|kind|
+                    recipes::for_facility_type(kind).any(|recipe|
+                        recipe.outputs.iter().any(|(c,n)|*c==output&&*n>0)));
+                if let Some(kind)=producer_kind {
+                    if let Some(pre)=super::production_chain::available_local_precursor(
+                        output,kind,&local,&installed){return pre;}
+                }
+            }
+            output
+        });
         let mut view=StationView {faction_id:faction.clone(),location:location.clone(),observed_tick:tick,executing:execute,
             workforce,already_working:working,assigned_workers:0,idle_workers:(workforce-working).max(0),head_priority:head,modules:vec![],needs:vec![]};
         let mut candidates=Vec::new();
