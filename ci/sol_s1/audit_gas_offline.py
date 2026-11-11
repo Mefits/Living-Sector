@@ -90,6 +90,26 @@ def analyze(samples,events):
                 targeted.append(e)
         if evt.get("contract_id") in contracts:
             contract_events.append(e)
+    # Track the ONLY native Huge T2 interstellar carrier and the contracts it actually accepted.
+    hauler_path=[]
+    active_ids=set()
+    for sample in samples:
+        tick=obj(sample.get("health")).get("tick")
+        hauler=next((x for x in arr(obj(sample.get("report")).get("ships"))
+            if obj(x).get("id")=="ship-terran-authority-hauler-5"),{})
+        active=hauler.get("active_contract_id")
+        if active:active_ids.add(str(active))
+        hauler_path.append({"tick":tick,"location":hauler.get("location"),
+            "active_contract_id":active,"current_goal":hauler.get("current_goal"),
+            "fitting_sensor_range_au":obj(obj(hauler.get("fitting")).get("stats")).get("sensor_range_au"),
+            "credits":hauler.get("credits")})
+    active_contract_details=[]
+    for sample in samples:
+        for c in arr(sample.get("contracts")):
+            if obj(c).get("id") in active_ids:
+                active_contract_details.append({"tick":obj(sample.get("health")).get("tick"),
+                   **{k:c.get(k) for k in ("id","commodity","status","source_location",
+                    "destination_location","quantity","payment","fulfiller_id","faction_id")}})
     ships=[]
     for s in (first,last):
         tick=obj(s.get("health")).get("tick")
@@ -109,6 +129,8 @@ def analyze(samples,events):
         "market_series":market_series,
         "strategy_gas_orders":orders_series,
         "fleet_first_last":ships,
+        "hauler_path":hauler_path,
+        "hauler_actual_contracts":active_contract_details,
         "generic_rejection_reasons_not_gas_scoped":dict(rejection),
         "gas_specific_rejections":targeted,
         "gas_specific_events":contract_events,
@@ -160,6 +182,11 @@ def main():
                 f"credits={ship.get('credits')}; "
                 f"position={ship.get('location')}; "
                 f"sensors={obj(obj(ship.get('fitting')).get('stats')).get('sensor_range_au')}")
+    md.extend(["","## Фактические заказы Hauler по снимкам"])
+    for step in res["hauler_path"]:
+        md.append("- "+json.dumps(step,ensure_ascii=True))
+    for selected in res["hauler_actual_contracts"]:
+        md.append("- actual contract: "+json.dumps(selected,ensure_ascii=True))
     md.extend(["","## Причины отказов — ТОЛЬКО общая статистика"])
     for k,v in res["generic_rejection_reasons_not_gas_scoped"].items():
         md.append(f"- {k}: {v}")
@@ -177,6 +204,8 @@ def main():
             "payment":r["last"].get("payment")} for cid,r in res["all_matching_contracts"].items()],
         "markets_first_last":[res["market_series"][0],res["market_series"][-1]],
         "gas_orders_last":last_orders[:15],
+        "hauler_path":res["hauler_path"],
+        "hauler_actual_contracts":res["hauler_actual_contracts"][:20],
         "generic_rejections":res["generic_rejection_reasons_not_gas_scoped"],
         "direct_gas_rejections":len(res["gas_specific_rejections"]),
         "contracts_funding":[{"id":cid,"requestor_id":r["last"].get("requestor_id"),
