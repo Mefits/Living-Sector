@@ -492,8 +492,17 @@ mod tests {
     #[test]
     fn galaxy064_unapproved_player_goal_does_not_stop_unrelated_native_autonomy(){
         let (mut world,mut board,owner,port,source)=fixture(Mode::Execute);
-        // Original native shortage has an accessible market; new policy is
-        // for a DIFFERENT resource and requires explicit player review.
+        // Make the ordinary ore shortage truly fundable, not merely
+        // visible in the fixture's 50-tick (below-threshold) history.
+        world.get_mut::<MarketHistory>(port).unwrap().shortage_ticks
+            .insert(Commodity::Ore,1000);
+        world.get_mut::<MarketPricing>(port).unwrap().demand
+            .insert(Commodity::Ore,200.0);
+        world.get_mut::<MarketPricing>(port).unwrap().prices
+            .insert(Commodity::Ore,15.0);
+        world.get_mut::<MarketPricing>(source).unwrap().supply
+            .insert(Commodity::Ore,600.0);
+        // Unapproved water request exists beside independent native ore need.
         world.get_mut::<MarketPricing>(source).unwrap().supply.insert(Commodity::Water,500.0);
         world.get_mut::<MarketPricing>(source).unwrap().prices.insert(Commodity::Water,1.0);
         world.get_mut::<MarketPricing>(port).unwrap().demand.insert(Commodity::Water,80.0);
