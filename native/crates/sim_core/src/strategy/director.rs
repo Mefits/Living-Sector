@@ -345,7 +345,7 @@ pub fn research_ready(world:&mut World,id:&str,tick:u64)->bool {
         p.prefer_goals.clear();p.prefer_goals.insert("leader_aggressor".into(),1.0);p.prefer_goals.insert("leader_expansionist".into(),2.0);
         let b=Profile::from_personality(&p);assert!(b.expansion>b.science);assert!(b.expansion>a.expansion);assert!(a.caution>b.caution);
     }
-    #[test] fn player_policy_switch_is_immediate_only_after_authorization(){
+    #[test] fn galaxy064_player_policy_switch_is_immediate_only_after_authorization(){
         let mut memory=StrategicMemory {kind:"research".into(),
             target:Some("industrial_methods".into()),score:110.0,since:10,
             ..Default::default()};
