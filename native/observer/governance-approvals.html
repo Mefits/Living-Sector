@@ -148,8 +148,8 @@ function render(){
  const x=el("execution");x.replaceChildren();
  const factionView=live.strategy.factions?.find(v=>v.faction_id===id);
  const head=factionView?.head;
- // No synthetic outcome is claimed: the API does not expose a durable
- // proposal_id -> contract_id -> stock_delta receipt chain yet.
+ // Real proposal -> prepaid contract identity is exposed. Attribution
+ // of a later change in physical stock still requires a separate receipt.
  row(x,"1 · Поручение игрока",mandate
    ? (kindNames[mandate.kind]||mandate.kind)+" · "+mandate.mode
    : "Экономический мандат не задан");
@@ -162,6 +162,17 @@ function render(){
    ? String(policy.priority)+"/100" : "Устав не установлен");
  row(x,"   Причина применения / отказа",policy?.reason||"—");
  row(x,"   Основание выбора",head?.reason);
+ const reviews=head?.goal_reviews||[];
+ const selected=reviews.find(v=>v.status==="ranked")||reviews[0];
+ row(x,"   Лучший рассчитанный вариант",selected
+   ? selected.commodity+" → "+selected.destination+" · "+
+     (selected.selected_action==="wait"?"ожидать":selected.selected_action)
+   : "Варианты не получены");
+ row(x,"   Реальный блокирующий фактор",selected?.reason||"—");
+ const lacking=selected?.local_inputs?.inputs?.filter(v=>v.missing>0)||[];
+ if(lacking.length)row(x,"   Входные ресурсы для первого цикла",
+   lacking.map(v=>v.commodity+" "+v.missing).join(", ")+
+   " (не запрещает строительство)");
  row(x,"3 · Согласование",p
    ? (stateNames[p.status]||p.status) : "Конкретное предложение не получено");
  row(x,"   Последнее основание",p?.last_reason);
