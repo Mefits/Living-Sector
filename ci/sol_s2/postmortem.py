@@ -118,6 +118,14 @@ def main():
         "all_rejections":result["all_transaction_rejections_not_gas_scoped"],
         "gas_specific_rejections":result["gas_id_transaction_rejections"],
         "exact_operation_chains":result["exact_operation_chains"]["complete_market_gas_chains"],
+        "chain_receipts":[{"contract_id":c["contract_id"],
+            "receipt_tick":c["receipt_tick"],"matched_chain":c["matched_chain"]}
+            for c in result["exact_operation_chains"]["gas_market_receipts"]
+            if c["verified_full_native_chain"]],
+        "market_first":result["earth_gas_timeline"][0] if result["earth_gas_timeline"] else None,
+        "market_last":result["earth_gas_timeline"][-1] if result["earth_gas_timeline"] else None,
+        "first_positive_earth_gas":next((p for p in result["earth_gas_timeline"]
+            if isinstance(p.get("earth_gas"),(int,float)) and p["earth_gas"]>0),None),
         "gas_event_count":len(result["gas_specific_events"])}
     print(json.dumps(summary,ensure_ascii=True)[:58000],flush=True)
     report=["# S2: фактический результат Windows Genesis",
