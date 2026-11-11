@@ -86,17 +86,21 @@ func restore(saved: Dictionary) -> bool:
     var speed: Variant = saved.get("world_speed", null)
     var paused_value: Variant = saved.get("paused", null)
     var steps: Variant = saved.get("pending_steps", null)
-    if not (tps is int) or not (speed is float or speed is int):
+    if not (tps is int or tps is float) or not (speed is float or speed is int):
         return false
-    if not (paused_value is bool) or not (steps is int):
+    if not (paused_value is bool) or not (steps is int or steps is float):
+        return false
+    if not is_finite(float(tps)) or not is_finite(float(steps)):
+        return false
+    if float(tps) != float(int(tps)) or float(steps) != float(int(steps)):
         return false
     if tps < 1 or tps > 60 or steps < 0 or steps > 1024:
         return false
     if not is_finite(float(speed)) or float(speed) <= 0.0 or float(speed) > 16.0:
         return false
-    ticks_per_second = tps
+    ticks_per_second = int(tps)
     world_speed = float(speed)
     paused = paused_value
-    _step_queue = steps
+    _step_queue = int(steps)
     _accumulator = 0.0
     return true
