@@ -1,0 +1,16 @@
+config_version=5
+
+[application]
+config/name="Living Sector — Godot Port P0"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+
+[display]
+window/size/viewport_width=1366
+window/size/viewport_height=768
+window/stretch/mode="canvas_items"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.035, 0.055, 0.083, 1)
