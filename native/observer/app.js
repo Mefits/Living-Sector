@@ -9,6 +9,7 @@ import {
 import {drawStationComplex,visualStationTier,stationScale,stationReveal} from "/observer/station-kit.js";
 import {renderPriorityInspector} from "/observer/priority-inspector.js";
 import {inCanvas,bodyColor,orbitScreenRadii,backdropSpeck} from "/observer/map-primitives.js";
+import {getJSON,postJSON,openObserverSocket} from "/observer/transport.js";
 
 const byId = id => document.getElementById(id);
 const els = Object.fromEntries([
@@ -408,22 +409,6 @@ function setOnline(isOnline, statusText) {
   els.mapError.hidden = isOnline;
   els.pauseBtn.disabled = !isOnline;
   els.speedSelect.disabled = !isOnline;
-}
-
-async function getJSON(path) {
-  const response = await fetch(path, { cache: "no-store" });
-  if (!response.ok) throw new Error("HTTP " + response.status + " " + path);
-  return response.json();
-}
-
-async function postJSON(path, value) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify(value ?? {})
-  });
-  if (!response.ok) throw new Error("HTTP " + response.status + " " + path);
-  return response.json();
 }
 
 function mergeById(previous, incoming, identifier = "id") {
@@ -1134,23 +1119,22 @@ function handleWs(message) {
 function connectWs() {
   if (s.ws && (s.ws.readyState === WebSocket.CONNECTING || s.ws.readyState === WebSocket.OPEN)) return;
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const socket = new WebSocket(protocol + "//" + location.host + "/ws");
+  const socket = openObserverSocket({
+    url: protocol + "//" + location.host + "/ws",
+    onOpen: () => {
+      s.wsUp = true;
+      setOnline(true, "Симуляция подключена");
+    },
+    onMessage: handleWs,
+    onClose: () => {
+      if (s.ws !== socket) return;
+      s.wsUp = false;
+      setOnline(false, "Связь с симулятором потеряна");
+      window.setTimeout(connectWs, 2500);
+    },
+    onInvalidMessage: error => console.warn("Observer: invalid server message", error)
+  });
   s.ws = socket;
-  socket.addEventListener("open", () => {
-    s.wsUp = true;
-    setOnline(true, "Симуляция подключена");
-  });
-  socket.addEventListener("message", event => {
-    try { handleWs(JSON.parse(event.data)); }
-    catch (error) { console.warn("Observer: invalid server message", error); }
-  });
-  socket.addEventListener("close", () => {
-    if (s.ws !== socket) return;
-    s.wsUp = false;
-    setOnline(false, "Связь с симулятором потеряна");
-    window.setTimeout(connectWs, 2500);
-  });
-  socket.addEventListener("error", () => socket.close());
 }
 
 async function fetchHealth() {
