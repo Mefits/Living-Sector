@@ -1,0 +1,44 @@
+name: S2 - Qualified facility relief dispatch (native regression)
+
+on:
+  push:
+    branches:
+      - feature/native-062-facility-relief-dispatch
+    paths:
+      - 'native/crates/sim_core/src/strategy/orders.rs'
+      - 'native/crates/sim_core/src/strategy/orders/tests.rs'
+      - 'native/crates/sim_core/src/strategy.rs'
+      - 'native/crates/sim_core/src/strategy/options.rs'
+      - '.github/workflows/native-062-facility-relief-dispatch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-relief-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Focused native dispatcher and strategy tests
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          cargo test -p sim_core --lib strategy::orders::tests:: -- --nocapture
+          cargo test -p sim_core --lib strategy::tests:: -- --nocapture
+      - name: Actual native server typecheck, no overlay or source ZIP
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          cargo check -p sim_server
+      - name: Record scope boundaries
+        if: always()
+        shell: bash
+        run: |
+          echo '## S2 guarded native facility relief dispatch' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Existing escrow, actual market goods, selected native carrier only; no free supply, forced sensor upgrades, or save mutation.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No physical gas relief is asserted by these unit tests. Real Windows replay is a separate gate.' >> "$GITHUB_STEP_SUMMARY"

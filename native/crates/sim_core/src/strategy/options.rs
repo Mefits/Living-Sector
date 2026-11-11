@@ -151,8 +151,11 @@ fn alternatives(
         delivery.source_stock = sources.market(source).map(|m| finite_stock(m.supply.get(&goal.commodity)));
         delivery.first_purchase_cost = sources.quote(&view.faction_id, source, goal.commodity, faction::SUBSIDY_QUANTITY);
     }
-    let delivery_reason = if view.reason == "existing_contract" { "administrator_busy" }
-        else { assessment.map_or("no_current_shortage", |a| a.reason.as_str()) };
+    // The exact native order state is more useful than generic
+    // "administrator_busy": Posted (unassigned) is not an active haul.
+    // This remains a BLOCKED alternative, never an authorization to
+    // repost or mint a second delivery.
+    let delivery_reason = assessment.map_or("no_current_shortage", |a| a.reason.as_str());
     delivery.assess(delivery_reason, f64::from(faction::SUBSIDY_QUANTITY), SHIPMENT_TIME, 0.0, &need);
 
     let mut build = Alternative {

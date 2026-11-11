@@ -1,0 +1,46 @@
+name: S2 - Native contract stall reporting (targeted checks, no game rebuild)
+
+on:
+  push:
+    branches:
+      - feature/native-062-unassigned-gas-visibility
+    paths:
+      - 'native/crates/sim_core/src/strategy.rs'
+      - '.github/workflows/native-062-unassigned-gas-visibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  strategy-contract-observability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout only direct editable native source
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Targeted native strategy contract tests
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          cargo test -p sim_core --lib strategy::tests:: -- --nocapture
+
+      - name: Ensure strategy JSON snapshot compiles in native server
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          cargo check -p sim_server
+
+      - name: Record testing boundary
+        if: always()
+        shell: bash
+        run: |
+          echo "## Native strategy contract state gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "No new goods, money, contracts or seed changes. No relabeling Accepted as PickedUp." >> "$GITHUB_STEP_SUMMARY"
+          echo "This test does not prove delivery or Golden-v1 relief." >> "$GITHUB_STEP_SUMMARY"
