@@ -1,0 +1,64 @@
+name: Sol S0 - Inspect saved real trace without repeating simulation
+
+on:
+  push:
+    branches:
+      - feature/sol-relief-golden-s0
+    paths:
+      - '.github/workflows/sol-relief-s0-reanalysis.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect-saved:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download previously captured real 1813 tick S0 evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: Sol-S0-Real-Genesis-Relief-Inventory
+          run-id: 43003469177
+          repository: Mefits/Living-Sector
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: work/old-s0
+
+      - name: Check real captured schema, no hypothetical keys
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -c "import json,pathlib; p=pathlib.Path('work/old-s0'); a=json.loads((p/'signal-inventory.json').read_text(encoding='utf8')); print(json.dumps(a,indent=2,ensure_ascii=True))"
+          python -c "import json,pathlib; s=json.loads((pathlib.Path('work/old-s0/samples.jsonl').read_text(encoding='utf8').splitlines()[0])); r=s['report']; t=s['strategy']; print('first_tick:',s['health'].get('tick')); print('market_sample:',json.dumps(r.get('markets',[])[:3],ensure_ascii=True)[:4000]); print('station_sample:',json.dumps([x for x in r.get('facilities',[]) if x.get('type')=='station'][:3],ensure_ascii=True)[:3500]); print('contracts_sample:',json.dumps(s.get('contracts',[])[:3],ensure_ascii=True)[:3500]); print('strategy_keys:',sorted(t)); print('factions_shape:',str(type(t.get('factions')))); print('strategy_first_faction:',json.dumps(t.get('factions',[])[:1],ensure_ascii=True)[:4500])"
+
+      - name: Reevaluate saved snapshots without rerunning game
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m unittest discover -s ci/sol_s0 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "Conservative analyzer regression" }
+          python ci/sol_s0/analyze.py --samples work/old-s0/samples.jsonl --events work/old-s0/events.jsonl --output sol-s0-reanalysis --build-sha 4ffd80002ec74b4af3eccb0db5279578c1148e0a
+          if ($LASTEXITCODE -ne 0) { throw "Cached real data analysis failed" }
+
+      - name: Upload reanalysis and keep original unchanged
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sol-S0-Reanalysis-from-real-1813-ticks
+          path: sol-s0-reanalysis/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Include report in job summary
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path 'sol-s0-reanalysis/REPORT-RU.md') {
+            Get-Content 'sol-s0-reanalysis/REPORT-RU.md' | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          }
