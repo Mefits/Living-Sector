@@ -1,0 +1,82 @@
+name: Galaxy 0.5 E - Large block source preflight (no build)
+
+on:
+  push:
+    branches:
+      - feature/galaxy-05-tier2-tier3-ai-campaign
+    paths:
+      - '.github/workflows/galaxy-05-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Extract original native source and art package
+        run: |
+          python - <<'PY'
+          import io
+          from pathlib import Path
+          from zipfile import ZipFile
+          outer=Path('ci-input/LS-GALAXY-03-CI-INPUT.zip')
+          with ZipFile(outer) as wrapper:
+              Path('work/source').mkdir(parents=True,exist_ok=True)
+              Path('work/art').mkdir(parents=True,exist_ok=True)
+              with ZipFile(io.BytesIO(wrapper.read('LS-AI-BLOCK-IV-SOURCES.zip'))) as src:
+                  src.extractall('work/source')
+              with ZipFile(io.BytesIO(wrapper.read('Living-Sector-Art-Catalog-v0.4.zip'))) as art:
+                  art.extractall('work/art')
+          PY
+      - name: Apply prior Galaxy 0.4.1 overlays once
+        run: |
+          python ci/fix_galaxy_sources.py
+          python ci/galaxy04/apply.py
+      - name: Apply all Galaxy 0.5 large-block changes
+        run: python ci/galaxy05/apply.py
+      - name: Verify new native Rust source structures (no cargo)
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root=Path('work/source/Living-Sector-Galaxy-0.2')
+          data=(root/'crates/sim_core/src/economy/commodities.rs').read_text()
+          director=(root/'crates/sim_core/src/strategy/director.rs').read_text()
+          progression=(root/'crates/sim_core/src/strategy/progression.rs').read_text()
+          recipes=(root/'crates/sim_core/src/economy/recipes.rs').read_text()
+          for name in ('RareOre','CrystalOre','Alloys','QuantumCores'):
+              assert name in data,name
+          for tech in ('alloytech2','survey2','drilltech2','structuretech2',
+                       'survey3','drill3','quantumtech3','structuretech3'):
+              assert tech in director,tech
+          for field in ('tick_native_upgrades','StationDevelopment','native_upgrade_bill',
+                        'location_tier','available_slot'):
+              assert field in progression,field
+          for recipe in ('smelt_alloys_t2','smelt_alloys_t2_retrofit',
+                         'fabricate_quantum_cores_t3','fabricate_quantum_cores_t3_retrofit'):
+              assert recipe in recipes,recipe
+          print("T2/T3 goods, prerequisites, upgrades and recipes present")
+          PY
+      - name: Syntax parse newly touched Rust files
+        run: |
+          rustfmt --edition 2021 --emit stdout work/source/Living-Sector-Galaxy-0.2/crates/sim_core/src/strategy/progression.rs > /dev/null
+          rustfmt --edition 2021 --emit stdout work/source/Living-Sector-Galaxy-0.2/crates/sim_core/src/strategy/director.rs > /dev/null
+          rustfmt --edition 2021 --emit stdout work/source/Living-Sector-Galaxy-0.2/crates/sim_core/src/economy/commodities.rs > /dev/null
+          rustfmt --edition 2021 --emit stdout work/source/Living-Sector-Galaxy-0.2/crates/sim_core/src/economy/recipes.rs > /dev/null
+      - name: Verify Observer JavaScript and model tests
+        run: |
+          root=work/source/Living-Sector-Galaxy-0.2/observer
+          node --check "$root/priority-inspector.js"
+          node --check "$root/app.js"
+          node --test "$root/priority-inspector.test.mjs" "$root/model.test.mjs"
+      - name: Parse campaign report builder
+        run: |
+          python -m compileall -q ci/galaxy05
+          python ci/galaxy05/campaign_acceptance.py --help
