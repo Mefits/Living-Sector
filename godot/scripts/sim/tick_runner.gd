@@ -12,7 +12,7 @@ const SCENARIO_ID: String = "galaxy-067"
 
 # Source: native/crates/sim_server/src/engine.rs, run_tick_loop. P1 only
 # executes 'bodies', not pretend no-op versions of the later phases.
-const NATIVE_PHASE_ORDER: PackedStringArray = [
+const NATIVE_PHASE_ORDER: Array[String] = [
     "bodies", "bodies_regen", "lod", "ships", "apply1",
     "dock_queue", "drains", "facilities", "construction_labor",
     "populations", "markets", "crisis", "apply2", "factions",
