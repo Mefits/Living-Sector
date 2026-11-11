@@ -171,6 +171,8 @@ def main():
         out,manifest["build_source_sha"])
     manifest.update(analyzer_conclusion=result["conclusion"])
     flush()
-    print((out/"REPORT-RU.md").read_text(encoding="utf8"),flush=True)
+    # Windows runner may use cp1252 for stdout: console is NOT evidence storage.
+    report=(out/"REPORT-RU.md").read_text(encoding="utf8")
+    print(report.encode("ascii","backslashreplace").decode("ascii"),flush=True)
 
 if __name__=="__main__":main()
