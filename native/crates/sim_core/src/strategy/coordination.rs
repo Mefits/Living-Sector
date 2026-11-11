@@ -68,7 +68,7 @@ struct Grants(BTreeMap<String, Grant>);
 fn granted_goal_matches(grant: &Goal, goal: &Goal, administrator: &str) -> bool {
     if !options::same_problem(grant, goal) {return false;}
     match grant.goal_id.as_str() {
-        "player_supply" => goal.goal_id=="player_supply",
+        "player_supply" => administrator=="logistics" && goal.goal_id=="player_supply",
         "player_industry" => administrator=="construction" &&
             matches!(goal.goal_id.as_str(), "player_industry"|"expand_production"),
         _ => !goal.goal_id.starts_with("player_"),
