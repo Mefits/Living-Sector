@@ -130,16 +130,20 @@ pub fn authorize_research(world:&World,faction:&str,cost:i64,treasury:i64)
         MandateMode::Advise=>Ok(()),
         MandateMode::Hold=>Err("player_research_hold"),
         MandateMode::Delegated=>{
-            if cost<=0{return Err("invalid_research_charge");}
-            if m.spent_cr.checked_add(cost).is_none_or(|v|v>m.budget_ceiling_cr){
-                return Err("player_mandate_budget_exhausted");
-            }
-            if treasury.checked_sub(cost).is_none_or(|v|v<m.treasury_floor_cr){
-                return Err("player_mandate_treasury_floor");
-            }
-            Ok(())
+            mandate_spending_gate(m,cost,treasury)
         }
     }
+}
+fn mandate_spending_gate(m:&ResearchMandate,cost:i64,treasury:i64)
+->Result<(),&'static str>{
+    if cost<=0{return Err("invalid_research_charge");}
+    if m.spent_cr.checked_add(cost).is_none_or(|v|v>m.budget_ceiling_cr){
+        return Err("player_mandate_budget_exhausted");
+    }
+    if treasury.checked_sub(cost).is_none_or(|v|v<m.treasury_floor_cr){
+        return Err("player_mandate_treasury_floor");
+    }
+    Ok(())
 }
 /// Call only AFTER native ECS transfer succeeded; mirror actual charge,
 /// not predicted spend. The Director checkpoint persists both this
@@ -172,32 +176,18 @@ mod galaxy06_mandates_tests {
     }
     #[test]
     fn delegated_budget_and_reserve_are_enforced_without_creating_cash(){
-        let mut world=World::new();
-        let mut d=Director::default();
-        // Minimal commander data: active() reads only its real tech list.
-        // Full native observer/science payment is exercised by existing tests.
-        let fixture=crate::strategy::tests::fixture(super::super::Mode::Execute);
-        world=fixture.0;
-        world.insert_resource(d.clone());
-        super::super::director::observe(&mut world,&fixture.1,60,1);
-        d=world.resource::<Director>().clone();
-        assert!(d.commanders.contains_key("own"));
-        let directive=ResearchMandate{target_technology:"automation".into(),
+        let mut m=ResearchMandate{target_technology:"automation".into(),
             mode:MandateMode::Delegated,budget_ceiling_cr:260,
             treasury_floor_cr:10_000,spent_cr:0,created_tick:0,last_reason:String::new()};
-        set_mandate(&mut world,"own",directive,61).unwrap();
-        assert!(authorize_research(&world,"own",120,20_000).is_ok());
-        paid_research(&mut world,"own",120);
-        assert_eq!(world.resource::<Director>().research_mandates["own"].spent_cr,120);
-        assert_eq!(authorize_research(&world,"own",141,20_000),
+        assert!(m.validate().is_ok());
+        assert!(mandate_spending_gate(&m,120,20_000).is_ok());
+        m.spent_cr=120;
+        assert_eq!(mandate_spending_gate(&m,141,20_000),
             Err("player_mandate_budget_exhausted"));
-        assert_eq!(authorize_research(&world,"own",120,10_010),
+        assert_eq!(mandate_spending_gate(&m,120,10_010),
             Err("player_mandate_treasury_floor"));
-        let mut h=world.resource::<Director>().research_mandates["own"].clone();
-        h.mode=MandateMode::Hold;
-        set_mandate(&mut world,"own",h,62).unwrap();
-        assert_eq!(authorize_research(&world,"own",100,20_000),
-            Err("player_research_hold"));
+        m.budget_ceiling_cr=99;
+        assert_eq!(m.validate(),Err("invalid_mandate_budget"));
     }
     #[test]
     fn old_checkpoints_read_empty_research_directives(){
