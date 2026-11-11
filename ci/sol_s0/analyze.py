@@ -212,7 +212,8 @@ def main():
     args=p.parse_args()
     result=write_result(read_jsonl(args.samples),read_jsonl(args.events),
         args.output,args.build_sha)
-    print((args.output/"REPORT-RU.md").read_text(encoding="utf8"),flush=True)
+    report=(args.output/"REPORT-RU.md").read_text(encoding="utf8")
+    print(report.encode("ascii","backslashreplace").decode("ascii"),flush=True)
     if not result["sample_count"]:raise SystemExit("No real snapshots, S0 invalid")
 
 if __name__=="__main__":main()
