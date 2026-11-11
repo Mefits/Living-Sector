@@ -490,6 +490,55 @@ mod tests {
     }
 
     #[test]
+    fn galaxy064_unapproved_player_goal_does_not_stop_unrelated_native_autonomy(){
+        let (mut world,mut board,owner,port,source)=fixture(Mode::Execute);
+        // Original native shortage has an accessible market; new policy is
+        // for a DIFFERENT resource and requires explicit player review.
+        world.get_mut::<MarketPricing>(source).unwrap().supply.insert(Commodity::Water,500.0);
+        world.get_mut::<MarketPricing>(source).unwrap().prices.insert(Commodity::Water,1.0);
+        world.get_mut::<MarketPricing>(port).unwrap().demand.insert(Commodity::Water,80.0);
+        world.insert_resource(director::Director::default());
+        director::observe(&mut world,&board,0,1);
+        world.resource_mut::<director::Director>().economic_mandates.insert(
+            "own".into(),economic_mandate::EconomicMandate{
+                kind:economic_mandate::EconomicKind::Supply,
+                location:"port".into(),commodity:Commodity::Water,min_stock:200,
+                mode:governance::MandateMode::Delegated,
+                budget_ceiling_cr:9000,treasury_floor_cr:10000,
+                spent_cr:0,created_tick:0,last_commitment_tick:None,last_reason:String::new(),
+            });
+        world.resource_mut::<director::Director>().faction_charters.insert(
+            "own".into(),charter::FactionCharter{
+                research_authority:charter::Authority::Delegated,
+                economy_authority:charter::Authority::Review,
+                research_priority:50,economy_priority:80,
+                shared_ceiling_cr:9000,protected_treasury_cr:10000,
+                approved_research_cr:0,approved_economy_cr:0,
+                spent_cr:0,spent_research_cr:0,spent_economy_cr:0,
+                updated_tick:0,last_reason:String::new(),
+            });
+        let mut events=Vec::new();
+        coordination::run_cycle(&mut world,&mut board,&FactionRelations::new(),
+            &mut events,120,1);
+        assert!(board.iter().any(|c|c.requestor_id=="own" &&
+            c.commodity!=Commodity::Water &&
+            c.funding.as_ref().is_some_and(|fund|fund.reserved>0)),
+            "Unrelated native economics must continue while water approval waits");
+        assert!(!board.iter().any(|c|c.commodity==Commodity::Water));
+        assert_eq!(world.resource::<director::Director>()
+            .economic_proposals["own"].status,economic_proposal::ProposalStatus::Pending);
+        assert_eq!(world.resource::<director::Director>()
+            .economic_mandates["own"].spent_cr,0);
+        assert!(world.get::<FactionData>(owner).unwrap().treasury<20_000);
+        let head=world.resource::<StrategyState>().factions["own"]
+            .head.as_ref().unwrap();
+        assert!(!head.problem.as_ref().is_some_and(|g|g.goal_id=="player_supply"));
+        let impact=head.policy_impacts.iter().find(|p|p.department=="economy").unwrap();
+        assert_eq!(impact.status,"awaiting_specific_approval");
+        assert!(!impact.selected);
+    }
+
+    #[test]
     fn galaxy063_review_proposes_without_funding_then_uses_native_paid_receipt(){
         let (mut world,mut board,owner,port,source)=fixture(Mode::Execute);
         let relations=FactionRelations::new();
