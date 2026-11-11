@@ -529,6 +529,12 @@ mod tests {
             .expect("A native ready water quote should produce a review proposal");
         assert_eq!(proposal.status,economic_proposal::ProposalStatus::Pending);
         assert!(proposal.quoted_commitment_cr>0);
+        let policy=world.resource::<StrategyState>().factions["own"].head
+            .as_ref().unwrap().policy_impacts.iter().find(|p|
+                p.department=="economy").unwrap();
+        assert_eq!(policy.status,"awaiting_specific_approval");
+        assert!(!policy.selected);
+        assert_eq!(policy.priority,Some(70));
         assert_eq!(world.resource::<director::Director>()
             .faction_charters["own"].spent_economy_cr,0);
         assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,20_000);
@@ -565,6 +571,12 @@ mod tests {
             Some(paid[0].id.as_str()),"Approval must point to the exact native contract");
         assert_eq!(director.economic_proposals["own"].funded_payment_cr,Some(amount));
         assert_eq!(director.economic_proposals["own"].funded_tick,Some(180));
+        let policy=world.resource::<StrategyState>().factions["own"].head
+            .as_ref().unwrap().policy_impacts.iter().find(|p|
+                p.department=="economy").unwrap();
+        assert_eq!(policy.status,"native_contract_linked");
+        assert!(policy.selected);
+        assert_eq!(policy.funded_contract_id.as_deref(),Some(paid[0].id.as_str()));
         assert_eq!(director.economic_mandates["own"].spent_cr,amount);
         assert_eq!(director.faction_charters["own"].spent_economy_cr,amount);
         assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,
