@@ -241,6 +241,57 @@ pub fn delivery_qty_for_shortage(shortage_ticks: u32) -> u32 {
         .saturating_add(bonus)
         .clamp(MIN_DELIVERY_CONTRACT_QTY, MAX_DELIVERY_CONTRACT_QTY)
 }
+
+/// Experimental commodity-specific bulk sizing. A chronic GAS shortage
+/// may justify a 100–400 unit paid haul, but initial 50-unit offers remain
+/// available to couriers. All other commodities keep their old curve.
+/// This does NOT change the physical capacity of any ship.
+pub const BULK_GAS_CONTRACT_MAX_QTY: u32 = 400;
+pub fn gas_bulk_delivery_qty_for_shortage(shortage_ticks: u32) -> u32 {
+    let extra = shortage_ticks.saturating_sub(30)
+        .saturating_div(SHORTAGE_QTY_BUCKET_TICKS)
+        .saturating_mul(50);
+    DELIVERY_CONTRACT_QTY
+        .saturating_add(extra)
+        .min(BULK_GAS_CONTRACT_MAX_QTY)
+}
+
+/// Select the largest real stock-backed, affordable lot without removing
+/// the small-lot escape hatch. A larger hypothetical shipment must NOT
+/// prevent a valid old-sized delivery when a source or a payer is short.
+/// In particular, 400 gas is not an authorization to mint 400 gas.
+fn choose_recipe_input_delivery_lot<F>(
+    commodity: Commodity,
+    shortage_ticks: u32,
+    available_credits: i64,
+    mut source_for_qty: F,
+) -> Option<(u32, String)>
+where F: FnMut(u32) -> Option<String> {
+    let ordinary_qty = delivery_qty_for_shortage(shortage_ticks);
+    let desired_qty = if commodity == Commodity::Gas {
+        gas_bulk_delivery_qty_for_shortage(shortage_ticks)
+    } else { ordinary_qty };
+    // For gas, the old shortage-implied order may itself be unaffordable
+    // or unavailable at source. Fall all the way back to a useful
+    // 50-unit small-lot delivery instead of deadlocking the whole market.
+    // For every other resource keep the old fixed shortage quantity.
+    let minimum_qty = if commodity == Commodity::Gas {
+        DELIVERY_CONTRACT_QTY
+    } else { ordinary_qty };
+    let mut qty = desired_qty.max(ordinary_qty);
+    loop {
+        let minimum_payment = (qty as i64)
+            .saturating_mul(DELIVERY_CONTRACT_BASE_PAYMENT_PER_UNIT);
+        if commodity != Commodity::Gas || available_credits >= minimum_payment {
+            if let Some(source) = source_for_qty(qty) {
+                return Some((qty, source));
+            }
+        }
+        if qty == minimum_qty {break;}
+        qty = qty.saturating_sub(25).max(minimum_qty);
+    }
+    None
+}
 /// Base payment-per-unit floor. The real payment for a contract is
 /// `max(QTY × BASE, src_price × QTY × delivery_multiplier)` — the flat
 /// floor only wins when source prices are unusually cheap. Tuned to 40
@@ -1264,9 +1315,14 @@ pub fn tick_post_contracts_with_relations(
                 if shortage < RECIPE_INPUT_SHORTAGE_THRESHOLD {
                     continue;
                 }
-                let qty = delivery_qty_for_shortage(shortage);
-                let Some(source) = source_for_commodity(
-                    commodity, &loc.location_name, &id.faction_id, qty,
+                // Recipe inputs: under persistent GAS shortages allow
+                // larger single hauls when a real source and payer can
+                // support them. All other goods use the old order sizing.
+                let Some((qty,source)) = choose_recipe_input_delivery_lot(
+                    commodity, shortage, ops.credits,
+                    |q| source_for_commodity(
+                        commodity, &loc.location_name, &id.faction_id, q,
+                    ),
                 ) else {
                     continue;
                 };
@@ -1707,6 +1763,49 @@ mod tests {
             delivery_qty_for_shortage(10_000),
             MAX_DELIVERY_CONTRACT_QTY,
         );
+    }
+
+    #[test]
+    fn chronic_gas_requests_scale_up_without_excluding_first_small_offer() {
+        assert_eq!(gas_bulk_delivery_qty_for_shortage(15), 50);
+        assert_eq!(gas_bulk_delivery_qty_for_shortage(30), 50);
+        assert_eq!(gas_bulk_delivery_qty_for_shortage(60), 100);
+        assert_eq!(gas_bulk_delivery_qty_for_shortage(90), 150);
+        assert_eq!(gas_bulk_delivery_qty_for_shortage(180), 300);
+        assert_eq!(gas_bulk_delivery_qty_for_shortage(10_000), 400);
+        assert_eq!(delivery_qty_for_shortage(180), 175,
+            "Existing Ore/Food/Water sizing must remain unchanged");
+    }
+
+    #[test]
+    fn bulk_gas_lot_falls_back_when_real_source_stock_or_payer_cannot_cover_it() {
+        // Desire 300 gas after 180 shortage ticks, but supplier can
+        // sell only 175. Do not turn a feasible 175 shipment into NO offer.
+        let found = choose_recipe_input_delivery_lot(
+            Commodity::Gas, 180, 100_000,
+            |qty| (qty <= 175).then(|| "alpha".to_string()));
+        assert_eq!(found, Some((175, "alpha".to_string())));
+
+        // Even with plentiful source stock, a payer with only 6000
+        // credits can afford at most 150 gas at the current flat floor.
+        let affordable = choose_recipe_input_delivery_lot(
+            Commodity::Gas, 180, 6_000,
+            |_| Some("alpha".to_string()));
+        assert_eq!(affordable, Some((150, "alpha".to_string())));
+
+        assert_eq!(choose_recipe_input_delivery_lot(
+            Commodity::Gas, 180, 999,
+            |_| Some("alpha".to_string())), None);
+        assert_eq!(choose_recipe_input_delivery_lot(
+            Commodity::Gas, 180, 100_000,
+            |_| None), None);
+    }
+
+    #[test]
+    fn non_gas_recipe_inputs_retain_existing_delivery_quantities() {
+        assert_eq!(choose_recipe_input_delivery_lot(
+            Commodity::Ore, 90, 100_000,
+            |_| Some("mine".to_string())),Some((100,"mine".to_string())));
     }
 
     #[test]

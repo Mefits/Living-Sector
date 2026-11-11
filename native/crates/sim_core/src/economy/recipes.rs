@@ -28,13 +28,13 @@ pub const RECIPES: &[Recipe] = &[
     Recipe {
         id: "crack_fuel",
         facility_type: "refinery",
-        inputs: &[(Commodity::Gas, 6)],
+        inputs: &[(Commodity::Gas, 5)],
         outputs: &[(Commodity::Fuel, 4)],
     },
     Recipe {
         id: "refine_polymers",
         facility_type: "refinery",
-        inputs: &[(Commodity::Gas, 6)],
+        inputs: &[(Commodity::Gas, 5)],
         outputs: &[(Commodity::Polymers, 5)],
     },
     // Factory: refined → manufactured
@@ -290,6 +290,24 @@ mod tests {
             assert!(execute(recipe, &mut supply, efficiency, 5, None).is_empty());
             assert_eq!(supply, before);
         }
+    }
+
+    #[test]
+    fn gas_refinery_consumes_five_units_per_batch_without_creating_goods() {
+        let fuel = RECIPES.iter().find(|r| r.id == "crack_fuel").unwrap();
+        let poly = RECIPES.iter().find(|r| r.id == "refine_polymers").unwrap();
+        assert_eq!(fuel.inputs, &[(Commodity::Gas, 5)]);
+        assert_eq!(poly.inputs, &[(Commodity::Gas, 5)]);
+        let mut gas = HashMap::from([(Commodity::Gas, 100.0)]);
+        let made_fuel = execute(fuel, &mut gas, 1.0, 5, None);
+        assert_eq!(made_fuel.get(&Commodity::Fuel), Some(&20.0));
+        assert_eq!(gas[&Commodity::Gas], 75.0);
+        let made_poly = execute(poly, &mut gas, 1.0, 5, None);
+        assert_eq!(made_poly.get(&Commodity::Polymers), Some(&25.0));
+        assert_eq!(gas[&Commodity::Gas], 50.0);
+        // No gas means no further processing (no free products).
+        gas.insert(Commodity::Gas, 0.0);
+        assert!(execute(fuel, &mut gas, 1.0, 5, None).is_empty());
     }
 
     #[test]
