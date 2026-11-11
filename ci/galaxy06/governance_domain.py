@@ -96,18 +96,33 @@ pub fn next_technology(
     }
     Err("technology_dependency_cycle")
 }
+/// Changing delegation mode or raising a ceiling for the SAME objective
+/// must not reset amounts already paid for that objective. New research
+/// target is a separately approved new mandate.
+fn inherit_approved_budget(old:Option<&ResearchMandate>,new:&mut ResearchMandate,tick:u64){
+    match old.filter(|previous|previous.target_technology==new.target_technology){
+        Some(previous)=>{
+            new.spent_cr=previous.spent_cr;
+            new.created_tick=previous.created_tick;
+            new.last_reason="player_policy_updated_preserving_spend".into();
+        },
+        None=>{
+            new.spent_cr=0;
+            new.created_tick=tick;
+            new.last_reason="approved_in_native_director".into();
+        }
+    }
+}
 /// Engine-thread only. Always validate target against real native science.
 pub fn set_mandate(
     world:&mut World,faction:&str,mut mandate:ResearchMandate,tick:u64,
 )->Result<(),&'static str> {
-    mandate.spent_cr=0;
-    mandate.created_tick=tick;
-    mandate.last_reason="approved_in_native_director".into();
-    mandate.validate()?;
     let Some(mut d)=world.get_resource_mut::<Director>() else{
         return Err("director_not_ready");
     };
     if !d.commanders.contains_key(faction){return Err("unknown_faction");}
+    inherit_approved_budget(d.research_mandates.get(faction),&mut mandate,tick);
+    mandate.validate()?;
     d.research_mandates.insert(faction.to_string(),mandate);
     Ok(())
 }
@@ -120,7 +135,8 @@ pub fn active<'a>(world:&'a World,faction:&str)->Option<&'a ResearchMandate>{
     let d=world.get_resource::<Director>()?;
     let m=d.research_mandates.get(faction)?;
     let commander=d.commanders.get(faction)?;
-    (!m.completed(&commander.technologies)).then_some(m)
+    (m.mode==MandateMode::Hold || !m.completed(&commander.technologies))
+        .then_some(m)
 }
 /// Authorization check BEFORE the native paid research shift.
 pub fn authorize_research(world:&World,faction:&str,cost:i64,treasury:i64)
@@ -188,6 +204,27 @@ mod galaxy06_mandates_tests {
             Err("player_mandate_treasury_floor"));
         m.budget_ceiling_cr=99;
         assert_eq!(m.validate(),Err("invalid_mandate_budget"));
+    }
+    #[test]
+    fn switching_mode_cannot_erase_approved_research_spending(){
+        let old=ResearchMandate{target_technology:"automation".into(),
+            mode:MandateMode::Delegated,budget_ceiling_cr:300,
+            treasury_floor_cr:10_000,spent_cr:180,
+            created_tick:25,last_reason:"native_research_shift_paid".into()};
+        let mut new=old.clone();
+        new.mode=MandateMode::Hold;
+        new.spent_cr=0;
+        inherit_approved_budget(Some(&old),&mut new,50);
+        assert_eq!(new.spent_cr,180);
+        assert_eq!(new.created_tick,25);
+        let mut smaller=new.clone();
+        smaller.budget_ceiling_cr=100;
+        assert_eq!(smaller.validate(),Err("invalid_committed_amount"));
+        let mut next=old.clone();
+        next.target_technology="deep_navigation".into();
+        inherit_approved_budget(Some(&old),&mut next,70);
+        assert_eq!(next.spent_cr,0);
+        assert_eq!(next.created_tick,70);
     }
     #[test]
     fn old_checkpoints_read_empty_research_directives(){
