@@ -509,8 +509,51 @@ mod tests {
         run_cycle(&mut world, &mut board, &FactionRelations::new(), 60, 1);
         assert_eq!(board.iter().count(), 2);
         let view = &world.resource::<StrategyState>().factions["own"];
-        assert_eq!(view.assessments[0].reason, "existing_contract");
+        assert_eq!(view.assessments[0].reason, "existing_contract_unassigned");
+        assert_eq!(view.assessments[0].pending_delivery.as_ref().unwrap().status, "posted");
+        assert!(view.assessments[0].pending_delivery.as_ref().unwrap().fulfiller_id.is_none());
         assert_eq!(view.selected_goal.as_ref().unwrap().commodity, Commodity::Ore);
+    }
+
+    #[test]
+    fn strategy_native_unassigned_delivery_becomes_visible_stalled_without_duplicate() {
+        let (mut world, mut board, _, _, source) = fixture(Mode::Execute);
+        let relations = FactionRelations::new();
+        world.get_mut::<MarketPricing>(source).unwrap().supply
+            .insert(Commodity::Food, 500.0);
+        let id = board.post_subsidy("own".into(), Commodity::Food, 200,
+            "mine".into(), "port".into(), 1600, 0, 1000);
+        run_cycle(&mut world, &mut board, &relations, 60, 1);
+        let view = &world.resource::<StrategyState>().factions["own"];
+        let food = view.assessments.iter().find(|a|a.goal.commodity==Commodity::Food).unwrap();
+        assert_eq!(food.reason, "existing_contract_unassigned");
+        let before=food.pending_delivery.as_ref().unwrap();
+        assert_eq!(before.contract_id, id);
+        assert_eq!(before.status, "posted");
+        assert_eq!(before.age_ticks, 60);
+        assert!(before.fulfiller_id.is_none());
+
+        // Existing posted request must not be considered delivered or
+        // trigger a second spend solely because no ship accepted it.
+        run_cycle(&mut world, &mut board, &relations, 360, 1);
+        let view = &world.resource::<StrategyState>().factions["own"];
+        let food = view.assessments.iter().find(|a|a.goal.commodity==Commodity::Food).unwrap();
+        assert_eq!(food.reason, "existing_contract_unassigned_stale");
+        assert_eq!(food.pending_delivery.as_ref().unwrap().age_ticks, 360);
+        assert_eq!(board.iter().filter(|c|c.commodity==Commodity::Food
+            && c.destination_location=="port").count(), 1);
+
+        // The exact SAME contract transitions to accepted; the head can
+        // distinguish real execution from a stalled posted request.
+        assert!(board.accept(&id, "ship-test".into(), 370));
+        run_cycle(&mut world, &mut board, &relations, 420, 1);
+        let view = &world.resource::<StrategyState>().factions["own"];
+        let food = view.assessments.iter().find(|a|a.goal.commodity==Commodity::Food).unwrap();
+        assert_eq!(food.reason, "existing_contract");
+        let after=food.pending_delivery.as_ref().unwrap();
+        assert_eq!(after.status, "accepted");
+        assert_eq!(after.fulfiller_id.as_deref(), Some("ship-test"));
+        assert_eq!(after.contract_id, id);
     }
 
     #[test]
