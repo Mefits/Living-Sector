@@ -94,16 +94,16 @@ try{
   $cargo=Find-Cargo
   Write-Host '[1/3] Building CURRENT native Windows server...' -ForegroundColor Cyan
   $buildOut=Join-Path $out 'build.stdout.log';$buildErr=Join-Path $out 'build.stderr.log'
-  $args=@{FilePath=$cargo;ArgumentList=@('build','--locked','-p','sim_server','--bin','genesis_server');WorkingDirectory=$root;Wait=$true;PassThru=$true;NoNewWindow=$true;RedirectStandardOutput=$buildOut;RedirectStandardError=$buildErr}
-  $build=Start-Process @args
+  $buildArgs=@{FilePath=$cargo;ArgumentList=@('build','--locked','-p','sim_server','--bin','genesis_server');WorkingDirectory=$root;Wait=$true;PassThru=$true;NoNewWindow=$true;RedirectStandardOutput=$buildOut;RedirectStandardError=$buildErr}
+  $build=Start-Process @buildArgs
   if($build.ExitCode -ne 0){
     if(Test-Path $buildErr){Get-Content $buildErr -Tail 18 | Write-Host}
     throw ('Native Rust build failed with code '+$build.ExitCode+'. See build.stderr.log.')
   }
   $binary=Join-Path $root 'target\debug\genesis_server.exe'
   Check (Test-Path $binary) 'current native Genesis server compiled'
-  $summary.binary_built=$true
-  $summary.binary_sha256=(Get-FileHash $binary -Algorithm SHA256).Hash
+  $summary['binary_built']=$true
+  $summary['binary_sha256']=(Get-FileHash $binary -Algorithm SHA256).Hash
 
   Write-Host '[2/3] Running ONE live, fresh 8-system Galaxy...' -ForegroundColor Cyan
   New-Item -ItemType Directory -Force -Path $tempDb | Out-Null
@@ -133,7 +133,7 @@ try{
   $ids=@($start.factions | ForEach-Object {$_.faction_id} | Sort-Object)
   Check (($ids -join ',') -eq 'ceti-freeholds,pirates,terran-authority') 'three real Galaxy factions'
   Check (@($world.systems).Count -eq 8) 'eight Galaxy systems'
-  $summary.initial_tick=$health.tick
+  $summary['initial_tick']=$health.tick
   foreach($asset in @(
     @('/observer/',''),
     @('/observer/governance-economy.html','production_objectives'),
@@ -173,16 +173,16 @@ try{
       Check (@($fac.construction.execution_chain.steps).Count -eq 5) 'physical construction has five stages'
     }
   }
-  $summary.live_world_tested=$true
-  $summary.end_tick=$evaluated.snapshot_tick
-  $summary.policy_impact=$impact.status
-  $summary.head_choice=$f.head.selected_option
+  $summary['live_world_tested']=$true
+  $summary['end_tick']=$evaluated.snapshot_tick
+  $summary['policy_impact']=$impact.status
+  $summary['head_choice']=$f.head.selected_option
   Write-Host '[3/3] Checking fresh SQLite and packaging tested experimental game...' -ForegroundColor Cyan
   $proc.Refresh()
   if(-not $proc.HasExited){Stop-Process -Id $proc.Id -Force}
   $proc=$null
   Start-Sleep -Milliseconds 500
-  $summary.sqlite_check=Check-SQLiteHeader $db
+  $summary['sqlite_check']=Check-SQLiteHeader $db
   Check ($summary.sqlite_check -eq 'header_ok_only') 'fresh SQLite header (NOT full PRAGMA integrity)'
   if(-not $SkipPackage){
     $bundle=Join-Path $out 'Living-Sector-Galaxy-067-Experimental'
@@ -194,20 +194,20 @@ try{
     Copy-Item (Join-Path $root 'START-GALAXY-067-EXPERIMENTAL.cmd') (Join-Path $bundle 'START-GALAXY.cmd')
     $gameZip=Join-Path $out 'Living-Sector-Galaxy-067-Win64.zip'
     Compress-Archive -LiteralPath $bundle -DestinationPath $gameZip -Force
-    $summary.game_archive=$gameZip
+    $summary['game_archive']=$gameZip
     Check (Test-Path $gameZip) 'playable isolated Windows ZIP created'
   }
-  $summary.status='passed'
+  $summary['status']='passed'
   Write-Host 'PASS: one real combined Galaxy playtest completed.' -ForegroundColor Green
 }catch{
-  $summary.status='failed';$summary.error=$_.Exception.Message
+  $summary['status']='failed';$summary['error']=$_.Exception.Message
   Write-Host ('FAILED: '+$_.Exception.Message) -ForegroundColor Red
 }finally{
   if($proc){
     try{$proc.Refresh();if(-not $proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue}}catch{}
   }
-  $summary.checks=@($checks)
-  [IO.File]::WriteAllText($reportPath,((ConvertTo-Json -InputObject $summary -Depth 12)+[Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
+  $summary['checks']=@($checks)
+  [IO.File]::WriteAllText($reportPath,((ConvertTo-Json -InputObject $summary -Depth 12)+[Environment]::NewLine),([System.Text.UTF8Encoding]::new($false)))
   $diagnostics=Join-Path $out 'Living-Sector-Galaxy-067-DIAGNOSTICS.zip'
   $files=@($reportPath)
   foreach($name in @('build.stdout.log','build.stderr.log','server.stdout.log','server.stderr.log')){
@@ -217,7 +217,7 @@ try{
   try{Compress-Archive -LiteralPath $files -DestinationPath $diagnostics -Force}catch{Write-Host 'Could not ZIP logs; individual files were retained.'}
   Write-Host ('Result: '+$reportPath)
   Write-Host ('Small report ZIP to share: '+$diagnostics)
-  if($summary.game_archive){Write-Host ('Verified game ZIP: '+$summary.game_archive)}
+  if($summary['game_archive']){Write-Host ('Verified game ZIP: '+$summary['game_archive'])}
 }
-if($summary.status -ne 'passed'){exit 1}
+if($summary['status'] -ne 'passed'){exit 1}
 exit 0
