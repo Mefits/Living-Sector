@@ -70,12 +70,14 @@ func _ready() -> void:
     speed_menu.selected = 0
     speed_menu.item_selected.connect(_change_speed)
     toolbar.add_child(speed_menu)
-    for action in [{"text":"Сохранить", "callback":_save_game},
-                   {"text":"Загрузить", "callback":_load_game}]:
-        var action_button := Button.new()
-        action_button.text = str(action["text"])
-        action_button.pressed.connect(action["callback"])
-        toolbar.add_child(action_button)
+    var save_button := Button.new()
+    save_button.text = "Сохранить"
+    save_button.pressed.connect(_save_game)
+    toolbar.add_child(save_button)
+    var load_button := Button.new()
+    load_button.text = "Загрузить"
+    load_button.pressed.connect(_load_game)
+    toolbar.add_child(load_button)
 
     var columns := HBoxContainer.new()
     columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
