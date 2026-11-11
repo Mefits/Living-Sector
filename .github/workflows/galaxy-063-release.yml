@@ -1,0 +1,327 @@
+name: Galaxy 0.6.3 G - Player review of exact native economic proposals
+
+on:
+  push:
+    branches:
+      - feature/galaxy-063-action-approvals
+    paths:
+      - '.github/workflows/galaxy-063-release.yml'
+      - 'ci/galaxy063/*.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-galaxy:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout build harness
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Extract uploaded Galaxy sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = 'ci-input/LS-GALAXY-03-CI-INPUT.zip'
+          if (!(Test-Path $bundle)) {
+            throw 'Upload LS-GALAXY-03-CI-INPUT.zip into ci-input to trigger this build.'
+          }
+          New-Item -ItemType Directory -Force -Path 'work/input', 'work/source', 'work/art' | Out-Null
+          Expand-Archive -LiteralPath $bundle -DestinationPath 'work/input' -Force
+          $source = 'work/input/LS-AI-BLOCK-IV-SOURCES.zip'
+          $art = 'work/input/Living-Sector-Art-Catalog-v0.4.zip'
+          if (!(Test-Path $source) -or !(Test-Path $art)) {
+            throw 'The CI input bundle must contain both nested source and art ZIPs.'
+          }
+          Expand-Archive -LiteralPath $source -DestinationPath 'work/source' -Force
+          Expand-Archive -LiteralPath $art -DestinationPath 'work/art' -Force
+          if (!(Test-Path 'work/source/Living-Sector-Galaxy-0.2/Cargo.lock')) {
+            throw 'Unexpected source archive layout: Cargo.lock not found at expected root.'
+          }
+          if (!(Test-Path 'work/art/assets/stations/t1.svg')) {
+            throw 'Art catalogue is incomplete (assets/stations/t1.svg missing).'
+          }
+
+      - name: Apply Galaxy AI integration compile fixes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/fix_galaxy_sources.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy source overlay failed.' }
+
+      - name: Set up Python for reproducible source overlays
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply single Galaxy 0.4.1 economy and life-support patch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy04/apply.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4 A source overlay failed.' }
+
+      - name: Apply all Galaxy 0.5 native T2/T3 progression overlays
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy05/apply.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.5 native progression overlay failed.' }
+
+      - name: Apply complete Galaxy 0.6 player-governance slice
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy06/apply.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.6 governance source overlay failed.' }
+          $ui = 'work/source/Living-Sector-Galaxy-0.2/observer/governance.html'
+          if (!(Test-Path $ui)) { throw 'Governance UI missing.' }
+
+      - name: Apply Galaxy 0.6.1 economic supply and industry mandates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy061/apply.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy061 economic mandate overlay failed.' }
+
+      - name: Apply Galaxy 0.6.2 faction charter and unified mandate arbitration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy062/apply.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy062 charter source overlay failed.' }
+          if (!(Test-Path 'work/source/Living-Sector-Galaxy-0.2/observer/governance-charter.html')) {
+            throw 'Faction charter in-game UI missing.'
+          }
+
+      - name: Apply Galaxy 0.6.3 native specific-action approvals and Observer UI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy063/apply.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy063 exact action approval overlay failed.' }
+          if (!(Test-Path 'work/source/Living-Sector-Galaxy-0.2/observer/governance-approvals.html')) {
+            throw 'Live approval console missing.'
+          }
+
+      - name: Verify Galaxy 0.4B eight-system topology
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy04/verify_worlds08.py
+          if ($LASTEXITCODE -ne 0) { throw 'Eight-system seed topology invalid.' }
+          node --check work/source/Living-Sector-Galaxy-0.2/observer/model.js
+          if ($LASTEXITCODE -ne 0) { throw 'Observer model syntax invalid.' }
+          node --check work/source/Living-Sector-Galaxy-0.2/observer/app.js
+          if ($LASTEXITCODE -ne 0) { throw 'Observer app syntax invalid.' }
+
+      - name: Verify priority-first Observer cards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'work/source/Living-Sector-Galaxy-0.2/observer'
+          node --check "$root/app.js"
+          if ($LASTEXITCODE -ne 0) { throw 'Observer app.js syntax invalid.' }
+          node --check "$root/priority-inspector.js"
+          if ($LASTEXITCODE -ne 0) { throw 'Priority inspector JS syntax invalid.' }
+          node --test "$root/priority-inspector.test.mjs"
+          if ($LASTEXITCODE -ne 0) { throw 'Priority inspector data grounding tests failed.' }
+          node --test "$root/model.test.mjs" "$root/station-economy.test.mjs"
+          if ($LASTEXITCODE -ne 0) { throw 'Existing Observer model regression failed.' }
+          $native = Get-Content -LiteralPath "$root/native.html" -Raw
+          if (!$native.Contains('/observer/priority-inspector.css')) {
+            throw 'Priority inspector stylesheet not wired into native UI.'
+          }
+
+      - name: Check Galaxy 0.4.1 integrated Rust
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo check -p sim_core -p sim_server
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4 integration has Rust compilation errors.' }
+
+      # Parent Galaxy 0.6 Windows run #42941249754 already passed its
+      # full economic regressions. This integration pass runs the focused
+      # 0.6/0.6.1 tests and both live API scenarios rather than repeating
+      # the entire old suite at every feature block.
+      - name: Galaxy 0.6 player science mandates — budget/holds/prerequisites
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_core --lib galaxy06_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy06 native mandate regressions failed.' }
+          cargo test -p sim_server --lib galaxy06_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy06 HTTP origin/validation regressions failed.' }
+
+      - name: Verify 0.6.1 native economic mandate policy and server route tests
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_core --lib galaxy061_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Economic mandate budget/native goal tests failed.' }
+          cargo test -p sim_server --lib galaxy061_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Economic player API validations failed.' }
+
+      - name: Verify 0.6.2 native charter shared limits, approval and server handler
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_core --lib galaxy062_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Faction charter native budget/approval tests failed.' }
+          cargo test -p sim_server --lib galaxy062_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Faction charter HTTP schema tests failed.' }
+
+      - name: Verify 0.6.3 quote matching, replay protection and real native contract receipt
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_core --lib galaxy063_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Specific approval native fixture tests failed.' }
+          cargo test -p sim_server --lib galaxy063_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Specific approval route schema test failed.' }
+
+      - name: Build fresh Windows Genesis server (hybrid AI)
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo build --release -p sim_server --bin genesis_server
+          if ($LASTEXITCODE -ne 0) { throw 'Rust compilation failed. No Windows game was produced.' }
+          if (!(Test-Path 'target/release/genesis_server.exe')) {
+            throw 'Compiler reported success, but genesis_server.exe is missing.'
+          }
+
+      - name: Real Genesis gameplay smoke on fresh Windows database
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy04/smoke_run.py
+          if ($LASTEXITCODE -ne 0) { throw 'Live game startup, world and UI smoke failed.' }
+
+      - name: LIVE player-mandate queue, modes, real server state and cancellation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy06/smoke_player_governance.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy06 player mandate native runtime test failed.' }
+
+      - name: Live local economy mandate command, spending limits and station check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy061/smoke_economy.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy061 native player economy smoke failed.' }
+
+      - name: LIVE charter queue, priorities, review mode and native readback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy062/smoke_charter.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy062 native faction charter smoke failed.' }
+
+      - name: LIVE quote review queue, forged ID, rejection and Origin checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy063/smoke_specific_approval.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy063 real-server approval smoke failed.' }
+
+      - name: Upload standalone gameplay smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy-0.6.3-smoke-evidence
+          path: |
+            smoke-results/
+            governance-smoke-results/
+            economic-mandate-smoke-results/
+            charter-smoke-results/
+            specific-approval-smoke-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Package portable playable Galaxy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = Join-Path (Get-Location) 'work/source/Living-Sector-Galaxy-0.2'
+          $dist = Join-Path (Get-Location) 'release/Living-Sector-Galaxy-0.6.3-Windows'
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
+          Copy-Item -LiteralPath (Join-Path $project 'target/release/genesis_server.exe') -Destination (Join-Path $dist 'Genesis-Server.exe')
+          Copy-Item -LiteralPath (Join-Path $project 'observer') -Destination (Join-Path $dist 'observer') -Recurse
+          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'priv/galaxy') | Out-Null
+          Copy-Item -LiteralPath (Join-Path $project 'priv/galaxy/data') -Destination (Join-Path $dist 'priv/galaxy/data') -Recurse
+
+          # Carry the selected vector-art set alongside the original Observer.
+          # The standalone catalogue is an art preview, NOT a claim that every
+          # proposed sprite is already wired into the in-game renderer.
+          $artDst = Join-Path $dist 'observer/art-catalog'
+          New-Item -ItemType Directory -Force -Path $artDst | Out-Null
+          Copy-Item -Path 'work/art/*' -Destination $artDst -Recurse -Force
+          if (Test-Path 'ci/visual-mapping.json') {
+            Copy-Item -LiteralPath 'ci/visual-mapping.json' -Destination (Join-Path $artDst 'visual-mapping.json')
+          }
+
+          $launcher = Get-Content -LiteralPath (Join-Path $project 'START-GALAXY.cmd') -Raw
+          $launcher = $launcher.Replace('living-galaxy-02.db', 'living-galaxy-063.db')
+          $launcher = $launcher.Replace('set "LIVING_SECTOR_STRATEGY_MODE=execute"', "set `"LIVING_SECTOR_STRATEGY_MODE=execute`"`r`nset `"LIVING_SECTOR_PLANNER=hybrid`"`r`nset `"LIVING_SECTOR_PLANNER_SHADOW=0`"`r`nset `"LIVING_SECTOR_PLANNER_COMPARE=0`"")
+          $launcher = $launcher.Replace('Living Galaxy 0.2', 'Living Galaxy 0.6.3 Specific Approvals')
+          Set-Content -LiteralPath (Join-Path $dist 'START-GALAXY.cmd') -Value $launcher -Encoding ascii
+
+          @'
+          Living Sector Galaxy 0.6.3 — Individual approvals of real Genesis actions (EXPERIMENTAL)
+          1. Extract the ENTIRE archive to a writable folder.
+          2. Double-click START-GALAXY.cmd. A server console opens and the
+             graphical Observer map opens in your browser.
+          3. Keep the server console open while playing. Ctrl+C stops it.
+          4. Saves use living-galaxy-063.db (separate from older builds).
+          5. Hybrid planner enabled. Simulation speed x16.
+          6. Vector art catalogue shipped at observer/art-catalog/index.html.
+             Those assets are reference placeholders; not every image is
+             rendered on the Galaxy map yet.
+          Source: Galaxy 0.5 native T2/T3 + actual player-research mandate control.
+          Governance MVP: research target, live prerequisite path, real expense ledger,
+          budget ceiling, treasury floor, advise/hold/delegated, cancel.
+          No promise of completed autonomous T2/T3 economy campaign.
+          Live economic governance: supply/industry mandates, owned station,
+          target stock, delegated/advise/hold, spend cap and reserve,
+          only native contracts/producers and real receipts.
+          Open /observer/governance-economy.html in the same browser.
+          Open /observer/governance-charter.html for cross-department
+          mandate priority, shared spending ceiling, approval tranches,
+          and protected reserve. This charter controls only player
+          mandates, not wages, emergencies or all independent AI actions.
+          Player review screen: /observer/governance-approvals.html
+          In economy_authority=review and economic mandate delegated,
+          a native ready quote produces ONE time-limited proposal.
+          An approval only authorizes exactly that native action and price,
+          and must be revalidated before funded execution.
+          A paid contract is NOT a delivered item or real factory output.
+          This artifact is a compiled integration candidate, not a stable release.
+          '@ | Set-Content -LiteralPath (Join-Path $dist 'READ-ME-FIRST.txt') -Encoding utf8
+
+          New-Item -ItemType Directory -Force -Path 'release' | Out-Null
+          Compress-Archive -LiteralPath $dist -DestinationPath 'release/Living-Sector-Galaxy-0.6.3-Windows.zip' -CompressionLevel Optimal -Force
+          Get-FileHash 'release/Living-Sector-Galaxy-0.6.3-Windows.zip' -Algorithm SHA256 | Format-List
+
+      - name: Upload game ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Galaxy-0.6.3-Windows
+          path: release/Living-Sector-Galaxy-0.6.3-Windows.zip
+          if-no-files-found: error
+          retention-days: 14
+
