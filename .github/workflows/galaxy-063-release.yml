@@ -6,6 +6,7 @@ on:
       - feature/galaxy-063-action-approvals
     paths:
       - '.github/workflows/galaxy-063-release.yml'
+      - 'ci/galaxy063/*.py'
   workflow_dispatch:
 
 permissions:
