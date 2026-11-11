@@ -1,0 +1,308 @@
+name: Galaxy 0.5 E - One major T2/T3 native progression integration
+
+on:
+  push:
+    branches:
+      - feature/galaxy-05-tier2-tier3-ai-campaign
+    paths:
+      - '.github/workflows/galaxy-05-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-galaxy:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout build harness
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Extract uploaded Galaxy sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = 'ci-input/LS-GALAXY-03-CI-INPUT.zip'
+          if (!(Test-Path $bundle)) {
+            throw 'Upload LS-GALAXY-03-CI-INPUT.zip into ci-input to trigger this build.'
+          }
+          New-Item -ItemType Directory -Force -Path 'work/input', 'work/source', 'work/art' | Out-Null
+          Expand-Archive -LiteralPath $bundle -DestinationPath 'work/input' -Force
+          $source = 'work/input/LS-AI-BLOCK-IV-SOURCES.zip'
+          $art = 'work/input/Living-Sector-Art-Catalog-v0.4.zip'
+          if (!(Test-Path $source) -or !(Test-Path $art)) {
+            throw 'The CI input bundle must contain both nested source and art ZIPs.'
+          }
+          Expand-Archive -LiteralPath $source -DestinationPath 'work/source' -Force
+          Expand-Archive -LiteralPath $art -DestinationPath 'work/art' -Force
+          if (!(Test-Path 'work/source/Living-Sector-Galaxy-0.2/Cargo.lock')) {
+            throw 'Unexpected source archive layout: Cargo.lock not found at expected root.'
+          }
+          if (!(Test-Path 'work/art/assets/stations/t1.svg')) {
+            throw 'Art catalogue is incomplete (assets/stations/t1.svg missing).'
+          }
+
+      - name: Apply Galaxy AI integration compile fixes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/fix_galaxy_sources.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy source overlay failed.' }
+
+      - name: Set up Python for reproducible source overlays
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply single Galaxy 0.4.1 economy and life-support patch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy04/apply.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4 A source overlay failed.' }
+
+      - name: Apply all Galaxy 0.5 native T2/T3 progression overlays
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy05/apply.py
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.5 native progression overlay failed.' }
+
+      - name: Verify Galaxy 0.4B eight-system topology
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy04/verify_worlds08.py
+          if ($LASTEXITCODE -ne 0) { throw 'Eight-system seed topology invalid.' }
+          node --check work/source/Living-Sector-Galaxy-0.2/observer/model.js
+          if ($LASTEXITCODE -ne 0) { throw 'Observer model syntax invalid.' }
+          node --check work/source/Living-Sector-Galaxy-0.2/observer/app.js
+          if ($LASTEXITCODE -ne 0) { throw 'Observer app syntax invalid.' }
+
+      - name: Verify priority-first Observer cards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'work/source/Living-Sector-Galaxy-0.2/observer'
+          node --check "$root/app.js"
+          if ($LASTEXITCODE -ne 0) { throw 'Observer app.js syntax invalid.' }
+          node --check "$root/priority-inspector.js"
+          if ($LASTEXITCODE -ne 0) { throw 'Priority inspector JS syntax invalid.' }
+          node --test "$root/priority-inspector.test.mjs"
+          if ($LASTEXITCODE -ne 0) { throw 'Priority inspector data grounding tests failed.' }
+          node --test "$root/model.test.mjs" "$root/station-economy.test.mjs"
+          if ($LASTEXITCODE -ne 0) { throw 'Existing Observer model regression failed.' }
+          $native = Get-Content -LiteralPath "$root/native.html" -Raw
+          if (!$native.Contains('/observer/priority-inspector.css')) {
+            throw 'Priority inspector stylesheet not wired into native UI.'
+          }
+
+      - name: Check Galaxy 0.4.1 integrated Rust
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo check -p sim_core -p sim_server
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4 integration has Rust compilation errors.' }
+
+      - name: Core money-conservation and delivery regressions
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_core --lib agents::faction::relief::tests --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Credit conservation tests failed.' }
+          cargo test -p sim_core --lib galaxy04_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'A2-A6 integration tests failed.' }
+          cargo test -p sim_core --lib strategy::orders::tests::station_order --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Native station dispatch regression failed.' }
+          cargo test -p sim_core --lib galaxy041_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Unified Galaxy 0.4.1 money-flow invariants failed.' }
+
+      - name: Full Galaxy 0.5 native core progression regressions
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_core --lib galaxy05_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Native T1/T2/T3 progression tests failed.' }
+
+      - name: Focused Galaxy 0.4B resource metadata test
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_core --lib agents::celestial_body::tests::galaxy04_resource_grades_are_descriptive_only --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Resource grade invariants failed.' }
+
+      - name: Engine transaction regressions for Galaxy 0.4.1
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test -p sim_server --lib galaxy041_ --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Galaxy 0.4.1 fuel and stock trading tests failed.' }
+
+      - name: Build fresh Windows Genesis server (hybrid AI)
+        shell: pwsh
+        working-directory: work/source/Living-Sector-Galaxy-0.2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo build --release -p sim_server --bin genesis_server
+          if ($LASTEXITCODE -ne 0) { throw 'Rust compilation failed. No Windows game was produced.' }
+          if (!(Test-Path 'target/release/genesis_server.exe')) {
+            throw 'Compiler reported success, but genesis_server.exe is missing.'
+          }
+
+      - name: Real Genesis gameplay smoke on fresh Windows database
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy04/smoke_run.py
+          if ($LASTEXITCODE -ne 0) { throw 'Live game startup, world and UI smoke failed.' }
+
+      - name: Upload standalone gameplay smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy-0.5-smoke-evidence
+          path: smoke-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Package portable playable Galaxy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = Join-Path (Get-Location) 'work/source/Living-Sector-Galaxy-0.2'
+          $dist = Join-Path (Get-Location) 'release/Living-Sector-Galaxy-0.5-Windows'
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
+          Copy-Item -LiteralPath (Join-Path $project 'target/release/genesis_server.exe') -Destination (Join-Path $dist 'Genesis-Server.exe')
+          Copy-Item -LiteralPath (Join-Path $project 'observer') -Destination (Join-Path $dist 'observer') -Recurse
+          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'priv/galaxy') | Out-Null
+          Copy-Item -LiteralPath (Join-Path $project 'priv/galaxy/data') -Destination (Join-Path $dist 'priv/galaxy/data') -Recurse
+
+          # Carry the selected vector-art set alongside the original Observer.
+          # The standalone catalogue is an art preview, NOT a claim that every
+          # proposed sprite is already wired into the in-game renderer.
+          $artDst = Join-Path $dist 'observer/art-catalog'
+          New-Item -ItemType Directory -Force -Path $artDst | Out-Null
+          Copy-Item -Path 'work/art/*' -Destination $artDst -Recurse -Force
+          if (Test-Path 'ci/visual-mapping.json') {
+            Copy-Item -LiteralPath 'ci/visual-mapping.json' -Destination (Join-Path $artDst 'visual-mapping.json')
+          }
+
+          $launcher = Get-Content -LiteralPath (Join-Path $project 'START-GALAXY.cmd') -Raw
+          $launcher = $launcher.Replace('living-galaxy-02.db', 'living-galaxy-05.db')
+          $launcher = $launcher.Replace('set "LIVING_SECTOR_STRATEGY_MODE=execute"', "set `"LIVING_SECTOR_STRATEGY_MODE=execute`"`r`nset `"LIVING_SECTOR_PLANNER=hybrid`"`r`nset `"LIVING_SECTOR_PLANNER_SHADOW=0`"`r`nset `"LIVING_SECTOR_PLANNER_COMPARE=0`"")
+          $launcher = $launcher.Replace('Living Galaxy 0.2', 'Living Galaxy 0.5 AI')
+          Set-Content -LiteralPath (Join-Path $dist 'START-GALAXY.cmd') -Value $launcher -Encoding ascii
+
+          @'
+          Living Sector Galaxy 0.5 T2/T3 AI Campaign (EXPERIMENTAL)
+          1. Extract the ENTIRE archive to a writable folder.
+          2. Double-click START-GALAXY.cmd. A server console opens and the
+             graphical Observer map opens in your browser.
+          3. Keep the server console open while playing. Ctrl+C stops it.
+          4. Saves use living-galaxy-05.db (separate from older builds).
+          5. Hybrid planner enabled. Simulation speed x16.
+          6. Vector art catalogue shipped at observer/art-catalog/index.html.
+             Those assets are reference placeholders; not every image is
+             rendered on the Galaxy map yet.
+          Source: Galaxy 0.4.1 + native T2/T3 research, production, slots and upgrade receipts.
+          This artifact is a compiled integration candidate, not a stable release.
+          '@ | Set-Content -LiteralPath (Join-Path $dist 'READ-ME-FIRST.txt') -Encoding utf8
+
+          New-Item -ItemType Directory -Force -Path 'release' | Out-Null
+          Compress-Archive -LiteralPath $dist -DestinationPath 'release/Living-Sector-Galaxy-0.5-Windows.zip' -CompressionLevel Optimal -Force
+          Get-FileHash 'release/Living-Sector-Galaxy-0.5-Windows.zip' -Algorithm SHA256 | Format-List
+
+      - name: Upload game ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Sector-Galaxy-0.5-Windows
+          path: release/Living-Sector-Galaxy-0.5-Windows.zip
+          if-no-files-found: error
+          retention-days: 14
+
+
+  economy-soak:
+    name: Galaxy 0.5 autonomous 18k-tick economy plus technology campaign
+    needs: windows-galaxy
+    # One full soak per successful release checkpoint. Edits that only
+    # touch the benchmark script do not trigger a full recompilation.
+    if: github.ref == 'refs/heads/feature/galaxy-05-tier2-tier3-ai-campaign'
+    runs-on: windows-latest
+    timeout-minutes: 65
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up native WebSocket event capture
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "websockets==14.2"
+          if ($LASTEXITCODE -ne 0) { throw 'WebSocket dependency installation failed.' }
+          python -m py_compile ci/galaxy041/autonomous_bench.py
+          if ($LASTEXITCODE -ne 0) { throw 'Autonomous bench has Python syntax error.' }
+
+      - name: Download compiled and smoke-tested Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: Living-Sector-Galaxy-0.5-Windows
+          path: bench-input
+
+      - name: Extract portable game without rebuilding
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = 'bench-input/Living-Sector-Galaxy-0.5-Windows.zip'
+          if (!(Test-Path $zip)) { throw 'Missing game ZIP.' }
+          Expand-Archive -LiteralPath $zip -DestinationPath bench-game -Force
+          $exe = 'bench-game/Living-Sector-Galaxy-0.5-Windows/Genesis-Server.exe'
+          if (!(Test-Path $exe)) { throw 'Windows game executable missing.' }
+          $data = 'bench-game/Living-Sector-Galaxy-0.5-Windows/priv/galaxy/data'
+          if (!(Test-Path $data)) { throw 'Packaged game seed data missing.' }
+
+      - name: Live economy scenario — 3000, 10000 and 18000 ticks
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUNBUFFERED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy041/autonomous_bench.py --game-dir bench-game/Living-Sector-Galaxy-0.5-Windows --output autonomous-bench-results --targets 3000,10000,18000 --sample-every 600 --timeout-seconds 2700
+          if ($LASTEXITCODE -ne 0) { throw 'Economic soak failed; read evidence artifact.' }
+
+      - name: Prove actual purchased research, T2/T3 production and paid station upgrades
+        shell: pwsh
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/galaxy05/campaign_acceptance.py --bench autonomous-bench-results --output autonomous-bench-results
+          if ($LASTEXITCODE -ne 0) {
+            throw 'The game ran but did not complete the actual native T2/T3 campaign. Inspect stage report.'
+          }
+
+      - name: Upload economic evidence on success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy-0.5-autonomous-economy-bench
+          path: autonomous-bench-results/
+          if-no-files-found: warn
+          retention-days: 21
