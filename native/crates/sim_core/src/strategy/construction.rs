@@ -59,6 +59,9 @@ pub struct ConstructionView {
     /// The StrategyView.reason stays "existing_contract" to avoid reposting.
     pub delivery_block_reason: Option<String>,
     pub delivery_commodity: Option<Commodity>,
+    /// Read-only native sequence: commission -> material -> paid labor ->
+    /// real production inputs -> observed recipe output.
+    pub execution_chain: Option<super::production_chain::Sequence>,
     #[serde(skip)]
     pub(super) offers: Vec<Offer>,
 }
@@ -68,7 +71,7 @@ impl ConstructionView {
             selected_goal: None, site_id: None, facility_type: None,
             progress_delivered: 0, progress_required: 0, labor_completed: 0, labor_required: 0, labor_blocked_reason: None,
             contract_id: None, delivery_status: None, delivery_block_reason: None,
-            delivery_commodity: None, offers: Vec::new() }
+            delivery_commodity: None, execution_chain: None,offers: Vec::new() }
     }
 }
 
