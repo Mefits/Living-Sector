@@ -39,6 +39,9 @@ pub struct HeadDecision {
     pub selected_option: &'static str,
     pub horizon_ticks: u64,
     pub alternatives: Vec<options::Alternative>,
+    /// At most eight real native goals with their comparable scores and
+    /// blockers, including options that cannot yet receive a paid order.
+    pub goal_reviews: Vec<options::GoalReview>,
     /// Read-only comparison; no grants, money changes or executor orders.
     pub shadow_portfolio: Option<options::ShadowRecommendation>,
     /// Native recipe-based dependency probe; not a construction or production order.
@@ -92,6 +95,8 @@ fn decision(
     let comparison = retained.or_else(||commander.map_or_else(||options::compare(view,sources,mult),
         |c|options::compare_director(view,sources,mult,c)));
     let shadow_portfolio = options::shadow_portfolio(view, sources, mult);
+    let goal_reviews=commander.map_or_else(Vec::new,|c|
+        options::review_director_goals(view,sources,mult,c));
     let native_chain_probe = options::native_chain_probe(comparison.as_ref().map(|c| &c.goal), sources);
     let selected_option = if already_commissioned { "wait" }
         else { comparison.as_ref().map_or("wait", |c| c.selected) };
@@ -138,7 +143,8 @@ fn decision(
         observed_tick: tick, selected_administrator: selected, reason: reason.into(),
         treasury_before: view.treasury, spending_limit: limit, planned_spend: planned,
         committed_spend: 0, proposals, problem, selected_option,
-        horizon_ticks: options::horizon_ticks(mult), alternatives, shadow_portfolio, native_chain_probe,
+        horizon_ticks: options::horizon_ticks(mult), alternatives,
+        goal_reviews,shadow_portfolio,native_chain_probe,
         policy_impacts:Vec::new(),planning_shadow: None, htn_execution: None,
     }
 }
@@ -868,6 +874,24 @@ mod tests {
         assert!(!p.selected);
         assert_eq!(world.resource::<director::Director>().economic_mandates["own"].spent_cr,0);
         assert!(!board.iter().any(|c|c.commodity==Commodity::Water));
+    }
+    #[test]
+    fn galaxy065_readonly_goal_reviews_are_sorted_and_do_not_create_orders(){
+        let (mut world,mut board,owner,_,_)=fixture();
+        world.resource_mut::<StrategyState>().mode=Mode::Shadow;
+        world.insert_resource(director::Director::default());
+        let before=world.get::<FactionData>(owner).unwrap().treasury;
+        run_cycle(&mut world,&mut board,&FactionRelations::new(),&mut Vec::new(),60,1);
+        let head=world.resource::<StrategyState>().factions["own"]
+            .head.as_ref().expect("head snapshot");
+        assert!(!head.goal_reviews.is_empty(),"head should show native goal alternatives");
+        assert!(head.goal_reviews.len()<=8);
+        assert!(head.goal_reviews.windows(2).all(|v|v[0].score>=v[1].score));
+        assert!(head.goal_reviews.iter().all(|g|g.score.is_finite()&&g.score>=0.0));
+        assert!(head.goal_reviews.iter().all(|g|
+            g.status=="ranked"||g.status=="blocked"));
+        assert!(board.iter().next().is_none(),"ranked alternatives never post contracts");
+        assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,before);
     }
     #[test]
     fn planner_shadow_is_read_only_and_projects_a_real_native_step() {

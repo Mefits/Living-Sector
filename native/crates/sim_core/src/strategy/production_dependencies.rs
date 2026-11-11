@@ -28,6 +28,49 @@
      ArithmeticOverflow,
  }
  
+ /// One shift of the *actual producer recipe*. This is an observation
+ /// of local inputs, NOT proof a factory is built, staffed, powered, or
+ /// profitable; missing goods may arrive through native logistics.
+ #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+ pub struct InputGap {
+     pub commodity: Commodity,
+     pub required: u64,
+     pub available: u64,
+     pub missing: u64,
+ }
+ 
+ #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+ pub struct LocalInputReadiness {
+     pub recipe_id: &'static str,
+     pub facility_type: &'static str,
+     pub ready_for_one_batch: bool,
+     pub inputs: Vec<InputGap>,
+ }
+ 
+ /// Inspect an actual native producer recipe for one batch at one station.
+ /// A refinery with multiple valid recipes uses the least-missing recipe,
+ /// ties broken by stable recipe ID. No virtual upstream production is assumed.
+ pub fn local_inputs_for_one_batch(
+     product: Commodity, facility_type: &str, stock: &HashMap<Commodity,u64>
+ ) -> Option<LocalInputReadiness> {
+     recipes::RECIPES.iter()
+         .filter(|r|r.facility_type==facility_type &&
+             r.outputs.iter().any(|(c,n)|*c==product && *n>0))
+         .map(|r|{
+             let inputs=r.inputs.iter().map(|&(commodity,qty)|{
+                 let required=u64::from(qty);
+                 let available=stock.get(&commodity).copied().unwrap_or(0);
+                 InputGap{commodity,required,available,missing:required.saturating_sub(available)}
+             }).collect::<Vec<_>>();
+             LocalInputReadiness{recipe_id:r.id,facility_type:r.facility_type,
+                 ready_for_one_batch:inputs.iter().all(|v|v.missing==0),inputs}
+         })
+         .min_by(|a,b|{
+             let total=|v:&LocalInputReadiness|v.inputs.iter().map(|g|g.missing).sum::<u64>();
+             total(a).cmp(&total(b)).then_with(||a.recipe_id.cmp(b.recipe_id))
+         })
+ }
+ 
  /// Build a conservative ingredient plan for multiple demanded outputs.
  ///
  /// Invariant: each raw good must already exist in the supplied local stocks.
@@ -171,6 +214,33 @@
          let p = ingredients(&[(Commodity::Fuel, 1), (Commodity::Water, 10)], &stock).unwrap();
          assert_eq!(p.steps.len(), 1, "ice processing produces both water and fuel");
          assert_eq!(p.steps[0].recipe_id, "process_ice");
+     }
+ 
+     #[test]
+     fn galaxy065_direct_recipe_inputs_are_real_not_virtual() {
+         let stock=HashMap::from([(Commodity::Water,2)]);
+         let p=local_inputs_for_one_batch(Commodity::Food,"farm",&stock).unwrap();
+         assert_eq!(p.recipe_id,"grow_food");
+         assert!(!p.ready_for_one_batch);
+         assert_eq!(p.inputs[0],InputGap{commodity:Commodity::Water,
+             required:3,available:2,missing:1});
+         let ready=local_inputs_for_one_batch(Commodity::Food,"farm",
+             &HashMap::from([(Commodity::Water,3)])).unwrap();
+         assert!(ready.ready_for_one_batch);
+         assert!(local_inputs_for_one_batch(Commodity::Food,"qfab3",&stock).is_none());
+         assert_eq!(stock[&Commodity::Water],2,"forecast never mutates native inventory");
+     }
+     #[test]
+     fn galaxy065_producer_recipe_checks_local_inputs_only() {
+         let raw=HashMap::from([(Commodity::Ore,10),(Commodity::Fuel,1)]);
+         let metal=local_inputs_for_one_batch(Commodity::Metals,"refinery",&raw).unwrap();
+         assert_eq!(metal.recipe_id,"smelt_metals");
+         assert!(metal.ready_for_one_batch);
+         let missing=local_inputs_for_one_batch(Commodity::Electronics,"factory",&raw).unwrap();
+         assert!(!missing.ready_for_one_batch);
+         assert!(missing.inputs.iter().any(|g|g.commodity==Commodity::Components&&g.missing==2));
+         // Constructing a factory does not magically smelt ore or spawn its inputs.
+         assert_eq!(raw[&Commodity::Ore],10);
      }
  
      #[test]
