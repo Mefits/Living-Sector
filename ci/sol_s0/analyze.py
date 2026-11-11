@@ -11,7 +11,7 @@ from pathlib import Path
 
 COMMODITIES=("food","water","fuel")
 STATION="earth-station"
-FACTION="genesis"
+FACTION="terran-authority"
 
 def D(x):return x if isinstance(x,dict) else {}
 def L(x):return x if isinstance(x,list) else []
@@ -28,9 +28,11 @@ def market(report,loc,resource):
 def pressure(report,loc,resource):
     m=market(report,loc,resource)
     shortages=[]
-    for f in L(D(report).get("facilities")):
-        if D(f).get("location")!=loc:continue
-        value=N(D(D(f).get("shortage_ticks")).get(resource))
+    # Real 0.6.2 shortage_ticks lives in MarketPricing API objects,
+    # not in facilities. Never infer another location's shortage.
+    for market_row in L(D(report).get("markets")):
+        if D(market_row).get("facility_location")!=loc:continue
+        value=N(D(D(market_row).get("shortage_ticks")).get(resource))
         if value is not None:shortages.append(value)
     st=max(shortages) if shortages else None
     on=bool(st is not None and st>0 or
@@ -40,20 +42,21 @@ def pressure(report,loc,resource):
         pressure_kind=("shortage_ticks" if st is not None and st>0 else
         "stock_below_market_demand" if on else None))
 
-def goals(strategy,loc,resource):
+def goals(strategy,loc,resource,faction):
     result=[]
     for f in L(D(strategy).get("factions")):
         f=D(f)
-        if f.get("faction_id",f.get("id"))!=FACTION:continue
+        if f.get("faction_id",f.get("id"))!=faction:continue
         for x in L(f.get("goals")):
             x=D(x)
             if x.get("destination",x.get("location"))==loc and x.get("commodity")==resource:
                 result.append({"goal_id":x.get("goal_id"),"status":x.get("status")})
     return result
 
-def contract_match(c,loc,resource):
+def contract_match(c,loc,resource,faction):
     return (c.get("commodity")==resource and
             c.get("destination_location",c.get("destination"))==loc and
+            c.get("faction_id")==faction and
             isinstance(c.get("id"),str) and bool(c["id"]))
 
 def inventory(samples,events):
@@ -95,9 +98,17 @@ def assess(samples,events,build_sha=None):
     samples=sorted(samples,key=lambda s:int(D(s.get("health")).get(
         "tick",D(s.get("report")).get("tick",0))))
     inv=inventory(samples,events)
+    # Identity is read from the actual station in the actual server snapshot.
+    owners={D(f).get("faction_id") for s in samples
+        for f in L(D(s.get("report")).get("facilities"))
+        if D(f).get("type")=="station" and D(f).get("location")==STATION}
+    owners.discard(None)
+    if len(owners)!=1:
+        raise ValueError("Sol S0 station owner missing or unstable: "+str(owners))
+    faction=next(iter(owners))
     result={"format":"sol-relief-s0-v1","build_sha":build_sha,
        "world_seed":D(samples[0].get("report")).get("world_seed") if samples else None,
-       "fresh_database":True,"faction_id":FACTION,"station_id":STATION,
+       "fresh_database":True,"faction_id":faction,"station_id":STATION,
        "sample_count":len(samples),"signal_inventory":inv,
        "by_commodity":{},"delivery_verified":False,"relief_verified":"unknown",
        "resilience_verified":"not_tested",
@@ -119,12 +130,12 @@ def assess(samples,events,build_sha=None):
                 x["t_pressure"]=tick
                 x["stock_before"]=obs["stock"]
                 x["pressure_kind"]=obs["pressure_kind"]
-            gs=goals(D(s.get("strategy")),STATION,item)
+            gs=goals(D(s.get("strategy")),STATION,item,faction)
             if gs and x["t_goal"] is None:
                 x["t_goal"]=tick;x["goal_id"]=gs[0]["goal_id"]
             for c in L(s.get("contracts")):
                 c=D(c)
-                if contract_match(c,STATION,item):
+                if contract_match(c,STATION,item,faction):
                     contracts.setdefault(c["id"],[]).append((tick,c))
         for cid,history in contracts.items():
             phases=[str(c.get("status","unknown")).lower() for _,c in history]
