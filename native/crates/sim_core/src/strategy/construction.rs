@@ -527,6 +527,50 @@ mod tests {
         assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,treasury);
     }
     #[test]
+    fn galaxy067_committed_goal_survives_new_head_choice_and_can_recommission() {
+        let (mut world,mut board,owner,port,_)=fixture();
+        world.insert_resource(super::super::director::Director::default());
+        let mut events=Vec::new();
+        let relations=FactionRelations::new();
+        run_cycle(&mut world,&mut board,&relations,&mut events,200,1);
+        let original=world.resource::<super::super::director::Director>()
+            .production_objectives.get("own").cloned().expect("real paid site remembered");
+        assert_eq!(original.commodity,Commodity::Food);
+        assert_eq!(original.created_tick,200);
+        let first_contract=original.contract_id.clone().unwrap();
+        let first_site=world.query::<(Entity,&ConstructionSite)>()
+            .iter(&world).next().unwrap().0;
+        // Head works on science for a few cycles. A transient construction
+        // view disappears, but its objective remains in the saved Director.
+        world.resource_mut::<StrategyState>().factions
+            .get_mut("own").unwrap().construction=None;
+        super::super::refresh(&mut world,&board,210);
+        assert_eq!(world.resource::<super::super::director::Director>()
+            .production_objectives["own"].created_tick,200);
+        assert_eq!(board.iter().count(),1);
+        // No second site/order until the earlier funded native order ends.
+        world.despawn(first_site);
+        run_cycle(&mut world,&mut board,&relations,&mut events,300,1);
+        assert_eq!(board.iter().count(),1);
+        // A genuinely paid/finished (or expired) contract may be retried
+        // with a fresh quote; the goal survives but no stale route is reused.
+        {
+            let old=board.get_mut(&first_contract).unwrap();
+            old.status=ContractStatus::Paid;
+            old.funding.as_mut().unwrap().reserved=0;
+        }
+        world.get_mut::<MarketHistory>(port).unwrap().shortage_ticks.clear();
+        run_cycle(&mut world,&mut board,&relations,&mut events,400,1);
+        assert_eq!(board.iter().count(),2,
+            "saved target should be re-offered without a fresh shortage");
+        assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,60_000);
+        let remembered=&world.resource::<super::super::director::Director>()
+            .production_objectives["own"];
+        assert_eq!(remembered.created_tick,200,"not restarted at retry");
+        assert_eq!(remembered.location,"port");
+        assert_ne!(remembered.contract_id.as_deref(),Some(first_contract.as_str()));
+    }
+    #[test]
     fn strategy_block_construction_shadow_then_funded_site_and_hold() {
         let (mut w,mut b,owner,_,_) = fixture(); let mut events = Vec::new(); let relations = FactionRelations::new();
         w.resource_mut::<StrategyState>().mode = Mode::Shadow;
