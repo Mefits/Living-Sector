@@ -53,7 +53,7 @@ justify-content:space-between;gap:14px}
 </section>
 <section>
  <article><h2>Полномочия и деньги</h2><div id="charter"></div></article>
- <article><h2>Контроль выполнения</h2><div id="execution"></div>
+ <article><h2>Контроль выполнения · путь решения</h2><div id="execution"></div>
   <p class="note">«Одобрено» ещё не значит «контракт оплачен».
   «Оплачено» не значит «товар доставлен» или «завод производит».
   Получение денег, поставки и производство всегда подтверждаются реальным Genesis.</p>
@@ -64,7 +64,8 @@ justify-content:space-between;gap:14px}
 "use strict";
 const el=id=>document.getElementById(id);
 let live=null,pending=null,selectedFaction=null;
-const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString("ru-RU")+" CR":"—";
+// Absent measurements are never presented as zero balances.
+const fmt=n=>typeof n==="number"&&Number.isFinite(n)?n.toLocaleString("ru-RU")+" CR":"—";
 const s=v=>v==null?"—":String(v);
 const kindNames={industry:"Строительство местного производства",
 supply:"Снабжение станции"};
@@ -119,8 +120,11 @@ function render(){
   row(offer,"Действует до тика",p.valid_until_tick);
   row(offer,"Причина",p.last_reason);
  }else{row(offer,"Предложение","Нет подходящей готовой нативной альтернативы")}
- const canChoose=p?.status==="pending" && charter?.economy_authority==="review" &&
-    mandate?.mode==="delegated";
+ const validTick=Number.isSafeInteger(live.strategy.snapshot_tick) &&
+   Number.isSafeInteger(p?.valid_until_tick) &&
+   live.strategy.snapshot_tick<=p.valid_until_tick;
+ const canChoose=p?.status==="pending" && validTick &&
+   charter?.economy_authority==="review" && mandate?.mode==="delegated";
  el("approve").disabled=!canChoose;
  el("reject").disabled=!canChoose;
  const c=el("charter");c.replaceChildren();
@@ -132,13 +136,46 @@ function render(){
  row(c,"Экономический лимит мандата",fmt(mandate?.budget_ceiling_cr));
  row(c,"Оплачено по мандату",fmt(mandate?.spent_cr));
  const x=el("execution");x.replaceChildren();
- row(x,"Режим мандата",mandate?.mode);
- row(x,"Последний статус",mandate?.last_reason);
- row(x,"Статус предложения",p?.last_reason);
- const head=live.strategy.factions?.find(v=>v.faction_id===id)?.head;
- row(x,"Выбор главы",head?.selected_option);
- row(x,"Причина выбора",head?.reason);
- row(x,"Факт списаний главы",fmt(head?.committed_spend));
+ const factionView=live.strategy.factions?.find(v=>v.faction_id===id);
+ const head=factionView?.head;
+ // No synthetic outcome is claimed: the API does not expose a durable
+ // proposal_id -> contract_id -> stock_delta receipt chain yet.
+ row(x,"1 · Поручение игрока",mandate
+   ? (kindNames[mandate.kind]||mandate.kind)+" · "+mandate.mode
+   : "Экономический мандат не задан");
+ row(x,"   Последнее решение по мандату",mandate?.last_reason);
+ row(x,"2 · Решение главы",head?.selected_option||"Пока не наблюдается");
+ row(x,"   Основание выбора",head?.reason);
+ row(x,"3 · Согласование",p
+   ? (stateNames[p.status]||p.status) : "Конкретное предложение не получено");
+ row(x,"   Последнее основание",p?.last_reason);
+ row(x,"4 · Оплаченное действие",p?.status==="consumed"
+   ? "Нативная квитанция зафиксирована для предложения"
+   : "Оплата по этому предложению не подтверждена");
+ row(x,"   Зарегистрированный расход главы",fmt(head?.committed_spend));
+ const targetLocation=p?.location??mandate?.location;
+ const targetCommodity=p?.commodity??mandate?.commodity;
+ const matching=(factionView?.projects||[]).filter(c=>
+   c.destination===targetLocation && c.commodity===targetCommodity);
+ row(x,"5 · Контракты того же назначения",matching.length
+   ? matching.slice(0,3).map(c=>s(c.contract_id)+" ("+s(c.state)+")").join("; ")
+   : "В текущей выборке проектов не наблюдаются");
+ const market=(live.report.markets||[]).find(m=>
+   m.facility_location===targetLocation);
+ const rawStock=market?.supply?.[targetCommodity];
+ row(x,"6 · Текущий запас в пункте назначения",
+   typeof rawStock==="number"&&Number.isFinite(rawStock)
+     ? rawStock.toLocaleString("ru-RU",{maximumFractionDigits:1})+" ед."
+     : "Нет данных в /api/report");
+ if(mandate?.kind==="supply")row(x,"   Целевой запас",
+   Number.isFinite(mandate.min_stock)?mandate.min_stock+" ед.":"—");
+ row(x,"Доказанный эффект поручения",
+   "Не определён: API пока не связывает предложение, контракт и изменение запаса");
+ const boundary=document.createElement("p");boundary.className="note";
+ boundary.textContent="Совпадение ресурса и станции у контрактов не доказывает, "+
+   "что они созданы именно этим предложением. Текущий запас — снимок, "+
+   "а не измеренное изменение от решения игрока.";
+ x.append(boundary);
  if(pending&&pending.faction_id===id&&p?.proposal_id===pending.proposal_id&&
     p.status===(pending.approve?"approved":"rejected")){
     notice(pending.approve?
