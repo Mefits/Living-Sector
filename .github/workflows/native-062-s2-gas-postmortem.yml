@@ -35,7 +35,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: Native-Gas-Golden-S2-Controlled-Evidence
-          run-id: 43027264221
+          run-id: 43029460803
           repository: Mefits/Living-Sector
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: work/s2-saved
@@ -51,7 +51,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Sol-S2-1263-Ticks-Exact-Contract-Postmortem
+          name: Sol-S2-1257-Ticks-Route1-Exact-Postmortem
           path: work/s2-diagnosis/
           if-no-files-found: warn
           retention-days: 21
