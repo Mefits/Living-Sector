@@ -917,15 +917,12 @@ async fn load_ships(
         let ship_size = sim_core::simulation::config::ShipSize::parse(&size_str)
             .unwrap_or(class_default_size);
 
-        // Phase 18f: size-aware default fitting. Tier-1 column means
-        // "use the class/size default" — size ≥ 5 gets tier-2 sensors
-        // at spawn, size 4 deterministically rolls 50%.
+        // Genesis seed may specify only comms_t2, not an explicit sensor
+        // choice. Apply such partial overrides ON TOP of the size-aware
+        // fitting (Huge gets sensors_t2); never reset omitted slots to T1.
+        // Fully persisted fittings keep their explicit sensor choice.
         let fitting_json: String = r.try_get("fitting").unwrap_or_default();
-        let fitting = if fitting_json.trim().is_empty() || fitting_json == "{}" {
-            sim_core::agents::ship::ShipFitting::new_for_size(ship_size, &id)
-        } else {
-            parse_ship_fitting(&fitting_json)
-        };
+        let fitting = parse_ship_fitting(&fitting_json, ship_size, &id);
         // Phase 18g: size-derived speed penalty. Compounds
         // multiplicatively with class speed_mod + fitting speed_mult
         // so a size-5 freighter with tier-2 engines is distinct from
@@ -1279,42 +1276,82 @@ fn parse_ship_progression(json: &str) -> sim_core::agents::ship::ShipProgression
     }
 }
 
-/// Parse a `ships.fitting` JSON blob (slot_name → slug | null) into a
-/// `ShipFitting`. Empty / missing / malformed input falls back to the
-/// tier-1 default — a pre-Phase-18b row stored as `'{}'` round-trips
-/// cleanly into a baseline-neutral fitting.
-fn parse_ship_fitting(json: &str) -> sim_core::agents::ship::ShipFitting {
-    use sim_core::modules::{NUM_SLOTS, SLOTS};
-    let v: serde_json::Value = match serde_json::from_str(json) {
-        Ok(v) => v,
-        Err(_) => return sim_core::agents::ship::ShipFitting::new_default(),
+/// Parse seed/persisted module choices on top of the size-aware fitting.
+///
+/// A partial seed like {"comms":"comms_t2"} is NOT a request to replace
+/// sensors_t2 of a Huge hauler with sensors_t1. Absent keys inherit the
+/// size baseline; explicit values (including null) remain authoritative.
+/// This applies to fresh Genesis seeds and partial legacy JSON only.
+/// Existing fully populated save rows retain their chosen sensors.
+fn parse_ship_fitting(
+    json: &str,
+    size: sim_core::simulation::config::ShipSize,
+    ship_id: &str,
+) -> sim_core::agents::ship::ShipFitting {
+    use sim_core::modules::SLOTS;
+    let baseline = sim_core::agents::ship::ShipFitting::new_for_size(size, ship_id);
+    let parsed: serde_json::Value = match serde_json::from_str(json) {
+        Ok(value) => value,
+        Err(_) => return baseline,
     };
-    let Some(obj) = v.as_object() else {
-        return sim_core::agents::ship::ShipFitting::new_default();
-    };
-    // Treat empty object as "use defaults" for every slot — matches the
-    // migration default.
-    if obj.is_empty() {
-        return sim_core::agents::ship::ShipFitting::new_default();
-    }
-    let mut raw: [Option<String>; NUM_SLOTS] = Default::default();
+    let Some(obj) = parsed.as_object() else { return baseline; };
+    let mut raw = baseline.slots.map(|slug| slug.map(str::to_owned));
     for slot in SLOTS.iter().copied() {
-        raw[slot.index()] = obj
-            .get(slot.as_str())
-            .and_then(|v| {
-                if v.is_null() {
-                    None
-                } else {
-                    v.as_str().map(|s| s.to_string())
-                }
-            });
-        // If the key was *missing entirely* (not null), fall back to
-        // the default so partial migrations still yield a viable fit.
-        if raw[slot.index()].is_none() && !obj.contains_key(slot.as_str()) {
-            raw[slot.index()] = Some(sim_core::modules::default_for_slot(slot).to_string());
+        if let Some(value) = obj.get(slot.as_str()) {
+            // Invalid/non-string values are ignored, rather than
+            // accidentally removing a valid baseline module.
+            if value.is_null() {
+                raw[slot.index()] = None;
+            } else if let Some(slug) = value.as_str() {
+                raw[slot.index()] = Some(slug.to_string());
+            }
         }
     }
     sim_core::agents::ship::ShipFitting::from_slugs(&raw)
+}
+
+#[cfg(test)]
+mod genesis_partial_ship_fitting_tests {
+    use super::parse_ship_fitting;
+    use sim_core::modules::Slot;
+    use sim_core::simulation::config::ShipSize;
+
+    #[test]
+    fn partial_comms_override_retains_huge_hauler_sensors_t2() {
+        let fitting = parse_ship_fitting(
+            r#"{"comms":"comms_t2"}"#, ShipSize::Huge, "terran-authority-hauler-5",
+        );
+        assert_eq!(fitting.slots[Slot::Sensors.index()], Some("sensors_t2"));
+        assert_eq!(fitting.slots[Slot::Comms.index()], Some("comms_t2"));
+        assert!(fitting.derived.sensor_range_au >= 2.0);
+    }
+
+    #[test]
+    fn fully_specified_legacy_fitting_retains_explicit_sensors_t1() {
+        let fitting = parse_ship_fitting(
+            r#"{"comms":"comms_t2","sensors":"sensors_t1"}"#,
+            ShipSize::Huge, "legacy-hauler",
+        );
+        assert_eq!(fitting.slots[Slot::Sensors.index()], Some("sensors_t1"));
+        assert_eq!(fitting.slots[Slot::Comms.index()], Some("comms_t2"));
+    }
+
+    #[test]
+    fn small_and_medium_partial_seeds_keep_tier1_sensors() {
+        for size in [ShipSize::Small, ShipSize::Medium] {
+            let fitting = parse_ship_fitting(
+                r#"{"comms":"comms_t2"}"#, size, "terran-freighter",
+            );
+            assert_eq!(fitting.slots[Slot::Sensors.index()], Some("sensors_t1"));
+            assert_eq!(fitting.slots[Slot::Comms.index()], Some("comms_t2"));
+        }
+    }
+
+    #[test]
+    fn empty_fitting_honors_huge_size_baseline() {
+        let fitting = parse_ship_fitting("{}", ShipSize::Huge, "large-hauler");
+        assert_eq!(fitting.slots[Slot::Sensors.index()], Some("sensors_t2"));
+    }
 }
 
 fn parse_cargo(json: &str) -> Cargo {
