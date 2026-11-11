@@ -50,11 +50,54 @@ pub struct Project {
     pub commodity: Commodity,
     pub quantity: u32,
 }
+/// Exact native contract state associated with a shortage goal.
+#[derive(Clone, Debug, Serialize)]
+pub struct PendingDelivery {
+    pub contract_id: String,
+    pub status: &'static str,
+    pub source: String,
+    pub quantity: u32,
+    pub posted_at_tick: u64,
+    pub age_ticks: u64,
+    pub fulfiller_id: Option<String>,
+    pub station_order_executor_id: Option<String>,
+    pub station_order_blocked_reason: Option<String>,
+    pub reserved_credits: i64,
+}
+impl PendingDelivery {
+    fn from_native(c: &crate::economy::contracts::Contract, tick: u64) -> Self {
+        let order = c.funding.as_ref().and_then(|f| f.station_order.as_ref());
+        Self {
+            contract_id: c.id.clone(),
+            status: match c.status {
+                ContractStatus::Posted => "posted",
+                ContractStatus::Accepted => "accepted",
+                ContractStatus::PickedUp => "picked_up",
+                ContractStatus::Delivered => "delivered",
+                ContractStatus::Paid => "paid",
+                ContractStatus::Expired => "expired",
+            },
+            source: c.source_location.clone(),
+            quantity: c.quantity,
+            posted_at_tick: c.posted_at_tick,
+            age_ticks: tick.saturating_sub(c.posted_at_tick),
+            fulfiller_id: c.fulfiller_id.clone(),
+            station_order_executor_id: order.and_then(|o| o.executor_id.clone()),
+            station_order_blocked_reason: order.and_then(|o| o.blocked_reason.clone()),
+            reserved_credits: c.funding.as_ref().map_or(0, |f| f.reserved),
+        }
+    }
+}
+
+/// An existing order prevents duplicates, but does NOT imply a carrier
+/// accepted it or any physical goods reached the target station.
 #[derive(Clone, Debug, Serialize)]
 pub struct GoalAssessment {
     pub goal: Goal,
     pub reason: String,
     pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_delivery: Option<PendingDelivery>,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct FactionView {
@@ -127,6 +170,26 @@ fn goal_id(c: Commodity) -> &'static str {
 fn outstanding(c: &crate::economy::contracts::Contract) -> bool {
     !matches!(c.status, ContractStatus::Paid | ContractStatus::Expired)
         || c.funding.as_ref().is_some_and(|f| f.reserved > 0)
+}
+
+/// "Posted" is not "being delivered". Distinguish genuinely held,
+/// in-flight and unassigned commitments WITHOUT issuing another order.
+/// 180 native ticks is a reporting threshold, not a retry or timeout.
+const UNASSIGNED_DIAGNOSTIC_AGE_TICKS: u64 = 180;
+fn existing_delivery_reason(pending: &PendingDelivery) -> &'static str {
+    match pending.status {
+        "posted" if pending.fulfiller_id.is_none()
+            && pending.station_order_executor_id.is_none()
+            && pending.age_ticks >= UNASSIGNED_DIAGNOSTIC_AGE_TICKS =>
+            "existing_contract_unassigned_stale",
+        "posted" if pending.fulfiller_id.is_none()
+            && pending.station_order_executor_id.is_none() =>
+            "existing_contract_unassigned",
+        "posted" if pending.station_order_executor_id.is_some() =>
+            "existing_contract_assigned",
+        "expired" => "existing_contract_refund_pending",
+        _ => "existing_contract",
+    }
 }
 /// Called at the existing faction subsidy cadence. In execute mode it replaces
 /// only subsidy selection; taxes, construction and independent ships remain native.
@@ -209,14 +272,25 @@ pub fn run_cycle(world: &mut World, contracts: &mut ContractBoard,
         let payment = faction::SUBSIDY_BASE_PAYMENT * 2;
         let affordable = faction.treasury.saturating_sub(faction::FACTION_SUBSIDY_FLOOR) >= payment;
         let assessments: Vec<_> = goals.iter().map(|goal| {
-            let duplicate = contracts.iter().any(|c| (c.requestor_id == faction.id || c.faction_id.as_deref()==Some(faction.id.as_str())) && outstanding(c) &&
-                c.commodity == goal.commodity && c.destination_location == goal.destination);
+            // Same native board as the ship and economy: no parallel project
+            // lifecycle or inferred stock/credit changes. Stable ID selection
+            // makes the diagnosis repeatable over multiple save loads.
+            let duplicate = contracts.iter().filter(|c|
+                (c.requestor_id == faction.id ||
+                    c.faction_id.as_deref() == Some(faction.id.as_str())) &&
+                outstanding(c) && c.commodity == goal.commodity &&
+                c.destination_location == goal.destination)
+                .min_by(|a,b|a.posted_at_tick.cmp(&b.posted_at_tick)
+                    .then_with(||a.id.cmp(&b.id)));
+            let pending_delivery = duplicate.map(|c| PendingDelivery::from_native(c,tick));
             let source = sources.choose(&faction.id, &goal.destination, goal.commodity,
                 faction::SUBSIDY_QUANTITY, payment);
-            let reason = if duplicate { "existing_contract" }
-                else if let Err(reason) = source { reason }
+            let reason = if let Some(pending) = &pending_delivery {
+                existing_delivery_reason(pending)
+            } else if let Err(reason) = source { reason }
                 else if !affordable { "insufficient_budget" } else { "ready" };
-            GoalAssessment { goal: goal.clone(), reason: reason.into(), source: source.ok() }
+            GoalAssessment { goal: goal.clone(), reason: reason.into(),
+                source: source.ok(), pending_delivery }
         }).collect();
         let candidate = assessments.iter()
             .find(|a| a.reason == "ready" && coordination::authorized(world, &faction.id, "logistics", &a.goal))
@@ -254,7 +328,12 @@ pub fn run_cycle(world: &mut World, contracts: &mut ContractBoard,
                 view.status = "commissioned".into(); view.reason = "funded_native_contract".into();
             }
         } else if let Some(first) = view.assessments.first() {
-            view.status = if first.reason == "existing_contract" { "waiting" } else { "blocked" }.into();
+            // An unassigned old order is not in execution: make the
+            // observable state blocked without reposting or spending money.
+            view.status = if first.reason.starts_with("existing_contract")
+                && first.reason != "existing_contract_unassigned_stale" {
+                "waiting"
+            } else { "blocked" }.into();
             view.reason = first.reason.clone();
         }
         world.resource_mut::<StrategyState>().factions.insert(faction.id, view);
@@ -517,8 +596,51 @@ mod tests {
         run_cycle(&mut world, &mut board, &FactionRelations::new(), 60, 1);
         assert_eq!(board.iter().count(), 2);
         let view = &world.resource::<StrategyState>().factions["own"];
-        assert_eq!(view.assessments[0].reason, "existing_contract");
+        assert_eq!(view.assessments[0].reason, "existing_contract_unassigned");
+        assert_eq!(view.assessments[0].pending_delivery.as_ref().unwrap().status, "posted");
+        assert!(view.assessments[0].pending_delivery.as_ref().unwrap().fulfiller_id.is_none());
         assert_eq!(view.selected_goal.as_ref().unwrap().commodity, Commodity::Ore);
+    }
+
+    #[test]
+    fn strategy_native_unassigned_delivery_becomes_visible_stalled_without_duplicate() {
+        let (mut world, mut board, _, _, source) = fixture(Mode::Execute);
+        let relations = FactionRelations::new();
+        world.get_mut::<MarketPricing>(source).unwrap().supply
+            .insert(Commodity::Food, 500.0);
+        let id = board.post_subsidy("own".into(), Commodity::Food, 200,
+            "mine".into(), "port".into(), 1600, 0, 1000);
+        run_cycle(&mut world, &mut board, &relations, 60, 1);
+        let view = &world.resource::<StrategyState>().factions["own"];
+        let food = view.assessments.iter().find(|a|a.goal.commodity==Commodity::Food).unwrap();
+        assert_eq!(food.reason, "existing_contract_unassigned");
+        let before=food.pending_delivery.as_ref().unwrap();
+        assert_eq!(before.contract_id, id);
+        assert_eq!(before.status, "posted");
+        assert_eq!(before.age_ticks, 60);
+        assert!(before.fulfiller_id.is_none());
+
+        // Existing posted request must not be considered delivered or
+        // trigger a second spend solely because no ship accepted it.
+        run_cycle(&mut world, &mut board, &relations, 360, 1);
+        let view = &world.resource::<StrategyState>().factions["own"];
+        let food = view.assessments.iter().find(|a|a.goal.commodity==Commodity::Food).unwrap();
+        assert_eq!(food.reason, "existing_contract_unassigned_stale");
+        assert_eq!(food.pending_delivery.as_ref().unwrap().age_ticks, 360);
+        assert_eq!(board.iter().filter(|c|c.commodity==Commodity::Food
+            && c.destination_location=="port").count(), 1);
+
+        // The exact SAME contract transitions to accepted; the head can
+        // distinguish real execution from a stalled posted request.
+        assert!(board.accept(&id, "ship-test".into(), 370));
+        run_cycle(&mut world, &mut board, &relations, 420, 1);
+        let view = &world.resource::<StrategyState>().factions["own"];
+        let food = view.assessments.iter().find(|a|a.goal.commodity==Commodity::Food).unwrap();
+        assert_eq!(food.reason, "existing_contract");
+        let after=food.pending_delivery.as_ref().unwrap();
+        assert_eq!(after.status, "accepted");
+        assert_eq!(after.fulfiller_id.as_deref(), Some("ship-test"));
+        assert_eq!(after.contract_id, id);
     }
 
     #[test]

@@ -152,3 +152,117 @@ fn station_order_keeps_existing_source_when_a_carrier_is_eligible() {
     cycle(&mut world,&mut board,&registry,1);
     assert_eq!(board.get(&id).unwrap().source_location,"source");
 }
+
+#[test]
+fn facility_relief_waits_then_dispatches_only_to_native_t2_qualified_carrier() {
+    use crate::agents::facility::{FacilityIdentity, FacilityOperations};
+    use crate::agents::celestial_body::BodyIdentity;
+    use crate::agents::ship::ShipFitting;
+    use crate::modules::Slot;
+    use crate::simulation::config::ShipSize;
+    let (mut world, mut board, mut registry, a, b)=fixture();
+    // A real own-faction business actually paid this public market request.
+    world.spawn((
+        FacilityIdentity {db_id:91,id:"facility-refining".into(),name:"Refining".into(),
+            facility_type:"refinery".into(),faction_id:"civ".into(),body_id:"earth".into()},
+        FacilityOperations {docking_capacity:0,services:vec![],condition:1.0,
+            reputation:0,credits:1000,dirty:false,starving_notified:false}
+    ));
+    let id=board.post_delivery_for("facility-refining".into(),Some("civ".into()),
+        Commodity::Ore,10,"source".into(),"port".into(),200,0,10000);
+    board.register_prepaid(&id,FundingSource::Facility);
+
+    world.spawn(BodyIdentity {db_id:101,body_id:"earth".into(),name:"Earth".into(),
+        body_type:"planet".into(),star_system_id:1,system_name:"sol".into()});
+    world.spawn(BodyIdentity {db_id:102,body_id:"alpha".into(),name:"Alpha".into(),
+        body_type:"planet".into(),star_system_id:2,system_name:"alpha".into()});
+    registry.locations.get_mut("source").unwrap().celestial_body_id=101;
+    registry.locations.get_mut("port").unwrap().celestial_body_id=102;
+
+    let before=crate::economy::money::MoneySnapshot::capture(&mut world,&board).total;
+    cycle(&mut world,&mut board,&registry,179);
+    assert!(contract_order(board.get(&id).unwrap()).is_none(),
+        "Ordinary new facility offers must remain public, without early dispatch");
+    cycle(&mut world,&mut board,&registry,180);
+    let blocked=contract_order(board.get(&id).unwrap()).unwrap();
+    assert_eq!(blocked.blocked_reason.as_deref(),Some("no_sensor_qualified_carrier"));
+    assert!(may_accept(board.get(&id).unwrap(),"independent","independent"),
+        "Unassigned rescue must not hide the public market from private pilots");
+
+    // One properly upgraded ship can accept the EXISTING funded order.
+    let mut fit=ShipFitting::new_for_size(ShipSize::Medium,"a");
+    fit.set(Slot::Sensors,Some("sensors_t2"));
+    world.entity_mut(a).insert(fit);
+    cycle(&mut world,&mut board,&registry,210);
+    let c=board.get(&id).unwrap();
+    assert_eq!(contract_order(c).unwrap().executor_id.as_deref(),Some("a"));
+    assert!(!may_accept(c,"b","civ"));
+    assert!(!may_accept(c,"0-independent","independent"));
+    assert_eq!(c.status,ContractStatus::Posted);
+    assert_eq!(c.funding.as_ref().unwrap().reserved,200);
+    assert_eq!(crate::economy::money::MoneySnapshot::capture(&mut world,&board).total,before);
+    let market=world.query::<(&MarketIdentity,&MarketPricing)>().iter(&world)
+        .find(|(m,_)|m.facility_location=="source").unwrap().1;
+    assert_eq!(market.supply[&Commodity::Ore],100.0);
+
+    assert!(board.accept(&id,"a".into(),211));
+    cycle(&mut world,&mut board,&registry,211);
+    let c=board.get(&id).unwrap();
+    assert_eq!(contract_order(c).unwrap().state,"executing");
+    assert_eq!(contract_order(c).unwrap().executor_id.as_deref(),Some("a"));
+
+    // If the order is never accepted, lease expires and public market
+    // reopens; no permanent lock on the rest of the economy.
+    let (mut world2,mut board2,mut registry2,a2,_)=fixture();
+    world2.spawn((FacilityIdentity {db_id:92,id:"facility-refining".into(),
+        name:"Refining".into(),facility_type:"refinery".into(),
+        faction_id:"civ".into(),body_id:"earth".into()},
+        FacilityOperations {docking_capacity:0,services:vec![],condition:1.0,
+            reputation:0,credits:1000,dirty:false,starving_notified:false}));
+    let id2=board2.post_delivery_for("facility-refining".into(),Some("civ".into()),
+        Commodity::Ore,10,"source".into(),"port".into(),200,0,10000);
+    board2.register_prepaid(&id2,FundingSource::Facility);
+    // Same-system rescue: a T1 ship is eligible because topology is known.
+    world2.spawn(BodyIdentity {db_id:101,body_id:"earth".into(),name:"Earth".into(),
+        body_type:"planet".into(),star_system_id:1,system_name:"sol".into()});
+    registry2.locations.get_mut("source").unwrap().celestial_body_id=101;
+    registry2.locations.get_mut("port").unwrap().celestial_body_id=101;
+    cycle(&mut world2,&mut board2,&registry2,180);
+    assert_eq!(contract_order(board2.get(&id2).unwrap()).unwrap().executor_id.as_deref(),Some("a"));
+    cycle(&mut world2,&mut board2,&registry2,480);
+    assert!(contract_order(board2.get(&id2).unwrap()).unwrap().executor_id.is_none());
+    assert!(may_accept(board2.get(&id2).unwrap(),"independent","independent"));
+    let _=a2; let _=b; 
+}
+
+#[test]
+fn facility_relief_never_assigns_without_escrow_topup_or_when_shadow() {
+    use crate::agents::facility::{FacilityIdentity, FacilityOperations};
+    use crate::agents::celestial_body::BodyIdentity;
+    let (mut world,mut board,mut registry,_,_)=fixture();
+    world.spawn(BodyIdentity {db_id:101,body_id:"earth".into(),name:"Earth".into(),
+        body_type:"planet".into(),star_system_id:1,system_name:"sol".into()});
+    registry.locations.get_mut("source").unwrap().celestial_body_id=101;
+    registry.locations.get_mut("port").unwrap().celestial_body_id=101;
+    world.spawn((
+        FacilityIdentity {db_id:91,id:"facility-refining".into(),name:"Refining".into(),
+            facility_type:"refinery".into(),faction_id:"civ".into(),body_id:"earth".into()},
+        FacilityOperations {docking_capacity:0,services:vec![],condition:1.,
+            reputation:0,credits:0,dirty:false,starving_notified:false}
+    ));
+    let id=board.post_delivery_for("facility-refining".into(),Some("civ".into()),
+        Commodity::Ore,10,"source".into(),"port".into(),200,0,10000);
+    board.register_prepaid(&id,FundingSource::Facility);
+    board.get_mut(&id).unwrap().payment=400; // native payment escalation
+    world.resource_mut::<StrategyState>().mode=Mode::Shadow;
+    cycle(&mut world,&mut board,&registry,180);
+    assert!(contract_order(board.get(&id).unwrap()).is_none());
+    world.resource_mut::<StrategyState>().mode=Mode::Execute;
+    let before=crate::economy::money::MoneySnapshot::capture(&mut world,&board).total;
+    cycle(&mut world,&mut board,&registry,180);
+    let c=board.get(&id).unwrap();
+    assert_eq!(contract_order(c).unwrap().blocked_reason.as_deref(),Some("no_viable_local_carrier"));
+    assert_eq!(c.funding.as_ref().unwrap().reserved,200);
+    assert_eq!(crate::economy::money::MoneySnapshot::capture(&mut world,&board).total,before);
+    assert!(may_accept(c,"independent","independent"));
+}
