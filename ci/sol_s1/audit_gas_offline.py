@@ -102,7 +102,11 @@ def analyze(samples,events):
         hauler_path.append({"tick":tick,"location":hauler.get("location"),
             "active_contract_id":active,"current_goal":hauler.get("current_goal"),
             "fitting_sensor_range_au":obj(obj(hauler.get("fitting")).get("stats")).get("sensor_range_au"),
-            "credits":hauler.get("credits")})
+            "credits":hauler.get("credits"),
+            "ship_report_keys":sorted(hauler),
+            "transit_or_position_fields":{k:v for k,v in hauler.items()
+                 if any(tok in k.lower() for tok in ("transit","progress","eta","route",
+                    "position","travel","destination","current_leg","dock","system","cargo"))}})
     active_contract_details=[]
     for sample in samples:
         for c in arr(sample.get("contracts")):
@@ -131,6 +135,8 @@ def analyze(samples,events):
         "fleet_first_last":ships,
         "hauler_path":hauler_path,
         "hauler_actual_contracts":active_contract_details,
+        "hauler_contract_events":[record for record in events
+            if str(obj(obj(record).get("event",record)).get("contract_id")) in active_ids],
         "generic_rejection_reasons_not_gas_scoped":dict(rejection),
         "gas_specific_rejections":targeted,
         "gas_specific_events":contract_events,
@@ -206,6 +212,7 @@ def main():
         "gas_orders_last":last_orders[:15],
         "hauler_path":res["hauler_path"],
         "hauler_actual_contracts":res["hauler_actual_contracts"][:20],
+        "hauler_contract_events":res["hauler_contract_events"][:20],
         "generic_rejections":res["generic_rejection_reasons_not_gas_scoped"],
         "direct_gas_rejections":len(res["gas_specific_rejections"]),
         "contracts_funding":[{"id":cid,"requestor_id":r["last"].get("requestor_id"),
