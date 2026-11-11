@@ -223,14 +223,14 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
         } else {c.fixed_strategy_reward().is_some_and(|reward|c.funding_top_up(reward)==Ok(0))};
         if c.status!=ContractStatus::Posted || o.executor_id.is_some() || tick<o.retry_after_tick
             || !authorized {continue;}
-        let faction=c.faction_id.as_deref().unwrap_or("");
+        let faction=c.faction_id.clone().unwrap_or_default();
         let source_owner=owners.get(&c.source_location).map_or("",String::as_str);
         let destination_owner=owners.get(&c.destination_location).map_or("",String::as_str);
         let selected=ships.iter().filter(|s|!faction.is_empty() && s.faction==faction && !s.busy && !used.contains(&s.id))
             .filter_map(|s| {
                 if !commerce_allowed(relations,&s.faction,source_owner) || !commerce_allowed(relations,&s.faction,destination_owner) {return None;}
                 if facility && !facility_sensors_allow(s,c,&location_system) {return None;}
-                if facility && s.reputation.get(faction).copied().unwrap_or(0)<c.min_reputation {return None;}
+                if facility && s.reputation.get(&faction).copied().unwrap_or(0)<c.min_reputation {return None;}
                 let route=distance(registry,&s.location,&c.source_location)?.saturating_add(distance(registry,&c.source_location,&c.destination_location)?);
                 if c.mission_category.as_deref() == Some(super::colony::PROJECT_TAG)
                     && !reachable(&c.destination_location, s.speed) { return None; }
@@ -247,7 +247,7 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
                 let reward=if facility {
                     // The exclusive native Accept path will repeat these
                     // checks and atomically debit any escrow top-up.
-                    let treaty=trade_pact_payment_multiplier(relations,&s.faction,faction);
+                    let treaty=trade_pact_payment_multiplier(relations,&s.faction,&faction);
                     let reward=c.acceptance_payment(s.comms_bonus,treaty).ok()?;
                     let top_up=c.funding_top_up(reward).ok()?;
                     if top_up>facility_payers.get(&c.requestor_id).copied().unwrap_or(-1) {
@@ -273,7 +273,7 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
                 let owner = owners.get(other_source).map_or("", String::as_str);
                 let stock = market.supply.get(&c.commodity).copied().unwrap_or(0.0);
                 if !stock.is_finite() || stock < c.quantity as f32 ||
-                    !commerce_allowed(relations, faction, owner) { continue; }
+                    !commerce_allowed(relations, &faction, owner) { continue; }
                 for ship in ships.iter().filter(|s|
                     s.faction == faction && !s.busy && !used.contains(&s.id) &&
                     s.free >= c.quantity &&
@@ -288,7 +288,7 @@ pub fn dispatch(world: &mut World, board: &mut ContractBoard, relations: &Factio
                         ship.reputation.get(owner).copied().unwrap_or(0), owner,
                     ) else { continue; };
                     if cost >= c.initial_payment || cost > ship.credits { continue; }
-                    viable.push((owner != faction, route, cost, other_source.clone(), ship.id.clone()));
+                    viable.push((owner != faction.as_str(), route, cost, other_source.clone(), ship.id.clone()));
                 }
             }
             // Own-faction supply wins; then shortest viable route, then
