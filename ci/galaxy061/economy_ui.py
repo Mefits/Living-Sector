@@ -1,0 +1,251 @@
+"""Galaxy061: live economic player intent screen, no fake mission results.
+
+Only actual /api/report and /api/strategy data. A successful POST means
+QUEUED, never means a delivered stock or a constructed factory.
+"""
+from pathlib import Path
+root=Path(__file__).resolve().parents[2]/"work/source/Living-Sector-Galaxy-0.2"
+ui=root/"observer"
+page=ui/"governance-economy.html"
+if page.exists():raise RuntimeError("Economic governance page already exists")
+page.write_text(r'''<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Living Sector — Экономические мандаты</title>
+<style>
+:root{color-scheme:dark;background:#0c1520;color:#d8e6ed;font:14px system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0}a{color:#82cbd1;text-decoration:none}
+a:hover{text-decoration:underline}header{background:#111f2d;border-bottom:1px solid #304357;padding:18px 24px;
+display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
+h1{font-size:20px;margin:0}header small,.muted{color:#98afbd}
+main{max-width:1360px;margin:auto;padding:20px;display:grid;gap:18px;grid-template-columns:minmax(310px,420px) minmax(330px,1fr)}
+article{background:#152436;border:1px solid #2b4557;border-radius:8px;padding:18px;margin-bottom:16px}
+h2{font-size:17px;margin:0 0 13px}h3{margin:0 0 12px;font-size:15px}
+label{display:block;color:#b5c9d5;margin:12px 0 5px}
+input,button,select{width:100%;background:#1b3041;border:1px solid #405a6d;
+border-radius:6px;color:#e2f0f7;font:inherit;padding:10px}
+button{cursor:pointer;background:#24616c;font-weight:600}
+button.alt{background:#293b4e}
+button:hover{filter:brightness(1.12)}button:disabled{opacity:.6;cursor:default}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.help{font-size:12px;line-height:1.55;color:#9cb2be}
+.notice{background:#1d3446;border-left:3px solid #81b7c7;padding:12px;margin-top:14px}
+.notice.error{border-color:#d6847c}
+.line{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #2d4254}
+.line span:first-child{color:#a5bfcb}.line strong{text-align:right;font-variant-numeric:tabular-nums}
+.tag{display:inline-flex;padding:3px 8px;background:#263d50;border-radius:5px}
+progress{width:100%;height:13px;accent-color:#82bec8}
+@media(max-width:820px){main{grid-template-columns:1fr;padding:12px}.duo{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><div><h1>Экономические мандаты</h1>
+<small>Одна цель фракции, автономное исполнение без приказов кораблям</small></div>
+<nav><a href="/observer/">Галактика</a>　<a href="/observer/governance.html">Научное управление</a></nav></header>
+<main>
+<section>
+<article>
+<h2>Задать результат</h2>
+<form id="form">
+<label for="faction">Управляемая фракция</label><select id="faction" required></select>
+<label for="station">Станция или колония</label><select id="station" required></select>
+<label for="kind">Тип поручения</label>
+<select id="kind"><option value="supply">Обеспечить запас</option>
+<option value="industry">Развить местное производство</option></select>
+<label for="commodity">Ресурс</label><select id="commodity"></select>
+<div class="duo">
+<div><label for="quantity">Желаемый запас, ед.</label>
+<input id="quantity" type="number" min="10" max="5000" step="10" value="300"></div>
+<div><label for="mode">Исполнение</label>
+<select id="mode"><option value="delegated">Делегировать</option>
+<option value="advise">Советовать</option><option value="hold">Не исполнять мандат</option></select></div>
+</div>
+<div class="duo">
+<div><label for="budget">Лимит новых контрактов, CR</label>
+<input id="budget" type="number" min="100" max="1000000000" step="500" value="30000"></div>
+<div><label for="reserve">Резерв казны, CR</label>
+<input id="reserve" type="number" min="10000" max="1000000000" step="1000" value="10000"></div>
+</div>
+<p class="help">Лимит распространяется на новые контракты, созданные по мандату.
+Это ещё не общий бюджет всей экономики. Уже оплаченные перевозки и стройки не отменяются.</p>
+<button type="submit" id="send">Поручить администраторам</button>
+<button type="button" id="clear" class="alt" style="margin-top:8px">Отменить мандат</button>
+</form><p class="notice" id="notice" role="status">Подключение к Genesis…</p>
+</article>
+<article><h3>Смысл этих решений</h3>
+<p class="help">«Обеспечить запас» предлагает действительную поставку.
+«Развить производство» предлагает местное предприятие через обычную строительную цепочку.
+Если нет доступного товара, маршрута, слота или бюджета, штатный ИИ может отказаться.
+Ни одно действие не считается успешным до фактической поставки или построенного предприятия.</p></article>
+</section>
+<section>
+<article><h2>Фактическое состояние</h2><div id="state"></div></article>
+<article><h3>Склад выбранной станции</h3><div id="stock"></div></article>
+<article><h3>Работа администрации</h3><div id="director"></div></article>
+</section>
+</main>
+<script>
+"use strict";
+const el=id=>document.getElementById(id);
+let live=null, pending=null, first=true;
+const numeric=n=>Number.isFinite(Number(n))?Number(n).toLocaleString("ru-RU"):"—";
+const funds=n=>numeric(n)+" CR";
+function show(message,bad=false){el("notice").textContent=message;el("notice").classList.toggle("error",bad)}
+function addRow(node,label,value){
+ const row=document.createElement("div");row.className="line";
+ const key=document.createElement("span");key.textContent=label;
+ const val=document.createElement("strong");val.textContent=value==null?"—":String(value);
+ row.append(key,val);node.append(row);
+}
+async function get(path,method,body){
+ const options={cache:"no-store"};if(method){options.method=method;
+  if(body){options.headers={"Content-Type":"application/json"};options.body=JSON.stringify(body)}}
+ const response=await fetch(path,options);let data;
+ try{data=await response.json()}catch{data={}}
+ if(!response.ok)throw Error(data.error||"HTTP "+response.status);
+ return {code:response.status,data};
+}
+function options(select,values,label,identity){
+ const current=select.value;select.replaceChildren();
+ for(const v of values){const item=document.createElement("option");
+  item.value=identity(v);item.textContent=label(v);select.append(item)}
+ if(values.some(v=>identity(v)===current))select.value=current;
+}
+const allowed={
+ supply:["food","water","fuel","metals","components","electronics","tools","alloys"],
+ industry:["food","water","fuel","metals","components","electronics","tools","alloys","quantum_cores"]
+};
+function syncCommodities(){const values=allowed[el("kind").value]||allowed.supply;
+ options(el("commodity"),values,v=>v,v=>v)}
+function stations(){if(!live)return[];
+ const faction=el("faction").value;
+ return (live.report.facilities||[]).filter(f=>f.faction_id===faction&&f.type==="station")
+  .sort((a,b)=>String(a.location).localeCompare(String(b.location)))}
+function syncStations(){options(el("station"),stations(),f=>f.location,f=>f.location)}
+function allFactions(){
+ return live?.report.factions||[];
+}
+function render(){
+ if(!live)return;
+ options(el("faction"),allFactions(),f=>f.name||f.id,f=>f.id);
+ syncStations();syncCommodities();
+ const faction=el("faction").value, location=el("station").value,commodity=el("commodity").value;
+ const m=live.strategy.economic_mandates?.[faction];
+ const f=allFactions().find(x=>x.id===faction);
+ const market=(live.report.markets||[]).find(x=>x.facility_location===location);
+ const stock=Number(market?.supply?.[commodity]??0);
+ const state=el("state");state.replaceChildren();
+ addRow(state,"Фракция",f?.name||faction);
+ addRow(state,"Казна",funds(f?.treasury));
+ addRow(state,"Текущий мандат",m?m.kind+" · "+m.commodity+" · "+m.location:"Автономная политика");
+ if(m){
+  addRow(state,"Режим",m.mode);
+  addRow(state,"Ограничение расходов",funds(m.budget_ceiling_cr));
+  addRow(state,"Уже зарезервировано",funds(m.spent_cr));
+  addRow(state,"Финансовый резерв",funds(m.treasury_floor_cr));
+  addRow(state,"Последняя причина",m.last_reason||"—");
+  addRow(state,"Последний контракт (тик)",m.last_commitment_tick);
+ }
+ const storage=el("stock");storage.replaceChildren();
+ addRow(storage,"Станция",location);
+ addRow(storage,commodity+" · в наличии",numeric(stock));
+ addRow(storage,"Планируемый минимум",numeric(m?.location===location&&m?.commodity===commodity?m.min_stock:el("quantity").value));
+ addRow(storage,"Рыночный спрос",numeric(market?.demand?.[commodity]));
+ const bar=document.createElement("progress");
+ bar.max=Math.max(10,Number(m?.location===location&&m?.commodity===commodity?m.min_stock:el("quantity").value)||300);
+ bar.value=Math.min(bar.max,Math.max(0,stock));storage.append(bar);
+ const head=live.strategy.factions?.find(x=>x.faction_id===faction)?.head;
+ const d=el("director");d.replaceChildren();
+ addRow(d,"Решение главы",head?.selected_option||"—");
+ addRow(d,"Причина",head?.reason||"—");
+ addRow(d,"Запланированный расход",funds(head?.planned_spend));
+ addRow(d,"Подтверждённый расход",funds(head?.committed_spend));
+ const projects=(live.report.construction_sites||[]).filter(s=>s.faction_id===faction&&s.location_name===location);
+ addRow(d,"Местные стройки",projects.length);
+ if(pending&&m&&m.location===pending.location&&m.commodity===pending.commodity&&
+    m.kind===pending.kind&&m.mode===pending.mode&&m.budget_ceiling_cr===pending.budget){
+  show("Мандат подтверждён игровым сервером. Результат будет известен по фактическому складу и стройкам.");
+  pending=null;
+ }
+}
+let running=false;
+async function poll(){
+ if(running)return;running=true;
+ try{
+  const [s,r]=await Promise.all([get("/api/strategy"),get("/api/report")]);
+  live={strategy:s.data,report:r.data};
+  render();
+  if(first){show("Связь установлена. Данные взяты с игрового сервера.");first=false}
+ }catch(e){show("Ошибка получения реальных данных: "+e.message,true)}
+ finally{running=false}
+}
+el("faction").onchange=()=>{syncStations();render()};
+el("station").onchange=render;
+el("commodity").onchange=render;
+el("kind").onchange=()=>{syncCommodities();render()};
+el("quantity").onchange=render;
+el("form").onsubmit=async event=>{
+ event.preventDefault();
+ const body={
+  faction_id:el("faction").value,location:el("station").value,
+  commodity:el("commodity").value,kind:el("kind").value,
+  min_stock:Number(el("quantity").value),mode:el("mode").value,
+  budget_ceiling_cr:Number(el("budget").value),treasury_floor_cr:Number(el("reserve").value)};
+ if(![body.min_stock,body.budget_ceiling_cr,body.treasury_floor_cr].every(Number.isSafeInteger)){
+  show("Бюджет, резерв и целевой запас должны быть целыми числами.",true);return}
+ try{
+  el("send").disabled=true;const resp=await get("/api/player/economic-mandate","POST",body);
+  if(resp.code!==202)throw Error("Команда не принята в очередь");
+  pending={location:body.location,commodity:body.commodity,kind:body.kind,
+           mode:body.mode,budget:body.budget_ceiling_cr};
+  show("Отправлено в очередь. Подтверждение только после появления мандата в состоянии сервера.");
+  await poll();
+ }catch(e){show("Отказ: "+e.message,true)}
+ finally{el("send").disabled=false}
+};
+el("clear").onclick=async()=>{
+ try{await get("/api/player/economic-mandate/"+encodeURIComponent(el("faction").value),"DELETE");
+  pending=null;show("Запрошена отмена. Уже оплаченные контракты не аннулируются.");await poll()}
+ catch(e){show("Не удалось отменить: "+e.message,true)}
+};
+poll();setInterval(poll,2000);
+</script>
+</body>
+</html>''',encoding="utf8")
+
+p=root/"crates/sim_server/src/http/api.rs"
+s=p.read_text(encoding="utf8")
+old="""/// First live player mandate screen, same independent UI environment."""
+if s.count(old)!=1:raise RuntimeError("Galaxy061 HTTP page handler insertion drift")
+new='''/// Live native-funded economic governance: stock and orders are API facts.
+pub async fn observer_economic_governance_page() -> impl IntoResponse {
+    (
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        axum::response::Html(observer_asset(
+            "governance-economy.html",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/governance-economy.html")),
+        )),
+    )
+}
+
+'''+old
+p.write_text(s.replace(old,new,1),encoding="utf8")
+
+p=root/"crates/sim_server/src/runtime.rs"
+s=p.read_text(encoding="utf8")
+old='''        .route("/observer/governance.html", get(api::observer_governance_page))'''
+new=old+'''
+        .route("/observer/governance-economy.html",
+            get(api::observer_economic_governance_page))'''
+if s.count(old)!=1:raise RuntimeError("Galaxy061 economic page route drift")
+p.write_text(s.replace(old,new,1),encoding="utf8")
+
+p=ui/"governance.html"
+s=p.read_text(encoding="utf8")
+old='''<a href="/observer/">← Галактика</a>'''
+new=old+'　<a href="/observer/governance-economy.html">Экономика</a>'
+if s.count(old)!=1:raise RuntimeError("Galaxy061 governance nav anchor drift")
+p.write_text(s.replace(old,new,1),encoding="utf8")
+
+print("Galaxy061: live in-game economic-mandate page uses real stocks, credits, orders and blockers")
