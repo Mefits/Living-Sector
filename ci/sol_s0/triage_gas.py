@@ -102,7 +102,19 @@ def examine(samples,events):
             "head_problem":head.get("problem"),
             "native_chain_probe":head.get("native_chain_probe"),
             "construction_reason":D(faction_view.get("construction")).get("reason")})
-    ships=[{"id":sh.get("id"),"current_goal":sh.get("current_goal"),
+    orders_by_tick=[]
+    gas_order_ids={"station:delivery:"+cid for cid in gas_ids}
+    for sample in samples:
+        tick=D(sample.get("health")).get("tick")
+        orders=[D(o) for o in L(D(sample.get("strategy")).get("orders"))
+            if D(o).get("target_id") in gas_ids or
+               D(o).get("order_id") in gas_order_ids]
+        orders_by_tick.append({"tick":tick,"gas_orders":orders})
+    ships=[{"id":sh.get("id"),"class":sh.get("class"),
+            "credits":sh.get("credits"),
+            "cargo_capacity":sh.get("cargo_capacity"),
+            "active_contract_id":sh.get("active_contract_id"),
+            "current_goal":sh.get("current_goal"),
             "fuel":sh.get("fuel"),
             "location":sh.get("location"),
             "destination":sh.get("destination"),
@@ -125,6 +137,7 @@ def examine(samples,events):
         "market_gas_path":market_path,
         "strategy_gas_path":head_path,
         "owned_ship_last_snapshot":ships,
+        "gas_orders_by_tick":orders_by_tick,
         "proven_claims":[
             "Observed real gas shortage plus native gas goal on Earth",
             "Native posted gas contracts observed with exact contract IDs",
@@ -162,6 +175,12 @@ def main():
     for m in result["market_gas_path"]:
         summary.append(f"| {m['tick']} | {m['destination_gas_stock']} | "+
             f"{m['destination_gas_shortage_ticks']} | {m['alpha_gas_stock']} |")
+    summary+=["","## Последние native dispatcher orders (только gas ID)"]
+    for o in result["gas_orders_by_tick"][-3:]:
+        summary.append("tick "+str(o["tick"])+": "+json.dumps(o["gas_orders"],ensure_ascii=False))
+    summary+=["","## Корабли владельца Earth Station (последний snapshot)"]
+    for sh in result["owned_ship_last_snapshot"]:
+        summary.append("- "+json.dumps(sh,ensure_ascii=False))
     summary+=["","## Статусы настоящих контрактов"]
     for c in result["gas_contract_timelines"]:
         summary.append(f"- {c['contract_id']}: "+", ".join(c["phases_seen"])+
