@@ -515,6 +515,8 @@ fn build_router(state: AppState) -> Router {
         .route("/observer/v51-live-adapter.js", get(api::observer_v51_live_adapter_js))
         .route("/observer/styles.css", get(api::observer_styles))
         .route("/observer/app.js", get(api::observer_app_js))
+        .route("/observer/map-primitives.js", get(api::observer_map_primitives_js))
+        .route("/observer/transport.js", get(api::observer_transport_js))
         .route("/observer/model.js", get(api::observer_model_js))
         .route("/observer/station-kit.js", get(api::observer_station_kit_js))
         // Galaxy 0.4 D1: modular priority inspector used by native.html.
