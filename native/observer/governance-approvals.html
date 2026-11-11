@@ -69,6 +69,16 @@ const fmt=n=>typeof n==="number"&&Number.isFinite(n)?n.toLocaleString("ru-RU")+"
 const s=v=>v==null?"—":String(v);
 const kindNames={industry:"Строительство местного производства",
 supply:"Снабжение станции"};
+const policyStatus={
+ hold:"Удерживать: поручение не выдаёт заказов",
+ advisory:"Советовать: цель видна, но не исполняется как приказ",
+ charter_autonomous:"Устав оставил автономное управление фракции",
+ survival_override:"Приоритет выживания выше поручения",
+ native_contract_linked:"Реальный оплаченный контракт привязан к поручению",
+ selected_by_head:"Глава выбрал поручение, исполнение подтверждается отдельно",
+ awaiting_specific_approval:"Требуется ваше одобрение конкретной сметы",
+ not_selected:"Поручение не выбрано в этом цикле"
+};
 const stateNames={pending:"Ожидает вашего решения",
 approved:"Одобрено, ожидает настоящего исполнения",
 rejected:"Отклонено",
@@ -145,6 +155,12 @@ function render(){
    : "Экономический мандат не задан");
  row(x,"   Последнее решение по мандату",mandate?.last_reason);
  row(x,"2 · Решение главы",head?.selected_option||"Пока не наблюдается");
+ const policy=head?.policy_impacts?.find(p=>p.department==="economy");
+ row(x,"   Реальное влияние поручения",policy
+   ? policyStatus[policy.status]||policy.status : "Нет сведений о влиянии");
+ row(x,"   Приоритет экономики по уставу",Number.isSafeInteger(policy?.priority)
+   ? String(policy.priority)+"/100" : "Устав не установлен");
+ row(x,"   Причина применения / отказа",policy?.reason||"—");
  row(x,"   Основание выбора",head?.reason);
  row(x,"3 · Согласование",p
    ? (stateNames[p.status]||p.status) : "Конкретное предложение не получено");
