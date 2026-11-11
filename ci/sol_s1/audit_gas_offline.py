@@ -178,7 +178,20 @@ def main():
         "markets_first_last":[res["market_series"][0],res["market_series"][-1]],
         "gas_orders_last":last_orders[:15],
         "generic_rejections":res["generic_rejection_reasons_not_gas_scoped"],
-        "direct_gas_rejections":len(res["gas_specific_rejections"])
-    },ensure_ascii=True)[:16000])
+        "direct_gas_rejections":len(res["gas_specific_rejections"]),
+        "contracts_funding":[{"id":cid,"requestor_id":r["last"].get("requestor_id"),
+          "funding":r["last"].get("funding"),"min_reputation":r["last"].get("min_reputation"),
+          "posted_at_tick":r["last"].get("posted_at_tick"),
+          "initial_min_reputation":r["last"].get("initial_min_reputation")}
+          for cid,r in res["all_matching_contracts"].items()],
+        "station_facility_balances":[{"id":f.get("id"),"type":f.get("type"),
+          "faction_id":f.get("faction_id"),"credits":f.get("credits"),"location":f.get("location")}
+          for f in arr(obj(samples[-1].get("report")).get("facilities"))
+          if f.get("location") in (STATION,SOURCE)],
+        "ship_final":[{"id":ship.get("id"),"location":ship.get("location"),
+          "goal":ship.get("current_goal"),"credits":ship.get("credits"),
+          "active_contract_id":ship.get("active_contract_id")}
+          for ship in res["fleet_first_last"][-1]["fleet"]],
+    },ensure_ascii=True)[:24000])
 
 if __name__=="__main__": main()
