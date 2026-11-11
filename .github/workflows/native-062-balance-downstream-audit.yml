@@ -1,0 +1,56 @@
+name: Balance S2 - downstream products A/B from archived real Windows runs
+
+on:
+  push:
+    branches:
+      - feature/native-062-balance-downstream-audit
+    paths:
+      - 'ci/balance/compare_downstream_products.py'
+      - '.github/workflows/native-062-balance-downstream-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare-downstream-production-proxies:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Proven original native S2 full-game raw evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: Native-Gas-Golden-S2-Controlled-Evidence
+          run-id: 43038799967
+          repository: Mefits/Living-Sector
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: work/baseline
+      - name: Variant native S2 full-game raw evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: Native-Gas-Balance-S2-v1-Real-Comparison
+          run-id: 43045539397
+          repository: Mefits/Living-Sector
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: work/variant
+      - name: Compare food, fuel, polymers and refinery downstream output proxies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/balance/compare_downstream_products.py --baseline work/baseline/s2-raw --variant work/variant/balance-raw --out work/downstream-audit
+          if ($LASTEXITCODE -ne 0) { throw 'Native downstream A/B audit failed' }
+          Get-Content 'work/downstream-audit/DOWNSTREAM-AUDIT-RU.md' |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+      - name: Publish stock comparisons without running the game
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Native-Gas-Balance-S2-Downstream-Audit
+          path: work/downstream-audit/
+          if-no-files-found: warn
+          retention-days: 21
