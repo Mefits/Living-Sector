@@ -79,8 +79,11 @@ progress{width:100%;height:13px;accent-color:#82bec8}
 "use strict";
 const el=id=>document.getElementById(id);
 let live=null, pending=null, first=true;
-const numeric=n=>Number.isFinite(Number(n))?Number(n).toLocaleString("ru-RU"):"—";
-const funds=n=>numeric(n)+" CR";
+// A missing value is unknown, not an actual zero balance. Text input
+// values such as "300" remain valid for the editable target field.
+const numeric=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))
+  ?Number(n).toLocaleString("ru-RU"):"—";
+const funds=n=>{const v=numeric(n);return v==="—"?"—":v+" CR";};
 function show(message,bad=false){el("notice").textContent=message;el("notice").classList.toggle("error",bad)}
 function addRow(node,label,value){
  const row=document.createElement("div");row.className="line";

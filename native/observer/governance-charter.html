@@ -76,7 +76,9 @@ const el=id=>document.getElementById(id);
 const numbers=["research_priority","economy_priority","shared_ceiling_cr",
 "protected_treasury_cr","approved_research_cr","approved_economy_cr"];
 let state=null,pending=null,lastFaction=null;
-const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString("ru-RU")+" CR":"—";
+// Undefined and null financial values are not zero commitments.
+const fmt=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))
+  ?Number(n).toLocaleString("ru-RU")+" CR":"—";
 function row(target,key,value){
  const r=document.createElement("div");r.className="line";
  const a=document.createElement("span"),b=document.createElement("strong");
