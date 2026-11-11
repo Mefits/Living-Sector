@@ -45,6 +45,14 @@ pub struct EconomicProposal {
     pub valid_until_tick:u64,
     pub status:ProposalStatus,
     pub last_reason:String,
+    /// Exact native contract that spent this one-shot approval.
+    /// Optional for pre-0.6.3 checkpoints and pending/rejected offers.
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub funded_contract_id:Option<String>,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub funded_tick:Option<u64>,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub funded_payment_cr:Option<i64>,
 }
 impl EconomicProposal {
     pub fn matches(&self,m:&EconomicMandate,action:&str,quote:i64,tick:u64)->bool{
@@ -113,6 +121,7 @@ pub fn publish(world:&mut World,faction:&str,m:&EconomicMandate,
         valid_until_tick:tick.saturating_add(QUOTE_TTL_TICKS),
         status:ProposalStatus::Pending,
         last_reason:"awaiting_player_decision_no_contract_funded".into(),
+        funded_contract_id:None,funded_tick:None,funded_payment_cr:None,
     };
     d.economic_proposals.insert(faction.into(),p);
 }
@@ -189,19 +198,28 @@ pub fn decide(
     p.last_reason="player_approved_exact_native_quote_not_funded".into();
     Ok(())
 }
-/// A paid receipt has already been posted by the original coordinator.
-/// This never advances on an estimate, browser reply or unsigned offer.
-pub fn native_paid(world:&mut World,faction:&str,amount:i64,tick:u64){
-    if amount<=0{return;}
+/// A funded *specific* native contract, verified by the coordinator.
+/// Never consume an approval on a faction-wide aggregate, a research
+/// charge, an unrelated project, or a contract with a different action.
+pub fn native_paid(
+    world:&mut World,faction:&str,amount:i64,contract_id:&str,action:&str,tick:u64
+){
+    if amount<=0||contract_id.is_empty(){return;}
     if let Some(mut d)=world.get_resource_mut::<Director>() {
+        let target_matches=d.economic_mandates.get(faction)
+            .zip(d.economic_proposals.get(faction))
+            .is_some_and(|(m,p)|p.location==m.location &&
+                p.kind==m.kind && p.commodity==m.commodity);
+        if !target_matches {return;}
         if let Some(p)=d.economic_proposals.get_mut(faction) {
-            if p.status==ProposalStatus::Approved && tick<=p.valid_until_tick {
+            if p.status==ProposalStatus::Approved &&
+                tick<=p.valid_until_tick && p.action==action &&
+                amount<=p.quoted_commitment_cr {
                 p.status=ProposalStatus::Consumed;
-                p.last_reason=if amount<=p.quoted_commitment_cr {
-                    "native_paid_contract_receipt_confirmed"
-                }else {
-                    "native_receipt_exceeded_approved_quote_check_required"
-                }.into();
+                p.funded_contract_id=Some(contract_id.into());
+                p.funded_tick=Some(tick);
+                p.funded_payment_cr=Some(amount);
+                p.last_reason="native_faction_contract_receipt_linked".into();
             }
         }
     }
@@ -237,6 +255,7 @@ mod galaxy063_specific_approvals_tests {
             quoted_commitment_cr:25000,created_tick:120,
             valid_until_tick:720,status:ProposalStatus::Pending,
             last_reason:String::new(),
+            funded_contract_id:None,funded_tick:None,funded_payment_cr:None,
         }
     }
     #[test]
@@ -267,6 +286,43 @@ mod galaxy063_specific_approvals_tests {
         p.status=ProposalStatus::Consumed;
         assert_eq!(p.can_spend(&m,"build",25000,123),
             Err("specific_action_not_approved"));
+    }
+    #[test]
+    fn native_receipt_links_only_the_approved_action_and_real_contract(){
+        let mut world=World::new();
+        let mut director=Director::default();
+        director.economic_mandates.insert("own".into(),mandate());
+        let mut approval=proposal();
+        approval.status=ProposalStatus::Approved;
+        director.economic_proposals.insert("own".into(),approval);
+        world.insert_resource(director);
+        native_paid(&mut world,"own",10000,"contract-other","deliver",125);
+        assert_eq!(world.resource::<Director>().economic_proposals["own"].status,
+            ProposalStatus::Approved);
+        native_paid(&mut world,"other",10000,"contract-other","build",125);
+        assert_eq!(world.resource::<Director>().economic_proposals["own"].status,
+            ProposalStatus::Approved);
+        native_paid(&mut world,"own",26000,"contract-overspend","build",125);
+        assert_eq!(world.resource::<Director>().economic_proposals["own"].status,
+            ProposalStatus::Approved);
+        native_paid(&mut world,"own",10000,"contract-verified","build",125);
+        let receipt=&world.resource::<Director>().economic_proposals["own"];
+        assert_eq!(receipt.status,ProposalStatus::Consumed);
+        assert_eq!(receipt.funded_contract_id.as_deref(),Some("contract-verified"));
+        assert_eq!(receipt.funded_payment_cr,Some(10000));
+        assert_eq!(receipt.funded_tick,Some(125));
+        native_paid(&mut world,"own",10000,"contract-repeat","build",126);
+        assert_eq!(world.resource::<Director>().economic_proposals["own"]
+            .funded_contract_id.as_deref(),Some("contract-verified"));
+    }
+    #[test]
+    fn pre_receipt_json_still_deserializes_without_new_fields(){
+        let mut old=serde_json::to_value(proposal()).unwrap();
+        let obj=old.as_object_mut().unwrap();
+        obj.remove("funded_contract_id");obj.remove("funded_tick");
+        obj.remove("funded_payment_cr");
+        let loaded:EconomicProposal=serde_json::from_value(old).unwrap();
+        assert!(loaded.funded_contract_id.is_none());
     }
     #[test]
     fn old_save_contains_no_approval_tokens(){
