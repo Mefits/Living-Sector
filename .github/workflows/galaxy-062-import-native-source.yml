@@ -1,0 +1,135 @@
+name: Genesis 0.6.2 - Import verified editable source into isolated Git branch
+
+on:
+  push:
+    branches:
+      - feature/galaxy-062-source-snapshot
+    paths:
+      - '.github/workflows/galaxy-062-import-native-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  import-native-source:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout only source-import harness
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download exact previously reconstructed source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Living-Sector-Galaxy-0.6.2-EDITABLE-SOURCE
+          run-id: 43003873032
+          repository: Mefits/Living-Sector
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: work/editable-source
+
+      - name: Prepare Python and stable native Rust
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Rust for independently checking the editable tree
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Unpack and verify immutable source snapshot SHA256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip='work/editable-source/Living-Sector-Galaxy-0.6.2-SOURCE.zip'
+          if (!(Test-Path $zip)) { throw 'Exact reviewed source ZIP not found' }
+          New-Item -ItemType Directory -Force -Path work/unpacked | Out-Null
+          Expand-Archive -LiteralPath $zip -DestinationPath 'work/unpacked' -Force
+          @'
+          import hashlib,json,pathlib
+          root=pathlib.Path("work/unpacked/Living-Sector-Galaxy-0.6.2-SOURCE")
+          manifest=json.loads(pathlib.Path("work/unpacked/SOURCE-MANIFEST.json").read_text(encoding="utf8"))
+          assert manifest["verified_replay_commit"]=="4ffd80002ec74b4af3eccb0db5279578c1148e0a"
+          assert manifest["original_windows_ci_run_id"]=="42990801593"
+          files=sorted((p for p in root.rglob("*") if p.is_file()),key=lambda p:p.relative_to(root).as_posix())
+          h=hashlib.sha256()
+          for p in files:
+              rel=p.relative_to(root).as_posix()
+              digest=hashlib.sha256(p.read_bytes()).hexdigest()
+              h.update((rel+"\0"+digest+"\n").encode("utf8"))
+          assert h.hexdigest()==manifest["full_source_tree_sha256"],"Source ZIP tree SHA mismatch"
+          assert len(files)==manifest["source_files"],"Source ZIP files mismatch"
+          assert (root/"Cargo.lock").is_file() and (root/"crates/sim_core").is_dir()
+          print("Verifiable editable tree:",len(files),"files, sha256:",h.hexdigest())
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Source hash/provenance check failed' }
+
+      - name: Create isolated working copy of native sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Test-Path native) { throw 'Refuse to overwrite existing native directory' }
+          @'
+          import pathlib,shutil
+          root=pathlib.Path("work/unpacked/Living-Sector-Galaxy-0.6.2-SOURCE")
+          shutil.copytree(root,pathlib.Path("native"))
+          provenance=pathlib.Path("native-provenance")
+          provenance.mkdir()
+          for name in ("SOURCE-MANIFEST.json","SOURCE-MANIFEST.md",
+                       "SOURCE-FILES-SHA256.json","SOURCE-ZIP-SHA256.txt"):
+              shutil.copy2(pathlib.Path("work/editable-source")/name,provenance/name)
+          print("Native source is editable directly under native/, no Python overlay required")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Native source copy failed' }
+
+      - name: Compile unpatched imported source and check observer syntax
+        shell: pwsh
+        working-directory: native
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo check -p sim_core -p sim_server
+          if ($LASTEXITCODE -ne 0) { throw 'Direct-source Rust check failed' }
+          node --check observer/app.js
+          if ($LASTEXITCODE -ne 0) { throw 'Direct-source Observer parse failed' }
+          node --test observer/model.test.mjs observer/station-economy.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Direct-source Observer regression failed' }
+
+      - name: Commit ONLY to new isolated native-source branch (no stable changes)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target='integration/galaxy-062-native-sources'
+          $existing=git ls-remote --heads origin "refs/heads/$target"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot confirm whether target branch exists' }
+          if ($existing) { throw "Target branch already exists; refusing overwrite: $target" }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -b $target
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot create isolated source branch' }
+          git add -- native/ native-provenance/
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot stage source snapshot' }
+          $num=(git diff --cached --name-only | Measure-Object -Line).Lines
+          if ($num -lt 100) { throw "Suspiciously small native source import: $num files" }
+          git commit -m 'chore(architecture): import verified Galaxy 0.6.2 native Rust/Observer source'
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot commit native source' }
+          git push origin "HEAD:refs/heads/$target"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot publish isolated source branch' }
+
+      - name: Summarize permanent source location and next gate
+        shell: pwsh
+        if: success()
+        run: |
+          "## Complete native Rust and Observer source published" |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Branch: integration/galaxy-062-native-sources (not main/stable)" |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Editable tree: native/crates, native/observer, native/priv" |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Proof: exact SHA256 source archive from verified Windows CI + direct-source Cargo check." |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "Next gate: direct-source Windows release build and real runtime smoke before promotion." |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
