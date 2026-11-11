@@ -561,6 +561,10 @@ mod tests {
         let director=world.resource::<director::Director>();
         assert_eq!(director.economic_proposals["own"].status,
             economic_proposal::ProposalStatus::Consumed);
+        assert_eq!(director.economic_proposals["own"].funded_contract_id.as_deref(),
+            Some(paid[0].id.as_str()),"Approval must point to the exact native contract");
+        assert_eq!(director.economic_proposals["own"].funded_payment_cr,Some(amount));
+        assert_eq!(director.economic_proposals["own"].funded_tick,Some(180));
         assert_eq!(director.economic_mandates["own"].spent_cr,amount);
         assert_eq!(director.faction_charters["own"].spent_economy_cr,amount);
         assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,
