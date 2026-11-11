@@ -59,6 +59,9 @@ pub struct ConstructionView {
     /// The StrategyView.reason stays "existing_contract" to avoid reposting.
     pub delivery_block_reason: Option<String>,
     pub delivery_commodity: Option<Commodity>,
+    /// Read-only native sequence: commission -> material -> paid labor ->
+    /// real production inputs -> observed recipe output.
+    pub execution_chain: Option<super::production_chain::Sequence>,
     #[serde(skip)]
     pub(super) offers: Vec<Offer>,
 }
@@ -68,7 +71,7 @@ impl ConstructionView {
             selected_goal: None, site_id: None, facility_type: None,
             progress_delivered: 0, progress_required: 0, labor_completed: 0, labor_required: 0, labor_blocked_reason: None,
             contract_id: None, delivery_status: None, delivery_block_reason: None,
-            delivery_commodity: None, offers: Vec::new() }
+            delivery_commodity: None, execution_chain: None,offers: Vec::new() }
     }
 }
 
@@ -435,6 +438,62 @@ mod tests {
             body_type: "planet".into(), star_system_id: 1, system_name: "sol".into() },
             BodyOrbit { orbit_radius: 1.0, orbit_period: 100, current_angle: 0.0, universe_offset: (0.0,0.0), dirty: false }));
         (w,b,owner,port,source)
+    }
+    #[test]
+    fn galaxy066_actual_material_labor_and_output_receipts_drive_native_sequence(){
+        use crate::agents::facility::{FacilityCrew,FacilityIdentity,FacilityLocation,workforce::WorkShift};
+        let (mut world,mut board,owner,market,_)=fixture();
+        let mut events=Vec::new();
+        run_cycle(&mut world,&mut board,&FactionRelations::new(),&mut events,200,1);
+        let chain=world.resource::<StrategyState>().factions["own"].construction
+            .as_ref().unwrap().execution_chain.as_ref().unwrap();
+        assert_eq!(chain.steps.len(),5);
+        assert_eq!(chain.steps[0].status,"complete","real native site created");
+        assert_eq!(chain.next_stage,"materials");
+        assert_eq!(chain.steps[1].contract_id.as_deref(),
+            board.iter().next().map(|c|c.id.as_str()));
+        let treasury=world.get::<FactionData>(owner).unwrap().treasury;
+        let contract_count=board.iter().count();
+        // Observe actual persisted progress, not a forecasted completion.
+        let site=world.query::<(Entity,&ConstructionSite)>().iter(&world).next().unwrap().0;
+        {
+            let mut s=world.get_mut::<ConstructionSite>(site).unwrap();
+            s.progress_delivered=s.progress_required;
+            s.labor.completed=s.labor.required;
+        }
+        super::super::refresh(&mut world,&board,201);
+        let chain=world.resource::<StrategyState>().factions["own"].construction
+            .as_ref().unwrap().execution_chain.as_ref().unwrap();
+        assert_eq!(chain.steps[1].status,"complete");
+        assert_eq!(chain.steps[2].status,"complete");
+        assert_eq!(chain.next_stage,"inputs","a site is not a finished producer");
+        assert!(chain.last_output_tick.is_none());
+
+        let mut crew=FacilityCrew::new_for_type("farm");
+        let recipe="grow_food".to_owned();
+        crew.work_shift=Some(WorkShift{
+            tick:205,workers:vec![("resident".into(),6)],
+            wages:6,input_payment:0,processing_fee:0,
+            last_recipe_ticks:[(recipe.clone(),205)].into(),
+            produced_outputs:[(recipe,[(Commodity::Food.as_str().into(),10.0)].into())].into(),
+        });
+        world.spawn((
+            FacilityIdentity{db_id:91,id:"real-farm".into(),name:"Farm".into(),
+                facility_type:"farm".into(),faction_id:"own".into(),body_id:"earth".into()},
+            FacilityLocation{location_id:1,location_name:"port".into()},
+            crew,
+        ));
+        world.get_mut::<MarketPricing>(market).unwrap().supply.insert(Commodity::Water,3.0);
+        super::super::refresh(&mut world,&board,205);
+        let chain=world.resource::<StrategyState>().factions["own"].construction
+            .as_ref().unwrap().execution_chain.as_ref().unwrap();
+        assert_eq!(chain.next_stage,"complete");
+        assert_eq!(chain.last_output_tick,Some(205));
+        assert_eq!(chain.cumulative_produced_units,Some(10.0));
+        assert_eq!(chain.steps[4].reason,"real_native_recipe_output_receipt");
+        // Nothing in the diagnostic path can spend or post.
+        assert_eq!(board.iter().count(),contract_count);
+        assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,treasury);
     }
     #[test]
     fn strategy_block_construction_shadow_then_funded_site_and_hold() {

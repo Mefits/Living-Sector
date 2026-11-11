@@ -23,6 +23,7 @@ pub mod coordination;
 mod options;
 mod portfolio_policy;
 pub mod production_dependencies;
+pub mod production_chain;
 pub(crate) mod sourcing;
 
 pub const PROJECT_TAG: &str = "strategy.logistics.v1";
@@ -372,6 +373,22 @@ pub fn refresh(world: &mut World, contracts: &ContractBoard, tick: u64) {
     }
     drop(state);
     construction::refresh(world);
+    // Build the causal roadmap from exact native contracts, physical sites,
+    // local stock and paid production shifts AFTER project refresh. This is
+    // a view only and must never mutate the source of economic truth.
+    let targets:Vec<_>=world.resource::<StrategyState>().factions.iter()
+        .filter_map(|(id,f)|f.construction.as_ref().and_then(|v|
+            v.selected_goal.as_ref().map(|_|(id.clone(),v.clone())))).collect();
+    let observed:Vec<_>=targets.into_iter().map(|(id,view)|{
+        let chain=production_chain::inspect(world,contracts,&id,&view);
+        (id,chain)
+    }).collect();
+    let mut state=world.resource_mut::<StrategyState>();
+    for (id,chain) in observed {
+        if let Some(v)=state.factions.get_mut(&id).and_then(|f|f.construction.as_mut()){
+            v.execution_chain=chain;
+        }
+    }
 }
 
 #[cfg(test)]

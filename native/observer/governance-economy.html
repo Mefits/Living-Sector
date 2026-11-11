@@ -73,6 +73,11 @@ progress{width:100%;height:13px;accent-color:#82bec8}
 <article><h2>Фактическое состояние</h2><div id="state"></div></article>
 <article><h3>Склад выбранной станции</h3><div id="stock"></div></article>
 <article><h3>Работа администрации</h3><div id="director"></div></article>
+<article><h3>Последовательность действий · реальные данные</h3>
+<p class="help">Каждый этап отражает текущее состояние нативной стройки, поставок,
+оплаченного труда и производственных квитанций. «Ожидается» не означает
+«выполнено». План сам по себе не создаёт ни заказов, ни ресурсов.</p>
+<div id="sequence"></div></article>
 <article><h3>Варианты Главы · текущий цикл</h3>
 <p class="help">Это оценки реальных производственных и логистических вариантов, не обещание исполнения.
 Отсутствие входных ресурсов для первого производственного цикла не запрещает строить завод —
@@ -178,8 +183,57 @@ function render(){
  if(policy?.funded_contract_id)addRow(d,"Оплаченный контракт",policy.funded_contract_id);
  addRow(d,"Запланированный расход",funds(head?.planned_spend));
  addRow(d,"Подтверждённый расход",funds(head?.committed_spend));
- const projects=(live.report.construction_sites||[]).filter(s=>s.faction_id===faction&&s.location_name===location);
+ const projects=(live.report.construction_sites||[]).filter(s=>
+   s.faction_id===faction&&(s.location??s.location_name)===location);
  addRow(d,"Местные стройки",projects.length);
+ const stationState=live.strategy.stations?.find(s=>
+   s.faction_id===faction && s.location===location);
+ if(stationState?.head_priority && head?.problem?.commodity &&
+    stationState.head_priority!==head.problem.commodity){
+   addRow(d,"Промежуточный ресурс для производства",
+     stationState.head_priority+" (цель Главы: "+head.problem.commodity+")");
+ }
+ const sequence=el("sequence");sequence.replaceChildren();
+ const construction=live.strategy.factions?.find(v=>v.faction_id===faction)?.construction;
+ const chain=construction?.execution_chain;
+ const stepNames={commission:"Проект и строительная площадка",
+   materials:"Физическая доставка строительных материалов",
+   labor:"Работа строителей (с оплатой)",
+   inputs:"Входные ресурсы для первой партии",
+   first_output:"Реальный выпуск продукции"};
+ const stepStatuses={complete:"Подтверждено",active:"В работе",
+   blocked:"Заблокировано",queued:"Ожидается"};
+ if(!chain){
+   addRow(sequence,"Строительная цепочка",
+     "Нет выбранного нативного строительного проекта");
+ } else {
+   addRow(sequence,"Цель",chain.commodity+" · "+chain.destination+
+     " · "+chain.facility_type);
+   addRow(sequence,"Следующий необходимый этап",
+     stepNames[chain.next_stage]||chain.next_stage);
+   addRow(sequence,"Ответственный",
+     ({logistics:"Логистика",construction:"Строительство",
+       station:"Администратор станции",none:"—"})[chain.next_administrator]||
+     chain.next_administrator);
+   for(const step of chain.steps||[]){
+     addRow(sequence,stepNames[step.key]||step.key,
+       (stepStatuses[step.status]||step.status)+" · "+(step.reason||"—"));
+     if(Number.isFinite(step.required)&&step.required>1){
+       addRow(sequence,"   Реальный прогресс",
+         step.actual+" из "+step.required);
+     }
+     if(step.contract_id)addRow(sequence,"   Нативный контракт",step.contract_id);
+   }
+   const gaps=chain.local_inputs?.inputs?.filter(i=>i.missing>0)||[];
+   if(gaps.length)addRow(sequence,"Не хватает на первую партию",
+     gaps.map(g=>g.commodity+": "+g.missing+" ед.").join("; "));
+   if(Number.isSafeInteger(chain.last_output_tick)&&
+       typeof chain.cumulative_produced_units==="number"){
+     addRow(sequence,"Последний подтверждённый выпуск",
+       "Тик "+chain.last_output_tick+" · накоплено "+
+       numeric(chain.cumulative_produced_units)+" ед. по рецепту");
+   }
+ }
  const portfolio=el("portfolio");portfolio.replaceChildren();
  const reviews=head?.goal_reviews||[];
  if(!reviews.length)addRow(portfolio,"Оценки","Нет текущих вариантов или директор не активен");
