@@ -12,7 +12,7 @@ if not exist "%~dp0priv\galaxy\data\factions.json" (
   exit /b 1
 )
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$t=New-Object Net.Sockets.TcpClient;try{$t.Connect('127.0.0.1',18067);exit 1}catch{exit 0}finally{$t.Dispose()}"
-if not errorlevel 1 (
+if errorlevel 1 (
   echo ERROR: Port 18067 is occupied. Close the previous experimental server.
   pause
   exit /b 1
