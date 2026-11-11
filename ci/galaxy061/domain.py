@@ -119,7 +119,7 @@ impl EconomicMandate {
         stock.is_finite() && stock>=0.0 && stock<(self.min_stock as f32)
     }
     pub fn goal(&self,stock:f32)->Option<Goal>{
-        (self.active()&&self.requested(stock)).then(||Goal{
+        (self.active()&&(self.kind==EconomicKind::Industry||self.requested(stock))).then(||Goal{
             goal_id:self.goal_id().into(),
             commodity:self.commodity,
             destination:self.location.clone(),
@@ -213,6 +213,14 @@ mod galaxy061_economic_mandates_tests {
         assert!(m.goal(200.0).is_none());
         assert!(m.goal(f32::NAN).is_none());
         assert_eq!(m.goal_id(),"player_supply");
+    }
+    #[test]
+    fn industrial_capacity_goal_is_not_confused_with_current_stock(){
+        let m=directive(EconomicKind::Industry,Commodity::Electronics);
+        assert!(m.goal(400.0).is_some());
+        assert_eq!(m.goal(400.0).unwrap().goal_id,"player_industry");
+        // Whether this target has already been built is checked against
+        // real ECS facilities by the coordinator before granting orders.
     }
     #[test]
     fn mandated_native_credit_cap_never_mints_money(){
