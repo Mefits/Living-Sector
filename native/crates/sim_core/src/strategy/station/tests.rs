@@ -96,6 +96,40 @@ fn station_admin_head_direction_can_override_local_preference() {
 }
 
 #[test]
+fn galaxy066_station_admin_prioritizes_real_upstream_water_before_food(){
+    let (mut w,_,_,_,market)=fixture(Mode::Execute);
+    {let mut p=w.get_mut::<MarketPricing>(market).unwrap();
+        p.supply.remove(&Commodity::Water);
+        p.supply.insert(Commodity::Food,0.0);
+        p.supply.insert(Commodity::Ice,80.0);
+    }
+    let goal=crate::strategy::Goal{goal_id:"sustain_population".into(),
+        commodity:Commodity::Food,destination:"port".into(),shortage_ticks:100,score:200.0};
+    w.resource_mut::<StrategyState>().factions.insert("civ".into(),crate::strategy::FactionView {
+        faction_id:"civ".into(),observed_tick:0,treasury:1000,
+        goals:vec![goal.clone()],assessments:vec![],selected_goal:Some(goal.clone()),
+        administrator:"logistics",status:"proposed".into(),reason:"test".into(),
+        projects:vec![],construction:None,
+        head:Some(crate::strategy::coordination::HeadDecision{
+            observed_tick:0,selected_administrator:Some("logistics"),reason:"test".into(),
+            treasury_before:1000,spending_limit:1000,planned_spend:0,committed_spend:0,
+            proposals:vec![],problem:Some(goal),selected_option:"deliver",
+            horizon_ticks:1200,alternatives:vec![],goal_reviews:vec![],
+            shadow_portfolio:None,native_chain_probe:None,
+            policy_impacts:vec![],planning_shadow:None,htn_execution:None,
+        })
+    });
+    let before=w.get::<MarketPricing>(market).unwrap().supply.clone();
+    plan(&mut w,5);
+    let station=&w.resource::<StationAdministration>().stations[0];
+    assert_eq!(station.head_priority,Some(Commodity::Water));
+    assert_eq!(assigned(&w,"z-refinery"),6);
+    assert_eq!(assigned(&w,"a-farm"),0);
+    assert_eq!(w.get::<MarketPricing>(market).unwrap().supply,before,
+        "a staffing priority must not generate water before paid production");
+}
+
+#[test]
 fn station_admin_surplus_does_not_stop_staffed_production_and_shared_cash_is_bounded() {
     let (mut w,farm,_,pop,market)=fixture(Mode::Execute);
     w.get_mut::<PopDemographics>(pop).unwrap().population_count=20;
