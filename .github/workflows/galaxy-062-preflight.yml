@@ -5,7 +5,7 @@ on:
     branches:
       - feature/galaxy-062-faction-charter
     paths:
-      - '.github/workflows/galaxy-061-preflight.yml'
+      - '.github/workflows/galaxy-062-preflight.yml'
       - 'ci/galaxy061/*.py'
       - 'ci/galaxy062/*.py'
       - 'docs/GALAXY-062-FACTION-CHARTER-RU.md'
