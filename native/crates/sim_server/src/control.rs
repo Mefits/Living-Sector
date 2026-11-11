@@ -138,6 +138,11 @@ pub enum ControlCommand {
         faction_id:String,
         charter:sim_core::strategy::charter::FactionCharter,
     },
+    PlayerDecideEconomicProposal {
+        faction_id:String,
+        proposal_id:String,
+        approve:bool,
+    },
     AdminSetRelations {
         a: String,
         b: String,

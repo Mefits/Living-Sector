@@ -508,6 +508,8 @@ fn build_router(state: AppState) -> Router {
             get(api::observer_economic_governance_page))
         .route("/observer/governance-charter.html",
             get(api::observer_faction_charter_page))
+        .route("/observer/governance-approvals.html",
+            get(api::observer_economic_approvals_page))
         .route("/observer/index.html", get(api::observer_page))
         .route("/observer/native.html", get(api::observer_native_page))
         .route("/observer/v51-live-adapter.js", get(api::observer_v51_live_adapter_js))
@@ -536,6 +538,8 @@ fn build_router(state: AppState) -> Router {
         .route("/api/player/economic-mandate/{faction_id}",
             delete(player::clear_economic_mandate))
         .route("/api/player/faction-charter",post(player::set_faction_charter))
+        .route("/api/player/economic-proposal/decision",
+            post(player::decide_economic_proposal))
         .route("/api/factions", get(api::factions))
         .route("/api/factions/relations", get(api::factions_relations))
         .route("/api/positions", get(api::positions))

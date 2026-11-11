@@ -736,6 +736,17 @@ pub async fn observer_v51_live_adapter_js() -> impl IntoResponse {
     )
 }
 
+/// Live specific-action review from native quote and engine-approved state.
+pub async fn observer_economic_approvals_page() -> impl IntoResponse {
+    (
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        axum::response::Html(observer_asset(
+            "governance-approvals.html",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../observer/governance-approvals.html")),
+        )),
+    )
+}
+
 /// Native faction-wide charter screen: all data read from real strategy.
 pub async fn observer_faction_charter_page() -> impl IntoResponse {
     (

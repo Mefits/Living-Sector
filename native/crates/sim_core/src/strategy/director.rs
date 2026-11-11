@@ -152,6 +152,9 @@ pub struct Director {
     /// Optional player charter. No charter preserves Galaxy 0.6.1 behaviour.
     #[serde(default)]
     pub faction_charters:BTreeMap<String,super::charter::FactionCharter>,
+    /// At most one quoted economic decision awaiting the player per faction.
+    #[serde(default)]
+    pub economic_proposals:BTreeMap<String,super::economic_proposal::EconomicProposal>,
 }
 #[derive(Clone,Copy,Debug,Serialize)]
 pub struct Technology {pub id:&'static str,pub name:&'static str,pub prerequisite:Option<&'static str>,pub work:u32,pub field:&'static str,pub effect:&'static str}

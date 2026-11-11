@@ -204,6 +204,11 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
     let switch_policy=director::strategy_switch_policy();
     let economic_intents=world.get_resource::<director::Director>()
         .map(|d|d.economic_mandates.clone()).unwrap_or_default();
+    // Captured only from genuine READY native alternatives, before native
+    // administrators charge money. Never auto-approve a proposal.
+    let mut specific_offers=Vec::<(
+        String,super::economic_mandate::EconomicMandate,String,i64,i64
+    )>::new();
     for (id,head) in &mut decisions {
         let Some(c)=commanders.get(id) else{continue;};
         // A funded native plan owns its sequence until receipts finish. Even a
@@ -238,11 +243,18 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
                         let charge=comparison.alternatives.iter()
                             .find(|a|a.action==comparison.selected)
                             .map_or(0,|a|a.total_commitment.max(a.first_payment));
+                        let ready=comparison.alternatives.iter().any(|a|
+                            a.action==comparison.selected && a.status=="ready");
+                        let quoted_action=comparison.selected.to_string();
+                        if ready && super::economic_proposal::can_offer(
+                            world,id,m,charge,view.treasury) {
+                            specific_offers.push((id.clone(),m.clone(),
+                                quoted_action.clone(),charge,view.treasury));
+                        }
                         if super::economic_mandate::may_commission(
                             m,view.treasury,charge).is_ok() &&
-                            super::charter::authorize(world,id,
-                                super::charter::Department::Economy,
-                                charge,view.treasury).is_ok() {
+                            super::economic_proposal::authorize_action(
+                                world,id,m,&quoted_action,charge,view.treasury,tick).is_ok() {
                             *head=decision(view,&sources,tick,mult,false,Some(c),
                                 Some(comparison));
                             head.reason="player_economic_mandate".into();
@@ -404,14 +416,14 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
                     .map_or(0,|a|a.total_commitment.max(a.first_payment));
                 let treasury=head.treasury_before;
                 if super::economic_mandate::may_commission(m,treasury,charge).is_err() ||
-                    super::charter::authorize(world,id,
-                        super::charter::Department::Economy,charge,treasury).is_err() {
+                    super::economic_proposal::authorize_action(
+                        world,id,m,&head.selected_option,charge,treasury,tick).is_err() {
                     head.problem=None;
                     head.selected_option="wait";
                     head.selected_administrator=None;
                     head.planned_spend=0;
-                    head.reason=super::charter::authorize(world,id,
-                        super::charter::Department::Economy,charge,treasury)
+                    head.reason=super::economic_proposal::authorize_action(
+                        world,id,m,&head.selected_option,charge,treasury,tick)
                         .err().unwrap_or("player_mandate_budget_or_reserve_blocked").into();
                 }
             }
@@ -540,6 +552,11 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
     }
     // Expose physical blockers or verified local stock, not a simulated
     // success event. This runs AFTER the native administrator/driver cycle.
+    super::economic_proposal::expire(world,tick);
+    for (id,mandate,action,quote,treasury) in specific_offers {
+        super::economic_proposal::publish(
+            world,&id,&mandate,&action,quote,treasury,tick);
+    }
     let actual_economic_mandates=world.get_resource::<director::Director>()
         .map(|d|d.economic_mandates.clone()).unwrap_or_default();
     let actual_economic_stocks:std::collections::HashMap<String,MarketPricing>=

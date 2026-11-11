@@ -1,0 +1,88 @@
+name: Galaxy 0.6.3 - one-time direct editable source promotion (no production overlays)
+
+on:
+  push:
+    branches:
+      - feature/galaxy-063-native-direct-import
+    paths:
+      - 'ci/native063/import_once.py'
+      - '.github/workflows/galaxy-063-import-direct-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  migrate-to-direct-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout verified Galaxy 0.6.2 direct sources plus import tooling
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout EXACT green Galaxy 0.6.3 overlay sources in disposable directory
+        uses: actions/checkout@v4
+        with:
+          ref: bc26814f9819ad64e32eafe32cd2601e1aa5b201
+          path: work/063-harness
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: One-time migration from 0.6.2 source to 0.6.3 direct Rust/Observer code
+        shell: bash
+        run: |
+          set -euo pipefail
+          python ci/native063/import_once.py \
+            --native native \
+            --overlay-repo work/063-harness \
+            --out native-provenance/GALAXY-063-IMPORT.json
+          test -f native/crates/sim_core/src/strategy/economic_proposal.rs
+          test -f native/observer/governance-approvals.html
+          python -c 'import json;d=json.load(open("native-provenance/GALAXY-063-IMPORT.json"));assert d["files_modified"]>=10;print("Exactly migrated:",d["files_modified"],"files")'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify REAL direct source compiles without any Python overlay
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          cargo check --locked -p sim_core -p sim_server
+          node --check observer/app.js
+          git diff --check
+
+      - name: Publish isolated editable Galaxy 0.6.3 Git tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=integration/galaxy-063-native-sources
+          if git ls-remote --exit-code --heads origin "refs/heads/$target"; then
+            echo "Refusing to overwrite existing direct-source branch: $target"
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$target"
+          git add -A -- native/ native-provenance/GALAXY-063-IMPORT.json
+          count=$(git diff --cached --name-only | wc -l)
+          if [ "$count" -lt 11 ] || [ "$count" -gt 35 ]; then
+            echo "Unexpected 0.6.3 source migration diff: $count"; exit 1
+          fi
+          git diff --cached --check
+          git commit -m "chore(architecture): promote audited Galaxy 0.6.3 directly into native Rust and Observer"
+          git push origin "HEAD:refs/heads/$target"
+
+      - name: Mark version/source boundary accurately
+        if: success()
+        shell: bash
+        run: |
+          echo "## Galaxy 0.6.3 editable native source is now in Git" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: integration/galaxy-063-native-sources (main/stable unchanged)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Rust/Observer from direct native/ source; no overlay at regular build time" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: native-provenance/GALAXY-063-IMPORT.json with changed source hashes" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Next gate: standalone Windows release + save compatibility on COPIES only" >> "$GITHUB_STEP_SUMMARY"
