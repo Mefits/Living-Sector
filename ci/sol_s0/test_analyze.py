@@ -8,6 +8,7 @@ def snapshot(tick,stock=5,commodity="water",destination="earth-station",
     if status:
         c={"id":"real-contract-11","commodity":commodity,
            "destination_location":destination,"status":status,
+           "faction_id":"terran-authority",
            "funding":{"reserved":25}}
         if quantity is not None:c["delivered_units"]=quantity
         contracts=[c]
@@ -15,8 +16,9 @@ def snapshot(tick,stock=5,commodity="water",destination="earth-station",
        "markets":[{"facility_location":"earth-station",
                    "supply":{"water":stock,"food":100,"fuel":100},
                    "demand":{"water":10,"food":1,"fuel":1}}],
-       "facilities":[{"location":"earth-station","type":"station"}]},
-       "strategy":{"factions":[{"faction_id":"genesis",
+       "facilities":[{"location":"earth-station","type":"station",
+                      "faction_id":"terran-authority"}]},
+       "strategy":{"factions":[{"faction_id":"terran-authority",
            "goals":([{"goal_id":"sustain_population",
                       "destination":"earth-station","commodity":"water",
                       "status":"ready"}] if goal else [])}]},
