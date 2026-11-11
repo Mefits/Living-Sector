@@ -31,6 +31,13 @@ pub struct EconomicMandate {
     #[serde(default)]
     pub last_reason:String,
 }
+/// Player policies set an objective, but not an arbitrary substitution:
+/// supplying stock is a delivery; adding native capacity is construction.
+/// A quote for the other action must never consume the policy approval.
+pub fn required_native_action(kind:EconomicKind)->&'static str{
+    match kind {EconomicKind::Supply=>"deliver",EconomicKind::Industry=>"build"}
+}
+
 impl EconomicMandate {
     pub fn validate(&self)->Result<(),&'static str>{
         if self.location.is_empty()||self.location.len()>160
@@ -220,6 +227,11 @@ mod galaxy061_economic_mandates_tests {
             Err("player_mandate_treasury_floor"));
         assert_eq!(may_commission(&m,20000,0),
             Err("invalid_mandated_native_payment"));
+    }
+    #[test]
+    fn galaxy064_supply_cannot_silently_turn_into_a_build_authorization(){
+        assert_eq!(required_native_action(EconomicKind::Supply),"deliver");
+        assert_eq!(required_native_action(EconomicKind::Industry),"build");
     }
     #[test]
     fn type_and_amount_validation_is_explicit(){

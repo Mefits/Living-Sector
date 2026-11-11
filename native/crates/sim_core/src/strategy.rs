@@ -490,6 +490,64 @@ mod tests {
     }
 
     #[test]
+    fn galaxy064_unapproved_player_goal_does_not_stop_unrelated_native_autonomy(){
+        let (mut world,mut board,owner,port,source)=fixture(Mode::Execute);
+        // Make the ordinary ore shortage truly fundable, not merely
+        // visible in the fixture's 50-tick (below-threshold) history.
+        world.get_mut::<MarketHistory>(port).unwrap().shortage_ticks
+            .insert(Commodity::Ore,1000);
+        world.get_mut::<MarketPricing>(port).unwrap().demand
+            .insert(Commodity::Ore,200.0);
+        world.get_mut::<MarketPricing>(port).unwrap().prices
+            .insert(Commodity::Ore,15.0);
+        world.get_mut::<MarketPricing>(source).unwrap().supply
+            .insert(Commodity::Ore,600.0);
+        // Unapproved water request exists beside independent native ore need.
+        world.get_mut::<MarketPricing>(source).unwrap().supply.insert(Commodity::Water,500.0);
+        world.get_mut::<MarketPricing>(source).unwrap().prices.insert(Commodity::Water,1.0);
+        world.get_mut::<MarketPricing>(port).unwrap().demand.insert(Commodity::Water,80.0);
+        world.insert_resource(director::Director::default());
+        director::observe(&mut world,&board,0,1);
+        world.resource_mut::<director::Director>().economic_mandates.insert(
+            "own".into(),economic_mandate::EconomicMandate{
+                kind:economic_mandate::EconomicKind::Supply,
+                location:"port".into(),commodity:Commodity::Water,min_stock:200,
+                mode:governance::MandateMode::Delegated,
+                budget_ceiling_cr:9000,treasury_floor_cr:10000,
+                spent_cr:0,created_tick:0,last_commitment_tick:None,last_reason:String::new(),
+            });
+        world.resource_mut::<director::Director>().faction_charters.insert(
+            "own".into(),charter::FactionCharter{
+                research_authority:charter::Authority::Delegated,
+                economy_authority:charter::Authority::Review,
+                research_priority:50,economy_priority:80,
+                shared_ceiling_cr:9000,protected_treasury_cr:10000,
+                approved_research_cr:0,approved_economy_cr:0,
+                spent_cr:0,spent_research_cr:0,spent_economy_cr:0,
+                updated_tick:0,last_reason:String::new(),
+            });
+        let mut events=Vec::new();
+        coordination::run_cycle(&mut world,&mut board,&FactionRelations::new(),
+            &mut events,120,1);
+        assert!(board.iter().any(|c|c.requestor_id=="own" &&
+            c.commodity!=Commodity::Water &&
+            c.funding.as_ref().is_some_and(|fund|fund.reserved>0)),
+            "Unrelated native economics must continue while water approval waits");
+        assert!(!board.iter().any(|c|c.commodity==Commodity::Water));
+        assert_eq!(world.resource::<director::Director>()
+            .economic_proposals["own"].status,economic_proposal::ProposalStatus::Pending);
+        assert_eq!(world.resource::<director::Director>()
+            .economic_mandates["own"].spent_cr,0);
+        assert!(world.get::<FactionData>(owner).unwrap().treasury<20_000);
+        let head=world.resource::<StrategyState>().factions["own"]
+            .head.as_ref().unwrap();
+        assert!(!head.problem.as_ref().is_some_and(|g|g.goal_id=="player_supply"));
+        let impact=head.policy_impacts.iter().find(|p|p.department=="economy").unwrap();
+        assert_eq!(impact.status,"awaiting_specific_approval");
+        assert!(!impact.selected);
+    }
+
+    #[test]
     fn galaxy063_review_proposes_without_funding_then_uses_native_paid_receipt(){
         let (mut world,mut board,owner,port,source)=fixture(Mode::Execute);
         let relations=FactionRelations::new();
@@ -497,6 +555,11 @@ mod tests {
             .insert(Commodity::Water,500.0);
         world.get_mut::<MarketPricing>(source).unwrap().prices
             .insert(Commodity::Water,1.0);
+        // Isolate the explicit review: no unrelated ordinary ore contract
+        // should reserve the one-per-cycle logistics executor during this test.
+        // A separate Galaxy 0.6.4 test verifies autonomous ore still proceeds
+        // independently when a water approval is pending.
+        world.get_mut::<MarketPricing>(source).unwrap().supply.remove(&Commodity::Ore);
         world.get_mut::<MarketPricing>(port).unwrap().demand
             .insert(Commodity::Water,80.0);
         world.insert_resource(director::Director::default());
@@ -529,6 +592,12 @@ mod tests {
             .expect("A native ready water quote should produce a review proposal");
         assert_eq!(proposal.status,economic_proposal::ProposalStatus::Pending);
         assert!(proposal.quoted_commitment_cr>0);
+        let policy=world.resource::<StrategyState>().factions["own"].head
+            .as_ref().unwrap().policy_impacts.iter().find(|p|
+                p.department=="economy").unwrap();
+        assert_eq!(policy.status,"awaiting_specific_approval");
+        assert!(!policy.selected);
+        assert_eq!(policy.priority,Some(70));
         assert_eq!(world.resource::<director::Director>()
             .faction_charters["own"].spent_economy_cr,0);
         assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,20_000);
@@ -565,6 +634,12 @@ mod tests {
             Some(paid[0].id.as_str()),"Approval must point to the exact native contract");
         assert_eq!(director.economic_proposals["own"].funded_payment_cr,Some(amount));
         assert_eq!(director.economic_proposals["own"].funded_tick,Some(180));
+        let policy=world.resource::<StrategyState>().factions["own"].head
+            .as_ref().unwrap().policy_impacts.iter().find(|p|
+                p.department=="economy").unwrap();
+        assert_eq!(policy.status,"native_contract_linked");
+        assert!(policy.selected);
+        assert_eq!(policy.funded_contract_id.as_deref(),Some(paid[0].id.as_str()));
         assert_eq!(director.economic_mandates["own"].spent_cr,amount);
         assert_eq!(director.faction_charters["own"].spent_economy_cr,amount);
         assert_eq!(world.get::<FactionData>(owner).unwrap().treasury,

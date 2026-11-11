@@ -10,6 +10,20 @@ pub struct Proposal {
     pub requested_credits: i64,
     pub priority: u8,
 }
+/// Observable relationship between a player policy and what the native head
+/// actually selected. No second decision maker and no inferred completion.
+#[derive(Clone, Debug, Serialize)]
+pub struct PolicyImpact {
+    pub department: &'static str,
+    pub mode: governance::MandateMode,
+    pub target: String,
+    pub priority: Option<u8>,
+    pub selected: bool,
+    pub status: &'static str,
+    pub reason: String,
+    pub funded_contract_id: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct HeadDecision {
     pub observed_tick: u64,
@@ -29,6 +43,9 @@ pub struct HeadDecision {
     pub shadow_portfolio: Option<options::ShadowRecommendation>,
     /// Native recipe-based dependency probe; not a construction or production order.
     pub native_chain_probe: Option<options::NativeChainProbe>,
+    /// What player directives did to this head decision (or why not).
+    /// A policy in advise/hold mode is visible but cannot issue paid orders.
+    pub policy_impacts: Vec<PolicyImpact>,
     /// Legacy decision expressed in the shared planner contract; diagnostic only.
     pub planning_shadow: Option<planning::ShadowTrace>,
     /// Real native planning dispatch (legacy key retained for Observer compatibility):
@@ -44,10 +61,24 @@ struct Grant {
 #[derive(Resource)]
 struct Grants(BTreeMap<String, Grant>);
 
+/// A player's grant is not interchangeable with an autonomous shortage of
+/// the same commodity at the same station. Construction is the one allowed
+/// alias: an existing site's "expand_production" goal continues the very
+/// same player industry target. All other player-policy identity is exact.
+fn granted_goal_matches(grant: &Goal, goal: &Goal, administrator: &str) -> bool {
+    if !options::same_problem(grant, goal) {return false;}
+    match grant.goal_id.as_str() {
+        "player_supply" => administrator=="logistics" && goal.goal_id=="player_supply",
+        "player_industry" => administrator=="construction" &&
+            matches!(goal.goal_id.as_str(), "player_industry"|"expand_production"),
+        _ => !goal.goal_id.starts_with("player_"),
+    }
+}
 pub(super) fn authorized(world: &World, faction: &str, administrator: &str, goal: &Goal) -> bool {
     world.get_resource::<Grants>().is_none_or(|grants| {
         grants.0.get(faction).is_some_and(|grant| {
-            grant.administrator == administrator && options::same_problem(&grant.goal, goal)
+            grant.administrator == administrator &&
+                granted_goal_matches(&grant.goal, goal, administrator)
         })
     })
 }
@@ -108,7 +139,7 @@ fn decision(
         treasury_before: view.treasury, spending_limit: limit, planned_spend: planned,
         committed_spend: 0, proposals, problem, selected_option,
         horizon_ticks: options::horizon_ticks(mult), alternatives, shadow_portfolio, native_chain_probe,
-        planning_shadow: None, htn_execution: None,
+        policy_impacts:Vec::new(),planning_shadow: None, htn_execution: None,
     }
 }
 
@@ -174,7 +205,16 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
         let already = board.iter().any(|c| c.requestor_id == *id && c.posted_at_tick == tick &&
             matches!(c.mission_category.as_deref(), Some(PROJECT_TAG) | Some(construction::PROJECT_TAG) |
                 Some(colony::PROJECT_TAG) | Some(colony_development::MIGRATION_TAG)));
-        (id.clone(), decision(view, &sources, tick, mult, already,commanders.get(id),None))
+        // Ordinary autonomy must not accidentally choose an unapproved
+        // player proposal merely because it is in the preview goal list.
+        // The mandate is evaluated separately below with its exact quote,
+        // permissions, and budget. Keep unrelated native alternatives.
+        let mut baseline=view.clone();
+        baseline.goals.retain(|g|!g.goal_id.starts_with("player_"));
+        if let Some(construction)=baseline.construction.as_mut(){
+            construction.offers.retain(|o|!o.goal.goal_id.starts_with("player_"));
+        }
+        (id.clone(),decision(&baseline,&sources,tick,mult,already,commanders.get(id),None))
     }).collect();
     for (id, head) in &mut decisions {
         let Some(plan) = colonies.get(id) else { continue; };
@@ -209,6 +249,8 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
     let mut specific_offers=Vec::<(
         String,super::economic_mandate::EconomicMandate,String,i64,i64
     )>::new();
+    // Only a fully authorized quote may influence the head's scoring.
+    let mut authorized_mandates=std::collections::HashSet::<String>::new();
     for (id,head) in &mut decisions {
         let Some(c)=commanders.get(id) else{continue;};
         // A funded native plan owns its sequence until receipts finish. Even a
@@ -235,11 +277,15 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
                         m.goal_id(),m.location,m.commodity.as_str());
                     if let Some(mut comparison)=options::compare_director_target(
                         view,&sources,mult,c,&target) {
-                        if m.kind==super::economic_mandate::EconomicKind::Industry &&
-                            comparison.alternatives.iter().any(|a|
-                                a.action=="build"&&a.status=="ready") {
-                            comparison.selected="build";
-                        }
+                        // A supply policy authorizes physical deliveries, not a
+                        // substitute building. Industry authorizes a real build,
+                        // never a one-off import. If the right native alternative
+                        // is unavailable, leave the head's autonomous plan intact.
+                        let intended=super::economic_mandate::required_native_action(m.kind);
+                        comparison.selected=if comparison.alternatives.iter()
+                            .any(|a|a.action==intended && a.status=="ready") {
+                            intended
+                        }else{"wait"};
                         let charge=comparison.alternatives.iter()
                             .find(|a|a.action==comparison.selected)
                             .map_or(0,|a|a.total_commitment.max(a.first_payment));
@@ -258,6 +304,7 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
                             *head=decision(view,&sources,tick,mult,false,Some(c),
                                 Some(comparison));
                             head.reason="player_economic_mandate".into();
+                            authorized_mandates.insert(id.clone());
                         }
                     }
                 }
@@ -266,10 +313,11 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
         let native_score=head.problem.as_ref().and_then(|g|head.alternatives.iter()
             .find(|a|a.action==head.selected_option)
             .map(|a|director::option_score(c,g,a))).unwrap_or(0.0).max(0.0);
-        let economic_selected=head.problem.as_ref().is_some_and(|g|
-            economic_intents.get(id).is_some_and(|m|
-                m.active() && g.goal_id==m.goal_id() &&
-                g.destination==m.location && g.commodity==m.commodity));
+        let economic_selected=authorized_mandates.contains(id) &&
+            head.problem.as_ref().is_some_and(|g|
+                economic_intents.get(id).is_some_and(|m|
+                    m.active() && g.goal_id==m.goal_id() &&
+                    g.destination==m.location && g.commodity==m.commodity));
         let native_score=if economic_selected&&!c.crisis {
             native_score.max(super::charter::priority_score(
                 world,id,super::charter::Department::Economy,160.0))
@@ -331,8 +379,31 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
              (old_essential && a.target.as_deref()==previous_target.as_deref())));
         // Priority of a *survival* supply alternative must outrank benign
         // strategy choices, but it still needs a valid native option.
-        let chosen=director::retain_or_switch(&mut strategic,&candidates,tick,survival,
-            native_active.contains(id),switch_policy);
+        let funded_native_order=board.iter().any(|contract|
+            contract.requestor_id==*id &&
+            contract.funding.as_ref().is_some_and(|f|f.reserved>0) &&
+            !matches!(contract.status,ContractStatus::Paid|ContractStatus::Expired) &&
+            matches!(contract.mission_category.as_deref(),
+                Some(PROJECT_TAG)|Some(construction::PROJECT_TAG)|
+                Some(colony::PROJECT_TAG)|Some(colony_development::MIGRATION_TAG)));
+        // A NEW, legally approved player priority should be acted on at the
+        // next cycle if it is the highest-ranked choice. Autonomous inertia
+        // (two-cycle hysteresis) still governs all other strategy changes.
+        // Never displace an existing funded physical commitment or crisis.
+        let player_top=economic_selected && !c.crisis &&
+            !native_active.contains(id) && !funded_native_order &&
+            candidates.first().is_some_and(|choice|
+                choice.available && choice.action=="supply" &&
+                choice.target==native_target);
+        let needs_switch=player_top &&
+            (strategic.kind!="supply" || strategic.target!=native_target);
+        let chosen=if needs_switch {
+            Some(director::accept_authorized_player_priority(
+                &mut strategic,&candidates[0],tick))
+        }else{
+            director::retain_or_switch(&mut strategic,&candidates,tick,survival,
+                native_active.contains(id)||funded_native_order,switch_policy)
+        };
         if let Some((choice,decision_reason))=chosen {
             match choice.action.as_str() {
                 "research" => {
@@ -666,6 +737,67 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
         };
         super::economic_mandate::status(world,&id,&reason);
     }
+    // Read-only policy audit after all native grants and paid receipts.
+    // Delegated, advisory, and hold modes are distinct even when the AI
+    // independently chooses a similar supply or research objective.
+    let impacts:Vec<_>=world.get_resource::<director::Director>().map(|d|
+        d.commanders.keys().map(|id|{
+            let head=world.resource::<StrategyState>().factions.get(id)
+                .and_then(|v|v.head.as_ref());
+            let charter=d.faction_charters.get(id);
+            let mut items=Vec::new();
+            if let Some(m)=d.economic_mandates.get(id) {
+                let selected=head.is_some_and(|h|h.problem.as_ref().is_some_and(|g|
+                    g.goal_id==m.goal_id() && g.destination==m.location &&
+                    g.commodity==m.commodity) &&
+                    matches!((m.kind,h.selected_option),
+                        (super::economic_mandate::EconomicKind::Supply,"deliver")|
+                        (super::economic_mandate::EconomicKind::Industry,"build")));
+                let proposal=d.economic_proposals.get(id);
+                let funded=proposal.and_then(|p|p.funded_contract_id.clone());
+                let status=if m.mode==governance::MandateMode::Hold {"hold"}
+                    else if m.mode==governance::MandateMode::Advise {"advisory"}
+                    else if charter.is_some_and(|c|c.economy_authority==charter::Authority::Autonomous)
+                        {"charter_autonomous"}
+                    else if d.commanders.get(id).is_some_and(|c|c.crisis) {"survival_override"}
+                    else if funded.is_some() {"native_contract_linked"}
+                    else if selected {"selected_by_head"}
+                    else if proposal.is_some_and(|p|p.status==super::economic_proposal::ProposalStatus::Pending)
+                        {"awaiting_specific_approval"}
+                    else {"not_selected"};
+                items.push(PolicyImpact{
+                    department:"economy",mode:m.mode,
+                    target:format!("{} · {} · {}",m.goal_id(),m.location,m.commodity.as_str()),
+                    priority:charter.map(|c|c.economy_priority),
+                    selected: selected && m.mode==governance::MandateMode::Delegated,
+                    status,reason:m.last_reason.clone(),funded_contract_id:funded,
+                });
+            }
+            if let Some(m)=d.research_mandates.get(id) {
+                let selected=head.is_some_and(|h|h.selected_option=="research") &&
+                    m.mode==governance::MandateMode::Delegated &&
+                    charter.is_none_or(|c|c.research_authority!=charter::Authority::Autonomous);
+                let status=if m.mode==governance::MandateMode::Hold {"hold"}
+                    else if m.mode==governance::MandateMode::Advise {"advisory"}
+                    else if charter.is_some_and(|c|c.research_authority==charter::Authority::Autonomous)
+                        {"charter_autonomous"}
+                    else if d.commanders.get(id).is_some_and(|c|c.crisis) {"survival_override"}
+                    else if selected {"selected_by_head"}
+                    else {"not_selected"};
+                items.push(PolicyImpact{department:"research",mode:m.mode,
+                    target:m.target_technology.clone(),
+                    priority:charter.map(|c|c.research_priority),
+                    selected,status,reason:m.last_reason.clone(),funded_contract_id:None});
+            }
+            (id.clone(),items)
+        }).collect()
+    ).unwrap_or_default();
+    for (id,items) in impacts {
+        if let Some(head)=world.resource_mut::<StrategyState>().factions.get_mut(&id)
+            .and_then(|v|v.head.as_mut()) {
+            head.policy_impacts=items;
+        }
+    }
     world.resource_mut::<StrategyState>().last_coordinated_tick = Some(tick);
 }
 
@@ -687,6 +819,55 @@ mod tests {
             BodyOrbit { orbit_radius: 1.0, orbit_period: 100, current_angle: 0.0, universe_offset: (0.0,0.0), dirty: false },
             BodyResources { resources: [(Commodity::Ore,1.0)].into(), max_resources: [(Commodity::Ore,1.0)].into() }));
         (w,b,owner,port,source)
+    }
+    #[test]
+    fn galaxy064_player_grant_does_not_authorize_an_unrelated_goal(){
+        let own=Goal{goal_id:"player_supply".into(),commodity:Commodity::Water,
+            destination:"port".into(),shortage_ticks:100,score:150.0};
+        let normal=Goal{goal_id:"sustain_population".into(),..own.clone()};
+        assert!(!granted_goal_matches(&own,&normal,"logistics"));
+        assert!(granted_goal_matches(&own,&own,"logistics"));
+        assert!(!granted_goal_matches(&own,&own,"construction"));
+        // For industry, the *same* physical building/site may already
+        // have its native expand_production goal, and can finish it.
+        let industry=Goal{goal_id:"player_industry".into(),..own.clone()};
+        let site=Goal{goal_id:"expand_production".into(),..own};
+        assert!(granted_goal_matches(&industry,&site,"construction"));
+        assert!(!granted_goal_matches(&industry,&site,"logistics"));
+        assert!(!granted_goal_matches(&normal,&industry,"logistics"));
+    }
+    #[test]
+    fn galaxy064_hold_and_advice_never_become_funded_player_grants(){
+        let (mut world,mut board,_,_,source)=fixture();
+        let relations=FactionRelations::new();let mut events=Vec::new();
+        world.get_mut::<MarketPricing>(source).unwrap().supply.insert(Commodity::Water,500.0);
+        world.get_mut::<MarketPricing>(source).unwrap().prices.insert(Commodity::Water,1.0);
+        world.insert_resource(director::Director::default());
+        director::observe(&mut world,&board,0,1);
+        let m=super::super::economic_mandate::EconomicMandate{
+            kind:super::super::economic_mandate::EconomicKind::Supply,
+            location:"port".into(),commodity:Commodity::Water,min_stock:200,
+            mode:governance::MandateMode::Hold,
+            budget_ceiling_cr:9000,treasury_floor_cr:10000,
+            spent_cr:0,created_tick:0,last_commitment_tick:None,last_reason:String::new()
+        };
+        world.resource_mut::<director::Director>().economic_mandates.insert("own".into(),m);
+        run_cycle(&mut world,&mut board,&relations,&mut events,120,1);
+        let p=world.resource::<StrategyState>().factions["own"].head.as_ref().unwrap()
+            .policy_impacts.iter().find(|p|p.department=="economy").unwrap();
+        assert_eq!(p.status,"hold");
+        assert!(!p.selected);
+        assert_eq!(world.resource::<director::Director>().economic_mandates["own"].spent_cr,0);
+        assert!(!board.iter().any(|c|c.commodity==Commodity::Water));
+        world.resource_mut::<director::Director>().economic_mandates
+            .get_mut("own").unwrap().mode=governance::MandateMode::Advise;
+        run_cycle(&mut world,&mut board,&relations,&mut events,180,1);
+        let p=world.resource::<StrategyState>().factions["own"].head.as_ref().unwrap()
+            .policy_impacts.iter().find(|p|p.department=="economy").unwrap();
+        assert_eq!(p.status,"advisory");
+        assert!(!p.selected);
+        assert_eq!(world.resource::<director::Director>().economic_mandates["own"].spent_cr,0);
+        assert!(!board.iter().any(|c|c.commodity==Commodity::Water));
     }
     #[test]
     fn planner_shadow_is_read_only_and_projects_a_real_native_step() {
