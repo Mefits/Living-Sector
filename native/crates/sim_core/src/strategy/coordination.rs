@@ -590,8 +590,19 @@ pub fn run_cycle(world: &mut World, board: &mut ContractBoard, relations: &Facti
     // success event. This runs AFTER the native administrator/driver cycle.
     super::economic_proposal::expire(world,tick);
     for (id,mandate,action,quote,treasury) in specific_offers {
-        super::economic_proposal::publish(
-            world,&id,&mandate,&action,quote,treasury,tick);
+        // Keep the receipt of an already funded delivery visible while the
+        // native carrier is still working. Replacing it with a new offer
+        // would destroy the player's only durable proposal->contract link.
+        let outstanding=world.get_resource::<director::Director>()
+            .and_then(|d|d.economic_proposals.get(&id))
+            .filter(|p|p.status==super::economic_proposal::ProposalStatus::Consumed)
+            .and_then(|p|p.funded_contract_id.as_deref())
+            .and_then(|contract_id|board.get(contract_id))
+            .is_some_and(|c|!matches!(c.status,ContractStatus::Paid|ContractStatus::Expired));
+        if !outstanding {
+            super::economic_proposal::publish(
+                world,&id,&mandate,&action,quote,treasury,tick);
+        }
     }
     let actual_economic_mandates=world.get_resource::<director::Director>()
         .map(|d|d.economic_mandates.clone()).unwrap_or_default();
