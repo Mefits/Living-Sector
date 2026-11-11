@@ -1,0 +1,97 @@
+name: Sol S0 - Real relief signal inventory on known Windows Genesis
+
+on:
+  push:
+    branches:
+      - feature/sol-relief-golden-s0
+    paths:
+      - '.github/workflows/sol-relief-s0.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  s0-inventory:
+    runs-on: windows-latest
+    timeout-minutes: 28
+    steps:
+      - name: Checkout S0 analyzer only (does not change game)
+        uses: actions/checkout@v4
+
+      - name: Install Python for short native signal probe
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test no-false-green analyzer invariants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem -LiteralPath 'ci/sol_s0' -Filter '*.py' | ForEach-Object {
+            python -m py_compile $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "S0 Python parse failed: $($_.Name)" }
+          }
+          python -m unittest discover -s ci/sol_s0 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "S0 false-green regression tests failed" }
+
+      - name: Install event capture dependency
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check 'websockets==14.2'
+          if ($LASTEXITCODE -ne 0) { throw "WebSocket client install failed" }
+
+      - name: Reuse previously compiled passing Windows Galaxy 0.6.2
+        uses: actions/download-artifact@v4
+        with:
+          name: Living-Sector-Galaxy-0.6.2-Windows
+          run-id: 42990801593
+          repository: Mefits/Living-Sector
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: work/sol-s0-input
+
+      - name: Extract immutable portable game, no Cargo rebuild
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip='work/sol-s0-input/Living-Sector-Galaxy-0.6.2-Windows.zip'
+          if (!(Test-Path $zip)) { throw "Expected exact Galaxy 0.6.2 ZIP missing" }
+          New-Item -ItemType Directory -Force -Path 'work/sol-s0-game' | Out-Null
+          Expand-Archive -LiteralPath $zip -DestinationPath 'work/sol-s0-game' -Force
+          $exe=Get-ChildItem 'work/sol-s0-game' -Recurse -File -Filter 'Genesis-Server.exe' |
+            Select-Object -First 1
+          if (!$exe) { throw "Downloaded artifact does not contain Genesis-Server.exe" }
+          if (!(Test-Path (Join-Path $exe.Directory.FullName 'priv/galaxy/data'))) {
+            throw "Seed files absent from independent Windows artifact"
+          }
+          "SOL_S0_GAME=$($exe.Directory.FullName)" >> $env:GITHUB_ENV
+          Get-FileHash -LiteralPath $exe.FullName -Algorithm SHA256 | Format-List
+
+      - name: Real Genesis S0 - food/water/fuel pressure and native receipt inventory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/sol_s0/probe.py --game-dir "$env:SOL_S0_GAME" --out sol-s0-results --ticks 1800 --sample-every 120 --max-seconds 690 --source-run 42990801593
+          if ($LASTEXITCODE -ne 0) { throw "S0 real Windows probe did not finish" }
+
+      - name: Upload ALL raw S0 traces even if incomplete
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sol-S0-Real-Genesis-Relief-Inventory
+          path: sol-s0-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Explain S0 status without pretending successful relief
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path 'sol-s0-results/REPORT-RU.md') {
+            Get-Content 'sol-s0-results/REPORT-RU.md'
+            Get-Content 'sol-s0-results/REPORT-RU.md' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } else {
+            "S0 data collection incomplete; inspect manifest.json and genesis-server.log" |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
