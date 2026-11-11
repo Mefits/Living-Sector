@@ -817,6 +817,55 @@ mod tests {
         (w,b,owner,port,source)
     }
     #[test]
+    fn galaxy064_player_grant_does_not_authorize_an_unrelated_goal(){
+        let own=Goal{goal_id:"player_supply".into(),commodity:Commodity::Water,
+            destination:"port".into(),shortage_ticks:100,score:150.0};
+        let normal=Goal{goal_id:"sustain_population".into(),..own.clone()};
+        assert!(!granted_goal_matches(&own,&normal,"logistics"));
+        assert!(granted_goal_matches(&own,&own,"logistics"));
+        assert!(!granted_goal_matches(&own,&own,"construction"));
+        // For industry, the *same* physical building/site may already
+        // have its native expand_production goal, and can finish it.
+        let industry=Goal{goal_id:"player_industry".into(),..own.clone()};
+        let site=Goal{goal_id:"expand_production".into(),..own};
+        assert!(granted_goal_matches(&industry,&site,"construction"));
+        assert!(!granted_goal_matches(&industry,&site,"logistics"));
+        assert!(!granted_goal_matches(&normal,&industry,"logistics"));
+    }
+    #[test]
+    fn galaxy064_hold_and_advice_never_become_funded_player_grants(){
+        let (mut world,mut board,_,_,source)=fixture();
+        let relations=FactionRelations::new();let mut events=Vec::new();
+        world.get_mut::<MarketPricing>(source).unwrap().supply.insert(Commodity::Water,500.0);
+        world.get_mut::<MarketPricing>(source).unwrap().prices.insert(Commodity::Water,1.0);
+        world.insert_resource(director::Director::default());
+        director::observe(&mut world,&board,0,1);
+        let m=super::super::economic_mandate::EconomicMandate{
+            kind:super::super::economic_mandate::EconomicKind::Supply,
+            location:"port".into(),commodity:Commodity::Water,min_stock:200,
+            mode:governance::MandateMode::Hold,
+            budget_ceiling_cr:9000,treasury_floor_cr:10000,
+            spent_cr:0,created_tick:0,last_commitment_tick:None,last_reason:String::new()
+        };
+        world.resource_mut::<director::Director>().economic_mandates.insert("own".into(),m);
+        run_cycle(&mut world,&mut board,&relations,&mut events,120,1);
+        let p=world.resource::<StrategyState>().factions["own"].head.as_ref().unwrap()
+            .policy_impacts.iter().find(|p|p.department=="economy").unwrap();
+        assert_eq!(p.status,"hold");
+        assert!(!p.selected);
+        assert_eq!(world.resource::<director::Director>().economic_mandates["own"].spent_cr,0);
+        assert!(!board.iter().any(|c|c.commodity==Commodity::Water));
+        world.resource_mut::<director::Director>().economic_mandates
+            .get_mut("own").unwrap().mode=governance::MandateMode::Advise;
+        run_cycle(&mut world,&mut board,&relations,&mut events,180,1);
+        let p=world.resource::<StrategyState>().factions["own"].head.as_ref().unwrap()
+            .policy_impacts.iter().find(|p|p.department=="economy").unwrap();
+        assert_eq!(p.status,"advisory");
+        assert!(!p.selected);
+        assert_eq!(world.resource::<director::Director>().economic_mandates["own"].spent_cr,0);
+        assert!(!board.iter().any(|c|c.commodity==Commodity::Water));
+    }
+    #[test]
     fn planner_shadow_is_read_only_and_projects_a_real_native_step() {
         let (mut world, mut board, owner, _, _) = fixture();
         let mut events = Vec::new();
