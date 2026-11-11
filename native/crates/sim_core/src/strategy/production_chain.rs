@@ -165,7 +165,7 @@ pub fn inspect(world:&mut World, board:&ContractBoard, faction:&str,
         }else if labor_state=="complete"{"native_paid_labor_complete"}
         else if labor_state=="active"{"awaiting_native_paid_worker_shifts"}
         else{"waiting_for_materials"},labor_actual,labor_required,None));
-    let (input_status,input_reason)=if !built {("queued","producer_not_materialized".into())}
+    let (input_status,input_reason):(&'static str,String)=if !built {("queued","producer_not_materialized".into())}
         else if let Some(readiness)=&inputs {
             if readiness.ready_for_one_batch {("complete","local_inputs_for_one_batch_present".into())}
             else {("blocked","local_recipe_input_shortage".into())}
