@@ -5,17 +5,22 @@ $dest = Join-Path $root ('diagnostics-' + (Get-Date -Format 'yyyyMMdd-HHmmss') +
 $tmp = Join-Path $env:TEMP ('living-sector-godot-' + [guid]::NewGuid().ToString('N'))
 New-Item -Path $tmp -ItemType Directory -Force | Out-Null
 try {
-    $log = Join-Path $root 'logs\godot-p0.log'
-    if (Test-Path $log) {
-        Copy-Item -LiteralPath $log -Destination (Join-Path $tmp 'godot-p0.log')
+    $names = @('godot-p0.log', 'p0-seed-smoke.log', 'p1-tick-save-smoke.log')
+    $present = @()
+    foreach ($name in $names) {
+        $log = Join-Path (Join-Path $root 'logs') $name
+        if (Test-Path $log) {
+            Copy-Item -LiteralPath $log -Destination (Join-Path $tmp $name)
+            $present += $name
+        }
     }
     $meta = [ordered]@{
         project = 'Living Sector Godot port'
-        branch = 'feature/godot-p0-world-inspector-and-audit'
+        branch = 'feature/godot-p1-ticks-orbits-saves'
         exported_at_utc = [DateTime]::UtcNow.ToString('o')
         source_commit = 'unknown'
-        godot_log_present = (Test-Path $log)
-        note = 'Only Godot log and source commit, no worlds/saves/credentials.'
+        included_logs = $present
+        note = 'Only three known local Godot log filenames and source commit; no worlds/saves/credentials.'
     }
     $git = Get-Command git.exe -ErrorAction SilentlyContinue
     if ($git) {
