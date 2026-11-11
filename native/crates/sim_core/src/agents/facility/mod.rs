@@ -271,6 +271,13 @@ where F: FnMut(u32) -> Option<String> {
     let desired_qty = if commodity == Commodity::Gas {
         gas_bulk_delivery_qty_for_shortage(shortage_ticks)
     } else { ordinary_qty };
+    // For gas, the old shortage-implied order may itself be unaffordable
+    // or unavailable at source. Fall all the way back to a useful
+    // 50-unit small-lot delivery instead of deadlocking the whole market.
+    // For every other resource keep the old fixed shortage quantity.
+    let minimum_qty = if commodity == Commodity::Gas {
+        DELIVERY_CONTRACT_QTY
+    } else { ordinary_qty };
     let mut qty = desired_qty.max(ordinary_qty);
     loop {
         let minimum_payment = (qty as i64)
@@ -280,8 +287,8 @@ where F: FnMut(u32) -> Option<String> {
                 return Some((qty, source));
             }
         }
-        if qty == ordinary_qty {break;}
-        qty = qty.saturating_sub(25).max(ordinary_qty);
+        if qty == minimum_qty {break;}
+        qty = qty.saturating_sub(25).max(minimum_qty);
     }
     None
 }
