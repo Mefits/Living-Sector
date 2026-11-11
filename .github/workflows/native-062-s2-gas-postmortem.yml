@@ -1,0 +1,57 @@
+name: Sol S2 - Offline causal gas blockers from previous REAL Windows trace
+
+on:
+  push:
+    branches:
+      - feature/native-062-s2-native-chain-audit
+    paths:
+      - '.github/workflows/native-062-s2-gas-postmortem.yml'
+      - 'ci/sol_s2/audit_operations.py'
+      - 'ci/sol_s2/test_audit_operations.py'
+      - 'ci/sol_s2/postmortem.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnose-captured-native-gas:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout read-only offline diagnostic tools
+        uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Anti-false-green audit unit tests (no native compile)
+        shell: pwsh
+        run: |
+          python -m unittest discover -s ci/sol_s2 -p test_audit_operations.py -v
+          if ($LASTEXITCODE -ne 0) { throw "Receipt attribution tests failed" }
+      - name: Download EXACT previous real 1263 tick Windows run, even if its gate failed
+        uses: actions/download-artifact@v4
+        with:
+          name: Native-Gas-Golden-S2-Controlled-Evidence
+          run-id: 43027264221
+          repository: Mefits/Living-Sector
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: work/s2-saved
+      - name: Exact gas contracts and ship transaction sequence from saved WS/HTTP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python ci/sol_s2/postmortem.py --raw work/s2-saved/s2-raw --out work/s2-diagnosis
+          if ($LASTEXITCODE -ne 0) { throw "Could not analyze real trace" }
+          Get-Content 'work/s2-diagnosis/S2-POSTMORTEM-RU.md' |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+      - name: Preserve read-only postmortem artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Sol-S2-1263-Ticks-Exact-Contract-Postmortem
+          path: work/s2-diagnosis/
+          if-no-files-found: warn
+          retention-days: 21
