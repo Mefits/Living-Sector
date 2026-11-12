@@ -241,3 +241,10 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 ### 2026-11-12 18:46 MSK — second-chat-overnight N87/N88/N89 START
 Three atomic claims N87, N88, N89 created IN_PROGRESS before code. Independent scopes: Rust AI considerations, ship autonomous action policy, faction governance mandates. Integration source `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`; N39 and all other claims untouched. Phase 1 only; CODE_UNVERIFIED until Godot runtime.
+
+
+### 2026-11-12 18:46 MSK — N87/N88/N89 COMPLETE (second-chat-overnight)
+- N87 [Draft PR #176](https://github.com/Mefits/Living-Sector/pull/176): frozen Rust AI consideration functions (fuel, trade freshness, cargo, finance, exploration, dock), pure GDScript.
+- N88 [Draft PR #177](https://github.com/Mefits/Living-Sector/pull/177): frozen Rust ship BT dock/rest/dwell/construct lifecycle and command intent. Buy/sell/mine/refit/gate and other authoritative apply actions remain intentionally unported in this slice and fail closed.
+- N89 [Draft PR #178](https://github.com/Mefits/Living-Sector/pull/178): frozen Rust research/economic mandates, budget/floor/precondition and paid-receipt admission; ownership and actual ledger mutation are external dependencies.
+Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter static checks pass; Godot not executed; no integration or merges. N39 and other owners untouched. Further phase-1 gaps: ship action apply, full colony lifecycle, production N39, construction/shipyard execution, faction governance/HTN and end-to-end Rust behavior. Verified counters unchanged P0 3/9 P1 0/9 P2 0/11 total 3/100.
