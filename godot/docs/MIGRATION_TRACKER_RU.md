@@ -226,3 +226,8 @@
 - Сохранены порядок фаз Rust, deterministic event ordering, запрет дубликатов и повторного исполнения, атомарное восстановление очереди. Пока события только уведомляют, без выдуманной экономики.
 - PR: https://github.com/Mefits/Living-Sector/pull/91 (база N2 PR #89); статическая проверка скобок четырёх файлов, Godot не запускался.
 - Подтверждённые числа неизменны: **P0 3/9, P1 0/9, P2 0/11, всего 3/100**. Новая задача с кодом без Godot Runtime: **1 (N3)**; совокупное число смотреть по детальным строкам трекера.
+
+
+### Nightshift N4 — code ready, Godot not yet verified (2026-11-12)
+
+[PR #92](https://github.com/Mefits/Living-Sector/pull/92): native Galaxy 0.6.7 entity registry and directed travel route graph; 8 systems, 47 bodies, 15 facilities, 24 ships, 3 markets, 3 populations, 9 nav sites, 12 directed edges. Native ship/nav site/population missing IDs are represented with clearly labeled seed-local ordinal keys; no fabricated native IDs. Deterministic shortest path and headless acceptance script. **CODE_UNVERIFIED**; Godot Runtime not executed. This is preparatory code for P1/P3 and does not add VERIFIED checklist items. No production, ship movement or market logic claimed.
