@@ -57,10 +57,10 @@ static func plan_missions(facilities: Array, contracts: Array,
 	var result: Array = []
 	var wallet_after := {}
 	for f in facilities:
-		if not (f is Dictionary) or not (f.get("id") is String) or
-				not (f.get("facility_type") is String) or
-				not (f.get("location_name") is String) or
-				typeof(f.get("credits"))!=TYPE_INT or
+		if not (f is Dictionary) or not (f.get("id") is String) or \
+				not (f.get("facility_type") is String) or \
+				not (f.get("location_name") is String) or \
+				typeof(f.get("credits"))!=TYPE_INT or \
 				not (f.get("faction_id") is String)):
 			return _fail("invalid_real_mission_facility")
 		if bool(f.get("abandoned",false)):
@@ -72,8 +72,8 @@ static func plan_missions(facilities: Array, contracts: Array,
 		for contract in contracts:
 			if not (contract is Dictionary):
 				return _fail("invalid_native_ContractBoard_snapshot")
-			if str(contract.get("requestor_id",""))==str(f["id"]) and
-					str(contract.get("contract_type",""))=="crew_mission" and
+			if str(contract.get("requestor_id",""))==str(f["id"]) and \
+					str(contract.get("contract_type",""))=="crew_mission" and \
 					str(contract.get("status","")) in ["posted","accepted","picked_up"]:
 				active+=1
 		if active>=MAX_ACTIVE:
