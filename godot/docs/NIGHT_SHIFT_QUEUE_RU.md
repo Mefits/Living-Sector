@@ -251,6 +251,6 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 
 | N90 | **P3/P5: ShipAction commercial & physical apply protocol** — Rust actions.rs buy/sell/refuel/mine/refit/gate + pending/receipt status; no duplicates with N88 lifecycle or N39 facilities | Native Rust exact command intent, transaction wait/failure/ack; data-only GDScript and small static source parity; no Godot run | IN_PROGRESS — interactive-chat; [claim N90](nightshift/claims/N90.json) |
 
-| N91 | P4 Rust construction executor (`agents/construction/executor.rs`), isolated source-backed port | Independent construction state machine, no N39 overlap | IN_PROGRESS — overnight-scheduler; [claim](nightshift/claims/N91.json) |
-| N92 | P4 Rust colony development (`strategy/colony_development.rs`), distinct from N79 admission | Colony lifecycle and guards, no fake resource movement | IN_PROGRESS — overnight-scheduler; [claim](nightshift/claims/N92.json) |
-| N93 | P5 Rust HTN planning adapter (`strategy/planning/htn_adapter.rs`) | Planning contract only, no phantom execution | IN_PROGRESS — overnight-scheduler; [claim](nightshift/claims/N93.json) |
+| N91 | P4 Rust construction executor (`agents/construction/executor.rs`), isolated source-backed port | Independent construction state machine, no N39 overlap | CODE_UNVERIFIED — [PR #179](https://github.com/Mefits/Living-Sector/pull/179), partial parity, no Godot run |
+| N92 | P4 Rust colony development (`strategy/colony_development.rs`), distinct from N79 admission | Colony lifecycle and guards, no fake resource movement | CODE_UNVERIFIED — [PR #180](https://github.com/Mefits/Living-Sector/pull/180), partial parity, no Godot run |
+| N93 | P5 Rust HTN planning adapter (`strategy/planning/htn_adapter.rs`) | Planning contract only, no phantom execution | CODE_UNVERIFIED — [PR #181](https://github.com/Mefits/Living-Sector/pull/181), partial parity, no Godot run |
