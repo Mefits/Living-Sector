@@ -1,5 +1,5 @@
 # Living Sector — ночная очередь автономной разработки Godot
-| N137 | **IN_PROGRESS — second-chat-overnight** | LARGE native `ai/considerations.rs`: all pure ship utility considerations, axes, freshness and resource factors | `claims/N137.json`; `feature/godot-n137-native-ai-considerations-20261112` |
+| N137 | **CODE_UNVERIFIED — [Draft PR #226](https://github.com/Mefits/Living-Sector/pull/226)** | LARGE native `ai/considerations.rs`: all pure ship utility considerations, axes, freshness and resource factors | `claims/N137.json`; `feature/godot-n137-native-ai-considerations-20261112` |
 
 
 | N136 | **CODE_UNVERIFIED — [Draft PR #224](https://github.com/Mefits/Living-Sector/pull/224)** | Native `strategy/economic_proposal.rs`: exact economic approval tokens, expiry/repeat, funded receipt lifecycle | `claims/N136.json`; `feature/godot-n136-native-economic-proposal-20261112` |
