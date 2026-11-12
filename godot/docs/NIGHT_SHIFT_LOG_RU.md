@@ -972,3 +972,7 @@ Claim created atomically by second-chat-overnight; source `native/crates/sim_cor
 - N147 commission separately checks no outstanding same-requestor/destination Passenger, recipient pre-exists, current source residents and ship can actually carry, routes, funds and 800×mult lifetime. Returns ONE atomic `ContractBoard.post_passenger_for` + `register_prepaid(source=Faction)` + exact faction treasury debit proposal, no fake ship/population, no cash double entry. True N16/N104 board and N97 delivery remain external.
 - All 4 new files read back from GitHub; static balanced quotes/brackets and preload target check passed. Fixtures authored but NOT RUN; Godot parser/runtime and Rust-executable parity NOT RUN, no merge. Macro #2 still contains other colony/population source gaps.
 - Symbolic global remaining Phase-1 source port: ~55–59% (unchanged approximate; not proportional to PR count).
+
+
+### 2026-11-13 — interactive-chat N148 START
+- Atomic claim `godot/docs/nightshift/claims/N148.json` @ `fa7673ec` before code; standalone macro #3 frozen Rust `ShipLifecycle`, `agents/ship/behavior.rs` idle+strike and `sim_server/engine/drains.rs` adaptive retirement/respawn contract. N80 AI decisions, N138 actual crew welfare, N72 paid upkeep, N54 checkpoint, N146 commands untouched. Work branch `feature/godot-n148-native-ship-lifecycle-retirement-20261113`, no Phase2 integration.
