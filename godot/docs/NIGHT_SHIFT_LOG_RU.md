@@ -198,3 +198,7 @@ Atomic claim `claims/N16.json` at `f495d43e`, work branch `feature/godot-nightsh
 
 ### N8 — 2026-11-12 06:54 MSK — second-chat-overnight
 Claim `claims/N8.json` created atomically at `8f79fa2`; integration and parity regression underway in `feature/godot-nightshift-n8-integration-second-20261112`. CODE_UNVERIFIED until actual Godot runtime.
+
+
+### N8 completion — 12.11.2026 06:56 MSK
+[PR #103](https://github.com/Mefits/Living-Sector/pull/103) adds explicit deterministic paid-production coordinator, shared local labor budget, ledger/inventory checkpoint replay and headless smoke. Based on N6 #100, no merge; Godot runtime unavailable, CODE_UNVERIFIED. Global TickRunner integration and N7 population crisis still pending.
