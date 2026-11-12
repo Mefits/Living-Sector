@@ -26,7 +26,13 @@ static func embark(world: Dictionary, ship_id: String,
     var contract: Dictionary = source_contract
     var ship: Dictionary = source_ship
     var funding: Variant = contract.get("funding", null)
-    if str(contract.get("contract_type", "")) != "passenger"             or str(contract.get("status", "")) != "accepted"             or str(contract.get("fulfiller_id", "")) != ship_id             or str(ship.get("active_contract_id", "")) != contract_id             or not (funding is Dictionary)             or funding.get("agreed_payment", null) == null             or funding.get("embarked", null) != null:
+    if (str(contract.get("contract_type", "")) != "passenger"
+            or str(contract.get("status", "")) != "accepted"
+            or str(contract.get("fulfiller_id", "")) != ship_id
+            or str(ship.get("active_contract_id", "")) != contract_id
+            or not (funding is Dictionary)
+            or funding.get("agreed_payment", null) == null
+            or funding.get("embarked", null) != null):
         return _bad("inactive_passenger_contract")
     var class_name: String = str(ship.get("class", ""))
     var qty: Variant = contract.get("quantity", null)
@@ -63,11 +69,14 @@ static func embark(world: Dictionary, ship_id: String,
         # product instead of silently inventing savings on overflow.
         if int(wealth) > MAX_SAFE_FLOAT_INT:
             return _bad("wealth_requires_i128_adapter")
-        var product: float = float(wealth) * float(qty)
-        if product > float(MAX_SAFE_FLOAT_INT):
+        var float_product: float = float(wealth) * float(qty)
+        if float_product > float(MAX_SAFE_FLOAT_INT):
             return _bad("wealth_requires_i128_adapter")
+        # Both operands and product are exact integers within the guard.
+        # Godot int/int truncates exactly as the source Rust positive i128.
+        var product: int = int(wealth) * int(qty)
         chosen = str(id)
-        moved_wealth = int(floor(product / float(people)))
+        moved_wealth = int(product / int(people))
         break
     if chosen.is_empty():
         return _bad("insufficient_settlers")
@@ -109,7 +118,10 @@ static func _dock_and_controller(world: Dictionary, ship_id: String,
     if not (facilities is Dictionary)             or not (facilities.get(facility_id, null) is Dictionary):
         return _bad("missing_dock")
     var station: Dictionary = facilities[facility_id]
-    if str(station.get("location", "")) != location             or not (station.get("docked_ships", null) is Array)             or not (station["docked_ships"] as Array).has(ship_id)             or bool(station.get("abandoned", false)):
+    if (str(station.get("location", "")) != location
+            or not (station.get("docked_ships", null) is Array)
+            or not (station["docked_ships"] as Array).has(ship_id)
+            or bool(station.get("abandoned", false))):
         return _bad("invalid_dock")
     var relations: Variant = world.get("relations", null)
     if not (relations is Dictionary):
