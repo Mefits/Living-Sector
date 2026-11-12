@@ -830,3 +830,6 @@ Three atomic claims created before code. N125 emergency food delivery proposals;
 - N126 [Draft PR #214](https://github.com/Mefits/Living-Sector/pull/214): native passenger contract eligibility/duplicate check, 50 heads and 80 credits/head; passenger settlement external.
 - N127 [Draft PR #215](https://github.com/Mefits/Living-Sector/pull/215): native population production and 10% monetisation intent; market/wealth Apply external.
 All three CODE_UNVERIFIED; source read and delimiter check only, no Godot parser/runtime, no merge or P1 integration. N39/N100/N121 and other claims untouched.
+
+### 2026-11-12 22:01 MSK — second-chat-overnight N128–N130 START
+Three distinct atomic claims created IN_PROGRESS before source changes: N128 ship combat; N129 faction treasury taxation; N130 facility upkeep. Each has independent branch, Rust parity and overlap checks pending. N39 and other owners untouched. Phase 1 only.
