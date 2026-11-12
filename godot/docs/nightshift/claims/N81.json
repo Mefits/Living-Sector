@@ -1,6 +1,6 @@
 {
   "block_id": "N81",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T18:30:39+03:00-second-chat-11-N81",
   "claimed_at": "2026-11-12T18:30:39+03:00",
@@ -14,6 +14,23 @@
     "Preserve shortest/cost planning and source action intent semantics",
     "Document exact Rust dependencies"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Rust source reviewed",
+    "GDScript component committed",
+    "Source/contract handoff documented",
+    "Draft PR opened"
+  ],
+  "evidence": [
+    "PR #170",
+    "commit 16c0b91845ed890c94818c86dc3e19b6971bd969"
+  ],
+  "completed_at": "2026-11-12T18:30:39+03:00",
+  "commit_sha": "16c0b91845ed890c94818c86dc3e19b6971bd969",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/170",
+  "checks": [
+    "Static source review only; Godot runtime not executed"
+  ],
+  "remaining": [
+    "Authoritative world integration deferred to phase 2"
+  ]
 }
