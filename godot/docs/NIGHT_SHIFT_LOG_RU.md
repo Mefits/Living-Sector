@@ -1,5 +1,8 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 12.11.2026 — interactive-chat N108 START
+- Atomic [claim N108](nightshift/claims/N108.json) created SHA 9490593e7109e0eed949396a393ef823ef386b6a before implementation; Rust special ship exclusive Apply: GateJump / ShipyardRefit / ReleaseContract. No edits to N39, N100, N79, N97, N104, or verified P1; Phase 1 GDScript-only.
+
 ### 12.11.2026 — interactive-chat: N104 ESCROW + FUNDED DELIVERY COMPLETE
 - Atomically reserved [N104](nightshift/claims/N104.json) before code; now CODE_UNVERIFIED, [Draft PR #193](https://github.com/Mefits/Living-Sector/pull/193). Four independent source-derived GDScript modules (~900 LOC).
 - Frozen Rust contract_funding.rs + ContractBoard: exact faction/treaty/comms quote, capped strategy reward, genuine Population/Facility/Faction payer, only necessary escrow top-up, assigned order/embargo guards, Accepted/Released states, Paid/Expired sorted refunds to original source without free money.
