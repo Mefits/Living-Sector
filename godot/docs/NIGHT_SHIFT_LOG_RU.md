@@ -383,3 +383,6 @@ Claim `claims/N34.json` created by `second-chat-overnight`; branch `feature/godo
 
 ### N35 — start 2026-11-12 12:12 MSK
 Claim N35 reserved by `second-chat-overnight` (`2026-11-12T12:12:40+03:00-second-chat-n35`). Planned: authoritative contract tick integration, replay guard, headless smoke. Work branch `feature/godot-nightshift-n35-contract-tick-second-20261112`.
+
+### N36 start — 2026-11-12 12:14 MSK — second-chat-overnight
+- Atomic claim `claims/N36.json` at `ea858e82e8983b0ccdd08d92046599c341ec38bd`, work branch `feature/godot-nightshift-n36-godot47-compat-second-20261112`. Scope: Godot 4 integration startup compatibility, static fixes and smoke. IN_PROGRESS.
