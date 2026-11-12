@@ -92,16 +92,18 @@ static func primary_task(roles: Array, in_transit: bool) -> String:
 		return "engineering"
 	return "idle"
 
-static func task_after_meal(crew: Dictionary, roles: Array, in_transit: bool) -> Dictionary:
+static func task_after_meal(crew: Dictionary, roles: Array, in_transit: bool,
+		hunger_before_meal: float) -> Dictionary:
 	## Called AFTER real N72 meal debit/hunger reduction, never eats by itself.
+	## Rust enters Eating based on hunger BEFORE debit even if the meal then cures hunger.
 	## Strict < and > keep Rust's boundary hysteresis.
-	if not _finite_welfare(crew):
+	if not _finite_welfare(crew) or not is_finite(hunger_before_meal) or hunger_before_meal < 0.0 or hunger_before_meal > 100.0:
 		return _result(crew, "task", "invalid_input")
 	var out := crew.duplicate(true)
 	var old_task: String = str(out["current_task"])
 	var hunger: float = float(out["hunger"])
 	var fatigue: float = float(out["fatigue"])
-	if hunger > EAT_THRESHOLD:
+	if hunger_before_meal > EAT_THRESHOLD:
 		out["current_task"] = "eating"
 	elif fatigue > REST_THRESHOLD:
 		out["current_task"] = "resting"
