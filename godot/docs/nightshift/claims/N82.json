@@ -1,6 +1,6 @@
 {
   "block_id": "N82",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T18:30:39+03:00-second-chat-11-N82",
   "claimed_at": "2026-11-12T18:30:39+03:00",
@@ -14,6 +14,23 @@
     "Preserve research eligibility and work thresholds",
     "Expose pure data-only lookup contracts"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Rust source reviewed",
+    "GDScript component committed",
+    "Source/contract handoff documented",
+    "Draft PR opened"
+  ],
+  "evidence": [
+    "PR #171",
+    "commit 98ea483e336df38400582c790a1400b723847472"
+  ],
+  "completed_at": "2026-11-12T18:30:39+03:00",
+  "commit_sha": "98ea483e336df38400582c790a1400b723847472",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/171",
+  "checks": [
+    "Static source review only; Godot runtime not executed"
+  ],
+  "remaining": [
+    "Authoritative world integration deferred to phase 2"
+  ]
 }
