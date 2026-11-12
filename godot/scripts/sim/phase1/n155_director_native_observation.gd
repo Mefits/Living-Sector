@@ -58,7 +58,9 @@ static func option_score(commander: Dictionary, goal: Dictionary, alternative: D
 		return -1.0
 	var weight: float = float(profile.get("industry",1.0)) if action == "build" else 1.0
 	var benefit: float = log(1.0+maxf(0.0,net))*weight
-	return benefit + (1000.0 if survival and crisis else 0.0) 		+ float(mini(1000,maxi(0,int(goal.get("shortage_ticks",0)))))*0.01 		+ (5.0 if site_present else 0.0)
+	return (benefit + (1000.0 if survival and crisis else 0.0)
+		+ float(mini(1000,maxi(0,int(goal.get("shortage_ticks",0)))))*0.01
+		+ (5.0 if site_present else 0.0))
 
 static func append_record(commander: Dictionary, tick: int, action: String,
 		reason: String, outcome: String) -> Dictionary:
