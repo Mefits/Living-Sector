@@ -135,7 +135,8 @@ static func accept(world: Dictionary, ship_id: String,
         return _bad("station_order_assigned_elsewhere")
     if not (world.get("relations", null) is Dictionary):
         return _bad("missing_relations")
-    var owner: String = str(contract.get("faction_id", ""))
+    var tag: Variant = contract.get("faction_id", null)
+    var owner: String = "" if tag == null else str(tag)
     if not owner.is_empty():
         var allowed: Dictionary = Quote.commerce_allowed(world["relations"], faction, owner)
         if not bool(allowed.get("ok", false)):
