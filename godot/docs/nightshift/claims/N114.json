@@ -1,6 +1,6 @@
 {
   "block_id": "N114",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T20:48:08+03:00-second-chat-overnight-11-N114",
   "claimed_at": "2026-11-12T20:48:08+03:00",
@@ -10,13 +10,24 @@
   "work_branch": "feature/godot-n114-population-overnight-20261112",
   "scope": "Rust colony population growth and consumption domain",
   "source_files": [
-    "native/crates/sim_core/src/population/mod.rs"
+    "native/crates/sim_core/src/agents/population.rs"
   ],
   "tasks": [
     "Read frozen Rust source and existing port interfaces",
     "Port remaining isolated mechanics with exact state and formulas",
     "Perform minimal static checks and publish Draft PR"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Read frozen Rust source",
+    "Implemented isolated GDScript logic",
+    "Created Draft PR; runtime not executed"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/commit/119133aee1f85d51d02a9a415227f0550f1c330b",
+    "https://github.com/Mefits/Living-Sector/pull/203"
+  ],
+  "known_limitations": [
+    "No Godot execution; no integration",
+    "Only isolated source subset, not full subsystem parity"
+  ]
 }
