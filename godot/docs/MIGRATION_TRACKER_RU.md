@@ -265,3 +265,7 @@
 > **N20, 12.11.2026:** [PR #108](https://github.com/Mefits/Living-Sector/pull/108) adds a read-only Godot observer panel, deterministic snapshot projection and command-disabled reasons for missing authoritative execution. Stacked on N19 #107. **CODE_UNVERIFIED** (Godot not run); VERIFIED remains P0 3/9, P1 0/9, P2 0/11, overall 3/100. Next: N21+ independent integration work after claim and dependency check.
 
 > **N21, 12.11.2026:** [Draft PR #109](https://github.com/Mefits/Living-Sector/pull/109) adds a standalone deterministic capacity-aware docking registry with dock/undock receipts, transit preconditions, validated save/restore and short headless smoke. Based on Rust ship action semantics; full shared N14/N15 integration and Rust apply-phase parity pending. **CODE_UNVERIFIED**: Godot runtime not executed. VERIFIED counts remain P0 3/9, P1 0/9, P2 0/11, overall 3/100.
+
+
+### N22 — P7-04 пакетное отображение кораблей (12.11.2026)
+Статус **CODE_UNVERIFIED**, draft PR #110 (https://github.com/Mefits/Living-Sector/pull/110). Чистая проекция ID/позиций, одна CanvasItem, culling, selection, тест на 10k записей. Это НЕ подтверждённый P7-04: нет runtime-бенчмарка и подключения к авторитетному N14/N21 миру. P0/P1/P2 VERIFIED без изменений.
