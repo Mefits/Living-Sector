@@ -49,6 +49,8 @@ static func admit_into_empty_world_ledger(ledger: RefCounted, seed: Dictionary,
         return _failure("unsupported_ledger_schema")
     if not (current["balances"] as Dictionary).is_empty() or not (current["receipts"] as Dictionary).is_empty():
         return _failure("world_ledger_already_initialized")
+    if other_authoritative_accounts.is_empty():
+        return _failure("missing_other_authoritative_accounts")
     var result: Dictionary = project_initial_ship_accounts(seed)
     if not bool(result.get("ok", false)):
         return result
