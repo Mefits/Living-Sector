@@ -251,3 +251,7 @@
 ### N14 — directed ship transit (12.11.2026)
 
 **CODE_UNVERIFIED**, not a fully verified P3 movement/docking task. [Draft PR #99](https://github.com/Mefits/Living-Sector/pull/99) stacked on N13/N4 adds directed-leg checks, world-coordinate step with frozen Rust 0.05 base velocity and class/size speed, fuel decrement, idempotent tick, snapshot-compatible flight state and stale-arrival token. `godot/tests/n14_transit_check.gd` is prepared but **not run** in Godot. Physical destination resolver, multi-leg navigation, station docking and fuel exhaustion recovery remain outstanding. Confirmed totals unchanged: P0 3/9, P1 0/9, P2 0/11, all 3/100.
+
+### N16 — contract escrow and lifecycle (12.11.2026)
+
+**CODE_UNVERIFIED**, [draft PR #102](https://github.com/Mefits/Living-Sector/pull/102). Prepaid debit into existing escrow wallet, acceptance top-up, lifecycle transitions, payout/refund and snapshot/restore; headless regression prepared. Physical N15 receipts are caller-supplied but NOT authenticated; no faction permissions, renewals, fixed strategy rewards, passenger/construction effects or TickRunner integration. Godot runtime not executed. **P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED unchanged.**
