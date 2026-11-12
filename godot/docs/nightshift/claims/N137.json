@@ -1,0 +1,20 @@
+{
+  "block_id": "N137",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T22:57:17+03:00-second-chat-overnight-N137",
+  "claimed_at": "2026-11-12T22:57:17+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "3681fc77bd2bfdce5275f0fa08b152b8afda44a4",
+  "rust_ref": "archive/rust-galaxy-067-reference",
+  "rust_scope": "native/crates/sim_core/src/ai/considerations.rs",
+  "work_branch": "feature/godot-n137-native-ai-considerations-20261112",
+  "base_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "tasks": [
+    "Port every native utility consideration with original axes and exact clamping",
+    "Preserve memory freshness, cargo, fuel, location and reputation inputs",
+    "Document pure state contract and Rust mapping; minimal static check"
+  ],
+  "progress": [],
+  "evidence": []
+}
