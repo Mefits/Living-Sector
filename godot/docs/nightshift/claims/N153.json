@@ -1,0 +1,22 @@
+{
+  "block_id": "N153",
+  "macro_id": 4,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13-macro4-ship-ai-source-parity",
+  "claimed_at": "2026-11-13T01:51:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "work_branch": "feature/godot-n153-native-ship-ai-behavior-20261113",
+  "scope": "Macro #4 source audit and missing frozen Rust agents/ship/behavior.rs decision loop, goal assembly, strategic replan, planner BT compilation and exploration/rest/retrofit; integrate only as separate Phase1 data-only source port. Existing N80/N83/N84–N88/N90/N103/N112/N137 own previous fragments; no duplicated money/cargo, no changes to foreign claims.",
+  "tasks": [
+    "Inventory all frozen ship/behavior.rs functions and existing N80/N83/N84–N88/N90/N103/N112/N137 code/PR scope",
+    "Port remaining source-faithful ship decision/planning, scoring/candidates, BT and route helpers to isolated GDScript",
+    "Document exclusive existing owners for transactional apply and ship lifecycle; add fast static/source checks only",
+    "Publish one Draft PR based on integration/godot-47-n33-n37-20261112",
+    "Update N153 claim, coordination queue/log/tracker and macro source status with honest uncovered functions"
+  ],
+  "progress": [],
+  "evidence": []
+}
