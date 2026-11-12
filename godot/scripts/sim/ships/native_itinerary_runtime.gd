@@ -5,8 +5,8 @@ extends RefCounted
 const Live = preload("res://scripts/sim/live_native_fleet_engine.gd")
 const Intents = preload("res://scripts/sim/ships/itinerary_intent_registry.gd")
 const BaseSave = preload("res://scripts/sim/ships/native_fleet_checkpoint.gd")
-const FORMAT := "living-sector-itinerary-runtime"
-const VERSION := 1
+const FORMAT = "living-sector-itinerary-runtime"
+const VERSION = 1
 
 var engine: RefCounted
 var intents: RefCounted
