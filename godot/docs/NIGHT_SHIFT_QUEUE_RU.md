@@ -1,3 +1,4 @@
+| N147 | **IN_PROGRESS — interactive-chat** | Macro2 native Rust `colony_development.rs::migration_proposals/commission`: actual paid workforce passenger commission and exact source/destination/ship/route guards; N92 observation read-only remains separate | Atomic `claims/N147.json` created first, branch `feature/godot-n147-colony-paid-workforce-migration-20261113` |
 | N145 | **CODE_UNVERIFIED — [Draft PR #234](https://github.com/Mefits/Living-Sector/pull/234)** — second-chat-overnight | Macro 5: frozen contracts.rs Posted age/price, reputation gates, renewal/expiry, faction-tier eligibility; 12 pure GDScript functions + handoff | No Godot runtime; N104 escrow/refunds and N135 dispatch remain separate |
 | N144 | CODE_UNVERIFIED | second-chat-overnight | Macro 2: native colony proposal evaluation/ranking (`strategy/colony.rs::proposals`), exclusive source scope |
 # Living Sector — ночная очередь автономной разработки Godot
