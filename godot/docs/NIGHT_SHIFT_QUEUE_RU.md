@@ -155,7 +155,7 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 | N50 | N46 seed → Rust-native стартовые параметры экипажа, роли, мораль/усталость/голод/здоровье; без N39 | source-based crew initialization, snapshot/refusal, headless smoke | CODE_UNVERIFIED — [PR #139](https://github.com/Mefits/Living-Sector/pull/139), interactive-chat; source checked, Godot pending |
 | N51 | Детерминированный Rust ShipFitting: размер/слоты/эффекты стартового fitting; без фальшивых бонусов | 6 классов, comms_t2, size baseline, fitting parity | IN_PROGRESS — interactive-chat (ACTIVE); [claim N51](nightshift/claims/N51.json) |
-| N52 | Стартовые 24 ship credits через источник Rust и ledger-idempotency, без дублирования кошельков N39 | read-only provenance, deterministic funding admission, no double mint | IN_PROGRESS — interactive-chat (QUEUED); [claim N52](nightshift/claims/N52.json) |
+| N52 | Стартовые 24 ship credits через источник Rust и ledger-idempotency, без дублирования кошельков N39 | read-only provenance, deterministic funding admission, no double mint | CODE_UNVERIFIED — [PR #142](https://github.com/Mefits/Living-Sector/pull/142), interactive-chat; code done, runtime pending |
 | N53 | Докование/местонахождение стартового флота с реальной docking capacity и ID модулей из Rust | dock admission, ownership, overcapacity fail-closed, deterministic smoke | IN_PROGRESS — interactive-chat (QUEUED); [claim N53](nightshift/claims/N53.json) |
 | N54 | Атомарный fleet+world save bridge для N40/N43/N46; не восстанавливать неполный P1 snapshot | strict schema, checksum provenance, no user save collision, tamper smoke | IN_PROGRESS — interactive-chat (QUEUED); [claim N54](nightshift/claims/N54.json) |
 
