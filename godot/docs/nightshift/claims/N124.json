@@ -22,12 +22,14 @@
   ],
   "evidence": [
     "https://github.com/Mefits/Living-Sector/pull/212",
-    "https://github.com/Mefits/Living-Sector/commit/faa8917f721611ee7dd16e9331d75d8379ebc22a"
+    "https://github.com/Mefits/Living-Sector/commit/faa8917f721611ee7dd16e9331d75d8379ebc22a",
+    "https://github.com/Mefits/Living-Sector/commit/9619e4dea2650d4ce04bebd82cb858e48b4029e5"
   ],
-  "code_commit_sha": "faa8917f721611ee7dd16e9331d75d8379ebc22a",
+  "code_commit_sha": "9619e4dea2650d4ce04bebd82cb858e48b4029e5",
   "finished_at": "2026-11-12T22:00:00+03:00",
   "limitations": [
     "Godot runtime not executed",
-    "Full authoritative world integration deferred to phase 2"
+    "Full authoritative world integration deferred to phase 2",
+    "Crisis event emission remains external as in frozen Rust"
   ]
 }
