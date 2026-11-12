@@ -435,3 +435,6 @@ Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nights
 - Claim: `godot/docs/nightshift/claims/N39.json`, commit `3cdf72e6fd1fe63c9ecf8b83354a4e138a253b2d`.
 - Source integration `integration/godot-47-n33-n37-20261112` @ `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`.
 - Planned: audit N23 existing production, create guarded live source bridge with real ownership/inventories/wages in a single tick, regression and handoff. No main/stable/Rust edits; no request for user tests.
+
+### N41 start — 2026-11-12 11:44 +01:00 — overnight-scheduler
+- Atomic claim `claims/N41.json` at `e9382ba5`; source integration `1e4a1e9`; audit `native/observer` static media, provenance and licensing; no asset copying. IN_PROGRESS.
