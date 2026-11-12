@@ -154,13 +154,15 @@ static func build_goal_candidates(ship: Dictionary, observed: Dictionary) -> Arr
 	# Source idle/explore escalation is in N80; N153 converts a proved
 	# exploration route into actual BT leaves. All truthy gates N80-owned.
 	var exploration: bool = observed.get("should_explore", false) == true
+	var found_explore_route: bool = false
 	if exploration:
 		var explore_leaves: Array = Plans.explore_plan(location,
 			ship.get("recent_systems", []), observed.get("gate_pairs_order", []),
 			systems, observed.get("registry_order", []), routes)
 		if not explore_leaves.is_empty():
+			found_explore_route = true
 			candidates.append(_candidate("explore", maxf(0.2, float(personality.get("exploration", 0.0))) * TIER_EXPLORE_WEIGHT, {}, explore_leaves))
-	if not exploration or candidates.is_empty():
+	if not found_explore_route:
 		var station_leaves: Array = Plans.idle_seek_station(location,
 			bool(ship.get("docked", false)), str(ship.get("loc_type", "")),
 			observed.get("registry_order", []), systems, routes)
