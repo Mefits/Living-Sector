@@ -1,0 +1,31 @@
+{
+  "block_id": "N80",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T15:08:33.116Z-manual-next-n80-ship-ai",
+  "claimed_at": "2026-11-12T15:08:33.116Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "base_branch": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n80-native-ship-decision-ai-20261112",
+  "title": "P5/P3: full frozen Rust ship autonomous decision policy and safe action intents",
+  "scope": "Port the missing native Rust ship agent autonomous decision/action selection, utility priorities, rule guards and ship-class role behaviour as standalone deterministic GDScript. No live game integration or tests beyond lightweight static checks. Do not edit N39 production, N78 director, existing N13/N14/N57 fleet or P1 UI.",
+  "tasks": [
+    "Trace and document exact frozen Rust ship AI state/roles, scoring and decision order (distinguish already ported N13/N14/N15 pieces)",
+    "Implement deterministic data-only ship AI decision and intent selection APIs with exact Rust formulas and guard semantics",
+    "Cover miners, trading/courier, tanker, colonizer and idle/recovery where source supports behaviour; explicitly mark missing source rather than invent policies",
+    "Minimal static/source parity checks and one handoff PR; defer full Godot runtime/integration to phase 2"
+  ],
+  "dependencies": [
+    "frozen Rust agents/ship and AI source",
+    "existing N13/N14/N15/N57 interfaces, read-only"
+  ],
+  "non_overlap": [
+    "N39 production owner",
+    "N78 faction director",
+    "N77 construction",
+    "N79 colony eligibility",
+    "main/stable/P1"
+  ]
+}
