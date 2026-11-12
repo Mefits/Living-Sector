@@ -75,7 +75,7 @@
 
 | ID | Переносимый результат | Источник | Статус | Мини-критерий / доказательство |
 |---|---|---|---|---|
-| `P3-01` | Классы, параметры и компактное хранилище кораблей → `sim/ships/state` | `ship/components.rs; modules/mod.rs` | `TODO` | Больше кораблей ≠ больше Godot nodes |
+| `P3-01` | Классы, параметры и компактное хранилище кораблей → `sim/ships/state` | `ship/components.rs; modules/mod.rs` | `CODE_UNVERIFIED` | [N13 PR #95](https://github.com/Mefits/Living-Sector/pull/95): 6 Rust classes, size tiers, validated cargo/fuel, atomic snapshot; Godot headless pending |
 | `P3-02` | Физическое движение и межсистемные коридоры → `sim/logistics/travel` | `world/travel.rs; pathfinder.rs; ship/mod.rs` | `TODO` | Груз прибывает только после перелёта |
 | `P3-03` | Топливо, докинг, обслуживание, состояние → `sim/ships/operations` | `ship/mod.rs; ship/actions.rs` | `TODO` | Реальные расходы и ограничения |
 | `P3-04` | Вместимость трюма, погрузка и разгрузка → `sim/logistics/cargo` | `ship/transactions.rs; contracts.rs` | `TODO` | Нельзя взять > вместимости |
