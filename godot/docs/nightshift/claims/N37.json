@@ -1,6 +1,6 @@
 {
   "block_id": "N37",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "overnight-scheduler",
   "run_id": "2026-11-12T10:38:04+01:00-overnight-9-n37",
   "claimed_at": "2026-11-12T10:38:04+01:00",
@@ -13,6 +13,18 @@
     "write machine-readable audit and concise validation script",
     "document P0-08 acceptance boundaries"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "97 frozen Rust assets indexed with SHA/size/category",
+    "stdlib reproducible audit script and transfer gate",
+    "license provenance risk documented, no assets copied"
+  ],
+  "evidence": [
+    "GitHub frozen tree vs manifest: 97/97 SHA and size match, 0 mismatches (static JavaScript comparison)",
+    "Godot runtime NOT run",
+    "Python CLI NOT run",
+    "P0-08 remains IN_REVIEW until provenance and native/observer checked"
+  ],
+  "completed_at": "2026-11-12T10:39:30+01:00",
+  "pull_request": "https://github.com/Mefits/Living-Sector/pull/126",
+  "head_sha": "678246c350d543203c87abc0d32a8a453b31eda7"
 }
