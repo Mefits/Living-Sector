@@ -77,3 +77,7 @@
 - **Утром:** `godot --headless --path godot --script res://tests/n3_events_check.gd`, затем `RUN-P1-SMOKE.cmd`; исправить любые runtime ошибки до merge.
 - **Зависимости:** PR #89 N2; другие блоки сверять по claims. Следующий независимый N4 registry либо N5 commodities, после свежей проверки занятости.
 - **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, общий 3/100 VERIFIED.
+
+### 2026-11-12 02:00 CET — N4 started (overnight-scheduler)
+
+Reserved `N4.json` atomically; implementing native registry and travel route graph in `feature/godot-nightshift-n4-registry-routes-overnight-20261112`. Godot runtime validation pending.
