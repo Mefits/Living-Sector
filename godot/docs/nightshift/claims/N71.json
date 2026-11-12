@@ -1,0 +1,19 @@
+{
+  "block_id": "N71",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "20261112-173733-msk-overnight11-N71",
+  "claimed_at": "2026-11-12T17:37:33+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9 (last documented; revalidate before code)",
+  "work_branch": "feature/godot-n71-overnight11-20261112",
+  "scope": "Rust-native population food/water demand admission and deterministic shortage diagnostics",
+  "tasks": [
+    "source-based consumption demand",
+    "inventory debit admission and shortage diagnostics",
+    "headless regression"
+  ],
+  "progress": [],
+  "evidence": []
+}
