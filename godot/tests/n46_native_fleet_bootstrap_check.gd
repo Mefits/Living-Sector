@@ -27,6 +27,8 @@ func _initialize() -> void:
         return
     var classes: Dictionary = {}
     var total_credits: int = 0
+    var total_fuel: float = 0.0
+    var total_hold_capacity: int = 0
     var ids: Array = fleet.ships.keys()
     ids.sort()
     for id in ids:
@@ -45,8 +47,11 @@ func _initialize() -> void:
             _fail("native_credits_source")
             return
         total_credits += int(initial_credits[id])
+        total_fuel += float(ship["fuel"])
+        total_hold_capacity += int(ship["cargo_capacity"])
         classes[str(ship["class"])] = int(classes.get(str(ship["class"]), 0)) + 1
-    if total_credits != 960000 or classes.size() != 6:
+    # Exact frozen Rust seeder totals for 3 equal eight-ship factions.
+    if total_credits != 960000 or not is_equal_approx(total_fuel, 4200.0) or total_hold_capacity != 17250 or classes.size() != 6:
         _fail("native_economy_provenance")
         return
     if str(fleet.ships["@system-sol/0"]["location"]) != "earth-station":
