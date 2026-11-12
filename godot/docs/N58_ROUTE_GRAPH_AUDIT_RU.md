@@ -1,0 +1,5 @@
+# N58 — native route graph integrity audit
+
+Read-only provenance validation of directed travel_routes, graph snapshot, node count, system IDs and weights. Frozen Rust reference: `crates/sim_core/src/agents/ship/mod.rs` route planning and native world travel routes. Uses Godot built-in Dictionary/Array/RefCounted; no plugin or per-ship Nodes. The audit compares source to graph and **does not** assert that route distance equals physical world-space distance. Native route endpoints may be implicit, as in the existing N4 loader. Duplicate system IDs are rejected by audit as an additional integrity check; no gameplay data is rewritten.
+
+Headless: `godot --headless --path godot --script res://tests/n58_route_graph_audit_check.gd`. Validates matching directed arcs, no synthesized reverse arc, weight tampering, duplicate arc/system, missing arc, and read-only behavior. Godot runtime pending: **CODE_UNVERIFIED**. Independent of N39/N57. Integration requires calling this audit at seed admission before accepting a live route graph, not during each ship tick.
