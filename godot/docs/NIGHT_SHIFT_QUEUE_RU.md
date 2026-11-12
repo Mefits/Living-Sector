@@ -140,4 +140,4 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 | N44 | **P6 research prerequisite gate (read-only):** audit Rust progression and deterministic evaluation of actual requirements without granting technology/resources; avoid N39/N43 overlap | Rust-sourced requirements, fail-closed evaluator, headless regression; no invented tech unlock | CODE_UNVERIFIED — [PR #132](https://github.com/Mefits/Living-Sector/pull/132), second-chat-overnight |
 
-| N45 | **P6: funded research command bridge:** Rust research cost, N44 prerequisites, real ledger payment and idempotent order receipt; no invented unlock | Deterministic fail-closed paid order, duplicate/insufficient funds/save smoke | IN_PROGRESS — second-chat-overnight, claim N45 |
+| N45 | **P6: funded research command bridge:** Rust research cost, N44 prerequisites, real ledger payment and idempotent order receipt; no invented unlock | Deterministic fail-closed paid order, duplicate/insufficient funds/save smoke | CODE_UNVERIFIED — [PR #134](https://github.com/Mefits/Living-Sector/pull/134), second-chat-overnight; N44 dependency |
