@@ -326,3 +326,8 @@ Three distinct atomic claims created IN_PROGRESS before source changes: N128 shi
 - N129 [Draft PR #218](https://github.com/Mefits/Living-Sector/pull/218): faction facility tax 2.5% above 1000 CR, 200-base-tick cadence, treasury-funded bailout state transitions (faction.rs).
 - N130 [Draft PR #219](https://github.com/Mefits/Living-Sector/pull/219): facility reserve restock against real local market supply and paid seller balance, internal owner no-charge path (facility/restock.rs).
 All three distinct claims CODE_UNVERIFIED, three separate branches, source reviewed, no Godot runtime or integration, no merge. P1 checkpoint/main/Rust archive and N39/other claims unchanged. Authoritative commit of external state is a phase-2 dependency. VERIFIED P0 3/9 P1 0/9 P2 0/11 overall 3/100 unchanged.
+
+
+| N131 | P2 Rust price engine exact formula and bounds | native economy/price_engine.rs | IN_PROGRESS — overnight-scheduler, claim N131 |
+| N132 | P4 Rust module production and shipyard prerequisites | native economy/module_production.rs | IN_PROGRESS — overnight-scheduler, claim N132 |
+| N133 | P6 Rust research unlock/progression | native strategy/research.rs | IN_PROGRESS — overnight-scheduler, claim N133 |
