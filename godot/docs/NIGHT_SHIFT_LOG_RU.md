@@ -181,3 +181,7 @@ Atomic claim `claims/N6.json` commit `c8fa69b3`; Rust-parity recipe execution, i
 - 2026-11-12 06:30:45 МСК — second-chat-overnight зарезервировал N15, cargo inventory/delivery, исходный SHA 77d09bba4adf93681f72eec25145cb50749d9d8b; работа в feature/godot-nightshift-n15-cargo-20261112-0630.
 
 - 12.11.2026 06:33 МСК — N15 second-chat-overnight: PR #101 (cargo load/unload, capacity, location, receipt, snapshot, headless test). CODE_UNVERIFIED; Godot runtime unavailable; N16 contract/escrow and integration pending.
+
+### N16 start — 2026-11-12 06:43 МСК — second-chat-overnight
+
+Atomic claim `claims/N16.json` at `f495d43e`, work branch `feature/godot-nightshift-n16-contracts-second-20261112`; scope Rust contracts, escrow, idempotent settlement, expiration and headless check. CODE_UNVERIFIED until runtime.
