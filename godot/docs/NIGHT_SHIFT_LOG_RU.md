@@ -141,3 +141,12 @@ Claim `claims/N13.json` created atomically at `66db027`; branch `feature/godot-n
 ### N10 start — 2026-11-12 05:35 MSK — second-chat-overnight
 
 Claim `claims/N10.json` created atomically at `86bea1bd`; Rust price engine/order book parity, native deterministic pricing and short headless smoke; working branch `feature/godot-nightshift-n10-prices-second-20261112`.
+
+### N10 complete — 2026-11-12 05:40 MSK — second-chat-overnight
+
+- [Draft PR #98](https://github.com/Mefits/Living-Sector/pull/98), head `8e6e9245641166d65b2a9dba60ac1740fc303100`, based on N9 commit `9c81cb7` (N5/N9 stacked dependencies).
+- Rust price_engine.rs: exact coverage bands, urgency, 5%/tick, 1–500 CR bounds, cent rounding; order_book.rs: aggressive-price matching, midpoint minus spread, partial fills, untouched inputs. Added per-market bounded tick history and short smoke.
+- No money/commodity transfer claimed; trade matching produces proposals only. Godot executable absent, smoke not run: **CODE_UNVERIFIED**.
+- N6/N7/N14–N20 TODO at last queue check; other claims N1–N5, N9, N11–N13 already CODE_UNVERIFIED. Recheck claims before choosing any.
+- Next: N6 actual production/payroll and N14 ship movement; then integrate N10 with N15/N16 market settlement after dependency PR review.
+- **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED. N10 adds one CODE_UNVERIFIED block.
