@@ -14,6 +14,7 @@ var _runner
 var _seed: Dictionary = {}
 var _selected_system: String = "system-sol"
 var _notice: String = ""
+var _startup_error: String = ""
 var _pause_button: Button
 var _map: Control
 var _details: RichTextLabel
@@ -127,7 +128,8 @@ func _ready() -> void:
     if data.has("error"):
         _status.text = "Ошибка импорта Galaxy"
         _details.text = str(data["error"])
-        push_error(str(data["error"]))
+        _startup_error = str(data["error"])
+        push_error(_startup_error)
         return
 
     _seed = data
@@ -135,7 +137,8 @@ func _ready() -> void:
     if not _runner.start_from_seed(_seed):
         _status.text = "Ошибка индексации исходного мира"
         _details.text = "Godot не смог построить read-only индексы исходных JSON."
-        push_error(_details.text)
+        _startup_error = _details.text
+        push_error(_startup_error)
         return
 
     _model = _runner.world
@@ -309,3 +312,22 @@ func _select_world(world: Dictionary) -> void:
     lines.append("Изменяются только орбитальные углы, по точной формуле Rust.")
     lines.append("Запасы, контракты, производство и корабли не симулируются.")
     _details.text = "\n".join(lines)
+
+## Read-only boot diagnostics for local Windows/Godot compatibility smoke.
+## No gameplay mutation and no false claim that P2/P3 phases execute.
+func startup_health() -> Dictionary:
+    var booted: bool = _runner != null and _runner.is_started()
+    var has_map: bool = _map != null and is_instance_valid(_map)
+    var has_ui: bool = _status != null and _details != null and _pause_button != null
+    var seed_ok: bool = booted and _model != null and _model.seed_stats().get("systems", 0) == 8
+    return {
+        "ok": booted and has_map and has_ui and seed_ok and _startup_error.is_empty(),
+        "error": _startup_error,
+        "godot_version": Engine.get_version_info().get("string", "unknown"),
+        "booted": booted,
+        "seed_ok": seed_ok,
+        "map_ready": has_map,
+        "ui_ready": has_ui,
+        "tick": _runner.tick_count if booted else -1,
+        "implemented_phases": _runner.implemented_phases() if booted else PackedStringArray()
+    }
