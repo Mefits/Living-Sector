@@ -247,3 +247,9 @@ Claim `N19.json` owner `second-chat-overnight`, run `20261112-075427-msk-second-
 ### N20 start — 2026-11-12 08:16 МСК — overnight-scheduler
 
 Atomic claim `claims/N20.json` commit `e889702`; read-only observer and command availability based on real model APIs, deterministic headless smoke. Work branch `feature/godot-nightshift-n20-observer-overnight-20261112`. CODE_UNVERIFIED pending Godot.
+
+### N20 result — 2026-11-12 — overnight-scheduler
+
+- Draft [PR #108](https://github.com/Mefits/Living-Sector/pull/108), head `3ebba7c`: read-only observer snapshot for native head/station/contract/production, stale and cross-faction filtering, disabled commands with reasons, built-in Godot panel connected to P1 scene, headless smoke and Rust handoff.
+- **CODE_UNVERIFIED:** Godot executable absent, smoke NOT RUN. N19/N18/N16 not wired to live TickRunner, so panel explicitly reports missing data rather than fake execution. No merge. P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED.
+- N1–N20 claimed; next work must reserve N21+ from outstanding tracker tasks after checking PR dependencies.
