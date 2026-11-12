@@ -824,3 +824,9 @@ All CODE_UNVERIFIED, source reviewed, GitHub readback and minimal delimiter bala
 
 ### 2026-11-12 21:57 MSK — second-chat-overnight N125/N126/N127 START
 Three atomic claims created before code. N125 emergency food delivery proposals; N126 passenger contract proposals; N127 population labor production/monetisation. Frozen Rust agents/population.rs source, integration base 1e4a1e9f34fff7313ce176107890ecdbe25fc85a. N39/N100/N121 and all other claims untouched. Phase-1 source port only; CODE_UNVERIFIED pending.
+
+### 2026-11-12 22:00 MSK — second-chat-overnight N125–N127 RESULTS
+- N125 [Draft PR #213](https://github.com/Mefits/Living-Sector/pull/213): native population food emergency delivery proposal, source/quantity/premium/lifespan; escrow Apply external.
+- N126 [Draft PR #214](https://github.com/Mefits/Living-Sector/pull/214): native passenger contract eligibility/duplicate check, 50 heads and 80 credits/head; passenger settlement external.
+- N127 [Draft PR #215](https://github.com/Mefits/Living-Sector/pull/215): native population production and 10% monetisation intent; market/wealth Apply external.
+All three CODE_UNVERIFIED; source read and delimiter check only, no Godot parser/runtime, no merge or P1 integration. N39/N100/N121 and other claims untouched.
