@@ -370,3 +370,10 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 - Three separate claims CODE_UNVERIFIED, three independent branches/PR, no merge, no Godot run, no P1 or Rust changes. Full source parity is not claimed; N39 and N90 remain other owners' work. VERIFIED counters unchanged P0 3/9, P1 0/9, P2 0/11, total 3/100.
 
 > **N94–N96, 12.11.2026:** separate native Rust component ports in Draft [#183](https://github.com/Mefits/Living-Sector/pull/183) sourcing, [#184](https://github.com/Mefits/Living-Sector/pull/184) production dependency preview, [#185](https://github.com/Mefits/Living-Sector/pull/185) portfolio scoring. All `CODE_UNVERIFIED`; not integrated into live Godot. VERIFIED counters unchanged. These Nx are component-level coverage, not new VERIFIED rows or game completion percentage.
+
+
+### 2026-11-12 N98–N100 phase-1 planning source ports
+- N98 [PR #186](https://github.com/Mefits/Living-Sector/pull/186): Rust durable plan ledger; CODE_UNVERIFIED, external plan validation required.
+- N99 [PR #187](https://github.com/Mefits/Living-Sector/pull/187): Rust bounded Control Beam; CODE_UNVERIFIED, native domain adapter required.
+- N100 [PR #188](https://github.com/Mefits/Living-Sector/pull/188): partial Rust Hybrid planner, IN_PROGRESS; ingredient composition/orchestration not yet ported.
+- No Godot runtime checks, no new VERIFIED progress, no integration. Do not treat these PRs as working AI.
