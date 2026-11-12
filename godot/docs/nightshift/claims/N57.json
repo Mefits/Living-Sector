@@ -1,0 +1,28 @@
+{
+  "block_id": "N57",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T13:14:05.219Z-interactive-n57-live-fleet-integration",
+  "claimed_at": "2026-11-12T13:14:05.219Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "feature/godot-n54-fleet-save-bridge-20261112",
+  "source_sha": "a5163396369d614890e46f4f092eeee4af724b71",
+  "work_branch": "feature/godot-n57-live-fleet-engine-20261112",
+  "tasks": [
+    "Audit current P1 scene/wiring and N40–N54 contracts; do not touch occupied N39 production code",
+    "Implement one opt-in authoritative runtime engine for native fleet + docking + one N11 global ledger, deterministic tick/control/snapshot with fail-closed cross-domain guards",
+    "Make docking and ship transit mutually consistent, including route departure and arrival, without inventing economic transfers or factory production",
+    "Provide headless short integration regression and PR; coordinate N39 later rather than merge prematurely"
+  ],
+  "dependencies": [
+    "N40/N43/N46/N53/N54 via PR #144",
+    "N11 ledger",
+    "N21 docking"
+  ],
+  "conflict_boundary": [
+    "N39 production, still owned",
+    "verified Godot P1 UI",
+    "main/stable/Rust immutable"
+  ],
+  "activity": "ACTIVE"
+}
