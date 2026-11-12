@@ -1,0 +1,19 @@
+{
+  "block_id": "N43",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T11:16:36.034Z-interactive-n43-native-locations",
+  "claimed_at": "2026-11-12T11:16:36.034Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n43-native-location-resolver-20261112",
+  "tasks": [
+    "Extract true dynamic body/nav-site/facility world-space location rules from frozen Rust Galaxy 0.6.7 and exact native Sol/other world JSON",
+    "Implement data-only deterministic native location position resolver from actual body-orbit coordinates, without using UI pixels, route distance, or invented positions",
+    "Add headless regression covering orbit movement, missing/ambiguous locations, no synthetic cargo/fuel, and compatibility with N40 transit",
+    "Publish independent PR and handoff without touching occupied N39 production bridge or verified P1"
+  ],
+  "progress": [],
+  "evidence": []
+}
