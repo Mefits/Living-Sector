@@ -1,5 +1,16 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 2026-11-12 — interactive-chat, N63–N67: 5/5 В КОДЕ
+- Обновлены пять существующих активных автомаций Living Sector: сохранены старые расписания; каждый будущий запуск обязывает **три отдельные атомарные Nx-резервации**, три содержательных задачи и honest status. Ручной Godot запуск пользователя **только после полного переноса**; прежние промежуточные Windows-тесты больше не требовать.
+- Атомарно зарезервированы свободные **N63–N67**, прежде чем изменять исходники, под пять независимых границ, не затрагивая чужой N39 production и начинающиеся N68–N70 других чатов.
+- N63 [PR #152](https://github.com/Mefits/Living-Sector/pull/152) — native directed itinerary intent registry; повтор приказа, стейт ready/flying/done и атомарный restore.
+- N64 [PR #153](https://github.com/Mefits/Living-Sector/pull/153) — один физический hop на native tick и безопасный in-memory envelope world+route intent+dispatch cursor.
+- N65 [PR #154](https://github.com/Mefits/Living-Sector/pull/154) — **исправлено расхождение Rust vs Godot:** замороженный Rust продолжает двигать корабль при нуле топлива, старый N14 прекращал полёт. Сохранён clamp на 0, добавлена read-only диагностика.
+- N66 [PR #155](https://github.com/Mefits/Living-Sector/pull/155) — операция ship dock/undock/depart с постоянным operation-ID, idempotent receipts и версия полного checkpoint v2 для replay после reload.
+- N67 [PR #156](https://github.com/Mefits/Living-Sector/pull/156) — read-only fleet snapshot для Observer: реальные fuel/cargo/wallet/flight/dock, явное «—» для пока отсутствующих статистик crew/economy/AI.
+- Во всех пяти PR есть реальные GDScript-коды, headless-тесты и handoff, но **Godot 4.7 не запускался**. Все claims N63–N67 CODE_UNVERIFIED, Draft PR. Никакого user:// save path, изменений в P1, main, stable или Rust archive.
+- **Рабочие цифры:** после появления N68–N70 от второго чата: N1–N70 — **66 обработано в коде**, **4 IN_PROGRESS (N39, N68, N69, N70)**; эти цифры не 66% игрового переноса. Функциональный остаток ещё велик; сначала слияние фаз и сохранений и перенос экономики/ИИ/колонизации, затем единый Godot acceptance.
+
 ### 2026-11-12 — interactive-chat, N63–N67 RESERVE START
 - Пользователь просил взять ровно 5 свободных блоков после обновления пяти расписаний. Атомарные claims созданы в общей ветке последовательно: [N63](nightshift/claims/N63.json), [N64](nightshift/claims/N64.json), [N65](nightshift/claims/N65.json), [N66](nightshift/claims/N66.json), [N67](nightshift/claims/N67.json), owner interactive-chat, IN_PROGRESS, уникальные ветки и scope. N62 уже завершен другим агентом (#151), N39 ещё занят (production) и не затрагивается.
 - N63 ACTIVE, N64–N67 QUEUED, без изменения main/stable/проверенной P1. Новое правило всех пяти автомаций: по 3 отдельных Nx с claims за запуск; пользовательский Godot/Windows тест только после завершения ВСЕГО переноса.
