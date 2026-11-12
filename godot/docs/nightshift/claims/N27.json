@@ -1,0 +1,15 @@
+{
+  "block_id": "N27",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T10:02:17+03:00-second-chat-n27",
+  "claimed_at": "2026-11-12T10:02:17+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "12c08cc4618e9717340ba8c868d7d8af8e578417",
+  "work_branch": "feature/godot-nightshift-n27-contract-gate-second-20261112",
+  "tasks": [
+    "close direct contract payout bypass via authoritative delivery coordinator",
+    "ensure idempotent receipts and snapshot restore",
+    "add regression smoke for invalid direct transitions and payout conservation"
+  ]
+}
