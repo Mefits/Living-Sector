@@ -22,7 +22,7 @@ static func _fail(reason: String) -> Dictionary:
 	return {"ok":false,"reason":reason}
 
 static func qty_for_shortage(age: int) -> int:
-	var extra: int = maxi(0,age-30)/SHORTAGE_BUCKET
+	var extra: int = int(maxi(0, age - 30) / SHORTAGE_BUCKET)
 	return clampi(QTY_BASE+extra*25,QTY_MIN,QTY_MAX)
 
 static func _active_contracts(contracts: Array, requestor: String) -> int:
