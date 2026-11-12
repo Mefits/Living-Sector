@@ -672,3 +672,6 @@ Three separate draft PRs: [N74 #160](https://github.com/Mefits/Living-Sector/pul
 
 
 **2026-11-12 18:30 MSK — N81–N83 (second-chat-overnight):** Three independent native Rust components committed in separate branches, Draft [#170](https://github.com/Mefits/Living-Sector/pull/170) GOAP, [#171](https://github.com/Mefits/Living-Sector/pull/171) technology catalogue, [#172](https://github.com/Mefits/Living-Sector/pull/172) ship trade selector. Claims closed CODE_UNVERIFIED; no Godot execution or P1 integration. Source integration HEAD `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`. N39 untouched. Functional Rust port still incomplete: full BT executor, ship action apply, colony lifecycle, faction mandates/HTN and authoritative production remain outstanding. No VERIFIED counters raised.
+
+### 2026-11-12 18:35 MSK — second-chat-overnight START N84/N85/N86
+Three atomic create_file claims on coordination branch: N84 `2e57ef3`, N85 `3974cf9`, N86 `038ab31`. Separate source-backed Rust AI component ports (behavior tree, utility scoring, personality); integration HEAD `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`. N39 and other claims untouched; CODE_UNVERIFIED until runtime.
