@@ -58,7 +58,11 @@ static func _record(accounts: Dictionary, account: String, value: Variant,
         totals: Dictionary, counts: Dictionary, domain: String) -> bool:
     if account.get_slice(":", 1).is_empty() or accounts.has(account):
         return false
-    if typeof(value) != TYPE_INT or int(value) < 0:
+    # Godot JSON may parse integer-valued source credits as float.
+    # Accept only losslessly representable non-negative whole values.
+    if not (value is int or value is float) or not is_finite(float(value)):
+        return false
+    if float(value) < 0.0 or float(value) > 9007199254740991.0 or float(int(value)) != float(value):
         return false
     var total: int = int(totals[domain])
     if total > MAX_CREDITS - int(value):
