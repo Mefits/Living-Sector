@@ -280,3 +280,5 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 | N105 | P2/P5 frozen faction relief: existing treasury-funded household/market/producer transfers | Rust agents/faction/relief.rs | CODE_UNVERIFIED — [PR #194](https://github.com/Mefits/Living-Sector/pull/194), overnight-scheduler |
 | N106 | P5 persistent paid native production objective and receipt-based completion | Rust strategy/long_term.rs | CODE_UNVERIFIED — [PR #195](https://github.com/Mefits/Living-Sector/pull/195), overnight-scheduler |
 | N107 | P5 station administrator labor allocation, priorities and feedback | Rust strategy/station.rs | CODE_UNVERIFIED — [PR #196](https://github.com/Mefits/Living-Sector/pull/196), overnight-scheduler |
+
+| N108 | **P3 special ShipCommand Apply** — Rust actual GateJump, shipyard fitting purchase/replace and ReleaseContract apply | Source-backed GDScript immutable staged world; no N39/N100/N79/N104 overlap, no runtime test | IN_PROGRESS — interactive-chat; [claim N108](nightshift/claims/N108.json) |
