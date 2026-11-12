@@ -150,3 +150,7 @@ Claim `claims/N10.json` created atomically at `86bea1bd`; Rust price engine/orde
 - N6/N7/N14–N20 TODO at last queue check; other claims N1–N5, N9, N11–N13 already CODE_UNVERIFIED. Recheck claims before choosing any.
 - Next: N6 actual production/payroll and N14 ship movement; then integrate N10 with N15/N16 market settlement after dependency PR review.
 - **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED. N10 adds one CODE_UNVERIFIED block.
+
+### N14 start — 2026-11-12 05:44 MSK — second-chat-overnight
+
+Atomic claim `claims/N14.json` commit `1e058935`; work branch `feature/godot-nightshift-n14-transit-second-20261112`. Implementing native ship transit, fuel/docking invariants and headless smoke; CODE_UNVERIFIED until runtime.
