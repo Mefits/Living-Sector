@@ -398,3 +398,11 @@ Added opt-in authoritative apply2 contract phase, N31 replay guard, guarded exte
 ### N37 started — 2026-11-12 10:38 +01:00 — overnight-scheduler
 
 Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nightshift-n37-assets-license-audit-20261112`. Scope P0-08 frozen Rust asset provenance, licensing, reproducible inventory and transfer gates; no asset copying before rights check. Status IN_PROGRESS.
+
+### N37 complete — 2026-11-12 10:39 +01:00 — overnight-scheduler
+
+- Draft [PR #126](https://github.com/Mefits/Living-Sector/pull/126), head `678246c350d543203c87abc0d32a8a453b31eda7`, base integration branch; no merge.
+- 97 frozen client assets inventoried with Git blob SHA, byte sizes and group; 2 fonts + notice, 29 SVG icons, 8 music, 17 SFX, 5 shaders, 5 ship models, 30 station assets.
+- Static comparison against actual frozen GitHub tree: **97/97 match, 0 mismatches**, all transfer flags blocked pending rights review. Stdlib Python checker added, but not executed; Godot runtime not executed. No assets copied.
+- Root MIT license does not prove third-party rights. OFL font notice exists but full license text/upstream validation pending. `native/observer` assets not yet audited. P0-08 IN_REVIEW, N37 CODE_UNVERIFIED. VERIFIED remains P0 3/9, P1 0/9, P2 0/11, overall 3/100.
+- Next unclaimed candidate N38: P0-08 `native/observer` and root client assets provenance, subject to fresh claim check.
