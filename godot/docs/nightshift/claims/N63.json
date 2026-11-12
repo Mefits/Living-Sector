@@ -1,6 +1,6 @@
 {
   "block_id": "N63",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "2026-11-12T14:07:36.687Z-interactive-N63",
   "claimed_at": "2026-11-12T14:07:36.687Z",
@@ -21,6 +21,18 @@
     "Exact N61 directed-leg validation before staging saved intent; no automatic ship motion, no P1 save path",
     "Snapshot/restore complete intent and no teleport with strict validation regression"
   ],
-  "activity": "ACTIVE",
-  "dependency": "N61 / PR #150"
+  "activity": "COMPLETED_CODE",
+  "dependency": "N61 / PR #150",
+  "finished_at": "2026-11-12T14:11:36.255Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/152",
+  "head_sha": "b9f9cdacd3ae2eb59a3cbf38ec51dafabf7246ce",
+  "progress": [
+    "Read-only N60-verified source itinerary intent with stable operation ID and physical lifecycle",
+    "Immutable sorted snapshot and atomic restore cross-validated against native ship state",
+    "Headless regression authored for replay, stale origin, midflight and forged state"
+  ],
+  "evidence": [
+    "Draft PR #152; no user Godot tests requested",
+    "No Godot executable available: code and regression NOT run"
+  ]
 }
