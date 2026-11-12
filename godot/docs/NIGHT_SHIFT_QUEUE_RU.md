@@ -1,6 +1,6 @@
 # Living Sector — ночная очередь автономной разработки Godot
 
-| N136 | **IN_PROGRESS — second-chat-overnight** | Native `strategy/economic_proposal.rs`: exact economic approval tokens, expiry/repeat, funded receipt lifecycle | `claims/N136.json`; `feature/godot-n136-native-economic-proposal-20261112` |
+| N136 | **CODE_UNVERIFIED — [Draft PR #224](https://github.com/Mefits/Living-Sector/pull/224)** | Native `strategy/economic_proposal.rs`: exact economic approval tokens, expiry/repeat, funded receipt lifecycle | `claims/N136.json`; `feature/godot-n136-native-economic-proposal-20261112` |
 
 **НОВОЕ РЕШЕНИЕ ПОЛЬЗОВАТЕЛЯ (12.11.2026, применяется ко всем пяти автоматическим сменам):** каждый запуск берёт **один крупный, содержательно связанный блок** из оригинального Rust, предварительно атомарно резервирует **один свободный Nx**. Не требуются три разных Nx, три claims и три PR. Один большой блок может охватывать много связанных файлов, функций и задач. Если блок не завершён в одну итерацию, сохранить реальные коммиты и оставить `IN_PROGRESS`; новый Nx брать только после завершения первого и нового резервирования. Старые правила ниже про обязательные «3 блока» отменены. Проверки минимальные; фазы переноса/сборки/Grok прежние. Обновлены инструкции пяти плановых задач.
 
