@@ -104,7 +104,7 @@ func _valid(populations: Dictionary, markets: Dictionary) -> bool:
 		if typeof(loc) != TYPE_STRING or typeof(m) != TYPE_DICTIONARY or not m.has("stock") or not m.has("prices") or not m.has("seller_credits") or int(m.seller_credits) < 0:
 			return false
 		for key in m.stock:
-			if not m.prices.has(key) or not is_finite(float(m.stock[key])) or float(m.stock[key]) < 0.0 or not is_finite(float(m.prices[key])) or float(m.prices[key]) <= 0.0:
+			if not m.prices.has(key) or not float(m.stock[key]).is_finite() or float(m.stock[key]) < 0.0 or not float(m.prices[key]).is_finite() or float(m.prices[key]) <= 0.0:
 				return false
 	for id in populations:
 		var p = populations[id]
@@ -116,6 +116,6 @@ func _valid(populations: Dictionary, markets: Dictionary) -> bool:
 		if not markets.has(p.location) or int(p.count) < 0 or int(p.wallet) < 0 or typeof(p.consumption) != TYPE_DICTIONARY:
 			return false
 		for key in p.consumption:
-			if not is_finite(float(p.consumption[key])) or float(p.consumption[key]) < 0.0:
+			if not float(p.consumption[key]).is_finite() or float(p.consumption[key]) < 0.0:
 				return false
 	return true
