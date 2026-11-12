@@ -287,3 +287,5 @@ Draft [PR #116](https://github.com/Mefits/Living-Sector/pull/116) implements a r
 > **N29, 12.11.2026:** [Draft PR #117](https://github.com/Mefits/Living-Sector/pull/117) adds a N21-compatible dock-authorized gateway to N15 cargo transfers, facility inventory binding, occupancy/transit/location checks, receipt replay and save/restore smoke. **CODE_UNVERIFIED** (Godot not run). Depends on N15/N21 integration; direct cargo API remains a bypass until production callers migrate. VERIFIED remains 3/100.
 
 > **N30, 12.11.2026:** [Draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) adds read-only reconciliation of N27 physical delivery receipts and N11 escrow/payout ledger with tamper/replay/save smoke. Stacked on N27, not merged. Godot Runtime not run: **CODE_UNVERIFIED**. VERIFIED remains 3/100.
+
+> **N31, 12.11.2026:** [Draft PR #119](https://github.com/Mefits/Living-Sector/pull/119) adds deterministic scheduled physical-contract commands, ID replay suppression, N30 integrity pre/post audit and save/restore smoke. Not connected to N3/N23 authoritative tick yet; no Godot runtime executed, **CODE_UNVERIFIED**. VERIFIED remains 3/100.
