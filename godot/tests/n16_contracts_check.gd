@@ -1,0 +1,35 @@
+extends SceneTree
+## CODE_UNVERIFIED: run godot --headless --path godot --script res://tests/n16_contracts_check.gd
+const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
+const Board = preload("res://scripts/sim/economy/contract_board.gd")
+func _initialize() -> void:
+	var l = Ledger.new()
+	assert(l.import_accounts({"facility": 100, "escrow:c1": 0, "ship": 0, "escrow:c2": 0}))
+	var b = Board.new(l)
+	assert(b.post("c1", "delivery", "facility", "escrow:c1", "food", 5, "a", "b", 40, 0, 20, "facility").get("ok"))
+	assert(l.balance("facility") == 60 and l.balance("escrow:c1") == 40)
+	assert(not b.post("c1", "delivery", "facility", "escrow:c1", "food", 5, "a", "b", 40, 0, 20, "facility").get("ok"))
+	assert(not b.accept("c1", "ship1", "faction1", 1.0, 1.0, 1).get("ok")) # 80 requires 40 topup; succeeds only if payer has 60
+	assert(b.accept("c1", "ship1", "faction1", 0.5, 1.0, 1).get("ok")) # 60; topup 20
+	assert(l.balance("facility") == 40 and l.balance("escrow:c1") == 60)
+	assert(not b.settle("c1", "ship1", "ship", 2).get("ok")) # physical delivery not confirmed
+	assert(b.confirm_pickup("c1", "ship1", 2, "cargo:load:1").get("ok"))
+	assert(not b.confirm_pickup("c1", "ship1", 2, "cargo:load:1").get("ok"))
+	assert(b.confirm_delivery("c1", "ship1", 3, "cargo:unload:1").get("ok"))
+	assert(b.settle("c1", "ship1", "ship", 4).get("ok"))
+	assert(not b.settle("c1", "ship1", "ship", 4).get("ok"))
+	assert(l.balance("ship") == 60 and l.balance("escrow:c1") == 0)
+	assert(b.refund_closed("c1", 5).get("ok"))
+	assert(b.post("c2", "courier", "facility", "escrow:c2", "water", 2, "a", "b", 20, 5, 10, "facility").get("ok"))
+	assert(not b.expire_posted("c2", 9).get("ok"))
+	assert(b.expire_posted("c2", 10).get("ok"))
+	assert(b.refund_closed("c2", 10).get("ok"))
+	assert(l.balance("facility") == 40 and l.balance("ship") == 60)
+	assert(l.total() == 100)
+	var snap: Dictionary = b.snapshot()
+	var restored = Board.new(l)
+	assert(restored.restore(snap))
+	assert(restored.get_contract("c1").get("status") == "paid")
+	assert(not restored.refund_closed("c2", 11).get("refunded", -1) == 20)
+	print("N16 CONTRACTS PASS")
+	quit(0)
