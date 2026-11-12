@@ -1,6 +1,6 @@
 {
   "block_id": "N71",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "20261112-173733-msk-overnight11-N71",
   "claimed_at": "2026-11-12T17:37:33+03:00",
@@ -14,6 +14,16 @@
     "inventory debit admission and shortage diagnostics",
     "headless regression"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Implemented independent source-backed GDScript model",
+    "Added compact headless regression",
+    "Published draft PR"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/163",
+    "Static parentheses balance 0; no Godot runtime executed"
+  ],
+  "blockers": [
+    "Not integrated into authoritative live world; Godot parser/runtime not executed"
+  ]
 }
