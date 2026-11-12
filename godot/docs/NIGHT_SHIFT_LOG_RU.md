@@ -325,3 +325,6 @@ Atomic claim `claims/N28.json` at `7299a6c893f772fb5e05bdd5aeeaef29e1e5c4f2`; sc
 - [Draft PR #116](https://github.com/Mefits/Living-Sector/pull/116), head `63821345990148d76ee806a2d91d996afaca70ba` stacked on N11 (#94); no merge.
 - Implemented read-only credit ledger reconciliation against explicit initial wallets, deterministic anomaly report, receipt replay and tamper/save-restore smoke; Rust money.rs reviewed.
 - Godot executable unavailable: headless smoke **NOT RUN**, CODE_UNVERIFIED. P8-03 remains partial (native wallet mapping and chronological receipt sequence pending). P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED unchanged.
+
+### N29 start — 2026-11-12 10:58 МСК — second-chat-overnight
+- Atomic claim `claims/N29.json` commit `a154a836e320ee39bb65569ddb1c2d5142f29738`; work branch `feature/godot-nightshift-n29-docking-cargo-second-20261112`. Integrate N21 docking and N15 cargo, fail-closed checks, replay/save smoke. IN_PROGRESS.
