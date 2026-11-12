@@ -8,7 +8,7 @@ const MARKER_RADIUS: float = 4.0
 const MIN_ZOOM: float = 0.05
 const MAX_ZOOM: float = 64.0
 
-var _model: RefCounted = ShipBatchModel.new()
+var _model = ShipBatchModel.new()
 var _center: Vector2 = Vector2.ZERO
 var _zoom: float = 1.0
 var _selected: String = ""
