@@ -339,3 +339,5 @@ Draft [PR #116](https://github.com/Mefits/Living-Sector/pull/116) implements a r
 
 ### N62 — P1 runtime readiness (2026-11-12)
 Draft [PR #151](https://github.com/Mefits/Living-Sector/pull/151) from integration #128 adds P1 scene/seed/runner preflight and negative headless regression; **CODE_UNVERIFIED**, Godot runtime absent, no additional VERIFIED credit. No economy, ships or AI execution enabled. Counts unchanged: P0 3/9, P1 0/9, P2 0/11, total 3/100.
+
+> **N68–N70 (12.11.2026):** [#157](https://github.com/Mefits/Living-Sector/pull/157) market repricing state/tick replay guard, [#158](https://github.com/Mefits/Living-Sector/pull/158) faction treaty commerce and canonical relation snapshots, [#159](https://github.com/Mefits/Living-Sector/pull/159) facility condition/repair/abandonment. All three are separate Rust-sourced code slices with headless regression scripts; Godot not executed, **CODE_UNVERIFIED**, not wired into authoritative P1. VERIFIED counters unchanged (P0 3/9, P1 0/9, P2 0/11, total 3/100). N39 and N67 remain other-agent work.
