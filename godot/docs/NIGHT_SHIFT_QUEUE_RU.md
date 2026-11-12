@@ -1,5 +1,8 @@
 # Living Sector — ночная очередь автономной разработки Godot
 
+| N140 | **IN_PROGRESS — interactive-chat** | **Макро №10** native Rust `simulation/lod.rs` + `simulation/tuning.rs`: spatial divisor/try_fire/observer recompute and once-installed world tuning; source only, no Phase-2 integration | Atomic claim `claims/N140.json` created before code, distinct from N112/N138/N39 |
+
+
 **НОВЫЙ ПЛАН 10 КРУПНЫХ НАПРАВЛЕНИЙ ФАЗЫ 1:** [PHASE1_TEN_MACRO_BLOCKS_RU.md](nightshift/PHASE1_TEN_MACRO_BLOCKS_RU.md). Не создавать 10 Nx claims заранее; один реальный Nx на одну крупную рабочую итерацию после проверки свежих GitHub-резерваций. Текущий ориентир оставшегося переноса ~58–61% (приблизительно, source coverage, не по номеру Nx).
 
 | N138 | **CODE_UNVERIFIED — [Draft PR #228](https://github.com/Mefits/Living-Sector/pull/228), interactive-chat** | **Макро №3 (корабельная жизнь)**: native Rust `tick_crew` недостающие morale / role tasks / ShipEconomy.efficiency, strict pre-meal Eating, 3 pure GDScript modules + bridge, 392 LOC additions | N72 retains physical food/wages; no double debit, Phase-2 adapter pending, no Godot runtime |
