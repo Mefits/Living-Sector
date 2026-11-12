@@ -1,6 +1,6 @@
 {
   "block_id": "N43",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "2026-11-12T11:16:36.034Z-interactive-n43-native-locations",
   "claimed_at": "2026-11-12T11:16:36.034Z",
@@ -14,7 +14,21 @@
     "Add headless regression covering orbit movement, missing/ambiguous locations, no synthetic cargo/fuel, and compatibility with N40 transit",
     "Publish independent PR and handoff without touching occupied N39 production bridge or verified P1"
   ],
-  "progress": [],
-  "evidence": [],
-  "dependency": "N40 / PR #130; stacked branch from confirmed N40 head; PR base N40, not N39"
+  "progress": [
+    "Frozen Rust celestial-body and facility orbit formulas mapped to Godot data-only NativeLocationResolver",
+    "Moving body/nav/facility positions refreshed in opt-in N40 ships phase; no screen-pixel or route-distance substitutes",
+    "Fail-closed validation of seed/angle/elapsed native time; fuel/cargo and P1 fleet saves remain externally sourced/blocked",
+    "Headless test with frozen Sol fixture and moving destination scenarios authored; N39 production untouched"
+  ],
+  "evidence": [
+    "Rust celestial_body.rs BodyOrbit and facility/components.rs orbit radius 0.55, period 8000 and FNV1a hash compared",
+    "Independent FNV1a initial phase earth-station=106, pirate-outpost=331",
+    "Native Sol/Nadir JSON inspected (5 co-located facility modules at each), Sol directed earth-station→mine-near-earth",
+    "Static GitHub diff N43 ahead 5 commits/behind 0 vs N40, four changed paths; PR #133",
+    "Godot 4.7 binary unavailable in agent environment; headless regression NOT executed"
+  ],
+  "dependency": "N40 / PR #130; stacked branch from confirmed N40 head; PR base N40, not N39",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/133",
+  "head_sha": "da8534bfcf66f9e3c1163255bf19d20b91497903",
+  "finished_at": "2026-11-12T11:30:20.331Z"
 }
