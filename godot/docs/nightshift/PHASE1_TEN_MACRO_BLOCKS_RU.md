@@ -73,3 +73,7 @@
 ### 13.11.2026 — макро №5: N145 Posted contract aging and renewal
 - [Draft PR #234](https://github.com/Mefits/Living-Sector/pull/234), CODE_UNVERIFIED: frozen contracts.rs age_open_reputation, age_escalate_payment, sweep_expiring and posted_for_ship with tiered indexes; 12 standalone GDScript methods, source handoff, no escrow/physical stock effects.
 - **Остаток макро №5:** сверить непокрытые Rust board queries/cleanup/contract-type nuances, затем Phase-2 atomic integration with N16/N104/N135/N97. Do not duplicate escrow/dispatch. Overall Phase-1 remaining remains symbolically ~55–59%; not a count of Nx or runtime proof.
+
+### 13.11.2026 — макро №10, N146 SimCommand buffer
+- [Draft PR #235](https://github.com/Mefits/Living-Sector/pull/235), CODE_UNVERIFIED: frozen `simulation/commands.rs` 23 variants and trace labels, ship attribution, insertion-order staging, append/drain and handoff. No transaction Apply or live save/replay authority.
+- **Остаток макро №10:** authoritative sim_server save/restore and deterministic replay, spawner/seed normalization, other uncovered simulation/world branches. N140/N142/N146 are separate source ports; Phase 2 assembly deferred. Symbolic total remaining Phase 1 ~54–59%, not Nx-derived.
