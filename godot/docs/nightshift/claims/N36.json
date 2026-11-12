@@ -1,0 +1,17 @@
+{
+  "block_id": "N36",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T12:14:00+03:00-second-chat-n36",
+  "claimed_at": "2026-11-12T12:14:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "66d8666e4179c176ac42e4df938756d1f1c20e5b",
+  "work_branch": "feature/godot-nightshift-n36-godot47-compat-second-20261112",
+  "tasks": [
+    "Audit integration startup compatibility with latest Godot 4",
+    "Fix concrete parser/runtime compatibility issues",
+    "Add focused regression and handoff"
+  ],
+  "progress": [],
+  "evidence": []
+}
