@@ -12,6 +12,10 @@ static func snapshot(runtime: RefCounted) -> Dictionary:
         return _fail("world_not_live")
     if not (live.runner._fleet.ships is Dictionary) or not (live.docking.ships is Dictionary):
         return _fail("missing_authoritative_ships")
+    var ledger_snapshot: Dictionary = live.ledger.snapshot()
+    if not (ledger_snapshot.get("balances", null) is Dictionary):
+        return _fail("missing_ledger_balances")
+    var balances: Dictionary = ledger_snapshot["balances"]
     var ids: Array = live.runner._fleet.ships.keys()
     ids.sort()
     if ids.size() != live.docking.ships.size():
@@ -57,6 +61,8 @@ static func snapshot(runtime: RefCounted) -> Dictionary:
         if float(fuel) < 0.0 or float(fuel) > float(fuel_cap):
             return _fail("invalid_fuel_range_" + id)
         var wallet: String = "ship:" + id
+        if not balances.has(wallet):
+            return _fail("missing_ship_credit_account_" + id)
         var money: int = live.ledger.balance(wallet)
         if money < 0:
             return _fail("missing_ship_credit_account_" + id)
