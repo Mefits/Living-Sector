@@ -406,3 +406,10 @@ Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nights
 - Static comparison against actual frozen GitHub tree: **97/97 match, 0 mismatches**, all transfer flags blocked pending rights review. Stdlib Python checker added, but not executed; Godot runtime not executed. No assets copied.
 - Root MIT license does not prove third-party rights. OFL font notice exists but full license text/upstream validation pending. `native/observer` assets not yet audited. P0-08 IN_REVIEW, N37 CODE_UNVERIFIED. VERIFIED remains P0 3/9, P1 0/9, P2 0/11, overall 3/100.
 - Next unclaimed candidate N38: P0-08 `native/observer` and root client assets provenance, subject to fresh claim check.
+
+### Запуск N38 — 2026-11-12 13:05 +03:00 — second-chat-overnight
+
+- **Claim до разработки:** `claims/N38.json`, commit `c2dc475e64abfc38566b14b61f5739dd9eb7a85d`.
+- **План:** checkpoint integrity, reject corrupted saves, deterministic restore and headless smoke.
+- **Ветка:** `feature/godot-nightshift-n38-save-integrity-second-20261112`.
+- **Статус:** IN_PROGRESS.
