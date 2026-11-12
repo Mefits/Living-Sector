@@ -15,34 +15,63 @@ var _loaded: bool = false
 var _seed_fingerprint: String = ""
 
 func load_seed(seed: Dictionary) -> bool:
-    if seed.has("error") or not seed.has("worlds") or not seed.has("factions"):
+    if seed.has("error"):
+        return false
+    var incoming_worlds: Variant = seed.get("worlds", null)
+    var incoming_factions: Variant = seed.get("factions", null)
+    if not (incoming_worlds is Array) or not (incoming_factions is Array):
         return false
     var systems: Dictionary = {}
     var bodies: Dictionary = {}
     var facilities: Dictionary = {}
     var routes: Dictionary = {}
     var copies: Array = []
-    for incoming_world in seed["worlds"]:
+    for incoming_world in incoming_worlds:
         if not (incoming_world is Dictionary):
             return false
         # Scene/UI code must never alter the seed's source structures.
         var world: Dictionary = incoming_world.duplicate(true)
-        var system: Dictionary = world.get("system", {})
+        var system_value: Variant = world.get("system", null)
+        if not (system_value is Dictionary):
+            return false
+        var system: Dictionary = system_value
         var sid: String = str(system.get("id", ""))
         if sid.is_empty() or systems.has(sid):
             return false
+        var body_list: Variant = world.get("bodies", [])
+        var facility_list: Variant = world.get("facilities", [])
+        var route_list: Variant = world.get("travel_routes", [])
+        if not (body_list is Array) or not (facility_list is Array) or not (route_list is Array):
+            return false
         systems[sid] = world
-        for body in world.get("bodies", []):
+        for body_value in body_list:
+            if not (body_value is Dictionary):
+                return false
+            var body: Dictionary = body_value
             var bid: String = str(body.get("id", ""))
             if bid.is_empty() or bodies.has(bid):
                 return false
+            var period_value: Variant = body.get("orbit_period", null)
+            var angle_value: Variant = body.get("current_angle", null)
+            if not (period_value is int or period_value is float) or not (angle_value is int or angle_value is float):
+                return false
+            if not is_finite(float(period_value)) or float(period_value) <= 0.0:
+                return false
+            if not is_finite(float(angle_value)) or float(angle_value) < 0.0 or float(angle_value) >= 360.0:
+                return false
             bodies[bid] = {"system_id": sid, "value": body}
-        for facility in world.get("facilities", []):
+        for facility_value in facility_list:
+            if not (facility_value is Dictionary):
+                return false
+            var facility: Dictionary = facility_value
             var fid: String = str(facility.get("id", ""))
             if fid.is_empty() or facilities.has(fid):
                 return false
             facilities[fid] = {"system_id": sid, "value": facility}
-        for route in world.get("travel_routes", []):
+        for route_value in route_list:
+            if not (route_value is Dictionary):
+                return false
+            var route: Dictionary = route_value
             var from_id: String = str(route.get("from", ""))
             if from_id.is_empty():
                 return false
@@ -99,11 +128,15 @@ func direct_routes_from(location: String) -> Array:
 
 func seed_universe_position(system_id: String) -> Vector2:
     var world: Dictionary = _systems_by_id.get(system_id, {})
-    var coords: Array = world.get("system", {}).get("universe_offset", [0, 0])
-    if coords.size() != 2:
+    var raw_coords: Variant = world.get("system", {}).get("universe_offset", null)
+    if not (raw_coords is Array) or raw_coords.size() != 2:
+        return Vector2.ZERO
+    if not (raw_coords[0] is int or raw_coords[0] is float) or not (raw_coords[1] is int or raw_coords[1] is float):
+        return Vector2.ZERO
+    if not is_finite(float(raw_coords[0])) or not is_finite(float(raw_coords[1])):
         return Vector2.ZERO
     # Native universe_offset is an arbitrary world-space coordinate, NOT ly.
-    return Vector2(float(coords[0]), float(coords[1]))
+    return Vector2(float(raw_coords[0]), float(raw_coords[1]))
 
 ## Rust BodyOrbit::advance: 360 / orbit_period * tick_scale, wrapped to 360.
 ## Only orbital angles change in P1. Markets, stocks, ships and factions do NOT
@@ -114,10 +147,14 @@ func advance_orbits(tick_scale: float) -> void:
     for body_id in _bodies_by_id:
         var info: Dictionary = _bodies_by_id[body_id]
         var body: Dictionary = info["value"]
-        var period: float = float(body.get("orbit_period", 0.0))
-        if period <= 0.0:
+        var period_value: Variant = body.get("orbit_period", null)
+        var angle_value: Variant = body.get("current_angle", null)
+        if not (period_value is int or period_value is float) or not (angle_value is int or angle_value is float):
             continue
-        var old_angle: float = float(body.get("current_angle", 0.0))
+        var period: float = float(period_value)
+        var old_angle: float = float(angle_value)
+        if not is_finite(period) or period <= 0.0 or not is_finite(old_angle):
+            continue
         body["current_angle"] = fposmod(
             old_angle + (360.0 / period) * tick_scale, 360.0
         )
