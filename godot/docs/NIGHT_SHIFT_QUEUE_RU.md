@@ -203,3 +203,10 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N74 | Rust cargo capacity/mass admission; no fictitious cargo | strict physical preflight + headless regression | CODE_UNVERIFIED — [PR #160](https://github.com/Mefits/Living-Sector/pull/160), second-chat-overnight |
 | N75 | Rust station construction material admission | strict source-backed inventory/requirements gate + headless regression | CODE_UNVERIFIED — [PR #161](https://github.com/Mefits/Living-Sector/pull/161), second-chat-overnight |
 | N76 | Rust research progress admission | source-backed progress threshold and replay guard + headless regression | CODE_UNVERIFIED — [PR #162](https://github.com/Mefits/Living-Sector/pull/162), second-chat-overnight |
+
+| N71 | Rust population market purchases and sentiment, no invented household output | [PR #163](https://github.com/Mefits/Living-Sector/pull/163), headless pending | CODE_UNVERIFIED — second-chat-overnight |
+| N72 | Rust aggregate crew food, hunger and wage accounting | [PR #164](https://github.com/Mefits/Living-Sector/pull/164), headless pending | CODE_UNVERIFIED — second-chat-overnight |
+| N73 | Rust 14-recipe facility catalogue, read-only input/margin gate | [PR #165](https://github.com/Mefits/Living-Sector/pull/165), headless pending | CODE_UNVERIFIED — second-chat-overnight |
+
+
+**2026-11-12 17:37 MSK — N71–N73:** три независимых claim закрыты CODE_UNVERIFIED после публикации исходников и коротких headless-сценариев: N71 population purchase/sentiment [PR #163](https://github.com/Mefits/Living-Sector/pull/163); N72 crew upkeep/wages [PR #164](https://github.com/Mefits/Living-Sector/pull/164); N73 native recipe catalogue [PR #165](https://github.com/Mefits/Living-Sector/pull/165). Все три Draft на базе integration/godot-47-n33-n37-20261112; не интегрированы в живой мир, Godot не запускался. N39 не затронут. Итого N1–N73: 72 кодовых Nx/PR, 1 чужой N39 IN_PROGRESS; интеграционный baseline остаётся #128, без новых runtime-подтверждений. Нужны интеграционные wiring, атомарные реестры/квитанции и автоматические headless проверки, прежде чем считать механики работающими.
