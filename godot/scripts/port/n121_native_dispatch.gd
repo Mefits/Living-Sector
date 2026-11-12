@@ -41,7 +41,10 @@ static func preflight(world: Dictionary, board: Dictionary,
     var kind: String = str(action.get("kind", ""))
     var units_value: Variant = action.get("units", null)
     var reward_value: Variant = action.get("cost_credits", null)
-    if kind != "deliver" or not _u32(units_value)             or int(units_value) <= 0             or typeof(reward_value) != TYPE_INT or int(reward_value) <= 0:
+    if (kind != "deliver" or not _u32(units_value)
+            or int(units_value) <= 0
+            or typeof(reward_value) != TYPE_INT
+            or int(reward_value) <= 0):
         return _err("invalid_delivery_action")
     var units: int = int(units_value)
     var reward: int = int(reward_value)
@@ -59,7 +62,8 @@ static func preflight(world: Dictionary, board: Dictionary,
         return _err("destination_market_changed_or_ambiguous")
     var from: Dictionary = from_market["market"]
     var to: Dictionary = to_market["market"]
-    if not Receipts.unique_global_market(world, source, str(from["market_id"]))             or not Receipts.unique_global_market(world, dest, str(to["market_id"])):
+    if (not Receipts.unique_global_market(world, source, str(from["market_id"]))
+            or not Receipts.unique_global_market(world, dest, str(to["market_id"]))):
         return _err("native_global_market_ambiguity")
     var commodity: String = str(action.get("commodity", ""))
     if not BASE_PRICE.has(commodity):
@@ -73,7 +77,9 @@ static func preflight(world: Dictionary, board: Dictionary,
     var physical_source: Variant = from["stock"].get(commodity, 0.0)
     if not _num(physical_source) or float(physical_source) < float(units):
         return _err("native_source_stock_gone")
-    var price: Variant = (from.get("prices", {}) as Dictionary).get(
+    if not (from.get("prices", null) is Dictionary):
+        return _err("missing_source_prices")
+    var price: Variant = (from["prices"] as Dictionary).get(
         commodity, BASE_PRICE[commodity])
     if not _num(price) or float(price) <= 0.0:
         return _err("no_native_source_price")
@@ -116,9 +122,12 @@ static func preflight(world: Dictionary, board: Dictionary,
         var ship: Variant = world["ships"][id]
         if not (ship is Dictionary):
             continue
-        if str(ship.get("faction_id", "")) != faction_id                 or assigned.has(str(id))                 or str(ship.get("location", "")) != source:
+        if (str(ship.get("faction_id", "")) != faction_id
+                or assigned.has(str(id))
+                or str(ship.get("location", "")) != source):
             continue
-        if ship.get("transit", null) != null                 and (not (ship["transit"] is Dictionary)                     or not (ship["transit"] as Dictionary).is_empty()):
+        if (not (ship.get("transit", null) is Dictionary)
+                or not (ship["transit"] as Dictionary).is_empty()):
             continue
         var capacity: Variant = ship.get("cargo_capacity", null)
         var cargo: Variant = ship.get("cargo", null)
@@ -131,11 +140,14 @@ static func preflight(world: Dictionary, board: Dictionary,
                 correct = false
                 break
             total += int(cargo[good])
-        if not correct or total > int(capacity)                 or int(capacity) - total < units:
+        if (not correct or total > int(capacity)
+                or int(capacity) - total < units):
             continue
         var fuel: Variant = ship.get("fuel", null)
         var credits: Variant = ship.get("credits", null)
-        if not _num(fuel) or float(fuel) <= 0.0                 or typeof(credits) != TYPE_INT or int(credits) < purchase:
+        if (not _num(fuel) or float(fuel) <= 0.0
+                or typeof(credits) != TYPE_INT
+                or int(credits) < purchase):
             continue
         if ship.get("active_contract_id", null) != null:
             continue
@@ -154,13 +166,21 @@ static func preflight(world: Dictionary, board: Dictionary,
                 and not ["paid", "expired"].has(
                     str(contract.get("status", "")))):
             return _err("existing_native_delivery_commitment")
-    if not (world.get("factions", null) is Dictionary)             or not (world["factions"].get(faction_id, null) is Dictionary):
+    if (not (world.get("factions", null) is Dictionary)
+            or not (world["factions"].get(faction_id, null) is Dictionary)):
         return _err("native_treasury_floor")
     var treasury: Variant = world["factions"][faction_id].get("treasury", null)
-    if typeof(treasury) != TYPE_INT             or int(treasury) < FACTION_SUBSIDY_FLOOR + reward:
+    if (typeof(treasury) != TYPE_INT
+            or int(treasury) < FACTION_SUBSIDY_FLOOR
+            or int(treasury) - FACTION_SUBSIDY_FLOOR < reward):
         return _err("native_treasury_floor")
-    var lifespan: int = maxi(SUBSIDY_LIFESPAN_BASE,
-        mini(MAX_I64, int(distance) * 100 + 1200)) * maxi(mult, 1)
+    var measured: int = int(distance)
+    if measured > (MAX_I64 - 1200) / 100:
+        return _err("contract_expiry_overflow")
+    var horizon: int = maxi(SUBSIDY_LIFESPAN_BASE, measured * 100 + 1200)
+    if horizon > MAX_I64 / maxi(mult, 1):
+        return _err("contract_expiry_overflow")
+    var lifespan: int = horizon * maxi(mult, 1)
     if tick > MAX_I64 - lifespan:
         return _err("contract_expiry_overflow")
     return {"ok": true, "faction_id": faction_id, "dispatch_key": dispatch_key,
@@ -181,10 +201,13 @@ static func commit_paid_delivery(world: Dictionary, board: Dictionary,
     if not bool(admissible.get("ok", false)):
         return admissible
     for contract in board["contracts"].values():
-        if contract is Dictionary                 and contract.get("funding", null) is Dictionary:
+        if (contract is Dictionary
+                and contract.get("funding", null) is Dictionary):
             var station_order: Variant = contract["funding"].get(
                 "station_order", null)
-            if station_order is Dictionary                     and str(station_order.get("order_id", "")) ==                     "station:htn:" + dispatch_key:
+            if (station_order is Dictionary
+                    and str(station_order.get("order_id", "")) ==
+                    "station:htn:" + dispatch_key):
                 return _err("already_dispatched_native_order")
     if not (board.get("next_id", null) is int):
         return _err("invalid_contract_next_id")
@@ -196,7 +219,9 @@ static func commit_paid_delivery(world: Dictionary, board: Dictionary,
         return _err("contract_id_collision")
     # To match Rust board, all indexes must be updated together with the
     # new contract record. Missing index metadata => no partial post.
-    if not (board.get("by_status", null) is Dictionary)             or not (board.get("posted_by_destination", null) is Dictionary)             or not (board.get("posted_by_faction", null) is Dictionary):
+    if (not (board.get("by_status", null) is Dictionary)
+            or not (board.get("posted_by_destination", null) is Dictionary)
+            or not (board.get("posted_by_faction", null) is Dictionary)):
         return _err("missing_contract_board_indexes")
     var staged_world: Dictionary = world.duplicate(true)
     var staged_board: Dictionary = board.duplicate(true)
@@ -270,13 +295,16 @@ static func already_commissioned_this_tick(board: Dictionary,
     for contract in board["contracts"].values():
         if not (contract is Dictionary):
             continue
-        if str(contract.get("requestor_id", "")) == faction_id                 and int(contract.get("posted_at_tick", -1)) == tick                 and ([PROJECT_TAG] + OTHER_PROJECT_TAGS).has(
-                    str(contract.get("mission_category", ""))):
+        if (str(contract.get("requestor_id", "")) == faction_id
+                and int(contract.get("posted_at_tick", -1)) == tick
+                and ([PROJECT_TAG] + OTHER_PROJECT_TAGS).has(
+                    str(contract.get("mission_category", "")))):
             return true
     return false
 
 static func _u32(value: Variant) -> bool:
-    return typeof(value) == TYPE_INT and int(value) >= 0         and int(value) <= MAX_U32
+    return (typeof(value) == TYPE_INT and int(value) >= 0
+        and int(value) <= MAX_U32)
 
 static func _num(value: Variant) -> bool:
     return (value is float or value is int) and is_finite(float(value))
