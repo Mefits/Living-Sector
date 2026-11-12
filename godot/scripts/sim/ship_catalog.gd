@@ -12,8 +12,8 @@ const CLASSES := {
 	"miner": {"cargo_capacity": 200, "passenger_capacity": 0, "fuel_capacity": 120.0, "fuel_consumption_base": 0.04, "speed_modifier": 0.8, "crew_roles": ["pilot", "engineer", "general"], "default_size": "small"},
 }
 
-static func spec(class_name: String) -> Dictionary:
-	return CLASSES.get(class_name, {}).duplicate(true)
+static func spec(ship_class: String) -> Dictionary:
+	return CLASSES.get(ship_class, {}).duplicate(true)
 
 static func size_tier(size: String) -> int:
 	var index := SIZES.find(size)
@@ -23,8 +23,8 @@ static func size_speed(size: String) -> float:
 	var index := SIZES.find(size)
 	return SIZE_SPEED[index] if index >= 0 else 0.0
 
-static func effective_speed(class_name: String, size: String = "") -> float:
-	var entry := spec(class_name)
+static func effective_speed(ship_class: String, size: String = "") -> float:
+	var entry := spec(ship_class)
 	if entry.is_empty():
 		return 0.0
 	var tier := size if not size.is_empty() else str(entry["default_size"])

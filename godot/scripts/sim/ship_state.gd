@@ -4,17 +4,17 @@ extends RefCounted
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 var ships: Dictionary = {}
 
-func add_ship(id: String, class_name: String, faction_id: String, system_id: String, size: String = "") -> bool:
+func add_ship(id: String, ship_class: String, faction_id: String, system_id: String, size: String = "") -> bool:
 	if id.is_empty() or faction_id.is_empty() or system_id.is_empty() or ships.has(id):
 		return false
-	var spec := Catalog.spec(class_name)
+	var spec := Catalog.spec(ship_class)
 	if spec.is_empty():
 		return false
 	var resolved_size := size if not size.is_empty() else str(spec["default_size"])
 	if Catalog.size_tier(resolved_size) == 0:
 		return false
 	ships[id] = {
-		"id": id, "class": class_name, "faction_id": faction_id,
+		"id": id, "class": ship_class, "faction_id": faction_id,
 		"system_id": system_id, "size": resolved_size,
 		"cargo_capacity": int(spec["cargo_capacity"]), "cargo": {},
 		"fuel": float(spec["fuel_capacity"]), "fuel_capacity": float(spec["fuel_capacity"]),
@@ -72,8 +72,8 @@ func restore(records: Array) -> bool:
 		if not record is Dictionary:
 			return false
 		var id := str(record.get("id", ""))
-		var class_name := str(record.get("class", ""))
-		var spec := Catalog.spec(class_name)
+		var ship_class := str(record.get("class", ""))
+		var spec := Catalog.spec(ship_class)
 		if id.is_empty() or restored.has(id) or spec.is_empty():
 			return false
 		var size := str(record.get("size", ""))

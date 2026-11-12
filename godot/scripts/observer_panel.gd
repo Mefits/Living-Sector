@@ -1,6 +1,6 @@
 extends PanelContainer
 ## N20 observational UI: no command buttons until real executor is wired.
-const Projection = preload("res://scripts/sim/observer/observer_projection.gd")
+const ObserverProjection = preload("res://scripts/sim/observer/observer_projection.gd")
 var _label: RichTextLabel
 
 func _ready() -> void:
@@ -17,6 +17,6 @@ func _ready() -> void:
     show_observation(0, "unselected", {})
 
 func show_observation(tick: int, faction_id: String, state: Dictionary) -> void:
-    var text_value: String = Projection.describe(Projection.build(tick, faction_id, state))
+    var text_value: String = ObserverProjection.describe(ObserverProjection.build(tick, faction_id, state))
     if _label:
         _label.text = text_value

@@ -33,12 +33,20 @@ if /I "%~1"=="all" (
 echo.
 echo LIVING SECTOR - Godot integration smoke %MODE%
 echo Log folder: %LOGDIR%
+echo Godot engine version:
+"%GODOT_BIN%" --version > "%LOGDIR%\godot-version.txt" 2>&1
+type "%LOGDIR%\godot-version.txt"
 echo [Project import] Parsing the unified project in headless editor...
-"%GODOT_BIN%" --headless --editor --path "%~dp0" --quit --log-file "%LOGDIR%\project-import.log"
-if errorlevel 1 (
+"%GODOT_BIN%" --headless --editor --path "%CD%" --quit --log-file "%LOGDIR%\project-import.log" > "%LOGDIR%\project-import-console.txt" 2>&1
+set "IMPORT_FAIL=0"
+if errorlevel 1 set "IMPORT_FAIL=1"
+findstr /I /C:"SCRIPT ERROR:" /C:"Parse Error:" /C:"Failed to load script" "%LOGDIR%\project-import-console.txt" >nul 2>&1
+if not errorlevel 1 set "IMPORT_FAIL=1"
+if "%IMPORT_FAIL%"=="1" (
   set /a FAILED+=1
   >> "%SUMMARY%" echo FAIL project import/parse
   echo FAILED project import; individual tests will still run for diagnostics.
+  type "%LOGDIR%\project-import-console.txt"
 ) else (
   >> "%SUMMARY%" echo PASS project import/parse
 )
@@ -47,7 +55,7 @@ echo.
 echo %TOTAL% tests executed, %FAILED% failures including project import.
 >> "%SUMMARY%" echo TOTAL tests=%TOTAL%; failures_including_import=%FAILED%
 if not "%FAILED%"=="0" (
-  echo FAILED. Run SAVE_DIAGNOSTICS.cmd and send the resulting ZIP plus logs\integration\summary.txt.
+  echo FAILED. Run SAVE_DIAGNOSTICS.cmd and send diagnostics ZIP; console outputs are in logs\integration.
   echo See: %SUMMARY%
   pause
   exit /b 1
@@ -59,11 +67,16 @@ exit /b 0
 :run_one
 set /a TOTAL+=1
 echo [Test %TOTAL%] %~1
-"%GODOT_BIN%" --headless --path "%~dp0" --script "res://tests/%~1" --log-file "%LOGDIR%\%~n1.log"
-if errorlevel 1 (
+"%GODOT_BIN%" --headless --path "%CD%" --script "res://tests/%~1" --log-file "%LOGDIR%\%~n1.log" > "%LOGDIR%\%~n1-console.txt" 2>&1
+set "TEST_FAIL=0"
+if errorlevel 1 set "TEST_FAIL=1"
+findstr /I /C:"SCRIPT ERROR:" /C:"Parse Error:" /C:"Failed to load script" "%LOGDIR%\%~n1-console.txt" >nul 2>&1
+if not errorlevel 1 set "TEST_FAIL=1"
+if "%TEST_FAIL%"=="1" (
   set /a FAILED+=1
   >> "%SUMMARY%" echo FAIL %~1
   echo FAIL %~1
+  type "%LOGDIR%\%~n1-console.txt"
 ) else (
   >> "%SUMMARY%" echo PASS %~1
 )
