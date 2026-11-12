@@ -222,3 +222,5 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N79 | P4: Rust shipyard orders and ship creation | Source-backed GDScript, no free ships | CODE_UNVERIFIED — PR #168 |
 
 | N80 | P5/P3 Rust Ship AI — автономные решения кораблей по классам и ролям, оригинальный decision order, data-only intents без раннего встраивания | Audit source, GDScript policy and minimal static checks | CODE_UNVERIFIED — [PR #169](https://github.com/Mefits/Living-Sector/pull/169), interactive-chat; 7 Rust AI decision-core files; GOAP/BT/action executor still future phase-1 blocks |
+
+> **2026-11-12 18:30 MSK — second-chat-overnight:** N81 (GOAP planner), N82 (native research technology catalogue), N83 (ship trade candidate policy) atomically reserved IN_PROGRESS on coordination branch, each with own scope and work branch; source integration HEAD `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`. N39 untouched. Phase 1 component port only; no runtime verification.
