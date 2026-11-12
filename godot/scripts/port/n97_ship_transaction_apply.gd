@@ -13,7 +13,7 @@ const CONTRACT_KINDS = ["accept", "embark", "deliver"]
 ## world["ships"][ship_id]["transaction"] = {
 ##  "sequence": int,
 ##  "pending": {"id": int, "request": ShipTransaction as Dictionary,
-##              "result": null | {"ok": bool, "reason": str}}
+##              "result": null | "ok" | "error"}
 ## }
 ## Rust pending.result == None is required before one exclusive apply.
 ## Already resolved and out-of-order commands are SILENT no-ops; do not
