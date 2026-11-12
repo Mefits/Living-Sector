@@ -206,3 +206,11 @@ Claim `claims/N8.json` created atomically at `8f79fa2`; integration and parity r
 ### N7 started — 2026-11-12 07:17 MSK — overnight-scheduler
 
 - Atomic claim `claims/N7.json`, commit `59681f82f67e1333477566775529ed694a6670b2`; branch `feature/godot-nightshift-n7-needs-production-overnight-20261112`. Scope: real food/water population purchases, paid production, crisis/recovery, deterministic smoke. Godot runtime status pending.
+
+### N7 result — 2026-11-12 07:24 МСК — overnight-scheduler
+
+- **PR:** https://github.com/Mefits/Living-Sector/pull/104, head `2a7c7687c1a1a95bf9b13ba633920bbf738e3372`, draft, based on N8 #103, with unchanged N12 needs import.
+- **Code:** physical farm production (water→food), real wages, food/water purchases from same local stock, balanced ledger settlement, crisis/recovery, checkpoint and deterministic headless regression.
+- **Rust:** population.rs (5-tick consumption, satisfaction -5/+2), facility/workforce.rs and recipes.rs; built-in Godot RefCounted, Dictionary and SceneTree, no plugin.
+- **Limitations:** single location and population, no TickRunner wiring, multi-facility labor competition or transport; Godot executable absent, headless test NOT RUN. `CODE_UNVERIFIED`.
+- **Next:** N17 construction, after fresh claim check; N18/N19 depend on it. P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED.
