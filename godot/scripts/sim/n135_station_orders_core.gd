@@ -33,31 +33,35 @@ static func _saturating_tick(tick: int, increment: int) -> int:
 	var add: int = max(0, increment)
 	return MAX_I64 if add > MAX_I64 - t else t + add
 
+static func _funding(contract: Dictionary) -> Dictionary:
+	var value = contract.get("funding")
+	return value if value is Dictionary else {}
+
 static func order_of(contract: Dictionary) -> Dictionary:
-	var funding: Dictionary = contract.get("funding", {})
+	var funding := _funding(contract)
 	var order = funding.get("station_order")
 	return order if order is Dictionary else {}
 
 static func fixed_strategy_reward(contract: Dictionary) -> int:
-	var funding: Dictionary = contract.get("funding", {})
+	var funding := _funding(contract)
 	if funding.get("source", "") == "Faction" and str(contract.get("mission_category", "")) in PROJECT_TAGS:
 		return int(contract.get("initial_payment", -1))
 	return -1
 
 static func facility_relief(contract: Dictionary, tick: int) -> bool:
-	var funding: Dictionary = contract.get("funding", {})
+	var funding := _funding(contract)
 	return str(contract.get("status", "")) == "Posted" and str(contract.get("contract_type", "")) == "Delivery" \
 		and str(contract.get("faction_id", "")) != "" and funding.get("source", "") == "Facility" \
 		and int(funding.get("reserved", 0)) > 0 \
 		and max(0, tick - int(contract.get("posted_at_tick", tick))) >= UNASSIGNED_AGE
 
 static func facility_order(contract: Dictionary) -> bool:
-	var funding: Dictionary = contract.get("funding", {})
+	var funding := _funding(contract)
 	return str(contract.get("contract_type", "")) == "Delivery" and funding.get("source", "") == "Facility" \
 		and funding.get("station_order") is Dictionary
 
 static func top_up(contract: Dictionary, payment: int) -> int:
-	var funding: Dictionary = contract.get("funding", {})
+	var funding := _funding(contract)
 	var reserved: int = int(funding.get("reserved", -1))
 	if reserved < 0 or payment < 0:
 		return -1
@@ -67,7 +71,7 @@ static func top_up(contract: Dictionary, payment: int) -> int:
 	return required
 
 static func funded_for_dispatch(contract: Dictionary, tick: int) -> bool:
-	var funding: Dictionary = contract.get("funding", {})
+	var funding := _funding(contract)
 	if facility_order(contract) or facility_relief(contract, tick):
 		return funding.get("source", "") == "Facility" and int(funding.get("reserved", 0)) > 0
 	var reward := fixed_strategy_reward(contract)
@@ -77,7 +81,7 @@ static func may_accept(contract: Dictionary, ship: String, faction: String) -> b
 	var order := order_of(contract)
 	if order.is_empty():
 		return true # Rust legacy public contract branch, not an order.
-	var funding: Dictionary = contract.get("funding", {})
+	var funding := _funding(contract)
 	if funding.get("source", "") == "Facility" and str(order.get("executor_id", "")) == "":
 		return true # A blocked facility order does not monopolize public contracts.
 	return str(contract.get("faction_id", "")) == faction and str(order.get("executor_id", "")) == ship
