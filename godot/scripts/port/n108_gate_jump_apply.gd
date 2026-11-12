@@ -26,7 +26,9 @@ static func apply(world: Dictionary, ship_id: String,
         source_location: String, destination_location: String) -> Dictionary:
     if ship_id.is_empty() or source_location.is_empty() or destination_location.is_empty():
         return _reject("invalid_gate_request")
-    if not (world.get("ships", null) is Dictionary)             or not (world.get("facilities", null) is Dictionary)             or not (world.get("facilities_at_location", null) is Dictionary):
+    if (not (world.get("ships", null) is Dictionary)
+            or not (world.get("facilities", null) is Dictionary)
+            or not (world.get("facilities_at_location", null) is Dictionary)):
         return _reject("missing_gate_world")
     var source_ship: Variant = world["ships"].get(ship_id, null)
     if not (source_ship is Dictionary):
