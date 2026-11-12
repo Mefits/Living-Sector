@@ -1,7 +1,7 @@
 {
   "block_id": "N147",
   "macro_id": 2,
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "2026-11-13T00-20MSK-interactive-colony-aftercare-paid-migration",
   "claimed_at": "2026-11-13T00:20:00+03:00",
@@ -26,6 +26,24 @@
     "Port exact commission() preflight and atomic prepaid ContractBoard+treasury intent using N16/N104/contract apply rather than second ledger",
     "Add negative-path scenario fixtures and source-to-PR handoff; publish draft and preserve CODE_UNVERIFIED until Godot Phase2"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Audited native colony_development.rs::migration_proposals/commission, N92 source gap and N144/N114/N118/N126/ContractBoard boundaries",
+    "Source port complete migration candidate selection with N92 views, physical-only N142 directed shortest distances, stable sources, real source-household reserve and passenger ship eligibility",
+    "Source port complete commission double-check: no outstanding passenger, source+recipient household, physical route and eligible carrier, exact faction subsidy treasury floor, 800×tick_multiplier lifespan, funding Faction and mission category",
+    "Staged a single native ContractBoard.post_passenger_for + register_prepaid + faction treasury debit; no alternative money ledger, no teleport, no fake goods/population; trusted authoritative receipt validation",
+    "Authored source-derived positive/negative checks and Phase2 handoff; draft PR #236 published"
+  ],
+  "evidence": [
+    "Draft PR #236; four new files and 552 additions; head 96b0547589c0010d327b02e8f77b2cb774b0278a",
+    "Readback all four new files; lexical string/bracket checks passed; preloads refer to created files",
+    "Godot parser/headless/runtime and Rust source executable parity NOT RUN; CODE_UNVERIFIED"
+  ],
+  "completed_at": "2026-11-13T00:34:00+03:00",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/236",
+  "work_sha": "96b0547589c0010d327b02e8f77b2cb774b0278a",
+  "remaining": [
+    "Full macro #2 population growth/colony aftercare integration is NOT complete",
+    "Phase2 adapter must use authoritative N142 WorldRegistry and actual N16/N104 board+treasury same-tick commit, validate receipt and N97 physical passenger delivery",
+    "No Godot runtime verification; do not call function with untrusted UI/connector receipt"
+  ]
 }
