@@ -1,11 +1,11 @@
 {
   "block_id": "N29",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T10:58:33+03:00-second-chat-n29",
   "claimed_at": "2026-11-12T10:58:33+03:00",
   "coordination_branch": "feature/godot-nightshift-20261112",
-  "source_sha": "pending GitHub HEAD resolution; last known coordination commit 7299a6c893f772fb5e05bdd5aeeaef29e1e5c4f2",
+  "source_sha": "a154a836e320ee39bb65569ddb1c2d5142f29738",
   "work_branch": "feature/godot-nightshift-n29-docking-cargo-second-20261112",
   "tasks": [
     "Integrate authoritative N21 docking state with N15 cargo operations",
@@ -13,6 +13,20 @@
     "Add deterministic replay and save/load regression smoke",
     "Document Rust parity and integration limits"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "N15 cargo move wrapped in N21-compatible authoritative docking gate",
+    "Facility-bound warehouse, occupancy and transit/location reconciliation",
+    "Deterministic replay and save/restore regression smoke"
+  ],
+  "evidence": [
+    "Static N15/N21 source review",
+    "Headless smoke prepared, NOT RUN: Godot executable unavailable"
+  ],
+  "completed_at": "2026-11-12T11:00:00+03:00",
+  "pull_request": "https://github.com/Mefits/Living-Sector/pull/117",
+  "commit_sha": "15ef52f676e1c179dfa4ee318519c3a1fdc02827",
+  "limitations": [
+    "N21 registry must be integrated",
+    "Legacy direct N15.move bypass remains; production callers must be routed through gate"
+  ]
 }
