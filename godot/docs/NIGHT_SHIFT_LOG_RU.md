@@ -1,5 +1,12 @@
 # Living Sector — журнал ночных запусков (12 ноября 2026)
 
+### 2026-11-12 10:43:55 UTC — interactive-chat, N40 (НАЧАЛО)
+- Забронировано атомарным create_file: [claims/N40.json](nightshift/claims/N40.json) @ `0e2056f8e22e8e64f58b5c5c6448e3faa421687f`.
+- Основа кода: `integration/godot-47-n33-n37-20261112` @ `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`.
+- Работа: `feature/godot-n40-ship-transit-worldbridge-20261112`; N39 производство оставлено другому владельцу, без пересечения.
+- Проверки и итоги будут добавлены при завершении блока.
+
+
 **Этот файл читается и обновляется каждым запуском** совместно с [NIGHT_SHIFT_QUEUE_RU.md](NIGHT_SHIFT_QUEUE_RU.md) и [протоколом резерваций](nightshift/CLAIM_PROTOCOL_RU.md).
 
 ## Текущее состояние перед ночной сменой
