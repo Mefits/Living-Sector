@@ -516,3 +516,6 @@ Atomic claim `claims/N48.json` @ `a324285495310886a645601ad926e01a61a8ea8c`; own
 
 ### N48 FINISH — 2026-11-12
 Draft [PR #137](https://github.com/Mefits/Living-Sector/pull/137) at `bf3a63bc3b34082c49fc86390e3fd0274203f799`: opt-in passenger embark/disembark manifest, population conservation, location/capacity guards, receipts and headless regression. Frozen Rust passenger posting intentionally disabled; no auto-migration or contracts activated. **CODE_UNVERIFIED**; Godot runtime not run; next integrate authoritative ship/contract state. N39 remains owned by other chat.
+
+### 2026-11-12 15:21 MSK — second-chat-overnight, N49 START
+- Atomic [claim N49](nightshift/claims/N49.json) @ `6276b7fb2c6bd85cc2b4967af8c5174c8c839005`; read-only orbital selection diagnostics; integration #128 base `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`. No changes to N39 or checkpoint.
