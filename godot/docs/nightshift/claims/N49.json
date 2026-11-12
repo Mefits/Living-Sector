@@ -1,0 +1,18 @@
+{
+  "block_id": "N49",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T15:21:37+03:00-second-chat-n49",
+  "claimed_at": "2026-11-12T15:21:37+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n49-orbit-selection-inspector-20261112",
+  "tasks": [
+    "Read-only P1 orbit/selection diagnostic inspector without altering simulation",
+    "Stable entity selection and safe unknown-ID handling",
+    "Headless deterministic smoke and static source checks"
+  ],
+  "progress": [],
+  "evidence": []
+}
