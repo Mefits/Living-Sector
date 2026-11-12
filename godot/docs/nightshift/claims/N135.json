@@ -1,6 +1,6 @@
 {
   "block_id": "N135",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "20261112-interactive-n135-station-orders",
   "claimed_at": "2026-11-12T19:47:53.478Z",
@@ -15,6 +15,22 @@
     "Port read-only order snapshot and release/requeue transition with receipt-safe external commit and source-accurate policy constants",
     "Provide standalone GDScript modules and Phase-2 handoff, minimal static checks, draft PR and claims/queue/log/tracker updates"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Native Rust Order::new/assign/release, optional public/faction acceptance and sorted snapshot",
+    "Authoritative funded/escrowed contract dispatch with market, treaty, sensor and true ship constraints",
+    "Re-source prepaid unaccepted Faction strategy contracts, source pricing intent only",
+    "Deterministic material-ready construction builder assignment, lease and unique used-set",
+    "Documented Phase-2 world/ContractBoard adapter + pure source-derived check cases"
+  ],
+  "evidence": [
+    "GitHub draft PR #225 (4 new files, 7 commits, 822 LOC additions as reported by PR)",
+    "Read back three GDScript files, lexical brace/string/comment closure verified; Rust source reviewed",
+    "No Godot executable/parser/headless/Windows runtime, so CODE_UNVERIFIED"
+  ],
+  "completed_at": "2026-11-12T19:58:09.106Z",
+  "work_sha": "19261a96702b1e53ec92502edd0345b4bb35ac67",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/225",
+  "blocked_on": [
+    "Atomic Phase-2 world/board/ship memory commit, Rust Option serialization conversion, f32 boundary validation, runtime acceptance"
+  ]
 }
