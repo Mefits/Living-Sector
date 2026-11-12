@@ -456,3 +456,10 @@ Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nights
 - Atomic claim `claims/N42.json` commit `387fed97cd6efeccf0421444b85db86e0844e602`, status IN_PROGRESS.
 - Source integration PR #128 @ `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`; work branch `feature/godot-n42-world-invariant-audit-20261112`.
 - Read-only cross-domain world snapshot invariants, provenance and short headless regressions; no production N39/N40 edits.
+
+### N42 FINISH — 2026-11-12 14:14 +03:00 — second-chat-overnight
+- [Draft PR #131](https://github.com/Mefits/Living-Sector/pull/131), head `16ff2fd0d6ca1795a0049b8c576eadac76783092`, 3 new files, no merge.
+- Deterministic read-only closed-transfer audit: integer credit totals, per-commodity store/ship conservation, owner/location/dock consistency, malformed/negative/NaN rejection; isolated headless regression. Does not claim working live economy.
+- Static delimiters balanced in two GDScript files; GitHub sources fetched; Godot executable not run, **CODE_UNVERIFIED**. Source Rust persist/money semantics checked against documented baseline; full Rust parity not established.
+- N39 production/N40 ships/N41 provenance remain other owners; no foreign files modified. Next: typed authoritative adapter and runtime test once integration reconciled.
+- Tracker VERIFIED P0 3/9, P1 0/9, P2 0/11, total 3/100; 16 CODE_UNVERIFIED task rows (N42 separate integration block).
