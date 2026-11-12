@@ -286,3 +286,7 @@ Atomic claim `claims/N24.json` created at `8e525c39e901de15ad5048deede2a398d3df1
 - Added read-only deterministic P1 diagnostic capture, sorted system/body/facility/route identity and orbit summaries, invariant warnings and explicit unavailable economy state. Headless smoke checks repeatability, no mutation, tick progression and checkpoint restore.
 - Frozen Rust `sim_core/agents/ship/snapshot.rs` snapshot ownership semantics reviewed; Godot P1 `world_model.gd` and `tick_runner.gd` interfaces inspected. Godot executable not installed, smoke NOT RUN: **CODE_UNVERIFIED**.
 - Next: N25 or another unclaimed tracker task after fresh claim/PR check; P1-07 remains not VERIFIED. P0 3/9, P1 0/9, P2 0/11, total 3/100.
+
+
+### N25 — 2026-11-12 09:54 МСК — START second-chat-overnight
+Claim: `nightshift/claims/N25.json`; source `cc72a0158e6560301f227b61a8aea473cf573d0b`; branch `feature/godot-nightshift-n25-market-settlement-second-20261112`. P2-05 native matching/settlement, physical stock and ledger, receipts and smoke. Status IN_PROGRESS.
