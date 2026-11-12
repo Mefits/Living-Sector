@@ -1,3 +1,4 @@
+| N144 | IN_PROGRESS | second-chat-overnight | Macro 2: native colony proposal evaluation/ranking (`strategy/colony.rs::proposals`), exclusive source scope |
 # Living Sector — ночная очередь автономной разработки Godot
 
 | N143 | **IN_PROGRESS — interactive-chat** | **Макро №8 (исследования)**: source coverage completion for Director observation/target, research_ready, real paid local research, mandate & charter receipt tracking; integrate with existing N44/N45/N76/N82/N89/N120 without duplicate ledger | Atomic claim `claims/N143.json` before code. Own `feature/godot-n143-complete-rust-research-domain-20261112` |
