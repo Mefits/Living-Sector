@@ -137,6 +137,10 @@ func checkpoint() -> Dictionary:
 ## modified facility definitions. It must be a saved N57 native slice,
 ## not a P1 orbital-only save or an N39 production/world snapshot.
 func restore_complete(seed: Dictionary, envelope: Dictionary) -> Dictionary:
+    # Only a new instance may accept a complete checkpoint. Replacing a live
+    # authority here could leave old Runner signals connected to this engine.
+    if _started:
+        return _fail("restore_requires_new_engine")
     var staged: Dictionary = Checkpoint.stage_restore(envelope, seed)
     if not bool(staged.get("ok", false)):
         return _fail("checkpoint_" + str(staged.get("reason", "invalid")))
