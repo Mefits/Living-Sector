@@ -98,8 +98,15 @@ static func set_treaty(pairs: Dictionary, a: String, b: String,
 		return {"ok": true, "pairs": pairs.duplicate(true)}
 	var key := _pair(a,b)
 	var next := pairs.duplicate(true)
+	var created: bool = not next.has(key["key"])
 	var prior: Dictionary = next.get(key["key"], _state_at(tick))
 	if prior["treaty"] == treaty:
+		# Rust entry(...).or_insert_with creates a NEUTRAL pair even
+		# when set_treaty(Neutral) makes no state change.
+		if created:
+			prior["a"] = key["a"]
+			prior["b"] = key["b"]
+			next[key["key"]] = prior
 		return {"ok": true, "pairs": next}
 	prior["treaty"] = treaty
 	prior["since_tick"] = tick
