@@ -386,3 +386,6 @@ Claim N35 reserved by `second-chat-overnight` (`2026-11-12T12:12:40+03:00-second
 
 ### N36 start — 2026-11-12 12:14 MSK — second-chat-overnight
 - Atomic claim `claims/N36.json` at `ea858e82e8983b0ccdd08d92046599c341ec38bd`, work branch `feature/godot-nightshift-n36-godot47-compat-second-20261112`. Scope: Godot 4 integration startup compatibility, static fixes and smoke. IN_PROGRESS.
+
+### N35 — CODE_UNVERIFIED, PR #124
+Added opt-in authoritative apply2 contract phase, N31 replay guard, guarded external-dispatcher restore and native-seed headless smoke. Commit `75c9dff`; Godot not run. PR currently reports mergeable=false; stacked branch conflicts need review. External economy state remains caller-owned. P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED unchanged.
