@@ -1,6 +1,6 @@
 {
   "block_id": "N35",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T12:12:40+03:00-second-chat-n35",
   "claimed_at": "2026-11-12T12:12:40+03:00",
@@ -12,6 +12,17 @@
     "fail-closed lifecycle and replay invariants",
     "headless deterministic smoke and handoff"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Implemented opt-in apply2 contract tick adapter",
+    "Guarded restore requires matching externally restored dispatcher",
+    "Headless regression prepared, Godot runtime not executed"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/124",
+    "75c9dff56a99df6ef7b75f59479c19b6295c2c03"
+  ],
+  "caveats": [
+    "PR currently reports mergeable=false; requires checking stacked base/conflicts",
+    "External economy snapshot and N23 production not integrated"
+  ]
 }
