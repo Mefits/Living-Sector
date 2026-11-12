@@ -69,3 +69,7 @@
 **Не закрыто в качестве исполняемой игры:** нет Godot runtime test, GitHub PR НЕ слиты; N82/N45/N89/N120 и N143 будут объединяться в один реальный World+ledger+director save authority только в **Фазе 2**. Освоение T2/T3 через оплачиваемые материалы и строительные смены относится к макро **№6**; полноценные фракционные чартеры и стратегические портфели относятся к **№7**. 1000-летняя новая T4-наука — **Фаза 3**, не подмена frozen Rust.
 
 **Учёт макроблоков после N143:** №8 — один полностью **source-covered** из десяти, **не VERIFIED** и не интегрирован. Остальные **9** направлений всё ещё имеют исходные непокрытые функции/нуждаются в source audit. Символическое оставшееся исходное покрытие всей Фазы 1 около **55–59%** (не статистика Godot-запусков, не число PR; грубая экспертная оценка).
+
+### 13.11.2026 — макро №5: N145 Posted contract aging and renewal
+- [Draft PR #234](https://github.com/Mefits/Living-Sector/pull/234), CODE_UNVERIFIED: frozen contracts.rs age_open_reputation, age_escalate_payment, sweep_expiring and posted_for_ship with tiered indexes; 12 standalone GDScript methods, source handoff, no escrow/physical stock effects.
+- **Остаток макро №5:** сверить непокрытые Rust board queries/cleanup/contract-type nuances, затем Phase-2 atomic integration with N16/N104/N135/N97. Do not duplicate escrow/dispatch. Overall Phase-1 remaining remains symbolically ~55–59%; not a count of Nx or runtime proof.
