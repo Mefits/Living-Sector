@@ -129,3 +129,7 @@ Claim `claims/N13.json` created atomically at `66db027`; branch `feature/godot-n
 - **PR:** https://github.com/Mefits/Living-Sector/pull/96 (draft, depends on PR #93); commit `9c81cb733d092192b4a5c1a0fd866d1df0dfaac8`.
 - **Проверки:** GDScript delimiter balance and N5 Catalog.contains API verified statically. Godot executable unavailable; headless test NOT RUN. `CODE_UNVERIFIED`.
 - **Дальше:** N6/N10/N12/N14 after checking dependencies and claims. **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, всего 3/100 VERIFIED.
+
+### 2026-11-12 05:27 MSK — N12 start
+
+- `second-chat-overnight` reserved `N12` via atomic claim `7c750776661c94fc99014734063681d2eb446b03`; population/needs Rust parity, GDScript and smoke test; status `IN_PROGRESS`.
