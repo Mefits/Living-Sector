@@ -648,3 +648,6 @@ Three separate draft PRs: [N74 #160](https://github.com/Mefits/Living-Sector/pul
 
 
 **2026-11-12 17:37 MSK — N71–N73:** три независимых claim закрыты CODE_UNVERIFIED после публикации исходников и коротких headless-сценариев: N71 population purchase/sentiment [PR #163](https://github.com/Mefits/Living-Sector/pull/163); N72 crew upkeep/wages [PR #164](https://github.com/Mefits/Living-Sector/pull/164); N73 native recipe catalogue [PR #165](https://github.com/Mefits/Living-Sector/pull/165). Все три Draft на базе integration/godot-47-n33-n37-20261112; не интегрированы в живой мир, Godot не запускался. N39 не затронут. Итого N1–N73: 72 кодовых Nx/PR, 1 чужой N39 IN_PROGRESS; интеграционный baseline остаётся #128, без новых runtime-подтверждений. Нужны интеграционные wiring, атомарные реестры/квитанции и автоматические headless проверки, прежде чем считать механики работающими.
+
+### 2026-11-12 16:01 CET — overnight-scheduler, N77/N78/N79 START
+- Three atomic claims created before code: N77 be910fad, N78 f58a1e3, N79 27ed18c. All IN_PROGRESS, separate work branches. Scope: Rust construction lifecycle, faction strategy, shipyard orders. Frozen Rust read-only; no Godot integration or runtime testing.
