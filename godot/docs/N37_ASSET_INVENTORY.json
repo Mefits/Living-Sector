@@ -1,0 +1,794 @@
+{
+  "schema_version": 1,
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_commit": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "scope": "crates/client_bevy/assets/",
+  "policy": "fail-closed; source repository MIT does not establish third-party asset provenance",
+  "counts": {
+    "fonts": 3,
+    "icons": 29,
+    "music": 8,
+    "sfx": 17,
+    "shaders": 5,
+    "ships": 5,
+    "stations": 30
+  },
+  "assets": [
+    {
+      "path": "crates/client_bevy/assets/fonts/ChakraPetch-Medium.ttf",
+      "git_blob_sha": "2e2d8da5fe043ad8e7c8e73a9461eb0706b65c66",
+      "bytes": 78600,
+      "category": "fonts",
+      "rights_status": "ofl_notice_present_full_license_review_pending",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/fonts/Exo2-Regular.ttf",
+      "git_blob_sha": "e936a84063ef7d230012a47e5a8227aa1b1b9339",
+      "bytes": 43528,
+      "category": "fonts",
+      "rights_status": "ofl_notice_present_full_license_review_pending",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/fonts/LICENSE-OFL.txt",
+      "git_blob_sha": "372af48db582883c48b35536b1e9ed42a4e3d5f5",
+      "bytes": 681,
+      "category": "fonts",
+      "rights_status": "license_notice",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/add-facility.svg",
+      "git_blob_sha": "4135f34c063756df69c54c6797f441ecd0199c82",
+      "bytes": 434,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/add-ship.svg",
+      "git_blob_sha": "bae43cc1e4b4b62bf7b92bb7a2398909231ae4c3",
+      "bytes": 522,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/barrier.svg",
+      "git_blob_sha": "a019c949e65995d1ca919f2e093c525ea56046f5",
+      "bytes": 1185,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/contracts.svg",
+      "git_blob_sha": "f02fcd849d2b43036ec92ca0d0e062bcf0504d5e",
+      "bytes": 412,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/destroy.svg",
+      "git_blob_sha": "746f85cf0d67954aae91a8a5783b689dbb924bfb",
+      "bytes": 307,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/events.svg",
+      "git_blob_sha": "5140757504cb34d2d8d04e50ad13fc51497523a2",
+      "bytes": 339,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/factions.svg",
+      "git_blob_sha": "72d91e2d1791576f185f923dc711690ca5677489",
+      "bytes": 379,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/factory.svg",
+      "git_blob_sha": "16b11d7b25e54ba1c8eb66b7acda728d62c5a2eb",
+      "bytes": 522,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/ledger.svg",
+      "git_blob_sha": "a2f789e699bf71d01c68dfea1b0049cc94ac53bd",
+      "bytes": 416,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/market.svg",
+      "git_blob_sha": "2b47321a10513d1a77e16bbf462b82acce25ebcd",
+      "bytes": 580,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/perf.svg",
+      "git_blob_sha": "3039cb7c993af58358d1b571c9534021f282f362",
+      "bytes": 271,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/pops.svg",
+      "git_blob_sha": "203f68928cd4b0201b33794631d90e332367f97b",
+      "bytes": 376,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/panels/ships.svg",
+      "git_blob_sha": "bae43cc1e4b4b62bf7b92bb7a2398909231ae4c3",
+      "bytes": 522,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/chevron-down.svg",
+      "git_blob_sha": "2a16613e2d8d334fb8a2e8f640a7dd444199740a",
+      "bytes": 229,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/close.svg",
+      "git_blob_sha": "e278ef0061c62172f2c4e3f5b37a1796b864f857",
+      "bytes": 253,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/eye-off.svg",
+      "git_blob_sha": "5655f9e93065e22145bdfb6adb92a301616e5758",
+      "bytes": 497,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/eye.svg",
+      "git_blob_sha": "d86afb9969f9abbe290d3a411eeda7c9b9698d82",
+      "bytes": 353,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/pause.svg",
+      "git_blob_sha": "d7aea0a4c75a9d06b4d73d6598eddb0b8e44bc31",
+      "bytes": 306,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/play.svg",
+      "git_blob_sha": "e69c794ca966ae56c7edc09aa94ae12837c624c8",
+      "bytes": 299,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/plus.svg",
+      "git_blob_sha": "89bf734fe8b7ba64ba708347b42a9b1fbfe34fbd",
+      "bytes": 249,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/refresh.svg",
+      "git_blob_sha": "8555a0f8aafefe309c9565235fb668bd7ff4e67a",
+      "bytes": 385,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/save.svg",
+      "git_blob_sha": "8f07fa3a201466967d76ad7ec003fb8b83586163",
+      "bytes": 410,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/search.svg",
+      "git_blob_sha": "0c3daf305840e76946793650b1934222a578d71d",
+      "bytes": 268,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/settings.svg",
+      "git_blob_sha": "07e6b21bc74f8783dd99cea39730e7fb7bd12bbf",
+      "bytes": 579,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/sort-asc.svg",
+      "git_blob_sha": "e64c418c9be9698f739f6e83885946a146ceb181",
+      "bytes": 254,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/sort-desc.svg",
+      "git_blob_sha": "040e0add51a2465efc6fc020a703e5ba010f2d9b",
+      "bytes": 255,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/step-1.svg",
+      "git_blob_sha": "9ccfc6ccb6a3b7754ca7b01f08c38434576522dc",
+      "bytes": 326,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/step-8.svg",
+      "git_blob_sha": "e9aa4e3f257a16a0ffb6c93d0c5a729b4906e2f5",
+      "bytes": 373,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/icons/ui/trash.svg",
+      "git_blob_sha": "7c0e7f1b54864003f170affc5af77e80e56422e9",
+      "bytes": 382,
+      "category": "icons",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/music/Sci-Fi 1 Loop.ogg",
+      "git_blob_sha": "14cbabcac76652c5a7c24482f80df69358c1dd05",
+      "bytes": 4482153,
+      "category": "music",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/music/Sci-Fi 2 Loop.ogg",
+      "git_blob_sha": "ffa25519d4886844c44debf737b9d323a4a9dcba",
+      "bytes": 4598009,
+      "category": "music",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/music/Sci-Fi 3 Loop.ogg",
+      "git_blob_sha": "76fde802e485a1a8b29db61e8e95b6510e53c6ed",
+      "bytes": 4935264,
+      "category": "music",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/music/Sci-Fi 4 Loop.ogg",
+      "git_blob_sha": "e9c00489ae7203f15b5cb170b2b1a307ffe5a034",
+      "bytes": 5860185,
+      "category": "music",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/music/Sci-Fi 5 Loop.ogg",
+      "git_blob_sha": "84bec154c22c3d8ac60052691b5a1219a58d476b",
+      "bytes": 3445825,
+      "category": "music",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/music/Sci-Fi 6 Loop.ogg",
+      "git_blob_sha": "93d900878084a0a204198d80bf3cb8912c9a31bd",
+      "bytes": 2732216,
+      "category": "music",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/music/Sci-Fi 7 Loop.ogg",
+      "git_blob_sha": "6a2b2a358d86978be177ff5432a6da30f6066dd2",
+      "bytes": 3464386,
+      "category": "music",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/music/Sci-Fi 8 Loop.ogg",
+      "git_blob_sha": "c0cce2c97a1e5875534fa45a39c1eef26e63a01e",
+      "bytes": 3276584,
+      "category": "music",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/click.ogg",
+      "git_blob_sha": "1308a9f50e200ae6844fd57de530cd84be929f0a",
+      "bytes": 4326,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/click_0.ogg",
+      "git_blob_sha": "392618b70cc655061620531e338c1aabdac5369e",
+      "bytes": 4326,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/click_1.ogg",
+      "git_blob_sha": "d70ce86b3f2751d2de1648d63682f77bb7ee5d33",
+      "bytes": 4374,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/click_2.ogg",
+      "git_blob_sha": "8a44d85640469215394a5d80b7cea767a243d15c",
+      "bytes": 4355,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/click_3.ogg",
+      "git_blob_sha": "9b7b92ef2f4013e9866e63daa69b731e16b540c1",
+      "bytes": 4352,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/click_4.ogg",
+      "git_blob_sha": "7447ab480f712b9514634da87b4e0ccdb2f431f6",
+      "bytes": 4317,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/click_5.ogg",
+      "git_blob_sha": "e7836e86e93ce8c5cb280058e1c15d7f46e1bc67",
+      "bytes": 4303,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/close.ogg",
+      "git_blob_sha": "e3904885d00a077acfa2bf61304e16d0a84bc0ee",
+      "bytes": 4350,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/confirm.ogg",
+      "git_blob_sha": "74834eef2b3af7f39ea41301a8be4affaffdbe52",
+      "bytes": 4914,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/deny.ogg",
+      "git_blob_sha": "290e5bf98e9cab8e0cb17fdf7fd77f50094de982",
+      "bytes": 5090,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/explosion_large.ogg",
+      "git_blob_sha": "bf620d1dd6ad326830fe0e8364ad1033e0259a80",
+      "bytes": 11276,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/explosion_med.ogg",
+      "git_blob_sha": "b8102917d159dd186865f608fb53e64c110efe22",
+      "bytes": 10190,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/explosion_small.ogg",
+      "git_blob_sha": "1c6bf35939c70617c967b2ed46047476f582f783",
+      "bytes": 9164,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/gate_jump.ogg",
+      "git_blob_sha": "2f643d9368da00dcb65f1d35e4842f2a50e621bf",
+      "bytes": 4558,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/select.ogg",
+      "git_blob_sha": "726dd5c80ec9e4dbcb151d0dd7132087af528cc6",
+      "bytes": 4603,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/ui_blip.ogg",
+      "git_blob_sha": "63dfbd0153fb9fce53df98bfea1630802e38d9e6",
+      "bytes": 4536,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/sfx/warn.ogg",
+      "git_blob_sha": "28050ee1fa5a0c4398cb7ba60d1fa285e4a2fbf0",
+      "bytes": 4904,
+      "category": "sfx",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/shaders/cloud.wgsl",
+      "git_blob_sha": "110f0167c40b0bf3dd0ef35491d70a3be50971ad",
+      "bytes": 2799,
+      "category": "shaders",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/shaders/halo.wgsl",
+      "git_blob_sha": "86411fa835679ade30f4d7ec2cf3e95c91687f0e",
+      "bytes": 1528,
+      "category": "shaders",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/shaders/nebula.wgsl",
+      "git_blob_sha": "df61b8f33a723d6fad92d48d7816bc5e2be10447",
+      "bytes": 5149,
+      "category": "shaders",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/shaders/planet.wgsl",
+      "git_blob_sha": "e036f0fcee14368c8c21596730e40f7279f867a8",
+      "bytes": 4875,
+      "category": "shaders",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/shaders/sky_stars.wgsl",
+      "git_blob_sha": "87e347265a9d8914419df33406cf36d6703b8603",
+      "bytes": 3566,
+      "category": "shaders",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/ships/Challenger.gltf",
+      "git_blob_sha": "d8ce01db2c60f22b3e7cd1b53a762038fd42a856",
+      "bytes": 4769293,
+      "category": "ships",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/ships/Dispatcher.gltf",
+      "git_blob_sha": "4b311d29e43d724b522c358b4ff050a016d0784f",
+      "bytes": 3165384,
+      "category": "ships",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/ships/Executioner.gltf",
+      "git_blob_sha": "84ba613087bc019975f1f5721f656aaa0e7e1e6b",
+      "bytes": 4307283,
+      "category": "ships",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/ships/Imperial.gltf",
+      "git_blob_sha": "d10791fe60bc0918470b81520168aeb845146e5e",
+      "bytes": 4559862,
+      "category": "ships",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/ships/Spitfire.gltf",
+      "git_blob_sha": "19b7d5f3c8e244a78483e39650e07ccaf8552f45",
+      "bytes": 4716363,
+      "category": "ships",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station01.glb",
+      "git_blob_sha": "5e4abeddb39b6598c76ddc80fdbe59c634e30e08",
+      "bytes": 5108076,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station01_station01_diffuse.png",
+      "git_blob_sha": "48501ab54f92b1a44b3cdb3163f198db41905ab3",
+      "bytes": 2275171,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station01_station01_emission.png",
+      "git_blob_sha": "15101101ac22e7b59845a7ce29a63d3869531dc6",
+      "bytes": 7855,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station01_station01_normal.png",
+      "git_blob_sha": "fb42fe6a7c9930afa69cb8b8372f9bc85a3cbd91",
+      "bytes": 1191758,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station01_station01_specular.png",
+      "git_blob_sha": "bd137c53c194dd02f14aa80cae26a3f22a33c401",
+      "bytes": 1352015,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station02_base.glb",
+      "git_blob_sha": "64904434f935076c71154fdec72132e4c4b3f412",
+      "bytes": 1200024,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station02_base_station02_base_diffuse.png",
+      "git_blob_sha": "62b1ccc42bf44a2c5779081da1a03cc04aaa235d",
+      "bytes": 501881,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station02_base_station02_base_emission.png",
+      "git_blob_sha": "0f95ec9c35254e9f7a210cabd8a4c6ed9461f802",
+      "bytes": 3259,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station02_base_station02_base_normal.png",
+      "git_blob_sha": "b17ada0144727090cfa708e2693eb613d075d6d9",
+      "bytes": 265525,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station02_base_station02_base_specular.png",
+      "git_blob_sha": "a210f8ce7adda90763d5b47b23b06315954bbb5c",
+      "bytes": 316412,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station02_ring.glb",
+      "git_blob_sha": "a6ac65412b8fce59aceb095c04f8e3928e874d02",
+      "bytes": 825928,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station02_ring_station02_ring_diffuse.png",
+      "git_blob_sha": "8570d1cd3e460a6c732b535b00d8c84f1cce089d",
+      "bytes": 379378,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station02_ring_station02_ring_emission.png",
+      "git_blob_sha": "a0965584e4929ea00011e1d31ed979c1fd737b86",
+      "bytes": 6211,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station02_ring_station02_ring_normal.png",
+      "git_blob_sha": "de187c9fb421fdbeba96c927308aa84c983ae5a0",
+      "bytes": 356296,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station02_ring_station02_ring_specular.png",
+      "git_blob_sha": "037e1c4ca2ec91f6f2d7555d0dbbd7a238a44c57",
+      "bytes": 490677,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station03_base.glb",
+      "git_blob_sha": "61f95c259f4731424d393d53adc421f405e337d6",
+      "bytes": 3190504,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station03_base_station03_base_diffuse.png",
+      "git_blob_sha": "23ce6a06515639a1bdf613585f602304f6effbee",
+      "bytes": 1187350,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station03_base_station03_base_emission.png",
+      "git_blob_sha": "6fc5af4315fcd925090d7f51de93d05b85ab0025",
+      "bytes": 6930,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station03_base_station03_base_normal.png",
+      "git_blob_sha": "909250a377d47149f729620b4a720cc73fdc9f0a",
+      "bytes": 1077938,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station03_base_station03_base_specular.png",
+      "git_blob_sha": "3727a276d92cc0e5404d999b0c268e83fa04e9ec",
+      "bytes": 804628,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station05.glb",
+      "git_blob_sha": "670ea0111547cd2ec409845beab4da5a0014677f",
+      "bytes": 6575552,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station05_station05_diffuse.png",
+      "git_blob_sha": "a8ce01784a39aee036bc2595014c84a25e6e7455",
+      "bytes": 2473740,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station05_station05_emission.png",
+      "git_blob_sha": "5f7d3d4d0b5d3978c2386b2cf352ebcfe9c79f71",
+      "bytes": 30007,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station05_station05_normal.png",
+      "git_blob_sha": "b8c806f4375570bf9281c51653f08ea3ec8a36bc",
+      "bytes": 2121786,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station05_station05_specular.png",
+      "git_blob_sha": "db06c7d03ba866ffc0a273b8c55c708f70f2ea67",
+      "bytes": 1263478,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station06_base.glb",
+      "git_blob_sha": "c1214f440ccdff524aa0fbf226a36620ed89bccf",
+      "bytes": 1401820,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station06_base_station06_base_diffuse.png",
+      "git_blob_sha": "35826130efc2887725b2447b73db2304807ab8cb",
+      "bytes": 443040,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station06_base_station06_base_emission.png",
+      "git_blob_sha": "f656c7f296cb0a1141fe2e73d770a7d42b0ec223",
+      "bytes": 6712,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station06_base_station06_base_normal.png",
+      "git_blob_sha": "4b918af1ae338879316bd8fd663a441b3e5d3d1d",
+      "bytes": 598387,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    },
+    {
+      "path": "crates/client_bevy/assets/stations/station06_base_station06_base_specular.png",
+      "git_blob_sha": "610f69d1755b659fddff1de291e45037eef1fc74",
+      "bytes": 306892,
+      "category": "stations",
+      "rights_status": "provenance_unverified",
+      "godot_transfer": "blocked_pending_review"
+    }
+  ]
+}
