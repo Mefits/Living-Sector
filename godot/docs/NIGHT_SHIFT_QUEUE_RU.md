@@ -115,4 +115,4 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 | N33 | **P8: интеграционная приёмка N32:** fail-closed smoke runner, машинный JSON-отчёт, проверка обязательных тестов и handoff Windows | PR #121: 11/11 required tests present, 32 scripts in Git tree; Godot/PowerShell not executed | CODE_UNVERIFIED — PR #121, overnight-scheduler |
 
-| N34 | **P8 integration smoke integrity:** audit N32/N33 runner, validate command/test paths and fail-closed handoff | Integration smoke cannot silently skip missing tests; static checks and headless preparation; N32/N33 | IN_PROGRESS — second-chat-overnight |
+| N34 | **P8 integration smoke integrity:** audit N32/N33 runner, validate command/test paths and fail-closed handoff | Integration smoke cannot silently skip missing tests; static checks and headless preparation; N32/N33 | CODE_UNVERIFIED — PR #123, second-chat-overnight |
