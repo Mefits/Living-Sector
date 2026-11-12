@@ -93,3 +93,7 @@ Reserved `N4.json` atomically; implementing native registry and travel route gra
 ### N11 started — 2026-11-12 04:38 МСК — second-chat-overnight
 
 Claim `claims/N11.json` created before development, source `15d3762`, branch `feature/godot-nightshift-n11-ledger-second-20261112`. Scope: Rust financial semantics, deterministic ledger, idempotent receipts and headless smoke. CODE_UNVERIFIED until Godot runtime.
+
+### N13 started — 2026-11-12 04:39 МСК — second-chat-overnight
+
+Claim `claims/N13.json` created atomically at `66db027`; branch `feature/godot-nightshift-n13-ships-second-20261112`. Scope: Rust ship specifications, compact state, cargo/fuel/crew invariants and headless smoke. CODE_UNVERIFIED pending runtime.
