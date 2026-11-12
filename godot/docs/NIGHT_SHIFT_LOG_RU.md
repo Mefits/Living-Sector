@@ -469,3 +469,7 @@ Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nights
 - Static delimiters balanced in two GDScript files; GitHub sources fetched; Godot executable not run, **CODE_UNVERIFIED**. Source Rust persist/money semantics checked against documented baseline; full Rust parity not established.
 - N39 production/N40 ships/N41 provenance remain other owners; no foreign files modified. Next: typed authoritative adapter and runtime test once integration reconciled.
 - Tracker VERIFIED P0 3/9, P1 0/9, P2 0/11, total 3/100; 16 CODE_UNVERIFIED task rows (N42 separate integration block).
+
+### 2026-11-12 14:24 MSK — second-chat-overnight, N44 START
+- Atomic claim `claims/N44.json` @ `06e94e06f1ceae511019a2970c8ea167bcc4bde8`; branch `feature/godot-n44-research-prerequisite-gate-20261112`, integration base PR #128.
+- Scope: Rust research prerequisite audit and fail-closed deterministic evaluator; N39 production and N43 locations untouched.
