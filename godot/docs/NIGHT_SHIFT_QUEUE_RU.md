@@ -1,5 +1,8 @@
 # Living Sector — ночная очередь автономной разработки Godot
 
+**ОБРАБОТКА ПО КОДУ N1–N61 (12.11.2026):** **60 из 61 блоков** обработаны и оформлены в PR/коде. **N39 — 1 блок IN_PROGRESS у другого чата.** N61 / [PR #150](https://github.com/Mefits/Living-Sector/pull/150) интегрирует направленные маршруты N58–N60 в opt-in N57, но всё ещё **CODE_UNVERIFIED** в Godot. Это **НЕ 60% полной игры**: оценка готовности функционального переноса ~20–30% (оставшийся труд ориентировочно 70–80%) из-за неинтегрированных production/AI/research/colony/UI/runtime acceptance. Не равнять обработанные Nx и законченные игровые механики. 
+
+
 **ОБРАБОТКА ПО КОДУ N1–N60 (12.11.2026):** **59 из 60 блоков** оформлены в коде/PR. **1 занят — N39 (production)**. N57 [PR #149](https://github.com/Mefits/Living-Sector/pull/149) добавил общий opt-in fleet/docking/ledger engine; параллельный чат оформил N58–N60 (#146–#148). **Это не 59 полноценных игровых механик и не Godot VERIFIED**. В проверенной Windows P1 живой новый engine пока не включён; требуется headless проверка и отдельная финальная интеграция N39 + N57. 
 
 
@@ -177,6 +180,6 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 | N60 | **P3: directed multi-hop itinerary admission** — read-only validation of planned hops against Rust-native directed arcs, stale/missing/loop rejection, deterministic diagnostics; independent of N39/N57 | Exact endpoints/edge weights and no mutation; headless smoke | CODE_UNVERIFIED — [PR #148](https://github.com/Mefits/Living-Sector/pull/148), second-chat-overnight; headless pending |
 
-| N61 | P3: связать N58/N59/N60 анализ направленных маршрутов с N57 единым корабельным движком; реальное допущение одного следующего перелёта, без телепортации и выдуманного топлива | Native graph audit, deterministic plan and N60 itinerary admission, explicit next-hop command, headless smoke | IN_PROGRESS — interactive-chat; [claim N61](nightshift/claims/N61.json) |
+| N61 | P3: связать N58/N59/N60 анализ направленных маршрутов с N57 единым корабельным движком; реальное допущение одного следующего перелёта, без телепортации и выдуманного топлива | Native graph audit, deterministic plan and N60 itinerary admission, explicit next-hop command, headless smoke | CODE_UNVERIFIED — [PR #150](https://github.com/Mefits/Living-Sector/pull/150), interactive-chat; N58-N60+N57 live next-hop admitted; Godot runtime pending |
 
 | N62 | **P8/P1: integration runtime-readiness gate** — deterministic preflight for actual P1 scene/seed/tick contracts and headless regression, no fake economy or AI | Fail-closed contract validation and reproducible smoke, separate integration-derived PR | IN_PROGRESS — overnight-scheduler; [claim N62](nightshift/claims/N62.json) |
