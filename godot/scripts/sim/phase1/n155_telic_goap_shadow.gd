@@ -46,7 +46,10 @@ static func structural_facts(domain: Dictionary, catalogue: Array) -> Dictionary
 		if effects.is_empty():
 			continue
 		var spec: Dictionary = catalogue[int(a.get("catalogue_index", -1))]
-		var relative_cost: float = float(mini(int(spec.get("expected_ticks", 0)),4294967295)) / 100.0 			+ float(mini(maxi(0, int(spec.get("cost_credits", 0))),100000)) / 1000.0 + 1.0
+		var relative_cost: float = (
+			float(mini(int(spec.get("expected_ticks", 0)),4294967295)) / 100.0
+			+ float(mini(maxi(0, int(spec.get("cost_credits", 0))),100000)) / 1000.0
+			+ 1.0)
 		definitions.append({"native_action_index":i,"cost":relative_cost,
 			"preconditions":a.get("pre", []).duplicate(true),"effects":effects})
 	return {"usable":true,"facts":all_facts,"definitions":definitions,
@@ -65,7 +68,7 @@ static func _less(a: Dictionary,b: Dictionary) -> bool:
 	return _path_less(a["path"],b["path"])
 
 static func _score(ticks: int,credits: int) -> int:
-	return ticks + maxi(0,credits) / 20
+	return ticks + int(maxi(0,credits) / 20)
 
 static func _rank(domain: Dictionary,node: Dictionary,hint: Array) -> int:
 	var bonus: int = 0
