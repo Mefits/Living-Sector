@@ -100,4 +100,4 @@
 
 N26 outcome: [draft PR #114](https://github.com/Mefits/Living-Sector/pull/114) — CODE_UNVERIFIED; physical receipt gate written, headless test not run. Direct N16 board transition methods remain an integration boundary; route all production callers via N26 coordinator.
 
-| N27 | **P3/P2: authoritative contract delivery gate:** eliminate direct payout bypass and enforce N26 physical receipt on all contract settlement callers | Wrong ship/location/amount and duplicate receipt cannot release escrow; save/load parity; depends on N26/N16/N15 | IN_PROGRESS — second-chat-overnight |
+| N27 | **P3/P2: authoritative contract delivery gate:** eliminate direct payout bypass and enforce N26 physical receipt on all contract settlement callers | Wrong ship/location/amount and duplicate receipt cannot release escrow; save/load parity; depends on N26/N16/N15 | CODE_UNVERIFIED — PR #115, second-chat-overnight |
