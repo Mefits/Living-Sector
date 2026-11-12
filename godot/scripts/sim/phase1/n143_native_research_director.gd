@@ -109,6 +109,25 @@ static func update_mandate(old: Dictionary, incoming: Dictionary, tick: int, cat
 		return _error(err)
 	return {"ok": true, "reason": "", "mandate": next}
 
+static func active_mandate(mandates_by_faction: Dictionary, faction: String, completed: Array) -> Dictionary:
+	## governance.rs::active returns no directive once the target is
+	## completed, except Hold, which remains active until manually removed.
+	if not mandates_by_faction.has(faction):
+		return {}
+	var saved = mandates_by_faction[faction]
+	if not (saved is Dictionary) or not _active_mandate(saved, completed):
+		return {}
+	return saved.duplicate(true)
+
+static func clear_mandate(mandates_by_faction: Dictionary, faction: String) -> Dictionary:
+	## governance.rs::clear_mandate: explicit player control may delete the
+	## active directive. Never erase historical world ledger/charter spending.
+	var next := mandates_by_faction.duplicate(true)
+	if not next.has(faction):
+		return {"ok": true, "removed": false, "mandates": next}
+	next.erase(faction)
+	return {"ok": true, "removed": true, "mandates": next}
+
 static func _select_autonomous(completed: Array, profile: Dictionary, rows: Array) -> Dictionary:
 	## director.rs::observe; highest field profile weight, then smallest
 	## lexical technology id on ties, no calendar-era release gates.
