@@ -1,0 +1,17 @@
+{
+  "block_id": "N21",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T08:45:21+03:00-second-chat-n21-docking",
+  "claimed_at": "2026-11-12T08:45:21+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "b546437ffa1ec8084f1f20fcdfccb184cb99fb66",
+  "work_branch": "feature/godot-nightshift-n21-docking-20261112",
+  "tasks": [
+    "Rust parity for ship docking transition",
+    "deterministic docking/undocking authorization and state",
+    "snapshot and regression smoke"
+  ],
+  "progress": [],
+  "evidence": []
+}
