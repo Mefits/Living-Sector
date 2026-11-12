@@ -11,6 +11,8 @@ const REST_THRESHOLD := 65.0
 const MORALE_CHECK_BASE := 5
 const WAGE_INTERVAL_BASE := 50
 const WAGE_PER_HEAD := 5
+const FOOD_PER_CREW_PER_MEAL := 1
+const HUNGER_MEAL_REDUCTION := 25.0
 var _ships: Dictionary = {}
 var _last_tick := -1
 
@@ -46,10 +48,10 @@ func step(tick: int, scale: float, multiplier: int) -> Dictionary:
 				penalty = -4.0
 			crew.morale = clampf(float(crew.morale) + penalty, 0.0, 100.0)
 		if float(crew.hunger) > EAT_THRESHOLD:
-			var needed := int(crew.size) * int(ship.food_per_meal)
+			var needed := int(crew.size) * FOOD_PER_CREW_PER_MEAL
 			if needed > 0 and int(ship.food) >= needed:
 				ship.food = int(ship.food) - needed
-				crew.hunger = maxf(0.0, float(crew.hunger) - float(ship.meal_reduction))
+				crew.hunger = maxf(0.0, float(crew.hunger) - HUNGER_MEAL_REDUCTION)
 				events.append({"ship": id, "kind": "ate", "food": needed, "tick": tick})
 			crew.task = "eating"
 		elif float(crew.fatigue) > REST_THRESHOLD:
@@ -85,10 +87,10 @@ func _valid(ships: Dictionary) -> bool:
 		var s = ships[id]
 		if typeof(id) != TYPE_STRING or typeof(s) != TYPE_DICTIONARY:
 			return false
-		for k in ["crew", "food", "food_per_meal", "meal_reduction", "credits", "docked", "in_transit"]:
+		for k in ["crew", "food", "credits", "docked", "in_transit"]:
 			if not s.has(k):
 				return false
-		if int(s.food) < 0 or int(s.credits) < 0 or int(s.food_per_meal) < 0 or float(s.meal_reduction) < 0.0:
+		if int(s.food) < 0 or int(s.credits) < 0 :
 			return false
 		var c = s.crew
 		if typeof(c) != TYPE_DICTIONARY:
