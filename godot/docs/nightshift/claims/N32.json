@@ -1,0 +1,18 @@
+{
+  "block_id": "N32",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-integration-chat",
+  "run_id": "2026-11-12T11-00-MSK-interactive-N32",
+  "claimed_at": "2026-11-12T11:00:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "3dfd3a1b5393835e0f8d7b4cba22d6532dfc6bf3",
+  "work_branch": "integration/godot-foundation-smoke-20261112",
+  "tasks": [
+    "Review real PR dependency graph and choose a safe coherent integration base",
+    "Compose an independent code integration branch without modifying agents' source branches",
+    "Create one Windows launcher for available headless Godot smoke cases with fail-fast logs and no destructive git pull",
+    "Document exact included/excluded PR commits, smoke evidence and handoff"
+  ],
+  "progress": [],
+  "evidence": []
+}
