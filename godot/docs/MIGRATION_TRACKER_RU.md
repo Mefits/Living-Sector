@@ -27,6 +27,8 @@
 
 > **N6, 12.11.2026:** [PR #100](https://github.com/Mefits/Living-Sector/pull/100) реализует локальную оплачиваемую партию выпуска с dry-run рецепта, проверкой складов, 1 CR/работник, ledger receipt и тестом. Это ограниченный self-owned slice; shared workforce, processing fees и TickRunner ещё не подключены. `CODE_UNVERIFIED` без запуска Godot. VERIFIED остаётся 3/100.
 
+> **N15, 12.11.2026:** [PR #101](https://github.com/Mefits/Living-Sector/pull/101) — integer ship cargo load/unload, conservation, capacity, location and idempotent receipts. N14/N13/N4 dependent; N9 warehouse integration and N16 contract settlement pending. `CODE_UNVERIFIED` (no Godot runtime); VERIFIED unchanged.
+
 ## Подробные задачи
 
 Порядок идентификаторов неизменяем; новые задачи получают новый ID. В столбце «Источник» указан краткий относительный путь под `native/crates/sim_core/src/`, если явно не указан иной префикс.
