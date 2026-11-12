@@ -41,3 +41,11 @@
 - **Другие блоки:** при резервировании N1 и N3 не имели claim; дальнейшие захваты проверять заново.
 - **Дальше:** N3 deterministic event queue / integer SimTime; N2 сначала прогнать `n2_calendar_check.gd` в Godot.
 - **Текущее состояние:** P0 3/9 VERIFIED, P1 0/9 VERIFIED, P2 0/11 VERIFIED, всего 3/100 VERIFIED; N2 один блок кода без проверки Godot.
+
+
+### Запуск N1 — 2026-11-12 03:25:36 +03:00 — third-chat-overnight
+
+- **Забронировано ДО разработки:** `claims/N1.json`, `IN_PROGRESS`, commit `fcf19f782857467fcc95f65406922ac1ab1823c6`.
+- **План:** статический аудит P0/P1-A, точная сверка Rust-формул и ссылок, исправления smoke-проверок без имитации runtime-приёмки.
+- **Рабочая ветка:** `feature/godot-nightshift-n1-static-audit`.
+- **Статус:** работа начата; результат будет записан ниже.
