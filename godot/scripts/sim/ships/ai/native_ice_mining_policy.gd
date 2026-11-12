@@ -119,7 +119,12 @@ static func choose_ice_mining_trip(at_location: String, faction_id: String,
         var insert_at: int = ordered.size()
         for i in range(ordered.size()):
             var prev: Dictionary = ordered[i]
-            if float(option["score"]) > float(prev["score"])                     or (is_equal_approx(float(option["score"]), float(prev["score"]))                     and (int(option["distance"]) < int(prev["distance"])                     or (int(option["distance"]) == int(prev["distance"])                     and str(option["site_location"]) < str(prev["site_location"])))):
+            var higher: bool = float(option["score"]) > float(prev["score"])
+            var equal: bool = float(option["score"]) == float(prev["score"])
+            var shorter: bool = int(option["distance"]) < int(prev["distance"])
+            var same_distance: bool = int(option["distance"]) == int(prev["distance"])
+            var earlier_site: bool = str(option["site_location"]) < str(prev["site_location"])
+            if higher or (equal and (shorter or (same_distance and earlier_site))):
                 insert_at = i
                 break
         ordered.insert(insert_at, option)
