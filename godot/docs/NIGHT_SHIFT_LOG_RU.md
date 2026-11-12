@@ -116,3 +116,8 @@ Claim `claims/N13.json` created atomically at `66db027`; branch `feature/godot-n
 - **Other claims:** N11 IN_PROGRESS by another concurrent session; N1–N5 completed CODE_UNVERIFIED; N6/N9/N12/N14 need fresh claim check.
 - **Next:** N14 transit after N3/N4/N13 integration; N15 cargo receipts after N9.
 - **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, all 3/100 VERIFIED. N13 additional CODE_UNVERIFIED block.
+
+### Запуск N9 — 2026-11-12 03:07 +01:00 — overnight-scheduler
+
+- **Claim:** `claims/N9.json`, commit `7f222e1c2d4549c0c8bc8601b6068a41adda55f9`.
+- **План:** Rust-parity storage capacities, atomic inventory transfers, deterministic headless test. Работа начата, итог ниже.
