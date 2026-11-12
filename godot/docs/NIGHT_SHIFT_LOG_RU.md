@@ -133,3 +133,7 @@ Claim `claims/N13.json` created atomically at `66db027`; branch `feature/godot-n
 ### 2026-11-12 05:27 MSK — N12 start
 
 - `second-chat-overnight` reserved `N12` via atomic claim `7c750776661c94fc99014734063681d2eb446b03`; population/needs Rust parity, GDScript and smoke test; status `IN_PROGRESS`.
+
+### 2026-11-12 05:29 MSK — N12 CODE_UNVERIFIED
+
+- [Draft PR #97](https://github.com/Mefits/Living-Sector/pull/97): population local purchases, actual stock/cash movement, shortage sentiment and migration pressure; `godot/tests/n12_population_check.gd`. No Godot executable/test run; contracts and migration transfers deferred. No VERIFIED count change.
