@@ -1,0 +1,16 @@
+{
+  "block_id": "N41",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T11:44:17+01:00-overnight-n41",
+  "claimed_at": "2026-11-12T11:44:17+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-nightshift-n41-observer-asset-audit-20261112",
+  "tasks": [
+    "Inventory native/observer static assets from frozen Rust tree",
+    "Record provenance and license risk without copying",
+    "Add reproducible read-only audit and static checks",
+    "Document integration gates"
+  ]
+}
