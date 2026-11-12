@@ -87,6 +87,23 @@ static func record_consumption(flow: Dictionary, commodity: String, quantity: fl
 	window[commodity] = entries
 	return {"ok": true, "flow": next}
 
+static func posted_price_or_base(pricing: Dictionary, commodity: String,
+		catalogue_base_prices: Dictionary) -> Dictionary:
+	## Source MarketPricing::price(Commodity) returns posted price
+	## if present, otherwise exact Commodity.base_price. Base catalog
+	## must be original frozen commodities.rs, never invented N150 data.
+	if commodity.is_empty():
+		return _fail("invalid_commodity")
+	if pricing.has("prices") and pricing["prices"] is Dictionary and pricing["prices"].has(commodity):
+		var quoted = pricing["prices"][commodity]
+		if not _num(quoted):
+			return _fail("invalid_posted_market_price")
+		return {"ok":true, "price":float(quoted)}
+	var base = catalogue_base_prices.get(commodity, null)
+	if not _num(base):
+		return _fail("missing_authoritative_commodity_base_price")
+	return {"ok":true, "price":float(base)}
+
 static func _retain_orders(orders: Array, tick: int, expiry: int) -> Dictionary:
 	var remaining: Array = []
 	for order in orders:
