@@ -1,0 +1,17 @@
+{
+  "block_id": "N9",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T03:07:12+01:00-overnight-n9",
+  "claimed_at": "2026-11-12T03:07:12+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "cc4af416b7c525a96fb85bf53df6e4cfbe5faa61",
+  "work_branch": "feature/godot-nightshift-n9-storage-overnight-20261112",
+  "tasks": [
+    "Rust storage capacity parity",
+    "atomic inventory transfer",
+    "headless invariant tests"
+  ],
+  "progress": [],
+  "evidence": []
+}
