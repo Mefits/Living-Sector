@@ -1,0 +1,18 @@
+{
+  "block_id": "N11",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T04:38:27+03:00-second-chat-n11",
+  "claimed_at": "2026-11-12T04:38:27+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "15d3762fb97357acdf83a8258abcaebb27faca65",
+  "work_branch": "feature/godot-nightshift-n11-ledger-second-20261112",
+  "tasks": [
+    "Audit frozen Rust money and wage operations",
+    "Implement deterministic debit/credit ledger and idempotent receipts",
+    "Add short Godot headless invariants test",
+    "Document Rust parity gaps and update tracking"
+  ],
+  "progress": [],
+  "evidence": []
+}
