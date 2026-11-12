@@ -196,3 +196,6 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N68 | P2-04 Rust-native price engine parity, deterministic bounds and smoke; independent of N39 | Rust economy/price_engine.rs; separate PR | CODE_UNVERIFIED — [PR #157](https://github.com/Mefits/Living-Sector/pull/157), second-chat-overnight |
 | N69 | P3-09 native faction relations/reputation admission, no fake diplomacy | Rust faction_relations.rs/economy/reputation.rs; separate PR | CODE_UNVERIFIED — [PR #158](https://github.com/Mefits/Living-Sector/pull/158), second-chat-overnight |
 | N70 | P2-09 facility wear/repair/stoppage parity, no free resources | Rust facility/mod.rs; separate PR | CODE_UNVERIFIED — [PR #159](https://github.com/Mefits/Living-Sector/pull/159), second-chat-overnight |
+
+
+> **2026-11-12 17:37 MSK — overnight11:** Atomic claims N71, N72, N73 created as IN_PROGRESS, owner second-chat-overnight. N71 population food/water demand; N72 ship crew life support; N73 facility recipe catalogue. Three independent scopes, no overlap with N39. Work branches feature/godot-n71/n72/n73-overnight11-20261112; Godot runtime unverified.
