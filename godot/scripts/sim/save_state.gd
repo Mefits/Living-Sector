@@ -1,9 +1,76 @@
 extends RefCounted
-## Versioned Godot FileAccess save for the P1 orbital-only state.
-## Never changes original Rust SQLite or world JSON files.
-## Atomic temp->primary promotion with recoverable .bak if an old save exists.
+## P1 checkpoint persistence with SHA-256 integrity envelope and atomic recovery.
+## The digest protects against accidental corruption, NOT malicious save editing.
+## Legacy schema-v1 bare checkpoints remain readable (without a digest).
+## CODE_UNVERIFIED until the Godot headless regression is executed.
 
 const DEFAULT_PATH: String = "user://saves/galaxy-067-p1.json"
+const ENVELOPE_FORMAT: String = "living-sector-checkpoint-envelope"
+const ENVELOPE_VERSION: int = 1
+const MAX_SAVE_BYTES: int = 16 * 1024 * 1024
+
+static func _canonical(value: Variant) -> String:
+    if value is Dictionary:
+        var keys: Array = value.keys()
+        keys.sort()
+        var parts: PackedStringArray = PackedStringArray()
+        for key in keys:
+            parts.append(JSON.stringify(str(key)) + ":" + _canonical(value[key]))
+        return "{" + ",".join(parts) + "}"
+    if value is Array:
+        var parts: PackedStringArray = PackedStringArray()
+        for item in value:
+            parts.append(_canonical(item))
+        return "[" + ",".join(parts) + "]"
+    return JSON.stringify(value)
+
+static func _wrap(snapshot: Dictionary) -> Dictionary:
+    # Hash the JSON-normalized payload, not GDScript integer/float variants:
+    # JSON parsing may turn 7 into 7.0, and the digest must survive reload.
+    var normalized: Variant = JSON.parse_string(JSON.stringify(snapshot))
+    return {
+        "envelope_format": ENVELOPE_FORMAT,
+        "envelope_version": ENVELOPE_VERSION,
+        "payload_sha256": _canonical(normalized).sha256_text(),
+        "payload": normalized
+    }
+
+static func _unwrap(raw: Variant) -> Dictionary:
+    if not (raw is Dictionary):
+        return {}
+    if raw.has("envelope_format") or raw.has("payload_sha256") or raw.has("payload"):
+        if raw.get("envelope_format", "") != ENVELOPE_FORMAT:
+            return {}
+        if raw.get("envelope_version", 0) != ENVELOPE_VERSION:
+            return {}
+        var payload: Variant = raw.get("payload", null)
+        var digest: Variant = raw.get("payload_sha256", null)
+        if not (payload is Dictionary) or not (digest is String):
+            return {}
+        if digest.length() != 64 or _canonical(payload).sha256_text() != digest:
+            return {}
+        return payload
+    # Old P1 saves: validation still occurs inside TickRunner.restore_checkpoint.
+    if raw.get("format", "") == "living-sector-godot":
+        return raw
+    return {}
+
+static func _read_checkpoint(path: String) -> Dictionary:
+    if not FileAccess.file_exists(path):
+        return {}
+    var file := FileAccess.open(path, FileAccess.READ)
+    if file == null:
+        return {}
+    var size: int = file.get_length()
+    if size <= 0 or size > MAX_SAVE_BYTES:
+        file.close()
+        return {}
+    var raw_text: String = file.get_as_text()
+    file.close()
+    var parser := JSON.new()
+    if parser.parse(raw_text) != OK:
+        return {}
+    return _unwrap(parser.data)
 
 static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) -> Error:
     if not runner.is_started():
@@ -22,17 +89,21 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
     var file := FileAccess.open(tmp, FileAccess.WRITE)
     if file == null:
         return FileAccess.get_open_error()
-    file.store_string(JSON.stringify(snapshot, "\t") + "\n")
+    file.store_string(JSON.stringify(_wrap(snapshot), "\t") + "\n")
     file.flush()
+    var write_error: Error = file.get_error()
     file.close()
-    # Validate our full output before touching the existing save.
-    var candidate: Variant = JSON.parse_string(FileAccess.get_file_as_string(tmp))
-    if not (candidate is Dictionary) or candidate.get("schema_version", null) == null:
+    if write_error != OK:
+        DirAccess.remove_absolute(tmp)
+        return write_error
+    if _read_checkpoint(tmp).is_empty():
         DirAccess.remove_absolute(tmp)
         return ERR_FILE_CORRUPT
 
     var had_primary: bool = FileAccess.file_exists(absolute_path)
-    if had_primary:
+    var primary_is_valid: bool = had_primary and not _read_checkpoint(absolute_path).is_empty()
+    # Never overwrite a known-good backup with a damaged primary.
+    if had_primary and primary_is_valid:
         if FileAccess.file_exists(backup):
             var remove_result: Error = DirAccess.remove_absolute(backup)
             if remove_result != OK:
@@ -42,10 +113,16 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
         if backup_result != OK:
             DirAccess.remove_absolute(tmp)
             return backup_result
+    elif had_primary:
+        # Invalid primary is not a usable recovery point.
+        var remove_primary: Error = DirAccess.remove_absolute(absolute_path)
+        if remove_primary != OK:
+            DirAccess.remove_absolute(tmp)
+            return remove_primary
 
     var promote_result: Error = DirAccess.rename_absolute(tmp, absolute_path)
     if promote_result != OK:
-        if had_primary:
+        if had_primary and primary_is_valid:
             DirAccess.rename_absolute(backup, absolute_path)
         return promote_result
     return OK
@@ -56,10 +133,8 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
         return {"ok": false, "error": "Simulation is not initialized"}
     var absolute_path: String = ProjectSettings.globalize_path(save_path)
     for candidate in [absolute_path, absolute_path + ".bak"]:
-        if not FileAccess.file_exists(candidate):
-            continue
-        var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(candidate))
-        if not (parsed is Dictionary):
+        var parsed: Dictionary = _read_checkpoint(candidate)
+        if parsed.is_empty():
             continue
         if runner.restore_checkpoint(parsed, seed):
             return {"ok": true, "source": candidate, "tick": runner.tick_count}
