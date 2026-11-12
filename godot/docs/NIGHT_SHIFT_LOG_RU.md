@@ -311,3 +311,9 @@ Draft [PR #113](https://github.com/Mefits/Living-Sector/pull/113), commit `867a1
 
 - Claim `claims/N27.json` created atomically at `8cafad2bed11378135462bff1d7816b56e5f1325`, source `12c08cc4618e9717340ba8c868d7d8af8e578417`; work branch `feature/godot-nightshift-n27-contract-gate-second-20261112`.
 - Scope: close N26 direct payout bypass, physical receipt validation, replay/save/load smoke. IN_PROGRESS.
+
+### N27 complete — 2026-11-12 10:04 МСК — second-chat-overnight
+
+- Draft [PR #115](https://github.com/Mefits/Living-Sector/pull/115), head `9127da6e537463c2087b4ec68da839cb68d5dd15`, stacked on N26 PR #114; no merge.
+- N16 contract board now checks actual N15 cargo receipts on pickup, delivery and payout, preventing forged direct transition strings. N26 coordinator binds receipt registry; regression smoke covers forged calls, replay, conservation and restore.
+- CODE_UNVERIFIED: Godot not run. Non-delivery types fail closed pending separate typed fulfillment handlers. P0 3/9, P1 0/9, P2 0/11, total 3/100 confirmed.
