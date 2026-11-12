@@ -194,7 +194,8 @@ static func production_receipt(world: Dictionary, snapshot: Dictionary,
     var shift: Variant = fac.get("work_shift", null)
     if shift is Dictionary:
         var last: Variant = (shift.get("last_recipe_ticks", {}) as Dictionary).get(recipe, null)
-        paid = paid and typeof(last) == TYPE_INT             and int(last) > int(ledger.get("created_tick", -1))
+        paid = (paid and typeof(last) == TYPE_INT
+            and int(last) > int(ledger.get("created_tick", -1)))
     else:
         paid = false
     var outputs: Variant = action.get("outputs", null)
@@ -245,15 +246,22 @@ static func production_receipt(world: Dictionary, snapshot: Dictionary,
         for output in outputs:
             var value: Dictionary = commodity_stock(snapshot, world,
                 location, str(output.get("commodity", "")))
-            if int(output.get("quantity", 0)) <= 0                     or not bool(value.get("ok", false))                     or float(value.get("stock", 0.0)) < float(output.get("quantity", 0)):
+            if (int(output.get("quantity", 0)) <= 0
+                    or not bool(value.get("ok", false))
+                    or float(value.get("stock", 0.0)) <
+                    float(output.get("quantity", 0))):
                 source_outputs_visible = false
                 break
         var own: Dictionary = commodity_stock(snapshot, world,
             location, str(action.get("commodity", "")))
-        var own_visible: bool = bool(own.get("ok", false))             and float(own["stock"]) >= float(action.get("units", 0))
+        var own_visible: bool = (bool(own.get("ok", false))
+            and float(own["stock"]) >= float(action.get("units", 0)))
         var already_used: bool = false
         for record in ledger.get("steps", []):
-            if str(record.get("step", {}).get("step_id", "")) != step_id                     and str(record.get("step", {}).get("action_id", "")) ==                     str(action.get("action_id", ""))                     and str(record.get("phase", "")) == "succeeded":
+            if (str(record.get("step", {}).get("step_id", "")) != step_id
+                    and str(record.get("step", {}).get("action_id", "")) ==
+                    str(action.get("action_id", ""))
+                    and str(record.get("phase", "")) == "succeeded"):
                 already_used = true
         legacy = source_outputs_visible and own_visible and not already_used
     if paid and (fully_measured or legacy):
