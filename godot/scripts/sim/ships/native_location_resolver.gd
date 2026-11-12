@@ -54,7 +54,8 @@ func load_seed(seed: Dictionary) -> bool:
             var loc: String = str(facility.get("location", ""))
             var body_id: String = str(facility.get("body", ""))
             var capacity: Variant = facility.get("docking_capacity", 0)
-            if not (capacity is int) or capacity < 0:
+            # Godot JSON may decode integral numbers as floats.
+            if not _finite_number(capacity) or float(capacity) < 0.0 or float(capacity) != float(int(capacity)):
                 return false
             if not _register(staged_locations, loc, body_id, sid, int(capacity) > 0, system_bodies):
                 return false
