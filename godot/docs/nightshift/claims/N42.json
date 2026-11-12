@@ -1,6 +1,6 @@
 {
   "block_id": "N42",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T14:11:11+03:00-second-chat-n42-integrity",
   "started_at": "2026-11-12T14:11:11+03:00",
@@ -14,5 +14,18 @@
     "Validate balances, inventory and ship/facility ownership without fabricating missing data",
     "Add headless regression fixtures for malformed and consistent snapshots",
     "Document integration and fail-closed behavior"
+  ],
+  "finished_at": "2026-11-12T14:14:00+03:00",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/131",
+  "head_sha": "16ff2fd0d6ca1795a0049b8c576eadac76783092",
+  "checks": [
+    "Source fetched and delimiter balance 0 for both GDScript files",
+    "Static schema/conservation and test fixture review",
+    "Godot runtime not executed"
+  ],
+  "limitations": [
+    "No live world adapter",
+    "Closed transfer only, not production/consumption",
+    "Godot runtime unavailable"
   ]
 }
