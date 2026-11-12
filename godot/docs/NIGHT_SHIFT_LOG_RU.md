@@ -97,3 +97,12 @@ Claim `claims/N11.json` created before development, source `15d3762`, branch `fe
 ### N13 started — 2026-11-12 04:39 МСК — second-chat-overnight
 
 Claim `claims/N13.json` created atomically at `66db027`; branch `feature/godot-nightshift-n13-ships-second-20261112`. Scope: Rust ship specifications, compact state, cargo/fuel/crew invariants and headless smoke. CODE_UNVERIFIED pending runtime.
+
+### N11 result — second-chat-overnight — 2026-11-12 04:40 МСК
+
+- **Code:** [draft PR #94](https://github.com/Mefits/Living-Sector/pull/94), head `00a5db3bc2205011717073ce38c2ba345237e605`. Data-only atomic balanced credit transfers, idempotent receipts, durable snapshot/restore, headless smoke; no invented money.
+- **Rust checked:** `economy/money.rs` accounting view, `facility/workforce.rs` one-CR paid shifts and prevalidation, `faction.rs` treasury transfers, `economy/order_book.rs` float price matching. Built-in Godot RefCounted/Dictionary selected, no plugin/Nodes.
+- **Not verified:** Godot runtime absent; headless smoke not run. No actual payroll, order book, or contract integration claimed. `CODE_UNVERIFIED`.
+- **Other claims:** N1–N5 already completed as CODE_UNVERIFIED; N6/N7/N9/N10/N12–N20 were TODO in the checked queue, claim files must be rechecked before choosing them.
+- **Next:** N6 production with actual wage/input and N9 native inventory; connect ledger to wallet owners after PR integration, then test payroll/escrow in Godot.
+- **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, всего 3/100 VERIFIED; N11 one code block without Godot runtime verification.
