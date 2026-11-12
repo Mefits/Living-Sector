@@ -110,4 +110,4 @@ N26 outcome: [draft PR #114](https://github.com/Mefits/Living-Sector/pull/114) �
 
 N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) — read-only contract/cargo/escrow audit, tamper/replay/save smoke; Godot not run. Next: N31 runtime-oriented integration and recipient provenance after checking claims.
 
-| N31 | **P3/P8: runtime contract settlement integration:** connect N27/N30 receipt validation to authoritative tick dispatch, fail-closed replay and restore | Real cargo and escrow only; N27/N30 dependencies; smoke | IN_PROGRESS — second-chat-overnight |
+| N31 | **P3/P8: deterministic contract command dispatcher:** N27/N30 physical receipt and escrow checks, sorted tick commands, replay guard and restore | Draft PR #119, opt-in dispatcher; N3/N23 integration pending | CODE_UNVERIFIED — second-chat-overnight |
