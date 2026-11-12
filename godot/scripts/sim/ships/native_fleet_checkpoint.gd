@@ -14,6 +14,8 @@ static func capture(runner: RefCounted, ledger: RefCounted,
         dock: RefCounted) -> Dictionary:
     if runner == null or ledger == null or dock == null:
         return _error("missing_authority")
+    if not ledger.has_method("snapshot") or not dock.has_method("snapshot"):
+        return _error("wrong_account_or_docking_authority")
     if not runner.has_method("orbital_checkpoint_for_fleet_envelope") or not runner.has_method("transit_cursor_for_fleet_envelope"):
         return _error("wrong_runner")
     if runner.implemented_phases() != PackedStringArray(["bodies", "ships"]):
@@ -67,23 +69,26 @@ static func stage_restore(envelope: Dictionary, seed: Dictionary) -> Dictionary:
     var cursor: Variant = payload.get("ship_transit_next_token", null)
     if not (cursor is int or cursor is float) or not is_finite(float(cursor)) or float(cursor) < 1.0 or float(int(cursor)) != float(cursor):
         return _error("invalid_transit_nonce")
+    var typed: Dictionary = _restore_exact_integer_fields(payload)
+    if typed.is_empty():
+        return _error("invalid_integer_payload")
     var fresh = Runner.new()
     if not fresh.start_from_seed(seed):
         return _error("invalid_frozen_seed")
     if str(payload.get("seed_fingerprint", "")) != fresh.world.seed_fingerprint():
         return _error("seed_mismatch")
-    if not fresh.restore_checkpoint(payload["orbital"], seed):
+    if not fresh.restore_checkpoint(typed["orbital"], seed):
         return _error("invalid_orbital_state")
     var staged_fleet = ShipState.new()
-    if not staged_fleet.restore(payload["ship_state"]):
+    if not staged_fleet.restore(typed["ship_state"]):
         return _error("invalid_ship_state")
     if not fresh.attach_restored_native_fleet(seed, staged_fleet, int(cursor)):
         return _error("ship_transit_or_provenance_rejected")
     var staged_ledger = Ledger.new()
-    if not staged_ledger.restore(payload["ledger"]):
+    if not staged_ledger.restore(typed["ledger"]):
         return _error("invalid_credit_ledger")
     var staged_dock = Docking.new()
-    if not staged_dock.restore(payload["docking"]):
+    if not staged_dock.restore(typed["docking"]):
         return _error("invalid_docking")
     if not _consistent(staged_fleet.snapshot(), staged_ledger.snapshot(), staged_dock.snapshot()):
         return _error("restore_cross_domain_mismatch")
@@ -140,6 +145,65 @@ static func _consistent(fleet: Array, wallet: Dictionary,
         else:
             has_other_world_account = true
     return has_other_world_account
+
+## Godot JSON may parse integer credit/cargo/nonce fields as floats.
+## Restore the exact integer types AFTER checksum validation and only when
+## within IEEE-754 safe integer range, never silently round a save value.
+static func _restore_exact_integer_fields(payload: Dictionary) -> Dictionary:
+    var result: Dictionary = payload.duplicate(true)
+    var balances: Dictionary = result["ledger"]["balances"]
+    for id in balances:
+        var amount: Variant = balances[id]
+        if not _safe_json_integer(amount) or float(amount) < 0.0:
+            return {}
+        balances[id] = int(amount)
+    var receipts: Dictionary = result["ledger"]["receipts"]
+    for id in receipts:
+        var receipt: Dictionary = receipts[id]
+        if receipt.has("tick"):
+            if not _safe_json_integer(receipt["tick"]):
+                return {}
+            receipt["tick"] = int(receipt["tick"])
+        for leg in receipt.get("legs", []):
+            if not (leg is Dictionary) or not _safe_json_integer(leg.get("delta", null)):
+                return {}
+            leg["delta"] = int(leg["delta"])
+    var facilities: Dictionary = result["docking"]["facilities"]
+    for id in facilities:
+        var facility: Dictionary = facilities[id]
+        var capacity: Variant = facility.get("capacity", null)
+        if not _safe_json_integer(capacity) or float(capacity) < 0.0:
+            return {}
+        facility["capacity"] = int(capacity)
+    for ship_value in result["ship_state"]:
+        if not (ship_value is Dictionary):
+            return {}
+        var ship: Dictionary = ship_value
+        for key in ["cargo_capacity", "crew_size"]:
+            if not _safe_json_integer(ship.get(key, null)) or float(ship[key]) < 0.0:
+                return {}
+            ship[key] = int(ship[key])
+        var cargo: Variant = ship.get("cargo", null)
+        if not (cargo is Dictionary):
+            return {}
+        for commodity in cargo:
+            if not _safe_json_integer(cargo[commodity]) or float(cargo[commodity]) < 0.0:
+                return {}
+            cargo[commodity] = int(cargo[commodity])
+        var transit: Variant = ship.get("transit", null)
+        if not (transit is Dictionary):
+            return {}
+        for key in ["token", "departure_tick", "last_tick", "arrival_tick"]:
+            if not transit.is_empty():
+                if not _safe_json_integer(transit.get(key, null)):
+                    return {}
+                transit[key] = int(transit[key])
+    return result
+
+static func _safe_json_integer(value: Variant) -> bool:
+    if not (value is int or value is float) or not is_finite(float(value)):
+        return false
+    return absf(float(value)) <= 9007199254740991.0 and float(int(value)) == float(value)
 
 static func _canonical(value: Variant) -> String:
     if value is Dictionary:
