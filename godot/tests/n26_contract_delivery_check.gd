@@ -1,0 +1,52 @@
+extends SceneTree
+## N26 CODE_UNVERIFIED. Run: godot --headless --path godot --script res://tests/n26_contract_delivery_check.gd
+const Ships = preload("res://scripts/sim/ship_state.gd")
+const Cargo = preload("res://scripts/sim/ship_cargo_transfer.gd")
+const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
+const Board = preload("res://scripts/sim/economy/contract_board.gd")
+const Settlement = preload("res://scripts/sim/economy/physical_contract_settlement.gd")
+
+func _initialize() -> void:
+	var ships := Ships.new()
+	assert(ships.add_ship("freight", "freighter", "faction", "system"))
+	ships.ships["freight"]["location"] = "source"
+	var cargo := Cargo.new()
+	var ledger := Ledger.new()
+	assert(ledger.import_accounts({"buyer": 100, "escrow:c1": 0, "ship_wallet": 0}))
+	var board := Board.new(ledger)
+	assert(board.post("c1", "delivery", "buyer", "escrow:c1", "ore", 10, "source", "destination", 30, 0, 100, "facility").get("ok", false))
+	assert(board.accept("c1", "freight", "faction", 0.0, 1.0, 1).get("ok", false))
+	var settlement := Settlement.new(board, cargo, ships)
+	var source := {"ore": 25.0}
+	var destination := {"ore": 2.0}
+	assert(not settlement.settle_verified("c1", "freight", "ship_wallet", 1).get("ok", false))
+	assert(not settlement.deliver("c1", "freight", destination, 2).get("ok", false))
+	assert(not settlement.pickup("c1", "wrong_ship", source, 2).get("ok", false))
+	assert(settlement.pickup("c1", "freight", source, 2).get("ok", false))
+	assert(source["ore"] == 15.0 and ships.cargo_used("freight") == 10)
+	assert(not settlement.pickup("c1", "freight", source, 2).get("ok", false))
+	assert(not settlement.settle_verified("c1", "freight", "ship_wallet", 2).get("ok", false))
+	ships.ships["freight"]["location"] = "destination"
+	assert(settlement.deliver("c1", "freight", destination, 3).get("ok", false))
+	assert(destination["ore"] == 12.0 and ships.cargo_used("freight") == 0)
+	assert(not settlement.deliver("c1", "freight", destination, 3).get("ok", false))
+	assert(settlement.settle_verified("c1", "freight", "ship_wallet", 4).get("ok", false))
+	assert(ledger.balance("buyer") == 70 and ledger.balance("ship_wallet") == 30)
+	assert(ledger.balance("escrow:c1") == 0 and ledger.total() == 100)
+	assert(not settlement.settle_verified("c1", "freight", "ship_wallet", 5).get("ok", false))
+	# Replay across independent cargo, board and ledger snapshot restore.
+	var saved_cargo: Array = cargo.snapshot()
+	var saved_board: Dictionary = board.snapshot()
+	var saved_ledger: Dictionary = ledger.snapshot()
+	var restored_ledger := Ledger.new()
+	assert(restored_ledger.restore(saved_ledger))
+	var restored_board := Board.new(restored_ledger)
+	assert(restored_board.restore(saved_board))
+	var restored_cargo := Cargo.new()
+	assert(restored_cargo.restore(saved_cargo))
+	var restored := Settlement.new(restored_board, restored_cargo, ships)
+	assert(not restored.settle_verified("c1", "freight", "ship_wallet", 6).get("ok", false))
+	assert(not restored.deliver("c1", "freight", destination, 6).get("ok", false))
+	assert(restored_ledger.total() == 100 and destination["ore"] == 12.0)
+	print("N26_PHYSICAL_CONTRACT_OK")
+	quit(0)
