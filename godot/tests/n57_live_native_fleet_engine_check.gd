@@ -150,7 +150,7 @@ func _initialize() -> void:
     var checksum_corrupt: Dictionary = saved_midflight.duplicate(true)
     checksum_corrupt["payload"]["ship_state"][0]["fuel"] = 9999.0
     var original_state: String = JSON.stringify(resumed.runner.live_fleet_snapshot())
-    if resumed.restore_complete(seed, checksum_corrupt).get("ok", false):
+    if Engine.new().restore_complete(seed, checksum_corrupt).get("ok", false):
         _fail("corrupt_envelope_accepted")
         return
     if original_state != JSON.stringify(resumed.runner.live_fleet_snapshot()):
@@ -161,17 +161,20 @@ func _initialize() -> void:
     var forged: Dictionary = saved_midflight.duplicate(true)
     forged["payload"]["docking"]["facilities"]["facility-earth-station"]["capacity"] = 999
     forged["sha256"] = Checkpoint._canonical(forged["payload"]).sha256_text()
-    if resumed.restore_complete(seed, forged).get("ok", false):
+    if Engine.new().restore_complete(seed, forged).get("ok", false):
         _fail("forged_dock_capacity_accepted")
         return
     forged = saved_midflight.duplicate(true)
     forged["payload"]["ledger"]["balances"]["extra:phantom"] = 1000
     forged["sha256"] = Checkpoint._canonical(forged["payload"]).sha256_text()
-    if resumed.restore_complete(seed, forged).get("ok", false):
+    if Engine.new().restore_complete(seed, forged).get("ok", false):
         _fail("forged_wallet_accepted")
         return
     if original_state != JSON.stringify(resumed.runner.live_fleet_snapshot()):
         _fail("forged_restore_mutated_live_world")
+        return
+    if resumed.restore_complete(seed, saved_midflight).get("reason", "") != "restore_requires_new_engine":
+        _fail("live_world_restore_replaced_signal_authority")
         return
     if not engine.is_live() or not resumed.is_live() or engine.ledger.total() != 2760000 or resumed.ledger.total() != 2760000:
         _fail("cross_domain_conservation")
