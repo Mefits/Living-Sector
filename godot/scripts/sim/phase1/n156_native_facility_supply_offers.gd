@@ -28,7 +28,7 @@ static func qty_for_shortage(age: int) -> int:
 static func _active_contracts(contracts: Array, requestor: String) -> int:
 	var count: int = 0
 	for c in contracts:
-		if c is Dictionary and str(c.get("requestor_id",""))==requestor and
+		if c is Dictionary and str(c.get("requestor_id",""))==requestor and \
 				str(c.get("status","")) in ["posted","accepted","picked_up"]:
 			count += 1
 	return count
@@ -40,8 +40,8 @@ static func _source_for(commodity: String, destination: String, faction: String,
 		if str(loc)==destination:
 			continue
 		var m = markets[loc]
-		if not (m is Dictionary and m.get("supply") is Dictionary and
-				m.get("prices") is Dictionary and m.get("owner") is String and
+		if not (m is Dictionary and m.get("supply") is Dictionary and \
+				m.get("prices") is Dictionary and m.get("owner") is String and \
 				m.get("commerce_by_faction") is Dictionary):
 			return _fail("missing_authoritative_N150_market_controller")
 		if not m["commerce_by_faction"].has(faction):
@@ -98,7 +98,7 @@ static func _plan(facility: Dictionary, commodity: String,
 static func _inputs_for(f: Dictionary, recipes: Array) -> Array:
 	var result: Array = []
 	for recipe in recipes:
-		if not (recipe is Dictionary) or
+		if not (recipe is Dictionary) or \
 				recipe.get("facility_type",null)!=f["facility_type"]:
 			continue
 		for commodity in recipe.get("inputs",{}):
@@ -112,7 +112,7 @@ static func bundle(plans: Array, facility_credits: Dictionary) -> Dictionary:
 	var by_key: Dictionary = {}
 	var order: Array = []
 	for p in plans:
-		if not (p is Dictionary) or typeof(p.get("payment"))!=TYPE_INT or
+		if not (p is Dictionary) or typeof(p.get("payment"))!=TYPE_INT or \
 				typeof(p.get("quantity"))!=TYPE_INT:
 			return _fail("invalid_native_convoy_plan")
 		var key: String = JSON.stringify([p["destination"],p["commodity"]])
@@ -160,10 +160,10 @@ static func plan_delivery_contracts(facilities: Array, markets: Dictionary,
 	var plans: Array = []
 	var credits: Dictionary = {}
 	for f in facilities:
-		if not (f is Dictionary) or not (f.get("id") is String) or
-				not (f.get("location_name") is String) or
-				not (f.get("faction_id") is String) or
-				typeof(f.get("credits"))!=TYPE_INT or
+		if not (f is Dictionary) or not (f.get("id") is String) or \
+				not (f.get("location_name") is String) or \
+				not (f.get("faction_id") is String) or \
+				typeof(f.get("credits"))!=TYPE_INT or \
 				not (f.get("reserves") is Dictionary)):
 			return _fail("missing_native_facility")
 		credits[f["id"]]=f["credits"]
@@ -186,7 +186,7 @@ static func plan_delivery_contracts(facilities: Array, markets: Dictionary,
 			if reserve>=RESERVE_THRESHOLD:
 				continue
 			var age: int = int(shortage.get(c,0))
-			var urgent: bool = c=="tools" and
+			var urgent: bool = c=="tools" and \
 				float(f.get("condition",1.0))<REPAIR_THRESHOLD and reserve<10.0
 			if not urgent and age<CREW_SHORTAGE:
 				continue
