@@ -13,12 +13,12 @@ static func valid_amount(value: Variant) -> bool:
 
 static func validate(stock: Dictionary, limits: Dictionary = {}) -> String:
     for key in stock:
-        if typeof(key) != TYPE_STRING or not Catalog.has_commodity(key):
+        if typeof(key) != TYPE_STRING or not Catalog.contains(key):
             return "unknown commodity"
         if not valid_amount(stock[key]):
             return "invalid stock amount"
     for key in limits:
-        if typeof(key) != TYPE_STRING or not Catalog.has_commodity(key):
+        if typeof(key) != TYPE_STRING or not Catalog.contains(key):
             return "unknown capacity commodity"
         if not valid_amount(limits[key]):
             return "invalid capacity"
@@ -30,6 +30,8 @@ static func validate(stock: Dictionary, limits: Dictionary = {}) -> String:
 ## dictionary if there is insufficient source stock or destination headroom.
 ## Separate ledgers are required: moving between identical dictionaries is invalid.
 static func transfer(source: Dictionary, destination: Dictionary, quantities: Dictionary, source_limits: Dictionary = {}, destination_limits: Dictionary = {}) -> bool:
+    if is_same(source, destination):
+        return false
     if validate(source, source_limits) != "" or validate(destination, destination_limits) != "":
         return false
     if quantities.is_empty():
@@ -37,7 +39,7 @@ static func transfer(source: Dictionary, destination: Dictionary, quantities: Di
     var outgoing := source.duplicate(true)
     var incoming := destination.duplicate(true)
     for key in quantities:
-        if typeof(key) != TYPE_STRING or not Catalog.has_commodity(key):
+        if typeof(key) != TYPE_STRING or not Catalog.contains(key):
             return false
         var quantity: Variant = quantities[key]
         if not valid_amount(quantity) or float(quantity) <= 0.0:
