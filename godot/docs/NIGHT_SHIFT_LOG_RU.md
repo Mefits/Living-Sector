@@ -1,5 +1,9 @@
 # Living Sector — журнал ночных запусков (12 ноября 2026)
 
+### 2026-11-12 — interactive-chat, N50 DONE → N51 ACTIVE
+- N50 [PR #139](https://github.com/Mefits/Living-Sector/pull/139): точный стартовый ShipCrew (24 корабля/123 человека), role skills, атомарный restore, headless test написан, Godot runtime не выполнялся. N50 claim обновлён до CODE_UNVERIFIED.
+- N51 fitting parity переведён в активную работу, остальные N52–N54 остаются зарезервированы. N39 другого чата не трогать.
+
 ### 2026-11-12 — interactive-chat, N50–N54 (ПЯТЬ РЕЗЕРВАЦИЙ)
 - Пользователь запросил атомарно зарезервировать пять свободных блоков. Выполнено последовательно по протоколу: N50 `b88f715`, N51 `103b4e4`, N52 `00702fc`, N53 `bc3f222`, N54 `80312e8`; все в общей ветке `feature/godot-nightshift-20261112` и `status: IN_PROGRESS`.
 - N50 ACTIVE — экипаж кораблей из frozen Rust. N51–N54 QUEUED — fitting, ship funds, docking, atomic fleet save; отдельные ветки и PR, отсутствие совпадений с N39 production.
