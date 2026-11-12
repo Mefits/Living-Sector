@@ -380,3 +380,6 @@ Claim `claims/N34.json` created by `second-chat-overnight`; branch `feature/godo
 
 ### N34 — 2026-11-12 12:03 MSK — CODE_UNVERIFIED
 [Draft PR #123](https://github.com/Mefits/Living-Sector/pull/123): clean run-specific acceptance logs, 90-second per-process timeout, required fresh Godot log, exact suite coverage and Windows timeout option. Three code/docs commits. No Godot or PowerShell execution; stacked on PR #121/#120. No gameplay or Rust archive changes.
+
+### N35 — start 2026-11-12 12:12 MSK
+Claim N35 reserved by `second-chat-overnight` (`2026-11-12T12:12:40+03:00-second-chat-n35`). Planned: authoritative contract tick integration, replay guard, headless smoke. Work branch `feature/godot-nightshift-n35-contract-tick-second-20261112`.
