@@ -330,6 +330,6 @@ Three distinct atomic claims created IN_PROGRESS before source changes: N128 shi
 All three distinct claims CODE_UNVERIFIED, three separate branches, source reviewed, no Godot runtime or integration, no merge. P1 checkpoint/main/Rust archive and N39/other claims unchanged. Authoritative commit of external state is a phase-2 dependency. VERIFIED P0 3/9 P1 0/9 P2 0/11 overall 3/100 unchanged.
 
 
-| N131 | P2 Rust price engine exact formula and bounds | native economy/price_engine.rs | IN_PROGRESS — overnight-scheduler, claim N131 |
-| N132 | P4 Rust module production and shipyard prerequisites | native economy/module_production.rs | IN_PROGRESS — overnight-scheduler, claim N132 |
-| N133 | P6 Rust research unlock/progression | native strategy/research.rs | IN_PROGRESS — overnight-scheduler, claim N133 |
+| N131 | P2 Rust coverage price pressure, urgency, spread | native economy/price_engine.rs | CODE_UNVERIFIED — [PR #220](https://github.com/Mefits/Living-Sector/pull/220) |
+| N132 | P4 Rust T2/T3 shipyard module recipes and paid-refit catalog | native economy/module_production.rs | CODE_UNVERIFIED — [PR #221](https://github.com/Mefits/Living-Sector/pull/221) |
+| N133 | P5 Rust director industrial accident and crisis cadence | native strategy/director.rs | CODE_UNVERIFIED — [PR #222](https://github.com/Mefits/Living-Sector/pull/222); source corrected before code |
