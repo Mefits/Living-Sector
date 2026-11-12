@@ -1,7 +1,7 @@
 {
   "block_id": "N145",
   "macro_id": 5,
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-13T00:05:19+03:00-second-chat-overnight-n145-contract-aging",
   "claimed_at": "2026-11-13T00:05:19+03:00",
@@ -22,6 +22,21 @@
     "Port faction/rep posted index and deterministic eligibility snapshots",
     "Document phase-2 board adapter and source parity limitations"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "12 standalone GDScript methods: Posted reputation/price aging, renewal/expiry, sorted indexes and ship eligibility",
+    "Rust project tag literals verified; no escrow/cargo/credits mutations",
+    "Source handoff committed; readback and delimiter balance checked"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/234",
+    "https://github.com/Mefits/Living-Sector/commit/c5daac60cd1d259cd3b288dd09cf33983d90129a",
+    "Godot runtime not executed"
+  ],
+  "completed_at": "2026-11-13T00:08:00+03:00",
+  "work_sha": "c5daac60cd1d259cd3b288dd09cf33983d90129a",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/234",
+  "limitations": [
+    "CODE_UNVERIFIED; float32 renewal rounding and extreme i64 arithmetic parity untested",
+    "Phase 2 must atomically coordinate board update with N104 refunds and N135 dispatch"
+  ]
 }
