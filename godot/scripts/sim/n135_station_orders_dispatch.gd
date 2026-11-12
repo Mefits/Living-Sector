@@ -5,6 +5,7 @@ extends RefCounted
 const Core = preload("res://scripts/sim/n135_station_orders_core.gd")
 const BASE_VELOCITY := 0.05
 const SENSOR_INTERSTELLAR := 2.0
+const BASE_PRICES := {"ore":15.0,"ice":10.0,"gas":20.0,"rare_ore":75.0,"crystal_ore":140.0,"metals":45.0,"fuel":25.0,"polymers":40.0,"water":12.0,"alloys":145.0,"components":80.0,"electronics":120.0,"quantum_cores":320.0,"tools":90.0,"food":18.0,"medical":100.0,"luxury":150.0}
 const MAX_I64 := 9223372036854775807
 
 static func _treaty(relations: Dictionary, from_id: String, to_id: String) -> String:
@@ -40,7 +41,7 @@ static func _market(snapshot: Dictionary, location: String) -> Dictionary:
 
 static func _price(market: Dictionary, commodity: String) -> float:
 	var prices: Dictionary = market.get("prices", {})
-	return float(prices.get(commodity, NAN))
+	return float(prices.get(commodity, BASE_PRICES.get(commodity, NAN)))
 
 static func _stock(market: Dictionary, commodity: String) -> float:
 	var supply: Dictionary = market.get("supply", {})
@@ -123,6 +124,16 @@ static func _carrier_free(ship: Dictionary) -> int:
 		return maxi(0, int(ship["cargo_capacity"]) - int(ship["cargo_used"]))
 	return -1
 
+static func _valid_ship(ship: Dictionary) -> bool:
+	# Missing authoritative transaction/transit/cargo data MUST NOT imply that
+	# a ship is idle, rich or empty. Required by Rust ShipIdentity/Position/Transit.
+	for field in ["id", "faction", "class", "location", "credits", "fuel_fraction",
+		"speed", "in_transit", "active_contract_id", "transaction_pending",
+		"reputation", "sensors", "comms_bonus", "cargo_used"]:
+		if not ship.has(field):
+			return false
+	return (ship.get("reputation") is Dictionary) and _carrier_free(ship) >= 0
+
 static func _carrier_busy(ship: Dictionary, galaxy: bool) -> bool:
 	return bool(ship.get("in_transit", false)) or str(ship.get("active_contract_id", "")) != "" \
 		or bool(ship.get("transaction_pending", false)) or (not galaxy and int(ship.get("cargo_used", 0)) > 0)
@@ -147,7 +158,7 @@ static func _contract_carrier(snapshot: Dictionary, contract: Dictionary, source
 	var best: Dictionary = {}
 	for ship in ships:
 		var ship_id := str(ship.get("id", ""))
-		if faction == "" or ship_id == "" or str(ship.get("faction", "")) != faction or used.has(ship_id) \
+		if faction == "" or not _valid_ship(ship) or ship_id == "" or str(ship.get("faction", "")) != faction or used.has(ship_id) \
 			or _carrier_busy(ship, bool(snapshot.get("galaxy", false))):
 			continue
 		if not _commerce(snapshot.get("relations", {}), faction, source_owner) \
@@ -210,7 +221,7 @@ static func _alternative(snapshot: Dictionary, contract: Dictionary, used: Dicti
 			continue
 		for ship in ships:
 			var ship_id := str(ship.get("id", ""))
-			if str(ship.get("faction", "")) != faction or used.has(ship_id) or _carrier_busy(ship, bool(snapshot.get("galaxy", false))) \
+			if not _valid_ship(ship) or str(ship.get("faction", "")) != faction or used.has(ship_id) or _carrier_busy(ship, bool(snapshot.get("galaxy", false))) \
 				or _carrier_free(ship) < quantity or not _commerce(snapshot.get("relations", {}), faction, dest_owner):
 				continue
 			var route := _route(snapshot, str(ship.get("location", "")), source, destination)
@@ -228,9 +239,11 @@ static func _alternative(snapshot: Dictionary, contract: Dictionary, used: Dicti
 
 static func _alternative_better(a: Dictionary, b: Dictionary) -> bool:
 	# Rust rank: (owner != faction, route, purchase_cost, source, ship).
-	for key in ["external", "distance", "cost"]:
-		if a[key] != b[key]:
-			return a[key] < b[key]
+	if bool(a["external"]) != bool(b["external"]):
+		return not bool(a["external"])
+	for key in ["distance", "cost"]:
+		if int(a[key]) != int(b[key]):
+			return int(a[key]) < int(b[key])
 	if a["source"] != b["source"]:
 		return str(a["source"]) < str(b["source"])
 	return str(a["ship_id"]) < str(b["ship_id"])
@@ -281,7 +294,7 @@ static func _maintenance_sites(snapshot: Dictionary, sites: Array, used: Diction
 		var site: Dictionary = sites[index]
 		var labor: Dictionary = site.get("labor", {})
 		var order = labor.get("station_order")
-		if not order is Dictionary:
+		if not (order is Dictionary):
 			continue
 		var completed: bool = bool(site.get("completed", false)) \
 			or int(labor.get("completed", 0)) >= int(labor.get("required", 0))
@@ -307,7 +320,7 @@ static func _maintenance_contracts(contracts: Array, ids: Array[String], lookup:
 		var index: int = lookup[id]
 		var c: Dictionary = contracts[index]
 		# Board owner guarantees funding for any native strategy/facility order.
-		if not c.get("funding") is Dictionary:
+		if not (c.get("funding") is Dictionary):
 			continue
 		var order := Core.order_of(c)
 		if order.is_empty():
@@ -415,7 +428,7 @@ static func run(snapshot: Dictionary) -> Dictionary:
 	## Pure plan: no money/contract acceptance, facility stock, or movement committed here.
 	var contracts: Array = snapshot.get("contracts", []).duplicate(true)
 	var sites: Array = snapshot.get("sites", []).duplicate(true)
-	var response := {"contracts": contracts, "sites": sites, "price_quotes": [] as Array[Dictionary],
+	var response := {"contracts": contracts, "sites": sites, "price_quotes": [],
 		"error": "", "staged": false}
 	if not bool(snapshot.get("executing", false)):
 		return response # Rust Shadow mode: no orders created.
@@ -461,7 +474,7 @@ static func _assign_builders(snapshot: Dictionary, sites: Array, ships: Array, u
 			var best: Dictionary = {}
 			for ship in ships:
 				var ship_id := str(ship.get("id", ""))
-				if str(ship.get("faction", "")) != str(site.get("faction_id", "")) or str(site.get("faction_id", "")) == "" \
+				if not _valid_ship(ship) or str(ship.get("faction", "")) != str(site.get("faction_id", "")) or str(site.get("faction_id", "")) == "" \
 					or _carrier_busy(ship, bool(snapshot.get("galaxy", false))) or used.has(ship_id) \
 					or not ("engineer" in ship.get("crew_roles", [])):
 					continue
