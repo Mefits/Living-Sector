@@ -7,7 +7,6 @@ const EXPECTED_STATS = {
     "systems": 8, "factions": 3, "bodies": 47,
     "facilities": 15, "ships": 24, "markets": 3, "populations": 3
 }
-const P1_PHASES = PackedStringArray(["bodies"])
 
 static func audit_seed(seed: Dictionary) -> Dictionary:
     var errors: Array[String] = []
@@ -39,7 +38,7 @@ static func audit_runner(runner: RefCounted) -> Dictionary:
     if runner == null or not runner.is_started():
         errors.append("runner_not_started")
     else:
-        if runner.implemented_phases() != P1_PHASES:
+        if runner.implemented_phases() != PackedStringArray(["bodies"]):
             errors.append("phase_scope_mismatch")
         if runner.tick_count < 0:
             errors.append("negative_tick")
