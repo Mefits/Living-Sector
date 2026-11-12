@@ -1,7 +1,7 @@
 | N144 | CODE_UNVERIFIED | second-chat-overnight | Macro 2: native colony proposal evaluation/ranking (`strategy/colony.rs::proposals`), exclusive source scope |
 # Living Sector — ночная очередь автономной разработки Godot
 
-| N143 | **IN_PROGRESS — interactive-chat** | **Макро №8 (исследования)**: source coverage completion for Director observation/target, research_ready, real paid local research, mandate & charter receipt tracking; integrate with existing N44/N45/N76/N82/N89/N120 without duplicate ledger | Atomic claim `claims/N143.json` before code. Own `feature/godot-n143-complete-rust-research-domain-20261112` |
+| N143 | **CODE_UNVERIFIED / SOURCE-COVERED macro №8 — [Draft PR #233](https://github.com/Mefits/Living-Sector/pull/233), interactive-chat** | Native Director/Governance science: goal/mandate/charter, research_ready, real local paid shift proposal+trusted receipt projection, technology unlock; 4 files / 725 LOC | Previous N44/N45/N76/N82/N89/N110/N120 are separate drafts; zero Godot runtime, Phase2 merge and authoritative ledger pending |
 
 
 | N142 | **CODE_UNVERIFIED — [Draft PR #231](https://github.com/Mefits/Living-Sector/pull/231), interactive-chat** | Macro #10 frozen Rust `world/registry.rs` physical-only directed shortest-distance and `world/travel.rs` legacy TickConfig timings; 4 files / 559 LOC | N59 gate pathfinder, N61 ship itinerary, N112 moving transit unchanged; Godot runtime NOT RUN |
