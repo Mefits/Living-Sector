@@ -286,3 +286,9 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 | N109 | P6 native faction charter authority, review tranches and paid budget receipts | Rust strategy/charter.rs; isolated GDScript | CODE_UNVERIFIED — [PR #197](https://github.com/Mefits/Living-Sector/pull/197) |
 | N110 | P4 native station progression tier limits and paid upgrade domain | Rust strategy/progression.rs; isolated GDScript | CODE_UNVERIFIED — [PR #198](https://github.com/Mefits/Living-Sector/pull/198) |
 | N111 | P5 native shortage option comparisons and forecast | Rust strategy/options.rs; isolated GDScript | CODE_UNVERIFIED — [PR #199](https://github.com/Mefits/Living-Sector/pull/199) |
+
+
+### 2026-11-12 20:48 MSK — second-chat-overnight N112–N114 START
+- N112 — ship navigation fuel/range — IN_PROGRESS; atomic claim created, separate work branch; Rust source review pending
+- N113 — faction director priorities/cooldowns — IN_PROGRESS; atomic claim created, separate work branch; Rust source review pending
+- N114 — population growth/consumption — IN_PROGRESS; atomic claim created, separate work branch; Rust source review pending
