@@ -7,12 +7,15 @@
   "coordination_branch": "feature/godot-nightshift-20261112",
   "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
   "work_branch": "feature/godot-n129-faction-tax-second-20261112",
-  "scope": "faction treasury taxation and transfer rules",
+  "scope": "faction facility tax collection and treasury transfer",
   "tasks": [
     "Inspect frozen Rust exact source and existing ports",
     "Port independent GDScript component with source parity",
     "Publish separate Draft PR and record limitations"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Source path confirmed; narrowed to unported mechanics"
+  ],
+  "evidence": [],
+  "rust_source": "native/crates/sim_core/src/agents/faction.rs"
 }
