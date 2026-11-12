@@ -1,6 +1,6 @@
 {
   "block_id": "N9",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "overnight-scheduler",
   "run_id": "2026-11-12T03:07:12+01:00-overnight-n9",
   "claimed_at": "2026-11-12T03:07:12+01:00",
@@ -12,6 +12,18 @@
     "atomic inventory transfer",
     "headless invariant tests"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Native commodity inventory validation and atomic transfer",
+    "Integer-only bounded ship hold",
+    "Canonical snapshots and headless regression"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/96",
+    "https://github.com/Mefits/Living-Sector/commit/9c81cb733d092192b4a5c1a0fd866d1df0dfaac8"
+  ],
+  "tests": {
+    "static": "Balanced GDScript delimiters; confirmed N5 Catalog.contains API",
+    "godot": "NOT_RUN: executable unavailable"
+  },
+  "completed_at": "2026-11-12T03:09:05+01:00"
 }
