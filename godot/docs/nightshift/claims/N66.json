@@ -1,0 +1,26 @@
+{
+  "block_id": "N66",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T14:07:48.710Z-interactive-N66",
+  "claimed_at": "2026-11-12T14:07:48.710Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "feature/godot-n61-live-itinerary-admission-20261112",
+  "source_sha": "8aba694fe54a0cd4f445e3bcd7eb74a692dd3504",
+  "work_branch": "feature/godot-n66-fleet-command-receipts-20261112",
+  "subject": "Idempotent queued player/AI fleet command receipts and replay guard",
+  "owned_files": [
+    "godot/scripts/sim/ships/fleet_command_receipts.gd"
+  ],
+  "scope_boundary": [
+    "N39 production files excluded",
+    "Rust archive/main/stable/P1 untouched"
+  ],
+  "tasks": [
+    "Implement deterministic idempotent command-id receipt for dock, undock, depart itinerary requests",
+    "Prevent replay after checkpoint load with exact scope and no phantom balances",
+    "Headless N66 smoke for stale IDs, conflicting payload and atomic restore"
+  ],
+  "activity": "QUEUED",
+  "dependency": "N61 / PR #150"
+}
