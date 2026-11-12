@@ -510,3 +510,6 @@ Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nights
 - Read-only native seed preflight: schema, IDs, ownership, orbit, finite coordinates, route distance and expected reference counts. Four negative fixtures, deterministic reporting; 3 new files.
 - Static delimiter balance checked; Godot executable unavailable, headless test NOT run. CODE_UNVERIFIED; no live integration, no Rust parity assertion.
 - P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED unchanged. Next candidate N48 after fresh claim check.
+
+### N48 START — 2026-11-12 15:18:37 +03:00
+Atomic claim `claims/N48.json` @ `a324285495310886a645601ad926e01a61a8ea8c`; owner second-chat-overnight; integration base `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`; migration transport admission and smoke, IN_PROGRESS.
