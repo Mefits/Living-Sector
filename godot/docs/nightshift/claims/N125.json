@@ -1,6 +1,6 @@
 {
   "block_id": "N125",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T21:57:57+03:00-second-chat-overnight-N125",
   "claimed_at": "2026-11-12T21:57:57+03:00",
@@ -15,6 +15,17 @@
     "Preserve emergency quantity, payment, expiry formulas",
     "Return proposal without creating funds or goods"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Source-backed food delivery proposal; payment requires escrow; deterministic source tie break differs from unordered Rust HashMap."
+  ],
+  "evidence": [
+    "godot/scripts/sim/native/population_food_contract_proposals.gd",
+    "GitHub source readback; balanced delimiters; Godot runtime NOT RUN"
+  ],
+  "completed_at": "2026-11-12T22:00:00+03:00",
+  "commit_sha": "dd3aebd4fca45e61a2678495a8d361740876ebf7",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/213",
+  "limitations": [
+    "No unified world Apply, no Godot parser/runtime, no Rust parity claim"
+  ]
 }
