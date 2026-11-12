@@ -289,3 +289,7 @@ Draft [PR #116](https://github.com/Mefits/Living-Sector/pull/116) implements a r
 > **N30, 12.11.2026:** [Draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) adds read-only reconciliation of N27 physical delivery receipts and N11 escrow/payout ledger with tamper/replay/save smoke. Stacked on N27, not merged. Godot Runtime not run: **CODE_UNVERIFIED**. VERIFIED remains 3/100.
 
 > **N31, 12.11.2026:** [Draft PR #119](https://github.com/Mefits/Living-Sector/pull/119) adds deterministic scheduled physical-contract commands, ID replay suppression, N30 integrity pre/post audit and save/restore smoke. Not connected to N3/N23 authoritative tick yet; no Godot runtime executed, **CODE_UNVERIFIED**. VERIFIED remains 3/100.
+
+### N32 — подготовка интеграционной ветки и локального Godot runtime smoke (12.11.2026)
+
+[Draft PR #120](https://github.com/Mefits/Living-Sector/pull/120), интеграционный SHA `f7e3709dab88cf1fb6dcf1b0580d3c49409abffb`: исходная основа N31, добавлены 47 уникальных файлов подсистем/тестов из других PR; согласованы N1+N2+N3+N20 изменения главного цикла и интерфейса. `godot/RUN-INTEGRATION-SMOKE.cmd` даёт 11 быстрых тестов и полный режим из 32, с логами. **CODE_UNVERIFIED: Godot ещё не запускался.** Наличие скриптов не доказывает интеграцию доменных подсистем с авторитетным `TickRunner`: пока исполняются только орбитальные тики. Главные проверенные показатели остаются **P0 3/9, P1 0/9, P2 0/11, общий 3/100**. Не прибавлять N32 к 100 задачам как новое подтверждение; после Windows-отчётов нужны реальные тесты и Rust/Godot parity.
