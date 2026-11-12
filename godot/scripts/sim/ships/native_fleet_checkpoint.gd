@@ -165,6 +165,8 @@ static func _restore_exact_integer_fields(payload: Dictionary) -> Dictionary:
         balances[id] = int(amount)
     var receipts: Dictionary = result["ledger"]["receipts"]
     for id in receipts:
+        if not (receipts[id] is Dictionary):
+            return {}
         var receipt: Dictionary = receipts[id]
         if receipt.has("tick"):
             if not _safe_json_integer(receipt["tick"]):
@@ -178,6 +180,8 @@ static func _restore_exact_integer_fields(payload: Dictionary) -> Dictionary:
             leg["delta"] = int(leg["delta"])
     var facilities: Dictionary = result["docking"]["facilities"]
     for id in facilities:
+        if not (facilities[id] is Dictionary):
+            return {}
         var facility: Dictionary = facilities[id]
         var capacity: Variant = facility.get("capacity", null)
         if not _safe_json_integer(capacity) or float(capacity) < 0.0:
