@@ -1,5 +1,9 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 2026-11-12 — interactive-chat, N61 / route integration START
+- Свободный N61 забронирован до редактирования кода: [claims/N61.json](nightshift/claims/N61.json) @ `6e1b8e9ec5c4df37ea05fd03a27714c0cff0dfea`.
+- Интегрировать N58/#146, N59/#147, N60/#148 как read-only admission в N57/#149, без чужого N39; никаких автоматических перелётов сквозь промежуточные пункты и неполных сохранений маршрутов.
+
 ### 2026-11-12 — interactive-chat, N57 DONE / PR #149
 - Claim [N57](nightshift/claims/N57.json) закрыт как CODE_UNVERIFIED; [Draft PR #149](https://github.com/Mefits/Living-Sector/pull/149) от N54 с N50/N51/N52 dependency modules.
 - Новый единый opt-in RefCounted owner N57: 24 seed ships, 15 native facilities, 60 dock slots, 3 factions, 3 households; **2 760 000 кредитов из настоящего Rust seed** (корабли 960000 / facilities 900000 / factions 720000 / population 180000) в одном N11 ledger. Полёт, N21 undock/dock и arrival согласованы до события dock_queue; N54 restore in-memory на новом Engine со строгой защитой от подмены и эмиссии.
