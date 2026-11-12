@@ -651,3 +651,9 @@ Three separate draft PRs: [N74 #160](https://github.com/Mefits/Living-Sector/pul
 
 ### 2026-11-12 16:01 CET — overnight-scheduler, N77/N78/N79 START
 - Three atomic claims created before code: N77 be910fad, N78 f58a1e3, N79 27ed18c. All IN_PROGRESS, separate work branches. Scope: Rust construction lifecycle, faction strategy, shipyard orders. Frozen Rust read-only; no Godot integration or runtime testing.
+
+### 2026-11-12 — overnight-scheduler N77/N78/N79 CODE_UNVERIFIED
+- N77 [PR #166](https://github.com/Mefits/Living-Sector/pull/166): native construction site material/paid labor counters, receipt guards and memory snapshot; no automatic materialization.
+- N78 [PR #167](https://github.com/Mefits/Living-Sector/pull/167): director strategic memory, viable incumbent, emergency supply priority, hysteresis and native prepaid-plan retention; no world actions.
+- N79 [PR #168](https://github.com/Mefits/Living-Sector/pull/168): Rust colony.rs body/expedition gates. Initial shipyard title narrowed because no source-backed shipyard constructor was verified; no free ship creation.
+- Three distinct claims closed CODE_UNVERIFIED. Source read; only GitHub file existence/writes checked. No GDScript parser, Godot runtime, integrated world or game test executed. P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED unchanged.
