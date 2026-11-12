@@ -1,5 +1,8 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 2026-11-12 — interactive-chat, N97 START
+- Atomic claim created first: [N97](nightshift/claims/N97.json), commit d802056136f5aa161ff496eed2205a69b49918a9; N94/N95/N96 are occupied by overnight worker. N97 exclusively ports Rust native sim_server/engine/transactions.rs exclusive ship settlement; cannot edit N39 production, N90 request BT leaves or verified P1. No Godot tests until Phase 2.
+
 ### 2026-11-12 — interactive-chat, N90 — ECONOMIC ACTIONS DONE
 - [Claim N90](nightshift/claims/N90.json) closed CODE_UNVERIFIED, [PR #182](https://github.com/Mefits/Living-Sector/pull/182): Rust actions.rs economic ShipAction leaves and transactions.rs mailbox. Two source-backed GDScript scripts (~495 lines) + source handoff: buy/sell/sellall/refuel/mine, contract Accept/Embark/Deliver, Refit, GateJump, PickupCargo no-op. Strict Running/Success/Failure after Apply, source-accurate request_id checks, mine shift, commodity list and conservative world admission.
 - Exclusive global Apply (real market cash/stock, body mining depletion, gate/refit fee) is NOT covered, N39 production/N88 dock-rest actions untouched. Godot and test runs deliberately deferred until Phase 2.
