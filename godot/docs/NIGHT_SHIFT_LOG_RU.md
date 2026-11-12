@@ -237,3 +237,6 @@ Atomic claim `claims/N18.json` commit `7e617371e2de2d43cda726ae24aaddbaed675408`
 - Smoke: `godot --headless --path godot --script res://tests/n18_station_admin_check.gd`. Source/test delimiter balance checked; Godot executable unavailable, smoke NOT RUN. **CODE_UNVERIFIED**.
 - Remaining: mining, cross-owner processing, real shift feedback, TickRunner wiring, multi-population global workforce. Other claims N1–N17 already claimed; N19/N20 TODO and dependent on N18.
 - **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED unchanged. N18 adds one unverified nightshift block.
+
+### N19 — 2026-11-12 07:54 МСК
+Claim `N19.json` owner `second-chat-overnight`, run `20261112-075427-msk-second-n19`; начата реализация стратегического выбора Главы фракции. Work branch `feature/godot-nightshift-n19-head-second-20261112`.
