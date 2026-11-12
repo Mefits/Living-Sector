@@ -778,3 +778,9 @@ Three atomic claims created before code on coordination branch. Distinct scopes:
 - N110 station tiers, materials and paid labor preflight [Draft PR #198](https://github.com/Mefits/Living-Sector/pull/198).
 - N111 shortage delivery/build/wait evaluation [Draft PR #199](https://github.com/Mefits/Living-Sector/pull/199).
 All three isolated GDScript modules committed; minimal source reread and balanced delimiter checks. CODE_UNVERIFIED, no Godot execution or P1 integration. Rust frozen, main/stable/checkpoint and N39/N100/N108 untouched. N111 forecast requires real native recipe output from caller; no invented goods.
+
+
+### 2026-11-12 20:48 MSK — second-chat-overnight N112–N114 START
+- N112 — ship navigation fuel/range — IN_PROGRESS; atomic claim created, separate work branch; Rust source review pending
+- N113 — faction director priorities/cooldowns — IN_PROGRESS; atomic claim created, separate work branch; Rust source review pending
+- N114 — population growth/consumption — IN_PROGRESS; atomic claim created, separate work branch; Rust source review pending
