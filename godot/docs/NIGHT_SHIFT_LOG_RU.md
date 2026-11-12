@@ -194,3 +194,7 @@ Atomic claim `claims/N16.json` at `f495d43e`, work branch `feature/godot-nightsh
 - **Limits:** N15 physical cargo receipt not authenticated; no renewals, faction reputation/embargo, fixed strategy reward, passenger/construction effects, TickRunner wiring. Godot executable absent, smoke NOT RUN. **CODE_UNVERIFIED**.
 - **Next:** N7 population/production integration or N17 construction after dependency review; before merging N16, connect actual N15 receipts and run headless smoke.
 - **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED.
+
+
+### N8 — 2026-11-12 06:54 MSK — second-chat-overnight
+Claim `claims/N8.json` created atomically at `8f79fa2`; integration and parity regression underway in `feature/godot-nightshift-n8-integration-second-20261112`. CODE_UNVERIFIED until actual Godot runtime.
