@@ -1,7 +1,7 @@
 {
   "block_id": "N152",
   "macro_id": 5,
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "2026-11-13-macro5-contract-board-hydration-cleanup",
   "claimed_at": "2026-11-13T02:10:00+03:00",
@@ -21,6 +21,25 @@
     "Write Phase2 owner map and collision guards; publish single Draft PR",
     "Update claim/queue/log/tracker; mark whole macro #5 complete only if every remaining Rust function actually covered"
   ],
-  "evidence": [],
-  "progress": []
+  "evidence": [
+    "Draft PR #241 https://github.com/Mefits/Living-Sector/pull/241, HEAD d6bb7f8a3154e7a08d70ddbf965a367fee109ad5, 4 files/653 added lines",
+    "Readback all four committed GitHub files and confirmed lexical balanced strings/brackets and relative preload destinations",
+    "Godot parser/headless/runtime and executable Rust/Godot parity NOT RUN; real unified ECS/ContractBoard+Ledger apply/save NOT executed"
+  ],
+  "progress": [
+    "Audited full 1669-line frozen Rust ContractBoard contracts.rs, 380-line strategy/orders.rs, engine/transactions.rs, engine/contract_funding.rs, engine/apply.rs and source-to-existing N16/N90/N97/N104/N108/N135/N145 handoffs",
+    "Ported original single ContractBoard structural source: new_board, loaded IDs and next_id cursor, post kinds with original 70/50 rep gates, all posted/status/faction tier indexes, read-only posted views and integrity preflight",
+    "Ported native status/indices Accept/Release/PickedUp/mark_delivered direct Paid after authoritative N104/N97 physical/paid receipts, without second wallet or speculative payout",
+    "Ported original drop_ship_holdings and cancel_for_facility, including Accepted->Posted, lost cargo PickedUp->Expired, Paid/Expired history retention, correct posted indices and no fake escrow refunds",
+    "Authored source-derived checks and full Rust-to-PR / Phase2 one-authority matrix, published Draft PR #241; macro5 source-covered across previous PRs + N152"
+  ],
+  "macro5_source_status": "MACRO5_SOURCE_COVERED",
+  "completed_at": "2026-11-13T03:30:00+03:00",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/241",
+  "work_sha": "d6bb7f8a3154e7a08d70ddbf965a367fee109ad5",
+  "remaining": [
+    "Macro #5 source functions mapped and isolated P1 components; Phase2 must merge N104, N97, N145, N135, N152 into exactly one authoritative Board/World/escrow and test real pickup/paid/expiry/ship deletion/save restore",
+    "Intentional fail-closed duplicate loaded IDs and deterministic cleanup ordering differ from unsafe Rust HashMap edge; strict parity review remains",
+    "Macro #1/#4/#6/#7/#10 still carry Rust source gaps. CODE_UNVERIFIED until real Godot tests"
+  ]
 }
