@@ -1,6 +1,7 @@
 extends SceneTree
 ## Run: godot --headless --path godot --script res://tests/n17_construction_check.gd
 const Construction = preload("res://scripts/sim/construction/construction_cycle.gd")
+const Tiers = preload("res://scripts/sim/construction/station_tiers.gd")
 
 func _initialize() -> void:
     var model = Construction.new()
@@ -39,5 +40,12 @@ func _initialize() -> void:
     var bad = restored.snapshot()
     bad["sites"]["site-food"]["labor_completed"] = 151
     assert(not Construction.new().restore(bad))
+    assert(Tiers.available_slots("t1", 3, 1) == 0)
+    assert(Tiers.available_slots("t2", 3, 1) == 1)
+    assert(Tiers.available_slots("t3", 3, 1) == 2)
+    assert(Tiers.upgrade_research_ready("t1", "t2", ["structuretech2"]))
+    assert(not Tiers.upgrade_research_ready("t1", "t3", ["structuretech3"]))
+    assert(Tiers.native_upgrade_bill("t2")["metals"] == 240)
+    assert(Tiers.upgrade_work("t3") == 250)
     print("N17 construction: PASS")
     quit(0)
