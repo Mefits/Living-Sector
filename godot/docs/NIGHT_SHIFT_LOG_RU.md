@@ -754,3 +754,9 @@ Three independent claims CODE_UNVERIFIED. Source reviewed, no Godot execution, n
 - N106 — `IN_PROGRESS`, Rust `strategy/long_term.rs`, durable paid production objective; claim N106.json.
 - N107 — `IN_PROGRESS`, Rust `strategy/station.rs`, station administrator decisions; claim N107.json.
 - Three atomic claims created before code, distinct work branches, N39/N104 untouched. Runtime unverified.
+
+### 2026-11-12 — overnight-scheduler N105–N107 code published
+- N105 [PR #194](https://github.com/Mefits/Living-Sector/pull/194): frozen faction relief treasury debit + recipient credit, cadence and bounded priorities.
+- N106 [PR #195](https://github.com/Mefits/Living-Sector/pull/195): durable native production objective, only paid post-creation output can complete.
+- N107 [PR #196](https://github.com/Mefits/Living-Sector/pull/196): native station labor planning, wage budget reservations and non-mutating feedback.
+- All three claims CODE_UNVERIFIED, three isolated branches, no P1 integration/merge; static source review only, Godot/parser not executed. Native snapshots and authoritative Apply remain dependencies.
