@@ -255,6 +255,6 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 | N92 | P4 Rust colony development (`strategy/colony_development.rs`), distinct from N79 admission | Colony lifecycle and guards, no fake resource movement | CODE_UNVERIFIED — [PR #180](https://github.com/Mefits/Living-Sector/pull/180), partial parity, no Godot run |
 | N93 | P5 Rust HTN planning adapter (`strategy/planning/htn_adapter.rs`) | Planning contract only, no phantom execution | CODE_UNVERIFIED — [PR #181](https://github.com/Mefits/Living-Sector/pull/181), partial parity, no Godot run |
 
-| N94 | P5 native sourcing decisions from `strategy/sourcing.rs`; isolated GDScript | Rust-backed selection, no free inventory | IN_PROGRESS — second-chat-overnight |
-| N95 | P4/P2 native production prerequisites from `strategy/production_dependencies.rs` | Rust-backed dependency admission, no invented production | IN_PROGRESS — second-chat-overnight |
-| N96 | P5 native portfolio policy from `strategy/portfolio_policy.rs` | Rust-backed goal selection and budget policy | IN_PROGRESS — second-chat-overnight |
+| N94 | P5 native sourcing decisions from `strategy/sourcing.rs`; isolated GDScript | Rust-backed selection, no free inventory | CODE_UNVERIFIED — [PR #183](https://github.com/Mefits/Living-Sector/pull/183) |
+| N95 | P4/P2 native production prerequisites from `strategy/production_dependencies.rs` | Rust-backed dependency admission, no invented production | CODE_UNVERIFIED — [PR #184](https://github.com/Mefits/Living-Sector/pull/184) |
+| N96 | P5 native portfolio policy from `strategy/portfolio_policy.rs` | Rust-backed goal selection and budget policy | CODE_UNVERIFIED — [PR #185](https://github.com/Mefits/Living-Sector/pull/185) |
