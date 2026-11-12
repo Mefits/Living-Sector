@@ -31,6 +31,10 @@
 **Методы выбора решений:** [GODOT_TOOLING_DECISIONS_RU.md](GODOT_TOOLING_DECISIONS_RU.md), [GAMEDEV_KNOWLEDGE_BASE_RU.md](GAMEDEV_KNOWLEDGE_BASE_RU.md).
 **Важное решение о времени:** [INDUSTRY_TICK_ARCHITECTURE_RU.md](INDUSTRY_TICK_ARCHITECTURE_RU.md): один игровой тик + разная периодичность + события. **1 игровой час/тик только кандидат**, не закреплять как окончательный баланс без сравнения исходных длительностей Rust.
 
+| N115 | IN_PROGRESS | second-chat-overnight | Faction relations native port | `agents/faction_relations.rs` |
+| N116 | IN_PROGRESS | second-chat-overnight | Facility workforce native port | `agents/facility/workforce.rs` |
+| N117 | IN_PROGRESS | second-chat-overnight | Planner comparison native port | `strategy/planning/comparison.rs` |
+
 ## Текущее состояние на старте ночной смены — 12.11.2026
 
 - **P0: 3/9 VERIFIED** (архив и данные), 4 CODE_UNVERIFIED, 1 IN_REVIEW, 1 TODO.
