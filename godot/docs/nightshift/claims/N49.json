@@ -1,6 +1,6 @@
 {
   "block_id": "N49",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T15:21:37+03:00-second-chat-n49",
   "claimed_at": "2026-11-12T15:21:37+03:00",
@@ -13,6 +13,19 @@
     "Stable entity selection and safe unknown-ID handling",
     "Headless deterministic smoke and static source checks"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Read-only native system snapshot and validation",
+    "P1 selection diagnostic display",
+    "Headless regression for 8 systems and nonmutation"
+  ],
+  "evidence": [
+    "GitHub commits be33037, 7f5a76b, 0c950db",
+    "Godot executable unavailable; headless test not executed"
+  ],
+  "finished_at": "2026-11-12T15:24:00+03:00",
+  "work_commit": "0c950db3b2a06246d16b8e577dd706abc58c1799",
+  "pull_request": "https://github.com/Mefits/Living-Sector/pull/138",
+  "blockers": [
+    "GDScript parser/runtime and actual seed identity coverage not yet verified"
+  ]
 }
