@@ -1,0 +1,23 @@
+{
+  "block_id": "N111",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T20:35:16+03:00-second-chat-overnight-11-N111",
+  "claimed_at": "2026-11-12T20:35:16+03:00",
+  "started_at": "2026-11-12T20:35:16+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "source_ref": "integration/godot-47-n33-n37-20261112",
+  "rust_source": "native/crates/sim_core/src/strategy/options.rs",
+  "work_branch": "feature/godot-n111-options-overnight11",
+  "scope": [
+    "godot/scripts/native_port/n111_*.gd"
+  ],
+  "tasks": [
+    "Shortage alternatives: delivery, build, production, time/value forecast",
+    "Preserve Rust source invariants and fail closed",
+    "Minimal static checks; PR without integration"
+  ],
+  "progress": [],
+  "evidence": []
+}
