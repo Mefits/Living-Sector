@@ -114,3 +114,5 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N32 | **Интеграционная ветка + единый Godot smoke для Windows:** выбрать безопасный стек зависимостей ночных PR, сформировать недеструктивную интеграционную ветку, подготовить один CMD для последовательных проверок и точный handoff | PR/ветка с кодом, runnable smoke без Godot Runtime в агентской среде; список включённых PR/отложенных конфликтов; без merge в main | CODE_UNVERIFIED — PR #120, interactive-integration-chat |
 
 | N33 | **P8: интеграционная приёмка N32:** fail-closed smoke runner, машинный JSON-отчёт, проверка обязательных тестов и handoff Windows | PR #121: 11/11 required tests present, 32 scripts in Git tree; Godot/PowerShell not executed | CODE_UNVERIFIED — PR #121, overnight-scheduler |
+
+| N34 | **P8 integration smoke integrity:** audit N32/N33 runner, validate command/test paths and fail-closed handoff | Integration smoke cannot silently skip missing tests; static checks and headless preparation; N32/N33 | IN_PROGRESS — second-chat-overnight |
