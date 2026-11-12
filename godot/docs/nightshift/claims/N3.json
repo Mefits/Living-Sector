@@ -1,0 +1,17 @@
+{
+  "block_id": "N3",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T03:35:00+03:00-second-chat-n3",
+  "claimed_at": "2026-11-12T03:35:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "c8aacad7e9c5419fa89ba0c8c23abb1bc2f3489f",
+  "work_branch": "feature/godot-nightshift-n3-events-second-20261112",
+  "tasks": [
+    "deterministic phase cadence",
+    "due_tick event scheduling and cancellation",
+    "stable serialization and smoke tests"
+  ],
+  "progress": [],
+  "evidence": []
+}
