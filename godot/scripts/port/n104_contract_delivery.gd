@@ -95,7 +95,9 @@ static func deliver(world: Dictionary, ship_id: String,
         var household_record: Dictionary = hh[pop_id]
         if str(household_record.get("facility_location", "")) != at or commodity != "food":
             return _bad("invalid_household_delivery")
-        if typeof(household_record.get("population_count", null)) != TYPE_INT                 or int(household_record["population_count"]) <= 0                 or not (household_record.get("sentiment", null) is Dictionary):
+        if (typeof(household_record.get("population_count", null)) != TYPE_INT
+                or int(household_record["population_count"]) <= 0
+                or not (household_record.get("sentiment", null) is Dictionary)):
             return _bad("missing_contract_recipient")
     var site_index: int = -1
     var market_record: Dictionary = {}
@@ -107,7 +109,9 @@ static func deliver(world: Dictionary, ship_id: String,
             var site: Variant = sites[i]
             if not (site is Dictionary):
                 return _bad("invalid_construction_site")
-            if str(site.get("location_name", "")) == at                     and str(site.get("commodity", "")) == commodity                     and not bool(site.get("completed", false)):
+            if (str(site.get("location_name", "")) == at
+                    and str(site.get("commodity", "")) == commodity
+                    and not bool(site.get("completed", false))):
                 site_index = i
                 break
         if site_index < 0:
@@ -155,7 +159,10 @@ static func deliver(world: Dictionary, ship_id: String,
         var recipient_faction: String = issuer if not issuer.is_empty() else ship_faction
         for id in ids:
             var pop: Variant = populations[id]
-            if pop is Dictionary and str(pop.get("facility_location", "")) == at                     and str(pop.get("faction_id", "")) == recipient_faction                     and pop.get("sentiment", null) is Dictionary:
+            if (pop is Dictionary
+                    and str(pop.get("facility_location", "")) == at
+                    and str(pop.get("faction_id", "")) == recipient_faction
+                    and pop.get("sentiment", null) is Dictionary):
                 recipient_id = str(id)
                 break
         if recipient_id.is_empty():
