@@ -1,0 +1,18 @@
+{
+  "block_id": "N29",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T10:58:33+03:00-second-chat-n29",
+  "claimed_at": "2026-11-12T10:58:33+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "pending GitHub HEAD resolution; last known coordination commit 7299a6c893f772fb5e05bdd5aeeaef29e1e5c4f2",
+  "work_branch": "feature/godot-nightshift-n29-docking-cargo-second-20261112",
+  "tasks": [
+    "Integrate authoritative N21 docking state with N15 cargo operations",
+    "Fail closed on in-flight and wrong-station loading/unloading",
+    "Add deterministic replay and save/load regression smoke",
+    "Document Rust parity and integration limits"
+  ],
+  "progress": [],
+  "evidence": []
+}
