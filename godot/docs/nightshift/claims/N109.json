@@ -1,0 +1,23 @@
+{
+  "block_id": "N109",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T20:35:16+03:00-second-chat-overnight-11-N109",
+  "claimed_at": "2026-11-12T20:35:16+03:00",
+  "started_at": "2026-11-12T20:35:16+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "source_ref": "integration/godot-47-n33-n37-20261112",
+  "rust_source": "native/crates/sim_core/src/strategy/charter.rs",
+  "work_branch": "feature/godot-n109-charter-overnight11",
+  "scope": [
+    "godot/scripts/native_port/n109_*.gd"
+  ],
+  "tasks": [
+    "Player charter authority, shared ceiling, review tranche, paid receipts",
+    "Preserve Rust source invariants and fail closed",
+    "Minimal static checks; PR without integration"
+  ],
+  "progress": [],
+  "evidence": []
+}
