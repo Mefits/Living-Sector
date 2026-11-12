@@ -137,3 +137,7 @@ Claim `claims/N13.json` created atomically at `66db027`; branch `feature/godot-n
 ### 2026-11-12 05:29 MSK — N12 CODE_UNVERIFIED
 
 - [Draft PR #97](https://github.com/Mefits/Living-Sector/pull/97): population local purchases, actual stock/cash movement, shortage sentiment and migration pressure; `godot/tests/n12_population_check.gd`. No Godot executable/test run; contracts and migration transfers deferred. No VERIFIED count change.
+
+### N10 start — 2026-11-12 05:35 MSK — second-chat-overnight
+
+Claim `claims/N10.json` created atomically at `86bea1bd`; Rust price engine/order book parity, native deterministic pricing and short headless smoke; working branch `feature/godot-nightshift-n10-prices-second-20261112`.
