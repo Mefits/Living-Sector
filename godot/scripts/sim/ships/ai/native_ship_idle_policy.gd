@@ -7,7 +7,6 @@ const Personality = preload("res://scripts/sim/ships/ai/native_personality.gd")
 const IDLE_EXPLORE_TICKS: int = 240
 const EXPLORE_MIN_CREDITS: int = 2500
 const EXPLORE_MIN_FUEL_FRACTION: float = 0.40
-const EXPLORE_CHECK_BOARD_SECONDS: int = 0 # Not used for scoring/dispatch.
 
 ## source_neighbors = locations already proven by the Rust-equivalent
 ## try_build_explore_bt (adjacent, physically traversable, not recently
