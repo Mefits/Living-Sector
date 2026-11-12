@@ -13,9 +13,15 @@ const MAX_U32: int = 4294967295
 static func profitable_mining_quantity(cargo_free: int, available_ice: int,
         unit_price: float, buyer_credits: int, distance: int,
         fuel_rate: float, fuel_price: float, speed_modifier: float) -> Dictionary:
-    if cargo_free < 0 or cargo_free > MAX_U32 or available_ice < 0             or available_ice > MAX_U32 or distance < 0 or distance > MAX_U32:
+    if (cargo_free < 0 or cargo_free > MAX_U32
+            or available_ice < 0 or available_ice > MAX_U32
+            or distance < 0 or distance > MAX_U32):
         return _err("invalid_physical_source")
-    if not is_finite(unit_price) or unit_price <= 0.0             or not is_finite(fuel_rate) or fuel_rate < 0.0             or not is_finite(fuel_price) or fuel_price < 0.0             or not is_finite(speed_modifier) or speed_modifier <= 0.0             or buyer_credits <= 0:
+    if (not is_finite(unit_price) or unit_price <= 0.0
+            or not is_finite(fuel_rate) or fuel_rate < 0.0
+            or not is_finite(fuel_price) or fuel_price < 0.0
+            or not is_finite(speed_modifier) or speed_modifier <= 0.0
+            or buyer_credits <= 0):
         return _err("unprofitable_or_unknown_buyer")
     var payable: int = int(minf(float(MAX_U32),
         floor(float(buyer_credits) / float(unit_price))))
