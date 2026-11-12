@@ -1,0 +1,19 @@
+{
+  "block_id": "N76",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "20261112-173803-msk-overnight11-N76",
+  "claimed_at": "2026-11-12T17:38:03+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n76-research-progress-overnight11-20261112",
+  "scope": "native research progress accumulation admission",
+  "tasks": [
+    "Rust research progress thresholds",
+    "idempotent progress admission",
+    "headless tests"
+  ],
+  "progress": [],
+  "evidence": []
+}
