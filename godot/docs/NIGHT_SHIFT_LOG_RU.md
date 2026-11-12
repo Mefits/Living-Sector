@@ -106,3 +106,13 @@ Claim `claims/N13.json` created atomically at `66db027`; branch `feature/godot-n
 - **Other claims:** N1–N5 already completed as CODE_UNVERIFIED; N6/N7/N9/N10/N12–N20 were TODO in the checked queue, claim files must be rechecked before choosing them.
 - **Next:** N6 production with actual wage/input and N9 native inventory; connect ledger to wallet owners after PR integration, then test payroll/escrow in Godot.
 - **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, всего 3/100 VERIFIED; N11 one code block without Godot runtime verification.
+
+### N13 complete — 2026-11-12 04:41 МСК — second-chat-overnight
+
+- **PR:** https://github.com/Mefits/Living-Sector/pull/95, head `0354b74c3be8be5ac4010aff5a56dec8002f64ae`, base N4 PR #92, draft, no merge.
+- **Code:** 6 native Rust ship classes, 6 size tiers, exact cargo/passenger/fuel/speed/crew data, stable data-only ship state, capacity/fuel validation, canonical snapshot/atomic restore and headless smoke. No phantom cargo transfer, fuel consumption or credits.
+- **Evidence:** frozen `simulation/config.rs`, `agents/ship/components.rs`, `agents/ship/snapshot.rs`; no Godot executable run. **CODE_UNVERIFIED**.
+- **Run:** `godot --headless --path godot --script res://tests/n13_ship_catalog_check.gd`.
+- **Other claims:** N11 IN_PROGRESS by another concurrent session; N1–N5 completed CODE_UNVERIFIED; N6/N9/N12/N14 need fresh claim check.
+- **Next:** N14 transit after N3/N4/N13 integration; N15 cargo receipts after N9.
+- **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, all 3/100 VERIFIED. N13 additional CODE_UNVERIFIED block.
