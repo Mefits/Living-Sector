@@ -161,4 +161,4 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 | N55 | **P1: bounded real-time tick admission** — render-independent accumulator, pause/speed controls and overload guard; no change to game-hour interpretation | deterministic admission and no skipped tick semantics; short headless test | CODE_UNVERIFIED — [PR #140](https://github.com/Mefits/Living-Sector/pull/140), second-chat-overnight |
 
-| N56 | **P3: directed route admission parity:** validate native directed routes and live destination identity before ship transit; no teleport, fuel or cargo mutations | Rust-source route semantics, deterministic fail-closed admission, short smoke; independent of N39/N54 | IN_PROGRESS — overnight-scheduler, claim N56 |
+| N56 | **P3: directed route admission parity:** validate native directed routes and live destination identity before ship transit; no teleport, fuel or cargo mutations | Rust-source route semantics, deterministic fail-closed admission, short smoke; independent of N39/N54 | CODE_UNVERIFIED — [PR #145](https://github.com/Mefits/Living-Sector/pull/145), overnight-scheduler; runtime pending |
