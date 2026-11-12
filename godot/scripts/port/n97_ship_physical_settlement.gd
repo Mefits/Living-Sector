@@ -331,12 +331,14 @@ static func _sell(world: Dictionary, ship: Dictionary, request: Dictionary,
                 return _bad("missing_route_performance_authority")
             # Actual route mean/count statistic updates need real
             # route snapshot. Never fabricate from missing fields.
+            if not _finite(origin.get("unit_cost", null)):
+                return _bad("invalid_cargo_origin")
             var entry: Dictionary = (ship["route_performance"] as Dictionary).get(
-                route_name, {"count": 0, "sum": 0.0})
-            if typeof(entry.get("count", null)) != TYPE_INT or not _finite(entry.get("sum", null)):
+                route_name, {"attempts": 0, "total_profit_per_unit": 0.0})
+            if typeof(entry.get("attempts", null)) != TYPE_INT or not _finite(entry.get("total_profit_per_unit", null)):
                 return _bad("invalid_route_performance")
-            entry["count"] = int(entry["count"]) + 1
-            entry["sum"] = float(entry["sum"]) + float(payment) / float(sold) - float(origin.get("unit_cost", 0.0))
+            entry["attempts"] = mini(MAX_U32, int(entry["attempts"]) + 1)
+            entry["total_profit_per_unit"] = float(entry["total_profit_per_unit"]) + float(payment) / float(sold) - float(origin["unit_cost"])
             ship["route_performance"][route_name] = entry
     else:
         ship["cargo"][commodity] = have - sold
