@@ -1,6 +1,6 @@
 {
   "block_id": "N30",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T11:03:54+03:00-second-chat-n30",
   "claimed_at": "2026-11-12T11:03:54+03:00",
@@ -12,5 +12,18 @@
     "Implement cross-component deterministic audit of contract escrow and cargo receipts without mutation",
     "Add headless regression for tamper/replay and snapshot restoration",
     "Document evidence and limitations"
+  ],
+  "completed_at": "2026-11-12T11:09:00+03:00",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/118",
+  "head_sha": "c0a6ebf599b2f2fb33b7690996b5343c3e23db7e",
+  "checks": [
+    "source review against N27 board, N15 cargo and N11 ledger",
+    "static API/receipt shape review",
+    "headless smoke prepared, NOT RUN"
+  ],
+  "remaining": [
+    "Godot runtime acceptance",
+    "verify ledger payout recipient and receipt provenance",
+    "integration with N29 docked cargo gate"
   ]
 }
