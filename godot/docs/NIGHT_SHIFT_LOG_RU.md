@@ -698,3 +698,9 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 
 ### 2026-11-12 17:14 CET — overnight-scheduler N91–N93 START
 - Three atomic claims created before code: N91 construction executor (`agents/construction/executor.rs`), N92 colony development (`strategy/colony_development.rs`), N93 HTN planning adapter (`strategy/planning/htn_adapter.rs`). All IN_PROGRESS, independent work branches, frozen Rust source. No N39/N90 overlap. Phase 1 component-only; no runtime verification.
+
+### 2026-11-12 — overnight-scheduler N91–N93 phase-1 component ports
+- N91 [Draft PR #179](https://github.com/Mefits/Living-Sector/pull/179): construction executor utility, engineering eligibility, BT active leaf, dock presence, sorted offers; actual construction apply external.
+- N92 [Draft PR #180](https://github.com/Mefits/Living-Sector/pull/180): colony aftercare reserves, workforce, phases, independent supply intents, migration candidate; paid passenger commission and transfer remain outstanding.
+- N93 [Draft PR #181](https://github.com/Mefits/Living-Sector/pull/181): bounded symbolic deliver/produce search; explicitly PARTIAL vs Rust htn 0.2.1 method search and verification. Do not execute proposals as authoritative.
+- Three separate claims CODE_UNVERIFIED, three independent branches/PR, no merge, no Godot run, no P1 or Rust changes. Full source parity is not claimed; N39 and N90 remain other owners' work. VERIFIED counters unchanged P0 3/9, P1 0/9, P2 0/11, total 3/100.
