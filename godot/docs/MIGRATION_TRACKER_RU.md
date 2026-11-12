@@ -5,7 +5,7 @@
 
 **Внимание:** `VERIFIED` допустим только при наличии доказательства. `CODE_UNVERIFIED` значит скрипты написаны, но Godot не запускался. `DEFERRED_PRESERVED` — сохранено для будущего, не удалено. `TODO` — не начато. Игровой перенос пока **0 функциональных задач с подтверждённым Godot runtime**.
 
-## Общий статус — 12 ноября 2026 (начат P0 перенос, блок 1)
+> **N136, 12.11.2026:** [Draft PR #224](https://github.com/Mefits/Living-Sector/pull/224) ports frozen Rust `strategy/economic_proposal.rs` into 13 GDScript operations: exact quote matching, player review/approval, bounded tranche, 600-tick TTL, 120-tick repeat suppression, native paid receipt consumption and legacy nullable fields. **CODE_UNVERIFIED** (static readback only; no Godot runtime); phase-2 wiring pending. VERIFIED unchanged 3/100.\n\n## Общий статус — 12 ноября 2026 (начат P0 перенос, блок 1)
 
 | Этап | Проверено / всего | Текущее состояние |
 |---|---:|---|
