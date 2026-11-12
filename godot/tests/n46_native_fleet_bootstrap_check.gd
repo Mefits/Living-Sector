@@ -80,6 +80,17 @@ func _initialize() -> void:
     if bool(Bootstrap.build_new_game(invalid_seed).get("ok", false)):
         _fail("negative_initial_credits")
         return
+    var restored_runner = Runner.new()
+    if not restored_runner.start_from_seed(seed):
+        _fail("pre_restore_start")
+        return
+    var tick_zero_snapshot: Dictionary = restored_runner.checkpoint()
+    if tick_zero_snapshot.is_empty() or not restored_runner.restore_checkpoint(tick_zero_snapshot, seed):
+        _fail("tick_zero_restore_failed")
+        return
+    if restored_runner.bootstrap_new_game_native_fleet(seed):
+        _fail("refilled_loaded_tick_zero_save")
+        return
     var runner = Runner.new()
     if not runner.start_from_seed(seed) or not runner.bootstrap_new_game_native_fleet(seed):
         _fail("runner_bootstrap")
