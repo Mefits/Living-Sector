@@ -330,3 +330,5 @@ Draft [PR #116](https://github.com/Mefits/Living-Sector/pull/116) implements a r
 
 ### N56 — 2026-11-12: направленные маршруты, только код
 - [PR #145](https://github.com/Mefits/Living-Sector/pull/145) (`CODE_UNVERIFIED`): read-only проверка направленного ребра, координат и последовательности маршрута; Rust no-path fallback намеренно запрещён до переноса реальной физики. Не подключено к живому TickRunner, Godot не запускался. Подтверждённые счётчики P0 3/9, P1 0/9, P2 0/11, общий 3/100 без изменений.
+
+> **N58, 12.11.2026:** [Draft PR #146](https://github.com/Mefits/Living-Sector/pull/146) — read-only native directed route graph provenance audit; detects duplicate systems/arcs, missing/extra edges, invalid weights, graph schema/node mismatches, deterministic errors. Godot headless regression prepared, runtime unavailable; **CODE_UNVERIFIED**. Independent integration block, no new VERIFIED task; P0 3/9, P1 0/9, P2 0/11, total 3/100; 16 main tracker rows CODE_UNVERIFIED.
