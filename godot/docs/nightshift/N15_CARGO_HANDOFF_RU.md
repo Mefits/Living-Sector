@@ -1,0 +1,9 @@
+# N15 — физическая погрузка и разгрузка (CODE_UNVERIFIED)
+
+Source: frozen Rust `native/crates/sim_core/src/agents/ship/components.rs`, `ShipCargo { cargo: Cargo<Commodity,u32>, capacity: u32, cargo_age, cargo_origin }`. N13/N14 supply ship state, cargo capacity, location and transit. The 17 immutable commodity IDs are copied without changes from N5 (PR #93); N9 warehouse transfer remains an independent PR (#96).
+
+Implementation: `ship_cargo_transfer.gd` transfers integer commodity units between caller-owned warehouse stock and the ship hold, after validating all legs. Rejects absent stock, hold overflow, fractional cargo, unknown commodity, wrong location, ship in transit, invalid direction, duplicate transaction IDs. Changes both ledgers only after full validation and records a deterministic transaction receipt. Save/restore of receipts prevents reapplying the same transfer after reload. No funds are credited and no contracts are automatically settled.
+
+**Important integration limits:** caller must resolve the *actual* warehouse and verify permissions/contract ownership before invoking `move`; this API does not validate warehouse identity or escrow. It is not yet the authoritative N16 contract settlement boundary. `cargo_age` and `cargo_origin` from Rust remain future work; no fake trade profits are calculated. Ship state/receipt persistence must be integrated into world save. Branch based on N14 PR #99, itself based on N13 #95 and N4 #92. The N5 catalog is copied solely as a dependency; reconcile it with PR #93 during integration.
+
+Short Windows/headless check: `godot --headless --path godot --script res://tests/n15_cargo_check.gd`. This tests conservation, full hold, insufficient stock, fractions, wrong docking, duplicate transfer, and receipt restore. Godot executable unavailable in agent environment; **CODE_UNVERIFIED**, not VERIFIED. No merge or paid CI.
