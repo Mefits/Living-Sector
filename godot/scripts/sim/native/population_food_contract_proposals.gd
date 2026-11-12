@@ -56,12 +56,12 @@ static func propose(populations: Array, markets: Array, active_contracts: Array,
 			continue
 		var count := maxi(0, int(pop.get("population_count", 0)))
 		var emergency := sat < EMERGENCY_THRESHOLD
-		var quantity := clampi(count / (500 if emergency else 1000), 50 if emergency else 20, 500 if emergency else 300)
+		var quantity := clampi(int(count / (500 if emergency else 1000)), 50 if emergency else 20, 500 if emergency else 300)
 		var payment := 0
 		var lifespan := LIFESPAN_BASE * tick_multiplier
 		if emergency:
 			payment = int(FOOD_BASE_PRICE * EMERGENCY_PREMIUM * float(quantity))
-			lifespan = maxi(LIFESPAN_BASE / 2, 50) * tick_multiplier
+			lifespan = maxi(int(LIFESPAN_BASE / 2), 50) * tick_multiplier
 		else:
 			var sat_ratio := clampf(float(sat) / 100.0, 0.0, 1.0)
 			var urgency := 1.0 + (1.0 - sat_ratio) * URGENCY_PEAK
