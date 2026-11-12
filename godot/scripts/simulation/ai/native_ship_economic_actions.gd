@@ -9,13 +9,13 @@ const SUCCESS: String = "success"
 const FAILURE: String = "failure"
 const RUNNING: String = "running"
 const MAX_U32: int = 4294967295
-const COMMODITIES := [
+const COMMODITIES = [
     "ore", "ice", "gas", "rare_ore", "crystal_ore",
     "metals", "fuel", "polymers", "water", "alloys",
     "components", "electronics", "quantum_cores",
     "tools", "food", "medical", "luxury"
 ]
-const REFIT_SLOTS := ["engine", "cargo_bay", "sensors", "reactor", "comms"]
+const REFIT_SLOTS = ["engine", "cargo_bay", "sensors", "reactor", "comms"]
 
 ## State is the ephemeral Rust ShipEconomy transaction mailbox plus
 ## dock_dwell_start_tick used by Mine shifts. A caller supplies the
