@@ -1,0 +1,12 @@
+{
+  "block_id": "N151",
+  "macro_id": 2,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "work_branch": "feature/godot-n151-population-colony-macro2-source-closure-20261113",
+  "source_paths": [
+    "native/crates/sim_core/src/agents/population.rs::tick_populations/purchase_consumption",
+    "native/crates/sim_core/src/strategy/colony.rs::commission"
+  ],
+  "scope": "Finish population+colony source coverage in Phase1; no overlaps, no live Godot merge."
+}
