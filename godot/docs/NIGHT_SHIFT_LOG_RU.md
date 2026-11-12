@@ -1,5 +1,12 @@
 # Living Sector — журнал ночных запусков (12 ноября 2026)
 
+### 2026-11-12 — interactive-chat, N40 (ЗАВЕРШЕНО В КОДЕ)
+- Протокол: N40 claim → `CODE_UNVERIFIED`; [PR #130](https://github.com/Mefits/Living-Sector/pull/130), ветка `feature/godot-n40-ship-transit-worldbridge-20261112`.
+- Добавлено: честный roster нативных кораблей без выдуманных ID/топлива/груза; opt-in ships-phase adapter в нативном TickRunner; directed transit с сохранением событий/орбит; fail-closed P1 save.
+- Тест N40 написан, но Godot 4.7 runtime отсутствует и тест не запускался. Сверены Sol native seed и Rust `SHIP_BASE_VELOCITY`/`SHIP_ARRIVAL_THRESHOLD`.
+- N39 производство принадлежит другому чату; общие файлы N39 не редактировались. N41 параллельно взят другим агентом.
+
+
 ### 2026-11-12 10:43:55 UTC — interactive-chat, N40 (НАЧАЛО)
 - Забронировано атомарным create_file: [claims/N40.json](nightshift/claims/N40.json) @ `0e2056f8e22e8e64f58b5c5c6448e3faa421687f`.
 - Основа кода: `integration/godot-47-n33-n37-20261112` @ `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`.
