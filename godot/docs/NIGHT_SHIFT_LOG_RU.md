@@ -712,3 +712,9 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 
 ### 2026-11-12 19:37 MSK — second-chat-overnight N94/N95/N96 START
 Three atomic claims created on coordination branch before code. Scopes: native strategy sourcing, production dependency logic, portfolio policy. Three independent branches from integration HEAD `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`; N39 and other claims untouched. Phase 1 only, CODE_UNVERIFIED until runtime.
+
+### 2026-11-12 19:37 MSK — second-chat-overnight N94/N95/N96 FINISH
+- N94 [Draft PR #183](https://github.com/Mefits/Living-Sector/pull/183): native sourcing cost/own-network preference and unprofitable posted offer candidates; contract expiry/refund remains external.
+- N95 [Draft PR #184](https://github.com/Mefits/Living-Sector/pull/184): native recursive recipe dependency feasibility, alternative recipes, by-products, cycle/overflow blockers, one-batch readiness; consumes no real inventory. Recipe catalogue injected from N73.
+- N96 [Draft PR #185](https://github.com/Mefits/Living-Sector/pull/185): native bounded portfolio value scoring, treasury floor and horizon gate; no spending authorization.
+- Three distinct claims CODE_UNVERIFIED, separate branches/PR, delimiter-only static checks; Godot not run, no merge, no P1/Rust changes. N39 remains untouched. Further Rust component coverage and runtime integration remain pending.
