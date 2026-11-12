@@ -59,8 +59,8 @@
 
 | ID | Переносимый результат | Источник | Статус | Мини-критерий / доказательство |
 |---|---|---|---|---|
-| `P2-01` | Полный список товаров, tier, базовые цены → `sim/economy/commodities` | `economy/commodities.rs` | `TODO` | Каждый slug/ID/уровень совпадает |
-| `P2-02` | Рецепты и побочные продукты → `sim/economy/recipes` | `economy/recipes.rs` | `TODO` | Одна партия точно списывает все входы |
+| `P2-01` | Полный список товаров, tier, базовые цены → `sim/economy/commodities` | `economy/commodities.rs` | `CODE_UNVERIFIED` | Каждый slug/ID/уровень совпадает |
+| `P2-02` | Рецепты и побочные продукты → `sim/economy/recipes` | `economy/recipes.rs` | `CODE_UNVERIFIED` | Одна партия точно списывает все входы |
 | `P2-03` | Рынок, спрос, предложение, лимиты складов → `sim/economy/markets` | `agents/market.rs; facility/restock.rs` | `TODO` | Нет скрытого создания/отрицательных запасов |
 | `P2-04` | Ценообразование, срочность, спред → `sim/economy/pricing` | `economy/price_engine.rs` | `TODO` | Одинаковые входы дают сопоставимую цену |
 | `P2-05` | Ордербук, сделки и деньги → `sim/economy/ledger` | `economy/order_book.rs; money.rs` | `TODO` | Покупатель и продавец платят/получают один раз |
@@ -231,3 +231,5 @@
 ### Nightshift N4 — code ready, Godot not yet verified (2026-11-12)
 
 [PR #92](https://github.com/Mefits/Living-Sector/pull/92): native Galaxy 0.6.7 entity registry and directed travel route graph; 8 systems, 47 bodies, 15 facilities, 24 ships, 3 markets, 3 populations, 9 nav sites, 12 directed edges. Native ship/nav site/population missing IDs are represented with clearly labeled seed-local ordinal keys; no fabricated native IDs. Deterministic shortest path and headless acceptance script. **CODE_UNVERIFIED**; Godot Runtime not executed. This is preparatory code for P1/P3 and does not add VERIFIED checklist items. No production, ship movement or market logic claimed.
+
+**N5 / PR #93 (12.11.2026):** 17 Rust commodities + 14 recipes and fractional transform committed, short headless test added; no Godot runtime verification. P2 remains **0/11 VERIFIED**; N6/N9 still need real production/storage/permissions. [PR #93](https://github.com/Mefits/Living-Sector/pull/93).
