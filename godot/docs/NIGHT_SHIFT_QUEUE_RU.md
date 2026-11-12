@@ -317,3 +317,6 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 | N125 | P2 population emergency food-delivery posting (`agents/population.rs::post_food_contracts`); no N39/N71 overlap | `feature/godot-n125-pop-food-contracts-20261112` | CODE_UNVERIFIED — [PR #213](https://github.com/Mefits/Living-Sector/pull/213) |
 | N126 | P2 population passenger contract posting (`agents/population.rs::post_passenger_contracts`); no N104 delivery apply overlap | `feature/godot-n126-pop-passenger-contracts-20261112` | CODE_UNVERIFIED — [PR #214](https://github.com/Mefits/Living-Sector/pull/214) |
 | N127 | P2 population production + wealth monetisation (`agents/population.rs::tick_populations` production slice); no N39 facility recipes | `feature/godot-n127-pop-production-wealth-20261112` | CODE_UNVERIFIED — [PR #215](https://github.com/Mefits/Living-Sector/pull/215) |
+
+### 2026-11-12 22:01 MSK — second-chat-overnight N128–N130 START
+Three distinct atomic claims created IN_PROGRESS before source changes: N128 ship combat; N129 faction treasury taxation; N130 facility upkeep. Each has independent branch, Rust parity and overlap checks pending. N39 and other owners untouched. Phase 1 only.
