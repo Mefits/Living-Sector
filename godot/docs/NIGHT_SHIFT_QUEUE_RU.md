@@ -260,3 +260,7 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 | N96 | P5 native portfolio policy from `strategy/portfolio_policy.rs` | Rust-backed goal selection and budget policy | CODE_UNVERIFIED — [PR #185](https://github.com/Mefits/Living-Sector/pull/185) |
 
 | N97 | **P3/P2: Rust exclusive ShipTransaction Apply** — ship buy/sell/refuel/mine money, stock, physical deposits + exactly once ack; port `native/crates/sim_server/src/engine/transactions.rs` | Source-backed atomic state-in/out GDScript, no N39 live production write, no P1 execution; contract escrow via separate handoff | IN_PROGRESS — interactive-chat; [claim N97](nightshift/claims/N97.json) |
+
+| N98 | P5 durable plan ledger from Rust planning/ledger.rs | Native receipt-driven step state, reconcile prepared order | IN_PROGRESS — second-chat-overnight, claim N98 |
+| N99 | P5 Control Beam from Rust planning/control_beam.rs | Native bounded width-16 beam projected search | IN_PROGRESS — second-chat-overnight, claim N99 |
+| N100 | P5 Hybrid planner from Rust planning/hybrid.rs | Safe candidate selection and bounded preferences | IN_PROGRESS — second-chat-overnight, claim N100 |
