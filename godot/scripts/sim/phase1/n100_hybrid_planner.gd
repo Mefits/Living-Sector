@@ -89,6 +89,65 @@ static func _domain(snapshot: Dictionary, goal: Dictionary,
 		return projected
 	return {"ok":false,"error":"N155 native domain unavailable"}
 
+static func _carrier_assignment(snapshot: Dictionary, actions: Array,
+		steps: Array) -> Dictionary:
+	## Extra fail-closed guard: N155 NativeDomain conserves the TOTAL number
+	## of departures per source, but an action's capacity check is existential.
+	## Two 8-unit deliveries must not reuse one 8-unit ship alongside a
+	## second 1-unit ship. Match every departure to one distinct real carrier.
+	var required: Dictionary = {}
+	for step in steps:
+		var spec: Dictionary = {}
+		for action in actions:
+			if str(action.get("action_id","")) == str(step.get("action_id","")):
+				spec = action
+				break
+		if str(spec.get("kind","")).to_lower() != "deliver":
+			continue
+		var source: String = str(spec.get("source_id",""))
+		if source.is_empty():
+			return {"ok":false,"reason":"missing_delivery_source"}
+		if not required.has(source):
+			required[source] = []
+		required[source].append(int(spec.get("units",0)))
+	if required.is_empty():
+		return {"ok":true,"reason":""}
+	var committed: Dictionary = {}
+	for contract in snapshot.get("active_commitments",[]):
+		if contract.get("assigned_ship_id",null) != null:
+			committed[str(contract["assigned_ship_id"])] = true
+	var ships: Array = snapshot.get("ships",[])
+	var identities: Dictionary = {}
+	for ship in ships:
+		var id: String = str(ship.get("ship_id",""))
+		if id.is_empty() or identities.has(id):
+			return {"ok":false,"reason":"missing_or_duplicate_ship_id"}
+		identities[id] = true
+	for source in required.keys():
+		var usable: Array = []
+		for ship in ships:
+			var fuel: float = float(ship.get("fuel",0.0))
+			if str(ship.get("location_id","")) == str(source) and not bool(ship.get("in_transit",false)) and not committed.has(str(ship.get("ship_id",""))) and is_finite(fuel) and fuel > 0.0 and int(ship.get("free_cargo",0)) > 0:
+				usable.append({"id":str(ship.get("ship_id","")),
+					"space":int(ship.get("free_cargo",0))})
+		usable.sort_custom(func(a: Dictionary,b: Dictionary) -> bool:
+			if int(a["space"]) != int(b["space"]):
+				return int(a["space"]) < int(b["space"])
+			return str(a["id"]) < str(b["id"]))
+		var needs: Array = required[source].duplicate()
+		needs.sort()
+		needs.reverse()
+		for amount in needs:
+			var selected: int = -1
+			for i in range(usable.size()):
+				if int(usable[i]["space"]) >= int(amount):
+					selected = i
+					break
+			if selected < 0:
+				return {"ok":false,"reason":"distinct_real_carrier_capacity_exhausted:"+str(source)}
+			usable.remove_at(selected)
+	return {"ok":true,"reason":""}
+
 static func _safe_candidate(domain: Dictionary, snapshot: Dictionary, goal: Dictionary,
 		actions: Array, result: Dictionary, budget: Dictionary,
 		domain_tool: Variant, validator_tool: Variant) -> Dictionary:
@@ -130,6 +189,9 @@ static func _safe_candidate(domain: Dictionary, snapshot: Dictionary, goal: Dict
 		state = after
 	if int(state[field]) < int(domain.get("goal_amount",0)):
 		return {"ok":false,"reason":"goal_not_reached_by_real_actions"}
+	var ship_check: Dictionary = _carrier_assignment(snapshot,actions,result.get("steps",[]))
+	if not bool(ship_check["ok"]):
+		return ship_check
 	return {"ok":true,"reason":""}
 
 static func score(plan: Dictionary, actions: Array, preferences: Dictionary) -> float:
