@@ -631,3 +631,6 @@ N68 [PR #157](https://github.com/Mefits/Living-Sector/pull/157): replay-safe mar
 
 
 > **2026-11-12 17:37 MSK — overnight11:** Atomic claims N71, N72, N73 created as IN_PROGRESS, owner second-chat-overnight. N71 population food/water demand; N72 ship crew life support; N73 facility recipe catalogue. Three independent scopes, no overlap with N39. Work branches feature/godot-n71/n72/n73-overnight11-20261112; Godot runtime unverified.
+
+### 2026-11-12 17:38 MSK — second-chat-overnight, N74/N75/N76 START
+Atomic claims N74 `e771349`, N75 `4278c72`, N76 `8ef8d5f` on coordination branch. Three separate work branches from integration #128 @ `1e4a1e9`; cargo capacity, construction material admission, research progress. Claims N71–N73 belong to concurrent run; N39 remains other-owner. No code changed before all three reservations.
