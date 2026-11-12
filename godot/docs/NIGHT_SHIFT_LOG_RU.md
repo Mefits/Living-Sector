@@ -331,3 +331,7 @@ Atomic claim `claims/N28.json` at `7299a6c893f772fb5e05bdd5aeeaef29e1e5c4f2`; sc
 
 ### N29 complete — 2026-11-12 — second-chat-overnight
 - Draft [PR #117](https://github.com/Mefits/Living-Sector/pull/117), head `15ef52f676e1c179dfa4ee318519c3a1fdc02827`, stacked on N15 (#101); no merge. N21-compatible dock occupancy/transit/facility gate for physical cargo, replay and save/load smoke. Static review only; Godot not run, CODE_UNVERIFIED. Direct N15.move bypass remains until callers are migrated. P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED unchanged.
+
+### N30 start — 2026-11-12 11:03:54 MSK — second-chat-overnight
+
+Atomic claim `claims/N30.json` commit `4b612db902d31c15d37093e523ed9e49a8a68148`; work branch `feature/godot-nightshift-n30-contract-cargo-audit-second-20261112`. Scope: read-only contract/cargo reconciliation, tamper/replay/snapshot smoke; CODE_UNVERIFIED until Godot runtime.
