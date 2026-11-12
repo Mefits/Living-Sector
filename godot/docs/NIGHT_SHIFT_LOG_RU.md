@@ -293,3 +293,7 @@ Claim: `nightshift/claims/N25.json`; source `cc72a0158e6560301f227b61a8aea473cf5
 
 ### N25 — FINISH — 2026-11-12 МСК
 Draft [PR #113](https://github.com/Mefits/Living-Sector/pull/113), commit `867a10ff13c1faf46a82a3a314255b490b5948d1`. Native order matching + atomic local stock/money settlement + idempotent receipts + versioned snapshots + headless smoke. Static parity with Rust order_book.rs; Godot not run, CODE_UNVERIFIED. Live N9/N11/TickRunner integration pending.
+
+### N26 start — 2026-11-12 10:00 МСК — second-chat-overnight
+
+- Atomic claim `claims/N26.json` created commit `30c14ea5e777e9e01c67ece814d8bd54ca476207` before research/development. Scope: N15 physical unload receipt → N16 escrow payment, replay safety, save/load and smoke; work branch `feature/godot-nightshift-n26-delivery-settlement-second-20261112`.
