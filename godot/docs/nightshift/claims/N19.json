@@ -1,0 +1,18 @@
+{
+  "block_id": "N19",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "20261112-075427-msk-second-n19",
+  "claimed_at": "2026-11-12T07:54:27+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "source_sha_note": "Frozen Rust reference SHA; work branch will use latest Godot dependency ref. Coordination HEAD not exposed by fetch_file.",
+  "work_branch": "feature/godot-nightshift-n19-head-second-20261112",
+  "tasks": [
+    "Port Rust faction-head decision priorities and scoring",
+    "Add deterministic goal selection and bounded delegation",
+    "Add snapshot and headless regression checks"
+  ],
+  "progress": [],
+  "evidence": []
+}
