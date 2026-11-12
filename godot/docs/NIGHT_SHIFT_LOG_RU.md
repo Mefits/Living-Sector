@@ -495,3 +495,9 @@ Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nights
 ### N47 START — 2026-11-12 12:50 +01:00 — overnight-scheduler
 - Atomic claim `claims/N47.json` @ `bec9b3e25af1b391c6634eb954185aa3381b95db`.
 - Planned: fail-closed native seed identity/schema validation, deterministic diagnostics, fixture regressions; no N39/N46 overlap.
+
+### N47 FINISH — 2026-11-12 12:53 +01:00 — overnight-scheduler
+- [Draft PR #135](https://github.com/Mefits/Living-Sector/pull/135), head `a2bd3c0f4820278582c2895fdd93137c5190b1dd`, integration PR #128 base, no merge.
+- Read-only native seed preflight: schema, IDs, ownership, orbit, finite coordinates, route distance and expected reference counts. Four negative fixtures, deterministic reporting; 3 new files.
+- Static delimiter balance checked; Godot executable unavailable, headless test NOT run. CODE_UNVERIFIED; no live integration, no Rust parity assertion.
+- P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED unchanged. Next candidate N48 after fresh claim check.
