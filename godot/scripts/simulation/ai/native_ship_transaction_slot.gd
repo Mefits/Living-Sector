@@ -32,9 +32,11 @@ static func valid_slot(slot: Dictionary) -> bool:
     var request: Variant = pending.get("request", null)
     if not (request is Dictionary) or not TRANSACTION_KINDS.has(str(request.get("kind", ""))):
         return false
-    if not (pending.get("result", null) == null
-            or pending.get("result", null) == "ok"
-            or pending.get("result", null) == "error"):
+    if not pending.has("result"):
+        return false
+    if not (pending["result"] == null
+            or pending["result"] == "ok"
+            or pending["result"] == "error"):
         return false
     return true
 
