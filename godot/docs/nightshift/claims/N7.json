@@ -1,6 +1,6 @@
 {
   "block_id": "N7",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "overnight-scheduler",
   "run_id": "2026-11-12T07:17:22+03:00-overnight-n7-04",
   "claimed_at": "2026-11-12T07:17:22+03:00",
@@ -12,6 +12,29 @@
     "Deterministic crisis and recovery with actual stock/cash receipts",
     "Headless regression and Rust parity handoff"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Imported unchanged N12 consumption slice into N8-derived branch",
+    "Implemented single-location paid production and consumption with one physical stock and balanced ledger",
+    "Added crisis, supply, monetary conservation and checkpoint replay headless smoke",
+    "Published draft PR #104"
+  ],
+  "evidence": [
+    {
+      "type": "pull_request",
+      "url": "https://github.com/Mefits/Living-Sector/pull/104",
+      "head_sha": "2a7c7687c1a1a95bf9b13ba633920bbf738e3372"
+    },
+    {
+      "type": "rust_parity",
+      "files": [
+        "agents/population.rs",
+        "agents/facility/workforce.rs",
+        "economy/recipes.rs"
+      ]
+    },
+    {
+      "type": "runtime",
+      "result": "Godot executable unavailable; headless test NOT RUN"
+    }
+  ]
 }
