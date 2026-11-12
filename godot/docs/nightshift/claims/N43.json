@@ -5,8 +5,8 @@
   "run_id": "2026-11-12T11:16:36.034Z-interactive-n43-native-locations",
   "claimed_at": "2026-11-12T11:16:36.034Z",
   "coordination_branch": "feature/godot-nightshift-20261112",
-  "source_branch": "integration/godot-47-n33-n37-20261112",
-  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "source_branch": "feature/godot-n40-ship-transit-worldbridge-20261112",
+  "source_sha": "707a740340b6189d4cd7509a384b050a86757a6b",
   "work_branch": "feature/godot-n43-native-location-resolver-20261112",
   "tasks": [
     "Extract true dynamic body/nav-site/facility world-space location rules from frozen Rust Galaxy 0.6.7 and exact native Sol/other world JSON",
@@ -15,5 +15,6 @@
     "Publish independent PR and handoff without touching occupied N39 production bridge or verified P1"
   ],
   "progress": [],
-  "evidence": []
+  "evidence": [],
+  "dependency": "N40 / PR #130; stacked branch from confirmed N40 head; PR base N40, not N39"
 }
