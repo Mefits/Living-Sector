@@ -1,0 +1,18 @@
+{
+  "block_id": "N42",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T14:11:11+03:00-second-chat-n42-integrity",
+  "started_at": "2026-11-12T14:11:11+03:00",
+  "claimed_at": "2026-11-12T14:11:11+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n42-world-invariant-audit-20261112",
+  "tasks": [
+    "Implement read-only deterministic cross-domain world invariant auditor with explicit provenance",
+    "Validate balances, inventory and ship/facility ownership without fabricating missing data",
+    "Add headless regression fixtures for malformed and consistent snapshots",
+    "Document integration and fail-closed behavior"
+  ]
+}
