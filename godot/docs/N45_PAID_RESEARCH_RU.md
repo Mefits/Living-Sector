@@ -1,0 +1,9 @@
+# N45 — оплачиваемая исследовательская смена (CODE_UNVERIFIED)
+
+Rust source: `native/crates/sim_core/src/strategy/director.rs::research`, `governance.rs`, N44 prerequisite gate. Includes exact 1 Electronics, 10 workers, 10 CR wages, station input payment `ceil(market electronics price)`, 10 units research work, single shift per faction/tick. Money moves through existing N11 credit ledger; one balanced transaction with an immutable receipt. No technology is unlocked from this isolated operation: the native Commander must own progress and completion.
+
+N44 `research_gate.gd` is included unchanged as a **dependency copy** because integration #128 did not yet contain PR #132. Integrator must reconcile this file against N44 rather than overwrite later edits.
+
+Boundaries: caller must verify real faction/station/population ownership, station locality, available workers and mandate authority; a boolean flag alone is NOT a secure world authority boundary. No live ECS/WorldModel wiring, no market price engine integration, no real Commander progress, no automatic tech grants, and no full atomic cross-system save. This is an opt-in transaction slice; do not call it from UI or main tick until authoritative world bindings and save coordination exist. Restore explicitly requires an externally restored ledger and commodity world; a false flag refuses.
+
+Built-in Godot RefCounted/Dictionary + existing credit_ledger and inventory_store; no third-party plugin, no per-ship Node. Workload is O(1) per paid shift and no per-frame execution. Test: `godot --headless --path godot --script res://tests/n45_paid_research_shift_check.gd`. Not run in this environment; status CODE_UNVERIFIED. Test checks 30 CR charge for 19.2 price, 20 CR station input, 10 CR wages, 1 electronics consumed, replay/tick guards, mandate ceiling, failed authorization and guarded restore.
