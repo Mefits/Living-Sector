@@ -7,12 +7,14 @@
   "coordination_branch": "feature/godot-nightshift-20261112",
   "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
   "work_branch": "feature/godot-n79-shipyard-orders-20261112",
-  "scope": "native shipyard build orders and ship creation",
+  "scope": "native colony expedition admission (replaces unverified shipyard order concept; no shipyard constructor found in frozen source)",
   "tasks": [
     "inspect exact Rust behavior",
     "port isolated state and formulas",
     "document dependencies and static checks"
   ],
-  "progress": [],
+  "progress": [
+    "Rust colony.rs confirmed; shipyard construction implementation not established, avoid invented ship spawning"
+  ],
   "evidence": []
 }
