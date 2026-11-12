@@ -451,3 +451,8 @@ Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nights
 - Frozen `native/observer`: 41 tracked blobs, no physical media files; 16 station-kit SVG paths declared but missing. New read-only stdlib checker and provenance/transfer gate report.
 - Static GitHub tree/manifest review only; Python checker and Godot not executed. **CODE_UNVERIFIED**. No asset copied; checkpoint and Rust untouched. P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED unchanged.
 - N39 and N40 belong to other agents; next free candidate N42 after fresh claims review.
+
+### N42 START — 2026-11-12 14:11 +03:00 — second-chat-overnight
+- Atomic claim `claims/N42.json` commit `387fed97cd6efeccf0421444b85db86e0844e602`, status IN_PROGRESS.
+- Source integration PR #128 @ `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`; work branch `feature/godot-n42-world-invariant-audit-20261112`.
+- Read-only cross-domain world snapshot invariants, provenance and short headless regressions; no production N39/N40 edits.
