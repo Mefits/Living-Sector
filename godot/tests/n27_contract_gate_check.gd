@@ -1,0 +1,48 @@
+extends SceneTree
+## N27 CODE_UNVERIFIED. godot --headless --path godot --script res://tests/n27_contract_gate_check.gd
+const Ships = preload("res://scripts/sim/ship_state.gd")
+const Cargo = preload("res://scripts/sim/ship_cargo_transfer.gd")
+const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
+const Board = preload("res://scripts/sim/economy/contract_board.gd")
+const Settlement = preload("res://scripts/sim/economy/physical_contract_settlement.gd")
+
+func _initialize() -> void:
+	var ships := Ships.new()
+	assert(ships.add_ship("ship", "freighter", "faction", "system"))
+	ships.ships["ship"]["location"] = "mine"
+	var cargo := Cargo.new()
+	var ledger := Ledger.new()
+	assert(ledger.import_accounts({"buyer": 200, "escrow": 0, "driver": 0}))
+	var board := Board.new(ledger)
+	assert(board.post("c", "delivery", "buyer", "escrow", "ore", 8, "mine", "market", 50, 0, 100, "facility").get("ok", false))
+	assert(board.accept("c", "ship", "faction", 0.0, 1.0, 1).get("ok", false))
+	assert(not board.confirm_pickup("c", "ship", 2, "forged").get("ok", false))
+	assert(not board.confirm_delivery("c", "ship", 3, "forged").get("ok", false))
+	var coordinator := Settlement.new(board, cargo, ships)
+	assert(not board.confirm_pickup("c", "ship", 2, "contract:c:load").get("ok", false))
+	var source := {"ore": 20.0}
+	var destination := {"ore": 0.0}
+	assert(coordinator.pickup("c", "ship", source, 2).get("ok", false))
+	assert(not board.confirm_delivery("c", "ship", 3, "forged").get("ok", false))
+	ships.ships["ship"]["location"] = "market"
+	assert(coordinator.deliver("c", "ship", destination, 3).get("ok", false))
+	assert(not board.settle("c", "wrong", "driver", 4).get("ok", false))
+	assert(board.settle("c", "ship", "driver", 4).get("ok", false))
+	assert(not coordinator.settle_verified("c", "ship", "driver", 5).get("ok", false))
+	assert(ledger.total() == 200 and ledger.balance("driver") == 50)
+	assert(source["ore"] == 12.0 and destination["ore"] == 8.0)
+	var saved_board: Dictionary = board.snapshot()
+	var saved_ledger: Dictionary = ledger.snapshot()
+	var saved_cargo: Array = cargo.snapshot()
+	var ledger2 := Ledger.new()
+	assert(ledger2.restore(saved_ledger))
+	var board2 := Board.new(ledger2)
+	assert(board2.restore(saved_board))
+	var cargo2 := Cargo.new()
+	assert(cargo2.restore(saved_cargo))
+	var coordinator2 := Settlement.new(board2, cargo2, ships)
+	assert(not board2.settle("c", "ship", "driver", 6).get("ok", false))
+	assert(not coordinator2.deliver("c", "ship", destination, 6).get("ok", false))
+	assert(ledger2.total() == 200 and ledger2.balance("driver") == 50)
+	print("N27_CONTRACT_GATE_OK")
+	quit(0)
