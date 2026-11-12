@@ -1,5 +1,9 @@
 # Living Sector — журнал ночных запусков (12 ноября 2026)
 
+### 12.11.2026 — interactive-chat, N46: начало
+- Забронирован [N46](nightshift/claims/N46.json), commit `83846b4ab77978a06ac476080d296731f67203bc`.
+- Независимо от N39 (production) исследуется честная инициализация начальных кораблей Rust и её подключение к N40/N43. Отдельная ветка; статус IN_PROGRESS.
+
 ### 2026-11-12 — interactive-chat, N43 (ЗАВЕРШЕНО В КОДЕ)
 - Atomically reserved N43 before research and changes; owner interactive-chat. Claim теперь `CODE_UNVERIFIED` с [PR #133](https://github.com/Mefits/Living-Sector/pull/133), ветка `feature/godot-n43-native-location-resolver-20261112` от PR #130 (N40).
 - Frozen Rust: `BodyOrbit::universe_position`, FNV1a станций, `FACILITY_ORBIT_RADIUS=0.55`, период `8000` native units, движение target по орбитам. Созданы resolver позиций, подключение к N40 ship phase, headless smoke.
