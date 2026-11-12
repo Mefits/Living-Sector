@@ -95,3 +95,5 @@
 | N24 | **P1-07: детерминированные read-only снимки/диагностика мира** — стабильная сводка сущностей и инвариантов, без изменений экономики | Идентичные снимки при одинаковом состоянии, без мутаций; headless smoke; P1-A/N4 зависимости | CODE_UNVERIFIED — PR #112, overnight-scheduler |
 
 | N25 | **P2-05: orderbook settlement** — matching native orders, physical stock and money conservation, idempotent receipts, save/load | One settlement consumes actual inventory and buyer funds, credits seller once; Rust order_book.rs; depends on N9/N11 | CODE_UNVERIFIED — PR #113, second-chat-overnight |
+
+| N26 | **P3 contract physical delivery settlement:** bind cargo unload receipt to escrow payout, reject replay/partial/wrong location; N15/N16 dependencies | Real unload before paid, idempotent save/load and headless smoke | IN_PROGRESS — second-chat-overnight |
