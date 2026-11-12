@@ -132,7 +132,7 @@ static func contract_ids(contracts: Array, tick: int, known_ships: Array) -> Arr
 static func _contract_priority(contract: Dictionary) -> int:
 	if str(contract.get("contract_type", "")) == "Passenger":
 		return 1
-	if str(contract.get("commodity", "")) in ["Food", "Water"]:
+	if str(contract.get("commodity", "")).to_lower() in ["food", "water"]:
 		return 0
 	return 2
 
@@ -169,7 +169,7 @@ static func snapshot(contracts: Array, sites: Array) -> Array[Dictionary]:
 	for site in sites:
 		var labor: Dictionary = site.get("labor", {})
 		var order = labor.get("station_order")
-		if not order is Dictionary:
+		if not (order is Dictionary):
 			continue
 		var entry: Dictionary = order.duplicate(true)
 		entry.merge({"faction_id": str(site.get("faction_id", "")),
