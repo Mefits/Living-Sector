@@ -1,0 +1,17 @@
+{
+  "block_id": "N20",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T08:16:27+03:00-overnight-n20-5",
+  "claimed_at": "2026-11-12T08:16:27+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1f0444a",
+  "work_branch": "feature/godot-nightshift-n20-observer-overnight-20261112",
+  "tasks": [
+    "Inspect N20 UI and actual domain APIs",
+    "Implement read-only factual observer/command decision model",
+    "Add deterministic headless regression and handoff"
+  ],
+  "progress": [],
+  "evidence": []
+}
