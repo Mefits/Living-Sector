@@ -209,9 +209,18 @@ static func _choose_source(ctx: Dictionary, faction: String, location: String,
 			continue
 		has_stock=true
 		var owner: String = str(market.get("owner",""))
+		# Never invent a neutral relation/price for a populated foreign
+		# market. The actual N150 source treaty/market pricing supplies
+		# the ship-independent rep0 quote and commerce permission.
+		if not market.get("buy_multiplier_by_faction",{}).has(faction):
+			return _fail("missing_N150_native_market_buy_multiplier")
+		if not market.get("commerce_allowed",{}).has(faction):
+			return _fail("missing_N150_native_commerce_permission")
 		var price: float = float(market.get("prices",{}).get(commodity,
 			ctx.get("commodity_base_prices",{}).get(commodity,0.0)))
-		var mult: float = float(market.get("buy_multiplier_by_faction",{}).get(faction,1.0))
+		var mult: float = float(market["buy_multiplier_by_faction"][faction])
+		if not is_finite(price) or not is_finite(mult) or price<=0.0 or mult<=0.0:
+			return _fail("invalid_real_native_market_quote")
 		var quote: float = ceil(price*mult*float(quantity))
 		if not is_finite(quote) or quote<=0.0 or quote>=float(BASE_PAYMENT):
 			continue
