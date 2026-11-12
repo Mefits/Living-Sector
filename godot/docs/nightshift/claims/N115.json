@@ -1,0 +1,19 @@
+{
+  "block_id": "N115",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T20:59:50+03:00-second-chat-11-N115",
+  "claimed_at": "2026-11-12T20:59:50+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n115-native-port-second-20261112",
+  "scope": "faction diplomacy relation transitions",
+  "rust_source": "native/crates/sim_core/src/agents/faction_relations.rs",
+  "tasks": [
+    "read frozen source and dependencies",
+    "port source-backed behavior to isolated GDScript",
+    "publish separate draft PR and record limitations"
+  ],
+  "progress": [],
+  "evidence": []
+}
