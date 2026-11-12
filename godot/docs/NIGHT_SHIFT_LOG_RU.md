@@ -377,3 +377,6 @@ Atomic claim `claims/N31.json` at `f1274062eb75162b93ba013fc194f708443fcc65`; ru
 
 ### N34 — 2026-11-12 12:01 MSK — START
 Claim `claims/N34.json` created by `second-chat-overnight`; branch `feature/godot-nightshift-n34-smoke-integrity`. Scope: N32/N33 smoke integrity and deterministic fail-closed validation. No runtime verification claimed.
+
+### N34 — 2026-11-12 12:03 MSK — CODE_UNVERIFIED
+[Draft PR #123](https://github.com/Mefits/Living-Sector/pull/123): clean run-specific acceptance logs, 90-second per-process timeout, required fresh Godot log, exact suite coverage and Windows timeout option. Three code/docs commits. No Godot or PowerShell execution; stacked on PR #121/#120. No gameplay or Rust archive changes.
