@@ -1,0 +1,19 @@
+{
+  "block_id": "N73",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "20261112-173733-msk-overnight11-N73",
+  "claimed_at": "2026-11-12T17:37:33+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9 (last documented; revalidate before code)",
+  "work_branch": "feature/godot-n73-overnight11-20261112",
+  "scope": "Rust-native facility recipe catalogue admission and dependency audit",
+  "tasks": [
+    "source-based facility input/output validation",
+    "deterministic recipe availability diagnostics",
+    "headless regression"
+  ],
+  "progress": [],
+  "evidence": []
+}
