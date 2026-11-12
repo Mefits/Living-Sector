@@ -214,3 +214,7 @@ Claim `claims/N8.json` created atomically at `8f79fa2`; integration and parity r
 - **Rust:** population.rs (5-tick consumption, satisfaction -5/+2), facility/workforce.rs and recipes.rs; built-in Godot RefCounted, Dictionary and SceneTree, no plugin.
 - **Limitations:** single location and population, no TickRunner wiring, multi-facility labor competition or transport; Godot executable absent, headless test NOT RUN. `CODE_UNVERIFIED`.
 - **Next:** N17 construction, after fresh claim check; N18/N19 depend on it. P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED.
+
+### N17 start — 2026-11-12 07:35 МСК — second-chat-overnight
+
+Atomic claim `claims/N17.json` at `8e935b66228e4a10cb9ef9090dde71edc1b09e19`; branch `feature/godot-nightshift-n17-construction-second-20261112`. Rust construction lifecycle, material/labor/finance gating, deterministic smoke. CODE_UNVERIFIED until Godot runtime.
