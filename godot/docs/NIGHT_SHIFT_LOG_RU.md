@@ -218,3 +218,10 @@ Claim `claims/N8.json` created atomically at `8f79fa2`; integration and parity r
 ### N17 start — 2026-11-12 07:35 МСК — second-chat-overnight
 
 Atomic claim `claims/N17.json` at `8e935b66228e4a10cb9ef9090dde71edc1b09e19`; branch `feature/godot-nightshift-n17-construction-second-20261112`. Rust construction lifecycle, material/labor/finance gating, deterministic smoke. CODE_UNVERIFIED until Godot runtime.
+
+### N17 result — 12.11.2026 — second-chat-overnight
+
+- Draft [PR #105](https://github.com/Mefits/Living-Sector/pull/105), head `b122d3ca92a8e6dec013dd08480111225e46f337`: physical construction cargo delivery, idempotent receipts, native 600-material/150-paid-worker gate, local 10-worker shifts, snapshot/restore, T1–T3 slot/research/material rules and headless smoke.
+- Sources: Rust `agents/construction.rs`, `construction/labor.rs`, `construction/executor.rs`, `facility/workforce.rs`, `strategy/progression.rs`. Godot `RefCounted` domain, no extra plugins or per-entity Nodes.
+- **CODE_UNVERIFIED**: Godot executable not run. Needs integration with authoritative N15 cargo, N11 ledger and N8 shared workforce/TickRunner before production parity. No merge. P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED.
+- Next: N18 station administrator, or integrate N17 with paid production and contract delivery after checking PR dependencies.
