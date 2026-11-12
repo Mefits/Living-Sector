@@ -1,0 +1,17 @@
+{
+  "block_id": "N35",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T12:12:40+03:00-second-chat-n35",
+  "claimed_at": "2026-11-12T12:12:40+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "66d8666e4179c176ac42e4df938756d1f1c20e5b",
+  "work_branch": "feature/godot-nightshift-n35-contract-tick-second-20261112",
+  "tasks": [
+    "connect contract command runner to authoritative tick phases",
+    "fail-closed lifecycle and replay invariants",
+    "headless deterministic smoke and handoff"
+  ],
+  "progress": [],
+  "evidence": []
+}
