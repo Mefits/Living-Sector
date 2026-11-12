@@ -1,0 +1,39 @@
+{
+  "block_id": "N149",
+  "macro_id": 3,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13-macro3-ship-life-full-source-closure",
+  "claimed_at": "2026-11-13T00:45:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "work_branch": "feature/godot-n149-ship-crew-full-parity-macro3-closure-20261113",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_paths": [
+    "native/crates/sim_core/src/agents/ship/mod.rs::tick_crew:445-641 (one authoritative full order with native meal and wage ownership)",
+    "native/crates/sim_core/src/agents/ship/mod.rs::primary_task:642-669 (source exact in native full step, N138 existing read-only role policy reused)",
+    "native/crates/sim_core/src/agents/ship/components.rs::ShipCargo::used/free and ShipFuel::fraction (source basic invariants)",
+    "audit ship/mod.rs, ship/components.rs, ship/snapshot.rs and cross-referenced N50/N51/N52/N54/N67/N72/N101/N128/N138/N148 against macro3 goals"
+  ],
+  "scope": "Macro3 FINAL source coverage audit+actual missing one authoritative tick_crew order: reconcile N72 food/payroll with N138 morale/tasks/efficiency without executing either twice, preserve real cargo-age and credits/wage asset, per-ship LOD. Add source-exact physical component helpers and full traceable phase1 coverage matrix. No macro4 behavior AI or transactions, no second live economy/save/ship spawn.",
+  "related": [
+    "N50 #139",
+    "N51 #141",
+    "N52 #142",
+    "N54 #144",
+    "N67 #156",
+    "N72 #164",
+    "N101 #189",
+    "N128 #217",
+    "N138 #228",
+    "N140 #230",
+    "N148 #237"
+  ],
+  "tasks": [
+    "Audit source-per-function / prior port coverage for macro3, separate AI-goal and persistence responsibilities",
+    "Implement single owner per-ship native crew step full 5 phases incl after-decay, morale, exact Eating food+cargo_age, role/fatigue task, wage checked add, efficiency; pure atomic staged payload not applied",
+    "Implement deterministic multi-ship LOD gate and state projection with source-once effect receipt handoff, no second money ledger",
+    "Source fixture checks and exhaustive macro3 coverage/owner matrix and close only if no uncovered actual source remains"
+  ],
+  "progress": [],
+  "evidence": []
+}
