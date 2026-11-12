@@ -143,7 +143,8 @@ static func observe_research(commander: Dictionary, mandate: Dictionary, charter
 		return _error("invalid_mandate")
 	var can_direct: bool = charter.is_empty() or str(charter.get("research_authority", "delegated")) != "autonomous"
 	var progress: int = int(updated.get("progress", 0))
-	var research: String = str(updated.get("research", ""))
+	var old_research = updated.get("research", null)
+	var research: String = old_research if old_research is String else ""
 	if not mandate.is_empty() and str(mandate.get("mode", "")) == "delegated" and can_direct 			and _active_mandate(mandate, completed) and progress == 0:
 		var next := next_technology(str(mandate["target_technology"]), completed, catalogue)
 		if bool(next.get("ok", false)) and str(next.get("next", "")) != "":
