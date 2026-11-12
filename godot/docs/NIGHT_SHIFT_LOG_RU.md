@@ -317,3 +317,6 @@ Draft [PR #113](https://github.com/Mefits/Living-Sector/pull/113), commit `867a1
 - Draft [PR #115](https://github.com/Mefits/Living-Sector/pull/115), head `9127da6e537463c2087b4ec68da839cb68d5dd15`, stacked on N26 PR #114; no merge.
 - N16 contract board now checks actual N15 cargo receipts on pickup, delivery and payout, preventing forged direct transition strings. N26 coordinator binds receipt registry; regression smoke covers forged calls, replay, conservation and restore.
 - CODE_UNVERIFIED: Godot not run. Non-delivery types fail closed pending separate typed fulfillment handlers. P0 3/9, P1 0/9, P2 0/11, total 3/100 confirmed.
+
+### N28 start — 2026-11-12 08:33 CET — overnight-scheduler
+Atomic claim `claims/N28.json` at `7299a6c893f772fb5e05bdd5aeeaef29e1e5c4f2`; scope P8-03 read-only money/receipt audit, Rust parity, tamper regression; branch `feature/godot-nightshift-n28-ledger-audit-20261112`. IN_PROGRESS.
