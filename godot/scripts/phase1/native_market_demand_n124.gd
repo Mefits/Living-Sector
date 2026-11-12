@@ -9,8 +9,8 @@ const MARKET_CRISIS_SHORTAGE_TICKS := 200
 const MARKET_CRISIS_RECOVERY_TICKS := 50
 
 ## market: {seed_demand, consumption_window, demand, supply, prices,
-## shortage_ticks, crisis_notified, spawned_at_tick, pending_buys, pending_sells,
-## order_expiry_ticks}. Returns new state and crisis events.
+## shortage_ticks, spawned_at_tick, pending_buys, pending_sells,
+## order_expiry_ticks}. Returns new state; crisis notification belongs to external faction scan.
 static func advance(market: Dictionary, tick: int, tick_multiplier: int) -> Dictionary:
 	var next := market.duplicate(true)
 	var mult := maxi(tick_multiplier, 1)
@@ -50,8 +50,6 @@ static func advance(market: Dictionary, tick: int, tick_multiplier: int) -> Dict
 		demand[commodity] = maxf(obs, floor_value) if warm else (obs if obs > 0.0 else floor_value)
 	next["demand"] = demand
 	var shortage: Dictionary = next.get("shortage_ticks", {})
-	var notified: Dictionary = next.get("crisis_notified", {})
-	var events: Array = []
 	if tick % mult == 0:
 		var prices: Dictionary = next.get("prices", {})
 		var supply: Dictionary = next.get("supply", {})
@@ -62,13 +60,7 @@ static func advance(market: Dictionary, tick: int, tick_multiplier: int) -> Dict
 			var consecutive := int(shortage.get(commodity, 0))
 			consecutive = consecutive + 1 if available < threshold and need > 0.0 else 0
 			shortage[commodity] = consecutive
-			if consecutive >= MARKET_CRISIS_SHORTAGE_TICKS and not bool(notified.get(commodity, false)):
-				notified[commodity] = true
-				events.append({"kind": "market_crisis", "commodity": commodity, "tick": tick})
-			elif consecutive <= MARKET_CRISIS_RECOVERY_TICKS:
-				notified[commodity] = false
 	next["shortage_ticks"] = shortage
-	next["crisis_notified"] = notified
 	var expiry := maxi(int(next.get("order_expiry_ticks", 0)), 50)
 	for side in ["pending_buys", "pending_sells"]:
 		var valid: Array = []
@@ -82,4 +74,4 @@ static func advance(market: Dictionary, tick: int, tick_multiplier: int) -> Dict
 		next[side] = valid
 	## Rust reserve TTL is deliberately unimplemented; never mint released supply.
 	next["last_tick"] = tick
-	return {"market": next, "events": events}
+	return {"market": next}
