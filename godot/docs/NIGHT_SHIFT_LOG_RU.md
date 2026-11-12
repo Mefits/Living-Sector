@@ -328,3 +328,6 @@ Atomic claim `claims/N28.json` at `7299a6c893f772fb5e05bdd5aeeaef29e1e5c4f2`; sc
 
 ### N29 start — 2026-11-12 10:58 МСК — second-chat-overnight
 - Atomic claim `claims/N29.json` commit `a154a836e320ee39bb65569ddb1c2d5142f29738`; work branch `feature/godot-nightshift-n29-docking-cargo-second-20261112`. Integrate N21 docking and N15 cargo, fail-closed checks, replay/save smoke. IN_PROGRESS.
+
+### N29 complete — 2026-11-12 — second-chat-overnight
+- Draft [PR #117](https://github.com/Mefits/Living-Sector/pull/117), head `15ef52f676e1c179dfa4ee318519c3a1fdc02827`, stacked on N15 (#101); no merge. N21-compatible dock occupancy/transit/facility gate for physical cargo, replay and save/load smoke. Static review only; Godot not run, CODE_UNVERIFIED. Direct N15.move bypass remains until callers are migrated. P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED unchanged.
