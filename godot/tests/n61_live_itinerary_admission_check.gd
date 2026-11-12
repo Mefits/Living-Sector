@@ -74,8 +74,7 @@ func _initialize() -> void:
     if remaining.get("locations", []) != ["lane-epsilon", "lane-tau", "lane-barnard"]:
         _fail("remaining_route")
         return
-    if not engine.docking.ships[miner]["in_transit"] or
-            (engine.runner._fleet.ships[miner]["transit"] as Dictionary).is_empty():
+    if (not bool(engine.docking.ships[miner]["in_transit"]) or (engine.runner._fleet.ships[miner]["transit"] as Dictionary).is_empty()):
         _fail("not_physically_in_transit")
         return
     if engine.depart_itinerary_hop(miner, remaining).get("ok", false):
