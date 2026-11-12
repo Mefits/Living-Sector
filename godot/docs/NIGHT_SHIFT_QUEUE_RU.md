@@ -119,4 +119,4 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 | N35 | **P1/P3: authoritative contract tick integration:** connect N31 commands to the sole simulation tick phase; prevent duplicate execution and persist queue | N31/N3/N23; fail-closed replay/save smoke; no economy bypass | CODE_UNVERIFIED — PR #124, second-chat-overnight |
 
-| N36 | **P8: Godot 4 compatibility of N32 integration** — startup/parser audit, minimal fixes and smoke | Integration scripts parse on current Godot; no unverified VERIFIED claims | IN_PROGRESS — second-chat-overnight |
+| N36 | **P8: Godot 4 compatibility of N32 integration** — startup/parser audit, minimal fixes and smoke | Integration scripts parse on current Godot; no unverified VERIFIED claims | CODE_UNVERIFIED — PR #125, second-chat-overnight |
