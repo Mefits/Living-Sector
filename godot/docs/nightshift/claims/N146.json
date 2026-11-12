@@ -1,0 +1,24 @@
+{
+  "block_id": "N146",
+  "macro_id": 10,
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-13T00:08:58+03:00-second-chat-overnight-n146",
+  "claimed_at": "2026-11-13T00:08:58+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "work_branch": "feature/godot-n146-native-sim-command-buffer-20261113",
+  "rust_source_paths": [
+    "native/crates/sim_core/src/simulation/commands.rs"
+  ],
+  "scope": "Macro 10 source-backed deterministic SimCommand variant catalogue, ship attribution, command staging/drain and stable labels; excludes actual world apply/ledger and existing N3/N90/N97 transaction executors",
+  "tasks": [
+    "Port full command variants and actor attribution",
+    "Port command buffer queue/drain and replay-safe ordering",
+    "Port stable command kind labels and non-mutating command inspection",
+    "Document phase2 apply boundaries"
+  ],
+  "progress": [],
+  "evidence": []
+}
