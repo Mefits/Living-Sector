@@ -25,11 +25,14 @@ static func _canonical(value: Variant) -> String:
     return JSON.stringify(value)
 
 static func _wrap(snapshot: Dictionary) -> Dictionary:
+    # Hash the JSON-normalized payload, not GDScript integer/float variants:
+    # JSON parsing may turn 7 into 7.0, and the digest must survive reload.
+    var normalized: Variant = JSON.parse_string(JSON.stringify(snapshot))
     return {
         "envelope_format": ENVELOPE_FORMAT,
         "envelope_version": ENVELOPE_VERSION,
-        "payload_sha256": _canonical(snapshot).sha256_text(),
-        "payload": snapshot
+        "payload_sha256": _canonical(normalized).sha256_text(),
+        "payload": normalized
     }
 
 static func _unwrap(raw: Variant) -> Dictionary:
