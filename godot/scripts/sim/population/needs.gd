@@ -69,7 +69,7 @@ static func consume_cycle(pop: Dictionary, market: Dictionary, tick: int, tick_s
     if int(pop.get("food_satisfaction", 50)) < EMERGENCY_WATER_THRESHOLD and count > 0:
         needs["water"] = float(needs.get("water", 0.0)) + EMERGENCY_WATER_RATE * float(count) / 1000.0
     var order: Array = needs.keys()
-    order.sort_custom(func(a, b): return _priority(str(a)) < _priority(str(b)) if _priority(str(a)) != _priority(str(b)) else str(a) < str(b))
+    order.sort_custom(_compare_needs)
     var shortage := false
     for slug in order:
         var needed := float(needs[slug])
@@ -96,3 +96,10 @@ static func _priority(slug: String) -> int:
     if slug == "water":
         return 1
     return 2
+
+static func _compare_needs(a: Variant, b: Variant) -> bool:
+    var pa := _priority(str(a))
+    var pb := _priority(str(b))
+    if pa != pb:
+        return pa < pb
+    return str(a) < str(b)
