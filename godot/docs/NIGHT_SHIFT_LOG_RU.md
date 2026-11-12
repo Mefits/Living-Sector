@@ -279,3 +279,10 @@ Draft [PR #111](https://github.com/Mefits/Living-Sector/pull/111), head `525f83d
 ### N24 started — 2026-11-12 07:22 CET — overnight-scheduler
 
 Atomic claim `claims/N24.json` created at `8e525c39e901de15ad5048deede2a398d3df147d`. Scope P1-07 read-only snapshot diagnostics, deterministic serialization and no-mutation smoke; branch `feature/godot-nightshift-n24-snapshot-diagnostics-20261112`.
+
+### N24 completed — 2026-11-12 07:24 CET — overnight-scheduler
+
+- [Draft PR #112](https://github.com/Mefits/Living-Sector/pull/112), head `b6f243d22cefbc37414725b7ae464c34fb6ee86b`, based on P1-A branch, no merge.
+- Added read-only deterministic P1 diagnostic capture, sorted system/body/facility/route identity and orbit summaries, invariant warnings and explicit unavailable economy state. Headless smoke checks repeatability, no mutation, tick progression and checkpoint restore.
+- Frozen Rust `sim_core/agents/ship/snapshot.rs` snapshot ownership semantics reviewed; Godot P1 `world_model.gd` and `tick_runner.gd` interfaces inspected. Godot executable not installed, smoke NOT RUN: **CODE_UNVERIFIED**.
+- Next: N25 or another unclaimed tracker task after fresh claim/PR check; P1-07 remains not VERIFIED. P0 3/9, P1 0/9, P2 0/11, total 3/100.
