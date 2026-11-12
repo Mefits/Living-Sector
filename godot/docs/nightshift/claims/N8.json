@@ -1,6 +1,6 @@
 {
   "block_id": "N8",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T06:54:57+03:00-second-chat-n8",
   "claimed_at": "2026-11-12T06:54:57+03:00",
@@ -12,6 +12,17 @@
     "implement deterministic integration regression for existing real mechanics",
     "add headless acceptance and parity diagnostics"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "deterministic facility order and shared labor guard",
+    "real N6 production + N11 wage receipts",
+    "atomic checkpoint/restore and regression"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/103",
+    "https://github.com/Mefits/Living-Sector/commit/7db7a67ad5ed4197164c58130b85095636e97939"
+  ],
+  "completed_at": "2026-11-12T06:56:16+03:00",
+  "checks": [
+    "Static source/API parity only; Godot runtime unavailable"
+  ]
 }
