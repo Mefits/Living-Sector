@@ -1,6 +1,6 @@
 {
   "block_id": "N38",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T13:05:00+03:00-second-chat-N38",
   "claimed_at": "2026-11-12T13:05:00+03:00",
@@ -12,6 +12,16 @@
     "Implement a substantial deterministic save/checkpoint integrity slice in Godot",
     "Add short headless regression tests and publish draft PR"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Implemented JSON-normalized SHA-256 envelope",
+    "Bounded read and backup recovery without promoting corrupt primary",
+    "Legacy checkpoint compatibility and headless regression"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/127",
+    "https://github.com/Mefits/Living-Sector/commit/2742655362365517a1afc1c369810274b03e8ff7",
+    "Static inspection and independent Python canonicalization sanity only; Godot executable unavailable"
+  ],
+  "completed_at": "2026-11-12T13:07:00+03:00",
+  "unverified": "Godot Runtime not run"
 }
