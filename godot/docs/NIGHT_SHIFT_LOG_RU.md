@@ -709,3 +709,6 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 - N92 [Draft PR #180](https://github.com/Mefits/Living-Sector/pull/180): colony aftercare reserves, workforce, phases, independent supply intents, migration candidate; paid passenger commission and transfer remain outstanding.
 - N93 [Draft PR #181](https://github.com/Mefits/Living-Sector/pull/181): bounded symbolic deliver/produce search; explicitly PARTIAL vs Rust htn 0.2.1 method search and verification. Do not execute proposals as authoritative.
 - Three separate claims CODE_UNVERIFIED, three independent branches/PR, no merge, no Godot run, no P1 or Rust changes. Full source parity is not claimed; N39 and N90 remain other owners' work. VERIFIED counters unchanged P0 3/9, P1 0/9, P2 0/11, total 3/100.
+
+### 2026-11-12 19:37 MSK — second-chat-overnight N94/N95/N96 START
+Three atomic claims created on coordination branch before code. Scopes: native strategy sourcing, production dependency logic, portfolio policy. Three independent branches from integration HEAD `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`; N39 and other claims untouched. Phase 1 only, CODE_UNVERIFIED until runtime.
