@@ -32,7 +32,7 @@ static func create_plan(snapshot: Dictionary, goal: Dictionary, proposal: Dictio
 
 static func _key(faction_id: String, plan_id: String, step_id: String) -> String:
 	# External dispatcher must use the same stable key convention as Rust dispatch_key.
-	return faction_id + ":" + plan_id + ":" + step_id
+	return "%d:%s:%d:%s:%d:%s" % [faction_id.length(), faction_id, plan_id.length(), plan_id, step_id.length(), step_id]
 
 static func next_gate(ledger: Dictionary) -> Dictionary:
 	var completed: Dictionary = {}
