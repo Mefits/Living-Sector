@@ -6,7 +6,7 @@
   "claimed_at": "2026-11-12T07:35:32+03:00",
   "coordination_branch": "feature/godot-nightshift-20261112",
   "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
-  "source_sha_kind": "frozen Rust reference; coordination HEAD not exposed by fetch_file API",
+  "source_sha_kind": "frozen Rust reference (coordination HEAD not exposed by connector)",
   "work_branch": "feature/godot-nightshift-n17-construction-second-20261112",
   "tasks": [
     "Audit Rust construction and facility slots",
@@ -23,7 +23,6 @@
     "https://github.com/Mefits/Living-Sector/pull/105",
     "https://github.com/Mefits/Living-Sector/commit/b122d3ca92a8e6dec013dd08480111225e46f337"
   ],
-  "completed_at": "2026-11-12T07:35:32+03:00 (run time reference; actual completion later)",
   "unverified": [
     "Godot runtime not executed",
     "No integration with N15/N11/N8 authoritative services"
