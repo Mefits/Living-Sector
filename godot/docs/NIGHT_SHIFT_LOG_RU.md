@@ -290,3 +290,6 @@ Atomic claim `claims/N24.json` created at `8e525c39e901de15ad5048deede2a398d3df1
 
 ### N25 — 2026-11-12 09:54 МСК — START second-chat-overnight
 Claim: `nightshift/claims/N25.json`; source `cc72a0158e6560301f227b61a8aea473cf573d0b`; branch `feature/godot-nightshift-n25-market-settlement-second-20261112`. P2-05 native matching/settlement, physical stock and ledger, receipts and smoke. Status IN_PROGRESS.
+
+### N25 — FINISH — 2026-11-12 МСК
+Draft [PR #113](https://github.com/Mefits/Living-Sector/pull/113), commit `867a10ff13c1faf46a82a3a314255b490b5948d1`. Native order matching + atomic local stock/money settlement + idempotent receipts + versioned snapshots + headless smoke. Static parity with Rust order_book.rs; Godot not run, CODE_UNVERIFIED. Live N9/N11/TickRunner integration pending.
