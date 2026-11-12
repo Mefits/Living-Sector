@@ -4,8 +4,12 @@ extends RefCounted
 
 signal tick_completed(tick: int)
 signal controls_applied()
+signal scheduled_event_due(event: Dictionary)
 
 const SimClock = preload("res://scripts/sim/clock.gd")
+const SimCalendar = preload("res://scripts/sim/calendar.gd")
+const SimEvents = preload("res://scripts/sim/event_queue.gd")
+const SimCadence = preload("res://scripts/sim/cadence.gd")
 const WorldModel = preload("res://scripts/sim/world_model.gd")
 const SAVE_SCHEMA: int = 1
 const SCENARIO_ID: String = "galaxy-067"
@@ -21,6 +25,9 @@ const NATIVE_PHASE_ORDER: Array[String] = [
 ]
 
 var clock: RefCounted = SimClock.new()
+var calendar: RefCounted = SimCalendar.new()
+var events: RefCounted = SimEvents.new()
+var cadence: RefCounted = SimCadence.new()
 var world: RefCounted
 var tick_count: int = 0
 var _controls: Array[Dictionary] = []
@@ -32,6 +39,10 @@ func start_from_seed(seed: Dictionary) -> bool:
         return false
     world = model
     clock = SimClock.new()
+    calendar = SimCalendar.new()
+    events = SimEvents.new()
+    cadence = SimCadence.new()
+    cadence.configure("bodies", 1)
     tick_count = 0
     _controls.clear()
     _started = true
@@ -48,8 +59,7 @@ func queue_control(kind: String, value: Variant = null) -> bool:
         return false
     match kind:
         "pause", "resume":
-            # Keep command validation identical for live controls and restore.
-            # A value must not silently disappear from a persisted command.
+            # N1 fix: live commands must obey the same contract as restored commands.
             if value != null:
                 return false
         "step":
@@ -93,9 +103,28 @@ func advance_frame(delta: float) -> void:
     for _i in range(due):
         _advance_one_tick()
 
+func schedule_event(event_id: String, due_tick: int, phase: String, entity_id: String, kind: String, payload: Dictionary = {}) -> bool:
+    if not _started or due_tick <= tick_count:
+        return false
+    var index: int = NATIVE_PHASE_ORDER.find(phase)
+    if index < 0:
+        return false
+    return events.schedule(event_id, due_tick, index, entity_id, kind, payload)
+
+func cancel_event(event_id: String) -> bool:
+    return _started and events.cancel(event_id)
+
 func _advance_one_tick() -> void:
     tick_count += 1
-    world.advance_orbits(clock.tick_scale())
+    var native_delta: float = clock.tick_scale()
+    for phase_index in range(NATIVE_PHASE_ORDER.size()):
+        var phase: String = NATIVE_PHASE_ORDER[phase_index]
+        if phase == "bodies" and cadence.is_due(phase, tick_count):
+            world.advance_orbits(native_delta)
+        # Events are notifications only. No invented economic or AI effects.
+        for event in events.take_due(tick_count, phase_index):
+            scheduled_event_due.emit(event)
+    calendar.advance_committed_tick(native_delta)
     tick_completed.emit(tick_count)
 
 func checkpoint() -> Dictionary:
@@ -108,6 +137,9 @@ func checkpoint() -> Dictionary:
         "seed_fingerprint": world.seed_fingerprint(),
         "tick": tick_count,
         "clock": clock.snapshot(),
+        "calendar": calendar.snapshot(),
+        "cadence": cadence.snapshot(),
+        "events": events.snapshot(),
         "orbital_angles": world.orbital_snapshot(),
         "pending_controls": _controls.duplicate(true),
         "scope": "P1 orbital-only; no economic, ship or contract state is mutable yet"
@@ -152,11 +184,37 @@ func restore_checkpoint(snapshot: Dictionary, frozen_seed: Dictionary) -> bool:
         return false
     if not staged_world.restore_orbital_snapshot(angle_value):
         return false
+    var staged_calendar = SimCalendar.new()
+    # Schema v1 saves predate the calendar; replaying a constant historic
+    # world_speed is unsafe because speed could change between saved ticks.
+    # Keep legacy saves loadable, but mark elapsed native time as unknown.
+    var calendar_value: Variant = snapshot.get("calendar", null)
+    if calendar_value != null:
+        if not (calendar_value is Dictionary) or not staged_calendar.restore(calendar_value):
+            return false
+    elif int(version) == SAVE_SCHEMA:
+        staged_calendar.native_time_units = 0.0
+        staged_calendar.origin_known = false
+    var staged_cadence = SimCadence.new()
+    var cadence_value: Variant = snapshot.get("cadence", null)
+    if cadence_value != null:
+        if not (cadence_value is Dictionary) or not staged_cadence.restore(cadence_value, NATIVE_PHASE_ORDER):
+            return false
+    else:
+        staged_cadence.configure("bodies", 1)
+    var staged_events = SimEvents.new()
+    var events_value: Variant = snapshot.get("events", null)
+    if events_value != null:
+        if not (events_value is Dictionary) or not staged_events.restore(events_value, int(saved_tick), NATIVE_PHASE_ORDER.size()):
+            return false
     var staged_clock = SimClock.new()
     if not staged_clock.restore(clock_value):
         return false
     world = staged_world
     clock = staged_clock
+    calendar = staged_calendar
+    cadence = staged_cadence
+    events = staged_events
     tick_count = int(saved_tick)
     _controls = staged_controls
     # UI receives the exact restored counter before a further update.
