@@ -188,6 +188,12 @@ func _initialize() -> void:
         _fail("forged_wallet_accepted")
         return
     forged = saved_midflight.duplicate(true)
+    forged["payload"]["ledger"]["balances"]["facility:facility-earth-station"] = 61000
+    forged["sha256"] = Checkpoint._canonical(forged["payload"]).sha256_text()
+    if Engine.new().restore_complete(seed, forged).get("ok", false):
+        _fail("rehashed_money_supply_inflation_accepted")
+        return
+    forged = saved_midflight.duplicate(true)
     forged["payload"]["ship_state"][0]["cargo_capacity"] = 100000
     forged["sha256"] = Checkpoint._canonical(forged["payload"]).sha256_text()
     if Engine.new().restore_complete(seed, forged).get("ok", false):
