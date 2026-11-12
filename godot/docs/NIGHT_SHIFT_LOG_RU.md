@@ -85,3 +85,5 @@ Reserved `N4.json` atomically; implementing native registry and travel route gra
 ### 2026-11-12 02:02 CET — N4 complete (CODE_UNVERIFIED)
 
 [PR #92](https://github.com/Mefits/Living-Sector/pull/92) (head `f0fab080`): data-only native identity registry, 12-edge directed route graph, Dijkstra shortest path, canonical snapshots and short headless test. Native static audit 8 JSON worlds; route earth-station → pirate-outpost 855 units. Godot executable absent; test not run. N5 next free at time of completion; do not merge without runtime review.
+
+- 2026-11-12 04:24 МСК: second-chat-overnight зарезервировал N5 (native commodities/recipes), claim `claims/N5.json`, рабочая ветка `feature/godot-nightshift-n5-commodities-recipes-20261112`; CODE_UNVERIFIED до Godot.
