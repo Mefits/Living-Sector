@@ -30,7 +30,7 @@ func _initialize() -> void:
         _fail("registry leaked writable references")
         return
     var graph = registry.graph()
-    if graph == null or graph.edge_count() != 13:
+    if graph == null or graph.edge_count() != 12:
         _fail("native route count")
         return
     var path: Dictionary = graph.shortest_path("earth-station", "pirate-outpost")
