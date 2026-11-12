@@ -1,6 +1,6 @@
 {
   "block_id": "N27",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T10:02:17+03:00-second-chat-n27",
   "claimed_at": "2026-11-12T10:02:17+03:00",
@@ -11,5 +11,16 @@
     "close direct contract payout bypass via authoritative delivery coordinator",
     "ensure idempotent receipts and snapshot restore",
     "add regression smoke for invalid direct transitions and payout conservation"
+  ],
+  "completed_at": "2026-11-12T10:04:00+03:00",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/115",
+  "head_sha": "9127da6e537463c2087b4ec68da839cb68d5dd15",
+  "checks": [
+    "source review",
+    "headless smoke prepared; NOT RUN"
+  ],
+  "remaining": [
+    "Godot runtime acceptance",
+    "typed handlers for non-delivery contract types"
   ]
 }
