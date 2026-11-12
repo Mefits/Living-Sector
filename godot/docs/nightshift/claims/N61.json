@@ -1,6 +1,6 @@
 {
   "block_id": "N61",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "2026-11-12-interactive-n61-itinerary-live-admission",
   "claimed_at": "2026-11-12T13:51:15.119Z",
@@ -24,5 +24,20 @@
     "N39 owned production",
     "stable P1",
     "main and Rust archive"
+  ],
+  "activity": "COMPLETED_CODE",
+  "finished_at": "2026-11-12T13:59:55.474Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/150",
+  "head_sha": "8aba694fe54a0cd4f445e3bcd7eb74a692dd3504",
+  "progress": [
+    "Ported unchanged N58/N59/N60 route audit, shortest directed path planner and itinerary admission into the N57 stack.",
+    "Added N61 native itinerary bridge and N57 optional read-only plan_ship_itinerary plus single physical leg depart_itinerary_hop with explicit continuation.",
+    "Rejected non-native route weight, unknown destination, stale path/cost, loops, midflight reissue; N14/N21 controls used without teleport.",
+    "Added focused native 3-hop Sol->Epsilon->Tau->Barnard headless regression and N54 in-flight resume safety checks."
+  ],
+  "evidence": [
+    "All 3 source modules have exact Git blob SHA from PRs #146/#147/#148; no source files modified in N39 or P1 UI.",
+    "Native Rust frozen route graph includes earth-station→lane-epsilon 115, lane-epsilon→lane-tau 150, lane-tau→lane-barnard 200 (total 465).",
+    "PR #150 draft; GDScript preloads referenced from existing scripts and new files; Godot 4.7 binary absent and headless smoke NOT executed."
   ]
 }
