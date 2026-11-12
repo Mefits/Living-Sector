@@ -1,0 +1,29 @@
+{
+  "block_id": "N142",
+  "macro_id": 10,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "20261112-n142-registry-physical-distance",
+  "claimed_at": "2026-11-12T23:31:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "rust_ref": "archive/rust-galaxy-067-reference",
+  "rust_source_paths": [
+    "native/crates/sim_core/src/world/registry.rs",
+    "native/crates/sim_core/src/world/travel.rs",
+    "native/crates/sim_core/src/simulation/config.rs::TickConfig"
+  ],
+  "excluded_source_paths": [
+    "native/crates/sim_core/src/world/pathfinder.rs (already covered N59/PR #147)",
+    "Godot N58–N61 directed graph audit/admission and physical fleet apply"
+  ],
+  "work_branch": "feature/godot-n142-native-registry-physical-distance-20261112",
+  "scope": "Macro10 full native WorldRegistry topology data/physical-only shortest_distance/direct travel_distance plus legacy world travel_ticks/arrival_tick/progress arithmetic. Independent of N59 gate-enabled pathfinder, N61 itinerary, N112 moving-position transit, N140 LOD and other claims.",
+  "tasks": [
+    "Rust registry SystemInfo/LocationInfo/Route model with strictly known locations and preserved directed adjacency, no fabricated inverse edges",
+    "Port WorldRegistry.travel_distance and shortest_distance with u32 saturated arithmetic explicitly ignoring jump-gate teleportation, read-only for strategic budgets; topology/metadata and snapshot",
+    "Port Rust world/travel.rs travel_ticks, arrival_tick, transit_progress and TickConfig values, distinguish legacy ETA vs dynamic native live flight",
+    "Source-derived fixture scenarios, source mapping and Phase-2 handoff, staged data-only PR and claim/queue/log/tracker coverage updates"
+  ],
+  "evidence": [],
+  "progress": []
+}
