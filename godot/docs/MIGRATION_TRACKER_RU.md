@@ -68,7 +68,7 @@
 | `P2-05` | Ордербук, сделки и деньги → `sim/economy/ledger` | `economy/order_book.rs; money.rs` | `TODO` | Покупатель и продавец платят/получают один раз |
 | `P2-06` | Предприятия: циклы и состояние → `sim/production/facilities` | `agents/facility/*` | `TODO` | Производится только при нужных входах/условиях |
 | `P2-07` | Работники, занятость, зарплаты и доступность → `sim/production/workforce` | `facility/workforce.rs; construction/labor.rs` | `TODO` | Нет выпуска без рабочих и реальных затрат |
-| `P2-08` | Население, еда/вода, благосостояние → `sim/population` | `agents/population.rs` | `TODO` | Потребление и изменения населения не фиктивны |
+| `P2-08` | Население, еда/вода, благосостояние → `sim/population` | `agents/population.rs` | `CODE_UNVERIFIED` | [N12 PR #97](https://github.com/Mefits/Living-Sector/pull/97): локальные покупки/голод/настроение/давление миграции; нет Godot запуска, контрактов и переноса населения |
 | `P2-09` | Износ, ремонт, прекращение работы и банкротство → `sim/production/maintenance` | `facility/mod.rs; agents/faction.rs` | `TODO` | Остановки и источники денег видимы |
 | `P2-10` | Два типа модулей предприятий T1–T3 → `sim/production/fitting` | `facility_modules/mod.rs; module_production.rs` | `TODO` | Множители работают только при настоящем модуле |
 | `P2-11` | Налог/трансферты/субсидии и баланс → `sim/factions/treasury` | `agents/faction.rs; relief.rs` | `TODO` | Баланс денег/эскроу не удваивается |
