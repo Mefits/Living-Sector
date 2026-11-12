@@ -1,6 +1,6 @@
 {
   "block_id": "N53",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "2026-11-12T12:27:33.296Z-interactive-N53-dock-start-gate",
   "claimed_at": "2026-11-12T12:27:33.296Z",
@@ -17,7 +17,7 @@
     "PR; do not modify N39 production or world UI"
   ],
   "execution_order": 4,
-  "activity": "QUEUED_BY_USER_REQUEST",
+  "activity": "COMPLETED_CODE",
   "dependencies": [
     "N46 / PR #136"
   ],
@@ -25,5 +25,18 @@
     "N39 production",
     "P1 checkpoint",
     "main/stable/frozen Rust"
+  ],
+  "finished_at": "2026-11-12T12:48:42.609Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/143",
+  "head_sha": "42d578a91188f2fba5848cad74230e967fef7025",
+  "progress": [
+    "Bootstrapped N21 docking authority from 15 real facility source capacities and 24 ship locations, no assumed docked_at",
+    "Added exact explicit docking/replay/undock tests and fail-closed saved-state detection",
+    "Kept N39 production, Rust, P1, and main unchanged"
+  ],
+  "evidence": [
+    "Frozen Rust sim_db seeder and 001_initial.sql show ships docked_at=NULL on fresh initial INSERT",
+    "All five preload dependencies found",
+    "Godot runtime not installed; headless smoke not executed"
   ]
 }
