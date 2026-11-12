@@ -1,8 +1,8 @@
 {
   "block_id": "N39",
   "status": "IN_PROGRESS",
-  "owner": "interactive-chat",
-  "run_id": "2026-11-12-interactive-n39-production-live-01",
+  "owner": "primary-chat-20261113",
+  "run_id": "2026-11-13-primary-n39-physical-production-01",
   "claimed_at": "2026-11-12T10:40:50.393Z",
   "coordination_branch": "feature/godot-nightshift-20261112",
   "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
@@ -14,6 +14,19 @@
     "Встроить фазу facilities в единый TickRunner, не ломая орбиты и N3 события, с guardrails restore",
     "Добавить короткий headless regression и интеграционный handoff без пользовательских тестов"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "N39 handoff accepted by primary chat after all old chats were stopped; no N39 branch changes or existing PR; N100 reserved for new second chat.",
+    "Audited frozen Rust facility tick, paid workforce and mining; native Godot N6/N8/N23 singular shifts do not implement source full physical world pass."
+  ],
+  "evidence": [],
+  "handoff_history": [
+    {
+      "previous_owner": "interactive-chat",
+      "previous_run_id": "2026-11-12-interactive-n39-production-live-01",
+      "status_at_handoff": "IN_PROGRESS",
+      "reason": "User confirmed all previous development chats stopped; N39 branch identical to base, zero independent commits, no N39 PR.",
+      "handoff_date": "2026-11-13"
+    }
+  ],
+  "handoff_at": "2026-11-13"
 }
