@@ -51,6 +51,17 @@ static func run() -> Dictionary:
 	after = Batch.after_meals(post_meal, 6, 1)
 	if str(after["ships"]["s"]["crew"]["current_task"]) != "piloting":
 		errors.append("returns_to_piloting_after_meal")
+	# Rust enters Eating from the BEFORE-meal threshold even if Food heals hunger.
+	var before_food := {"s": _ship()}
+	before_food["s"]["crew"]["hunger"] = 70.0
+	var prepared := Batch.before_meals(before_food, 6, 1)
+	var eaten := prepared["ships"].duplicate(true)
+	eaten["s"]["crew"]["hunger"] = 45.0
+	var still_eating := Batch.after_meals(eaten, 6, 1)
+	if str(still_eating["ships"]["s"]["crew"]["current_task"]) != "eating":
+		errors.append("eating_branch_must_use_pre_meal_hunger")
+	if still_eating["ships"]["s"].has("n138_hunger_before_meal"):
+		errors.append("ephemeral_hunger_token_must_not_persist")
 	var shore := _crew("idle", 49.9)
 	if not Welfare.needs_shore_leave(shore) or Welfare.shore_leave_complete(shore):
 		errors.append("shore_leave_threshold")
