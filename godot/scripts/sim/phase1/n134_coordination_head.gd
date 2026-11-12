@@ -11,7 +11,9 @@ static func same_problem(a: Dictionary, b: Dictionary) -> bool:
         str(a.get("destination", "")) == str(b.get("destination", ""))
 
 static func granted_goal_matches(granted: Dictionary, goal: Dictionary, administrator: String) -> bool:
-    if not same_problem(granted, goal):
+    if str(granted.get("commodity", "")).is_empty() or \
+            str(granted.get("destination", "")).is_empty() or \
+            str(goal.get("goal_id", "")).is_empty() or not same_problem(granted, goal):
         return false
     match str(granted.get("goal_id", "")):
         "player_supply":
@@ -38,7 +40,7 @@ static func preview(view: Dictionary, comparison: Dictionary, tick: int, mult: i
     var treasury: int = int(view.get("treasury", 0))
     var alternatives: Array = comparison.get("alternatives", [])
     var has_problem: bool = comparison.get("goal", null) is Dictionary and \
-        not (comparison.get("goal", {}) as Dictionary).is_empty()
+        not comparison.get("goal", {}).is_empty()
     var problem: Dictionary = comparison.get("goal", {}).duplicate(true) if has_problem else {}
     var selected: String = "wait" if already_commissioned else str(comparison.get("selected", "wait"))
     if not ["deliver", "build", "wait"].has(selected):
