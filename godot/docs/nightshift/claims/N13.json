@@ -1,0 +1,18 @@
+{
+  "block_id": "N13",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T04:39:04+03:00-second-chat-n13-ship-catalog",
+  "claimed_at": "2026-11-12T04:39:04+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "b9054f8938ac199b8530976aada64503fb5f613f",
+  "work_branch": "feature/godot-nightshift-n13-ships-second-20261112",
+  "tasks": [
+    "Audit Rust ship class and component definitions",
+    "Implement compact data-only ship specifications and cargo/fuel/crew invariant checks",
+    "Implement stable ship state and snapshot validation",
+    "Add short headless parity smoke"
+  ],
+  "progress": [],
+  "evidence": []
+}
