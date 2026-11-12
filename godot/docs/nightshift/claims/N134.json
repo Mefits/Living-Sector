@@ -1,0 +1,20 @@
+{
+  "block_id": "N134",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "20261112T2226MSK-interactive-n134",
+  "claimed_at": "2026-11-12T22:26:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "source_path": "native/crates/sim_core/src/strategy/coordination.rs",
+  "work_branch": "feature/godot-n134-native-coordination-20261112",
+  "scope": "Large standalone frozen Rust faction strategy coordination: decision gating, priorities, authority and change proposals; preserve independent boundaries with N100 hybrid, N121 native execution, N39 production and N98 ledger",
+  "tasks": [
+    "Audit source coordination.rs states and top-level algorithm contracts and already-ported slices",
+    "Port source-backed faction strategy coordination decision rules and action admission to data-only Godot/GDScript, without duplicate N121 execution",
+    "Preserve deterministic ordering, all budget/resource/tick gating and explicit external apply receipts",
+    "Write source-accurate handoff and update queue, journal, main tracker with draft PR; static-only CODE_UNVERIFIED"
+  ],
+  "progress": [],
+  "evidence": []
+}
