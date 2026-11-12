@@ -1,5 +1,6 @@
 extends SceneTree
 ## N35 CODE_UNVERIFIED: godot --headless --path godot --script res://tests/n35_contract_tick_check.gd
+const NativeData = preload("res://scripts/native_data.gd")
 const Runner = preload("res://scripts/sim/contract_tick_runner.gd")
 const Dispatcher = preload("res://scripts/sim/economy/contract_command_runner.gd")
 const Board = preload("res://scripts/sim/economy/contract_board.gd")
@@ -57,11 +58,7 @@ func _initialize() -> void:
 	quit(0)
 
 func _load_seed() -> Dictionary:
-	# Reuse the exact P1 test seed rather than inventing an alternate galaxy.
-	var paths := ["res://data/galaxy_seed.json", "res://data/seed.json"]
-	for path in paths:
-		if FileAccess.file_exists(path):
-			var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
-			if parsed is Dictionary:
-				return parsed
-	return {}
+	var seed: Dictionary = NativeData.load_current_world()
+	if seed.has("error"):
+		return {}
+	return seed
