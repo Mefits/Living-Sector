@@ -667,3 +667,5 @@ Three separate draft PRs: [N74 #160](https://github.com/Mefits/Living-Sector/pul
 - N78 [PR #167](https://github.com/Mefits/Living-Sector/pull/167): director strategic memory, viable incumbent, emergency supply priority, hysteresis and native prepaid-plan retention; no world actions.
 - N79 [PR #168](https://github.com/Mefits/Living-Sector/pull/168): Rust colony.rs body/expedition gates. Initial shipyard title narrowed because no source-backed shipyard constructor was verified; no free ship creation.
 - Three distinct claims closed CODE_UNVERIFIED. Source read; only GitHub file existence/writes checked. No GDScript parser, Godot runtime, integrated world or game test executed. P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED unchanged.
+
+> **2026-11-12 18:30 MSK — second-chat-overnight:** N81 (GOAP planner), N82 (native research technology catalogue), N83 (ship trade candidate policy) atomically reserved IN_PROGRESS on coordination branch, each with own scope and work branch; source integration HEAD `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`. N39 untouched. Phase 1 component port only; no runtime verification.
