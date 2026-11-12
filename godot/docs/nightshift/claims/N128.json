@@ -1,0 +1,18 @@
+{
+  "block_id": "N128",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "20261112-220124-second-chat-N128",
+  "claimed_at": "2026-11-12T22:01:24+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n128-ship-combat-second-20261112",
+  "scope": "ship combat damage and threat resolution",
+  "tasks": [
+    "Inspect frozen Rust exact source and existing ports",
+    "Port independent GDScript component with source parity",
+    "Publish separate Draft PR and record limitations"
+  ],
+  "progress": [],
+  "evidence": []
+}
