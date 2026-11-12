@@ -29,6 +29,8 @@
 
 > **N15, 12.11.2026:** [PR #101](https://github.com/Mefits/Living-Sector/pull/101) — integer ship cargo load/unload, conservation, capacity, location and idempotent receipts. N14/N13/N4 dependent; N9 warehouse integration and N16 contract settlement pending. `CODE_UNVERIFIED` (no Godot runtime); VERIFIED unchanged.
 
+> **N8, 12.11.2026:** [PR #103](https://github.com/Mefits/Living-Sector/pull/103) connects N6 local production, N11 ledger, warehouse and per-location labor budget with deterministic order, atomic save/restore and smoke. **CODE_UNVERIFIED** (no Godot run); no global TickRunner or cross-owner economy. VERIFIED remains 3/100.
+
 ## Подробные задачи
 
 Порядок идентификаторов неизменяем; новые задачи получают новый ID. В столбце «Источник» указан краткий относительный путь под `native/crates/sim_core/src/`, если явно не указан иной префикс.
