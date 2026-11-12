@@ -812,3 +812,6 @@ Three independent claims created atomically before code: N118 colony founding, N
 - N119 [Draft PR #208](https://github.com/Mefits/Living-Sector/pull/208): admin ship hydration after committed DB insertion from sim_server/engine/admin.rs; NOT shipyard construction; fitting/personality constructors pending.
 - N120 [Draft PR #209](https://github.com/Mefits/Living-Sector/pull/209): paid research shift from strategy/director.rs with 1 electronics, 10 workers, 10 wages and reserve; external authoritative atomic settlement pending.
 - Three own claims closed CODE_UNVERIFIED. No Godot runtime or parser, no merge or P1 modification. N39/N100 and other claims untouched.
+
+### 2026-11-12 21:47 MSK — second-chat-overnight START N122–N124
+Three distinct atomic claims created on coordination branch before code. N122 territory, N123 biome/resource regeneration, N124 observed market demand/shortage. Separate source scopes and branches; N39/N121 and all existing claims untouched. CODE_UNVERIFIED until actual Godot execution.
