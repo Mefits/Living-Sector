@@ -1,0 +1,26 @@
+{
+  "block_id": "N65",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T14:07:45.647Z-interactive-N65",
+  "claimed_at": "2026-11-12T14:07:45.647Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "feature/godot-n61-live-itinerary-admission-20261112",
+  "source_sha": "8aba694fe54a0cd4f445e3bcd7eb74a692dd3504",
+  "work_branch": "feature/godot-n65-fleet-distress-20261112",
+  "subject": "Source-backed ship fuel exhaustion, distress state and recovery admission",
+  "owned_files": [
+    "godot/scripts/sim/ships/fleet_distress.gd"
+  ],
+  "scope_boundary": [
+    "N39 production files excluded",
+    "Rust archive/main/stable/P1 untouched"
+  ],
+  "tasks": [
+    "Audit frozen Rust out-of-fuel behavior for ships and match N14 movement",
+    "Stable deterministic distress snapshot with refusal to refill or teleport absent rescue mechanics",
+    "Headless N65 smoke and explicit resume safety; do not alter N39"
+  ],
+  "activity": "QUEUED",
+  "dependency": "N61 / PR #150"
+}
