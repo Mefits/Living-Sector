@@ -1,6 +1,6 @@
 {
   "block_id": "N48",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T15:18:37+03:00-second-chat-n48",
   "started_at": "2026-11-12T15:18:37+03:00",
@@ -15,6 +15,22 @@
     "Add short headless regression for capacity, location and repeat requests",
     "Publish separate draft PR and record CODE_UNVERIFIED"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Physical embark debits source population, disembark credits destination only after docked arrival",
+    "Capacity, location, sentiment and minimum population gates",
+    "Idempotent receipts and guarded snapshot/restore"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/137",
+    "bf3a63bc3b34082c49fc86390e3fd0274203f799",
+    "Rust population.rs: passenger posting deliberately disabled"
+  ],
+  "tests": [
+    "Static Rust source parity reviewed",
+    "Godot headless script prepared, NOT EXECUTED"
+  ],
+  "blockers": [
+    "Godot runtime not executed",
+    "No authoritative N40 ship registry integration; caller-supplied docking facts"
+  ]
 }
