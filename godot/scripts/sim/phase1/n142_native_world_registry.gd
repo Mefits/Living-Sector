@@ -171,7 +171,7 @@ static func _push(heap: Array, item: Array) -> void:
 	heap.append(item)
 	var idx := heap.size() - 1
 	while idx > 0:
-		var parent := (idx - 1) / 2
+		var parent: int = int((idx - 1) / 2)
 		if not _less(heap[idx], heap[parent]):
 			break
 		var old = heap[parent]
@@ -251,6 +251,9 @@ func physical_distance_matrix(queries: Array) -> Dictionary:
 			return {"ok": false, "reason": "invalid_distance_request", "distances": {}}
 		var origin: String = str(query["from"])
 		var destination: String = str(query["to"])
+		if not _locations.has(origin) or not _locations.has(destination):
+			return {"ok": false, "reason": "unknown_distance_location:" + origin + ":" + destination,
+				"distances": {}}
 		var computed := shortest_distance(origin, destination)
 		if not bool(computed.get("found", false)):
 			return {"ok": false, "reason": "distance_unreachable:" + origin + ":" + destination,
