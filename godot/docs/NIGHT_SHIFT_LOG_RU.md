@@ -563,3 +563,6 @@ Draft [PR #137](https://github.com/Mefits/Living-Sector/pull/137) at `bf3a63bc3b
 ### 2026-11-12 — overnight-scheduler, N56 FINISH
 - [Draft PR #145](https://github.com/Mefits/Living-Sector/pull/145), head `207d8c419f0c5633d9f44220cd266974a0ab1d0a`: directed leg/path admission, world-space positions and fail-closed validation. Rust `route_actions` fallback intentionally not emulated; no live transit wiring.
 - Godot executable absent; headless regression authored, NOT run. Claim N56 CODE_UNVERIFIED. N39/N54 untouched; P0 3/9, P1 0/9, P2 0/11, total 3/100 confirmed.
+
+### 2026-11-12 16:21 MSK — N58 START (second-chat-overnight)
+Atomic claim `claims/N58.json` at `7e223aacd7f152e7b590d89b460a15014567ee06`; source integration PR #128 @ `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`. Scope: independent read-only directed native route graph audit and headless smoke; N39/N57 untouched.
