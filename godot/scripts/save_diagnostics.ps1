@@ -21,7 +21,7 @@ try {
     # and summary.txt to logs/integration, not directly to logs.
     if (Test-Path -LiteralPath $integration -PathType Container) {
         $selected = @(Get-ChildItem -LiteralPath $integration -File | Where-Object {
-            $_.Extension -eq '.log' -or $_.Name -eq 'summary.txt'
+            $_.Extension -eq '.log' -or $_.Name -eq 'summary.txt' -or $_.Name -like '*-console.txt' -or $_.Name -eq 'godot-version.txt'
         })
         if ($selected.Count -gt 0) {
             $target = Join-Path $tmp 'integration'
