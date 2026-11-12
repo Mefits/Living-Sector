@@ -892,3 +892,6 @@ All three claims closed CODE_UNVERIFIED, GitHub readback and delimiter balance o
 - Preserved: contract/constructor order isolation, source-owned escrow checks, storage/cost/treaty guards, ShipFitting sensor range and real location/route, stable priorities, lease/cooldown, resourcing before acceptance, paid-project no-duplicated grants and only non-mutating price-knowledge intents. Only the frozen Rust 0.6.7 reference was used for rules and constants.
 - Read back new GDScript from GitHub; balanced quotes/brackets and source comparison. NO Godot parser/headless/runtime, NO functional replay tests executed; companion test scenarios added only. Status `CODE_UNVERIFIED`. N39/N100/N134/N98 and all other claims untouched. Phase-2 exclusive world/board integration remains.
 - Phase-1 amount remaining approximately **58–61%** by mechanics coverage (symbolic only), distinct from Nx/PR counts.
+
+### N139 started — 2026-11-12T23:06:24+03:00
+Claim created atomically by second-chat-overnight; source `native/crates/sim_core/src/strategy/production_chain.rs`, branch `feature/godot-n139-native-production-chain-20261112`. IN_PROGRESS; no code yet.
