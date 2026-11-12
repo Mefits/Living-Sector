@@ -1,6 +1,6 @@
 {
   "block_id": "N137",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T22:57:17+03:00-second-chat-overnight-N137",
   "claimed_at": "2026-11-12T22:57:17+03:00",
@@ -15,6 +15,18 @@
     "Preserve memory freshness, cargo, fuel, location and reputation inputs",
     "Document pure state contract and Rust mapping; minimal static check"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Seven native considerations and price freshness implemented in GDScript",
+    "Handoff documentation committed"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/226",
+    "525344d05e403b8a4583c7648aad0f5828335e48",
+    "8fbe37a1e3bf8b0c22ab0c98df286b12c168aee6"
+  ],
+  "checks": [
+    "GitHub readback and balanced delimiters",
+    "Godot runtime not run"
+  ],
+  "completed_at": "2026-11-12T22:59:00+03:00"
 }
