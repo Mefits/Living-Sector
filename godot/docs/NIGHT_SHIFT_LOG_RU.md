@@ -741,3 +741,9 @@ Three distinct atomic claims created before code: N101 ship progression/fittings
 - N102 [Draft PR #190](https://github.com/Mefits/Living-Sector/pull/190): Rust facility delivery convoy grouping, solvent lead and unbundled fallback.
 - N103 [Draft PR #191](https://github.com/Mefits/Living-Sector/pull/191): profitable ice mining cap/cost and solvent reachable liquidation selection.
 Three independent claims CODE_UNVERIFIED. Source reviewed, no Godot execution, no integration or merge. N39/N97/N100 untouched. Remaining native gaps: authoritative economic apply N97, hybrid planner N100, full ship/facility execution, colony and strategy parity.
+
+### 2026-11-12 — overnight-scheduler run 11: N105–N107 reserved
+- N105 — `IN_PROGRESS`, Rust `agents/faction/relief.rs`, treasury-funded relief; claim N105.json.
+- N106 — `IN_PROGRESS`, Rust `strategy/long_term.rs`, durable paid production objective; claim N106.json.
+- N107 — `IN_PROGRESS`, Rust `strategy/station.rs`, station administrator decisions; claim N107.json.
+- Three atomic claims created before code, distinct work branches, N39/N104 untouched. Runtime unverified.
