@@ -1,0 +1,18 @@
+{
+  "block_id": "N16",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T06:43:07+03:00-second-chat-n16-contracts",
+  "claimed_at": "2026-11-12T06:43:07+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "c924bdcf7a33476e581277992fa1fdbb5b9fa940",
+  "work_branch": "feature/godot-nightshift-n16-contracts-second-20261112",
+  "tasks": [
+    "audit Rust contract types and lifecycle",
+    "implement deterministic contract escrow and transitions",
+    "implement idempotent settlement/expiration",
+    "add headless acceptance test"
+  ],
+  "progress": [],
+  "evidence": []
+}
