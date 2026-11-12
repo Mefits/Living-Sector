@@ -545,3 +545,7 @@ Draft [PR #137](https://github.com/Mefits/Living-Sector/pull/137) at `bf3a63bc3b
 > **N55 START — 2026-11-12 15:31 MSK:** second-chat-overnight atomically claimed N55 @ `da3254ce`; opt-in bounded render-independent tick admission, no invented hours/tick; branch `feature/godot-n55-clock-admission-second-20261112` from integration #128 @ `1e4a1e9`.
 
 > **N55 FINISH — 2026-11-12 15:33 MSK:** [Draft PR #140](https://github.com/Mefits/Living-Sector/pull/140), existing SimClock hitch admission + read-only diagnostics + short smoke. Rust Delay semantics; static bracket check only. CODE_UNVERIFIED, no merge; P0 3/9, P1 0/9, P2 0/11, total 3/100 unchanged.
+
+### 2026-11-12 13:57 CET — overnight-scheduler, N56 START
+- Atomic claim `claims/N56.json` @ `f53964e3086970e6638f38ba23a4bc6acca8527f`; separate route admission parity block, no overlap with N39 production / N54 fleet save.
+- Planned branch `feature/godot-nightshift-n56-route-admission-20261112`; Godot runtime status pending.
