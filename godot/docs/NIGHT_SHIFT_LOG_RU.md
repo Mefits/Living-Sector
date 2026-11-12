@@ -1,5 +1,11 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 2026-11-12 — interactive-chat, N61 DONE / PR #150
+- Атомарный claim N61 создан до работы, теперь CODE_UNVERIFIED; [PR #150](https://github.com/Mefits/Living-Sector/pull/150) на базе N57/#149. N39 production принадлежит другому владельцу и не затронут.
+- Скопированы без изменений N58 route graph audit/#146, N59 directed Dijkstra/#147, N60 itinerary admission/#148. Новый native_itinerary_bridge и N57 методы планируют весь маршрут из frozen seed, затем разрешают только **один физический следующий N14 перелёт**. Промежуточные узлы нужно проходить отдельной командой; скрытый autopilot не создаётся, чтобы он не терялся в N54 save.
+- Написана короткая headless regression на реальном мире: earth-station → lane-epsilon → lane-tau → lane-barnard, веса 115+150+200=465, проверка ложных маршрутов, сохранения на первом участке и запрета телепортации. **Godot 4.7 не запускался**.
+- Обработано N1–N61: 60 блоков в PR/коде, N39 ещё в работе. Это не процент функционального паритета (ориентир ~20–30% готово, 70–80% работы остаётся). Проверенная Windows P1 и main неизменны.
+
 ### 2026-11-12 — interactive-chat, N61 / route integration START
 - Свободный N61 забронирован до редактирования кода: [claims/N61.json](nightshift/claims/N61.json) @ `6e1b8e9ec5c4df37ea05fd03a27714c0cff0dfea`.
 - Интегрировать N58/#146, N59/#147, N60/#148 как read-only admission в N57/#149, без чужого N39; никаких автоматических перелётов сквозь промежуточные пункты и неполных сохранений маршрутов.
