@@ -19,7 +19,7 @@ static func median_known_price(price_knowledge: Dictionary, commodity: String) -
 		return null
 	values.sort()
 	# Rust picks prices[len/2], including the upper median for even sizes.
-	return values[values.size() / 2]
+	return values[int(values.size() / 2)]
 
 static func quote_source_price(memory: Dictionary, source: String, commodity: String) -> Variant:
 	var price_map: Dictionary = memory.get("price_knowledge", {})
