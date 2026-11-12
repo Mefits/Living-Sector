@@ -60,6 +60,6 @@ func _valid(markets: Dictionary, ticks: Dictionary) -> bool:
 		if not ticks.is_empty() and (not ticks.has(id) or typeof(ticks[id]) != TYPE_INT or ticks[id] < -1):
 			return false
 		for slug in markets[id]:
-			if typeof(slug) != TYPE_STRING or not Engine.recalculate(float(markets[id][slug]), 10.0, 1.0, 0.0, 0) > 0.0:
+			if typeof(slug) != TYPE_STRING or (typeof(markets[id][slug]) != TYPE_FLOAT and typeof(markets[id][slug]) != TYPE_INT) or Engine.recalculate(float(markets[id][slug]), 10.0, 1.0, 0.0, 0) <= 0.0:
 				return false
 	return ticks.is_empty() or ticks.size() == markets.size()
