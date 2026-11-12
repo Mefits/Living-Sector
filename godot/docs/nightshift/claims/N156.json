@@ -1,0 +1,39 @@
+{
+  "block_id": "N156",
+  "macro_id": 1,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13-macro1-facility-economy-n39-nonoverlap",
+  "claimed_at": "2026-11-13T02:01:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "work_branch": "feature/godot-n156-native-facility-economy-lifecycle-20261113",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_paths": [
+    "native/crates/sim_core/src/agents/facility/mod.rs::tick_facilities_with_relations/build_facility_lod_gate/tick_degrade_condition/tick_dock_queue_sweep/tick_facility_crew/tick_self_repair/tick_abandonment",
+    "native/crates/sim_core/src/agents/facility/mod.rs::tick_post_contracts_with_relations/tick_post_crew_missions source demand policy",
+    "native/crates/sim_core/src/agents/facility/restock.rs audit N130 and workforce.rs audit N116/N39",
+    "native/crates/sim_core/src/economy/recipes.rs full source inventory, N39 exclusive actual World production owner"
+  ],
+  "scope": "Macro1 independent frozen Rust facility lifecycle, maintenance, condition, abandonment, dock queue, LOD and post-production orchestration, plus facility demand policies without touching active N39 production/paid workforce code, N104 escrow or N150 prices. Source close macro1 only if N39 complete otherwise partial.",
+  "related": [
+    "N6",
+    "N8",
+    "N23",
+    "N39",
+    "N116",
+    "N130",
+    "N132",
+    "N139",
+    "N141",
+    "N154"
+  ],
+  "tasks": [
+    "Audit facility source functions / previous P1 owner scopes and N39 active claim",
+    "Port native facility LOD, condition/repair/abandonment, dock queues with authentic times/guards as pure state changes",
+    "Port facility contracts/crew missions demand posting policy missing from ports with N104 Board single owner",
+    "Author full source-facing production ordering around exclusive N39 paid run without duplicate product outputs or cash",
+    "Source-derived fixtures + Rust-to-PR map, Draft PR and coordination; honest macro1 remaining assessment"
+  ],
+  "progress": [],
+  "evidence": []
+}
