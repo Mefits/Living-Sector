@@ -240,3 +240,6 @@ Atomic claim `claims/N18.json` commit `7e617371e2de2d43cda726ae24aaddbaed675408`
 
 ### N19 — 2026-11-12 07:54 МСК
 Claim `N19.json` owner `second-chat-overnight`, run `20261112-075427-msk-second-n19`; начата реализация стратегического выбора Главы фракции. Work branch `feature/godot-nightshift-n19-head-second-20261112`.
+
+### N19 — завершено (CODE_UNVERIFIED)
+[PR #107](https://github.com/Mefits/Living-Sector/pull/107), commit `1f0444a`: стратегический выбор Главы по реальным предложениям, ограничение казны, кризис, 2-cycle hysteresis, один grant, snapshot, короткий smoke. Статически сбалансированы скобки; Godot не запускался. Зависит от N18 #106, native score/контрактная интеграция впереди.
