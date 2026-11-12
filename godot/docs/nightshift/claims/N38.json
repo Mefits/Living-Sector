@@ -1,0 +1,17 @@
+{
+  "block_id": "N38",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T13:05:00+03:00-second-chat-N38",
+  "claimed_at": "2026-11-12T13:05:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "59efd4e46c8c0c931a23ac67cf2bf6ade2438f47",
+  "work_branch": "feature/godot-nightshift-n38-save-integrity-second-20261112",
+  "tasks": [
+    "Inspect current integration checkpoint and frozen Rust save invariants",
+    "Implement a substantial deterministic save/checkpoint integrity slice in Godot",
+    "Add short headless regression tests and publish draft PR"
+  ],
+  "progress": [],
+  "evidence": []
+}
