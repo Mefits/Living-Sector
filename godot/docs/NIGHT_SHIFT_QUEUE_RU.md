@@ -292,3 +292,10 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 - N112 — ship navigation fuel/range — IN_PROGRESS; atomic claim created, separate work branch; Rust source review pending
 - N113 — faction director priorities/cooldowns — IN_PROGRESS; atomic claim created, separate work branch; Rust source review pending
 - N114 — population growth/consumption — IN_PROGRESS; atomic claim created, separate work branch; Rust source review pending
+
+
+### 2026-11-12 20:48 MSK — second-chat-overnight N112–N114 RESULT
+- N112: moving orbital target ship transit and LOD fuel burn — [Draft PR #201](https://github.com/Mefits/Living-Sector/pull/201), CODE_UNVERIFIED.
+- N113: director incumbent/alternative strategic hysteresis, urgent supply and pending confirmation — [Draft PR #202](https://github.com/Mefits/Living-Sector/pull/202), CODE_UNVERIFIED.
+- N114: population migration pressure and single-source/single-destination wealth/headcount transfer — [Draft PR #203](https://github.com/Mefits/Living-Sector/pull/203), CODE_UNVERIFIED.
+- Three own claims closed; no Godot execution, no P1 integration, no merge. N39/N100/N108 and other claims untouched. Full Rust parity and integrated economic effects remain unverified. Source paths corrected in claims after inspecting frozen archive.
