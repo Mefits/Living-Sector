@@ -2,7 +2,7 @@ extends RefCounted
 ## N67 read-only Observer snapshots from N66/N64 authoritative runtime.
 ## Missing crew economics/trading/AI are explicit "—", NEVER invented.
 ## Data-only; no Godot Nodes, polling timers or writes to world state.
-const UNAVAILABLE := "—"
+const UNAVAILABLE = "—"
 
 static func snapshot(runtime: RefCounted) -> Dictionary:
     if runtime == null or not runtime._active or runtime.engine == null:
