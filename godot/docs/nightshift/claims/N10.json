@@ -1,0 +1,18 @@
+{
+  "block_id": "N10",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T05:35:43+03:00-second-chat-n10",
+  "claimed_at": "2026-11-12T05:35:43+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "8d11385dee6e82765e1d4bbde2e1b6d6ced7c2e1",
+  "work_branch": "feature/godot-nightshift-n10-prices-second-20261112",
+  "tasks": [
+    "Audit frozen Rust price engine and order book",
+    "Implement deterministic Godot market price state and bid/ask calculations",
+    "Implement atomic market trade settlement using inventory and ledger where feasible",
+    "Add short headless regression and document parity gaps"
+  ],
+  "progress": [],
+  "evidence": []
+}
