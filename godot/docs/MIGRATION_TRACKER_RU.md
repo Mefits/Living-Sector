@@ -261,3 +261,5 @@
 ### N18 — station administrator priority and paid dispatch (12.11.2026)
 
 **CODE_UNVERIFIED** — [draft PR #106](https://github.com/Mefits/Living-Sector/pull/106), stacked on N6 #100. Rust `strategy/station.rs` workforce, urgency, retained-team hysteresis, Head precursor priority and shared shadow payroll budget ported into `godot/scripts/sim/strategy/station_administrator.gd`. Real paid shifts delegated to N6; deterministic smoke and handoff prepared. No Godot runtime, test NOT RUN. Missing mining, cross-owner fees, feedback, TickRunner and global labor integration. **VERIFIED totals unchanged: P0 3/9, P1 0/9, P2 0/11, overall 3/100.**
+
+> **N20, 12.11.2026:** [PR #108](https://github.com/Mefits/Living-Sector/pull/108) adds a read-only Godot observer panel, deterministic snapshot projection and command-disabled reasons for missing authoritative execution. Stacked on N19 #107. **CODE_UNVERIFIED** (Godot not run); VERIFIED remains P0 3/9, P1 0/9, P2 0/11, overall 3/100. Next: N21+ independent integration work after claim and dependency check.
