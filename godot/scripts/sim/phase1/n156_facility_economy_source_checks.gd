@@ -36,9 +36,9 @@ static func _markets() -> Dictionary:
 static func run() -> Dictionary:
 	var errors: Array[String] = []
 	var due := Lifecycle.schedule(100,1)
-	_check(errors,bool(due.get("ok",false)) and
-		due["due"]["dock_queue"] and due["due"]["facility_crew"] and
-		due["due"]["repair"] and due["due"]["abandonment"] and
+	_check(errors,bool(due.get("ok",false)) and \
+		due["due"]["dock_queue"] and due["due"]["facility_crew"] and \
+		due["due"]["repair"] and due["due"]["abandonment"] and \
 		not due["due"]["shipyard_modules"] and due["due"]["crew_missions"],
 		"native_independent_5_10_15_20_50_100_cadence")
 	var base := _fac()
@@ -52,28 +52,28 @@ static func run() -> Dictionary:
 		"native_facility_stage_cannot_mutate_true_ECS")
 	if bool(first.get("ok",false)):
 		var f: Dictionary = first["facilities_before_abandonment"][0]
-		_check(errors,absf(float(f["operations"]["condition"])-0.7498)<0.00001 and
+		_check(errors,absf(float(f["operations"]["condition"])-0.7498)<0.00001 and \
 			f["storage"]["dock_queue"]==["ship-good"],
 			"every_tick_condition_decay_and_real_ship_attempt_queue_cleanup")
-		_check(errors,f["crew"]["morale"]==60.0 and f["crew"]["hunger"]==40.0 and
-			f["crew"]["food_debt"]==0.0 and
+		_check(errors,f["crew"]["morale"]==60.0 and f["crew"]["hunger"]==40.0 and \
+			f["crew"]["food_debt"]==0.0 and \
 			f["storage"]["reserves"]["tools"]==2.0,
 			"real_Pop_food_satisfaction_not_duplicate_crew_food")
-		_check(errors,first["repair_candidates"].size()==1 and
+		_check(errors,first["repair_candidates"].size()==1 and \
 			first["repair_candidates"][0]["facility_id"]=="station-1",
 			"source_repair_requires_paid_workforce_first")
 		var no_wages := Lifecycle.after_real_paid_repairs_and_abandonment(
 			first["facilities_before_abandonment"],{},100,1)
-		_check(errors,bool(no_wages.get("ok",false)) and
-			no_wages["facilities"][0]["storage"]["reserves"]["tools"]==2.0 and
+		_check(errors,bool(no_wages.get("ok",false)) and \
+			no_wages["facilities"][0]["storage"]["reserves"]["tools"]==2.0 and \
 			absf(float(no_wages["facilities"][0]["operations"]["condition"])-0.7498)<0.00001,
 			"unpaid_repair_does_not_get_free_tools_or_condition")
 		var paid := Lifecycle.after_real_paid_repairs_and_abandonment(
 			first["facilities_before_abandonment"],
 			{"station-1":{"paid_shift_committed":true,
 				"trusted_internal_apply":true,"facility_id":"station-1","tick":100}},100,1)
-		_check(errors,bool(paid.get("ok",false)) and
-			paid["facilities"][0]["storage"]["reserves"]["tools"]==1.0 and
+		_check(errors,bool(paid.get("ok",false)) and \
+			paid["facilities"][0]["storage"]["reserves"]["tools"]==1.0 and \
 			absf(float(paid["facilities"][0]["operations"]["condition"])-0.7598)<0.00001,
 			"paid_N39_shift_consumes_one_tool_and_repairs_exact_001")
 	var starving := _fac()
@@ -82,9 +82,9 @@ static func run() -> Dictionary:
 	starving["storage"]["reserves"]["tools"]=0.0
 	starving["lifecycle"]["abandon_counter"]=199
 	var finished := Lifecycle.after_real_paid_repairs_and_abandonment([starving],{},100,1)
-	_check(errors,bool(finished.get("ok",false)) and
-		finished["facilities"][0]["lifecycle"]["abandoned"] and
-		finished["events"].size()==1 and
+	_check(errors,bool(finished.get("ok",false)) and \
+		finished["facilities"][0]["lifecycle"]["abandoned"] and \
+		finished["events"].size()==1 and \
 		finished["events"][0]["kind"]=="facility_abandoned",
 		"native_200_abandonment_checks_emit_one_shot_event")
 	var after := Lifecycle.after_real_paid_repairs_and_abandonment(
@@ -94,23 +94,23 @@ static func run() -> Dictionary:
 	var recovered := starving.duplicate(true)
 	recovered["storage"]["reserves"]["tools"]=2.0
 	var revived := Lifecycle.after_real_paid_repairs_and_abandonment([recovered],{},100,1)
-	_check(errors,bool(revived.get("ok",false)) and
-		revived["facilities"][0]["lifecycle"]["abandon_counter"]==0 and
+	_check(errors,bool(revived.get("ok",false)) and \
+		revived["facilities"][0]["lifecycle"]["abandon_counter"]==0 and \
 		not revived["facilities"][0]["lifecycle"]["abandoned"],
 		"one_actual_service_restock_resets_dying_counter")
 	var no_lod := _fac("no-lod")
 	var with_lod := _fac("with-lod")
 	with_lod["has_agent_lod"]=true
 	var lod := Lifecycle.index_lod_fired([no_lod,with_lod],{})
-	_check(errors,bool(lod.get("ok",false)) and
-		lod["fired"].get("no-lod",null)==1 and
+	_check(errors,bool(lod.get("ok",false)) and \
+		lod["fired"].get("no-lod",null)==1 and \
 		not lod["fired"].has("with-lod"),
 		"offscreen_facility_skips_N39_recipe_but_not_cheap_maintenance")
 	var active_lod := Lifecycle.index_lod_fired([no_lod,with_lod],{"with-lod":4})
 	_check(errors,active_lod["fired"]["with-lod"]==4,
 		"LOD_cursor_is_solely_owned_by_actual_native_AgentLod")
-	_check(errors,Supply.qty_for_shortage(30)==50 and
-		Supply.qty_for_shortage(60)==75 and
+	_check(errors,Supply.qty_for_shortage(30)==50 and \
+		Supply.qty_for_shortage(60)==75 and \
 		Supply.qty_for_shortage(240)>=200,
 		"source_30_tick_buckets_and_25_to_200_delivery_qty")
 	var buyer1 := {"id":"fac-1","faction_id":"f1","location_name":"earth",
@@ -121,10 +121,10 @@ static func run() -> Dictionary:
 	buyer2["credits"]=8000
 	var bundled := Supply.plan_delivery_contracts([buyer1,buyer2],
 		_markets(),[],[],50,1)
-	_check(errors,bool(bundled.get("ok",false)) and
-		bundled["plans"].size()==1 and
-		bundled["plans"][0]["payer_id"]=="fac-1" and
-		bundled["plans"][0]["post"]["quantity"]==150 and
+	_check(errors,bool(bundled.get("ok",false)) and \
+		bundled["plans"].size()==1 and \
+		bundled["plans"][0]["payer_id"]=="fac-1" and \
+		bundled["plans"][0]["post"]["quantity"]==150 and \
 		bundled["plans"][0]["post"]["payment"]==6000,
 		"native_two_facilities_one_shared_market_convoy_paid_by_richest")
 	var poorer := buyer1.duplicate(true)
@@ -133,8 +133,8 @@ static func run() -> Dictionary:
 	another["credits"]=3000
 	var unbundled := Supply.plan_delivery_contracts([poorer,another],
 		_markets(),[],[],50,1)
-	_check(errors,bool(unbundled.get("ok",false)) and
-		unbundled["plans"].size()==2 and
+	_check(errors,bool(unbundled.get("ok",false)) and \
+		unbundled["plans"].size()==2 and \
 		unbundled["plans"][0]["post"]["payment"]==3000,
 		"unaffordable_bundled_convoy_falls_back_to_two_paid_sources")
 	var capped_contracts := []
@@ -150,21 +150,21 @@ static func run() -> Dictionary:
 	early_markets["earth"]["shortage_ticks"]["tools"]=0
 	var emergency := Supply.plan_delivery_contracts([urgent],
 		early_markets,[],[],50,1)
-	_check(errors,bool(emergency.get("ok",false)) and
-		emergency["plans"].size()==1 and
+	_check(errors,bool(emergency.get("ok",false)) and \
+		emergency["plans"].size()==1 and \
 		emergency["plans"][0]["post"]["commodity"]=="tools",
 		"tools_repair_urgency_bypasses_30_tick_market_shortage")
 	var hash := RustHashFixture.new()
-	_check(errors,Missions.CATALOG.size()==9 and
-		Missions.source_catalogue_for("station").size()==3 and
+	_check(errors,Missions.CATALOG.size()==9 and \
+		Missions.source_catalogue_for("station").size()==3 and \
 		Missions.source_catalogue_for("refinery").size()==3,
 		"exact_source_nine_crew_missions_and_type_catalogues")
 	var mission := Missions.plan_missions(
 		[buyer1],[],200,1,Callable(hash,"hash_flip"))
-	_check(errors,bool(mission.get("ok",false)) and
-		mission["posts"].size()==1 and
-		mission["posts"][0]["post"]["mission_category"]=="customs_assist" and
-		mission["posts"][0]["post"]["quantity"]==15 and
+	_check(errors,bool(mission.get("ok",false)) and \
+		mission["posts"].size()==1 and \
+		mission["posts"][0]["post"]["mission_category"]=="customs_assist" and \
+		mission["posts"][0]["post"]["quantity"]==15 and \
 		mission["posts"][0]["post"]["payment"]==800,
 		"source_tick_selector_chooses_real_indexed_customs_mission")
 	var missing_hash := Missions.plan_missions([buyer1],[],200,1,Callable())
