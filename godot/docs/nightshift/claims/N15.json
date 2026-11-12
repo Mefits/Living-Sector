@@ -1,0 +1,17 @@
+{
+  "block_id": "N15",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T06:30:45+03:00-second-chat-n15-4",
+  "claimed_at": "2026-11-12T06:30:45+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "77d09bba4adf93681f72eec25145cb50749d9d8b",
+  "work_branch": "feature/godot-nightshift-n15-cargo-20261112-0630",
+  "tasks": [
+    "Rust cargo capacity and transfer semantics",
+    "Godot atomic loading/unloading with capacity and receipts",
+    "short headless regression tests"
+  ],
+  "progress": [],
+  "evidence": []
+}
