@@ -6,6 +6,12 @@ const TYPES = ["delivery", "courier", "passenger", "subsidy", "supply", "crew_mi
 const ACTIVE = ["posted", "accepted", "picked_up", "delivered"]
 var _contracts: Dictionary = {}
 var _ledger: RefCounted
+var _physical_cargo: RefCounted
+
+## N27: bind the authoritative cargo receipt registry before accepting physical transitions.
+## A caller-supplied receipt string is never proof of physical movement.
+func bind_physical_cargo(cargo: RefCounted) -> void:
+	_physical_cargo = cargo
 
 func _init(ledger: RefCounted) -> void:
 	_ledger = ledger
@@ -60,6 +66,8 @@ func settle(id: String, ship: String, ship_wallet: String, tick: int) -> Diction
 	var c: Dictionary = _contracts[id]
 	if c["status"] != "delivered" or c["fulfiller_id"] != ship or ship_wallet.is_empty() or tick < int(c["delivered_at_tick"]):
 		return _error("not_delivered")
+	if not _valid_physical_receipt(c, ship, "unload", str(c.get("delivered_receipt", "")), int(c["delivered_at_tick"])):
+		return _error("unverified_delivery")
 	var agreed: int = int(c["agreed_payment"])
 	if agreed <= 0 or agreed > int(c["reserved"]):
 		return _error("invalid_escrow")
@@ -124,12 +132,33 @@ func _transition(id: String, ship: String, before: String, after: String, tick: 
 	var c: Dictionary = _contracts[id]
 	if receipt_id.is_empty() or c["status"] != before or c["fulfiller_id"] != ship or tick < int(c["accepted_at_tick"]):
 		return _error("invalid_transition")
-	# The caller owns the physical cargo receipt; do not fabricate inventory movement here.
+	var direction := "load" if after == "picked_up" else "unload"
+	if not _valid_physical_receipt(c, ship, direction, receipt_id, tick):
+		return _error("unverified_physical_receipt")
+	# Receipt validation is authoritative for delivery contracts, not a string assertion.
 	c["status"] = after
 	c[after + "_receipt"] = receipt_id
 	if after == "delivered":
 		c["delivered_at_tick"] = tick
 	return {"ok": true}
+
+## Delivery contracts require the actual N15 receipt registry; no direct board transition bypass.
+## Non-delivery contract types are not granted a synthetic physical receipt.
+func _valid_physical_receipt(c: Dictionary, ship: String, direction: String, receipt_id: String, tick: int) -> bool:
+	if str(c.get("contract_type", "")) != "delivery":
+		return false
+	if _physical_cargo == null or receipt_id.is_empty():
+		return false
+	var receipt: Dictionary = _physical_cargo.receipts.get(receipt_id, {})
+	if receipt.get("ok", false) != true or str(receipt.get("ship_id", "")) != ship:
+		return false
+	if str(receipt.get("direction", "")) != direction or int(receipt.get("tick", -1)) > tick:
+		return false
+	var expected_location := str(c["source_location"]) if direction == "load" else str(c["destination_location"])
+	if str(receipt.get("location_id", "")) != expected_location:
+		return false
+	var quantities: Variant = receipt.get("quantities", null)
+	return quantities is Dictionary and quantities.size() == 1 and typeof(quantities.get(str(c["commodity"]))) == TYPE_INT and int(quantities[str(c["commodity"]]) ) == int(c["quantity"])
 
 func _error(reason: String) -> Dictionary:
 	return {"ok": false, "reason": reason}
