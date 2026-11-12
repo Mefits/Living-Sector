@@ -1,0 +1,37 @@
+{
+  "block_id": "N155",
+  "macro_id": 7,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13-macro7-director-native-strategy-closure",
+  "claimed_at": "2026-11-13T02:00:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "work_branch": "feature/godot-n155-macro7-director-native-strategy-20261113",
+  "source_paths": [
+    "native/crates/sim_core/src/strategy/director.rs::head_candidate_decision_assembly_and_commitment_integration",
+    "native/crates/sim_core/src/strategy/planning/native_catalogue.rs::native_catalogue_and_real_HTN_shadow",
+    "native/crates/sim_core/src/strategy/planning/htn_adapter.rs::uncovered_native_domain_and_methods",
+    "native/crates/sim_core/src/strategy/planning/telic_goap.rs::guided_telic_adapter",
+    "native/crates/sim_core/src/strategy/planning/baseline.rs::native_head_goal_translation",
+    "native/crates/sim_core/src/strategy/planning/mod.rs::read_only_snapshot_validator"
+  ],
+  "excluded": [
+    "strategy/planning/hybrid.rs (N100 IN_PROGRESS; do not edit or claim as source-covered)",
+    "strategy/coordination.rs (N134 PR #223)",
+    "strategy/planning/native_execution.rs (N121 PR #216)",
+    "strategy/planning/ledger.rs (N98 PR #186)",
+    "strategy/long_term.rs (N106 PR #195)",
+    "strategy/station.rs (N107 PR #196)",
+    "strategy/construction.rs and economy physical production (N154 and macro1)"
+  ],
+  "tasks": [
+    "Audit fresh coordination and Rust strategy/planning source functions vs N19/N93/N98/N99/N100/N106/N107/N113/N117/N121/N134 PR scopes",
+    "Port uncovered source-native catalogue, domain materialisation, HTN/Telic and head goal/shadow semantics, leaving N100 Hybrid untouched",
+    "Produce exact source function owner matrix, one-authority Phase2 handoff and source-derived fast static fixtures without Godot integration",
+    "Publish one large Draft PR from integration checkpoint; update queue, log and tracker with honest macro status (N100 still in progress)"
+  ],
+  "progress": [],
+  "evidence": []
+}
