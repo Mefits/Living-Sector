@@ -1,6 +1,6 @@
 {
   "block_id": "N15",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T06:30:45+03:00-second-chat-n15-4",
   "claimed_at": "2026-11-12T06:30:45+03:00",
@@ -12,6 +12,15 @@
     "Godot atomic loading/unloading with capacity and receipts",
     "short headless regression tests"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "integer cargo transfer with prevalidation and two-ledger conservation",
+    "receipt idempotence and snapshot/restore",
+    "short headless regression + Rust parity handoff"
+  ],
+  "evidence": [
+    "PR #101; no Godot runtime; CODE_UNVERIFIED"
+  ],
+  "completed_at": "2026-11-12T06:33:00+03:00",
+  "commit_sha": "9a6d2ca8dd3f95f87561f75f03d48c42a574bec4",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/101"
 }
