@@ -177,3 +177,5 @@ Atomic claim `claims/N6.json` commit `c8fa69b3`; Rust-parity recipe execution, i
 - **Checks:** source/formula parity and inspection; Godot executable unavailable, headless smoke NOT RUN. `CODE_UNVERIFIED`.
 - **Limitations:** no shared workforce reservation, foreign-owner processing fee, station permits or TickRunner wiring; PR #93/#94/#96 dependencies pending. Next independent N15/N16 or N8 after claim check.
 - **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED.
+
+- 2026-11-12 06:30:45 МСК — second-chat-overnight зарезервировал N15, cargo inventory/delivery, исходный SHA 77d09bba4adf93681f72eec25145cb50749d9d8b; работа в feature/godot-nightshift-n15-cargo-20261112-0630.
