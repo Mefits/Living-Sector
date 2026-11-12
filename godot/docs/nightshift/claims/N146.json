@@ -1,7 +1,7 @@
 {
   "block_id": "N146",
   "macro_id": 10,
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-13T00:08:58+03:00-second-chat-overnight-n146",
   "claimed_at": "2026-11-13T00:08:58+03:00",
@@ -19,6 +19,15 @@
     "Port stable command kind labels and non-mutating command inspection",
     "Document phase2 apply boundaries"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Ported 23/23 Rust command variants with required fields and stable kind labels",
+    "Ported actor_ship and trace_detail read-only diagnostics",
+    "Ported insertion-order push/append/drain/clear, pending snapshot/restore and Phase-2 handoff"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/235",
+    "https://github.com/Mefits/Living-Sector/commit/de07295acc2e38036103376a55c3da9435fbce5a",
+    "Static field/label count 23/23; Godot runtime not run"
+  ],
+  "completed_at": "2026-11-13T00:12:00+03:00"
 }
