@@ -1,0 +1,18 @@
+{
+  "block_id": "N77",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T16:01:00+01:00-nightshift1-turn11-N77",
+  "claimed_at": "2026-11-12T16:01:00+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "work_branch": "feature/godot-n77-construction-lifecycle-20261112",
+  "scope": "native construction site lifecycle and material consumption",
+  "tasks": [
+    "inspect exact Rust behavior",
+    "port isolated state and formulas",
+    "document dependencies and static checks"
+  ],
+  "progress": [],
+  "evidence": []
+}
