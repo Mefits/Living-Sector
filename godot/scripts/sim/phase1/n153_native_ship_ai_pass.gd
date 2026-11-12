@@ -129,7 +129,7 @@ static func build_goal_candidates(ship: Dictionary, observed: Dictionary) -> Arr
 				"contract_id": dp.get("contract_id", ""), "fuel_bucket": fuel_bucket, "retrofit": retrofit
 			}, routes)
 			if not combo.is_empty():
-				var combo_score: float = score * 1.2 + _score_strategic(int(retrofit.get("cost", 0)) / 5,
+				var combo_score: float = score * 1.2 + _score_strategic(int(int(retrofit.get("cost", 0)) / 5),
 					"seek_retrofit", personality, false)
 				candidates.append(_candidate("fulfill_delivery_with_retrofit", combo_score, combo))
 		candidates.append(_candidate(name, score, contract.get("plan_request", {}), contract.get("leaves", [])))
@@ -147,7 +147,7 @@ static func build_goal_candidates(ship: Dictionary, observed: Dictionary) -> Arr
 				"fuel_bucket": fuel_bucket, "retrofit": retrofit
 			}, routes)
 			if not combo.is_empty():
-				var combo_score: float = score * 1.2 + _score_strategic(int(retrofit.get("cost", 0)) / 5,
+				var combo_score: float = score * 1.2 + _score_strategic(int(int(retrofit.get("cost", 0)) / 5),
 					"seek_retrofit", personality, false)
 				candidates.append(_candidate("trade_run_with_retrofit", combo_score, combo))
 		candidates.append(_candidate("trade_run", score, trade.get("plan_request", {}), trade.get("leaves", [])))
@@ -198,7 +198,7 @@ static func decide_pre_bt(ship_snapshot: Dictionary, observed: Dictionary) -> Di
 	var contract_id: String = str(ship.get("active_contract_id", ""))
 	var held: Dictionary = observed.get("held_contract", {})
 	if not contract_id.is_empty():
-		if held.is_empty() or str(held.get("id", "")) != contract_id or str(held.get("fulfiller_id", "")) != str(ship.get("id", "")) or not str(held.get("status", "")) in ["Accepted", "PickedUp"]:
+		if held.is_empty() or str(held.get("id", "")) != contract_id or str(held.get("fulfiller_id", "")) != str(ship.get("id", "")) or not (str(held.get("status", "")) in ["Accepted", "PickedUp"]):
 			ship["active_contract_id"] = ""
 			ship["current_bt"] = null
 			ship["transaction_pending"] = null
@@ -223,7 +223,7 @@ static func decide_pre_bt(ship_snapshot: Dictionary, observed: Dictionary) -> Di
 	var assigned_builder: bool = observed.get("has_assigned_builder", false) == true
 	var goal: String = str(ship.get("current_goal", ""))
 	if (assigned or assigned_builder) and str(ship.get("active_contract_id", "")).is_empty() and ship.get("transaction_pending", null) == null:
-		if not goal.begins_with("fulfill_") and not goal in ["construct", "refuel", "rest_crew"]:
+		if not goal.begins_with("fulfill_") and not (goal in ["construct", "refuel", "rest_crew"]):
 			ship["current_bt"] = null
 	var needs_plan: bool = ship.get("current_bt", null) == null
 	var due: bool = observed.get("n80_replan_check_due", false) == true
