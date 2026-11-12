@@ -1,5 +1,11 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 12.11.2026 — interactive-chat: N121 LARGE NATIVE EXECUTION DONE
+- Atomic [claim N121](nightshift/claims/N121.json) closed CODE_UNVERIFIED. [Draft PR #216](https://github.com/Mefits/Living-Sector/pull/216): 5 GDScript modules ~1290 lines, large source `strategy/planning/native_execution.rs` ~61 KB (incl tests).
+- Ported persistent `NativeExecution` active/deferred/retry/history, 3 bounded exponential attempts, urgent goal preemption, real global-unique stock, true paid ContractBoard receipts, exact pinned producer paid shifts and multi-output counters (including legacy checkpoints); delivery funding checks and real `ContractBoard` stipend with market/route/carrier/treasury guard; one genuine funded action per faction strategic tick; restart Prepared never resubmits.
+- Handoff: [N121 source map](nightshift/N121_NATIVE_EXECUTION_BRIDGE_RU.md). N98 ledger + N100 hybrid remain separate PRs, while N121 stages world/board and emits ledger ops for **Phase 2 same atomic tick**. No P1/main/Rust/N39 edit; no Godot tests or joint build in Phase 1. Rounding exact f32 and big i64 unverified.
+- Approximate remaining **Phase 1 ~60–63%** (symbolic, not derived from Nx count); Phase 2 assembly + Phase 3 Grok excluded.
+
 ### 12.11.2026 — interactive-chat: N121 LARGE START
 - Atomic [N121 claim](nightshift/claims/N121.json), SHA abf9dd3f1883da59700fdded7e4497cf065c60fc. Large source 61 KB `strategy/planning/native_execution.rs`: native receipt→funded order→verified completed stock, recovery after restart and bounded cooldown, no speculative money. Other owners N39/N100 and source modules N98/N99 unaffected; phase1 only.
 
