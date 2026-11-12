@@ -243,3 +243,7 @@
 ### N10 — native pricing and order matching (12.11.2026)
 
 **CODE_UNVERIFIED — [draft PR #98](https://github.com/Mefits/Living-Sector/pull/98).** Rust `price_engine.rs` coverage/urgency/spread and `order_book.rs` pure matching/partial fills ported; per-market bounded tick history and short `n10_market_check.gd` added. No physical trade, escrow, market clearing or ledger settlement implemented. PR stacked on N9/#96 and N5/#93. Godot executable unavailable, test not run. **P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED unchanged.**
+
+### N14 — directed ship transit (12.11.2026)
+
+**CODE_UNVERIFIED**, not a fully verified P3 movement/docking task. [Draft PR #99](https://github.com/Mefits/Living-Sector/pull/99) stacked on N13/N4 adds directed-leg checks, world-coordinate step with frozen Rust 0.05 base velocity and class/size speed, fuel decrement, idempotent tick, snapshot-compatible flight state and stale-arrival token. `godot/tests/n14_transit_check.gd` is prepared but **not run** in Godot. Physical destination resolver, multi-leg navigation, station docking and fuel exhaustion recovery remain outstanding. Confirmed totals unchanged: P0 3/9, P1 0/9, P2 0/11, all 3/100.
