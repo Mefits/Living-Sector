@@ -307,3 +307,5 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 | N118 | P4 Rust colony founding execution | isolated Rust-backed GDScript, no N39/N114 overlap | CODE_UNVERIFIED — [PR #207](https://github.com/Mefits/Living-Sector/pull/207), overnight-scheduler |
 | N119 | P4 Rust shipyard order lifecycle | independent physical resources and funded orders | CODE_UNVERIFIED — [PR #208](https://github.com/Mefits/Living-Sector/pull/208), overnight-scheduler |
 | N120 | P6 Rust research execution | source-backed progress/unlocks, no free science | CODE_UNVERIFIED — [PR #209](https://github.com/Mefits/Living-Sector/pull/209), overnight-scheduler |
+
+| N121 | **LARGE P5: native_execution.rs full 61 KB receipt-driven HTN→actual world bridge** — deferred goal retry, checkpoint history, native paid production receipts, contracts and real dispatch admission | No N39 production/N100 hybrid/N98 ledger edits, data-only authoritative snapshots; one-per-cycle, no Godot tests | IN_PROGRESS — interactive-chat; [claim N121](nightshift/claims/N121.json) |
