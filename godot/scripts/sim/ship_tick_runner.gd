@@ -164,6 +164,112 @@ func _advance_fleet(tick: int, native_delta: float) -> void:
         outcomes[str(id)] = _transit.advance(_fleet, str(id), _positions, tick, native_delta)
     _last_ship_results = outcomes
 
+## N54: orbital checkpoint from the BASE P1 runner, even when ships are
+## enabled. Only the N54 cross-domain envelope may persist it. The regular
+## P1 checkpoint() continues to refuse incomplete saves when a fleet runs.
+func orbital_checkpoint_for_fleet_envelope() -> Dictionary:
+    return super.checkpoint() if _fleet_enabled else {}
+
+func transit_cursor_for_fleet_envelope() -> int:
+    return _transit.next_token() if _fleet_enabled and _transit != null else -1
+
+## N54: bind a full saved fleet ONLY after a fresh runner has successfully
+## restored its P1 orbital checkpoint. No N46 full-fuel seeding is allowed.
+## This method never changes any state until source/location/flight/nonce
+## validation succeeds. New spawned/modified ship inventories need a future
+## schema and must fail closed, not become fake Rust native source IDs.
+func attach_restored_native_fleet(seed: Dictionary, fleet: RefCounted,
+        next_transit_token: int) -> bool:
+    if not is_started() or _fleet_enabled or _initial_bootstrap_allowed or fleet == null:
+        return false
+    if not (fleet.get("ships") is Dictionary):
+        return false
+    var staged_roster = Roster.new()
+    if not staged_roster.load_seed(seed) or staged_roster.keys().size() != fleet.ships.size():
+        return false
+    var staged_geometry = NativeLocations.new()
+    if not staged_geometry.load_seed(seed):
+        return false
+    var resolved: Dictionary = staged_geometry.positions_from_world(world,
+        calendar.native_time_units, calendar.origin_known)
+    if not bool(resolved.get("ok", false)):
+        return false
+    var graph: RefCounted = staged_roster.registry.graph()
+    var max_token: int = 0
+    var seen: Dictionary = {}
+    for id in staged_roster.keys():
+        var ship_id: String = str(id)
+        if not fleet.ships.has(ship_id):
+            return false
+        var value: Variant = fleet.ships[ship_id]
+        if not (value is Dictionary):
+            return false
+        var ship: Dictionary = value
+        var meta: Dictionary = staged_roster.metadata(ship_id)
+        if str(ship.get("id", "")) != ship_id or str(ship.get("class", "")) != str(meta["class"]):
+            return false
+        if str(ship.get("faction_id", "")) != str(meta["faction_id"]) or str(ship.get("system_id", "")) != str(meta["system_id"]):
+            return false
+        if not (ship.get("cargo", null) is Dictionary) or not fleet.can_hold(ship_id, ship["cargo"]):
+            return false
+        var transit_value: Variant = ship.get("transit", null)
+        if not (transit_value is Dictionary):
+            return false
+        var transit: Dictionary = transit_value
+        if transit.is_empty():
+            var place: String = str(ship.get("location", ""))
+            if place.is_empty() or not graph.has_location(place):
+                return false
+        else:
+            if not str(ship.get("location", "")).is_empty():
+                return false
+            var from_id: String = str(transit.get("from", ""))
+            var to_id: String = str(transit.get("to", ""))
+            if not graph.has_location(from_id) or not graph.has_location(to_id):
+                return false
+            var directed: bool = false
+            for leg in graph.outgoing(from_id):
+                if str(leg["to"]) == to_id:
+                    directed = true
+                    break
+            if not directed:
+                return false
+            var token_value: Variant = transit.get("token", null)
+            var last_value: Variant = transit.get("last_tick", null)
+            var departure_value: Variant = transit.get("departure_tick", null)
+            if typeof(token_value) != TYPE_INT or typeof(last_value) != TYPE_INT or typeof(departure_value) != TYPE_INT:
+                return false
+            var token: int = int(token_value)
+            var last_tick: int = int(last_value)
+            if token < 1 or seen.has(token) or last_tick < 0 or last_tick > tick_count or int(departure_value) < 0 or int(departure_value) > last_tick:
+                return false
+            seen[token] = true
+            max_token = maxi(max_token, token)
+            for key in ["position", "departure_position"]:
+                var coords: Variant = transit.get(key, null)
+                if not (coords is Array) or coords.size() != 2:
+                    return false
+                if not is_finite(float(coords[0])) or not is_finite(float(coords[1])):
+                    return false
+            var total: float = float(transit.get("distance_total", -1.0))
+            var travelled: float = float(transit.get("distance_travelled", -1.0))
+            if not is_finite(total) or not is_finite(travelled) or total <= 0.0 or travelled < 0.0 or travelled > total:
+                return false
+    var staged_transit = Transit.new()
+    if not staged_transit.restore_next_token(next_transit_token, max_token):
+        return false
+    _roster = staged_roster
+    _location_resolver = staged_geometry
+    _positions = (resolved["positions"] as Dictionary).duplicate(true)
+    _fleet = fleet
+    _transit = staged_transit
+    _fleet_suspended = false
+    _last_ship_results = {}
+    _initial_ship_credit_sources = {}
+    _initial_bootstrap_allowed = false
+    _fleet_enabled = true
+    return true
+
 ## P1 saves cannot represent the authoritative fleet, route geometry, transit
 ## nonce or external money/cargo. Fail closed until a combined checkpoint exists.
 func checkpoint() -> Dictionary:
