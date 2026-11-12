@@ -76,7 +76,7 @@ func plan_shift(producer: Dictionary, stock_owner: Dictionary, populations: Arra
 			return {"ok": false, "reason": "insufficient_payroll_budget"}
 		producer_after -= wages
 		owner_after = producer_after
-	return {"ok": true, "tick": tick, "workers": assignments, "wages": wages, "input_payment": cost, "processing_fee": fee, "producer_after": producer_after, "owner_after": owner_after, "producer_id": producer.get("id"), "stock_owner_id": stock_owner.get("id")}
+	return {"ok": true, "tick": tick, "workers": assignments, "wages": wages, "input_payment": cost, "processing_fee": fee, "producer_before": producer_cash, "owner_before": owner_cash, "producer_after": producer_after, "owner_after": owner_after, "producer_id": producer.get("id"), "stock_owner_id": stock_owner.get("id")}
 
 func commit_shift(plan: Dictionary, producer: Dictionary, owner: Dictionary, populations: Array) -> Dictionary:
 	if not plan.get("ok", false):
@@ -84,8 +84,17 @@ func commit_shift(plan: Dictionary, producer: Dictionary, owner: Dictionary, pop
 	if producer.get("id") != plan.get("producer_id") or owner.get("id") != plan.get("stock_owner_id") or int(producer.get("last_shift_tick", -1)) >= int(plan.tick):
 		return {"ok": false, "reason": "stale_shift"}
 	# Caller must serialize access to balances and validate snapshot versions.
-	if int(producer.get("credits", -1)) < 0 or int(owner.get("credits", -1)) < 0:
-		return {"ok": false, "reason": "invalid_cash_balance"}
+	if int(producer.get("credits", -1)) != int(plan.producer_before) or int(owner.get("credits", -1)) != int(plan.owner_before):
+		return {"ok": false, "reason": "stale_cash_snapshot"}
+	for assignment in plan.workers:
+		var found := false
+		for pop in populations:
+			if pop.get("id") == assignment.population_id:
+				found = true
+				if int(pop.get("wealth", -1)) != int(assignment.wealth_after) - int(assignment.count):
+					return {"ok": false, "reason": "stale_population_snapshot"}
+		if not found:
+			return {"ok": false, "reason": "missing_population"}
 	producer.credits = plan.producer_after
 	if producer.get("id") != owner.get("id"):
 		owner.credits = plan.owner_after
