@@ -394,3 +394,7 @@ Added opt-in authoritative apply2 contract phase, N31 replay guard, guarded exte
 - [Draft PR #125](https://github.com/Mefits/Living-Sector/pull/125), head `81b0a458bc2845e29737a76c17f7b62595623192`, based on N32 PR #120, no merge.
 - Added read-only startup health/errors and a main-scene UI smoke: boot, seed, pause, 3-step, x16, observer, save/restore. Static delimiter balance checked. Godot NOT RUN, CODE_UNVERIFIED.
 - N35 reserved by parallel second-chat run, do not modify. N34 already claimed. P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED unchanged.
+
+### N37 started — 2026-11-12 10:38 +01:00 — overnight-scheduler
+
+Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nightshift-n37-assets-license-audit-20261112`. Scope P0-08 frozen Rust asset provenance, licensing, reproducible inventory and transfer gates; no asset copying before rights check. Status IN_PROGRESS.
