@@ -13,12 +13,16 @@ const Funding = preload("res://scripts/sim/ships/native_ship_funding.gd")
 const Opening = preload("res://scripts/sim/economy/native_opening_accounts.gd")
 const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
 const Checkpoint = preload("res://scripts/sim/ships/native_fleet_checkpoint.gd")
+const Crew = preload("res://scripts/sim/ships/native_crew_roster.gd")
+const Fitting = preload("res://scripts/sim/ships/native_initial_fitting.gd")
 
 var runner: RefCounted
 var ledger: RefCounted
 var docking: RefCounted
 var _started: bool = false
 var _halt_reason: String = ""
+var _opening_crew: Array = []
+var _opening_fittings: Dictionary = {}
 
 ## Builds all staged authorities and publishes them together. No full tank
 ## is created if any source fails, and no mutable world leaks to the caller.
@@ -43,6 +47,12 @@ func start_new_game(seed: Dictionary) -> Dictionary:
     if not bool(staged_docks.get("ok", false)):
         return _fail("native_dock_bootstrap_failed")
     var staged_docking: RefCounted = staged_docks["registry"]
+    var crew = Crew.new()
+    if not crew.initialize_new_game(staged_runner._fleet):
+        return _fail("initial_crew_projection_failed")
+    var fitting: Dictionary = Fitting.project_native_seed(seed, staged_runner._fleet)
+    if not bool(fitting.get("ok", false)):
+        return _fail("initial_fitting_projection_failed")
     var evidence: Dictionary = Checkpoint.capture(staged_runner,
         staged_ledger, staged_docking)
     if not bool(evidence.get("ok", false)):
@@ -50,6 +60,8 @@ func start_new_game(seed: Dictionary) -> Dictionary:
     runner = staged_runner
     ledger = staged_ledger
     docking = staged_docking
+    _opening_crew = crew.snapshot()
+    _opening_fittings = (fitting["records"] as Dictionary).duplicate(true)
     _halt_reason = ""
     _started = true
     runner.ships_phase_completed.connect(_on_ships_phase_completed)
@@ -144,6 +156,12 @@ func restore_complete(seed: Dictionary, envelope: Dictionary) -> Dictionary:
     var bootstrap: Dictionary = FleetBootstrap.build_new_game(seed)
     if not bool(bootstrap.get("ok", false)):
         return _fail("native_source_unavailable")
+    var initial_crew = Crew.new()
+    if not initial_crew.initialize_new_game(bootstrap["fleet"]):
+        return _fail("unavailable_source_crew_projection")
+    var initial_fit: Dictionary = Fitting.project_native_seed(seed, bootstrap["fleet"])
+    if not bool(initial_fit.get("ok", false)):
+        return _fail("unavailable_source_fitting_projection")
     var expected_dock: Dictionary = DockBootstrap.build_new_game(
         seed, bootstrap["fleet"])
     if not bool(expected_dock.get("ok", false)):
@@ -156,12 +174,22 @@ func restore_complete(seed: Dictionary, envelope: Dictionary) -> Dictionary:
     runner = staged["runner"]
     ledger = staged["ledger"]
     docking = staged["docking"]
+    _opening_crew = initial_crew.snapshot()
+    _opening_fittings = (initial_fit["records"] as Dictionary).duplicate(true)
     _halt_reason = ""
     _started = true
     runner.ships_phase_completed.connect(_on_ships_phase_completed)
     runner.tick_completed.connect(_on_tick_completed)
     return {"ok": true, "tick": runner.tick_count,
         "ships": runner.live_fleet_snapshot().size(), "ledger_total": ledger.total()}
+
+## Read-only starting projections. They are NOT simulated/resumed mutable
+## crew or fitting state and are never substituted for a real Crew save.
+func opening_crew_snapshot() -> Array:
+    return _opening_crew.duplicate(true)
+
+func opening_fitting_snapshot() -> Dictionary:
+    return _opening_fittings.duplicate(true)
 
 func is_live() -> bool:
     return _started and _halt_reason.is_empty()
