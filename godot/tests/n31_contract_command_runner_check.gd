@@ -1,0 +1,60 @@
+extends SceneTree
+## N31 CODE_UNVERIFIED:
+## godot --headless --path godot --script res://tests/n31_contract_command_runner_check.gd
+const Ships = preload("res://scripts/sim/ship_state.gd")
+const Cargo = preload("res://scripts/sim/ship_cargo_transfer.gd")
+const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
+const Board = preload("res://scripts/sim/economy/contract_board.gd")
+const Settlement = preload("res://scripts/sim/economy/physical_contract_settlement.gd")
+const Runner = preload("res://scripts/sim/economy/contract_command_runner.gd")
+const Audit = preload("res://scripts/sim/economy/contract_cargo_audit.gd")
+
+func _initialize() -> void:
+	var ships := Ships.new()
+	assert(ships.add_ship("ship", "freighter", "faction", "system"))
+	ships.ships["ship"]["location"] = "mine"
+	var cargo := Cargo.new()
+	var ledger := Ledger.new()
+	assert(ledger.import_accounts({"buyer": 200, "escrow": 0, "driver": 0}))
+	var board := Board.new(ledger)
+	var settlement := Settlement.new(board, cargo, ships)
+	var runner := Runner.new(board, settlement, cargo, ledger)
+	var mine := {"ore": 20.0}
+	var market := {"ore": 0.0}
+	assert(runner.bind_warehouse("mine", mine))
+	assert(runner.bind_warehouse("market", market))
+	assert(not runner.bind_warehouse("mine", mine))
+	assert(board.post("c", "delivery", "buyer", "escrow", "ore", 8, "mine", "market", 50, 0, 100, "facility")["ok"])
+	assert(board.accept("c", "ship", "faction", 0.0, 1.0, 1)["ok"])
+	assert(runner.submit("z-pickup", "c", "ship", "pickup", 2))
+	assert(not runner.submit("z-pickup", "c", "ship", "pickup", 2))
+	assert(runner.advance(1)["executed"].is_empty())
+	assert(runner.advance(2)["executed"].size() == 1)
+	assert(runner.result_for("z-pickup")["result"]["ok"])
+	assert(mine["ore"] == 12.0 and ships.ships["ship"]["cargo"]["ore"] == 8)
+	assert(not runner.advance(2)["ok"])
+	assert(not runner.submit("z-pickup", "c", "ship", "pickup", 4))
+	assert(runner.submit("a-deliver", "c", "ship", "deliver", 4))
+	assert(runner.submit("b-payout", "c", "ship", "settle", 4, "driver"))
+	# Same-tick commands run alphabetically: delivery precedes payout.
+	ships.ships["ship"]["location"] = "market"
+	var executed: Array = runner.advance(4)["executed"]
+	assert(executed.size() == 2 and executed[0]["id"] == "a-deliver" and executed[1]["id"] == "b-payout")
+	assert(runner.result_for("a-deliver")["result"]["ok"])
+	assert(runner.result_for("b-payout")["result"]["ok"])
+	assert(ledger.balance("driver") == 50 and ledger.total() == 200)
+	assert(mine["ore"] + market["ore"] == 20.0)
+	assert(Audit.new().inspect(board, cargo, ledger)["ok"])
+	assert(not runner.submit("b-payout", "c", "ship", "settle", 5, "driver"))
+	assert(runner.submit("future", "c", "ship", "settle", 7, "driver"))
+	var state: Dictionary = runner.snapshot()
+	var restored := Runner.new(board, settlement, cargo, ledger)
+	assert(restored.restore(state))
+	assert(not restored.restore({"version": 1, "last_tick": 7, "pending": state["pending"], "results": state["results"]}))
+	assert(not restored.advance(4)["ok"])
+	assert(restored.advance(7)["executed"].size() == 1)
+	assert(not restored.result_for("future")["result"]["ok"])
+	assert(ledger.balance("driver") == 50 and ledger.total() == 200)
+	assert(mine["ore"] + market["ore"] == 20.0)
+	print("N31_CONTRACT_COMMAND_RUNNER_OK")
+	quit(0)
