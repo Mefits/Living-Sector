@@ -387,3 +387,10 @@ All CODE_UNVERIFIED, three separate branches, no Godot runtime or P1 integration
 > **N105–N107, 12.11.2026:** three frozen Rust component ports: faction relief [PR #194](https://github.com/Mefits/Living-Sector/pull/194), durable production objective [PR #195](https://github.com/Mefits/Living-Sector/pull/195), station administration [PR #196](https://github.com/Mefits/Living-Sector/pull/196). All `CODE_UNVERIFIED`, standalone snapshot contracts, no Godot execution or live integration. P0/P1/P2 VERIFIED remains 3/9, 0/9, 0/11; overall 3/100. N39 and N104 untouched.
 
 > **N109–N111, 12.11.2026:** [PR #197](https://github.com/Mefits/Living-Sector/pull/197) native charter, [PR #198](https://github.com/Mefits/Living-Sector/pull/198) station tier/paid upgrade domain, [PR #199](https://github.com/Mefits/Living-Sector/pull/199) native shortage alternatives. Three isolated component ports, all **CODE_UNVERIFIED** without Godot runtime or unified economy. P0/P1/P2 VERIFIED counters unchanged; not a percentage of complete Rust parity.
+
+
+### 2026-11-12 20:48 MSK — second-chat-overnight N112–N114 RESULT
+- N112: moving orbital target ship transit and LOD fuel burn — [Draft PR #201](https://github.com/Mefits/Living-Sector/pull/201), CODE_UNVERIFIED.
+- N113: director incumbent/alternative strategic hysteresis, urgent supply and pending confirmation — [Draft PR #202](https://github.com/Mefits/Living-Sector/pull/202), CODE_UNVERIFIED.
+- N114: population migration pressure and single-source/single-destination wealth/headcount transfer — [Draft PR #203](https://github.com/Mefits/Living-Sector/pull/203), CODE_UNVERIFIED.
+- Three own claims closed; no Godot execution, no P1 integration, no merge. N39/N100/N108 and other claims untouched. Full Rust parity and integrated economic effects remain unverified. Source paths corrected in claims after inspecting frozen archive.
