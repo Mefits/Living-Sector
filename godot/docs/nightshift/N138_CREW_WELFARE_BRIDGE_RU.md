@@ -37,7 +37,7 @@
 `crew={size, hunger, fatigue, morale, health, wages_credits, current_task, dirty}`.
 `economy={credits, efficiency,...}`. `roles` из `simulation/config.rs::ship_class().crew_roles`, а `docked` из реального `ShipPosition.docked_at`; не выводить его из наличия location. `current_task` — Rust snake_case, пустой/неизвестный тип не считается Idle. Stage returns `{ok, reason, ships, phase}`; если один корабль испорчен, **ничего не менять у всех**.
 
-Ни один метод N138 не трогает `crew.size`, `wages_credits`, `economy.credits`, `cargo` или world. N138 `status` только читает; наблюдение не создаёт фактических актов еды/оплаты и не доказывает выполненный контракт. Моральный threshold для `needs_shore_leave` — <50, complete — >=100, legacy rest planner trigger — <15, Rest success — >=80. Числа ожидания дока 150/60/30, timeout rest 300 — лишь параметры из Rust; не подменяют реальное выполнение BT из N88.
+Между стадиями \`before_meals\` и \`after_meals\` во временном staged snapshot сохраняется \`n138_hunger_before_meal\` — это **не постоянный параметр сущности**, после выбора task удаляется; при отсутствии метки операция fail-closed. Нельзя убрать эту метку раньше физического расхода Food: Rust входит в Eating по голоду до еды, даже если прием пищи уже снизил голод ниже 55.\n\nНи один метод N138 не трогает `crew.size`, `wages_credits`, `economy.credits`, `cargo` или world. N138 `status` только читает; наблюдение не создаёт фактических актов еды/оплаты и не доказывает выполненный контракт. Моральный threshold для `needs_shore_leave` — <50, complete — >=100, legacy rest planner trigger — <15, Rest success — >=80. Числа ожидания дока 150/60/30, timeout rest 300 — лишь параметры из Rust; не подменяют реальное выполнение BT из N88.
 
 ## Проверки / незакрытое
 
