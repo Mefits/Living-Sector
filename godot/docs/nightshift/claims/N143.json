@@ -1,7 +1,7 @@
 {
   "block_id": "N143",
   "macro_id": 8,
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "claimed_at": "2026-11-12T23:35:00+03:00",
   "work_branch": "feature/godot-n143-complete-rust-research-domain-20261112",
@@ -29,6 +29,26 @@
     "stage exact salary/facility payment/treasury/electronics and research unlock; no side effects before commit, one receipt and atomic apply contract; charter/mandate policy and budget tracked exactly once",
     "source-derived scenario checks and gap/coverage matrix; only mark source port complete if scope is actually accounted for"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Audited frozen director.rs, governance.rs, charter.rs and existing N44/N45/N76/N82/N89/N110/N120 PRs; identified uncoupled source research lifecycle and kept N82 12-tech catalogue as single authoritative source",
+    "Ported Director::observe research target, ResearchMandate next/validate/active/set-like inheritance/clear, charter authority including autonomous bypass and review/hold",
+    "Ported director.rs::research_ready intentionally strict treasury boundary, and full research() staged local paid shift ordering, market/household selection, physical electronics/worker/treasury/facility credits and 10 work per paid shift",
+    "Projected one native paid receipt -> commander technology unlock + history and exactly-once mandate/charter counters without second ledger or goods supply",
+    "Added full macro8 source coverage matrix, Phase2 one-world/one-ledger integration contracts, and source-derived unexecuted check scenarios"
+  ],
+  "evidence": [
+    "Draft GitHub PR #233: 4 new files, 725 added lines, head b8376c63607835aa5b70935865157288eed1aa8b",
+    "GitHub readback all four files and balanced lexical brackets/strings and preload links",
+    "Godot parser/headless/runtime and Rust-vs-GDScript behavioural tests NOT EXECUTED; STATUS CODE_UNVERIFIED"
+  ],
+  "completed_at": "2026-11-12T23:55:00+03:00",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/233",
+  "work_sha": "b8376c63607835aa5b70935865157288eed1aa8b",
+  "macro_8_source_coverage": "SOURCE_COVERED_ACROSS_UNMERGED_DRAFT_PRS; NOT_INTEGRATED; NOT_RUNTIME_VERIFIED",
+  "remaining": [
+    "Godot Phase2 merge/compose N44/N45/N76/N82/N89/N120 and N143 with an authoritative world transaction and save/receipt owner",
+    "Live World source identities, worker occupancy (N141), price and market ownership revalidation; one atomic receipt and director checkpoint",
+    "Actual station tier physical construction belongs to macro6; global FactionCharter management/strategic goals belong to macro7",
+    "Revisit any science source gaps discovered by full inventory; N143 is complete only for mapped source domain, not executable game"
+  ]
 }
