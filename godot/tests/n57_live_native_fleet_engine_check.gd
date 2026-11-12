@@ -30,6 +30,16 @@ func _initialize() -> void:
     if engine.ledger.total() != 2760000:
         _fail("ledger_inconsistent")
         return
+    var crew: Array = engine.opening_crew_snapshot()
+    if crew.size() != 24 or engine.opening_fitting_snapshot().size() != 24:
+        _fail("initial_crew_fitting_unavailable")
+        return
+    var aggregate_crew: int = 0
+    for entry in crew:
+        aggregate_crew += int(entry["size"])
+    if aggregate_crew != 123:
+        _fail("source_crew_count")
+        return
     if str(engine.start_new_game(seed).get("reason", "")) != "world_already_initialized":
         _fail("double_start")
         return
@@ -44,6 +54,9 @@ func _initialize() -> void:
         return
     if restored_zero.runner.bootstrap_new_game_native_fleet(seed):
         _fail("tick_zero_restore_refilled")
+        return
+    if restored_zero.opening_crew_snapshot().size() != 24 or restored_zero.opening_fitting_snapshot().size() != 24:
+        _fail("opening_source_views_lost_after_restore")
         return
     var ship_id: String = "@system-sol/0"
     var docked: Dictionary = engine.request_dock(ship_id, "n57:dock:first", "station")
