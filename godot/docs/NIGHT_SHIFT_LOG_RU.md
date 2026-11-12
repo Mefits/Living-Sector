@@ -915,3 +915,9 @@ Claim created atomically by second-chat-overnight; source `native/crates/sim_cor
 
 ### 2026-11-12 — overnight-scheduler N141 COMPLETE (CODE_UNVERIFIED)
 - [Draft PR #229](https://github.com/Mefits/Living-Sector/pull/229), head `535faecb4`: native Rust `construction/labor.rs` paid shifts, sponsor-to-local-household wages, shared facility/site/commander workforce reservations, deterministic sorted assignments, durable receipts and employment refresh. 132-line standalone GDScript + Phase-2 handoff. Source read, GitHub readback and delimiter pairs pass; Godot/parser NOT RUN, mergeability not investigated. No P1/main/Rust or N39/N140 changes.
+
+### 2026-11-12 — interactive-chat N140 COMPLETE (macro #10)
+- Atomic N140 claim reserved before code (`9ce78572`). Frozen Rust `simulation/lod.rs` (279 lines) and `simulation/tuning.rs` (204 lines), plus timing context, explicitly free after GitHub claims/PR audit.
+- [Draft PR #230](https://github.com/Mefits/Living-Sector/pull/230), branch `feature/godot-n140-lod-tuning-20261112` @ `609dc3dd`: 4 new files, 418 additions: `n140_native_spatial_lod.gd`, `n140_native_world_tuning.gd`, source fixture `n140_native_lod_tuning_checks.gd`, handoff `N140_NATIVE_LOD_TUNING_BRIDGE_RU.md`.
+- Preserved native 1/2/5/10/20/50 tiers, nearest observer and inclusive radius edges, persistent next_tick/skip counts, ship-only advancement with no LOD = every tick, no market/facility cursor tampering, exactly-once WorldTuning default/partial serde and finite Genesis no auto replacement/no deposit regeneration. Zero world mutation, no money or cargo change.
+- GitHub readback + bracket/quote checks passed, fixtures authored but not run, Godot parser/runtime not tested: **CODE_UNVERIFIED**. World LOD scheduler and WorldTuning owner Phase-2 integration pending. Do not mark entire macro #10 complete. Source-coverage phase-1 remainder still **approximately ~57–60%**, provisional, not a VERIFIED percentage.
