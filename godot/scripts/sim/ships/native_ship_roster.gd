@@ -48,7 +48,7 @@ func metadata(ship_id: String) -> Dictionary:
 ## caller must supply separately sourced exact fuel and cargo values for EACH
 ## registered ship. This does not assert those values exist in the JSON seed.
 func validate_authoritative_state(state: RefCounted, fuel_sources: Dictionary, cargo_sources: Dictionary) -> bool:
-    if registry == null or state == null or not (state.get("ships") is Dictionary):
+    if registry == null or state == null or not (state.get("ships") is Dictionary) or not state.has_method("can_hold") or not state.has_method("snapshot"):
         return false
     if state.ships.is_empty() or state.ships.size() > _roster.size():
         return false
@@ -76,6 +76,9 @@ func validate_authoritative_state(state: RefCounted, fuel_sources: Dictionary, c
         if not (cargo is Dictionary) or ship.get("cargo", null) != cargo:
             return false
         if float(fuel) < 0.0 or float(fuel) > float(ship.get("fuel_capacity", -1.0)) or not is_equal_approx(float(ship.get("fuel", -1.0)), float(fuel)):
+            return false
+        var spec: Dictionary = Catalog.spec(str(expected["class"]))
+        if int(ship.get("cargo_capacity", -1)) != int(spec["cargo_capacity"]) or not is_equal_approx(float(ship.get("fuel_capacity", -1.0)), float(spec["fuel_capacity"])):
             return false
         if not state.can_hold(ship_id, cargo):
             return false
