@@ -1,6 +1,6 @@
 {
   "block_id": "N40",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "2026-11-12T10:43:55Z-interactive-n40-ship-worldbridge-01",
   "claimed_at": "2026-11-12T10:43:55Z",
@@ -13,5 +13,19 @@
     "Опциональный мост для реальных seed-кораблей в детерминированный tick без фальшивых перевозок и расхода топлива",
     "Изоляция внешнего состояния транспорта, сохранения и идентификаторов, без изменения производственного N39",
     "Один компактный headless regression и отчёт по конфликтам/зависимостям"
+  ],
+  "pr": "https://github.com/Mefits/Living-Sector/pull/130",
+  "completed_at": "2026-11-12T10:50:00Z",
+  "commit_sha": "707a740340b6189d4cd7509a384b050a86757a6b",
+  "progress": [
+    "Real seed idless ship roster and explicit fuel/cargo/position provenance gate",
+    "Opt-in ships phase preserving orbit/calendar/events and fail-closed saves",
+    "Native Sol miner test scenario with physics fixtures and no fabricated transfers"
+  ],
+  "evidence": [
+    "GitHub PR #130 contains three GDScript changes and handoff",
+    "Native Sol seed first ship miner/earth-station, directed earth-station→mine-near-earth checked",
+    "Frozen Rust SHIP_BASE_VELOCITY 0.05 and ARRIVAL_THRESHOLD 0.01 inspected",
+    "Godot 4.7 runtime absent in agent environment: actual headless test not executed"
   ]
 }
