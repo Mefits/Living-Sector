@@ -274,3 +274,5 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 - N106 — `IN_PROGRESS`, Rust `strategy/long_term.rs`, durable paid production objective; claim N106.json.
 - N107 — `IN_PROGRESS`, Rust `strategy/station.rs`, station administrator decisions; claim N107.json.
 - Three atomic claims created before code, distinct work branches, N39/N104 untouched. Runtime unverified.
+
+| N104 | P2/P3: Rust contract escrow funding, source payer quote/accept/release/refund, passenger/household delivery and paid progress | 4 source-backed GDScript data-only modules, no Godot runtime; explicit Phase-2 ledger/ContractBoard integration | CODE_UNVERIFIED — [PR #193](https://github.com/Mefits/Living-Sector/pull/193), interactive-chat |
