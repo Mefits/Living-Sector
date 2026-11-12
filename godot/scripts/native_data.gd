@@ -100,6 +100,16 @@ static func _load_exact_galaxy(base: String) -> Dictionary:
             var body_id: String = str(body.get("id", ""))
             if body_id.is_empty() or body_ids.has(body_id):
                 return {"error": "Повторный ID тела: " + body_id}
+            # P1 mutates only these native orbit values; fail before the model
+            # is built instead of converting malformed JSON to a fake zero orbit.
+            var orbit_period: Variant = body.get("orbit_period", null)
+            var current_angle: Variant = body.get("current_angle", null)
+            if not (orbit_period is int or orbit_period is float) or not (current_angle is int or current_angle is float):
+                return {"error": filename + ": у тела " + body_id + " нет числовой орбиты"}
+            if not is_finite(float(orbit_period)) or float(orbit_period) <= 0.0:
+                return {"error": filename + ": некорректный orbit_period у " + body_id}
+            if not is_finite(float(current_angle)) or float(current_angle) < 0.0 or float(current_angle) >= 360.0:
+                return {"error": filename + ": некорректный current_angle у " + body_id}
             body_ids[body_id] = true
         for facility in value["facilities"]:
             if not (facility is Dictionary):

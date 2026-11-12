@@ -17,15 +17,19 @@ if not defined GODOT_BIN (
 )
 if not exist "%~dp0logs" mkdir "%~dp0logs"
 echo.
-echo [1/2] Checking exact frozen seed, 8 systems / 3 factions...
+echo [1/3] Checking exact frozen seed, 8 systems / 3 factions...
 "%GODOT_BIN%" --headless --path "%~dp0" --script res://tests/p0_seed_check.gd --log-file "%~dp0logs\p0-seed-smoke.log"
 if errorlevel 1 goto failed
 echo.
-echo [2/2] Checking native time/orbit formulas and safe P1 save-load...
+echo [2/3] Checking native time/orbit formulas and safe P1 save-load...
 "%GODOT_BIN%" --headless --path "%~dp0" --script res://tests/p1_tick_save_check.gd --log-file "%~dp0logs\p1-tick-save-smoke.log"
 if errorlevel 1 goto failed
 echo.
-echo P0_SEED_PASS + P1_PARITY_PASS: local checks succeeded.
+echo [3/3] Checking P1 seed boundaries, copy isolation and control validation...
+"%GODOT_BIN%" --headless --path "%~dp0" --script res://tests/p1_audit_check.gd --log-file "%~dp0logs\\p1-audit-smoke.log"
+if errorlevel 1 goto failed
+echo.
+echo P0_SEED_PASS + P1_PARITY_PASS + P1_AUDIT_PASS: local checks succeeded.
 echo Try UPDATE_AND_PLAY.cmd to view real orbit angles.
 pause
 exit /b 0
