@@ -14,6 +14,15 @@
     "preserve Rust formula and state contract",
     "minimal static checks and independent draft PR"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Candidate arbitration ported; ingredient composition and full orchestration still unported. Partial PR, not complete."
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/188"
+  ],
+  "checked": [
+    "Rust source reviewed",
+    "GDScript source committed",
+    "Godot runtime NOT run"
+  ]
 }
