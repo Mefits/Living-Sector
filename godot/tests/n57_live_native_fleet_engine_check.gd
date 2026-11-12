@@ -15,6 +15,23 @@ func _initialize() -> void:
     if seed.has("error"):
         _fail("seed")
         return
+    # Godot's JSON parser can expose whole-number source amounts as
+    # float. Accept exact floats but never silently round fractions.
+    var json_floats: Dictionary = seed.duplicate(true)
+    json_floats["factions"][0]["treasury"] = 240000.0
+    for i in range((json_floats["worlds"] as Array).size()):
+        if str(json_floats["worlds"][i]["system"]["id"]) == "system-sol":
+            json_floats["worlds"][i]["facilities"][0]["credits"] = 60000.0
+            json_floats["worlds"][i]["facilities"][0]["docking_capacity"] = 12.0
+            json_floats["worlds"][i]["populations"][0]["total_wealth"] = 60000.0
+            break
+    if not Engine.new().start_new_game(json_floats).get("ok", false):
+        _fail("whole_number_json_float_rejected")
+        return
+    json_floats["factions"][0]["treasury"] = 240000.5
+    if Engine.new().start_new_game(json_floats).get("ok", false):
+        _fail("fractional_seed_credit_accepted")
+        return
     engine = Engine.new()
     var start: Dictionary = engine.start_new_game(seed)
     if not bool(start.get("ok", false)):
