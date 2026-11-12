@@ -164,3 +164,7 @@ Atomic claim `claims/N14.json` commit `1e058935`; work branch `feature/godot-nig
 - **Other claims:** N1–N5, N9–N13 already claimed and completed CODE_UNVERIFIED; N6/N7/N8/N15+ need fresh claim check.
 - **Next:** N6 production with N5/N9/N11, or N15 delivery after N14 runtime verification. Run `godot --headless --path godot --script res://tests/n14_transit_check.gd`.
 - **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED; 11 nightshift Nx code blocks CODE_UNVERIFIED (N1–N5, N9–N14).
+
+### N6 start — 2026-11-12 04:05 CET — overnight-scheduler
+
+Atomic claim `claims/N6.json` commit `c8fa69b3`; Rust-parity recipe execution, inventory/payroll, deterministic smoke; work branch `feature/godot-nightshift-n6-production-overnight-20261112`. Runtime pending.
