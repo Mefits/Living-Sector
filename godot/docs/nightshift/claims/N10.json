@@ -1,6 +1,6 @@
 {
   "block_id": "N10",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T05:35:43+03:00-second-chat-n10",
   "claimed_at": "2026-11-12T05:35:43+03:00",
@@ -13,6 +13,23 @@
     "Implement atomic market trade settlement using inventory and ledger where feasible",
     "Add short headless regression and document parity gaps"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Native price pressure and spread",
+    "Pure matching partial fills",
+    "Per-market tick history",
+    "Headless smoke and handoff"
+  ],
+  "evidence": [
+    "Rust price_engine.rs and order_book.rs audited",
+    "Godot executable not available; headless smoke not run",
+    "PR #98 draft; stacked N9/N5 dependencies"
+  ],
+  "completed_at": "2026-11-12T05:40:00+03:00",
+  "head_sha": "8e6e9245641166d65b2a9dba60ac1740fc303100",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/98",
+  "checks": {
+    "static_review": "performed",
+    "godot_runtime": "NOT_RUN",
+    "status": "CODE_UNVERIFIED"
+  }
 }
