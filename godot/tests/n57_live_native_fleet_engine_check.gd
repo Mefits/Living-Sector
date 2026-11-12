@@ -3,6 +3,7 @@ extends SceneTree
 ## → native tick → arrival → in-memory checkpoint/resume. No FileAccess.
 const NativeData = preload("res://scripts/native_data.gd")
 const Engine = preload("res://scripts/sim/live_native_fleet_engine.gd")
+const Checkpoint = preload("res://scripts/sim/ships/native_fleet_checkpoint.gd")
 
 var engine: RefCounted
 var resumed_engine: RefCounted
@@ -154,6 +155,23 @@ func _initialize() -> void:
         return
     if original_state != JSON.stringify(resumed.runner.live_fleet_snapshot()):
         _fail("corrupt_restore_changed_live_world")
+        return
+    # A valid hash is only an integrity signal, not authorization.
+    # Semantically forged saves must also fail after rehashing.
+    var forged: Dictionary = saved_midflight.duplicate(true)
+    forged["payload"]["docking"]["facilities"]["facility-earth-station"]["capacity"] = 999
+    forged["sha256"] = Checkpoint._canonical(forged["payload"]).sha256_text()
+    if resumed.restore_complete(seed, forged).get("ok", false):
+        _fail("forged_dock_capacity_accepted")
+        return
+    forged = saved_midflight.duplicate(true)
+    forged["payload"]["ledger"]["balances"]["extra:phantom"] = 1000
+    forged["sha256"] = Checkpoint._canonical(forged["payload"]).sha256_text()
+    if resumed.restore_complete(seed, forged).get("ok", false):
+        _fail("forged_wallet_accepted")
+        return
+    if original_state != JSON.stringify(resumed.runner.live_fleet_snapshot()):
+        _fail("forged_restore_mutated_live_world")
         return
     if not engine.is_live() or not resumed.is_live() or engine.ledger.total() != 2760000 or resumed.ledger.total() != 2760000:
         _fail("cross_domain_conservation")
