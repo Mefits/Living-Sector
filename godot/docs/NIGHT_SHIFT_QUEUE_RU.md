@@ -276,3 +276,7 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 - Three atomic claims created before code, distinct work branches, N39/N104 untouched. Runtime unverified.
 
 | N104 | P2/P3: Rust contract escrow funding, source payer quote/accept/release/refund, passenger/household delivery and paid progress | 4 source-backed GDScript data-only modules, no Godot runtime; explicit Phase-2 ledger/ContractBoard integration | CODE_UNVERIFIED — [PR #193](https://github.com/Mefits/Living-Sector/pull/193), interactive-chat |
+
+| N105 | P2/P5 frozen faction relief: existing treasury-funded household/market/producer transfers | Rust agents/faction/relief.rs | CODE_UNVERIFIED — [PR #194](https://github.com/Mefits/Living-Sector/pull/194), overnight-scheduler |
+| N106 | P5 persistent paid native production objective and receipt-based completion | Rust strategy/long_term.rs | CODE_UNVERIFIED — [PR #195](https://github.com/Mefits/Living-Sector/pull/195), overnight-scheduler |
+| N107 | P5 station administrator labor allocation, priorities and feedback | Rust strategy/station.rs | CODE_UNVERIFIED — [PR #196](https://github.com/Mefits/Living-Sector/pull/196), overnight-scheduler |
