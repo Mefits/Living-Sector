@@ -113,7 +113,7 @@ func restore(data: Dictionary) -> bool:
 		var c: Dictionary = candidate[id]
 		if c.get("id") != id or not TYPES.has(c.get("contract_type")) or not (ACTIVE + ["paid", "expired"]).has(c.get("status")):
 			return false
-		if typeof(c.get("reserved")) != TYPE_INT or int(c["reserved"]) < 0 or not _ledger.balance(str(c.get("escrow_account"))) >= int(c["reserved"]):
+		if typeof(c.get("reserved")) != TYPE_INT or int(c["reserved"]) < 0 or _ledger.balance(str(c.get("escrow_account"))) < int(c["reserved"]):
 			return false
 	_contracts = candidate.duplicate(true)
 	return true
