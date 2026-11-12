@@ -1,0 +1,19 @@
+{
+  "block_id": "N39",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12-interactive-n39-production-live-01",
+  "claimed_at": "2026-11-12T10:40:50.393Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "base_branch": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n39-production-worldbridge-20261112",
+  "tasks": [
+    "Аудит реального N23 production tick и точной связки с Godot world/Rust source",
+    "Опциональный физически обоснованный production WorldBridge с реальными запасами, персоналом и средствами без генерации ресурсов",
+    "Встроить фазу facilities в единый TickRunner, не ломая орбиты и N3 события, с guardrails restore",
+    "Добавить короткий headless regression и интеграционный handoff без пользовательских тестов"
+  ],
+  "progress": [],
+  "evidence": []
+}
