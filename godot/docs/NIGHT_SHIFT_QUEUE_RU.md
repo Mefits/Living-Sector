@@ -283,6 +283,6 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 
 | N108 | **P3 special ShipCommand Apply** — Rust actual GateJump, shipyard fitting purchase/replace and ReleaseContract apply | Source-backed GDScript immutable staged world; no N39/N100/N79/N104 overlap, no runtime test | IN_PROGRESS — interactive-chat; [claim N108](nightshift/claims/N108.json) |
 
-| N109 | P6 native faction charter authority, review tranches and paid budget receipts | Rust strategy/charter.rs; isolated GDScript | IN_PROGRESS — second-chat-overnight |
-| N110 | P4 native station progression tier limits and paid upgrade domain | Rust strategy/progression.rs; isolated GDScript | IN_PROGRESS — second-chat-overnight |
-| N111 | P5 native shortage option comparisons and forecast | Rust strategy/options.rs; isolated GDScript | IN_PROGRESS — second-chat-overnight |
+| N109 | P6 native faction charter authority, review tranches and paid budget receipts | Rust strategy/charter.rs; isolated GDScript | CODE_UNVERIFIED — [PR #197](https://github.com/Mefits/Living-Sector/pull/197) |
+| N110 | P4 native station progression tier limits and paid upgrade domain | Rust strategy/progression.rs; isolated GDScript | CODE_UNVERIFIED — [PR #198](https://github.com/Mefits/Living-Sector/pull/198) |
+| N111 | P5 native shortage option comparisons and forecast | Rust strategy/options.rs; isolated GDScript | CODE_UNVERIFIED — [PR #199](https://github.com/Mefits/Living-Sector/pull/199) |
