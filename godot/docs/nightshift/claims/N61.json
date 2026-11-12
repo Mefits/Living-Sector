@@ -1,0 +1,28 @@
+{
+  "block_id": "N61",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12-interactive-n61-itinerary-live-admission",
+  "claimed_at": "2026-11-12T13:51:15.119Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "feature/godot-n57-live-fleet-engine-20261112",
+  "source_sha": "59677a5704ba6a2f20f3675d493c0520ade9ffd7",
+  "work_branch": "feature/godot-n61-live-itinerary-admission-20261112",
+  "tasks": [
+    "Integrate existing N58–N60 route auditing/planning/admission into N57 as optional read-only/command-boundary helpers",
+    "Ensure only native directed routes are accepted and planned multi-leg travel advances through dock/undock and actual N14 transit, no teleport or fake economy",
+    "Write short regression with Sol native test route and invalid/tampered itinerary rejection",
+    "Publish separate PR and update status without touching N39 production or P1"
+  ],
+  "dependencies": [
+    "N57 PR #149",
+    "N58 PR #146",
+    "N59 PR #147",
+    "N60 PR #148"
+  ],
+  "conflict_boundary": [
+    "N39 owned production",
+    "stable P1",
+    "main and Rust archive"
+  ]
+}
