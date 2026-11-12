@@ -1,6 +1,6 @@
 {
   "block_id": "N97",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "claimed_at": "2026-11-12T16:40:54.617Z",
   "run_id": "manual-next-n97-ship-apply-2026-11-12T16:40:54.617Z",
@@ -25,5 +25,26 @@
     "N95 production dependencies",
     "N96 portfolio policy",
     "P1/main/stable/Rust immutability"
+  ],
+  "activity": "COMPLETED_PHYSICAL_APPLY",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/192",
+  "head_sha": "3d1412f15a72341b59e98c6aba97f8e837a900af",
+  "finished_at": "2026-11-12T16:54:28.702Z",
+  "progress": [
+    "Ported pure exclusive Rust ShipTransaction Apply for physical Buy, Sell, Mine and Refuel with authoritative source and full-world detached staging.",
+    "Actual ship↔market facility credits, physical market stock, frozen ice body richness depletion, cargo aging/origin and refuel reserves and price-rounding source rules.",
+    "Atomic trade admission checks genuine dock/market/location/faction/treaty/stock/cash/physical hold and prevents partial effects on failure.",
+    "Exclusive command ID dispatcher emits source apply/reject events and N90-compatible null/ok/error transient acknowledgement; stale and already-applied no-op.",
+    "Explicitly deferred contract escrow/embark/deliver, gate and shipyard refit to remaining source module ports; N39 production untouched."
+  ],
+  "evidence": [
+    "Frozen Rust native/crates/sim_server/src/engine/transactions.rs 31,603 characters plus relations, facility, market, commodities and ship transaction source inspected.",
+    "Three standalone GDScript modules in draft PR #192 and documented snapshot contract; all explicit preload paths found and delimiter checks balanced.",
+    "Godot runtime deliberately NOT run; no claim of f32/f64 bit exactness or full economy integration. CODE_UNVERIFIED."
+  ],
+  "outstanding": [
+    "contract_funding.rs and transactions.rs embark/deliver escrow/settlement source",
+    "apply.rs gate fee and admin.rs refit integration source",
+    "Phase 2 wiring one N11 global ledger and N39 production into exclusive tick; comprehensive Godot runtime verification"
   ]
 }
