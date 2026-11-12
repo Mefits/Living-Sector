@@ -57,7 +57,7 @@ static func admit_into_empty_world_ledger(ledger: RefCounted, seed: Dictionary,
     var combined: Dictionary = (result["accounts"] as Dictionary).duplicate(true)
     var total: int = int(result["total"])
     for key in other_authoritative_accounts:
-        if not (key is String) or key.is_empty() or combined.has(key):
+        if not (key is String) or key.is_empty() or key.begins_with("ship:") or combined.has(key):
             return _failure("duplicate_or_invalid_account")
         var amount: Variant = other_authoritative_accounts[key]
         if typeof(amount) != TYPE_INT or int(amount) < 0 or total > MAX_CREDITS - int(amount):
