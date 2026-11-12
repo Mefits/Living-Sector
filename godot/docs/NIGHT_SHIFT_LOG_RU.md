@@ -61,3 +61,9 @@
 - **Другие блоки:** N2 завершён как `CODE_UNVERIFIED` в PR #89; N3 и далее проверять по claims перед захватом.
 - **Дальше:** N3 — детерминированная очередь событий/cadence; утром прогнать оба P1 smoke и N2 calendar smoke.
 - **Текущее состояние:** P0 3/9 VERIFIED, P1 0/9 VERIFIED, P2 0/11 VERIFIED, всего 3/100 VERIFIED; 2 существенных блока кода без проверки Godot (N1, N2).
+
+### Запуск N3 — 2026-11-12 03:35 +03:00 — second-chat-overnight
+
+- **Claim:** `claims/N3.json`, `IN_PROGRESS`, commit `9fcc20b5ab74ca511ca9dcfb24bcce10ceb35a43`.
+- **План:** cadence, детерминированные события, отмена/дедупликация, snapshot и короткий smoke.
+- **Ветка:** `feature/godot-nightshift-n3-events-second-20261112`.
