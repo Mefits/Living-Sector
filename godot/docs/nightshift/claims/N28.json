@@ -1,0 +1,16 @@
+{
+  "block_id": "N28",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T08:33:24+01:00-overnight-n28",
+  "claimed_at": "2026-11-12T08:33:24+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "9127da6e537463c2087b4ec68da839cb68d5dd15",
+  "work_branch": "feature/godot-nightshift-n28-ledger-audit-20261112",
+  "tasks": [
+    "Inspect frozen Rust money and transaction invariants",
+    "Implement read-only deterministic ledger reconciliation for Godot balances and receipts",
+    "Add short regression smoke for conservation and tampering",
+    "Document parity boundaries and update coordination"
+  ]
+}
