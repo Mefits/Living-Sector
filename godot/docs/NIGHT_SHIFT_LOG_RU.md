@@ -262,3 +262,7 @@ Atomic claim `claims/N20.json` commit `e889702`; read-only observer and command 
 ### N21 — результат
 - [Draft PR #109](https://github.com/Mefits/Living-Sector/pull/109), commits `2d0a8d2`, `118b0c7`: docking registry, deterministic capacity arbitration, idempotent operations, transit guards, validated save/restore, headless smoke.
 - `CODE_UNVERIFIED`: Godot not run; no integration with N14/N15/TickRunner. No verified counters changed.
+
+
+### N22 — 2026-11-12 08:59 МСК — second-chat-overnight — IN_PROGRESS
+Claim: `godot/docs/nightshift/claims/N22.json`; ветка `feature/godot-nightshift-n22-batch-view-20261112`. Задачи: P7-04 пакетная отрисовка кораблей, culling, стабильный порядок, headless smoke.
