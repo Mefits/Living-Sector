@@ -5,6 +5,7 @@ const NativeData = preload("res://scripts/native_data.gd")
 const Engine = preload("res://scripts/sim/live_native_fleet_engine.gd")
 
 var engine: RefCounted
+var resumed_engine: RefCounted
 var phase_count: int = 0
 var observed_arrival_sync: bool = false
 
@@ -29,7 +30,7 @@ func _initialize() -> void:
     if engine.ledger.total() != 2760000:
         _fail("ledger_inconsistent")
         return
-    if not engine.start_new_game(seed).get("reason", "") == "world_already_initialized":
+    if str(engine.start_new_game(seed).get("reason", "")) != "world_already_initialized":
         _fail("double_start")
         return
     var initial_checkpoint: Dictionary = engine.checkpoint()
@@ -72,7 +73,6 @@ func _initialize() -> void:
         _fail("dual_departure_state")
         return
     engine.runner.ships_phase_completed.connect(_on_ships_phase)
-    var event_saw_consistent: bool = true
     # One scheduled notification is delivered *after* N57 dock arrival
     # synchronization within native dock_queue phase of the SAME tick.
     for t in range(1, 120):
@@ -107,6 +107,9 @@ func _initialize() -> void:
     if resumed.runner.transit_cursor_for_fleet_envelope() != engine.runner.transit_cursor_for_fleet_envelope():
         _fail("transit_token_changed")
         return
+    resumed_engine = resumed
+    resumed.runner.ships_phase_completed.connect(_on_resumed_ships_phase)
+    resumed.runner.scheduled_event_due.connect(_check_resumed_event)
     if resumed.runner.bootstrap_new_game_native_fleet(seed):
         _fail("resumed_full_tank")
         return
@@ -122,8 +125,8 @@ func _initialize() -> void:
                 _fail("arrival_not_synchronized")
                 return
             break
-    if not restored_finished:
-        _fail("ship_never_arrived")
+    if not restored_finished or not observed_arrival_sync:
+        _fail("ship_never_arrived_or_phase_unsynced")
         return
     # Replay protection and deterministic state do not remove original
     # engine's live state or rewrite its save/user files.
@@ -163,6 +166,24 @@ func _check_event(event: Dictionary) -> void:
     var dock_state: Dictionary = engine.docking.ships[id]
     if transit.is_empty() and bool(dock_state["in_transit"]):
         _fail("dock_queue_saw_stale_arrival")
+
+
+func _on_resumed_ships_phase(_tick: int) -> void:
+    var id: String = "@system-sol/0"
+    var state: Dictionary = resumed_engine.runner._fleet.ships[id]
+    if (state["transit"] as Dictionary).is_empty() and str(state["location"]) == "mine-near-earth":
+        observed_arrival_sync = not bool(resumed_engine.docking.ships[id]["in_transit"])
+
+func _check_resumed_event(event: Dictionary) -> void:
+    if str(event.get("kind", "")) != "observer_only":
+        return
+    var id: String = str(event.get("entity_id", ""))
+    if id != "@system-sol/0":
+        return
+    var state: Dictionary = resumed_engine.runner._fleet.ships[id]
+    var dock_state: Dictionary = resumed_engine.docking.ships[id]
+    if (state["transit"] as Dictionary).is_empty() and bool(dock_state["in_transit"]):
+        _fail("restored_dock_queue_observed_stale_arrival")
 
 func _fail(reason: String) -> void:
     push_error("N57_LIVE_FLEET_FAIL " + reason)
