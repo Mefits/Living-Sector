@@ -6,6 +6,7 @@ const Roster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 const Transit = preload("res://scripts/sim/ship_transit.gd")
 const SeedWorld = preload("res://scripts/sim/world_model.gd")
 const NativeLocations = preload("res://scripts/sim/ships/native_location_resolver.gd")
+const NativeFleetBootstrap = preload("res://scripts/sim/ships/native_fleet_bootstrap.gd")
 
 var _roster: RefCounted
 var _fleet: RefCounted
@@ -13,6 +14,7 @@ var _transit: RefCounted
 var _positions: Dictionary = {}
 var _location_resolver: RefCounted
 var _fleet_suspended: bool = false
+var _initial_ship_credit_sources: Dictionary = {}
 var _fleet_enabled: bool = false
 var _last_ship_results: Dictionary = {}
 
@@ -25,6 +27,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _positions = {}
     _location_resolver = null
     _fleet_suspended = false
+    _initial_ship_credit_sources = {}
     _fleet_enabled = false
     _last_ship_results = {}
     return true
@@ -79,6 +82,26 @@ func configure_fleet_from_native(seed: Dictionary, fleet: RefCounted,
 ## Read-only current native coordinates, not screen positions.
 func native_positions_snapshot() -> Dictionary:
     return _positions.duplicate(true) if _fleet_enabled and _location_resolver != null else {}
+
+## Only valid for *fresh* frozen Rust seed initialization, at tick 0.
+## Unlike restore, the Rust seeder explicitly starts every initial ship with
+## a full class-spec tank and empty cargo; do not refuel on subsequent calls.
+## Credits remain source metadata, not an economy ledger or a transfer.
+func bootstrap_new_game_native_fleet(seed: Dictionary) -> bool:
+    if not is_started() or tick_count != 0 or _fleet_enabled:
+        return false
+    var built: Dictionary = NativeFleetBootstrap.build_new_game(seed)
+    if not bool(built.get("ok", false)):
+        return false
+    var fleet: RefCounted = built["fleet"]
+    if not configure_fleet_from_native(seed, fleet,
+            built["fuel_sources"], built["cargo_sources"]):
+        return false
+    _initial_ship_credit_sources = (built["credit_sources"] as Dictionary).duplicate(true)
+    return true
+
+func initial_ship_credit_sources() -> Dictionary:
+    return _initial_ship_credit_sources.duplicate(true)
 
 func implemented_phases() -> PackedStringArray:
     return PackedStringArray(["bodies", "ships"]) if _fleet_enabled else super.implemented_phases()
