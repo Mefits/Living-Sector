@@ -320,3 +320,9 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 
 ### 2026-11-12 22:01 MSK — second-chat-overnight N128–N130 START
 Three distinct atomic claims created IN_PROGRESS before source changes: N128 ship combat; N129 faction treasury taxation; N130 facility upkeep. Each has independent branch, Rust parity and overlap checks pending. N39 and other owners untouched. Phase 1 only.
+
+### 2026-11-12 22:01 MSK — N128–N130 COMPLETE (second-chat-overnight)
+- N128 [Draft PR #217](https://github.com/Mefits/Living-Sector/pull/217): frozen Rust crew skill role defaults, capped grants and confirmed receipt admission (ship/components.rs); no combat damage subsystem was present in inspected source.
+- N129 [Draft PR #218](https://github.com/Mefits/Living-Sector/pull/218): faction facility tax 2.5% above 1000 CR, 200-base-tick cadence, treasury-funded bailout state transitions (faction.rs).
+- N130 [Draft PR #219](https://github.com/Mefits/Living-Sector/pull/219): facility reserve restock against real local market supply and paid seller balance, internal owner no-charge path (facility/restock.rs).
+All three distinct claims CODE_UNVERIFIED, three separate branches, source reviewed, no Godot runtime or integration, no merge. P1 checkpoint/main/Rust archive and N39/other claims unchanged. Authoritative commit of external state is a phase-2 dependency. VERIFIED P0 3/9 P1 0/9 P2 0/11 overall 3/100 unchanged.
