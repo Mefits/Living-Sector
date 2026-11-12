@@ -164,7 +164,7 @@ static func plan_delivery_contracts(facilities: Array, markets: Dictionary,
 				not (f.get("location_name") is String) or \
 				not (f.get("faction_id") is String) or \
 				typeof(f.get("credits"))!=TYPE_INT or \
-				not (f.get("reserves") is Dictionary)):
+				not (f.get("reserves") is Dictionary):
 			return _fail("missing_native_facility")
 		credits[f["id"]]=f["credits"]
 		if bool(f.get("abandoned",false)):
