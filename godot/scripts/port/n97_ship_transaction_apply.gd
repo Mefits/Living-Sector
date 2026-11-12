@@ -69,9 +69,10 @@ static func apply(world: Dictionary, ship_id: String,
     var current: Dictionary = target["transaction"]["pending"]
     if int(current.get("id", -1)) != request_id or current.get("result", null) != null:
         return _error("transaction_changed_before_apply", world)
-    current["result"] = {"ok": true} if bool(result.get("ok", false)) else {
-        "ok": false, "reason": str(result.get("reason", "rejected"))
-    }
+    # N90 TransactionSlot uses the frozen Rust three-state mailbox:
+    # null (pending) -> "ok" / "error" (Apply acknowledgement).
+    # Error detail belongs to the emitted event, not mailbox state.
+    current["result"] = "ok" if bool(result.get("ok", false)) else "error"
     if bool(result.get("ok", false)):
         target["lifecycle_dirty"] = true
     var contract_id: Variant = request.get("contract_id",
