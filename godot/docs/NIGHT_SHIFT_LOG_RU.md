@@ -1,5 +1,8 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 12.11.2026 — interactive-chat: N121 LARGE START
+- Atomic [N121 claim](nightshift/claims/N121.json), SHA abf9dd3f1883da59700fdded7e4497cf065c60fc. Large source 61 KB `strategy/planning/native_execution.rs`: native receipt→funded order→verified completed stock, recovery after restart and bounded cooldown, no speculative money. Other owners N39/N100 and source modules N98/N99 unaffected; phase1 only.
+
 ### 12.11.2026 — interactive-chat: N108 SPECIAL APPLY COMPLETE
 - Atomic [claim N108](nightshift/claims/N108.json) closed CODE_UNVERIFIED; [Draft PR #200](https://github.com/Mefits/Living-Sector/pull/200), five GDScript modules (527 lines) and exact Rust source handoff.
 - Physical GateJump: cargo-dependent fee, real payer/gate facility, paired destination/world coordinates and recent-systems memory. Shipyard agent refit: 15 native module effects, 10 manufactured prices, real stock/ship/yard credits, consumed retrofit point; privileged admin refit remains separate. ReleaseContract: proper fulfiller, no escrow refund on release, breach rep and faction standing -1 except issuer funding failure.
