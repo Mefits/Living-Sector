@@ -283,3 +283,5 @@
 
 ### N28 — P8-03 partial ledger reconciliation (2026-11-12)
 Draft [PR #116](https://github.com/Mefits/Living-Sector/pull/116) implements a read-only audit of N11 credit ledger balances and receipts, explicit seed baseline, deterministic errors and tamper/save-restore smoke. **CODE_UNVERIFIED**, no Godot executable; P8-03 stays TODO until native ship/facility/faction/household/crew/escrow wallet parity and chronological receipts are integrated and runtime tests pass. VERIFIED counts unchanged: P0 3/9, P1 0/9, P2 0/11, overall 3/100.
+
+> **N29, 12.11.2026:** [Draft PR #117](https://github.com/Mefits/Living-Sector/pull/117) adds a N21-compatible dock-authorized gateway to N15 cargo transfers, facility inventory binding, occupancy/transit/location checks, receipt replay and save/restore smoke. **CODE_UNVERIFIED** (Godot not run). Depends on N15/N21 integration; direct cargo API remains a bypass until production callers migrate. VERIFIED remains 3/100.
