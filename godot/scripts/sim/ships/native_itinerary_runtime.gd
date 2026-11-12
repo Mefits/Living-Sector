@@ -6,8 +6,8 @@ const Live = preload("res://scripts/sim/live_native_fleet_engine.gd")
 const Intents = preload("res://scripts/sim/ships/itinerary_intent_registry.gd")
 const BaseSave = preload("res://scripts/sim/ships/native_fleet_checkpoint.gd")
 const CommandReceipts = preload("res://scripts/sim/ships/native_command_receipts.gd")
-const FORMAT := "living-sector-itinerary-runtime"
-const VERSION := 2 # N66 adds mandatory command_receipts domain
+const FORMAT = "living-sector-itinerary-runtime"
+const VERSION = 2 # N66 adds mandatory command_receipts domain
 
 var engine: RefCounted
 var intents: RefCounted
