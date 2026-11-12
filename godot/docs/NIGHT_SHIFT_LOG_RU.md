@@ -358,3 +358,11 @@ Atomic claim `claims/N31.json` at `f1274062eb75162b93ba013fc194f708443fcc65`; ru
 - FIRST GitHub WRITE: atomic `claims/N32.json`, commit `d92a882a817c4e77dc1ff863234f6f27c22b3e57`, status `IN_PROGRESS`.
 - Scope: dependency audit of nightshift PRs, independent non-destructive integration branch, unified short Windows Godot smoke command (without requiring unavailable Godot Runtime on agent), precise source SHA and PR integration handoff.
 - Working branch: `integration/godot-foundation-smoke-20261112`. Agent will not modify main or pause automations.
+
+### N32 FINISH — 12.11.2026 — interactive-integration-chat
+
+- **PR:** [#120](https://github.com/Mefits/Living-Sector/pull/120) draft, integration commit `f7e3709dab88cf1fb6dcf1b0580d3c49409abffb`; base is N31 PR #119. No merge/main/stable changes.
+- **Work:** composed a non-destructive Godot source integration candidate by carrying 47 unique domain/test files from nightly PR head SHAs, keeping N1 validated world import and assembling N2+N3 calendar/events with N20 read-only UI. Retained N1 strict live pause/resume validation.
+- **Testing prepared:** `godot/RUN-INTEGRATION-SMOKE.cmd` quick 11 scripts + headless editor import; `RUN-INTEGRATION-SMOKE.cmd all` all 32 discovered test scripts. Output `godot/logs/integration/summary.txt` and per-test logs. Source map: `godot/docs/INTEGRATION_CANDIDATE_N32_RU.md`.
+- **IMPORTANT:** Godot Runtime unavailable in agent environment. Tests NOT RUN. The single authoritative TickRunner still executes P1 orbital `bodies` only; production/AI/economy modules are present and smoke-testable in isolation, not all wired to live gameplay. Status `CODE_UNVERIFIED`. Main tracked VERIFIED totals stay P0 3/9, P1 0/9, P2 0/11, all 3/100.
+- **Next:** User downloads Godot Standard and runs Windows CMD against integration branch; send diagnostic ZIP, then iterate runtime fixes, connect authoritative game loop and validate Rust parity. Background scheduled agents remain enabled.
