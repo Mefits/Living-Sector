@@ -628,3 +628,6 @@ Atomic exclusive claims created on coordination branch: N68 `89c2c062`, N69 `b1c
 
 ### 2026-11-12 — N68/N69/N70 code finished (second-chat-overnight)
 N68 [PR #157](https://github.com/Mefits/Living-Sector/pull/157): replay-safe market price tick wrapper reusing N10 Rust formula. N69 [PR #158](https://github.com/Mefits/Living-Sector/pull/158): canonical faction relation/treaty gates. N70 [PR #159](https://github.com/Mefits/Living-Sector/pull/159): native facility degradation, tool repair and abandonment. Each has an isolated Godot headless script; all **CODE_UNVERIFIED**, no Godot executable run. No integration into the live P1 runner, no merges. N39/N67 left untouched.
+
+
+> **2026-11-12 17:37 MSK — overnight11:** Atomic claims N71, N72, N73 created as IN_PROGRESS, owner second-chat-overnight. N71 population food/water demand; N72 ship crew life support; N73 facility recipe catalogue. Three independent scopes, no overlap with N39. Work branches feature/godot-n71/n72/n73-overnight11-20261112; Godot runtime unverified.
