@@ -1,4 +1,5 @@
 # Living Sector — журнал прогресса переноса Rust → Godot
+> **N139, 12.11.2026:** [Draft PR #227](https://github.com/Mefits/Living-Sector/pull/227) ports native `strategy/production_chain.rs`: read-only five-stage causal production/construction sequence and local installed precursor priority. 213 GDScript lines + handoff; no mutation of stock/credits. Readback/delimiter static check only, `CODE_UNVERIFIED`. VERIFIED unchanged 3/100. PR mergeable=false reported; no merge.
 > **N137, 12.11.2026:** [Draft PR #226](https://github.com/Mefits/Living-Sector/pull/226) ports frozen native `ai/considerations.rs` (7 functions) and price freshness dependency into pure GDScript. Source reviewed; static readback only, **CODE_UNVERIFIED**, no Godot runtime. VERIFIED unchanged 3/100.
 
 
