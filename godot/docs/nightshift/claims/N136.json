@@ -1,6 +1,6 @@
 {
   "block_id": "N136",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "20261112T225258+0300-second-chat-n136-economic-proposal",
   "claimed_at": "2026-11-12T22:52:58+03:00",
@@ -16,6 +16,16 @@
     "Player decision and tranche authorization",
     "Receipt-only consumption and legacy snapshot fields"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "13 native GDScript operations, proposal lifecycle and charter approval tranche",
+    "funded receipt linkage and legacy nullable fields",
+    "source handoff and static readback"
+  ],
+  "evidence": [
+    "GitHub PR #224, two commits",
+    "Static readback: 9520 chars, 13 functions, delimiter balance; Godot NOT RUN"
+  ],
+  "completed_at": "2026-11-12T22:54:30+03:00",
+  "commit_sha": "911d21799627f856b8bafe3a96f20218cde829c0",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/224"
 }
