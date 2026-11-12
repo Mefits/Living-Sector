@@ -1,5 +1,11 @@
 # Living Sector — журнал ночных запусков (12 ноября 2026)
 
+### 2026-11-12 — interactive-chat, N50–N54 (ПЯТЬ РЕЗЕРВАЦИЙ)
+- Пользователь запросил атомарно зарезервировать пять свободных блоков. Выполнено последовательно по протоколу: N50 `b88f715`, N51 `103b4e4`, N52 `00702fc`, N53 `bc3f222`, N54 `80312e8`; все в общей ветке `feature/godot-nightshift-20261112` и `status: IN_PROGRESS`.
+- N50 ACTIVE — экипаж кораблей из frozen Rust. N51–N54 QUEUED — fitting, ship funds, docking, atomic fleet save; отдельные ветки и PR, отсутствие совпадений с N39 production.
+- Все начинаются от N46 / PR #136, а не от main/P1. Не перекладывать тесты на пользователя.
+
+
 ### 12.11.2026 — interactive-chat, N46: ЗАВЕРШЕНО В КОДЕ
 - Первый write — атомарный [claim N46](nightshift/claims/N46.json) @ `83846b4ab77978a06ac476080d296731f67203bc`; текущий claim `CODE_UNVERIFIED`.
 - [PR #136](https://github.com/Mefits/Living-Sector/pull/136) (stacked на N43/N40): fresh native seed fleet full-fuel/empty cargo строго по Rust `sim_db::seeder.rs` и `001_initial.sql`, 24 начальных корабля; сохранённые fuel/cargo не инициализируются заново.
