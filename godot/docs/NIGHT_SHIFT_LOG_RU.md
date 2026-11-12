@@ -821,3 +821,6 @@ Three distinct atomic claims created on coordination branch before code. N122 te
 - N123 frozen body regeneration cadence, biome food multipliers and descriptive resource grades: [Draft PR #211](https://github.com/Mefits/Living-Sector/pull/211).
 - N124 observed market demand window, shortage/crisis hysteresis and expiry of unfunded anonymous orders: [Draft PR #212](https://github.com/Mefits/Living-Sector/pull/212).
 All CODE_UNVERIFIED, source reviewed, GitHub readback and minimal delimiter balance only. No Godot run, merge or P1 integration. N39/N121 and all other claims untouched.
+
+### 2026-11-12 21:57 MSK — second-chat-overnight N125/N126/N127 START
+Three atomic claims created before code. N125 emergency food delivery proposals; N126 passenger contract proposals; N127 population labor production/monetisation. Frozen Rust agents/population.rs source, integration base 1e4a1e9f34fff7313ce176107890ecdbe25fc85a. N39/N100/N121 and all other claims untouched. Phase-1 source port only; CODE_UNVERIFIED pending.
