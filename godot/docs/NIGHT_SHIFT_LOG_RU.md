@@ -1,5 +1,10 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 2026-11-12 — interactive-chat, N90 — ECONOMIC ACTIONS DONE
+- [Claim N90](nightshift/claims/N90.json) closed CODE_UNVERIFIED, [PR #182](https://github.com/Mefits/Living-Sector/pull/182): Rust actions.rs economic ShipAction leaves and transactions.rs mailbox. Two source-backed GDScript scripts (~495 lines) + source handoff: buy/sell/sellall/refuel/mine, contract Accept/Embark/Deliver, Refit, GateJump, PickupCargo no-op. Strict Running/Success/Failure after Apply, source-accurate request_id checks, mine shift, commodity list and conservative world admission.
+- Exclusive global Apply (real market cash/stock, body mining depletion, gate/refit fee) is NOT covered, N39 production/N88 dock-rest actions untouched. Godot and test runs deliberately deferred until Phase 2.
+- Estimated remaining Phase-1 code migration ~70% (symbolic, depends on full Rust source parity inventory rather than Nx count).
+
 ### 2026-11-12 — interactive-chat, N90 — START
 - Atomically reserved N90 in [claim](nightshift/claims/N90.json), commit `d27b9493f30967557248d831a018c4f3d9cbdcbc` before any code. Scope: Rust ShipAction economical/physical leaves and acknowledgement; N88 dock/rest/construct stays independent. No N39 or P1/main changes. Phase 1 only, minimal static checks, no Godot execution.
 
