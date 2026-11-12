@@ -1,6 +1,7 @@
 extends SceneTree
 const Graph = preload("res://scripts/sim/route_graph.gd")
 const Audit = preload("res://scripts/sim/route_graph_audit.gd")
+var failures: int = 0
 
 func _initialize() -> void:
 	var worlds: Array = [
@@ -32,10 +33,11 @@ func _initialize() -> void:
 	tampered[1]["travel_routes"].clear()
 	_assert(not auditor.audit(tampered, graph)["ok"], "missing arc")
 	_assert(graph.snapshot() == before, "failure does not mutate graph")
-	print("N58_ROUTE_GRAPH_AUDIT_PASS")
-	quit(0)
+	if failures == 0:
+		print("N58_ROUTE_GRAPH_AUDIT_PASS")
+	quit(0 if failures == 0 else 1)
 
 func _assert(value: bool, label: String) -> void:
 	if not value:
+		failures += 1
 		push_error("N58 FAIL: " + label)
-		quit(1)
