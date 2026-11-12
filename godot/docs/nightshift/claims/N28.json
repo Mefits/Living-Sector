@@ -1,6 +1,6 @@
 {
   "block_id": "N28",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "overnight-scheduler",
   "run_id": "2026-11-12T08:33:24+01:00-overnight-n28",
   "claimed_at": "2026-11-12T08:33:24+01:00",
@@ -12,5 +12,16 @@
     "Implement read-only deterministic ledger reconciliation for Godot balances and receipts",
     "Add short regression smoke for conservation and tampering",
     "Document parity boundaries and update coordination"
+  ],
+  "completed_at": "2026-11-12T08:35:06+01:00",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/116",
+  "head_sha": "63821345990148d76ee806a2d91d996afaca70ba",
+  "checks": [
+    "Frozen Rust money.rs read; N11 source reviewed",
+    "Godot executable not installed; headless test prepared NOT RUN"
+  ],
+  "limitations": [
+    "Read-only partial P8-03; no native wallet/contract integration",
+    "Receipt replay by lexicographic ID needs monotonic ordering for general chronological parity"
   ]
 }
