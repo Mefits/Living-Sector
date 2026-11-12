@@ -1,0 +1,18 @@
+{
+  "block": "N45",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "second-chat-overnight-20261112T142805+0300-N45",
+  "started_at": "2026-11-12T14:28:05+03:00",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_commit_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "working_branch": "feature/godot-n45-research-funded-orders-20261112",
+  "tasks": [
+    "Inspect Rust research economics and N44 gate",
+    "Implement fail-closed funded research order execution with real ledger transfer",
+    "Add deterministic replay and save/restore smoke",
+    "Update coordination and PR"
+  ],
+  "progress": [],
+  "evidence": []
+}
