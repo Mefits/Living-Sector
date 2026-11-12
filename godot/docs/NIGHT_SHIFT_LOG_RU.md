@@ -168,3 +168,12 @@ Atomic claim `claims/N14.json` commit `1e058935`; work branch `feature/godot-nig
 ### N6 start — 2026-11-12 04:05 CET — overnight-scheduler
 
 Atomic claim `claims/N6.json` commit `c8fa69b3`; Rust-parity recipe execution, inventory/payroll, deterministic smoke; work branch `feature/godot-nightshift-n6-production-overnight-20261112`. Runtime pending.
+
+### N6 result — overnight-scheduler — 2026-11-12 04:07 CET
+
+- **PR:** https://github.com/Mefits/Living-Sector/pull/100 (draft; head `73d97a9276d374bd317d5464bc296fc1469045a1`, based on N9 #96; N11 ledger imported unchanged).
+- **Code:** paid self-owned local production: 60% population labor cap, 1 CR per worker Rust wage, one shift per tick, dry-run native fractional recipe, full capacity check, balanced ledger receipt, snapshot and headless smoke.
+- **Rust:** frozen `agents/facility/workforce.rs` and `economy/recipes.rs`; built-in RefCounted/Dictionary only, no plugin/Node per facility.
+- **Checks:** source/formula parity and inspection; Godot executable unavailable, headless smoke NOT RUN. `CODE_UNVERIFIED`.
+- **Limitations:** no shared workforce reservation, foreign-owner processing fee, station permits or TickRunner wiring; PR #93/#94/#96 dependencies pending. Next independent N15/N16 or N8 after claim check.
+- **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED.
