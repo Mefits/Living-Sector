@@ -81,3 +81,7 @@
 ### 2026-11-12 02:00 CET — N4 started (overnight-scheduler)
 
 Reserved `N4.json` atomically; implementing native registry and travel route graph in `feature/godot-nightshift-n4-registry-routes-overnight-20261112`. Godot runtime validation pending.
+
+### 2026-11-12 02:02 CET — N4 complete (CODE_UNVERIFIED)
+
+[PR #92](https://github.com/Mefits/Living-Sector/pull/92) (head `f0fab080`): data-only native identity registry, 12-edge directed route graph, Dijkstra shortest path, canonical snapshots and short headless test. Native static audit 8 JSON worlds; route earth-station → pirate-outpost 855 units. Godot executable absent; test not run. N5 next free at time of completion; do not merge without runtime review.
