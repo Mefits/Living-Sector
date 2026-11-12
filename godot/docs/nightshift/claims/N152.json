@@ -1,0 +1,26 @@
+{
+  "block_id": "N152",
+  "macro_id": 5,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13-macro5-contract-board-hydration-cleanup",
+  "claimed_at": "2026-11-13T02:10:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "work_branch": "feature/godot-n152-contract-board-lifecycle-index-cleanup-20261113",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_paths": [
+    "native/crates/sim_core/src/economy/contracts.rs::insert_loaded/post_kind_with_faction/by_status/posted_by_destination/posted_by_faction",
+    "native/crates/sim_core/src/economy/contracts.rs::accept/release/mark_picked_up/mark_delivered/drop_ship_holdings/cancel_for_facility",
+    "native/crates/sim_core/src/economy/contracts.rs::register_prepaid (boundary only)"
+  ],
+  "scope": "Macro5 one source-backed ContractBoard index/state authority, persisted insert and post, ship destruction/facility deletion cleanup, exhaustive state transitions without duplicating N145 aging, N104 funding, N97 transactions, N135 order dispatcher; keep CODE_UNVERIFIED if untested.",
+  "tasks": [
+    "Audit native board transitions/index invariants against N16 N145 and current draft PRs",
+    "Port complete pure ContractBoard authoritative projection: post+rehydrate, indices, state transitions and ship/facility removal idempotent receipts",
+    "Add source-grounded regression scenarios for stale fulfiller cleanup, index visibility and post-reload IDs, no credits or refunded escrow",
+    "Write Phase2 owner map and collision guards; publish single Draft PR",
+    "Update claim/queue/log/tracker; mark whole macro #5 complete only if every remaining Rust function actually covered"
+  ],
+  "evidence": [],
+  "progress": []
+}
