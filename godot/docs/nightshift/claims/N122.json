@@ -1,0 +1,21 @@
+{
+  "block_id": "N122",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "20261112T214757+0300-second-chat-N122",
+  "claimed_at": "2026-11-12T21:47:57+03:00",
+  "started_at": "2026-11-12T21:47:57+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "source_sha_note": "last documented integration SHA; fresh ref read required before code",
+  "work_branch": "feature/godot-phase1-n122-territory-20261112",
+  "scope": "native/crates/sim_core/src/agents/celestial_body.rs::derive_territorial_control",
+  "tasks": [
+    "body and system territorial controller from real non-gate facilities",
+    "data-only GDScript state transition without scene Nodes",
+    "minimal static validation and source parity"
+  ],
+  "progress": [],
+  "evidence": []
+}
