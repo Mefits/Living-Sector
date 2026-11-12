@@ -794,3 +794,9 @@ All three isolated GDScript modules committed; minimal source reread and balance
 
 ### 2026-11-12 20:59 MSK — second-chat-overnight START N115–N117
 Three independent atomic claims created before code. Scopes: faction relations, facility workforce, planner comparison. Base integration `1e4a1e9f`; other claims untouched. Phase 1, CODE_UNVERIFIED pending.
+
+### 2026-11-12 21:00 MSK — second-chat-overnight N115–N117 results
+- N115 [Draft PR #204](https://github.com/Mefits/Living-Sector/pull/204): native faction relation standing, treaty transitions, market/dock modifiers. Rust 36k source partly covered; other diplomatic hooks external.
+- N116 [Draft PR #205](https://github.com/Mefits/Living-Sector/pull/205): native facility paid shift staffing, occupied-worker receipts, wage and owner/producer payment modes; authoritative transactional lock external.
+- N117 [Draft PR #206](https://github.com/Mefits/Living-Sector/pull/206): read-only HTN/GOAP/Beam comparison with injected native validation; planner adapters external.
+All three CODE_UNVERIFIED, separate PR/branches, no Godot run, no merge or P1 changes. N39 and other claims untouched.
