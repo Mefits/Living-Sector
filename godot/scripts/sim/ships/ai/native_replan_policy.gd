@@ -29,7 +29,11 @@ static func ship_stagger_offset(ship_id: String) -> int:
         hi = new_hi
         lo = new_lo
     # 2^32 % 40 == 16.
-    return ((hi % Goals.REPLAN_CHECK_INTERVAL_TICKS) * 16         + lo % Goals.REPLAN_CHECK_INTERVAL_TICKS)         % Goals.REPLAN_CHECK_INTERVAL_TICKS
+    return (
+        ((hi % Goals.REPLAN_CHECK_INTERVAL_TICKS) * 16
+            + lo % Goals.REPLAN_CHECK_INTERVAL_TICKS)
+        % Goals.REPLAN_CHECK_INTERVAL_TICKS
+    )
 
 ## Input = already-persisted, authoritative ShipAI/ShipEconomy + current
 ## tick data. "has_current_bt" rather than goal text determines needs_plan.
@@ -53,9 +57,22 @@ static func should_evaluate(snapshot: Dictionary) -> Dictionary:
     var assigned_builder: bool = bool(snapshot.get("assigned_builder", false))
     var offset: int = ship_stagger_offset(ship_id)
     var elapsed: int = maxi(tick - last, 0)
-    var forced_new_order: bool = (assigned_delivery or assigned_builder)         and not active_contract and not pending         and not goal.begins_with("fulfill_")         and not ["construct", "refuel", "rest_crew"].has(goal)
+    var forced_new_order: bool = (
+        (assigned_delivery or assigned_builder)
+        and not active_contract and not pending
+        and not goal.begins_with("fulfill_")
+        and not ["construct", "refuel", "rest_crew"].has(goal)
+    )
     var needs_plan: bool = not has_bt or forced_new_order
-    var due: bool = not needs_plan         and not pending         and not (assigned_delivery and active_contract)         and not assigned_builder         and Goals.is_replan_eligible(goal)         and elapsed >= Goals.REPLAN_MIN_COMMIT_TICKS         and (tick + offset) % Goals.REPLAN_CHECK_INTERVAL_TICKS == 0
+    var due: bool = (
+        not needs_plan
+        and not pending
+        and not (assigned_delivery and active_contract)
+        and not assigned_builder
+        and Goals.is_replan_eligible(goal)
+        and elapsed >= Goals.REPLAN_MIN_COMMIT_TICKS
+        and (tick + offset) % Goals.REPLAN_CHECK_INTERVAL_TICKS == 0
+    )
     return {"ok": true, "evaluate": needs_plan or due,
         "needs_plan": needs_plan, "periodic_replan_due": due,
         "offset": offset, "elapsed": elapsed,
@@ -72,7 +89,9 @@ static func resolve_offer(snapshot: Dictionary, profile: Dictionary,
         return _err("invalid_candidate")
     var current: Variant = snapshot.get("current_goal_score", null)
     var proposal: Variant = candidate.get("score", null)
-    if not (current is int or current is float)             or not (proposal is int or proposal is float)             or not is_finite(float(current)) or not is_finite(float(proposal)):
+    if (not (current is int or current is float)
+            or not (proposal is int or proposal is float)
+            or not is_finite(float(current)) or not is_finite(float(proposal))):
         return _err("invalid_goal_scores")
     if float(current) < 0.0 or float(proposal) < 0.0:
         return _err("negative_goal_scores")
@@ -85,7 +104,11 @@ static func resolve_offer(snapshot: Dictionary, profile: Dictionary,
     var obligation: bool = bool(snapshot.get("active_contract", false))
     var ratio: float = Goals.REPLAN_SCORE_RATIO
     if obligation:
-        ratio += Goals.CONTRACT_OBLIGATION_WEIGHT             + clampf(float(profile["loyalty"]), 0.0, 1.0)             * Goals.LOYALTY_REPLAN_MULTIPLIER
+        ratio += (
+            Goals.CONTRACT_OBLIGATION_WEIGHT
+            + clampf(float(profile["loyalty"]), 0.0, 1.0)
+            * Goals.LOYALTY_REPLAN_MULTIPLIER
+        )
     var accepted: bool = bool(eval_result["needs_plan"])         or float(proposal) >= float(current) * ratio
     return {"ok": true, "switch": accepted,
         "reason": "needs_plan" if bool(eval_result["needs_plan"]) else             ("better_offer" if accepted else "commitment_threshold"),
