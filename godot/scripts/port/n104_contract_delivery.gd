@@ -128,6 +128,10 @@ static func deliver(world: Dictionary, ship_id: String,
         if not (markets is Dictionary) or not (markets.get(at, null) is Dictionary):
             return _bad("missing_market")
         market_record = markets[at]
+        var market_ok: Dictionary = _market_preflight(world,
+            market_record, ship_faction, at)
+        if not bool(market_ok.get("ok", false)):
+            return market_ok
         if not (market_record.get("supply", null) is Dictionary):
             return _bad("missing_destination_pricing")
         var prior: Variant = market_record["supply"].get(commodity, 0.0)
@@ -278,6 +282,34 @@ static func deliver(world: Dictionary, ship_id: String,
     _grant_skill(paid_ship, "navigation", 1)
     return {"ok": true, "world": staged, "events": events,
         "quantity": float(qty), "payment": payment}
+
+## Rust transactions.rs::market_at. Only the legitimate operator's
+## facility is a market backing, not an order-book/anonymous credit source.
+static func _market_preflight(world: Dictionary, market: Dictionary,
+        ship_faction: String, location: String) -> Dictionary:
+    var fac_id: String = str(market.get("facility_id", ""))
+    if fac_id.is_empty():
+        return _bad("missing_market_owner")
+    var facilities: Variant = world.get("facilities", null)
+    if not (facilities is Dictionary):
+        return _bad("missing_seller")
+    var facility: Variant = facilities.get(fac_id, null)
+    if not (facility is Dictionary):
+        return _bad("missing_seller")
+    if bool(facility.get("abandoned", false)):
+        return _bad("seller_abandoned")
+    if str(market.get("location", "")) != location             or str(facility.get("location", "")) != location:
+        return _bad("wrong_market_location")
+    var rel: Variant = world.get("relations", null)
+    if not (rel is Dictionary):
+        return _bad("missing_relations")
+    var allowed: Dictionary = Quote.commerce_allowed(rel, ship_faction,
+        str(facility.get("faction_id", "")))
+    if not bool(allowed.get("ok", false)):
+        return allowed
+    if not bool(allowed.get("allowed", false)):
+        return _bad("embargo")
+    return {"ok": true}
 
 static func _grant_skill(ship: Dictionary, skill: String, amount: int) -> void:
     var skills: Variant = ship.get("crew_skills", null)
