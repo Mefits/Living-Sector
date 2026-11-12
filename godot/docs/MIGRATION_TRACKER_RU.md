@@ -269,3 +269,10 @@
 
 ### N22 — P7-04 пакетное отображение кораблей (12.11.2026)
 Статус **CODE_UNVERIFIED**, draft PR #110 (https://github.com/Mefits/Living-Sector/pull/110). Чистая проекция ID/позиций, одна CanvasItem, culling, selection, тест на 10k записей. Это НЕ подтверждённый P7-04: нет runtime-бенчмарка и подключения к авторитетному N14/N21 миру. P0/P1/P2 VERIFIED без изменений.
+
+### N26 — физическое подтверждение доставки контракта (CODE_UNVERIFIED)
+
+- [Draft PR #114](https://github.com/Mefits/Living-Sector/pull/114), head `f3563771ecf1905aabc32cccadcfcc55423267ff`; N15 + N16 stacked dependency.
+- `godot/scripts/sim/economy/physical_contract_settlement.gd`: pickup/load at source, unload at destination, exact ship/commodity/quantity/location receipt check, escrow payout only after delivery, duplicate/replay guards.
+- `godot/tests/n26_contract_delivery_check.gd`: shortage/wrong ship/early payout, load/unload, conservation of cargo and credits, replay after snapshot restore.
+- **CODE_UNVERIFIED:** no Godot executable; direct legacy N16 board methods still require exclusive coordinator routing before production use. No VERIFIED increase; P0 3/9, P1 0/9, P2 0/11, total 3/100.
