@@ -1,5 +1,11 @@
 # Living Sector — журнал ночных запусков (12 ноября 2026)
 
+### 2026-11-12 — interactive-chat, N43 (НАЧАЛО)
+- Атомарный claim: [claims/N43.json](nightshift/claims/N43.json) @ `86e4db0706645e431e9a143b6bacc4aa86950bc5`.
+- Отдельная ветка: `feature/godot-n43-native-location-resolver-20261112` от интеграции PR #128; задача — реальные координаты и движение точек назначения для N40.
+- N39 production остаётся за другим владельцем; N42 завершён другим агентом (PR #131), рабочие файлы не пересекать.
+- Работа/проверки в этом запуске будут добавлены после исполнения.
+
 ### 2026-11-12 — interactive-chat, N40 (ЗАВЕРШЕНО В КОДЕ)
 - Протокол: N40 claim → `CODE_UNVERIFIED`; [PR #130](https://github.com/Mefits/Living-Sector/pull/130), ветка `feature/godot-n40-ship-transit-worldbridge-20261112`.
 - Добавлено: честный roster нативных кораблей без выдуманных ID/топлива/груза; opt-in ships-phase adapter в нативном TickRunner; directed transit с сохранением событий/орбит; fail-closed P1 save.
