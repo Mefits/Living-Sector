@@ -93,6 +93,18 @@ static func run() -> Dictionary:
 		"consumption_window_addition_only_for_real_external_consumption")
 	var no_price := Market.tick_one_market(original,16,1,Callable())
 	_expect(errors,not bool(no_price["ok"]), "missing_N131_price_engine_cannot_invent_price")
+	var base_price := Market.posted_price_or_base(
+		{"prices":{"food":13.0}},"food",{"food":5.0})
+	var unknown_price := Market.posted_price_or_base(
+		{"prices":{}},"ice",{"food":5.0})
+	_expect(errors,bool(base_price["ok"]) and absf(float(base_price["price"])-13.0)<0.001
+		and not bool(unknown_price["ok"]),
+		"source_marketPricing_price_prefers_posted_and_never_invents_unknown_base")
+	var explicit_neutral := Relations.set_treaty({},"alpha","gamma","neutral",123)
+	_expect(errors,bool(explicit_neutral["ok"])
+		and explicit_neutral["pairs"].size()==1
+		and Relations.state(explicit_neutral["pairs"],"gamma","alpha")["since_tick"]==123,
+		"native_set_treaty_neutral_creates_pair_without_treaty_transition")
 	var pair := Relations.set_state({},"alpha","beta",55,"neutral",0)
 	_expect(errors,bool(pair.get("ok",false)),"original_relation_admin_set")
 	var relations: Dictionary = pair.get("pairs",{})
