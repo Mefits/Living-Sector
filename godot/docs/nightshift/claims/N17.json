@@ -1,0 +1,18 @@
+{
+  "block_id": "N17",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T07:35:32+03:00-second-chat-n17",
+  "claimed_at": "2026-11-12T07:35:32+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "source_sha_kind": "frozen Rust reference; coordination HEAD not exposed by fetch_file API",
+  "work_branch": "feature/godot-nightshift-n17-construction-second-20261112",
+  "tasks": [
+    "Audit Rust construction and facility slots",
+    "Implement construction lifecycle with material/labor/finance gates",
+    "Add deterministic smoke and save/restore parity"
+  ],
+  "progress": [],
+  "evidence": []
+}
