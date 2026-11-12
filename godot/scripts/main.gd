@@ -8,6 +8,7 @@ const SaveState = preload("res://scripts/sim/save_state.gd")
 const SPEEDS = [0.25, 1.0, 2.0, 4.0, 8.0, 16.0]
 const SystemMap = preload("res://scripts/system_map.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
+const SelectionInspector = preload("res://scripts/view/selection_inspector.gd")
 
 var _model
 var _runner
@@ -310,6 +311,9 @@ func _select_world(world: Dictionary) -> void:
             faction.get("name", "—"), faction.get("id", "—")
         ])
     lines.append("")
+    # Inspector reads a deep-copy snapshot and cannot execute economy/ship actions.
+    var diagnostic: Dictionary = SelectionInspector.new().inspect(_model, sid, _runner.tick_count) if _runner else {}
+    lines.append(SelectionInspector.new().describe(diagnostic))
     lines.append("Все числовые ресурсы в JSON остаются исходными.")
     lines.append("Изменяются только орбитальные углы, по точной формуле Rust.")
     lines.append("Запасы, контракты, производство и корабли не симулируются.")
