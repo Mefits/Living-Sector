@@ -21,16 +21,16 @@ static func _numeric(v: Variant) -> bool:
 	return typeof(v) in [TYPE_INT, TYPE_FLOAT] and is_finite(float(v))
 
 static func _valid_facility(f: Dictionary) -> bool:
-	if not (f.get("id") is String and f.get("location_name") is String and
-			f.get("facility_type") is String and f.get("operations") is Dictionary and
+	if not (f.get("id") is String and f.get("location_name") is String and \
+			f.get("facility_type") is String and f.get("operations") is Dictionary and \
 			f.get("storage") is Dictionary and f.get("lifecycle") is Dictionary):
 		return false
 	var ops: Dictionary = f["operations"]
 	var life: Dictionary = f["lifecycle"]
 	var storage: Dictionary = f["storage"]
-	return _numeric(ops.get("condition")) and typeof(ops.get("credits")) == TYPE_INT and
-		typeof(life.get("abandon_counter")) == TYPE_INT and
-		life.get("abandoned") is bool and storage.get("reserves") is Dictionary and
+	return _numeric(ops.get("condition")) and typeof(ops.get("credits")) == TYPE_INT and \
+		typeof(life.get("abandon_counter")) == TYPE_INT and \
+		life.get("abandoned") is bool and storage.get("reserves") is Dictionary and \
 		storage.get("dock_queue") is Array
 
 static func schedule(tick: int, multiplier: int) -> Dictionary:
@@ -114,7 +114,7 @@ static func start_tick(facilities: Array, ships: Dictionary,
 				if not ships.has(ship_id) or not (ships[ship_id] is Dictionary):
 					continue
 				var ship: Dictionary = ships[ship_id]
-				if ship.get("location_name", null) == f["location_name"] and
+				if ship.get("location_name", null) == f["location_name"] and \
 						ship.get("dock_attempt_start_tick", null) != null:
 					kept.append(ship_id)
 			if kept.size() != queue.size():
@@ -143,7 +143,7 @@ static func start_tick(facilities: Array, ships: Dictionary,
 				elif pair is Dictionary:
 					pop_id=pair.get("id",null)
 					worker_count=pair.get("count",null)
-				if not (pop_id is String) or typeof(worker_count)!=TYPE_INT or
+				if not (pop_id is String) or typeof(worker_count)!=TYPE_INT or \
 						int(worker_count)<0:
 					return _fail("invalid_real_workshift_receipt")
 				var n: int = int(worker_count)
@@ -194,15 +194,15 @@ static func after_real_paid_repairs_and_abandonment(facilities: Array,
 		for f in next:
 			if not (f is Dictionary) or not _valid_facility(f):
 				return _fail("invalid_facility")
-			if bool(f["lifecycle"]["abandoned"]) or
+			if bool(f["lifecycle"]["abandoned"]) or \
 					float(f["operations"]["condition"]) >= REPAIR_BELOW:
 				continue
 			var tools: float = float(f["storage"]["reserves"].get("tools", 0.0))
 			if tools < 1.0:
 				continue
 			var receipt = paid_shift_receipts.get(f["id"], null)
-			if not (receipt is Dictionary) or not bool(receipt.get("paid_shift_committed",false)) or
-					not bool(receipt.get("trusted_internal_apply",false)) or
+			if not (receipt is Dictionary) or not bool(receipt.get("paid_shift_committed",false)) or \
+					not bool(receipt.get("trusted_internal_apply",false)) or \
 					receipt.get("facility_id") != f["id"] or int(receipt.get("tick",-1)) != tick:
 				continue
 			f["storage"]["reserves"]["tools"] = tools - 1.0
@@ -219,12 +219,12 @@ static func after_real_paid_repairs_and_abandonment(facilities: Array,
 			var life: Dictionary = f["lifecycle"]
 			var ops: Dictionary = f["operations"]
 			var reserve: float = float(f["storage"]["reserves"].get("tools",0.0))
-			var dying: bool = float(ops["condition"]) < ABANDON_BELOW and
+			var dying: bool = float(ops["condition"]) < ABANDON_BELOW and \
 				reserve < 1.0 and int(ops["credits"]) < 100
 			if dying:
 				life["abandon_counter"] = mini(MAX_U32,
 					int(life["abandon_counter"]) + 1)
-				if int(life["abandon_counter"]) >= ABANDON_TICKS and
+				if int(life["abandon_counter"]) >= ABANDON_TICKS and \
 						not bool(life["abandoned"]):
 					life["abandoned"] = true
 					events.append({"kind":"facility_abandoned",
