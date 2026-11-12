@@ -257,3 +257,7 @@
 ### N16 — contract escrow and lifecycle (12.11.2026)
 
 **CODE_UNVERIFIED**, [draft PR #102](https://github.com/Mefits/Living-Sector/pull/102). Prepaid debit into existing escrow wallet, acceptance top-up, lifecycle transitions, payout/refund and snapshot/restore; headless regression prepared. Physical N15 receipts are caller-supplied but NOT authenticated; no faction permissions, renewals, fixed strategy rewards, passenger/construction effects or TickRunner integration. Godot runtime not executed. **P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED unchanged.**
+
+### N18 — station administrator priority and paid dispatch (12.11.2026)
+
+**CODE_UNVERIFIED** — [draft PR #106](https://github.com/Mefits/Living-Sector/pull/106), stacked on N6 #100. Rust `strategy/station.rs` workforce, urgency, retained-team hysteresis, Head precursor priority and shared shadow payroll budget ported into `godot/scripts/sim/strategy/station_administrator.gd`. Real paid shifts delegated to N6; deterministic smoke and handoff prepared. No Godot runtime, test NOT RUN. Missing mining, cross-owner fees, feedback, TickRunner and global labor integration. **VERIFIED totals unchanged: P0 3/9, P1 0/9, P2 0/11, overall 3/100.**
