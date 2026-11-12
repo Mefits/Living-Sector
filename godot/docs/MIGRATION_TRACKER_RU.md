@@ -336,3 +336,6 @@ Draft [PR #116](https://github.com/Mefits/Living-Sector/pull/116) implements a r
 > **N59, 12.11.2026:** [Draft PR #147](https://github.com/Mefits/Living-Sector/pull/147) adds pure directed multi-hop pathfinder parity with frozen Rust `world/pathfinder.rs`: Dijkstra, gate weight 5, nominal gate distance 1, stable tie-break and strict graph validation. Headless regression prepared, Godot not run; **CODE_UNVERIFIED**. No live fleet integration, no money/cargo mutation, VERIFIED remains P0 3/9, P1 0/9, P2 0/11, overall 3/100.
 
 > **N60, 12.11.2026:** [Draft PR #148](https://github.com/Mefits/Living-Sector/pull/148) — read-only directed multi-hop itinerary admission using native route graph, strict endpoint/edge/loop/distance checks, short headless regression. **CODE_UNVERIFIED**: no Godot runtime, no live fleet integration; VERIFIED counters unchanged (P0 3/9, P1 0/9, P2 0/11, total 3/100).
+
+### N62 — P1 runtime readiness (2026-11-12)
+Draft [PR #151](https://github.com/Mefits/Living-Sector/pull/151) from integration #128 adds P1 scene/seed/runner preflight and negative headless regression; **CODE_UNVERIFIED**, Godot runtime absent, no additional VERIFIED credit. No economy, ships or AI execution enabled. Counts unchanged: P0 3/9, P1 0/9, P2 0/11, total 3/100.
