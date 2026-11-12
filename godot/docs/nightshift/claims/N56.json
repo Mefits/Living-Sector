@@ -1,0 +1,17 @@
+{
+  "block_id": "N56",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T13:57:50+01:00-overnight-n56",
+  "claimed_at": "2026-11-12T13:57:50+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-nightshift-n56-route-admission-20261112",
+  "tasks": [
+    "Rust source parity for directed native route admission",
+    "deterministic fail-closed route validation without teleport or cargo mutation",
+    "short standalone regression checks and documentation"
+  ],
+  "progress": [],
+  "evidence": []
+}
