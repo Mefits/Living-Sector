@@ -89,3 +89,7 @@ Reserved `N4.json` atomically; implementing native registry and travel route gra
 - 2026-11-12 04:24 МСК: second-chat-overnight зарезервировал N5 (native commodities/recipes), claim `claims/N5.json`, рабочая ветка `feature/godot-nightshift-n5-commodities-recipes-20261112`; CODE_UNVERIFIED до Godot.
 
 - 2026-11-12 04:26 МСК: N5 завершён по написанию кода, [draft PR #93](https://github.com/Mefits/Living-Sector/pull/93), 17 commodities/14 recipes, fractional input/output, price gate, output cap, headless smoke. Статус CODE_UNVERIFIED; без Godot запуска, не VERIFIED. Следующее N6/N9 требует реальной логистики, склада, труда, денег.
+
+### N11 started — 2026-11-12 04:38 МСК — second-chat-overnight
+
+Claim `claims/N11.json` created before development, source `15d3762`, branch `feature/godot-nightshift-n11-ledger-second-20261112`. Scope: Rust financial semantics, deterministic ledger, idempotent receipts and headless smoke. CODE_UNVERIFIED until Godot runtime.
