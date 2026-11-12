@@ -6,6 +6,7 @@ signal tick_completed(tick: int)
 signal controls_applied()
 
 const SimClock = preload("res://scripts/sim/clock.gd")
+const SimCalendar = preload("res://scripts/sim/calendar.gd")
 const WorldModel = preload("res://scripts/sim/world_model.gd")
 const SAVE_SCHEMA: int = 1
 const SCENARIO_ID: String = "galaxy-067"
@@ -21,6 +22,7 @@ const NATIVE_PHASE_ORDER: Array[String] = [
 ]
 
 var clock: RefCounted = SimClock.new()
+var calendar: RefCounted = SimCalendar.new()
 var world: RefCounted
 var tick_count: int = 0
 var _controls: Array[Dictionary] = []
@@ -32,6 +34,7 @@ func start_from_seed(seed: Dictionary) -> bool:
         return false
     world = model
     clock = SimClock.new()
+    calendar = SimCalendar.new()
     tick_count = 0
     _controls.clear()
     _started = true
@@ -92,7 +95,9 @@ func advance_frame(delta: float) -> void:
 
 func _advance_one_tick() -> void:
     tick_count += 1
-    world.advance_orbits(clock.tick_scale())
+    var native_delta: float = clock.tick_scale()
+    world.advance_orbits(native_delta)
+    calendar.advance_committed_tick(native_delta)
     tick_completed.emit(tick_count)
 
 func checkpoint() -> Dictionary:
@@ -105,6 +110,7 @@ func checkpoint() -> Dictionary:
         "seed_fingerprint": world.seed_fingerprint(),
         "tick": tick_count,
         "clock": clock.snapshot(),
+        "calendar": calendar.snapshot(),
         "orbital_angles": world.orbital_snapshot(),
         "pending_controls": _controls.duplicate(true),
         "scope": "P1 orbital-only; no economic, ship or contract state is mutable yet"
@@ -149,11 +155,22 @@ func restore_checkpoint(snapshot: Dictionary, frozen_seed: Dictionary) -> bool:
         return false
     if not staged_world.restore_orbital_snapshot(angle_value):
         return false
+    var staged_calendar = SimCalendar.new()
+    # Schema v1 saves predate the calendar; replaying a constant historic
+    # world_speed is unsafe because speed could change between saved ticks.
+    # Keep legacy saves loadable, but mark elapsed native time as unknown.
+    var calendar_value: Variant = snapshot.get("calendar", null)
+    if calendar_value != null:
+        if not (calendar_value is Dictionary) or not staged_calendar.restore(calendar_value):
+            return false
+    elif int(version) == SAVE_SCHEMA:
+        staged_calendar.native_time_units = 0.0
     var staged_clock = SimClock.new()
     if not staged_clock.restore(clock_value):
         return false
     world = staged_world
     clock = staged_clock
+    calendar = staged_calendar
     tick_count = int(saved_tick)
     _controls = staged_controls
     # UI receives the exact restored counter before a further update.
