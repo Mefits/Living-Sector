@@ -268,3 +268,9 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 | N101 | P3 ship XP/progression and fitting modifiers from frozen ship/mod.rs | pure GDScript state transformations, no economy apply | CODE_UNVERIFIED — [PR #189](https://github.com/Mefits/Living-Sector/pull/189), second-chat-overnight |
 | N102 | P2 facility delivery convoy bundling from frozen facility/mod.rs | same destination/commodity grouping, affordability/caps, no N39 overlap | CODE_UNVERIFIED — [PR #190](https://github.com/Mefits/Living-Sector/pull/190), second-chat-overnight |
 | N103 | P5 profitable ice mining and cargo liquidation from frozen ship/behavior.rs | pure decision rules, no N97 economic apply | CODE_UNVERIFIED — [PR #191](https://github.com/Mefits/Living-Sector/pull/191), second-chat-overnight |
+
+### 2026-11-12 — overnight-scheduler run 11: N105–N107 reserved
+- N105 — `IN_PROGRESS`, Rust `agents/faction/relief.rs`, treasury-funded relief; claim N105.json.
+- N106 — `IN_PROGRESS`, Rust `strategy/long_term.rs`, durable paid production objective; claim N106.json.
+- N107 — `IN_PROGRESS`, Rust `strategy/station.rs`, station administrator decisions; claim N107.json.
+- Three atomic claims created before code, distinct work branches, N39/N104 untouched. Runtime unverified.
