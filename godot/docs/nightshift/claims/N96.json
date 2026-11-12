@@ -1,6 +1,6 @@
 {
   "block_id": "N96",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "20261112T193742+0300-overnight11-N96",
   "claimed_at": "2026-11-12T19:37:42+03:00",
@@ -14,6 +14,15 @@
     "native portfolio goal ranking and budget policy",
     "Port deterministic data-only rules, explicit dependency contract, minimal static check"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Native Rust source reviewed",
+    "Isolated GDScript component committed",
+    "Draft PR opened"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/185",
+    "https://github.com/Mefits/Living-Sector/commit/38cfec5ae877f8e75ee463782f7cacedfa18c7ee",
+    "Static delimiter count balanced; Godot runtime not executed"
+  ],
+  "completed_at": "2026-11-12T19:37:42+03:00"
 }
