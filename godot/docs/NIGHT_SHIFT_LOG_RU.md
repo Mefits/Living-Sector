@@ -1,5 +1,11 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 12.11.2026 — interactive-chat: N108 SPECIAL APPLY COMPLETE
+- Atomic [claim N108](nightshift/claims/N108.json) closed CODE_UNVERIFIED; [Draft PR #200](https://github.com/Mefits/Living-Sector/pull/200), five GDScript modules (527 lines) and exact Rust source handoff.
+- Physical GateJump: cargo-dependent fee, real payer/gate facility, paired destination/world coordinates and recent-systems memory. Shipyard agent refit: 15 native module effects, 10 manufactured prices, real stock/ship/yard credits, consumed retrofit point; privileged admin refit remains separate. ReleaseContract: proper fulfiller, no escrow refund on release, breach rep and faction standing -1 except issuer funding failure.
+- Rust optimistic GateJump drift bug documented; N108 intentionally refuses nonexistent paired gate before charging. N51 catalog deduplicates only during Phase 2; P1/main/N39/N100 untouched. Static preload/brackets checked, Godot NOT RUN by user decision.
+- Phase-1 remaining-mechanics estimate symbolically ~63–66%; Phase 2 full Godot integration, Phase 3 Grok fixes excluded.
+
 ### 12.11.2026 — interactive-chat N108 START
 - Atomic [claim N108](nightshift/claims/N108.json) created SHA 9490593e7109e0eed949396a393ef823ef386b6a before implementation; Rust special ship exclusive Apply: GateJump / ShipyardRefit / ReleaseContract. No edits to N39, N100, N79, N97, N104, or verified P1; Phase 1 GDScript-only.
 
