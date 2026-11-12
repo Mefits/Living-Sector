@@ -2,9 +2,9 @@ extends RefCounted
 ## N66: exactly-once request identity across dock/undock/depart actions.
 ## Wraps N57 authorities; never creates a second ship/dock/money world.
 const Save = preload("res://scripts/sim/ships/native_fleet_checkpoint.gd")
-const ALLOWED := ["dock", "undock", "depart", "depart_itinerary_hop"]
+const ALLOWED = ["dock", "undock", "depart", "depart_itinerary_hop"]
 var _receipts: Dictionary = {}
-const MAX_RECEIPTS := 100000
+const MAX_RECEIPTS = 100000
 
 func execute(live: RefCounted, operation_id: String, kind: String,
         ship_id: String, args: Dictionary = {}) -> Dictionary:
