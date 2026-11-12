@@ -1,0 +1,23 @@
+{
+  "block_id": "N138",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "20261112-interactive-macro3-crew-welfare",
+  "claimed_at": "2026-11-12T23:05:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "rust_source_paths": [
+    "native/crates/sim_core/src/agents/ship/mod.rs:456-669",
+    "native/crates/sim_core/src/agents/ship/components.rs:364-436"
+  ],
+  "work_branch": "feature/godot-n138-crew-welfare-20261112",
+  "scope": "Remaining phase-1 Rust ship crew welfare/morale task authority, role-based work, efficiency after real expenses, precise cadence/LOD; source N72 already handles hunger/fatigue/food/wages, N50 initial defaults, N128 skills. Add non-mutating stage bridge only; DO NOT charge wages/food twice or modify other PRs.",
+  "tasks": [
+    "Implement exact frozen morale checks: docked recovery, resting recovery, hunger/fatigue/health precedence, ±0.5 drift, both native check cadence and LOD",
+    "Implement Rust auto-manage crew tasks with strict < and > thresholds, pilot/engineer/trader priority and transit override without creating cargo/credits",
+    "Implement health/morale crew efficiency, shore-leave completion, fatigue/rest scheduling metadata, integration contract around N72 fixed order",
+    "Add deterministic pure data-level check scenarios and Rust mapping, document no double consumption/wages, record PR and trackers"
+  ],
+  "progress": [],
+  "evidence": []
+}
