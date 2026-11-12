@@ -31,7 +31,7 @@
 
 > **N8, 12.11.2026:** [PR #103](https://github.com/Mefits/Living-Sector/pull/103) connects N6 local production, N11 ledger, warehouse and per-location labor budget with deterministic order, atomic save/restore and smoke. **CODE_UNVERIFIED** (no Godot run); no global TickRunner or cross-owner economy. VERIFIED remains 3/100.
 
-> **N7, 12.11.2026:** [PR #104](https://github.com/Mefits/Living-Sector/pull/104) связал реальную оплату труда и локальное производство еды с потреблением населения через один склад и сбалансированный денежный реестр. Есть smoke для кризиса/восстановления и save/load; Godot runtime НЕ запускался, `CODE_UNVERIFIED`. P2 VERIFIED остаётся 0/11.\n\n## Подробные задачи
+> **N7, 12.11.2026:** [PR #104](https://github.com/Mefits/Living-Sector/pull/104) связал реальную оплату труда и локальное производство еды с потреблением населения через один склад и сбалансированный денежный реестр. Есть smoke для кризиса/восстановления и save/load; Godot runtime НЕ запускался, `CODE_UNVERIFIED`. P2 VERIFIED остаётся 0/11.\n\n> **N17, 12.11.2026:** [PR #105](https://github.com/Mefits/Living-Sector/pull/105) реализует физическую доставку 600 единиц, оплачиваемые смены 150 работников, проверки исполнителя, сохранение квитанций и правила T1–T3. `CODE_UNVERIFIED`, без запуска Godot и интеграции с N15/N11/N8. VERIFIED остаётся 3/100.\n\n## Подробные задачи
 
 Порядок идентификаторов неизменяем; новые задачи получают новый ID. В столбце «Источник» указан краткий относительный путь под `native/crates/sim_core/src/`, если явно не указан иной префикс.
 
@@ -100,9 +100,9 @@
 
 | ID | Переносимый результат | Источник | Статус | Мини-критерий / доказательство |
 |---|---|---|---|---|
-| `P4-01` | Цепочка физической постройки → `sim/construction` | `agents/construction/*; strategy/construction.rs` | `TODO` | Материалы, деньги и труд подтверждены |
-| `P4-02` | Склад стройки и трудовые смены → `sim/construction/labor` | `construction/labor.rs; engine/transactions.rs` | `TODO` | Каждый шаг требует реального ресурса |
-| `P4-03` | Уровни станции T1=4, T2=5, T3=6 → `sim/stations/tier_slots` | `strategy/progression.rs` | `TODO` | Слот не возникает от графики |
+| `P4-01` | Цепочка физической постройки → `sim/construction` | `agents/construction/*; strategy/construction.rs` | `CODE_UNVERIFIED` | Материалы, деньги и труд подтверждены |
+| `P4-02` | Склад стройки и трудовые смены → `sim/construction/labor` | `construction/labor.rs; engine/transactions.rs` | `CODE_UNVERIFIED` | Каждый шаг требует реального ресурса |
+| `P4-03` | Уровни станции T1=4, T2=5, T3=6 → `sim/stations/tier_slots` | `strategy/progression.rs` | `CODE_UNVERIFIED` | Слот не возникает от графики |
 | `P4-04` | Верфи, корпуса и закупка модулей → `sim/shipyard` | `agents/facility/mod.rs; module_production.rs` | `TODO` | Корпус/модуль произведён/оплачен |
 | `P4-05` | Орбитальное движение станции и местоположение → `sim/stations/orbits` | `agents/celestial_body.rs; facility/components.rs` | `TODO` | Инспектор привязан к станции |
 | `P4-06` | Пассажиры, миграция и реальные перевозки → `sim/population/migration` | `contracts.rs; strategy/colony_development.rs` | `TODO` | Население не телепортируется |
