@@ -1,6 +1,6 @@
 {
   "block_id": "N56",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "overnight-scheduler",
   "run_id": "2026-11-12T13:57:50+01:00-overnight-n56",
   "claimed_at": "2026-11-12T13:57:50+01:00",
@@ -12,6 +12,20 @@
     "deterministic fail-closed route validation without teleport or cargo mutation",
     "short standalone regression checks and documentation"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Rust route_actions inspected; Godot route_graph/ship_transit inspected",
+    "Read-only fail-closed directed route admission implemented",
+    "Headless regression authored; not executed"
+  ],
+  "evidence": [
+    "Godot binary not installed in execution environment",
+    "GitHub PR #145 with 3 files; static source inspection only"
+  ],
+  "completed_at": "2026-11-12T14:00:00+01:00",
+  "commit_sha": "207d8c419f0c5633d9f44220cd266974a0ab1d0a",
+  "pull_request": "https://github.com/Mefits/Living-Sector/pull/145",
+  "limitations": [
+    "Rust fallback straight Travel not implemented; rejected intentionally",
+    "Not wired into live N40 depart; no economy or ship runtime verification"
+  ]
 }
