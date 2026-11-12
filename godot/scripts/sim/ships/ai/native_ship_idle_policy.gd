@@ -27,7 +27,11 @@ static func choose(snapshot: Dictionary, profile: Dictionary) -> Dictionary:
     var trigger_scale: float = maxf(1.0 - explore_bonus - desperation, 0.25)
     # Rust (f32 as u32) truncates toward zero after clamping.
     var trigger: int = int(float(IDLE_EXPLORE_TICKS) * trigger_scale)
-    var permitted: bool = int(idles) >= trigger         and float(fuel_fraction) >= EXPLORE_MIN_FUEL_FRACTION         and int(credits) >= EXPLORE_MIN_CREDITS
+    var permitted: bool = (
+        int(idles) >= trigger
+        and float(fuel_fraction) >= EXPLORE_MIN_FUEL_FRACTION
+        and int(credits) >= EXPLORE_MIN_CREDITS
+    )
     var neighbors: Variant = snapshot.get("reachable_unvisited_neighbors", null)
     if neighbors != null and not (neighbors is Array):
         return {"ok": false, "reason": "invalid_neighbors"}
