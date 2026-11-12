@@ -16,7 +16,10 @@ func execute(live: RefCounted, operation_id: String, kind: String,
         return _reject("unknown_ship")
     var request: Dictionary = {"kind": kind, "ship_id": ship_id,
         "args": args.duplicate(true)}
-    var fingerprint: String = Save._canonical(request).sha256_text()
+    var normalized: Variant = JSON.parse_string(JSON.stringify(request))
+    if not (normalized is Dictionary):
+        return _reject("invalid_json_request")
+    var fingerprint: String = Save._canonical(normalized).sha256_text()
     if _receipts.has(operation_id):
         var existing: Dictionary = _receipts[operation_id]
         if existing["fingerprint"] != fingerprint:
@@ -50,7 +53,7 @@ func execute(live: RefCounted, operation_id: String, kind: String,
     # Persist both success and stable rejection: the exact same operation
     # must not run again with changed world conditions after a reload.
     _receipts[operation_id] = {"operation_id": operation_id,
-        "fingerprint": fingerprint, "request": request, "result": result.duplicate(true)}
+        "fingerprint": fingerprint, "request": normalized, "result": result.duplicate(true)}
     return result.duplicate(true)
 
 func snapshot() -> Array:
