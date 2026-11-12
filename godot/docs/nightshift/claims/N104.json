@@ -1,0 +1,28 @@
+{
+  "block_id": "N104",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "manual-next-n104-contract-funding-2026-11-12T16:59:12.981Z",
+  "claimed_at": "2026-11-12T16:59:12.981Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "base_branch": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n104-contract-funding-escrow-20261112",
+  "title": "P2/P3: frozen Rust contract funding escrow, accept/settle/release/refund and passenger paid lifecycle",
+  "scope": "Standalone source-accurate GDScript port of native/crates/sim_server/src/engine/contract_funding.rs, plus funding records in sim_core economy/contracts.rs. Atomic state-in/state-out business rules. Does not edit occupied N39, N100, N97, N90, other PRs, or P1. No Godot execution or integration until phase 2.",
+  "tasks": [
+    "Read entire Rust contract_funding.rs and contract funding structures, preserve exact source semantics and restrictions",
+    "Create standalone GDScript funding escrow acceptance and release/refund, status and receipts with no phantom payment or cargo",
+    "Port independently bounded passenger embark and contract delivery settlement when complete source and validation is available; otherwise document distinct remaining mechanism",
+    "Static sanity check (paths/source contracts), source handoff, separate Draft PR, close claim CODE_UNVERIFIED"
+  ],
+  "non_overlap": [
+    "N39 production",
+    "N100 hybrid planning",
+    "N97 physical Buy/Sell/Mine/Refuel",
+    "N90 BT request generation",
+    "N89 mandates",
+    "P1/main/stable/Rust frozen"
+  ]
+}
