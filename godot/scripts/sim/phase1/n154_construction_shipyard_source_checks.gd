@@ -35,7 +35,8 @@ static func _ctx() -> Dictionary:
 				"prices":{"metals":10.0},"owner":"f1"},
 			"mars":{"shortage_ticks":{},"supply":{"metals":700.0},
 				"prices":{"metals":10.0},"owner":"f1",
-				"buy_multiplier_by_faction":{"f1":1.0}}},
+				"buy_multiplier_by_faction":{"f1":1.0},
+				"commerce_allowed":{"f1":true}}},
 		"has_director":true,"executing":true,
 		"construction_authorizations":{"f1":true},
 		"physical_distances":{"mars":{"earth":4}}}
@@ -127,7 +128,8 @@ static func run() -> Dictionary:
 		module_plan["plan"]["input_payment"]==230,
 		"original_module_catalog_order_first_understocked_one_per_15_ticks")
 	var receipt := {"trusted_internal_apply":true,"paid_shift_committed":true,
-		"producer_id":"yard1","stock_owner_id":"station-earth","tick":15}
+		"producer_id":"yard1","stock_owner_id":"station-earth","tick":15,
+		"input_payment":230,"wages":2}
 	var batch := Module.after_paid_shift(module_plan["plan"],yard,market,receipt)
 	_expect(errors,bool(batch.get("ok",false)) and
 		batch["yard"]["module_stock"]["stock"]["engine_t2"]==1 and
