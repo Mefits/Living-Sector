@@ -313,3 +313,7 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 | N122 | P5 territorial controller from real non-gate facility counts and credits | Rust agents/celestial_body.rs | CODE_UNVERIFIED — [PR #210](https://github.com/Mefits/Living-Sector/pull/210), second-chat-overnight |
 | N123 | P2 body regeneration, biome food multipliers and descriptive richness grades | Rust agents/celestial_body.rs | CODE_UNVERIFIED — [PR #211](https://github.com/Mefits/Living-Sector/pull/211), second-chat-overnight |
 | N124 | P2 market demand window, shortage persistence and order expiry | Rust agents/market.rs | CODE_UNVERIFIED — [PR #212](https://github.com/Mefits/Living-Sector/pull/212), second-chat-overnight |
+
+| N125 | P2 population emergency food-delivery posting (`agents/population.rs::post_food_contracts`); no N39/N71 overlap | `feature/godot-n125-pop-food-contracts-20261112` | IN_PROGRESS — second-chat-overnight |
+| N126 | P2 population passenger contract posting (`agents/population.rs::post_passenger_contracts`); no N104 delivery apply overlap | `feature/godot-n126-pop-passenger-contracts-20261112` | IN_PROGRESS — second-chat-overnight |
+| N127 | P2 population production + wealth monetisation (`agents/population.rs::tick_populations` production slice); no N39 facility recipes | `feature/godot-n127-pop-production-wealth-20261112` | IN_PROGRESS — second-chat-overnight |
