@@ -23,7 +23,7 @@ static func _type(c: Dictionary) -> String:
 static func _fixed_reward(c: Dictionary) -> bool:
 	var funding: Dictionary = c.get("funding", {}) if c.get("funding", {}) is Dictionary else {}
 	var category := str(c.get("mission_category", ""))
-	return str(funding.get("source", "")).to_lower() == "faction" and category in ["strategy", "construction", "colony"]
+	return str(funding.get("source", "")).to_lower() == "faction" and category in ["strategy.logistics.v1", "strategy.construction.v1", "strategy.colony.v1"]
 
 static func _age(tick: int, posted: int) -> int:
 	return maxi(0, tick - posted)
@@ -34,7 +34,7 @@ static func _u8_saturating_mul(a: int, b: int) -> int:
 static func _safe_payment(base: int, pct: int) -> int:
 	if base < 0 or base > MAX_I64 / (100 + pct):
 		return -1
-	return base + (base * pct) / 100
+	return base + int((base * pct) / 100)
 
 static func age_open_reputation(contracts: Dictionary, tick: int) -> Dictionary:
 	var next := contracts.duplicate(true)
@@ -49,7 +49,7 @@ static func age_open_reputation(contracts: Dictionary, tick: int) -> Dictionary:
 		if age == 0:
 			continue
 		# Rust casts steps to u8 before saturating multiplication.
-		var steps_u8 := (age / REP_INTERVAL) % 256
+		var steps_u8 := int(age / REP_INTERVAL) % 256
 		var original := int(c.get("initial_min_reputation", 0))
 		var expected := maxi(0, original - _u8_saturating_mul(steps_u8, REP_STEP))
 		c["min_reputation"] = mini(old_rep, expected)
@@ -69,7 +69,7 @@ static func age_escalate_payment(contracts: Dictionary, tick: int) -> Dictionary
 		var initial := int(c.get("initial_payment", 0))
 		if initial <= 0:
 			continue
-		var steps := _age(tick, int(c.get("posted_at_tick", 0))) / PAYMENT_INTERVAL
+		var steps := int(_age(tick, int(c.get("posted_at_tick", 0))) / PAYMENT_INTERVAL)
 		var pct := mini(PAYMENT_CAP_PCT, steps * PAYMENT_STEP_PCT)
 		var bumped := _safe_payment(initial, pct)
 		if bumped >= 0:
