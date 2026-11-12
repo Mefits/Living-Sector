@@ -31,7 +31,7 @@
 
 > **N8, 12.11.2026:** [PR #103](https://github.com/Mefits/Living-Sector/pull/103) connects N6 local production, N11 ledger, warehouse and per-location labor budget with deterministic order, atomic save/restore and smoke. **CODE_UNVERIFIED** (no Godot run); no global TickRunner or cross-owner economy. VERIFIED remains 3/100.
 
-## Подробные задачи
+> **N7, 12.11.2026:** [PR #104](https://github.com/Mefits/Living-Sector/pull/104) связал реальную оплату труда и локальное производство еды с потреблением населения через один склад и сбалансированный денежный реестр. Есть smoke для кризиса/восстановления и save/load; Godot runtime НЕ запускался, `CODE_UNVERIFIED`. P2 VERIFIED остаётся 0/11.\n\n## Подробные задачи
 
 Порядок идентификаторов неизменяем; новые задачи получают новый ID. В столбце «Источник» указан краткий относительный путь под `native/crates/sim_core/src/`, если явно не указан иной префикс.
 
