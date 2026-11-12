@@ -1,5 +1,8 @@
 # Living Sector — ночная очередь автономной разработки Godot
 
+**СЧЁТЧИК ОБРАБОТКИ (2026-11-12, не путать с VERIFIED):** N1–N47 — **46 блоков обработаны и переданы в код/PR**, **1 блок (N39) IN_PROGRESS**. Это выполненная работа по источникам/коду/документации, не подтверждение игры в runtime. Из новых N33–N47 в текущую интеграционную ветку PR #128 добавлены N33–N37 (**5**); N38 и N40–N47 (**9**) пока в отдельных PR, N39 разрабатывается. Никаких пользовательских тестов до большой сборки. Прямые данные: claims/Nx.json, GitHub PR и таблица ниже, а не цифра VERIFIED.
+
+
 **АКТУАЛЬНАЯ ОПОРНАЯ ТОЧКА НА 12.11.2026**: пользователь успешно запустил Godot 4.7.2, проверил карту и переключение систем. Зафиксирован неизменяемый checkpoint `checkpoint/godot-p1-windows-verified-20261112` @ `7b7ad3e7ba443ddccdcd5a25becaa8affc191a97`. Новые совместимые Godot-блоки готовить относительно актуального `integration/godot-47-n33-n37-20261112` (PR #128) или его преемника, предварительно проверив исходники и зависимости. **Прочесть [CANONICAL_GODOT_BASELINE_RU.md](CANONICAL_GODOT_BASELINE_RU.md) ДО выбора новой кодовой ветки.** Устаревшие фразы ниже про PR #87 и отсутствие любого Godot Runtime относятся к прежнему снимку истории; не принимать их за актуальный статус. Claim-протокол остаётся обязательным; пользовательская приёмка раз в ~20–30 этапов, полным ZIP и одним запуском, без патчей по файлам.
 
 
@@ -142,6 +145,6 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 | N45 | **P6: funded research command bridge:** Rust research cost, N44 prerequisites, real ledger payment and idempotent order receipt; no invented unlock | Deterministic fail-closed paid order, duplicate/insufficient funds/save smoke | CODE_UNVERIFIED — [PR #134](https://github.com/Mefits/Living-Sector/pull/134), second-chat-overnight; N44 dependency |
 
-| N46 | **P3: Rust-source fleet initialization:** реальный запуск стартовых кораблей из seed в корабельную модель без придуманного топлива/груза, безопасное подключение N40/N43 | Сверка Rust spawn/defaults, детерминированная bootstrap-модель, headless smoke/отказы, без пересечения N39 | IN_PROGRESS — interactive-chat; [claim N46](nightshift/claims/N46.json) |
+| N46 | **P3: Rust-source fleet initialization:** реальный запуск стартовых кораблей из seed в корабельную модель без придуманного топлива/груза, безопасное подключение N40/N43 | Сверка Rust spawn/defaults, детерминированная bootstrap-модель, headless smoke/отказы, без пересечения N39 | CODE_UNVERIFIED — [PR #136](https://github.com/Mefits/Living-Sector/pull/136), interactive-chat; native Rust seeder verified statically, Godot runtime pending |
 
 | N47 | **P1: fail-closed native seed validation:** deterministic schema/identity/referential checks before world bootstrap; no world mutation; independent of N39/N46 | Source parity, invalid fixture rejection, short Godot smoke | CODE_UNVERIFIED — [PR #135](https://github.com/Mefits/Living-Sector/pull/135), overnight-scheduler |
