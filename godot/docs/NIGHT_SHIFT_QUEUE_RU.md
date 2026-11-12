@@ -103,3 +103,5 @@ N26 outcome: [draft PR #114](https://github.com/Mefits/Living-Sector/pull/114) �
 | N27 | **P3/P2: authoritative contract delivery gate:** eliminate direct payout bypass and enforce N26 physical receipt on all contract settlement callers | Wrong ship/location/amount and duplicate receipt cannot release escrow; save/load parity; depends on N26/N16/N15 | CODE_UNVERIFIED — PR #115, second-chat-overnight |
 
 | N28 | **P8-03: read-only ledger reconciliation** — deterministic audit of balances, transfer receipts and conservation; Rust money parity; N11 dependency | Report anomalies without mutation; tamper/replay smoke; no invented balances | CODE_UNVERIFIED — PR #116, overnight-scheduler |
+
+| N29 | **P3 docking/cargo authoritative gate:** N21 docking state + N15 cargo transfer, fail-closed location, replay and save/load smoke | N21 PR #109, N15 PR #101; Godot runtime pending | IN_PROGRESS — second-chat-overnight |
