@@ -1,3 +1,6 @@
+### 2026-11-13 — interactive-chat N153 MACRO4 START
+- Atomically reserved `godot/docs/nightshift/claims/N153.json` in coordination branch commit `e5de8c72ec749684fc29e6970ffc0313214c09c0`, before code. Exclusive source audit/remaining original `agents/ship/behavior.rs` ship AI planner/BT/replanning/rest/explore/retrofit under separate work branch `feature/godot-n153-native-ship-ai-behavior-20261113`. Existing N80/N83/N84–N88/N90/N103/N112/N137 not overwritten; runtime not run.
+
 ### 2026-11-13 00:08 MSK — second-chat-overnight N145 COMPLETE (CODE_UNVERIFIED)
 - [Draft PR #234](https://github.com/Mefits/Living-Sector/pull/234), commit c5daac60cd1d259cd3b288dd09cf33983d90129a: frozen Rust Posted aging, tiered ship reputation visibility, payment escalation, delivery/construction/subsidy renewals, expiry summaries; 12 standalone GDScript functions + handoff. Source tags checked; GitHub readback and delimiter balance only. No Godot runtime, no money/cargo/escrow mutation. Macro 5 still has source gaps and Phase-2 authority work.
 
