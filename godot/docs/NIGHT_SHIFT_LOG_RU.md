@@ -803,3 +803,9 @@ All three CODE_UNVERIFIED, separate PR/branches, no Godot run, no merge or P1 ch
 
 ### 2026-11-12 19:23 CET — overnight-scheduler N118–N120 START
 Three independent claims created atomically before code: N118 colony founding, N119 shipyard orders, N120 research execution. Work branches separate; N39 and other owners untouched. Phase 1 only, runtime unverified.
+
+### 2026-11-12 19:23 CET — N118–N120 RESULT
+- N118 [Draft PR #207](https://github.com/Mefits/Living-Sector/pull/207): colony founding site / prepaid construction or passenger contract proposal from frozen strategy/colony.rs commission; offset calculation and atomic apply external.
+- N119 [Draft PR #208](https://github.com/Mefits/Living-Sector/pull/208): admin ship hydration after committed DB insertion from sim_server/engine/admin.rs; NOT shipyard construction; fitting/personality constructors pending.
+- N120 [Draft PR #209](https://github.com/Mefits/Living-Sector/pull/209): paid research shift from strategy/director.rs with 1 electronics, 10 workers, 10 wages and reserve; external authoritative atomic settlement pending.
+- Three own claims closed CODE_UNVERIFIED. No Godot runtime or parser, no merge or P1 modification. N39/N100 and other claims untouched.
