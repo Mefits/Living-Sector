@@ -1,6 +1,6 @@
 {
   "block_id": "N108",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "manual-next-n108-ship-special-command-apply-2026-11-12T17:34:38.722Z",
   "claimed_at": "2026-11-12T17:34:38.722Z",
@@ -24,5 +24,27 @@
     "N97 physical market and credit apply",
     "N104 escrow accept/deliver/release board",
     "P1/main/stable/frozen Rust"
+  ],
+  "activity": "COMPLETED_CODE",
+  "finished_at": "2026-11-12T17:47:57.660Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/200",
+  "head_sha": "dd7592a84ee7d272577904e11338274c260a4a03",
+  "progress": [
+    "Source port of Rust apply_gate_jump with real cargo-scaled gate fee, paired facility positions, ship-to-gate payment and five recently visited systems, atomic detached world output.",
+    "Source port of all 15 module effects and 10 shipyard-produced prices, six original ship classes, fitting rollup/cargo/speed rebake.",
+    "Source port of shipyard refit with physical inventory/ship wallet/facility wallet and one agent retrofit point; separate authenticated admin overrides without agent point consumption.",
+    "Source port of ReleaseContract accepted-to-posted rollback with reserved escrow preserved, issuer-funding-failure exemption, breach reputation penalty and cross-faction standing -1.",
+    "5 pure GDScript modules (527 lines) + source handoff in Draft PR #200; N39/N100/P1 untouched; no Godot test run."
+  ],
+  "evidence": [
+    "Frozen Rust sim_server/engine/apply.rs, admin.rs, sim_core/modules/mod.rs, economy/module_production.rs, facility/components.rs, ship/components.rs, faction_relations.rs and contracts.rs read for source formulas.",
+    "All 4 explicit res:// dependencies in 5 new scripts exist, literal delimiters balanced, no lines >170 chars in quick static check.",
+    "Rust optimistic gate jump drift explicitly identified and documented: N108 deliberately fails closed before spending when destination is missing, not exact-bug parity.",
+    "No Godot runtime execution per user first-phase strategy; CODE_UNVERIFIED only."
+  ],
+  "remaining_first_phase": [
+    "Still unported Rust command apply families and authoritative world transactions outside N108 (if any after source inventory)",
+    "Phase 2 unify immutable N51/N108 module catalog, N11 ledger, N39 production and N104 ContractBoard into single exclusive tick; save/replay",
+    "Phase 3 Grok fixes only after Phase 2"
   ]
 }
