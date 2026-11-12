@@ -309,3 +309,7 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 | N120 | P6 Rust research execution | source-backed progress/unlocks, no free science | CODE_UNVERIFIED — [PR #209](https://github.com/Mefits/Living-Sector/pull/209), overnight-scheduler |
 
 | N121 | **LARGE P5: native_execution.rs full 61 KB receipt-driven HTN→actual world bridge** — deferred goal retry, checkpoint history, native paid production receipts, contracts and real dispatch admission | No N39 production/N100 hybrid/N98 ledger edits, data-only authoritative snapshots; one-per-cycle, no Godot tests | IN_PROGRESS — interactive-chat; [claim N121](nightshift/claims/N121.json) |
+
+| N122 | P5 territorial controller from real non-gate facility counts and credits | Rust agents/celestial_body.rs | IN_PROGRESS — second-chat-overnight, claim N122 |
+| N123 | P2 body regeneration, biome food multipliers and descriptive richness grades | Rust agents/celestial_body.rs | IN_PROGRESS — second-chat-overnight, claim N123 |
+| N124 | P2 market demand window, shortage persistence and order expiry | Rust agents/market.rs | IN_PROGRESS — second-chat-overnight, claim N124 |
