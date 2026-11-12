@@ -89,7 +89,9 @@ func work(id: String, tick: int, executor: Dictionary, sponsor: Dictionary, hous
     var available_budget: int = mini(needed, treasury / WAGE_PER_WORKER)
     var assignments: Array = []
     var ids: Dictionary = {}
-    for household in households:
+    var ordered_households: Array = households.duplicate()
+    ordered_households.sort_custom(func(a: Variant, b: Variant) -> bool: return str(a.get("id", "")) < str(b.get("id", "")))
+    for household in ordered_households:
         if not household is Dictionary:
             return _block(site, "invalid_household")
         var hid: String = str(household.get("id", ""))
