@@ -1,0 +1,37 @@
+{
+  "block_id": "N150",
+  "macro_id": 9,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13-macro9-market-relations-territory-source-closure",
+  "claimed_at": "2026-11-13T00:55:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "work_branch": "feature/godot-n150-market-diplomacy-territory-complete-20261113",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_paths": [
+    "native/crates/sim_core/src/agents/market.rs::tick_markets/tick_one_market/record_consumption/MarketSnapshot/MarketHistory/MarketOrders",
+    "native/crates/sim_core/src/agents/faction_relations.rs::FactionRelations/tick_relations/next_treaty/treaty consumer functions/market_controllers",
+    "native/crates/sim_core/src/agents/celestial_body.rs::derive_territorial_control (source tie and settled/unsettled)",
+    "native/crates/sim_core/src/economy/price_engine.rs (N131 source parity accepted, no copy)"
+  ],
+  "related": [
+    "N68 #157",
+    "N69 #158",
+    "N115 #204",
+    "N122 #210",
+    "N124 #212",
+    "N129 #218",
+    "N131 #220",
+    "N136 #224"
+  ],
+  "scope": "Try entire macro9 Phase1 source coverage with one authoritative pure full market tick (demand, shortage, exact price engine, trend, cleanup) one canonical diplomacy matrix with exact cadence, transitions and consumer formulas, and precise territory controller cross-check; no physical money/goods or faction taxes, production or transactions duplicated. Include source-to-PR coverage matrix and truthfully mark macro closure only after inventory.",
+  "tasks": [
+    "Audit all original market/faction relations/territory/price source vs existing N68/N69/N115/N122/N124/N131 overlap and source parity gaps",
+    "Port complete native market tick/snapshot with demand history/shortage normalized pricing/trend/no fake supply and one receipt per authoritative market tick",
+    "Port exact pairwise treaty state and 200×mult cadence, grace/decay, all treaty transitions, dock/commerce/payment/posture/rep floors and ownership-majority controllers",
+    "Audit territorial body/system tie/no controller parity, write missing corrective source functions if required, prepare regression scenarios and comprehensive phase1 source coverage map",
+    "Publish one Draft PR and close macro9 source coverage only if actual source mapping is complete; never call it VERIFIED without Godot execution"
+  ],
+  "progress": [],
+  "evidence": []
+}
