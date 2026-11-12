@@ -1,6 +1,7 @@
 extends SceneTree
 const Price = preload("res://scripts/sim/economy/native_price_engine.gd")
 const Book = preload("res://scripts/sim/economy/native_order_book.gd")
+const History = preload("res://scripts/sim/economy/market_price_history.gd")
 
 func _initialize() -> void:
     var errors := 0
@@ -25,6 +26,11 @@ func _initialize() -> void:
     errors += _check(buy["quantity"] == 100 and sell["quantity"] == 80, "pure matching leaves orders intact")
     sell["price"] = 60.0
     errors += _check(Book.match_orders([buy], [sell], 0.0)["trades"].is_empty(), "non-crossing orders")
+    var history = History.new("market-1", {"ore": 100.0}, 2)
+    errors += _check(history.advance(1, {"ore": 0.0}, {"ore": 10.0}, 0.02, {}), "first market tick")
+    errors += _check(not history.advance(1, {"ore": 0.0}, {"ore": 10.0}, 0.02, {}), "duplicate tick rejected")
+    errors += _check(history.advance(2, {"ore": 0.0}, {"ore": 10.0}, 0.02, {}), "second market tick")
+    errors += _check(history.advance(3, {"ore": 0.0}, {"ore": 10.0}, 0.02, {}) and history.observations.size() == 2, "bounded history")
     print("N10 market smoke: ", "PASS" if errors == 0 else "%d FAILURES" % errors)
     quit(0 if errors == 0 else 1)
 
