@@ -48,7 +48,10 @@ func queue_control(kind: String, value: Variant = null) -> bool:
         return false
     match kind:
         "pause", "resume":
-            pass
+            # Keep command validation identical for live controls and restore.
+            # A value must not silently disappear from a persisted command.
+            if value != null:
+                return false
         "step":
             if not (value is int) or value < 1 or value > 1024:
                 return false
