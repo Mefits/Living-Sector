@@ -1,6 +1,6 @@
 {
   "block_id": "N109",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T20:35:16+03:00-second-chat-overnight-11-N109",
   "claimed_at": "2026-11-12T20:35:16+03:00",
@@ -18,6 +18,18 @@
     "Preserve Rust source invariants and fail closed",
     "Minimal static checks; PR without integration"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Rust source inspected; isolated GDScript component committed",
+    "No Godot runtime execution, no integration"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/197",
+    "https://github.com/Mefits/Living-Sector/commit/66c037d63b425e22bd326060ff4c8dea67f7a14f"
+  ],
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/197",
+  "commit_sha": "66c037d63b425e22bd326060ff4c8dea67f7a14f",
+  "checks": [
+    "GitHub source reread",
+    "balanced delimiters; no Godot parser/runtime"
+  ]
 }
