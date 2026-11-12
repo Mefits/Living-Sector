@@ -1,0 +1,21 @@
+{
+  "block_id": "N24",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T07:22:54+01:00-overnight-n24",
+  "claimed_at": "2026-11-12T07:22:54+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "e4eba1b87293c6dd3d171ee1a014500d7253a787",
+  "work_branch": "feature/godot-nightshift-n24-snapshot-diagnostics-20261112",
+  "tasks": [
+    "P1-07 read-only deterministic snapshot diagnostics",
+    "stable entity inventory and invariant summaries",
+    "headless regression for no mutation and repeatability"
+  ],
+  "dependencies": [
+    "P1-A world_model",
+    "N4 read-only registry"
+  ],
+  "progress": [],
+  "evidence": []
+}
