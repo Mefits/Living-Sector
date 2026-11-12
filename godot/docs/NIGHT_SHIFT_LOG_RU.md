@@ -49,3 +49,15 @@
 - **План:** статический аудит P0/P1-A, точная сверка Rust-формул и ссылок, исправления smoke-проверок без имитации runtime-приёмки.
 - **Рабочая ветка:** `feature/godot-nightshift-n1-static-audit`.
 - **Статус:** работа начата; результат будет записан ниже.
+
+
+### Итог N1 — third-chat-overnight
+
+- **Код:** PR #90 усиливает границы native seed/WorldModel, не допускает ложных нулевых орбит и не позволяет live pause/resume расходиться с восстановлением checkpoint; добавлен третий headless smoke.
+- **Источники/решение:** Rust P1 формула орбиты сохранена; использованы штатные Godot `Dictionary`, `is_finite`, `JSON` и headless CLI — плагин для 47 тел не нужен.
+- **PR:** https://github.com/Mefits/Living-Sector/pull/90 (draft, без merge); head `c96dd597383051b0645a18fd10fee0e76996d977`.
+- **Статически проверено:** 8 frozen Galaxy JSON распарсены; 47/47 тел удовлетворяют `orbit_period > 0`, `0 <= current_angle < 360`; изменённые файлы просмотрены на сбалансированность структур.
+- **Не подтверждено:** Godot executable отсутствует; `RUN-P1-SMOKE.cmd` (P0 + P1 + P1 audit) не запускался, поэтому N1 = `CODE_UNVERIFIED`.
+- **Другие блоки:** N2 завершён как `CODE_UNVERIFIED` в PR #89; N3 и далее проверять по claims перед захватом.
+- **Дальше:** N3 — детерминированная очередь событий/cadence; утром прогнать оба P1 smoke и N2 calendar smoke.
+- **Текущее состояние:** P0 3/9 VERIFIED, P1 0/9 VERIFIED, P2 0/11 VERIFIED, всего 3/100 VERIFIED; 2 существенных блока кода без проверки Godot (N1, N2).
