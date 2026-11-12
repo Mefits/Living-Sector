@@ -232,6 +232,8 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N82 | P6 Director research: exact 12-technology catalogue, prerequisite chain and selection | Rust strategy/director.rs, no free research | CODE_UNVERIFIED — [PR #171](https://github.com/Mefits/Living-Sector/pull/171), second-chat-overnight |
 | N83 | P5 Ship trade route candidate scoring from price memory | Rust ship/behavior.rs, source-backed cash/freshness/ownership | CODE_UNVERIFIED — [PR #172](https://github.com/Mefits/Living-Sector/pull/172), second-chat-overnight |
 
-| N84 | P5 Rust behavior tree: resumable sequence/selector/condition/action | `ai/behavior_tree.rs`; standalone data-only GDScript | IN_PROGRESS — second-chat-overnight |
-| N85 | P5 Rust utility action scoring and goal ranking | `ai/utility.rs`; separate policy, no mutation | IN_PROGRESS — second-chat-overnight |
-| N86 | P5 Rust personality axes, archetypes, drift | `ai/personality.rs`; explicit RNG contract | IN_PROGRESS — second-chat-overnight |
+| N84 | P5 Rust behavior tree: resumable sequence/selector/condition/action | `ai/behavior_tree.rs`; standalone data-only GDScript | CODE_UNVERIFIED — [PR #173](https://github.com/Mefits/Living-Sector/pull/173), second-chat-overnight |
+| N85 | P5 Rust utility action scoring and goal ranking | `ai/utility.rs`; separate policy, no mutation | CODE_UNVERIFIED — [PR #174](https://github.com/Mefits/Living-Sector/pull/174), second-chat-overnight |
+| N86 | P5 Rust personality axes, archetypes, drift | `ai/personality.rs`; explicit RNG contract | CODE_UNVERIFIED — [PR #175](https://github.com/Mefits/Living-Sector/pull/175), second-chat-overnight |
+
+**2026-11-12 18:35 MSK — N84–N86:** separate frozen Rust AI source ports published: BT [#173](https://github.com/Mefits/Living-Sector/pull/173), utility [#174](https://github.com/Mefits/Living-Sector/pull/174), personality [#175](https://github.com/Mefits/Living-Sector/pull/175). Three claims CODE_UNVERIFIED; only static delimiter checks, no Godot runtime, no merge or P1 wiring. N39 untouched.
