@@ -1,0 +1,22 @@
+{
+  "block_id": "N144",
+  "macro_id": 2,
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T23:57:47+03:00-second-chat-n144-colony-proposals",
+  "claimed_at": "2026-11-12T23:57:47+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "work_branch": "feature/godot-n144-colony-proposals-20261112",
+  "rust_source_paths": [
+    "native/crates/sim_core/src/strategy/colony.rs::proposals/can_rendezvous/goal"
+  ],
+  "scope": "Macro2: source-accurate read-only founding-expedition proposal ranking and feasibility, excluding N79 admission, N118 commission and N92 aftercare",
+  "tasks": [
+    "Port active-site continuation reasons and budget guards",
+    "Port candidate planet/source/ship feasibility and rendezvous gates",
+    "Port deterministic score/tie-breaking and source-backed handoff"
+  ],
+  "progress": []
+}
