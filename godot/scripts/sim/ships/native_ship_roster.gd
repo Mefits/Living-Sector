@@ -1,6 +1,7 @@
 extends RefCounted
-## N40: seed identity check only. Native 0.6.7 ships have NO persistent IDs,
-## cargo or fuel entries. Never fabricate authoritative state from this seed.
+## N40/N46: seed identity check. Native 0.6.7 ships have NO persistent IDs,
+## cargo or fuel entries. N46 may derive full tanks and empty holds ONLY for
+## fresh games by the frozen Rust sim_db::seeder source, not from save/restore.
 ## Source: N4 world_registry.gd (system + array ordinal).
 const Registry = preload("res://scripts/sim/world_registry.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
@@ -44,9 +45,9 @@ func keys() -> PackedStringArray:
 func metadata(ship_id: String) -> Dictionary:
     return (_roster.get(ship_id, {}) as Dictionary).duplicate(true)
 
-## Refuse an automatically full tank or empty hold from ShipState.add_ship:
-## caller must supply separately sourced exact fuel and cargo values for EACH
-## registered ship. This does not assert those values exist in the JSON seed.
+## Caller must provide provenance for fuel/cargo on EVERY registered ship.
+## For clean first-run native seeds, N46 sources values from Rust seeder;
+## saved games must restore their exact balances and NEVER use N46 defaults.
 func validate_authoritative_state(state: RefCounted, fuel_sources: Dictionary, cargo_sources: Dictionary) -> bool:
     if registry == null or state == null or not (state.get("ships") is Dictionary) or not state.has_method("can_hold") or not state.has_method("snapshot"):
         return false
