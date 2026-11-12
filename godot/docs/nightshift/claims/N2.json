@@ -1,0 +1,18 @@
+{
+  "block_id": "N2",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T03:20:46+03:00-second-chat-overnight-N2",
+  "claimed_at": "2026-11-12T03:20:46+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "f3718ab271f28da4ecb0948c8ba3a2db5403b481",
+  "work_branch": "feature/godot-nightshift-n2-calendar-second-20261112",
+  "tasks": [
+    "Separate simulation ticks from wall time and FPS",
+    "Implement configurable game calendar and conversion",
+    "Expose calendar in snapshot/UI and preserve checkpoint compatibility",
+    "Add concise deterministic smoke tests"
+  ],
+  "progress": [],
+  "evidence": []
+}
