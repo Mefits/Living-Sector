@@ -15,6 +15,7 @@ const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
 const Checkpoint = preload("res://scripts/sim/ships/native_fleet_checkpoint.gd")
 const Crew = preload("res://scripts/sim/ships/native_crew_roster.gd")
 const Fitting = preload("res://scripts/sim/ships/native_initial_fitting.gd")
+const Itinerary = preload("res://scripts/sim/native_itinerary_bridge.gd")
 
 var runner: RefCounted
 var ledger: RefCounted
@@ -23,6 +24,7 @@ var _started: bool = false
 var _halt_reason: String = ""
 var _opening_crew: Array = []
 var _opening_fittings: Dictionary = {}
+var _itinerary: RefCounted
 
 ## Builds all staged authorities and publishes them together. No full tank
 ## is created if any source fails, and no mutable world leaks to the caller.
@@ -53,6 +55,9 @@ func start_new_game(seed: Dictionary) -> Dictionary:
     var fitting: Dictionary = Fitting.project_native_seed(seed, staged_runner._fleet)
     if not bool(fitting.get("ok", false)):
         return _fail("initial_fitting_projection_failed")
+    var staged_router = Itinerary.new()
+    if not staged_router.load_native(seed, staged_runner._roster.registry.graph()):
+        return _fail("native_directed_route_graph_rejected")
     var evidence: Dictionary = Checkpoint.capture(staged_runner,
         staged_ledger, staged_docking)
     if not bool(evidence.get("ok", false)):
@@ -62,6 +67,7 @@ func start_new_game(seed: Dictionary) -> Dictionary:
     docking = staged_docking
     _opening_crew = crew.snapshot()
     _opening_fittings = (fitting["records"] as Dictionary).duplicate(true)
+    _itinerary = staged_router
     _halt_reason = ""
     _started = true
     runner.ships_phase_completed.connect(_on_ships_phase_completed)
@@ -101,6 +107,39 @@ func depart(ship_id: String, destination: String) -> Dictionary:
         return _fail("fatal_departure_mismatch")
     return {"ok": true, "ship_id": ship_id, "destination": destination,
         "departure_tick": runner.tick_count}
+
+## N61: planning is read-only. Every waypoint uses a separate explicit
+## physical departure command and real N14 fuel/distance mechanics. There is
+## no hidden itinerary queue to lose during N54 checkpoint/restore.
+func plan_ship_itinerary(ship_id: String, destination: String) -> Dictionary:
+    if not is_live() or _itinerary == null or not _ship_domain_matches(ship_id):
+        return _fail("ship_or_graph_unavailable")
+    var ship: Dictionary = runner._fleet.ships[ship_id]
+    if not (ship["transit"] as Dictionary).is_empty():
+        return _fail("ship_in_flight")
+    return _itinerary.plan(str(ship.get("location", "")), destination)
+
+## A supplied path must still start at the ship's live position, must use
+## exactly the native directed arcs, and must contain an unmodified total.
+## Commands execute ONLY the first leg, returning a resumable tail. After
+## arriving at the next waypoint a caller may issue the tail explicitly.
+func depart_itinerary_hop(ship_id: String, itinerary: Dictionary) -> Dictionary:
+    if not is_live() or _itinerary == null or not _ship_domain_matches(ship_id):
+        return _fail("ship_or_graph_unavailable")
+    var ship: Dictionary = runner._fleet.ships[ship_id]
+    if not (ship["transit"] as Dictionary).is_empty():
+        return _fail("ship_in_flight")
+    var origin: String = str(ship.get("location", ""))
+    var admission: Dictionary = _itinerary.next_hop(origin, itinerary)
+    if not bool(admission.get("ok", false)):
+        return admission
+    var physical: Dictionary = depart(ship_id, str(admission["next"]))
+    if not bool(physical.get("ok", false)):
+        return physical
+    return {"ok": true, "ship_id": ship_id,
+        "departed_to": str(admission["next"]),
+        "remaining_itinerary": (admission["remaining"] as Dictionary).duplicate(true),
+        "remaining_hops": int(admission["remaining_hops"])}
 
 func request_dock(ship_id: String, operation_id: String,
         preferred_type: String = "") -> Dictionary:
@@ -155,6 +194,9 @@ func restore_complete(seed: Dictionary, envelope: Dictionary) -> Dictionary:
     for account in expected:
         if not balances.has(account):
             return _fail("missing_native_ship_wallet")
+    var restored_router = Itinerary.new()
+    if not restored_router.load_native(seed, staged["runner"]._roster.registry.graph()):
+        return _fail("restored_directed_route_graph_rejected")
     var native_others: Dictionary = Opening.source_opening_accounts(seed)
     if not bool(native_others.get("ok", false)):
         return _fail("invalid_native_other_wallet_sources")
@@ -210,6 +252,7 @@ func restore_complete(seed: Dictionary, envelope: Dictionary) -> Dictionary:
     docking = staged["docking"]
     _opening_crew = initial_crew.snapshot()
     _opening_fittings = (initial_fit["records"] as Dictionary).duplicate(true)
+    _itinerary = restored_router
     _halt_reason = ""
     _started = true
     runner.ships_phase_completed.connect(_on_ships_phase_completed)
