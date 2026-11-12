@@ -1,6 +1,6 @@
 {
   "block_id": "N67",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "2026-11-12T14:07:51.006Z-interactive-N67",
   "claimed_at": "2026-11-12T14:07:51.006Z",
@@ -21,6 +21,18 @@
     "Explain blocked movement with explicit missing information instead of placeholders populated by guesses",
     "Stable deterministic snapshots under heavy fleet; short smoke; no P1 UI modification or N39"
   ],
-  "activity": "QUEUED",
-  "dependency": "N61 / PR #150"
+  "activity": "COMPLETED_CODE",
+  "dependency": "N61 / PR #150",
+  "finished_at": "2026-11-12T14:30:14.062Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/156",
+  "head_sha": "c7cb0b6c30c607e627c639fa58c04b61f2fdd9e0",
+  "progress": [
+    "Data-only deterministic read-only inspector for 24 native ships, N21 docking, N11 credits, fuel/cargo and N63 intents",
+    "Source-derived blocking reasons and explicit — placeholders for unimplemented crew/economy/AI telemetry",
+    "Native seed smoke authored for start, dock, depart and no observer mutation"
+  ],
+  "evidence": [
+    "PR #156 draft; GDScript parser const declarations statically hardened",
+    "No user Godot tests until full migration, headless unexecuted"
+  ]
 }
