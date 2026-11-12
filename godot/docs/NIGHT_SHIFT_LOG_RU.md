@@ -1,5 +1,9 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 2026-11-12 — interactive-chat, N63–N67 RESERVE START
+- Пользователь просил взять ровно 5 свободных блоков после обновления пяти расписаний. Атомарные claims созданы в общей ветке последовательно: [N63](nightshift/claims/N63.json), [N64](nightshift/claims/N64.json), [N65](nightshift/claims/N65.json), [N66](nightshift/claims/N66.json), [N67](nightshift/claims/N67.json), owner interactive-chat, IN_PROGRESS, уникальные ветки и scope. N62 уже завершен другим агентом (#151), N39 ещё занят (production) и не затрагивается.
+- N63 ACTIVE, N64–N67 QUEUED, без изменения main/stable/проверенной P1. Новое правило всех пяти автомаций: по 3 отдельных Nx с claims за запуск; пользовательский Godot/Windows тест только после завершения ВСЕГО переноса.
+
 ### 2026-11-12 — interactive-chat, N61 DONE / PR #150
 - Атомарный claim N61 создан до работы, теперь CODE_UNVERIFIED; [PR #150](https://github.com/Mefits/Living-Sector/pull/150) на базе N57/#149. N39 production принадлежит другому владельцу и не затронут.
 - Скопированы без изменений N58 route graph audit/#146, N59 directed Dijkstra/#147, N60 itinerary admission/#148. Новый native_itinerary_bridge и N57 методы планируют весь маршрут из frozen seed, затем разрешают только **один физический следующий N14 перелёт**. Промежуточные узлы нужно проходить отдельной командой; скрытый autopilot не создаётся, чтобы он не терялся в N54 save.
