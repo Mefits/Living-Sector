@@ -22,7 +22,7 @@
     "Ported source contract candidates: native assigned/public admission, N104 quote/top-up/read-only buyer payer checks, hostility/sensors, 3x queue, cargo capacity/credits, median and source pricing, original fee heuristic, fill-ratio and own strategy selection.",
     "Ported GOAP request/compile glue across six N81 catalogs (normal and combined delivery/trade/refit, passenger/courier/crew mission, rest, resume), real directed path expansion, dock dwell, shipyard selection, rest queue congestion, gate exploration.",
     "Ported source-only per-ship decision pipeline: LOD/transit guards, contract restore, station assignment, tier/combined goals, N80 replan arbitration and protected funded release, N84 BT outcome consequences and N148 lifecycle handoff.",
-    "Created 17 source-derived fixtures (not executed), GitHub readback and lexical balanced delimiter checks; Draft PR #242 with 5 new files/1076 additions. Macro #4 marked source-mapped across prior isolated PRs and N153, no runnable Godot."
+    "Created 19 source-derived fixtures (not executed), GitHub readback and lexical balanced delimiter checks; Draft PR #242 with 5 new files/1076 additions. Macro #4 marked source-mapped across prior isolated PRs and N153, no runnable Godot."
   ],
   "evidence": [
     "Atomic reservation before code: e5de8c72ec749684fc29e6970ffc0313214c09c0",
@@ -33,7 +33,7 @@
   ],
   "macro4_source_status": "SOURCE_COVERED_COMPONENT_INVENTORY",
   "pr_url": "https://github.com/Mefits/Living-Sector/pull/242",
-  "work_sha": "2099e50951b04c56c56125b74aeb193aff7224eb",
+  "work_sha": "22deba3e23ad4513d7bd68a47b5fdb92e4674083",
   "remaining": [
     "Macro4 source-domain function mapping covered across N80/N81/N83/N84-N88/N90/N103/N112/N137/N153; Phase2 must select a single authority for scores, BT, transactions, sources and ECS to avoid double cargo/money/contract payments.",
     "Native f32/i64/u64 edge cases, GitHub-only lexical checks and HashMap tie ordering need executable Rust/Godot parity in Phase2; source-gap may reopen if found.",
