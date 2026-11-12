@@ -67,3 +67,13 @@
 - **Claim:** `claims/N3.json`, `IN_PROGRESS`, commit `9fcc20b5ab74ca511ca9dcfb24bcce10ceb35a43`.
 - **План:** cadence, детерминированные события, отмена/дедупликация, snapshot и короткий smoke.
 - **Ветка:** `feature/godot-nightshift-n3-events-second-20261112`.
+
+### Итог N3 — second-chat-overnight — 12.11.2026
+
+- **Реализовано:** `event_queue.gd` (строгий порядок due_tick/phase/entity_id/sequence, дедупликация, отмена, сохранение), `cadence.gd` (период/offset), подключение к `tick_runner.gd` с сигналом событий и атомарным восстановлением, `n3_events_check.gd`.
+- **Источник:** замороженный Rust `native/crates/sim_server/src/engine.rs`; порядок фаз сохранён, экономические фазы не имитируются. Godot `RefCounted`, `Array.sort_custom`, сигналы; без тысяч Nodes и внешних плагинов. Паттерн Event Queue из Game Programming Patterns.
+- **PR:** https://github.com/Mefits/Living-Sector/pull/91, head `8fa6e298e96feaaabfeb26f36d177b14f31ef9fd`, база PR #89, draft, без merge.
+- **Проверка:** баланс скобок четырёх GDScript файлов; Godot Runtime отсутствует, `n3_events_check.gd` не запускался. **CODE_UNVERIFIED**, не VERIFIED.
+- **Утром:** `godot --headless --path godot --script res://tests/n3_events_check.gd`, затем `RUN-P1-SMOKE.cmd`; исправить любые runtime ошибки до merge.
+- **Зависимости:** PR #89 N2; другие блоки сверять по claims. Следующий независимый N4 registry либо N5 commodities, после свежей проверки занятости.
+- **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, общий 3/100 VERIFIED.
