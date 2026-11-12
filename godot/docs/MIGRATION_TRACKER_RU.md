@@ -276,3 +276,7 @@
 - `godot/scripts/sim/economy/physical_contract_settlement.gd`: pickup/load at source, unload at destination, exact ship/commodity/quantity/location receipt check, escrow payout only after delivery, duplicate/replay guards.
 - `godot/tests/n26_contract_delivery_check.gd`: shortage/wrong ship/early payout, load/unload, conservation of cargo and credits, replay after snapshot restore.
 - **CODE_UNVERIFIED:** no Godot executable; direct legacy N16 board methods still require exclusive coordinator routing before production use. No VERIFIED increase; P0 3/9, P1 0/9, P2 0/11, total 3/100.
+
+### N27 — contract physical receipt enforcement (CODE_UNVERIFIED)
+
+[Draft PR #115](https://github.com/Mefits/Living-Sector/pull/115), stacked on N26 #114: contract board validates actual cargo receipts before delivery state and escrow payout, N26 binds receipt registry, regression smoke for forged receipt/direct settlement/replay/restore. Non-delivery fulfillment intentionally fails closed until typed handlers. Godot executable not run; confirmed counts unchanged P0 3/9, P1 0/9, P2 0/11, total 3/100.
