@@ -150,3 +150,5 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N47 | **P1: fail-closed native seed validation:** deterministic schema/identity/referential checks before world bootstrap; no world mutation; independent of N39/N46 | Source parity, invalid fixture rejection, short Godot smoke | CODE_UNVERIFIED — [PR #135](https://github.com/Mefits/Living-Sector/pull/135), overnight-scheduler |
 
 | N48 | **P2/P3: migration transport admission:** source-backed migration passenger capacity/location and replay-safe boarding admission, no teleportation or fabricated ship state | Fail-closed request validation, deterministic manifest, headless smoke; independent of N39 | CODE_UNVERIFIED — [PR #137](https://github.com/Mefits/Living-Sector/pull/137), second-chat-overnight |
+
+| N49 | **P7/P1: read-only orbital selection diagnostics** — stable identity and selection snapshot, fail-closed invalid IDs, deterministic smoke; do not mutate P1 world | No new economy/AI claims; based on current integration #128; Godot headless pending | IN_PROGRESS — second-chat-overnight, claim N49 |
