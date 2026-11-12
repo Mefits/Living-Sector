@@ -1,6 +1,6 @@
 {
   "block_id": "N3",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T03:35:00+03:00-second-chat-n3",
   "claimed_at": "2026-11-12T03:35:00+03:00",
@@ -12,6 +12,20 @@
     "due_tick event scheduling and cancellation",
     "stable serialization and smoke tests"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Data-only deterministic queue with stable ordering, duplicate prevention and cancellation",
+    "Phase cadence with period/offset; bodies phase only actually executes",
+    "Runner event dispatch and transactional checkpoint/restore",
+    "Headless smoke prepared"
+  ],
+  "evidence": [
+    "Static delimiter audit of four GDScript files passed",
+    "Godot executable unavailable; runtime smoke NOT executed"
+  ],
+  "completed_at": "2026-11-12T03:37:00+03:00",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/91",
+  "head_sha": "8fa6e298e96feaaabfeb26f36d177b14f31ef9fd",
+  "dependencies": [
+    "PR #89 N2 calendar"
+  ]
 }
