@@ -1,0 +1,16 @@
+{
+  "block_id": "N47",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T12:50:55+01:00-overnight-n47",
+  "claimed_at": "2026-11-12T12:50:55+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-nightshift-n47-seed-validation-20261112",
+  "tasks": [
+    "Audit native seed schema and source provenance",
+    "Add deterministic fail-closed seed validation",
+    "Add regression fixtures and headless smoke",
+    "Document Rust parity boundaries and integration"
+  ]
+}
