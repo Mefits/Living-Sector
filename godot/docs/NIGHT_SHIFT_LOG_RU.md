@@ -882,3 +882,10 @@ All three claims closed CODE_UNVERIFIED, GitHub readback and delimiter balance o
 ### 2026-11-12 — interactive-chat N135 START
 - Atomic `claims/N135.json` reserved before code (`b5c160a`), owner interactive-chat, frozen Rust `strategy/orders.rs` + `orders/tests.rs`.
 - Goal: substantial standalone station order dispatch, constraints, deterministic carrier matching and order snapshot; own `feature/godot-n135-native-station-orders-20261112` work branch. N39/N90/N97/N100/N134 untouched; Phase-1 data-only code, no Godot integration.
+
+### 2026-11-12 ~22:58 MSK — interactive-chat N135 COMPLETE
+- N135 reserved atomically before code at `b5c160a`. Draft [PR #225](https://github.com/Mefits/Living-Sector/pull/225), head `feature/godot-n135-native-station-orders-20261112` @ `19261a96`, base integration #128.
+- Rust `strategy/orders.rs` (380 LOC) plus `orders/tests.rs` (269 LOC) audited. 3 native GDScript modules: `n135_station_orders_core.gd`, `n135_station_orders_dispatch.gd`, `n135_station_orders_checks.gd`, and handoff `N135_NATIVE_STATION_ORDER_BRIDGE_RU.md`, total PR additions 822 lines.
+- Preserved: contract/constructor order isolation, source-owned escrow checks, storage/cost/treaty guards, ShipFitting sensor range and real location/route, stable priorities, lease/cooldown, resourcing before acceptance, paid-project no-duplicated grants and only non-mutating price-knowledge intents. Source Ruby? NO: Rust 0.6.7 frozen source directly.
+- Read back new GDScript from GitHub; balanced quotes/brackets and source comparison. NO Godot parser/headless/runtime, NO functional replay tests executed; companion test scenarios added only. Status `CODE_UNVERIFIED`. N39/N100/N134/N98 and all other claims untouched. Phase-2 exclusive world/board integration remains.
+- Phase-1 amount remaining approximately **58–61%** by mechanics coverage (symbolic only), distinct from Nx/PR counts.
