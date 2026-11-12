@@ -36,6 +36,9 @@ func initialize(accounts: Dictionary, facility: Dictionary, population: Dictiona
     _facility = facility.duplicate(true)
     _pop = population.duplicate(true)
     _market = market.duplicate(true)
+    _market["supply"] = stock.duplicate(true)
+    _market["seller_credits"] = _ledger.balance(str(facility["seller"]))
+    _pop["total_wealth"] = _ledger.balance(str(facility["household"]))
     _stock = stock.duplicate(true)
     _limits = limits.duplicate(true)
     return true
@@ -74,6 +77,7 @@ func run_tick(tick: int) -> Dictionary:
         _market = market_candidate
         _stock = market_candidate["supply"].duplicate(true)
         result["purchases"] = events
+    _market["supply"] = _stock.duplicate(true)
     _last_tick = tick
     return result
 
