@@ -1,0 +1,17 @@
+{
+  "block_id": "N8",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T06:54:57+03:00-second-chat-n8",
+  "claimed_at": "2026-11-12T06:54:57+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "68f325205b97696a4b515522bf7759dbb9c9fcd1",
+  "work_branch": "feature/godot-nightshift-n8-integration-second-20261112",
+  "tasks": [
+    "audit stacked Godot modules and source dependencies",
+    "implement deterministic integration regression for existing real mechanics",
+    "add headless acceptance and parity diagnostics"
+  ],
+  "progress": [],
+  "evidence": []
+}
