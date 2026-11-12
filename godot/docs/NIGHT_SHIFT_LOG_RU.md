@@ -513,3 +513,6 @@ Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nights
 
 ### N48 START — 2026-11-12 15:18:37 +03:00
 Atomic claim `claims/N48.json` @ `a324285495310886a645601ad926e01a61a8ea8c`; owner second-chat-overnight; integration base `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`; migration transport admission and smoke, IN_PROGRESS.
+
+### N48 FINISH — 2026-11-12
+Draft [PR #137](https://github.com/Mefits/Living-Sector/pull/137) at `bf3a63bc3b34082c49fc86390e3fd0274203f799`: opt-in passenger embark/disembark manifest, population conservation, location/capacity guards, receipts and headless regression. Frozen Rust passenger posting intentionally disabled; no auto-migration or contracts activated. **CODE_UNVERIFIED**; Godot runtime not run; next integrate authoritative ship/contract state. N39 remains owned by other chat.
