@@ -625,3 +625,6 @@ Claim `claims/N62.json` created atomically @ `e7c263dd921894855d68e588f189b1a4a4
 
 ### 2026-11-12 17:26 MSK — second-chat-overnight: START N68, N69, N70
 Atomic exclusive claims created on coordination branch: N68 `89c2c062`, N69 `b1c7a1e`, N70 `fc27b8be`. Three independent scopes: Rust price engine, faction relations/reputation, facility maintenance. Source integration HEAD `1e4a1e9f`; work branches distinct. All IN_PROGRESS; no runtime verification claimed.
+
+### 2026-11-12 — N68/N69/N70 code finished (second-chat-overnight)
+N68 [PR #157](https://github.com/Mefits/Living-Sector/pull/157): replay-safe market price tick wrapper reusing N10 Rust formula. N69 [PR #158](https://github.com/Mefits/Living-Sector/pull/158): canonical faction relation/treaty gates. N70 [PR #159](https://github.com/Mefits/Living-Sector/pull/159): native facility degradation, tool repair and abandonment. Each has an isolated Godot headless script; all **CODE_UNVERIFIED**, no Godot executable run. No integration into the live P1 runner, no merges. N39/N67 left untouched.
