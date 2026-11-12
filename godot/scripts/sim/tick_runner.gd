@@ -165,6 +165,7 @@ func restore_checkpoint(snapshot: Dictionary, frozen_seed: Dictionary) -> bool:
             return false
     elif int(version) == SAVE_SCHEMA:
         staged_calendar.native_time_units = 0.0
+        staged_calendar.origin_known = false
     var staged_clock = SimClock.new()
     if not staged_clock.restore(clock_value):
         return false
