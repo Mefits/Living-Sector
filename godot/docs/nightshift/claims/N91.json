@@ -1,6 +1,6 @@
 {
   "block_id": "N91",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "overnight-scheduler",
   "run_id": "2026-11-12T17:14:35+01:00-nightshift1-N91",
   "claimed_at": "2026-11-12T17:14:35+01:00",
@@ -17,5 +17,17 @@
     "Read frozen Rust source and identify exact state and formulas",
     "Port isolated source-backed GDScript module with explicit contracts",
     "Document missing external dependencies and static-check only"
-  ]
+  ],
+  "progress": [
+    "source-backed pure decision module; external ECS and labor apply"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/179",
+    "https://github.com/Mefits/Living-Sector/commit/0b8af8f899ef7cd1e4f132af1209db91ef11f264"
+  ],
+  "tests": [
+    "GitHub source inspected",
+    "No Godot runtime/parser execution; no full regression"
+  ],
+  "parity_complete": false
 }
