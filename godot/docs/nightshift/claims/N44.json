@@ -1,0 +1,16 @@
+{
+  "block": "N44",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "second-chat-overnight-20261112T142439+0300-N44",
+  "started_at": "2026-11-12T14:24:39+03:00",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_commit_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "working_branch": "feature/godot-n44-research-prerequisite-gate-20261112",
+  "tasks": [
+    "Audit Rust research/progression prerequisites and existing Godot APIs",
+    "Implement deterministic fail-closed technology prerequisite evaluator without granting research/resources",
+    "Add independent headless regression for missing dependencies, alternatives and reproducibility",
+    "Document parity limits and update coordination"
+  ]
+}
