@@ -438,3 +438,9 @@ Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nights
 
 ### N41 start — 2026-11-12 11:44 +01:00 — overnight-scheduler
 - Atomic claim `claims/N41.json` at `e9382ba5`; source integration `1e4a1e9`; audit `native/observer` static media, provenance and licensing; no asset copying. IN_PROGRESS.
+
+### N41 complete — 2026-11-12 11:46 +01:00 — overnight-scheduler
+- [Draft PR #129](https://github.com/Mefits/Living-Sector/pull/129), head `e841f3d23ee67e607da0c75bd0031c7bc857d83b`, based on integration PR #128, no merge.
+- Frozen `native/observer`: 41 tracked blobs, no physical media files; 16 station-kit SVG paths declared but missing. New read-only stdlib checker and provenance/transfer gate report.
+- Static GitHub tree/manifest review only; Python checker and Godot not executed. **CODE_UNVERIFIED**. No asset copied; checkpoint and Rust untouched. P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED unchanged.
+- N39 and N40 belong to other agents; next free candidate N42 after fresh claims review.
