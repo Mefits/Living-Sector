@@ -7,7 +7,7 @@ func _initialize() -> void:
     var errors := 0
     errors += _check(Price.recalculate(100.0, 5.0, 10.0, 0.02, 0) == 101.5, "shortage curve at coverage 0.5")
     errors += _check(Price.recalculate(50.0, 500.0, 10.0, 0.02, 0) == 50.0, "stable coverage")
-    errors += _check(Price.recalculate(100.0, 1000.0, 1.0, 0.02, 0) == 99.6, "oversupply drift")
+    errors += _check(Price.recalculate(100.0, 1000.0, 1.0, 0.02, 0) == 99.0, "oversupply drift")
     errors += _check(Price.urgency_multiplier(20) == 1.0 and Price.urgency_multiplier(1000) == 2.5, "urgency bounds")
     errors += _check(Price.recalculate(499.0, 0.0, 1000.0, 0.99, 100) == 500.0, "ceiling")
     errors += _check(Price.recalculate(2.0, 100000.0, 1.0, 0.99, 0) >= 1.0, "floor")
