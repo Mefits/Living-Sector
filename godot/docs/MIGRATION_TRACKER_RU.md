@@ -383,3 +383,5 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 - [PR #190](https://github.com/Mefits/Living-Sector/pull/190): facility convoy bundle proposals with solvent requestor and 400-unit cap; no production mutation.
 - [PR #191](https://github.com/Mefits/Living-Sector/pull/191): profitable ice mining and cargo liquidation selection; external world registry and transactions required.
 All CODE_UNVERIFIED, three separate branches, no Godot runtime or P1 integration. Existing VERIFIED totals remain P0 3/9, P1 0/9, P2 0/11, overall 3/100; these are not functional completion percentages.
+
+> **N105–N107, 12.11.2026:** three frozen Rust component ports: faction relief [PR #194](https://github.com/Mefits/Living-Sector/pull/194), durable production objective [PR #195](https://github.com/Mefits/Living-Sector/pull/195), station administration [PR #196](https://github.com/Mefits/Living-Sector/pull/196). All `CODE_UNVERIFIED`, standalone snapshot contracts, no Godot execution or live integration. P0/P1/P2 VERIFIED remains 3/9, 0/9, 0/11; overall 3/100. N39 and N104 untouched.
