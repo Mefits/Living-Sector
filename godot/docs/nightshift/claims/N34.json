@@ -1,6 +1,6 @@
 {
   "block_id": "N34",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T12:01:08+03:00-second-chat-n34",
   "claimed_at": "2026-11-12T12:01:08+03:00",
@@ -12,6 +12,20 @@
     "Implement robust smoke consistency and deterministic validation without changing gameplay",
     "Add short regression checks and document unverified runtime"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Reviewed N32/N33 smoke runner",
+    "Implemented log isolation, bounded Godot subprocesses, missing-log and suite-coverage checks",
+    "Added Windows handoff and timeout configuration"
+  ],
+  "evidence": [
+    "PR #123; commits 4a958dc, aeb05eb, 66d8666",
+    "Godot runtime and PowerShell unavailable: no runtime test"
+  ],
+  "completed_at": "2026-11-12T12:03:00+03:00",
+  "pull_request": "https://github.com/Mefits/Living-Sector/pull/123",
+  "head_sha": "66d8666e4179c176ac42e4df938756d1f1c20e5b",
+  "limitations": [
+    "No executable Godot/PowerShell test; CODE_UNVERIFIED",
+    "PR stacked on N33; not merged"
+  ]
 }
