@@ -1,4 +1,6 @@
 # Living Sector — журнал прогресса переноса Rust → Godot
+> **N137, 12.11.2026:** [Draft PR #226](https://github.com/Mefits/Living-Sector/pull/226) ports frozen native `ai/considerations.rs` (7 functions) and price freshness dependency into pure GDScript. Source reviewed; static readback only, **CODE_UNVERIFIED**, no Godot runtime. VERIFIED unchanged 3/100.
+
 
 > **Это главный живой чек-лист.** После каждого PR обновляем строки, дату и доказательство, а не только текст сообщения в чате.
 > Исходники эталона: `archive/rust-galaxy-067-reference` @ `6e40615be95cc6ddbabe21c3b94def5c52f8622d`. План: [MIGRATION_ROADMAP_RU.md](MIGRATION_ROADMAP_RU.md). Полная карта 793 источников: [SOURCE_INVENTORY.json](SOURCE_INVENTORY.json).
