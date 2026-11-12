@@ -38,8 +38,12 @@ static func apply(world: Dictionary, ship_id: String,
     var funding: Variant = contract.get("funding", null)
     if funding != null and not (funding is Dictionary):
         return _reject("invalid_contract_funding")
-    var fixed: bool = funding is Dictionary             and str(funding.get("source", "")) == "faction"             and ["strategy.logistics.v1", "strategy.construction.v1",
-                 "strategy.colony.v1"].has(str(contract.get("mission_category", "")))
+    var fixed: bool = (
+        funding is Dictionary
+        and str(funding.get("source", "")) == "faction"
+        and ["strategy.logistics.v1", "strategy.construction.v1",
+             "strategy.colony.v1"].has(str(contract.get("mission_category", "")))
+    )
     var initial: Variant = contract.get("initial_payment", null)
     if fixed and typeof(initial) != TYPE_INT:
         return _reject("invalid_fixed_project_payment")
