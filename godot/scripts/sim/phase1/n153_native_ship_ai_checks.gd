@@ -66,7 +66,7 @@ static func run_checks() -> Dictionary:
 	_check(completed["commands"].size() == 1 and completed["commands"][0]["reason"] == "issuer_funding_failure",
 		"payer failure is not carrier contract breach", failures)
 	return {"passed": failures.is_empty(), "failures": failures,
-		"fixtures": 17, "runtime_executed": false}
+		"fixtures": 19, "runtime_executed": false}
 
 static func _check(condition: bool, label: String, failures: Array[String]) -> void:
 	if not condition:
