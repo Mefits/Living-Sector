@@ -269,3 +269,6 @@ Claim: `godot/docs/nightshift/claims/N22.json`; ветка `feature/godot-nights
 
 ### N22 — завершено, CODE_UNVERIFIED
 PR #110: https://github.com/Mefits/Living-Sector/pull/110. Реализованы проверяемая модель проекции 10k кораблей, единый CanvasItem с отсечением невидимых, выбор и преобразование координат, smoke-тест. Rust ShipPosition/ShipIdentity сверены. Godot не запускался; интеграция с N14/N21 и FPS-бенчмарк остаются открыты.
+
+### N23 — старт 2026-11-12 09:04 МСК
+Claim `claims/N23.json`, owner `second-chat-overnight`, work branch `feature/godot-nightshift-n23-production-tick-second-20261112`. Интеграция TickRunner facilities с реальным ProductionCoordinator, защита exactly-once и headless smoke.
