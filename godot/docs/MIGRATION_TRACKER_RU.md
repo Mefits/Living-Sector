@@ -377,3 +377,9 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 - N99 [PR #187](https://github.com/Mefits/Living-Sector/pull/187): Rust bounded Control Beam; CODE_UNVERIFIED, native domain adapter required.
 - N100 [PR #188](https://github.com/Mefits/Living-Sector/pull/188): partial Rust Hybrid planner, IN_PROGRESS; ingredient composition/orchestration not yet ported.
 - No Godot runtime checks, no new VERIFIED progress, no integration. Do not treat these PRs as working AI.
+
+### 2026-11-12 — N101/N102/N103 component ports
+- [PR #189](https://github.com/Mefits/Living-Sector/pull/189): ShipProgression level/XP/retrofit points and fitting validation (Rust ship/components.rs); module derived stats are a dependency.
+- [PR #190](https://github.com/Mefits/Living-Sector/pull/190): facility convoy bundle proposals with solvent requestor and 400-unit cap; no production mutation.
+- [PR #191](https://github.com/Mefits/Living-Sector/pull/191): profitable ice mining and cargo liquidation selection; external world registry and transactions required.
+All CODE_UNVERIFIED, three separate branches, no Godot runtime or P1 integration. Existing VERIFIED totals remain P0 3/9, P1 0/9, P2 0/11, overall 3/100; these are not functional completion percentages.
