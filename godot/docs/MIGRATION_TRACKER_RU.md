@@ -1,3 +1,5 @@
+> **N145 (2026-11-13, macro 5, CODE_UNVERIFIED):** [Draft PR #234](https://github.com/Mefits/Living-Sector/pull/234) ports frozen Rust contracts.rs Posted reputation/price aging, renewal/expiry and faction-tier ship admission; no money or cargo effects. 12 pure GDScript methods, source handoff, static readback only; no Godot runtime. N104 escrow and N135 dispatch remain separate; VERIFIED counts unchanged.
+
 ### N144 / macro 2 (12.11.2026) — CODE_UNVERIFIED
 - [PR #232](https://github.com/Mefits/Living-Sector/pull/232): frozen `strategy/colony.rs::proposals` pure expedition evaluator; handoff includes adapter dependencies. No Godot runtime, no integration, no VERIFIED increase.
 
