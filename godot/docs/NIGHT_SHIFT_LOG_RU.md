@@ -961,3 +961,7 @@ Claim created atomically by second-chat-overnight; source `native/crates/sim_cor
 
 ### 2026-11-13 — second-chat-overnight N146 DONE
 - Macro #10: [Draft PR #235](https://github.com/Mefits/Living-Sector/pull/235), source-backed 23 SimCommand variants, 23 stable labels, actor attribution, trace detail and deterministic push/append/drain. Static 23/23 variant check; no Godot runtime. Own claim CODE_UNVERIFIED. No World Apply, no N39/N100 edits, no merge. Phase 2 owns real execution and durable transaction receipts.
+
+
+### 2026-11-13 — interactive-chat N147 START
+- Atomically reserved `claims/N147.json` @ `5c80a107` after source/claim/PR audit. Exclusive macro #2 frozen Rust `strategy/colony_development.rs::migration_proposals` + `commission`, which N92/PR#180 explicitly left unported for prepaid passenger transfer. N144 colony founding proposals, N114 passive demographic migration, N126 passenger recruitment and N39 untouched. Work branch `feature/godot-n147-colony-paid-workforce-migration-20261113`; Phase1 standalone only.
