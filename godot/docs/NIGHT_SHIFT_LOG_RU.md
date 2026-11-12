@@ -1,3 +1,6 @@
+### 2026-11-12 23:57 MSK — second-chat-overnight N144 START
+- Atomic claim N144 @ edad8362706b3d3732ce36ac0207648672e44baf; macro 2 source `strategy/colony.rs::proposals` only; N79/N118/N92 excluded. CODE_UNVERIFIED until later Godot phase.
+
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED) 
 ### 2026-11-12 22:59 MSK — second-chat-overnight N137 COMPLETE (CODE_UNVERIFIED)
 - [Draft PR #226](https://github.com/Mefits/Living-Sector/pull/226), source-backed seven Rust utility considerations and 1500-tick price freshness; 11 pure GDScript functions, handoff. GitHub readback + delimiters only, no Godot run, no merge, no P1 integration. N39/N135 untouched.
