@@ -38,7 +38,11 @@ echo Godot engine version:
 type "%LOGDIR%\godot-version.txt"
 echo [Project import] Parsing the unified project in headless editor...
 "%GODOT_BIN%" --headless --editor --path "%CD%" --quit --log-file "%LOGDIR%\project-import.log" > "%LOGDIR%\project-import-console.txt" 2>&1
-if errorlevel 1 (
+set "IMPORT_FAIL=0"
+if errorlevel 1 set "IMPORT_FAIL=1"
+findstr /I /C:"SCRIPT ERROR:" /C:"Parse Error:" /C:"Failed to load script" "%LOGDIR%\project-import-console.txt" >nul 2>&1
+if not errorlevel 1 set "IMPORT_FAIL=1"
+if "%IMPORT_FAIL%"=="1" (
   set /a FAILED+=1
   >> "%SUMMARY%" echo FAIL project import/parse
   echo FAILED project import; individual tests will still run for diagnostics.
@@ -64,7 +68,11 @@ exit /b 0
 set /a TOTAL+=1
 echo [Test %TOTAL%] %~1
 "%GODOT_BIN%" --headless --path "%CD%" --script "res://tests/%~1" --log-file "%LOGDIR%\%~n1.log" > "%LOGDIR%\%~n1-console.txt" 2>&1
-if errorlevel 1 (
+set "TEST_FAIL=0"
+if errorlevel 1 set "TEST_FAIL=1"
+findstr /I /C:"SCRIPT ERROR:" /C:"Parse Error:" /C:"Failed to load script" "%LOGDIR%\%~n1-console.txt" >nul 2>&1
+if not errorlevel 1 set "TEST_FAIL=1"
+if "%TEST_FAIL%"=="1" (
   set /a FAILED+=1
   >> "%SUMMARY%" echo FAIL %~1
   echo FAIL %~1
