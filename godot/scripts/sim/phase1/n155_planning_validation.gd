@@ -64,4 +64,6 @@ static func can_request_native_dispatch(snapshot: Dictionary, goal: Dictionary, 
 		plan: Dictionary, budget: Dictionary) -> bool:
 	# Pure validation alone is NEVER sufficient. Requires real N121
 	# authoritative receipt + native HTN/Telic upstream validation.
-	return validate_plan(snapshot,goal,actions,plan,budget).get("ok",false) 		and plan.get("upstream_htn_verified", false) == true 		and plan.get("native_dispatch_authorized", false) == true
+	return (validate_plan(snapshot,goal,actions,plan,budget).get("ok",false)
+		and plan.get("upstream_htn_verified", false) == true
+		and plan.get("native_dispatch_authorized", false) == true)
