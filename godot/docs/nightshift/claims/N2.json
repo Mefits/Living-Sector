@@ -1,6 +1,6 @@
 {
   "block_id": "N2",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T03:20:46+03:00-second-chat-overnight-N2",
   "claimed_at": "2026-11-12T03:20:46+03:00",
@@ -13,6 +13,18 @@
     "Expose calendar in snapshot/UI and preserve checkpoint compatibility",
     "Add concise deterministic smoke tests"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Native-unit calendar independent of render FPS",
+    "TickRunner checkpoint and backward compatibility for v1 saves",
+    "UI status and deterministic headless smoke",
+    "Rust TickConfig comparison and design handoff"
+  ],
+  "evidence": [
+    "Rust TickConfig default 8 TPS / 0.25 world_speed",
+    "Godot executable unavailable: no runtime verification",
+    "Godot headless test: res://tests/n2_calendar_check.gd (NOT RUN)"
+  ],
+  "completed_at": "2026-11-12T03:23:05+03:00",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/89",
+  "head_sha": "ff397f6ec5b193034460ef39a0255a9d557725b2"
 }
