@@ -281,7 +281,7 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 | N106 | P5 persistent paid native production objective and receipt-based completion | Rust strategy/long_term.rs | CODE_UNVERIFIED — [PR #195](https://github.com/Mefits/Living-Sector/pull/195), overnight-scheduler |
 | N107 | P5 station administrator labor allocation, priorities and feedback | Rust strategy/station.rs | CODE_UNVERIFIED — [PR #196](https://github.com/Mefits/Living-Sector/pull/196), overnight-scheduler |
 
-| N108 | **P3 special ShipCommand Apply** — Rust actual GateJump, shipyard fitting purchase/replace and ReleaseContract apply | Source-backed GDScript immutable staged world; no N39/N100/N79/N104 overlap, no runtime test | IN_PROGRESS — interactive-chat; [claim N108](nightshift/claims/N108.json) |
+| N108 | **P3 special ShipCommand Apply** — Rust actual GateJump, shipyard fitting purchase/replace and ReleaseContract apply | Source-backed GDScript immutable staged world; no N39/N100/N79/N104 overlap, no runtime test | CODE_UNVERIFIED — [PR #200](https://github.com/Mefits/Living-Sector/pull/200), interactive-chat; gate/shipyard/contract-breach Apply 5 GDScript modules; Phase-2 integration pending |
 
 | N109 | P6 native faction charter authority, review tranches and paid budget receipts | Rust strategy/charter.rs; isolated GDScript | CODE_UNVERIFIED — [PR #197](https://github.com/Mefits/Living-Sector/pull/197) |
 | N110 | P4 native station progression tier limits and paid upgrade domain | Rust strategy/progression.rs; isolated GDScript | CODE_UNVERIFIED — [PR #198](https://github.com/Mefits/Living-Sector/pull/198) |
