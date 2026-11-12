@@ -1,0 +1,31 @@
+{
+  "block_id": "N147",
+  "macro_id": 2,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13T00-20MSK-interactive-colony-aftercare-paid-migration",
+  "claimed_at": "2026-11-13T00:20:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "work_branch": "feature/godot-n147-colony-paid-workforce-migration-20261113",
+  "rust_ref": "archive/rust-galaxy-067-reference",
+  "rust_source_paths": [
+    "native/crates/sim_core/src/strategy/colony_development.rs::migration_proposals",
+    "native/crates/sim_core/src/strategy/colony_development.rs::commission"
+  ],
+  "existing_source_ports": [
+    "N92 PR#180 observe/next_supply_goal/migration_intent (read-only, no paid commission)",
+    "N114 PR#203 population pressure transfer (different scope)",
+    "N118 PR#207 colony founding (different scope)",
+    "N126 PR#214 native passenger requests (different source)",
+    "N144 PR#232 colony.rs::proposals, not aftercare"
+  ],
+  "scope": "Macro #2 source-backed complete colony_development.rs aftercare paid workforce migration: full candidate planning, unique physical recipient, owned station/source households, shipping and navigable carrier, budget floor, prepaid native passenger contract commission, no fictitious settlers/ships/credits.",
+  "tasks": [
+    "Source audit and native proof of aftercare and existing N92 boundary",
+    "Port source-complete aftercare migration_proposals with owned physical location, valid destination household, actual ship availability, route and tiered fiscal checks",
+    "Port exact commission() preflight and atomic prepaid ContractBoard+treasury intent using N16/N104/contract apply rather than second ledger",
+    "Add negative-path scenario fixtures and source-to-PR handoff; publish draft and preserve CODE_UNVERIFIED until Godot Phase2"
+  ],
+  "progress": [],
+  "evidence": []
+}
