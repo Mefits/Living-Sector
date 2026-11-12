@@ -185,3 +185,12 @@ Atomic claim `claims/N6.json` commit `c8fa69b3`; Rust-parity recipe execution, i
 ### N16 start — 2026-11-12 06:43 МСК — second-chat-overnight
 
 Atomic claim `claims/N16.json` at `f495d43e`, work branch `feature/godot-nightshift-n16-contracts-second-20261112`; scope Rust contracts, escrow, idempotent settlement, expiration and headless check. CODE_UNVERIFIED until runtime.
+
+### N16 result — second-chat-overnight — 2026-11-12 06:45 МСК
+
+- **PR:** https://github.com/Mefits/Living-Sector/pull/102, head `006e03d60ddef8f9f75aa5ab69cace4e4691ac14`, based on N11 PR #94; draft, no merge.
+- **Code:** prepaid contract escrow debit, acceptance quote/top-up, lifecycle transitions, payout/refund, snapshot/restore, headless regression `godot/tests/n16_contracts_check.gd`.
+- **Rust:** native sim_core/economy/contracts.rs and sim_server/engine/contract_funding.rs. Godot RefCounted/Dictionary, no plugin/ship Nodes.
+- **Limits:** N15 physical cargo receipt not authenticated; no renewals, faction reputation/embargo, fixed strategy reward, passenger/construction effects, TickRunner wiring. Godot executable absent, smoke NOT RUN. **CODE_UNVERIFIED**.
+- **Next:** N7 population/production integration or N17 construction after dependency review; before merging N16, connect actual N15 receipts and run headless smoke.
+- **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED.
