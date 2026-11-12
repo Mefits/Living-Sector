@@ -1,0 +1,18 @@
+{
+  "block_id": "N26",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T10:00:22+03:00-second-chat-N26",
+  "claimed_at": "2026-11-12T10:00:22+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "967b9b6fe75710b8a6cd32f99af5cc3743bbbd9d",
+  "work_branch": "feature/godot-nightshift-n26-delivery-settlement-second-20261112",
+  "tasks": [
+    "audit Rust cargo delivery and contract payment parity",
+    "bind N15 physical unload receipt to N16 escrow payout",
+    "guard replay, wrong contract, partial delivery and snapshot restore",
+    "short headless regression test"
+  ],
+  "progress": [],
+  "evidence": []
+}
