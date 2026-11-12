@@ -87,7 +87,8 @@ static func quote(contract: Dictionary, ship: Dictionary,
     var bonus: Variant = ship.get("comms_bonus", 0.0)
     if not _number(bonus):
         return _bad("invalid_comms_bonus")
-    var contract_faction: String = str(contract.get("faction_id", ""))
+    var issuer_value: Variant = contract.get("faction_id", null)
+    var contract_faction: String = "" if issuer_value == null else str(issuer_value)
     var info: Dictionary = treaty_bonus(relations,
         str(ship.get("faction_id", "")), contract_faction)
     if not bool(info.get("ok", false)):
@@ -130,7 +131,9 @@ static func may_accept(contract: Dictionary, ship_id: String,
     var executor: Variant = order.get("executor_id", null)
     if str(funding.get("source", "")) == "facility" and executor == null:
         return true
-    return str(contract.get("faction_id", "")) == ship_faction         and executor != null and str(executor) == ship_id
+    var tag: Variant = contract.get("faction_id", null)
+    var owner: String = "" if tag == null else str(tag)
+    return owner == ship_faction and executor != null and str(executor) == ship_id
 
 static func _money(value: Variant) -> bool:
     return typeof(value) == TYPE_INT and int(value) >= 0
