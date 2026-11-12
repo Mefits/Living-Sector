@@ -229,3 +229,11 @@ Atomic claim `claims/N17.json` at `8e935b66228e4a10cb9ef9090dde71edc1b09e19`; br
 ### N18 start — 2026-11-12 07:52 MSK — second-chat-overnight
 
 Atomic claim `claims/N18.json` commit `7e617371e2de2d43cda726ae24aaddbaed675408`; frozen Rust station admin audit, deterministic decisions and executable command boundaries, headless smoke; work branch `feature/godot-nightshift-n18-admin-second-20261112-0752`.
+
+### N18 result — 2026-11-12 — second-chat-overnight
+
+- Draft [PR #106](https://github.com/Mefits/Living-Sector/pull/106), head `475d13f63759d22695b1aafeda807f5d894b2e2a`, stacked on N6 #100; no merge.
+- Native Rust station.rs planning: 60% workforce cap, whole-team arbitration, stable priority/retention, shared payroll shadow budget, Head prerequisite water-before-food, explicit blocked reasons. Actual shifts delegated to N6 ledger/recipe boundary; no planning side effects.
+- Smoke: `godot --headless --path godot --script res://tests/n18_station_admin_check.gd`. Source/test delimiter balance checked; Godot executable unavailable, smoke NOT RUN. **CODE_UNVERIFIED**.
+- Remaining: mining, cross-owner processing, real shift feedback, TickRunner wiring, multi-population global workforce. Other claims N1–N17 already claimed; N19/N20 TODO and dependent on N18.
+- **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED unchanged. N18 adds one unverified nightshift block.
