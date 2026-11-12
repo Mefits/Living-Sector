@@ -7,6 +7,7 @@ const DEFAULT_HOURS_PER_NATIVE_UNIT: float = 0.0 # Unknown until Rust balance au
 const MAX_HOURS_PER_UNIT: float = 1000000.0
 
 var native_time_units: float = 0.0
+var origin_known: bool = true
 var hours_per_native_unit: float = DEFAULT_HOURS_PER_NATIVE_UNIT
 
 func set_hours_per_native_unit(value: float) -> bool:
@@ -29,6 +30,8 @@ func elapsed_hours() -> float:
     return native_time_units * hours_per_native_unit
 
 func display_text(tick: int) -> String:
+    if not origin_known:
+        return "Тик %d · время до загрузки старого сейва неизвестно" % tick
     if hours_per_native_unit == 0.0:
         return "Тик %d · нативное время %.4f (часы не откалиброваны)" % [tick, native_time_units]
     var hours: float = elapsed_hours()
@@ -36,7 +39,7 @@ func display_text(tick: int) -> String:
     return "Тик %d · день %d, час %.2f (калибровка)" % [tick, days, fposmod(hours, 24.0)]
 
 func snapshot() -> Dictionary:
-    return {"native_time_units": native_time_units, "hours_per_native_unit": hours_per_native_unit}
+    return {"native_time_units": native_time_units, "hours_per_native_unit": hours_per_native_unit, "origin_known": origin_known}
 
 func restore(value: Dictionary) -> bool:
     var units: Variant = value.get("native_time_units", null)
@@ -47,6 +50,10 @@ func restore(value: Dictionary) -> bool:
         return false
     if not is_finite(float(factor)) or float(factor) < 0.0 or float(factor) > MAX_HOURS_PER_UNIT:
         return false
+    var known: Variant = value.get("origin_known", true)
+    if not (known is bool):
+        return false
+    origin_known = known
     native_time_units = float(units)
     hours_per_native_unit = float(factor)
     return true
