@@ -198,18 +198,20 @@ func _change_speed(index: int) -> void:
     _runner.advance_frame(0.0)
     _update_status()
 
-func _save_game() -> void:
+func _save_game(save_path: String = "") -> void:
     if not _runner:
         return
     _runner.advance_frame(0.0)
-    var result: Error = SaveState.save_runner(_runner)
+    var target: String = SaveState.DEFAULT_PATH if save_path.is_empty() else save_path
+    var result: Error = SaveState.save_runner(_runner, target)
     _notice = "Состояние орбит сохранено (P1)" if result == OK else "Ошибка сохранения: " + str(result)
     _update_status()
 
-func _load_game() -> void:
+func _load_game(save_path: String = "") -> void:
     if not _runner:
         return
-    var result: Dictionary = SaveState.load_runner(_runner, _seed)
+    var target: String = SaveState.DEFAULT_PATH if save_path.is_empty() else save_path
+    var result: Dictionary = SaveState.load_runner(_runner, _seed, target)
     if result.get("ok", false):
         _model = _runner.world
         _notice = "Загружено сохранение P1, тик " + str(result.get("tick", "—"))
