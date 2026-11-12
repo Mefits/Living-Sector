@@ -1,5 +1,12 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 12.11.2026 — interactive-chat: N104 ESCROW + FUNDED DELIVERY COMPLETE
+- Atomically reserved [N104](nightshift/claims/N104.json) before code; now CODE_UNVERIFIED, [Draft PR #193](https://github.com/Mefits/Living-Sector/pull/193). Four independent source-derived GDScript modules (~900 LOC).
+- Frozen Rust contract_funding.rs + ContractBoard: exact faction/treaty/comms quote, capped strategy reward, genuine Population/Facility/Faction payer, only necessary escrow top-up, assigned order/embargo guards, Accepted/Released states, Paid/Expired sorted refunds to original source without free money.
+- Passenger real manifest: source class seats, 10 remaining settler guard, population+wealth moved out of actual household; delivery returns real passengers+wealth, source-funded payout, household food consumption, construction-site materials or true market supply. Ship rep/standing, crew/ship XP and funded account effects applied only to detached world snapshot.
+- Explicit boundary: no Godot runtime/tests during Phase 1, no P1 integration, no N39/N100 overlap; exact large Rust i128 and f32/f64 rounding deferred/fail-closed and ContractBoard indexes/one N11 ledger for Phase 2. N104 is NOT runtime verified.
+- Symbolic Phase-1 remaining Rust→GDScript scope estimated ~65–68%; Phase 2 assembly and Phase 3 Grok fixes excluded.
+
 ### 2026-11-12 — interactive-chat, N97 PHYSICAL APPLY COMPLETE
 - [Claim N97](nightshift/claims/N97.json) closed CODE_UNVERIFIED; [Draft PR #192](https://github.com/Mefits/Living-Sector/pull/192), frozen Rust sim_server/engine/transactions.rs: authoritative Buy, Sell, Mine, Refuel source-balance settlement and exclusive request ID handler. Pure staged world snapshots: no partial success, no fictional credits, physical body resources/market supply/facility reserves/ship cargo all moved only on confirmed outcome.
 - 3 GDScript files (commodity price/relations, physical settlement, exclusive Apply dispatcher), source map N97 docs, 2 preload dependencies checked. Static only, Godot deliberately not executed. N90 BT request contract matches dispatcher result null/ok/error.
