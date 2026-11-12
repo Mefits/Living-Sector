@@ -403,3 +403,30 @@ static func bt_result_after_goap(request: Dictionary, expanded_actions: Array, r
 		return [_action("Idle")]
 	return compile_plan_to_bt_actions(expanded_actions, request.get("loc_map", {}),
 		route_legs, str(request.get("kind", "")).begins_with("resume_"))
+
+static func trade_candidate_from_native_route(selected_route: Dictionary, memory: Dictionary, current: String, fuel_bucket: int, routes: Dictionary) -> Dictionary:
+	## selected_route is N83::best_trade_route_with_ownership:
+	## {commodity, buy_loc, sell_loc, margin}; N153 only adds the frozen
+	## 50-unit rounded absolute-profit estimate + original GOAP wrapper.
+	if selected_route.is_empty():
+		return {}
+	var buy: String = str(selected_route.get("buy_loc", ""))
+	var sell: String = str(selected_route.get("sell_loc", ""))
+	var commodity: String = str(selected_route.get("commodity", ""))
+	if buy.is_empty() or sell.is_empty() or commodity.is_empty():
+		return {}
+	var prices: Dictionary = memory.get("price_knowledge", {})
+	var buy_observation: Dictionary = prices.get(buy, {}).get(commodity, {})
+	var sell_observation: Dictionary = prices.get(sell, {}).get(commodity, {})
+	var buy_price: float = float(buy_observation.get("price", 1.0))
+	var sell_price: float = float(sell_observation.get("price", 0.0))
+	if not is_finite(buy_price) or not is_finite(sell_price):
+		return {}
+	var raw_profit: float = (sell_price - buy_price) * 50.0
+	var profit: int = int(floor(raw_profit + 0.5)) if raw_profit >= 0.0 else int(ceil(raw_profit - 0.5))
+	var candidate: Dictionary = {
+		"buy_loc": buy, "sell_loc": sell, "commodity": commodity,
+		"profit": profit
+	}
+	candidate["plan_request"] = trade_candidate_request(current, candidate, fuel_bucket, routes)
+	return candidate
