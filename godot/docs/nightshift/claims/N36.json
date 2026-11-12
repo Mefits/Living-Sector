@@ -1,6 +1,6 @@
 {
   "block_id": "N36",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T12:14:00+03:00-second-chat-n36",
   "claimed_at": "2026-11-12T12:14:00+03:00",
@@ -12,6 +12,16 @@
     "Fix concrete parser/runtime compatibility issues",
     "Add focused regression and handoff"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "read-only main scene boot health and preserved failure",
+    "headless scene/UI pause step speed observer save restore regression",
+    "Godot 4.x compatibility handoff"
+  ],
+  "evidence": [
+    "static bracket balance on both GDScript files",
+    "Godot runtime NOT RUN; no VERIFIED change"
+  ],
+  "completed_at": "2026-11-12T12:15:00+03:00",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/125",
+  "head_sha": "81b0a458bc2845e29737a76c17f7b62595623192"
 }
