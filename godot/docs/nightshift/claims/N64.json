@@ -1,0 +1,26 @@
+{
+  "block_id": "N64",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T14:07:42.588Z-interactive-N64",
+  "claimed_at": "2026-11-12T14:07:42.588Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "feature/godot-n61-live-itinerary-admission-20261112",
+  "source_sha": "8aba694fe54a0cd4f445e3bcd7eb74a692dd3504",
+  "work_branch": "feature/godot-n64-itinerary-scheduler-20261112",
+  "subject": "One-leg-per-native-tick optional itinerary executor with no double flight",
+  "owned_files": [
+    "godot/scripts/sim/ships/itinerary_dispatch.gd"
+  ],
+  "scope_boundary": [
+    "N39 production files excluded",
+    "Rust archive/main/stable/P1 untouched"
+  ],
+  "tasks": [
+    "Opt-in call N61 depart_itinerary_hop only when dock/flight/intent authority agrees",
+    "No hidden time skip, dispatch at most one next hop after actual arrival and only with valid route",
+    "Bounded determinism/tamper regression and in-memory safe admission; dependent N63"
+  ],
+  "activity": "QUEUED",
+  "dependency": "N63"
+}
