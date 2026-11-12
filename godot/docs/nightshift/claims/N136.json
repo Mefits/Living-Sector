@@ -1,0 +1,21 @@
+{
+  "block_id": "N136",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "20261112T225258+0300-second-chat-n136-economic-proposal",
+  "claimed_at": "2026-11-12T22:52:58+03:00",
+  "started_at": "2026-11-12T22:52:58+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "coordination_sha": "e4fa07312e8e347d4f1a109c0f9ede93f32f3387",
+  "work_branch": "feature/godot-n136-native-economic-proposal-20261112",
+  "scope": "native/crates/sim_core/src/strategy/economic_proposal.rs -> godot/scripts/sim/phase1/n136_economic_proposal.gd",
+  "tasks": [
+    "Native quote and charter review gates",
+    "Publish/repeat/expiry proposal lifecycle",
+    "Player decision and tranche authorization",
+    "Receipt-only consumption and legacy snapshot fields"
+  ],
+  "progress": [],
+  "evidence": []
+}
