@@ -41,10 +41,16 @@ static func _apply(ships: Dictionary, phase: String, tick: int, multiplier: int)
 				result = Welfare.morale_after_decay(crew, bool(ship["docked"]), tick, multiplier)
 				if bool(result.get("ok", false)):
 					ship["crew"] = result["crew"]
+					ship["n138_hunger_before_meal"] = float(result["crew"]["hunger"])
 			"after_meals":
-				result = Welfare.task_after_meal(crew, ship["roles"], bool(ship["in_transit"]))
+				if not ship.has("n138_hunger_before_meal"):
+					return {"ok": false, "reason": "missing_pre_meal_hunger:" + str(id),
+						"ships": ships.duplicate(true), "phase": phase}
+				result = Welfare.task_after_meal(crew, ship["roles"], bool(ship["in_transit"]),
+					float(ship["n138_hunger_before_meal"]))
 				if bool(result.get("ok", false)):
 					ship["crew"] = result["crew"]
+					ship.erase("n138_hunger_before_meal")
 			"after_wages":
 				result = Welfare.economy_efficiency_after_wages(crew, ship["economy"])
 				if bool(result.get("ok", false)):
