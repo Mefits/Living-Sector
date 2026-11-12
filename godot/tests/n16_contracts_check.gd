@@ -9,7 +9,7 @@ func _initialize() -> void:
 	assert(b.post("c1", "delivery", "facility", "escrow:c1", "food", 5, "a", "b", 40, 0, 20, "facility").get("ok"))
 	assert(l.balance("facility") == 60 and l.balance("escrow:c1") == 40)
 	assert(not b.post("c1", "delivery", "facility", "escrow:c1", "food", 5, "a", "b", 40, 0, 20, "facility").get("ok"))
-	assert(not b.accept("c1", "ship1", "faction1", 1.0, 1.0, 1).get("ok")) # 80 requires 40 topup; succeeds only if payer has 60
+	assert(not b.accept("c1", "ship1", "faction1", 2.0, 1.0, 1).get("ok")) # 120 requires 80 topup, payer has only 60
 	assert(b.accept("c1", "ship1", "faction1", 0.5, 1.0, 1).get("ok")) # 60; topup 20
 	assert(l.balance("facility") == 40 and l.balance("escrow:c1") == 60)
 	assert(not b.settle("c1", "ship1", "ship", 2).get("ok")) # physical delivery not confirmed
@@ -30,6 +30,6 @@ func _initialize() -> void:
 	var restored = Board.new(l)
 	assert(restored.restore(snap))
 	assert(restored.get_contract("c1").get("status") == "paid")
-	assert(not restored.refund_closed("c2", 11).get("refunded", -1) == 20)
+	assert(restored.refund_closed("c2", 11).get("refunded", -1) == 0)
 	print("N16 CONTRACTS PASS")
 	quit(0)
