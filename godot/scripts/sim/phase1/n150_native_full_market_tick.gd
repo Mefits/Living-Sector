@@ -149,7 +149,7 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 	var demand_window: int = DEMAND_WINDOW_BASE * tick_multiplier
 	var demand_warmup: int = DEMAND_WARMUP_BASE * tick_multiplier
 	var cutoff: int = maxi(0, tick - demand_window)
-	var warming: bool = tick - int(history["spawned_at_tick"]) < demand_warmup
+	var warming: bool = maxi(0,tick - int(history["spawned_at_tick"])) < demand_warmup
 	var observed := {}
 	var windows: Dictionary = flow["consumption_window"]
 	var window_slugs := windows.keys()
