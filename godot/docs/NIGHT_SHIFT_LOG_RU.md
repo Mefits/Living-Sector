@@ -905,3 +905,7 @@ Claim created atomically by second-chat-overnight; source `native/crates/sim_cor
 - N138 claim atomically reserved before code (`0e8e8d65`). **Macro #3 Ship Crew Life**: Rust `ship/mod.rs` morale/task/efficiency and `ship/components.rs` wellbeing invariants, excluding N72 authentic food/wages, N50 defaults and N128 skills.
 - [Draft PR #228](https://github.com/Mefits/Living-Sector/pull/228), head `feature/godot-n138-crew-welfare-20261112` @ `b7332ba8`: 3 new GDScript files and Phase-2 handoff (392 lines added). One pure welfare model, one fail-closed batch and one source-derived check. Critical Rust Eating branch picks by pre-meal hunger even when physical food reduces hunger this tick. No credit or Food mutations in N138.
 - GitHub source readback and cheap balanced delimiters passed; checker written **not run**, Godot parser/executable **not run**. `CODE_UNVERIFIED`, no P1/runtime/VERIFIED credit. To integrate in Phase 2 split N72 step into original decay / actual meal / actual wage operations and insert N138 phases between, never execute full N72 plus N138 twice. Other active Nx untouched. Macro #3 still requires broader ship lifecycle auditing and Phase-2 integration.
+
+
+### 2026-11-12 — interactive-chat N140 START
+- Atomically reserved `claims/N140.json` before implementation (`9ce78572`), owner `interactive-chat`, macro #10. Frozen Rust `simulation/lod.rs` + `simulation/tuning.rs`; independent from N39/N112/N138 and all other claims. Work branch `feature/godot-n140-lod-tuning-20261112`, data-only Phase 1.
