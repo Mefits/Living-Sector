@@ -250,3 +250,7 @@ Three atomic claims N87, N88, N89 created IN_PROGRESS before code. Independent s
 Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter static checks pass; Godot not executed; no integration or merges. N39 and other owners untouched. Further phase-1 gaps: ship action apply, full colony lifecycle, production N39, construction/shipyard execution, faction governance/HTN and end-to-end Rust behavior. Verified counters unchanged P0 3/9 P1 0/9 P2 0/11 total 3/100.
 
 | N90 | **P3/P5: ShipAction commercial & physical apply protocol** — Rust actions.rs buy/sell/refuel/mine/refit/gate + pending/receipt status; no duplicates with N88 lifecycle or N39 facilities | Native Rust exact command intent, transaction wait/failure/ack; data-only GDScript and small static source parity; no Godot run | IN_PROGRESS — interactive-chat; [claim N90](nightshift/claims/N90.json) |
+
+| N91 | P4 Rust construction executor (`agents/construction/executor.rs`), isolated source-backed port | Independent construction state machine, no N39 overlap | IN_PROGRESS — overnight-scheduler; [claim](nightshift/claims/N91.json) |
+| N92 | P4 Rust colony development (`strategy/colony_development.rs`), distinct from N79 admission | Colony lifecycle and guards, no fake resource movement | IN_PROGRESS — overnight-scheduler; [claim](nightshift/claims/N92.json) |
+| N93 | P5 Rust HTN planning adapter (`strategy/planning/htn_adapter.rs`) | Planning contract only, no phantom execution | IN_PROGRESS — overnight-scheduler; [claim](nightshift/claims/N93.json) |
