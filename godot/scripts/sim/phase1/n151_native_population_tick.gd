@@ -57,16 +57,19 @@ static func _demand(p: Dictionary) -> Array:
 			return []
 		var needed: float = Purchase._f32(float(rate)*float(heads)/1000.0)
 		if needed > 0.0:
-			rows.append({"commodity":slug,"needed":needed})
+			rows.append({"commodity":slug,"needed":needed,"_order":rows.size()})
 	if int(p["food_satisfaction"]) < EMERGENCY_WATER_THRESHOLD and heads > 0:
 		rows.append({"commodity":"water",
-			"needed":Purchase._f32(EMERGENCY_WATER_RATE*float(heads)/1000.0)})
+			"needed":Purchase._f32(EMERGENCY_WATER_RATE*float(heads)/1000.0),
+			"_order":rows.size()})
 	rows.sort_custom(func(a: Dictionary,b: Dictionary)->bool:
 		var pa: int = 0 if a["commodity"]=="food" else (1 if a["commodity"]=="water" else 2)
 		var pb: int = 0 if b["commodity"]=="food" else (1 if b["commodity"]=="water" else 2)
 		if pa!=pb:
 			return pa<pb
-		return str(a["commodity"])<str(b["commodity"]))
+		if a["commodity"]!=b["commodity"]:
+			return str(a["commodity"])<str(b["commodity"])
+		return int(a["_order"])<int(b["_order"]))
 	return rows
 
 static func tick_populations(world: Dictionary, tick: int, tick_scale: float,
