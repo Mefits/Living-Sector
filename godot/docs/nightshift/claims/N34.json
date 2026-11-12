@@ -1,0 +1,17 @@
+{
+  "block_id": "N34",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T12:01:08+03:00-second-chat-n34",
+  "claimed_at": "2026-11-12T12:01:08+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "UNAVAILABLE: connector does not expose branch HEAD; see claim commit",
+  "work_branch": "feature/godot-nightshift-n34-smoke-integrity",
+  "tasks": [
+    "Audit N32/N33 integration smoke command paths and test references",
+    "Implement robust smoke consistency and deterministic validation without changing gameplay",
+    "Add short regression checks and document unverified runtime"
+  ],
+  "progress": [],
+  "evidence": []
+}
