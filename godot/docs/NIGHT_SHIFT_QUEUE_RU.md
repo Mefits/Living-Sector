@@ -200,6 +200,6 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 > **2026-11-12 17:37 MSK — overnight11:** Atomic claims N71, N72, N73 created as IN_PROGRESS, owner second-chat-overnight. N71 population food/water demand; N72 ship crew life support; N73 facility recipe catalogue. Three independent scopes, no overlap with N39. Work branches feature/godot-n71/n72/n73-overnight11-20261112; Godot runtime unverified.
 
-| N74 | Rust cargo capacity/mass admission; no fictitious cargo | strict physical preflight + headless regression | IN_PROGRESS — second-chat-overnight, claim N74 |
-| N75 | Rust station construction material admission | strict source-backed inventory/requirements gate + headless regression | IN_PROGRESS — second-chat-overnight, claim N75 |
-| N76 | Rust research progress admission | source-backed progress threshold and replay guard + headless regression | IN_PROGRESS — second-chat-overnight, claim N76 |
+| N74 | Rust cargo capacity/mass admission; no fictitious cargo | strict physical preflight + headless regression | CODE_UNVERIFIED — [PR #160](https://github.com/Mefits/Living-Sector/pull/160), second-chat-overnight |
+| N75 | Rust station construction material admission | strict source-backed inventory/requirements gate + headless regression | CODE_UNVERIFIED — [PR #161](https://github.com/Mefits/Living-Sector/pull/161), second-chat-overnight |
+| N76 | Rust research progress admission | source-backed progress threshold and replay guard + headless regression | CODE_UNVERIFIED — [PR #162](https://github.com/Mefits/Living-Sector/pull/162), second-chat-overnight |
