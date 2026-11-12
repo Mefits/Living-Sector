@@ -315,3 +315,7 @@ Draft [PR #116](https://github.com/Mefits/Living-Sector/pull/116) implements a r
 > **N45, 12.11.2026:** [Draft PR #134](https://github.com/Mefits/Living-Sector/pull/134) adds opt-in paid research shift (1 electronics, 10 workers, ceil(price)+10 CR via ledger, one shift per faction/tick, receipts and restore guard). N44 dependency copied unchanged. Ownership/Commander/live-world wiring and Godot runtime remain unverified; **CODE_UNVERIFIED**. P0 3/9, P1 0/9, P2 0/11, total 3/100 confirmed unchanged.
 
 > **N43 (12.11.2026):** [PR #133](https://github.com/Mefits/Living-Sector/pull/133) — Rust-native body/station orbit position resolver (FNV station phase, world-space offsets, actual moving nav targets), stacked on N40 PR #130. Explicit source-backed geometry; no route-distance or pixels; fleet fuel/cargo still require provenance, P1 gameplay unchanged. Native Sol/Nadir source inspection + static checks; **CODE_UNVERIFIED**, headless Godot not run; VERIFIED counts unchanged. N39 production held by separate chat.
+
+
+### N47 — native seed preflight (2026-11-12)
+[Draft PR #135](https://github.com/Mefits/Living-Sector/pull/135) adds a read-only deterministic schema/identity/ownership/orbit/reference-count validator plus four corrupt-seed regression fixtures. This is a supplemental P1/P8 guard, **not wired to startup**; Godot test not run, `CODE_UNVERIFIED`. Do not increment P0/P1/P2 or overall VERIFIED: **P0 3/9, P1 0/9, P2 0/11, total 3/100**. N39 and N46 remain other owners.
