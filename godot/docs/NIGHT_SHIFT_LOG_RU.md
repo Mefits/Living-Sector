@@ -154,3 +154,13 @@ Claim `claims/N10.json` created atomically at `86bea1bd`; Rust price engine/orde
 ### N14 start — 2026-11-12 05:44 MSK — second-chat-overnight
 
 Atomic claim `claims/N14.json` commit `1e058935`; work branch `feature/godot-nightshift-n14-transit-second-20261112`. Implementing native ship transit, fuel/docking invariants and headless smoke; CODE_UNVERIFIED until runtime.
+
+### N14 result — 2026-11-12 05:47 MSK — second-chat-overnight
+
+- **PR:** https://github.com/Mefits/Living-Sector/pull/99 (draft, stacked on N13 #95 and N4 #92); head `6cf18eb655b5773b558fd6e73c5df7460af6f457`.
+- **Code:** directed route validation, Rust base velocity/size multiplier and fuel per tick, world-coordinate incremental motion, ETA-independent arrival, duplicate tick guard, resumable transit, invalidation token, headless smoke.
+- **Research:** Rust agents/ship/mod.rs and components.rs; Godot Vector2/RefCounted and Game Programming Patterns data locality. No plugin or thousands of nodes.
+- **Check:** static formula comparison; Godot executable not run. **CODE_UNVERIFIED**. Docking, real coordinate resolver, multi-leg plan and rescue pending.
+- **Other claims:** N1–N5, N9–N13 already claimed and completed CODE_UNVERIFIED; N6/N7/N8/N15+ need fresh claim check.
+- **Next:** N6 production with N5/N9/N11, or N15 delivery after N14 runtime verification. Run `godot --headless --path godot --script res://tests/n14_transit_check.gd`.
+- **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED; 11 nightshift Nx code blocks CODE_UNVERIFIED (N1–N5, N9–N14).
