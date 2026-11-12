@@ -71,7 +71,7 @@
 
 | N21 | **P3: детерминированная стыковка/отстыковка:** завершение N14 docking и запреты операций в полёте | Rust parity, безопасные переходы, save/load и smoke; зависит от N14/N15 | CODE_UNVERIFIED — PR #109, second-chat-overnight |
 
-| N22 | **P7-04: пакетная отрисовка кораблей:** один CanvasItem, culling, стабильный порядок, данные отдельно от SceneTree | Множество кораблей без отдельных Node; короткий headless smoke | IN_PROGRESS — second-chat-overnight |
+| N22 | **P7-04: пакетная отрисовка кораблей:** один CanvasItem, culling, стабильный порядок, данные отдельно от SceneTree | Множество кораблей без отдельных Node; короткий headless smoke | CODE_UNVERIFIED — PR #110, second-chat-overnight |
 
 ## Важные границы и подсказки
 
