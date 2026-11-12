@@ -1,0 +1,24 @@
+{
+  "block_id": "N140",
+  "macro_id": 10,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "20261112-interactive-n140-lod-tuning",
+  "claimed_at": "2026-11-12",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "rust_source_paths": [
+    "native/crates/sim_core/src/simulation/lod.rs",
+    "native/crates/sim_core/src/simulation/tuning.rs",
+    "native/crates/sim_core/src/simulation/config.rs::TickConfig (read-only parity context)"
+  ],
+  "work_branch": "feature/godot-n140-lod-tuning-20261112",
+  "scope": "Macro10 standalone native per-agent spatial LOD cursor/divisor/recompute and world tuning immutable one-time configuration. Does not alter N112 ship transit, N39 facility production, N138 crew, N80 replan, N94 price or shared tick integration.",
+  "tasks": [
+    "Full Rust AgentLod cursor try_fire/set_divisor and observer-distance bucketing; multi-agent recompute and metrics without mutating unrelated state",
+    "Full WorldTuning default parameters, serde-partial override, one-time install, legacy vs finite Genesis world switches; no effects or free resources",
+    "Source parity fixtures, Phase-2 handoff and plans coverage update; minimal static checks, PR and close claim"
+  ],
+  "evidence": [],
+  "progress": []
+}
