@@ -155,8 +155,21 @@ func restore_complete(seed: Dictionary, envelope: Dictionary) -> Dictionary:
     for account in expected:
         if not balances.has(account):
             return _fail("missing_native_ship_wallet")
-    if balances.size() != expected.size() + int(Opening.source_opening_accounts(seed)["accounts"].size()):
+    var native_others: Dictionary = Opening.source_opening_accounts(seed)
+    if not bool(native_others.get("ok", false)):
+        return _fail("invalid_native_other_wallet_sources")
+    if balances.size() != expected.size() + int((native_others["accounts"] as Dictionary).size()):
         return _fail("unknown_saved_world_wallet")
+    # The N57 slice has no income from outside the simulated world.
+    # Every N11 transfer is zero-sum, so the 2.76M native money supply
+    # MUST be preserved by any saved state, even with a rehashed payload.
+    var native_total: int = int(native_ships["total"])
+    for amount in (native_others["accounts"] as Dictionary).values():
+        if native_total > 9223372036854775807 - int(amount):
+            return _fail("native_money_supply_overflow")
+        native_total += int(amount)
+    if staged["ledger"].total() != native_total:
+        return _fail("world_money_supply_changed")
     var bootstrap: Dictionary = FleetBootstrap.build_new_game(seed)
     if not bool(bootstrap.get("ok", false)):
         return _fail("native_source_unavailable")
