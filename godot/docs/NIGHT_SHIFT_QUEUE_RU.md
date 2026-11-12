@@ -303,3 +303,7 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 - N113: director incumbent/alternative strategic hysteresis, urgent supply and pending confirmation — [Draft PR #202](https://github.com/Mefits/Living-Sector/pull/202), CODE_UNVERIFIED.
 - N114: population migration pressure and single-source/single-destination wealth/headcount transfer — [Draft PR #203](https://github.com/Mefits/Living-Sector/pull/203), CODE_UNVERIFIED.
 - Three own claims closed; no Godot execution, no P1 integration, no merge. N39/N100/N108 and other claims untouched. Full Rust parity and integrated economic effects remain unverified. Source paths corrected in claims after inspecting frozen archive.
+
+| N118 | P4 Rust colony founding execution | isolated Rust-backed GDScript, no N39/N114 overlap | IN_PROGRESS — overnight-scheduler |
+| N119 | P4 Rust shipyard order lifecycle | independent physical resources and funded orders | IN_PROGRESS — overnight-scheduler |
+| N120 | P6 Rust research execution | source-backed progress/unlocks, no free science | IN_PROGRESS — overnight-scheduler |
