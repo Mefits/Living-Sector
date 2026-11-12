@@ -909,3 +909,6 @@ Claim created atomically by second-chat-overnight; source `native/crates/sim_cor
 
 ### 2026-11-12 — interactive-chat N140 START
 - Atomically reserved `claims/N140.json` before implementation (`9ce78572`), owner `interactive-chat`, macro #10. Frozen Rust `simulation/lod.rs` + `simulation/tuning.rs`; independent from N39/N112/N138 and all other claims. Work branch `feature/godot-n140-lod-tuning-20261112`, data-only Phase 1.
+
+### 2026-11-12 — overnight-scheduler N141 START (macro #6)
+- Atomic claim `nightshift/claims/N141.json` created at `29c2ac8` before code. Exclusive native construction paid local labor/treasury-to-household commit; excludes N77 material/site receipts, N91 engineer selection and N39 facility production. CODE_UNVERIFIED pending code; no P1/main/Rust writes.
