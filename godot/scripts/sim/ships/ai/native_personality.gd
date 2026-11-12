@@ -111,8 +111,8 @@ static func drift(profile: Dictionary, axis: String, delta: float) -> Dictionary
     result[axis] = clampf(float(result[axis]) + delta, 0.0, 1.0)
     return result
 
-## The Rust with_variation() first draws seven? No: exactly SIX
-## independent inclusive ±0.1 draws and rounds each axis to 2 places.
+## Rust with_variation() draws exactly SIX independent inclusive
+## ±0.1 deltas and rounds each axis to two decimal places.
 ## Pass the six source RNG draws rather than substituting a Godot RNG.
 ## This keeps the interface ready for precise Rust-seed RNG replay.
 static func with_source_variation(profile: Dictionary, deltas: Dictionary) -> Dictionary:
