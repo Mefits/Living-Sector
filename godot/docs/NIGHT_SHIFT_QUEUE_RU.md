@@ -220,3 +220,5 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N77 | P4: Rust construction site lifecycle/material consumption | Source-backed GDScript, no invented materials | CODE_UNVERIFIED — PR #166 |
 | N78 | P5: Rust faction strategic decisions | Source-backed GDScript, no invented policy | CODE_UNVERIFIED — PR #167 |
 | N79 | P4: Rust shipyard orders and ship creation | Source-backed GDScript, no free ships | CODE_UNVERIFIED — PR #168 |
+
+| N80 | P5/P3 Rust Ship AI — автономные решения кораблей по классам и ролям, оригинальный decision order, data-only intents без раннего встраивания | Audit source, GDScript policy and minimal static checks | IN_PROGRESS — interactive-chat; [claim N80](nightshift/claims/N80.json) |
