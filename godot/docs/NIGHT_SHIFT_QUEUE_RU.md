@@ -96,4 +96,6 @@
 
 | N25 | **P2-05: orderbook settlement** — matching native orders, physical stock and money conservation, idempotent receipts, save/load | One settlement consumes actual inventory and buyer funds, credits seller once; Rust order_book.rs; depends on N9/N11 | CODE_UNVERIFIED — PR #113, second-chat-overnight |
 
-| N26 | **P3 contract physical delivery settlement:** bind cargo unload receipt to escrow payout, reject replay/partial/wrong location; N15/N16 dependencies | Real unload before paid, idempotent save/load and headless smoke | IN_PROGRESS — second-chat-overnight |
+| N26 | **P3 contract physical delivery settlement:** bind cargo unload receipt to escrow payout, reject replay/partial/wrong location; N15/N16 dependencies | Real unload before paid, idempotent save/load and headless smoke | CODE_UNVERIFIED — PR #114, second-chat-overnight |
+
+N26 outcome: [draft PR #114](https://github.com/Mefits/Living-Sector/pull/114) — CODE_UNVERIFIED; physical receipt gate written, headless test not run. Direct N16 board transition methods remain an integration boundary; route all production callers via N26 coordinator.
