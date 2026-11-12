@@ -1,0 +1,19 @@
+{
+  "block_id": "N81",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T18:30:39+03:00-second-chat-11-N81",
+  "claimed_at": "2026-11-12T18:30:39+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n81-goap-second-20261112",
+  "scope": "Port native GOAP abstract state and operator search",
+  "tasks": [
+    "Port native GOAP abstract state and operator search",
+    "Preserve shortest/cost planning and source action intent semantics",
+    "Document exact Rust dependencies"
+  ],
+  "progress": [],
+  "evidence": []
+}
