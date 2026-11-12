@@ -1,0 +1,19 @@
+{
+  "block_id": "N62",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T14:58:50+01:00-nightshift1-N62",
+  "claimed_at": "2026-11-12T14:58:50+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "7b7ad3e7ba443ddccdcd5a25becaa8affc191a97",
+  "source_ref": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-nightshift-n62-runtime-readiness-20261112",
+  "tasks": [
+    "Inspect current integration and Rust reference for deterministic bootstrap contracts",
+    "Implement standalone Godot integration-readiness gate for seed, time and scene without economy fabrication",
+    "Add short headless regression for missing or mismatched required contracts",
+    "Document verified versus unverified boundaries and next integration actions"
+  ],
+  "progress": [],
+  "evidence": []
+}
