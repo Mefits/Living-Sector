@@ -1,3 +1,6 @@
+### 2026-11-12 23:59 MSK — second-chat-overnight N144 CODE_UNVERIFIED
+- [Draft PR #232](https://github.com/Mefits/Living-Sector/pull/232): native colony expedition proposals, 215 lines pure GDScript plus handoff. Existing-site continuation, physical route/ship/tech/budget/market guards, score/ranking; no actual colony commissioning (N118). Godot not run; exact f32/i64 corner cases pending. Macro 2 still incomplete.
+
 ### 2026-11-12 23:57 MSK — second-chat-overnight N144 START
 - Atomic claim N144 @ edad8362706b3d3732ce36ac0207648672e44baf; macro 2 source `strategy/colony.rs::proposals` only; N79/N118/N92 excluded. CODE_UNVERIFIED until later Godot phase.
 
