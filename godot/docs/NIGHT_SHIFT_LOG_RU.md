@@ -306,3 +306,8 @@ Draft [PR #113](https://github.com/Mefits/Living-Sector/pull/113), commit `867a1
 - **Check:** Rust source and GDScript APIs reviewed; Godot executable unavailable, headless `godot --headless --path godot --script res://tests/n26_contract_delivery_check.gd` NOT RUN. CODE_UNVERIFIED. Direct N16 public confirm/settle API can still bypass coordinator until all production callers are routed through it; do not claim full enforcement.
 - **Other blocks:** N1–N25 listed as CODE_UNVERIFIED in queue, claims must be checked fresh before choosing further work. Next: integrate single authoritative contract handler, close direct bypass and run short Godot test.
 - **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED; 26 nightshift blocks N1–N26 CODE_UNVERIFIED in queue (not individual tracker tasks).
+
+### N27 start — 2026-11-12 10:02 МСК — second-chat-overnight
+
+- Claim `claims/N27.json` created atomically at `8cafad2bed11378135462bff1d7816b56e5f1325`, source `12c08cc4618e9717340ba8c868d7d8af8e578417`; work branch `feature/godot-nightshift-n27-contract-gate-second-20261112`.
+- Scope: close N26 direct payout bypass, physical receipt validation, replay/save/load smoke. IN_PROGRESS.
