@@ -1,0 +1,18 @@
+{
+  "block_id": "N87",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T18:46:12+03:00-second-chat-11-N87",
+  "claimed_at": "2026-11-12T18:46:12+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n87-considerations-second-20261112",
+  "scope": "Rust AI considerations and context-dependent goal scoring",
+  "tasks": [
+    "Read frozen Rust implementation and exact invariants",
+    "Port independent native GDScript component",
+    "Minimal static check and Draft PR"
+  ],
+  "progress": [],
+  "evidence": []
+}
