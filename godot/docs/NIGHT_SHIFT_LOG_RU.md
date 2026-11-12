@@ -413,3 +413,13 @@ Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nights
 - **План:** checkpoint integrity, reject corrupted saves, deterministic restore and headless smoke.
 - **Ветка:** `feature/godot-nightshift-n38-save-integrity-second-20261112`.
 - **Статус:** IN_PROGRESS.
+
+### Итог N38 — second-chat-overnight — 12.11.2026
+
+- **PR:** https://github.com/Mefits/Living-Sector/pull/127 (draft, no merge), head `2742655362365517a1afc1c369810274b03e8ff7`.
+- **Код:** SHA-256 envelope JSON-normalized, bounded save reads, fail-closed integrity, backup preservation/recovery, legacy P1 compatibility, short headless regression.
+- **Сверка Rust:** `native/crates/sim_server/src/engine/persist.rs` uses indivisible economic frames; P1 Godot snapshot remains orbital-only and does not claim this parity.
+- **Проверки:** Godot executable unavailable; Python sanity of canonicalization passed, source inspected; GDScript/headless not executed. **CODE_UNVERIFIED**.
+- **Другие блоки:** N1–N37 already claimed/completed in queue; N37 owned by overnight-scheduler; no foreign claims changed.
+- **Следующее:** run N38 and P1 headless smoke on Godot, then integrate actual economic persistence and replay on authoritative TickRunner.
+- **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, all 3/100 VERIFIED; new N38 integration block CODE_UNVERIFIED.
