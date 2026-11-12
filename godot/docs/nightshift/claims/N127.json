@@ -1,6 +1,6 @@
 {
   "block_id": "N127",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T21:57:57+03:00-second-chat-overnight-N127",
   "claimed_at": "2026-11-12T21:57:57+03:00",
@@ -15,6 +15,17 @@
     "Port 10 percent monetisation and clamped wealth delta",
     "Keep transaction apply external and fail closed"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Source-backed production and monetisation intent; market and wealth apply external."
+  ],
+  "evidence": [
+    "godot/scripts/sim/native/population_production_wealth_proposal.gd",
+    "GitHub source readback; balanced delimiters; Godot runtime NOT RUN"
+  ],
+  "completed_at": "2026-11-12T22:00:00+03:00",
+  "commit_sha": "2ecf012a522504fdc3f05c888c303289f035b4e6",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/215",
+  "limitations": [
+    "No unified world Apply, no Godot parser/runtime, no Rust parity claim"
+  ]
 }
