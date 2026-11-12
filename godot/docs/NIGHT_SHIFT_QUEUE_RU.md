@@ -112,3 +112,5 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 | N31 | **P3/P8: deterministic contract command dispatcher:** N27/N30 physical receipt and escrow checks, sorted tick commands, replay guard and restore | Draft PR #119, opt-in dispatcher; N3/N23 integration pending | CODE_UNVERIFIED — second-chat-overnight |
 | N32 | **Интеграционная ветка + единый Godot smoke для Windows:** выбрать безопасный стек зависимостей ночных PR, сформировать недеструктивную интеграционную ветку, подготовить один CMD для последовательных проверок и точный handoff | PR/ветка с кодом, runnable smoke без Godot Runtime в агентской среде; список включённых PR/отложенных конфликтов; без merge в main | CODE_UNVERIFIED — PR #120, interactive-integration-chat |
+
+| N33 | **P8: интеграционная приёмка N32:** надёжный smoke runner с машинным отчётом, корректное распознавание ошибок, проверка исходных зависимостей и handoff для Windows | N32 integration base, no fabricated runtime PASS; runnable acceptance harness and short regression | IN_PROGRESS — overnight-scheduler |
