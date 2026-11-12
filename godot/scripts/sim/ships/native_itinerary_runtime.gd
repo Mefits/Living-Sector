@@ -5,11 +5,13 @@ extends RefCounted
 const Live = preload("res://scripts/sim/live_native_fleet_engine.gd")
 const Intents = preload("res://scripts/sim/ships/itinerary_intent_registry.gd")
 const BaseSave = preload("res://scripts/sim/ships/native_fleet_checkpoint.gd")
+const CommandReceipts = preload("res://scripts/sim/ships/native_command_receipts.gd")
 const FORMAT := "living-sector-itinerary-runtime"
 const VERSION := 1
 
 var engine: RefCounted
 var intents: RefCounted
+var commands: RefCounted
 var _active: bool = false
 var _last_dispatch_tick: int = -1
 
@@ -22,6 +24,7 @@ func start_new(seed: Dictionary) -> Dictionary:
         return result
     engine = candidate
     intents = Intents.new()
+    commands = CommandReceipts.new()
     _active = true
     _last_dispatch_tick = -1
     return {"ok": true, "ships": int(result["ships"])}
@@ -34,6 +37,14 @@ func assign_route(ship_id: String, operation_id: String, destination: String) ->
         return plan
     return intents.register(ship_id, operation_id, plan,
         engine.runner._roster.registry.graph(), engine.runner._fleet.ships)
+
+## N66: player/AI-issued commands get persistent unique IDs.
+## Scheduled N64 route dispatch remains a deterministic simulation phase.
+func execute_command(operation_id: String, kind: String,
+        ship_id: String, args: Dictionary = {}) -> Dictionary:
+    if not _active or not engine.is_live():
+        return _fail("world_not_live")
+    return commands.execute(engine, operation_id, kind, ship_id, args)
 
 func dispatch_current_tick() -> Dictionary:
     if not _active or not engine.is_live():
@@ -111,6 +122,7 @@ func checkpoint() -> Dictionary:
     var payload: Dictionary = {
         "format": FORMAT, "version": VERSION,
         "world": native, "intents": intents.snapshot(),
+        "command_receipts": commands.snapshot(),
         "last_dispatch_tick": _last_dispatch_tick
     }
     var normalized: Variant = JSON.parse_string(JSON.stringify(payload))
@@ -132,7 +144,7 @@ func restore_new(seed: Dictionary, envelope: Dictionary) -> Dictionary:
         return _fail("bad_checksum")
     if body.get("format", "") != FORMAT or body.get("version", -1) != VERSION:
         return _fail("wrong_format")
-    if not (body.get("world", null) is Dictionary) or not (body.get("intents", null) is Array):
+    if not (body.get("world", null) is Dictionary) or not (body.get("intents", null) is Array) or not (body.get("command_receipts", null) is Array):
         return _fail("missing_domain")
     var raw_tick: Variant = body.get("last_dispatch_tick", null)
     if not (raw_tick is int or raw_tick is float) or not is_finite(float(raw_tick)):
@@ -160,8 +172,12 @@ func restore_new(seed: Dictionary, envelope: Dictionary) -> Dictionary:
     if not staged.restore(checked, candidate.runner._fleet.ships,
             candidate.runner._roster.registry.graph()):
         return _fail("intent_state_mismatch")
+    var staged_commands = CommandReceipts.new()
+    if not staged_commands.restore(body["command_receipts"]):
+        return _fail("invalid_command_receipts")
     engine = candidate
     intents = staged
+    commands = staged_commands
     _last_dispatch_tick = cursor
     _active = true
     return {"ok": true, "tick": engine.runner.tick_count,
