@@ -866,3 +866,8 @@ All three claims closed CODE_UNVERIFIED, GitHub readback and delimiter balance o
 - N134 atomically reserved before code (`f89152fd`) and closed with source-backed [Draft PR #223](https://github.com/Mefits/Living-Sector/pull/223), branch `feature/godot-n134-native-coordination-20261112` @ `998d03f`. Exactly ONE large block with three GDScript components and phase-2 source mapping; 729 lines in PR including documentation; no fake runtime/parity claims.
 - Frozen `strategy/coordination.rs`: head decisions, exact grants, native strategic choice candidates, mandate modes, colony supply risk, native-plan retention, one-per-faction action intent, real board/research commitment readback. N39, N98, N100, N121 and others untouched. Static readback + balanced delimiters; **CODE_UNVERIFIED** (no Godot parser, executable or integration).
 - User changed all five scheduled Living Sector automations: **one substantive independent Nx per run**, may comprise many related Rust tasks, not three mandatory Nx or PRs. Existing schedules untouched. Precedence note recorded in the queue and canonical baseline. Phase 1 continues until all actual Rust mechanics are represented. Remaining phase-1 work expert estimate **~59–62%** (not derived from Nx count).
+
+
+### 2026-11-12 — interactive-chat N135 START
+- Atomic `claims/N135.json` reserved before code (`b5c160a`), owner interactive-chat, frozen Rust `strategy/orders.rs` + `orders/tests.rs`.
+- Goal: substantial standalone station order dispatch, constraints, deterministic carrier matching and order snapshot; own `feature/godot-n135-native-station-orders-20261112` work branch. N39/N90/N97/N100/N134 untouched; Phase-1 data-only code, no Godot integration.
