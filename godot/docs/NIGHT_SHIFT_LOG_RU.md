@@ -925,3 +925,10 @@ Claim created atomically by second-chat-overnight; source `native/crates/sim_cor
 
 ### 2026-11-12 — interactive-chat N142 START
 - After comparing N58–N61, excluded already ported gate-aware route planner and itinerary/fleet apply. Atomically reserved new `claims/N142.json` (`b80b322a`) before any implementation. Macro #10, source frozen Rust `world/registry.rs`, `world/travel.rs`, `simulation/config.rs::TickConfig`. Distinct from N59, N61, N112, N140 and occupied N39. Own branch `feature/godot-n142-native-registry-physical-distance-20261112`.
+
+### 2026-11-12 — interactive-chat N142 COMPLETE (macro #10)
+- [Draft PR #231](https://github.com/Mefits/Living-Sector/pull/231), branch `feature/godot-n142-native-registry-physical-distance-20261112`, HEAD `849061cd`, 4 files + 559 lines. Atomic claim N142 `b80b322a` created before code, closed `CODE_UNVERIFIED`.
+- Before reservation audited N58–N61: N59 already owns gate-aware PathfinderCtx (5-weight gates), N61 validated single real flight, N108 physical paid gate Apply. Our distinct source was frozen Rust `world/registry.rs` and `world/travel.rs` / `simulation/config.rs::TickConfig`.
+- Implemented authoritative registry data snapshot/restore; directed first matching travel_distance; shortest_distance using only physical route corridors, excluding gates, u32 saturation and valid LocationInfo (strategic distance checks); fail-closed physical distances matrix for N135. Implemented legacy duration/arrival/progress and native tick rate; **not** another N112 moving-target flight simulator.
+- Read back 4 new files from GitHub, lexical bracket/quote validation and preload references passed. GDScript check scenario authored but NOT RUN; Godot binary/parser, Rust-vs-Godot runtime parity NOT RUN. Source import/snapshot and live ship apply are Phase-2 dependencies. Macro #10 still has DB spawner/seed commands and save work.
+- Estimated full Phase-1 Rust source remaining remains **roughly 57–60%**, provisional; don't mechanically subtract one complete macro for this PR.
