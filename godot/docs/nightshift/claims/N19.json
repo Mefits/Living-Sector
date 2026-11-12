@@ -1,6 +1,6 @@
 {
   "block_id": "N19",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "20261112-075427-msk-second-n19",
   "claimed_at": "2026-11-12T07:54:27+03:00",
@@ -13,6 +13,21 @@
     "Add deterministic goal selection and bounded delegation",
     "Add snapshot and headless regression checks"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Rust strategy/coordination.rs and faction.rs compared",
+    "Pure faction head selection, crisis and hysteresis, exact grant authorization, snapshots implemented",
+    "Headless regression and handoff committed"
+  ],
+  "evidence": [
+    "PR #107 draft stacked on N18 #106",
+    "Static delimiter counts balanced in 154-line source and 51-line smoke",
+    "Godot executable not run; CODE_UNVERIFIED"
+  ],
+  "completed_at": "2026-11-12T08:18:00+03:00",
+  "commit_sha": "1f0444a5bc8cb676c4818efb16f2341421af9801",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/107",
+  "limitations": [
+    "No native score generation or contract/ledger executor",
+    "Needs real TickRunner and N16 integration"
+  ]
 }
