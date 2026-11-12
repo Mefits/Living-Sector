@@ -1,0 +1,18 @@
+{
+  "block_id": "N1",
+  "status": "IN_PROGRESS",
+  "owner": "third-chat-overnight",
+  "run_id": "2026-11-12T03:25:36+03:00-third-chat-overnight-1",
+  "claimed_at": "2026-11-12T03:25:36+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "950b484e8cc64b69b21947878f16129b484efd26",
+  "work_branch": "feature/godot-nightshift-n1-static-audit",
+  "tasks": [
+    "static audit of P0/P1-A GDScript and Rust formulas",
+    "repair self-contained smoke coverage for save/restore and controls",
+    "validate JSON/scene/script references without Godot runtime",
+    "document exact local headless acceptance command"
+  ],
+  "progress": [],
+  "evidence": []
+}
