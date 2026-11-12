@@ -132,11 +132,22 @@ static func start_tick(facilities: Array, ships: Dictionary,
 			var count: int = 0
 			var weighted: float = 0.0
 			for pair in shift["workers"]:
-				if not (pair is Dictionary) or not (pair.get("id") is String) or
-						typeof(pair.get("count")) != TYPE_INT or int(pair["count"]) < 0:
+				# Rust WorkShift.workers serializes Vec<(String,u16)> as
+				# ["population-id", count] tuples. A richer ECS adapter may
+				# already expose {id,count}; accept both, NEVER fabricate.
+				var pop_id: Variant = null
+				var worker_count: Variant = null
+				if pair is Array and pair.size()==2:
+					pop_id=pair[0]
+					worker_count=pair[1]
+				elif pair is Dictionary:
+					pop_id=pair.get("id",null)
+					worker_count=pair.get("count",null)
+				if not (pop_id is String) or typeof(worker_count)!=TYPE_INT or
+						int(worker_count)<0:
 					return _fail("invalid_real_workshift_receipt")
-				var n: int = int(pair["count"])
-				var food_sat: float = float(pop_satisfaction.get(pair["id"], 0.0))
+				var n: int = int(worker_count)
+				var food_sat: float = float(pop_satisfaction.get(pop_id, 0.0))
 				if not is_finite(food_sat):
 					return _fail("invalid_native_household_satisfaction")
 				weighted += food_sat * float(n)
