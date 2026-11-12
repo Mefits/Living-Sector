@@ -815,3 +815,9 @@ Three independent claims created atomically before code: N118 colony founding, N
 
 ### 2026-11-12 21:47 MSK — second-chat-overnight START N122–N124
 Three distinct atomic claims created on coordination branch before code. N122 territory, N123 biome/resource regeneration, N124 observed market demand/shortage. Separate source scopes and branches; N39/N121 and all existing claims untouched. CODE_UNVERIFIED until actual Godot execution.
+
+### 2026-11-12 — N122–N124 RESULT
+- N122 territorial control from non-gate physical facility ownership, count/credits tie and system majority: [Draft PR #210](https://github.com/Mefits/Living-Sector/pull/210).
+- N123 frozen body regeneration cadence, biome food multipliers and descriptive resource grades: [Draft PR #211](https://github.com/Mefits/Living-Sector/pull/211).
+- N124 observed market demand window, shortage/crisis hysteresis and expiry of unfunded anonymous orders: [Draft PR #212](https://github.com/Mefits/Living-Sector/pull/212).
+All CODE_UNVERIFIED, source reviewed, GitHub readback and minimal delimiter balance only. No Godot run, merge or P1 integration. N39/N121 and all other claims untouched.
