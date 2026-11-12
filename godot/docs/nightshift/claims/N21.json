@@ -1,6 +1,6 @@
 {
   "block_id": "N21",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T08:45:21+03:00-second-chat-n21-docking",
   "claimed_at": "2026-11-12T08:45:21+03:00",
@@ -12,6 +12,19 @@
     "deterministic docking/undocking authorization and state",
     "snapshot and regression smoke"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "capacity-aware dock and undock",
+    "transit guard and deterministic choice",
+    "snapshot restore validation",
+    "headless regression test prepared"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/109",
+    "118b0c763bf4e06355af557d5c9cb515f7867a70"
+  ],
+  "blockers": [
+    "Godot runtime not executed",
+    "not integrated with N14/N15/TickRunner"
+  ],
+  "completed_at": "2026-11-12T08:47:00+03:00"
 }
