@@ -84,7 +84,11 @@ static func after_paid_shift(plan: Dictionary, yard: Dictionary, market: Diction
 			not bool(receipt.get("paid_shift_committed",false)) or \
 			str(receipt.get("producer_id",""))!=str(plan.get("yard_id","")) or \
 			str(receipt.get("stock_owner_id",""))!=str(plan.get("owner_facility_id","")) or \
-			int(receipt.get("tick",-1))!=int(plan.get("tick",-2)):
+			int(receipt.get("tick",-1))!=int(plan.get("tick",-2)) or \
+			int(receipt.get("wages",0))<=0 or \
+			int(receipt.get("input_payment",-1))!=(
+			0 if str(plan.get("yard_id",""))==str(plan.get("owner_facility_id",""))
+			else int(plan.get("input_payment",-2))):
 		return _fail("real_native_workforce_shift_receipt_required")
 	if str(yard.get("id",""))!=str(plan["yard_id"]) or \
 			str(market.get("id",""))!=str(plan["market_id"]):
@@ -110,7 +114,7 @@ static func after_paid_shift(plan: Dictionary, yard: Dictionary, market: Diction
 	m["history_dirty"]=true
 	return {"ok":true,"yard":y,"market":m,
 		"effects":{"module_stock_delta":{plan["module_slug"]:1},
-			"physical_market_supply_delta":plan["inputs"].duplicate(true)},
+			"physical_market_inputs_spent":plan["inputs"].duplicate(true)},
 		"authority":"real_N39_paid_shift_then_one_same_tick_market_to_module_commit"}
 
 static func plan_yards(yards: Array, markets: Dictionary, recipes: Dictionary,
