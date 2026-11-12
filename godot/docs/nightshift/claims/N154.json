@@ -1,0 +1,27 @@
+{
+  "block_id": "N154",
+  "macro_id": 6,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13T01:47+03:00-macro6-construction-shipyard-source",
+  "claimed_at": "2026-11-13T01:47:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "work_branch": "feature/godot-n154-construction-strategy-shipyard-refit-20261113",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_paths": [
+    "native/crates/sim_core/src/strategy/construction.rs::run_cycle/commissioning_supply/refresh",
+    "native/crates/sim_server/src/engine/admin.rs::apply_fitting_swap/try_shipyard_refit/commit_shipyard_refit/admin_refit_ship/admin_refit_facility",
+    "native/crates/sim_core/src/economy/module_production.rs and agents/facility module-production tick (source audit N132)",
+    "native/crates/sim_core/src/agents/construction/executor.rs/labor.rs and engine/apply.rs::apply_construction_delivery/tick_construction_labor (audit N77/N91/N141)"
+  ],
+  "scope": "Macro #6 source coverage of native construction strategic commissioning/reoffer/slot gates, direct-source or feedstock fallback and true faction prepaid expense, full material/labor/site refresh handoff, shipyard T2/T3 module production and paid ship refit. Never invent paid hull factory: frozen Rust has admin_spawn_ship but not full craft queue. No macro #4 ship BT/goal AI other worker, macro #1 facility recipe production, N104 ContractBoard/escrow or macro #7 director priority.",
+  "tasks": [
+    "Audit frozen Rust full construction strategy, site labor/executor and prior N17/N75/N77/N91/N110/N119/N132/N141 source ports",
+    "Port native construction strategy evaluation and commissioning as pure snapshot, original station slot/tech/material/route/treasury checks and one prepaid ContractBoard request",
+    "Port actual shipyard module production and paid refit validation, fitting rebake, stock and credits one-owner proposal; preserve existing N132 recipe and N51 fitting owners",
+    "Author source-derived fixtures and explicit source ownership/Phase2 handoff, distinguish absence of native hull crafting",
+    "Publish one Draft PR; source-close macro6 only if all frozen Rust functionality mapped; else document gaps"
+  ],
+  "progress": [],
+  "evidence": []
+}
