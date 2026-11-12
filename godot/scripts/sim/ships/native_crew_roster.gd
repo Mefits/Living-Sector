@@ -3,7 +3,7 @@ extends RefCounted
 ## Sources: frozen sim_db/spawner.rs ShipCrew / ShipCrewSkills::for_roles.
 ## The roster never grants cargo, funds, crew wages or personnel transport.
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
-const TASKS := ["idle", "piloting", "engineering", "trading", "loading",
+const TASKS = ["idle", "piloting", "engineering", "trading", "loading",
     "unloading", "eating", "resting", "on_mission"]
 const INITIAL_HUNGER := 10.0
 const INITIAL_MORALE := 70.0
