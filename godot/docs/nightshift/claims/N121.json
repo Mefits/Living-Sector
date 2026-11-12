@@ -1,6 +1,6 @@
 {
   "block_id": "N121",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "claimed_at": "2026-11-12T18:40:05.446Z",
   "run_id": "manual-next-n121-large-native-execution-2026-11-12T18:40:05.446Z",
@@ -27,5 +27,28 @@
     "N106 production objective",
     "N120 paid research",
     "P1/main/stable/Rust frozen"
+  ],
+  "activity": "COMPLETED_LARGE_CODE",
+  "finished_at": "2026-11-12T19:01:26.137Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/216",
+  "head_sha": "25619b4e34ee50549e5e37d25639fcf03dd15878",
+  "progress": [
+    "Ported large ~61KB frozen Rust planning/native_execution.rs receipt-driven HTN/native dispatch bridge into 5 GDScript modules ~1290 lines.",
+    "Durable NativeExecution state: active/deferred/blocked/history, source relative urgency, three retries with exponential cooldown and bounded terminal receipts.",
+    "Source true unique owned/global market stock verification; actual native prepaid contract Paid/Expired/refunded state proofs; physical producer paid shift + multi-output counter baseline/accounting and legacy checkpoint guards.",
+    "Real native subsidized delivery preflight with verified source/destination/quote/route/funded idle carrier/treasury floor/dedup; staged native ContractBoard funding and indexes only after all gates.",
+    "Main drive_native_htn gate arbiters completed/needs_replan/await_dependencies/reconcile_prepared/await_native/ready, opt-in, exact paid or physically produced completion, no fake production.",
+    "N98 ledger and N100 hybrid selection remain independently owned; Phase2 exclusively combines ledger_ops plus staged source world and board as one checkpoint. Handoff explicit."
+  ],
+  "evidence": [
+    "Frozen Rust sim_core strategy/planning/native_execution.rs (~61KB incl tests), contracts.rs, orders.rs, sourcing.rs, faction.rs, facility/mod.rs source read.",
+    "Draft PR #216 contains five isolated res:// GDScript sources and handoff N121_NATIVE_EXECUTION_BRIDGE_RU.md. All local preload targets exist; static source bracket balances zero and long predicates normalized.",
+    "Original 60 tick subsidy cycle, 500 base contract lifespan, 5000 treasury floor, 5 recipe tick, 3 goal retries, 64 terminal outcomes source checked.",
+    "Godot NOT executed and no tests claimed per user's phase-1 strategy. Numeric f32 rounding and full N98/N100 integration intentionally unverified."
+  ],
+  "remaining_first_phase": [
+    "Source parity of other Rust mechanics not yet reserved, including cross-agent economic ticks and additional world apply modules",
+    "Phase2 single ledger/N98+N100+N39 world+ContractBoard atomic checkpoint and all runtime/saves",
+    "Phase3 Grok fixes only after full port and integration"
   ]
 }
