@@ -1,0 +1,20 @@
+{
+  "block_id": "N126",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T21:57:57+03:00-second-chat-overnight-N126",
+  "claimed_at": "2026-11-12T21:57:57+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "rust_source": "archive/rust-galaxy-067-reference:crates/sim_core/src/agents/population.rs",
+  "work_branch": "feature/godot-n126-pop-passenger-contracts-20261112",
+  "scope": "population passenger contract posting",
+  "tasks": [
+    "Port frozen post_passenger_contracts candidate eligibility",
+    "Preserve destination and duplicate active-contract checks",
+    "Emit funding-dependent passenger proposal"
+  ],
+  "progress": [],
+  "evidence": []
+}
