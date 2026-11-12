@@ -1,0 +1,18 @@
+{
+  "block_id": "N79",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T16:01:00+01:00-nightshift1-turn11-N79",
+  "claimed_at": "2026-11-12T16:01:00+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "work_branch": "feature/godot-n79-shipyard-orders-20261112",
+  "scope": "native shipyard build orders and ship creation",
+  "tasks": [
+    "inspect exact Rust behavior",
+    "port isolated state and formulas",
+    "document dependencies and static checks"
+  ],
+  "progress": [],
+  "evidence": []
+}
