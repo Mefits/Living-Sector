@@ -366,3 +366,6 @@ Atomic claim `claims/N31.json` at `f1274062eb75162b93ba013fc194f708443fcc65`; ru
 - **Testing prepared:** `godot/RUN-INTEGRATION-SMOKE.cmd` quick 11 scripts + headless editor import; `RUN-INTEGRATION-SMOKE.cmd all` all 32 discovered test scripts. Output `godot/logs/integration/summary.txt` and per-test logs. Source map: `godot/docs/INTEGRATION_CANDIDATE_N32_RU.md`.
 - **IMPORTANT:** Godot Runtime unavailable in agent environment. Tests NOT RUN. The single authoritative TickRunner still executes P1 orbital `bodies` only; production/AI/economy modules are present and smoke-testable in isolation, not all wired to live gameplay. Status `CODE_UNVERIFIED`. Main tracked VERIFIED totals stay P0 3/9, P1 0/9, P2 0/11, all 3/100.
 - **Next:** User downloads Godot Standard and runs Windows CMD against integration branch; send diagnostic ZIP, then iterate runtime fixes, connect authoritative game loop and validate Rust parity. Background scheduled agents remain enabled.
+
+### N33 START — 2026-11-12 09:35 CET — overnight-scheduler
+- Atomic claim `claims/N33.json`, commit `1948556aef489eca01323a76dfc773a68159ed2e`; branch `feature/godot-nightshift-n33-integration-acceptance-20261112`. Audit N32 smoke coverage, improve fail-closed Windows acceptance and deterministic reporting. IN_PROGRESS.
