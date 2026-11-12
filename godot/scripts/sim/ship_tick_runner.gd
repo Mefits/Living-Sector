@@ -1,4 +1,7 @@
 extends "res://scripts/sim/tick_runner.gd"
+## N57: phase signal is synchronous, emitted after ship movement and
+## before native dock_queue events. Only a single authority may connect.
+signal ships_phase_completed(tick: int)
 ## N40 CODE_UNVERIFIED. Opt-in native ship tick phase. Never use map pixels,
 ## route lengths or unknown seed fields as physical world coordinates.
 ## No ship decision AI, contract transfer, refuelling or cargo mutation here.
@@ -146,6 +149,8 @@ func _advance_one_tick() -> void:
                     _advance_fleet(tick_count, native_delta)
             else:
                 _advance_fleet(tick_count, native_delta)
+        if phase == "ships" and _fleet_enabled and not _fleet_suspended:
+            ships_phase_completed.emit(tick_count)
         # Same deterministic phase boundary as P1; never consume or emit
         # due events outside their original phase.
         for event in events.take_due(tick_count, phase_index):

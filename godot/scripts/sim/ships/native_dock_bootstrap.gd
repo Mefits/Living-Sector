@@ -25,7 +25,11 @@ static func build_new_game(seed: Dictionary, fleet: RefCounted) -> Dictionary:
             return _fail("bad_facility")
         var f: Dictionary = value
         var capacity: Variant = f.get("docking_capacity", null)
-        if typeof(capacity) != TYPE_INT or int(capacity) < 0:
+        # Frozen JSON numbers may deserialize as floats. Never round a
+        # fractional, nonfinite, negative or unsafe-size dock capacity.
+        if not (capacity is int or capacity is float) or not is_finite(float(capacity)):
+            return _fail("bad_docking_capacity")
+        if float(capacity) < 0.0 or float(capacity) > 9007199254740991.0 or float(int(capacity)) != float(capacity):
             return _fail("bad_docking_capacity")
         var location: String = str(f.get("location", ""))
         var kind: String = str(f.get("type", ""))
