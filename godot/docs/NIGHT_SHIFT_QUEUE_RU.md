@@ -1,5 +1,8 @@
 # Living Sector — ночная очередь автономной разработки Godot
 
+**ОБРАБОТКА ПО КОДУ N1–N60 (12.11.2026):** **59 из 60 блоков** оформлены в коде/PR. **1 занят — N39 (production)**. N57 [PR #149](https://github.com/Mefits/Living-Sector/pull/149) добавил общий opt-in fleet/docking/ledger engine; параллельный чат оформил N58–N60 (#146–#148). **Это не 59 полноценных игровых механик и не Godot VERIFIED**. В проверенной Windows P1 живой новый engine пока не включён; требуется headless проверка и отдельная финальная интеграция N39 + N57. 
+
+
 **АКТУАЛЬНЫЙ СЧЁТЧИК ОБРАБОТКИ — 12.11.2026 (после N56):** **55 из 56 блоков N1–N56 обработаны в коде/PR**, один (N39, production) остаётся `IN_PROGRESS`. Это статус выполненной кодовой работы, НЕ Godot runtime VERIFIED и НЕ количество перенесённых в рабочую P1 фаз. В этой итерации interactive-chat завершил **5 из 5 зарезервированных N50–N54**: [#139](https://github.com/Mefits/Living-Sector/pull/139), [#141](https://github.com/Mefits/Living-Sector/pull/141), [#142](https://github.com/Mefits/Living-Sector/pull/142), [#143](https://github.com/Mefits/Living-Sector/pull/143), [#144](https://github.com/Mefits/Living-Sector/pull/144). Другие чаты добавили N55/#140 и N56/#145. Новые N38–N56 (кроме N39) остаются в отдельных PR; интеграция P1 N33–N37 в #128 ранее выполнена на уровне кода. Числа считать по свежим `claims/Nx.json`, а не устаревшей исторической сводке ниже.
 
 
@@ -166,7 +169,7 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 | N56 | **P3: directed route admission parity:** validate native directed routes and live destination identity before ship transit; no teleport, fuel or cargo mutations | Rust-source route semantics, deterministic fail-closed admission, short smoke; independent of N39/N54 | CODE_UNVERIFIED — [PR #145](https://github.com/Mefits/Living-Sector/pull/145), overnight-scheduler; runtime pending |
 
-| N57 | **P1/P3: единый live fleet bridge** — N40/N43/N46/N53/N54: настоящий seed-флот в одном runner, согласованный N11 ledger и N21 docking, события прибытия/отправления; не трогать N39 production | Устойчивое восстановление/snapshot и детерминированный headless-сценарий, без денег/ресурсов из воздуха; отдельный opt-in PR | IN_PROGRESS — interactive-chat; [claim N57](nightshift/claims/N57.json) |
+| N57 | **P1/P3: единый live fleet bridge** — N40/N43/N46/N53/N54: настоящий seed-флот в одном runner, согласованный N11 ledger и N21 docking, события прибытия/отправления; не трогать N39 production | Устойчивое восстановление/snapshot и детерминированный headless-сценарий, без денег/ресурсов из воздуха; отдельный opt-in PR | CODE_UNVERIFIED — [PR #149](https://github.com/Mefits/Living-Sector/pull/149), interactive-chat; integrated opt-in body/ship/dock/ledger, headless pending; N39 production separate |
 
 | N58 | **P3: read-only native directed route graph integrity audit** — Rust-sourced endpoint/arc/weight validation, deterministic diagnostics, no fleet mutation; independent of N57/N39 | Strict graph admission, duplicate/missing endpoints rejection, headless smoke | CODE_UNVERIFIED — [PR #146](https://github.com/Mefits/Living-Sector/pull/146), second-chat-overnight; headless pending |
 
