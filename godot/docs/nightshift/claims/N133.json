@@ -1,6 +1,6 @@
 {
   "block_id": "N133",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "overnight-scheduler",
   "run_id": "20261112T202602CET-night-transfer1-133",
   "claimed_at": "2026-11-12T20:26:02+01:00",
@@ -15,7 +15,19 @@
     "schedule next crisis at tick + 2400 * max(mult,1) and record event"
   ],
   "progress": [
-    "Research source path originally proposed does not exist; switched before code to real frozen director.rs::environmental_events; N120 already covers research shift"
+    "Source-backed standalone GDScript and handoff committed; Draft PR #222"
   ],
-  "evidence": []
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/222",
+    "https://github.com/Mefits/Living-Sector/commit/eab89d9af4b526d7abde0afc893affcdf9513dc0"
+  ],
+  "checks": [
+    "GitHub readback: source file exists",
+    "Simple delimiter counts balanced",
+    "Godot parser/runtime NOT executed"
+  ],
+  "remaining": [
+    "Phase 2 authoritative world integration and runtime parity",
+    "No merge performed"
+  ]
 }
