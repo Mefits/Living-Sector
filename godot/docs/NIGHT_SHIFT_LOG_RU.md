@@ -1,5 +1,10 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 2026-11-12 — interactive-chat, N97 PHYSICAL APPLY COMPLETE
+- [Claim N97](nightshift/claims/N97.json) closed CODE_UNVERIFIED; [Draft PR #192](https://github.com/Mefits/Living-Sector/pull/192), frozen Rust sim_server/engine/transactions.rs: authoritative Buy, Sell, Mine, Refuel source-balance settlement and exclusive request ID handler. Pure staged world snapshots: no partial success, no fictional credits, physical body resources/market supply/facility reserves/ship cargo all moved only on confirmed outcome.
+- 3 GDScript files (commodity price/relations, physical settlement, exclusive Apply dispatcher), source map N97 docs, 2 preload dependencies checked. Static only, Godot deliberately not executed. N90 BT request contract matches dispatcher result null/ok/error.
+- Remaining Rust source beyond N97: contract_funding.rs (escrow, Accept), passengers embark/deliver, apply.rs gate charges, admin.rs shipyard refit. No N39 production/P1/main modifications. **Phase 1 symbolic estimate remains about ~68–70% work**; Phase 2 Godot integration and Phase 3 Grok fixes excluded.
+
 ### 2026-11-12 — interactive-chat, N97 START
 - Atomic claim created first: [N97](nightshift/claims/N97.json), commit d802056136f5aa161ff496eed2205a69b49918a9; N94/N95/N96 are occupied by overnight worker. N97 exclusively ports Rust native sim_server/engine/transactions.rs exclusive ship settlement; cannot edit N39 production, N90 request BT leaves or verified P1. No Godot tests until Phase 2.
 
