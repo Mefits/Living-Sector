@@ -60,8 +60,9 @@ static func apply(world: Dictionary, ship_id: String,
     var result: Dictionary = Physical.simulate(world, ship_id, request, tick)
     # Failure still writes the Rust negative acknowledgement to the BT
     # mailbox, but NONE of the proposed economic mutations are published.
-    var staged: Dictionary = (result["world"] as Dictionary
-        if bool(result.get("ok", false)) else world).duplicate(true)
+    var staged: Dictionary = world.duplicate(true)
+    if bool(result.get("ok", false)):
+        staged = (result["world"] as Dictionary).duplicate(true)
     if not (staged["ships"].get(ship_id, null) is Dictionary):
         return _error("transaction_lost_ship", world)
     var target: Dictionary = staged["ships"][ship_id]
