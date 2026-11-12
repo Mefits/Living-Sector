@@ -225,3 +225,7 @@ Atomic claim `claims/N17.json` at `8e935b66228e4a10cb9ef9090dde71edc1b09e19`; br
 - Sources: Rust `agents/construction.rs`, `construction/labor.rs`, `construction/executor.rs`, `facility/workforce.rs`, `strategy/progression.rs`. Godot `RefCounted` domain, no extra plugins or per-entity Nodes.
 - **CODE_UNVERIFIED**: Godot executable not run. Needs integration with authoritative N15 cargo, N11 ledger and N8 shared workforce/TickRunner before production parity. No merge. P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED.
 - Next: N18 station administrator, or integrate N17 with paid production and contract delivery after checking PR dependencies.
+
+### N18 start — 2026-11-12 07:52 MSK — second-chat-overnight
+
+Atomic claim `claims/N18.json` commit `7e617371e2de2d43cda726ae24aaddbaed675408`; frozen Rust station admin audit, deterministic decisions and executable command boundaries, headless smoke; work branch `feature/godot-nightshift-n18-admin-second-20261112-0752`.
