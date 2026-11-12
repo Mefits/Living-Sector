@@ -1,0 +1,16 @@
+{
+  "block_id": "N30",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T11:03:54+03:00-second-chat-n30",
+  "claimed_at": "2026-11-12T11:03:54+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "a154a836e320ee39bb65569ddb1c2d5142f29738",
+  "work_branch": "feature/godot-nightshift-n30-contract-cargo-audit-second-20261112",
+  "tasks": [
+    "Read authoritative N26/N27/N29 and frozen Rust contract cargo semantics",
+    "Implement cross-component deterministic audit of contract escrow and cargo receipts without mutation",
+    "Add headless regression for tamper/replay and snapshot restoration",
+    "Document evidence and limitations"
+  ]
+}
