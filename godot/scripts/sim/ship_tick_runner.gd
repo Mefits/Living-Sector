@@ -15,6 +15,7 @@ var _positions: Dictionary = {}
 var _location_resolver: RefCounted
 var _fleet_suspended: bool = false
 var _initial_ship_credit_sources: Dictionary = {}
+var _initial_bootstrap_allowed: bool = false
 var _fleet_enabled: bool = false
 var _last_ship_results: Dictionary = {}
 
@@ -28,6 +29,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _location_resolver = null
     _fleet_suspended = false
     _initial_ship_credit_sources = {}
+    _initial_bootstrap_allowed = true
     _fleet_enabled = false
     _last_ship_results = {}
     return true
@@ -88,7 +90,7 @@ func native_positions_snapshot() -> Dictionary:
 ## a full class-spec tank and empty cargo; do not refuel on subsequent calls.
 ## Credits remain source metadata, not an economy ledger or a transfer.
 func bootstrap_new_game_native_fleet(seed: Dictionary) -> bool:
-    if not is_started() or tick_count != 0 or _fleet_enabled:
+    if not is_started() or tick_count != 0 or _fleet_enabled or not _initial_bootstrap_allowed:
         return false
     var built: Dictionary = NativeFleetBootstrap.build_new_game(seed)
     if not bool(built.get("ok", false)):
@@ -98,6 +100,7 @@ func bootstrap_new_game_native_fleet(seed: Dictionary) -> bool:
             built["fuel_sources"], built["cargo_sources"]):
         return false
     _initial_ship_credit_sources = (built["credit_sources"] as Dictionary).duplicate(true)
+    _initial_bootstrap_allowed = false
     return true
 
 func initial_ship_credit_sources() -> Dictionary:
@@ -171,4 +174,9 @@ func checkpoint() -> Dictionary:
 func restore_checkpoint(snapshot: Dictionary, frozen_seed: Dictionary) -> bool:
     if _fleet_enabled or snapshot.has("fleet_state"):
         return false
-    return super.restore_checkpoint(snapshot, frozen_seed)
+    var restored: bool = super.restore_checkpoint(snapshot, frozen_seed)
+    if restored:
+        # A tick-zero user save is still a RESTORE, not a fresh game.
+        # Never invoke Rust seeder full-tank initialization after it.
+        _initial_bootstrap_allowed = false
+    return restored
