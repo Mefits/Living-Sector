@@ -138,7 +138,9 @@ func push(command: Dictionary) -> bool:
 	_commands.append(command.duplicate(true))
 	return true
 
-func append(other: RefCounted) -> bool:
+func append(other: Variant) -> bool:
+	if not other is RefCounted:
+		return false
 	if other == self or other._tick != _tick or other._phase != _phase:
 		return false
 	# Rust Vec::append preserves left-to-right order and empties the source.
