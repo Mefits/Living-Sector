@@ -12,9 +12,9 @@ const AXIS_EXPLORATION: String = "exploration"
 static func fuel_urgency(fuel: float, capacity: float) -> Dictionary:
     if not _finite(fuel) or not _finite(capacity) or capacity < 0.0:
         return {}
-    # Rust ShipFuel::fraction() treats a zero-capacity tank as full,
-    # so there is no fake low-fuel emergency.
-    var fraction: float = 1.0 if capacity <= 0.0 else clampf(fuel / capacity, 0.0, 1.0)
+    # Frozen Rust ShipFuel::fraction(): zero-capacity => 0.0.
+    # Do not mask missing propulsion as a full tank.
+    var fraction: float = fuel / capacity if capacity > 0.0 else 0.0
     return _c(AXIS_SAFETY, 1.0 - fraction)
 
 static func cargo_opportunity(cargo: Dictionary, capacity: int) -> Dictionary:
