@@ -766,3 +766,9 @@ Three independent claims CODE_UNVERIFIED. Source reviewed, no Godot execution, n
 
 ### 2026-11-12 20:35 MSK — second-chat-overnight START N109/N110/N111
 Three atomic claims created before code on coordination branch. Distinct scopes: charter, station progression, shortage alternatives. Rust reference read-only; N39/N100/N108 and others untouched. Source integration commit `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`. Phase 1 only, CODE_UNVERIFIED until runtime.
+
+### 2026-11-12 20:35 MSK — N109/N110/N111 COMPONENT PORTS
+- N109 charter authority/approval/paid budget [Draft PR #197](https://github.com/Mefits/Living-Sector/pull/197).
+- N110 station tiers, materials and paid labor preflight [Draft PR #198](https://github.com/Mefits/Living-Sector/pull/198).
+- N111 shortage delivery/build/wait evaluation [Draft PR #199](https://github.com/Mefits/Living-Sector/pull/199).
+All three isolated GDScript modules committed; minimal source reread and balanced delimiter checks. CODE_UNVERIFIED, no Godot execution or P1 integration. Rust frozen, main/stable/checkpoint and N39/N100/N108 untouched. N111 forecast requires real native recipe output from caller; no invented goods.
