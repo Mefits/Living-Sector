@@ -30,7 +30,7 @@ static func observe(colonies: Array) -> Array:
 			kinds.append(kind)
 			if kind in ["mining_rig", "refinery", "farm", "factory"]:
 				required += int(facility.get("crew_count", 0))
-		var available := population * 3 / 5
+		var available := int(population * 3 / 5)
 		var missing := maxi(0, required - available)
 		var unique: bool = int(colony.get("market_count", 0)) == 1 and bool(colony.get("market_owned_by_station", false))
 		var stock: Dictionary = colony.get("stock", {})
@@ -74,7 +74,9 @@ static func observe(colonies: Array) -> Array:
 			"water_reserve_target":wt, "food_reserve_target":ft, "phase":phase,
 			"reason":reason, "next_commodity":next_commodity,
 			"market_unambiguous":unique, "pending_passenger_contract":colony.get("pending_passenger_contract", "")})
-	result.sort_custom(func(a,b): return [a["faction_id"],a["location"]] < [b["faction_id"],b["location"]])
+	result.sort_custom(func(a,b):
+		if a["faction_id"] != b["faction_id"]: return a["faction_id"] < b["faction_id"]
+		return a["location"] < b["location"])
 	return result
 
 static func next_supply_goal(views: Array, contracts: Array, faction: String) -> Dictionary:
@@ -105,7 +107,7 @@ static func _outstanding(contracts: Array, location: String, commodity: String) 
 	return false
 
 static func migration_quantity(missing_workers: int) -> int:
-	return clampi((missing_workers * 5 + 2) / 3, 1, MAX_MIGRATION_PARTY)
+	return clampi(int((missing_workers * 5 + 2) / 3), 1, MAX_MIGRATION_PARTY)
 
 static func migration_intent(view: Dictionary, sources: Array, ships: Array, treasury: int, treasury_floor: int, payment_per_head: int, settler_reserve: int, reachable: Dictionary) -> Dictionary:
 	if view.get("phase", "") != "migration" or int(view.get("missing_workers", 0)) <= 0 or view.get("pending_passenger_contract", "") != "":
