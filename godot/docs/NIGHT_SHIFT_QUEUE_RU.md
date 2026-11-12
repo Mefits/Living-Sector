@@ -120,4 +120,4 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N35 | **P1/P3: authoritative contract tick integration:** connect N31 commands to the sole simulation tick phase; prevent duplicate execution and persist queue | N31/N3/N23; fail-closed replay/save smoke; no economy bypass | CODE_UNVERIFIED — PR #124, second-chat-overnight |
 
 | N36 | **P8: Godot 4 compatibility of N32 integration** — startup/parser audit, minimal fixes and smoke | Integration scripts parse on current Godot; no unverified VERIFIED claims | CODE_UNVERIFIED — PR #125, second-chat-overnight |
-| N37 | **P0-08: аудит ассетов и лицензий Rust → Godot:** реестр медиа/шрифтов и происхождения, явные ограничения переноса, воспроизводимая проверка | Машинный манифест + аудит, без копирования неизвестных по лицензии файлов; Rust archive source | IN_PROGRESS — overnight-scheduler |
+| N37 | **P0-08: аудит ассетов и лицензий Rust → Godot:** реестр медиа/шрифтов и происхождения, явные ограничения переноса, воспроизводимая проверка | PR #126: 97 SHA/size records, static 97/97 PASS; unknown rights blocked, no media copied | CODE_UNVERIFIED — PR #126, overnight-scheduler |
