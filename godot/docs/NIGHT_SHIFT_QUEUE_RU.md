@@ -106,4 +106,6 @@ N26 outcome: [draft PR #114](https://github.com/Mefits/Living-Sector/pull/114) �
 
 | N29 | **P3 docking/cargo authoritative gate:** N21 docking state + N15 cargo transfer, fail-closed location, replay and save/load smoke | N21 PR #109, N15 PR #101; Godot runtime pending | CODE_UNVERIFIED — PR #117, second-chat-overnight |
 
-| N30 | **P8/P3: cross-component contract/cargo audit** — read-only reconciliation of escrow, cargo receipts and payout transitions; N26/N27/N29 dependencies | Tamper/replay/snapshot smoke and no mutation | IN_PROGRESS — second-chat-overnight |
+| N30 | **P8/P3: cross-component contract/cargo audit** — read-only reconciliation of escrow, cargo receipts and payout transitions; N26/N27/N29 dependencies | Tamper/replay/snapshot smoke and no mutation | CODE_UNVERIFIED — PR #118, second-chat-overnight |
+
+N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) — read-only contract/cargo/escrow audit, tamper/replay/save smoke; Godot not run. Next: N31 runtime-oriented integration and recipient provenance after checking claims.
