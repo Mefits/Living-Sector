@@ -265,6 +265,6 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 | N99 | P5 Control Beam from Rust planning/control_beam.rs | Native bounded width-16 beam projected search | CODE_UNVERIFIED — [PR #187](https://github.com/Mefits/Living-Sector/pull/187) |
 | N100 | P5 Hybrid planner from Rust planning/hybrid.rs | Safe candidate selection and bounded preferences | IN_PROGRESS (partial code) — [PR #188](https://github.com/Mefits/Living-Sector/pull/188) |
 
-| N101 | P3 ship XP/progression and fitting modifiers from frozen ship/mod.rs | pure GDScript state transformations, no economy apply | IN_PROGRESS — second-chat-overnight, claim N101 |
-| N102 | P2 facility delivery convoy bundling from frozen facility/mod.rs | same destination/commodity grouping, affordability/caps, no N39 overlap | IN_PROGRESS — second-chat-overnight, claim N102 |
-| N103 | P5 profitable ice mining and cargo liquidation from frozen ship/behavior.rs | pure decision rules, no N97 economic apply | IN_PROGRESS — second-chat-overnight, claim N103 |
+| N101 | P3 ship XP/progression and fitting modifiers from frozen ship/mod.rs | pure GDScript state transformations, no economy apply | CODE_UNVERIFIED — [PR #189](https://github.com/Mefits/Living-Sector/pull/189), second-chat-overnight |
+| N102 | P2 facility delivery convoy bundling from frozen facility/mod.rs | same destination/commodity grouping, affordability/caps, no N39 overlap | CODE_UNVERIFIED — [PR #190](https://github.com/Mefits/Living-Sector/pull/190), second-chat-overnight |
+| N103 | P5 profitable ice mining and cargo liquidation from frozen ship/behavior.rs | pure decision rules, no N97 economic apply | CODE_UNVERIFIED — [PR #191](https://github.com/Mefits/Living-Sector/pull/191), second-chat-overnight |
