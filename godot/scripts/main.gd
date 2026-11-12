@@ -7,6 +7,7 @@ const TickRunner = preload("res://scripts/sim/tick_runner.gd")
 const SaveState = preload("res://scripts/sim/save_state.gd")
 const SPEEDS = [0.25, 1.0, 2.0, 4.0, 8.0, 16.0]
 const SystemMap = preload("res://scripts/system_map.gd")
+const ObserverPanel = preload("res://scripts/observer_panel.gd")
 
 var _model
 var _runner
@@ -17,6 +18,8 @@ var _pause_button: Button
 var _map: Control
 var _details: RichTextLabel
 var _status: Label
+var _observer_panel: PanelContainer
+var _observer_button: Button
 
 func _ready() -> void:
     var background := ColorRect.new()
@@ -106,6 +109,15 @@ func _ready() -> void:
     _details.fit_content = false
     details_panel.add_child(_details)
 
+    _observer_button = Button.new()
+    _observer_button.text = "Наблюдение"
+    _observer_button.pressed.connect(_toggle_observer)
+    toolbar.add_child(_observer_button)
+    _observer_panel = ObserverPanel.new()
+    _observer_panel.visible = false
+    _observer_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    columns.add_child(_observer_panel)
+
     var footer := Label.new()
     footer.text = "P1 · реальные тики орбит · экономика / корабли / контракты / ИИ ещё не перенесены"
     footer.add_theme_color_override("font_color", Color("#8da6b5"))
@@ -144,6 +156,18 @@ func _ready() -> void:
         _select_world(initial)
     print("GODOT_P1_SEED_LOADED ", JSON.stringify(stats))
     _update_status()
+
+func _toggle_observer() -> void:
+    _observer_panel.visible = not _observer_panel.visible
+    _observer_button.text = "Скрыть наблюдение" if _observer_panel.visible else "Наблюдение"
+    _refresh_observer()
+
+func _refresh_observer() -> void:
+    if not _observer_panel or not _observer_panel.visible or not _runner:
+        return
+    # The current P1 world contains only seed/orbital state. Never present
+    # an unconnected N19/N18/N16 subsystem as if it were executing.
+    _observer_panel.call("show_observation", _runner.tick_count, "genesis", {})
 
 func _process(delta: float) -> void:
     if _runner:
@@ -192,6 +216,7 @@ func _load_game() -> void:
     _update_status()
 
 func _on_tick_completed(tick: int) -> void:
+    _refresh_observer()
     if tick % 8 == 0:
         _refresh_selection()
     _update_status()
@@ -207,6 +232,7 @@ func _update_status() -> void:
         "Пауза" if _runner.clock.paused else "Идёт время",
         "   |   " + _notice if not _notice.is_empty() else ""
     ]
+    _status.text += "   |   " + _runner.calendar.display_text(_runner.tick_count)
     _pause_button.text = "Продолжить" if _runner.clock.paused else "Пауза"
 
 func _refresh_selection() -> void:
