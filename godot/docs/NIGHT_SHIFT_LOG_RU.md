@@ -374,3 +374,6 @@ Atomic claim `claims/N31.json` at `f1274062eb75162b93ba013fc194f708443fcc65`; ru
 - Draft [PR #121](https://github.com/Mefits/Living-Sector/pull/121), head `3598d52c1b52b87a0a082d4166817da41b1a7d03`, stacked on N32 PR #120; no merge.
 - Windows acceptance harness: required quick manifest, dynamic all-mode, import+isolated tests, fail-closed exit/error-marker checks, JSON and TXT evidence, per-test logs; built-in PowerShell 5.1 only.
 - GitHub tree static check: 32 tests present, all 11 quick tests found. Godot/Windows PowerShell NOT RUN; CODE_UNVERIFIED. Live TickRunner still only orbits. P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED.
+
+### N34 — 2026-11-12 12:01 MSK — START
+Claim `claims/N34.json` created by `second-chat-overnight`; branch `feature/godot-nightshift-n34-smoke-integrity`. Scope: N32/N33 smoke integrity and deterministic fail-closed validation. No runtime verification claimed.
