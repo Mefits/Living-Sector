@@ -763,3 +763,6 @@ Three independent claims CODE_UNVERIFIED. Source reviewed, no Godot execution, n
 - N106 [PR #195](https://github.com/Mefits/Living-Sector/pull/195): durable native production objective, only paid post-creation output can complete.
 - N107 [PR #196](https://github.com/Mefits/Living-Sector/pull/196): native station labor planning, wage budget reservations and non-mutating feedback.
 - All three claims CODE_UNVERIFIED, three isolated branches, no P1 integration/merge; static source review only, Godot/parser not executed. Native snapshots and authoritative Apply remain dependencies.
+
+### 2026-11-12 20:35 MSK — second-chat-overnight START N109/N110/N111
+Three atomic claims created before code on coordination branch. Distinct scopes: charter, station progression, shortage alternatives. Rust reference read-only; N39/N100/N108 and others untouched. Source integration commit `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`. Phase 1 only, CODE_UNVERIFIED until runtime.
