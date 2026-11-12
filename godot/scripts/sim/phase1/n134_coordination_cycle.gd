@@ -210,14 +210,14 @@ func preview_cycle(tick: int, mult: int, world: Dictionary) -> Dictionary:
                     # N121 has already produced the report; the driver alone
                     # stages actual board+ledger operations, never replay here.
                     pass
+        var impacts: Array[Dictionary] = []
         if not mandate.is_empty():
-            var impacts: Array = [Policy.policy_impact(head, commander,
-                "economy", mandate, state.get("charter", {}),
-                state.get("economic_proposal", {}))]
-            if not state.get("research_mandate", {}).is_empty():
-                impacts.append(Policy.policy_impact(head, commander, "research",
-                    state["research_mandate"], state.get("charter", {})))
-            head["policy_impacts"] = impacts
+            impacts.append(Policy.policy_impact(head, commander, "economy",
+                mandate, state.get("charter", {}), state.get("economic_proposal", {})))
+        if not state.get("research_mandate", {}).is_empty():
+            impacts.append(Policy.policy_impact(head, commander, "research",
+                state["research_mandate"], state.get("charter", {})))
+        head["policy_impacts"] = impacts
     # A preview never changes world/board/treasury or mints any receipt.
     var out: Dictionary = {
         "ok": true, "tick": tick, "mode": mode, "heads": decisions,
@@ -235,6 +235,8 @@ static func reconcile_committed(projection: Dictionary, board_after: Array,
     # player's policy authorization as money actually paid.
     if not bool(projection.get("ok", false)):
         return {"ok": false, "reason": "invalid_projection"}
+    if str(projection.get("mode", "Shadow")) != "Execute":
+        return {"ok": false, "reason": "shadow_has_no_committed_receipts"}
     var tick: int = int(projection.get("tick", -1))
     var result: Dictionary = projection.duplicate(true)
     var confirmed: Dictionary = {}
