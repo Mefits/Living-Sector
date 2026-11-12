@@ -405,3 +405,9 @@ All CODE_UNVERIFIED, three separate branches, no Godot runtime or P1 integration
 
 ### N121 — native execution bridge (Phase 1; CODE_UNVERIFIED)
 Large source-backed transfer of frozen `strategy/planning/native_execution.rs` (~61 KB incl tests): real native funded contract dispatch, strict producer paid-output receipts, stable retry/replan/Prepared recovery and a durable completion history. Five independent GDScript modules, about 1290 lines, in [Draft PR #216](https://github.com/Mefits/Living-Sector/pull/216). Claim: [N121](nightshift/claims/N121.json), source handoff: [N121_NATIVE_EXECUTION_BRIDGE_RU.md](nightshift/N121_NATIVE_EXECUTION_BRIDGE_RU.md). **Not integrated** with separate N98/N100/N39 world runner; final N98 ledger commit+board+world must be atomic in Phase 2. No Godot run.
+
+### 2026-11-12 22:01 MSK — N128–N130 COMPLETE (second-chat-overnight)
+- N128 [Draft PR #217](https://github.com/Mefits/Living-Sector/pull/217): frozen Rust crew skill role defaults, capped grants and confirmed receipt admission (ship/components.rs); no combat damage subsystem was present in inspected source.
+- N129 [Draft PR #218](https://github.com/Mefits/Living-Sector/pull/218): faction facility tax 2.5% above 1000 CR, 200-base-tick cadence, treasury-funded bailout state transitions (faction.rs).
+- N130 [Draft PR #219](https://github.com/Mefits/Living-Sector/pull/219): facility reserve restock against real local market supply and paid seller balance, internal owner no-charge path (facility/restock.rs).
+All three distinct claims CODE_UNVERIFIED, three separate branches, source reviewed, no Godot runtime or integration, no merge. P1 checkpoint/main/Rust archive and N39/other claims unchanged. Authoritative commit of external state is a phase-2 dependency. VERIFIED P0 3/9 P1 0/9 P2 0/11 overall 3/100 unchanged.
