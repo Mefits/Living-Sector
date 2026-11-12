@@ -491,3 +491,7 @@ Claim `claims/N37.json` reserved at `bfc4267`, work branch `feature/godot-nights
 > **N45 START — 2026-11-12 14:28 MSK:** claim `claims/N45.json`, owner second-chat-overnight, funded research order bridge, integration baseline; IN_PROGRESS.
 
 > **N45 FINISH — 2026-11-12:** [Draft PR #134](https://github.com/Mefits/Living-Sector/pull/134) funded research shift with real ledger and electronics, idempotent receipt and smoke; static delimiter check only, CODE_UNVERIFIED. N44 dependency copied; N39/N43 untouched. Next: N46 only after claim check.
+
+### N47 START — 2026-11-12 12:50 +01:00 — overnight-scheduler
+- Atomic claim `claims/N47.json` @ `bec9b3e25af1b391c6634eb954185aa3381b95db`.
+- Planned: fail-closed native seed identity/schema validation, deterministic diagnostics, fixture regressions; no N39/N46 overlap.
