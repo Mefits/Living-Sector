@@ -1,0 +1,34 @@
+{
+  "block_id": "N143",
+  "macro_id": 8,
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "claimed_at": "2026-11-12T23:35:00+03:00",
+  "work_branch": "feature/godot-n143-complete-rust-research-domain-20261112",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_paths": [
+    "native/crates/sim_core/src/strategy/director.rs::TECHNOLOGIES/observe/research/research_ready/has/production_bonus",
+    "native/crates/sim_core/src/strategy/governance.rs::ResearchMandate/authorize_research/paid_research/next_technology",
+    "native/crates/sim_core/src/strategy/charter.rs::FactionCharter::gate/record_paid (read-only research adapter)"
+  ],
+  "prior_prs": [
+    "N44 #132",
+    "N45 #134",
+    "N76 #162",
+    "N82 #171",
+    "N89 #178",
+    "N110 #198",
+    "N120 #209",
+    "N109 #197"
+  ],
+  "scope": "Macro #8 finish Phase-1 native Rust science/research coverage: authoritative-scoped pure all-in-one research choice, readiness, funded single shift and exact receipt-state reconciliation. No station upgrade MATERIALS/labor work (macro #6) and no FactionCharter policy rewrite (macro #7); expose exact adapter contracts to already ported N44/45/82/89/109/110/120. Strict NO live integration/Godot until Phase2.",
+  "tasks": [
+    "source gap audit against existing PRs before any new code",
+    "complete director commander observe and mandate-target selector with preserve-paid-progress invariant",
+    "complete research_ready and source-accurate research paid shift including real market/faction/workforce/escrow and error precedence",
+    "stage exact salary/facility payment/treasury/electronics and research unlock; no side effects before commit, one receipt and atomic apply contract; charter/mandate policy and budget tracked exactly once",
+    "source-derived scenario checks and gap/coverage matrix; only mark source port complete if scope is actually accounted for"
+  ],
+  "progress": [],
+  "evidence": []
+}
