@@ -34,7 +34,7 @@ echo.
 echo LIVING SECTOR - Godot integration smoke %MODE%
 echo Log folder: %LOGDIR%
 echo [Project import] Parsing the unified project in headless editor...
-"%GODOT_BIN%" --headless --editor --path "%~dp0" --quit --log-file "%LOGDIR%\project-import.log"
+"%GODOT_BIN%" --headless --editor --path "%CD%" --quit --log-file "%LOGDIR%\project-import.log"
 if errorlevel 1 (
   set /a FAILED+=1
   >> "%SUMMARY%" echo FAIL project import/parse
@@ -59,7 +59,7 @@ exit /b 0
 :run_one
 set /a TOTAL+=1
 echo [Test %TOTAL%] %~1
-"%GODOT_BIN%" --headless --path "%~dp0" --script "res://tests/%~1" --log-file "%LOGDIR%\%~n1.log"
+"%GODOT_BIN%" --headless --path "%CD%" --script "res://tests/%~1" --log-file "%LOGDIR%\%~n1.log"
 if errorlevel 1 (
   set /a FAILED+=1
   >> "%SUMMARY%" echo FAIL %~1
