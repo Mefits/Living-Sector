@@ -1,6 +1,6 @@
 {
   "block_id": "N65",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "2026-11-12T14:07:45.647Z-interactive-N65",
   "claimed_at": "2026-11-12T14:07:45.647Z",
@@ -21,6 +21,18 @@
     "Stable deterministic distress snapshot with refusal to refill or teleport absent rescue mechanics",
     "Headless N65 smoke and explicit resume safety; do not alter N39"
   ],
-  "activity": "QUEUED",
-  "dependency": "N61 / PR #150"
+  "activity": "COMPLETED_CODE",
+  "dependency": "N61 / PR #150",
+  "finished_at": "2026-11-12T14:20:10.804Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/154",
+  "head_sha": "6835ae2a1815afe837ebc6ff3bf8d93f875e9a2b",
+  "progress": [
+    "Identified frozen Rust zero-fuel movement discrepancy versus Godot N14 artificial hard stop",
+    "Fixed physical transit to move with fuel clamped at zero, no fictional rescue",
+    "Added native fuel diagnostics and headless zero-fuel/resume smoke"
+  ],
+  "evidence": [
+    "Frozen Rust agents/ship/mod.rs advance_transits and actions.rs Travel checked",
+    "PR #154 Draft, Godot headless unexecuted; verified P1 unchanged"
+  ]
 }
