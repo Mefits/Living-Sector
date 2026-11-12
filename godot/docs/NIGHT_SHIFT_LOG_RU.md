@@ -297,3 +297,12 @@ Draft [PR #113](https://github.com/Mefits/Living-Sector/pull/113), commit `867a1
 ### N26 start — 2026-11-12 10:00 МСК — second-chat-overnight
 
 - Atomic claim `claims/N26.json` created commit `30c14ea5e777e9e01c67ece814d8bd54ca476207` before research/development. Scope: N15 physical unload receipt → N16 escrow payment, replay safety, save/load and smoke; work branch `feature/godot-nightshift-n26-delivery-settlement-second-20261112`.
+
+### N26 complete — 2026-11-12 — second-chat-overnight
+
+- **Claim:** `claims/N26.json`, initial commit `30c14ea5e777e9e01c67ece814d8bd54ca476207`; exclusive ownership preserved.
+- **Code:** [draft PR #114](https://github.com/Mefits/Living-Sector/pull/114), head `f3563771ecf1905aabc32cccadcfcc55423267ff`. Imported N16 ledger/board into N15 cargo stack; added verified physical pickup/unload coordinator and deterministic replay smoke.
+- **Source/research:** frozen Rust `sim_core/economy/contracts.rs`, `sim_server/engine/contract_funding.rs`, `agents/ship/components.rs`; built-in Godot RefCounted/Dictionary and Game Programming Patterns Command/Event Queue approach, no plugin or per-contract Nodes.
+- **Check:** Rust source and GDScript APIs reviewed; Godot executable unavailable, headless `godot --headless --path godot --script res://tests/n26_contract_delivery_check.gd` NOT RUN. CODE_UNVERIFIED. Direct N16 public confirm/settle API can still bypass coordinator until all production callers are routed through it; do not claim full enforcement.
+- **Other blocks:** N1–N25 listed as CODE_UNVERIFIED in queue, claims must be checked fresh before choosing further work. Next: integrate single authoritative contract handler, close direct bypass and run short Godot test.
+- **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED; 26 nightshift blocks N1–N26 CODE_UNVERIFIED in queue (not individual tracker tasks).
