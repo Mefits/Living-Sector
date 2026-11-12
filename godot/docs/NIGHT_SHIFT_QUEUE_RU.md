@@ -231,3 +231,7 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N81 | P5 Ship GOAP cost-weighted planner: native abstract state, Dijkstra and operator catalogues | Rust ai/planner.rs, non-mutating ShipAction intents | CODE_UNVERIFIED — [PR #170](https://github.com/Mefits/Living-Sector/pull/170), second-chat-overnight |
 | N82 | P6 Director research: exact 12-technology catalogue, prerequisite chain and selection | Rust strategy/director.rs, no free research | CODE_UNVERIFIED — [PR #171](https://github.com/Mefits/Living-Sector/pull/171), second-chat-overnight |
 | N83 | P5 Ship trade route candidate scoring from price memory | Rust ship/behavior.rs, source-backed cash/freshness/ownership | CODE_UNVERIFIED — [PR #172](https://github.com/Mefits/Living-Sector/pull/172), second-chat-overnight |
+
+| N84 | P5 Rust behavior tree: resumable sequence/selector/condition/action | `ai/behavior_tree.rs`; standalone data-only GDScript | IN_PROGRESS — second-chat-overnight |
+| N85 | P5 Rust utility action scoring and goal ranking | `ai/utility.rs`; separate policy, no mutation | IN_PROGRESS — second-chat-overnight |
+| N86 | P5 Rust personality axes, archetypes, drift | `ai/personality.rs`; explicit RNG contract | IN_PROGRESS — second-chat-overnight |
