@@ -1,0 +1,29 @@
+{
+  "block_id": "N97",
+  "status": "IN_PROGRESS",
+  "owner": "interactive-chat",
+  "claimed_at": "2026-11-12T16:40:54.617Z",
+  "run_id": "manual-next-n97-ship-apply-2026-11-12T16:40:54.617Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "base_branch": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n97-transaction-apply-20261112",
+  "title": "P3/P2: frozen Rust exclusive ship transaction Apply, physical goods/money/refuel/mining and acknowledgements",
+  "scope": "Standalone immutable snapshot GDScript port of native sim_server/engine/transactions.rs and helper files; exact physical buy/sell/mining/refuel transfers and failure guards, in-place world mutation only in future Phase 2. Do NOT touch N39 world bridge, N90 BT request leaves, N89 mandates, N94/N95/N96, P1. No runtime tests.",
+  "tasks": [
+    "Read frozen Rust engine/transactions.rs and helpers, ShipTransaction, market/credit source",
+    "Port exclusive Apply data-only atomic state-in/state-out source with exact payment, cargo, reserves, depletion and acknowledgement guards",
+    "Port source-backed contract branches where feasible or separate as explicit outstanding Rust modules; prove no optimistic side effects on failed requests",
+    "Write handoff, short static paths check, draft PR and close claim CODE_UNVERIFIED"
+  ],
+  "non_overlap": [
+    "N39 live production owner",
+    "N90 economic request leaves",
+    "N88 BT lifecycle",
+    "N94 sourcing",
+    "N95 production dependencies",
+    "N96 portfolio policy",
+    "P1/main/stable/Rust immutability"
+  ]
+}
