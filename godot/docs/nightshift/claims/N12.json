@@ -1,0 +1,17 @@
+{
+  "block_id": "N12",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T05:27:38+03:00-second-chat-n12",
+  "claimed_at": "2026-11-12T05:27:38+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "0f5e4cd75a97b302c2d1e19a9c2cecf34b39d094",
+  "work_branch": "feature/godot-nightshift-n12-population-second-20261112",
+  "tasks": [
+    "Rust population and needs parity",
+    "GDScript population consumption and labor constraints",
+    "deterministic smoke test"
+  ],
+  "progress": [],
+  "evidence": []
+}
