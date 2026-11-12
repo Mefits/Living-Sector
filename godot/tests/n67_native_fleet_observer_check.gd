@@ -17,29 +17,29 @@ func _initialize() -> void:
     var before_fleet: String = JSON.stringify(live.engine.runner.live_fleet_snapshot())
     var before_money: int = live.engine.ledger.total()
     var initial: Dictionary = Observer.snapshot(live)
-    if not initial.get("ok", false) or initial["ship_count"] != 24 or
-            initial["in_transit"] != 0 or initial["docked"] != 0:
+    if (not initial.get("ok", false) or initial["ship_count"] != 24 or initial["in_transit"] != 0 or initial["docked"] != 0):
         _fail("native_24_ships")
         return
-    var first: Dictionary = initial["ships"][0]
-    if str(first["ship_id"]) != "@system-ac/0" and str(first["ship_id"]) != "@system-nadir/0":
-        # Sorting may vary only if native ID set actually differs.
-        _fail("native_identity_order")
+    var actual_ids: Array = []
+    for entry in initial["ships"]:
+        actual_ids.append(str(entry["ship_id"]))
+    var sorted_ids: Array = actual_ids.duplicate()
+    sorted_ids.sort()
+    if actual_ids != sorted_ids:
+        _fail("unstable_identity_order")
         return
     var sol: Dictionary = {}
     for entry in initial["ships"]:
         if str(entry["ship_id"]) == "@system-sol/0":
             sol = entry
             break
-    if sol.is_empty() or sol["location"] != "earth-station" or
-            int(sol["credits"]) != 40000 or sol["crew_current_morale"] != "—":
+    if (sol.is_empty() or sol["location"] != "earth-station" or int(sol["credits"]) != 40000 or sol["crew_current_morale"] != "—"):
         _fail("source_and_missing_fields")
         return
     if sol["status"] != "at_location" or sol["docked_at"] != "—":
         _fail("not_initially_undocked")
         return
-    if before_money != 2760000 or live.engine.ledger.total() != before_money or
-            JSON.stringify(live.engine.runner.live_fleet_snapshot()) != before_fleet:
+    if (before_money != 2760000 or live.engine.ledger.total() != before_money or JSON.stringify(live.engine.runner.live_fleet_snapshot()) != before_fleet):
         _fail("snapshot_mutated_world")
         return
     var id: String = "@system-sol/0"
@@ -61,8 +61,7 @@ func _initialize() -> void:
         return
     var flying: Dictionary = Observer.snapshot(live)
     var flight_row: Dictionary = _find(flying["ships"], id)
-    if flying["in_transit"] != 1 or flight_row["status"] != "in_transit" or
-            flight_row["destination"] != "mine-near-earth":
+    if (flying["in_transit"] != 1 or flight_row["status"] != "in_transit" or flight_row["destination"] != "mine-near-earth"):
         _fail("flight_inspector")
         return
     if not flight_row["blocked_reasons"].has("in_transit_until_actual_arrival"):
