@@ -1,6 +1,6 @@
 {
   "block_id": "N32",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-integration-chat",
   "run_id": "2026-11-12T11-00-MSK-interactive-N32",
   "claimed_at": "2026-11-12T11:00:00+03:00",
@@ -13,6 +13,36 @@
     "Create one Windows launcher for available headless Godot smoke cases with fail-fast logs and no destructive git pull",
     "Document exact included/excluded PR commits, smoke evidence and handoff"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Selected N31 PR #119 as coherent contracts/cargo/ship base, with N1/N4 lineage",
+    "Imported 47 missing domain/test files from frozen PR SHAs without overwriting existing code",
+    "Reconciled N2/N3 calendar/cadence/events and N20 observer UI; retained N1 strict pause/resume guard",
+    "Created non-destructive Windows RUN-INTEGRATION-SMOKE.cmd with 11 core and 32 full discovered tests",
+    "Documented domain module presence vs real TickRunner connections and Rust parity blockers"
+  ],
+  "evidence": [
+    {
+      "type": "pull_request",
+      "url": "https://github.com/Mefits/Living-Sector/pull/120",
+      "commit": "f7e3709dab88cf1fb6dcf1b0580d3c49409abffb"
+    },
+    {
+      "type": "file",
+      "path": "godot/RUN-INTEGRATION-SMOKE.cmd"
+    },
+    {
+      "type": "file",
+      "path": "godot/docs/INTEGRATION_CANDIDATE_N32_RU.md"
+    },
+    {
+      "type": "static",
+      "result": "GitHub verified all four generated paths, P1 runner includes calendar/events/N1 strict guard, main includes observer and calendar"
+    },
+    {
+      "type": "runtime",
+      "result": "Godot Runtime not available; no runtime tests run. CODE_UNVERIFIED"
+    }
+  ],
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/120",
+  "integration_commit": "f7e3709dab88cf1fb6dcf1b0580d3c49409abffb"
 }
