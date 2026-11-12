@@ -189,3 +189,7 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N65 | P3: исчерпание топлива и состояние бедствия корабля с реальными правилами Rust | Без невидимой заправки/эвакуации, source parity и recovery guard | CODE_UNVERIFIED — [PR #154](https://github.com/Mefits/Living-Sector/pull/154), interactive-chat; Rust zero fuel still moves, no fake rescue |
 | N66 | P3: idempotency команд флота — receipt и replay-guard от дублирования приказов после reload | Невозможность повторной оплаты/отстыковки/перелёта | CODE_UNVERIFIED — [PR #155](https://github.com/Mefits/Living-Sector/pull/155), interactive-chat; idempotent ship command receipts saved in schema v2 |
 | N67 | P7/P3: read-only инспектор кораблей и причин отказа без вымышленных цифр | Стабильные snapshots, fuel/flight/dock/crew evidence, без UI P1 мутаций | IN_PROGRESS — interactive-chat (ACTIVE); [claim N67](nightshift/claims/N67.json) |
+
+| N68 | P2-04 Rust-native price engine parity, deterministic bounds and smoke; independent of N39 | Rust economy/price_engine.rs; separate PR | IN_PROGRESS — second-chat-overnight, claim N68 |
+| N69 | P3-09 native faction relations/reputation admission, no fake diplomacy | Rust faction_relations.rs/economy/reputation.rs; separate PR | IN_PROGRESS — second-chat-overnight, claim N69 |
+| N70 | P2-09 facility wear/repair/stoppage parity, no free resources | Rust facility/mod.rs; separate PR | IN_PROGRESS — second-chat-overnight, claim N70 |
