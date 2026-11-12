@@ -78,7 +78,8 @@ static func next_retry_delay(mult: int, attempts: int) -> int:
 static func _next_failure_count(state: Dictionary, faction: String,
         goal: Dictionary) -> int:
     var old: Variant = state["deferred_goals"].get(faction, null)
-    if old is Dictionary and old.get("goal", null) is Dictionary             and same_stock_goal(old["goal"], goal):
+    if (old is Dictionary and old.get("goal", null) is Dictionary
+            and same_stock_goal(old["goal"], goal)):
         return mini(255, int(old.get("failed_attempts", 0)) + 1)
     return 1
 
@@ -177,7 +178,8 @@ static func produced_goal_units(plan: Dictionary) -> float:
         for output in action.get("outputs", []):
             if not (output is Dictionary):
                 continue
-            if str(output.get("commodity", "")) != commodity                     or int(output.get("quantity", 0)) <= 0:
+            if (str(output.get("commodity", "")) != commodity
+                    or int(output.get("quantity", 0)) <= 0):
                 continue
             var start_value: Variant = output_value(baselines, action, commodity)
             var start: float = float(start_value) if start_value != null else 0.0
@@ -207,7 +209,9 @@ static func active_production_priority(plan: Dictionary,
             return {"ok": true, "priority": null}
         var preferred: String = str(action.get("commodity", ""))
         for out in action.get("outputs", []):
-            if str(out.get("commodity", "")) ==                     str(plan.get("goal", {}).get("commodity", ""))                     and int(out.get("quantity", 0)) > 0:
+            if (str(out.get("commodity", "")) ==
+                    str(plan.get("goal", {}).get("commodity", ""))
+                    and int(out.get("quantity", 0)) > 0):
                 preferred = str(out["commodity"])
         if preferred.is_empty():
             return {"ok": false, "reason": "unknown_recipe_product"}
