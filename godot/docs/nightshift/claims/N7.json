@@ -1,0 +1,17 @@
+{
+  "block_id": "N7",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T07:17:22+03:00-overnight-n7-04",
+  "claimed_at": "2026-11-12T07:17:22+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "46365572b50d87383b06eb6ec597a827717e8755",
+  "work_branch": "feature/godot-nightshift-n7-needs-production-overnight-20261112",
+  "tasks": [
+    "Integrate actual paid production and population food/water purchases with shared local stocks",
+    "Deterministic crisis and recovery with actual stock/cash receipts",
+    "Headless regression and Rust parity handoff"
+  ],
+  "progress": [],
+  "evidence": []
+}
