@@ -36,8 +36,9 @@ static func match_orders(buys: Array, sells: Array, spread: float) -> Dictionary
     var ask: Array = []
     var commodity := ""
     var ids := {}
-    for source in [buys, sells]:
-        var side := "buy" if source == buys else "sell"
+    for side_index in range(2):
+        var source: Array = buys if side_index == 0 else sells
+        var side := "buy" if side_index == 0 else "sell"
         for entry in source:
             if not entry is Dictionary or not valid_order(entry, side):
                 return {}
