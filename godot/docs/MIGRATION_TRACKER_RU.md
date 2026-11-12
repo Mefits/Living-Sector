@@ -239,3 +239,7 @@
 ### N11 — credit ledger boundary, PR #94 (12.11.2026)
 
 **CODE_UNVERIFIED, not a complete P2-05/P2-07/P2-11.** Atomic native-wallet debit/credit transfers with receipt idempotence, escrow reserve/refund primitive and snapshot/restore in `godot/scripts/sim/economy/credit_ledger.gd`; short `n11_ledger_check.gd`. Rust `economy/money.rs` is an accounting view, not a second ledger; native wallet ownership and payroll/market/contract integration still TODO. [Draft PR #94](https://github.com/Mefits/Living-Sector/pull/94), [handoff](nightshift/N11_LEDGER_HANDOFF_RU.md). Godot runtime absent, smoke not executed. VERIFIED unchanged: **P0 3/9, P1 0/9, P2 0/11, total 3/100**.
+
+### N10 — native pricing and order matching (12.11.2026)
+
+**CODE_UNVERIFIED — [draft PR #98](https://github.com/Mefits/Living-Sector/pull/98).** Rust `price_engine.rs` coverage/urgency/spread and `order_book.rs` pure matching/partial fills ported; per-market bounded tick history and short `n10_market_check.gd` added. No physical trade, escrow, market clearing or ledger settlement implemented. PR stacked on N9/#96 and N5/#93. Godot executable unavailable, test not run. **P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED unchanged.**
