@@ -1,6 +1,6 @@
 {
   "block_id": "N25",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T09:54:46+03:00-second-chat-N25",
   "claimed_at": "2026-11-12T09:54:46+03:00",
@@ -13,6 +13,21 @@
     "idempotent receipts and save/load",
     "short headless smoke"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Rust price priority and partial fills",
+    "atomic local stock/cash transfer",
+    "receipt idempotence and versioned snapshots",
+    "headless smoke added"
+  ],
+  "evidence": [
+    "Static source comparison with native/crates/sim_core/src/economy/order_book.rs",
+    "Godot runtime NOT executed"
+  ],
+  "completed_at": "2026-11-12T09:56:00+03:00",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/113",
+  "commit_sha": "867a10ff13c1faf46a82a3a314255b490b5948d1",
+  "limitations": [
+    "not connected to live N9/N11/N10 TickRunner",
+    "one commodity per order book"
+  ]
 }
