@@ -37,10 +37,10 @@ static func fuel_bucket_cost(from: String, to: String, route_legs: Dictionary) -
 	return _clamp_bucket_cost(distance, false, true)
 
 static func fuel_fraction_to_bucket(fraction: float) -> int:
-	# Source state uses N81 planner.rs::fuel_fraction_to_bucket. Its native
-	# implementation/rounding belongs to N81. This wrapper refuses
-	# to substitute an arbitrary bucket.
-	return -1
+	# ai/planner.rs::fuel_fraction_to_bucket, round positive ties up.
+	if fraction <= 0.0:
+		return 0
+	return mini(10, maxi(0, int(floor(fraction * 10.0 + 0.5))))
 
 static func plan_request(kind: String, args: Dictionary, route_legs: Dictionary) -> Dictionary:
 	## Exact Rust GOAP call domain; run it using existing N81 planner/catalog.
@@ -125,7 +125,6 @@ static func plan_request(kind: String, args: Dictionary, route_legs: Dictionary)
 	if kind == "trade_run" or kind == "trade_run_retrofit":
 		map["contract_id"] = ""
 		map["quantity"] = 50
-		goal["delivered"] = false
 	if kind.begins_with("resume_"):
 		# Recovered contract state is derived from actual cargo and board.
 		# Rust goal drops fuel>=2 for resume and uses initial dock status.
@@ -346,3 +345,61 @@ static func idle_seek_station(current: String, docked: bool, loc_type: String, r
 	out.append(_action("DockDwell", {"seconds": EXPLORE_CHECK_BOARD_SECONDS}))
 	out.append(_action("Undock"))
 	return out
+
+static func contract_candidate_request(current: String, candidate: Dictionary, fuel_bucket: int, routes: Dictionary) -> Dictionary:
+	## Kind routing of behavior.rs::try_plan_contract after choosing the
+	## highest own-strategy/fill-adjusted offer. Does not call N81 itself.
+	if candidate.is_empty():
+		return {}
+	var kind: String = str(candidate.get("kind", ""))
+	var source: String = str(candidate.get("source", ""))
+	var dest: String = str(candidate.get("destination", ""))
+	var id: String = str(candidate.get("id", ""))
+	var commodity: String = str(candidate.get("commodity", ""))
+	var qty: int = int(candidate.get("quantity", 0))
+	var request_kind: String = "delivery"
+	var request_source: String = source
+	var request_dest: String = dest
+	var request_quantity: int = qty
+	match kind:
+		"CrewMission":
+			request_kind = "crew_mission"
+			request_source = current
+			request_dest = source
+			request_quantity = 0
+			commodity = "Food"
+		"Passenger":
+			request_kind = "passenger"
+			commodity = "Food"
+		"Courier":
+			request_kind = "courier"
+			request_quantity = 0
+			commodity = "Food"
+		_:
+			request_kind = "delivery"
+	return plan_request(request_kind, {
+		"current": current, "source": request_source,
+		"destination": request_dest, "commodity": commodity,
+		"quantity": request_quantity, "contract_id": id,
+		"fuel_bucket": fuel_bucket
+	}, routes)
+
+static func trade_candidate_request(current: String, trade: Dictionary, fuel_bucket: int, routes: Dictionary) -> Dictionary:
+	## N83 supplies the actually accepted fresh + solvent best trade.
+	## This does not duplicate N83 route price/learning calculations.
+	if trade.is_empty():
+		return {}
+	return plan_request("trade_run", {
+		"current": current, "source": str(trade.get("buy_loc", "")),
+		"destination": str(trade.get("sell_loc", "")),
+		"commodity": str(trade.get("commodity", "")), "quantity": 50,
+		"fuel_bucket": fuel_bucket
+	}, routes)
+
+static func bt_result_after_goap(request: Dictionary, expanded_actions: Array, route_legs: Dictionary) -> Array:
+	## Called only after N81 found a plan; an empty/failed search must
+	## yield a one-tick Idle BT exactly as Rust build_* wrappers do.
+	if request.is_empty() or expanded_actions.is_empty():
+		return [_action("Idle")]
+	return compile_plan_to_bt_actions(expanded_actions, request.get("loc_map", {}),
+		route_legs, str(request.get("kind", "")).begins_with("resume_"))
