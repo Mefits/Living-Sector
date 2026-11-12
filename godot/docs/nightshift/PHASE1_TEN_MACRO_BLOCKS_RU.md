@@ -59,3 +59,13 @@
 ### Макро №2 — N144, 12.11.2026
 - [PR #232](https://github.com/Mefits/Living-Sector/pull/232), CODE_UNVERIFIED: Rust colony proposal selection/ranking and active-site continuation with physical routes, resource-bearing planets, technology, settler, transport and funded metals quote checks. Separate from N79 admission/N118 paid commission/N92 aftercare.
 - **Остаток макро №2:** full source parity for population migration and colony aftercare paid passenger commitment, authoritative population transfer and crisis application, Phase 2 unified execution. Symbolic overall remaining Phase 1 ~57–60% (not Nx count); no runtime acceptance.
+
+## 12.11.2026 — макроблок №8: исходное покрытие науки ЗАКРЫТО (N143)
+
+**Результат:** [Draft PR #233](https://github.com/Mefits/Living-Sector/pull/233), N143 `CODE_UNVERIFIED`, 4 файла / 725 LOC. Оригинал `strategy/director.rs` — `TECHNOLOGIES` (12 реальных технологий), `observe` выбор направления, `research_ready` проверки, `research` оплачиваемая наука; `strategy/governance.rs` — долгосрочное поручение и бюджет, `strategy/charter.rs` — разрешение/учёт реальной player-attributed оплаты. **Исходная научная механика покрыта всеми самостоятельными N44/N45/N76/N82/N89/N110/N120/N143 вместе**, с явной матрицей исходников в `N143_MACRO8_COMPLETE_RESEARCH_SOURCE_RU.md`.
+
+**Закрыто именно для Фазы 1 — source domain port:** выбор/цель без сброса оплаченного прогресса; prereqs и 12 tech; Hold/Advise/Delegated и charter research autonomous/review; только реальный местный Electronics+staff; 10 работников, 1 electronics, оплата `ceil(price)+10` с реальными кошельками; 10 работы/смену, unlock лишь после подтверждённой транзакции; сохранение учёта мандата/charter. Источник `research_ready` требует строго `treasury > ceil(price)+10010`; реальный `research()` допускает `>=`, исходная граница сохранена.
+
+**Не закрыто в качестве исполняемой игры:** нет Godot runtime test, GitHub PR НЕ слиты; N82/N45/N89/N120 и N143 будут объединяться в один реальный World+ledger+director save authority только в **Фазе 2**. Освоение T2/T3 через оплачиваемые материалы и строительные смены относится к макро **№6**; полноценные фракционные чартеры и стратегические портфели относятся к **№7**. 1000-летняя новая T4-наука — **Фаза 3**, не подмена frozen Rust.
+
+**Учёт макроблоков после N143:** №8 — один полностью **source-covered** из десяти, **не VERIFIED** и не интегрирован. Остальные **9** направлений всё ещё имеют исходные непокрытые функции/нуждаются в source audit. Символическое оставшееся исходное покрытие всей Фазы 1 около **55–59%** (не статистика Godot-запусков, не число PR; грубая экспертная оценка).
