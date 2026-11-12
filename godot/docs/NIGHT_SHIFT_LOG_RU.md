@@ -800,3 +800,6 @@ Three independent atomic claims created before code. Scopes: faction relations, 
 - N116 [Draft PR #205](https://github.com/Mefits/Living-Sector/pull/205): native facility paid shift staffing, occupied-worker receipts, wage and owner/producer payment modes; authoritative transactional lock external.
 - N117 [Draft PR #206](https://github.com/Mefits/Living-Sector/pull/206): read-only HTN/GOAP/Beam comparison with injected native validation; planner adapters external.
 All three CODE_UNVERIFIED, separate PR/branches, no Godot run, no merge or P1 changes. N39 and other claims untouched.
+
+### 2026-11-12 19:23 CET — overnight-scheduler N118–N120 START
+Three independent claims created atomically before code: N118 colony founding, N119 shipyard orders, N120 research execution. Work branches separate; N39 and other owners untouched. Phase 1 only, runtime unverified.
