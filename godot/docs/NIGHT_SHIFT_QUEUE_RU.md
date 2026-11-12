@@ -1,4 +1,9 @@
 # Living Sector — ночная очередь автономной разработки Godot
+
+**НОВЫЙ ПЛАН 10 КРУПНЫХ НАПРАВЛЕНИЙ ФАЗЫ 1:** [PHASE1_TEN_MACRO_BLOCKS_RU.md](nightshift/PHASE1_TEN_MACRO_BLOCKS_RU.md). Не создавать 10 Nx claims заранее; один реальный Nx на одну крупную рабочую итерацию после проверки свежих GitHub-резерваций. Текущий ориентир оставшегося переноса ~58–61% (приблизительно, source coverage, не по номеру Nx).
+
+| N138 | **CODE_UNVERIFIED — [Draft PR #228](https://github.com/Mefits/Living-Sector/pull/228), interactive-chat** | **Макро №3 (корабельная жизнь)**: native Rust `tick_crew` недостающие morale / role tasks / ShipEconomy.efficiency, strict pre-meal Eating, 3 pure GDScript modules + bridge, 392 LOC additions | N72 retains physical food/wages; no double debit, Phase-2 adapter pending, no Godot runtime |
+
 | N139 | **CODE_UNVERIFIED — [Draft PR #227](https://github.com/Mefits/Living-Sector/pull/227)** — second-chat-overnight | Native Rust `strategy/production_chain.rs`: physical five-stage production/construction inspection and precursor priority; read-only | `claims/N139.json`; `feature/godot-n139-native-production-chain-20261112` |
 | N137 | **CODE_UNVERIFIED — [Draft PR #226](https://github.com/Mefits/Living-Sector/pull/226)** | LARGE native `ai/considerations.rs`: all pure ship utility considerations, axes, freshness and resource factors | `claims/N137.json`; `feature/godot-n137-native-ai-considerations-20261112` |
 
