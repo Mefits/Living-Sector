@@ -344,3 +344,6 @@ Atomic claim `claims/N30.json` commit `4b612db902d31c15d37093e523ed9e49a8a68148`
 - **Checks:** source/API review; Godot executable unavailable, headless smoke NOT RUN. **CODE_UNVERIFIED**. Audit is diagnostic, not a transactional gate; recipient/provenance and N29 docking integration pending.
 - **Other blocks:** N1–N29 have claims; N28 owned by overnight-scheduler, N29 by second-chat-overnight; verify fresh claims before N31.
 - **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, overall 3/100 VERIFIED; N1–N30 code blocks await Godot runtime verification.
+
+### N31 start — 2026-11-12 11:08 MSK — second-chat-overnight
+Atomic claim `claims/N31.json` at `f1274062eb75162b93ba013fc194f708443fcc65`; runtime contract settlement integration, deterministic tick dispatch, receipt and replay smoke. IN_PROGRESS.
