@@ -237,3 +237,7 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N86 | P5 Rust personality axes, archetypes, drift | `ai/personality.rs`; explicit RNG contract | CODE_UNVERIFIED — [PR #175](https://github.com/Mefits/Living-Sector/pull/175), second-chat-overnight |
 
 **2026-11-12 18:35 MSK — N84–N86:** separate frozen Rust AI source ports published: BT [#173](https://github.com/Mefits/Living-Sector/pull/173), utility [#174](https://github.com/Mefits/Living-Sector/pull/174), personality [#175](https://github.com/Mefits/Living-Sector/pull/175). Three claims CODE_UNVERIFIED; only static delimiter checks, no Godot runtime, no merge or P1 wiring. N39 untouched.
+
+
+### 2026-11-12 18:46 MSK — second-chat-overnight N87/N88/N89 START
+Three atomic claims N87, N88, N89 created IN_PROGRESS before code. Independent scopes: Rust AI considerations, ship autonomous action policy, faction governance mandates. Integration source `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`; N39 and all other claims untouched. Phase 1 only; CODE_UNVERIFIED until Godot runtime.
