@@ -77,3 +77,9 @@
 ### 13.11.2026 — макро №10, N146 SimCommand buffer
 - [Draft PR #235](https://github.com/Mefits/Living-Sector/pull/235), CODE_UNVERIFIED: frozen `simulation/commands.rs` 23 variants and trace labels, ship attribution, insertion-order staging, append/drain and handoff. No transaction Apply or live save/replay authority.
 - **Остаток макро №10:** authoritative sim_server save/restore and deterministic replay, spawner/seed normalization, other uncovered simulation/world branches. N140/N142/N146 are separate source ports; Phase 2 assembly deferred. Symbolic total remaining Phase 1 ~54–59%, not Nx-derived.
+
+### 13.11.2026 — макро №2: N147, исходный оплаченный переезд работников
+
+- **[N147 / Draft PR #236](https://github.com/Mefits/Living-Sector/pull/236), CODE_UNVERIFIED.** Полностью перенесены два не покрытых N92 исходных функции `strategy/colony_development.rs::migration_proposals` и `commission` в отдельные pure GDScript: реальный запрос на перевозку от фракции, не свободный прирост населения. 4 файла / 552 добавленные строки, включая исходные сценарии и передачу в Фазу 2.
+- Русский оригинал колонии N92/PR#180 **не менялся**; N144/PR#232 отвечает за первоначальные экспедиции, N114/PR#203 — спонтанный отток населения, N126/PR#214 — passenger posting самими популяциями, N16/N104 — существующий paid ContractBoard, N97 — физическая доставка. Только одна будущая авторитетная транзакция `post_passenger_for + register_prepaid + treasury debit`; запрещён фиктивный escrow, мгновенные переселенцы и мнимый маршрут через врата.
+- **Остаток макро №2:** аудит других непокрытых Rust lifecycle ветвей `agents/population.rs`, `strategy/colony.rs` и `colony_development.rs`, затем объединение без второго конвейера. Макро **не закрыто целиком**; общий ориентир оставшегося переноса Фазы 1 ~55–59%, пока без точного переучёта. Godot runtime только Фаза 2.
