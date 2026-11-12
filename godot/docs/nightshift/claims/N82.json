@@ -1,0 +1,19 @@
+{
+  "block_id": "N82",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T18:30:39+03:00-second-chat-11-N82",
+  "claimed_at": "2026-11-12T18:30:39+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n82-tech-second-20261112",
+  "scope": "Port frozen faction technology catalogue and prerequisites",
+  "tasks": [
+    "Port frozen faction technology catalogue and prerequisites",
+    "Preserve research eligibility and work thresholds",
+    "Expose pure data-only lookup contracts"
+  ],
+  "progress": [],
+  "evidence": []
+}
