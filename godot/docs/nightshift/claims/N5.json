@@ -1,0 +1,18 @@
+{
+  "block_id": "N5",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T04:24:38+03:00-second-chat-n5",
+  "claimed_at": "2026-11-12T04:24:38+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "coordination HEAD at claim creation (commit SHA returned by create_file); Rust reference 6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "work_branch": "feature/godot-nightshift-n5-commodities-recipes-20261112",
+  "tasks": [
+    "extract native commodity IDs and recipe definitions",
+    "create deterministic Godot catalog",
+    "validate exact input/output and tier/module rules",
+    "add short headless smoke tests"
+  ],
+  "progress": [],
+  "evidence": []
+}
