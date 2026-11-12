@@ -219,6 +219,10 @@ static func _admit_plan(state: Dictionary, world: Dictionary,
         return {"ok": true, "fallback": true, "state": state,
             "reason": "head_selected_other_domain"}
     var head_goal: Variant = context.get("head_goal", null)
+    # Rust head.reason==already_commissioned_this_tick suppresses its
+    # fresh goal; a deferred goal may still be considered separately.
+    if str(head.get("reason", "")) == "already_commissioned_this_tick":
+        head_goal = null
     if head_goal != null and not (head_goal is Dictionary):
         return _fail("invalid_head_goal")
     var deferred: Variant = state["deferred_goals"].get(faction, null)
@@ -260,9 +264,11 @@ static func _admit_plan(state: Dictionary, world: Dictionary,
             or not State.same_stock_goal(candidate["goal"], goal)
             or not (candidate.get("actions", null) is Array)
             or not (candidate.get("ledger", null) is Dictionary)):
+        var failed_reason: String = (
+            str(candidate.get("reason", "native_candidate_unavailable"))
+            if candidate is Dictionary else "native_candidate_unavailable")
         var failed: Dictionary = State.record_planning_failure(
-            next_state, faction, goal, "native_candidate_unavailable",
-            tick, mult)
+            next_state, faction, goal, failed_reason, tick, mult)
         if not bool(failed.get("ok", false)):
             return failed
         return {"ok": true, "fallback": true, "state": failed["state"],
