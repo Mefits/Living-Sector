@@ -61,7 +61,7 @@ static func plan_missions(facilities: Array, contracts: Array,
 				not (f.get("facility_type") is String) or \
 				not (f.get("location_name") is String) or \
 				typeof(f.get("credits"))!=TYPE_INT or \
-				not (f.get("faction_id") is String)):
+				not (f.get("faction_id") is String):
 			return _fail("invalid_real_mission_facility")
 		if bool(f.get("abandoned",false)):
 			continue
