@@ -1,6 +1,6 @@
 {
   "block_id": "N47",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "overnight-scheduler",
   "run_id": "2026-11-12T12:50:55+01:00-overnight-n47",
   "claimed_at": "2026-11-12T12:50:55+01:00",
@@ -12,5 +12,22 @@
     "Add deterministic fail-closed seed validation",
     "Add regression fixtures and headless smoke",
     "Document Rust parity boundaries and integration"
+  ],
+  "completed_at": "2026-11-12T12:53:00+01:00",
+  "head_sha": "a2bd3c0f4820278582c2895fdd93137c5190b1dd",
+  "pull_request": "https://github.com/Mefits/Living-Sector/pull/135",
+  "progress": [
+    "Added read-only schema/identity/ownership/orbit/route/count preflight",
+    "Added deterministic negative fixture smoke",
+    "Documented integration and parity boundaries"
+  ],
+  "evidence": [
+    "3 GitHub files committed, PR #135 open as draft",
+    "Static GDScript bracket counts balanced",
+    "Godot binary not installed; runtime test NOT executed"
+  ],
+  "limitations": [
+    "Validator not wired into world startup",
+    "Rust runtime parity not established"
   ]
 }
