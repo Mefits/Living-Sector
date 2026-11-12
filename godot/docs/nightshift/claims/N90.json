@@ -1,6 +1,6 @@
 {
   "block_id": "N90",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "manual-next-n90-2026-11-12T16:08:14.671Z",
   "claimed_at": "2026-11-12T16:08:14.674Z",
@@ -23,5 +23,25 @@
     "N79 shipyard and colony",
     "N80 autonomous policy",
     "P1/main/stable/Rust immutable"
+  ],
+  "activity": "COMPLETED_CODE",
+  "finished_at": "2026-11-12T16:18:28.759Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/182",
+  "head_sha": "1e564ab7ca2556f92847b54476841a9e5ce9b678",
+  "progress": [
+    "Source-ported Rust ShipTransactionSlot single-inflight mailbox and request/Apply confirmation semantics with correct mismatch clearing, interrupt cancellation and checked request IDs.",
+    "Source-ported Buy, Sell, SellAll, Refuel, Mine, Contract Accept/Embark/Deliver, Refit, GateJump, and obsolete PickupCargo BT leaf behavior as data-only intent generation.",
+    "Native physical mine shift (3*tick_multiplier), cargo and credits gates, known-price posture/embargo requirements, SellAll lexical order and post-ack cargo check.",
+    "All code avoids authoritative world mutations; N88 lifecycle and N39 production unchanged. Documented true Apply dependencies and Rust optimistic gate patch separately."
+  ],
+  "evidence": [
+    "Frozen Rust sim_core/src/agents/ship/actions.rs (35135 chars), transactions.rs, economy/commodities.rs, simulation/commands.rs inspected and cited in new handoff.",
+    "Two GDScript sources ~495 lines + docs in Draft PR #182, one preload target exists; balanced literal delimiters, concise source static validation.",
+    "Godot runtime NOT executed and no repeated test suite created, per user's Phase 1 instructions. No claims of full market/apply completion."
+  ],
+  "outstanding": [
+    "Physical global SimCommand Apply settlement/price and market stock/credit ledger",
+    "Real body mining extraction and reservoir decrement, shipyard refit, gate fee",
+    "N88 lifecycle + N90 economic BT leaf composition in phase 2 only"
   ]
 }
