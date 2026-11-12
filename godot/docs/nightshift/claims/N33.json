@@ -1,0 +1,17 @@
+{
+  "block_id": "N33",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T09:35:28+01:00-overnight-8-n33",
+  "claimed_at": "2026-11-12T09:35:28+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "e7939f318924f6afc53b9bc772645cb65a2350c9",
+  "work_branch": "feature/godot-nightshift-n33-integration-acceptance-20261112",
+  "tasks": [
+    "Audit N32 integration smoke coverage and false-positive failure modes",
+    "Implement robust deterministic smoke runner and machine-readable report",
+    "Add integration acceptance regression and Rust-parity boundary documentation"
+  ],
+  "progress": [],
+  "evidence": []
+}
