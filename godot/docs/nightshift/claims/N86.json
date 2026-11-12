@@ -1,6 +1,6 @@
 {
   "block": "N86",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "overnight-20261112T183540+0300-N86",
   "started_at": "2026-11-12T18:35:40+03:00",
@@ -12,5 +12,14 @@
     "Read exact frozen Rust component and dependent interfaces",
     "Port data-only GDScript mechanics without world mutation",
     "Perform minimal static source/contract check and publish separate Draft PR"
-  ]
+  ],
+  "commit_sha": "4ac8200f5af8147b5a64b5ac74ce94a4e2c070fe",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/175",
+  "checks": [
+    "Frozen Rust source read and compared",
+    "GDScript file existence verified on GitHub",
+    "Static delimiter balance passed",
+    "Godot runtime not executed"
+  ],
+  "completed_at": "2026-11-12T18:35:40+03:00"
 }
