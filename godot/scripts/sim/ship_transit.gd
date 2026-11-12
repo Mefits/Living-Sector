@@ -84,6 +84,17 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 	return "moving"
 
 ## Any previously scheduled arrival must carry the same token.
+## N54: the next nonce is persistent across world restore. A cursor equal
+## to an active in-flight token could replay old arrival events.
+func next_token() -> int:
+    return _next_token
+
+func restore_next_token(value: int, minimum_exclusive: int) -> bool:
+    if value < 1 or minimum_exclusive < 0 or value <= minimum_exclusive:
+        return false
+    _next_token = value
+    return true
+
 func arrival_token_valid(state: RefCounted, ship_id: String, token: int) -> bool:
 	if not state.ships.has(ship_id):
 		return false
