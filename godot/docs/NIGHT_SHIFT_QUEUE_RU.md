@@ -310,6 +310,6 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 
 | N121 | **LARGE P5: native_execution.rs full 61 KB receipt-driven HTN→actual world bridge** — deferred goal retry, checkpoint history, native paid production receipts, contracts and real dispatch admission | No N39 production/N100 hybrid/N98 ledger edits, data-only authoritative snapshots; one-per-cycle, no Godot tests | IN_PROGRESS — interactive-chat; [claim N121](nightshift/claims/N121.json) |
 
-| N122 | P5 territorial controller from real non-gate facility counts and credits | Rust agents/celestial_body.rs | IN_PROGRESS — second-chat-overnight, claim N122 |
-| N123 | P2 body regeneration, biome food multipliers and descriptive richness grades | Rust agents/celestial_body.rs | IN_PROGRESS — second-chat-overnight, claim N123 |
-| N124 | P2 market demand window, shortage persistence and order expiry | Rust agents/market.rs | IN_PROGRESS — second-chat-overnight, claim N124 |
+| N122 | P5 territorial controller from real non-gate facility counts and credits | Rust agents/celestial_body.rs | CODE_UNVERIFIED — [PR #210](https://github.com/Mefits/Living-Sector/pull/210), second-chat-overnight |
+| N123 | P2 body regeneration, biome food multipliers and descriptive richness grades | Rust agents/celestial_body.rs | CODE_UNVERIFIED — [PR #211](https://github.com/Mefits/Living-Sector/pull/211), second-chat-overnight |
+| N124 | P2 market demand window, shortage persistence and order expiry | Rust agents/market.rs | CODE_UNVERIFIED — [PR #212](https://github.com/Mefits/Living-Sector/pull/212), second-chat-overnight |
