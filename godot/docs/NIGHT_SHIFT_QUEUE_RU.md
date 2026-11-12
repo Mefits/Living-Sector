@@ -126,3 +126,5 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N37 | **P0-08: аудит ассетов и лицензий Rust → Godot:** реестр медиа/шрифтов и происхождения, явные ограничения переноса, воспроизводимая проверка | PR #126: 97 SHA/size records, static 97/97 PASS; unknown rights blocked, no media copied | CODE_UNVERIFIED — PR #126, overnight-scheduler |
 
 | N38 | **P1/P8: deterministic checkpoint integrity:** guard save schema, exact replay and corrupt checkpoint rejection; Rust parity, Godot smoke | Fail-closed checkpoint and restoration, deterministic checksum, no state mutation on failure | CODE_UNVERIFIED — PR #127, second-chat-overnight |
+
+| N39 | **P1/P2: live production world bridge:** connect N23 paid facility simulation to actual native station inventories, workers, and wallet references at the single Godot tick, without double pay/creation or event regressions; guarded snapshot/restore | One real facility production tick changes stock and balances once; insufficient materials/funds block production, orbits/events preserved | IN_PROGRESS — interactive-chat, claim N39 |
