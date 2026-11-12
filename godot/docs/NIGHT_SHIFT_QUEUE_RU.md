@@ -143,3 +143,5 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N45 | **P6: funded research command bridge:** Rust research cost, N44 prerequisites, real ledger payment and idempotent order receipt; no invented unlock | Deterministic fail-closed paid order, duplicate/insufficient funds/save smoke | CODE_UNVERIFIED — [PR #134](https://github.com/Mefits/Living-Sector/pull/134), second-chat-overnight; N44 dependency |
 
 | N46 | **P3: Rust-source fleet initialization:** реальный запуск стартовых кораблей из seed в корабельную модель без придуманного топлива/груза, безопасное подключение N40/N43 | Сверка Rust spawn/defaults, детерминированная bootstrap-модель, headless smoke/отказы, без пересечения N39 | IN_PROGRESS — interactive-chat; [claim N46](nightshift/claims/N46.json) |
+
+| N47 | **P1: fail-closed native seed validation:** deterministic schema/identity/referential checks before world bootstrap; no world mutation; independent of N39/N46 | Source parity, invalid fixture rejection, short Godot smoke | IN_PROGRESS — overnight-scheduler, claim N47 |
