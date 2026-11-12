@@ -1,0 +1,18 @@
+{
+  "block_id": "N37",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T10:38:04+01:00-overnight-9-n37",
+  "claimed_at": "2026-11-12T10:38:04+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "23c1c5e3cf8af80107b0daa50d1c18d3b88e5ec5",
+  "work_branch": "feature/godot-nightshift-n37-assets-license-audit-20261112",
+  "tasks": [
+    "inventory media/font/license files from frozen Rust",
+    "classify provenance and transfer restrictions",
+    "write machine-readable audit and concise validation script",
+    "document P0-08 acceptance boundaries"
+  ],
+  "progress": [],
+  "evidence": []
+}
