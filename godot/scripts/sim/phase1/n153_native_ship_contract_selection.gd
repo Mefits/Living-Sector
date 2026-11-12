@@ -200,3 +200,19 @@ static func select_contract(context: Dictionary) -> Dictionary:
 			} if kind in ["Delivery", "Subsidy", "Construction"] else null
 		}
 	return best
+
+static func contract_funding_key_from_native_snapshot(contract: Dictionary, gate: Dictionary) -> String:
+	## Rust contract_funding_key formatting. The quote_debug field MUST be
+	## Rust Result Debug (Ok(n) / Err(...)) from N104; no fake quote.
+	## payer_debug MUST be Option<i64> Debug (Some(n) / None).
+	var status_debug: String = str(contract.get("status", "Posted"))
+	var payment: int = int(contract.get("payment", 0))
+	var funding: Dictionary = contract.get("funding", {})
+	var source_debug: String = str(funding.get("source_debug", "none"))
+	var reserved: int = int(funding.get("reserved", -1))
+	var quote_debug: String = str(gate.get("quote_debug", "Err(MissingQuote)"))
+	var payer_debug: String = str(gate.get("payer_debug", "None"))
+	var commerce_allowed: String = "true" if gate.get("commerce_allowed", false) == true else "false"
+	return "%s:%d:%s:%d:%s:%s:%s" % [
+		status_debug, payment, source_debug, reserved,
+		quote_debug, payer_debug, commerce_allowed]
