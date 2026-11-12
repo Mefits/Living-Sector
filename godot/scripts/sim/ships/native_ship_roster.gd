@@ -48,7 +48,7 @@ func metadata(ship_id: String) -> Dictionary:
 ## caller must supply separately sourced exact fuel and cargo values for EACH
 ## registered ship. This does not assert those values exist in the JSON seed.
 func validate_authoritative_state(state: RefCounted, fuel_sources: Dictionary, cargo_sources: Dictionary) -> bool:
-    if registry == null or state == null or not ("ships" in state):
+    if registry == null or state == null or not (state.get("ships") is Dictionary):
         return false
     if state.ships.is_empty() or state.ships.size() > _roster.size():
         return false
