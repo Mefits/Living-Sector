@@ -1,18 +1,38 @@
 {
   "block_id": "N1",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "third-chat-overnight",
   "run_id": "2026-11-12T03:25:36+03:00-third-chat-overnight-1",
   "claimed_at": "2026-11-12T03:25:36+03:00",
   "coordination_branch": "feature/godot-nightshift-20261112",
   "source_sha": "950b484e8cc64b69b21947878f16129b484efd26",
-  "work_branch": "feature/godot-nightshift-n1-static-audit",
+  "work_branch": "feature/godot-nightshift-n1-static-audit-code",
   "tasks": [
     "static audit of P0/P1-A GDScript and Rust formulas",
     "repair self-contained smoke coverage for save/restore and controls",
     "validate JSON/scene/script references without Godot runtime",
     "document exact local headless acceptance command"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Validated 8 frozen Galaxy world JSON files / 47 body orbit records.",
+    "Hardened importer and detached WorldModel input boundaries.",
+    "Aligned live and persisted pause/resume command validation.",
+    "Added a third short headless audit to the existing Windows smoke command."
+  ],
+  "evidence": [
+    {
+      "type": "pull_request",
+      "url": "https://github.com/Mefits/Living-Sector/pull/90",
+      "head_sha": "c96dd597383051b0645a18fd10fee0e76996d977"
+    },
+    {
+      "type": "static_check",
+      "result": "8/8 JSON parsed; 47/47 bodies have finite orbit_period > 0 and 0 <= current_angle < 360"
+    },
+    {
+      "type": "runtime",
+      "result": "Godot executable unavailable; RUN-P1-SMOKE.cmd is not run"
+    }
+  ],
+  "completed_at": "2026-11-12T03:31:25+03:00"
 }
