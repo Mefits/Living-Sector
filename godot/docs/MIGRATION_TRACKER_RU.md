@@ -298,3 +298,5 @@ Draft [PR #116](https://github.com/Mefits/Living-Sector/pull/116) implements a r
 
 ### N35 — contract commands in authoritative tick (CODE_UNVERIFIED)
 [Draft PR #124](https://github.com/Mefits/Living-Sector/pull/124): opt-in N31 dispatcher at Rust apply2 phase, calendar/event cadence preserved, external-world guarded save restore and headless test. Godot runtime not executed; N23 facilities and external economy snapshot not unified. PR reports mergeable=false pending conflict review. VERIFIED unchanged: P0 3/9, P1 0/9, P2 0/11, total 3/100.
+
+> **N36, 12.11.2026:** [Draft PR #125](https://github.com/Mefits/Living-Sector/pull/125) adds read-only main scene boot diagnostics and a headless UI smoke (pause/step/x16/observer/save/restore) on N32 integration base. Static delimiter check only; Godot Runtime NOT RUN, **CODE_UNVERIFIED**. P0 3/9, P1 0/9, P2 0/11, total 3/100 VERIFIED unchanged. No new economy/ship phases advertised.
