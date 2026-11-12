@@ -214,6 +214,6 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 
 **2026-11-12 17:37 MSK — N71–N73:** три независимых claim закрыты CODE_UNVERIFIED после публикации исходников и коротких headless-сценариев: N71 population purchase/sentiment [PR #163](https://github.com/Mefits/Living-Sector/pull/163); N72 crew upkeep/wages [PR #164](https://github.com/Mefits/Living-Sector/pull/164); N73 native recipe catalogue [PR #165](https://github.com/Mefits/Living-Sector/pull/165). Все три Draft на базе integration/godot-47-n33-n37-20261112; не интегрированы в живой мир, Godot не запускался. N39 не затронут. Итого N1–N73: 72 кодовых Nx/PR, 1 чужой N39 IN_PROGRESS; интеграционный baseline остаётся #128, без новых runtime-подтверждений. Нужны интеграционные wiring, атомарные реестры/квитанции и автоматические headless проверки, прежде чем считать механики работающими.
 
-| N77 | P4: Rust construction site lifecycle/material consumption | Source-backed GDScript, no invented materials | IN_PROGRESS — overnight-scheduler |
-| N78 | P5: Rust faction strategic decisions | Source-backed GDScript, no invented policy | IN_PROGRESS — overnight-scheduler |
-| N79 | P4: Rust shipyard orders and ship creation | Source-backed GDScript, no free ships | IN_PROGRESS — overnight-scheduler |
+| N77 | P4: Rust construction site lifecycle/material consumption | Source-backed GDScript, no invented materials | CODE_UNVERIFIED — PR #166 |
+| N78 | P5: Rust faction strategic decisions | Source-backed GDScript, no invented policy | CODE_UNVERIFIED — PR #167 |
+| N79 | P4: Rust shipyard orders and ship creation | Source-backed GDScript, no free ships | CODE_UNVERIFIED — PR #168 |
