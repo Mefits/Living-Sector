@@ -1,5 +1,8 @@
 # Living Sector — ночная очередь автономной разработки Godot
 
+| N143 | **IN_PROGRESS — interactive-chat** | **Макро №8 (исследования)**: source coverage completion for Director observation/target, research_ready, real paid local research, mandate & charter receipt tracking; integrate with existing N44/N45/N76/N82/N89/N120 without duplicate ledger | Atomic claim `claims/N143.json` before code. Own `feature/godot-n143-complete-rust-research-domain-20261112` |
+
+
 | N142 | **CODE_UNVERIFIED — [Draft PR #231](https://github.com/Mefits/Living-Sector/pull/231), interactive-chat** | Macro #10 frozen Rust `world/registry.rs` physical-only directed shortest-distance and `world/travel.rs` legacy TickConfig timings; 4 files / 559 LOC | N59 gate pathfinder, N61 ship itinerary, N112 moving transit unchanged; Godot runtime NOT RUN |
 
 
