@@ -280,3 +280,6 @@
 ### N27 — contract physical receipt enforcement (CODE_UNVERIFIED)
 
 [Draft PR #115](https://github.com/Mefits/Living-Sector/pull/115), stacked on N26 #114: contract board validates actual cargo receipts before delivery state and escrow payout, N26 binds receipt registry, regression smoke for forged receipt/direct settlement/replay/restore. Non-delivery fulfillment intentionally fails closed until typed handlers. Godot executable not run; confirmed counts unchanged P0 3/9, P1 0/9, P2 0/11, total 3/100.
+
+### N28 — P8-03 partial ledger reconciliation (2026-11-12)
+Draft [PR #116](https://github.com/Mefits/Living-Sector/pull/116) implements a read-only audit of N11 credit ledger balances and receipts, explicit seed baseline, deterministic errors and tamper/save-restore smoke. **CODE_UNVERIFIED**, no Godot executable; P8-03 stays TODO until native ship/facility/faction/household/crew/escrow wallet parity and chronological receipts are integrated and runtime tests pass. VERIFIED counts unchanged: P0 3/9, P1 0/9, P2 0/11, overall 3/100.
