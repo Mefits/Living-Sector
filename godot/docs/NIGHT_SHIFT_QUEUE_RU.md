@@ -360,3 +360,5 @@ All three distinct claims CODE_UNVERIFIED, three separate branches, source revie
 | N133 | P5 Rust director industrial accident and crisis cadence | native strategy/director.rs | CODE_UNVERIFIED — [PR #222](https://github.com/Mefits/Living-Sector/pull/222); source corrected before code |
 
 | N141 | Macro #6: frozen Rust construction/labor.rs exact paid labor commit, local households, shared 60% workforce and active executor; separate from N77 site receipts and N39 production | `agents/construction/labor.rs`; `facility/workforce.rs` occupied_workers context | CODE_UNVERIFIED — [Draft PR #229](https://github.com/Mefits/Living-Sector/pull/229), 132-line GDScript source-backed payroll; Godot not run |
+
+| N146 | **IN_PROGRESS — second-chat-overnight** | Macro 10: frozen `simulation/commands.rs` full typed SimCommand catalogue, actor attribution, staging/drain and labels; no world Apply | Own claim N146, work branch `feature/godot-n146-native-sim-command-buffer-20261113` |
