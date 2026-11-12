@@ -151,7 +151,13 @@ static func _consistent(fleet: Array, wallet: Dictionary,
 ## within IEEE-754 safe integer range, never silently round a save value.
 static func _restore_exact_integer_fields(payload: Dictionary) -> Dictionary:
     var result: Dictionary = payload.duplicate(true)
-    var balances: Dictionary = result["ledger"]["balances"]
+    var ledger_data: Dictionary = result["ledger"]
+    var dock_data: Dictionary = result["docking"]
+    if not (ledger_data.get("balances", null) is Dictionary) or not (ledger_data.get("receipts", null) is Dictionary):
+        return {}
+    if not (dock_data.get("facilities", null) is Dictionary) or not (dock_data.get("ships", null) is Dictionary):
+        return {}
+    var balances: Dictionary = ledger_data["balances"]
     for id in balances:
         var amount: Variant = balances[id]
         if not _safe_json_integer(amount) or float(amount) < 0.0:
@@ -164,7 +170,9 @@ static func _restore_exact_integer_fields(payload: Dictionary) -> Dictionary:
             if not _safe_json_integer(receipt["tick"]):
                 return {}
             receipt["tick"] = int(receipt["tick"])
-        for leg in receipt.get("legs", []):
+        if not (receipt.get("legs", null) is Array):
+            return {}
+        for leg in receipt["legs"]:
             if not (leg is Dictionary) or not _safe_json_integer(leg.get("delta", null)):
                 return {}
             leg["delta"] = int(leg["delta"])
