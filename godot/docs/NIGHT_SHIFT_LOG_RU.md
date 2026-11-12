@@ -675,3 +675,9 @@ Three separate draft PRs: [N74 #160](https://github.com/Mefits/Living-Sector/pul
 
 ### 2026-11-12 18:35 MSK — second-chat-overnight START N84/N85/N86
 Three atomic create_file claims on coordination branch: N84 `2e57ef3`, N85 `3974cf9`, N86 `038ab31`. Separate source-backed Rust AI component ports (behavior tree, utility scoring, personality); integration HEAD `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`. N39 and other claims untouched; CODE_UNVERIFIED until runtime.
+
+### 2026-11-12 18:35 MSK — second-chat-overnight FINISH N84/N85/N86
+- N84 [Draft PR #173](https://github.com/Mefits/Living-Sector/pull/173): Rust behavior-tree sequence resume, selector, named condition and external action dispatch.
+- N85 [Draft PR #174](https://github.com/Mefits/Living-Sector/pull/174): Rust utility weighted factors, goal bonuses, strict winner and descending ranking.
+- N86 [Draft PR #175](https://github.com/Mefits/Living-Sector/pull/175): Rust six-axis personality archetypes, drift and caller-owned RNG variation.
+- Three isolated GDScript files; minimal delimiter static check passed. Godot not executed. All claims CODE_UNVERIFIED. No integration, no merge, no changes to N39 or checkpoint.
