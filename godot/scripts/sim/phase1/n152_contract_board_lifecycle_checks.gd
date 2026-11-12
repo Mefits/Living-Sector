@@ -46,7 +46,7 @@ static func run() -> Dictionary:
 		and subsid["contract"]["min_reputation"]==70,
 		"faction_only_subsidy_original_rep_tier")
 	board=subsid["board"]
-	var mission := Core.post_kind(board,_terms("crew_mission"))
+	var mission := Core.post_kind(board,_terms("crew_mission","security-board"))
 	_expect(errors,bool(mission.get("ok",false)) and mission["id"]=="contract-3"
 		and mission["contract"]["min_reputation"]==50
 		and mission["contract"]["commodity"]=="tools",
