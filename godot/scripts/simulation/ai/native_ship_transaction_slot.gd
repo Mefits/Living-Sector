@@ -9,7 +9,7 @@ const SUCCESS: String = "success"
 const FAILURE: String = "failure"
 const NONE: String = "none"
 const MAX_SEQUENCE: int = 9223372036854775807
-const TRANSACTION_KINDS := [
+const TRANSACTION_KINDS = [
     "accept", "buy", "sell", "refuel", "mine", "embark", "deliver"
 ]
 
