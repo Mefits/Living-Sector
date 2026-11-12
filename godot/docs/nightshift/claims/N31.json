@@ -1,0 +1,16 @@
+{
+  "block_id": "N31",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T11:08:08+03:00-second-chat-N31",
+  "claimed_at": "2026-11-12T11:08:08+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e71ab2d7dc3095f102caad8da5dc070ca43d6dc",
+  "work_branch": "feature/godot-nightshift-n31-contract-runtime-second-20261112",
+  "tasks": [
+    "Inspect N30/N27 contract APIs and Rust receipt semantics",
+    "Implement deterministic contract settlement runtime integration and fail-closed checks",
+    "Add headless regression for replay and restore",
+    "Publish PR and update tracker"
+  ]
+}
