@@ -1,6 +1,6 @@
 # Living Sector — ночная очередь автономной разработки Godot
 
-| N142 | **IN_PROGRESS — interactive-chat** | Macro #10 frozen `world/registry.rs` and `world/travel.rs`: exact physical-only distances, directed topology and legacy time arithmetic; N59 gate pathfinder & N61 fleet apply deliberately excluded | Atomic `claims/N142.json` before code, work branch `feature/godot-n142-native-registry-physical-distance-20261112` |
+| N142 | **CODE_UNVERIFIED — [Draft PR #231](https://github.com/Mefits/Living-Sector/pull/231), interactive-chat** | Macro #10 frozen Rust `world/registry.rs` physical-only directed shortest-distance and `world/travel.rs` legacy TickConfig timings; 4 files / 559 LOC | N59 gate pathfinder, N61 ship itinerary, N112 moving transit unchanged; Godot runtime NOT RUN |
 
 
 | N140 | **CODE_UNVERIFIED — [Draft PR #230](https://github.com/Mefits/Living-Sector/pull/230), interactive-chat** | **Макро №10** Rust `simulation/lod.rs` + `simulation/tuning.rs`: full spatial LOD ship gate/recompute, once-installed world defaults & Genesis policy, 4 new files / 418 LOC | Own claim closed; no N112/N138/N39 overlap, no Godot runtime |
