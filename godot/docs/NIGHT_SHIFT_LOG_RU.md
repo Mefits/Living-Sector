@@ -243,3 +243,7 @@ Claim `N19.json` owner `second-chat-overnight`, run `20261112-075427-msk-second-
 
 ### N19 — завершено (CODE_UNVERIFIED)
 [PR #107](https://github.com/Mefits/Living-Sector/pull/107), commit `1f0444a`: стратегический выбор Главы по реальным предложениям, ограничение казны, кризис, 2-cycle hysteresis, один grant, snapshot, короткий smoke. Статически сбалансированы скобки; Godot не запускался. Зависит от N18 #106, native score/контрактная интеграция впереди.
+
+### N20 start — 2026-11-12 08:16 МСК — overnight-scheduler
+
+Atomic claim `claims/N20.json` commit `e889702`; read-only observer and command availability based on real model APIs, deterministic headless smoke. Work branch `feature/godot-nightshift-n20-observer-overnight-20261112`. CODE_UNVERIFIED pending Godot.
