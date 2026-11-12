@@ -1,5 +1,8 @@
 ### 2026-11-12 — second-chat-overnight, N59 COMPLETE (CODE_UNVERIFIED)
 
+### 2026-11-12 — interactive-chat, N90 — START
+- Atomically reserved N90 in [claim](nightshift/claims/N90.json), commit `d27b9493f30967557248d831a018c4f3d9cbdcbc` before any code. Scope: Rust ShipAction economical/physical leaves and acknowledgement; N88 dock/rest/construct stays independent. No N39 or P1/main changes. Phase 1 only, minimal static checks, no Godot execution.
+
 ### 12.11.2026 — interactive-chat: N80 — DECISION CORE DONE
 - Резервация [N80](nightshift/claims/N80.json) создана до работы и закрыта как CODE_UNVERIFIED. [Draft PR #169](https://github.com/Mefits/Living-Sector/pull/169) от integration #128: семь самостоятельных source-backed GDScript-модулей на 931 строку.
 - Перенесено: оригинальные Rust архетипы/6 осей личности, utility/considerations и память цен, выбор биологических/хозяйственных/стратегических целей, честная добыча льда от физического месторождения и платёжеспособного покупателя, идл/исследование, FNV-stagger replan 40 ticks и контрактная loyalty-обязательность.
