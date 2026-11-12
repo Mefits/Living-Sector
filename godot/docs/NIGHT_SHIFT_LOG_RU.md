@@ -275,3 +275,7 @@ Claim `claims/N23.json`, owner `second-chat-overnight`, work branch `feature/god
 
 ### N23 — результат 2026-11-12 — second-chat-overnight
 Draft [PR #111](https://github.com/Mefits/Living-Sector/pull/111), head `525f83d`: opt-in facilities phase после орбитального шага, N8 real paid shifts/ledger, staged economy checkpoint restore, smoke и handoff. **CODE_UNVERIFIED** — Godot не запускался. Нужна интеграция с N3 фазовым циклом и утренняя проверка. VERIFIED 3/100 без изменений.
+
+### N24 started — 2026-11-12 07:22 CET — overnight-scheduler
+
+Atomic claim `claims/N24.json` created at `8e525c39e901de15ad5048deede2a398d3df147d`. Scope P1-07 read-only snapshot diagnostics, deterministic serialization and no-mutation smoke; branch `feature/godot-nightshift-n24-snapshot-diagnostics-20261112`.
