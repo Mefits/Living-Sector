@@ -1,7 +1,7 @@
 {
   "block_id": "N144",
   "macro_id": 2,
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T23:57:47+03:00-second-chat-n144-colony-proposals",
   "claimed_at": "2026-11-12T23:57:47+03:00",
@@ -18,5 +18,18 @@
     "Port candidate planet/source/ship feasibility and rendezvous gates",
     "Port deterministic score/tie-breaking and source-backed handoff"
   ],
-  "progress": []
+  "progress": [
+    "Ported 215-line standalone GDScript proposal evaluator and source handoff",
+    "Draft PR #232, two commits; no Godot runtime"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/232",
+    "cc2465b30357ea68647022465faa754f5e13c48a",
+    "11d7e512255bf57f2490e115205fb76b0810c849"
+  ],
+  "limitations": [
+    "No Godot parser/runtime",
+    "f32 total_cmp and saturating i64 exactness pending",
+    "Phase 2 adapter must inject validated quotes, source constants and physical distances"
+  ]
 }
