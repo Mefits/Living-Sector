@@ -791,3 +791,6 @@ All three isolated GDScript modules committed; minimal source reread and balance
 - N113: director incumbent/alternative strategic hysteresis, urgent supply and pending confirmation — [Draft PR #202](https://github.com/Mefits/Living-Sector/pull/202), CODE_UNVERIFIED.
 - N114: population migration pressure and single-source/single-destination wealth/headcount transfer — [Draft PR #203](https://github.com/Mefits/Living-Sector/pull/203), CODE_UNVERIFIED.
 - Three own claims closed; no Godot execution, no P1 integration, no merge. N39/N100/N108 and other claims untouched. Full Rust parity and integrated economic effects remain unverified. Source paths corrected in claims after inspecting frozen archive.
+
+### 2026-11-12 20:59 MSK — second-chat-overnight START N115–N117
+Three independent atomic claims created before code. Scopes: faction relations, facility workforce, planner comparison. Base integration `1e4a1e9f`; other claims untouched. Phase 1, CODE_UNVERIFIED pending.
