@@ -31,3 +31,13 @@
 - **План:** календарь, независимость симуляционных тиков от FPS, обратимая настройка длительности тика, snapshot/UI и smoke-тест.
 - **Рабочая ветка:** `feature/godot-nightshift-n2-calendar-second-20261112`.
 - **Статус:** работа начата; результат будет записан ниже.
+
+### Итог N2 — second-chat-overnight
+
+- **Код:** календарь нативных единиц, только по исполненным тикам; checkpoint/restore с сохранением неизвестной эпохи старого сейва; UI-статус; отдельный headless smoke.
+- **Источник:** Rust `simulation/config.rs`: 8 TPS, world_speed=0.25, tick_scale=speed/TPS; час/тик не утверждён.
+- **PR:** https://github.com/Mefits/Living-Sector/pull/89 (draft, без merge); head `ff397f6ec5b193034460ef39a0255a9d557725b2`.
+- **Проверки:** сравнение формулы с Rust; ручная статическая сверка GDScript; Godot executable отсутствует, тест НЕ запускался. Статус `CODE_UNVERIFIED`.
+- **Другие блоки:** при резервировании N1 и N3 не имели claim; дальнейшие захваты проверять заново.
+- **Дальше:** N3 deterministic event queue / integer SimTime; N2 сначала прогнать `n2_calendar_check.gd` в Godot.
+- **Текущее состояние:** P0 3/9 VERIFIED, P1 0/9 VERIFIED, P2 0/11 VERIFIED, всего 3/100 VERIFIED; N2 один блок кода без проверки Godot.
