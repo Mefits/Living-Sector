@@ -6,14 +6,16 @@
   "claimed_at": "2026-11-12T20:26:02+01:00",
   "coordination_branch": "feature/godot-nightshift-20261112",
   "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
-  "source_path": "native/crates/sim_core/src/strategy/research.rs",
+  "source_path": "native/crates/sim_core/src/strategy/director.rs",
   "work_branch": "feature/godot-nightshift-n133-source-port-20261112",
-  "scope": "research unlock and technology progression",
+  "scope": "P5 native environmental industrial accidents: deterministic refinery damage and crisis cadence",
   "tasks": [
-    "native research selection and eligibility",
-    "progress and unlock state",
-    "durable research snapshot"
+    "select eligible owned refinery deterministically",
+    "apply 0.3 condition loss bounded at 0.1",
+    "schedule next crisis at tick + 2400 * max(mult,1) and record event"
   ],
-  "progress": [],
+  "progress": [
+    "Research source path originally proposed does not exist; switched before code to real frozen director.rs::environmental_events; N120 already covers research shift"
+  ],
   "evidence": []
 }
