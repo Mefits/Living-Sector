@@ -1,0 +1,16 @@
+{
+  "block": "N84",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "overnight-20261112T183540+0300-N84",
+  "started_at": "2026-11-12T18:35:40+03:00",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n84-bt-engine-overnight-20261112",
+  "scope": "Rust ai/behavior_tree.rs: resumable sequence, selector, condition, action dispatch; data-only tree",
+  "plan": [
+    "Read exact frozen Rust component and dependent interfaces",
+    "Port data-only GDScript mechanics without world mutation",
+    "Perform minimal static source/contract check and publish separate Draft PR"
+  ]
+}
