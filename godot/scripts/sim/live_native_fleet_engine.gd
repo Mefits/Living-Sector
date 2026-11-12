@@ -160,6 +160,23 @@ func restore_complete(seed: Dictionary, envelope: Dictionary) -> Dictionary:
     var bootstrap: Dictionary = FleetBootstrap.build_new_game(seed)
     if not bool(bootstrap.get("ok", false)):
         return _fail("native_source_unavailable")
+    # The current N57 slice does NOT support ship refits, size changes,
+    # crew reassignment, spawning or altered fuel/cargo capacities. A
+    # checksum-valid save cannot silently enlarge native holds or tanks.
+    var native_fleet: RefCounted = bootstrap["fleet"]
+    var loaded_fleet: RefCounted = staged["runner"]._fleet
+    var immutable_ship_keys: Array[String] = [
+        "class", "size", "cargo_capacity", "fuel_capacity",
+        "crew_size", "crew_roles", "faction_id", "system_id"
+    ]
+    for id in native_fleet.ships:
+        if not loaded_fleet.ships.has(id):
+            return _fail("missing_saved_native_ship")
+        var frozen_ship: Dictionary = native_fleet.ships[id]
+        var saved_ship: Dictionary = loaded_fleet.ships[id]
+        for key in immutable_ship_keys:
+            if saved_ship.get(key, null) != frozen_ship[key]:
+                return _fail("unsupported_native_ship_refit_or_capacity_change")
     var initial_crew = Crew.new()
     if not initial_crew.initialize_new_game(bootstrap["fleet"]):
         return _fail("unavailable_source_crew_projection")
