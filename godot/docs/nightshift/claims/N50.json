@@ -1,6 +1,6 @@
 {
   "block_id": "N50",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat",
   "run_id": "2026-11-12T12:27:25.809Z-interactive-N50-crew-initialization",
   "claimed_at": "2026-11-12T12:27:25.809Z",
@@ -17,7 +17,7 @@
     "Publish independent branch/PR and source-backed handoff"
   ],
   "execution_order": 1,
-  "activity": "ACTIVE",
+  "activity": "COMPLETED_CODE",
   "dependencies": [
     "N46 / PR #136"
   ],
@@ -25,5 +25,18 @@
     "N39 production",
     "P1 checkpoint",
     "main/stable/frozen Rust"
+  ],
+  "finished_at": "2026-11-12T12:32:19.254Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/139",
+  "head_sha": "f249187af86658c63e67dec17053a511c40ef06a",
+  "progress": [
+    "Implemented actual Rust 24-ship aggregate crews: 123 members, 6 class roles, 4 skill stats, initial wellbeing and efficiency",
+    "Atomic read-only snapshots and restore of saved existing crew state without reroll/wage creation",
+    "Headless N50 seed/restore/tamper regression authored; no user runtime required"
+  ],
+  "evidence": [
+    "Frozen Rust sim_db/spawner.rs, agents/ship/components.rs and simulation/config.rs inspected",
+    "All new GDScript preload references exist at PR head",
+    "Godot 4.7 unavailable; smoke not executed; no VERIFIED claim"
   ]
 }
