@@ -1,0 +1,18 @@
+{
+  "block_id": "N60",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T16:33:53+03:00-second-chat-overnight-n60",
+  "claimed_at": "2026-11-12T16:33:53+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "coordination_sha": "b28928430283213c973401449c0f380972f392ba",
+  "work_branch": "feature/godot-n60-route-itinerary-admission-20261112",
+  "tasks": [
+    "Validate directed multi-hop itinerary against authoritative native route arcs",
+    "Reject stale endpoints, loops, malformed hops and inconsistent totals",
+    "Provide deterministic read-only admission diagnostics and headless regression"
+  ],
+  "progress": [],
+  "evidence": []
+}
