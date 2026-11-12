@@ -681,3 +681,7 @@ Three atomic create_file claims on coordination branch: N84 `2e57ef3`, N85 `3974
 - N85 [Draft PR #174](https://github.com/Mefits/Living-Sector/pull/174): Rust utility weighted factors, goal bonuses, strict winner and descending ranking.
 - N86 [Draft PR #175](https://github.com/Mefits/Living-Sector/pull/175): Rust six-axis personality archetypes, drift and caller-owned RNG variation.
 - Three isolated GDScript files; minimal delimiter static check passed. Godot not executed. All claims CODE_UNVERIFIED. No integration, no merge, no changes to N39 or checkpoint.
+
+
+### 2026-11-12 18:46 MSK — second-chat-overnight N87/N88/N89 START
+Three atomic claims N87, N88, N89 created IN_PROGRESS before code. Independent scopes: Rust AI considerations, ship autonomous action policy, faction governance mandates. Integration source `1e4a1e9f34fff7313ce176107890ecdbe25fc85a`; N39 and all other claims untouched. Phase 1 only; CODE_UNVERIFIED until Godot runtime.
