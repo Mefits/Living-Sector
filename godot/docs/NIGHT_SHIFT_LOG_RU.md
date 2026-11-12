@@ -266,3 +266,6 @@ Atomic claim `claims/N20.json` commit `e889702`; read-only observer and command 
 
 ### N22 — 2026-11-12 08:59 МСК — second-chat-overnight — IN_PROGRESS
 Claim: `godot/docs/nightshift/claims/N22.json`; ветка `feature/godot-nightshift-n22-batch-view-20261112`. Задачи: P7-04 пакетная отрисовка кораблей, culling, стабильный порядок, headless smoke.
+
+### N22 — завершено, CODE_UNVERIFIED
+PR #110: https://github.com/Mefits/Living-Sector/pull/110. Реализованы проверяемая модель проекции 10k кораблей, единый CanvasItem с отсечением невидимых, выбор и преобразование координат, smoke-тест. Rust ShipPosition/ShipIdentity сверены. Godot не запускался; интеграция с N14/N21 и FPS-бенчмарк остаются открыты.
