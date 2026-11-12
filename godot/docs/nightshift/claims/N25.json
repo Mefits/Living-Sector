@@ -1,0 +1,18 @@
+{
+  "block_id": "N25",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T09:54:46+03:00-second-chat-N25",
+  "claimed_at": "2026-11-12T09:54:46+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "cc72a0158e6560301f227b61a8aea473cf573d0b",
+  "work_branch": "feature/godot-nightshift-n25-market-settlement-second-20261112",
+  "tasks": [
+    "Rust order book matching semantics",
+    "atomic physical stock and money settlement",
+    "idempotent receipts and save/load",
+    "short headless smoke"
+  ],
+  "progress": [],
+  "evidence": []
+}
