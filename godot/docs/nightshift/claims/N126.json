@@ -1,6 +1,6 @@
 {
   "block_id": "N126",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T21:57:57+03:00-second-chat-overnight-N126",
   "claimed_at": "2026-11-12T21:57:57+03:00",
@@ -15,6 +15,17 @@
     "Preserve destination and duplicate active-contract checks",
     "Emit funding-dependent passenger proposal"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Source-backed passenger proposal; actual passenger transfer and escrow external."
+  ],
+  "evidence": [
+    "godot/scripts/sim/native/population_passenger_contract_proposals.gd",
+    "GitHub source readback; balanced delimiters; Godot runtime NOT RUN"
+  ],
+  "completed_at": "2026-11-12T22:00:00+03:00",
+  "commit_sha": "fc0e666b2f215143468610994e307473bf59e1af",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/214",
+  "limitations": [
+    "No unified world Apply, no Godot parser/runtime, no Rust parity claim"
+  ]
 }
