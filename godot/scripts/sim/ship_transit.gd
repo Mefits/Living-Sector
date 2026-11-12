@@ -31,7 +31,7 @@ func depart(state: RefCounted, graph: RefCounted, ship_id: String, destination: 
 	var spec: Dictionary = Catalog.spec(str(ship["class"]))
 	var rate := float(spec.get("fuel_consumption_base", 0.0))
 	var speed := Catalog.effective_speed(str(ship["class"]), str(ship["size"]))
-	if rate <= 0.0 or speed <= 0.0 or float(ship["fuel"]) <= 0.0:
+	if rate <= 0.0 or speed <= 0.0 or not is_finite(float(ship["fuel"])) or float(ship["fuel"]) < 0.0:
 		return false
 	var token := _next_token
 	_next_token += 1
@@ -72,9 +72,8 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 		ship["transit"] = {}
 		return "arrived"
 	var consumption := float(spec["fuel_consumption_base"]) * tick_scale
-	if float(ship["fuel"]) < consumption:
-		transit["last_tick"] = tick
-		return "out_of_fuel"
+	# Frozen Rust 0.6.7 moves first and clamps fuel to zero afterward.
+	# A zero tank is NOT a hard propulsion stop in the reference game.
 	var next_position := position.move_toward(target, minf(velocity, remaining))
 	ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
 	transit["position"] = [next_position.x, next_position.y]
