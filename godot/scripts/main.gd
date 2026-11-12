@@ -207,6 +207,7 @@ func _update_status() -> void:
         "Пауза" if _runner.clock.paused else "Идёт время",
         "   |   " + _notice if not _notice.is_empty() else ""
     ]
+    _status.text += "   |   " + _runner.calendar.display_text(_runner.tick_count)
     _pause_button.text = "Продолжить" if _runner.clock.paused else "Пауза"
 
 func _refresh_selection() -> void:
