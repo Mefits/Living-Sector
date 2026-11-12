@@ -1,6 +1,6 @@
 # Living Sector — ночная очередь автономной разработки Godot
 
-| N140 | **IN_PROGRESS — interactive-chat** | **Макро №10** native Rust `simulation/lod.rs` + `simulation/tuning.rs`: spatial divisor/try_fire/observer recompute and once-installed world tuning; source only, no Phase-2 integration | Atomic claim `claims/N140.json` created before code, distinct from N112/N138/N39 |
+| N140 | **CODE_UNVERIFIED — [Draft PR #230](https://github.com/Mefits/Living-Sector/pull/230), interactive-chat** | **Макро №10** Rust `simulation/lod.rs` + `simulation/tuning.rs`: full spatial LOD ship gate/recompute, once-installed world defaults & Genesis policy, 4 new files / 418 LOC | Own claim closed; no N112/N138/N39 overlap, no Godot runtime |
 
 
 **НОВЫЙ ПЛАН 10 КРУПНЫХ НАПРАВЛЕНИЙ ФАЗЫ 1:** [PHASE1_TEN_MACRO_BLOCKS_RU.md](nightshift/PHASE1_TEN_MACRO_BLOCKS_RU.md). Не создавать 10 Nx claims заранее; один реальный Nx на одну крупную рабочую итерацию после проверки свежих GitHub-резерваций. Текущий ориентир оставшегося переноса ~58–61% (приблизительно, source coverage, не по номеру Nx).
