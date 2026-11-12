@@ -912,3 +912,6 @@ Claim created atomically by second-chat-overnight; source `native/crates/sim_cor
 
 ### 2026-11-12 — overnight-scheduler N141 START (macro #6)
 - Atomic claim `nightshift/claims/N141.json` created at `29c2ac8` before code. Exclusive native construction paid local labor/treasury-to-household commit; excludes N77 material/site receipts, N91 engineer selection and N39 facility production. CODE_UNVERIFIED pending code; no P1/main/Rust writes.
+
+### 2026-11-12 — overnight-scheduler N141 COMPLETE (CODE_UNVERIFIED)
+- [Draft PR #229](https://github.com/Mefits/Living-Sector/pull/229), head `535faecb4`: native Rust `construction/labor.rs` paid shifts, sponsor-to-local-household wages, shared facility/site/commander workforce reservations, deterministic sorted assignments, durable receipts and employment refresh. 132-line standalone GDScript + Phase-2 handoff. Source read, GitHub readback and delimiter pairs pass; Godot/parser NOT RUN, mergeability not investigated. No P1/main/Rust or N39/N140 changes.
