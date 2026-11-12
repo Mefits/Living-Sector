@@ -121,3 +121,11 @@ Claim `claims/N13.json` created atomically at `66db027`; branch `feature/godot-n
 
 - **Claim:** `claims/N9.json`, commit `7f222e1c2d4549c0c8bc8601b6068a41adda55f9`.
 - **План:** Rust-parity storage capacities, atomic inventory transfers, deterministic headless test. Работа начата, итог ниже.
+
+### Итог N9 — overnight-scheduler
+
+- **Код:** atomic commodity inventory transfers, optional physical per-commodity capacity, integer ship cargo and total limit, canonical stock snapshots, N9 headless regression.
+- **Rust:** `economy/commodities.rs` uses u32 ship Cargo, `economy/recipes.rs` uses fractional f32 supply with optional output cap; no invented default warehouse cap.
+- **PR:** https://github.com/Mefits/Living-Sector/pull/96 (draft, depends on PR #93); commit `9c81cb733d092192b4a5c1a0fd866d1df0dfaac8`.
+- **Проверки:** GDScript delimiter balance and N5 Catalog.contains API verified statically. Godot executable unavailable; headless test NOT RUN. `CODE_UNVERIFIED`.
+- **Дальше:** N6/N10/N12/N14 after checking dependencies and claims. **Текущее состояние:** P0 3/9, P1 0/9, P2 0/11, всего 3/100 VERIFIED.
