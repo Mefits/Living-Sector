@@ -249,10 +249,16 @@ func attach_restored_native_fleet(seed: Dictionary, fleet: RefCounted,
                 var coords: Variant = transit.get(key, null)
                 if not (coords is Array) or coords.size() != 2:
                     return false
+                if not (coords[0] is int or coords[0] is float) or not (coords[1] is int or coords[1] is float):
+                    return false
                 if not is_finite(float(coords[0])) or not is_finite(float(coords[1])):
                     return false
-            var total: float = float(transit.get("distance_total", -1.0))
-            var travelled: float = float(transit.get("distance_travelled", -1.0))
+            var raw_total: Variant = transit.get("distance_total", null)
+            var raw_travelled: Variant = transit.get("distance_travelled", null)
+            if not (raw_total is int or raw_total is float) or not (raw_travelled is int or raw_travelled is float):
+                return false
+            var total: float = float(raw_total)
+            var travelled: float = float(raw_travelled)
             if not is_finite(total) or not is_finite(travelled) or total <= 0.0 or travelled < 0.0 or travelled > total:
                 return false
     var staged_transit = Transit.new()
