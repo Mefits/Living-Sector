@@ -932,3 +932,7 @@ Claim created atomically by second-chat-overnight; source `native/crates/sim_cor
 - Implemented authoritative registry data snapshot/restore; directed first matching travel_distance; shortest_distance using only physical route corridors, excluding gates, u32 saturation and valid LocationInfo (strategic distance checks); fail-closed physical distances matrix for N135. Implemented legacy duration/arrival/progress and native tick rate; **not** another N112 moving-target flight simulator.
 - Read back 4 new files from GitHub, lexical bracket/quote validation and preload references passed. GDScript check scenario authored but NOT RUN; Godot binary/parser, Rust-vs-Godot runtime parity NOT RUN. Source import/snapshot and live ship apply are Phase-2 dependencies. Macro #10 still has DB spawner/seed commands and save work.
 - Estimated full Phase-1 Rust source remaining remains **roughly 57–60%**, provisional; don't mechanically subtract one complete macro for this PR.
+
+
+### 2026-11-12 — interactive-chat N143 START
+- Atomic reserved `godot/docs/nightshift/claims/N143.json` on shared coordination branch before implementation @ `fea7e986`. Target macro #8: finish source coverage for original Rust Director research selection/readiness/real shift and Governance/Charter after-paid accounting, while preserving previous N44/N45/N76/N82/N89/N110/N120 and other claims. No Phase-2 live integration, no second ledger or science unlock without real paid shift. Work branch `feature/godot-n143-complete-rust-research-domain-20261112`.
