@@ -1,0 +1,19 @@
+{
+  "block_id": "N100",
+  "status": "IN_PROGRESS",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T19:45:33+03:00-second-chat-overnight11-N100",
+  "claimed_at": "2026-11-12T19:45:33+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n100-hybrid-planner-overnight11",
+  "scope": "native/crates/sim_core/src/strategy/planning/hybrid.rs -> godot/scripts/sim/phase1/n100_*.gd",
+  "tasks": [
+    "native hybrid planning selection",
+    "preserve Rust formula and state contract",
+    "minimal static checks and independent draft PR"
+  ],
+  "progress": [],
+  "evidence": []
+}
