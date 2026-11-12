@@ -1,0 +1,19 @@
+{
+  "block_id": "N119",
+  "status": "IN_PROGRESS",
+  "owner": "overnight-scheduler",
+  "run_id": "20261112-192339-cet-nightshift1-N119",
+  "claimed_at": "2026-11-12T19:23:39+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "source_ref": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n119-shipyard-orders-20261112",
+  "scope": "Rust faction shipyard order lifecycle and ship construction",
+  "tasks": [
+    "read frozen Rust implementation and map exact state",
+    "port independent GDScript component with explicit boundaries",
+    "document dependencies and minimal static validation"
+  ],
+  "progress": [],
+  "evidence": []
+}
