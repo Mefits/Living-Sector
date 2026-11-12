@@ -8,6 +8,7 @@ const REPAIR_INTERVAL := 20
 const ABANDON_INTERVAL := 10
 const ABANDON_AFTER := 200
 var _facilities: Dictionary = {}
+var _repair_receipts: Dictionary = {}
 
 func import_facilities(states: Dictionary) -> bool:
 	if not _facilities.is_empty() or states.is_empty():
@@ -25,6 +26,7 @@ func step(tick: int, tick_scale: float, multiplier: int, paid_repair_ids: Dictio
 		return {"ok": false, "reason": "invalid_tick"}
 	var next := _facilities.duplicate(true)
 	var events: Array = []
+	var next_receipts := _repair_receipts.duplicate(true)
 	var ids := next.keys()
 	ids.sort()
 	for id in ids:
@@ -34,8 +36,9 @@ func step(tick: int, tick_scale: float, multiplier: int, paid_repair_ids: Dictio
 		if not s["abandoned"]:
 			s["condition"] = maxf(0.0, float(s["condition"]) - DEGRADE * tick_scale)
 			if tick % (REPAIR_INTERVAL * multiplier) == 0 and s["condition"] < REPAIR_THRESHOLD and s["tools"] >= 1.0 and paid_repair_ids.has(id):
-				if typeof(paid_repair_ids[id]) != TYPE_STRING or str(paid_repair_ids[id]).is_empty():
+				if typeof(paid_repair_ids[id]) != TYPE_STRING or str(paid_repair_ids[id]).is_empty() or next_receipts.has(paid_repair_ids[id]):
 					return {"ok": false, "reason": "invalid_payroll_receipt"}
+				next_receipts[paid_repair_ids[id]] = {"facility": id, "tick": tick}
 				s["tools"] -= 1.0
 				s["condition"] = minf(1.0, float(s["condition"]) + REPAIR_PER_TOOL)
 			if tick % (ABANDON_INTERVAL * multiplier) == 0:
@@ -49,21 +52,26 @@ func step(tick: int, tick_scale: float, multiplier: int, paid_repair_ids: Dictio
 					s["abandon_counter"] = 0
 		s["last_tick"] = tick
 	_facilities = next
+	_repair_receipts = next_receipts
 	return {"ok": true, "events": events}
 
 func facility(id: String) -> Dictionary:
 	return _facilities.get(id, {}).duplicate(true)
 
 func snapshot() -> Dictionary:
-	return {"version": 1, "facilities": _facilities.duplicate(true)}
+	return {"version": 1, "facilities": _facilities.duplicate(true), "repair_receipts": _repair_receipts.duplicate(true)}
 
 func restore(data: Dictionary) -> bool:
-	if data.get("version") != 1 or typeof(data.get("facilities")) != TYPE_DICTIONARY or data["facilities"].is_empty():
+	if data.get("version") != 1 or typeof(data.get("facilities")) != TYPE_DICTIONARY or data["facilities"].is_empty() or typeof(data.get("repair_receipts")) != TYPE_DICTIONARY:
 		return false
 	for id in data["facilities"]:
 		if typeof(id) != TYPE_STRING or id.is_empty() or not _valid_state(data["facilities"][id]):
 			return false
+	for receipt in data["repair_receipts"]:
+		if typeof(receipt) != TYPE_STRING or receipt.is_empty() or typeof(data["repair_receipts"][receipt]) != TYPE_DICTIONARY:
+			return false
 	_facilities = data["facilities"].duplicate(true)
+	_repair_receipts = data["repair_receipts"].duplicate(true)
 	return true
 
 func _valid_state(s: Variant) -> bool:
