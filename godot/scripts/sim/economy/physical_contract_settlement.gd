@@ -10,6 +10,7 @@ func _init(board: RefCounted, cargo: RefCounted, ships: RefCounted) -> void:
 	_board = board
 	_cargo = cargo
 	_ships = ships
+	_board.bind_physical_cargo(_cargo)
 
 func pickup(contract_id: String, ship_id: String, source_stock: Dictionary, tick: int) -> Dictionary:
 	var c: Dictionary = _board.get_contract(contract_id)
