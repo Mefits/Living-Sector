@@ -1,6 +1,6 @@
 {
   "block_id": "N16",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "second-chat-overnight",
   "run_id": "2026-11-12T06:43:07+03:00-second-chat-n16-contracts",
   "claimed_at": "2026-11-12T06:43:07+03:00",
@@ -13,6 +13,20 @@
     "implement idempotent settlement/expiration",
     "add headless acceptance test"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "prepaid post/escrow",
+    "acceptance top-up",
+    "payout/refund/snapshot",
+    "headless smoke prepared"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/102",
+    "https://github.com/Mefits/Living-Sector/commit/006e03d60ddef8f9f75aa5ab69cace4e4691ac14",
+    "Godot runtime not executed"
+  ],
+  "completed_at": "2026-11-12T06:45:00+03:00",
+  "limitations": [
+    "N15 physical cargo receipts not authenticated",
+    "no renewals/reputation/permissions/fixed strategy reward/engine wiring"
+  ]
 }
