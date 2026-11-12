@@ -1,5 +1,5 @@
 # Living Sector — ночная очередь автономной разработки Godot
-| N139 | **IN_PROGRESS** — second-chat-overnight | Native Rust `strategy/production_chain.rs`: physical five-stage production/construction inspection and precursor priority; read-only | `claims/N139.json`; `feature/godot-n139-native-production-chain-20261112` |
+| N139 | **CODE_UNVERIFIED — [Draft PR #227](https://github.com/Mefits/Living-Sector/pull/227)** — second-chat-overnight | Native Rust `strategy/production_chain.rs`: physical five-stage production/construction inspection and precursor priority; read-only | `claims/N139.json`; `feature/godot-n139-native-production-chain-20261112` |
 | N137 | **CODE_UNVERIFIED — [Draft PR #226](https://github.com/Mefits/Living-Sector/pull/226)** | LARGE native `ai/considerations.rs`: all pure ship utility considerations, axes, freshness and resource factors | `claims/N137.json`; `feature/godot-n137-native-ai-considerations-20261112` |
 
 
