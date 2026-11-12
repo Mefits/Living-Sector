@@ -595,3 +595,6 @@ Atomic claim `claims/N60.json` created @ `51646bcce436714046d8eb78f53841fbcfa3e3
 
 ### N60 FINISH — 2026-11-12 16:40 MSK
 [Draft PR #148](https://github.com/Mefits/Living-Sector/pull/148), commits `c04a451`, `74be953`, `07517b8`. Read-only directed itinerary gate, fail-closed stale/loop/missing-edge/distance validation, deterministic headless regression. Static delimiter balance passed (2 scripts); Godot binary absent, **CODE_UNVERIFIED**. No fleet integration, no resource or money mutations. N39/N57 remain other-owner IN_PROGRESS.
+
+### N62 START — 2026-11-12 14:58:50 CET
+Claim `claims/N62.json` created atomically @ `e7c263dd921894855d68e588f189b1a4a4fb7f06`; owner overnight-scheduler. Scope: integration P1 runtime-readiness preflight, deterministic seed/scene/tick contracts and headless regression, no economy/AI claim. Work branch `feature/godot-nightshift-n62-runtime-readiness-20261112` from latest integration #128.
