@@ -327,3 +327,6 @@ Draft [PR #116](https://github.com/Mefits/Living-Sector/pull/116) implements a r
 > **N49, 12.11.2026:** [Draft PR #138](https://github.com/Mefits/Living-Sector/pull/138) adds read-only P1 system selection diagnostics with deterministic native IDs, orbit checks, deep-copy safety and headless regression. **CODE_UNVERIFIED**, Godot not executed. P0 3/9, P1 0/9, P2 0/11, overall VERIFIED 3/100 unchanged; does not establish economy/AI parity.
 
 > **N55, 12.11.2026:** [Draft PR #140](https://github.com/Mefits/Living-Sector/pull/140) modifies P1 SimClock admission for >250ms window stalls, avoiding burst catch-up and adding read-only provenance, short headless regression. Frozen Rust TickConfig/Delay semantics checked. Static parentheses balanced, **CODE_UNVERIFIED** (Godot not run). P0 3/9, P1 0/9, P2 0/11, overall 3/100 unchanged. No P2/P3/AI parity claim.
+
+### N56 — 2026-11-12: направленные маршруты, только код
+- [PR #145](https://github.com/Mefits/Living-Sector/pull/145) (`CODE_UNVERIFIED`): read-only проверка направленного ребра, координат и последовательности маршрута; Rust no-path fallback намеренно запрещён до переноса реальной физики. Не подключено к живому TickRunner, Godot не запускался. Подтверждённые счётчики P0 3/9, P1 0/9, P2 0/11, общий 3/100 без изменений.
