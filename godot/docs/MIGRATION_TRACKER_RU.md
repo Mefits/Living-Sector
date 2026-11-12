@@ -25,6 +25,8 @@
 
 > **N9, 12.11.2026:** [PR #96](https://github.com/Mefits/Living-Sector/pull/96) добавил проверяемые границы склада и атомарную передачу товаров (зависит от N5 / PR #93). Статус `CODE_UNVERIFIED`: Godot runtime не запускался. Счётчик VERIFIED не меняется.
 
+> **N6, 12.11.2026:** [PR #100](https://github.com/Mefits/Living-Sector/pull/100) реализует локальную оплачиваемую партию выпуска с dry-run рецепта, проверкой складов, 1 CR/работник, ledger receipt и тестом. Это ограниченный self-owned slice; shared workforce, processing fees и TickRunner ещё не подключены. `CODE_UNVERIFIED` без запуска Godot. VERIFIED остаётся 3/100.
+
 ## Подробные задачи
 
 Порядок идентификаторов неизменяем; новые задачи получают новый ID. В столбце «Источник» указан краткий относительный путь под `native/crates/sim_core/src/`, если явно не указан иной префикс.
