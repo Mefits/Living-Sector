@@ -1,5 +1,8 @@
 # Living Sector — ночная очередь автономной разработки Godot
 
+**ОБЪЁМ РАЗРАБОТКИ (12.11.2026, после N67):** **N1–N70: 66 блоков обработаны в коде/PR**, **4 в работе (N39 у другого потока, N68–N70 у second-chat-overnight)**. В этом чате **5 из 5 N63–N67 обработаны**: [#152](https://github.com/Mefits/Living-Sector/pull/152), [#153](https://github.com/Mefits/Living-Sector/pull/153), [#154](https://github.com/Mefits/Living-Sector/pull/154), [#155](https://github.com/Mefits/Living-Sector/pull/155), [#156](https://github.com/Mefits/Living-Sector/pull/156). Их runtime-статус **CODE_UNVERIFIED**, отдельные PR не являются интегрированным релизом. Все 5 автомаций обновлены: каждый будущий цикл атомарно резервирует 3 отдельных свободных Nx, владелец и источники сохраняются, не трогаем чужие claims. Пользователь будет запускать Godot **только после завершения полного переноса**, никаких промежуточных Windows тестов или ZIP как требований. 
+
+
 **ОБРАБОТКА ПО КОДУ N1–N61 (12.11.2026):** **60 из 61 блоков** обработаны и оформлены в PR/коде. **N39 — 1 блок IN_PROGRESS у другого чата.** N61 / [PR #150](https://github.com/Mefits/Living-Sector/pull/150) интегрирует направленные маршруты N58–N60 в opt-in N57, но всё ещё **CODE_UNVERIFIED** в Godot. Это **НЕ 60% полной игры**: оценка готовности функционального переноса ~20–30% (оставшийся труд ориентировочно 70–80%) из-за неинтегрированных production/AI/research/colony/UI/runtime acceptance. Не равнять обработанные Nx и законченные игровые механики. 
 
 
@@ -188,7 +191,7 @@ N30 outcome: [draft PR #118](https://github.com/Mefits/Living-Sector/pull/118) �
 | N64 | P3: поэтапный исполнитель маршрута на одном N57/N61 тике, не более одной новой отправки | Детерминированное разрешение next hop, без телепортации/двойного тика | CODE_UNVERIFIED — [PR #153](https://github.com/Mefits/Living-Sector/pull/153), interactive-chat; one-hop-per-tick route runtime and memory checkpoint |
 | N65 | P3: исчерпание топлива и состояние бедствия корабля с реальными правилами Rust | Без невидимой заправки/эвакуации, source parity и recovery guard | CODE_UNVERIFIED — [PR #154](https://github.com/Mefits/Living-Sector/pull/154), interactive-chat; Rust zero fuel still moves, no fake rescue |
 | N66 | P3: idempotency команд флота — receipt и replay-guard от дублирования приказов после reload | Невозможность повторной оплаты/отстыковки/перелёта | CODE_UNVERIFIED — [PR #155](https://github.com/Mefits/Living-Sector/pull/155), interactive-chat; idempotent ship command receipts saved in schema v2 |
-| N67 | P7/P3: read-only инспектор кораблей и причин отказа без вымышленных цифр | Стабильные snapshots, fuel/flight/dock/crew evidence, без UI P1 мутаций | IN_PROGRESS — interactive-chat (ACTIVE); [claim N67](nightshift/claims/N67.json) |
+| N67 | P7/P3: read-only инспектор кораблей и причин отказа без вымышленных цифр | Стабильные snapshots, fuel/flight/dock/crew evidence, без UI P1 мутаций | CODE_UNVERIFIED — [PR #156](https://github.com/Mefits/Living-Sector/pull/156), interactive-chat; read-only source-bound fleet inspector |
 
 | N68 | P2-04 Rust-native price engine parity, deterministic bounds and smoke; independent of N39 | Rust economy/price_engine.rs; separate PR | IN_PROGRESS — second-chat-overnight, claim N68 |
 | N69 | P3-09 native faction relations/reputation admission, no fake diplomacy | Rust faction_relations.rs/economy/reputation.rs; separate PR | IN_PROGRESS — second-chat-overnight, claim N69 |
