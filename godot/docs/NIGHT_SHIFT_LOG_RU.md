@@ -258,3 +258,7 @@ Atomic claim `claims/N20.json` commit `e889702`; read-only observer and command 
 ### N21 — старт 2026-11-12 08:45 МСК
 - Owner: `second-chat-overnight`; claim `claims/N21.json`; branch `feature/godot-nightshift-n21-docking-20261112`.
 - Детерминированная стыковка, проверка Rust-семантики, сохранения и короткий smoke. `IN_PROGRESS`.
+
+### N21 — результат
+- [Draft PR #109](https://github.com/Mefits/Living-Sector/pull/109), commits `2d0a8d2`, `118b0c7`: docking registry, deterministic capacity arbitration, idempotent operations, transit guards, validated save/restore, headless smoke.
+- `CODE_UNVERIFIED`: Godot not run; no integration with N14/N15/TickRunner. No verified counters changed.
