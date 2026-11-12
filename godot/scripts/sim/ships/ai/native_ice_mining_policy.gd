@@ -17,8 +17,8 @@ static func profitable_mining_quantity(cargo_free: int, available_ice: int,
         return _err("invalid_physical_source")
     if not is_finite(unit_price) or unit_price <= 0.0             or not is_finite(fuel_rate) or fuel_rate < 0.0             or not is_finite(fuel_price) or fuel_price < 0.0             or not is_finite(speed_modifier) or speed_modifier <= 0.0             or buyer_credits <= 0:
         return _err("unprofitable_or_unknown_buyer")
-    var payable: int = mini(MAX_U32,
-        int(floor(float(buyer_credits) / float(unit_price))))
+    var payable: int = int(minf(float(MAX_U32),
+        floor(float(buyer_credits) / float(unit_price))))
     var qty: int = mini(mini(cargo_free, MAX_LOT), mini(available_ice, payable))
     if qty <= 0:
         return _err("no_payable_ice")
@@ -56,7 +56,7 @@ static func choose_ice_mining_trip(at_location: String, faction_id: String,
             var site_loc: String = str(site.get("location", ""))
             var depot_loc: String = str(depot.get("location", ""))
             var richness: Variant = site.get("richness", null)
-            if site_loc.is_empty() or depot_loc.is_empty() or not _number(richness):
+            if site_loc.is_empty() or depot_loc.is_empty() or str(site.get("body_id", "")).is_empty() or not _number(richness):
                 return _err("unknown_site_source")
             if carried_ice == 0 and (float(richness) <= 0.0                     or float(richness) * SALVAGE_UNITS_PER_RICHNESS < 1.0):
                 continue
@@ -76,13 +76,16 @@ static func choose_ice_mining_trip(at_location: String, faction_id: String,
                 # dock/market; allow delivering existing cargo.
                 score = Goals.TIER_HOUSEKEEPING_WEIGHT                     * maxf(float(personality["profit"]), 0.3) * 1.3
             else:
-                var available: int = mini(MAX_U32,
-                    int(floor(maxf(0.0, float(richness)
+                var available: int = int(minf(float(MAX_U32),
+                    floor(maxf(0.0, float(richness)
                         * SALVAGE_UNITS_PER_RICHNESS))))
+                var buyer_value: Variant = depot.get("buyer_credits", null)
+                if not (buyer_value is int):
+                    continue
                 var trial: Dictionary = profitable_mining_quantity(
                     cargo_free, available,
                     float(depot.get("ice_unit_price", -1.0)),
-                    int(depot.get("buyer_credits", 0)), distance, fuel_rate,
+                    int(buyer_value), distance, fuel_rate,
                     float(depot.get("fuel_unit_price", -1.0)),
                     speed_modifier)
                 if not bool(trial.get("ok", false)):
