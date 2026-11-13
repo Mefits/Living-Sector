@@ -8,18 +8,24 @@ const SaveState = preload("res://scripts/sim/save_state.gd")
 const P2_SAVE_PATH: String = "user://saves/galaxy-067-p2-integration.json"
 const SPEEDS = [0.25, 1.0, 2.0, 4.0, 8.0, 16.0]
 const SystemMap = preload("res://scripts/system_map.gd")
+const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
 
 var _model
 var _runner
 var _seed: Dictionary = {}
 var _selected_system: String = "system-sol"
+var _selected_body_id: String = ""
+var _in_system: bool = false
 var _notice: String = ""
 var _startup_error: String = ""
 var _fatal_restore_error: String = ""
 var _pause_button: Button
 var _speed_menu: OptionButton
 var _map: Control
+var _system_view: Control
+var _back_button: Button
+var _open_button: Button
 var _details: RichTextLabel
 var _status: Label
 var _observer_panel: PanelContainer
@@ -49,6 +55,11 @@ func _ready() -> void:
     title.add_theme_font_size_override("font_size", 23)
     title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     heading.add_child(title)
+    _back_button = Button.new()
+    _back_button.text = "← К сектору"
+    _back_button.visible = false
+    _back_button.pressed.connect(_return_to_sector)
+    heading.add_child(_back_button)
     var reset := Button.new()
     reset.text = "Центрировать карту"
     reset.pressed.connect(_reset_map)
@@ -86,6 +97,10 @@ func _ready() -> void:
     load_button.text = "Загрузить"
     load_button.pressed.connect(_load_game)
     toolbar.add_child(load_button)
+    _open_button = Button.new()
+    _open_button.text = "Открыть систему"
+    _open_button.pressed.connect(_open_selected_system)
+    toolbar.add_child(_open_button)
 
     var columns := HBoxContainer.new()
     columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -97,11 +112,21 @@ func _ready() -> void:
     map_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
     columns.add_child(map_panel)
 
+    # One container owns two read-only views: sector and its selected system.
+    # No second World, clock, or gameplay state is constructed here.
+    var map_stage := Control.new()
+    map_stage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    map_stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    map_stage.custom_minimum_size = Vector2(420, 420)
+    map_panel.add_child(map_stage)
     _map = SystemMap.new()
-    _map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    _map.size_flags_vertical = Control.SIZE_EXPAND_FILL
-    _map.custom_minimum_size = Vector2(420, 420)
-    map_panel.add_child(_map)
+    map_stage.add_child(_map)
+    _map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    _system_view = StarSystemView.new()
+    _system_view.visible = false
+    map_stage.add_child(_system_view)
+    _system_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    _system_view.body_selected.connect(_on_body_selected)
 
     var details_panel := PanelContainer.new()
     details_panel.custom_minimum_size = Vector2(355, 0)
@@ -124,7 +149,7 @@ func _ready() -> void:
     columns.add_child(_observer_panel)
 
     var footer := Label.new()
-    footer.text = "P2 · орбиты + оплаченное производство Rust · население, рынки, корабли, ИИ — следующая интеграция"
+    footer.text = "P2 · живые орбиты, производство и рынок · карта системы: наблюдение · флот/ИИ ещё не включены"
     footer.add_theme_color_override("font_color", Color("#8da6b5"))
     root.add_child(footer)
 
@@ -162,6 +187,7 @@ func _ready() -> void:
     var worlds: Array = _model.worlds()
     _map.call("set_worlds", worlds)
     _map.connect("system_selected", _select_world)
+    _map.connect("system_open_requested", _open_world)
     var initial: Dictionary = _model.system_by_id("system-sol")
     if initial.is_empty() and not worlds.is_empty():
         initial = worlds[0]
@@ -381,6 +407,11 @@ func _sync_speed_control() -> void:
 
 func _on_tick_completed(tick: int) -> void:
     _refresh_observer()
+    # Orbit positions are read from the SAME live World after each real tick.
+    if _in_system and _system_view != null and _model != null:
+        var live_system: Dictionary = _model.system_by_id(_selected_system)
+        if not live_system.is_empty():
+            _system_view.update_world(live_system)
     if tick % 8 == 0 or not _runner.last_native_result().get("receipts", []).is_empty():
         _refresh_selection()
     _update_status()
@@ -421,10 +452,16 @@ func _refresh_selection() -> void:
         return
     var selected: Dictionary = _model.system_by_id(_selected_system)
     if not selected.is_empty():
-        _select_world(selected)
+        if _in_system:
+            _system_view.update_world(selected)
+            _show_body_details(selected)
+        else:
+            _select_world(selected)
 
 func _reset_map() -> void:
-    if _map:
+    if _in_system and _system_view:
+        _system_view.reset_view()
+    elif _map:
         _map.call("reset_view")
 
 func _select_world(world: Dictionary) -> void:
@@ -437,6 +474,10 @@ func _select_world(world: Dictionary) -> void:
             world = current
             system = world.get("system", {})
     _map.call("select_system", sid)
+    if _in_system:
+        _system_view.update_world(world)
+        _show_body_details(world)
+        return
     var bodies: Array = world.get("bodies", [])
     var facilities: Array = world.get("facilities", [])
     var markets: Array = world.get("markets", [])
@@ -553,6 +594,171 @@ func _select_world(world: Dictionary) -> void:
     lines.append("Орбиты и производственный цикл реальны. Корабли, потребление населения,")
     lines.append("Корабельный ИИ и контракты пока не подключены к общему тику.")
     _details.text = "\n".join(lines)
+
+func _open_selected_system() -> void:
+    if _model == null:
+        return
+    var world: Dictionary = _model.system_by_id(_selected_system)
+    if not world.is_empty():
+        _open_world(world)
+
+
+func _open_world(world: Dictionary) -> void:
+    if _model == null or _system_view == null:
+        return
+    var sid: String = str(world.get("system", {}).get("id", ""))
+    var current: Dictionary = _model.system_by_id(sid)
+    if current.is_empty():
+        return
+    _selected_system = sid
+    _selected_body_id = ""
+    _in_system = true
+    _map.visible = false
+    _system_view.visible = true
+    _system_view.set_world(current)
+    _map.select_system(sid)
+    _back_button.visible = true
+    _open_button.visible = false
+    _show_body_details(current)
+
+
+func _return_to_sector() -> void:
+    _in_system = false
+    _system_view.visible = false
+    _map.visible = true
+    _back_button.visible = false
+    _open_button.visible = true
+    _selected_body_id = ""
+    _refresh_selection()
+
+
+func _on_body_selected(body: Dictionary) -> void:
+    if not _in_system or _model == null:
+        return
+    _selected_body_id = str(body.get("id", ""))
+    var current: Dictionary = _model.system_by_id(_selected_system)
+    if not current.is_empty():
+        _show_body_details(current)
+
+
+func _show_body_details(world: Dictionary) -> void:
+    var system: Dictionary = world.get("system", {})
+    var bodies: Array = world.get("bodies", [])
+    var lines: Array[String] = []
+    lines.append("СИСТЕМА: " + str(system.get("name", "?")))
+    lines.append("Звезда: " + str(system.get("star_type", "?")))
+    lines.append("Тел: %d · станций/предприятий: %d" % [
+        bodies.size(), (world.get("facilities", []) as Array).size()])
+    lines.append("")
+    var chosen: Dictionary = {}
+    for body in bodies:
+        if str(body.get("id", "")) == _selected_body_id:
+            chosen = body
+            break
+    if chosen.is_empty():
+        _selected_body_id = ""
+        _system_view.select_body("")
+        lines.append("Выбери небесное тело на карте.")
+        lines.append("Положение объектов и текущие углы орбит взяты из живой модели.")
+        lines.append("Радиусы отображения сжаты для удобства и не являются световыми годами.")
+        lines.append("")
+        lines.append("НЕБЕСНЫЕ ТЕЛА")
+        for body in bodies:
+            lines.append(" • %s [%s] · %s" % [
+                str(body.get("name", "?")), str(body.get("type", "?")),
+                str(body.get("biome", "?"))])
+        lines.append("")
+        lines.append("Кораблей в исходной системе: %d (движение ещё не подключено)" %
+            (world.get("ships", []) as Array).size())
+        _details.text = "\n".join(lines)
+        return
+
+    lines.append("НЕБЕСНОЕ ТЕЛО")
+    lines.append(str(chosen.get("name", _selected_body_id)))
+    lines.append("Тип: " + str(chosen.get("type", "?")) + " · Биом: " +
+        str(chosen.get("biome", "?")))
+    lines.append("ID: " + _selected_body_id)
+    lines.append("Радиус орбиты: %.2f (условные единицы)" %
+        float(chosen.get("orbit_radius", 0.0)))
+    lines.append("Период: %.1f (нативные единицы)" %
+        float(chosen.get("orbit_period", 0.0)))
+    lines.append("Текущий угол: %.2f°" %
+        float(chosen.get("current_angle", 0.0)))
+    lines.append("")
+    lines.append("ИСХОДНЫЕ РЕСУРСЫ")
+    var resources: Dictionary = chosen.get("resources", {})
+    if resources.is_empty():
+        lines.append(" • Не указаны")
+    else:
+        var names: Array = resources.keys()
+        names.sort()
+        for commodity in names:
+            lines.append(" • %s: %s" % [str(commodity), str(resources[commodity])])
+
+    lines.append("")
+    lines.append("СТАНЦИИ И ПРЕДПРИЯТИЯ НА ТЕЛЕ")
+    var economic: Dictionary = _runner.economy_snapshot() if _runner != null else {}
+    var live_facilities: Dictionary = economic.get("facilities", {})
+    var locations: Dictionary = {}
+    var count: int = 0
+    for facility in world.get("facilities", []):
+        if str(facility.get("body", "")) != _selected_body_id:
+            continue
+        count += 1
+        var fid: String = str(facility.get("id", ""))
+        var location: String = str(facility.get("location", ""))
+        locations[location] = true
+        lines.append(" • %s [%s]" % [
+            str(facility.get("name", fid)), str(facility.get("type", "?"))])
+        if live_facilities.has(fid):
+            var live: Dictionary = live_facilities[fid]
+            var shift: Dictionary = live.get("work_shift", {})
+            lines.append("   Фракция: %s · %d CR" % [
+                str(facility.get("faction_id", "?")), int(live.get("credits", 0))])
+            if not shift.is_empty():
+                lines.append("   Последняя оплаченная смена: тик %d · зарплата %d CR" % [
+                    int(shift.get("tick", 0)), int(shift.get("wages", 0))])
+        else:
+            lines.append("   Исходный объект, живой счёт пока не подключён")
+    if count == 0:
+        lines.append(" • Нет привязанных объектов")
+
+    lines.append("")
+    lines.append("ЖИВАЯ ЭКОНОМИКА / НАСЕЛЕНИЕ")
+    var printed: bool = false
+    var markets: Dictionary = economic.get("markets", {})
+    for location in locations:
+        if not markets.has(location):
+            continue
+        printed = true
+        var market: Dictionary = markets[location]
+        lines.append(" • Рынок: " + str(location))
+        var stock: Dictionary = market.get("supply", {})
+        var stock_names: Array = stock.keys()
+        stock_names.sort()
+        for commodity in stock_names:
+            if float(stock[commodity]) > 0.0:
+                lines.append("   %s: %.1f ед. · цена %.2f CR" % [
+                    str(commodity), float(stock[commodity]),
+                    float(market.get("prices", {}).get(commodity, 0.0))])
+    var population: Dictionary = economic.get("populations", {})
+    for pid in population:
+        var pop: Dictionary = population[pid]
+        if not locations.has(str(pop.get("location", ""))):
+            continue
+        printed = true
+        lines.append(" • Население %s: %d · средства %d CR" % [
+            str(pop.get("label", pid)), int(pop.get("count", 0)),
+            int(pop.get("wealth", 0))])
+        lines.append("   Еда %d/100 · настроение %d/100" % [
+            int(pop.get("food_satisfaction", 0)),
+            int(pop.get("overall_sentiment", 0))])
+    if not printed:
+        lines.append(" • Для этого тела пока нет активного рынка/населения")
+    lines.append("")
+    lines.append("Корабли: пока только стартовые данные, без реального перемещения.")
+    _details.text = "\n".join(lines)
+
 
 ## Read-only boot diagnostics for local Windows/Godot compatibility smoke.
 ## No gameplay mutation and no false claim that P2/P3 phases execute.
