@@ -164,6 +164,34 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
                 str(faction_id), int(treasuries[faction_id]), technologies.size(),
                 target, int(commander.get("progress", 0)),
                 int(commander.get("research_required", 0))])
+    # N154 construction is intentionally separate from N135 supply and
+    # from N143 research. Render only physical N39 sites and real N104
+    # shipment receipts, never a shadow construction intention as a build.
+    var live_sites: Dictionary = economy.get("construction_sites", {})
+    lines.append("СТРОИТЕЛЬСТВО N154 · площадок %d · оплаченных смен N141 %d · новых объектов %d" % [
+        live_sites.size(), int(summary.get("construction_paid_labor_this_tick", 0)),
+        int(summary.get("construction_new_facilities_this_tick", 0))])
+    var site_ids: Array = live_sites.keys()
+    site_ids.sort()
+    for sid in site_ids.slice(0, 8):
+        var site: Dictionary = live_sites[sid]
+        var labor: Dictionary = site.get("labor", {})
+        lines.append("  %s · %s · материалы %d/%d · труд %d/%d" % [
+            str(sid), str(site.get("facility_type", "?")),
+            int(site.get("progress_delivered", 0)),
+            int(site.get("progress_required", 0)),
+            int(labor.get("completed", 0)),
+            int(labor.get("required", 0))])
+    if site_ids.size() > 8:
+        lines.append("  … ещё площадок: %d" % (site_ids.size() - 8))
+    var source_construction: Dictionary = summary.get("construction_last_observation", {})
+    if source_construction.get("ok", false):
+        for fid in source_construction.get("factions", {}):
+            var view: Dictionary = source_construction["factions"][fid]
+            if str(view.get("status", "")) != "idle":
+                lines.append("  N154 %s: %s · %s (план, не постройка)" % [
+                    str(fid), str(view.get("status", "—")),
+                    str(view.get("reason", "—"))])
     lines.append("СТАНЦИИ / КРЕДИТЫ / СОСТОЯНИЕ:")
     var facilities: Dictionary = economy["facilities"]
     var facility_ids: Array = facilities.keys()
