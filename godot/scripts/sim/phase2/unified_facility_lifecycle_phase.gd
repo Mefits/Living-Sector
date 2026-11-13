@@ -5,7 +5,8 @@ extends RefCounted
 const NativeLifecycle = preload("res://scripts/sim/phase1/n156_native_facility_lifecycle.gd")
 
 static func propose(world: Dictionary, tick: int, tick_scale: float,
-        multiplier: int, ships: Dictionary = {}) -> Dictionary:
+        multiplier: int, ships: Dictionary = {},
+        paid_receipts: Dictionary = {}, paid_credits: Dictionary = {}) -> Dictionary:
     if not (world.get("facilities") is Dictionary
             and world.get("markets") is Dictionary
             and world.get("populations") is Dictionary):
@@ -34,10 +35,18 @@ static func propose(world: Dictionary, tick: int, tick_scale: float,
         var condition: float = float(fac.get("condition", 1.0))
         if not is_finite(condition) or condition < 0.0 or condition > 1.0:
             return {"ok": false, "reason": "invalid_facility_condition"}
-        var reserves: Dictionary = {}
-        # N39's market is the only actual commodity stock; never invent
-        # a second station inventory or copy market supply as owned Tools.
-        reserves["tools"] = 0.0
+        # These are the ACTUAL physical service reserves owned by THIS
+        # facility, not market supply. The seed has {} until a real restock.
+        var existing: Variant = fac.get("reserves", {})
+        if not (existing is Dictionary):
+            return {"ok": false, "reason": "invalid_facility_owned_reserves"}
+        var reserves: Dictionary = existing.duplicate(true)
+        for commodity in reserves:
+            var amount: Variant = reserves[commodity]
+            if not (commodity is String) or not (amount is float or amount is int):
+                return {"ok": false, "reason": "invalid_facility_owned_reserves"}
+            if not is_finite(float(amount)) or float(amount) < 0.0:
+                return {"ok": false, "reason": "invalid_facility_owned_reserves"}
         # Frozen N156 crew welfare derives from the last paid N39 WorkShift.
         var crew_projection: Dictionary = {}
         var shift: Variant = fac.get("work_shift", {})
@@ -75,11 +84,18 @@ static func propose(world: Dictionary, tick: int, tick_scale: float,
         facilities, ships, satisfaction, tick, tick_scale, multiplier)
     if not stage.get("ok", false):
         return stage
-    # Frozen order: decay, (no paid repairs without owned Tools), abandonment.
-    # The authoritative N39 world has no station-owned Tools inventory yet;
-    # never debit public market supply as if it belonged to the facility.
+    # PayShift is applied by the single N39 owner, NOT by this pure bridge.
+    # Repair receipts and post-wage credits are injected only after the
+    # authoritative N9 ledger has actually committed each shift.
+    var staged_rows: Array = stage["facilities_before_abandonment"]
+    for row in staged_rows:
+        var rid: String = str(row.get("id", ""))
+        if paid_credits.has(rid):
+            if typeof(paid_credits[rid]) != TYPE_INT or int(paid_credits[rid]) < 0:
+                return {"ok": false, "reason": "invalid_paid_repair_balance"}
+            row["operations"]["credits"] = int(paid_credits[rid])
     var after_stage: Dictionary = NativeLifecycle.after_real_paid_repairs_and_abandonment(
-        stage["facilities_before_abandonment"], {}, tick, multiplier)
+        staged_rows, paid_receipts, tick, multiplier)
     if not after_stage.get("ok", false):
         return after_stage
     var changes: Dictionary = {}
@@ -89,17 +105,20 @@ static func propose(world: Dictionary, tick: int, tick_scale: float,
         var after: float = float(row["operations"]["condition"])
         var life: Dictionary = row["lifecycle"]
         var morale_after: float = float(row.get("crew", {}).get("morale", original.get("morale", 80.0)))
-        if after != float(original.get("condition", 1.0)) or bool(life["abandoned"]) != bool(original.get("abandoned", false)) or int(life["abandon_counter"]) != int(original.get("abandon_counter", 0)) or morale_after != float(original.get("morale", 80.0)):
+        var reserves_after: Dictionary = row["storage"]["reserves"]
+        var reserves_before: Dictionary = original.get("reserves", {})
+        if after != float(original.get("condition", 1.0)) or bool(life["abandoned"]) != bool(original.get("abandoned", false)) or int(life["abandon_counter"]) != int(original.get("abandon_counter", 0)) or morale_after != float(original.get("morale", 80.0)) or reserves_after != reserves_before:
             changes[id] = {"condition": after,
                 "abandoned": bool(life["abandoned"]),
                 "abandon_counter": int(life["abandon_counter"]),
-                "morale": morale_after}
+                "morale": morale_after,
+                "reserves": reserves_after.duplicate(true)}
     return {
         "ok": true, "tick": tick, "changes": changes,
         "repair_candidates": stage["repair_candidates"],
         "events": after_stage["events"],
         "due": stage["due"],
-        "source": "N156 frozen facility lifecycle; staged only",
+        "source": "N156 frozen lifecycle, N39 paid repair receipts; staged only",
         "commit_required": true,
-        "limitations": "Paid Tools repairs and ship dock queues remain deferred"
+        "limitations": "Ship dock queues remain deferred"
     }
