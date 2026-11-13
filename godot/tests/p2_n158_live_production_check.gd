@@ -56,6 +56,16 @@ func _initialize() -> void:
     if produced == earth_before:
         _fail("real source physical market inventory did not change")
         return
+    var population_phase: Dictionary = a.last_population_result()
+    if not population_phase.get("ok", false) or int(population_phase.get("purchases", 0)) < 6:
+        _fail("N151 real paid Food/Water consumption not applied: " + str(population_phase))
+        return
+    if int(current["populations"]["pop-residents-earth-station"]["food_satisfaction"]) != 72:
+        _fail("N151 original household food satisfaction did not recover after both needs")
+        return
+    if current["markets"]["earth-station"]["consumption_window"].get("food", []).size() != 1:
+        _fail("real N151 Food consumption absent from SAME N150 MarketFlow")
+        return
     if not a.last_market_result().get("ok", false):
         _fail("N150 real market tick rejected: " + str(a.last_market_result()))
         return
@@ -73,6 +83,14 @@ func _initialize() -> void:
             break
     if not paid_for_real:
         _fail("market output was not backed by paid workforce")
+        return
+    var receipts: Dictionary = a.production.snapshot()["ledger"]["receipts"]
+    var purchased: int = 0
+    for receipt_id in receipts:
+        if str(receipt_id).begins_with("n151/consumption/"):
+            purchased += 1
+    if purchased < 6:
+        _fail("N151 purchases did not create real N9 paid transfer receipts")
         return
     var source_save: Dictionary = a.checkpoint()
     if not source_save.has("native_production") or int(source_save["native_production"]["tick"]) != 5:
@@ -96,6 +114,9 @@ func _initialize() -> void:
         return
     if b.economy_snapshot()["markets"]["earth-station"]["prices"] != current["markets"]["earth-station"]["prices"]:
         _fail("N150 real market prices changed across file restart")
+        return
+    if b.economy_snapshot()["markets"]["earth-station"]["consumption_window"] != current["markets"]["earth-station"]["consumption_window"]:
+        _fail("N151 consumed Food/Water rolling MarketFlow was not restored")
         return
     if _sum_credits(b.economy_snapshot()) != bank_before:
         _fail("funds conservation failed across file restart")
@@ -124,7 +145,7 @@ func _initialize() -> void:
     var absolute: String = ProjectSettings.globalize_path(path)
     DirAccess.remove_absolute(absolute)
     DirAccess.remove_absolute(absolute + ".bak")
-    print("P2_UNIFIED_ECONOMY_ACCEPTANCE_PASS: source 8/3, N39 paid production, N150 prices+trend, one ledger, saved/restarted")
+    print("P2_UNIFIED_ECONOMY_ACCEPTANCE_PASS: source 8/3, N39 production, N151 paid Food/Water, N150 price/trend, single ledger, saved/restarted")
     quit(0)
 
 func _sum_credits(world: Dictionary) -> int:
