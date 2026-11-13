@@ -2,7 +2,9 @@
   "owner": "automation11",
   "scope": "godot/scripts/sim/seed_integrity.gd",
   "purpose": "Reject duplicate or malformed ship/population identities before unified seed admission; no changes to world/ledger",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T10:54:00+03:00",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "commit": "3cec2daf24bb8e379a363936cc9b68f7a61a5a82",
+  "handoff": "Explicit ship/population IDs checked for type, nonempty and uniqueness across worlds. Optional absent legacy IDs remain allowed. Static only; Godot runtime not executed."
 }
