@@ -1,0 +1,10 @@
+{
+  "owner": "shift11-automation",
+  "status": "IN_PROGRESS",
+  "scope": [
+    "godot/scripts/observer_panel.gd"
+  ],
+  "purpose": "Expose authoritative N39 paid receipts, lifecycle events, market price and population status in live observer; no simulation writes",
+  "started_at": "2026-11-13T15:18:15+03:00",
+  "branch": "integration/godot-phase2-unified-20261113"
+}
