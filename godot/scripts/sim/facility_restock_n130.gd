@@ -29,7 +29,7 @@ static func plan(buyer: Dictionary, seller: Dictionary, market: Dictionary, comm
 			quantity = minf(quantity, floorf(float(remaining) / price))
 			if quantity < 1.0:
 				continue
-			var raw_cost := ceil(quantity * price)
+			var raw_cost: float = ceil(quantity * price)
 			if not is_finite(raw_cost) or raw_cost > 9223372036854775807.0:
 				continue
 			cost = int(raw_cost)

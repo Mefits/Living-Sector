@@ -11,9 +11,9 @@ static func profitable_mining_quantity(cargo_free: int, available_ice: int, unit
 	var qty := mini(mini(maxi(0, cargo_free), 40), mini(maxi(0, available_ice), payable))
 	if qty <= 0:
 		return {"ok": false, "reason": "no_payable_ice"}
-	var revenue := floor(unit_price * float(qty))
+	var revenue: float = floor(unit_price * float(qty))
 	var trip_cost := 2.0 * float(distance) * fuel_rate * fuel_price / speed_modifier
-	var net := revenue - trip_cost
+	var net: float = revenue - trip_cost
 	if not is_finite(net) or net < 1.0 or net >= float(I64_MAX):
 		return {"ok": false, "reason": "unprofitable"}
 	return {"ok": true, "quantity": qty, "estimated_net": int(floor(net))}

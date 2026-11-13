@@ -146,7 +146,7 @@ static func posted_indexes(contracts: Dictionary) -> Dictionary:
 	return {"by_status": status, "posted_by_destination": destination, "posted_by_faction": faction}
 
 static func posted_for_ship(contracts: Dictionary, reputation: Dictionary) -> Array:
-	var index := posted_indexes(contracts)["posted_by_faction"]
+	var index: Dictionary = posted_indexes(contracts)["posted_by_faction"]
 	var selected: Array = []
 	for faction in index.keys():
 		var ship_rep := 0 if faction == "" else int(reputation.get(faction, 0))

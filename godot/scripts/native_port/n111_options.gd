@@ -59,8 +59,8 @@ static func compare_goal(goal: Dictionary, market: Dictionary, assessment: Dicti
 	if offer.is_empty():
 		_assess(build,"no_construction_proposal",0.0,0,0.0,need,unit_value)
 	else:
-		var shipments := max(0,int(offer.get("shipments",0)))
-		var delay := shipments * shipment_time
+		var shipments: int = max(0,int(offer.get("shipments",0)))
+		var delay: int = shipments * shipment_time
 		var commitment := int(offer.get("total_cost",0))
 		build["first_payment"] = construction_payment
 		build["total_commitment"] = commitment
@@ -74,8 +74,8 @@ static func compare_goal(goal: Dictionary, market: Dictionary, assessment: Dicti
 		build["first_purchase_cost"] = int(offer.get("first_purchase_cost",-1))
 		# Forecast comes ONLY from native recipe execution over actual stock.
 		# Unknown forecast blocks the option rather than inventing output.
-		var remaining := max(0,int(offer.get("remaining",0)))
-		var coverage := 0.0 if remaining == 0 else min(1.0,max(0.0,float(build["source_stock"])) / float(remaining))
+		var remaining: int = max(0,int(offer.get("remaining",0)))
+		var coverage: float = 0.0 if remaining == 0 else min(1.0,max(0.0,float(build["source_stock"])) / float(remaining))
 		var ready := str(offer.get("reason","no_construction_proposal"))
 		if not offer.has("native_output_units") or not offer.has("native_input_cost"):
 			ready = "native_recipe_forecast_required"
@@ -89,7 +89,7 @@ static func compare_goal(goal: Dictionary, market: Dictionary, assessment: Dicti
 		if option["estimated_net_value"] == null:
 			continue
 		var value := float(option["estimated_net_value"])
-		var delay := int(option["estimated_delay_ticks"])
+		var delay: int = int(option["estimated_delay_ticks"])
 		if value > best or (value > 0.0 and value == best and delay < best_delay):
 			best = value
 			best_delay = delay

@@ -61,7 +61,7 @@ static func _purchase_cost(snapshot: Dictionary, ship: Dictionary, source: Strin
 	var owner := str(snapshot.get("owners", {}).get(source, ""))
 	var rep := int(ship.get("reputation", {}).get(owner, 0))
 	var multiplier := _market_buy_multiplier(snapshot.get("relations", {}), str(ship.get("faction", "")), rep, owner)
-	var cost := ceil(float(price * multiplier) * float(quantity))
+	var cost: float = ceil(float(price * multiplier) * float(quantity))
 	return -1 if not is_finite(cost) or cost >= float(MAX_I64) else int(cost)
 
 static func _acceptance_payment(snapshot: Dictionary, contract: Dictionary, ship: Dictionary) -> int:
@@ -73,7 +73,7 @@ static func _acceptance_payment(snapshot: Dictionary, contract: Dictionary, ship
 		return -1
 	var comms: float = float(ship.get("comms_bonus", 0.0))
 	var treaty := _payment_multiplier(snapshot.get("relations", {}), str(ship.get("faction", "")), str(contract.get("faction_id", "")))
-	var reward := round(float(payment) * (1.0 + comms) * treaty)
+	var reward: float = round(float(payment) * (1.0 + comms) * treaty)
 	return -1 if not is_finite(reward) or reward < 0.0 or reward >= float(MAX_I64) else int(reward)
 
 static func _distance(snapshot: Dictionary, source: String, destination: String) -> int:

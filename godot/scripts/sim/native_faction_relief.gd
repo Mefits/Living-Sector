@@ -11,7 +11,7 @@ const PRODUCER_MINIMUM := 20
 const PRODUCER_TARGET := 160
 
 static func due(tick: int, multiplier: int) -> bool:
-	var cadence := INTERVAL_BASE * max(multiplier, 0)
+	var cadence: int = INTERVAL_BASE * maxi(multiplier, 0)
 	return tick > 0 and cadence > 0 and tick % cadence == 0
 
 ## Input dictionaries are deep-copied. Keys: factions by id {treasury},
