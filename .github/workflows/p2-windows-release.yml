@@ -3,6 +3,11 @@ name: Living Sector P2 Windows x64 release candidate
 # Manual dispatch only. Shared five-worker Actions budget: do not run on push or PR.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - integration/godot-phase2-unified-20261113
+    paths:
+      - godot/docs/phase2/P2_WINDOWS_RELEASE_TRIGGER.txt
 
 permissions:
   contents: read
