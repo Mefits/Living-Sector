@@ -8,6 +8,7 @@ const StationDemand = preload("res://scripts/sim/phase2/unified_station_demand_p
 const PopulationPhase = preload("res://scripts/sim/phase2/unified_population_phase.gd")
 const ShipPhase = preload("res://scripts/sim/phase2/unified_ship_phase.gd")
 const FleetLogistics = preload("res://scripts/sim/phase2/unified_fleet_logistics.gd")
+const N153Dispatch = preload("res://scripts/sim/phase2/unified_n153_contract_dispatch.gd")
 const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 const NativeLocations = preload("res://scripts/sim/ships/native_location_resolver.gd")
 
@@ -16,6 +17,8 @@ var _source_stats: Dictionary = {}
 var _last_market_result: Dictionary = {}
 var _last_station_demand: Dictionary = {}
 var _last_contract_admissions: Dictionary = {}
+var _last_n153_result: Dictionary = {}
+var _faction_sources: Dictionary = {}
 var _last_population_result: Dictionary = {}
 var _last_ship_result: Dictionary = {}
 var _fleet_roster: RefCounted
@@ -27,6 +30,8 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_market_result = {}
     _last_station_demand = {}
     _last_contract_admissions = {}
+    _last_n153_result = {}
+    _faction_sources = {}
     _last_population_result = {}
     _last_ship_result = {}
     _fleet_roster = null
@@ -51,6 +56,11 @@ func start_from_seed(seed: Dictionary) -> bool:
         return false
     _fleet_roster = roster
     _fleet_resolver = resolver
+    for source_faction in seed.get("factions", []):
+        if not (source_faction is Dictionary):
+            _boot_error = "invalid_native_faction_policy"
+            return false
+        _faction_sources[str(source_faction.get("id", ""))] = source_faction.duplicate(true)
     _source_stats = projected["stats"].duplicate(true)
     return true
 
@@ -63,6 +73,42 @@ func _advance_one_tick() -> void:
 ## The original N150 market phase runs AFTER paid facilities, in the
 ## SAME N39 world and one clock. N131 reprice produces NO stock or cash.
 func _execute_integrated_phase(phase: String, tick: int) -> bool:
+    if phase == "factions":
+        if _fleet_roster == null or _fleet_resolver == null:
+            _last_n153_result = {"ok": false, "reason": "missing_native_ship_ai_sources"}
+            return false
+        var canonical: Dictionary = production.world_snapshot()
+        if not canonical.has("contract_board") or not canonical.has("ships"):
+            return true # genuinely old save; do not fabricate a fleet or board
+        var positions: Dictionary = _fleet_resolver.positions_from_world(world,
+            calendar.native_time_units + clock.tick_scale(), calendar.origin_known)
+        if not positions.get("ok", false):
+            _last_n153_result = {"ok": false,
+                "reason": str(positions.get("error", "missing_real_ship_positions"))}
+            return false
+        var selection: Dictionary = N153Dispatch.propose(canonical,
+            _fleet_roster.registry.graph(), positions["positions"],
+            _fleet_resolver, tick, clock.tick_scale(), _faction_sources)
+        if not selection.get("ok", false):
+            _last_n153_result = selection
+            return false
+        _last_n153_result = {"ok": true, "tick": tick,
+            "accepted": [], "blocked": selection.get("blocked", []).duplicate(true),
+            "status": "N153_ADMISSION_COMPLETE"}
+        for candidate in selection.get("candidates", []):
+            var admission: Dictionary = production.accept_autonomous_delivery(tick, candidate)
+            if admission.get("ok", false):
+                _last_n153_result["accepted"].append(admission.duplicate(true))
+            elif admission.get("fatal", false):
+                _last_n153_result = {"ok": false,
+                    "reason": str(admission.get("reason", "n153_single_world_commit_rejected"))}
+                return false
+            else:
+                _last_n153_result["blocked"].append({
+                    "contract_id": str(candidate.get("contract_id", "")),
+                    "ship_id": str(candidate.get("ship_id", "")),
+                    "reason": str(admission.get("reason", "n104_acceptance_rejected"))})
+        return true
     if phase == "ships":
         # The base TickRunner has ALREADY advanced real body orbits. Ship
         # targets move with that same World and original native calendar.
@@ -86,7 +132,51 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             _last_ship_result = {"ok": false, "reason": "single_world_ship_commit_rejected"}
             return false
         _last_ship_result = {"ok": true, "tick": tick,
-            "outcomes": proposal.get("outcomes", {}).duplicate(true)}
+            "outcomes": proposal.get("outcomes", {}).duplicate(true),
+            "autonomous_departures": [], "autonomous_blocked": []}
+        # N153 obligations are held on the real N104 board. Follow native
+        # N4 directed edges through N14. No phantom cargo or teleporting.
+        var scheduled: Dictionary = production.world_snapshot()
+        var active_contracts: Dictionary = scheduled.get("contract_board", {}).get("contracts", {})
+        var ship_ids: Array = scheduled["ships"].keys()
+        ship_ids.sort()
+        for sid in ship_ids:
+            var ship: Dictionary = scheduled["ships"][sid]
+            var cid: String = str(ship.get("active_contract_id", ""))
+            if cid.is_empty() or not active_contracts.has(cid):
+                continue
+            var contract: Dictionary = active_contracts[cid]
+            if str(contract.get("status", "")) != "accepted" or str(contract.get("fulfiller_id", "")) != str(sid):
+                continue
+            if not (ship.get("transit", {}) as Dictionary).is_empty() or str(ship.get("docked_at", "")) != "":
+                continue
+            var origin: String = str(ship.get("location", ""))
+            var target: String = str(contract.get("source_location", ""))
+            if origin == target:
+                _last_ship_result["autonomous_blocked"].append({
+                    "ship_id": str(sid), "contract_id": cid, "reason": "at_source_awaiting_n97_paid_pickup"})
+                continue
+            var path: Dictionary = _fleet_roster.registry.graph().shortest_path(origin, target)
+            if not path.get("reachable", false) or path.get("locations", []).size() < 2:
+                _last_ship_result["autonomous_blocked"].append({
+                    "ship_id": str(sid), "contract_id": cid, "reason": "directed_source_route_lost"})
+                continue
+            var next_hop: String = str(path["locations"][1])
+            var depart: Dictionary = ShipPhase.depart(scheduled, _fleet_roster.registry.graph(),
+                locations["positions"], tick, clock.tick_scale(), str(sid), next_hop)
+            if not depart.get("ok", false):
+                _last_ship_result["autonomous_blocked"].append({
+                    "ship_id": str(sid), "contract_id": cid,
+                    "reason": str(depart.get("reason", "native_departure_blocked"))})
+                continue
+            if not production.apply_ship_phase(tick, depart):
+                _last_ship_result = {"ok": false, "reason": "autonomous_n14_commit_rejected",
+                    "ship_id": str(sid), "contract_id": cid}
+                return false
+            _last_ship_result["autonomous_departures"].append({
+                "ship_id": str(sid), "contract_id": cid,
+                "from": origin, "to": next_hop, "tick": tick})
+            scheduled = production.world_snapshot()
         return true
     if phase == "populations":
         var population_plan: Dictionary = PopulationPhase.propose(
@@ -150,6 +240,8 @@ func _integrated_phase_failure_reason(phase: String) -> String:
         result = _last_population_result
     elif phase == "ships":
         result = _last_ship_result
+    elif phase == "factions":
+        result = _last_n153_result
     elif phase == "markets":
         result = _last_station_demand if not _last_station_demand.get("ok", true) else (_last_contract_admissions if not _last_contract_admissions.get("ok", true) else _last_market_result)
     var detail: String = str(result.get("reason", "integrated_phase_rejected"))
@@ -174,6 +266,9 @@ func last_population_result() -> Dictionary:
 
 func last_ship_result() -> Dictionary:
     return _last_ship_result.duplicate(true)
+
+func last_n153_result() -> Dictionary:
+    return _last_n153_result.duplicate(true)
 
 
 ## Read-only canonical ship inventory; source IDs are generated by the
@@ -246,6 +341,7 @@ func implemented_phases() -> PackedStringArray:
     phases.append("facilities")
     phases.append("populations")
     phases.append("markets")
+    phases.append("factions")
     return phases
 
 
@@ -306,6 +402,9 @@ func economy_summary() -> Dictionary:
         "station_demand_status": str(_last_station_demand.get("status", "NOT_EVALUATED")),
         "funded_contract_count": current.get("contract_board", {}).get("contracts", {}).size(),
         "funded_contracts_this_tick": _last_contract_admissions.get("posted", []).size(),
+        "n153_accepted_this_tick": _last_n153_result.get("accepted", []).size(),
+        "n153_blocked_this_tick": _last_n153_result.get("blocked", []).size(),
+        "n153_departures_this_tick": _last_ship_result.get("autonomous_departures", []).size(),
         "contract_admissions_blocked": _last_contract_admissions.get("blocked", []).size(),
         "population_phase_ok": _last_population_result.get("ok", null),
         "population_purchases": _last_population_result.get("purchases", 0)
@@ -328,6 +427,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_ship_result = {}
     _last_station_demand = {}
     _last_contract_admissions = {}
+    _last_n153_result = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
