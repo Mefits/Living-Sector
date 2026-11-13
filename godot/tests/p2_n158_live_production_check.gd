@@ -29,6 +29,7 @@ func _initialize() -> void:
     if before["markets"]["earth-station"]["owner"] != "facility-earth-station":
         _fail("physical market owner not resolved from frozen station")
         return
+    var food_price_before: float = float(before["markets"]["earth-station"]["prices"]["food"])
     var bank_before: int = _sum_credits(before)
     var earth_before: Dictionary = before["markets"]["earth-station"]["supply"]
     a.queue_control("pause")
@@ -54,6 +55,12 @@ func _initialize() -> void:
         return
     if produced == earth_before:
         _fail("real source physical market inventory did not change")
+        return
+    if not a.last_market_result().get("ok", false):
+        _fail("N150 real market tick rejected: " + str(a.last_market_result()))
+        return
+    if float(current["markets"]["earth-station"]["prices"]["food"]) >= food_price_before:
+        _fail("same real market must reprice supplied food using original N131 engine")
         return
     if _sum_credits(current) != bank_before:
         _fail("wages or stock fee created/destroyed credits")
@@ -87,6 +94,9 @@ func _initialize() -> void:
     if b.tick_count != 5 or b.economy_snapshot()["markets"]["earth-station"]["supply"] != produced:
         _fail("physical market stock mismatch after file restart")
         return
+    if b.economy_snapshot()["markets"]["earth-station"]["prices"] != current["markets"]["earth-station"]["prices"]:
+        _fail("N150 real market prices changed across file restart")
+        return
     if _sum_credits(b.economy_snapshot()) != bank_before:
         _fail("funds conservation failed across file restart")
         return
@@ -102,10 +112,19 @@ func _initialize() -> void:
     if b.tick_count != 10 or _sum_credits(b.economy_snapshot()) != bank_before:
         _fail("source production did not resume without double payroll at tick 10")
         return
+    b.queue_control("step", 6)
+    b.advance_frame(0.0)
+    if b.tick_count != 16:
+        _fail("N150 real-market time cursor failed to reach 16")
+        return
+    var trends: Array = b.economy_snapshot()["markets"]["earth-station"]["history"]["trend_samples"]
+    if trends.size() != 1 or int(trends[0]["tick"]) != 16:
+        _fail("N150 market trend sample must be stored on real tick 16")
+        return
     var absolute: String = ProjectSettings.globalize_path(path)
     DirAccess.remove_absolute(absolute)
     DirAccess.remove_absolute(absolute + ".bak")
-    print("P2_N158_PRODUCTION_ACCEPTANCE_PASS: frozen seed 8/3, live goods, paid payroll, tick, conservation, checkpoint/restart")
+    print("P2_UNIFIED_ECONOMY_ACCEPTANCE_PASS: source 8/3, N39 paid production, N150 prices+trend, one ledger, saved/restarted")
     quit(0)
 
 func _sum_credits(world: Dictionary) -> int:
