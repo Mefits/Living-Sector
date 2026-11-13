@@ -76,3 +76,9 @@
 - Изменён только `godot/scripts/main.gd`; авторитетный N39 World/Ledger и Runner не дублируются. Проверка: сверены вызываемые методы с `n39_native_production_tick_runner.gd`; Godot/Windows не запускались, **CODE_UNVERIFIED**. Дополнительных GitHub Actions: **0**.
 - Lease `20261113-p2-runtime-failure-ui-shift11d.json` освобождён. Следующий свободный приоритет — ограниченный импорт Godot 4.7.2 с timeout и устранение группы ошибок перед финальным Windows export; параллельные работы сверять с новыми leases.
 - Скачиваемый Windows ZIP пока не подтверждён.
+
+## P2 handoff — ручной Windows export workflow, 13.11 06:22 МСК
+
+- Commit `8473c4d6`: добавлен `.github/workflows/p2-windows-release.yml` с **только `workflow_dispatch`** (без push/PR trigger), закреплён Godot 4.7.2 и его Windows x86_64 export templates. Импорт и N158 paid-world smoke ограничены по времени, затем вызывается существующий `phase2_package_windows.sh` с проверкой непустых EXE/PCK, ZIP и SHA-256. Только после успешных стадий публикуется Actions artifact `LivingSector-P2-Windows-x64`.
+- CI run `43343971908` по-прежнему CANCELLED; новый workflow **не запускался**, общий Actions-бюджет не расходован. В этой итерации нет доказательства успешного Godot import или Windows старта; ZIP **не создан**. Отдельный ручной запуск согласовать после устранения текущих import/parser проблем; затем проверить реальный артефакт и Windows boot.
+- Lease `20261113-windows-export-ci-artifact-shift11e.json` освобождён. Изменён только новый workflow и координационные файлы; единый World/Ledger/Runner не тронут. Следующий свободный приоритет — runtime import/parser diagnosis, затем одна совместная проверка и публикация Windows ZIP.
