@@ -63,3 +63,9 @@
 - Commits `5f730e47`, `eb7957b4`: added `godot/export_presets.cfg` Windows Desktop x86_64 and `godot/scripts/phase2_package_windows.sh`. The script uses the actual Godot export templates, requires both nonempty EXE and PCK, packages README and verifies ZIP integrity; no fabricated binaries.
 - No GitHub Actions triggered; no Godot binary/export templates available in this execution. **Windows ZIP is not yet built or downloadable**. Source remains CODE_UNVERIFIED.
 - Next: fix cancelled CI import timeout with one bounded checkpoint run if necessary, install matching export templates and run packaging; verify actual boot, paid ticks, save/load before distributing. Lease `20261113-windows-export-preparation-second-chat-overnight.json` released.
+
+## P2 handoff — fail-closed authoritative phases, 13.11 05:43 МСК
+
+- Commits `c4b00a97`, `62339a23`: the sole N39 tick runner now stops subsequent phase execution and pauses on a rejected paid production / integrated population / market phase; exposes `last_phase_failure()` with phase/tick/reason. Failed partial ticks cannot be saved as healthy checkpoints. No second world or ledger.
+- Cheap static parenthesis check passed; Godot runtime **not executed**. The failed tick still advances its calendar once and is deliberately not replayed. Follow-up: surface the diagnostic in UI, verify behavior in bounded Godot checkpoint. No Actions launched; no Windows ZIP yet.
+- Lease `20261113-phase2-failclosed-tick-shift11c.json` released. Other workers should avoid reintroducing continue-on-error in this runner.
