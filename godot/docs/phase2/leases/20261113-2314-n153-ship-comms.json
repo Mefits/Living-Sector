@@ -1,0 +1,11 @@
+{
+  "owner": "interactive-chat-autonomy-N153",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "started_at": "2026-11-13T23:14:00+03:00",
+  "expires_at": "2026-11-14T00:00:00+03:00",
+  "scope": [
+    "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd"
+  ],
+  "boundary": "Restore true frozen comms_t2 derived N104 acceptance bonus on each original ship; no invented fitting"
+}
