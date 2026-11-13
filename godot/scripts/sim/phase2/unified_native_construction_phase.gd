@@ -84,6 +84,14 @@ static func context(world: Dictionary, sources: Dictionary, original: RefCounted
         if not world.get("contract_board", {}).get("contracts", {}).has(cid):
             return {}
         var c: Dictionary = world["contract_board"]["contracts"][cid].duplicate(true)
+        var site_id: String = str(world["construction_contracts"][cid])
+        if not world["construction_sites"].has(site_id):
+            return {}
+        # N104 uses physical Delivery type while Rust N154 evaluates a
+        # construction mission. This is a READ-ONLY strategy projection;
+        # don't modify the canonical N104 settlement type or wallet ID.
+        c["contract_type"] = "construction"
+        c["requestor_id"] = str(world["construction_sites"][site_id]["faction_id"])
         c["mission_category"] = Commission.PROJECT_TAG
         c["funding"] = {"reserved": c.get("reserved", 0)}
         contracts.append(c)
