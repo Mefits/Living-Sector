@@ -46,13 +46,13 @@ func _initialize() -> void:
     world["markets"]["src"]["supply"]["Water"] = 10.0
     ledger["balances"]["facility/buyer"] = 10
     world["facilities"]["buyer"]["credits"] = 10
-    if Admission.validate(world, ledger, demand, 5).get("reason") != "payer_insufficient_funds":
+    if Admission.validate(world, ledger, demand, 5).get("reason") != "no_live_economic_need":
         _fail("unfunded escrow accepted")
         return
     ledger["balances"]["facility/buyer"] = 100
     world["facilities"]["buyer"]["credits"] = 100
     world["markets"]["dst"]["prices"]["Water"] = 5.0
-    if Admission.validate(world, ledger, demand, 5).get("reason") != "stale_or_invalid_offer":
+    if Admission.validate(world, ledger, demand, 5).get("reason") != "stale_or_forged_demand":
         _fail("stale N150 price accepted")
         return
     world["markets"]["dst"]["prices"]["Water"] = 4.0
