@@ -71,9 +71,10 @@ static func build_read_only_boot_plan(database: Dictionary) -> Dictionary:
         var row: Dictionary = database["ships"][db_id]
         var resume: Variant = row.get("resume", row.get("resume_json", {}))
         if resume is String:
-            resume = JSON.parse_string(resume)
-        if resume == null:
-            resume = {}
+            var parsed: Variant = JSON.parse_string(resume)
+            if not (parsed is Dictionary):
+                return _fail("malformed_ship_resume_json")
+            resume = parsed
         if not (resume is Dictionary):
             return _fail("malformed_ship_resume_json")
         var dock: Variant = resume.get("docked_db_id", null)
