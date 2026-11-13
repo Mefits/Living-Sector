@@ -66,8 +66,15 @@ static func propose(world: Dictionary, graph: RefCounted,
         if contract_id.is_empty():
             continue
         var bt: Variant = ship.get("current_bt", null)
+        if bt == null:
+            # Legacy N153 checkpoint before N84 was attached. Do not
+            # synthesize a tree or halt the whole simulation on restore.
+            records.append({"ship_id": str(ship_id), "contract_id": contract_id,
+                "leaf": "", "status": Bt.RUNNING,
+                "reason": "legacy_n153_order_needs_n81_replan"})
+            continue
         if not (bt is Dictionary) or not Bt.validate(bt):
-            return {"ok": false, "reason": "n84_ship_has_no_valid_plan",
+            return {"ok": false, "reason": "n84_invalid_saved_plan",
                 "ship_id": str(ship_id)}
         var current_leaf: String = Bt.current_action(bt)
         # One leaf tick per ship per tick; action may return Running for many
