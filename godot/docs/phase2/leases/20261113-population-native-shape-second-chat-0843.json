@@ -1,0 +1,10 @@
+{
+  "owner": "second-chat-overnight",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_population_phase.gd"
+  ],
+  "purpose": "Guard native world row types and integral values before paid population phase; prevent unchecked Variant coercions",
+  "status": "ACTIVE",
+  "started_at": "2026-11-13T08:43:40+03:00",
+  "handoff": "Pending code commit; no CI budget used"
+}
