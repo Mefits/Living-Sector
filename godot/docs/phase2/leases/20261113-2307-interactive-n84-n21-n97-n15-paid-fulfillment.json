@@ -1,0 +1,17 @@
+{
+  "owner": "interactive-chat-autonomy-paid-delivery",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "started_at": "2026-11-13T23:07:00+03:00",
+  "expires_at": "2026-11-14T01:30:00+03:00",
+  "base_head": "76d5fd586b5d868969b05e5cc3e60e091628c4a7",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/scripts/sim/phase2/unified_autonomous_paid_cargo.gd (new)",
+    "godot/tests/p2_native_paid_autonomous_delivery_check.gd (new)",
+    "godot/scripts/sim/phase2/unified_fleet_logistics.gd (if required)"
+  ],
+  "boundary": "N84 leaves → N146 intents → existing physical N21 docking, N15 cargo, N97 source purchase, N104 pickup/settle single N39 World Ledger, no manual UI; stage and commit once, no fake cargo/paid receipts."
+}
