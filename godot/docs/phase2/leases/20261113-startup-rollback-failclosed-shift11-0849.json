@@ -1,0 +1,10 @@
+{
+  "owner": "second-chat-overnight",
+  "scope": [
+    "godot/scripts/main.gd"
+  ],
+  "purpose": "Prevent simulation running after unrecoverable startup checkpoint rollback failure",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T08:49:36+03:00",
+  "branch": "integration/godot-phase2-unified-20261113"
+}
