@@ -148,11 +148,25 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
         if parsed.is_empty():
             continue
         if runner.restore_checkpoint(parsed, seed):
+            # A verified pending checkpoint was fully restored after an
+            # interrupted save. Promote it for the next application launch,
+            # otherwise a subsequent restart may load the older .bak instead.
+            # Never touch a valid primary or the last good backup.
+            var promoted_pending: bool = false
+            if candidate == absolute_path + ".pending":
+                var primary_valid: bool = not _read_checkpoint(absolute_path).is_empty()
+                if not primary_valid:
+                    var can_promote: bool = true
+                    if FileAccess.file_exists(absolute_path):
+                        can_promote = DirAccess.remove_absolute(absolute_path) == OK
+                    if can_promote:
+                        promoted_pending = DirAccess.rename_absolute(candidate, absolute_path) == OK
             return {
                 "ok": true,
                 "source": candidate,
                 "tick": runner.tick_count,
-                "recovered_pending": candidate == absolute_path + ".pending"
+                "recovered_pending": candidate == absolute_path + ".pending",
+                "promoted_pending": promoted_pending
             }
         if not runner.restore_checkpoint(baseline, seed):
             return {
