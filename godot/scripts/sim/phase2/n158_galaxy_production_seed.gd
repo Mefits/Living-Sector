@@ -4,6 +4,8 @@ extends RefCounted
 ## resource. This adapter DOES NOT simulate ships, population consumption
 ## or faction AI (those remain separate Phase2 integrations).
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
+const FleetBootstrap = preload("res://scripts/sim/ships/native_fleet_bootstrap.gd")
+const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 
 const NATIVE_CREW_BY_TYPE: Dictionary = {
     "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
@@ -24,7 +26,8 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         factions[f["id"]] = true
     var projected: Dictionary = {
         "facilities": {}, "markets": {}, "populations": {}, "bodies": {},
-        "research": {}, "location_tiers": {},
+        "research": {}, "location_tiers": {}, "ships": {},
+        "ship_next_token": 1,
         "station_executing": false
     }
     var all_facilities: Dictionary = {}
@@ -175,6 +178,25 @@ static func from_seed(seed: Dictionary) -> Dictionary:
             "production_amount": float(pop.get("production_amount", 0.0)),
             "consumption": pop.get("consumption", {}).duplicate(true)
         }
+    # N46 reproduces the original Rust seeder: 24 stable source-array
+    # ordinals, full class-specific tanks, empty cargo and real source
+    # ship credits. Ship wallets enter the SAME N9 ledger at initial import.
+    var new_fleet: Dictionary = FleetBootstrap.build_new_game(seed)
+    if not bool(new_fleet.get("ok", false)) or int(new_fleet.get("ship_count", 0)) != 24:
+        return _fail("native_ship_bootstrap_rejected:" +
+            str(new_fleet.get("error", "unexpected_fleet_count")))
+    var fleet: RefCounted = new_fleet["fleet"]
+    var fleet_roster = ShipRoster.new()
+    if not fleet_roster.load_seed(seed):
+        return _fail("invalid_frozen_ship_roster")
+    for ship in fleet.snapshot():
+        var id: String = str(ship.get("id", ""))
+        if projected["ships"].has(id) or not new_fleet["credit_sources"].has(id):
+            return _fail("duplicate_or_unfunded_native_ship")
+        var row: Dictionary = ship.duplicate(true)
+        row["credits"] = int(new_fleet["credit_sources"][id])
+        row["name"] = str(fleet_roster.metadata(id).get("name", id))
+        projected["ships"][id] = row
     var failure: String = Schema.validate(projected)
     if not failure.is_empty():
         return _fail("source_world_rejected:" + failure)
@@ -185,7 +207,8 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         "inactive_facilities": skipped,
         "markets": projected["markets"].size(),
         "populations": projected["populations"].size(),
-        "bodies": projected["bodies"].size()
+        "bodies": projected["bodies"].size(),
+        "ships": projected["ships"].size()
     }}
 
 ## NativeData JSON parser represents whole-number JSON data as float in
