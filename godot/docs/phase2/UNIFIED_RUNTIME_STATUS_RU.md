@@ -44,3 +44,10 @@
 - <https://github.com/Mefits/Living-Sector/actions/workflows/p2-unified-godot-smoke.yml> — единый целевой CI.
 
 **Честная граница:** собраны исходники и запущен процесс реального headless тестирования; пока журнал CI не подтверждает PASS, код нельзя называть проверенным.
+
+## P2 handoff — 13.11, восстановление nonce кораблей
+
+- Commit `73b9ba7a`: `ship_transit.gd` теперь реализует `next_token()` и `restore_next_token(cursor, highest_active_token)`, на которые уже ссылается N54 `ship_tick_runner.gd`. Восстановление отклоняет повторное использование активного токена. Это **CODE_UNVERIFIED**, не включение флота в действующий N158 runner.
+- CI [run 43343971908](https://github.com/Mefits/Living-Sector/actions/runs/43343971908) **CANCELLED**, не PASS: официальный Godot 4.7.2 установлен, проверка 241 preload завершилась без отсутствующих файлов, но команда editor/import не закончилась за ~9 минут; лог диагностики в artifact `14000619065`. Новых Actions не запускали. До следующего CI надо установить timeout на отдельные Godot-команды и выяснить зависание импорта.
+- Следующая свободная работа: объединить флот с единственным World/TickRunner, не создавая вторую денежную систему; проверить сохранение кораблей и контрактов в одном snapshot. Scope `ship_transit.gd` освобождён, lease в `godot/docs/phase2/leases/20261113-ship-transit-token-recovery-shift11.json`.
+- Windows x86_64 ZIP **ещё не создан**, скачиваемого исполняемого билда пока нет.
