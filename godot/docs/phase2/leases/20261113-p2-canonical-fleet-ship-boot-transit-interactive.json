@@ -9,7 +9,8 @@
     "godot/scripts/sim/phase2/n158_production_runtime.gd",
     "godot/scripts/sim/phase2/unified_ship_phase.gd",
     "godot/scripts/observer_panel.gd",
-    "godot/tests/p2_unified_ship_phase_check.gd"
+    "godot/tests/p2_unified_ship_phase_check.gd",
+    "godot/scripts/sim/ships/native_location_resolver.gd"
   ],
   "purpose": "Gate2 single-world 24 frozen starter ships, N46 initial fuel/cargo and ship wallets in existing N9, N14 transit with native moving orbital targets, persistent command/nonce; no second runner or Actions",
   "verification": "CODE_UNVERIFIED",
