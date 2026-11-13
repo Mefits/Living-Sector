@@ -23,7 +23,8 @@ func show_observation(tick: int, faction_id: String, state: Dictionary) -> void:
 
 ## P2 live economy inspection: read ONLY the authoritative N39 snapshot.
 ## Do not present unconnected N20 planner decisions as active gameplay.
-func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary) -> void:
+func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
+        ships: Dictionary = {}) -> void:
     if _label == null:
         return
     if not (economy.get("facilities") is Dictionary) or not (economy.get("markets") is Dictionary) or not (economy.get("populations") is Dictionary):
@@ -171,5 +172,33 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary) -> v
         failure_ids.sort()
         for id in failure_ids:
             lines.append("  %s: %s" % [str(id), str(failures[id])])
-    lines.append("Флот, контракты и планировщики: пока не подключены к единому тику.")
+    if ships.is_empty():
+        lines.append("Флот: старый checkpoint без N46; не создаём новые танки из seed.")
+    else:
+        lines.append("РЕАЛЬНЫЙ ФЛОТ / N46 + N14: %d судов" % ships.size())
+        var types: Dictionary = {}
+        var flight_count: int = 0
+        var ship_ids: Array = ships.keys()
+        ship_ids.sort()
+        for sid in ship_ids:
+            var ship: Dictionary = ships[sid]
+            var kind: String = str(ship.get("class", "?"))
+            types[kind] = int(types.get(kind, 0)) + 1
+            var transit: Dictionary = ship.get("transit", {})
+            if not transit.is_empty():
+                flight_count += 1
+                lines.append("  В РЕЙСЕ: %s · %s → %s · Fuel %.2f / %.2f" % [
+                    str(ship.get("name", sid)),
+                    str(transit.get("from", "?")), str(transit.get("to", "?")),
+                    float(ship.get("fuel", 0.0)),
+                    float(ship.get("fuel_capacity", 0.0))])
+        var class_ids: Array = types.keys()
+        class_ids.sort()
+        var class_lines: Array[String] = []
+        for kind in class_ids:
+            class_lines.append("%s %d" % [str(kind), int(types[kind])])
+        lines.append("Классы: " + ", ".join(class_lines))
+        lines.append("В пути: %d · на месте: %d" % [flight_count, ships.size() - flight_count])
+        lines.append("AI/доставка пока не подключены; маршруты N14 требуют реальной команды.")
+    lines.append("Контракты и стратегические планировщики: ещё не подключены к единому тику.")
     _label.text = "\n".join(lines)
