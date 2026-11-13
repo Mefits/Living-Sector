@@ -33,12 +33,12 @@
   "evidence": [
     "GitHub readback all 8 GDScript files with balanced lexical delimiters/quotes; new script paths contain source-only code. No Godot runtime/parser available.",
     "Frozen SOURCE_INVENTORY.json file_count 793, 159 native Rust paths each mapped in godot/docs/nightshift/N157_FROZEN_SOURCE_TRIAGE.json; archived crates root 41 blob differences against native.",
-    "Draft PR https://github.com/Mefits/Living-Sector/pull/247 (10 new files, 2271 additions, unmerged, draft).",
+    "Draft PR https://github.com/Mefits/Living-Sector/pull/247 (10 new files, 2271 additions, unmerged, draft; head 735d13f6f088c22945996ffb9d146fa0994e6ec9).",
     "Source-to-port exact mapping and Phase2 handoff godot/docs/nightshift/N157_MACRO10_SOURCE_CLOSURE_RU.md",
     "Source-derived regression assertions authored but NOT EXECUTED."
   ],
   "macro10_source_status": "SOURCE_COVERED_ALL_10_MACROS_CODE_UNVERIFIED",
   "pr_url": "https://github.com/Mefits/Living-Sector/pull/247",
-  "work_sha": "e6f7a5ef8629a1a527858bcf1606c6afe4a9c6d2",
+  "work_sha": "735d13f6f088c22945996ffb9d146fa0994e6ec9",
   "completed_on": "2026-11-13"
 }
