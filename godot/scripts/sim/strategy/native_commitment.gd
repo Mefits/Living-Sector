@@ -49,7 +49,7 @@ func choose(faction: String, offers: Array, tick: int, urgent_life_support: bool
  if float(best.score) < float(incumbent.score) * superiority:
   return _commit(faction,incumbent,tick,"alternative_not_strong_enough")
  var pending: Dictionary = old_state.get("pending",{})
- var same_pending := pending.get("kind",null) == best.action and pending.get("target",null) == best.get("target",null)
+ var same_pending: bool = pending.get("kind",null) == best.action and pending.get("target",null) == best.get("target",null)
  var cycles := int(pending.get("consecutive_cycles",0)) + 1 if same_pending else 1
  if cycles >= confirmations: return _commit(faction,best,tick,"sustained_higher_utility")
  var since := int(pending.get("first_seen_tick",tick)) if same_pending else tick

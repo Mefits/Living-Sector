@@ -23,7 +23,7 @@ func import_ships(ships: Dictionary) -> bool:
 	return true
 
 func step(tick: int, scale: float, multiplier: int) -> Dictionary:
-	if tick < 0 or tick <= _last_tick or multiplier < 1 or not scale.is_finite() or scale < 0.0 or not _valid(_ships):
+	if tick < 0 or tick <= _last_tick or multiplier < 1 or not is_finite(scale) or scale < 0.0 or not _valid(_ships):
 		return {"ok": false, "reason": "invalid_or_replayed"}
 	var next := _ships.duplicate(true)
 	var events: Array = []

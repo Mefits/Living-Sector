@@ -196,7 +196,7 @@ static func _choose_source(ctx: Dictionary, faction: String, location: String,
 	# Actual multipliers are injected from N150 only; no second treaty.
 	var best := {}
 	var has_stock := false
-	var keys := ctx["markets"].keys()
+	var keys: Array = ctx["markets"].keys()
 	keys.sort()
 	for loc in keys:
 		if loc==location:

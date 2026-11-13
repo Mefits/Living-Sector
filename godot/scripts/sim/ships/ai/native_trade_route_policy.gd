@@ -6,7 +6,7 @@ const HALF_LIFE_TICKS := 1500.0
 const FRESHNESS_FLOOR := 0.10
 
 static func freshness(observed_tick: int, current_tick: int) -> float:
-	var age := max(0, current_tick - observed_tick)
+	var age: int = maxi(0, current_tick - observed_tick)
 	return clampf(pow(2.0, -float(age) / HALF_LIFE_TICKS), FRESHNESS_FLOOR, 1.0)
 
 static func median_known_price(knowledge: Dictionary, commodity: String) -> float:
