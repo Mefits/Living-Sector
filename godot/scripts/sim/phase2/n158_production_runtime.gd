@@ -9,6 +9,8 @@ const PopulationPhase = preload("res://scripts/sim/phase2/unified_population_pha
 const ShipPhase = preload("res://scripts/sim/phase2/unified_ship_phase.gd")
 const FleetLogistics = preload("res://scripts/sim/phase2/unified_fleet_logistics.gd")
 const N153Dispatch = preload("res://scripts/sim/phase2/unified_n153_contract_dispatch.gd")
+const NativeAIExecution = preload("res://scripts/sim/phase2/unified_ship_ai_execution.gd")
+const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 const NativeLocations = preload("res://scripts/sim/ships/native_location_resolver.gd")
 
@@ -134,68 +136,36 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_ship_result = {"ok": true, "tick": tick,
             "outcomes": proposal.get("outcomes", {}).duplicate(true),
             "autonomous_departures": [], "autonomous_blocked": []}
-        # N153 obligations are held on the real N104 board. Follow native
-        # N4 directed edges through N14. No phantom cargo or teleporting.
+        # The execution authority is N84 (persistent BT), which emits
+        # N146 commands, checked against N14 physical transit and applied
+        # ONCE through N39 World. No hand-written contract-to-route loop.
         var scheduled: Dictionary = production.world_snapshot()
-        var active_contracts: Dictionary = scheduled.get("contract_board", {}).get("contracts", {})
-        var ship_ids: Array = scheduled["ships"].keys()
-        ship_ids.sort()
-        for sid in ship_ids:
-            var ship: Dictionary = scheduled["ships"][sid]
-            var cid: String = str(ship.get("active_contract_id", ""))
-            if cid.is_empty() or not active_contracts.has(cid):
-                continue
-            var contract: Dictionary = active_contracts[cid]
-            if str(contract.get("status", "")) != "accepted" or str(contract.get("fulfiller_id", "")) != str(sid):
-                continue
-            if not (ship.get("transit", {}) as Dictionary).is_empty() or str(ship.get("docked_at", "")) != "":
-                continue
-            var origin: String = str(ship.get("location", ""))
-            var target: String = str(contract.get("source_location", ""))
-            if origin == target:
-                # The accepted N104 obligation is the ONLY reason to dock.
-                # N21 checks the real station capacity/occupancy; the same
-                # N39 Apply commits the dock receipt into the saved World.
-                # No cargo or escrow is touched until N97 paid pickup exists.
-                var dock_operation: String = "n104-source-dock:" + cid + ":" + str(sid)
-                var dock_plan: Dictionary = FleetLogistics.command(scheduled,
-                    "dock", str(sid), dock_operation, tick)
-                if not dock_plan.get("ok", false):
-                    _last_ship_result["autonomous_blocked"].append({
-                        "ship_id": str(sid), "contract_id": cid,
-                        "reason": "source_n21_" + str(dock_plan.get("reason", "dock_rejected"))})
-                    continue
-                if not production.apply_fleet_logistics(tick, dock_plan):
-                    _last_ship_result = {"ok": false,
-                        "reason": "autonomous_source_dock_single_world_commit_rejected",
-                        "ship_id": str(sid), "contract_id": cid}
-                    return false
-                _last_ship_result["autonomous_departures"].append({
-                    "ship_id": str(sid), "contract_id": cid,
-                    "action": "n21_source_docked", "location": origin, "tick": tick})
-                scheduled = production.world_snapshot()
-                continue
-            var path: Dictionary = _fleet_roster.registry.graph().shortest_path(origin, target)
-            if not path.get("reachable", false) or path.get("locations", []).size() < 2:
-                _last_ship_result["autonomous_blocked"].append({
-                    "ship_id": str(sid), "contract_id": cid, "reason": "directed_source_route_lost"})
-                continue
-            var next_hop: String = str(path["locations"][1])
-            var depart: Dictionary = ShipPhase.depart(scheduled, _fleet_roster.registry.graph(),
-                locations["positions"], tick, clock.tick_scale(), str(sid), next_hop)
-            if not depart.get("ok", false):
-                _last_ship_result["autonomous_blocked"].append({
-                    "ship_id": str(sid), "contract_id": cid,
-                    "reason": str(depart.get("reason", "native_departure_blocked"))})
-                continue
-            if not production.apply_ship_phase(tick, depart):
-                _last_ship_result = {"ok": false, "reason": "autonomous_n14_commit_rejected",
-                    "ship_id": str(sid), "contract_id": cid}
+        var planned: Dictionary = NativeAIExecution.propose(scheduled,
+            _fleet_roster.registry.graph(), locations["positions"], tick,
+            clock.tick_scale())
+        if not planned.get("ok", false):
+            _last_ship_result = planned
+            return false
+        if planned.get("changed", false):
+            if not production.apply_ship_phase(tick, planned):
+                _last_ship_result = {"ok": false,
+                    "reason": "n84_n146_canonical_ship_commit_rejected"}
                 return false
-            _last_ship_result["autonomous_departures"].append({
-                "ship_id": str(sid), "contract_id": cid,
-                "from": origin, "to": next_hop, "tick": tick})
-            scheduled = production.world_snapshot()
+        _last_ship_result["n84_trace"] = planned.get("trace", []).duplicate(true)
+        _last_ship_result["n146_command_count"] = planned.get("commands", []).size()
+        for command in planned.get("commands", []):
+            if str(command.get("kind", "")) == "BeginTransit":
+                _last_ship_result["autonomous_departures"].append({
+                    "ship_id": str(command.get("ship", "")),
+                    "from": str(command.get("from", "")),
+                    "to": str(command.get("to", "")),
+                    "tick": tick})
+        for record in planned.get("trace", []):
+            if str(record.get("reason", "")).begins_with("awaiting_native_paid_"):
+                _last_ship_result["autonomous_blocked"].append({
+                    "ship_id": str(record.get("ship_id", "")),
+                    "contract_id": str(record.get("contract_id", "")),
+                    "reason": str(record.get("reason", ""))})
         return true
     if phase == "populations":
         var population_plan: Dictionary = PopulationPhase.propose(
@@ -428,6 +398,8 @@ func economy_summary() -> Dictionary:
         "n153_accepted_this_tick": _last_n153_result.get("accepted", []).size(),
         "n153_blocked_this_tick": _last_n153_result.get("blocked", []).size(),
         "n153_departures_this_tick": _last_ship_result.get("autonomous_departures", []).size(),
+        "n84_active_traces": _last_ship_result.get("n84_trace", []).size(),
+        "n146_ship_commands": int(_last_ship_result.get("n146_command_count", 0)),
         "n153_first_blocker": n153_first_blocker,
         "contract_admissions_blocked": _last_contract_admissions.get("blocked", []).size(),
         "population_phase_ok": _last_population_result.get("ok", null),
