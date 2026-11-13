@@ -1,6 +1,6 @@
 {
   "owner": "interactive-chat",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "47ae7bab1a52f7a813792a7bf10642a8001763d6",
   "scope": [
@@ -12,5 +12,8 @@
     "godot/tests/p2_faction_native_paid_research_check.gd (new)"
   ],
   "goal": "Gate4 shared N9 actual frozen treasury per faction and N143 autonomous paid research; trusted stock/wages and technology completion only after one World+Ledger Apply, N38 saves and no second faction ledger",
-  "boundary": "No invented tech, shipyard, new construction or fake faction wealth. Read real faction JSON treasury 240000 and real N82 catalogue. Revalidate after facility paid shifts; fail closed; skip legacy checkpoint without treasury."
+  "boundary": "No invented tech, shipyard, new construction or fake faction wealth. Read real faction JSON treasury 240000 and real N82 catalogue. Revalidate after facility paid shifts; fail closed; skip legacy checkpoint without treasury.",
+  "handoff": "godot/docs/phase2/handoffs/20261114-gate4-n143-native-paid-research-integration.md",
+  "code_head": "94d8a521e80bcad984108478dec1fd2c48cb3b71",
+  "verification": "REAL_GODOT_4.7.2_PASS / CI 43515148008"
 }
