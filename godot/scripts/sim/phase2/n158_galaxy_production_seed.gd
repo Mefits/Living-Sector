@@ -82,11 +82,32 @@ static func from_seed(seed: Dictionary) -> Dictionary:
             return _fail("market_has_no_unique_source_station")
         var owner_id: String = candidates[0]
         owners_by_location[owner_location] = owner_id
-        if not (market.get("prices") is Dictionary) or not (market.get("supply") is Dictionary):
-            return _fail("missing_market_stock_or_prices")
+        if not (market.get("prices") is Dictionary) or not (market.get("supply") is Dictionary) or not (market.get("demand") is Dictionary):
+            return _fail("missing_source_market_components")
+        if not _id(market.get("id", null)):
+            return _fail("source_market_missing_id")
+        # Rust sim_db/seeder.rs writes spread=0.10 and price_elasticity
+        # from the real seed, falling back to 0.02. Initial MarketFlow,
+        # MarketOrders and MarketHistory are source-default empty.
+        var elasticity: float = float(market.get("price_elasticity", 0.02))
+        if not is_finite(elasticity) or elasticity < 0.0:
+            return _fail("invalid_source_market_elasticity")
         projected["markets"][owner_location] = {
-            "owner": owner_id, "supply": market["supply"].duplicate(true),
-            "prices": market["prices"].duplicate(true), "limits": {}
+            "id": str(market["id"]),
+            "location": owner_location,
+            "owner": owner_id,
+            "supply": market["supply"].duplicate(true),
+            "prices": market["prices"].duplicate(true),
+            "demand": market["demand"].duplicate(true),
+            "elasticity": elasticity,
+            "spread": 0.10,
+            "seed_demand": market["demand"].duplicate(true),
+            "consumption_window": {},
+            "orders": {"pending_buys": [], "pending_sells": [],
+                "reserved": {}, "order_expiry_ticks": 50 * 32},
+            "history": {"shortage_ticks": {}, "trend_samples": [],
+                "spawned_at_tick": null, "last_tick": 0},
+            "limits": {}
         }
     if owners_by_location.is_empty():
         return _fail("no_native_markets")
