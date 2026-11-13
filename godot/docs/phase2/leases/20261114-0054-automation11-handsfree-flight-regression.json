@@ -1,0 +1,10 @@
+{
+  "worker": "automation11",
+  "status": "IN_PROGRESS",
+  "started_msk": "2026-11-14T00:54:30+03:00",
+  "scope": [
+    "godot/tests/p2_autonomous_multitick_delivery_restart_check.gd"
+  ],
+  "purpose": "One-world no-manual N135/N104/N153/N84/N14/N21/N15/N97 save/restart regression, no runtime file edits",
+  "expires_msk": "2026-11-14T02:00:00+03:00"
+}
