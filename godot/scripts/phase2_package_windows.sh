@@ -31,7 +31,7 @@ with exe.open("rb") as f:
         raise SystemExit("Invalid Windows PE header offset")
     f.seek(pe_offset)
     header = f.read(24)
-    if header[:4] != b"PE\\0\\0" or struct.unpack_from("<H", header, 4)[0] != 0x8664:
+    if header[:4] != bytes((80, 69, 0, 0)) or struct.unpack_from("<H", header, 4)[0] != 0x8664:
         raise SystemExit("Export is not a Windows x86_64 PE executable")
 with pck.open("rb") as f:
     if f.read(4) != b"GDPC":
