@@ -2,7 +2,7 @@ extends SceneTree
 ## N57: one authoritative real seed → fleet + docks + world ledger
 ## → native tick → arrival → in-memory checkpoint/resume. No FileAccess.
 const NativeData = preload("res://scripts/native_data.gd")
-const Engine = preload("res://scripts/sim/live_native_fleet_engine.gd")
+const FleetEngine = preload("res://scripts/sim/live_native_fleet_engine.gd")
 const Checkpoint = preload("res://scripts/sim/ships/native_fleet_checkpoint.gd")
 
 var engine: RefCounted
@@ -25,14 +25,14 @@ func _initialize() -> void:
             json_floats["worlds"][i]["facilities"][0]["docking_capacity"] = 12.0
             json_floats["worlds"][i]["populations"][0]["total_wealth"] = 60000.0
             break
-    if not Engine.new().start_new_game(json_floats).get("ok", false):
+    if not FleetEngine.new().start_new_game(json_floats).get("ok", false):
         _fail("whole_number_json_float_rejected")
         return
     json_floats["factions"][0]["treasury"] = 240000.5
-    if Engine.new().start_new_game(json_floats).get("ok", false):
+    if FleetEngine.new().start_new_game(json_floats).get("ok", false):
         _fail("fractional_seed_credit_accepted")
         return
-    engine = Engine.new()
+    engine = FleetEngine.new()
     var start: Dictionary = engine.start_new_game(seed)
     if not bool(start.get("ok", false)):
         _fail("new_game_" + str(start.get("reason", "")))
@@ -65,7 +65,7 @@ func _initialize() -> void:
     if not bool(initial_checkpoint.get("ok", false)):
         _fail("initial_complete_checkpoint")
         return
-    var restored_zero = Engine.new()
+    var restored_zero = FleetEngine.new()
     if not restored_zero.restore_complete(seed,
             JSON.parse_string(JSON.stringify(initial_checkpoint))).get("ok", false):
         _fail("restore_native_tick_zero")
@@ -126,7 +126,7 @@ func _initialize() -> void:
     if not bool(saved_midflight.get("ok", false)):
         _fail("midflight_checkpoint")
         return
-    var resumed = Engine.new()
+    var resumed = FleetEngine.new()
     var resume_result: Dictionary = resumed.restore_complete(seed,
         JSON.parse_string(JSON.stringify(saved_midflight)))
     if not bool(resume_result.get("ok", false)):
@@ -167,7 +167,7 @@ func _initialize() -> void:
     var checksum_corrupt: Dictionary = saved_midflight.duplicate(true)
     checksum_corrupt["payload"]["ship_state"][0]["fuel"] = 9999.0
     var original_state: String = JSON.stringify(resumed.runner.live_fleet_snapshot())
-    if Engine.new().restore_complete(seed, checksum_corrupt).get("ok", false):
+    if FleetEngine.new().restore_complete(seed, checksum_corrupt).get("ok", false):
         _fail("corrupt_envelope_accepted")
         return
     if original_state != JSON.stringify(resumed.runner.live_fleet_snapshot()):
@@ -178,25 +178,25 @@ func _initialize() -> void:
     var forged: Dictionary = saved_midflight.duplicate(true)
     forged["payload"]["docking"]["facilities"]["facility-earth-station"]["capacity"] = 999
     forged["sha256"] = Checkpoint._canonical(forged["payload"]).sha256_text()
-    if Engine.new().restore_complete(seed, forged).get("ok", false):
+    if FleetEngine.new().restore_complete(seed, forged).get("ok", false):
         _fail("forged_dock_capacity_accepted")
         return
     forged = saved_midflight.duplicate(true)
     forged["payload"]["ledger"]["balances"]["extra:phantom"] = 1000
     forged["sha256"] = Checkpoint._canonical(forged["payload"]).sha256_text()
-    if Engine.new().restore_complete(seed, forged).get("ok", false):
+    if FleetEngine.new().restore_complete(seed, forged).get("ok", false):
         _fail("forged_wallet_accepted")
         return
     forged = saved_midflight.duplicate(true)
     forged["payload"]["ledger"]["balances"]["facility:facility-earth-station"] = 61000
     forged["sha256"] = Checkpoint._canonical(forged["payload"]).sha256_text()
-    if Engine.new().restore_complete(seed, forged).get("ok", false):
+    if FleetEngine.new().restore_complete(seed, forged).get("ok", false):
         _fail("rehashed_money_supply_inflation_accepted")
         return
     forged = saved_midflight.duplicate(true)
     forged["payload"]["ship_state"][0]["cargo_capacity"] = 100000
     forged["sha256"] = Checkpoint._canonical(forged["payload"]).sha256_text()
-    if Engine.new().restore_complete(seed, forged).get("ok", false):
+    if FleetEngine.new().restore_complete(seed, forged).get("ok", false):
         _fail("forged_ship_cargo_capacity_accepted")
         return
     if original_state != JSON.stringify(resumed.runner.live_fleet_snapshot()):
