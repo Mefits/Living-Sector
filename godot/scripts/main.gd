@@ -255,6 +255,28 @@ func _run_boot_check() -> void:
                 + " actual=" + JSON.stringify(actual_supply))
             get_tree().quit(1)
             return
+    # Exercise the same public navigation callbacks as the real game without
+    # altering simulation state or requiring a second fake demo scene.
+    var sol_view: Dictionary = _model.system_by_id("system-sol")
+    if sol_view.is_empty():
+        push_error("P2_BOOT_CHECK_FAIL: no Sol for in-system view")
+        get_tree().quit(1)
+        return
+    _open_world(sol_view)
+    if not _in_system or not _system_view.visible or _map.visible:
+        push_error("P2_BOOT_CHECK_FAIL: could not enter live star system")
+        get_tree().quit(1)
+        return
+    _on_body_selected({"id": "earth"})
+    if _selected_body_id != "earth" or not _details.text.contains("Earth"):
+        push_error("P2_BOOT_CHECK_FAIL: selected planet inspector is missing")
+        get_tree().quit(1)
+        return
+    _return_to_sector()
+    if _in_system or _system_view.visible or not _map.visible:
+        push_error("P2_BOOT_CHECK_FAIL: could not return to sector")
+        get_tree().quit(1)
+        return
     print("P2_BOOT_CHECK_PASS tick=", expected_tick,
         " facilities=", _runner.economy_summary().get("facilities", 0))
     get_tree().quit(0)
