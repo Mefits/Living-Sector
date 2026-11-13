@@ -1,10 +1,12 @@
 {
   "owner": "second-chat-overnight",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T12:00:09+03:00",
   "scope": [
     "godot/tests/p2_n158_live_production_check.gd"
   ],
   "purpose": "Expose exact per-commodity post-save mismatch in the failed paid-world acceptance before another expensive CI run",
-  "handoff": "No production world/ledger modifications; no Actions run."
+  "handoff": "No production world/ledger modifications; no Actions run.",
+  "commit": "c1bbb98a46529b994d2239eacbdd0a8f92026316",
+  "result": "Paid-world acceptance now reports exact commodity mismatches and tick; no relaxed equality; CODE_UNVERIFIED; no Actions."
 }
