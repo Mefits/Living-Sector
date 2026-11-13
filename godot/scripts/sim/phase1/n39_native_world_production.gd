@@ -9,6 +9,7 @@ const Inventory = preload("res://scripts/sim/economy/inventory_store.gd")
 const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
 const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
+const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
 
 const RECIPE_INTERVAL_BASE: int = 5
 const MINING_INTERVAL_BASE: int = 5
@@ -55,13 +56,49 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     var labor_error: String = Payroll.validate_reservations(_world, external_workers)
     if not labor_error.is_empty():
         return {"ok": false, "reason": labor_error}
-    # N156 frozen lifecycle: stage condition decay and abandonment BEFORE
-    # production, on the same N39 World. No second clock/ledger or Tools.
-    var lifecycle: Dictionary = FacilityLifecycle.propose(
+    # Stage the WHOLE native N156/N130 maintenance interval in isolation.
+    # Nothing touches the one canonical World/N9 Ledger until every paid
+    # repair, local stock move and account balance has passed validation.
+    var initial: Dictionary = FacilityLifecycle.propose(
         _world, tick, tick_scale, tick_multiplier)
+    if not initial.get("ok", false):
+        return {"ok": false, "reason": "facility_lifecycle_" + str(initial.get("reason", "rejected"))}
+    var lifecycle_world: Dictionary = _world.duplicate(true)
+    var lifecycle_ledger = Ledger.new()
+    if not lifecycle_ledger.restore(_ledger.snapshot()):
+        return {"ok": false, "reason": "lifecycle_ledger_clone_rejected"}
+    var committed_repairs: Dictionary = {}
+    var paid_credits: Dictionary = {}
+    var repairs: Array = []
+    var repair_failures: Dictionary = {}
+    # Rust lifecycle order: decay, self-repair after real paid WorkShift,
+    # abandonment, THEN purchase service Fuel/Tools from the local market.
+    for candidate in initial["repair_candidates"]:
+        var fid: String = str(candidate.get("facility_id", ""))
+        if not lifecycle_world["facilities"].has(fid):
+            return {"ok": false, "reason": "unknown_repair_candidate"}
+        var paid: Dictionary = Payroll.pay_shift(lifecycle_world, lifecycle_ledger,
+            fid, fid, tick, external_workers, 0)
+        if not paid.get("ok", false):
+            # Native Rust skips a repair if staffing or funds cannot pay.
+            # Never consume a Tool or bump condition without the wages.
+            repair_failures[fid] = str(paid.get("reason", "paid_repair_rejected"))
+            continue
+        committed_repairs[fid] = {
+            "paid_shift_committed": true, "trusted_internal_apply": true,
+            "facility_id": fid, "tick": tick
+        }
+        paid_credits[fid] = int(lifecycle_world["facilities"][fid]["credits"])
+        repairs.append({"facility": fid, "tick": tick,
+            "receipt": paid["receipt"], "wages": int(paid["wages"]),
+            "tools_used": 1.0})
+    # The proposal reads the PRE-repair shift for native crew morale, while
+    # repair receipts/post-wage credits come from the STAGED N9 ledger only.
+    var lifecycle: Dictionary = FacilityLifecycle.propose(
+        _world, tick, tick_scale, tick_multiplier, {},
+        committed_repairs, paid_credits)
     if not lifecycle.get("ok", false):
         return {"ok": false, "reason": "facility_lifecycle_" + str(lifecycle.get("reason", "rejected"))}
-    var lifecycle_world: Dictionary = _world.duplicate(true)
     for facility_id in lifecycle["changes"]:
         if not lifecycle_world["facilities"].has(facility_id):
             return {"ok": false, "reason": "lifecycle_unknown_facility"}
@@ -70,14 +107,22 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         updated["condition"] = float(delta["condition"])
         updated["abandoned"] = bool(delta["abandoned"])
         updated["abandon_counter"] = int(delta["abandon_counter"])
-        # N156 crew welfare is a projection of the previous real paid
-        # WorkShift and household satisfaction, never another Food debit.
-        # This is the SAME staged World swap as condition/abandonment.
+        updated["reserves"] = delta["reserves"].duplicate(true)
+        # N156 household-derived crew morale doesn't debit Food a second time.
         if delta.has("morale"):
             updated["morale"] = float(delta["morale"])
+    var restocked: Dictionary = ServiceRestock.apply(
+        lifecycle_world, lifecycle_ledger, tick, tick_multiplier)
+    if not restocked.get("ok", false):
+        return {"ok": false, "reason": "service_restock_" + str(restocked.get("reason", "rejected"))}
     if Schema.validate(lifecycle_world) != "":
-        return {"ok": false, "reason": "lifecycle_schema_rejected"}
+        return {"ok": false, "reason": "lifecycle_restock_schema_rejected"}
+    var accounts: Dictionary = Schema.accounts(lifecycle_world)
+    for account in accounts:
+        if lifecycle_ledger.balance(str(account)) != int(accounts[account]):
+            return {"ok": false, "reason": "lifecycle_restock_account_mismatch"}
     _world = lifecycle_world
+    _ledger = lifecycle_ledger
     var ids: Array = _world["facilities"].keys()
     ids.sort()
     var lod_fired: Dictionary = {}
@@ -114,7 +159,10 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     _last_tick = tick
     return {"ok": true, "tick": tick, "receipts": receipts, "failures": failures,
         "lifecycle_changes": lifecycle["changes"].duplicate(true),
-        "lifecycle_events": lifecycle["events"].duplicate(true)}
+        "lifecycle_events": lifecycle["events"].duplicate(true),
+        "paid_repairs": repairs,
+        "repair_failures": repair_failures,
+        "service_restock": restocked.get("purchases", []).duplicate(true)}
 
 ## P2 single-market commit boundary: N150 may change price, demand,
 ## flow/history/orders but NEVER physical stock, source owner or accounts.
