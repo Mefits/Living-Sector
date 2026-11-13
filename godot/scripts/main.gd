@@ -211,11 +211,12 @@ func _save_game(save_path: String = "") -> void:
 func _load_game(save_path: String = "") -> void:
     if not _runner:
         return
-    var target: String = SaveState.DEFAULT_PATH if save_path.is_empty() else save_path
+    var target: String = P2_SAVE_PATH if save_path.is_empty() else save_path
     var result: Dictionary = SaveState.load_runner(_runner, _seed, target)
     if result.get("ok", false):
         _model = _runner.world
-        _notice = "Загружены орбиты и производство P2, тик " + str(result.get("tick", "—"))
+        var recovered_from_backup: bool = str(result.get("source", "")).ends_with(".bak")
+        _notice = ("Восстановлена резервная копия: " if recovered_from_backup else "Загружено сохранение: ") + "орбиты и производство P2, тик " + str(result.get("tick", "—"))
         _refresh_selection()
     else:
         _notice = str(result.get("error", "Не удалось загрузить"))
