@@ -149,7 +149,7 @@ func _ready() -> void:
     columns.add_child(_observer_panel)
 
     var footer := Label.new()
-    footer.text = "P2 · живые орбиты, производство и рынок · карта системы: наблюдение · флот/ИИ ещё не включены"
+    footer.text = "P2 · орбиты, производство, рынок, 24 корабля N46 и N14 перелёты по команде · автономный флот/ИИ ещё не включены"
     footer.add_theme_color_override("font_color", Color("#8da6b5"))
     root.add_child(footer)
 
@@ -436,6 +436,7 @@ func _on_tick_completed(tick: int) -> void:
         var live_system: Dictionary = _model.system_by_id(_selected_system)
         if not live_system.is_empty():
             _system_view.update_world(live_system)
+            _system_view.call("set_live_fleet", _runner.fleet_snapshot())
     if tick % 8 == 0 or not _runner.last_native_result().get("receipts", []).is_empty():
         _refresh_selection()
     _update_status()
@@ -478,6 +479,7 @@ func _refresh_selection() -> void:
     if not selected.is_empty():
         if _in_system:
             _system_view.update_world(selected)
+            _system_view.call("set_live_fleet", _runner.fleet_snapshot())
             _show_body_details(selected)
         else:
             _select_world(selected)
@@ -500,6 +502,7 @@ func _select_world(world: Dictionary) -> void:
     _map.call("select_system", sid)
     if _in_system:
         _system_view.update_world(world)
+        _system_view.call("set_live_fleet", _runner.fleet_snapshot())
         _show_body_details(world)
         return
     var bodies: Array = world.get("bodies", [])
@@ -615,8 +618,8 @@ func _select_world(world: Dictionary) -> void:
                     int(population_result.get("purchases", 0))
                 ])
     lines.append("")
-    lines.append("Орбиты и производственный цикл реальны. Корабли, потребление населения,")
-    lines.append("Корабельный ИИ и контракты пока не подключены к общему тику.")
+    lines.append("Орбиты, производство, покупки населения и рынок работают в одном тике.")
+    lines.append("Флот N46/N14 подключён, но автономный ИИ и контракты ещё не работают.")
     _details.text = "\n".join(lines)
 
 func _open_selected_system() -> void:
@@ -640,6 +643,7 @@ func _open_world(world: Dictionary) -> void:
     _map.visible = false
     _system_view.visible = true
     _system_view.set_world(current)
+    _system_view.call("set_live_fleet", _runner.fleet_snapshot())
     _map.call("select_system", sid)
     _back_button.visible = true
     _open_button.visible = false
@@ -780,21 +784,24 @@ func _show_body_details(world: Dictionary) -> void:
     if not printed:
         lines.append(" • Для этого тела пока нет активного рынка/населения")
     lines.append("")
-    lines.append("СТАРТОВЫЕ КОРАБЛИ (БЕЗ ДВИЖЕНИЯ)")
+    lines.append("КОРАБЛИ В ЛОКАЦИЯХ ЭТОГО ТЕЛА")
     var ships_by_class: Dictionary = {}
-    for ship in world.get("ships", []):
+    var active_fleet: Dictionary = _runner.fleet_snapshot()
+    for ship_id in active_fleet:
+        var ship: Dictionary = active_fleet[ship_id]
         if not locations.has(str(ship.get("location", ""))):
             continue
         var ship_class: String = str(ship.get("class", "other"))
         ships_by_class[ship_class] = int(ships_by_class.get(ship_class, 0)) + 1
     if ships_by_class.is_empty():
-        lines.append(" • Нет привязанных кораблей")
+        lines.append(" • Нет находящихся здесь кораблей")
     else:
         var ship_types: Array = ships_by_class.keys()
         ship_types.sort()
         for ship_type in ship_types:
             lines.append(" • %s: %d" % [str(ship_type), int(ships_by_class[ship_type])])
-    lines.append("Автономное перемещение кораблей пока не подключено.")
+    lines.append("Полёты по реальным N14 маршрутам: статус в панели Наблюдение.")
+    lines.append("Автономный корабельный ИИ ещё не подключён.")
     _details.text = "\n".join(lines)
 
 
