@@ -17,6 +17,7 @@ var _selected_system: String = "system-sol"
 var _notice: String = ""
 var _startup_error: String = ""
 var _pause_button: Button
+var _speed_menu: OptionButton
 var _map: Control
 var _details: RichTextLabel
 var _status: Label
@@ -73,6 +74,7 @@ func _ready() -> void:
     for speed in SPEEDS:
         speed_menu.add_item("×" + str(speed))
     speed_menu.selected = 0
+    _speed_menu = speed_menu
     speed_menu.item_selected.connect(_change_speed)
     toolbar.add_child(speed_menu)
     var save_button := Button.new()
@@ -227,12 +229,32 @@ func _load_game(save_path: String = "") -> void:
     var result: Dictionary = SaveState.load_runner(_runner, _seed, target)
     if result.get("ok", false):
         _model = _runner.world
+        # A loaded checkpoint replaces the authoritative world and clock. Refresh
+        # all read-only projections; never keep a stale seed-era map or speed UI.
+        _map.call("set_worlds", _model.worlds())
+        _map.call("select_system", _selected_system)
+        _sync_speed_control()
+        _refresh_observer()
         var recovered_from_backup: bool = str(result.get("source", "")).ends_with(".bak")
         _notice = ("Восстановлена резервная копия: " if recovered_from_backup else "Загружено сохранение: ") + "орбиты и производство P2, тик " + str(result.get("tick", "—"))
         _refresh_selection()
     else:
         _notice = str(result.get("error", "Не удалось загрузить"))
     _update_status()
+
+func _sync_speed_control() -> void:
+    if _speed_menu == null or _runner == null:
+        return
+    var restored_speed: float = float(_runner.clock.world_speed)
+    for index in range(SPEEDS.size()):
+        if is_equal_approx(float(SPEEDS[index]), restored_speed):
+            # Assigning selected does not dispatch item_selected or mutate time.
+            _speed_menu.selected = index
+            return
+    # A compatible checkpoint may carry a valid custom speed. Do not lie
+    # about the current multiplier by displaying a different preset.
+    _speed_menu.select(-1)
+
 
 func _on_tick_completed(tick: int) -> void:
     _refresh_observer()
