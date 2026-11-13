@@ -1,0 +1,12 @@
+{
+  "owner": "automation11-2047",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T20:47:29+03:00",
+  "expires_at": "2026-11-13T21:32:29+03:00",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_contract_demand_admission.gd",
+    "godot/tests/p2_contract_demand_admission_check.gd"
+  ],
+  "boundary": "Pure N135->N104 admission validation against canonical world stock/owner/funds and idempotent contract identity; no central N39/ledger mutation or second board; future sole Apply owner must commit escrow"
+}
