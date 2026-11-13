@@ -15,6 +15,7 @@ var _boot_error: String = ""
 var _source_stats: Dictionary = {}
 var _last_market_result: Dictionary = {}
 var _last_station_demand: Dictionary = {}
+var _last_contract_admissions: Dictionary = {}
 var _last_population_result: Dictionary = {}
 var _last_ship_result: Dictionary = {}
 var _fleet_roster: RefCounted
@@ -25,6 +26,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _source_stats = {}
     _last_market_result = {}
     _last_station_demand = {}
+    _last_contract_admissions = {}
     _last_population_result = {}
     _last_ship_result = {}
     _fleet_roster = null
@@ -112,11 +114,33 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         return false
     _last_market_result = {"ok": true, "tick": tick,
         "market_count": int(proposal["market_count"])}
-    # N135: observe real N151 consumption and current physical stock AFTER
-    # N150 market commit. No contract is posted until the sole escrow Apply
-    # exists; this is a visible, non-mutating autonomous demand candidate.
+    # N135 observes actual N151 consumption after N150 price commit.
+    # N39 alone admits funded N104 contracts and N9 escrow in one atomic
+    # commit. Demand previews are not themselves contracts or ship orders.
     _last_station_demand = StationDemand.propose(production.world_snapshot(), tick)
-    return bool(_last_station_demand.get("ok", false))
+    if not _last_station_demand.get("ok", false):
+        return false
+    _last_contract_admissions = {"ok": true, "tick": tick,
+        "posted": [], "blocked": [], "status": "POSTING_COMPLETE"}
+    for demand in _last_station_demand.get("proposals", []):
+        if not (demand is Dictionary):
+            _last_contract_admissions = {"ok": false,
+                "reason": "invalid_n135_candidate", "tick": tick}
+            return false
+        var admission: Dictionary = production.post_funded_contract(tick, demand)
+        if admission.get("ok", false):
+            _last_contract_admissions["posted"].append(admission.duplicate(true))
+        elif admission.get("fatal", false):
+            _last_contract_admissions = {"ok": false, "tick": tick,
+                "reason": str(admission.get("reason", "canonical_post_failed"))}
+            return false
+        else:
+            # A stale allocation/occupied supplier or already funded need
+            # is a normal refusal, NOT fake contract execution.
+            _last_contract_admissions["blocked"].append({
+                "demand_id": str(demand.get("id", "")),
+                "reason": str(admission.get("reason", "rejected"))})
+    return true
 
 ## Propagate the actual rejected proposal/commit reason to the sole
 ## authoritative tick runner. A failed paid tick remains frozen.
@@ -127,7 +151,7 @@ func _integrated_phase_failure_reason(phase: String) -> String:
     elif phase == "ships":
         result = _last_ship_result
     elif phase == "markets":
-        result = _last_station_demand if not _last_station_demand.get("ok", true) else _last_market_result
+        result = _last_station_demand if not _last_station_demand.get("ok", true) else (_last_contract_admissions if not _last_contract_admissions.get("ok", true) else _last_market_result)
     var detail: String = str(result.get("reason", "integrated_phase_rejected"))
     return detail if not detail.is_empty() else "integrated_phase_rejected"
 
@@ -136,6 +160,13 @@ func last_market_result() -> Dictionary:
 
 func station_demand_snapshot() -> Dictionary:
     return _last_station_demand.duplicate(true)
+
+## Durable N104 contracts live in N39 World; this is only a read-only view.
+func funded_contracts_snapshot() -> Dictionary:
+    return production.contract_snapshot() if _native_enabled else {}
+
+func contract_admissions_snapshot() -> Dictionary:
+    return _last_contract_admissions.duplicate(true)
 
 func last_population_result() -> Dictionary:
     return _last_population_result.duplicate(true)
@@ -273,6 +304,9 @@ func economy_summary() -> Dictionary:
         "station_demand_candidates": _last_station_demand.get("proposals", []).size(),
         "station_demand_blocked": _last_station_demand.get("blocked", []).size(),
         "station_demand_status": str(_last_station_demand.get("status", "NOT_EVALUATED")),
+        "funded_contract_count": current.get("contract_board", {}).get("contracts", {}).size(),
+        "funded_contracts_this_tick": _last_contract_admissions.get("posted", []).size(),
+        "contract_admissions_blocked": _last_contract_admissions.get("blocked", []).size(),
         "population_phase_ok": _last_population_result.get("ok", null),
         "population_purchases": _last_population_result.get("purchases", 0)
     }
@@ -293,6 +327,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     # Never show stale in-transit receipts from before a successful load.
     _last_ship_result = {}
     _last_station_demand = {}
+    _last_contract_admissions = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
@@ -304,6 +339,32 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
     var w: Dictionary = saved["world"]
     if not (w.get("facilities") is Dictionary) or not (w.get("markets") is Dictionary) or not (w.get("populations") is Dictionary):
         return false
+    # N104 posted contracts/escrow are persisted inside the SAME N39 World.
+    # JSON integer-shaped values must be restored before N39/Board preflight.
+    # Older checkpoints without both fields remain valid as legacy.
+    if w.has("contract_board") != w.has("escrow_balances"):
+        return false
+    if w.has("contract_board"):
+        var board: Variant = w["contract_board"]
+        var escrows: Variant = w["escrow_balances"]
+        if not (board is Dictionary) or not (escrows is Dictionary):
+            return false
+        if not _normalize_row(board, ["version"]):
+            return false
+        if not (board.get("contracts") is Dictionary) or not (board.get("receipt_claims") is Dictionary):
+            return false
+        for wallet in escrows:
+            if not _normalize_number_at(escrows, wallet):
+                return false
+        for cid in board["contracts"]:
+            var row: Variant = board["contracts"][cid]
+            if not (row is Dictionary):
+                return false
+            for key in ["reserved", "agreed_payment", "quantity", "payment",
+                    "initial_payment", "posted_at_tick", "expires_at_tick",
+                    "accepted_at_tick", "delivered_at_tick"]:
+                if not _normalize_number_at(row, key):
+                    return false
     # First N46 fleet is authoritative in THIS N39 snapshot. Old files
     # without a fleet remain valid without inventing tanks/ship credits.
     if w.has("ships"):
