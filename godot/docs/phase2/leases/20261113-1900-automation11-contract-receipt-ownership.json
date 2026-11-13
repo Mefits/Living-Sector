@@ -1,6 +1,6 @@
 {
   "owner": "automation11",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T19:00:00+03:00",
   "expires_at": "2026-11-13T19:40:00+03:00",
   "branch": "integration/godot-phase2-unified-20261113",
@@ -8,5 +8,12 @@
     "godot/scripts/sim/economy/contract_board.gd",
     "godot/tests/p2_contract_receipt_ownership_check.gd"
   ],
-  "boundary": "N104 unique physical receipt claims, durable restore and replay rejection; no new board, ledger or runner"
+  "boundary": "N104 unique physical receipt claims, durable restore and replay rejection; no new board, ledger or runner",
+  "released_at": "2026-11-13T19:12:00+03:00",
+  "code_commits": [
+    "7284a72d",
+    "d93db258"
+  ],
+  "verification": "CODE_UNVERIFIED; source inspection only, Godot unavailable; Actions 0",
+  "handoff": "godot/docs/phase2/handoffs/20261113-1912-automation11-contract-receipts.md"
 }
