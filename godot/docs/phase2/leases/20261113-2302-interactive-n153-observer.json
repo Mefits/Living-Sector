@@ -1,0 +1,11 @@
+{
+  "owner": "interactive-chat-autonomy-N153",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "started_at": "2026-11-13T23:02:00+03:00",
+  "expires_at": "2026-11-13T23:55:00+03:00",
+  "scope": [
+    "godot/scripts/observer_panel.gd"
+  ],
+  "boundary": "Read-only N153 acceptance/block reasons from single runtime summary, manual UI stays hidden"
+}
