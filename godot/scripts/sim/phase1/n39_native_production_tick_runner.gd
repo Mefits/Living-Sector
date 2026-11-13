@@ -52,6 +52,11 @@ func implemented_phases() -> PackedStringArray:
 func last_native_result() -> Dictionary:
     return _last_native_result.duplicate(true)
 
+## Phase2 extension hook: exactly one physical runtime executes each
+## non-N39 phase, no separate TickRunner/market ledger/clock.
+func _execute_integrated_phase(_phase: String, _tick: int) -> bool:
+    return true
+
 func _advance_one_tick() -> void:
     tick_count += 1
     var native_delta: float = clock.tick_scale()
@@ -66,6 +71,9 @@ func _advance_one_tick() -> void:
             if not _last_native_result.get("ok", false):
                 push_error("N39 native production tick rejected: " +
                     str(_last_native_result.get("reason", "unknown")))
+        if not _execute_integrated_phase(phase, tick_count):
+            push_error("P2 integrated phase rejected: " + phase +
+                " tick=" + str(tick_count))
         for event in events.take_due(tick_count, index):
             scheduled_event_due.emit(event)
     calendar.advance_committed_tick(native_delta)
