@@ -52,7 +52,7 @@ static func from_seed(seed: Dictionary) -> Dictionary:
                 return _fail("facility_missing_source_location")
             if not projected["bodies"].has(str(fac["body"])):
                 return _fail("facility_missing_actual_body")
-            if typeof(fac.get("credits", null)) != TYPE_INT or int(fac["credits"]) < 0:
+            if not _whole_json_int(fac.get("credits", null)):
                 return _fail("invalid_source_facility_credits")
             if not _id(fac.get("type", null)):
                 return _fail("invalid_source_facility_type")
@@ -147,7 +147,7 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         var owner: Dictionary = projected["facilities"][owners_by_location[location]]
         if str(pop["faction_id"]) != str(owner["faction"]):
             return _fail("population_faction_mismatch")
-        if typeof(pop.get("population_count", null)) != TYPE_INT or typeof(pop.get("total_wealth", null)) != TYPE_INT:
+        if not _whole_json_int(pop.get("population_count", null)) or not _whole_json_int(pop.get("total_wealth", null)):
             return _fail("population_missing_real_counts")
         projected["populations"][pid] = {
             "faction": str(pop["faction_id"]),
@@ -172,6 +172,15 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         "populations": projected["populations"].size(),
         "bodies": projected["bodies"].size()
     }}
+
+## NativeData JSON parser represents whole-number JSON data as float in
+## some Godot versions. Accept exact whole values only, never silently
+## truncate or round financial accounts or population quantities.
+static func _whole_json_int(value: Variant) -> bool:
+    if not (value is int or value is float):
+        return false
+    var as_number: float = float(value)
+    return is_finite(as_number) and as_number >= 0.0 and as_number <= 9007199254740991.0 and as_number == float(int(as_number))
 
 static func _id(value: Variant) -> bool:
     return value is String and not value.is_empty()

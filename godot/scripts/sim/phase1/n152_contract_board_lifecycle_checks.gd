@@ -131,7 +131,7 @@ static func run() -> Dictionary:
 		and cancel_dest["board"]["contracts"][mission["id"]]["status"]=="expired"
 		and Core.check_indices(cancel_dest["board"])["ok"],
 		"last_facility_location_cancel_all_live_related_contracts")
-	var legacy := subsid["contract"].duplicate(true)
+	var legacy: Dictionary = subsid["contract"].duplicate(true)
 	legacy["id"]="contract-137"
 	legacy["payment"]=1400
 	legacy["initial_payment"]=900
