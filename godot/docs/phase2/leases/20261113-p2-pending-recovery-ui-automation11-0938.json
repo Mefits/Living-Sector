@@ -1,0 +1,10 @@
+{
+  "owner": "automation11",
+  "status": "IN_PROGRESS",
+  "scope": [
+    "godot/scripts/main.gd"
+  ],
+  "purpose": "Expose durable pending recovery and failed promotion in startup and manual load notices",
+  "started_at": "2026-11-13T09:38:50+03:00",
+  "branch": "integration/godot-phase2-unified-20261113"
+}
