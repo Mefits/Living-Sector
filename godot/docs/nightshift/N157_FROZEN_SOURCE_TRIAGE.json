@@ -1,0 +1,1169 @@
+{
+  "title": "N157 frozen Rust complete path triage — mapping, NOT runtime parity",
+  "freeze_branch": "archive/rust-galaxy-067-reference",
+  "freeze_commit": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "source_inventory_file": "godot/docs/SOURCE_INVENTORY.json",
+  "file_count": 793,
+  "source_categories": {
+    "PRESERVE_UNCLASSIFIED": 36,
+    "LOCAL_TOOLING_REFERENCE": 135,
+    "PARITY_FIXTURE_REFERENCE": 39,
+    "LEGACY_ROOT_CODE_REVIEW": 224,
+    "DESIGN_AND_HISTORY_REFERENCE": 98,
+    "VISUAL_AND_UX_REFERENCE": 43,
+    "BEHAVIOR_TEST_REFERENCE": 2,
+    "REIMPLEMENT_BEHAVIOR": 91,
+    "PRESERVE_SAVE_SCHEMA": 18,
+    "REIMPLEMENT_PERSISTENCE_SEMANTICS": 5,
+    "PORT_DATA_SCHEMAS": 1,
+    "REPLACE_TRANSPORT_PRESERVE_API_CONTRACT": 13,
+    "REIMPLEMENT_TICK_SEMANTICS": 11,
+    "UI_PORT_REFERENCE": 44,
+    "PRESERVE_ALTERNATE_DATA": 22,
+    "COPY_AS_DATA": 11
+  },
+  "rust_source_files": 274,
+  "native_runtime_rust_source_files": 159,
+  "native_dispositions": {
+    "GODOT_CLIENT_REPLACES_BEVY_UI": 36,
+    "REFERENCE_ONLY_TEST_SCENARIO": 2,
+    "SOURCE_COMPONENT_CODE_UNVERIFIED": 93,
+    "SOURCE_INDEX_OR_SCHEMA": 3,
+    "SOURCE_DATA_SHAPE_REFERENCE": 1,
+    "SOURCE_STUB_NO_EXECUTABLE_MECHANIC": 5,
+    "SOURCE_EXPORT_MODULE": 1,
+    "PERSISTENCE_SOURCE_SEMANTICS_CODE_UNVERIFIED": 5,
+    "PRESERVE_PROTOCOL_SHAPES_NO_NETWORK_SERVER": 1,
+    "SERVER_TRANSPORT_ADAPTER_PHASE2": 10,
+    "SOURCE_VIEW_COMPONENT_REFERENCE": 2
+  },
+  "legacy_root_source": {
+    "root_paths": 224,
+    "with_native_path_twin": 133,
+    "identical_blobs": 92,
+    "different_blobs": 41,
+    "note": "Archived root paths are NOT necessarily byte-identical to native/ snapshots. Native frozen 6e40615 is the authority; differing root copies are history, not independent current rules."
+  },
+  "policy": "SOURCE-COVERED means mapped functional Rust behavior to Draft component owner only. No Godot parser/headless, Rust-vs-GDScript executable parity, single ECS world assembly, provider API or actual SaveState integration executed.",
+  "remaining_phase2": [
+    "one authoritative ECS Market/ContractBoard/Ledger/WorkShift + N140 LOD",
+    "append N157 frame record and save with N32/N38 atomic FileAccess adapter",
+    "hydrate stable IDs, market trends, fleet docking and completed construction state before tick",
+    "replace server transport and client Bevy UI with Godot provider and view; run Rust parity scenarios"
+  ],
+  "native_source_mapping": [
+    {
+      "path": "native/crates/client_bevy/src/audio/mod.rs",
+      "git_blob": "b2401b1558596234ffb8c510435e210144d4cf60",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/camera/mod.rs",
+      "git_blob": "66ec4694afd3484efc371507d9c708870193c262",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/main.rs",
+      "git_blob": "92f5e15286f04ec848b5498e398520fc6d814118",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/render/asteroid.rs",
+      "git_blob": "a4a560c31c949f6651e6f917a50778feb932b267",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/render/gizmos.rs",
+      "git_blob": "81ce52509caae4bee42508124f13d866955fe987",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/render/mod.rs",
+      "git_blob": "4a3e35a225d05132c85b3a6c6e9ba8c3d1fe1de9",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/render/nebula.rs",
+      "git_blob": "38561024aff8a8e99c3ded4d84bfe3125cb093b0",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/render/particles.rs",
+      "git_blob": "a892871de61e9451979c273880d931458f73a48c",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/render/planet.rs",
+      "git_blob": "b811addafe36a29514a688c55202174607dae8a0",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/render/raycast.rs",
+      "git_blob": "81ec36f9619280e5eebd2a4ce75d4357f44cfe27",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/render/starfield.rs",
+      "git_blob": "dd5e35341b8d2e96e6c3379b4b02a39803de7178",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/sim/mod.rs",
+      "git_blob": "29bb1e17da36474baa1007dec414c02363de6cd8",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/construction.rs",
+      "git_blob": "95d20ccc4f8ae91ca42ae59c9bda6c43c9270401",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/context.rs",
+      "git_blob": "cee43da1db3872e392f8dddb274e9af0c078200f",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/contracts.rs",
+      "git_blob": "0f88b128039c59b755f8348c74311a3e567108af",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/events.rs",
+      "git_blob": "5961eaa2db7014ad9e50a4b637bccb2b9c45ae20",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/facility.rs",
+      "git_blob": "abcbf964a05086349d49b2911d2bfe7727d8365e",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/factions.rs",
+      "git_blob": "e0d925237c2272dc39c0c3f930fbb857175b95a1",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/format.rs",
+      "git_blob": "e3787535aa67e17826859fdcdc91b1a61424c884",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/help.rs",
+      "git_blob": "a2fd59ac8b11579d52728a536a2f62f5d9dc92b9",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/icons.rs",
+      "git_blob": "d3fac921a5bd1fad11bf6ec56a5f3c5897024288",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/labels.rs",
+      "git_blob": "a2e3fa52faf48a869ffd381eefe9483da7005542",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/lifecycle.rs",
+      "git_blob": "88c3bb043e4e24e6324ac4f894eb19aa84e6264d",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/markets.rs",
+      "git_blob": "e07f874d896a33af68bde7c84480b00a6154a91d",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/menus.rs",
+      "git_blob": "9a0dcef48f2ac54cf5906bbc6c48b22364e57164",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/minimap.rs",
+      "git_blob": "f57862e94677fcf2f391ee4bfa334a88d609e20e",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/mod.rs",
+      "git_blob": "270b0b280b55ae3093fc92c427e1c292a0728980",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/panel_stack.rs",
+      "git_blob": "b0759213c64b964869d955d44a9ef75fc573774a",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/perf.rs",
+      "git_blob": "518453edabdd169e8a2b6791088ccb9f608087fd",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/populations.rs",
+      "git_blob": "3c25d38c6dcd8f82df412402653ccd542fdf2089",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/retirements.rs",
+      "git_blob": "2d8f45ce33962bc6118e2c7e77b2d2da8e22b051",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/ship_details.rs",
+      "git_blob": "9d106919816154b45dddd1aaa85e897cc7f0ccee",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/ship_list.rs",
+      "git_blob": "5a1b702e7a674a63d352bd12d8ebea3f47091dd8",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/spawn_dialogs.rs",
+      "git_blob": "9bc332eabeb700f8f8180661c2658f205d1557d8",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/theme.rs",
+      "git_blob": "4ac4997e80bd73f17cd53a96f7a31d825e3efd26",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/client_bevy/src/ui/top_bar.rs",
+      "git_blob": "363aa7a26d7b90061152ac9e17d161cac60021c0",
+      "disposition": "GODOT_CLIENT_REPLACES_BEVY_UI",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot client and UI design; no Bevy renderer replication"
+    },
+    {
+      "path": "native/crates/sim_core/examples/compare_ai_hybrid.rs",
+      "git_blob": "93cb68480b421cb8c7f1df6d1969c73eb04b6520",
+      "disposition": "REFERENCE_ONLY_TEST_SCENARIO",
+      "source_owner": "N117",
+      "evidence_context": "Hybrid/AI comparative example not live ECS tick"
+    },
+    {
+      "path": "native/crates/sim_core/examples/compare_ai_native.rs",
+      "git_blob": "2832efb4967b853774ad9dae2b41816e8ac9d090",
+      "disposition": "REFERENCE_ONLY_TEST_SCENARIO",
+      "source_owner": "N117",
+      "evidence_context": "Hybrid/AI comparative example not live ECS tick"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/celestial_body.rs",
+      "git_blob": "0d9e87d57aded0d71055d884a604b1843044066a",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N3/N140/N150",
+      "evidence_context": "N3 orbit bodies N140 spatial LOD N150 territory"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/construction.rs",
+      "git_blob": "901bc5c82171f607f94cf349399b1d3d04f7ecee",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N141/N154",
+      "evidence_context": "N141 paid construction N154 site materialization"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/construction/executor.rs",
+      "git_blob": "8e67f2dbe7c5cf0242add3966bbf928209aacb9e",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N141/N154",
+      "evidence_context": "N141 paid construction N154 site materialization"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/construction/labor.rs",
+      "git_blob": "2d5a5cfb69fb167fe595ddea62d1b8dac7d3bf70",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N141/N154",
+      "evidence_context": "N141 paid construction N154 site materialization"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/facility/components.rs",
+      "git_blob": "98a9c9ef930443e943f756de1cd08ebb31ea642d",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N39/N156/N130/N154",
+      "evidence_context": "N39 physical paid recipes/mining/workforce; N156 lifecycle; N130 restock; N154 modules"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/facility/mod.rs",
+      "git_blob": "f6a8572e611389b6e73a41ca4be619c1323c84aa",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N39/N156/N130/N154",
+      "evidence_context": "N39 physical paid recipes/mining/workforce; N156 lifecycle; N130 restock; N154 modules"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/facility/restock.rs",
+      "git_blob": "7a06eac0935305b7f4e144baaf27535ead387125",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N39/N156/N130/N154",
+      "evidence_context": "N39 physical paid recipes/mining/workforce; N156 lifecycle; N130 restock; N154 modules"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/facility/restock/supply_flow_tests.rs",
+      "git_blob": "62913399bc1dd840bba3fb6a0dd7b295b827c83b",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N39/N156/N130/N154",
+      "evidence_context": "N39 physical paid recipes/mining/workforce; N156 lifecycle; N130 restock; N154 modules"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/facility/workforce.rs",
+      "git_blob": "e55a51ecb5df219340ad033f4440ac9cdfdcbb6c",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N39/N156/N130/N154",
+      "evidence_context": "N39 physical paid recipes/mining/workforce; N156 lifecycle; N130 restock; N154 modules"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/facility/workforce/tests.rs",
+      "git_blob": "02383d5e56ef15a08e46d1730cf9a97f3466ef0a",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N39/N156/N130/N154",
+      "evidence_context": "N39 physical paid recipes/mining/workforce; N156 lifecycle; N130 restock; N154 modules"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/faction_relations.rs",
+      "git_blob": "60321a42f4272446ebfc62ff5b83c2330895e3ec",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N150/N143/N105",
+      "evidence_context": "N150 diplomacy N143 research N105 relief"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/faction.rs",
+      "git_blob": "dc38cc8a283128fbd5b2db8688a796276f924885",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N150/N143/N105",
+      "evidence_context": "N150 diplomacy N143 research N105 relief"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/faction/relief.rs",
+      "git_blob": "625bb59104c9c209f396fd4147f4b9a33131bbfd",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N150/N143/N105",
+      "evidence_context": "N150 diplomacy N143 research N105 relief"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/market.rs",
+      "git_blob": "245b4f5e1ae7dfd608e2618d06c3de035eee5dd2",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N150",
+      "evidence_context": "N150 full market economy snapshots/trends"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/mod.rs",
+      "git_blob": "986f4d571d4cdf58ff3c95ba6a2c3e673fcbb551",
+      "disposition": "SOURCE_INDEX_OR_SCHEMA",
+      "source_owner": "N9/N47",
+      "evidence_context": "Cargo types, core reexports or non-dynamic Rust glue, source-schema index"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/population.rs",
+      "git_blob": "cd6e2121901a8ee109d050a29f903f4e7fdedea3",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N151",
+      "evidence_context": "N151 household/colony paid consumption/migration"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/position_type.rs",
+      "git_blob": "ce6916ff481c871cb3a0c00cbadf710ec397e775",
+      "disposition": "SOURCE_DATA_SHAPE_REFERENCE",
+      "source_owner": "N40/N142",
+      "evidence_context": "N40 ship positional state N142 physical travel"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/ship/actions.rs",
+      "git_blob": "c0b169e26f7c4e04dc21d545bfa244779b01b0d6",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N149/N153/N97/N148",
+      "evidence_context": "N149 life/crew N153 behavior N97 apply N148 lifecycle N128 combat"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/ship/behavior.rs",
+      "git_blob": "46225963fc854d6c3591d64329952b9085d74117",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N149/N153/N97/N148",
+      "evidence_context": "N149 life/crew N153 behavior N97 apply N148 lifecycle N128 combat"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/ship/components.rs",
+      "git_blob": "f7547bafb394d92ace9c725fedb9f53595c75264",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N149/N153/N97/N148",
+      "evidence_context": "N149 life/crew N153 behavior N97 apply N148 lifecycle N128 combat"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/ship/mod.rs",
+      "git_blob": "dd3d7e9f426fc62de11f0afc03b4f6130998b71e",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N149/N153/N97/N148",
+      "evidence_context": "N149 life/crew N153 behavior N97 apply N148 lifecycle N128 combat"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/ship/snapshot.rs",
+      "git_blob": "c966312d16e1f88a02d0025d460a997cde1840c3",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N149/N153/N97/N148",
+      "evidence_context": "N149 life/crew N153 behavior N97 apply N148 lifecycle N128 combat"
+    },
+    {
+      "path": "native/crates/sim_core/src/agents/ship/transactions.rs",
+      "git_blob": "da5f2b09c30d84c4cf0f197f4b04e101c51ed710",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N149/N153/N97/N148",
+      "evidence_context": "N149 life/crew N153 behavior N97 apply N148 lifecycle N128 combat"
+    },
+    {
+      "path": "native/crates/sim_core/src/ai/behavior_tree.rs",
+      "git_blob": "9667c73c777508a19a47032bf0f4c3e54e1c3879",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N80/N84/N85/N86/N87/N137",
+      "evidence_context": "N80 goal N84 behavior tree N85 Utility N86 personality N87 planner N137 considerations"
+    },
+    {
+      "path": "native/crates/sim_core/src/ai/considerations.rs",
+      "git_blob": "e158dfa0911fc0eaf2c545956f2c4ba9de246e16",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N80/N84/N85/N86/N87/N137",
+      "evidence_context": "N80 goal N84 behavior tree N85 Utility N86 personality N87 planner N137 considerations"
+    },
+    {
+      "path": "native/crates/sim_core/src/ai/mod.rs",
+      "git_blob": "b2eae2d0a809ab901effa8e95ddedb3193128141",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N80/N84/N85/N86/N87/N137",
+      "evidence_context": "N80 goal N84 behavior tree N85 Utility N86 personality N87 planner N137 considerations"
+    },
+    {
+      "path": "native/crates/sim_core/src/ai/personality.rs",
+      "git_blob": "f43d6940b43addc793ee503c4cb13d7009c2c578",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N80/N84/N85/N86/N87/N137",
+      "evidence_context": "N80 goal N84 behavior tree N85 Utility N86 personality N87 planner N137 considerations"
+    },
+    {
+      "path": "native/crates/sim_core/src/ai/planner.rs",
+      "git_blob": "1b18f8077e1f0323918ba6541078922671ef462a",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N80/N84/N85/N86/N87/N137",
+      "evidence_context": "N80 goal N84 behavior tree N85 Utility N86 personality N87 planner N137 considerations"
+    },
+    {
+      "path": "native/crates/sim_core/src/ai/utility.rs",
+      "git_blob": "7d9af64e39b4b6d08925b5c49d656695a12e9852",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N80/N84/N85/N86/N87/N137",
+      "evidence_context": "N80 goal N84 behavior tree N85 Utility N86 personality N87 planner N137 considerations"
+    },
+    {
+      "path": "native/crates/sim_core/src/economy/commodities.rs",
+      "git_blob": "d3403491ef06d6cb1c7a1acea12be6d24ec5ac62",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N9/N25/N39/N104/N152/N150",
+      "evidence_context": "N9 ledger N25 order matching N39 production N104/N152 contracts N150 price N156 missions"
+    },
+    {
+      "path": "native/crates/sim_core/src/economy/contracts.rs",
+      "git_blob": "7a23fd643f36692e4a5bf288599823a0ece73dc6",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N9/N25/N39/N104/N152/N150",
+      "evidence_context": "N9 ledger N25 order matching N39 production N104/N152 contracts N150 price N156 missions"
+    },
+    {
+      "path": "native/crates/sim_core/src/economy/missions.rs",
+      "git_blob": "7c0c92536e52589c318c49a246da390b910a4968",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N9/N25/N39/N104/N152/N150",
+      "evidence_context": "N9 ledger N25 order matching N39 production N104/N152 contracts N150 price N156 missions"
+    },
+    {
+      "path": "native/crates/sim_core/src/economy/mod.rs",
+      "git_blob": "45561d99f3b6ba73451552cdd7c9a382dda548b1",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N9/N25/N39/N104/N152/N150",
+      "evidence_context": "N9 ledger N25 order matching N39 production N104/N152 contracts N150 price N156 missions"
+    },
+    {
+      "path": "native/crates/sim_core/src/economy/module_production.rs",
+      "git_blob": "483055d39783bea8f346ac695796ad2b5e7c0db7",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N9/N25/N39/N104/N152/N150",
+      "evidence_context": "N9 ledger N25 order matching N39 production N104/N152 contracts N150 price N156 missions"
+    },
+    {
+      "path": "native/crates/sim_core/src/economy/money.rs",
+      "git_blob": "dc750901666123dbb146d6160af3709f63ac1f84",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N9/N25/N39/N104/N152/N150",
+      "evidence_context": "N9 ledger N25 order matching N39 production N104/N152 contracts N150 price N156 missions"
+    },
+    {
+      "path": "native/crates/sim_core/src/economy/order_book.rs",
+      "git_blob": "a994b6af40c9b4252f25fa22754b59a009fa4b9d",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N9/N25/N39/N104/N152/N150",
+      "evidence_context": "N9 ledger N25 order matching N39 production N104/N152 contracts N150 price N156 missions"
+    },
+    {
+      "path": "native/crates/sim_core/src/economy/price_engine.rs",
+      "git_blob": "d575c2d9325cb01ecd5636f7c0f57206ebbdeb4a",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N9/N25/N39/N104/N152/N150",
+      "evidence_context": "N9 ledger N25 order matching N39 production N104/N152 contracts N150 price N156 missions"
+    },
+    {
+      "path": "native/crates/sim_core/src/economy/recipes.rs",
+      "git_blob": "20d74cacd7502d5bb7aaf2251e5397a6308b0cbc",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N73/N39",
+      "evidence_context": "N73 catalogue N39 physically paid recipes"
+    },
+    {
+      "path": "native/crates/sim_core/src/economy/reputation.rs",
+      "git_blob": "0c0edab161fe85f2762d2bf0ec6f29dece24f504",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N9/N25/N39/N104/N152/N150",
+      "evidence_context": "N9 ledger N25 order matching N39 production N104/N152 contracts N150 price N156 missions"
+    },
+    {
+      "path": "native/crates/sim_core/src/facility_modules/mod.rs",
+      "git_blob": "c73b691313994822a81dba17e8810dc2474bcba6",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N110/N154",
+      "evidence_context": "N110 fitting, N154 paid shipyard module source"
+    },
+    {
+      "path": "native/crates/sim_core/src/lib.rs",
+      "git_blob": "d2500f6e3952820cb54412672cf93e21c1fb7e0d",
+      "disposition": "SOURCE_INDEX_OR_SCHEMA",
+      "source_owner": "N9/N47",
+      "evidence_context": "Cargo types, core reexports or non-dynamic Rust glue, source-schema index"
+    },
+    {
+      "path": "native/crates/sim_core/src/modules/mod.rs",
+      "git_blob": "6eca34c4c8ed4850f5b2719e899ab864defe93bd",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N110/N154",
+      "evidence_context": "N110 fitting, N154 paid shipyard module source"
+    },
+    {
+      "path": "native/crates/sim_core/src/simulation/commands.rs",
+      "git_blob": "12bc3de32a5dde7bebe7bfc381a22e62a9943754",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N1/N46/N140/N146/N157",
+      "evidence_context": "N1 tick+time N46 seed N140 LOD/tuning N146 commands N157 boot indexes"
+    },
+    {
+      "path": "native/crates/sim_core/src/simulation/config.rs",
+      "git_blob": "6ee8dc10b77353f0bdea58ed0345842db4263aad",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N1/N46/N140/N146/N157",
+      "evidence_context": "N1 tick+time N46 seed N140 LOD/tuning N146 commands N157 boot indexes"
+    },
+    {
+      "path": "native/crates/sim_core/src/simulation/lod.rs",
+      "git_blob": "996f0d5123140993cb54f876be061a7d6e17643f",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N1/N46/N140/N146/N157",
+      "evidence_context": "N1 tick+time N46 seed N140 LOD/tuning N146 commands N157 boot indexes"
+    },
+    {
+      "path": "native/crates/sim_core/src/simulation/mod.rs",
+      "git_blob": "135a8c890fa0e47f23771f8c396440cc69e90e1e",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N1/N46/N140/N146/N157",
+      "evidence_context": "N1 tick+time N46 seed N140 LOD/tuning N146 commands N157 boot indexes"
+    },
+    {
+      "path": "native/crates/sim_core/src/simulation/spawner.rs",
+      "git_blob": "ed90e6417ae888b1efbcd33a11200551fe5de724",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N1/N46/N140/N146/N157",
+      "evidence_context": "N1 tick+time N46 seed N140 LOD/tuning N146 commands N157 boot indexes"
+    },
+    {
+      "path": "native/crates/sim_core/src/simulation/tick.rs",
+      "git_blob": "4662a47355d9dd877d02755dab7750c0b525b40e",
+      "disposition": "SOURCE_STUB_NO_EXECUTABLE_MECHANIC",
+      "source_owner": "N1",
+      "evidence_context": "Rust simulation/tick.rs is a comment-only placeholder; active tick in sim_server engine.rs"
+    },
+    {
+      "path": "native/crates/sim_core/src/simulation/tuning.rs",
+      "git_blob": "ba9af1da2e2322e3278cf6c87fde2c833f1d50c3",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N1/N46/N140/N146/N157",
+      "evidence_context": "N1 tick+time N46 seed N140 LOD/tuning N146 commands N157 boot indexes"
+    },
+    {
+      "path": "native/crates/sim_core/src/spatial/chunk_manager.rs",
+      "git_blob": "06c3e2a97ab137103d30e77b0d0b209039aeb373",
+      "disposition": "SOURCE_STUB_NO_EXECUTABLE_MECHANIC",
+      "source_owner": "NOT_IMPLEMENTED_IN_RUST",
+      "evidence_context": "Frozen Rust file contains only comment stub"
+    },
+    {
+      "path": "native/crates/sim_core/src/spatial/grid.rs",
+      "git_blob": "629f3286aa10facc88c82b1768593be8cf065364",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N157",
+      "evidence_context": "N157 UniformGrid exact cells, move, radius, nearest, rebuild"
+    },
+    {
+      "path": "native/crates/sim_core/src/spatial/mod.rs",
+      "git_blob": "8802a1e0c5a6c5b517385f408cc7a2b53a399be0",
+      "disposition": "SOURCE_EXPORT_MODULE",
+      "source_owner": "N157",
+      "evidence_context": "Rust module reexports actual UniformGrid"
+    },
+    {
+      "path": "native/crates/sim_core/src/spatial/position_tracker.rs",
+      "git_blob": "5bc59209deea3c3176bd62454e7c609c2ba0d7ef",
+      "disposition": "SOURCE_STUB_NO_EXECUTABLE_MECHANIC",
+      "source_owner": "NOT_IMPLEMENTED_IN_RUST",
+      "evidence_context": "Frozen Rust file contains only comment stub"
+    },
+    {
+      "path": "native/crates/sim_core/src/spatial/quadtree.rs",
+      "git_blob": "9f02841b3ad75e6bd89f4a54c53b84429f6c66aa",
+      "disposition": "SOURCE_STUB_NO_EXECUTABLE_MECHANIC",
+      "source_owner": "NOT_IMPLEMENTED_IN_RUST",
+      "evidence_context": "Frozen Rust file contains only comment stub"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy.rs",
+      "git_blob": "c192909a54d0a1fc6c4ebaf51c150503f9962489",
+      "disposition": "SOURCE_INDEX_OR_SCHEMA",
+      "source_owner": "N9/N47",
+      "evidence_context": "Cargo types, core reexports or non-dynamic Rust glue, source-schema index"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/charter.rs",
+      "git_blob": "c1b6fa68fd09b8a13c2ab434df21fa0bda30352b",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/colony_development.rs",
+      "git_blob": "0e301dc6a32d565373752e86dda2349624623a56",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/colony.rs",
+      "git_blob": "48ff8ec46161eda852fdd4a794209c2c0016f622",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/construction.rs",
+      "git_blob": "3949a599bd668b7d50fdd1edb952ef694956c0c2",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/coordination.rs",
+      "git_blob": "ed5a6945775af6ee4dbb7e7c8b2eca054638b59e",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/director.rs",
+      "git_blob": "7efe204ce21db388fc05bbf841fbe6e3934b6559",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/economic_mandate.rs",
+      "git_blob": "5b90e9e0e60357e75434c1456fd07f354b820483",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/economic_proposal.rs",
+      "git_blob": "64fac762a2d929d702ebf882c33cd20a057f455f",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/governance.rs",
+      "git_blob": "c39d1dd8b2e3cfced1e5c6138ca0fb3cb43a9679",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/long_term.rs",
+      "git_blob": "e76a0e66e63a293c32fd9ae3914027656dc2bc81",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/options.rs",
+      "git_blob": "733a5207b3b57494d4b3bd4770f8e23bcc4334cd",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/orders.rs",
+      "git_blob": "a090c902cd28bfd25ecedc7fa8871765c0d60741",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/orders/tests.rs",
+      "git_blob": "e6ed4310e21e466cd0752f89cfec8089a29ab87e",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/planning/baseline.rs",
+      "git_blob": "f32eb00200755fcddd2cfe3649d92e179bb287dc",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/planning/comparison.rs",
+      "git_blob": "6d8eca6984a737817c3843e4d1722b90f142c108",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/planning/control_beam.rs",
+      "git_blob": "5dd7652cfcd61acae4da5a3aa3f9ae33f234949b",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/planning/forward_search.rs",
+      "git_blob": "fe5c713aeec52a5d62d5e966b9f0812ac9bb1823",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/planning/htn_adapter.rs",
+      "git_blob": "6625c5e4ed0f845eb2fcfc6296ff630f7867093a",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/planning/hybrid.rs",
+      "git_blob": "21e1d8b71af74c1d0ea00b529b18aa9f6d80fbd3",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/planning/ledger.rs",
+      "git_blob": "afb6ea76d7285b0067f2ffb2576317a53017c386",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/planning/mod.rs",
+      "git_blob": "7762cd479622869ece7482d4d0707b688bf9fd29",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/planning/native_catalogue.rs",
+      "git_blob": "9d5cad0ac339c0b319c45da01b11b4ba2b30ee60",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/planning/native_execution.rs",
+      "git_blob": "775e4a0c37eb0eac8d9dd17a52927064013cc97b",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/planning/telic_goap.rs",
+      "git_blob": "5d0e8771e3101cbfdb7b4fe4c5f7c93d86794049",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/portfolio_policy.rs",
+      "git_blob": "2826e9a563aadc93be1aa4bd3276bb8495eeb4d2",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/production_chain.rs",
+      "git_blob": "00f63c4f602cfe3d890f99fa0739ce50f445712e",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/production_dependencies.rs",
+      "git_blob": "ec907244795d3a3b40afa3863747dd0bd1849d69",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/progression.rs",
+      "git_blob": "ec30f674aef177d3ec627036d91958697a69e254",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/sourcing.rs",
+      "git_blob": "4301e8e8718f967ba8494dff32079f9bc0d30849",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/station.rs",
+      "git_blob": "7cf1816a0e2ee4d7f5e3565c26971a92af6103ec",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/strategy/station/tests.rs",
+      "git_blob": "66ecabd8cb0e786414fa6a1f123a8aa2f6822067",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N100/N155/N134/N143/N154",
+      "evidence_context": "N100/N155 hybrid native planner, N134 coordination N143 research N154 construction N139 industry"
+    },
+    {
+      "path": "native/crates/sim_core/src/world/body.rs",
+      "git_blob": "8eb9d39994b88727fc6e9540f76fa6b73128ef63",
+      "disposition": "SOURCE_STUB_NO_EXECUTABLE_MECHANIC",
+      "source_owner": "N3",
+      "evidence_context": "Rust world/body.rs is a comment-only placeholder; real body logic in agents/celestial_body.rs"
+    },
+    {
+      "path": "native/crates/sim_core/src/world/mod.rs",
+      "git_blob": "ee004bf46cf53a675eb451fbe2163e4305cfa1d7",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N59/N142",
+      "evidence_context": "N59 pathfinder + N142 registry/directed physical route/travel"
+    },
+    {
+      "path": "native/crates/sim_core/src/world/pathfinder.rs",
+      "git_blob": "81b4cd14da8e083dfd087eebd68817383be5ef93",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N59/N142",
+      "evidence_context": "N59 pathfinder + N142 registry/directed physical route/travel"
+    },
+    {
+      "path": "native/crates/sim_core/src/world/registry.rs",
+      "git_blob": "bea60cf5400ff632d524a3ed875da2da202ef884",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N59/N142",
+      "evidence_context": "N59 pathfinder + N142 registry/directed physical route/travel"
+    },
+    {
+      "path": "native/crates/sim_core/src/world/travel.rs",
+      "git_blob": "6836b536a47add92956216eeadc1c19aa8956f09",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N59/N142",
+      "evidence_context": "N59 pathfinder + N142 registry/directed physical route/travel"
+    },
+    {
+      "path": "native/crates/sim_db/src/lib.rs",
+      "git_blob": "fa58d883cea3e693b080450911b4f4e1e673d74e",
+      "disposition": "PERSISTENCE_SOURCE_SEMANTICS_CODE_UNVERIFIED",
+      "source_owner": "N157/N32/N38",
+      "evidence_context": "N157 source frame/boot; N2 N47 N46 seed; Godot SaveState N32/N38 replaces SQLite storage engine"
+    },
+    {
+      "path": "native/crates/sim_db/src/persistence.rs",
+      "git_blob": "50e4a17c36fec6402992523a9fe0ca1f6fa94650",
+      "disposition": "PERSISTENCE_SOURCE_SEMANTICS_CODE_UNVERIFIED",
+      "source_owner": "N157/N32/N38",
+      "evidence_context": "N157 source frame/boot; N2 N47 N46 seed; Godot SaveState N32/N38 replaces SQLite storage engine"
+    },
+    {
+      "path": "native/crates/sim_db/src/pool.rs",
+      "git_blob": "aeb54539a971120c6f40dca870ad4b6654d80b7e",
+      "disposition": "PERSISTENCE_SOURCE_SEMANTICS_CODE_UNVERIFIED",
+      "source_owner": "N157/N32/N38",
+      "evidence_context": "N157 source frame/boot; N2 N47 N46 seed; Godot SaveState N32/N38 replaces SQLite storage engine"
+    },
+    {
+      "path": "native/crates/sim_db/src/seeder.rs",
+      "git_blob": "b7b5737bff143326a9cb86cf87b6488a2d00e1df",
+      "disposition": "PERSISTENCE_SOURCE_SEMANTICS_CODE_UNVERIFIED",
+      "source_owner": "N157/N32/N38",
+      "evidence_context": "N157 source frame/boot; N2 N47 N46 seed; Godot SaveState N32/N38 replaces SQLite storage engine"
+    },
+    {
+      "path": "native/crates/sim_db/src/spawner.rs",
+      "git_blob": "6d90e15b3593d0c92e81c31d81835109ef9497b7",
+      "disposition": "PERSISTENCE_SOURCE_SEMANTICS_CODE_UNVERIFIED",
+      "source_owner": "N157/N32/N38",
+      "evidence_context": "N157 source frame/boot; N2 N47 N46 seed; Godot SaveState N32/N38 replaces SQLite storage engine"
+    },
+    {
+      "path": "native/crates/sim_protocol/src/lib.rs",
+      "git_blob": "e3ac91b91fe398b71df2dba4b2011ecd27258613",
+      "disposition": "PRESERVE_PROTOCOL_SHAPES_NO_NETWORK_SERVER",
+      "source_owner": "P2",
+      "evidence_context": "Phase2 Godot provider/API adapters; simulation client protocol only"
+    },
+    {
+      "path": "native/crates/sim_server/src/app_state.rs",
+      "git_blob": "358c3cc806adafe73f71a1095310c68dadf21959",
+      "disposition": "SERVER_TRANSPORT_ADAPTER_PHASE2",
+      "source_owner": "P2",
+      "evidence_context": "HTTP, WS, Axum server, app scheduling replaced by Godot; snapshot schema belongs read-only interface"
+    },
+    {
+      "path": "native/crates/sim_server/src/bin/genesis_server.rs",
+      "git_blob": "fdd0785495b8e0018788f4365022dfc6fd534785",
+      "disposition": "SERVER_TRANSPORT_ADAPTER_PHASE2",
+      "source_owner": "P2",
+      "evidence_context": "HTTP, WS, Axum server, app scheduling replaced by Godot; snapshot schema belongs read-only interface"
+    },
+    {
+      "path": "native/crates/sim_server/src/control.rs",
+      "git_blob": "db71d3b4222d5e8e4e2b5a48740640ba96dd9927",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "P1/P2",
+      "evidence_context": "N1 N97 N104 N108 N121 N131 N139 N151 N154 N157 implementation slices; full single engine composed in Phase2"
+    },
+    {
+      "path": "native/crates/sim_server/src/engine.rs",
+      "git_blob": "ae6e605e42879d4316ec315836a75648f07927ea",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "P1/P2",
+      "evidence_context": "N1 N97 N104 N108 N121 N131 N139 N151 N154 N157 implementation slices; full single engine composed in Phase2"
+    },
+    {
+      "path": "native/crates/sim_server/src/engine/admin.rs",
+      "git_blob": "dae83abc67352c1ca2ce5817b671121c7d65e576",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "P1/P2",
+      "evidence_context": "N1 N97 N104 N108 N121 N131 N139 N151 N154 N157 implementation slices; full single engine composed in Phase2"
+    },
+    {
+      "path": "native/crates/sim_server/src/engine/apply.rs",
+      "git_blob": "c38a6769bb5c35c966cc01e44127981e2f9adadc",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "P1/P2",
+      "evidence_context": "N1 N97 N104 N108 N121 N131 N139 N151 N154 N157 implementation slices; full single engine composed in Phase2"
+    },
+    {
+      "path": "native/crates/sim_server/src/engine/colony_test.rs",
+      "git_blob": "1976ccd78dd2db46e1a2f52235ea0be05ced85c8",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "P1/P2",
+      "evidence_context": "N1 N97 N104 N108 N121 N131 N139 N151 N154 N157 implementation slices; full single engine composed in Phase2"
+    },
+    {
+      "path": "native/crates/sim_server/src/engine/colony.rs",
+      "git_blob": "153ef78d081fe8e02ac6b4bb42fd89b791c2f756",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "P1/P2",
+      "evidence_context": "N1 N97 N104 N108 N121 N131 N139 N151 N154 N157 implementation slices; full single engine composed in Phase2"
+    },
+    {
+      "path": "native/crates/sim_server/src/engine/contract_funding.rs",
+      "git_blob": "90db39b8f4d93ae2ef4b44b6ea6e14cb3c8a7d4f",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "P1/P2",
+      "evidence_context": "N1 N97 N104 N108 N121 N131 N139 N151 N154 N157 implementation slices; full single engine composed in Phase2"
+    },
+    {
+      "path": "native/crates/sim_server/src/engine/drains.rs",
+      "git_blob": "37d5cfa3ec3dc8355d57635aa58e12490c23d0e9",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "P1/P2",
+      "evidence_context": "N1 N97 N104 N108 N121 N131 N139 N151 N154 N157 implementation slices; full single engine composed in Phase2"
+    },
+    {
+      "path": "native/crates/sim_server/src/engine/persist.rs",
+      "git_blob": "a6c7272bc7b9ce89736a7f99178147d0c09f46af",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "N157",
+      "evidence_context": "N157 economic frame, N32/N38 persistence format"
+    },
+    {
+      "path": "native/crates/sim_server/src/engine/publish.rs",
+      "git_blob": "c6a658eebc847853c5e370ff769f56ebfe43bcf7",
+      "disposition": "SOURCE_VIEW_COMPONENT_REFERENCE",
+      "source_owner": "N24/N148/N150/N152",
+      "evidence_context": "N24 diagnostics, N150 markets, N152 board, N148 ship, N157 boot; Phase2 UI data join"
+    },
+    {
+      "path": "native/crates/sim_server/src/engine/transactions.rs",
+      "git_blob": "421004222f3dd6bcf0c8ca99560a2c2368fe35d3",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "P1/P2",
+      "evidence_context": "N1 N97 N104 N108 N121 N131 N139 N151 N154 N157 implementation slices; full single engine composed in Phase2"
+    },
+    {
+      "path": "native/crates/sim_server/src/engine/transactions/tests.rs",
+      "git_blob": "4652cf46985f86c89f1d258e6f7fe74c1d574dc3",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "P1/P2",
+      "evidence_context": "N1 N97 N104 N108 N121 N131 N139 N151 N154 N157 implementation slices; full single engine composed in Phase2"
+    },
+    {
+      "path": "native/crates/sim_server/src/http/admin.rs",
+      "git_blob": "cd87d779d6e0f6e0f73f28e58d6fb06ba6e0270f",
+      "disposition": "SERVER_TRANSPORT_ADAPTER_PHASE2",
+      "source_owner": "P2",
+      "evidence_context": "HTTP, WS, Axum server, app scheduling replaced by Godot; snapshot schema belongs read-only interface"
+    },
+    {
+      "path": "native/crates/sim_server/src/http/api.rs",
+      "git_blob": "8c7f13cc313087a7eca530d142014960c77843df",
+      "disposition": "SERVER_TRANSPORT_ADAPTER_PHASE2",
+      "source_owner": "P2",
+      "evidence_context": "HTTP, WS, Axum server, app scheduling replaced by Godot; snapshot schema belongs read-only interface"
+    },
+    {
+      "path": "native/crates/sim_server/src/http/mod.rs",
+      "git_blob": "8ade4a27f3e8129f936b24109f954435807df0a6",
+      "disposition": "SERVER_TRANSPORT_ADAPTER_PHASE2",
+      "source_owner": "P2",
+      "evidence_context": "HTTP, WS, Axum server, app scheduling replaced by Godot; snapshot schema belongs read-only interface"
+    },
+    {
+      "path": "native/crates/sim_server/src/http/player.rs",
+      "git_blob": "5336926c60a17149b7deeb6fbdaf20656476b92a",
+      "disposition": "SERVER_TRANSPORT_ADAPTER_PHASE2",
+      "source_owner": "P2",
+      "evidence_context": "HTTP, WS, Axum server, app scheduling replaced by Godot; snapshot schema belongs read-only interface"
+    },
+    {
+      "path": "native/crates/sim_server/src/lib.rs",
+      "git_blob": "b131fe144fdcccc0765ce9d76915f2734ff4b567",
+      "disposition": "SOURCE_COMPONENT_CODE_UNVERIFIED",
+      "source_owner": "P1/P2",
+      "evidence_context": "N1 N97 N104 N108 N121 N131 N139 N151 N154 N157 implementation slices; full single engine composed in Phase2"
+    },
+    {
+      "path": "native/crates/sim_server/src/runtime.rs",
+      "git_blob": "1c79e902a76120cafac4065c58fa756bf3fa1677",
+      "disposition": "SERVER_TRANSPORT_ADAPTER_PHASE2",
+      "source_owner": "P2",
+      "evidence_context": "HTTP, WS, Axum server, app scheduling replaced by Godot; snapshot schema belongs read-only interface"
+    },
+    {
+      "path": "native/crates/sim_server/src/snapshot.rs",
+      "git_blob": "16931175b74ab10a8a0eb7de4c07c2478db727ca",
+      "disposition": "SOURCE_VIEW_COMPONENT_REFERENCE",
+      "source_owner": "N24/N148/N150/N152",
+      "evidence_context": "N24 diagnostics, N150 markets, N152 board, N148 ship, N157 boot; Phase2 UI data join"
+    },
+    {
+      "path": "native/crates/sim_server/src/ws/handler.rs",
+      "git_blob": "f6dcaec0f66212480108f11eeb1ab05df8488567",
+      "disposition": "SERVER_TRANSPORT_ADAPTER_PHASE2",
+      "source_owner": "P2",
+      "evidence_context": "HTTP, WS, Axum server, app scheduling replaced by Godot; snapshot schema belongs read-only interface"
+    },
+    {
+      "path": "native/crates/sim_server/src/ws/mod.rs",
+      "git_blob": "6f70590b33da3c87ed8f41503634bde1967f6318",
+      "disposition": "SERVER_TRANSPORT_ADAPTER_PHASE2",
+      "source_owner": "P2",
+      "evidence_context": "HTTP, WS, Axum server, app scheduling replaced by Godot; snapshot schema belongs read-only interface"
+    },
+    {
+      "path": "native/crates/sim_server/src/ws/protocol.rs",
+      "git_blob": "f337716fb74c7a2e8890c47f8d37a35d9b290a38",
+      "disposition": "SERVER_TRANSPORT_ADAPTER_PHASE2",
+      "source_owner": "P2",
+      "evidence_context": "HTTP, WS, Axum server, app scheduling replaced by Godot; snapshot schema belongs read-only interface"
+    }
+  ]
+}
