@@ -12,11 +12,18 @@ static func propose(physical_world: Dictionary, tick: int,
     var views: Dictionary = {}
     var owner_by_id: Dictionary = {}
     for location in physical_world["markets"]:
+        if not (physical_world["markets"][location] is Dictionary):
+            return {"ok": false, "reason": "invalid_authoritative_market_row"}
         var m: Dictionary = physical_world["markets"][location]
         for key in ["id", "supply", "prices", "demand", "elasticity",
                 "spread", "seed_demand", "consumption_window", "orders", "history"]:
             if not m.has(key):
                 return {"ok": false, "reason": "incomplete_native_market:" + str(key)}
+        for field in ["supply", "prices", "demand", "seed_demand", "consumption_window", "orders", "history"]:
+            if not (m[field] is Dictionary):
+                return {"ok": false, "reason": "invalid_native_market_field:" + field}
+        if not (m["elasticity"] is float or m["elasticity"] is int) or not (m["spread"] is float or m["spread"] is int):
+            return {"ok": false, "reason": "invalid_native_market_pricing"}
         var id: String = str(m["id"])
         if id.is_empty() or views.has(id):
             return {"ok": false, "reason": "duplicate_native_market_id"}
@@ -41,13 +48,30 @@ static func propose(physical_world: Dictionary, tick: int,
         tick_multiplier, Callable(Price, "recalculate"))
     if not computed.get("ok", false):
         return {"ok": false, "reason": str(computed.get("reason", "native_market_tick_rejected"))}
+    if not (computed.get("markets") is Dictionary):
+        return {"ok": false, "reason": "invalid_native_market_output"}
     var updates: Dictionary = {}
     var output: Dictionary = computed["markets"]
+    if output.size() != views.size():
+        return {"ok": false, "reason": "incomplete_native_market_output"}
     for id in output:
         if not owner_by_id.has(id):
             return {"ok": false, "reason": "unregistered_native_market"}
         var location: String = str(owner_by_id[id])
+        if not (output[id] is Dictionary):
+            return {"ok": false, "reason": "invalid_native_market_result"}
         var result: Dictionary = output[id]
+        if not (result.get("pricing") is Dictionary) or not (result.get("flow") is Dictionary):
+            return {"ok": false, "reason": "invalid_native_market_result_sections"}
+        for key in ["prices", "supply", "demand"]:
+            if not (result["pricing"].get(key) is Dictionary):
+                return {"ok": false, "reason": "invalid_native_market_result_pricing:" + key}
+        for key in ["seed_demand", "consumption_window"]:
+            if not (result["flow"].get(key) is Dictionary):
+                return {"ok": false, "reason": "invalid_native_market_result_flow:" + key}
+        for key in ["orders", "history"]:
+            if not (result.get(key) is Dictionary):
+                return {"ok": false, "reason": "invalid_native_market_result_field:" + key}
         var m: Dictionary = physical_world["markets"][location]
         if result["pricing"]["supply"] != m["supply"]:
             return {"ok": false, "reason": "market_tick_must_not_mint_stock"}
