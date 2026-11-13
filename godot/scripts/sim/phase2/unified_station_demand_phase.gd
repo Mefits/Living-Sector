@@ -32,12 +32,25 @@ static func propose(world: Dictionary, tick: int) -> Dictionary:
         var commodities: Array = consumed.keys()
         commodities.sort()
         for commodity in commodities:
-            var demand_value = consumed[commodity]
+            # N151/N150 MarketFlow stores real purchases as [{tick, qty}],
+            # NOT a scalar rate or the seed's static market.demand.
+            var entries = consumed[commodity]
+            if not (entries is Array):
+                return {"ok": false, "reason": "invalid_consumption_window"}
+            var consumed_amount: float = 0.0
+            for entry in entries:
+                if not (entry is Dictionary) or not (entry.get("qty") is int or entry.get("qty") is float):
+                    return {"ok": false, "reason": "invalid_consumption_receipt"}
+                var qty: float = float(entry["qty"])
+                if not is_finite(qty) or qty < 0.0 or not (entry.get("tick") is int or entry.get("tick") is float):
+                    return {"ok": false, "reason": "invalid_consumption_receipt"}
+                if float(entry["tick"]) > float(tick):
+                    return {"ok": false, "reason": "future_consumption_receipt"}
+                consumed_amount += qty
             var stock_value = market["supply"].get(commodity, 0.0)
             var price_value = market["prices"].get(commodity, null)
-            if not (demand_value is int or demand_value is float) or not (stock_value is int or stock_value is float):
+            if not (stock_value is int or stock_value is float):
                 return {"ok": false, "reason": "invalid_demand_or_stock"}
-            var consumed_amount: float = float(demand_value)
             var stock: float = float(stock_value)
             if not is_finite(consumed_amount) or not is_finite(stock) or consumed_amount < 0.0 or stock < 0.0:
                 return {"ok": false, "reason": "nonfinite_demand_or_stock"}
