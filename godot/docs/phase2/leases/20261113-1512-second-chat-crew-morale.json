@@ -1,0 +1,11 @@
+{
+  "owner": "second-chat-overnight",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T15:12:07+03:00",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_facility_lifecycle_phase.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd"
+  ],
+  "boundary": "N156 paid-workshift-derived crew morale, no extra Food charge, one World/ledger",
+  "branch": "integration/godot-phase2-unified-20261113"
+}
