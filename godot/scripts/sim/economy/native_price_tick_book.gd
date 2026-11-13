@@ -1,7 +1,7 @@
 extends RefCounted
 ## CODE_UNVERIFIED. One price tick per market, using existing N10 Rust formula.
 ## No credit transfers or inventory mutation. Caller supplies actual stock/demand.
-const Engine = preload("res://scripts/sim/economy/native_price_engine.gd")
+const NativePriceEngine = preload("res://scripts/sim/economy/native_price_engine.gd")
 var _markets: Dictionary = {}
 var _last_tick: Dictionary = {}
 
@@ -27,7 +27,7 @@ func tick(tick_id: int, stocks: Dictionary, demands: Dictionary, elasticities: D
 			return {"ok": false, "reason": "missing_or_replayed_market"}
 		if typeof(stocks[id]) != TYPE_DICTIONARY or typeof(demands[id]) != TYPE_DICTIONARY or typeof(shortages[id]) != TYPE_DICTIONARY:
 			return {"ok": false, "reason": "invalid_inputs"}
-		if not Engine.reprice_market(next[id], stocks[id], demands[id], float(elasticities[id]), shortages[id]):
+		if not NativePriceEngine.reprice_market(next[id], stocks[id], demands[id], float(elasticities[id]), shortages[id]):
 			return {"ok": false, "reason": "price_rejected"}
 	_markets = next
 	for id in ids:
@@ -60,6 +60,6 @@ func _valid(markets: Dictionary, ticks: Dictionary) -> bool:
 		if not ticks.is_empty() and (not ticks.has(id) or typeof(ticks[id]) != TYPE_INT or ticks[id] < -1):
 			return false
 		for slug in markets[id]:
-			if typeof(slug) != TYPE_STRING or (typeof(markets[id][slug]) != TYPE_FLOAT and typeof(markets[id][slug]) != TYPE_INT) or Engine.recalculate(float(markets[id][slug]), 10.0, 1.0, 0.0, 0) <= 0.0:
+			if typeof(slug) != TYPE_STRING or (typeof(markets[id][slug]) != TYPE_FLOAT and typeof(markets[id][slug]) != TYPE_INT) or NativePriceEngine.recalculate(float(markets[id][slug]), 10.0, 1.0, 0.0, 0) <= 0.0:
 				return false
 	return ticks.is_empty() or ticks.size() == markets.size()

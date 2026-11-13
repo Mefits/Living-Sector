@@ -7,7 +7,7 @@ const Core = preload("res://scripts/sim/phase1/n152_native_contract_board_core.g
 static func _fail(reason: String) -> Dictionary:
 	return {"ok":false,"reason":reason}
 
-static func _get(board: Dictionary, id: String, required: String) -> Dictionary:
+static func _contract_by_status(board: Dictionary, id: String, required: String) -> Dictionary:
 	if not Core._board_ok(board) or not board["contracts"].has(id):
 		return {}
 	var c = board["contracts"][id]
@@ -21,7 +21,7 @@ static func accept_after_funding(board: Dictionary, id: String,
 	## MUST call N104.accept first and prove the payer top-up, agreed
 	## payment, actual ship ownership, mission guards and real funds.
 	## A UI-provided receipt is NOT proof: invoke from private engine.
-	var original := _get(board,id,"posted")
+	var original := _contract_by_status(board,id,"posted")
 	if original.is_empty() or ship.is_empty() or tick<0:
 		return _fail("invalid_accept_or_missing_posted")
 	if not bool(trusted_receipt.get("trusted_internal_apply",false)) or \
@@ -43,7 +43,7 @@ static func release(board: Dictionary, id: String,
 		expected_fulfiller: Variant = null) -> Dictionary:
 	## Rust::release accepts an Optional ship guard; it returns false if
 	## absent, not accepted, or fulfiller differs. Does NOT refund funds.
-	var original := _get(board,id,"accepted")
+	var original := _contract_by_status(board,id,"accepted")
 	if original.is_empty():
 		return _fail("not_accepted")
 	if expected_fulfiller!=null and original.get("fulfiller_id",null)!=expected_fulfiller:
@@ -66,7 +66,7 @@ static func mark_picked_up_after_physical_receipt(board: Dictionary,
 		id: String, receipt: Dictionary) -> Dictionary:
 	## Rust ContractBoard.mark_picked_up only Accepted->PickedUp.
 	## N97 physical ship cargo or N104 embarking is the real owner.
-	var original := _get(board,id,"accepted")
+	var original := _contract_by_status(board,id,"accepted")
 	if original.is_empty():
 		return _fail("not_accepted")
 	if not bool(receipt.get("trusted_internal_apply",false)) or \
@@ -112,7 +112,7 @@ static func drop_ship_holdings(board: Dictionary, ship_id: String) -> Dictionary
 	var result := board.duplicate(true)
 	var released: Array[String] = []
 	var cancelled: Array[String] = []
-	var ids := result["contracts"].keys()
+	var ids: Array = result["contracts"].keys()
 	ids.sort() # Rust HashMap order unspecified; deterministic projections.
 	for id in ids:
 		var c: Dictionary = result["contracts"][id]
@@ -151,7 +151,7 @@ static func cancel_for_facility(board: Dictionary,
 			return _fail("invalid_optional_facility_selector")
 	var result := board.duplicate(true)
 	var cancelled: Array[String] = []
-	var ids := result["contracts"].keys()
+	var ids: Array = result["contracts"].keys()
 	ids.sort()
 	for id in ids:
 		var c: Dictionary = result["contracts"][id]

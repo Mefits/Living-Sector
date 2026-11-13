@@ -2,7 +2,7 @@ extends "res://scripts/sim/phase1/n39_native_production_tick_runner.gd"
 ## N158 first executable Phase2 slice:
 ## one real seed -> N39 physical supply/payroll -> P1 clock/events/orbits
 ## -> versioned P1 save with N39 native snapshot. No second N23 production.
-const Projection = preload("res://scripts/sim/phase2/n158_galaxy_production_seed.gd")
+const GalaxySeedAdapter = preload("res://scripts/sim/phase2/n158_galaxy_production_seed.gd")
 const MarketPhase = preload("res://scripts/sim/phase2/unified_market_phase.gd")
 
 var _boot_error: String = ""
@@ -13,7 +13,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _boot_error = ""
     _source_stats = {}
     _last_market_result = {}
-    var projected: Dictionary = Projection.from_seed(seed)
+    var projected: Dictionary = GalaxySeedAdapter.from_seed(seed)
     if not projected.get("ok", false):
         _boot_error = str(projected.get("reason", "source_projection_failed"))
         return false

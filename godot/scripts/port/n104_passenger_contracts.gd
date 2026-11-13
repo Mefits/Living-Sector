@@ -34,9 +34,9 @@ static func embark(world: Dictionary, ship_id: String,
             or funding.get("agreed_payment", null) == null
             or funding.get("embarked", null) != null):
         return _bad("inactive_passenger_contract")
-    var class_name: String = str(ship.get("class", ""))
+    var ship_class: String = str(ship.get("class", ""))
     var qty: Variant = contract.get("quantity", null)
-    if typeof(qty) != TYPE_INT or not PASSENGER_SEATS.has(class_name)             or int(qty) <= 0 or int(qty) > int(PASSENGER_SEATS[class_name]):
+    if typeof(qty) != TYPE_INT or not PASSENGER_SEATS.has(ship_class)             or int(qty) <= 0 or int(qty) > int(PASSENGER_SEATS[ship_class]):
         return _bad("insufficient_passenger_capacity")
     var source: String = str(contract.get("source_location", ""))
     var location_check: Dictionary = _dock_and_controller(world, ship_id, source)

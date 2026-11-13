@@ -158,7 +158,9 @@ func _valid_physical_receipt(c: Dictionary, ship: String, direction: String, rec
 	if str(receipt.get("location_id", "")) != expected_location:
 		return false
 	var quantities: Variant = receipt.get("quantities", null)
-	return quantities is Dictionary and quantities.size() == 1 and typeof(quantities.get(str(c["commodity"]))) == TYPE_INT and int(quantities[str(c["commodity"]]) ) == int(c["quantity"])
+	return (quantities is Dictionary and quantities.size() == 1
+		and typeof(quantities.get(str(c["commodity"]))) == TYPE_INT
+		and int(quantities[str(c["commodity"])]) == int(c["quantity"]))
 
 func _error(reason: String) -> Dictionary:
 	return {"ok": false, "reason": reason}

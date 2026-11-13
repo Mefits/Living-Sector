@@ -88,8 +88,8 @@ static func _ship_can_carry(ship: Dictionary, faction: String, quantity: int,
 		source: String, physical: Dictionary, ship_classes: Dictionary) -> bool:
 	if str(ship.get("faction_id", "")) != faction:
 		return false
-	var class_name: String = str(ship.get("class", ""))
-	var spec = ship_classes.get(class_name, null)
+	var ship_class: String = str(ship.get("class", ""))
+	var spec = ship_classes.get(ship_class, null)
 	if not (spec is Dictionary) or typeof(spec.get("passenger_capacity")) != TYPE_INT:
 		return false
 	if int(spec["passenger_capacity"]) < quantity:
