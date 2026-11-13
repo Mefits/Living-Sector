@@ -13,6 +13,9 @@ const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const Catalog = preload("res://scripts/sim/economy/commodity_catalog.gd")
 const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
 const Bt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
+const N84 = preload("res://scripts/sim/phase2/unified_ship_ai_execution.gd")
+const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
+const LocationResolver = preload("res://scripts/sim/ships/native_location_resolver.gd")
 
 func _initialize() -> void:
     var seed: Dictionary = Native.load_current_world()
@@ -124,6 +127,27 @@ func _initialize() -> void:
         return
     if not runtime.restore_checkpoint(checkpoint, seed):
         _fail("N38 cannot restore genuine N104 source fixture")
+        return
+    # N84 must submit a typed N146 RequestDock from the ORIGINAL
+    # ship/market/contract; it cannot directly move station state.
+    var roster = ShipRoster.new()
+    var resolver = LocationResolver.new()
+    if not roster.load_seed(seed) or not resolver.load_seed(seed):
+        _fail("N4 original ship/route sources missing")
+        return
+    var located: Dictionary = resolver.positions_from_world(runtime.world,
+        runtime.calendar.native_time_units, runtime.calendar.origin_known)
+    if not located.get("ok", false):
+        _fail("N14 real coordinates not available")
+        return
+    var decision: Dictionary = N84.propose(runtime.economy_snapshot(),
+        roster.registry.graph(), located["positions"], 1, runtime.clock.tick_scale())
+    var commands: Array = decision.get("commands", [])
+    if not decision.get("ok", false) or commands.size() != 1 or str(commands[0].get("kind", "")) != "RequestDock":
+        _fail("N84 failed to issue a single source N146 RequestDock")
+        return
+    if str(commands[0].get("ship", "")) != ship_id or str(commands[0].get("contract_id", "")) != cid:
+        _fail("N146 contract actor/source identity corrupted")
         return
     var first_stock: float = float(w["markets"][source]["supply"][good])
     var first_ship_cash: int = int(w["ships"][ship_id]["credits"])
