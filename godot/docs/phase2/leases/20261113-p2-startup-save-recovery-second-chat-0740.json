@@ -4,7 +4,9 @@
     "godot/scripts/main.gd"
   ],
   "purpose": "Restore existing P2 save automatically on GUI startup, retain manual fallback and visible error",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T07:40:52+03:00",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "commit": "79c8588fc5aca07e9a9597731f8794b2f1270da6",
+  "handoff": "Startup loads SaveState P2 checkpoint before map projections; if absent clean seed, if invalid notice and seed fallback. Runtime not tested."
 }
