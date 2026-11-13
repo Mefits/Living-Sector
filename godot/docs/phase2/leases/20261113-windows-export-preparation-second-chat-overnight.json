@@ -1,0 +1,10 @@
+{
+  "owner": "second-chat-overnight",
+  "started_at": "2026-11-13T05:31:59+03:00",
+  "scope": [
+    "godot/export_presets.cfg",
+    "godot/scripts/phase2_package_windows.sh"
+  ],
+  "status": "IN_PROGRESS",
+  "handoff": "Prepare export preset and reproducible Windows ZIP script; no CI trigger or workflow edits."
+}
