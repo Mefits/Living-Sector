@@ -33,7 +33,7 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
     var lines: Array[String] = ["ЖИВАЯ ЭКОНОМИКА · ТИК %d" % tick]
     lines.append("АВТОНОМИЯ: производство / потребление / рынок — исполняются по тикам")
     lines.append("АВТОНОМИЯ N135/N104: оплаченные заявки публикуются в едином N39 World")
-    lines.append("ФЛОТ N153: принятие оплаченных заявок и N14 рейс до поставщика; N97 доставка ещё НЕ подключена")
+    lines.append("ФЛОТ: N153/N80/N81/N84 принимает задания; физическая доставка подтверждается только receipt N97/N104")
     lines.append("Игрок: режим наблюдения; индивидуальные команды скрыты до отдельного режима")
     lines.append("Станции: %d · рынки: %d · группы населения: %d" % [
         economy["facilities"].size(), economy["markets"].size(), economy["populations"].size()])
@@ -80,6 +80,69 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
             "ОЖИДАЕТ ИИ" if str(c.get("status", "")) == "posted" else "контракт в обработке"])
     if order_ids.size() > 3:
         lines.append("  … и ещё %d контрактов" % (order_ids.size() - 3))
+    # Contract and agent trace is a read-only projection of the single
+    # canonical World. Never infer delivery or payout from a planned route.
+    lines.append("АВТОНОМНЫЕ ЗАКАЗЫ / ФИЗИЧЕСКОЕ ИСПОЛНЕНИЕ:")
+    var lifecycle_counts: Dictionary = {}
+    for cid in order_ids:
+        if not (contracts[cid] is Dictionary):
+            lines.append("  %s: повреждённая запись N104" % str(cid))
+            continue
+        var contract: Dictionary = contracts[cid]
+        var stage: String = str(contract.get("status", "unknown"))
+        lifecycle_counts[stage] = int(lifecycle_counts.get(stage, 0)) + 1
+        var assigned_ship: String = str(contract.get("fulfiller_id", ""))
+        var source: String = str(contract.get("source_location", "?"))
+        var destination: String = str(contract.get("destination_location", "?"))
+        var commodity: String = str(contract.get("commodity", "?"))
+        var quantity: int = int(contract.get("quantity", 0))
+        var account: String = str(contract.get("escrow_account", ""))
+        var held_credits: int = int(escrow_balances.get(account, 0))
+        if order_ids.size() <= 12 or stage in ["accepted", "picked_up", "delivered"]:
+            lines.append("  N104 %s · %s · %d %s · %s → %s" % [
+                str(cid), stage, quantity, commodity, source, destination])
+            lines.append("    N135 потребность %s · N153 корабль %s · escrow %d CR" % [
+                str(contract.get("demand_id", contract.get("need_id", "—"))),
+                assigned_ship if not assigned_ship.is_empty() else "не назначен",
+                held_credits])
+            if not assigned_ship.is_empty():
+                if not ships.has(assigned_ship) or not (ships[assigned_ship] is Dictionary):
+                    lines.append("    ОТКАЗ: назначенный корабль отсутствует в N39 World")
+                else:
+                    var assigned: Dictionary = ships[assigned_ship]
+                    var active: String = str(assigned.get("active_contract_id", ""))
+                    var route: Dictionary = assigned.get("transit", {}) if assigned.get("transit", {}) is Dictionary else {}
+                    var cargo: Dictionary = assigned.get("cargo", {}) if assigned.get("cargo", {}) is Dictionary else {}
+                    var bt: Variant = assigned.get("current_bt", null)
+                    var plan: String = "нет N84 плана"
+                    if bt is Dictionary:
+                        plan = "N84 план сохранён" if not bt.is_empty() else "пустой N84 план"
+                    var physical: String = "рейс N14 %s → %s, ETA %s" % [
+                        str(route.get("from", "?")), str(route.get("to", "?")),
+                        str(route.get("arrival_tick", "?"))] if not route.is_empty() else "в системе " + str(assigned.get("location", "?"))
+                    lines.append("    %s · %s · док %s" % [
+                        plan, physical, str(assigned.get("docked_at", "—"))])
+                    lines.append("    физический трюм: %s=%s · контракт корабля %s" % [
+                        commodity, str(cargo.get(commodity, 0)),
+                        active if not active.is_empty() else "не назначен"])
+                    if active != str(cid) and stage in ["accepted", "picked_up"]:
+                        lines.append("    ВНИМАНИЕ: назначение N104 и корабля расходится")
+            if stage == "delivered":
+                lines.append("    Доставка отмечена в ContractBoard; сверяйте физический receipt и выплату")
+    var stages: Array = lifecycle_counts.keys()
+    stages.sort()
+    var stage_labels: Array[String] = []
+    for stage in stages:
+        stage_labels.append("%s=%d" % [str(stage), int(lifecycle_counts[stage])])
+    lines.append("Стадии N104: " + (", ".join(stage_labels) if not stage_labels.is_empty() else "контрактов нет"))
+    if summary.get("n84_trace", null) is Array:
+        var trace: Array = summary["n84_trace"]
+        lines.append("N84 решения текущего тика: %d" % trace.size())
+        for entry in trace.slice(0, 8):
+            if entry is Dictionary:
+                lines.append("  %s · %s · %s · %s" % [
+                    str(entry.get("ship_id", "?")), str(entry.get("contract_id", "?")),
+                    str(entry.get("leaf", "?")), str(entry.get("reason", "—"))])
     lines.append("СТАНЦИИ / КРЕДИТЫ / СОСТОЯНИЕ:")
     var facilities: Dictionary = economy["facilities"]
     var facility_ids: Array = facilities.keys()
@@ -274,6 +337,6 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
         lines.append("Классы: " + ", ".join(class_lines))
         lines.append("В пути: %d · на месте: %d · без топлива в рейсе: %d" % [
             flight_count, ships.size() - flight_count, stranded_count])
-        lines.append("AI/доставка пока не подключены; маршруты N14 требуют реальной команды.")
-    lines.append("Контракты и стратегические планировщики: ещё не подключены к единому тику.")
+        lines.append("Доставка считается завершённой только после N104 receipt и физического N15/N97 Apply.")
+    lines.append("N134/N100/N155 стратегические планировщики: полная автономия ещё не подтверждена.")
     _label.text = "\n".join(lines)
