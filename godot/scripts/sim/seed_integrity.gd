@@ -12,7 +12,7 @@ static func inspect(seed: Dictionary, enforce_reference_counts: bool = true) -> 
     var factions: Variant = seed.get("factions", null)
     if not (worlds is Array) or not (factions is Array):
         return {"ok": false, "errors": ["seed:missing_arrays"], "counts": {}}
-    var ids: Dictionary = {"system": {}, "faction": {}, "body": {}, "facility": {}}
+    var ids: Dictionary = {"system": {}, "faction": {}, "body": {}, "facility": {}, "ship": {}, "population": {}}
     var counts: Dictionary = {"systems": 0, "factions": 0, "bodies": 0, "facilities": 0, "ships": 0, "markets": 0, "populations": 0}
     for i in range(factions.size()):
         var f: Variant = factions[i]
@@ -59,6 +59,15 @@ static func inspect(seed: Dictionary, enforce_reference_counts: bool = true) -> 
                 var where: String = "world:%d:%s:%d" % [wi, field, i]
                 if field == "bodies" or field == "facilities":
                     _unique(ids["body"] if field == "bodies" else ids["facility"], str(item.get("id", "")), where, errors)
+                if field == "ships" or field == "populations":
+                    # The frozen seed can omit optional IDs in legacy rows; validate
+                    # any explicit ID globally so two entities cannot alias on restore.
+                    var entity_id: Variant = item.get("id", null)
+                    if entity_id != null:
+                        if not (entity_id is String) or str(entity_id).is_empty():
+                            errors.append(where + ":invalid_id")
+                        else:
+                            _unique(ids["ship"] if field == "ships" else ids["population"], str(entity_id), where, errors)
                 if field == "bodies":
                     if not _finite_number(item.get("orbit_period", null)) or float(item.get("orbit_period", 0.0)) <= 0.0:
                         errors.append(where + ":bad_orbit_period")
