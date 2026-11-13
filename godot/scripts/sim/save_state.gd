@@ -72,6 +72,40 @@ static func _read_checkpoint(path: String) -> Dictionary:
         return {}
     return _unwrap(parser.data)
 
+static func _physical_stock_matches(original: Dictionary, decoded: Dictionary) -> bool:
+    # The unified N39 runtime owns market supply; SaveState must not silently
+    # change any physical stock during the JSON round trip.
+    if not original.has("native_production"):
+        return true # Legacy P1 snapshots have no N39 market state.
+    if not (decoded.get("native_production") is Dictionary):
+        return false
+    var original_native: Variant = original["native_production"]
+    var decoded_native: Dictionary = decoded["native_production"]
+    if not (original_native is Dictionary):
+        return false
+    var original_world: Variant = original_native.get("world")
+    var decoded_world: Variant = decoded_native.get("world")
+    if not (original_world is Dictionary) or not (decoded_world is Dictionary):
+        return false
+    var original_markets: Variant = original_world.get("markets")
+    var decoded_markets: Variant = decoded_world.get("markets")
+    if not (original_markets is Dictionary) or not (decoded_markets is Dictionary):
+        return false
+    if original_markets.size() != decoded_markets.size():
+        return false
+    for market_id in original_markets:
+        if not decoded_markets.has(market_id):
+            return false
+        var before: Variant = original_markets[market_id]
+        var after: Variant = decoded_markets[market_id]
+        if not (before is Dictionary) or not (after is Dictionary):
+            return false
+        if not (before.get("supply") is Dictionary) or not (after.get("supply") is Dictionary):
+            return false
+        if before["supply"] != after["supply"]:
+            return false
+    return true
+
 static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) -> Error:
     if not runner.is_started():
         return ERR_INVALID_DATA
@@ -99,7 +133,11 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
     if write_error != OK:
         DirAccess.remove_absolute(tmp)
         return write_error
-    if _read_checkpoint(tmp).is_empty():
+    # The file is not a safe replacement merely because its SHA-256 matches:
+    # both writer and reader can agree on a lossy JSON representation. Compare
+    # physical market inventories against the live checkpoint BEFORE promotion.
+    var verified: Dictionary = _read_checkpoint(tmp)
+    if verified.is_empty() or not _physical_stock_matches(snapshot, verified):
         DirAccess.remove_absolute(tmp)
         return ERR_FILE_CORRUPT
 
