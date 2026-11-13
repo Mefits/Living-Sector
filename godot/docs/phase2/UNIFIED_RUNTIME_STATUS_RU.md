@@ -88,3 +88,9 @@
 - Commit `7e757abd`: `unified_population_phase.gd` теперь проверяет идентификаторы и обязательные поля групп населения, неотрицательные численность/средства, структуру рынка и наличие реального продавца в едином N39 World до формирования оплаченных покупок. Обход facilities/markets детерминирован по ключам. При ошибке возвращается `ok=false`, что существующий N158 runner трактует как fail-closed, без отдельного ledger.
 - Минимальная статическая проверка: файл прочитан после коммита, скобки сбалансированы, guards присутствуют. Godot runtime **не запускался**, CODE_UNVERIFIED. GitHub Actions **не запускались**; Windows ZIP не создан.
 - Lease `20261113-population-phase-guard-second-chat-overnight-0638.json` освобождён. Следующая свободная работа: ограниченный import/parser checkpoint и подготовка финального Windows export; интеграция флота/контрактов остаётся открытой. Перед правками сверить свежие leases.
+
+## P2 handoff — 13.11 06:39 МСК, восстановление GUI после загрузки
+
+- Commit [aa650eaf](https://github.com/Mefits/Living-Sector/commit/aa650eaf8b557a06f2261bb6dea46eedfff515b4): после успешного `SaveState.load_runner` интерфейс повторно получает `worlds()` из восстановленного авторитетного World, выделяет прежнюю систему и синхронизирует `OptionButton` с восстановленным `clock.world_speed`. Если скорость не входит в предустановки, не отображается ложный множитель. Ledger, World, TickRunner, SaveState не менялись.
+- Scope `godot/scripts/main.gd`; lease `20261113-save-load-map-resync-second-chat-0639.json` RELEASED. Проверено по исходным контрактам `SystemMap.set_worlds/select_system`, `clock.world_speed`; Godot не запускался — **CODE_UNVERIFIED**. GitHub Actions запусков: **0**.
+- Windows ZIP не создан в этой итерации. Следующий приоритет: один ограниченный Godot import/smoke/export checkpoint после сверки свежих leases и состояния общего Actions-бюджета; не запускать CI при активной проверке другого исполнителя.
