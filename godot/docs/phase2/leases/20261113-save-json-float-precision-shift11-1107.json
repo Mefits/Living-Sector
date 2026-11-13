@@ -1,0 +1,9 @@
+{
+  "owner": "second-chat-overnight",
+  "scope": [
+    "godot/scripts/sim/save_state.gd"
+  ],
+  "reason": "CI 43347330243 editor=0 parse=0 economy=1; market stock mismatch after JSON save/restart; inspect float serialization precision",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T11:07:00+03:00"
+}
