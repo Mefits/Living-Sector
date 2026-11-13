@@ -153,8 +153,27 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             var origin: String = str(ship.get("location", ""))
             var target: String = str(contract.get("source_location", ""))
             if origin == target:
-                _last_ship_result["autonomous_blocked"].append({
-                    "ship_id": str(sid), "contract_id": cid, "reason": "at_source_awaiting_n97_paid_pickup"})
+                # The accepted N104 obligation is the ONLY reason to dock.
+                # N21 checks the real station capacity/occupancy; the same
+                # N39 Apply commits the dock receipt into the saved World.
+                # No cargo or escrow is touched until N97 paid pickup exists.
+                var dock_operation: String = "n104-source-dock:" + cid + ":" + str(sid)
+                var dock_plan: Dictionary = FleetLogistics.command(scheduled,
+                    "dock", str(sid), dock_operation, tick)
+                if not dock_plan.get("ok", false):
+                    _last_ship_result["autonomous_blocked"].append({
+                        "ship_id": str(sid), "contract_id": cid,
+                        "reason": "source_n21_" + str(dock_plan.get("reason", "dock_rejected"))})
+                    continue
+                if not production.apply_fleet_logistics(tick, dock_plan):
+                    _last_ship_result = {"ok": false,
+                        "reason": "autonomous_source_dock_single_world_commit_rejected",
+                        "ship_id": str(sid), "contract_id": cid}
+                    return false
+                _last_ship_result["autonomous_departures"].append({
+                    "ship_id": str(sid), "contract_id": cid,
+                    "action": "n21_source_docked", "location": origin, "tick": tick})
+                scheduled = production.world_snapshot()
                 continue
             var path: Dictionary = _fleet_roster.registry.graph().shortest_path(origin, target)
             if not path.get("reachable", false) or path.get("locations", []).size() < 2:
