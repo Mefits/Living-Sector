@@ -1,6 +1,6 @@
 {
   "block_id": "N157",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "primary-chat-20261113",
   "run_id": "2026-11-13-primary-n157-macro10-persistence-inventory",
   "claimed_at": "2026-11-13",
@@ -24,6 +24,21 @@
     "N152 ContractBoard",
     "N4/N24/N32/N38/N46 save baseline"
   ],
-  "progress": [],
-  "evidence": []
+  "progress": [
+    "Frozen Rust canonical 793 paths audited by original SOURCE_INVENTORY; 159 native/crates Rust sources mapped by exact Git blob to source owner, placeholder or replace-by-Godot UI/transport. Detected 41 different archived root/native twins.",
+    "Ported sim_db/persistence.rs complete typed DbWrite keys/priorities, EconomicFrame all-or-nothing admission + retry on backpressure/failed flush, tombstone-last transaction, market trend append-by-tick, stable boot read-only recovery including ship resume/contract legacy normalization, and actual UniformGrid from spatial/grid.rs.",
+    "Draft PR #247 10 new files / 2271 additions: 6 actual GDScripts for source domains + 2 authored fixture GDScripts + headless entry + source mapping JSON + handoff doc (7 scripts including entry). Godot binary unavailable, parser/headless NOT RUN, Rust executable parity NOT RUN; CODE_UNVERIFIED.",
+    "Macro10 may be marked SOURCE-COVERED in the Phase1 convention, giving 10/10 macro source-owner domains. Phase2 must still integrate existing Draft PRs, real World/ECS/SaveState single owner and run execution/restart tests."
+  ],
+  "evidence": [
+    "GitHub readback all 8 GDScript files with balanced lexical delimiters/quotes; new script paths contain source-only code. No Godot runtime/parser available.",
+    "Frozen SOURCE_INVENTORY.json file_count 793, 159 native Rust paths each mapped in godot/docs/nightshift/N157_FROZEN_SOURCE_TRIAGE.json; archived crates root 41 blob differences against native.",
+    "Draft PR https://github.com/Mefits/Living-Sector/pull/247 (10 new files, 2271 additions, unmerged, draft).",
+    "Source-to-port exact mapping and Phase2 handoff godot/docs/nightshift/N157_MACRO10_SOURCE_CLOSURE_RU.md",
+    "Source-derived regression assertions authored but NOT EXECUTED."
+  ],
+  "macro10_source_status": "SOURCE_COVERED_ALL_10_MACROS_CODE_UNVERIFIED",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/247",
+  "work_sha": "e6f7a5ef8629a1a527858bcf1606c6afe4a9c6d2",
+  "completed_on": "2026-11-13"
 }
