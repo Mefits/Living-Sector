@@ -22,8 +22,11 @@ func _initialize() -> void:
     if stats.get("markets") != 3 or stats.get("active_facilities") != 15 or stats.get("populations") != 3:
         _fail("unexpected original source market/facility/population counts: " + str(stats))
         return
-    if a.implemented_phases() != PackedStringArray(["bodies", "facilities"]):
-        _fail("only bodies and N39 facilities may advertise real execution")
+    if a.implemented_phases() != PackedStringArray(["bodies", "ships", "facilities", "populations", "markets"]):
+        _fail("N158 must advertise only the five actually wired P2 phases")
+        return
+    if a.fleet_snapshot().size() != 24:
+        _fail("24 real N46 source ships were not admitted to N39 world")
         return
     var before: Dictionary = a.economy_snapshot()
     if before["markets"]["earth-station"]["owner"] != "facility-earth-station":
