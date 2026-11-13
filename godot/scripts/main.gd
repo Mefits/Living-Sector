@@ -69,6 +69,13 @@ func _ready() -> void:
 
     _status = Label.new()
     _status.text = "Загрузка замороженных JSON Galaxy 0.6.7..."
+    # This line changes every tick and sometimes gains extra production
+    # details. A normal Label would resize its minimum width and push the
+    # entire map+inspector out of the window while the simulation runs.
+    _status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    _status.clip_text = true
+    _status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+    _status.custom_minimum_size = Vector2.ZERO
     _status.add_theme_color_override("font_color", Color("#9fb9c9"))
     root.add_child(_status)
 
@@ -114,7 +121,12 @@ func _ready() -> void:
     ship_caption.text = "Корабль / рейс N14:"
     ship_orders.add_child(ship_caption)
     _ship_choice = OptionButton.new()
+    # The selected ship's location/name changes at runtime. Never let the
+    # longest dropdown item resize this row (or the main map) each tick.
     _ship_choice.custom_minimum_size = Vector2(250, 0)
+    _ship_choice.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+    _ship_choice.fit_to_longest_item = false
+    _ship_choice.clip_text = true
     ship_orders.add_child(_ship_choice)
     _ship_destination = LineEdit.new()
     _ship_destination.placeholder_text = "ID назначения (например alpha-station)"
@@ -546,6 +558,9 @@ func _update_status() -> void:
             str(failure.get("phase", "?")), int(failure.get("tick", -1)),
             str(failure.get("reason", "unknown"))]
     _pause_button.text = "Ошибка — загрузите" if not failure.is_empty() or not _fatal_restore_error.is_empty() else ("Продолжить" if _runner.clock.paused else "Пауза")
+    # Preserve the complete diagnostics on hover, even when the visible
+    # status bar is clipped in the embedded Godot game panel.
+    _status.tooltip_text = _status.text
 
 func _refresh_selection() -> void:
     if not _runner:
