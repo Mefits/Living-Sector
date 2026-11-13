@@ -31,6 +31,10 @@ static func validate(state: Dictionary) -> String:
             return "invalid_facility_level_or_crew"
         if typeof(fac.get("abandoned", null)) != TYPE_BOOL:
             return "invalid_abandoned"
+        if fac.has("condition") and (not _fraction(fac["condition"]) or float(fac["condition"]) > 1.0):
+            return "invalid_facility_condition"
+        if fac.has("abandon_counter") and (typeof(fac["abandon_counter"]) != TYPE_INT or int(fac["abandon_counter"]) < 0 or int(fac["abandon_counter"]) > 4294967295):
+            return "invalid_facility_abandon_counter"
         var morale: Variant = fac.get("morale", null)
         if not _fraction(morale) or float(morale) > 100.0:
             return "invalid_morale"
