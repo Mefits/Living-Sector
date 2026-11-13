@@ -1,6 +1,6 @@
 {
   "owner": "interactive-chat-p2-fleet",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "scope": [
     "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd",
@@ -16,7 +16,10 @@
     "godot/scripts/star_system_view.gd"
   ],
   "purpose": "Gate2 single-world 24 frozen starter ships, N46 initial fuel/cargo and ship wallets in existing N9, N14 transit with native moving orbital targets, persistent command/nonce; no second runner or Actions",
-  "verification": "CODE_UNVERIFIED",
-  "ci": "NO_ACTIONS",
-  "started_at": "2026-11-13"
+  "verification": "WIRED_CODE_UNVERIFIED; 11 GDScript static bracket checks pass; Godot runtime unavailable",
+  "ci": "ZERO_NEW_GITHUB_ACTIONS",
+  "started_at": "2026-11-13",
+  "completed_at": "2026-11-13",
+  "handoff": "godot/docs/phase2/handoffs/20261113-p2-canonical-n46-n14-fleet-interactive.md",
+  "next": "Run local Godot parser + p2_unified_ship_phase_check.gd and preexisting P2 economy+N130 checks; then safely integrate dock/cargo and N153 AI, not a second runner."
 }
