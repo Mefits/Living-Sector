@@ -173,6 +173,51 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         "repair_failures": repair_failures,
         "service_restock": restocked.get("purchases", []).duplicate(true)}
 
+## Single authoritative fleet commit. Called by the N158 ships phase
+## (before facilities), or by a validated explicit departure command between
+## ticks. No second ship runner and no additional wallet authority.
+func apply_ship_phase(tick: int, proposal: Dictionary,
+        command: bool = false) -> bool:
+    if not _ready or not (_world.get("ships") is Dictionary):
+        return false
+    if (command and tick != _last_tick) or (not command and tick != _last_tick + 1):
+        return false
+    if not bool(proposal.get("ok", false)):
+        return false
+    if not bool(proposal.get("changed", false)):
+        return true
+    if not (proposal.get("ships") is Dictionary):
+        return false
+    var new_ships: Dictionary = proposal["ships"]
+    if new_ships.size() != _world["ships"].size() or typeof(proposal.get("next_token", null)) != TYPE_INT:
+        return false
+    var previous: Dictionary = _world["ships"]
+    var frozen_fields: Array[String] = ["id", "name", "class",
+        "faction_id", "size", "cargo_capacity", "fuel_capacity",
+        "crew_size", "crew_roles", "cargo", "credits"]
+    for ship_id in previous:
+        if not new_ships.has(ship_id) or not (new_ships[ship_id] is Dictionary):
+            return false
+        var old: Dictionary = previous[ship_id]
+        var candidate: Dictionary = new_ships[ship_id]
+        for field in frozen_fields:
+            if candidate.get(field, null) != old.get(field, null):
+                return false
+    var staged: Dictionary = _world.duplicate(true)
+    staged["ships"] = new_ships.duplicate(true)
+    staged["ship_next_token"] = int(proposal["next_token"])
+    if Schema.validate(staged) != "":
+        return false
+    # No fleet transition is allowed to mint or move cash; all 24 source
+    # ship wallets remain in the SAME N9 balances as the existing economy.
+    var expected: Dictionary = Schema.accounts(staged)
+    for account in expected:
+        if _ledger.balance(str(account)) != int(expected[account]):
+            return false
+    _world = staged
+    return true
+
+
 ## P2 single-market commit boundary: N150 may change price, demand,
 ## flow/history/orders but NEVER physical stock, source owner or accounts.
 ## Validation of all markets precedes one atomic in-memory swap.
