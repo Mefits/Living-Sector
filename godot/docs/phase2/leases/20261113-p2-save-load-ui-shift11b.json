@@ -1,0 +1,9 @@
+{
+  "owner": "second-chat-overnight",
+  "started_at": "2026-11-13T05:20:00+03:00",
+  "scope": [
+    "godot/scripts/main.gd"
+  ],
+  "status": "IN_PROGRESS",
+  "purpose": "Fix P2 save/load path mismatch, ensure correct P2 snapshot is loaded and report recovery source; no competing runtime modifications"
+}
