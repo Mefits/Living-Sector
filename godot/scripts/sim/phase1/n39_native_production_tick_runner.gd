@@ -82,7 +82,7 @@ func _advance_one_tick() -> void:
             world.advance_orbits(native_delta)
         if phase == "facilities" and _native_enabled:
             _last_native_result = production.run_tick(tick_count,
-                _tick_multiplier, _external_labor_this_tick)
+                _tick_multiplier, _external_labor_this_tick, native_delta)
             _external_labor_this_tick = {}
             if not _last_native_result.get("ok", false):
                 _phase_failure = {"phase": phase, "tick": tick_count,
