@@ -143,6 +143,27 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
                 lines.append("  %s · %s · %s · %s" % [
                     str(entry.get("ship_id", "?")), str(entry.get("contract_id", "?")),
                     str(entry.get("leaf", "?")), str(entry.get("reason", "—"))])
+    # Native N143 research shares the exact N9 ledger and N39 source
+    # market. Show paid work and true frozen faction treasury; never
+    # present an unexecuted target as an unlocked technology.
+    var treasuries: Dictionary = economy.get("faction_treasuries", {})
+    var research_heads: Dictionary = economy.get("research_directors", {})
+    if not treasuries.is_empty():
+        lines.append("ИССЛЕДОВАНИЯ N143 / N82 · оплаченных смен %d · блокировок %d" % [
+            int(summary.get("research_paid_shifts", 0)),
+            int(summary.get("research_blocked_factions", 0))])
+        var faction_ids: Array = treasuries.keys()
+        faction_ids.sort()
+        for faction_id in faction_ids:
+            var commander: Dictionary = research_heads.get(faction_id, {})
+            var technologies: Array = commander.get("technologies", [])
+            var target: String = str(commander.get("research", ""))
+            if target.is_empty() or target == "<null>":
+                target = "цель не выбрана"
+            lines.append("  %s · казна N9 %d CR · изучено %d · %s (%d/%d)" % [
+                str(faction_id), int(treasuries[faction_id]), technologies.size(),
+                target, int(commander.get("progress", 0)),
+                int(commander.get("research_required", 0))])
     lines.append("СТАНЦИИ / КРЕДИТЫ / СОСТОЯНИЕ:")
     var facilities: Dictionary = economy["facilities"]
     var facility_ids: Array = facilities.keys()
