@@ -1,0 +1,13 @@
+{
+  "owner": "automation11",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T19:26:37+03:00",
+  "expires_at": "2026-11-13T20:15:00+03:00",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_station_demand_phase.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (read-only demand projection only)",
+    "godot/tests/p2_live_station_demand_check.gd"
+  ],
+  "boundary": "Pure source-backed N135 station shortage proposal from current N39 market state, observable in runtime; no ContractBoard mutation or synthetic paid contract, no second ledger/runner"
+}
