@@ -608,6 +608,133 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
         "blocked": proposed.get("blocked", []).duplicate(true)}
 
 
+
+## Gate4: N134 must have first authorized source N154's evaluated offer.
+## The caller is the integrated head-command owner (not raw GUI input).
+## Only the N39 world + existing N9 ledger + N104 Board may post paid
+## construction material orders; site creation has NO free inventory.
+func post_authorized_native_construction(tick: int, staged_native: Dictionary) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick:
+        return {"ok": false, "reason": "not_current_live_construction_tick"}
+    if staged_native.get("status") != "N154_AUTHORIZED_STAGED_NOT_APPLIED":
+        return {"ok": false, "reason": "n134_authorized_n154_proposal_required"}
+    if not _world.has("construction_sites") or not _world.has("faction_treasuries"):
+        return {"ok": false, "reason": "legacy_construction_world_unavailable"}
+    if not (staged_native.get("site") is Dictionary) or not (staged_native.get("post") is Dictionary):
+        return {"ok": false, "reason": "missing_native_site_and_offer"}
+    var site: Dictionary = staged_native["site"]
+    var offer: Dictionary = staged_native["post"]
+    var id: String = str(site.get("id", ""))
+    var faction: String = str(site.get("faction_id", ""))
+    var source: String = str(offer.get("source_location", ""))
+    var destination: String = str(offer.get("destination_location", ""))
+    var commodity: String = str(offer.get("commodity", ""))
+    var quantity: int = int(offer.get("quantity", 0))
+    var payer: String = Schema.faction_account(faction)
+    if id.is_empty() or faction.is_empty() or source.is_empty() or destination.is_empty():
+        return {"ok": false, "reason": "construction_missing_real_identity"}
+    if not _world["faction_treasuries"].has(faction) or not _world["markets"].has(source) or not _world["markets"].has(destination):
+        return {"ok": false, "reason": "construction_source_destination_missing"}
+    if str(site.get("location_name", "")) != destination or str(site.get("commodity", "")) != commodity:
+        return {"ok": false, "reason": "construction_site_material_mismatch"}
+    if quantity <= 0 or quantity > 200 or str(offer.get("faction_id", "")) != faction or str(offer.get("contract_type", "")) != "construction":
+        return {"ok": false, "reason": "construction_source_terms_mismatch"}
+    if int(offer.get("payment", 0)) != 10000 or int(offer.get("posted_at_tick", -1)) != tick or str(offer.get("mission_category", "")) != "strategy.construction.v1":
+        return {"ok": false, "reason": "construction_source_payment_mismatch"}
+    if staged_native.get("effects") != {
+        "faction_treasury_delta": -10000, "contract_board_reserved_delta": 10000
+    } or int(staged_native.get("treasury_before", -1)) != int(_world["faction_treasuries"][faction]):
+        return {"ok": false, "reason": "stale_construction_faction_treasury"}
+    if _ledger.balance(payer) != int(_world["faction_treasuries"][faction]):
+        return {"ok": false, "fatal": true, "reason": "construction_faction_n9_divergence"}
+    if _ledger.balance(payer) < 30000 or _ledger.balance(payer) - 10000 < 5000:
+        return {"ok": false, "reason": "construction_native_budget_reserve"}
+    var source_market: Dictionary = _world["markets"][source]
+    var dest_market: Dictionary = _world["markets"][destination]
+    if not (source_market.get("supply") is Dictionary) or not _world["facilities"].has(str(dest_market.get("owner", ""))):
+        return {"ok": false, "reason": "construction_not_a_real_market"}
+    var dest_owner: Dictionary = _world["facilities"][str(dest_market["owner"])]
+    if str(dest_owner.get("faction", "")) != faction:
+        return {"ok": false, "reason": "construction_not_a_faction_station"}
+    if float(source_market["supply"].get(commodity, 0.0)) < float(quantity):
+        return {"ok": false, "reason": "construction_unavailable_physical_source"}
+    # No two open construction material orders at the same physical site.
+    for old_cid in _world["construction_contracts"]:
+        if str(_world["construction_contracts"][old_cid]) != id:
+            continue
+        var c: Dictionary = _world["contract_board"].get("contracts", {}).get(old_cid, {})
+        if str(c.get("status", "")) in ["posted", "accepted", "picked_up", "delivered"]:
+            return {"ok": false, "reason": "construction_material_order_already_open"}
+    var new_site: bool = not _world["construction_sites"].has(id)
+    if new_site:
+        if not (staged_native.get("site_spawn") is Dictionary) or int(site.get("progress_delivered", -1)) != 0:
+            return {"ok": false, "reason": "source_site_spawn_not_verified"}
+        if not _world["bodies"].has(str(site.get("body_id", ""))):
+            return {"ok": false, "reason": "source_construction_body_missing"}
+        for sid in _world["construction_sites"]:
+            var prev: Dictionary = _world["construction_sites"][sid]
+            if not bool(prev.get("completed", false)) and str(prev.get("location_name", "")) == destination and str(prev.get("commodity", "")) == commodity:
+                return {"ok": false, "reason": "duplicate_native_site_material"}
+    else:
+        if site != _world["construction_sites"][id]:
+            return {"ok": false, "reason": "native_site_changed_since_offer"}
+        if int(site.get("progress_required", 0)) - int(site.get("progress_delivered", 0)) < quantity:
+            return {"ok": false, "reason": "native_site_material_overpromised"}
+    var contract_id: String = "construction:" + id + ":" + str(tick)
+    var escrow: String = "escrow:" + contract_id
+    if _world["contract_board"]["contracts"].has(contract_id):
+        return {"ok": false, "reason": "construction_contract_already_posted"}
+    var next_money := Ledger.new()
+    if not next_money.restore(_ledger.snapshot()):
+        return {"ok": false, "fatal": true, "reason": "construction_ledger_restore_failed"}
+    if not next_money.register_empty_account(escrow):
+        return {"ok": false, "fatal": true, "reason": "construction_escrow_not_fresh"}
+    var board := ContractBoard.new(next_money)
+    if not board.restore(_world["contract_board"]):
+        return {"ok": false, "fatal": true, "reason": "construction_contract_board_corrupt"}
+    var expiry: int = tick + int(offer.get("lifespan_ticks", 0))
+    if expiry <= tick:
+        return {"ok": false, "reason": "construction_expiration_invalid"}
+    # Native N104 physical delivery implementation currently handles
+    # kind=delivery. Persist the N154 strategy.construction.v1 provenance
+    # separately in construction_contracts, NEVER pretend construction
+    # can be settled without the N15 physical pickup+unload receipts.
+    var posted: Dictionary = board.post(contract_id, "delivery", payer,
+        escrow, commodity, quantity, source, destination, 10000,
+        tick, expiry, "faction")
+    if not posted.get("ok", false):
+        return posted
+    var after: Dictionary = _world.duplicate(true)
+    if new_site:
+        after["construction_sites"][id] = site.duplicate(true)
+    after["construction_contracts"][contract_id] = id
+    after["faction_treasuries"][faction] = next_money.balance(payer)
+    after["contract_board"] = board.snapshot()
+    after["escrow_balances"][escrow] = next_money.balance(escrow)
+    var receipt_id: String = "native_site_commission:" + contract_id
+    after["construction_receipts"][receipt_id] = {
+        "id": receipt_id, "tick": tick, "kind": "commission",
+        "site_id": id, "contract_id": contract_id, "quantity": quantity,
+        "n9_receipt_id": "contract:" + contract_id + ":post"}
+    var reason: String = Schema.validate(after)
+    if not reason.is_empty():
+        return {"ok": false, "fatal": true, "reason": "construction_world_" + reason}
+    var expected: Dictionary = Schema.accounts(after)
+    var balances: Dictionary = next_money.snapshot()["balances"]
+    if expected.size() != balances.size() or next_money.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "construction_money_not_conserved"}
+    for acc in expected:
+        if expected[acc] != balances.get(acc, null):
+            return {"ok": false, "fatal": true, "reason": "construction_wallet_mismatch"}
+    # One atomic N154/N104/N9 transaction publishes site, board and money.
+    _world = after
+    _ledger = next_money
+    return {"ok": true, "status": "N154_REAL_FUNDED_SITE_AND_N104_DELIVERY",
+        "site_id": id, "contract_id": contract_id, "tick": tick,
+        "n9_receipt_id": "contract:" + contract_id + ":post",
+        "payer": payer, "payment": 10000}
+
+
 ## P2 Gate 3: atomic N135 live need -> N104 prepaid delivery.
 ## EscrowStage only PROPOSES a detached N9+N104 snapshot. This method is
 ## the one and only authority that publishes both, plus facility balances,
