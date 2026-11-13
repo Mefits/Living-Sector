@@ -200,11 +200,35 @@ func _run_boot_check() -> void:
         get_tree().quit(1)
         return
     var expected_tick: int = _runner.tick_count
+    # A successful return code and matching tick do not prove that physical
+    # stocks survived JSON serialization. Check the same authoritative N39
+    # market supplies before and after restoring the actual GUI checkpoint.
+    var before_save: Dictionary = _runner.economy_snapshot()
+    var expected_markets: Dictionary = before_save.get("markets", {})
     var restored: Dictionary = SaveState.load_runner(_runner, _seed, check_path)
     if not bool(restored.get("ok", false)) or _runner.tick_count != expected_tick:
         push_error("P2_BOOT_CHECK_FAIL: restore rejected")
         get_tree().quit(1)
         return
+    var after_load: Dictionary = _runner.economy_snapshot()
+    var actual_markets: Dictionary = after_load.get("markets", {})
+    if expected_markets.size() != actual_markets.size():
+        push_error("P2_BOOT_CHECK_FAIL: market count changed on restore")
+        get_tree().quit(1)
+        return
+    for market_id in expected_markets:
+        if not actual_markets.has(market_id):
+            push_error("P2_BOOT_CHECK_FAIL: missing restored market " + str(market_id))
+            get_tree().quit(1)
+            return
+        var expected_supply: Variant = expected_markets[market_id].get("supply", {})
+        var actual_supply: Variant = actual_markets[market_id].get("supply", {})
+        if expected_supply != actual_supply:
+            push_error("P2_BOOT_CHECK_FAIL: physical stock changed at " + str(market_id)
+                + " expected=" + JSON.stringify(expected_supply)
+                + " actual=" + JSON.stringify(actual_supply))
+            get_tree().quit(1)
+            return
     print("P2_BOOT_CHECK_PASS tick=", expected_tick,
         " facilities=", _runner.economy_summary().get("facilities", 0))
     get_tree().quit(0)
