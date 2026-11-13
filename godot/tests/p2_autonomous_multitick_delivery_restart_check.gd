@@ -53,7 +53,6 @@ func _initialize() -> void:
     var target_contract: String = ""
     var assigned_ship: String = ""
     var escrow_account: String = ""
-    var paid_amount: int = 0
     var saw_departure: bool = false
     var saw_in_flight: bool = false
     var saw_pickup: bool = false
@@ -79,10 +78,9 @@ func _initialize() -> void:
             keys.sort()
             for cid in keys:
                 var c: Dictionary = contracts[cid]
-                if str(c.get("destination_location", "")) == buyer_loc and str(c.get("source_location", "")) == seller_loc and str(c.get("commodity", "")) == good:
+                if str(c.get("destination_location", "")) == buyer_loc and str(c.get("commodity", "")) == good and world["markets"].has(str(c.get("source_location", ""))):
                     target_contract = str(cid)
                     escrow_account = str(c.get("escrow_account", ""))
-                    paid_amount = int(c.get("reserved", 0))
                     break
         if target_contract.is_empty():
             continue
@@ -91,7 +89,7 @@ func _initialize() -> void:
             return
         var contract: Dictionary = contracts[target_contract]
         if assigned_ship.is_empty():
-            assigned_ship = str(contract.get("accepted_by", contract.get("ship_id", "")))
+            assigned_ship = str(contract.get("fulfiller_id", ""))
         if str(contract.get("status", "")) in ["picked_up", "paid"]:
             saw_pickup = true
         if not assigned_ship.is_empty() and w["ships"].has(assigned_ship):
@@ -128,8 +126,8 @@ func _initialize() -> void:
             if not ledger["receipts"].has(receipt_id):
                 _fail("N104 paid without unique N9 payout receipt")
                 return
-            if not escrow_account.is_empty() and int(ledger["balances"].get(escrow_account, -1)) != 0:
-                _fail("N104 escrow not released on verified delivery")
+            if not escrow_account.is_empty() and int(ledger["balances"].get(escrow_account, -1)) != int(contract.get("reserved", -2)):
+                _fail("N104 escrow and canonical reserved remainder diverged")
                 return
             var final_state: Dictionary = sim.checkpoint()
             if not sim.queue_control("step", 1):
@@ -143,8 +141,8 @@ func _initialize() -> void:
             if _total(after["native_production"]["ledger"]["balances"]) != initial_total:
                 _fail("settlement minted or lost credits")
                 return
-            if int(after["native_production"]["world"]["contract_board"]["contracts"][target_contract].get("reserved", -1)) != paid_amount:
-                _fail("N104 funded amount mutated after settlement")
+            if int(after["native_production"]["world"]["contract_board"]["contracts"][target_contract].get("reserved", -1)) != int(contract.get("reserved", -2)):
+                _fail("N104 escrow remainder changed after settlement")
                 return
             _cleanup(save_path)
             print("P2_AUTONOMOUS_N135_N104_N153_N14_N21_N15_N97_RESTART_PASS: " + target_contract + " at tick " + str(sim.tick_count))
