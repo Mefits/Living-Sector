@@ -1,6 +1,6 @@
 {
   "block_id": "N100",
-  "status": "IN_PROGRESS",
+  "status": "CODE_UNVERIFIED",
   "owner": "interactive-chat-2",
   "run_id": "2026-11-13T02:50:00+03:00-interactive-chat-2-N100",
   "claimed_at": "2026-11-13T02:50:00+03:00",
@@ -18,15 +18,25 @@
   ],
   "progress": [
     "Candidate arbitration ported; ingredient composition and full orchestration still unported. Partial PR, not complete.",
-    "Explicit handoff from stopped second-chat-overnight to interactive-chat-2 authorized by user; original reservation recorded in transfer_history; PR #188 remains Draft."
+    "Explicit handoff from stopped second-chat-overnight to interactive-chat-2 authorized by user; original reservation recorded in transfer_history; PR #188 remains Draft.",
+    "Full Rust hybrid.rs source-function port: HTN+GOAP one-input composition, original conditional shared-budget planner arbitration, stable weighted selection and role trace.",
+    "Strict reused N155 validator/native state replay with separate feasible carrier-to-delivery matching and rejection reasons; N99 Beam invoked selectively only.",
+    "Existing PR #188 updated in same branch, 3 files (N100 implementation, authored source fixtures, source audit document); separate N155/N99 dependencies not merged.",
+    "Macro 7 source inventory covered only; upstream HTN/Telic verification and Godot runtime/production, escrow/receipt integration deferred to Phase2."
   ],
   "evidence": [
-    "https://github.com/Mefits/Living-Sector/pull/188"
+    "https://github.com/Mefits/Living-Sector/pull/188",
+    "https://github.com/Mefits/Living-Sector/blob/feature/godot-n100-hybrid-planner-overnight11/godot/docs/nightshift/N100_HYBRID_PLANNER_SOURCE_AUDIT_RU.md"
   ],
   "checked": [
-    "Rust source reviewed",
-    "GDScript source committed",
-    "Godot runtime NOT run"
+    "Source mapping: all 365 lines of frozen strategy/planning/hybrid.rs including Rust tests reviewed",
+    "GitHub readback: N100 implementation, fixture and source audit present in work branch",
+    "Lexical delimiter / quote static balance and required function symbol inventory passed",
+    "11 source-derived scenarios authored, NOT executed",
+    "Godot parser/runtime NOT run",
+    "Upstream HTN 0.2.1 / Telic 0.1.0 differential behavior NOT run",
+    "Native N121 execution and actual ledger/escrow/paid receipts NOT run",
+    "Separate Draft PRs NOT merged; P1 checkpoint/main untouched"
   ],
   "transfer_history": [
     {
@@ -36,5 +46,13 @@
       "previous_status": "IN_PROGRESS",
       "reason": "User explicitly stopped former workers and authorized N100 handoff on 2026-11-13; preserve PR #188 and branch."
     }
+  ],
+  "source_coverage": "SOURCE-COVERED",
+  "completed_at": "2026-11-13T03:00:00+03:00",
+  "work_commit": "8a9ab04a9ab78ff2d42567e37b222faf09c7dfb7",
+  "remaining": [
+    "Phase 2: reconcile independent N155 and N99 scripts with N100 orchestrator and run Godot parser/runtime + differential checks",
+    "Phase 2: native N121 actual order execution, receipt/fuel/workforce/research/treasury revalidation; never infer completion from forecast",
+    "Macro1 N39 belongs to first chat; macro10 own source inventory gaps are separate"
   ]
 }
