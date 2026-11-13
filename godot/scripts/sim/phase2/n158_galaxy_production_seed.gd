@@ -6,6 +6,7 @@ extends RefCounted
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const FleetBootstrap = preload("res://scripts/sim/ships/native_fleet_bootstrap.gd")
 const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
+const DirectorProfile = preload("res://scripts/sim/phase1/n155_director_native_observation.gd")
 
 const NATIVE_CREW_BY_TYPE: Dictionary = {
     "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
@@ -18,21 +19,44 @@ static func from_seed(seed: Dictionary) -> Dictionary:
     if not (seed.get("worlds") is Array) or not (seed.get("factions") is Array):
         return _fail("missing_real_galaxy_seed")
     var factions: Dictionary = {}
+    var source_treasuries: Dictionary = {}
+    var source_directors: Dictionary = {}
     for f in seed["factions"]:
         if not (f is Dictionary) or not _id(f.get("id", null)):
             return _fail("invalid_seed_faction")
         if factions.has(f["id"]):
             return _fail("duplicate_faction")
         factions[f["id"]] = true
+        if not _whole_json_int(f.get("treasury", null)):
+            return _fail("source_faction_treasury_not_grounded")
+        var faction_id: String = str(f["id"])
+        var personality: Dictionary = f.get("personality", {})
+        if not (f.get("personality") is Dictionary):
+            return _fail("missing_native_faction_personality")
+        var profile: Dictionary = DirectorProfile.profile_from_personality(personality)
+        if profile.is_empty():
+            return _fail("source_director_personality_invalid")
+        source_treasuries[faction_id] = int(f["treasury"])
+        # Native N155 initial Director research fields, NOT synthetic tech.
+        source_directors[faction_id] = {
+            "technologies": [], "research": null, "progress": 0,
+            "research_required": 0, "last_research_tick": null,
+            "last_shift": null, "history": [], "crisis": false,
+            "profile": profile
+        }
     var projected: Dictionary = {
         "facilities": {}, "markets": {}, "populations": {}, "bodies": {},
-        "research": {}, "location_tiers": {}, "ships": {},
+        "research": {}, "research_directors": source_directors,
+        "research_receipts": {}, "faction_treasuries": source_treasuries,
+        "location_tiers": {}, "ships": {},
         "ship_next_token": 1, "dock_receipts": {}, "cargo_receipts": {},
         "contract_board": {"version": 1, "contracts": {}, "receipt_claims": {}},
         "escrow_balances": {},
         "station_executing": false
     }
-    var all_facilities: Dictionary = {}
+    for faction in factions:
+        projected["research"][faction] = []
+    var all_facilities: Dictionary = {
     var source_markets: Array = []
     var source_populations: Array = []
     for solar_system in seed["worlds"]:

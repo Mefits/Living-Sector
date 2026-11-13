@@ -6,6 +6,7 @@ const Inventory = preload("res://scripts/sim/economy/inventory_store.gd")
 const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
 const ShipState = preload("res://scripts/sim/ship_state.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
+const Technology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
 
 static func validate(state: Dictionary) -> String:
     for key in ["facilities", "markets", "populations", "bodies"]:
@@ -129,6 +130,56 @@ static func validate(state: Dictionary) -> String:
                 return "orphaned_escrow_account"
     if state.has("research") and not (state["research"] is Dictionary):
         return "invalid_research"
+    # N143 + N9 are a single source-grounded optional component. Legacy
+    # checkpoints have none of the three fields and never mint treasury on
+    # restore. New games include the REAL frozen faction balances.
+    var treasury_keys: Array[String] = ["faction_treasuries",
+        "research_directors", "research_receipts"]
+    var research_fields_present: int = 0
+    for field in treasury_keys:
+        if state.has(field):
+            research_fields_present += 1
+    if research_fields_present != 0 and research_fields_present != 3:
+        return "partial_native_research_authority"
+    if research_fields_present == 3:
+        if not (state["faction_treasuries"] is Dictionary) or not (state["research_directors"] is Dictionary) or not (state["research_receipts"] is Dictionary):
+            return "invalid_faction_research_authority"
+        var treasuries: Dictionary = state["faction_treasuries"]
+        var directors: Dictionary = state["research_directors"]
+        if treasuries.is_empty() or treasuries.size() != directors.size():
+            return "faction_research_identity_mismatch"
+        for faction in treasuries:
+            if not _id(faction) or typeof(treasuries[faction]) != TYPE_INT or int(treasuries[faction]) < 0:
+                return "invalid_native_treasury"
+            if not (directors.get(faction) is Dictionary) or not state.get("research", {}).has(faction):
+                return "orphaned_native_research_head"
+            var head: Dictionary = directors[faction]
+            if not (head.get("technologies") is Array) or head["technologies"] != state["research"][faction]:
+                return "native_research_history_divergence"
+            if typeof(head.get("progress")) != TYPE_INT or int(head["progress"]) < 0 or typeof(head.get("research_required")) != TYPE_INT or int(head["research_required"]) < 0:
+                return "invalid_native_research_progress"
+            if head.get("last_research_tick") != null and (typeof(head["last_research_tick"]) != TYPE_INT or int(head["last_research_tick"]) < 0):
+                return "invalid_native_last_research_tick"
+            if not (head.get("profile") is Dictionary) or not (head.get("history") is Array):
+                return "missing_native_director_profile"
+            var pending: Variant = head.get("research", null)
+            if pending != null and not Technology.find(str(pending)).has("work"):
+                return "invalid_native_research_target"
+            for technology_id in head["technologies"]:
+                if not _id(technology_id) or Technology.find(str(technology_id)).is_empty():
+                    return "invalid_completed_native_technology"
+            if pending != null:
+                if head["technologies"].has(str(pending)) or int(head["research_required"]) != Technology.required_work(str(pending)):
+                    return "native_target_progress_mismatch"
+        var research_receipts: Dictionary = state["research_receipts"]
+        for receipt_id in research_receipts:
+            var item: Variant = research_receipts[receipt_id]
+            if not _id(receipt_id) or not (item is Dictionary):
+                return "invalid_paid_research_receipt"
+            if str(item.get("receipt_id", "")) != str(receipt_id) or not treasuries.has(str(item.get("faction_id", ""))):
+                return "orphaned_paid_research_receipt"
+            if typeof(item.get("tick", null)) != TYPE_INT or int(item["tick"]) < 1:
+                return "invalid_research_receipt_tick"
     if state.has("location_tiers") and not (state["location_tiers"] is Dictionary):
         return "invalid_location_tiers"
     if state.has("station_executing") and typeof(state["station_executing"]) != TYPE_BOOL:
@@ -247,6 +298,8 @@ static func accounts(state: Dictionary) -> Dictionary:
         result[household_account(str(id))] = int(state["populations"][id]["wealth"])
     for id in state.get("ships", {}):
         result[ship_account(str(id))] = int(state["ships"][id]["credits"])
+    for faction in state.get("faction_treasuries", {}):
+        result[faction_account(str(faction))] = int(state["faction_treasuries"][faction])
     for escrow in state.get("escrow_balances", {}):
         result[str(escrow)] = int(state["escrow_balances"][escrow])
     return result
@@ -256,6 +309,9 @@ static func facility_account(id: String) -> String:
 
 static func household_account(id: String) -> String:
     return "population/" + id
+
+static func faction_account(id: String) -> String:
+    return "faction/" + id
 
 static func ship_account(id: String) -> String:
     return "ship:" + id
