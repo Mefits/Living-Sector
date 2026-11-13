@@ -543,6 +543,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_station_demand = {}
     _last_contract_admissions = {}
     _last_n153_result = {}
+    _last_research_result = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
