@@ -154,10 +154,22 @@ static func from_seed(seed: Dictionary) -> Dictionary:
             "location": location,
             "count": int(pop["population_count"]),
             "wealth": int(pop["total_wealth"]),
-            "employed_fraction": 0.0,
-            # Native N39 uses only jobs/wallet. Consumption/satisfaction
-            # remain dormant until N151 is integrated into SAME ledger.
-            "food_satisfaction": int(pop.get("food_satisfaction", 70)),
+            # Rust sim_db migration 001 defaults for fields not present
+            # in actual Galaxy JSON, no fabricated demographic changes.
+            "id": pid,
+            "label": label,
+            "demographic": str(pop.get("demographic", "workers")),
+            "employed_fraction": 0.85,
+            "food_satisfaction": int(pop.get("food_satisfaction", 50)),
+            "safety_satisfaction": 50,
+            "entertainment_satisfaction": 50,
+            "overall_sentiment": 50,
+            "unrest": 0,
+            "migration_pressure": 0.0,
+            "spending_rate": 0.02,
+            "growth_rate": 0.001,
+            "production_commodity": pop.get("production_commodity", null),
+            "production_amount": float(pop.get("production_amount", 0.0)),
             "consumption": pop.get("consumption", {}).duplicate(true)
         }
     var failure: String = Schema.validate(projected)
