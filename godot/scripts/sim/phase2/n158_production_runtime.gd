@@ -627,6 +627,51 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                     "accepted_at_tick", "delivered_at_tick"]:
                 if not _normalize_number_at(row, key):
                     return false
+    # Source N154 sites are persistent and their labor/receipt counters
+    # need integral JSON normalization before N39 world validation.
+    var construction_fields: Array[String] = [
+        "construction_sites", "construction_contracts",
+        "construction_receipts", "construction_next_db_id"]
+    var construction_count: int = 0
+    for key in construction_fields:
+        if w.has(key):
+            construction_count += 1
+    if construction_count not in [0, 4]:
+        return false
+    if construction_count == 4:
+        if not _normalize_row(w, ["construction_next_db_id"]):
+            return false
+        for key in ["construction_sites", "construction_contracts",
+                "construction_receipts"]:
+            if not (w[key] is Dictionary):
+                return false
+        for sid in w["construction_sites"]:
+            var site: Dictionary = w["construction_sites"][sid]
+            if not (site is Dictionary) or not _normalize_row(site,
+                    ["progress_required", "progress_delivered", "spawned_at_tick"]):
+                return false
+            if not (site.get("labor") is Dictionary):
+                return false
+            var labor: Dictionary = site["labor"]
+            if not _normalize_row(labor, ["required", "completed"]):
+                return false
+            if labor.get("last_shift") is Dictionary:
+                var last_shift: Dictionary = labor["last_shift"]
+                for key in ["tick", "wages", "input_payment", "processing_fee"]:
+                    if last_shift.has(key) and not _normalize_number_at(last_shift, key):
+                        return false
+                if not (last_shift.get("workers") is Array):
+                    return false
+                for worker in last_shift["workers"]:
+                    if not (worker is Array) or worker.size() != 2 or not _normalize_number_at_worker(worker):
+                        return false
+        for receipt_id in w["construction_receipts"]:
+            var receipt: Dictionary = w["construction_receipts"][receipt_id]
+            if not (receipt is Dictionary) or not _normalize_row(receipt, ["tick"]):
+                return false
+            for key in ["quantity", "wages", "capital"]:
+                if receipt.has(key) and not _normalize_number_at(receipt, key):
+                    return false
     # First N46 fleet is authoritative in THIS N39 snapshot. Old files
     # without a fleet remain valid without inventing tanks/ship credits.
     if w.has("ships"):

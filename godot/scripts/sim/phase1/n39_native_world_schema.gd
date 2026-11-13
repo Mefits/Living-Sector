@@ -7,6 +7,7 @@ const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
 const ShipState = preload("res://scripts/sim/ship_state.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const Technology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
+const Construction = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
 
 static func validate(state: Dictionary) -> String:
     for key in ["facilities", "markets", "populations", "bodies"]:
@@ -180,6 +181,73 @@ static func validate(state: Dictionary) -> String:
                 return "orphaned_paid_research_receipt"
             if typeof(item.get("tick", null)) != TYPE_INT or int(item["tick"]) < 1:
                 return "invalid_research_receipt_tick"
+    # Construction is a complete optional canonical N154 domain, not
+    # a second SiteRegistry. Legacy checkpoints omit all four fields.
+    var construction_keys: Array[String] = [
+        "construction_sites", "construction_contracts",
+        "construction_receipts", "construction_next_db_id"]
+    var construction_count: int = 0
+    for key in construction_keys:
+        if state.has(key):
+            construction_count += 1
+    if construction_count not in [0, 4]:
+        return "partial_native_construction_authority"
+    if construction_count == 4:
+        if not (state["construction_sites"] is Dictionary) or not (state["construction_contracts"] is Dictionary) or not (state["construction_receipts"] is Dictionary):
+            return "invalid_native_construction_registry"
+        if typeof(state["construction_next_db_id"]) != TYPE_INT or int(state["construction_next_db_id"]) >= 0:
+            return "invalid_native_construction_db_allocator"
+        for sid in state["construction_sites"]:
+            var site: Variant = state["construction_sites"][sid]
+            if not _id(sid) or not (site is Dictionary) or str(site.get("id", "")) != str(sid):
+                return "invalid_construction_site_identity"
+            for field in ["faction_id", "body_id", "location_name", "commodity",
+                    "facility_type", "name"]:
+                if not _id(site.get(field, null)):
+                    return "invalid_native_site_" + field
+            if not state["faction_treasuries"].has(str(site["faction_id"])) or not state["bodies"].has(str(site["body_id"])) or not state["markets"].has(str(site["location_name"])):
+                return "construction_missing_physical_owner"
+            for field in ["progress_required", "progress_delivered", "spawned_at_tick"]:
+                if typeof(site.get(field, null)) != TYPE_INT or int(site[field]) < 0:
+                    return "invalid_native_site_progress"
+            if int(site["progress_required"]) <= 0 or int(site["progress_delivered"]) > int(site["progress_required"]):
+                return "construction_materials_overfilled"
+            if typeof(site.get("completed")) != TYPE_BOOL or not (site.get("labor") is Dictionary):
+                return "invalid_native_site_lifecycle"
+            var labor: Dictionary = site["labor"]
+            for field in ["required", "completed"]:
+                if typeof(labor.get(field, null)) != TYPE_INT or int(labor[field]) < 0:
+                    return "invalid_native_construction_labor"
+            if int(labor["completed"]) > int(labor["required"]):
+                return "construction_labor_overfilled"
+            if labor.get("last_shift") != null:
+                if not (labor["last_shift"] is Dictionary) or typeof(labor["last_shift"].get("tick", null)) != TYPE_INT or not (labor["last_shift"].get("workers") is Array):
+                    return "invalid_construction_last_shift"
+            if not (site.get("position") is Dictionary):
+                return "invalid_construction_site_orbit_position"
+            var pos: Dictionary = site["position"]
+            for key in ["x", "y"]:
+                if not (pos.get(key) is float or pos.get(key) is int) or not is_finite(float(pos[key])):
+                    return "invalid_construction_orbit_coordinate"
+            if Construction.ready_for_materialization(site) and bool(site["completed"]):
+                return "construction_completed_site_not_despawned"
+        for cid in state["construction_contracts"]:
+            var site_id: Variant = state["construction_contracts"][cid]
+            if not _id(cid) or not _id(site_id) or not state["construction_sites"].has(str(site_id)):
+                return "invalid_construction_contract_site_link"
+            if not state.get("contract_board", {}).get("contracts", {}).has(cid):
+                return "orphaned_construction_delivery"
+            var c: Dictionary = state["contract_board"]["contracts"][cid]
+            var site: Dictionary = state["construction_sites"][site_id]
+            if str(c.get("contract_type", "")) != "delivery" or str(c.get("commodity", "")) != str(site["commodity"]) or str(c.get("destination_location", "")) != str(site["location_name"]):
+                return "construction_contract_terms_mismatch"
+            if str(c.get("requestor_id", "")) != faction_account(str(site["faction_id"])):
+                return "construction_contract_payer_mismatch"
+        for receipt_id in state["construction_receipts"]:
+            if not _id(receipt_id) or not (state["construction_receipts"][receipt_id] is Dictionary):
+                return "invalid_construction_receipt"
+            if str(state["construction_receipts"][receipt_id].get("id", "")) != str(receipt_id):
+                return "invalid_construction_receipt_identity"
     if state.has("location_tiers") and not (state["location_tiers"] is Dictionary):
         return "invalid_location_tiers"
     if state.has("station_executing") and typeof(state["station_executing"]) != TYPE_BOOL:

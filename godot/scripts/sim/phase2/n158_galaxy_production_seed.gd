@@ -48,6 +48,10 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         "facilities": {}, "markets": {}, "populations": {}, "bodies": {},
         "research": {}, "research_directors": source_directors,
         "research_receipts": {}, "faction_treasuries": source_treasuries,
+        # No construction progress or working capital exists in frozen
+        # clean seed. Sites appear only after the N154 funded source action.
+        "construction_sites": {}, "construction_contracts": {},
+        "construction_receipts": {}, "construction_next_db_id": -1,
         "location_tiers": {}, "ships": {},
         "ship_next_token": 1, "dock_receipts": {}, "cargo_receipts": {},
         "contract_board": {"version": 1, "contracts": {}, "receipt_claims": {}},
