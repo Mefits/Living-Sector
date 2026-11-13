@@ -1,0 +1,15 @@
+{
+  "owner": "p2-shift11-local-f5-1505",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T15:05:34+03:00",
+  "scope": [
+    "godot/scripts/phase2_local_f5.ps1"
+  ],
+  "excludes": [
+    "godot/scripts/main.gd",
+    "godot/scripts/sim/**",
+    ".github/workflows/**"
+  ],
+  "goal": "Reliable full-clone Windows Godot F5 bootstrap, no CI",
+  "base_head": "c39a310091611c8e43302cdd591020e8bdf71772"
+}
