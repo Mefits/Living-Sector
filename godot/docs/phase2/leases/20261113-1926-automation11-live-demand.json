@@ -1,6 +1,6 @@
 {
   "owner": "automation11",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T19:26:37+03:00",
   "expires_at": "2026-11-13T20:15:00+03:00",
   "branch": "integration/godot-phase2-unified-20261113",
@@ -9,5 +9,14 @@
     "godot/scripts/sim/phase2/n158_production_runtime.gd (read-only demand projection only)",
     "godot/tests/p2_live_station_demand_check.gd"
   ],
-  "boundary": "Pure source-backed N135 station shortage proposal from current N39 market state, observable in runtime; no ContractBoard mutation or synthetic paid contract, no second ledger/runner"
+  "boundary": "Pure source-backed N135 station shortage proposal from current N39 market state, observable in runtime; no ContractBoard mutation or synthetic paid contract, no second ledger/runner",
+  "released_at": "2026-11-13T19:42:00+03:00",
+  "code_commits": [
+    "19aca7ce",
+    "61834891",
+    "1d721e1b",
+    "57761671"
+  ],
+  "verification": "CODE_UNVERIFIED; static source checks, Godot unavailable; Actions 0",
+  "handoff": "godot/docs/phase2/handoffs/20261113-1942-automation11-n135-live-demand.md"
 }
