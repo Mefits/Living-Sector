@@ -178,13 +178,23 @@ func _restore_startup_checkpoint() -> void:
         var source: String = str(result.get("source", primary))
         _notice = "Автоматически восстановлен P2 тик %s%s" % [
             str(result.get("tick", _runner.tick_count)),
-            " (резервная копия)" if source.ends_with(".bak") else ""
+            _checkpoint_recovery_suffix(result)
         ]
         _sync_speed_control()
     else:
         # Preserve the initialized seed world; the user may still load manually.
         _notice = "Автозагрузка P2 не удалась: " + str(result.get("error", "неизвестная ошибка"))
         _check_restore_rollback(result)
+
+
+# Recovery status comes from the sole SaveState authority, never from a second
+# filesystem probe. A pending checkpoint may be valid but not yet durable.
+func _checkpoint_recovery_suffix(result: Dictionary) -> String:
+    if bool(result.get("recovered_pending", false)):
+        return " (аварийное сохранение восстановлено)" if bool(result.get("promoted_pending", false)) else " (аварийное сохранение загружено, НЕ закреплено на диске — сохраните игру)"
+    if str(result.get("source", "")).ends_with(".bak"):
+        return " (резервная копия)"
+    return ""
 
 
 func _toggle_observer() -> void:
@@ -261,8 +271,7 @@ func _load_game(save_path: String = "") -> void:
         _map.call("select_system", _selected_system)
         _sync_speed_control()
         _refresh_observer()
-        var recovered_from_backup: bool = str(result.get("source", "")).ends_with(".bak")
-        _notice = ("Восстановлена резервная копия: " if recovered_from_backup else "Загружено сохранение: ") + "орбиты и производство P2, тик " + str(result.get("tick", "—"))
+        _notice = "Загружено сохранение: орбиты и производство P2, тик " + str(result.get("tick", "—")) + _checkpoint_recovery_suffix(result)
         _refresh_selection()
     else:
         _notice = str(result.get("error", "Не удалось загрузить"))
