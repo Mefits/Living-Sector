@@ -144,6 +144,9 @@ func _ready() -> void:
         push_error(_startup_error)
         return
 
+    # Resume the one authoritative N158 World/ledger before building map/UI projections.
+    # A failed or incompatible checkpoint must never prevent a clean seed boot.
+    _restore_startup_checkpoint()
     _model = _runner.world
     _runner.tick_completed.connect(_on_tick_completed)
     var stats: Dictionary = _model.seed_stats()
@@ -162,6 +165,25 @@ func _ready() -> void:
         _select_world(initial)
     print("GODOT_P2_PAID_PRODUCTION_BOOT ", JSON.stringify(_runner.production_stats()))
     _update_status()
+
+func _restore_startup_checkpoint() -> void:
+    var primary: String = P2_SAVE_PATH
+    # SaveState owns pending/backup recovery and checksum validation; do not
+    # parse JSON here or create another in-memory economy.
+    if not FileAccess.file_exists(primary) and not FileAccess.file_exists(primary + ".bak") and not FileAccess.file_exists(primary + ".pending"):
+        return
+    var result: Dictionary = SaveState.load_runner(_runner, _seed, primary)
+    if bool(result.get("ok", false)):
+        var source: String = str(result.get("source", primary))
+        _notice = "Автоматически восстановлен P2 тик %s%s" % [
+            str(result.get("tick", _runner.tick_count)),
+            " (резервная копия)" if source.ends_with(".bak") else ""
+        ]
+        _sync_speed_control()
+    else:
+        # Preserve the initialized seed world; the user may still load manually.
+        _notice = "Автозагрузка P2 не удалась: " + str(result.get("error", "неизвестная ошибка"))
+
 
 func _toggle_observer() -> void:
     _observer_panel.visible = not _observer_panel.visible
