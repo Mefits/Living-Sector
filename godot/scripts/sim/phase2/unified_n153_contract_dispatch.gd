@@ -124,10 +124,12 @@ static func propose(world: Dictionary, graph: RefCounted,
             # that market. No fabricated omniscient price_knowledge in AI.
             var observations: Dictionary = {}
             if here == source:
-                observations[source] = {"%s" % good: {"price": float(source_price)}}
-            var systems: Dictionary = {here: resolver.system_for_location(here),
-                source: resolver.system_for_location(source),
-                dest: resolver.system_for_location(dest)}
+                observations[source] = {}
+                observations[source][good] = {"price": float(source_price)}
+            var systems: Dictionary = {}
+            systems[here] = resolver.system_for_location(here)
+            systems[source] = resolver.system_for_location(source)
+            systems[dest] = resolver.system_for_location(dest)
             if systems.values().has(""):
                 continue
             var sensor: Variant = ship.get("sensor_range_au", null)
@@ -138,17 +140,24 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "faction_id": buyer_faction, "requestor_id": str(c.get("requestor_id", "")),
                 "source_location": source, "destination_location": dest,
                 "commodity": good, "quantity": qty, "may_accept": true}
+            var controllers: Dictionary = {}
+            controllers[source] = seller_faction
+            controllers[dest] = buyer_faction
+            var quotes: Dictionary = {}
+            quotes[str(contract_id)] = {"valid": true,
+                "quoted_payment": int(c["payment"]), "top_up": 0,
+                "payer_balance": int(buyer["credits"]),
+                "reserved": int(c["reserved"]), "source_purchase_cost": source_purchase}
+            var commerce: Dictionary = {}
+            commerce[buyer_faction] = true
             var context: Dictionary = {
                 "offers": [offer], "ship_id": str(ship_id),
                 "ship_faction": str(ship["faction_id"]), "ship_location": here,
                 "cargo_capacity": int(ship["cargo_capacity"]), "credits": int(ship.get("credits", 0)),
                 "sensor_range_au": float(sensor), "system_by_location": systems,
-                "controllers": {source: seller_faction, dest: buyer_faction},
-                "commerce_allowed": {buyer_faction: true},
-                "quotes": {str(contract_id): {"valid": true,
-                    "quoted_payment": int(c["payment"]), "top_up": 0,
-                    "payer_balance": int(buyer["credits"]),
-                    "reserved": int(c["reserved"]), "source_purchase_cost": source_purchase}},
+                "controllers": controllers,
+                "commerce_allowed": commerce,
+                "quotes": quotes,
                 "memory": {"price_knowledge": observations},
                 "tick": tick}
             var choice: Dictionary = N153.select_contract(context)
