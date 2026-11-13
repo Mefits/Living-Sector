@@ -100,3 +100,9 @@
 - Commit [`b237444e`](https://github.com/Mefits/Living-Sector/commit/b237444e18b16905878c3a4cb2745945ebe4c940): `n158_production_runtime.gd` теперь проверяет типы вложенных объектов facility/work_shift, markets/history, populations и ledger/receipts/legs до обращения к ним как к Dictionary/Array. Повреждённый или несовместимый JSON отклоняется через `restore_checkpoint() -> false`, вместо возможного runtime exception в процессе восстановления. Одна авторитетная экономика, без новых подсистем.
 - Проверка: 8 точечных guards внесены в существующий код, без удаления других фаз; GDScript Runtime не запускался — **CODE_UNVERIFIED**. Новых GitHub Actions **0**. Windows ZIP пока не подтверждён.
 - Lease `20261113-n158-restore-shape-guard-automation11.json` RELEASED. Следующий приоритет — ограниченный Godot import/paid-world smoke с диагностикой предыдущего зависания, затем один Windows export.
+
+## P2 handoff — 13.11 07:28 МСК, fail-closed проверка рынка
+
+- Commit [`0dbbfd83`](https://github.com/Mefits/Living-Sector/commit/0dbbfd831771e607e1f799cbba8199e9b14f79f6): `unified_market_phase.gd` теперь отклоняет повреждённые строки N39 markets, неверные вложенные типы и неполный/некорректный N150 output до обращения к словарям или применения market phase. Проверяется совпадение числа рынков; прежний запрет создания stock сохраняется. Ни второго ledger, ни нового market state.
+- Минимальная проверка скобок и интерфейса; Godot не запускался, **CODE_UNVERIFIED**. Actions: **0** новых запусков. Lease `20261113-market-phase-shape-guard-automation11b.json` RELEASED.
+- Windows ZIP по-прежнему не подтверждён. Следующий свободный приоритет: ограниченный Godot import/parser, исправление выявленных ошибок группой и затем единый согласованный Windows export. Перед работой проверить актуальные leases.
