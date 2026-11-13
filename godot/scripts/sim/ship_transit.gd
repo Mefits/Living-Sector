@@ -103,5 +103,20 @@ func cancel(state: RefCounted, ship_id: String) -> bool:
 	transit["arrival_tick"] = -1
 	return true
 
+
+## N54 combined fleet envelope calls these on the SINGLE transit authority.
+## The cursor must be strictly greater than every persisted active token;
+## never reuse a token after a save/restore or an interrupted arrival event.
+func next_token() -> int:
+	return _next_token
+
+func restore_next_token(cursor: int, highest_active_token: int) -> bool:
+	if cursor < 1 or highest_active_token < 0:
+		return false
+	if cursor <= highest_active_token:
+		return false
+	_next_token = cursor
+	return true
+
 func _valid_position(value: Variant) -> bool:
 	return value is Vector2 and is_finite(value.x) and is_finite(value.y)
