@@ -8,6 +8,8 @@ const Payroll = preload("res://scripts/sim/phase1/n39_native_paid_shift.gd")
 const Inventory = preload("res://scripts/sim/economy/inventory_store.gd")
 const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
 const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
+const ContractBoard = preload("res://scripts/sim/economy/contract_board.gd")
+const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
 
@@ -44,6 +46,13 @@ func balance_of_facility(facility_id: String) -> int:
 
 func balance_of_population(population_id: String) -> int:
     return _ledger.balance(Schema.household_account(population_id)) if _ready else -1
+
+## Read-only canonical money + contracts for tests, checkpoint and observer.
+func ledger_snapshot() -> Dictionary:
+    return _ledger.snapshot() if _ready else {}
+
+func contract_snapshot() -> Dictionary:
+    return _world.get("contract_board", {}).duplicate(true) if _ready else {}
 
 ## Supply external_workers from authoritative N141 construction/N143 Director
 ## shift receipts for THIS tick. No hidden employee registry.
@@ -349,6 +358,97 @@ func apply_fleet_logistics(tick: int, proposal: Dictionary) -> bool:
             return false
     _world = staged.duplicate(true)
     return true
+
+
+## P2 Gate 3: atomic N135 live need -> N104 prepaid delivery.
+## EscrowStage only PROPOSES a detached N9+N104 snapshot. This method is
+## the one and only authority that publishes both, plus facility balances,
+## into the same N39 World in one validated swap. No second ContractBoard.
+func post_funded_contract(tick: int, demand: Dictionary) -> Dictionary:
+    if not _ready or tick < 0 or tick != _last_tick:
+        return {"ok": false, "reason": "noncanonical_contract_tick"}
+    var board_before: Dictionary = _world.get("contract_board",
+        {"version": 1, "contracts": {}, "receipt_claims": {}})
+    var escrows_before: Dictionary = _world.get("escrow_balances", {})
+    if not (board_before.get("contracts") is Dictionary) or not (escrows_before is Dictionary):
+        return {"ok": false, "fatal": true, "reason": "broken_existing_contract_authority"}
+    var open_source: int = 0
+    for id in board_before["contracts"]:
+        var c: Dictionary = board_before["contracts"][id]
+        var status: String = str(c.get("status", ""))
+        # Never post the same destination/commodity demand twice while one
+        # paid order is outstanding. Source inventory is not yet picked up.
+        if status in ["posted", "accepted", "picked_up", "delivered"]:
+            if str(c.get("destination_location", "")) == str(demand.get("location", "")) and str(c.get("commodity", "")) == str(demand.get("commodity", "")):
+                return {"ok": false, "reason": "open_delivery_demand_already_funded"}
+        if status in ["posted", "accepted"] and str(c.get("source_location", "")) == str(demand.get("source_location", "")) and str(c.get("commodity", "")) == str(demand.get("commodity", "")):
+            open_source += int(c.get("quantity", 0))
+    if not (_world.get("markets") is Dictionary) or not _world["markets"].has(str(demand.get("source_location", ""))):
+        return {"ok": false, "reason": "missing_source_market"}
+    var source_market: Dictionary = _world["markets"][str(demand.get("source_location", ""))]
+    var available: float = float(source_market.get("supply", {}).get(str(demand.get("commodity", "")), 0.0))
+    if not is_finite(available) or open_source + int(demand.get("quantity", 0)) > int(floor(available)):
+        return {"ok": false, "reason": "source_stock_already_promised"}
+    var previous_money: Dictionary = _ledger.snapshot()
+    var proposed: Dictionary = EscrowStage.stage(_world, previous_money,
+        board_before, demand, tick)
+    if not proposed.get("ok", false):
+        return proposed
+    if proposed.get("status") != "STAGED_NOT_APPLIED":
+        return {"ok": false, "fatal": true, "reason": "uncommitted_escrow_candidate"}
+    var next_money: Dictionary = proposed.get("ledger_snapshot", {})
+    var next_board: Dictionary = proposed.get("board_snapshot", {})
+    var id: String = str(proposed.get("contract_id", ""))
+    var escrow: String = str(proposed.get("escrow_account", ""))
+    var buyer: String = str(demand.get("station_id", ""))
+    var payer: String = Schema.facility_account(buyer)
+    if id.is_empty() or escrow != "escrow:" + id or not _world["facilities"].has(buyer):
+        return {"ok": false, "fatal": true, "reason": "funded_candidate_identity_mismatch"}
+    if not (next_money.get("balances") is Dictionary) or not (next_board.get("contracts") is Dictionary):
+        return {"ok": false, "fatal": true, "reason": "invalid_staged_money_or_contract"}
+    var ledger_next := Ledger.new()
+    if not ledger_next.restore(next_money) or ledger_next.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "escrow_money_not_conserved"}
+    if next_money["balances"].size() != previous_money["balances"].size() + 1:
+        return {"ok": false, "fatal": true, "reason": "unexpected_escrow_account_count"}
+    if next_board["contracts"].size() != board_before["contracts"].size() + 1:
+        return {"ok": false, "fatal": true, "reason": "unexpected_contract_count"}
+    # Every previous wallet except the payer must be unchanged; the new
+    # escrow is the ONLY new account. No other operation can be smuggled in.
+    for account in previous_money["balances"]:
+        if not next_money["balances"].has(account):
+            return {"ok": false, "fatal": true, "reason": "existing_wallet_missing"}
+        if str(account) != payer and next_money["balances"][account] != previous_money["balances"][account]:
+            return {"ok": false, "fatal": true, "reason": "unrelated_wallet_modified"}
+    if int(next_money["balances"].get(escrow, -1)) != int(demand.get("estimated_cost", -2)):
+        return {"ok": false, "fatal": true, "reason": "escrow_funding_mismatch"}
+    if int(next_money["balances"].get(payer, -1)) != int(previous_money["balances"].get(payer, -2)) - int(next_money["balances"][escrow]):
+        return {"ok": false, "fatal": true, "reason": "payer_debit_mismatch"}
+    var board_next := ContractBoard.new(ledger_next)
+    if not board_next.restore(next_board):
+        return {"ok": false, "fatal": true, "reason": "staged_contract_board_rejected"}
+    var world_next: Dictionary = _world.duplicate(true)
+    world_next["contract_board"] = next_board.duplicate(true)
+    world_next["escrow_balances"] = escrows_before.duplicate(true)
+    world_next["escrow_balances"][escrow] = int(next_money["balances"][escrow])
+    world_next["facilities"][buyer]["credits"] = int(next_money["balances"][payer])
+    var world_error: String = Schema.validate(world_next)
+    if not world_error.is_empty():
+        return {"ok": false, "fatal": true, "reason": "funded_world_" + world_error}
+    var account_rows: Dictionary = Schema.accounts(world_next)
+    if account_rows.size() != next_money["balances"].size():
+        return {"ok": false, "fatal": true, "reason": "unexpected_contract_wallets"}
+    for account in account_rows:
+        if next_money["balances"].get(account, null) != account_rows[account]:
+            return {"ok": false, "fatal": true, "reason": "contract_ledger_world_diverged"}
+    # The COMMIT POINT: neither the economic World nor N9 can be published
+    # unless the other is ready and all original balances are conserved.
+    _world = world_next
+    _ledger = ledger_next
+    return {"ok": true, "status": "POSTED_FUNDED", "tick": tick,
+        "contract_id": id, "escrow_account": escrow,
+        "payment": int(next_money["balances"][escrow]),
+        "receipt_id": str(proposed["receipt_id"])}
 
 ## P2 single-market commit boundary: N150 may change price, demand,
 ## flow/history/orders but NEVER physical stock, source owner or accounts.
@@ -676,6 +776,12 @@ func restore(saved: Dictionary) -> bool:
     for id in expected:
         if staged_ledger.balance(str(id)) != int(expected[id]):
             return false
+    if staged_world.has("contract_board"):
+        var contract_check := ContractBoard.new(staged_ledger)
+        if not contract_check.restore(staged_world["contract_board"]):
+            return false
+    if staged_ledger.snapshot()["balances"].size() != expected.size():
+        return false
     for id in staged_world["facilities"]:
         var shift: Dictionary = staged_world["facilities"][id].get("work_shift", {})
         if not shift.is_empty() and int(shift["tick"]) > int(saved["tick"]):

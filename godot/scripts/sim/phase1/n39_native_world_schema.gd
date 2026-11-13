@@ -75,6 +75,40 @@ static func validate(state: Dictionary) -> String:
     for op in state.get("dock_receipts", {}):
         if state.get("cargo_receipts", {}).has(op):
             return "duplicate_fleet_receipt"
+    # ContractBoard and escrow balances are a single optional P2 component.
+    # Older saves can lack both. Never accept a half-funded board.
+    if state.has("contract_board") != state.has("escrow_balances"):
+        return "partial_contract_authority"
+    if state.has("contract_board"):
+        if not (state["contract_board"] is Dictionary) or not (state["escrow_balances"] is Dictionary):
+            return "invalid_contract_state"
+        var board: Dictionary = state["contract_board"]
+        if typeof(board.get("version", null)) != TYPE_INT or int(board["version"]) != 1:
+            return "invalid_contract_board_version"
+        if not (board.get("contracts") is Dictionary) or not (board.get("receipt_claims") is Dictionary):
+            return "invalid_contract_board"
+        var contracts: Dictionary = board["contracts"]
+        var escrows: Dictionary = state["escrow_balances"]
+        if contracts.size() != escrows.size():
+            return "contract_escrow_cardinality_mismatch"
+        for id in contracts:
+            if not _id(id) or not (contracts[id] is Dictionary):
+                return "invalid_contract_row"
+            var c: Dictionary = contracts[id]
+            var account: String = "escrow:" + str(id)
+            if c.get("id") != id or str(c.get("escrow_account", "")) != account:
+                return "invalid_contract_escrow_id"
+            if typeof(c.get("reserved", null)) != TYPE_INT or int(c["reserved"]) < 0:
+                return "invalid_contract_reserve"
+            if not escrows.has(account) or typeof(escrows[account]) != TYPE_INT:
+                return "invalid_contract_escrow_balance"
+            if int(escrows[account]) != int(c["reserved"]):
+                return "contract_escrow_balance_mismatch"
+        for account in escrows:
+            if not _id(account) or not str(account).begins_with("escrow:"):
+                return "invalid_escrow_account"
+            if not contracts.has(str(account).substr(7)):
+                return "orphaned_escrow_account"
     if state.has("research") and not (state["research"] is Dictionary):
         return "invalid_research"
     if state.has("location_tiers") and not (state["location_tiers"] is Dictionary):
@@ -195,6 +229,8 @@ static func accounts(state: Dictionary) -> Dictionary:
         result[household_account(str(id))] = int(state["populations"][id]["wealth"])
     for id in state.get("ships", {}):
         result[ship_account(str(id))] = int(state["ships"][id]["credits"])
+    for escrow in state.get("escrow_balances", {}):
+        result[str(escrow)] = int(state["escrow_balances"][escrow])
     return result
 
 static func facility_account(id: String) -> String:

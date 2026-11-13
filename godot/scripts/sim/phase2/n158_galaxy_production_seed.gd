@@ -28,6 +28,8 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         "facilities": {}, "markets": {}, "populations": {}, "bodies": {},
         "research": {}, "location_tiers": {}, "ships": {},
         "ship_next_token": 1, "dock_receipts": {}, "cargo_receipts": {},
+        "contract_board": {"version": 1, "contracts": {}, "receipt_claims": {}},
+        "escrow_balances": {},
         "station_executing": false
     }
     var all_facilities: Dictionary = {}
