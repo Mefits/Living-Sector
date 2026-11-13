@@ -23,7 +23,7 @@ var _fatal_restore_error: String = ""
 var _pause_button: Button
 var _speed_menu: OptionButton
 var _map: Control
-var _system_view: Control
+var _system_view
 var _back_button: Button
 var _open_button: Button
 var _details: RichTextLabel
@@ -126,7 +126,7 @@ func _ready() -> void:
     _system_view.visible = false
     map_stage.add_child(_system_view)
     _system_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-    _system_view.body_selected.connect(_on_body_selected)
+    _system_view.connect("body_selected", _on_body_selected)
 
     var details_panel := PanelContainer.new()
     details_panel.custom_minimum_size = Vector2(355, 0)
@@ -638,7 +638,7 @@ func _open_world(world: Dictionary) -> void:
     _map.visible = false
     _system_view.visible = true
     _system_view.set_world(current)
-    _map.select_system(sid)
+    _map.call("select_system", sid)
     _back_button.visible = true
     _open_button.visible = false
     _show_body_details(current)
