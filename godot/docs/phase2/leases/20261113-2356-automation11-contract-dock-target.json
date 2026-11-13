@@ -1,0 +1,11 @@
+{
+  "worker": "automation11",
+  "status": "IN_PROGRESS",
+  "started_msk": "2026-11-13T23:56:40+03:00",
+  "scope": [
+    "godot/scripts/sim/ships/docking_registry.gd",
+    "godot/scripts/sim/phase2/unified_fleet_logistics.gd"
+  ],
+  "boundary": "Make N21 dock exact N104 market owner instead of arbitrary station at same location; no N39 runner/ledger changes",
+  "branch": "integration/godot-phase2-unified-20261113"
+}
