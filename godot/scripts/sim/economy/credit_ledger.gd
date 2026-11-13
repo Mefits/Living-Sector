@@ -16,6 +16,16 @@ func import_accounts(accounts: Dictionary) -> bool:
 	_balances = accounts.duplicate(true)
 	return true
 
+## Register a previously unknown escrow wallet at ZERO only. This is the same
+## authoritative N9 ledger: it cannot create credits or replace an existing
+## account. The caller must stage/validate the entire contract transaction
+## before publishing this ledger snapshot to the canonical World Apply.
+func register_empty_account(account: String) -> bool:
+	if not _valid_account(account) or _balances.has(account):
+		return false
+	_balances[account] = 0
+	return true
+
 func balance(account: String) -> int:
 	return int(_balances.get(account, -1))
 
