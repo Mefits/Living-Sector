@@ -118,6 +118,114 @@ func apply_market_phase(tick: int, updates: Dictionary) -> bool:
     _world = staged
     return true
 
+## P2 N151: the pure source population phase produces a plan, not money.
+## Replay every paid N151 purchase into the SAME authoritative N9 ledger.
+## Ledger and World are both staged and swapped together after validating all
+## source receipts, source stock/locations and the proposed sentiment state.
+func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
+    if not _ready or tick != _last_tick or tick < 1:
+        return false
+    if not native_result.get("ok", false):
+        return false
+    if native_result.get("skipped", false):
+        return native_result.get("purchases", []).is_empty()
+    if not (native_result.get("world") is Dictionary) or not (native_result.get("purchases") is Array):
+        return false
+    var proposed: Dictionary = native_result["world"]
+    if not (proposed.get("populations") is Array) or not (proposed.get("markets") is Dictionary) or not (proposed.get("facilities") is Dictionary):
+        return false
+    if proposed["populations"].size() != _world["populations"].size():
+        return false
+    var staged: Dictionary = _world.duplicate(true)
+    var ledger_next = Ledger.new()
+    if not ledger_next.restore(_ledger.snapshot()):
+        return false
+    var purchases: Array = native_result["purchases"]
+    for index in range(purchases.size()):
+        var ticket: Variant = purchases[index]
+        if not (ticket is Dictionary):
+            return false
+        var pid: String = str(ticket.get("population_id", ""))
+        var fid: String = str(ticket.get("facility_id", ""))
+        var commodity: String = str(ticket.get("commodity", ""))
+        var mid: String = str(ticket.get("market_id", ""))
+        if not staged["populations"].has(pid) or not staged["facilities"].has(fid):
+            return false
+        var pop: Dictionary = staged["populations"][pid]
+        var location: String = str(pop["location"])
+        if not staged["markets"].has(location):
+            return false
+        var market: Dictionary = staged["markets"][location]
+        if str(market["id"]) != mid or str(market["owner"]) != fid or str(staged["facilities"][fid]["location"]) != location:
+            return false
+        if not (ticket.get("preconditions") is Dictionary) or not (ticket.get("after") is Dictionary):
+            return false
+        var pre: Dictionary = ticket["preconditions"]
+        var after: Dictionary = ticket["after"]
+        var price: float = float(market["prices"].get(commodity, 0.0))
+        var current_stock: float = float(market["supply"].get(commodity, 0.0))
+        var quantity: float = float(ticket.get("quantity", -1.0))
+        var payment: int = int(ticket.get("payment", -1))
+        if not is_finite(quantity) or quantity <= 0.0 or quantity > current_stock + 0.00001:
+            return false
+        if payment <= 0 or payment > int(pop["wealth"]) or price <= 0.0:
+            return false
+        if int(pre.get("population_wealth", -1)) != int(pop["wealth"]) or int(pre.get("seller_credits", -1)) != int(staged["facilities"][fid]["credits"]):
+            return false
+        if not is_equal_approx(float(pre.get("market_supply", -1.0)), current_stock) or not is_equal_approx(float(pre.get("market_posted_price", -1.0)), price):
+            return false
+        var new_stock: float = float(after.get("market_supply", -1.0))
+        if new_stock < 0.0 or not is_finite(new_stock) or absf((current_stock - quantity) - new_stock) > maxf(0.0005, absf(current_stock) * 0.000001):
+            return false
+        var receipt_id: String = "n151/consumption/%d/%d/%s/%s" % [tick, index, pid, commodity]
+        var receipt: Dictionary = ledger_next.transfer(receipt_id,
+            Schema.household_account(pid), Schema.facility_account(fid),
+            payment, tick, "native_population_consumption")
+        if not receipt.get("ok", false):
+            return false
+        pop["wealth"] = ledger_next.balance(Schema.household_account(pid))
+        staged["facilities"][fid]["credits"] = ledger_next.balance(Schema.facility_account(fid))
+        if pop["wealth"] != int(after.get("population_wealth", -1)) or int(staged["facilities"][fid]["credits"]) != int(after.get("facility_credits", -1)):
+            return false
+        market["supply"][commodity] = new_stock
+    # Source world is the reference for FINAL stock, account, sentiment and
+    # rolling consumption history, never a second writable market/ledger.
+    for location in staged["markets"]:
+        if not proposed["markets"].has(location):
+            return false
+        var pm: Dictionary = proposed["markets"][location]
+        var real_market: Dictionary = staged["markets"][location]
+        if pm.get("id") != real_market.get("id") or pm.get("supply") != real_market["supply"] or pm.get("prices") != real_market["prices"]:
+            return false
+        real_market["consumption_window"] = pm.get("consumption_window", {}).duplicate(true)
+    var matched: Dictionary = {}
+    for projected_pop in proposed["populations"]:
+        if not (projected_pop is Dictionary):
+            return false
+        var id: String = str(projected_pop.get("id", ""))
+        if matched.has(id) or not staged["populations"].has(id):
+            return false
+        matched[id] = true
+        var real_pop: Dictionary = staged["populations"][id]
+        if str(projected_pop.get("facility_location", "")) != str(real_pop["location"]) or int(projected_pop.get("population_count", -1)) != int(real_pop["count"]) or int(projected_pop.get("total_wealth", -1)) != int(real_pop["wealth"]):
+            return false
+        for field in ["food_satisfaction", "safety_satisfaction", "entertainment_satisfaction",
+                "overall_sentiment", "unrest", "migration_pressure"]:
+            if not projected_pop.has(field):
+                return false
+            real_pop[field] = projected_pop[field]
+    for fid in staged["facilities"]:
+        if not proposed["facilities"].has(fid) or int(proposed["facilities"][fid].get("credits", -1)) != int(staged["facilities"][fid]["credits"]):
+            return false
+    if Schema.validate(staged) != "":
+        return false
+    for account in Schema.accounts(staged):
+        if ledger_next.balance(str(account)) != int(Schema.accounts(staged)[account]):
+            return false
+    _world = staged
+    _ledger = ledger_next
+    return true
+
 func _run_recipes(id: String, tick: int, external: Dictionary) -> Dictionary:
     var f: Dictionary = _world["facilities"][id]
     if bool(f["abandoned"]):
