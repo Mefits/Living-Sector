@@ -1,0 +1,10 @@
+{
+  "worker": "automation11",
+  "status": "IN_PROGRESS",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_autonomous_contract_candidates.gd",
+    "godot/tests/p2_autonomous_contract_candidates_check.gd"
+  ],
+  "boundary": "Pure read-only candidate eligibility for funded N104 contracts; no central runner/ledger edits",
+  "started_at": "2026-11-13T22:19:00+03:00"
+}
