@@ -1,0 +1,11 @@
+{
+  "owner": "second-chat-overnight",
+  "run_id": "20261113-0638-msk-population-guard",
+  "status": "IN_PROGRESS",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_population_phase.gd"
+  ],
+  "purpose": "Fix source population projection validation and deterministic authoritative ownership before committing paid household purchases",
+  "started_at": "2026-11-13T06:38:00+03:00",
+  "handoff": "pending"
+}
