@@ -194,12 +194,22 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 var cid: String = str(command.get("contract_id", ""))
                 var contract: Dictionary = snapshot.get("contract_board", {}).get("contracts", {}).get(cid, {})
                 var ship: Dictionary = snapshot.get("ships", {}).get(ship_id, {})
+                var operation: String = "dock" if kind == "RequestDock" else "undock"
+                # After the N97 pickup the ship is STILL physically docked
+                # at the source, although N104 stage is now picked_up.
+                # Do not confuse contractual destination with dock location.
                 var expected_loc: String = str(contract.get("source_location", "")) if str(contract.get("status", "")) == "accepted" else str(contract.get("destination_location", ""))
-                if contract.is_empty() or str(ship.get("active_contract_id", "")) != cid or expected_loc.is_empty() or str(command.get("facility_location", "")) != expected_loc:
+                if operation == "undock":
+                    expected_loc = str(ship.get("location", ""))
+                var source_loc: String = str(contract.get("source_location", ""))
+                var dest_loc: String = str(contract.get("destination_location", ""))
+                var valid_dock: bool = (expected_loc == source_loc or expected_loc == dest_loc)
+                if operation == "dock":
+                    valid_dock = expected_loc == source_loc if str(contract.get("status", "")) == "accepted" else expected_loc == dest_loc
+                if contract.is_empty() or str(ship.get("active_contract_id", "")) != cid or not valid_dock or expected_loc.is_empty() or str(command.get("facility_location", "")) != expected_loc:
                     _last_ship_result = {"ok": false, "reason": "n146_dock_contract_mismatch"}
                     return false
-                var operation: String = "dock" if kind == "RequestDock" else "undock"
-                var stage: String = "source" if str(contract.get("status", "")) == "accepted" else "destination"
+                var stage: String = "source" if expected_loc == source_loc else "destination"
                 var operation_id: String = "contract:" + cid + ":" + operation + ":" + stage
                 var dock_proposal: Dictionary = FleetLogistics.command(
                     snapshot, operation, ship_id, operation_id, tick)
