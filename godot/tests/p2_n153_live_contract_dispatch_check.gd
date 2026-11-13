@@ -108,8 +108,12 @@ func _initialize() -> void:
         _fail("canonical ship obligation not saved")
         return
     var money_after: Dictionary = after["native_production"]["ledger"]
-    if money_after["balances"]["escrow:" + id] != old_bank["balances"]["escrow:" + id]:
-        _fail("N153 acceptance lost N9 escrow")
+    var expected_topup: int = int(candidates.get("accepted", [{}])[0].get("top_up", -1))
+    if expected_topup <= 0 or money_after["balances"]["escrow:" + id] != old_bank["balances"]["escrow:" + id] + expected_topup:
+        _fail("N153 did not fund source comms_t2 bonus")
+        return
+    if not money_after["receipts"].has("contract:" + id + ":topup"):
+        _fail("N104 real acceptance top-up receipt not persisted")
         return
     if not money_after["receipts"].has(receipt):
         _fail("N104 payment receipt lost after accept")

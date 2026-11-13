@@ -522,25 +522,41 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
     var board := ContractBoard.new(staged_ledger)
     if not board.restore(board_before):
         return {"ok": false, "fatal": true, "reason": "canonical_board_corrupt"}
-    # Correct source N104 prepaid acceptance. No invented loyalty/comms
-    # bonus: 0 and x1 are conservative until true reputation is wired.
-    var accepted: Dictionary = board.accept(cid, sid, faction, 0.0, 1.0, tick)
+    # Frozen Rust CATALOG: comms_t2 = +5% on acceptance. Treaty defaults
+    # Neutral => x1, so the buyer must fund the REAL N104 escrow top-up.
+    var comms_bonus: float = float(ship.get("comms_bonus", 0.0))
+    if not is_finite(comms_bonus) or comms_bonus < 0.0 or comms_bonus > 0.10:
+        return {"ok": false, "reason": "invalid_native_ship_comms"}
+    var accepted: Dictionary = board.accept(cid, sid, faction, comms_bonus, 1.0, tick)
     if not accepted.get("ok", false):
         return accepted
-    # Baseline quote needs no top-up; any real top-up must be explicitly
-    # covered by a later native relations/reputation calculation.
-    if int(accepted.get("top_up", -1)) != 0:
-        return {"ok": false, "fatal": true, "reason": "unconfirmed_acceptance_topup"}
+    var top_up: int = int(accepted.get("top_up", -1))
+    if top_up < 0:
+        return {"ok": false, "fatal": true, "reason": "invalid_native_accept_topup"}
     var after_money: Dictionary = staged_ledger.snapshot()
-    if after_money != _ledger.snapshot():
-        return {"ok": false, "fatal": true, "reason": "acceptance_modified_money"}
+    var original_money: Dictionary = _ledger.snapshot()
+    if staged_ledger.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "n104_accept_money_not_conserved"}
+    var payer: String = str(c.get("requestor_id", ""))
+    var escrow: String = str(c.get("escrow_account", ""))
+    if payer != Schema.facility_account(str(buyer_market["owner"])):
+        return {"ok": false, "fatal": true, "reason": "n104_payer_changed"}
+    for account in original_money["balances"]:
+        if not after_money["balances"].has(account):
+            return {"ok": false, "fatal": true, "reason": "n104_missing_account"}
+        var before_balance: int = int(original_money["balances"][account])
+        var expected_balance: int = before_balance - top_up if str(account) == payer else (before_balance + top_up if str(account) == escrow else before_balance)
+        if int(after_money["balances"][account]) != expected_balance:
+            return {"ok": false, "fatal": true, "reason": "n104_unrelated_balance_changed"}
     var staged: Dictionary = _world.duplicate(true)
     staged["contract_board"] = board.snapshot()
+    staged["escrow_balances"][escrow] = staged_ledger.balance(escrow)
+    staged["facilities"][str(buyer_market["owner"])]["credits"] = staged_ledger.balance(payer)
     staged["ships"][sid]["active_contract_id"] = cid
     staged["ships"][sid]["current_goal"] = "fulfill_delivery"
     staged["ships"][sid]["last_plan_tick"] = tick
-    # All N39 accounts still unchanged: assignment moves neither credits
-    # nor physical goods, and cannot alter the authority of the stock.
+    # Only the source N104 Comms payout top-up moves credits here; never
+    # any physical goods. N9 + N104 + facility balance still match.
     var err: String = Schema.validate(staged)
     if not err.is_empty():
         return {"ok": false, "fatal": true, "reason": "assignment_schema_" + err}
@@ -549,9 +565,11 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
         if staged_ledger.balance(str(account)) != int(accounts[account]):
             return {"ok": false, "fatal": true, "reason": "assignment_account_divergence"}
     _world = staged
+    _ledger = staged_ledger
     return {"ok": true, "status": "N153_ACCEPTED_AWAITING_PICKUP",
         "contract_id": cid, "ship_id": sid, "tick": tick,
-        "source": src, "destination": dst}
+        "source": src, "destination": dst,
+        "top_up": top_up, "agreed_payment": int(accepted["agreed_payment"])}
 
 ## P2 single-market commit boundary: N150 may change price, demand,
 ## flow/history/orders but NEVER physical stock, source owner or accounts.

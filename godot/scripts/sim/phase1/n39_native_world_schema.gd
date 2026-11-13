@@ -46,6 +46,8 @@ static func validate(state: Dictionary) -> String:
                     return "stale_ship_contract_assignment"
             if typeof(ship.get("credits", null)) != TYPE_INT or int(ship["credits"]) < 0:
                 return "invalid_ship_credits"
+            if ship.has("comms_bonus") and (not _fraction(ship["comms_bonus"]) or float(ship["comms_bonus"]) > 0.10):
+                return "invalid_native_comms_bonus"
             var trans: Variant = ship.get("transit", null)
             if not (trans is Dictionary):
                 return "invalid_ship_transit"

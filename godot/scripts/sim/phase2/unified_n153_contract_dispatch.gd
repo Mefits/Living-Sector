@@ -160,9 +160,17 @@ static func propose(world: Dictionary, graph: RefCounted,
             var controllers: Dictionary = {}
             controllers[source] = seller_faction
             controllers[dest] = buyer_faction
+            var bonus: float = float(ship.get("comms_bonus", 0.0))
+            if not is_finite(bonus) or bonus < 0.0 or bonus > 0.10:
+                continue
+            var boosted: float = round(float(c["payment"]) * (1.0 + bonus))
+            if not is_finite(boosted) or boosted > 9007199254740991.0:
+                continue
+            var quoted_payment: int = int(boosted)
+            var top_up: int = maxi(0, quoted_payment - int(c["reserved"]))
             var quotes: Dictionary = {}
-            quotes[str(contract_id)] = {"valid": true,
-                "quoted_payment": int(c["payment"]), "top_up": 0,
+            quotes[str(contract_id)] = {"valid": int(buyer["credits"]) >= top_up,
+                "quoted_payment": quoted_payment, "top_up": top_up,
                 "payer_balance": int(buyer["credits"]),
                 "reserved": int(c["reserved"]), "source_purchase_cost": source_purchase}
             var commerce: Dictionary = {}
