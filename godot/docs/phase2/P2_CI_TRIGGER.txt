@@ -1,0 +1,5 @@
+P2 unified CI rerun after actual Godot 4.7.2 diagnostics, 2026-11-13.
+Parser (241/242) last Variant fixed; source integer JSON seed boot fixed;
+N150 single real-market pricing/history attached to N39 single physical world.
+Expected: parse 242+ new scripts; N158+N150 real paid economic tick and save.
+Branch integration/godot-phase2-unified-20261113; PR #249.
