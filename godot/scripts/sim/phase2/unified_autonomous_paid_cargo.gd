@@ -95,6 +95,9 @@ static func propose(original: Dictionary, bank: Dictionary,
         if not is_finite(cost) or cost <= 0.0 or cost > MAX_SAFE_MONEY:
             return {"ok": false, "reason": "n97_purchase_overflow"}
         paid = int(cost)
+        var maximum: int = int(ship.get("max_source_cost", 0))
+        if maximum <= 0 or paid > maximum:
+            return {"ok": false, "reason": "n97_market_quote_exceeds_accepted_limit"}
         var ship_wallet: String = Schema.ship_account(ship_id)
         var seller_wallet: String = Schema.facility_account(station)
         money_id = "contract:" + contract_id + ":source_buy"
@@ -122,6 +125,7 @@ static func propose(original: Dictionary, bank: Dictionary,
         staged["ships"][ship_id]["active_contract_id"] = ""
         staged["ships"][ship_id]["current_goal"] = "idle"
         staged["ships"][ship_id]["current_bt"] = null
+        staged["ships"][ship_id]["max_source_cost"] = 0
     staged["contract_board"] = board.snapshot()
     if not Schema.validate(staged).is_empty():
         return {"ok": false, "fatal": true, "reason": "n97_invalid_staged_n39_world"}

@@ -400,7 +400,7 @@ func apply_autonomous_contract_cargo(tick: int, ship_id: String,
             return {"ok": false, "fatal": true, "reason": "paid_delivery_altered_other_ship"}
     var ship_fields: Array[String] = ["cargo", "credits"]
     if operation == "delivery":
-        ship_fields.append_array(["active_contract_id", "current_goal", "current_bt"])
+        ship_fields.append_array(["active_contract_id", "current_goal", "current_bt", "max_source_cost"])
     for field in original_ship:
         if field not in ship_fields and changed_ship.get(field, null) != original_ship[field]:
             return {"ok": false, "fatal": true, "reason": "paid_delivery_changed_ship_state"}
@@ -681,6 +681,9 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
     staged["ships"][sid]["current_goal"] = "fulfill_delivery"
     staged["ships"][sid]["last_plan_tick"] = tick
     staged["ships"][sid]["current_bt"] = proposal["ai_bt"].duplicate(true)
+    # N97 Buy accepts at most the N153 priced amount. A future market
+    # repricing cannot make the captain silently buy at a worse quote.
+    staged["ships"][sid]["max_source_cost"] = int(proposal.get("source_purchase_cost", 0))
     staged["ships"][sid]["current_goal_score"] = float(proposal.get("n80_score", 0.0))
     staged["ships"][sid]["planning_source"] = str(proposal.get("personality_source", ""))
     # Only the source N104 Comms payout top-up moves credits here; never
