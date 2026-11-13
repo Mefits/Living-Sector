@@ -1,0 +1,10 @@
+{
+  "owner": "overnight-scheduler",
+  "run_id": "20261113-shift11-transit-token",
+  "status": "IN_PROGRESS",
+  "scope": [
+    "godot/scripts/sim/ship_transit.gd"
+  ],
+  "purpose": "Fix missing transit nonce checkpoint API and arrival fuel accounting; preserve single runner; no CI",
+  "started_at": "2026-11-13T01:57:27Z"
+}
