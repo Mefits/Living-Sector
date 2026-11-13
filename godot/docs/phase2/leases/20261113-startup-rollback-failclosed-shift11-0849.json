@@ -4,7 +4,8 @@
     "godot/scripts/main.gd"
   ],
   "purpose": "Prevent simulation running after unrecoverable startup checkpoint rollback failure",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T08:49:36+03:00",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "completed_commit": "41b01e9896f8e38dde8a52a261c386eafbb21f5e"
 }
