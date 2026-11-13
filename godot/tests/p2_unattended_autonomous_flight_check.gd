@@ -95,7 +95,7 @@ func _initialize() -> void:
                 saw_destination_dock = true
         # Save only AFTER physical pickup; reload while the obligation is
         # still open. A restored N84 cursor must not repurchase or repay.
-        if saw_pickup and not saved and status != "paid":
+        if saw_pickup and saw_transit and not saved and status != "paid" and not ship_id.is_empty() and not (w["ships"][ship_id].get("transit", {}) as Dictionary).is_empty():
             if SaveState.save_runner(runner, path) != OK:
                 _fail("N38 mid-contract disk save failed")
                 return
