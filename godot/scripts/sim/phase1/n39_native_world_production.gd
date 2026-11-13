@@ -101,9 +101,11 @@ func run_tick(tick: int, tick_multiplier: int = 1,
             "tools_used": 1.0})
     # The proposal reads the PRE-repair shift for native crew morale, while
     # repair receipts/post-wage credits come from the STAGED N9 ledger only.
-    var lifecycle: Dictionary = FacilityLifecycle.propose(
-        _world, tick, tick_scale, tick_multiplier, {},
-        committed_repairs, paid_credits)
+    var lifecycle: Dictionary = initial
+    if not committed_repairs.is_empty():
+        lifecycle = FacilityLifecycle.propose(
+            _world, tick, tick_scale, tick_multiplier, {},
+            committed_repairs, paid_credits)
     if not lifecycle.get("ok", false):
         return {"ok": false, "reason": "facility_lifecycle_" + str(lifecycle.get("reason", "rejected"))}
     for facility_id in lifecycle["changes"]:
