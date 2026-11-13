@@ -59,10 +59,10 @@ func _initialize() -> void:
     var policies: Dictionary = {}
     for faction in seed["factions"]:
         policies[str(faction["id"])] = faction
-    var no_treaty: Dictionary = Selector.propose(w, roster.registry.graph(),
+    var no_offer: Dictionary = Selector.propose(w, roster.registry.graph(),
         pos["positions"], resolver, 0, a.clock.tick_scale(), policies)
-    if not no_treaty.get("ok", false):
-        _fail("pure selector rejected native source")
+    if not no_offer.get("ok", false) or not no_offer.get("candidates", []).is_empty():
+        _fail("N153 created an autonomous assignment without a posted offer")
         return
     var prior_ship: Dictionary = w["ships"][ship_id].duplicate(true)
     if not a.restore_checkpoint(save, seed):
