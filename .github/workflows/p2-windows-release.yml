@@ -1,0 +1,84 @@
+name: Living Sector P2 Windows x64 release candidate
+
+# Manual dispatch only. Shared five-worker Actions budget: do not run on push or PR.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Godot 4.7.2 and matching export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot" "$RUNNER_TEMP/templates"
+          BASE="https://github.com/godotengine/godot/releases/download/4.7.2-stable"
+          curl --fail --location --retry 3 --silent --show-error \
+            "$BASE/Godot_v4.7.2-stable_linux.x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          mv "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/godot/godot"
+          chmod +x "$RUNNER_TEMP/godot/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+          curl --fail --location --retry 3 --silent --show-error \
+            "$BASE/Godot_v4.7.2-stable_export_templates.tpz" -o "$RUNNER_TEMP/templates.tpz"
+          unzip -q "$RUNNER_TEMP/templates.tpz" -d "$RUNNER_TEMP/templates"
+          test -s "$RUNNER_TEMP/templates/templates/windows_release_x86_64.exe"
+          DEST="$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          mkdir -p "$DEST"
+          cp "$RUNNER_TEMP/templates/templates/"* "$DEST/"
+          test -s "$DEST/windows_release_x86_64.exe"
+      - name: Bounded import and paid-world smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p godot/logs/p2-release
+          godot --version | tee godot/logs/p2-release/version.txt
+          timeout --signal=TERM --kill-after=5s 90s \
+            godot --headless --path godot --editor --import --quit \
+            > godot/logs/p2-release/import.log 2>&1 || {
+              tail -n 100 godot/logs/p2-release/import.log
+              exit 1
+            }
+          timeout --signal=TERM --kill-after=5s 75s \
+            godot --headless --path godot \
+            --script res://tests/p2_n158_live_production_check.gd \
+            > godot/logs/p2-release/paid-world.log 2>&1 || {
+              tail -n 100 godot/logs/p2-release/paid-world.log
+              exit 1
+            }
+      - name: Export and validate real Windows package
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 120s \
+            bash godot/scripts/phase2_package_windows.sh \
+            > godot/logs/p2-release/export.log 2>&1 || {
+              tail -n 100 godot/logs/p2-release/export.log
+              exit 1
+            }
+          test -s build/windows/LivingSector.exe
+          test -s build/windows/LivingSector.pck
+          unzip -t build/LivingSector-P2-Windows-x64.zip
+          sha256sum build/LivingSector-P2-Windows-x64.zip \
+            | tee godot/logs/p2-release/windows-sha256.txt
+      - name: Upload downloadable Windows ZIP
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LivingSector-P2-Windows-x64
+          path: build/LivingSector-P2-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-windows-release-logs
+          path: godot/logs/p2-release/
+          if-no-files-found: warn
