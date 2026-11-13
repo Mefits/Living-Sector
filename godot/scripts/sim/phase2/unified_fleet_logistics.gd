@@ -76,7 +76,16 @@ static func command(source: Dictionary, action: String, ship_id: String,
     if action == "dock":
         # Original N21 chooses the most free slots at the ship's real
         # location. Prefer the source station so N15 can use its Market.
-        result = registry.request_dock(ship_id, operation_id, "station")
+        # A delivery contract names a market warehouse, not an arbitrary
+        # station in the same system. N21 must reserve that exact owner
+        # or fail closed; otherwise N97/N15 can never load or unload.
+        var ship_location: String = str(staged["ships"].get(ship_id, {}).get("location", ""))
+        var target_station: String = ""
+        if staged["markets"].has(ship_location):
+            target_station = str(staged["markets"][ship_location].get("owner", ""))
+            if not registry.facilities.has(target_station):
+                return {"ok": false, "reason": "contract_market_dock_missing"}
+        result = registry.request_dock(ship_id, operation_id, "station", target_station)
         if not result.get("ok", false):
             return result
         facility = str(result["facility_id"])
