@@ -108,6 +108,18 @@ func economy_summary() -> Dictionary:
             recipes += 1
         elif receipt.get("kind") == "mining":
             mined += 1
+    # N156 self-repairs are real paid WorkShift receipts, not recipes;
+    # include their wages in the live observer's single-ledger payroll.
+    var repair_count: int = 0
+    for repair in results.get("paid_repairs", []):
+        if not (repair is Dictionary):
+            continue
+        paid += int(repair.get("wages", 0))
+        repair_count += 1
+    var restock_count: int = 0
+    for transaction in results.get("service_restock", []):
+        if transaction is Dictionary:
+            restock_count += 1
     return {
         "tick": tick_count,
         "markets": current["markets"].size(),
@@ -116,6 +128,9 @@ func economy_summary() -> Dictionary:
         "last_wages_paid": paid,
         "last_recipe_facilities": recipes,
         "last_mining_facilities": mined,
+        "last_paid_repairs": repair_count,
+        "last_service_restock": restock_count,
+        "last_repair_failures": results.get("repair_failures", {}).duplicate(true),
         "last_failures": results.get("failures", {}).duplicate(true),
         "last_result_ok": results.get("ok", true),
         "market_phase_ok": _last_market_result.get("ok", null),
