@@ -133,18 +133,26 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
     if not (saved.get("world") is Dictionary) or not (saved.get("ledger") is Dictionary):
         return false
     var w: Dictionary = saved["world"]
-    for id in w.get("facilities", {}):
+    if not (w.get("facilities") is Dictionary) or not (w.get("markets") is Dictionary) or not (w.get("populations") is Dictionary):
+        return false
+    for id in w["facilities"]:
+        if not (w["facilities"][id] is Dictionary):
+            return false
         var f: Dictionary = w["facilities"][id]
         if not _normalize_row(f, ["credits", "crew_count", "level", "xp"]):
             return false
         for key in ["lod_next_tick", "lod_divisor", "fitting_batches_bonus", "assigned_workers"]:
             if f.has(key) and not _normalize_row(f, [key]):
                 return false
+        if f.has("work_shift") and not (f["work_shift"] is Dictionary):
+            return false
         if f.has("work_shift") and not f["work_shift"].is_empty():
             var shift: Dictionary = f["work_shift"]
             if not _normalize_row(shift, ["tick", "wages", "input_payment", "processing_fee"]):
                 return false
             if not (shift.get("workers") is Dictionary):
+                return false
+            if shift.has("last_recipe_ticks") and not (shift["last_recipe_ticks"] is Dictionary):
                 return false
             for pid in shift["workers"]:
                 if not _normalize_number_at(shift["workers"], pid):
@@ -152,13 +160,17 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             for rid in shift.get("last_recipe_ticks", {}):
                 if not _normalize_number_at(shift["last_recipe_ticks"], rid):
                     return false
-    for location in w.get("markets", {}):
+    for location in w["markets"]:
+        if not (w["markets"][location] is Dictionary):
+            return false
         var market: Dictionary = w["markets"][location]
         if not (market.get("orders") is Dictionary) or not (market.get("history") is Dictionary):
             return false
         if not _normalize_row(market["orders"], ["order_expiry_ticks"]):
             return false
         var hist: Dictionary = market["history"]
+        if not (hist.get("shortage_ticks", {}) is Dictionary) or not (hist.get("trend_samples", []) is Array):
+            return false
         if not _normalize_row(hist, ["last_tick"]):
             return false
         if hist.get("spawned_at_tick") != null and not _normalize_number_at(hist, "spawned_at_tick"):
@@ -169,7 +181,9 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
         for trend in hist.get("trend_samples", []):
             if not (trend is Dictionary) or not _normalize_row(trend, ["tick"]):
                 return false
-    for id in w.get("populations", {}):
+    for id in w["populations"]:
+        if not (w["populations"][id] is Dictionary):
+            return false
         if not _normalize_row(w["populations"][id], ["count", "wealth",
                 "food_satisfaction", "safety_satisfaction", "entertainment_satisfaction",
                 "overall_sentiment", "unrest"]):
@@ -177,11 +191,17 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
     var ledger: Dictionary = saved["ledger"]
     if not _normalize_row(ledger, ["version"]):
         return false
-    for acc in ledger.get("balances", {}):
+    if not (ledger.get("balances") is Dictionary) or not (ledger.get("receipts") is Dictionary):
+        return false
+    for acc in ledger["balances"]:
         if not _normalize_number_at(ledger["balances"], acc):
             return false
-    for op in ledger.get("receipts", {}):
+    for op in ledger["receipts"]:
+        if not (ledger["receipts"][op] is Dictionary):
+            return false
         var receipt: Dictionary = ledger["receipts"][op]
+        if not (receipt.get("legs", []) is Array):
+            return false
         if not _normalize_row(receipt, ["tick"]):
             return false
         for leg in receipt.get("legs", []):
