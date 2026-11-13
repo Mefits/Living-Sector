@@ -214,3 +214,10 @@
 
 - Commit [`0dd282a9`](https://github.com/Mefits/Living-Sector/commit/0dd282a96aca0383996356202307f2c9f47675ce): единый `SaveState.save_runner` теперь до замены последнего здорового checkpoint перечитывает временный `.pending` через штатную SHA-256 проверку и точно сравнивает `native_production.world.markets[*].supply` с живым снимком. Если JSON roundtrip изменил хотя бы один физический товар или потерял рынок, сохранение отклоняется с `ERR_FILE_CORRUPT`, `.pending` удаляется, прежний save не затрагивается. P1 legacy snapshots остаются допустимы. Это защита от тихой порчи, **не доказательство устранения предыдущего mismatch при restore**.
 - Lease `20261113-save-serialization-roundtrip-automation11-1209.json` RELEASED. Статически сверены пути snapshot/SaveState, Godot не запускался: **CODE_UNVERIFIED**. Дополнительных Actions 0; Windows ZIP не подтверждён. Следующий шаг: согласованный import/paid-world/GUI boot/export checkpoint; при FAIL проверить конкретные stock diff из обновлённого smoke и различить serialization от restore.
+
+
+## P2 handoff — 13.11 12:16 МСК, целевой Windows release checkpoint
+
+- По запросу пользователя инициирована **одна** целевая сборка Windows, не серия тестов: commit `b53d6cbe` добавил в ручной `.github/workflows/p2-windows-release.yml` ограниченный push-trigger **только** на `godot/docs/phase2/P2_WINDOWS_RELEASE_TRIGGER.txt` в этой ветке. Commit `05bafeb2` добавил этот marker, что запрашивает единый workflow import → все parser → paid N158/N151/N150 → real GUI boot/save/load → Windows x64 ZIP artifact.
+- **НЕ делать второй marker push, НЕ вызывать rerun вслепую, НЕ считать Windows ZIP готовым до подтверждённого artifact.** Сначала проверить в GitHub Actions результат workflow `p2-windows-release.yml` для `05bafeb2`. Если FAIL, взять реальные загруженные logs, исправить всю конкретную группу ошибок в общей ветке и только тогда обсуждать необходимость нового единого запуска. Прочие пять смен НЕ должны параллельно стартовать Actions.
+- Эта запись не утверждает успешное завершение workflow; на момент координации ZIP ещё не подтверждён.
