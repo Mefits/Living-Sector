@@ -4,8 +4,10 @@
     "godot/scripts/main.gd::_run_boot_check"
   ],
   "purpose": "Verify real GUI save/load preserves physical market stock, not only tick",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "claimed_at": "2026-11-13T10:25:10+01:00",
   "branch": "integration/godot-phase2-unified-20261113",
-  "ci_actions_budget": "no additional run"
+  "ci_actions_budget": "no additional run",
+  "commit": "eef8805079ba248a1cac7d9e11901daf3a490b8b",
+  "verification": "Static source check only; Godot runtime not executed"
 }
