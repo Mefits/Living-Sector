@@ -1,11 +1,16 @@
 {
   "owner": "second-chat-overnight",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T11:03:17+03:00",
   "scope": [
     "godot/scripts/sim/phase1/n39_native_production_tick_runner.gd",
     "godot/scripts/sim/phase2/n158_production_runtime.gd"
   ],
   "goal": "Preserve authoritative integrated phase failure reasons in fail-closed runner and GUI diagnostic; no duplicate world/ledger",
-  "base_head": "e37cd4b830065f7ea0646756a711614e26445bcd"
+  "base_head": "e37cd4b830065f7ea0646756a711614e26445bcd",
+  "finished_at": "2026-11-13T11:03:17+03:00",
+  "commits": [
+    "aa177280a36d7135c5679e95e1eeb49edc38756c",
+    "ef729038de44a727e0adb87a35eba5a6de9f721f"
+  ]
 }
