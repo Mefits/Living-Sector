@@ -7,6 +7,10 @@ const TickRunner = preload("res://scripts/sim/phase2/n158_production_runtime.gd"
 const SaveState = preload("res://scripts/sim/save_state.gd")
 const P2_SAVE_PATH: String = "user://saves/galaxy-067-p2-integration.json"
 const SPEEDS = [0.25, 1.0, 2.0, 4.0, 8.0, 16.0]
+## User decision 13.11.2026: observer-first autonomous sector. Keep the
+## N14/N21/N15 manual tools as an explicit later-game debug feature.
+## Do NOT remove N39/N14 engine APIs: future autonomous agents reuse them.
+const ENABLE_DEBUG_MANUAL_FLEET_UI: bool = false
 const SystemMap = preload("res://scripts/system_map.gd")
 const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
@@ -119,6 +123,7 @@ func _ready() -> void:
     var ship_orders := HBoxContainer.new()
     ship_orders.add_theme_constant_override("separation", 8)
     root.add_child(ship_orders)
+    ship_orders.visible = ENABLE_DEBUG_MANUAL_FLEET_UI
     var ship_caption := Label.new()
     ship_caption.text = "Корабль / рейс N14:"
     ship_orders.add_child(ship_caption)
@@ -144,6 +149,7 @@ func _ready() -> void:
     var logistics := HBoxContainer.new()
     logistics.add_theme_constant_override("separation", 8)
     root.add_child(logistics)
+    logistics.visible = ENABLE_DEBUG_MANUAL_FLEET_UI
     var cargo_caption := Label.new()
     cargo_caption.text = "Док / свой груз N21·N15:"
     logistics.add_child(cargo_caption)
@@ -171,6 +177,15 @@ func _ready() -> void:
         button.text = str(spec["text"])
         button.pressed.connect(_ship_logistics.bind(str(spec["action"])))
         logistics.add_child(button)
+
+    # The player observes the world instead of assigning individual ship orders.
+    # Autonomous ship decision execution is not wired yet; do not pretend it is.
+    var autonomy_hint := Label.new()
+    autonomy_hint.text = "НАБЛЮДЕНИЕ: экономика работает сама; автономные приказы флоту и главам фракций ещё интегрируются"
+    autonomy_hint.clip_text = true
+    autonomy_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    autonomy_hint.tooltip_text = "Ручные команды кораблями сохранены в коде, но скрыты. N153/N135/N100 ещё должны выдавать реальные решения через один мировой Apply."
+    root.add_child(autonomy_hint)
 
     var columns := HBoxContainer.new()
     columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -383,7 +398,7 @@ func _checkpoint_recovery_suffix(result: Dictionary) -> String:
 
 
 func _populate_ship_choices() -> void:
-    if _ship_choice == null or _runner == null:
+    if not ENABLE_DEBUG_MANUAL_FLEET_UI or _ship_choice == null or _runner == null:
         return
     var previous: String = ""
     if _ship_choice.selected >= 0:
@@ -410,6 +425,8 @@ func _populate_ship_choices() -> void:
 
 
 func _depart_selected_ship() -> void:
+    if not ENABLE_DEBUG_MANUAL_FLEET_UI:
+        return
     if _runner == null or not _fatal_restore_error.is_empty() or not _runtime_failure().is_empty():
         return
     if _ship_choice == null or _ship_choice.selected < 0:
@@ -434,6 +451,8 @@ func _depart_selected_ship() -> void:
 
 
 func _ship_logistics(action: String) -> void:
+    if not ENABLE_DEBUG_MANUAL_FLEET_UI:
+        return
     if _runner == null or not _fatal_restore_error.is_empty() or not _runtime_failure().is_empty():
         return
     if _ship_choice == null or _ship_choice.selected < 0:

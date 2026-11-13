@@ -31,6 +31,9 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
         _label.text = "Живая экономика недоступна: нет единого N39 World"
         return
     var lines: Array[String] = ["ЖИВАЯ ЭКОНОМИКА · ТИК %d" % tick]
+    lines.append("АВТОНОМИЯ: производство / потребление / рынок — исполняются по тикам")
+    lines.append("АВТОНОМИЯ КОРАБЛЕЙ: N153/N135 приказы ещё НЕ подключены к общему Apply")
+    lines.append("Игрок: режим наблюдения; индивидуальные команды скрыты до отдельного режима")
     lines.append("Станции: %d · рынки: %d · группы населения: %d" % [
         economy["facilities"].size(), economy["markets"].size(), economy["populations"].size()])
     lines.append("Зарплаты за последний тик: %d · добывающих: %d · производственных: %d" % [
