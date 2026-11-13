@@ -28,13 +28,15 @@ static func validate(state: Dictionary) -> String:
             if not _id(ship_id) or not (ship_value is Dictionary):
                 return "invalid_ship"
             var ship: Dictionary = ship_value
-            if str(ship.get("id", "")) != str(ship_id) or str(ship.get("location", "")).is_empty() and (ship.get("transit", {}) is Dictionary and ship["transit"].is_empty()):
-                return "invalid_ship_location"
+            if str(ship.get("id", "")) != str(ship_id):
+                return "invalid_ship_identity"
             if typeof(ship.get("credits", null)) != TYPE_INT or int(ship["credits"]) < 0:
                 return "invalid_ship_credits"
             var trans: Variant = ship.get("transit", null)
             if not (trans is Dictionary):
                 return "invalid_ship_transit"
+            if trans.is_empty() and str(ship.get("location", "")).is_empty():
+                return "invalid_ship_location"
             if not trans.is_empty():
                 for key in ["last_tick", "departure_tick", "arrival_tick", "token"]:
                     if typeof(trans.get(key, null)) != TYPE_INT:
