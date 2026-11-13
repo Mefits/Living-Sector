@@ -64,9 +64,16 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     if not initial.get("ok", false):
         return {"ok": false, "reason": "facility_lifecycle_" + str(initial.get("reason", "rejected"))}
     var lifecycle_world: Dictionary = _world.duplicate(true)
-    var lifecycle_ledger = Ledger.new()
-    if not lifecycle_ledger.restore(_ledger.snapshot()):
-        return {"ok": false, "reason": "lifecycle_ledger_clone_rejected"}
+    # Receipts accumulate indefinitely; cloning the whole N9 history on
+    # every no-op orbit tick would make long-term simulation quadratic.
+    # No new maintenance payments are possible unless there is a paid
+    # repair candidate or the actual Rust 20×multiplier restock cadence.
+    var money_phase_due: bool = not initial["repair_candidates"].is_empty() or bool(initial["due"]["restock"])
+    var lifecycle_ledger: RefCounted = _ledger
+    if money_phase_due:
+        lifecycle_ledger = Ledger.new()
+        if not lifecycle_ledger.restore(_ledger.snapshot()):
+            return {"ok": false, "reason": "lifecycle_ledger_clone_rejected"}
     var committed_repairs: Dictionary = {}
     var paid_credits: Dictionary = {}
     var repairs: Array = []
