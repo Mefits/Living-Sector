@@ -131,6 +131,9 @@ static func from_seed(seed: Dictionary) -> Dictionary:
             "crew_count": int(NATIVE_CREW_BY_TYPE.get(kind, 6)),
             "morale": INITIAL_MORALE,
             "level": 1, "xp": 0, "abandoned": false,
+            # Preserve only the ORIGINAL frozen seed's private service
+            # reserves; never alias market stock as facility-owned Tools.
+            "reserves": fac.get("reserves", {}).duplicate(true),
             # Rust FacilityFitting default production_t1+automation_t1
             # has neutral output and zero batch bonus.
             "fitting_output_mult": 1.0,
