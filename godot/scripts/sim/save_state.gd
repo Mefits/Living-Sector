@@ -86,10 +86,13 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
 
     var tmp: String = absolute_path + ".pending"
     var backup: String = absolute_path + ".bak"
+    var encoded: String = JSON.stringify(_wrap(snapshot), "\t") + "\n"
+    if encoded.to_utf8_buffer().size() > MAX_SAVE_BYTES:
+        return ERR_OUT_OF_MEMORY
     var file := FileAccess.open(tmp, FileAccess.WRITE)
     if file == null:
         return FileAccess.get_open_error()
-    file.store_string(JSON.stringify(_wrap(snapshot), "\t") + "\n")
+    file.store_string(encoded)
     file.flush()
     var write_error: Error = file.get_error()
     file.close()
@@ -131,6 +134,11 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
         save_path: String = DEFAULT_PATH) -> Dictionary:
     if not runner.is_started():
         return {"ok": false, "error": "Simulation is not initialized"}
+    # restore_checkpoint may reject an invalid payload after touching some state.
+    # Keep the authoritative live snapshot and roll back before trying .bak.
+    var baseline: Dictionary = runner.checkpoint()
+    if baseline.is_empty():
+        return {"ok": false, "error": "Cannot protect live state before restore"}
     var absolute_path: String = ProjectSettings.globalize_path(save_path)
     for candidate in [absolute_path, absolute_path + ".bak"]:
         var parsed: Dictionary = _read_checkpoint(candidate)
@@ -138,7 +146,12 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
             continue
         if runner.restore_checkpoint(parsed, seed):
             return {"ok": true, "source": candidate, "tick": runner.tick_count}
+        if not runner.restore_checkpoint(baseline, seed):
+            return {
+                "ok": false,
+                "error": "Checkpoint rejected and live-state rollback failed; stop simulation"
+            }
     return {
         "ok": false,
-        "error": "Save is missing, incompatible, incomplete or corrupted; live world unchanged"
+        "error": "Save is missing, incompatible, incomplete or corrupted; live world restored"
     }
