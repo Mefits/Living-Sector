@@ -331,7 +331,7 @@ func _select_world(world: Dictionary) -> void:
             var goods: Array = stock.keys()
             goods.sort()
             lines.append(" • Рынок " + location + " — владелец " + str(live_market["owner"]))
-            var entries: Array[String] = []
+            var entries: PackedStringArray = PackedStringArray()
             for commodity in goods:
                 entries.append("%s: %.1f" % [commodity, float(stock[commodity])])
             lines.append("   " + " · ".join(entries))
