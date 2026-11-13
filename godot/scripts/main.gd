@@ -172,6 +172,42 @@ func _ready() -> void:
         _details.text = "В сохранённом мире нет доступных звёздных систем"
     print("GODOT_P2_PAID_PRODUCTION_BOOT ", JSON.stringify(_runner.production_stats()))
     _update_status()
+    # Opt-in end-to-end check executes the actual GUI scene and authoritative
+    # runtime, unlike source-only parser checks. Never run in normal gameplay.
+    if OS.get_cmdline_user_args().has("--p2-boot-check"):
+        call_deferred("_run_boot_check")
+
+func _run_boot_check() -> void:
+    # One bounded live-world tick and round-trip through the sole SaveState.
+    # This mode is for a release checkpoint, not a second simulation.
+    if _runner == null or not _runner.is_started():
+        push_error("P2_BOOT_CHECK_FAIL: world did not start")
+        get_tree().quit(1)
+        return
+    var before: int = _runner.tick_count
+    if not _runner.queue_control("pause") or not _runner.queue_control("step", 2):
+        push_error("P2_BOOT_CHECK_FAIL: controls rejected")
+        get_tree().quit(1)
+        return
+    _runner.advance_frame(0.0)
+    if _runner.tick_count != before + 2 or not _runtime_failure().is_empty():
+        push_error("P2_BOOT_CHECK_FAIL: tick or paid phase failed")
+        get_tree().quit(1)
+        return
+    var check_path: String = "user://saves/p2-boot-check.json"
+    if SaveState.save_runner(_runner, check_path) != OK:
+        push_error("P2_BOOT_CHECK_FAIL: save rejected")
+        get_tree().quit(1)
+        return
+    var expected_tick: int = _runner.tick_count
+    var restored: Dictionary = SaveState.load_runner(_runner, _seed, check_path)
+    if not bool(restored.get("ok", false)) or _runner.tick_count != expected_tick:
+        push_error("P2_BOOT_CHECK_FAIL: restore rejected")
+        get_tree().quit(1)
+        return
+    print("P2_BOOT_CHECK_PASS tick=", expected_tick,
+        " facilities=", _runner.economy_summary().get("facilities", 0))
+    get_tree().quit(0)
 
 func _restore_startup_checkpoint() -> void:
     var primary: String = P2_SAVE_PATH
