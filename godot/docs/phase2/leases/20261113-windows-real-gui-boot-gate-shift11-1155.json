@@ -1,0 +1,10 @@
+{
+  "owner": "second-chat-overnight",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T11:55:33+03:00",
+  "scope": [
+    ".github/workflows/p2-windows-release.yml"
+  ],
+  "purpose": "Gate Windows artifact on actual main-scene two-tick save/restore boot check; no workflow execution",
+  "branch": "integration/godot-phase2-unified-20261113"
+}
