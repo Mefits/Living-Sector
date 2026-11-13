@@ -122,9 +122,29 @@ func _initialize() -> void:
     if not load.get("ok", false):
         _fail("N38 could not restore N143 research and accounts: " + str(load))
         return
-    if restored.economy_snapshot()["research_directors"] != world["research_directors"]:
-        _fail("science progress changed across actual disk restart")
+    # Source profile weights are floating-point, and Godot JSON may
+    # round their last bit without changing the director's decisions.
+    # Compare the GAME-CRITICAL state exactly, not non-authoritative
+    # float formatting from a full recursive Dictionary equality.
+    var reloaded_world: Dictionary = restored.economy_snapshot()
+    if reloaded_world["research_receipts"] != world["research_receipts"] or reloaded_world["research"] != world["research"] or reloaded_world["faction_treasuries"] != world["faction_treasuries"]:
+        _fail("research receipts, unlocks or faction treasury changed across disk restart")
         return
+    for fid in faction_ids:
+        var expected: Dictionary = world["research_directors"][fid]
+        var actual: Dictionary = reloaded_world["research_directors"][fid]
+        for key in ["progress", "research_required", "research",
+                "technologies", "last_research_tick", "last_shift", "history"]:
+            if actual.get(key) != expected.get(key):
+                _fail("N143 science state lost across restart: " + str(fid) + "." + key +
+                    " expected=" + str(expected.get(key)) +
+                    " actual=" + str(actual.get(key)))
+                return
+        for key in ["industry", "science", "expansion", "caution", "aggression"]:
+            if not is_equal_approx(float(actual["profile"].get(key, -1.0)),
+                    float(expected["profile"].get(key, -2.0))):
+                _fail("N155 science personality changed across restart: " + str(fid) + "." + key)
+                return
     if restored.production.ledger_snapshot() != money:
         _fail("faction money or N9 receipts changed across restart")
         return

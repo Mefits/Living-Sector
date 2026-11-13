@@ -22,8 +22,8 @@ func _initialize() -> void:
     if stats.get("markets") != 3 or stats.get("active_facilities") != 15 or stats.get("populations") != 3:
         _fail("unexpected original source market/facility/population counts: " + str(stats))
         return
-    if a.implemented_phases() != PackedStringArray(["bodies", "ships", "facilities", "populations", "markets"]):
-        _fail("N158 must advertise only the five actually wired P2 phases")
+    if a.implemented_phases() != PackedStringArray(["bodies", "ships", "facilities", "populations", "markets", "factions"]):
+        _fail("N158 phase list changed: canonical ships, economics and factions/research must remain wired")
         return
     if a.fleet_snapshot().size() != 24:
         _fail("24 real N46 source ships were not admitted to N39 world")
@@ -186,11 +186,20 @@ func _stock_restore_diff(expected: Dictionary, actual: Dictionary) -> String:
 
 
 func _sum_credits(world: Dictionary) -> int:
+    # Source N9 now includes original faction treasuries, the 24 ships
+    # and prepaid N104 escrow; partial station-only sums are NOT valid
+    # money conservation checks after autonomous contract/research shifts.
     var result: int = 0
     for id in world.get("facilities", {}):
         result += int(world["facilities"][id]["credits"])
     for id in world.get("populations", {}):
         result += int(world["populations"][id]["wealth"])
+    for id in world.get("ships", {}):
+        result += int(world["ships"][id]["credits"])
+    for amount in world.get("faction_treasuries", {}).values():
+        result += int(amount)
+    for amount in world.get("escrow_balances", {}).values():
+        result += int(amount)
     return result
 
 func _fail(reason: String) -> void:
