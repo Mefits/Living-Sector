@@ -32,6 +32,8 @@ var _observer_panel: PanelContainer
 var _observer_button: Button
 var _ship_choice: OptionButton
 var _ship_destination: LineEdit
+var _cargo_commodity: LineEdit
+var _cargo_quantity: SpinBox
 
 func _ready() -> void:
     var background := ColorRect.new()
@@ -136,6 +138,39 @@ func _ready() -> void:
     depart_button.text = "Отправить"
     depart_button.pressed.connect(_depart_selected_ship)
     ship_orders.add_child(depart_button)
+
+    # N21/N15 explicit physical logistics. This is NOT a paid trade or
+    # second warehouse: all buttons call the same N158 single-World Apply.
+    var logistics := HBoxContainer.new()
+    logistics.add_theme_constant_override("separation", 8)
+    root.add_child(logistics)
+    var cargo_caption := Label.new()
+    cargo_caption.text = "Док / груз N21·N15:"
+    logistics.add_child(cargo_caption)
+    for spec in [{"text": "Стыковка", "action": "dock"},
+            {"text": "Отстыковать", "action": "undock"}]:
+        var button := Button.new()
+        button.text = str(spec["text"])
+        button.pressed.connect(_ship_logistics.bind(str(spec["action"])))
+        logistics.add_child(button)
+    _cargo_commodity = LineEdit.new()
+    _cargo_commodity.placeholder_text = "Товар (например ore)"
+    _cargo_commodity.custom_minimum_size = Vector2(170, 0)
+    _cargo_commodity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    logistics.add_child(_cargo_commodity)
+    _cargo_quantity = SpinBox.new()
+    _cargo_quantity.min_value = 1
+    _cargo_quantity.max_value = 1000
+    _cargo_quantity.step = 1
+    _cargo_quantity.rounded = true
+    _cargo_quantity.value = 1
+    logistics.add_child(_cargo_quantity)
+    for spec in [{"text": "Загрузить", "action": "load"},
+            {"text": "Выгрузить", "action": "unload"}]:
+        var button := Button.new()
+        button.text = str(spec["text"])
+        button.pressed.connect(_ship_logistics.bind(str(spec["action"])))
+        logistics.add_child(button)
 
     var columns := HBoxContainer.new()
     columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -363,6 +398,8 @@ func _populate_ship_choices() -> void:
         var label_text: String = "%s · %s · %s" % [
             str(ship.get("name", id)), str(ship.get("class", "?")),
             str(ship.get("location", "в полёте"))]
+        if not str(ship.get("docked_at", "")).is_empty():
+            label_text += " · пристыкован"
         var index: int = _ship_choice.item_count
         _ship_choice.add_item(label_text)
         _ship_choice.set_item_metadata(index, str(id))
@@ -393,6 +430,42 @@ func _depart_selected_ship() -> void:
         _refresh_selection()
     else:
         _notice = "Рейс отклонён: " + str(outcome.get("reason", "unknown"))
+    _update_status()
+
+
+func _ship_logistics(action: String) -> void:
+    if _runner == null or not _fatal_restore_error.is_empty() or not _runtime_failure().is_empty():
+        return
+    if _ship_choice == null or _ship_choice.selected < 0:
+        _notice = "Нет доступного корабля"
+        _update_status()
+        return
+    var ship_id: String = str(_ship_choice.get_item_metadata(_ship_choice.selected))
+    # The receipt sequence is saved in the ONE N39 world, so a restored
+    # game never silently replays an earlier UI command.
+    var snapshot: Dictionary = _runner.economy_snapshot()
+    var used: int = snapshot.get("dock_receipts", {}).size() + snapshot.get("cargo_receipts", {}).size()
+    var operation_id: String = "ui:%s:%s:%d" % [action, ship_id, used + 1]
+    var result: Dictionary = {}
+    if action == "dock":
+        result = _runner.request_ship_dock(ship_id, operation_id)
+    elif action == "undock":
+        result = _runner.request_ship_undock(ship_id, operation_id)
+    else:
+        var commodity: String = _cargo_commodity.text.strip_edges().to_lower()
+        if commodity.is_empty():
+            _notice = "Укажи товар (например ore)"
+            _update_status()
+            return
+        result = _runner.request_ship_cargo(ship_id, operation_id, action,
+            {commodity: int(_cargo_quantity.value)})
+    if result.get("ok", false):
+        _notice = "N21/N15: %s — %s (тик %d)" % [ship_id, action, _runner.tick_count]
+        _populate_ship_choices()
+        _refresh_observer()
+        _refresh_selection()
+    else:
+        _notice = "Операция отклонена: " + str(result.get("reason", "unknown"))
     _update_status()
 
 
