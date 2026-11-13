@@ -1,0 +1,10 @@
+{
+  "worker": "shift11-1624",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T16:24:16+03:00",
+  "scope": [
+    "godot/scripts/p2_local_f5.ps1"
+  ],
+  "boundary": "Standalone local Windows Godot bootstrap only; no engine/CI/central scripts",
+  "expires_at": "2026-11-13T17:00:00+03:00"
+}
