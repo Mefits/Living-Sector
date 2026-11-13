@@ -70,6 +70,11 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         updated["condition"] = float(delta["condition"])
         updated["abandoned"] = bool(delta["abandoned"])
         updated["abandon_counter"] = int(delta["abandon_counter"])
+        # N156 crew welfare is a projection of the previous real paid
+        # WorkShift and household satisfaction, never another Food debit.
+        # This is the SAME staged World swap as condition/abandonment.
+        if delta.has("morale"):
+            updated["morale"] = float(delta["morale"])
     if Schema.validate(lifecycle_world) != "":
         return {"ok": false, "reason": "lifecycle_schema_rejected"}
     _world = lifecycle_world
