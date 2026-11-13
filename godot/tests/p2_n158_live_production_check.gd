@@ -26,6 +26,7 @@ func _initialize() -> void:
     var bank_before: int = _sum_credits(before)
     var earth_before: Dictionary = before["markets"]["earth-station"]["supply"]
     a.queue_control("pause")
+    a.queue_control("speed", 8.0)
     a.advance_frame(0.0)
     a.advance_frame(1.0)
     if a.tick_count != 0 or a.economy_snapshot() != before:
