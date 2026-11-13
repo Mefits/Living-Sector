@@ -1,0 +1,15 @@
+{
+  "owner": "interactive-chat-godot-parser-errors",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/tests/n20_observer_check.gd",
+    "godot/tests/n30_contract_cargo_audit_check.gd",
+    "godot/tests/n57_live_native_fleet_engine_check.gd",
+    "godot/tests/n68_native_price_tick_check.gd"
+  ],
+  "purpose": "Fix observed Godot 4.7.2 editor import parse failures, native class symbol shadowing and ambiguous Dictionary-inference in test scripts, no game mechanics modified",
+  "started_at": "2026-11-13",
+  "verification": "Godot editor screenshot user; source-only checks",
+  "ci": "NO_GITHUB_ACTIONS"
+}
