@@ -4,6 +4,7 @@ extends RefCounted
 ## The caller must supply real market, facility, population and body snapshots.
 const Inventory = preload("res://scripts/sim/economy/inventory_store.gd")
 const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
+const ShipState = preload("res://scripts/sim/ship_state.gd")
 
 static func validate(state: Dictionary) -> String:
     for key in ["facilities", "markets", "populations", "bodies"]:
@@ -11,6 +12,41 @@ static func validate(state: Dictionary) -> String:
             return "missing_" + key
     if state["facilities"].is_empty() or state["markets"].is_empty():
         return "empty_world"
+    # Ships are optional only for genuinely older P2 saves. Never refill
+    # their tanks from the frozen seed during restoration. A new game has
+    # all 24 ships in this SAME authoritative physical world and ledger.
+    if state.has("ships"):
+        if not (state["ships"] is Dictionary) or state["ships"].is_empty():
+            return "invalid_fleet"
+        if typeof(state.get("ship_next_token", null)) != TYPE_INT or int(state["ship_next_token"]) < 1:
+            return "invalid_ship_transit_nonce"
+        var fleet = ShipState.new()
+        var rows: Array = []
+        var max_token: int = 0
+        for ship_id in state["ships"]:
+            var ship_value: Variant = state["ships"][ship_id]
+            if not _id(ship_id) or not (ship_value is Dictionary):
+                return "invalid_ship"
+            var ship: Dictionary = ship_value
+            if str(ship.get("id", "")) != str(ship_id) or str(ship.get("location", "")).is_empty() and (ship.get("transit", {}) is Dictionary and ship["transit"].is_empty()):
+                return "invalid_ship_location"
+            if typeof(ship.get("credits", null)) != TYPE_INT or int(ship["credits"]) < 0:
+                return "invalid_ship_credits"
+            var trans: Variant = ship.get("transit", null)
+            if not (trans is Dictionary):
+                return "invalid_ship_transit"
+            if not trans.is_empty():
+                for key in ["last_tick", "departure_tick", "arrival_tick", "token"]:
+                    if typeof(trans.get(key, null)) != TYPE_INT:
+                        return "invalid_ship_transit_tick"
+                if int(trans["token"]) < 1:
+                    return "invalid_ship_transit_token"
+                max_token = maxi(max_token, int(trans["token"]))
+            rows.append(ship.duplicate(true))
+        if int(state["ship_next_token"]) <= max_token or not fleet.restore(rows):
+            return "invalid_ship_state"
+    elif state.has("ship_next_token"):
+        return "orphaned_ship_transit_nonce"
     if state.has("research") and not (state["research"] is Dictionary):
         return "invalid_research"
     if state.has("location_tiers") and not (state["location_tiers"] is Dictionary):
@@ -127,6 +163,8 @@ static func accounts(state: Dictionary) -> Dictionary:
         result[facility_account(str(id))] = int(state["facilities"][id]["credits"])
     for id in state["populations"]:
         result[household_account(str(id))] = int(state["populations"][id]["wealth"])
+    for id in state.get("ships", {}):
+        result[ship_account(str(id))] = int(state["ships"][id]["credits"])
     return result
 
 static func facility_account(id: String) -> String:
@@ -134,6 +172,10 @@ static func facility_account(id: String) -> String:
 
 static func household_account(id: String) -> String:
     return "population/" + id
+
+static func ship_account(id: String) -> String:
+    return "ship:" + id
+
 
 static func has_tech(state: Dictionary, faction: String, tech: String) -> bool:
     var researched: Variant = state.get("research", {}).get(faction, [])
