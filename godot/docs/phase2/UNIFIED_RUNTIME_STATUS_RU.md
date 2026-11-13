@@ -1,5 +1,7 @@
 # Living Sector — единственная интеграционная ветка Godot (P2)
 
+**Актуальный план после первого пользовательского Windows-теста:** [P2_INTEGRATION_EXECUTION_PLAN_RU.md](P2_INTEGRATION_EXECUTION_PLAN_RU.md). Метод проверки: [P2_LOCAL_WINDOWS_TEST_RU.md](P2_LOCAL_WINDOWS_TEST_RU.md). Это исторический журнал; некоторые ранние таблицы ниже уже устарели.
+
 **Единственная текущая цель:** собрать все source-порты в одно реальное приложение, запустить Godot и исправлять возникающие ошибки *здесь*, а не открывать новую очередь N159/N160/N161.
 
 **Branch:** `integration/godot-phase2-unified-20261113`
@@ -23,8 +25,9 @@
 | Исходный Galaxy seed, P1 orbit/clock, controls/events | Встроен в базовый Godot GUI |
 | N39 реально оплачиваемое производство, 3 Market, 3 Pop, 15 Facility + запас/зарплата | Подключено в N158, запуск в CI определяет VERIFIED статус |
 | N38 integrity save + N39 рынок/платежи/WorkShift checkpoint | Подключён в P2 ветке, реальный рестарт в CI проверяется |
-| N151 реальные Food/Water household purchases и migration | Есть GDScript, **ещё не подключён к единому N9 ledger** |
-| N150 рынок/цены/дефициты, N156 condition/repair/crew supply | Есть GDScript, **не запускаются** рядом с N39, пока нет одной authoritative commit path |
+| N151 Food/Water household purchases и удовлетворённость | **Уже подключены** к одной N39/N9 оплаченной фазе; миграция ещё не исполняется |
+| N150 рынок, изменение цен, спрос и история потребления | **Уже подключены** в N158 через `MarketPhase.propose` → единственный `production.apply_market_phase` |
+| N156 condition/repair/crew supply | Исходные скрипты присутствуют; ещё не подключены к авторитетному N158 tick/ledger |
 | N97/N104/N152 ship Apply/contracts/escrow, N149/N153 ship autonomy, N140/N142 fleet LOD/travel | Исходники присутствуют, **не выполняются** в единой phase execution |
 | N100/N155 Hybrid Planner, N134 Director, N143 research, N154 construction/shipyard | Исходники присутствуют, но **не подключены** к реальной фракционной стратегии с подтверждёнными receipts |
 | N157 full economic-frame atomic persistence | Исходники присутствуют; общего snapshot ECS ships+board+director ещё нет |
