@@ -1,0 +1,27 @@
+{
+  "block_id": "N33",
+  "status": "CODE_UNVERIFIED",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T09:35:28+01:00-overnight-8-n33",
+  "claimed_at": "2026-11-12T09:35:28+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "e7939f318924f6afc53b9bc772645cb65a2350c9",
+  "work_branch": "feature/godot-nightshift-n33-integration-acceptance-20261112",
+  "tasks": [
+    "Audit N32 integration smoke coverage and false-positive failure modes",
+    "Implement robust deterministic smoke runner and machine-readable report",
+    "Add integration acceptance regression and Rust-parity boundary documentation"
+  ],
+  "progress": [
+    "Implemented Windows PowerShell 5.1 acceptance runner, CMD entrypoint and handoff documentation",
+    "Static GitHub tree audit: 32 test scripts found, 11/11 required quick scripts present"
+  ],
+  "evidence": [
+    {
+      "pr": "https://github.com/Mefits/Living-Sector/pull/121",
+      "head_sha": "3598d52c1b52b87a0a082d4166817da41b1a7d03",
+      "checks": "GitHub tree path existence only; Godot and Windows PowerShell NOT RUN"
+    }
+  ],
+  "completed_at": "2026-11-12T09:35:28+01:00 (run start; completion time not captured)"
+}

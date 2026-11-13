@@ -1,0 +1,62 @@
+{
+  "block_id": "N156",
+  "macro_id": 1,
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13-macro1-facility-economy-n39-nonoverlap",
+  "claimed_at": "2026-11-13T02:01:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "work_branch": "feature/godot-n156-native-facility-economy-lifecycle-20261113",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_paths": [
+    "native/crates/sim_core/src/agents/facility/mod.rs::tick_facilities_with_relations/build_facility_lod_gate/tick_degrade_condition/tick_dock_queue_sweep/tick_facility_crew/tick_self_repair/tick_abandonment",
+    "native/crates/sim_core/src/agents/facility/mod.rs::tick_post_contracts_with_relations/tick_post_crew_missions source demand policy",
+    "native/crates/sim_core/src/agents/facility/restock.rs audit N130 and workforce.rs audit N116/N39",
+    "native/crates/sim_core/src/economy/recipes.rs full source inventory, N39 exclusive actual World production owner"
+  ],
+  "scope": "Macro1 independent frozen Rust facility lifecycle, maintenance, condition, abandonment, dock queue, LOD and post-production orchestration, plus facility demand policies without touching active N39 production/paid workforce code, N104 escrow or N150 prices. Source close macro1 only if N39 complete otherwise partial.",
+  "related": [
+    "N6",
+    "N8",
+    "N23",
+    "N39",
+    "N116",
+    "N130",
+    "N132",
+    "N139",
+    "N141",
+    "N154"
+  ],
+  "tasks": [
+    "Audit facility source functions / previous P1 owner scopes and N39 active claim",
+    "Port native facility LOD, condition/repair/abandonment, dock queues with authentic times/guards as pure state changes",
+    "Port facility contracts/crew missions demand posting policy missing from ports with N104 Board single owner",
+    "Author full source-facing production ordering around exclusive N39 paid run without duplicate product outputs or cash",
+    "Source-derived fixtures + Rust-to-PR map, Draft PR and coordination; honest macro1 remaining assessment"
+  ],
+  "progress": [
+    "Fresh frozen Rust audit recipes.rs all 14 production recipes and fractional output-capped profitability, facility/mod.rs full tick order and condition/dock queue/crew/repair/abandonment, restock.rs, workforce.rs and source mission catalogue; checked existing N6/N23/N116/N130/N139/N154 plus N39 still active and N155 independent macro7",
+    "Ported source native facility tick stages and exact 5/10/15/20/50/100 × tick_multiplier phase ordering with real facility LOD admission, condition decline each tick, true phantom dock queue cleanup, original paid-household-derived WorkShift crew morale without duplicate food",
+    "Ported source paid repair gating actual N39 shift, physical one Tool reserve consumption, condition+0.01, 200 abandonment checks triple failure + one-shot event and recovery counter reset; only staged ECS receipts, never second wages ledger",
+    "Ported source facility demand posting policy for Fuel/Tools reserves and actual recipe inputs, urgent repair tool shortage, physical market-controller stock/commerce, 50-200 quantity scaling, 40 CR/unit or priced 1.3× premium, location+commodity convoy bundling, facility prepaid handoff only to existing N104/N152 Board",
+    "Ported exact nine crew-mission source templates and cadence plus no-invented-hash deterministic native Rust probability injection and one real paid mission proposal only",
+    "Added source-derived positive/negative check fixtures and detailed original source-to-existing-owner map and Phase2 no-double-economy protocol",
+    "Published Draft PR #244, 5 files / 827 new lines; all GitHub files read back; lexical bracket/string checks and preload targets pass; checks not run under Godot",
+    "Do NOT mark macro #1 SOURCE-COVERED while N39 real world production remains IN_PROGRESS; N156 independent lifecycle/contract policy done only"
+  ],
+  "evidence": [
+    "Draft PR #244 https://github.com/Mefits/Living-Sector/pull/244; HEAD 24dd57fad419ff05a2fcec00e77e3fba9a2b0cac; 5 files / 827 lines",
+    "All 5 committed files GitHub readback; static bracket, quote and 3 preload destinations checked; authored source-derived scenarios only, not executed",
+    "Godot parser/headless/Windows and Rust↔GDScript executable parity NOT RUN; N39 checked 2026-11-13 still IN_PROGRESS"
+  ],
+  "macro1_source_status": "SOURCE_OPEN_N39_IN_PROGRESS",
+  "completed_at": "2026-11-13",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/244",
+  "work_sha": "24dd57fad419ff05a2fcec00e77e3fba9a2b0cac",
+  "remaining": [
+    "Macro1 actual real paid recipe/mining/farm output/salvage and workforce World bridge reserved to N39 IN_PROGRESS and NOT covered by this N156 claim",
+    "Phase2 must merge N6/N23/N39/N116/N130/N139/N154/N156 into ONE authoritative World+Market+Population+Facility payroll/recipe pass; N104/N152 one prepaid contract Board",
+    "Source deterministic crew mission Rust DefaultHasher roll still requires native validated callback; source f32 price/recipe precision and Godot parser/runtime require tests",
+    "Macro7 N155 separately IN_PROGRESS by another chat; no code overlap."
+  ]
+}

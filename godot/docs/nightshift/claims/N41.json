@@ -1,0 +1,31 @@
+{
+  "block_id": "N41",
+  "status": "CODE_UNVERIFIED",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T11:44:17+01:00-overnight-n41",
+  "claimed_at": "2026-11-12T11:44:17+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-nightshift-n41-observer-asset-audit-20261112",
+  "tasks": [
+    "Inventory native/observer static assets from frozen Rust tree",
+    "Record provenance and license risk without copying",
+    "Add reproducible read-only audit and static checks",
+    "Document integration gates"
+  ],
+  "finished_at": "2026-11-12T11:46:00+01:00",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/129",
+  "head_sha": "e841f3d23ee67e607da0c75bd0031c7bc857d83b",
+  "progress": [
+    "Frozen Git tree inspected: 41 native/observer blobs; zero tracked media binaries",
+    "16 SVG paths declared by station-kit manifest; none tracked",
+    "Read-only audit script and transfer policy documented"
+  ],
+  "evidence": [
+    "GitHub connector frozen tree and manifest checked",
+    "Python checker not executed; Godot runtime not executed"
+  ],
+  "blockers": [
+    "Missing 16 declared station-kit SVGs; origin and rights of embedded artwork not proven"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "block_id": "N52",
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T12:27:30.607Z-interactive-N52-ship-credit-ledger",
+  "claimed_at": "2026-11-12T12:27:30.607Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "feature/godot-n46-native-ship-bootstrap-20261112",
+  "source_sha": "fb8a2faaeba4367806d67ebdf53c3b9b1327da66",
+  "work_branch": "feature/godot-n52-ship-credit-ledger-20261112",
+  "scope": "Source-backed ship initial credits without minting into station/faction wallet or changing N39 finance",
+  "title": "Native ship starting credits and ledger admission",
+  "tasks": [
+    "Audit Rust ship credits/ownership initial and update semantics",
+    "Build isolated initial ship funding source adapter to ledger N11 with idempotency",
+    "Add guardrails for duplicate bootstrap, saved balances and negative funds",
+    "PR with headless/source checks; no N39 facility wallets"
+  ],
+  "execution_order": 3,
+  "activity": "COMPLETED_CODE",
+  "dependencies": [
+    "N46 / PR #136"
+  ],
+  "non_overlap": [
+    "N39 production",
+    "P1 checkpoint",
+    "main/stable/frozen Rust"
+  ],
+  "finished_at": "2026-11-12T12:44:04.949Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/142",
+  "head_sha": "b0d31d6b4952f6785872360566aa44c0d0e86709",
+  "progress": [
+    "Rust source-backed 24 ship seed credits bound to one existing N11 ledger as fresh-game initial balances",
+    "N11 one-time combined import requiring explicit world account sources, guards for duplicate/unknown ship accounts, no separate ledger or phantom station money",
+    "N52 seeded/tampered/replay-money conservation smoke authored"
+  ],
+  "evidence": [
+    "Frozen Rust sim_db::seeder.rs/spawner.rs; 24 ship credit sources total 960000",
+    "4 unique preload dependencies present at PR head",
+    "Godot 4.7 executable absent: headless test not executed"
+  ]
+}

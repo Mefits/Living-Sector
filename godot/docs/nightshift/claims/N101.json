@@ -1,0 +1,28 @@
+{
+  "block_id": "N101",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "20261112-195038-second-chat-overnight-N101",
+  "claimed_at": "2026-11-12T19:50:38+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n101-phase1-second-20261112",
+  "scope": "Rust ship progression XP, skill levels and fitting modifiers; native/crates/sim_core/src/agents/ship/mod.rs; no ship economic apply",
+  "tasks": [
+    "Port progression level/XP caps",
+    "Port retrofit points and fitting modifier contracts",
+    "Expose pure snapshot transformations"
+  ],
+  "progress": [
+    "Standalone GDScript component committed",
+    "Draft PR published",
+    "Frozen Rust formulas and constraints reviewed"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/189",
+    "https://github.com/Mefits/Living-Sector/commit/49229095df704e0a09d20f3e68e9821fdde128f7"
+  ],
+  "runtime": "NOT_RUN",
+  "source_correction": "ShipProgression and ShipFitting are defined in native/crates/sim_core/src/agents/ship/components.rs, re-exported by ship/mod.rs"
+}

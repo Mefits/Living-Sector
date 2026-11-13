@@ -1,0 +1,33 @@
+{
+  "block_id": "N132",
+  "status": "CODE_UNVERIFIED",
+  "owner": "overnight-scheduler",
+  "run_id": "20261112T202602CET-night-transfer1-132",
+  "claimed_at": "2026-11-12T20:26:02+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "source_path": "native/crates/sim_core/src/economy/module_production.rs",
+  "work_branch": "feature/godot-nightshift-n132-source-port-20261112",
+  "scope": "ship module production and paid shipyard prerequisites",
+  "tasks": [
+    "real module recipes and tier",
+    "shipyard production prerequisites",
+    "paid module output intent"
+  ],
+  "progress": [
+    "Source-backed standalone GDScript and handoff committed; Draft PR #221"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/221",
+    "https://github.com/Mefits/Living-Sector/commit/bfc5fe4ce22c6f9efa89702e27f610f3cf4ce29f"
+  ],
+  "checks": [
+    "GitHub readback: source file exists",
+    "Simple delimiter counts balanced",
+    "Godot parser/runtime NOT executed"
+  ],
+  "remaining": [
+    "Phase 2 authoritative world integration and runtime parity",
+    "No merge performed"
+  ]
+}

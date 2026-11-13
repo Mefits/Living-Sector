@@ -1,0 +1,53 @@
+{
+  "block_id": "N80",
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T15:08:33.116Z-manual-next-n80-ship-ai",
+  "claimed_at": "2026-11-12T15:08:33.116Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "base_branch": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n80-native-ship-decision-ai-20261112",
+  "title": "P5/P3: full frozen Rust ship autonomous decision policy and safe action intents",
+  "scope": "Covered autonomous ship AI DECISION CORE only (personality, considerations, scoring, strategic/mine/idle/replan policies), without executable BT/GOAP, contract/trade route candidate generation or running Godot. Remaining behavior.rs components are future unclaimed Rust transfer blocks.",
+  "tasks": [
+    "Trace and document exact frozen Rust ship AI state/roles, scoring and decision order (distinguish already ported N13/N14/N15 pieces)",
+    "Implement deterministic data-only ship AI decision and intent selection APIs with exact Rust formulas and guard semantics",
+    "Cover miners, trading/courier, tanker, colonizer and idle/recovery where source supports behaviour; explicitly mark missing source rather than invent policies",
+    "Minimal static/source parity checks and one handoff PR; defer full Godot runtime/integration to phase 2"
+  ],
+  "dependencies": [
+    "frozen Rust agents/ship and AI source",
+    "existing N13/N14/N15/N57 interfaces, read-only"
+  ],
+  "non_overlap": [
+    "N39 production owner",
+    "N78 faction director",
+    "N77 construction",
+    "N79 colony eligibility",
+    "main/stable/P1"
+  ],
+  "activity": "COMPLETED_DECISION_CORE",
+  "finished_at": "2026-11-12T15:27:50.494Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/169",
+  "head_sha": "4e3680a5cc0e2467dc40a7c3dc68e0c9b10ffb58",
+  "progress": [
+    "Transferred 7 independent Rust-derived GDScript data-only modules totaling 931 lines: 6-axis personality, considerations, generic utility, goal tiers, ice-mining economics, replan, idle.",
+    "Reproduced Rust critical numeric constants and role/archetype defaults; ported protective conditions against phantom money/cargo, including exact mining source buyer liquidity and no command mutations.",
+    "Built deterministic FNV-1a u64 ship-check cadence via two 32-bit limbs and exact contract loyalty replan thresholds; no hidden ship action execution.",
+    "Authored explicit handoff mapping remaining Rust candidate generation, GOAP/BT planners and action executor to future first-phase blocks."
+  ],
+  "evidence": [
+    "Frozen Rust sim_core ai/personality.rs, ai/utility.rs, ai/considerations.rs, agents/ship/behavior.rs, agents/ship/components.rs, agents/ship/mod.rs, agents/facility/mod.rs read.",
+    "7 new files/931 lines written in PR #169; 2 referenced preload paths found; no parenthesis/bracket/brace count mismatches in quick static check.",
+    "4 ASCII ship identifiers FNV limb offset matched independent u64 BigInt model exactly.",
+    "Godot not run, no headless test created per user decision; runtime CODE_UNVERIFIED; no production or Godot P1 edits."
+  ],
+  "remaining_first_phase": [
+    "Rust ship::behavior::try_plan_contract and trade_run source feasibility / route performance",
+    "GOAP ai/planner.rs and BT ai/behavior_tree.rs with concrete operator catalogs",
+    "agents/ship/actions.rs and atomic command executor, rest/retrofit/explore BT builders",
+    "actual persistent Rust personality RNG and ECS attachment in phase 2"
+  ]
+}

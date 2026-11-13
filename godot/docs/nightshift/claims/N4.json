@@ -1,0 +1,38 @@
+{
+  "block_id": "N4",
+  "status": "CODE_UNVERIFIED",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T02:00:00+01:00-overnight-n4",
+  "claimed_at": "2026-11-12T02:00:00+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "a3bb62a3728654cb8dc016a599b2c85d20e61167",
+  "work_branch": "feature/godot-nightshift-n4-registry-routes-overnight-20261112",
+  "tasks": [
+    "native seed entity registry with stable IDs",
+    "route graph with native distances",
+    "shortest path and deterministic serialization smoke",
+    "source parity notes"
+  ],
+  "progress": [
+    "Native seed identity index for 8 systems/3 factions/47 bodies/15 facilities/24 ships/3 markets/3 populations/9 nav sites",
+    "12 directed native travel edges and deterministic shortest path with no invented reverse routes",
+    "Transactional validation, stable snapshot and headless smoke test",
+    "Static audit native route chain earth-station to pirate-outpost 855 units"
+  ],
+  "evidence": [
+    {
+      "type": "pull_request",
+      "url": "https://github.com/Mefits/Living-Sector/pull/92",
+      "head_sha": "f0fab080028ad27e342a438e093a349a1f523dfd"
+    },
+    {
+      "type": "static",
+      "result": "8/8 JSON worlds; 12/12 distinct directed routes; 855 native units"
+    },
+    {
+      "type": "runtime",
+      "result": "Godot executable unavailable; n4_registry_routes_check.gd NOT RUN"
+    }
+  ],
+  "completed_at": "2026-11-12T02:02:00+01:00"
+}

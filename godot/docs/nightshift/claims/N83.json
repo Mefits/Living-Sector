@@ -1,0 +1,36 @@
+{
+  "block_id": "N83",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T18:30:39+03:00-second-chat-11-N83",
+  "claimed_at": "2026-11-12T18:30:39+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n83-trade-second-20261112",
+  "scope": "Port native ship trade route candidate scoring",
+  "tasks": [
+    "Port native ship trade route candidate scoring",
+    "Preserve price freshness, affordability and physical capacity checks",
+    "Emit non-mutating trade intents"
+  ],
+  "progress": [
+    "Rust source reviewed",
+    "GDScript component committed",
+    "Source/contract handoff documented",
+    "Draft PR opened"
+  ],
+  "evidence": [
+    "PR #172",
+    "commit 578dd78e02114a3c6d602b15e4232ac34795fa88"
+  ],
+  "completed_at": "2026-11-12T18:30:39+03:00",
+  "commit_sha": "578dd78e02114a3c6d602b15e4232ac34795fa88",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/172",
+  "checks": [
+    "Static source review only; Godot runtime not executed"
+  ],
+  "remaining": [
+    "Authoritative world integration deferred to phase 2"
+  ]
+}

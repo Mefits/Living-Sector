@@ -1,0 +1,48 @@
+{
+  "block_id": "N154",
+  "macro_id": 6,
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13T01:47+03:00-macro6-construction-shipyard-source",
+  "claimed_at": "2026-11-13T01:47:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "work_branch": "feature/godot-n154-construction-strategy-shipyard-refit-20261113",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_paths": [
+    "native/crates/sim_core/src/strategy/construction.rs::run_cycle/commissioning_supply/refresh",
+    "native/crates/sim_server/src/engine/admin.rs::apply_fitting_swap/try_shipyard_refit/commit_shipyard_refit/admin_refit_ship/admin_refit_facility",
+    "native/crates/sim_core/src/economy/module_production.rs and agents/facility module-production tick (source audit N132)",
+    "native/crates/sim_core/src/agents/construction/executor.rs/labor.rs and engine/apply.rs::apply_construction_delivery/tick_construction_labor (audit N77/N91/N141)"
+  ],
+  "scope": "Macro #6 source coverage of native construction strategic commissioning/reoffer/slot gates, direct-source or feedstock fallback and true faction prepaid expense, full material/labor/site refresh handoff, shipyard T2/T3 module production and paid ship refit. Never invent paid hull factory: frozen Rust has admin_spawn_ship but not full craft queue. No macro #4 ship BT/goal AI other worker, macro #1 facility recipe production, N104 ContractBoard/escrow or macro #7 director priority.",
+  "tasks": [
+    "Audit frozen Rust full construction strategy, site labor/executor and prior N17/N75/N77/N91/N110/N119/N132/N141 source ports",
+    "Port native construction strategy evaluation and commissioning as pure snapshot, original station slot/tech/material/route/treasury checks and one prepaid ContractBoard request",
+    "Port actual shipyard module production and paid refit validation, fitting rebake, stock and credits one-owner proposal; preserve existing N132 recipe and N51 fitting owners",
+    "Author source-derived fixtures and explicit source ownership/Phase2 handoff, distinguish absence of native hull crafting",
+    "Publish one Draft PR; source-close macro6 only if all frozen Rust functionality mapped; else document gaps"
+  ],
+  "progress": [
+    "Fresh Rust source inventory of 719-line strategy/construction.rs, agents/construction.rs+executor.rs+labor.rs, module_production.rs, facility/mod.rs::tick_produce_modules, engine/apply.rs labor+material, engine/drains.rs materialize, engine/admin.rs refit. Audited N17/N75/N77/N91/N110/N119/N132/N141 prior ports and N104/N134/N142/N150/N152 prerequisites.",
+    "Ported full native construction strategic source goals: existing oldest real sites, chronic shortage 600 and personality weight, actual Director colony prerequisite chain and T2/T3 industry, slot/capital/source/technology/local-resource/real site checks, preexisting funded ContractBoard block, Shadow and head authorization gates.",
+    "Ported actual non-fabricated ConstructionSite creation using physical BodyOrbit and real facility_offset_position callback, one stage-only funded Faction ContractBoard payment 10000 and native real N142 graph-distance lifespan, source read-only progress refresh.",
+    "Ported shipyard production tick one ordered N132 T2/T3 module per shipyard at 15x multiplier with true market supply and one exclusive N39 FacilityWorkforce paid shift proof, plus actual paid docked ship refit ModuleStock take_one and ship credit transfer with exact N51 derived fitting re-bake.",
+    "Ported real last-material and paid N141 work-phase construction completion: material delivery to existing Site or original destination-market fallback, ordinary site->facility with actual treasury startup 20k, negative DB ID, original FacilityCrew/WorkShift and queued SQLite checkpoint, colony site owner delegated N151.",
+    "Authored source-driven nonexecuted regression fixtures and full Rust-to-PR closure map, documented frozen Rust absence of paid hull fabrication (only admin_spawn_ship N119); no fake new game feature.",
+    "Published Draft PR #243, 7 files / 1342 additions; GitHub readback and lexical delimiter/quote check on each, all new preload targets present; Phase1 macro6 marked SOURCE-COVERED only."
+  ],
+  "evidence": [
+    "Draft PR #243 https://github.com/Mefits/Living-Sector/pull/243; work head e76a6606078c59796d7632a4cda87ea31d4e3e6a; 7 files / 1342 added lines",
+    "Verified current GitHub readback of 7 files, balanced quotes/brackets and all internal preload paths present",
+    "Godot parser/headless/runtime, Rust/GDScript replay, full ECS single-ledger economic commit and SQLite checkpoint NOT RUN; status CODE_UNVERIFIED"
+  ],
+  "macro6_source_status": "MACRO6_SOURCE_COVERED",
+  "completed_at": "2026-11-13T02:10:00+03:00",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/243",
+  "work_sha": "e76a6606078c59796d7632a4cda87ea31d4e3e6a",
+  "remaining": [
+    "Phase2 must merge independent P1 construction/shipyard source ports and choose single true World/ContractBoard/Ledger worker-employment authority, validate Rust floats, payloads and DB persistence.",
+    "Full physical new-hull crafting does NOT exist as a complete feature in frozen Rust. Only ModuleStock and paid module refit do; future hull manufacturing is NEW gameplay to design separately, not this source port.",
+    "Macro4 N153 reserved by second chat; N39 macro1 production owner and macro10 save/replay untouched."
+  ]
+}

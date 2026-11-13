@@ -1,0 +1,32 @@
+{
+  "block_id": "N11",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T04:38:27+03:00-second-chat-n11",
+  "claimed_at": "2026-11-12T04:38:27+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "15d3762fb97357acdf83a8258abcaebb27faca65",
+  "work_branch": "feature/godot-nightshift-n11-ledger-second-20261112",
+  "tasks": [
+    "Audit frozen Rust money and wage operations",
+    "Implement deterministic debit/credit ledger and idempotent receipts",
+    "Add short Godot headless invariants test",
+    "Document Rust parity gaps and update tracking"
+  ],
+  "progress": [
+    "Atomic balanced multi-leg credit transfer and idempotent receipt boundary",
+    "Snapshot/restore with nonnegative balance validation",
+    "Headless N11 smoke and Rust parity handoff"
+  ],
+  "evidence": [
+    "Rust source read: money.rs, workforce.rs, faction.rs, order_book.rs",
+    "PR #94 three commits; no Godot runtime; test not executed"
+  ],
+  "completed_at": "2026-11-12T04:40:07+03:00",
+  "head_sha": "00a5db3bc2205011717073ce38c2ba345237e605",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/94",
+  "limitations": [
+    "Not integrated with actual native wallets, payroll or contracts",
+    "GDScript remains CODE_UNVERIFIED"
+  ]
+}

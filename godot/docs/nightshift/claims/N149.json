@@ -1,0 +1,59 @@
+{
+  "block_id": "N149",
+  "macro_id": 3,
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13-macro3-ship-life-full-source-closure",
+  "claimed_at": "2026-11-13T00:45:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "work_branch": "feature/godot-n149-ship-crew-full-parity-macro3-closure-20261113",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_paths": [
+    "native/crates/sim_core/src/agents/ship/mod.rs::tick_crew:445-641 (one authoritative full order with native meal and wage ownership)",
+    "native/crates/sim_core/src/agents/ship/mod.rs::primary_task:642-669 (source exact in native full step, N138 existing read-only role policy reused)",
+    "native/crates/sim_core/src/agents/ship/components.rs::ShipCargo::used/free and ShipFuel::fraction (source basic invariants)",
+    "audit ship/mod.rs, ship/components.rs, ship/snapshot.rs and cross-referenced N50/N51/N52/N54/N67/N72/N101/N128/N138/N148 against macro3 goals"
+  ],
+  "scope": "Macro3 FINAL source coverage audit+actual missing one authoritative tick_crew order: reconcile N72 food/payroll with N138 morale/tasks/efficiency without executing either twice, preserve real cargo-age and credits/wage asset, per-ship LOD. Add source-exact physical component helpers and full traceable phase1 coverage matrix. No macro4 behavior AI or transactions, no second live economy/save/ship spawn.",
+  "related": [
+    "N50 #139",
+    "N51 #141",
+    "N52 #142",
+    "N54 #144",
+    "N67 #156",
+    "N72 #164",
+    "N101 #189",
+    "N128 #217",
+    "N138 #228",
+    "N140 #230",
+    "N148 #237"
+  ],
+  "tasks": [
+    "Audit source-per-function / prior port coverage for macro3, separate AI-goal and persistence responsibilities",
+    "Implement single owner per-ship native crew step full 5 phases incl after-decay, morale, exact Eating food+cargo_age, role/fatigue task, wage checked add, efficiency; pure atomic staged payload not applied",
+    "Implement deterministic multi-ship LOD gate and state projection with source-once effect receipt handoff, no second money ledger",
+    "Source fixture checks and exhaustive macro3 coverage/owner matrix and close only if no uncovered actual source remains"
+  ],
+  "progress": [
+    "Audited all named macro #3 Rust source functions and existing N50/N51/N52/N54/N67/N72/N101/N128/N138/N140/N148 source ports; separated AI/BT/contract transactions/server persistence as macros 4/5/10 with explicit owner mapping",
+    "Found N72 monolithic physical upkeep and N138 welfare phases cannot safely run sequentially without wrong source ordering or double food/wage effects",
+    "Ported full frozen Rust tick_crew 5 phases into one pure atomic per-LOD-fired ship proposal (decay→morale→actual cargo Food/cargo_age→roles/tasks→wages cash conservation→post-wage efficiency) and staged deterministic batch, no second ledger",
+    "Ported remaining core helper functions ShipCargo.used/free and ShipFuel.fraction and authored source-derived scenarios for LOD, strict thresholds, food depletion, wage overflow, morale, source task priority and cash conservation",
+    "Created full source-to-PR matrix; macro3 marked SOURCE_COVERED as isolated Phase1 source mapping (NOT an integrated/runnable Godot world), Draft PR #238"
+  ],
+  "evidence": [
+    "Draft GitHub PR #238: 4 added files / 502 additions, head 015ed9872ad3bcc96349fe7ae42f9fd0e2ff258c",
+    "Readback all four new files from GitHub; lexical bracket/string static scan balanced; preload targets verified",
+    "Godot parser/headless/runtime, real ECS transaction and Rust-vs-GDScript executable parity NOT RUN, status CODE_UNVERIFIED"
+  ],
+  "closed_source_domain": "MACRO3_SOURCE_COVERED",
+  "complete": true,
+  "completed_date": "2026-11-13",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/238",
+  "work_sha": "015ed9872ad3bcc96349fe7ae42f9fd0e2ff258c",
+  "remaining": [
+    "Macro3 source coverage complete only; full playable Godot ship life requires Phase2 integration of independent draft PRs, single physical ECS cargo+crew+economy owner and Rust f32-vs-GDScript f64 cross-check",
+    "Do not execute N72 full .step, N138 staged .batch and N149 source-full step simultaneously, or physical Food/CR will double debit",
+    "Macro4 ship behavior, BT, AI/ShipMemory, macro5 contracts/transfers and macro10 DB save/replay are separate remaining source work"
+  ]
+}

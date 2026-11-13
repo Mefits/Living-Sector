@@ -1,0 +1,35 @@
+{
+  "block_id": "N151",
+  "macro_id": 2,
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "work_branch": "feature/godot-n151-population-colony-macro2-source-closure-20261113",
+  "source_paths": [
+    "native/crates/sim_core/src/agents/population.rs::tick_populations/purchase_consumption",
+    "native/crates/sim_core/src/strategy/colony.rs::commission"
+  ],
+  "scope": "Finish population+colony source coverage in Phase1; no overlaps, no live Godot merge.",
+  "macro2_source_status": "MACRO2_SOURCE_COVERED",
+  "completed_date": "2026-11-13",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/240",
+  "work_sha": "68b1acfd58017b21715f8cbd99ee39ebe1dc8258",
+  "progress": [
+    "Audited all 769 lines frozen agents/population.rs, 452 lines strategy/colony.rs and 361 lines strategy/colony_development.rs against N71/N92/N114/N118/N123/N125/N126/N127/N144/N147",
+    "Ported exact native fractional purchase_consump: wallet to actual FacilityOperations, physical market goods debit, f32 one-ULP affordability, exact ceil payment, and market consumption history all in ONE atomic read-only proposal",
+    "Ported complete tick_populations: native 5*mult and LOD gate, Food/Water/emergency Water source order, finite household payments, satisfaction -5/+2, 6:2:2 weighted inertia, pressure, blocked legacy household production, due-only migration/food contract/ContractBoard sweep and frozen PopSnapshot",
+    "Corrected population migration original max-pressure/next destination ECS ties and proportional integer wealth transfer; no free settler spawning, no duplication of colony passenger N147",
+    "Corrected N118 colony.rs commission missing actual original BodyOrbit universe-center facility offset, Director vs legacy lifespan and one Board funded contract",
+    "Found that frozen post_passenger_contracts deliberately does NOT post (N126 old planning-only) and frozen population production BLOCKED (N127 must never mint) — explicit Phase2 do-not-wire warnings",
+    "Authored source-derived nonexecuted check scenarios and complete source-to-PR handoff map, Draft PR #240 6 files / 692 added lines"
+  ],
+  "evidence": [
+    "Draft PR #240: https://github.com/Mefits/Living-Sector/pull/240, head 68b1acfd58017b21715f8cbd99ee39ebe1dc8258",
+    "Read back all six committed files; bracket, quote, preload target static checks passed",
+    "Godot parser/headless, real Rust-vs-GDScript parity and physical ECS/ContractBoard transaction tests NOT RUN"
+  ],
+  "remaining": [
+    "Macro2 source algorithms complete by mapping only; Phase2 must reconcile separate N71/N92/N114/N118/N125/N127/N144/N147 and N151 to single authoritative Godot World/ContractBoard",
+    "Do not run N126 passenger posting or N127 legacy self-production as physical events: original Rust disables both",
+    "Runtime precision/boundary and real save/replay require Phase2 tests; not VERIFIED"
+  ]
+}

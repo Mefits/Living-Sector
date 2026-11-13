@@ -1,0 +1,38 @@
+{
+  "block_id": "N67",
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T14:07:51.006Z-interactive-N67",
+  "claimed_at": "2026-11-12T14:07:51.006Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "feature/godot-n61-live-itinerary-admission-20261112",
+  "source_sha": "8aba694fe54a0cd4f445e3bcd7eb74a692dd3504",
+  "work_branch": "feature/godot-n67-fleet-inspector-snapshot-20261112",
+  "subject": "Read-only live native fleet inspector with source-grounded reason codes",
+  "owned_files": [
+    "godot/scripts/sim/ships/fleet_observer_snapshot.gd"
+  ],
+  "scope_boundary": [
+    "N39 production files excluded",
+    "Rust archive/main/stable/P1 untouched"
+  ],
+  "tasks": [
+    "Build data-only observer projections for flight, fuel, cargo, docking, route and pending itinerary",
+    "Explain blocked movement with explicit missing information instead of placeholders populated by guesses",
+    "Stable deterministic snapshots under heavy fleet; short smoke; no P1 UI modification or N39"
+  ],
+  "activity": "COMPLETED_CODE",
+  "dependency": "N61 / PR #150",
+  "finished_at": "2026-11-12T14:30:14.062Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/156",
+  "head_sha": "c7cb0b6c30c607e627c639fa58c04b61f2fdd9e0",
+  "progress": [
+    "Data-only deterministic read-only inspector for 24 native ships, N21 docking, N11 credits, fuel/cargo and N63 intents",
+    "Source-derived blocking reasons and explicit — placeholders for unimplemented crew/economy/AI telemetry",
+    "Native seed smoke authored for start, dock, depart and no observer mutation"
+  ],
+  "evidence": [
+    "PR #156 draft; GDScript parser const declarations statically hardened",
+    "No user Godot tests until full migration, headless unexecuted"
+  ]
+}

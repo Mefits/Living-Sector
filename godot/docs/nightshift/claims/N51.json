@@ -1,0 +1,42 @@
+{
+  "block_id": "N51",
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T12:27:28.152Z-interactive-N51-fitting-parity",
+  "claimed_at": "2026-11-12T12:27:28.152Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "feature/godot-n46-native-ship-bootstrap-20261112",
+  "source_sha": "fb8a2faaeba4367806d67ebdf53c3b9b1327da66",
+  "work_branch": "feature/godot-n51-fitting-parity-20261112",
+  "scope": "Actual Rust initial ship fitting/size multiplier and comms_t2; cannot silently ignore changed speed or cargo",
+  "title": "Rust source ship fitting and effective stats",
+  "tasks": [
+    "Audit frozen Rust module effects, size-aware default slots and DB fitting behavior",
+    "Implement deterministic initial fitting projection for seed ships, fail-closed unsupported changes",
+    "Add static/headless parity fixtures and source coverage",
+    "PR and integration note, no N39 edits"
+  ],
+  "execution_order": 2,
+  "activity": "COMPLETED_CODE",
+  "dependencies": [
+    "N46 / PR #136"
+  ],
+  "non_overlap": [
+    "N39 production",
+    "P1 checkpoint",
+    "main/stable/frozen Rust"
+  ],
+  "finished_at": "2026-11-12T12:39:11.076Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/141",
+  "head_sha": "33933f94b1d7ade70c92b7065628890ebe317295",
+  "progress": [
+    "Projected exact frozen Rust 15-module initial fitting, size-aware sensor tiers, stable Rust ship ID and deterministic hash parity for Large",
+    "Read-only derived power, cargo, speed and comms stat effects with fail-closed unsupported engine/cargo state changes",
+    "Wrote N51 headless smoke (24 ships, 3 Huge sensor T2, 3 Large tanker defaults, power/comms)"
+  ],
+  "evidence": [
+    "Rust modules/mod.rs, ShipFitting::new_for_size, sim_db spawner ID normalization consulted",
+    "5/5 unique preload destinations exist",
+    "Godot runtime not installed; smoke not executed"
+  ]
+}

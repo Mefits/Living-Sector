@@ -1,0 +1,27 @@
+{
+  "block_id": "N88",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T18:46:12+03:00-second-chat-11-N88",
+  "claimed_at": "2026-11-12T18:46:12+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n88-ship-actions-second-20261112",
+  "scope": "Rust ship autonomous action execution policy",
+  "tasks": [
+    "Read frozen Rust implementation and exact invariants",
+    "Port independent native GDScript component",
+    "Minimal static check and Draft PR"
+  ],
+  "progress": [
+    "Frozen Rust source read",
+    "Standalone GDScript code committed",
+    "Draft PR opened",
+    "Static delimiter balance checked"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/177",
+    "https://github.com/Mefits/Living-Sector/commit/1c5280531c11cff6eb977f104fa5f313320f4f2f"
+  ],
+  "runtime": "Godot not executed; not integrated"
+}

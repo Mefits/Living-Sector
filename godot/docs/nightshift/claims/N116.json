@@ -1,0 +1,25 @@
+{
+  "block_id": "N116",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T20:59:50+03:00-second-chat-11-N116",
+  "claimed_at": "2026-11-12T20:59:50+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n116-native-port-second-20261112",
+  "scope": "facility workforce allocation and labor constraints",
+  "rust_source": "native/crates/sim_core/src/agents/facility/workforce.rs",
+  "tasks": [
+    "read frozen source and dependencies",
+    "port source-backed behavior to isolated GDScript",
+    "publish separate draft PR and record limitations"
+  ],
+  "progress": [
+    "Rust source read; isolated GDScript committed; no runtime integration"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/205",
+    "https://github.com/Mefits/Living-Sector/commit/420e667f2c46d1e791a999bb01b4f3be977fcec2"
+  ],
+  "runtime_verified": false
+}

@@ -1,0 +1,28 @@
+{
+  "block_id": "N22",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T08:59:51+03:00-second-chat-overnight-N22",
+  "claimed_at": "2026-11-12T08:59:51+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "8ffce08db6ae9de4c6d99305750a6e88275d59ef",
+  "work_branch": "feature/godot-nightshift-n22-batch-view-20261112",
+  "tasks": [
+    "P7-04 lightweight batched ship drawing without per-ship Nodes",
+    "viewport culling and stable render order",
+    "camera-independent data adapter and headless smoke test"
+  ],
+  "progress": [
+    "Validated render-only ship projection model",
+    "Single CanvasItem renderer, camera transforms and picking",
+    "Headless smoke prepared (not executed)"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/110",
+    "https://github.com/Mefits/Living-Sector/commit/d08ab68fe6b5f9bdb746e1274a24b10998db0cd8"
+  ],
+  "blockers": [
+    "Godot Runtime not available; no FPS measurements",
+    "N14/N21 live position not yet wired into P1 SimWorld"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "block_id": "N14",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T05:44:09+03:00-second-chat-overnight-N14",
+  "claimed_at": "2026-11-12T05:44:09+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "0e7353075950680cc64e43bc75fc0d71a8e71cf6",
+  "work_branch": "feature/godot-nightshift-n14-transit-second-20261112",
+  "tasks": [
+    "Rust-parity route traversal and distance accounting",
+    "deterministic ship transit and arrival invalidation",
+    "fuel and docking constraints",
+    "headless regression smoke"
+  ],
+  "progress": [
+    "directed transit and world-coordinate movement",
+    "native velocity and fuel tick accounting",
+    "ETA token invalidation and resume",
+    "headless regression script"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/99",
+    "https://github.com/Mefits/Living-Sector/commit/6cf18eb655b5773b558fd6e73c5df7460af6f457"
+  ],
+  "completed_at": "2026-11-12T05:47:00+03:00",
+  "checks": {
+    "static": "Rust formulas reviewed; source files and test present",
+    "godot_runtime": "NOT_RUN",
+    "status": "CODE_UNVERIFIED"
+  }
+}

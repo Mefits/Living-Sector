@@ -1,0 +1,32 @@
+{
+  "block_id": "N26",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T10:00:22+03:00-second-chat-N26",
+  "claimed_at": "2026-11-12T10:00:22+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "967b9b6fe75710b8a6cd32f99af5cc3743bbbd9d",
+  "work_branch": "feature/godot-nightshift-n26-delivery-settlement-second-20261112",
+  "tasks": [
+    "audit Rust cargo delivery and contract payment parity",
+    "bind N15 physical unload receipt to N16 escrow payout",
+    "guard replay, wrong contract, partial delivery and snapshot restore",
+    "short headless regression test"
+  ],
+  "progress": [
+    "imported N16 contract board and ledger into N15 cargo branch",
+    "implemented exact physical pickup and delivery receipt validation before escrow settlement",
+    "added deterministic headless regression for cargo, credits and replay"
+  ],
+  "evidence": [
+    "Frozen Rust contracts.rs, contract_funding.rs, ship/components.rs reviewed",
+    "Godot runtime unavailable; n26_contract_delivery_check.gd NOT RUN"
+  ],
+  "completed_at": "2026-11-12T10:00:22+03:00",
+  "commit_sha": "f3563771ecf1905aabc32cccadcfcc55423267ff",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/114",
+  "limitations": [
+    "Direct N16 Board.confirm_delivery and Board.settle can bypass coordinator if called elsewhere; production wiring required",
+    "No full multi-ledger atomic checkpoint, passenger/construction handling"
+  ]
+}

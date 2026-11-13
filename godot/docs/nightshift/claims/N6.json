@@ -1,0 +1,44 @@
+{
+  "block_id": "N6",
+  "status": "CODE_UNVERIFIED",
+  "owner": "overnight-scheduler",
+  "run_id": "20261112T040547+0100-overnight-n6-3",
+  "claimed_at": "2026-11-12T04:05:47+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "a62c134c7c86767bba810aaa144c1a90d0cc7dd9",
+  "work_branch": "feature/godot-nightshift-n6-production-overnight-20261112",
+  "tasks": [
+    "Compare Rust production and wage semantics",
+    "Implement atomic recipe execution with inventory and payroll",
+    "Add short headless tests and parity documentation"
+  ],
+  "progress": [
+    "Implemented self-owned paid production with detached recipe dry-run and full inventory validation",
+    "Reused N11 ledger, one-CR-per-worker Rust wages, 60% local labor bound, one shift per tick",
+    "Added deterministic smoke for labor, wage, capacity, duplicate, save/restore"
+  ],
+  "evidence": [
+    {
+      "type": "pull_request",
+      "url": "https://github.com/Mefits/Living-Sector/pull/100",
+      "head_sha": "73d97a9276d374bd317d5464bc296fc1469045a1"
+    },
+    {
+      "type": "rust_parity",
+      "files": [
+        "agents/facility/workforce.rs",
+        "economy/recipes.rs"
+      ]
+    },
+    {
+      "type": "runtime",
+      "result": "Godot unavailable; smoke not run; CODE_UNVERIFIED"
+    }
+  ],
+  "limitations": [
+    "No TickRunner wiring",
+    "No shared labor reservation/processing fee/foreign stock owner",
+    "Dependencies PR #93 #94 #96"
+  ],
+  "completed_at": "2026-11-12T04:07:05+01:00"
+}

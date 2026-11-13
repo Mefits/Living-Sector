@@ -1,0 +1,27 @@
+{
+  "block": "N44",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "second-chat-overnight-20261112T142439+0300-N44",
+  "started_at": "2026-11-12T14:24:39+03:00",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_commit_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "working_branch": "feature/godot-n44-research-prerequisite-gate-20261112",
+  "tasks": [
+    "Audit Rust research/progression prerequisites and existing Godot APIs",
+    "Implement deterministic fail-closed technology prerequisite evaluator without granting research/resources",
+    "Add independent headless regression for missing dependencies, alternatives and reproducibility",
+    "Document parity limits and update coordination"
+  ],
+  "finished_at": "2026-11-12T14:24:39+03:00",
+  "pull_request": "https://github.com/Mefits/Living-Sector/pull/132",
+  "implementation_commit": "caa9bb04e780063c2185316628534f1a70cf64ed",
+  "checks": [
+    "Rust director.rs 12 technologies, governance.rs and progression.rs manually compared",
+    "GDScript smoke prepared but not run; Godot Runtime not confirmed"
+  ],
+  "limitations": [
+    "No live paid research, no mutation or technology unlock",
+    "No Godot headless execution"
+  ]
+}

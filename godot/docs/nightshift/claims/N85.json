@@ -1,0 +1,25 @@
+{
+  "block": "N85",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "overnight-20261112T183540+0300-N85",
+  "started_at": "2026-11-12T18:35:40+03:00",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n85-utility-scoring-overnight-20261112",
+  "scope": "Rust ai/utility.rs: action scoring, positive/negative considerations, bonuses, ranking",
+  "plan": [
+    "Read exact frozen Rust component and dependent interfaces",
+    "Port data-only GDScript mechanics without world mutation",
+    "Perform minimal static source/contract check and publish separate Draft PR"
+  ],
+  "commit_sha": "2156d93be2b63ef9c56df425c4e02ef166732325",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/174",
+  "checks": [
+    "Frozen Rust source read and compared",
+    "GDScript file existence verified on GitHub",
+    "Static delimiter balance passed",
+    "Godot runtime not executed"
+  ],
+  "completed_at": "2026-11-12T18:35:40+03:00"
+}

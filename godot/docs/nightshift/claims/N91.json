@@ -1,0 +1,33 @@
+{
+  "block_id": "N91",
+  "status": "CODE_UNVERIFIED",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T17:14:35+01:00-nightshift1-N91",
+  "claimed_at": "2026-11-12T17:14:35+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "source_branch": "archive/rust-galaxy-067-reference",
+  "base_branch": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-nightshift-n91-construction-executor-20261112",
+  "scope": "Port construction execution state transitions, material and labor guards, source-backed results",
+  "source_files": [
+    "native/crates/sim_core/src/agents/construction/executor.rs"
+  ],
+  "tasks": [
+    "Read frozen Rust source and identify exact state and formulas",
+    "Port isolated source-backed GDScript module with explicit contracts",
+    "Document missing external dependencies and static-check only"
+  ],
+  "progress": [
+    "source-backed pure decision module; external ECS and labor apply"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/179",
+    "https://github.com/Mefits/Living-Sector/commit/0b8af8f899ef7cd1e4f132af1209db91ef11f264"
+  ],
+  "tests": [
+    "GitHub source inspected",
+    "No Godot runtime/parser execution; no full regression"
+  ],
+  "parity_complete": false
+}

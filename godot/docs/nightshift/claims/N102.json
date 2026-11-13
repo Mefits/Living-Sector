@@ -1,0 +1,27 @@
+{
+  "block_id": "N102",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "20261112-195038-second-chat-overnight-N102",
+  "claimed_at": "2026-11-12T19:50:38+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n102-phase1-second-20261112",
+  "scope": "Rust facility delivery convoy bundling; native/crates/sim_core/src/agents/facility/mod.rs; no production N39",
+  "tasks": [
+    "Port same-destination commodity grouping",
+    "Preserve affordability and caps",
+    "Emit non-mutating bundled delivery proposals"
+  ],
+  "progress": [
+    "Standalone GDScript component committed",
+    "Draft PR published",
+    "Frozen Rust formulas and constraints reviewed"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/190",
+    "https://github.com/Mefits/Living-Sector/commit/875be625c4ade48791140eb17d97261d2b60087d"
+  ],
+  "runtime": "NOT_RUN"
+}

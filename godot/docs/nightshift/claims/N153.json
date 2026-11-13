@@ -1,0 +1,42 @@
+{
+  "block_id": "N153",
+  "macro_id": 4,
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13-macro4-ship-ai-source-parity",
+  "claimed_at": "2026-11-13T01:51:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "work_branch": "feature/godot-n153-native-ship-ai-behavior-20261113",
+  "scope": "Macro #4 source audit and missing frozen Rust agents/ship/behavior.rs decision loop, goal assembly, strategic replan, planner BT compilation and exploration/rest/retrofit; integrate only as separate Phase1 data-only source port. Existing N80/N83/N84–N88/N90/N103/N112/N137 own previous fragments; no duplicated money/cargo, no changes to foreign claims.",
+  "tasks": [
+    "Inventory all frozen ship/behavior.rs functions and existing N80/N83/N84–N88/N90/N103/N112/N137 code/PR scope",
+    "Port remaining source-faithful ship decision/planning, scoring/candidates, BT and route helpers to isolated GDScript",
+    "Document exclusive existing owners for transactional apply and ship lifecycle; add fast static/source checks only",
+    "Publish one Draft PR based on integration/godot-47-n33-n37-20261112",
+    "Update N153 claim, coordination queue/log/tracker and macro source status with honest uncovered functions"
+  ],
+  "progress": [
+    "Audited frozen 3351-line agents/ship/behavior.rs function inventory and 811-line ship/actions.rs, plus ai/planner.rs; mapped prior exclusive N80/N81/N83/N84-N88/N90/N103/N112/N137 and transactional N97/N104/N108/N135/N146/N148/N149/N150/N152.",
+    "Ported source contract candidates: native assigned/public admission, N104 quote/top-up/read-only buyer payer checks, hostility/sensors, 3x queue, cargo capacity/credits, median and source pricing, original fee heuristic, fill-ratio and own strategy selection.",
+    "Ported GOAP request/compile glue across six N81 catalogs (normal and combined delivery/trade/refit, passenger/courier/crew mission, rest, resume), real directed path expansion, dock dwell, shipyard selection, rest queue congestion, gate exploration.",
+    "Ported source-only per-ship decision pipeline: LOD/transit guards, contract restore, station assignment, tier/combined goals, N80 replan arbitration and protected funded release, N84 BT outcome consequences and N148 lifecycle handoff.",
+    "Created 19 source-derived fixtures (not executed), GitHub readback and lexical balanced delimiter checks; Draft PR #242 with 5 new files/1076 additions. Macro #4 marked source-mapped across prior isolated PRs and N153, no runnable Godot."
+  ],
+  "evidence": [
+    "Atomic reservation before code: e5de8c72ec749684fc29e6970ffc0313214c09c0",
+    "Work branch compare: 11 commits ahead, 5 added files, 1076 additions, no base/foreign file edits",
+    "Draft PR #242 https://github.com/Mefits/Living-Sector/pull/242 @2099e50951b04c56c56125b74aeb193aff7224eb",
+    "Full source mapping: godot/docs/nightshift/N153_MACRO4_NATIVE_SHIP_AI_SOURCE_COVERAGE_RU.md",
+    "GitHub readback: 4 GDScript files balanced brackets/quotes and all local preload paths exist. Godot parser, headless, runtime, native/GDScript differential parity were NOT RUN"
+  ],
+  "macro4_source_status": "SOURCE_COVERED_COMPONENT_INVENTORY",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/242",
+  "work_sha": "22deba3e23ad4513d7bd68a47b5fdb92e4674083",
+  "remaining": [
+    "Macro4 source-domain function mapping covered across N80/N81/N83/N84-N88/N90/N103/N112/N137/N153; Phase2 must select a single authority for scores, BT, transactions, sources and ECS to avoid double cargo/money/contract payments.",
+    "Native f32/i64/u64 edge cases, GitHub-only lexical checks and HashMap tie ordering need executable Rust/Godot parity in Phase2; source-gap may reopen if found.",
+    "Macro1 economy, macro6 buildings/shipyards, macro7 faction heads/planners, macro10 saving/world still open; no merge or P1 changes."
+  ]
+}

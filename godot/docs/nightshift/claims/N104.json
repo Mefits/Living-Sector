@@ -1,0 +1,50 @@
+{
+  "block_id": "N104",
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "manual-next-n104-contract-funding-2026-11-12T16:59:12.981Z",
+  "claimed_at": "2026-11-12T16:59:12.981Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "base_branch": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n104-contract-funding-escrow-20261112",
+  "title": "P2/P3: frozen Rust contract funding escrow, accept/settle/release/refund and passenger paid lifecycle",
+  "scope": "Standalone source-accurate GDScript port of native/crates/sim_server/src/engine/contract_funding.rs, plus funding records in sim_core economy/contracts.rs. Atomic state-in/state-out business rules. Does not edit occupied N39, N100, N97, N90, other PRs, or P1. No Godot execution or integration until phase 2.",
+  "tasks": [
+    "Read entire Rust contract_funding.rs and contract funding structures, preserve exact source semantics and restrictions",
+    "Create standalone GDScript funding escrow acceptance and release/refund, status and receipts with no phantom payment or cargo",
+    "Port independently bounded passenger embark and contract delivery settlement when complete source and validation is available; otherwise document distinct remaining mechanism",
+    "Static sanity check (paths/source contracts), source handoff, separate Draft PR, close claim CODE_UNVERIFIED"
+  ],
+  "non_overlap": [
+    "N39 production",
+    "N100 hybrid planning",
+    "N97 physical Buy/Sell/Mine/Refuel",
+    "N90 BT request generation",
+    "N89 mandates",
+    "P1/main/stable/Rust frozen"
+  ],
+  "activity": "COMPLETED_CODE",
+  "finished_at": "2026-11-12T17:15:45.131Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/193",
+  "head_sha": "70f582fe3ff3a472fef7fa62ad6188863648b53b",
+  "progress": [
+    "Source-transferred funding quote with Rust comms and treaty price bonus; fixed faction strategic reward and exact escrow top-up.",
+    "Source-transferred exclusive contract acceptance/release/refund across real population wealth, facility credits and faction treasury with station/build order and embargo admission.",
+    "Source-transferred passenger embark with source exact class seats/colonial settlers reserve; physical household count/wealth removed into funded embark manifest.",
+    "Source-transferred delivery from already reserved escrow: pay real ship once, ship cargo to market/building/household, passengers and wealth to real population, mission crew XP/ship progression/reputation updates.",
+    "4 standalone GDScript files with source handoff; no P1/N39/N100 files changed and no external Godot runs."
+  ],
+  "evidence": [
+    "Frozen Rust sim_server/engine/contract_funding.rs 7422 source chars, sim_core/economy/contracts.rs, strategy/orders.rs, faction_relations.rs, ship transaction embark/deliver and apply contract delivery inspected.",
+    "Draft PR #193: four source-derived GDScript components ~900 lines; both explicit preload dependencies exist; delimiter checks balanced, long conditionals normalized.",
+    "Rust uses i128 for passenger wealth and f32/f64 quote rounding: large-value parity explicitly deferred/fail-closed instead of fabricating exact behavior.",
+    "Godot not executed per user Phase 1 policy; CODE_UNVERIFIED, not merged nor runtime VERIFIED."
+  ],
+  "outstanding": [
+    "Phase 2 glue to native ContractBoard indexes, one authoritative global N11 Ledger and N39 world tick",
+    "Full frozen Rust i128/f32 boundary parity in unified Godot runtime",
+    "Other Rust systems such as gate/shipyard refits, contract breach penalties and facility materialization belong to their own transfer blocks"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "block_id": "N105",
+  "status": "CODE_UNVERIFIED",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T18:14:50+01:00-night-transfer1-11-N105",
+  "claimed_at": "2026-11-12T18:14:50+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "archive/rust-galaxy-067-reference",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-nightshift-n105-port-20261112",
+  "scope": "treasury-funded household and essential producer relief",
+  "source_files": [
+    "native/crates/sim_core/src/agents/faction/relief.rs"
+  ],
+  "tasks": [
+    "Inspect frozen Rust rules and state",
+    "Port original rules to isolated GDScript",
+    "Document dependency contracts and cheap static checks"
+  ],
+  "progress": [
+    "Frozen Rust source read",
+    "GDScript component and handoff document committed",
+    "Draft PR created; no Godot execution"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/194",
+    "godot/scripts/sim/native_faction_relief.gd"
+  ],
+  "verification": "Source inspection and static review only; GDScript parser and runtime not executed"
+}

@@ -1,0 +1,40 @@
+{
+  "block_id": "N138",
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "20261112-interactive-macro3-crew-welfare",
+  "claimed_at": "2026-11-12T23:05:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "rust_source_paths": [
+    "native/crates/sim_core/src/agents/ship/mod.rs:456-669",
+    "native/crates/sim_core/src/agents/ship/components.rs:364-436"
+  ],
+  "work_branch": "feature/godot-n138-crew-welfare-20261112",
+  "scope": "Remaining phase-1 Rust ship crew welfare/morale task authority, role-based work, efficiency after real expenses, precise cadence/LOD; source N72 already handles hunger/fatigue/food/wages, N50 initial defaults, N128 skills. Add non-mutating stage bridge only; DO NOT charge wages/food twice or modify other PRs.",
+  "tasks": [
+    "Implement exact frozen morale checks: docked recovery, resting recovery, hunger/fatigue/health precedence, ±0.5 drift, both native check cadence and LOD",
+    "Implement Rust auto-manage crew tasks with strict < and > thresholds, pilot/engineer/trader priority and transit override without creating cargo/credits",
+    "Implement health/morale crew efficiency, shore-leave completion, fatigue/rest scheduling metadata, integration contract around N72 fixed order",
+    "Add deterministic pure data-level check scenarios and Rust mapping, document no double consumption/wages, record PR and trackers"
+  ],
+  "progress": [
+    "Audited source Rust ship/mod.rs 228-320,349-669 and components.rs 364-436; identified N72 already owns hunger/cargo/wages",
+    "Ported source-accurate morale penalties/bonuses, role task routing and post-wage economy efficiency, shore-leave/rest/dock thresholds",
+    "Implemented fail-closed atomic batch with correct before-meal hunger branch token across physical N72 food step, without new physical debits",
+    "Authored source-derived executable-in-future GDScript scenario fixtures and Phase-2 source contract; documented 10 macro workstreams"
+  ],
+  "evidence": [
+    "Draft PR #228 contains 4 new files, 392 added lines, head b7332ba",
+    "Read back 3 GDScript files; source constants and ordering reviewed; balanced string/delimiter static scan passed",
+    "No Godot executable/parser or runtime executed, no full Rust parity assertion"
+  ],
+  "completed_at": "2026-11-12T23:14:00+03:00",
+  "work_sha": "b7332ba89d2c651941f08ae027a85fc981ddf628",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/228",
+  "remaining": [
+    "N72 must be split into source original phases at Phase 2; cannot run whole N72.step and N138 together",
+    "Freeze original LOD gate and authoritative ShipCargo/ShipEconomy Apply in Phase 2",
+    "Broader macro #3 ship crew ecosystem still partially unported or unintegrated; no VERIFIED change"
+  ]
+}

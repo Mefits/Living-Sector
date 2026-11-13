@@ -1,0 +1,38 @@
+{
+  "block_id": "N66",
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T14:07:48.710Z-interactive-N66",
+  "claimed_at": "2026-11-12T14:07:48.710Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "feature/godot-n61-live-itinerary-admission-20261112",
+  "source_sha": "8aba694fe54a0cd4f445e3bcd7eb74a692dd3504",
+  "work_branch": "feature/godot-n66-fleet-command-receipts-20261112",
+  "subject": "Idempotent queued player/AI fleet command receipts and replay guard",
+  "owned_files": [
+    "godot/scripts/sim/ships/fleet_command_receipts.gd"
+  ],
+  "scope_boundary": [
+    "N39 production files excluded",
+    "Rust archive/main/stable/P1 untouched"
+  ],
+  "tasks": [
+    "Implement deterministic idempotent command-id receipt for dock, undock, depart itinerary requests",
+    "Prevent replay after checkpoint load with exact scope and no phantom balances",
+    "Headless N66 smoke for stale IDs, conflicting payload and atomic restore"
+  ],
+  "activity": "COMPLETED_CODE",
+  "dependency": "N61 / PR #150",
+  "finished_at": "2026-11-12T14:24:38.098Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/155",
+  "head_sha": "b34fe603181ea75fd72b3ee36dd1763d2bd7ab0c",
+  "progress": [
+    "Native fleet command operation-id receipts with canonical JSON requests and immutable replay results",
+    "Exactly-once command receipt snapshots added to N64 memory-only world+intent checkpoint schema v2",
+    "Godot headless dock/undock/depart replay test authored"
+  ],
+  "evidence": [
+    "Draft PR #155, no P1 or N39 modifications",
+    "Runtime in Godot unexecuted per user request to wait until full port"
+  ]
+}

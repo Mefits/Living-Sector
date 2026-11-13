@@ -1,0 +1,35 @@
+{
+  "block_id": "N141",
+  "macro_id": 6,
+  "status": "CODE_UNVERIFIED",
+  "owner": "overnight-scheduler",
+  "run_id": "2026-11-12T21:26:39+01:00-nightshift1-n141-labor",
+  "claimed_at": "2026-11-12T21:26:39+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "coordination_head_at_claim": "64c2480ce8e28e6842d289dd8ca1ca6ba4be1b61",
+  "work_branch": "feature/godot-n141-construction-paid-labor-20261112",
+  "rust_source_paths": [
+    "native/crates/sim_core/src/agents/construction/labor.rs",
+    "native/crates/sim_core/src/agents/facility/workforce.rs (occupied_workers/refresh_employment context)"
+  ],
+  "scope": "Macro 6: exact native construction paid labor commit: sponsor treasury -> local household wealth, 60% workforce pool less same-tick occupied, sorted deterministic allocation, active docked engineer attendance, single shift/tick and overflow/failure guards. No N77 site material receipt state, N91 executor selection, N39 facility production, N140 LOD.",
+  "tasks": [
+    "Port source-accurate construction labor selection and staged atomic debit/credit",
+    "Preserve last_shift/last_executor/blocked_reason semantics and cross-enterprise worker reservations",
+    "Document authoritative Phase-2 application and minimal source-based checks"
+  ],
+  "progress": [
+    "Ported complete native construction labor selection/commit and workforce occupied/refresh semantics in 132-line GDScript",
+    "Authoritative snapshot preflight and deep-copied atomic treasury-to-household wages, receipt, employment fraction",
+    "Source-mapped Phase-2 handoff and minimal static delimiter readback"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/229",
+    "https://github.com/Mefits/Living-Sector/commit/535faecb403b55fa627dc62005b8f4760217deb6",
+    "GitHub readback 132 lines; delimiter counts matched; Godot runtime/parser NOT RUN; PR mergeable status false/uninvestigated"
+  ],
+  "completed_at": "2026-11-12T21:28:35+01:00",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/229",
+  "commit_sha": "535faecb403b55fa627dc62005b8f4760217deb6"
+}

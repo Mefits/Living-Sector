@@ -1,0 +1,42 @@
+{
+  "block_id": "N54",
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T12:27:38.471Z-interactive-N54-fleet-save-bridge",
+  "claimed_at": "2026-11-12T12:27:38.471Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "feature/godot-n46-native-ship-bootstrap-20261112",
+  "source_sha": "fb8a2faaeba4367806d67ebdf53c3b9b1327da66",
+  "work_branch": "feature/godot-n54-fleet-save-bridge-20261112",
+  "scope": "Atomic fleet+world checkpoint with explicit save schema; never restore empty P1 data as ship truth",
+  "title": "Atomic fleet checkpoint bridge",
+  "tasks": [
+    "Audit Rust DB ship resume/checkpoint fields and N38 Godot checksum behavior",
+    "Implement opt-in atomic fleet checkpoint and restore with strict provenance, refusing missing economic domains",
+    "Add deterministic/tamper/regression checks and avoid real user save paths",
+    "PR and handoff; integration only after earlier ship blocks reviewed"
+  ],
+  "execution_order": 5,
+  "activity": "COMPLETED_CODE",
+  "dependencies": [
+    "N46 / PR #136"
+  ],
+  "non_overlap": [
+    "N39 production",
+    "P1 checkpoint",
+    "main/stable/frozen Rust"
+  ],
+  "finished_at": "2026-11-12T12:59:34.081Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/144",
+  "head_sha": "a5163396369d614890e46f4f092eeee4af724b71",
+  "progress": [
+    "Added new versioned SHA256-hashed JSON in-memory envelope covering the sole active bodies+ships phase, source wallet and N21 docking",
+    "Added staged all-or-nothing restoration into fresh runner/ledger/docking with transit nonce guard and no player save path access",
+    "Headless acceptance checks JSON round-trip, in-flight fuel and nonce, tampering, cross-domain mismatch and no old-world mutation"
+  ],
+  "evidence": [
+    "Frozen Rust persistence and P1 base checkpoint semantics inspected; N38 remains separate/uncopied",
+    "13 referenced GDScript preload destinations exist; PR #144 draft",
+    "Godot 4.7 runtime not installed, smoke authored but NOT executed; not a production/economy save"
+  ]
+}

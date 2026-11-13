@@ -1,0 +1,31 @@
+{
+  "block_id": "N126",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T21:57:57+03:00-second-chat-overnight-N126",
+  "claimed_at": "2026-11-12T21:57:57+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "rust_source": "archive/rust-galaxy-067-reference:crates/sim_core/src/agents/population.rs",
+  "work_branch": "feature/godot-n126-pop-passenger-contracts-20261112",
+  "scope": "population passenger contract posting",
+  "tasks": [
+    "Port frozen post_passenger_contracts candidate eligibility",
+    "Preserve destination and duplicate active-contract checks",
+    "Emit funding-dependent passenger proposal"
+  ],
+  "progress": [
+    "Source-backed passenger proposal; actual passenger transfer and escrow external."
+  ],
+  "evidence": [
+    "godot/scripts/sim/native/population_passenger_contract_proposals.gd",
+    "GitHub source readback; balanced delimiters; Godot runtime NOT RUN"
+  ],
+  "completed_at": "2026-11-12T22:00:00+03:00",
+  "commit_sha": "fc0e666b2f215143468610994e307473bf59e1af",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/214",
+  "limitations": [
+    "No unified world Apply, no Godot parser/runtime, no Rust parity claim"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "block_id": "N124",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "20261112T214757+0300-second-chat-N124",
+  "claimed_at": "2026-11-12T21:47:57+03:00",
+  "started_at": "2026-11-12T21:47:57+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "source_sha_note": "last documented integration SHA; fresh ref read required before code",
+  "work_branch": "feature/godot-phase1-n124-market-demand-20261112",
+  "scope": "native/crates/sim_core/src/agents/market.rs::tick_one_market",
+  "tasks": [
+    "observed demand window, shortage hysteresis and safe order expiry",
+    "data-only GDScript state transition without scene Nodes",
+    "minimal static validation and source parity"
+  ],
+  "progress": [
+    "GDScript component committed on isolated branch",
+    "Source behavior mapped; static delimiter balance and GitHub readback passed"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/212",
+    "https://github.com/Mefits/Living-Sector/commit/faa8917f721611ee7dd16e9331d75d8379ebc22a",
+    "https://github.com/Mefits/Living-Sector/commit/9619e4dea2650d4ce04bebd82cb858e48b4029e5"
+  ],
+  "code_commit_sha": "9619e4dea2650d4ce04bebd82cb858e48b4029e5",
+  "finished_at": "2026-11-12T22:00:00+03:00",
+  "limitations": [
+    "Godot runtime not executed",
+    "Full authoritative world integration deferred to phase 2",
+    "Crisis event emission remains external as in frozen Rust"
+  ]
+}

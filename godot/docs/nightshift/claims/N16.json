@@ -1,0 +1,32 @@
+{
+  "block_id": "N16",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T06:43:07+03:00-second-chat-n16-contracts",
+  "claimed_at": "2026-11-12T06:43:07+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "c924bdcf7a33476e581277992fa1fdbb5b9fa940",
+  "work_branch": "feature/godot-nightshift-n16-contracts-second-20261112",
+  "tasks": [
+    "audit Rust contract types and lifecycle",
+    "implement deterministic contract escrow and transitions",
+    "implement idempotent settlement/expiration",
+    "add headless acceptance test"
+  ],
+  "progress": [
+    "prepaid post/escrow",
+    "acceptance top-up",
+    "payout/refund/snapshot",
+    "headless smoke prepared"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/102",
+    "https://github.com/Mefits/Living-Sector/commit/006e03d60ddef8f9f75aa5ab69cace4e4691ac14",
+    "Godot runtime not executed"
+  ],
+  "completed_at": "2026-11-12T06:45:00+03:00",
+  "limitations": [
+    "N15 physical cargo receipts not authenticated",
+    "no renewals/reputation/permissions/fixed strategy reward/engine wiring"
+  ]
+}

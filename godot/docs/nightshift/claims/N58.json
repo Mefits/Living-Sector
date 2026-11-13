@@ -1,0 +1,33 @@
+{
+  "block_id": "N58",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T16:21:33+03:00-second-chat-N58-route-graph",
+  "started_at": "2026-11-12T16:21:33+03:00",
+  "claimed_at": "2026-11-12T16:21:33+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n58-route-graph-audit-20261112",
+  "tasks": [
+    "Rust route graph parity read-only validation",
+    "reject missing endpoints duplicate directed arcs and invalid weights",
+    "deterministic diagnostic output and headless regression",
+    "publish independent PR without modifying live fleet or N39"
+  ],
+  "finished_at": "2026-11-12T16:25:00+03:00",
+  "head_sha": "61ad5b64a59192e4a78bab9c7a96ff9dce9cba98",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/146",
+  "progress": [
+    "Rust ship route planning and native Godot route_graph reviewed",
+    "route graph provenance auditor and short headless regression committed",
+    "queue, log and migration tracker updated"
+  ],
+  "evidence": [
+    "Static source inspection; no Godot executable in environment",
+    "Godot headless regression prepared, not executed"
+  ],
+  "blocked_by": [
+    "Godot runtime verification and integration review"
+  ]
+}

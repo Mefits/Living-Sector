@@ -1,0 +1,36 @@
+{
+  "block_id": "N48",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T15:18:37+03:00-second-chat-n48",
+  "started_at": "2026-11-12T15:18:37+03:00",
+  "claimed_at": "2026-11-12T15:18:37+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "coordination_sha": "412fc3a702d3609e8aff238e06f5db75cf5b51e1",
+  "work_branch": "feature/godot-n48-migration-transport-admission-20261112",
+  "tasks": [
+    "Compare Rust population migration transport admission and constraints",
+    "Implement fail-closed deterministic migration transport admission without teleportation",
+    "Add short headless regression for capacity, location and repeat requests",
+    "Publish separate draft PR and record CODE_UNVERIFIED"
+  ],
+  "progress": [
+    "Physical embark debits source population, disembark credits destination only after docked arrival",
+    "Capacity, location, sentiment and minimum population gates",
+    "Idempotent receipts and guarded snapshot/restore"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/137",
+    "bf3a63bc3b34082c49fc86390e3fd0274203f799",
+    "Rust population.rs: passenger posting deliberately disabled"
+  ],
+  "tests": [
+    "Static Rust source parity reviewed",
+    "Godot headless script prepared, NOT EXECUTED"
+  ],
+  "blockers": [
+    "Godot runtime not executed",
+    "No authoritative N40 ship registry integration; caller-supplied docking facts"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "block_id": "N140",
+  "macro_id": 10,
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "20261112-interactive-n140-lod-tuning",
+  "claimed_at": "2026-11-12",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "rust_source_paths": [
+    "native/crates/sim_core/src/simulation/lod.rs",
+    "native/crates/sim_core/src/simulation/tuning.rs",
+    "native/crates/sim_core/src/simulation/config.rs::TickConfig (read-only parity context)"
+  ],
+  "work_branch": "feature/godot-n140-lod-tuning-20261112",
+  "scope": "Macro10 standalone native per-agent spatial LOD cursor/divisor/recompute and world tuning immutable one-time configuration. Does not alter N112 ship transit, N39 facility production, N138 crew, N80 replan, N94 price or shared tick integration.",
+  "tasks": [
+    "Full Rust AgentLod cursor try_fire/set_divisor and observer-distance bucketing; multi-agent recompute and metrics without mutating unrelated state",
+    "Full WorldTuning default parameters, serde-partial override, one-time install, legacy vs finite Genesis world switches; no effects or free resources",
+    "Source parity fixtures, Phase-2 handoff and plans coverage update; minimal static checks, PR and close claim"
+  ],
+  "evidence": [
+    "Draft GitHub PR #230; four new files, 418 added lines reported; head 609dc3dd",
+    "Readback all four files, lexical quotes/brackets balanced, preload target files exist",
+    "No Godot executable/parser/headless/runtime or Rust-Godot executable parity checks; CODE_UNVERIFIED"
+  ],
+  "progress": [
+    "Complete source-derived Rust simulation/lod.rs AgentLod cursor, squared-distance tiers, nearest observer, per-agent recompute and stats",
+    "Authoritative ship-only LOD gate with no LOD => run every tick and explicitly no advance of facility/population cursors",
+    "Complete Rust simulation/tuning.rs 12-key WorldTuning defaults, serde partial JSON, OnceLock boot state and legacy/finite Genesis switches",
+    "Source-derived scenario fixture and Phase-2 handoff, without running Godot"
+  ],
+  "completed_at": "2026-11-12",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/230",
+  "work_sha": "609dc3dd89968518142fa42ccf1da9b3a594a19c",
+  "blockers": [
+    "External Phase-2 world/ship LOD gate owner, immutable tuning install and live tick cadence integration",
+    "Actual Godot parser/runtime and native f32 vs Godot float boundary/large-tick validation",
+    "Remaining macro 10 world registry / spawner / config / save coverage not completed"
+  ]
+}

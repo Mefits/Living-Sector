@@ -1,0 +1,44 @@
+{
+  "block_id": "N39",
+  "status": "CODE_UNVERIFIED",
+  "owner": "primary-chat-20261113",
+  "run_id": "2026-11-13-primary-n39-physical-production-01",
+  "claimed_at": "2026-11-12T10:40:50.393Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "base_branch": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n39-production-worldbridge-20261112",
+  "tasks": [
+    "Аудит реального N23 production tick и точной связки с Godot world/Rust source",
+    "Опциональный физически обоснованный production WorldBridge с реальными запасами, персоналом и средствами без генерации ресурсов",
+    "Встроить фазу facilities в единый TickRunner, не ломая орбиты и N3 события, с guardrails restore",
+    "Добавить короткий headless regression и интеграционный handoff без пользовательских тестов"
+  ],
+  "progress": [
+    "N39 handoff accepted by primary chat after all old chats were stopped; no N39 branch changes or existing PR; N100 reserved for new second chat.",
+    "Audited frozen Rust facility tick, paid workforce and mining; native Godot N6/N8/N23 singular shifts do not implement source full physical world pass.",
+    "N39 source-domain completed: full Rust facility/mod.rs tick_recipes_and_mining, level_scaled_max_batches, XP, ordinary mining and finite salvage, workforce.rs pay_shift/occupied_workers/refresh_employment including distinct market owner service fee, N9 actual balanced accounts and N73 recipe stock movement; source-focused adapter with events/calendar and checkpoint.",
+    "Draft PR #246: 7 files / source bridge and 19 source-derived fixture checks; after initial PR added 4 additional regression checks. Source readback and lexical bracket/string/preload checks only; Godot parser/headless + Rust diff NOT RUN. Source-domain macro1 eligible SOURCE-COVERED alongside N156, N130/N154 etc, no Phase2 unified ECS."
+  ],
+  "evidence": [
+    "Draft PR https://github.com/Mefits/Living-Sector/pull/246, head 02eee3e1070e21dd7698de329bd3608afa618b7a",
+    "Readback all six GDScript files; no unbalanced brackets/strings, six preload paths point to existing baseline/new code; negative/paid/identity/research/LOD source fixture probes authored but NOT executed",
+    "Source-to-module handoff godot/docs/nightshift/N39_MACRO1_NATIVE_PRODUCTION_SOURCE_HANDOFF_RU.md",
+    "User explicitly confirmed former worker chat stopped, handoff preserved original owner/run in handoff_history."
+  ],
+  "handoff_history": [
+    {
+      "previous_owner": "interactive-chat",
+      "previous_run_id": "2026-11-12-interactive-n39-production-live-01",
+      "status_at_handoff": "IN_PROGRESS",
+      "reason": "User confirmed all previous development chats stopped; N39 branch identical to base, zero independent commits, no N39 PR.",
+      "handoff_date": "2026-11-13"
+    }
+  ],
+  "handoff_at": "2026-11-13",
+  "macro_id": 1,
+  "macro1_source_status": "SOURCE_COVERED_N39_N156_GODOT_UNVERIFIED",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/246",
+  "work_sha": "02eee3e1070e21dd7698de329bd3608afa618b7a",
+  "completed_on": "2026-11-13"
+}

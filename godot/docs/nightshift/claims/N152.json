@@ -1,0 +1,45 @@
+{
+  "block_id": "N152",
+  "macro_id": 5,
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13-macro5-contract-board-hydration-cleanup",
+  "claimed_at": "2026-11-13T02:10:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "work_branch": "feature/godot-n152-contract-board-lifecycle-index-cleanup-20261113",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_paths": [
+    "native/crates/sim_core/src/economy/contracts.rs::insert_loaded/post_kind_with_faction/by_status/posted_by_destination/posted_by_faction",
+    "native/crates/sim_core/src/economy/contracts.rs::accept/release/mark_picked_up/mark_delivered/drop_ship_holdings/cancel_for_facility",
+    "native/crates/sim_core/src/economy/contracts.rs::register_prepaid (boundary only)"
+  ],
+  "scope": "Macro5 one source-backed ContractBoard index/state authority, persisted insert and post, ship destruction/facility deletion cleanup, exhaustive state transitions without duplicating N145 aging, N104 funding, N97 transactions, N135 order dispatcher; keep CODE_UNVERIFIED if untested.",
+  "tasks": [
+    "Audit native board transitions/index invariants against N16 N145 and current draft PRs",
+    "Port complete pure ContractBoard authoritative projection: post+rehydrate, indices, state transitions and ship/facility removal idempotent receipts",
+    "Add source-grounded regression scenarios for stale fulfiller cleanup, index visibility and post-reload IDs, no credits or refunded escrow",
+    "Write Phase2 owner map and collision guards; publish single Draft PR",
+    "Update claim/queue/log/tracker; mark whole macro #5 complete only if every remaining Rust function actually covered"
+  ],
+  "evidence": [
+    "Draft PR #241 https://github.com/Mefits/Living-Sector/pull/241, HEAD d6bb7f8a3154e7a08d70ddbf965a367fee109ad5, 4 files/653 added lines",
+    "Readback all four committed GitHub files and confirmed lexical balanced strings/brackets and relative preload destinations",
+    "Godot parser/headless/runtime and executable Rust/Godot parity NOT RUN; real unified ECS/ContractBoard+Ledger apply/save NOT executed"
+  ],
+  "progress": [
+    "Audited full 1669-line frozen Rust ContractBoard contracts.rs, 380-line strategy/orders.rs, engine/transactions.rs, engine/contract_funding.rs, engine/apply.rs and source-to-existing N16/N90/N97/N104/N108/N135/N145 handoffs",
+    "Ported original single ContractBoard structural source: new_board, loaded IDs and next_id cursor, post kinds with original 70/50 rep gates, all posted/status/faction tier indexes, read-only posted views and integrity preflight",
+    "Ported native status/indices Accept/Release/PickedUp/mark_delivered direct Paid after authoritative N104/N97 physical/paid receipts, without second wallet or speculative payout",
+    "Ported original drop_ship_holdings and cancel_for_facility, including Accepted->Posted, lost cargo PickedUp->Expired, Paid/Expired history retention, correct posted indices and no fake escrow refunds",
+    "Authored source-derived checks and full Rust-to-PR / Phase2 one-authority matrix, published Draft PR #241; macro5 source-covered across previous PRs + N152"
+  ],
+  "macro5_source_status": "MACRO5_SOURCE_COVERED",
+  "completed_at": "2026-11-13T03:30:00+03:00",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/241",
+  "work_sha": "d6bb7f8a3154e7a08d70ddbf965a367fee109ad5",
+  "remaining": [
+    "Macro #5 source functions mapped and isolated P1 components; Phase2 must merge N104, N97, N145, N135, N152 into exactly one authoritative Board/World/escrow and test real pickup/paid/expiry/ship deletion/save restore",
+    "Intentional fail-closed duplicate loaded IDs and deterministic cleanup ordering differ from unsafe Rust HashMap edge; strict parity review remains",
+    "Macro #1/#4/#6/#7/#10 still carry Rust source gaps. CODE_UNVERIFIED until real Godot tests"
+  ]
+}

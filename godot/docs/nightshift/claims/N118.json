@@ -1,0 +1,28 @@
+{
+  "block_id": "N118",
+  "status": "CODE_UNVERIFIED",
+  "owner": "overnight-scheduler",
+  "run_id": "20261112-192339-cet-nightshift1-N118",
+  "claimed_at": "2026-11-12T19:23:39+01:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "source_ref": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n118-colony-foundation-20261112",
+  "scope": "Rust colony founding execution and settlement guards",
+  "tasks": [
+    "read frozen Rust implementation and map exact state",
+    "port independent GDScript component with explicit boundaries",
+    "document dependencies and minimal static validation"
+  ],
+  "progress": [
+    "Rust source reviewed",
+    "standalone GDScript component committed",
+    "source handoff documented",
+    "draft PR created"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/207",
+    "https://github.com/Mefits/Living-Sector/commit/308e7b3c2272fc04036684cbeade063572e439cc"
+  ],
+  "validation": "Static source/contract review only; no Godot parser/runtime executed"
+}

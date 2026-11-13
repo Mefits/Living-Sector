@@ -1,0 +1,30 @@
+{
+  "block_id": "N70",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T17:26:19+03:00-second-chat-n70-run11",
+  "claimed_at": "2026-11-12T17:26:19+03:00",
+  "started_at": "2026-11-12T17:26:19+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n70-native-maintenance-20261112",
+  "scope": "P2-09 native facility wear and maintenance admission: source-derived wear/repair/stoppage and smoke",
+  "tasks": [
+    "P2-09 native facility wear and maintenance admission: source-derived wear/repair/stoppage and smoke",
+    "source parity and fail-closed invariants",
+    "short Godot headless regression and PR"
+  ],
+  "progress": [
+    "condition degradation, cadence-gated tool repair, receipt replay guard, abandonment and snapshot",
+    "Two GDScript files published in own branch; short headless regression prepared"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/159"
+  ],
+  "checks": [
+    "GitHub files fetched back; source constants/logic compared with frozen Rust; static path/entrypoint checks",
+    "Godot Runtime not executed; no runtime VERIFIED"
+  ],
+  "completed_at": "2026-11-12T17:26:19+03:00"
+}

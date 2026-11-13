@@ -1,0 +1,57 @@
+{
+  "block_id": "N148",
+  "macro_id": 3,
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13T01:10+03:00-N148-ship-lifecycle-retirement",
+  "claimed_at": "2026-11-13T01:10:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "work_branch": "feature/godot-n148-native-ship-lifecycle-retirement-20261113",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_paths": [
+    "native/crates/sim_core/src/agents/ship/components.rs::ShipLifecycle and strike/retirement constants",
+    "native/crates/sim_core/src/agents/ship/behavior.rs::decide_and_act idle_ticks, strike accumulation, DecommissionShip intent",
+    "native/crates/sim_server/src/engine/apply.rs::DecommissionShip queue and successful-delivery hoard strike reset",
+    "native/crates/sim_server/src/engine/drains.rs::drain_pending_decommissions, drain_pending_respawns (read-only transaction boundary)",
+    "native/crates/sim_core/src/agents/ship/snapshot.rs::ShipSnapshot lifecycle/crew wire view (read-only adapter)"
+  ],
+  "scope": "Macro #3 native adaptive fleet lifecycle: source-accurate idle, low-credit and hoarding strike cadence/recovery/retirement intents, delivery strike-reset and native single-owner decommission/respawn handoff, plus read-only wire lifecycle projection. NOT macro4 AI goal choice, N138 Crew tick, N72 food/wages, N54 checkpoint, N146 CommandBuffer, or actual server-side SQL respawn.",
+  "prior_prs": [
+    "N50 #139",
+    "N54 #144",
+    "N67 #156",
+    "N72 #164",
+    "N80 #169",
+    "N101 #190",
+    "N128 #217",
+    "N138 #228",
+    "N146 #235"
+  ],
+  "tasks": [
+    "Audit all Rust lifecycle strike and decommission/reset source and claim boundaries; avoid overlapping N80 idle goal decision",
+    "Port full source idle+strike policy to pure GDScript with exact cadence, u8/u32 saturating counters, two thresholds and bankruptcy-before-stagnation priority",
+    "Port after-confirmed-delivery strike reset and authoritative queue/admission contract for one decommission/respawn without direct spawner/SQL manipulation",
+    "Add source-derived scenarios and read-only source snapshot lifecycle fields, document Phase2 ownership and integration boundary, draft PR and static readback"
+  ],
+  "progress": [
+    "Audited frozen Rust ShipLifecycle in components.rs; exact behavior.rs idle/strike cadence, engine/apply.rs DecommissionShip and successful delivery hoard reset, engine/drains.rs deferred remove and finite/legacy replacement, and ship/snapshot.rs wire surface",
+    "Ported original per-LOD-active ship idle counter, 500×tick_multiplier strike checks, bankruptcy/hoard funding and cargo guards, 3-strike priority, u8/u32 saturation and after-delivery hoard-only reset in pure GDScript",
+    "Ported actual engine command to pending_decommissions, async removal-success boundary, WorldTuning legacy replacement delay 300+(tick%300), Genesis finite asset rule, and free respawn suppression on policy switch; no fabricated SQL or physical ship spawns",
+    "Ported source ShipSnapshot::build read-only HTTP/WS view: original keys, size tiers, crew display round only, paid wage assets once, optional components and true owner/progression/fitting data",
+    "Authored source-derived scenarios and RU source mapping and handoff; published Draft PR #237, 5 files / 628 additions"
+  ],
+  "evidence": [
+    "GitHub PR #237 https://github.com/Mefits/Living-Sector/pull/237, HEAD 9743e6c42ea7fa942549fdef0ee55b3d2603360d",
+    "Readback all five file paths from GitHub and confirmed static balanced brackets/quotes, preload targets linked to created files",
+    "Godot parser/headless/runtime NOT RUN; no integrated ship ECS/World apply, no Rust-vs-GDScript run; CODE_UNVERIFIED"
+  ],
+  "completed_at": "2026-11-13T01:35:00+03:00",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/237",
+  "work_sha": "9743e6c42ea7fa942549fdef0ee55b3d2603360d",
+  "macro3_status": "IN_PROGRESS_SOURCE_COVERAGE; N148 LIFECYCLE/RETIREMENT/WIRE SOURCE SLICE COMPLETE, NOT GODOT VERIFIED",
+  "remaining": [
+    "Macro3 full ship life/crew source inventory still needs strict gap-vs-N50/N72/N101/N128/N138/N148 audit before source-covered closure",
+    "Phase2 only: apply selected N80 current_goal, real N140 LOD tick, N146 CommandBuffer, true async Engine admin remove/DB, finite-hull shipyards and N54 checkpoint authority",
+    "No real ship spawned/deleted, no duplicate legacy moral task or wages, no Godot runtime tests"
+  ]
+}

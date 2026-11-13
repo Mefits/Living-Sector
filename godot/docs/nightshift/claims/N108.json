@@ -1,0 +1,50 @@
+{
+  "block_id": "N108",
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "manual-next-n108-ship-special-command-apply-2026-11-12T17:34:38.722Z",
+  "claimed_at": "2026-11-12T17:34:38.722Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "base_branch": "integration/godot-47-n33-n37-20261112",
+  "work_branch": "feature/godot-n108-special-ship-command-apply-20261112",
+  "title": "P3/P5 Rust ship specialized command Apply: real gate jump, shipyard refit and contract release",
+  "scope": "Standalone source-accurate GDScript transfer of frozen Rust sim_server/engine/apply.rs apply_gate_jump / ReleaseContract and engine/admin.rs apply_fitting_swap / commit_shipyard_refit / try_shipyard_refit. No live Godot integration or source changes to N39/N100/N79/N90/N104. Return staged immutable world+events; preserve real economy and ship/location guards, no free gate/refit.",
+  "tasks": [
+    "Read complete Rust apply.rs gate/contract release and admin.rs refit branches plus module definitions, class constraints and physical ownership",
+    "Port executable gates, money transfer, world location, dock and cooldown rules as data-only exclusive Apply",
+    "Port real shipyard fitting replacement, module inventory/cost/points and equipment stat recomputation with exact Rust guard logic",
+    "Port contract release with escrow/reputation consequences and no duplicated N104 board mutation; short static source check, handoff and draft PR"
+  ],
+  "non_overlap": [
+    "N39 production tick",
+    "N100 hybrid agent",
+    "N79 builder shipyard order creation",
+    "N97 physical market and credit apply",
+    "N104 escrow accept/deliver/release board",
+    "P1/main/stable/frozen Rust"
+  ],
+  "activity": "COMPLETED_CODE",
+  "finished_at": "2026-11-12T17:47:57.660Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/200",
+  "head_sha": "dd7592a84ee7d272577904e11338274c260a4a03",
+  "progress": [
+    "Source port of Rust apply_gate_jump with real cargo-scaled gate fee, paired facility positions, ship-to-gate payment and five recently visited systems, atomic detached world output.",
+    "Source port of all 15 module effects and 10 shipyard-produced prices, six original ship classes, fitting rollup/cargo/speed rebake.",
+    "Source port of shipyard refit with physical inventory/ship wallet/facility wallet and one agent retrofit point; separate authenticated admin overrides without agent point consumption.",
+    "Source port of ReleaseContract accepted-to-posted rollback with reserved escrow preserved, issuer-funding-failure exemption, breach reputation penalty and cross-faction standing -1.",
+    "5 pure GDScript modules (527 lines) + source handoff in Draft PR #200; N39/N100/P1 untouched; no Godot test run."
+  ],
+  "evidence": [
+    "Frozen Rust sim_server/engine/apply.rs, admin.rs, sim_core/modules/mod.rs, economy/module_production.rs, facility/components.rs, ship/components.rs, faction_relations.rs and contracts.rs read for source formulas.",
+    "All 4 explicit res:// dependencies in 5 new scripts exist, literal delimiters balanced, no lines >170 chars in quick static check.",
+    "Rust optimistic gate jump drift explicitly identified and documented: N108 deliberately fails closed before spending when destination is missing, not exact-bug parity.",
+    "No Godot runtime execution per user first-phase strategy; CODE_UNVERIFIED only."
+  ],
+  "remaining_first_phase": [
+    "Still unported Rust command apply families and authoritative world transactions outside N108 (if any after source inventory)",
+    "Phase 2 unify immutable N51/N108 module catalog, N11 ledger, N39 production and N104 ContractBoard into single exclusive tick; save/replay",
+    "Phase 3 Grok fixes only after Phase 2"
+  ]
+}

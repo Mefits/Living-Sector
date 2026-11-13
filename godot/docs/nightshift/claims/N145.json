@@ -1,0 +1,42 @@
+{
+  "block_id": "N145",
+  "macro_id": 5,
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-13T00:05:19+03:00-second-chat-overnight-n145-contract-aging",
+  "claimed_at": "2026-11-13T00:05:19+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "work_branch": "feature/godot-n145-contract-aging-renewal-20261113",
+  "rust_source_paths": [
+    "native/crates/sim_core/src/economy/contracts.rs::age_open_reputation",
+    "native/crates/sim_core/src/economy/contracts.rs::age_escalate_payment",
+    "native/crates/sim_core/src/economy/contracts.rs::sweep_expiring",
+    "native/crates/sim_core/src/economy/contracts.rs::posted_for_ship"
+  ],
+  "scope": "Macro 5 standalone posted-contract aging, reputation gating, expiry/renewal and indexed visibility; excludes N16 escrow/settlement, N104 funding, N135 dispatch, N97 physical Apply",
+  "tasks": [
+    "Port exact Rust aging constants and idempotent posted-only payment/reputation evolution",
+    "Port renewal by contract kind, terminal expiry and event summaries without touching credits",
+    "Port faction/rep posted index and deterministic eligibility snapshots",
+    "Document phase-2 board adapter and source parity limitations"
+  ],
+  "progress": [
+    "12 standalone GDScript methods: Posted reputation/price aging, renewal/expiry, sorted indexes and ship eligibility",
+    "Rust project tag literals verified; no escrow/cargo/credits mutations",
+    "Source handoff committed; readback and delimiter balance checked"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/pull/234",
+    "https://github.com/Mefits/Living-Sector/commit/c5daac60cd1d259cd3b288dd09cf33983d90129a",
+    "Godot runtime not executed"
+  ],
+  "completed_at": "2026-11-13T00:08:00+03:00",
+  "work_sha": "c5daac60cd1d259cd3b288dd09cf33983d90129a",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/234",
+  "limitations": [
+    "CODE_UNVERIFIED; float32 renewal rounding and extreme i64 arithmetic parity untested",
+    "Phase 2 must atomically coordinate board update with N104 refunds and N135 dispatch"
+  ]
+}

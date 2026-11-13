@@ -1,0 +1,32 @@
+{
+  "block_id": "N46",
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-12T11:41:41.482Z-n46-ship-bootstrap",
+  "claimed_at": "2026-11-12T11:41:41.482Z",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "feature/godot-n43-native-location-resolver-20261112",
+  "source_sha": "da8534bfcf66f9e3c1163255bf19d20b91497903",
+  "work_branch": "feature/godot-n46-native-ship-bootstrap-20261112",
+  "tasks": [
+    "Trace original Rust Galaxy 0.6.7 fleet spawning defaults and exact differences between JSON initial ship and runtime components",
+    "Build fail-closed typed native fleet bootstrap for seed ship class, fuel/cargo and identity with source-parity evidence; do not invent starting cargo or credits",
+    "Provide opt-in compatibility with N40/N43 fleet lifecycle and safe rollback on missing source provenance without editing N39 production",
+    "Add deterministic smoke fixture and source-oriented handoff; no user Windows test"
+  ],
+  "finished_at": "2026-11-12T11:56:09.694Z",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/136",
+  "head_sha": "fb8a2faaeba4367806d67ebdf53c3b9b1327da66",
+  "progress": [
+    "Rust source seeder vs saved-DB ship behavior separated; full initial fuel and empty cargo proven, while restore remains authoritative.",
+    "Fresh-seed fleet bootstrap for all 24 native ships, with exact 6 class capacities/initial credits and explicit origin/ownership validation.",
+    "Opt-in N43/N40 ship tick composition with one-time-only state, and new prohibition against initializing after a restored tick-zero checkpoint.",
+    "Godot headless smoke written including 24-ship capacity/fuel totals, negative input and save guards."
+  ],
+  "evidence": [
+    "Rust frozen sim_db/src/seeder.rs fuel=fuel_capacity, migrations/001_initial.sql cargo DEFAULT '{}', spawner.rs saved fuel/cargo/credits restoration read.",
+    "All 8 frozen world JSON read and 6 class cargo/fuel parameters checked against Godot: 24 ships; fuel=4200; cargo capacity=17250; initial source credits=960000; 0 mismatches.",
+    "All 10 new/changed preload paths exist; statically balanced bracket/parentheses/brace counts across 4 core files.",
+    "PR #136 draft; Godot 4.7 executable not available, headless not executed; no main, P1, N39 modifications."
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "block_id": "N13",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T04:39:04+03:00-second-chat-n13-ship-catalog",
+  "claimed_at": "2026-11-12T04:39:04+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "b9054f8938ac199b8530976aada64503fb5f613f",
+  "work_branch": "feature/godot-nightshift-n13-ships-second-20261112",
+  "tasks": [
+    "Audit Rust ship class and component definitions",
+    "Implement compact data-only ship specifications and cargo/fuel/crew invariant checks",
+    "Implement stable ship state and snapshot validation",
+    "Add short headless parity smoke"
+  ],
+  "progress": [
+    "6 native ship classes and size tiers",
+    "cargo/fuel/crew state and validations",
+    "canonical snapshot and atomic restore",
+    "headless parity smoke"
+  ],
+  "evidence": [
+    "Frozen Rust simulation/config.rs and ship/components.rs inspected",
+    "Godot runtime unavailable; headless test not executed"
+  ],
+  "completed_at": "2026-11-12T04:41:00+03:00",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/95",
+  "head_sha": "0354b74c3be8be5ac4010aff5a56dec8002f64ae"
+}

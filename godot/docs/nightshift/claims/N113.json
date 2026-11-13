@@ -1,0 +1,33 @@
+{
+  "block_id": "N113",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T20:48:08+03:00-second-chat-overnight-11-N113",
+  "claimed_at": "2026-11-12T20:48:08+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+  "work_branch": "feature/godot-n113-director-overnight-20261112",
+  "scope": "Rust faction director decision cooldown and priority domain",
+  "source_files": [
+    "native/crates/sim_core/src/strategy/director.rs"
+  ],
+  "tasks": [
+    "Read frozen Rust source and existing port interfaces",
+    "Port remaining isolated mechanics with exact state and formulas",
+    "Perform minimal static checks and publish Draft PR"
+  ],
+  "progress": [
+    "Read frozen Rust source",
+    "Implemented isolated GDScript logic",
+    "Created Draft PR; runtime not executed"
+  ],
+  "evidence": [
+    "https://github.com/Mefits/Living-Sector/commit/59d24bb247dd1153a014ef448eb063ef8c51a762",
+    "https://github.com/Mefits/Living-Sector/pull/202"
+  ],
+  "known_limitations": [
+    "No Godot execution; no integration",
+    "Only isolated source subset, not full subsystem parity"
+  ]
+}

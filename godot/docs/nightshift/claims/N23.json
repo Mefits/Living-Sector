@@ -1,0 +1,32 @@
+{
+  "block_id": "N23",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "20261112-090414-msk-second-n23",
+  "claimed_at": "2026-11-12T09:04:14+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "a422fafedcf853f3b92e3719e7ed6a00380ba884",
+  "work_branch": "feature/godot-nightshift-n23-production-tick-second-20261112",
+  "tasks": [
+    "wire deterministic production to TickRunner facilities phase",
+    "enforce exactly-once shift and validated event receipts",
+    "add short headless integration smoke and snapshot regression"
+  ],
+  "progress": [
+    "opt-in production tick runner",
+    "atomic staged economy restore",
+    "headless regression",
+    "handoff"
+  ],
+  "evidence": [
+    "3 code/document commits",
+    "Godot runtime NOT RUN; CODE_UNVERIFIED"
+  ],
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/111",
+  "head_sha": "525f83ddbe4140289f1e437ff561a2a8aa08f24f",
+  "remaining": [
+    "N3 phase loop integration",
+    "Godot headless acceptance",
+    "restore signal ordering"
+  ]
+}

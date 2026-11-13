@@ -1,0 +1,59 @@
+{
+  "block_id": "N155",
+  "macro_id": 7,
+  "status": "CODE_UNVERIFIED",
+  "owner": "interactive-chat",
+  "run_id": "2026-11-13-macro7-director-native-strategy-closure",
+  "claimed_at": "2026-11-13T02:00:00+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_ref": "archive/rust-galaxy-067-reference",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "work_branch": "feature/godot-n155-macro7-director-native-strategy-20261113",
+  "source_paths": [
+    "native/crates/sim_core/src/strategy/director.rs::head_candidate_decision_assembly_and_commitment_integration",
+    "native/crates/sim_core/src/strategy/planning/native_catalogue.rs::native_catalogue_and_real_HTN_shadow",
+    "native/crates/sim_core/src/strategy/planning/htn_adapter.rs::uncovered_native_domain_and_methods",
+    "native/crates/sim_core/src/strategy/planning/telic_goap.rs::guided_telic_adapter",
+    "native/crates/sim_core/src/strategy/planning/baseline.rs::native_head_goal_translation",
+    "native/crates/sim_core/src/strategy/planning/mod.rs::read_only_snapshot_validator"
+  ],
+  "excluded": [
+    "strategy/planning/hybrid.rs (N100 IN_PROGRESS; do not edit or claim as source-covered)",
+    "strategy/coordination.rs (N134 PR #223)",
+    "strategy/planning/native_execution.rs (N121 PR #216)",
+    "strategy/planning/ledger.rs (N98 PR #186)",
+    "strategy/long_term.rs (N106 PR #195)",
+    "strategy/station.rs (N107 PR #196)",
+    "strategy/construction.rs and economy physical production (N154 and macro1)"
+  ],
+  "tasks": [
+    "Audit fresh coordination and Rust strategy/planning source functions vs N19/N93/N98/N99/N100/N106/N107/N113/N117/N121/N134 PR scopes",
+    "Port uncovered source-native catalogue, domain materialisation, HTN/Telic and head goal/shadow semantics, leaving N100 Hybrid untouched",
+    "Produce exact source function owner matrix, one-authority Phase2 handoff and source-derived fast static fixtures without Godot integration",
+    "Publish one large Draft PR from integration checkpoint; update queue, log and tracker with honest macro status (N100 still in progress)"
+  ],
+  "progress": [
+    "Audited fresh coordination claims (N100 still IN_PROGRESS other owner; PR #188 only candidate arbitration), N134 coordination, N113 director hysteresis, N106 long-term, N107 station, N98 ledger, N99 Beam, N93 partial HTN, N117 comparison, N121 receipt execution; did not edit existing owners.",
+    "Ported 679-line native_catalogue.rs source domain with unique owned market identity, same-location facility+real recipe outputs, Posted/Accepted obligations, single uncommitted physical carrier, 17 native commodity prices/lot bounds, deterministic backward dependency pruning, pinned producers and absolute stock reoffer target.",
+    "Ported Rust htn_adapter.rs missing bounded NativeDomain and MethodSearch Require/Prepare/Apply over finite i32 stock/cash/one departure per carrier, with explicit false upstream_htn_verified flag and no native dispatch.",
+    "Ported Telic/GOAP stock/cash globally ranked exact forward search and bounded Boolean structural fact request; upstream Telic guide remains external and unverified, N99 Beam exclusive.",
+    "Ported director leader archetype/profile observations and source option score; read-only baseline head first action, HTN shadow and shared source planning.mod validate_plan. No second N134 grant, N143 research, N39 production or N121 receipts.",
+    "Authored 14 source-derived fixtures, no execution. GitHub readback 8 scripts, balanced brackets/quotes and local preloads; 9 new files / 1443 additions; Draft PR #245. Macro7 NOT source-covered while N100 remains incomplete."
+  ],
+  "evidence": [
+    "Atomic claim before source code: commit 99d87478c0e57802fc27a771d53b2c9d4e94ea1d",
+    "Draft PR #245 https://github.com/Mefits/Living-Sector/pull/245, HEAD d381618316f9eeef2fdfdb92db1c67ba6e8076f6",
+    "Commit comparison base integration/godot-47-n33-n37-20261112: 9 added files / 1443 additions / 0 existing file edits",
+    "GitHub readback all 8 GDScript files, no unclosed strings or unmatched delimiters, all same-directory res:// preloads found; no Godot parser/headless, no Rust/upstream htn/Telic library executed",
+    "Full handoff godot/docs/nightshift/N155_MACRO7_DIRECTOR_NATIVE_PLANNERS_RU.md"
+  ],
+  "macro7_source_status": "PARTIAL_N100_IN_PROGRESS",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/245",
+  "work_sha": "d381618316f9eeef2fdfdb92db1c67ba6e8076f6",
+  "remaining": [
+    "N100 owned by second-chat-overnight, IN_PROGRESS, PR #188 only candidate arbitration; real strategy/planning/hybrid.rs compose_ingredient_route/HybridPlanner.decide full role candidates/budget/arbitration unported. DO NOT usurp.",
+    "Upstream htn 0.2.1 final Sequence validation and Telic 0.1.0 GoapPlanner structural hint are not executed, must remain fail-closed until Phase2 executable parity",
+    "Native ECS snapshot/authorized N121 receipts and single N98 durable ledger Phase2, no backend runtime or integration; honest macro7 partial until N100 complete.",
+    "Source gaps macros #1 and #10 remain; N156 macro1 in-progress other chat; macros 2,3,4,5,6,8,9 already source-covered; 7/10 remains"
+  ]
+}

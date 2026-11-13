@@ -1,0 +1,33 @@
+{
+  "block_id": "N25",
+  "status": "CODE_UNVERIFIED",
+  "owner": "second-chat-overnight",
+  "run_id": "2026-11-12T09:54:46+03:00-second-chat-N25",
+  "claimed_at": "2026-11-12T09:54:46+03:00",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "source_sha": "cc72a0158e6560301f227b61a8aea473cf573d0b",
+  "work_branch": "feature/godot-nightshift-n25-market-settlement-second-20261112",
+  "tasks": [
+    "Rust order book matching semantics",
+    "atomic physical stock and money settlement",
+    "idempotent receipts and save/load",
+    "short headless smoke"
+  ],
+  "progress": [
+    "Rust price priority and partial fills",
+    "atomic local stock/cash transfer",
+    "receipt idempotence and versioned snapshots",
+    "headless smoke added"
+  ],
+  "evidence": [
+    "Static source comparison with native/crates/sim_core/src/economy/order_book.rs",
+    "Godot runtime NOT executed"
+  ],
+  "completed_at": "2026-11-12T09:56:00+03:00",
+  "pr": "https://github.com/Mefits/Living-Sector/pull/113",
+  "commit_sha": "867a10ff13c1faf46a82a3a314255b490b5948d1",
+  "limitations": [
+    "not connected to live N9/N11/N10 TickRunner",
+    "one commodity per order book"
+  ]
+}
