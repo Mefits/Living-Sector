@@ -5,6 +5,9 @@ const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
 const TYPES = ["delivery", "courier", "passenger", "subsidy", "supply", "crew_mission", "construction"]
 const ACTIVE = ["posted", "accepted", "picked_up", "delivered"]
 var _contracts: Dictionary = {}
+## One physical cargo operation can prove at most one contract transition.
+## Claims survive save/reload and are rebuilt from legacy version-1 snapshots.
+var _receipt_claims: Dictionary = {}
 var _ledger: RefCounted
 var _physical_cargo: RefCounted
 
@@ -109,7 +112,7 @@ func get_contract(id: String) -> Dictionary:
 	return _contracts[id].duplicate(true)
 
 func snapshot() -> Dictionary:
-	return {"version": 1, "contracts": _contracts.duplicate(true)}
+	return {"version": 1, "contracts": _contracts.duplicate(true), "receipt_claims": _receipt_claims.duplicate(true)}
 
 func restore(data: Dictionary) -> bool:
 	if data.get("version") != 1 or not (data.get("contracts") is Dictionary):
@@ -123,7 +126,28 @@ func restore(data: Dictionary) -> bool:
 			return false
 		if typeof(c.get("reserved")) != TYPE_INT or int(c["reserved"]) < 0 or _ledger.balance(str(c.get("escrow_account"))) < int(c["reserved"]):
 			return false
+	var reconstructed: Dictionary = {}
+	for id in candidate:
+		var c: Dictionary = candidate[id]
+		for phase in ["picked_up", "delivered"]:
+			var key: String = phase + "_receipt"
+			if not c.has(key):
+				continue
+			var receipt_id: String = str(c[key])
+			if receipt_id.is_empty() or reconstructed.has(receipt_id):
+				return false
+			reconstructed[receipt_id] = str(id) + ":" + phase
+	if data.has("receipt_claims"):
+		if not (data["receipt_claims"] is Dictionary):
+			return false
+		var stored: Dictionary = data["receipt_claims"]
+		if stored.size() != reconstructed.size():
+			return false
+		for receipt_id in reconstructed:
+			if stored.get(receipt_id) != reconstructed[receipt_id]:
+				return false
 	_contracts = candidate.duplicate(true)
+	_receipt_claims = reconstructed
 	return true
 
 func _transition(id: String, ship: String, before: String, after: String, tick: int, receipt_id: String) -> Dictionary:
@@ -133,11 +157,14 @@ func _transition(id: String, ship: String, before: String, after: String, tick: 
 	if receipt_id.is_empty() or c["status"] != before or c["fulfiller_id"] != ship or tick < int(c["accepted_at_tick"]):
 		return _error("invalid_transition")
 	var direction := "load" if after == "picked_up" else "unload"
+	if _receipt_claims.has(receipt_id):
+		return _error("physical_receipt_already_claimed")
 	if not _valid_physical_receipt(c, ship, direction, receipt_id, tick):
 		return _error("unverified_physical_receipt")
 	# Receipt validation is authoritative for delivery contracts, not a string assertion.
 	c["status"] = after
 	c[after + "_receipt"] = receipt_id
+	_receipt_claims[receipt_id] = id + ":" + after
 	if after == "delivered":
 		c["delivered_at_tick"] = tick
 	return {"ok": true}
