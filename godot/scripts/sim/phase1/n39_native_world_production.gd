@@ -15,6 +15,7 @@ const PaidCargo = preload("res://scripts/sim/phase2/unified_autonomous_paid_carg
 const NativeResearch = preload("res://scripts/sim/phase2/unified_native_research_phase.gd")
 const ResearchShift = preload("res://scripts/sim/phase1/n143_native_research_shift.gd")
 const NativeConstructionMaterial = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
+const NativeConstructionLabor = preload("res://scripts/sim/phase2/unified_native_construction_labor.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
@@ -519,6 +520,112 @@ func apply_autonomous_contract_cargo(tick: int, ship_id: String,
         "contract_id": contract_id, "ship_id": ship_id,
         "receipt_id": receipt_id, "money_receipt": money_id,
         "credits": int(proposed["credits"]), "tick": tick}
+
+
+
+## N141: real docked-engineer physical construction shift + one N9 payroll.
+## Source N141 WorkShift chooses existing households and excludes labor
+## already employed by N39 facilities, N143 Director and other N141 sites.
+## This phase does not invent completed facilities: N154 materialization and
+## builder AI authorization are separate gated native operations.
+func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
+    if not _ready or tick != _last_tick or tick < 1:
+        return {"ok": false, "reason": "not_current_native_construction_tick"}
+    if not _world.has("construction_sites"):
+        return {"ok": true, "status": "LEGACY_CONSTRUCTION_UNAVAILABLE",
+            "paid": [], "blocked": []}
+    if not NativeConstructionMaterial.labor_tick_due(tick, multiplier):
+        return {"ok": true, "status": "N141_NOT_DUE",
+            "paid": [], "blocked": []}
+    var site_ids: Array = _world["construction_sites"].keys()
+    site_ids.sort()
+    if site_ids.is_empty():
+        return {"ok": true, "status": "N141_NO_ACTIVE_SITES",
+            "paid": [], "blocked": []}
+    var staged: Dictionary = _world.duplicate(true)
+    var ledger := Ledger.new()
+    if not ledger.restore(_ledger.snapshot()):
+        return {"ok": false, "fatal": true, "reason": "n141_cannot_stage_n9"}
+    var paid: Array = []
+    var blocked: Array = []
+    for site_id in site_ids:
+        var proposed: Dictionary = NativeConstructionLabor.paid_shift(
+            staged, str(site_id), tick, multiplier)
+        if not proposed.get("ok", false):
+            blocked.append({"site_id": str(site_id),
+                "reason": str(proposed.get("reason", "native_builder_unavailable"))})
+            continue
+        var source_state: Dictionary = proposed["state"]
+        var workers: int = int(proposed.get("workers", 0))
+        var site: Dictionary = source_state["site"]
+        var faction: String = str(proposed["faction_id"])
+        if workers <= 0:
+            # Native N141 allows successful zero-worker work once all
+            # labor is already completed. The next N154 bridge owns spawn.
+            continue
+        var receipt_id: String = "native_construction_labor:" + str(site_id) + ":" + str(tick)
+        if staged["construction_receipts"].has(receipt_id) or ledger.has_receipt(receipt_id):
+            return {"ok": false, "fatal": true, "reason": "n141_duplicate_paid_shift"}
+        var source_shift: Dictionary = proposed.get("shift", {})
+        var wages: int = int(source_shift.get("wages", -1))
+        var worker_rows: Variant = source_shift.get("workers", null)
+        if wages != workers or wages <= 0 or not (worker_rows is Array):
+            return {"ok": false, "fatal": true, "reason": "n141_native_wages_mismatch"}
+        var legs: Array = [{"account": Schema.faction_account(faction), "delta": -wages}]
+        var seen: Dictionary = {}
+        var assigned_total: int = 0
+        for pair in worker_rows:
+            if not (pair is Array) or pair.size() != 2:
+                return {"ok": false, "fatal": true, "reason": "n141_malformed_labor_workers"}
+            var pid: String = str(pair[0])
+            var count: int = int(pair[1])
+            if not staged["populations"].has(pid) or seen.has(pid) or count <= 0:
+                return {"ok": false, "fatal": true, "reason": "n141_nonexistent_or_reused_worker"}
+            seen[pid] = true
+            assigned_total += count
+            legs.append({"account": Schema.household_account(pid), "delta": count})
+        if assigned_total != workers:
+            return {"ok": false, "fatal": true, "reason": "n141_ledger_labor_count_mismatch"}
+        if ledger.balance(Schema.faction_account(faction)) != int(staged["faction_treasuries"][faction]):
+            return {"ok": false, "fatal": true, "reason": "n141_treasury_divergence"}
+        var result: Dictionary = ledger.commit(receipt_id, legs, tick,
+            "n141_native_paid_construction_work")
+        if not result.get("ok", false):
+            return {"ok": false, "fatal": true,
+                "reason": "n141_n9_wage_" + str(result.get("reason", "rejected"))}
+        if int(source_state["faction"]["treasury"]) != ledger.balance(Schema.faction_account(faction)):
+            return {"ok": false, "fatal": true, "reason": "n141_native_treasury_receipt_mismatch"}
+        staged["faction_treasuries"][faction] = ledger.balance(Schema.faction_account(faction))
+        for source_household in source_state["households"]:
+            var pid: String = str(source_household["id"])
+            if not staged["populations"].has(pid):
+                return {"ok": false, "fatal": true, "reason": "n141_original_household_missing"}
+            if int(source_household["total_wealth"]) != ledger.balance(Schema.household_account(pid)):
+                return {"ok": false, "fatal": true, "reason": "n141_household_receipt_mismatch"}
+            staged["populations"][pid]["wealth"] = ledger.balance(Schema.household_account(pid))
+            staged["populations"][pid]["employed_fraction"] = float(source_household["employed_fraction"])
+        staged["construction_sites"][site_id] = site.duplicate(true)
+        staged["construction_receipts"][receipt_id] = {
+            "id": receipt_id, "kind": "labor",
+            "tick": tick, "site_id": str(site_id),
+            "executor_id": str(proposed["executor_id"]),
+            "wages": wages, "n9_receipt_id": receipt_id}
+        paid.append(staged["construction_receipts"][receipt_id].duplicate(true))
+    var error: String = Schema.validate(staged)
+    if not error.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n141_invalid_world_" + error}
+    var expected: Dictionary = Schema.accounts(staged)
+    var wallet_values: Dictionary = ledger.snapshot()["balances"]
+    if wallet_values.size() != expected.size() or ledger.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "n141_money_supply_modified"}
+    for id in expected:
+        if expected[id] != wallet_values.get(id, null):
+            return {"ok": false, "fatal": true, "reason": "n141_n9_wallet_mismatch"}
+    if not paid.is_empty():
+        _world = staged
+        _ledger = ledger
+    return {"ok": true, "status": "N141_PAID_LABOR_PHYSICAL",
+        "tick": tick, "paid": paid, "blocked": blocked}
 
 
 ## Gate4: N155 observed head → N143 paid research, with ONLY the N9
