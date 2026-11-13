@@ -101,13 +101,17 @@ static func propose(world: Dictionary, graph: RefCounted,
         if not is_finite(stock) or stock < float(qty):
             blocked.append({"contract_id": str(contract_id), "reason": "source_stock_unavailable"})
             continue
-        # In the frozen source N135 missing treaties default Neutral; only
-        # matching faction is provable without a live FactionRelations bridge.
-        # Unknown cross-faction commerce must fail closed until that bridge.
+        # Frozen FactionRelations::state_or_default() is Neutral. Regular
+        # factions can trade under Neutral; outlaw/regular traffic is NOT
+        # opened merely from a missing treaty (pirates are seeded hostile).
+        # When live world treaty data arrives, it must override this gate.
         var buyer_faction: String = str(buyer.get("faction", ""))
         var seller_faction: String = str(seller.get("faction", ""))
-        if buyer_faction != seller_faction or not factions.has(buyer_faction):
-            blocked.append({"contract_id": str(contract_id), "reason": "faction_relations_not_integrated"})
+        if not factions.has(buyer_faction) or not factions.has(seller_faction):
+            blocked.append({"contract_id": str(contract_id), "reason": "unknown_source_faction"})
+            continue
+        if buyer_faction != seller_faction and (str(factions[buyer_faction].get("type", "")) == "outlaw" or str(factions[seller_faction].get("type", "")) == "outlaw"):
+            blocked.append({"contract_id": str(contract_id), "reason": "outlaw_commerce_not_authorized"})
             continue
         var source_price: Variant = seller_market.get("prices", {}).get(good, null)
         if not (source_price is int or source_price is float) or not is_finite(float(source_price)) or float(source_price) <= 0.0:
@@ -117,7 +121,10 @@ static func propose(world: Dictionary, graph: RefCounted,
         var winner: Dictionary = {}
         for ship_id in ships:
             var ship: Dictionary = world["ships"][ship_id]
-            if str(ship.get("faction_id", "")) != buyer_faction or already_assigned.has(str(ship_id)):
+            var ship_faction: String = str(ship.get("faction_id", ""))
+            if not factions.has(ship_faction) or already_assigned.has(str(ship_id)):
+                continue
+            if str(factions[ship_faction].get("type", "")) == "outlaw" and (ship_faction != buyer_faction or ship_faction != seller_faction):
                 continue
             var readiness: Dictionary = _ready_ship(world, str(ship_id), c, graph, positions, resolver, tick_scale)
             if not readiness.get("ok", false):
@@ -141,7 +148,10 @@ static func propose(world: Dictionary, graph: RefCounted,
                 continue
             var sensor: Variant = ship.get("sensor_range_au", null)
             if not (sensor is int or sensor is float) or not is_finite(float(sensor)) or float(sensor) < 0.0:
-                sensor = 0.0 # Unknown sensor is never invented as long-range.
+                # Frozen ShipFitting::new_for_size: Huge/Massive always T2
+                # (2.0 AU), Tiny/Small/Medium T1 (1.0 AU). Large has
+                # a source-hash 50% T2 roll not yet ported; use T1.
+                sensor = 2.0 if str(ship.get("size", "")) in ["huge", "massive"] else 1.0
             var offer: Dictionary = {
                 "id": str(contract_id), "status": "Posted", "contract_type": "Delivery",
                 "faction_id": buyer_faction, "requestor_id": str(c.get("requestor_id", "")),
@@ -157,9 +167,11 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "reserved": int(c["reserved"]), "source_purchase_cost": source_purchase}
             var commerce: Dictionary = {}
             commerce[buyer_faction] = true
+            commerce[seller_faction] = true
+            commerce[ship_faction] = true
             var context: Dictionary = {
                 "offers": [offer], "ship_id": str(ship_id),
-                "ship_faction": str(ship["faction_id"]), "ship_location": here,
+                "ship_faction": ship_faction, "ship_location": here,
                 "cargo_capacity": int(ship["cargo_capacity"]), "credits": int(ship.get("credits", 0)),
                 "sensor_range_au": float(sensor), "system_by_location": systems,
                 "controllers": controllers,

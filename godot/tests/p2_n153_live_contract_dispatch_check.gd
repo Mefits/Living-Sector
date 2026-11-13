@@ -1,6 +1,6 @@
 extends SceneTree
 ## N153 selection -> N104 true accept -> canonical N39 ship obligation.
-## Contrived *test-only* permission/sensor/price fixture atop the original
+## Controlled *test-only* price/consumption fixture atop the original
 ## 24 ships and original real N4 graph; does not inject a fictitious ship,
 ## market, route, contract Board, Ledger or physically moved commodity.
 ## Run: godot --headless --path godot --script res://tests/p2_n153_live_contract_dispatch_check.gd
@@ -28,8 +28,8 @@ func _initialize() -> void:
         return
     var buyer: String = str(w["markets"]["alpha-station"]["owner"])
     var seller: String = str(w["markets"]["earth-station"]["owner"])
-    # A controlled acceptance fixture: without future N150 diplomacy the
-    # native start is inter-faction, and N153 must REFUSE to invent a treaty.
+    # Frozen Rust FactionRelations starts Neutral. Real source faction,
+    # market and long-range Huge hauler can accept public delivery offers.
     w["markets"]["alpha-station"]["prices"]["food"] = 60.0
     w["markets"]["earth-station"]["prices"]["food"] = 4.0
     var stock: float = float(w["markets"]["alpha-station"]["supply"]["food"])
@@ -40,11 +40,11 @@ func _initialize() -> void:
     ids.sort()
     for sid in ids:
         var ship: Dictionary = w["ships"][sid]
-        if ship["class"] == "freighter" and ship["faction_id"] == "terran-authority":
+        if ship["class"] == "hauler" and ship["faction_id"] == "terran-authority":
             ship_id = str(sid)
             break
     if ship_id.is_empty():
-        _fail("frozen terran freighter missing")
+        _fail("frozen terran Huge hauler missing")
         return
     var roster = Roster.new()
     var resolver = Resolver.new()
@@ -64,10 +64,6 @@ func _initialize() -> void:
     if not no_treaty.get("ok", false):
         _fail("pure selector rejected native source")
         return
-    # Only test creates an explicit same-faction supplier owner; actual
-    # frozen scenario MUST NOT falsely accept inter-faction orders.
-    w["facilities"][buyer]["faction"] = "terran-authority"
-    w["ships"][ship_id]["sensor_range_au"] = 2.5
     var prior_ship: Dictionary = w["ships"][ship_id].duplicate(true)
     if not a.restore_checkpoint(save, seed):
         _fail("controlled native fixture rejected by N39")

@@ -458,7 +458,7 @@ func post_funded_contract(tick: int, demand: Dictionary) -> Dictionary:
 ## authoritative ship row. The source selector is read-only; this method
 ## checks its financial/physical assumptions AGAIN before publication.
 ## Pickup, trade and payment remain other explicit native phases.
-func accept_autonomous_delivery(tick: int, proposal: Dictionary) -> Dictionary:
+func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions: Dictionary = {}) -> Dictionary:
     if not _ready or tick != _last_tick or tick < 1:
         return {"ok": false, "reason": "invalid_autonomous_accept_tick"}
     var cid: String = str(proposal.get("contract_id", ""))
@@ -494,8 +494,15 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary) -> Dictionary:
     var seller: Dictionary = _world["facilities"][str(source_market["owner"])]
     var buyer: Dictionary = _world["facilities"][str(buyer_market["owner"])]
     var faction: String = str(ship.get("faction_id", ""))
-    if faction.is_empty() or faction != str(buyer.get("faction", "")) or faction != str(seller.get("faction", "")):
-        return {"ok": false, "reason": "unintegrated_interfaction_commerce"}
+    var buyer_faction: String = str(buyer.get("faction", ""))
+    var seller_faction: String = str(seller.get("faction", ""))
+    if not source_factions.has(faction) or not source_factions.has(buyer_faction) or not source_factions.has(seller_faction):
+        return {"ok": false, "reason": "faction_source_missing"}
+    if (str(source_factions[faction].get("type", "")) == "outlaw" or str(source_factions[buyer_faction].get("type", "")) == "outlaw" or str(source_factions[seller_faction].get("type", "")) == "outlaw") and not (faction == buyer_faction and faction == seller_faction):
+        return {"ok": false, "reason": "unintegrated_outlaw_trade"}
+    # Default Neutral commerce is original FactionRelations::state_or_default.
+    # ContractBoard.post(kind=delivery, funding_source=facility) is public.
+    # Active War/Hostile transitions must be integrated before diplomacy runs.
     var good: String = str(c.get("commodity", ""))
     if not (source_market.get("supply") is Dictionary) or not (source_market.get("prices") is Dictionary):
         return {"ok": false, "reason": "invalid_source_stock"}

@@ -96,7 +96,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             "accepted": [], "blocked": selection.get("blocked", []).duplicate(true),
             "status": "N153_ADMISSION_COMPLETE"}
         for candidate in selection.get("candidates", []):
-            var admission: Dictionary = production.accept_autonomous_delivery(tick, candidate)
+            var admission: Dictionary = production.accept_autonomous_delivery(tick, candidate, _faction_sources)
             if admission.get("ok", false):
                 _last_n153_result["accepted"].append(admission.duplicate(true))
             elif admission.get("fatal", false):
