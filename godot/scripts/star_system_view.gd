@@ -7,8 +7,9 @@ extends Control
 
 signal body_selected(body: Dictionary)
 
-const MIN_ZOOM: float = 0.55
-const MAX_ZOOM: float = 5.0
+const MIN_ZOOM: float = 0.45
+const MAX_ZOOM: float = 32.0
+const WHEEL_ZOOM: float = 1.32
 const BACKGROUND: Color = Color("#0b1421")
 
 var _world: Dictionary = {}
@@ -117,14 +118,18 @@ func _body_position(body: Dictionary, scale: float) -> Vector2:
 
 
 func _body_size(body: Dictionary) -> float:
+    # The old diagram zoomed the orbit position but kept every planet at
+    # 4–10 pixels, so close-up still looked distant. Symbol radius is
+    # deliberately schematic and grows sublinearly, never by physical size.
+    var symbol_scale: float = clampf(sqrtf(_zoom), 0.8, 5.0)
     var kind: String = str(body.get("type", ""))
     if kind == "moon":
-        return 4.0
+        return 4.0 * symbol_scale
     if kind == "asteroid" or kind == "belt":
-        return 4.5
+        return 4.5 * symbol_scale
     if str(body.get("biome", "")) == "gas_giant":
-        return 10.0
-    return 6.5
+        return 10.0 * symbol_scale
+    return 6.5 * symbol_scale
 
 
 func _facility_count(body_id: String) -> int:
@@ -164,9 +169,10 @@ func _draw() -> void:
         var radius: float = _radius_transform(float(body.get("orbit_radius", 0.0))) * scale * _zoom
         if radius > 1.0:
             draw_arc(star, radius, 0.0, TAU, 96, Color("#26394a"), 1.0, true)
-    draw_circle(star, 13.0, _star_color(str(system.get("star_type", ""))))
-    draw_circle(star, 18.0, Color("#526575"), false, 1.0, true)
-    draw_string(font, star + Vector2(21.0, -15.0), str(system.get("name", "")),
+    var star_size: float = 13.0 * clampf(sqrtf(_zoom), 0.8, 4.0)
+    draw_circle(star, star_size, _star_color(str(system.get("star_type", ""))))
+    draw_circle(star, star_size + 5.0, Color("#526575"), false, 1.0, true)
+    draw_string(font, star + Vector2(star_size + 8.0, -15.0), str(system.get("name", "")),
         HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#f3e2bc"))
     for body in bodies:
         var position: Vector2 = _body_position(body, scale)
@@ -210,9 +216,9 @@ func _draw() -> void:
         draw_string(font, position + label_offset, str(body.get("name", bid)),
             HORIZONTAL_ALIGNMENT_LEFT, -1, 13,
             Color("#f2f7fa") if picked else Color("#a9bbc8"))
-        _body_pins.append({"body": body, "position": position})
+        _body_pins.append({"body": body, "position": position, "hit_radius": maxf(22.0, visual_radius + 9.0)})
     draw_string(font, Vector2(14.0, 26.0),
-        "%s  /  %d тел" % [str(system.get("name", "?")), bodies.size()],
+        "%s  /  %d тел  /  масштаб ×%.1f" % [str(system.get("name", "?")), bodies.size(), _zoom],
         HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#dce8ee"))
     draw_string(font, Vector2(14.0, size.y - 14.0),
         "ЛКМ: выбрать тело · перетаскивание: карта · колесо: масштаб · орбиты схематичны",
@@ -229,10 +235,10 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
 
 func _pick(pointer: Vector2) -> void:
     var chosen: Dictionary = {}
-    var nearest: float = 22.0
+    var nearest: float = INF
     for pin in _body_pins:
         var d: float = pointer.distance_to(pin["position"])
-        if d < nearest:
+        if d <= float(pin.get("hit_radius", 22.0)) and d < nearest:
             nearest = d
             chosen = pin["body"]
     if chosen.is_empty():
@@ -244,10 +250,10 @@ func _pick(pointer: Vector2) -> void:
 func _gui_input(event: InputEvent) -> void:
     if event is InputEventMouseButton:
         if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-            _zoom_at(event.position, 1.18)
+            _zoom_at(event.position, WHEEL_ZOOM)
             accept_event()
         elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-            _zoom_at(event.position, 1.0 / 1.18)
+            _zoom_at(event.position, 1.0 / WHEEL_ZOOM)
             accept_event()
         elif event.button_index == MOUSE_BUTTON_LEFT:
             if event.pressed:

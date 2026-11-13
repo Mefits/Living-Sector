@@ -8,6 +8,10 @@ config/features=PackedStringArray("4.7", "GL Compatibility")
 [display]
 window/size/viewport_width=1366
 window/size/viewport_height=768
+# Standalone F5/Windows build: use the available screen, not a small 1366x768 window.
+# Embedded Game tab is controlled by Godot Editor settings separately.
+window/size/mode=2
+window/size/resizable=true
 window/stretch/mode="canvas_items"
 window/stretch/aspect="keep"
 
