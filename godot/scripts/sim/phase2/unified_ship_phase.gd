@@ -50,7 +50,7 @@ static func advance(world: Dictionary, positions: Dictionary,
         if (row.get("transit", {}) as Dictionary).is_empty():
             continue
         var outcome: String = motion.advance(state, str(id), positions, tick, tick_scale)
-        if outcome not in ["arrived", "moving", "out_of_fuel"]:
+        if not (outcome in ["arrived", "moving", "out_of_fuel"]):
             return {"ok": false, "reason": "native_ship_" + outcome,
                 "ship": str(id)}
         if outcome == "arrived":
