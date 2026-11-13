@@ -1,0 +1,9 @@
+{
+  "owner": "automation11",
+  "status": "ACTIVE",
+  "scope": [
+    "godot/scripts/sim/save_state.gd"
+  ],
+  "started_at": "2026-11-13T08:35:15+03:00",
+  "purpose": "Fix recovery of valid pending saves and robust promotion, preserve sole SaveState"
+}
