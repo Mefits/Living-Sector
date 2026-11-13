@@ -566,6 +566,8 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                 return false
             if ship.has("last_plan_tick") and not _normalize_row(ship, ["last_plan_tick"]):
                 return false
+            if ship.has("max_source_cost") and not _normalize_row(ship, ["max_source_cost"]):
+                return false
             if ship.has("current_bt") and ship["current_bt"] != null:
                 var normalized_bt: Dictionary = NativeBt.normalize_from_json(ship["current_bt"])
                 if normalized_bt.is_empty():
