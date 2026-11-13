@@ -10,6 +10,7 @@ const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
 const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
 const ContractBoard = preload("res://scripts/sim/economy/contract_board.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
+const PaidCargo = preload("res://scripts/sim/phase2/unified_autonomous_paid_cargo.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
@@ -232,8 +233,9 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
 ## N21+N15 one-World dock/cargo command commit. N15 is physical inventory
 ## transfer only; trade/escrow/payment belongs to a later contract phase.
 ## No separate wallet, source stock, arrival process or hidden dock occupancy.
-func apply_fleet_logistics(tick: int, proposal: Dictionary) -> bool:
-    if not _ready or tick != _last_tick or not bool(proposal.get("ok", false)):
+func apply_fleet_logistics(tick: int, proposal: Dictionary,
+        in_native_ship_phase: bool = false) -> bool:
+    if not _ready or tick != _last_tick + (1 if in_native_ship_phase else 0) or not bool(proposal.get("ok", false)):
         return false
     if not (proposal.get("world") is Dictionary) or not (proposal.get("receipt") is Dictionary):
         return false
@@ -360,6 +362,126 @@ func apply_fleet_logistics(tick: int, proposal: Dictionary) -> bool:
     _world = staged.duplicate(true)
     return true
 
+
+
+## N84/N146 ship execution during the native SHIPS phase. This is the
+## ONLY atomic publishing authority for N15 stock, N97 purchase/credits,
+## N104 verified delivery status and N9 escrow transfer. The paid cargo
+## adapter stages a deep copy; rejecting leaves ALL World/ledger unchanged.
+func apply_autonomous_contract_cargo(tick: int, ship_id: String,
+        contract_id: String, operation: String) -> Dictionary:
+    if not _ready or tick != _last_tick + 1 or tick < 1:
+        return {"ok": false, "reason": "not_the_live_ship_phase"}
+    if operation not in ["pickup", "delivery"]:
+        return {"ok": false, "reason": "unknown_native_paid_ship_action"}
+    var proposed: Dictionary = PaidCargo.propose(_world, _ledger.snapshot(),
+        ship_id, contract_id, operation, tick)
+    if not proposed.get("ok", false):
+        return proposed
+    var staged: Dictionary = proposed["world"]
+    var money: Dictionary = proposed["ledger_snapshot"]
+    var receipt_id: String = str(proposed["receipt_id"])
+    var money_id: String = str(proposed["money_receipt"])
+    if not _world["ships"].has(ship_id) or not _world["contract_board"]["contracts"].has(contract_id):
+        return {"ok": false, "fatal": true, "reason": "canonical_contract_disappeared"}
+    var original_contract: Dictionary = _world["contract_board"]["contracts"][contract_id]
+    var location: String = str(original_contract["source_location"]) if operation == "pickup" else str(original_contract["destination_location"])
+    var station: String = str(_world["markets"][location]["owner"])
+    var original_ship: Dictionary = _world["ships"][ship_id]
+    var changed_ship: Dictionary = staged["ships"][ship_id]
+    if staged.size() != _world.size() or staged["ships"].size() != _world["ships"].size():
+        return {"ok": false, "fatal": true, "reason": "unexpected_native_world_shape"}
+    for domain in _world:
+        if domain not in ["ships", "markets", "facilities", "contract_board",
+                "escrow_balances", "cargo_receipts"] and staged.get(domain, null) != _world[domain]:
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_altered_unrelated_domain"}
+    for id in _world["ships"]:
+        if str(id) != ship_id and staged["ships"][id] != _world["ships"][id]:
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_altered_other_ship"}
+    var ship_fields: Array[String] = ["cargo", "credits"]
+    if operation == "delivery":
+        ship_fields.append_array(["active_contract_id", "current_goal", "current_bt"])
+    for field in original_ship:
+        if field not in ship_fields and changed_ship.get(field, null) != original_ship[field]:
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_changed_ship_state"}
+    for key in changed_ship:
+        if not original_ship.has(key):
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_added_ship_field"}
+    for m in _world["markets"]:
+        if str(m) != location and staged["markets"][m] != _world["markets"][m]:
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_changed_other_market"}
+        if str(m) == location:
+            var old_market: Dictionary = _world["markets"][m]
+            var new_market: Dictionary = staged["markets"][m]
+            for field in old_market:
+                if field != "supply" and new_market.get(field, null) != old_market[field]:
+                    return {"ok": false, "fatal": true, "reason": "paid_delivery_changed_market_rules"}
+    for f in _world["facilities"]:
+        if str(f) != station and staged["facilities"][f] != _world["facilities"][f]:
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_changed_other_facility"}
+        if str(f) == station:
+            var before_facility: Dictionary = _world["facilities"][f]
+            var after_facility: Dictionary = staged["facilities"][f]
+            for field in before_facility:
+                if field != "credits" and before_facility[field] != after_facility.get(field, null):
+                    return {"ok": false, "fatal": true, "reason": "paid_delivery_changed_station_state"}
+    var old_stock: Dictionary = _world["markets"][location]["supply"]
+    var new_stock: Dictionary = staged["markets"][location]["supply"]
+    var old_hold: Dictionary = original_ship["cargo"]
+    var new_hold: Dictionary = changed_ship["cargo"]
+    var good: String = str(original_contract["commodity"])
+    var count: int = int(original_contract["quantity"])
+    var delta: int = count if operation == "pickup" else -count
+    if not is_equal_approx(float(new_stock.get(good, 0.0)) - float(old_stock.get(good, 0.0)), float(-delta)):
+        return {"ok": false, "fatal": true, "reason": "paid_delivery_wrong_market_quantity"}
+    if int(new_hold.get(good, 0)) - int(old_hold.get(good, 0)) != delta:
+        return {"ok": false, "fatal": true, "reason": "paid_delivery_wrong_ship_quantity"}
+    for item in old_stock:
+        if str(item) != good and new_stock.get(item, null) != old_stock[item]:
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_moved_other_commodity"}
+    for item in old_hold:
+        if str(item) != good and new_hold.get(item, null) != old_hold[item]:
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_moved_other_hold_goods"}
+    if staged["cargo_receipts"].size() != _world["cargo_receipts"].size() + 1 or not staged["cargo_receipts"].has(receipt_id):
+        return {"ok": false, "fatal": true, "reason": "paid_delivery_missing_one_physical_receipt"}
+    for previous in _world["cargo_receipts"]:
+        if staged["cargo_receipts"].get(previous, null) != _world["cargo_receipts"][previous]:
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_modified_old_receipt"}
+    if staged["contract_board"]["contracts"].size() != _world["contract_board"]["contracts"].size():
+        return {"ok": false, "fatal": true, "reason": "paid_delivery_fabricated_contract"}
+    for cid in _world["contract_board"]["contracts"]:
+        if str(cid) != contract_id and staged["contract_board"]["contracts"].get(cid, null) != _world["contract_board"]["contracts"][cid]:
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_mutated_other_contract"}
+    var expected_status: String = "picked_up" if operation == "pickup" else "paid"
+    if str(staged["contract_board"]["contracts"][contract_id].get("status", "")) != expected_status:
+        return {"ok": false, "fatal": true, "reason": "paid_delivery_not_confirmed_in_n104"}
+    var old_bank: Dictionary = _ledger.snapshot()
+    var staged_ledger := Ledger.new()
+    if not staged_ledger.restore(money) or staged_ledger.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "paid_delivery_money_not_conserved"}
+    if money["receipts"].size() != old_bank["receipts"].size() + 1 or not money["receipts"].has(money_id):
+        return {"ok": false, "fatal": true, "reason": "paid_delivery_missing_one_money_receipt"}
+    for old_id in old_bank["receipts"]:
+        if money["receipts"].get(old_id, null) != old_bank["receipts"][old_id]:
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_tampered_financial_receipt"}
+    var staged_board := ContractBoard.new(staged_ledger)
+    if not staged_board.restore(staged["contract_board"]):
+        return {"ok": false, "fatal": true, "reason": "paid_delivery_invalid_original_board"}
+    var error: String = Schema.validate(staged)
+    if not error.is_empty():
+        return {"ok": false, "fatal": true, "reason": "paid_delivery_invalid_world_" + error}
+    var accounts: Dictionary = Schema.accounts(staged)
+    if accounts.size() != money["balances"].size():
+        return {"ok": false, "fatal": true, "reason": "paid_delivery_wallet_count"}
+    for wallet in accounts:
+        if money["balances"].get(wallet, null) != accounts[wallet]:
+            return {"ok": false, "fatal": true, "reason": "paid_delivery_account_divergence"}
+    _world = staged
+    _ledger = staged_ledger
+    return {"ok": true, "status": str(proposed["status"]),
+        "contract_id": contract_id, "ship_id": ship_id,
+        "receipt_id": receipt_id, "money_receipt": money_id,
+        "credits": int(proposed["credits"]), "tick": tick}
 
 ## P2 Gate 3: atomic N135 live need -> N104 prepaid delivery.
 ## EscrowStage only PROPOSES a detached N9+N104 snapshot. This method is
