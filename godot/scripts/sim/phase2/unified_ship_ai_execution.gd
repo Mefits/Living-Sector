@@ -35,11 +35,73 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.FAILURE, "reason": "n146_invalid_transit_command"}
         return {"status": Bt.RUNNING, "commands": [cmd],
             "reason": "issued_n146_begin_transit"}
-    if kind in ["Dock", "DockAtShipyard", "DockDwell", "Buy", "DeliverCargo",
-            "SellAll", "Undock", "Refuel", "Refit", "DeliverPassengers",
+    var contract_id: String = str(ship.get("active_contract_id", ""))
+    var contracts: Dictionary = world.get("contract_board", {}).get("contracts", {})
+    var c: Dictionary = contracts.get(contract_id, {})
+    var stage: String = str(c.get("status", ""))
+    var at: String = str(c.get("source_location", "")) if stage == "accepted" else str(c.get("destination_location", ""))
+    if kind == "Dock":
+        if stage not in ["accepted", "picked_up"] or location != at:
+            return {"status": Bt.RUNNING, "reason": "n21_contract_location_not_ready"}
+        var facility: String = str(world.get("markets", {}).get(at, {}).get("owner", ""))
+        if not str(ship.get("docked_at", "")).is_empty():
+            return {"status": Bt.SUCCESS} if str(ship.get("docked_at", "")) == facility else {"status": Bt.FAILURE, "reason": "wrong_docked_facility"}
+        if not (ship.get("transit", {}) as Dictionary).is_empty():
+            return {"status": Bt.RUNNING, "reason": "n21_flight_not_finished"}
+        var dock_cmd: Dictionary = Commands.make_command("RequestDock", {
+            "ship": ship_id, "facility_location": at,
+            "contract_id": contract_id, "preferred_facility_type": "station"})
+        return {"status": Bt.RUNNING, "commands": [dock_cmd],
+            "reason": "n146_n21_request_dock"} if not dock_cmd.is_empty() else {"status": Bt.FAILURE}
+    if kind == "DockDwell":
+        if str(ship.get("docked_at", "")).is_empty():
+            return {"status": Bt.RUNNING, "reason": "n21_dwell_requires_actual_dock"}
+        var dock_tick: int = -1
+        for receipt in world.get("dock_receipts", {}).values():
+            if str(receipt.get("ship_id", "")) == ship_id and str(receipt.get("action", "")) == "dock":
+                dock_tick = maxi(dock_tick, int(receipt.get("tick", -1)))
+        if dock_tick < 0:
+            return {"status": Bt.RUNNING, "reason": "no_verified_n21_dock_time"}
+        var dwell_seconds: int = maxi(0, int(action.get("seconds", 0)))
+        return {"status": Bt.SUCCESS} if tick - dock_tick >= dwell_seconds * 8 else {"status": Bt.RUNNING, "reason": "source_n84_dock_dwell"}
+    if kind == "Undock":
+        if str(ship.get("docked_at", "")).is_empty():
+            return {"status": Bt.SUCCESS}
+        if stage == "accepted" and location == str(c.get("source_location", "")):
+            return {"status": Bt.RUNNING, "reason": "cannot_leave_without_n97_pickup"}
+        var release_cmd: Dictionary = Commands.make_command("ReleaseDock", {
+            "ship": ship_id, "facility_location": location,
+            "contract_id": contract_id})
+        return {"status": Bt.RUNNING, "commands": [release_cmd],
+            "reason": "n146_n21_release_dock"} if not release_cmd.is_empty() else {"status": Bt.FAILURE}
+    if kind == "Buy":
+        if stage == "picked_up":
+            return {"status": Bt.SUCCESS}
+        if stage != "accepted" or location != str(c.get("source_location", "")):
+            return {"status": Bt.RUNNING, "reason": "n97_pickup_location_unavailable"}
+        if str(ship.get("docked_at", "")).is_empty():
+            return {"status": Bt.RUNNING, "reason": "n97_buy_requires_n21_dock"}
+        if str(action.get("commodity", "")) != str(c.get("commodity", "")) or int(action.get("qty", 0)) != int(c.get("quantity", -1)):
+            return {"status": Bt.FAILURE, "reason": "n97_buy_not_matching_n104_contract"}
+        var buy_cmd: Dictionary = Commands.make_command("RequestShipTransaction", {
+            "ship": ship_id, "request_id": tick,
+            "operation": "pickup", "contract_id": contract_id})
+        return {"status": Bt.RUNNING, "commands": [buy_cmd],
+            "reason": "n146_n97_actual_purchase"} if not buy_cmd.is_empty() else {"status": Bt.FAILURE}
+    if kind == "DeliverCargo":
+        if stage != "picked_up" or location != str(c.get("destination_location", "")):
+            return {"status": Bt.RUNNING, "reason": "n104_delivery_location_unavailable"}
+        if str(ship.get("docked_at", "")).is_empty():
+            return {"status": Bt.RUNNING, "reason": "n104_delivery_requires_n21_dock"}
+        if str(action.get("contract_id", "")) != contract_id:
+            return {"status": Bt.FAILURE, "reason": "n104_delivery_wrong_contract"}
+        var delivery_cmd: Dictionary = Commands.make_command("RequestShipTransaction", {
+            "ship": ship_id, "request_id": tick,
+            "operation": "delivery", "contract_id": contract_id})
+        return {"status": Bt.RUNNING, "commands": [delivery_cmd],
+            "reason": "n146_n104_real_delivery"} if not delivery_cmd.is_empty() else {"status": Bt.FAILURE}
+    if kind in ["DockAtShipyard", "SellAll", "Refuel", "Refit", "DeliverPassengers",
             "EmbarkPassengers", "Rest"]:
-        # N97/N21 paid dock, market inventory & settlement must be wired
-        # before this leaf can run. Do not skip to the next leaf.
         return {"status": Bt.RUNNING, "reason": "awaiting_native_paid_" + kind}
     if kind == "Idle":
         return {"status": Bt.SUCCESS}
@@ -103,7 +165,15 @@ static func propose(world: Dictionary, graph: RefCounted,
             if not cmd_buffer.push(command):
                 return {"ok": false, "reason": "n146_invalid_dispatch_command",
                     "ship_id": str(ship_id)}
-            if str(command.get("kind", "")) != "BeginTransit" or str(command.get("ship", "")) != str(ship_id):
+            if str(command.get("ship", "")) != str(ship_id):
+                return {"ok": false, "reason": "n146_ship_actor_mismatch",
+                    "ship_id": str(ship_id)}
+            if str(command.get("kind", "")) in ["RequestDock", "ReleaseDock", "RequestShipTransaction"]:
+                # N39 applies these commands in the same physical ships
+                # phase, AFTER the N84 cursor is committed. No side effects
+                # in a BT or command-buffer proposal.
+                continue
+            if str(command.get("kind", "")) != "BeginTransit":
                 return {"ok": false, "reason": "n146_command_not_yet_integrated",
                     "ship_id": str(ship_id)}
             var native_move: Dictionary = ShipPhase.depart(staged, graph,
