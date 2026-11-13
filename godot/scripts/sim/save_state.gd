@@ -140,12 +140,20 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
     if baseline.is_empty():
         return {"ok": false, "error": "Cannot protect live state before restore"}
     var absolute_path: String = ProjectSettings.globalize_path(save_path)
-    for candidate in [absolute_path, absolute_path + ".bak"]:
+    # The .pending file may be the only intact checkpoint if a process died
+    # between writing it and promoting it to the primary path. Never prefer
+    # an uncommitted pending save over a healthy primary or known-good backup.
+    for candidate in [absolute_path, absolute_path + ".bak", absolute_path + ".pending"]:
         var parsed: Dictionary = _read_checkpoint(candidate)
         if parsed.is_empty():
             continue
         if runner.restore_checkpoint(parsed, seed):
-            return {"ok": true, "source": candidate, "tick": runner.tick_count}
+            return {
+                "ok": true,
+                "source": candidate,
+                "tick": runner.tick_count,
+                "recovered_pending": candidate == absolute_path + ".pending"
+            }
         if not runner.restore_checkpoint(baseline, seed):
             return {
                 "ok": false,
