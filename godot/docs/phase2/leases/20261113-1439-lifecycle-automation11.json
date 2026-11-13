@@ -5,7 +5,8 @@
   "scope": [
     "godot/scripts/sim/phase1/n39_native_world_production.gd",
     "godot/scripts/sim/phase2/unified_facility_lifecycle_phase.gd",
-    "godot/scripts/observer_panel.gd"
+    "godot/scripts/observer_panel.gd",
+    "godot/scripts/sim/phase1/n39_native_production_tick_runner.gd"
   ],
   "boundary": "N156 decay and abandonment on canonical N39 world, no paid repairs or second ledger",
   "branch": "integration/godot-phase2-unified-20261113"
