@@ -474,6 +474,13 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             var ship: Dictionary = w["ships"][id]
             if not _normalize_row(ship, ["credits", "cargo_capacity", "crew_size"]):
                 return false
+            if ship.has("last_plan_tick") and not _normalize_row(ship, ["last_plan_tick"]):
+                return false
+            if ship.has("current_bt") and ship["current_bt"] != null:
+                var normalized_bt: Dictionary = NativeBt.normalize_from_json(ship["current_bt"])
+                if normalized_bt.is_empty():
+                    return false
+                ship["current_bt"] = normalized_bt
             if not (ship.get("cargo") is Dictionary) or not (ship.get("transit") is Dictionary):
                 return false
             for commodity in ship["cargo"]:

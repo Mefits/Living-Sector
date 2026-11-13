@@ -78,6 +78,29 @@ static func _current(node: Dictionary) -> String:
             return _current(children[0]) if not children.is_empty() else ""
     return ""
 
+## N38 JSON decoders may represent an integer cursor as 1.0. The
+## original Rust BT state is integral and must be restored exactly.
+static func normalize_from_json(value: Variant) -> Dictionary:
+    if not (value is Dictionary):
+        return {}
+    var out: Dictionary = value.duplicate(true)
+    if str(out.get("kind", "")) == "sequence":
+        var index: Variant = out.get("index", null)
+        if not (index is int or index is float) or not is_finite(float(index)):
+            return {}
+        if float(index) != floor(float(index)) or float(index) < 0.0 or float(index) > float(MAX_NODES):
+            return {}
+        out["index"] = int(index)
+    if str(out.get("kind", "")) in ["sequence", "selector"]:
+        if not (out.get("children") is Array):
+            return {}
+        for i in range((out["children"] as Array).size()):
+            var child: Dictionary = normalize_from_json(out["children"][i])
+            if child.is_empty():
+                return {}
+            out["children"][i] = child
+    return out if validate(out) else {}
+
 static func reset(tree: Dictionary) -> Dictionary:
     if not validate(tree):
         return {}
