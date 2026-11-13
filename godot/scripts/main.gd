@@ -145,7 +145,7 @@ func _ready() -> void:
     logistics.add_theme_constant_override("separation", 8)
     root.add_child(logistics)
     var cargo_caption := Label.new()
-    cargo_caption.text = "Док / груз N21·N15:"
+    cargo_caption.text = "Док / свой груз N21·N15:"
     logistics.add_child(cargo_caption)
     for spec in [{"text": "Стыковка", "action": "dock"},
             {"text": "Отстыковать", "action": "undock"}]:

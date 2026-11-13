@@ -93,6 +93,10 @@ static func command(source: Dictionary, action: String, ship_id: String,
         facility = str(staged["ships"][ship_id].get("docked_at", ""))
         if facility.is_empty():
             return {"ok": false, "reason": "ship_not_docked"}
+        # No free inter-faction market theft before paid N104 contracts.
+        # This manual N15 path is SAME-FACTION physical logistics only.
+        if not staged["facilities"].has(facility) or str(staged["facilities"][facility]["faction"]) != str(staged["ships"][ship_id]["faction_id"]):
+            return {"ok": false, "reason": "cargo_requires_same_faction"}
         result = prepared["gate"].transfer(ship_id, facility, quantities,
             operation_id, action, tick)
         if not result.get("ok", false):

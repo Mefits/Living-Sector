@@ -37,7 +37,7 @@ func _initialize() -> void:
             ship_ids.sort()
             for sid in ship_ids:
                 var ship: Dictionary = start["ships"][sid]
-                if str(ship["location"]) == str(location) and int(ship["cargo_capacity"]) >= 2:
+                if str(ship["location"]) == str(location) and int(ship["cargo_capacity"]) >= 2 and str(ship["faction_id"]) == str(start["facilities"][owner_id]["faction"]):
                     selected_ship = str(sid)
                     selected_location = str(location)
                     selected_commodity = str(commodity)

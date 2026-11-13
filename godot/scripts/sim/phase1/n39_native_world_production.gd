@@ -308,6 +308,10 @@ func apply_fleet_logistics(tick: int, proposal: Dictionary) -> bool:
         var location: String = str(r.get("location_id", ""))
         if not _world["markets"].has(location) or str(_world["markets"][location].get("owner", "")) != dock_id:
             return false
+        # N15 manual transfers are internal to the owner faction until
+        # N104 paid contract settlement and inter-faction trade are wired.
+        if not _world["facilities"].has(dock_id) or str(_world["facilities"][dock_id]["faction"]) != str(before_ship["faction_id"]):
+            return false
         if not (r.get("quantities") is Dictionary) or r["quantities"].is_empty():
             return false
         var old_stock: Dictionary = _world["markets"][location]["supply"]
