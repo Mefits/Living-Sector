@@ -333,7 +333,7 @@ func _select_world(world: Dictionary) -> void:
             lines.append(" • Рынок " + location + " — владелец " + str(live_market["owner"]))
             var entries: PackedStringArray = PackedStringArray()
             for commodity in goods:
-                entries.append("%s: %.1f" % [commodity, float(stock[commodity])])
+                entries.append("%s %.1f ед. / %.2f CR" % [commodity, float(stock[commodity]), float(live_market.get("prices", {}).get(commodity, 0.0))])
             lines.append("   " + " · ".join(entries))
         for source_fac in facilities:
             var id: String = str(source_fac.get("id", ""))
