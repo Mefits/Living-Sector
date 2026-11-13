@@ -37,14 +37,14 @@ func evaluate(recipe_id: String, facility: String, stock: Dictionary, prices: Di
 	var recipe: Dictionary = RECIPES[recipe_id]
 	if recipe.facility != facility:
 		return {"ok": false, "reason": "wrong_facility"}
-	if not efficiency.is_finite() or efficiency <= 0.0 or max_batches < 1 or max_batches > MAX_BATCHES:
+	if not is_finite(efficiency) or efficiency <= 0.0 or max_batches < 1 or max_batches > MAX_BATCHES:
 		return {"ok": false, "reason": "invalid_efficiency_or_batches"}
 	var scale := float(max_batches)
 	var missing: Dictionary = {}
 	for commodity in recipe.inputs:
 		var have := float(stock.get(commodity, 0.0))
 		var needed := float(recipe.inputs[commodity])
-		if not have.is_finite() or have < 0.0:
+		if not is_finite(have) or have < 0.0:
 			return {"ok": false, "reason": "invalid_stock"}
 		scale = minf(scale, have / needed)
 		if have < needed:
@@ -55,11 +55,11 @@ func evaluate(recipe_id: String, facility: String, stock: Dictionary, prices: Di
 		var input_value := 0.0
 		var output_value := 0.0
 		for commodity in recipe.inputs:
-			if not prices.has(commodity) or not float(prices[commodity]).is_finite() or float(prices[commodity]) < 0.0:
+			if not prices.has(commodity) or not is_finite(float(prices[commodity])) or float(prices[commodity]) < 0.0:
 				return {"ok": false, "reason": "invalid_prices"}
 			input_value += float(prices[commodity]) * float(recipe.inputs[commodity])
 		for commodity in recipe.outputs:
-			if not prices.has(commodity) or not float(prices[commodity]).is_finite() or float(prices[commodity]) < 0.0:
+			if not prices.has(commodity) or not is_finite(float(prices[commodity])) or float(prices[commodity]) < 0.0:
 				return {"ok": false, "reason": "invalid_prices"}
 			output_value += float(prices[commodity]) * float(recipe.outputs[commodity]) * efficiency
 		if output_value < input_value * MIN_MARGIN_RATIO:

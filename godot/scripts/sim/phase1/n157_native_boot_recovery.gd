@@ -6,11 +6,11 @@ const Transaction = preload("res://scripts/sim/phase1/n157_native_persist_transa
 const Contract = preload("res://scripts/sim/phase1/n157_native_db_write_contract.gd")
 const Commodities = preload("res://scripts/sim/economy/commodity_catalog.gd")
 const MARKET_TREND_KEEP: int = 200
-const LOAD_ORDER: PackedStringArray = PackedStringArray([
+const LOAD_ORDER: Array[String] = [
     "bodies", "factions", "facilities", "markets", "market_trends",
     "populations", "ships", "contracts", "construction_sites",
     "gate_pairs", "seed_ship_price_knowledge"
-])
+]
 
 static func build_read_only_boot_plan(database: Dictionary) -> Dictionary:
     if not Transaction.valid_database(database):

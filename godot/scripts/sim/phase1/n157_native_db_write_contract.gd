@@ -2,28 +2,28 @@ extends RefCounted
 ## N157 Rust sim_db/persistence.rs::DbWrite::key and stable payload gate.
 ## 19 keyed DbWrite kinds + EconomicFrame wrapper = 20 source variants, stable DB IDs only.
 ## No path, account, contract or row identity may be invented by this layer.
-const KINDS: PackedStringArray = PackedStringArray([
+const KINDS: Array[String] = [
     "constructed_facility", "colony_population", "colony_established",
     "ship", "market", "faction", "facility", "facility_orbit",
     "population", "body", "tick", "director",
     "delete_ship", "delete_facility", "contract_board",
     "site_upsert", "site_delete", "retire_ship", "market_trend"
-])
-const DB_ID_KINDS: PackedStringArray = PackedStringArray([
+]
+const DB_ID_KINDS: Array[String] = [
     "ship", "market", "facility", "facility_orbit", "population", "body",
     "delete_ship", "delete_facility", "colony_population", "colony_established"
-])
-const NUMERIC_FIELDS: PackedStringArray = PackedStringArray([
+]
+const NUMERIC_FIELDS: Array[String] = [
     "credits", "treasury", "total_wealth", "population_count", "payment",
     "initial_payment", "reserved", "spent"
-])
-const CONTRACT_TYPES: PackedStringArray = PackedStringArray([
+]
+const CONTRACT_TYPES: Array[String] = [
     "delivery", "courier", "passenger", "subsidy", "supply",
     "crew_mission", "construction"
-])
-const CONTRACT_STATUSES: PackedStringArray = PackedStringArray([
+]
+const CONTRACT_STATUSES: Array[String] = [
     "posted", "accepted", "picked_up", "delivered", "paid", "expired"
-])
+]
 
 static func validate_write(write: Variant) -> String:
     if not (write is Dictionary):

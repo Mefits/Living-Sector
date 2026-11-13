@@ -3,11 +3,11 @@ extends RefCounted
 ## Immutable candidate state: never mutates a live ECS or a SQLite database.
 ## Phase2 must commit candidate through existing SaveState/FileAccess once.
 const Contract = preload("res://scripts/sim/phase1/n157_native_db_write_contract.gd")
-const TABLES: PackedStringArray = PackedStringArray([
+const TABLES: Array[String] = [
     "ships", "facilities", "markets", "factions", "populations",
     "bodies", "construction_sites", "contracts", "market_trend_samples",
     "retirements", "simulation_state"
-])
+]
 
 static func empty_database() -> Dictionary:
     var result: Dictionary = {}

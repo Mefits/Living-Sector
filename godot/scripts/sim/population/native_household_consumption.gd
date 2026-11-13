@@ -21,7 +21,7 @@ func import_state(populations: Dictionary, markets: Dictionary) -> bool:
 	return true
 
 func step(tick: int, multiplier: int, tick_scale: float) -> Dictionary:
-	if tick < 0 or multiplier < 1 or not tick_scale.is_finite() or tick_scale < 0.0 or tick <= _last_tick:
+	if tick < 0 or multiplier < 1 or not is_finite(tick_scale) or tick_scale < 0.0 or tick <= _last_tick:
 		return {"ok": false, "reason": "invalid_or_replayed_tick"}
 	if not _valid(_populations, _markets):
 		return {"ok": false, "reason": "corrupt_state"}
@@ -104,7 +104,7 @@ func _valid(populations: Dictionary, markets: Dictionary) -> bool:
 		if typeof(loc) != TYPE_STRING or typeof(m) != TYPE_DICTIONARY or not m.has("stock") or not m.has("prices") or not m.has("seller_credits") or int(m.seller_credits) < 0:
 			return false
 		for key in m.stock:
-			if not m.prices.has(key) or not float(m.stock[key]).is_finite() or float(m.stock[key]) < 0.0 or not float(m.prices[key]).is_finite() or float(m.prices[key]) <= 0.0:
+			if not m.prices.has(key) or not is_finite(float(m.stock[key])) or float(m.stock[key]) < 0.0 or not is_finite(float(m.prices[key])) or float(m.prices[key]) <= 0.0:
 				return false
 	for id in populations:
 		var p = populations[id]
@@ -116,6 +116,6 @@ func _valid(populations: Dictionary, markets: Dictionary) -> bool:
 		if not markets.has(p.location) or int(p.count) < 0 or int(p.wallet) < 0 or typeof(p.consumption) != TYPE_DICTIONARY:
 			return false
 		for key in p.consumption:
-			if not float(p.consumption[key]).is_finite() or float(p.consumption[key]) < 0.0:
+			if not is_finite(float(p.consumption[key])) or float(p.consumption[key]) < 0.0:
 				return false
 	return true

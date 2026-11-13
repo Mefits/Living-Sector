@@ -22,7 +22,7 @@ func import_facilities(states: Dictionary) -> bool:
 ## Only consecutive ticks admitted. Native phase order: degrade, repair, abandon.
 ## paid_repair_ids are authorization receipts from real workforce/payroll, not promises.
 func step(tick: int, tick_scale: float, multiplier: int, paid_repair_ids: Dictionary) -> Dictionary:
-	if tick < 0 or multiplier < 1 or not tick_scale.is_finite() or tick_scale < 0.0:
+	if tick < 0 or multiplier < 1 or not is_finite(tick_scale) or tick_scale < 0.0:
 		return {"ok": false, "reason": "invalid_tick"}
 	var next := _facilities.duplicate(true)
 	var events: Array = []
@@ -86,4 +86,4 @@ func _valid_state(s: Variant) -> bool:
 		return false
 	var condition: float = float(s["condition"])
 	var tools: float = float(s["tools"])
-	return condition.is_finite() and condition >= 0.0 and condition <= 1.0 and tools.is_finite() and tools >= 0.0
+	return is_finite(condition) and condition >= 0.0 and condition <= 1.0 and is_finite(tools) and tools >= 0.0
