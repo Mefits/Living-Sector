@@ -131,3 +131,9 @@
 - Commit [57e34551](https://github.com/Mefits/Living-Sector/commit/57e3455133f2eac4c6b91ad6600c6ec8a198cec2): единственный SaveState после успешной проверки SHA-256 и восстановления .pending переносит его в основной checkpoint, если primary отсутствует/повреждён; валидный .bak не затрагивается. Это предотвращает повторную загрузку устаревшего backup при следующем старте. Результат содержит promoted_pending; ошибка файловой операции не выдаётся за успешную запись.
 - Lease 20261113-save-state-recovery-automation11-0835.json RELEASED. Godot Runtime не запускался, CODE_UNVERIFIED; GitHub Actions: 0 дополнительных запусков. Windows ZIP не подтверждён.
 - Следующий свободный приоритет: ограниченный Godot 4.7.2 import + paid-world smoke и один согласованный Windows export; при реальной ошибке парсера исправить её до повторного CI. Общий World/Ledger/Runner не изменены.
+
+## P2 handoff — 13.11 08:43 МСК, native population shape admission
+
+- Commit [`9ad5fc3a`](https://github.com/Mefits/Living-Sector/commit/9ad5fc3a42bb710ed933bbe29618dd5b5647f297): `unified_population_phase.gd` проверяет Dictionary-тип каждой population/facility/market строки до типизированного присваивания; count/wealth/credits теперь допускаются только как неотрицательные целые (или точные целочисленные JSON floats) без NaN/Inf и потери точности. Отказ возвращает `ok=false` до единственного N39 paid commit. Нет нового World/Ledger.
+- Lease `20261113-population-native-shape-second-chat-0843.json` RELEASED. Статическая проверка: локальная сверка diff и вызываемых контрактов; Godot не запускался, **CODE_UNVERIFIED**. Дополнительные GitHub Actions: **0**. Windows ZIP не подтверждён.
+- Следующий свободный приоритет: ограниченный реальный Godot import/paid-world smoke с timeout, затем согласованный Windows export; прежде сверить текущие leases и общий бюджет CI.
