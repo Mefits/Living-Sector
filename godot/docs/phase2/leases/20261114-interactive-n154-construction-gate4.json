@@ -1,0 +1,16 @@
+{
+  "worker": "interactive-chat",
+  "status": "IN_PROGRESS",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_native_construction_phase.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/scripts/observer_panel.gd",
+    "godot/tests/p2_gate4_native_construction_check.gd",
+    "godot/docs/phase2/handoffs/20261114-n154-gate4.md"
+  ],
+  "task": "N154 original source site bridge, canonical physical paid construction contract and N9 escrow, native material delivery receipt, N141 labor only with verified engineer and N154 materialization; no free buildings or phantom ship, no GitHub Actions",
+  "base_head": "40f426c6c7e42e7ec1b295850f2b6b35fcd18a85"
+}
