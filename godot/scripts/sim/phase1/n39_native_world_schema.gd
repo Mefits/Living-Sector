@@ -31,6 +31,12 @@ static func validate(state: Dictionary) -> String:
             return "invalid_facility_level_or_crew"
         if typeof(fac.get("abandoned", null)) != TYPE_BOOL:
             return "invalid_abandoned"
+        # Fuel/Tools reserves belong to this facility, never to a market.
+        # Older checkpoints may omit this optional source component; their
+        # actual owned inventory is then empty, NOT borrowed market stock.
+        var owned: Variant = fac.get("reserves", {})
+        if not (owned is Dictionary) or Inventory.validate(owned) != "":
+            return "invalid_facility_owned_reserves"
         if fac.has("condition") and (not _fraction(fac["condition"]) or float(fac["condition"]) > 1.0):
             return "invalid_facility_condition"
         if fac.has("abandon_counter") and (typeof(fac["abandon_counter"]) != TYPE_INT or int(fac["abandon_counter"]) < 0 or int(fac["abandon_counter"]) > 4294967295):
