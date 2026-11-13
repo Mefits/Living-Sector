@@ -2,3 +2,8 @@ Explicit Windows P2 release candidate checkpoint, 2026-11-13.
 One triggered run only; workflow combines Godot 4.7.2 import, all GDScript parse,
 N158/N151/N150 paid economy, main GUI boot/save/load and Windows x86_64 ZIP export.
 Use uploaded logs on failure, do not rerun blindly.
+
+N151 MarketFlow restore normalization verified candidate:
+1a2f7432 restores TYPE_INT tick markers and stable float quantities;
+ef337fce adds exact before/after diagnostics plus typed sample acceptance.
+Retry is intentional after concrete CI 43399844828 failure, not a blind rerun.
