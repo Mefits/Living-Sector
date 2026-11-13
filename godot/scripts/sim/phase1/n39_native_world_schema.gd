@@ -34,6 +34,16 @@ static func validate(state: Dictionary) -> String:
             var ship: Dictionary = ship_value
             if str(ship.get("id", "")) != str(ship_id):
                 return "invalid_ship_identity"
+            var cid: String = str(ship.get("active_contract_id", ""))
+            if not cid.is_empty():
+                if not state.has("contract_board") or not (state["contract_board"].get("contracts") is Dictionary):
+                    return "orphaned_ship_contract"
+                var contracts: Dictionary = state["contract_board"]["contracts"]
+                if not contracts.has(cid):
+                    return "unknown_ship_contract"
+                var linked: Dictionary = contracts[cid]
+                if str(linked.get("fulfiller_id", "")) != str(ship_id) or str(linked.get("status", "")) not in ["accepted", "picked_up", "delivered"]:
+                    return "stale_ship_contract_assignment"
             if typeof(ship.get("credits", null)) != TYPE_INT or int(ship["credits"]) < 0:
                 return "invalid_ship_credits"
             var trans: Variant = ship.get("transit", null)

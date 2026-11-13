@@ -453,6 +453,99 @@ func post_funded_contract(tick: int, demand: Dictionary) -> Dictionary:
         "payment": int(next_money["balances"][escrow]),
         "receipt_id": str(proposed["receipt_id"])}
 
+
+## N153 accepted assignment COMMIT: same N104 Board, N9 Ledger and N39
+## authoritative ship row. The source selector is read-only; this method
+## checks its financial/physical assumptions AGAIN before publication.
+## Pickup, trade and payment remain other explicit native phases.
+func accept_autonomous_delivery(tick: int, proposal: Dictionary) -> Dictionary:
+    if not _ready or tick != _last_tick or tick < 1:
+        return {"ok": false, "reason": "invalid_autonomous_accept_tick"}
+    var cid: String = str(proposal.get("contract_id", ""))
+    var sid: String = str(proposal.get("ship_id", ""))
+    if cid.is_empty() or sid.is_empty() or not (_world.get("ships") is Dictionary):
+        return {"ok": false, "reason": "invalid_autonomous_assignment"}
+    if not (_world.get("contract_board") is Dictionary):
+        return {"ok": false, "reason": "missing_live_contract_board"}
+    var board_before: Dictionary = _world["contract_board"]
+    if not (board_before.get("contracts") is Dictionary) or not board_before["contracts"].has(cid) or not _world["ships"].has(sid):
+        return {"ok": false, "reason": "missing_real_offer_or_ship"}
+    var c: Dictionary = board_before["contracts"][cid]
+    var ship: Dictionary = _world["ships"][sid]
+    if str(c.get("contract_type", "")) != "delivery" or str(c.get("status", "")) != "posted" or tick > int(c.get("expires_at_tick", -1)):
+        return {"ok": false, "reason": "offer_no_longer_posted"}
+    if not str(ship.get("active_contract_id", "")).is_empty() or not (ship.get("transit", {}) as Dictionary).is_empty():
+        return {"ok": false, "reason": "ship_not_idle"}
+    if not str(ship.get("docked_at", "")).is_empty() or str(ship.get("location", "")).is_empty():
+        return {"ok": false, "reason": "ship_not_free"}
+    if not (ship.get("cargo") is Dictionary) or not ship["cargo"].is_empty():
+        return {"ok": false, "reason": "ship_hold_not_empty"}
+    var qty: int = int(c.get("quantity", 0))
+    if qty <= 0 or qty > int(ship.get("cargo_capacity", 0)):
+        return {"ok": false, "reason": "insufficient_ship_capacity"}
+    var src: String = str(c.get("source_location", ""))
+    var dst: String = str(c.get("destination_location", ""))
+    if not _world["markets"].has(src) or not _world["markets"].has(dst):
+        return {"ok": false, "reason": "market_missing"}
+    var source_market: Dictionary = _world["markets"][src]
+    var buyer_market: Dictionary = _world["markets"][dst]
+    if not _world["facilities"].has(str(source_market.get("owner", ""))) or not _world["facilities"].has(str(buyer_market.get("owner", ""))):
+        return {"ok": false, "reason": "market_owner_missing"}
+    var seller: Dictionary = _world["facilities"][str(source_market["owner"])]
+    var buyer: Dictionary = _world["facilities"][str(buyer_market["owner"])]
+    var faction: String = str(ship.get("faction_id", ""))
+    if faction.is_empty() or faction != str(buyer.get("faction", "")) or faction != str(seller.get("faction", "")):
+        return {"ok": false, "reason": "unintegrated_interfaction_commerce"}
+    var good: String = str(c.get("commodity", ""))
+    if not (source_market.get("supply") is Dictionary) or not (source_market.get("prices") is Dictionary):
+        return {"ok": false, "reason": "invalid_source_stock"}
+    var stock: float = float(source_market["supply"].get(good, 0.0))
+    var price: float = float(source_market["prices"].get(good, 0.0))
+    if not is_finite(stock) or stock < float(qty) or not is_finite(price) or price <= 0.0:
+        return {"ok": false, "reason": "source_stock_or_price_changed"}
+    var cost: int = int(ceil(float(qty) * price))
+    var payment: int = int(c.get("payment", 0))
+    if cost <= 0 or cost >= payment or cost > int(ship.get("credits", 0)):
+        return {"ok": false, "reason": "not_profitable_or_unfunded"}
+    if int(proposal.get("source_purchase_cost", -1)) != cost:
+        return {"ok": false, "reason": "stale_ship_purchase_quote"}
+    var staged_ledger := Ledger.new()
+    if not staged_ledger.restore(_ledger.snapshot()):
+        return {"ok": false, "fatal": true, "reason": "canonical_ledger_corrupt"}
+    var board := ContractBoard.new(staged_ledger)
+    if not board.restore(board_before):
+        return {"ok": false, "fatal": true, "reason": "canonical_board_corrupt"}
+    # Correct source N104 prepaid acceptance. No invented loyalty/comms
+    # bonus: 0 and x1 are conservative until true reputation is wired.
+    var accepted: Dictionary = board.accept(cid, sid, faction, 0.0, 1.0, tick)
+    if not accepted.get("ok", false):
+        return accepted
+    # Baseline quote needs no top-up; any real top-up must be explicitly
+    # covered by a later native relations/reputation calculation.
+    if int(accepted.get("top_up", -1)) != 0:
+        return {"ok": false, "fatal": true, "reason": "unconfirmed_acceptance_topup"}
+    var after_money: Dictionary = staged_ledger.snapshot()
+    if after_money != _ledger.snapshot():
+        return {"ok": false, "fatal": true, "reason": "acceptance_modified_money"}
+    var staged: Dictionary = _world.duplicate(true)
+    staged["contract_board"] = board.snapshot()
+    staged["ships"][sid]["active_contract_id"] = cid
+    staged["ships"][sid]["current_goal"] = "fulfill_delivery"
+    staged["ships"][sid]["last_plan_tick"] = tick
+    # All N39 accounts still unchanged: assignment moves neither credits
+    # nor physical goods, and cannot alter the authority of the stock.
+    var err: String = Schema.validate(staged)
+    if not err.is_empty():
+        return {"ok": false, "fatal": true, "reason": "assignment_schema_" + err}
+    var accounts: Dictionary = Schema.accounts(staged)
+    for account in accounts:
+        if staged_ledger.balance(str(account)) != int(accounts[account]):
+            return {"ok": false, "fatal": true, "reason": "assignment_account_divergence"}
+    _world = staged
+    return {"ok": true, "status": "N153_ACCEPTED_AWAITING_PICKUP",
+        "contract_id": cid, "ship_id": sid, "tick": tick,
+        "source": src, "destination": dst}
+
 ## P2 single-market commit boundary: N150 may change price, demand,
 ## flow/history/orders but NEVER physical stock, source owner or accounts.
 ## Validation of all markets precedes one atomic in-memory swap.
