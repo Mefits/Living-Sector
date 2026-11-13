@@ -778,7 +778,21 @@ func _show_body_details(world: Dictionary) -> void:
     if not printed:
         lines.append(" • Для этого тела пока нет активного рынка/населения")
     lines.append("")
-    lines.append("Корабли: пока только стартовые данные, без реального перемещения.")
+    lines.append("СТАРТОВЫЕ КОРАБЛИ (БЕЗ ДВИЖЕНИЯ)")
+    var ships_by_class: Dictionary = {}
+    for ship in world.get("ships", []):
+        if not locations.has(str(ship.get("location", ""))):
+            continue
+        var ship_class: String = str(ship.get("class", "other"))
+        ships_by_class[ship_class] = int(ships_by_class.get(ship_class, 0)) + 1
+    if ships_by_class.is_empty():
+        lines.append(" • Нет привязанных кораблей")
+    else:
+        var ship_types: Array = ships_by_class.keys()
+        ship_types.sort()
+        for ship_type in ship_types:
+            lines.append(" • %s: %d" % [str(ship_type), int(ships_by_class[ship_type])])
+    lines.append("Автономное перемещение кораблей пока не подключено.")
     _details.text = "\n".join(lines)
 
 
