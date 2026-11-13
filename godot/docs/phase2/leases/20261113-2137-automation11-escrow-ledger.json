@@ -1,6 +1,6 @@
 {
   "owner": "automation11-2137",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T21:37:00+03:00",
   "expires_at": "2026-11-13T22:20:00+03:00",
   "branch": "integration/godot-phase2-unified-20261113",
@@ -8,5 +8,12 @@
     "godot/scripts/sim/economy/credit_ledger.gd",
     "godot/tests/p2_ledger_escrow_account_check.gd"
   ],
-  "boundary": "Add atomic zero-balance escrow account registration to existing N9 Ledger; no second ledger, no ContractBoard posting, no central World/Runner edits"
+  "boundary": "Add atomic zero-balance escrow account registration to existing N9 Ledger; no second ledger, no ContractBoard posting, no central World/Runner edits",
+  "finished_at": "2026-11-13T21:48:00+03:00",
+  "code_commits": [
+    "b65f681c5063c28db3705cd9ee55e00d4b6253cc",
+    "db21eae993bcbfefc7504639e7958f5cbb71aae9"
+  ],
+  "verification": "CODE_UNVERIFIED; no Godot; Actions 0",
+  "handoff": "godot/docs/phase2/handoffs/20261113-2148-automation11-n9-escrow-wallet.md"
 }
