@@ -14,6 +14,7 @@ const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
 const PaidCargo = preload("res://scripts/sim/phase2/unified_autonomous_paid_cargo.gd")
 const NativeResearch = preload("res://scripts/sim/phase2/unified_native_research_phase.gd")
 const ResearchShift = preload("res://scripts/sim/phase1/n143_native_research_shift.gd")
+const NativeConstructionMaterial = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
@@ -470,6 +471,39 @@ func apply_autonomous_contract_cargo(tick: int, ship_id: String,
     var staged_board := ContractBoard.new(staged_ledger)
     if not staged_board.restore(staged["contract_board"]):
         return {"ok": false, "fatal": true, "reason": "paid_delivery_invalid_original_board"}
+    # The original N15 physical ship unload has ALREADY deposited goods
+    # into the destination market. Native N154 apply_construction_delivery
+    # consumes those REAL goods into site.progress after proven N104 payout,
+    # within this SAME N39 World+Ledger commit. No second market credit.
+    if operation == "delivery" and staged.get("construction_contracts", {}).has(contract_id):
+        var site_id: String = str(staged["construction_contracts"][contract_id])
+        if not staged.get("construction_sites", {}).has(site_id):
+            return {"ok": false, "fatal": true, "reason": "construction_site_missing_at_paid_delivery"}
+        var material_receipt_id: String = "native_construction_delivery:" + contract_id
+        if staged.get("construction_receipts", {}).has(material_receipt_id):
+            return {"ok": false, "fatal": true, "reason": "construction_material_receipt_replayed"}
+        var site_before: Dictionary = staged["construction_sites"][site_id]
+        if bool(site_before.get("completed", false)) or str(site_before.get("location_name", "")) != location or str(site_before.get("commodity", "")) != good:
+            return {"ok": false, "fatal": true, "reason": "construction_paid_site_mismatch"}
+        var attached: Dictionary = NativeConstructionMaterial.material_delivery(
+            [site_before], staged["markets"], location, good, count)
+        if not attached.get("ok", false) or bool(attached.get("fallback_to_market", true)):
+            return {"ok": false, "fatal": true, "reason": "native_construction_delivery_rejected"}
+        var consumed: int = int(attached.get("admitted_units", -1))
+        if consumed != count or consumed <= 0:
+            # Don't publish a partly consumed paid shipment without the
+            # explicit original market fallback for the surplus.
+            return {"ok": false, "fatal": true, "reason": "construction_paid_quantity_overflows_site"}
+        var stock_after_ship: float = float(staged["markets"][location]["supply"].get(good, 0.0))
+        if stock_after_ship < float(consumed):
+            return {"ok": false, "fatal": true, "reason": "construction_materials_not_physically_delivered"}
+        staged["markets"][location]["supply"][good] = stock_after_ship - float(consumed)
+        staged["construction_sites"][site_id] = (attached["sites"][0] as Dictionary).duplicate(true)
+        staged["construction_receipts"][material_receipt_id] = {
+            "id": material_receipt_id, "kind": "delivery",
+            "site_id": site_id, "contract_id": contract_id,
+            "quantity": consumed, "tick": tick,
+            "n15_receipt_id": receipt_id, "n9_receipt_id": money_id}
     var error: String = Schema.validate(staged)
     if not error.is_empty():
         return {"ok": false, "fatal": true, "reason": "paid_delivery_invalid_world_" + error}
