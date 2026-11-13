@@ -179,3 +179,9 @@
 - Commit `3cec2daf`: `seed_integrity.gd` now rejects duplicate, empty or non-string explicit ship/population IDs across systems before admitting native seed. Missing optional legacy IDs remain accepted. No changes to authoritative World, Ledger or TickRunner.
 - Lease `20261113-seed-integrity-ship-pop-automation11-1054.json` RELEASED. Static source check only; **CODE_UNVERIFIED**. No additional GitHub Actions initiated in this iteration. Prior CI `43347330243` failed at Godot smoke, while `43346470587` passed on an earlier SHA; neither is Windows export. Windows ZIP not confirmed.
 - Next: inspect failing CI diagnostic artifact, correct parser/import failure group and coordinate one final manual Windows export. Avoid new CI until source errors are understood.
+
+## P2 handoff — 13.11 11:03 МСК, точная диагностика отказа оплаченных фаз
+
+- Commits [aa177280](https://github.com/Mefits/Living-Sector/commit/aa177280a36d7135c5679e95e1eeb49edc38756c), [ef729038](https://github.com/Mefits/Living-Sector/commit/ef729038de44a727e0adb87a35eba5a6de9f721f): единственный N39 TickRunner сохраняет конкретную причину отказа integrated population/market phase вместо общего `integrated_phase_rejected`. P2 override передаёт причину отклонённого плана или единого оплаченного commit. GUI уже использует `last_phase_failure()`; новые World/Ledger/ContractBoard не создаются. Ошибка остаётся fail-closed.
+- Lease `20261113-integrated-phase-error-detail-second-chat-1103.json` RELEASED. Проверена связность вызовов по исходникам; Godot не запускался, **CODE_UNVERIFIED**. Дополнительные GitHub Actions: **0**. Известный CI `43347330243` FAILED; диагностический artifact ещё требует разбора. Windows ZIP не подтверждён.
+- Следующая свободная работа: получить конкретную ошибку из CI, устранить группу parser/smoke ошибок и только затем согласовать один Windows export; не запускать новый CI на каждый коммит.
