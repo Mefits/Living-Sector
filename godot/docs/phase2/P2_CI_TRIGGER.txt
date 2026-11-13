@@ -3,3 +3,5 @@ Parser (241/242) last Variant fixed; source integer JSON seed boot fixed;
 N150 single real-market pricing/history attached to N39 single physical world.
 Expected: parse 242+ new scripts; N158+N150 real paid economic tick and save.
 Branch integration/godot-phase2-unified-20261113; PR #249.
+
+Next verified unified slice: N151 Food/Water purchases with real N9 receipts and shared N150 MarketFlow (single authoritative production world). Validate source 6 household purchases and ledger conservation.
