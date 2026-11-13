@@ -61,8 +61,9 @@ func _initialize() -> void:
     if not dock_receipt.get("ok", false):
         _fail("N21 dock request failed: " + str(dock_receipt))
         return
-    if a.request_ship_departure(selected_ship, "alpha-station").get("ok", false):
-        _fail("departed while N21 dock slot occupied")
+    var blocked_departure: Dictionary = a.request_ship_departure(selected_ship, "alpha-station")
+    if str(blocked_departure.get("reason", "")) != "ship_must_undock_first":
+        _fail("N21 did not block docked departure: " + str(blocked_departure))
         return
     var loaded: Dictionary = a.request_ship_cargo(selected_ship, "n15-load", "load", {selected_commodity: 2})
     if not loaded.get("ok", false):
