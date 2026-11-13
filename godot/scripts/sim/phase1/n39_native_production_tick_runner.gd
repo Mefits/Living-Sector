@@ -3,6 +3,7 @@ extends "res://scripts/sim/tick_runner.gd"
 ## Preserves N1 event ordering, calendar, tick signal, checkpoint preflight.
 ## NOT the Phase2 unified engine; it cannot execute ships/markets/AI yet.
 const NativeProduction = preload("res://scripts/sim/phase1/n39_native_world_production.gd")
+const Payroll = preload("res://scripts/sim/phase1/n39_native_paid_shift.gd")
 
 var production: RefCounted = NativeProduction.new()
 var _native_enabled: bool = false
@@ -36,19 +37,10 @@ func configure_native_production(physical_world: Dictionary,
 
 ## From confirmed N141 construction / N143 commander shifts, NOT a fabricated
 ## workforce pool. Must be supplied anew for every actual tick if used.
-func set_current_external_labor(occupied: Dictionary) -> bool:
-    if not _native_enabled or not _last_native_result.is_empty():
-        # Fail closed once a frame has run until we explicitly clear result.
-        # Use set_external_labor_for_next_tick for subsequent frames.
-        return false
-    _external_labor_this_tick = occupied.duplicate(true)
-    return true
-
 func set_external_labor_for_next_tick(occupied: Dictionary) -> bool:
     if not _native_enabled:
         return false
     var staged = production.world_snapshot()
-    const Payroll = preload("res://scripts/sim/phase1/n39_native_paid_shift.gd")
     if Payroll.validate_reservations(staged, occupied) != "":
         return false
     _external_labor_this_tick = occupied.duplicate(true)
