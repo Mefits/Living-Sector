@@ -1,10 +1,15 @@
 {
   "worker": "automation11",
-  "status": "ACTIVE",
+  "status": "RELEASED",
   "started_msk": "2026-11-14T02:08:52+03:00",
   "expires_msk": "2026-11-14T03:05:00+03:00",
   "scope": [
     "godot/tests/p2_autonomous_multitick_delivery_restart_check.gd"
   ],
-  "purpose": "Strengthen actual unattended delivery acceptance with physical cargo/board/receipt save-load and no double settlement; no runtime changes"
+  "purpose": "Strengthen actual unattended delivery acceptance with physical cargo/board/receipt save-load and no double settlement; no runtime changes",
+  "released_msk": "2026-11-14T02:20:00+03:00",
+  "commits": [
+    "d7892f731064465a4843d345914b78a85cd08f2e"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261114-0220-automation11-physical-delivery-proof.md"
 }
