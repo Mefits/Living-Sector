@@ -10,7 +10,7 @@ func _initialize() -> void:
 	var e := {"m": 0.02}
 	var shortage := {"m": {"ore": 30}}
 	_check(book.tick(1, stocks, demand, e, shortage).ok, "one price tick")
-	var price := book.prices("m").ore
+	var price: float = float(book.prices("m").get("ore", 0.0))
 	_check(price > 100.0, "native shortage price increases")
 	_check(not book.tick(1, stocks, demand, e, shortage).ok, "replay refused")
 	_check(book.prices("m").ore == price, "replay immutable")
