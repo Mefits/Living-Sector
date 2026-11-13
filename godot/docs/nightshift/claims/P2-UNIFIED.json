@@ -1,0 +1,37 @@
+{
+  "block_id": "P2-UNIFIED",
+  "phase": "P2",
+  "status": "INTEGRATION_IN_PROGRESS",
+  "owner": "primary-chat-20261113",
+  "claimed_at": "2026-11-13",
+  "integration_branch": "integration/godot-phase2-unified-20261113",
+  "integration_pr": "https://github.com/Mefits/Living-Sector/pull/249",
+  "baseline": "integration/godot-47-n33-n37-20261112",
+  "source_pr_scope": "#89-#247, 159 Godot source PRs",
+  "code_integrated": {
+    "new_gd_files": 225,
+    "core_p2_n158": true,
+    "save_n38": true,
+    "preload_refs_static_passed": true,
+    "parse_test": "GitHub Actions run #43343971908 in progress at drafting",
+    "runtime_verified": false
+  },
+  "rules": [
+    "One live authoritative TickRunner, N9 Ledger, Market, ContractBoard and AgentLod; source-only scripts must not be auto-enabled until their state is joined",
+    "No new Nxxx microblock list or repetitive Draft PR; all Phase2 fix/composition commits go to PR #249",
+    "Do not mark Godot playable/VERIFIED unless test run demonstrates it",
+    "Frozen Rust v0.6.7 source mechanics are reference, not Bevy UI/source cargo build"
+  ],
+  "remaining_actions": [
+    "single World population price/lifecycle and owner ledger",
+    "real fleet contracts + apply + tick",
+    "Director/HTN and research/construction",
+    "complete ECS persistence and Rust differential replay"
+  ],
+  "evidence": [
+    "Manifest godot/docs/phase2/UNIFIED_GODOT_PR_SOURCE_INDEX.json",
+    "Collisions godot/docs/phase2/UNIFIED_IMPORT_CONFLICTS.json",
+    "Current status godot/docs/phase2/UNIFIED_RUNTIME_STATUS_RU.md",
+    "GitHub Actions real Godot 4.7.2 smoke workflow (not yet assumed passing)"
+  ]
+}
