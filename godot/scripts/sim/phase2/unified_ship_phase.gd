@@ -33,7 +33,7 @@ static func _load(world: Dictionary) -> Dictionary:
 ## Move only ships with an EXISTING real N14 transit receipt. Idle ships do
 ## not automatically decide their routes until the native N153 AI is wired.
 static func advance(world: Dictionary, positions: Dictionary,
-        tick: int, tick_scale: float) -> Dictionary:
+        tick: int, tick_scale: float, resolver: RefCounted) -> Dictionary:
     if tick < 1 or not is_finite(tick_scale) or tick_scale <= 0.0:
         return {"ok": false, "reason": "invalid_fleet_clock"}
     var opened: Dictionary = _load(world)
@@ -53,6 +53,12 @@ static func advance(world: Dictionary, positions: Dictionary,
         if outcome not in ["arrived", "moving", "out_of_fuel"]:
             return {"ok": false, "reason": "native_ship_" + outcome,
                 "ship": str(id)}
+        if outcome == "arrived":
+            var location: String = str(state.ships[id].get("location", ""))
+            var system_id: String = resolver.system_for_location(location) if resolver != null else ""
+            if system_id.is_empty():
+                return {"ok": false, "reason": "arrival_system_unmapped", "ship": str(id)}
+            state.ships[id]["system_id"] = system_id
         outcomes[str(id)] = outcome
         mutable = true
     if not mutable:
