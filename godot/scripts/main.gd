@@ -1,10 +1,11 @@
 extends Control
-## P1: real orbital ticks, time controls and versioned P1 saves.
-## No trade, production, ship movement or AI yet.
+## P2 N158: original Galaxy orbital clock + real N39 physical paid production.
+## Fleet, contract, population consumption and Head AI still await later P2 integration.
 
 const NativeData = preload("res://scripts/native_data.gd")
-const TickRunner = preload("res://scripts/sim/tick_runner.gd")
+const TickRunner = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const SaveState = preload("res://scripts/sim/save_state.gd")
+const P2_SAVE_PATH: String = "user://saves/galaxy-067-p2-integration.json"
 const SPEEDS = [0.25, 1.0, 2.0, 4.0, 8.0, 16.0]
 const SystemMap = preload("res://scripts/system_map.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
@@ -42,7 +43,7 @@ func _ready() -> void:
     var heading := HBoxContainer.new()
     root.add_child(heading)
     var title := Label.new()
-    title.text = "LIVING SECTOR  /  GODOT P1"
+    title.text = "LIVING SECTOR  /  GODOT P2"
     title.add_theme_font_size_override("font_size", 23)
     title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     heading.add_child(title)
@@ -120,7 +121,7 @@ func _ready() -> void:
     columns.add_child(_observer_panel)
 
     var footer := Label.new()
-    footer.text = "P1 · реальные тики орбит · экономика / корабли / контракты / ИИ ещё не перенесены"
+    footer.text = "P2 · орбиты + оплаченное производство Rust · население, рынки, корабли, ИИ — следующая интеграция"
     footer.add_theme_color_override("font_color", Color("#8da6b5"))
     root.add_child(footer)
 
@@ -136,8 +137,8 @@ func _ready() -> void:
     _runner = TickRunner.new()
     if not _runner.start_from_seed(_seed):
         _status.text = "Ошибка индексации исходного мира"
-        _details.text = "Godot не смог построить read-only индексы исходных JSON."
-        _startup_error = _details.text
+        _details.text = "Не удалось собрать физический мир P2: " + str(_runner.boot_error())
+        _startup_error = _details.text + " / " + str(_runner.boot_error())
         push_error(_startup_error)
         return
 
@@ -157,7 +158,7 @@ func _ready() -> void:
         initial = worlds[0]
     if not initial.is_empty():
         _select_world(initial)
-    print("GODOT_P1_SEED_LOADED ", JSON.stringify(stats))
+    print("GODOT_P2_PAID_PRODUCTION_BOOT ", JSON.stringify(_runner.production_stats()))
     _update_status()
 
 func _toggle_observer() -> void:
@@ -202,9 +203,9 @@ func _save_game(save_path: String = "") -> void:
     if not _runner:
         return
     _runner.advance_frame(0.0)
-    var target: String = SaveState.DEFAULT_PATH if save_path.is_empty() else save_path
+    var target: String = P2_SAVE_PATH if save_path.is_empty() else save_path
     var result: Error = SaveState.save_runner(_runner, target)
-    _notice = "Состояние орбит сохранено (P1)" if result == OK else "Ошибка сохранения: " + str(result)
+    _notice = "Орбиты, товары, зарплаты и чеки сохранены (P2)" if result == OK else "Ошибка сохранения: " + str(result)
     _update_status()
 
 func _load_game(save_path: String = "") -> void:
@@ -214,7 +215,7 @@ func _load_game(save_path: String = "") -> void:
     var result: Dictionary = SaveState.load_runner(_runner, _seed, target)
     if result.get("ok", false):
         _model = _runner.world
-        _notice = "Загружено сохранение P1, тик " + str(result.get("tick", "—"))
+        _notice = "Загружены орбиты и производство P2, тик " + str(result.get("tick", "—"))
         _refresh_selection()
     else:
         _notice = str(result.get("error", "Не удалось загрузить"))
@@ -222,7 +223,7 @@ func _load_game(save_path: String = "") -> void:
 
 func _on_tick_completed(tick: int) -> void:
     _refresh_observer()
-    if tick % 8 == 0:
+    if tick % 8 == 0 or not _runner.last_native_result().get("receipts", []).is_empty():
         _refresh_selection()
     _update_status()
 
@@ -238,6 +239,11 @@ func _update_status() -> void:
         "   |   " + _notice if not _notice.is_empty() else ""
     ]
     _status.text += "   |   " + _runner.calendar.display_text(_runner.tick_count)
+    if _runner.has_method("economy_summary"):
+        var economic: Dictionary = _runner.economy_summary()
+        _status.text += "   |   Native: %d рын. / %d предприятий" % [int(economic.get("markets", 0)), int(economic.get("facilities", 0))]
+        if _runner.tick_count % 5 == 0 and _runner.tick_count > 0:
+            _status.text += " · Выпуск: %d · Добыча: %d" % [int(economic.get("last_recipe_facilities", 0)), int(economic.get("last_mining_facilities", 0))]
     _pause_button.text = "Продолжить" if _runner.clock.paused else "Пауза"
 
 func _refresh_selection() -> void:
@@ -310,9 +316,40 @@ func _select_world(world: Dictionary) -> void:
             faction.get("name", "—"), faction.get("id", "—")
         ])
     lines.append("")
-    lines.append("Все числовые ресурсы в JSON остаются исходными.")
-    lines.append("Изменяются только орбитальные углы, по точной формуле Rust.")
-    lines.append("Запасы, контракты, производство и корабли не симулируются.")
+    # Physical runtime is separate from the read-only orbit geometry.
+    # Never display seed stock as if it were current stock.
+    if _runner != null and _runner.has_method("economy_snapshot"):
+        var economy: Dictionary = _runner.economy_snapshot()
+        lines.append("")
+        lines.append("ТЕКУЩИЕ РЕАЛЬНЫЕ ЗАПАСЫ И ЗАРПЛАТЫ (N39)")
+        for source_market in markets:
+            var location: String = str(source_market.get("facility_id", ""))
+            if not economy.get("markets", {}).has(location):
+                continue
+            var live_market: Dictionary = economy["markets"][location]
+            var stock: Dictionary = live_market["supply"]
+            var goods: Array = stock.keys()
+            goods.sort()
+            lines.append(" • Рынок " + location + " — владелец " + str(live_market["owner"]))
+            var entries: PackedStringArray = PackedStringArray()
+            for commodity in goods:
+                entries.append("%s: %.1f" % [commodity, float(stock[commodity])])
+            lines.append("   " + " · ".join(entries))
+        for source_fac in facilities:
+            var id: String = str(source_fac.get("id", ""))
+            if not economy.get("facilities", {}).has(id):
+                continue
+            var live: Dictionary = economy["facilities"][id]
+            var shift: Dictionary = live.get("work_shift", {})
+            var shift_text: String = "нет оплаченной смены"
+            if not shift.is_empty():
+                shift_text = "смена #%d · зарплата %d" % [int(shift.get("tick", 0)), int(shift.get("wages", 0))]
+            lines.append(" • %s: %d CR · %s" % [
+                str(source_fac.get("name", id)), int(live["credits"]), shift_text
+            ])
+    lines.append("")
+    lines.append("Орбиты и производственный цикл реальны. Корабли, потребление населения,")
+    lines.append("динамическая переоценка рынков и ИИ пока не подключены к общему тику.")
     _details.text = "\n".join(lines)
 
 ## Read-only boot diagnostics for local Windows/Godot compatibility smoke.
