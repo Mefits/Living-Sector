@@ -1,10 +1,16 @@
 {
   "worker": "automation11",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_msk": "2026-11-14T00:54:30+03:00",
   "scope": [
     "godot/tests/p2_autonomous_multitick_delivery_restart_check.gd"
   ],
   "purpose": "One-world no-manual N135/N104/N153/N84/N14/N21/N15/N97 save/restart regression, no runtime file edits",
-  "expires_msk": "2026-11-14T02:00:00+03:00"
+  "expires_msk": "2026-11-14T02:00:00+03:00",
+  "released_msk": "2026-11-14T01:10:00+03:00",
+  "commits": [
+    "f901b316004baa3f1c3d43135c853ae60c6925fc",
+    "4a8bec2190014a76f0b77b3c202020f56af1d224"
+  ],
+  "validation": "CODE_UNVERIFIED; Godot unavailable, static source interface checked"
 }
