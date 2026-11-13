@@ -1,3 +1,10 @@
+### 2026-11-13 — ONE UNIFIED GODOT P2 / PR #249
+
+- Вместо десятков новых интеграционных шагов создана `integration/godot-phase2-unified-20261113` на базе N158. Полные PR #89..#247 (159 источников) пройдены через GitHub PR changed-files metadata, все отсутствующие не конфликтующие source файлы перенесены по точным Git blob SHA: **225 новых GDScript** против N158, кроме GitHub index JSON. Конфликты 13 точек перечислены в `godot/docs/phase2/UNIFIED_IMPORT_CONFLICTS.json`, N38 SaveState реально разрешён через SHA-256 integrity+recoverable backup; старые `main.gd`/tick/ship-controller не затёрты.
+- [Draft PR #249](https://github.com/Mefits/Living-Sector/pull/249) — один общий integration PR, а не 159 отдельных merge actions. Действующий single TickRunner P1+N39 producer, one N9 ledger + current source market UI + N38 save. 225 новых исходных скриптов только физически присутствуют, N151/N150/N156/fleet/contracts/Director не имеют общего ECS runtime commit.
+- Добавлена конкретная GitHub Actions CI проверка на реальном официальном Godot 4.7.2: one-shot [run #43343971908](https://github.com/Mefits/Living-Sector/actions/runs/43343971908) с all-scripts compiler и physical paid production file-restart test. Результат на момент записи не подтверждён; VERIFIED НЕ увеличивать. Координационный claim `godot/docs/nightshift/claims/P2-UNIFIED.json`; full docs `godot/docs/phase2/UNIFIED_RUNTIME_STATUS_RU.md`.
+- Больше не создавать новые макро Nxxx ради написания отдельных исходных source files; конкретные проблемы реальной сборки и функциональную интеграцию фиксировать *в PR #249*.
+
 ### 2026-11-13 — P2-01 N158 / начало реальной интеграции Godot
 
 - После фазы 1 (10/10 SOURCE-COVERED/CODE_UNVERIFIED) зарезервирован N158 до редактирования кода в общей `feature/godot-nightshift-20261112` @ `4f14fb4e`. [Draft PR #248](https://github.com/Mefits/Living-Sector/pull/248), ветка `feature/godot-phase2-n158-production-boot-20261113`, base `integration/godot-47-n33-n37-20261112`.
