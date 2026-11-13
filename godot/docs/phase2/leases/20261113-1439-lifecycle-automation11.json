@@ -1,6 +1,6 @@
 {
   "owner": "automation11-1439",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T14:39:00+03:00",
   "scope": [
     "godot/scripts/sim/phase1/n39_native_world_production.gd",
@@ -11,5 +11,15 @@
     "godot/scripts/sim/phase2/n158_production_runtime.gd"
   ],
   "boundary": "N156 decay and abandonment on canonical N39 world, no paid repairs or second ledger",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "finished_at": "2026-11-13T14:45:00+03:00",
+  "code_commits": [
+    "fc937cafd6cea6ba0c1e2eaccbbb4a7e8ae50cf4",
+    "9cda3d6734495c38c607aa84d05231655008d8df",
+    "3f8137db34ed22e41e4732dad5cd1b12829342c7",
+    "c6fc2a346a45d82ce230f9e39368bf0e2a760d52",
+    "df0a4a01243ab2ece26a64f20fbbb2b0cf4b0780",
+    "99153ee6d05aecc9bd288dc704fad9ab5dbe60bd"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261113-1439-automation11-lifecycle.md"
 }
