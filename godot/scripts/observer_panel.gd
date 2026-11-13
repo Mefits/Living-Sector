@@ -178,27 +178,63 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
         lines.append("РЕАЛЬНЫЙ ФЛОТ / N46 + N14: %d судов" % ships.size())
         var types: Dictionary = {}
         var flight_count: int = 0
+        var stranded_count: int = 0
         var ship_ids: Array = ships.keys()
         ship_ids.sort()
         for sid in ship_ids:
+            if not (ships[sid] is Dictionary):
+                lines.append("  %s: повреждённая запись корабля" % str(sid))
+                continue
             var ship: Dictionary = ships[sid]
             var kind: String = str(ship.get("class", "?"))
             types[kind] = int(types.get(kind, 0)) + 1
-            var transit: Dictionary = ship.get("transit", {})
+            var transit: Dictionary = ship.get("transit", {}) if ship.get("transit", {}) is Dictionary else {}
+            var fuel: float = float(ship.get("fuel", 0.0))
+            var fuel_capacity: float = float(ship.get("fuel_capacity", 0.0))
+            var name: String = str(ship.get("name", sid))
+            var location: String = str(ship.get("location", ""))
+            var status: String = "СТОЯНКА: " + location
             if not transit.is_empty():
                 flight_count += 1
-                lines.append("  В РЕЙСЕ: %s · %s → %s · Fuel %.2f / %.2f" % [
-                    str(ship.get("name", sid)),
-                    str(transit.get("from", "?")), str(transit.get("to", "?")),
-                    float(ship.get("fuel", 0.0)),
-                    float(ship.get("fuel_capacity", 0.0))])
+                var destination: String = str(transit.get("to", "?"))
+                var origin: String = str(transit.get("from", "?"))
+                var position: Variant = transit.get("position", [])
+                var position_text: String = "?"
+                if position is Array and position.size() == 2:
+                    position_text = "(%.2f, %.2f)" % [float(position[0]), float(position[1])]
+                var eta: int = int(transit.get("arrival_tick", -1))
+                status = "РЕЙС: %s → %s · позиция %s · ETA тик %s" % [
+                    origin, destination, position_text,
+                    str(eta) if eta >= 0 else "неизвестен"]
+                if fuel <= 0.0:
+                    stranded_count += 1
+                    status += " · БЕЗ ТОПЛИВА"
+            lines.append("  %s [%s] · %s" % [name, kind, status])
+            lines.append("    фракция %s · система %s · Fuel %.2f/%.2f · экипаж %s" % [
+                str(ship.get("faction_id", "?")), str(ship.get("system_id", "?")),
+                fuel, fuel_capacity, str(ship.get("crew_size", "?"))])
+            var cargo: Variant = ship.get("cargo", {})
+            var cargo_items: Array[String] = []
+            var cargo_used: int = 0
+            if cargo is Dictionary:
+                var goods: Array = cargo.keys()
+                goods.sort()
+                for good in goods:
+                    var quantity: int = int(cargo[good])
+                    cargo_used += quantity
+                    if quantity > 0:
+                        cargo_items.append("%s=%d" % [str(good), quantity])
+            lines.append("    груз %d/%d: %s" % [
+                cargo_used, int(ship.get("cargo_capacity", 0)),
+                ", ".join(cargo_items) if not cargo_items.is_empty() else "пусто"])
         var class_ids: Array = types.keys()
         class_ids.sort()
         var class_lines: Array[String] = []
         for kind in class_ids:
             class_lines.append("%s %d" % [str(kind), int(types[kind])])
         lines.append("Классы: " + ", ".join(class_lines))
-        lines.append("В пути: %d · на месте: %d" % [flight_count, ships.size() - flight_count])
+        lines.append("В пути: %d · на месте: %d · без топлива в рейсе: %d" % [
+            flight_count, ships.size() - flight_count, stranded_count])
         lines.append("AI/доставка пока не подключены; маршруты N14 требуют реальной команды.")
     lines.append("Контракты и стратегические планировщики: ещё не подключены к единому тику.")
     _label.text = "\n".join(lines)
