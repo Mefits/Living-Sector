@@ -70,8 +70,8 @@ jobs:
           # Use a separate isolated user:// directory to avoid stale CI saves.
           mkdir -p "$RUNNER_TEMP/p2-gui-user"
           timeout --signal=TERM --kill-after=5s 75s \
+            env XDG_DATA_HOME="$RUNNER_TEMP/p2-gui-user" \
             godot --headless --path godot \
-            --user-data-dir "$RUNNER_TEMP/p2-gui-user" \
             -- --p2-boot-check \
             > godot/logs/p2-release/gui-boot.log 2>&1 || {
               tail -n 120 godot/logs/p2-release/gui-boot.log
