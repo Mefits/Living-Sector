@@ -92,7 +92,7 @@ func _draw() -> void:
         var orbit_color: Color = Color("#81c8d8") if selected else Color("#344c63")
         # Symbols grow mildly with map zoom; they remain pickable even
         # when native universe_offset distances become very spread out.
-        var marker_scale: float = clampf(sqrtf(_zoom), 0.8, 2.6)
+        var marker_scale: float = clampf(sqrt(_zoom), 0.8, 2.6)
         draw_arc(pos, 16.0 * marker_scale, 0.0, TAU, 32, orbit_color, 1.5)
         draw_circle(pos, (6.0 if selected else 4.5) * marker_scale,
             Color("#b5edfc") if selected else Color("#6c9eac"))

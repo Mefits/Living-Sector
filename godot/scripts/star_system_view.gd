@@ -121,7 +121,7 @@ func _body_size(body: Dictionary) -> float:
     # The old diagram zoomed the orbit position but kept every planet at
     # 4–10 pixels, so close-up still looked distant. Symbol radius is
     # deliberately schematic and grows sublinearly, never by physical size.
-    var symbol_scale: float = clampf(sqrtf(_zoom), 0.8, 5.0)
+    var symbol_scale: float = clampf(sqrt(_zoom), 0.8, 5.0)
     var kind: String = str(body.get("type", ""))
     if kind == "moon":
         return 4.0 * symbol_scale
@@ -169,7 +169,7 @@ func _draw() -> void:
         var radius: float = _radius_transform(float(body.get("orbit_radius", 0.0))) * scale * _zoom
         if radius > 1.0:
             draw_arc(star, radius, 0.0, TAU, 96, Color("#26394a"), 1.0, true)
-    var star_size: float = 13.0 * clampf(sqrtf(_zoom), 0.8, 4.0)
+    var star_size: float = 13.0 * clampf(sqrt(_zoom), 0.8, 4.0)
     draw_circle(star, star_size, _star_color(str(system.get("star_type", ""))))
     draw_circle(star, star_size + 5.0, Color("#526575"), false, 1.0, true)
     draw_string(font, star + Vector2(star_size + 8.0, -15.0), str(system.get("name", "")),
