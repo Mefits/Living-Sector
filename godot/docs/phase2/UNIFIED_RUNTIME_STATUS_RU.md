@@ -149,3 +149,9 @@
 - Commit [`d6720490`](https://github.com/Mefits/Living-Sector/commit/d672049001a4717c70bf199401ba17463ebf9c40): в панели выбранной системы показаны реальные `count`, `wealth`, `food_satisfaction`, `overall_sentiment` из единственного N39 World; последняя подтверждённая оплаченная фаза населения отображает тик и число покупок. Проекция привязана к исходным рыночным локациям системы и не создаёт отдельного population state или ledger. Убрана устаревшая подпись о якобы неподключённом потреблении населения.
 - Контракты `economy_snapshot`, `last_population_result`, seed market `facility_id` сверены по GDScript. Godot Runtime не запускался — **CODE_UNVERIFIED**; дополнительных GitHub Actions 0. Windows ZIP пока не подтверждён. Lease `20261113-p2-live-population-ui-automation11-0909.json` RELEASED.
 - Следующий приоритет: реальный ограниченный Godot import/paid-world smoke и Windows export; проверить свежие leases и общий бюджет CI.
+
+## P2 handoff — 13.11 09:38 МСК, видимость аварийного восстановления
+
+- Commit [63927316](https://github.com/Mefits/Living-Sector/commit/639273163c70058ad0b4d3131ad50f77f4e60f61): startup и ручная загрузка теперь показывают источник восстановления (.bak / .pending). Если целостный pending успешно загружен, но не удалось перенести в основной файл, UI прямо предупреждает сохранить игру заново. Информация берётся из единственного SaveState, не из дополнительного filesystem scanner.
+- Lease `20261113-p2-pending-recovery-ui-automation11-0938.json` RELEASED. Статическая сверка контракта SaveState и main выполнена; Godot/Windows не запускались — **CODE_UNVERIFIED**. Дополнительных GitHub Actions: **0**. Windows ZIP не подтверждён.
+- Следующая свободная работа: ограниченный Godot 4.7.2 import/parser/paid-world smoke и согласованный Windows export. Проверить новые leases и общий бюджет перед запуском CI.
