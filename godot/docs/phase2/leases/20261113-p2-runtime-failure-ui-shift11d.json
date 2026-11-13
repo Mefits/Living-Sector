@@ -1,0 +1,10 @@
+{
+  "owner": "overnight-scheduler-shift11d",
+  "status": "IN_PROGRESS",
+  "claimed_at": "2026-11-13T04:02:44+01:00",
+  "scope": [
+    "godot/scripts/main.gd"
+  ],
+  "goal": "Surface authoritative N39 phase failures in UI and disable saving failed ticks",
+  "base_file_sha": "71d047c1080d35e743f078980314e9b385e50632"
+}
