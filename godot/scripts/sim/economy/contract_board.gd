@@ -179,7 +179,11 @@ func _valid_physical_receipt(c: Dictionary, ship: String, direction: String, rec
 	var receipt: Dictionary = _physical_cargo.receipts.get(receipt_id, {})
 	if receipt.get("ok", false) != true or str(receipt.get("ship_id", "")) != ship:
 		return false
-	if str(receipt.get("direction", "")) != direction or int(receipt.get("tick", -1)) > tick:
+	# The live N15/N97 docked cargo gate writes action (load/unload),
+	# not the older source-only direction field. Require canonical identity.
+	if str(receipt.get("operation_id", "")) != receipt_id:
+		return false
+	if str(receipt.get("action", "")) != direction or int(receipt.get("tick", -1)) > tick:
 		return false
 	var expected_location := str(c["source_location"]) if direction == "load" else str(c["destination_location"])
 	if str(receipt.get("location_id", "")) != expected_location:
