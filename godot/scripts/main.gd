@@ -321,7 +321,7 @@ func _refresh_observer() -> void:
         return
     # The current P1 world contains only seed/orbital state. Never present
     # an unconnected N19/N18/N16 subsystem as if it were executing.
-    _observer_panel.call("show_observation", _runner.tick_count, "genesis", {})
+    _observer_panel.call("show_live_economy", _runner.tick_count, _runner.economy_snapshot(), _runner.economy_summary())
 
 func _process(delta: float) -> void:
     if _runner and _fatal_restore_error.is_empty():
