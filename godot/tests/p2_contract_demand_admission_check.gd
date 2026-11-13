@@ -8,9 +8,9 @@ func _initialize() -> void:
             "seller": {"location": "src", "credits": 20}
         },
         "markets": {
-            "src": {"owner": "seller", "supply": {"Water": 10.0}},
+            "src": {"owner": "seller", "supply": {"Water": 10.0}, "prices": {"Water": 4.0}, "consumption_window": {}},
             "dst": {"owner": "buyer", "supply": {"Water": 0.0},
-                "prices": {"Water": 4.0}}
+                "prices": {"Water": 4.0}, "consumption_window": {"Water": [{"tick": 5, "qty": 5.0}]}}
         }
     }
     var ledger: Dictionary = {"balances": {"facility/buyer": 100,
@@ -28,8 +28,19 @@ func _initialize() -> void:
     if world != baseline:
         _fail("validator mutated canonical stock")
         return
+    var forged: Dictionary = demand.duplicate(true)
+    forged["quantity"] = 4
+    forged["estimated_cost"] = 16
+    if Admission.validate(world, ledger, forged, 5).get("reason") != "stale_or_forged_demand":
+        _fail("forged quantity accepted as real N135 demand")
+        return
+    world["markets"]["dst"]["supply"]["Water"] = 5.0
+    if Admission.validate(world, ledger, demand, 5).get("reason") != "no_live_economic_need":
+        _fail("resolved deficit still admitted to escrow")
+        return
+    world["markets"]["dst"]["supply"]["Water"] = 0.0
     world["markets"]["src"]["supply"]["Water"] = 4.0
-    if Admission.validate(world, ledger, demand, 5).get("reason") != "source_stock_changed":
+    if Admission.validate(world, ledger, demand, 5).get("reason") != "no_live_economic_need":
         _fail("stale source inventory accepted")
         return
     world["markets"]["src"]["supply"]["Water"] = 10.0
