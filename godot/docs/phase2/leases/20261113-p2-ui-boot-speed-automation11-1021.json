@@ -1,10 +1,12 @@
 {
   "owner": "automation11",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "scope": [
     "godot/scripts/main.gd"
   ],
   "task": "Synchronize boot speed and selected system projections with restored N158 state",
   "started_at": "2026-11-13T10:21:57+03:00",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "commit": "46c36362792d4c7097aee84a9d28eabc550948d5",
+  "verification": "CODE_UNVERIFIED; static source-level review; no Godot or Actions run"
 }
