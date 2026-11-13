@@ -17,11 +17,17 @@ func start_from_seed(seed: Dictionary) -> bool:
     if not super.start_from_seed(seed):
         _boot_error = "base_world_seed_rejected"
         return false
-    if not configure_native_production(projected["world"], 1):
+    if not configure_native_production(projected["world"], maxi(1, clock.tick_multiplier())):
         _boot_error = "physical_production_initialization_rejected"
         return false
     _source_stats = projected["stats"].duplicate(true)
     return true
+
+## Rust TickConfig::tick_multiplier() is dynamic across speed changes:
+## default 8 TPS / 0.25 speed = 32, so 5*32 = 160 real ticks per cycle.
+func _advance_one_tick() -> void:
+    _tick_multiplier = maxi(1, clock.tick_multiplier())
+    super._advance_one_tick()
 
 func boot_error() -> String:
     return _boot_error
