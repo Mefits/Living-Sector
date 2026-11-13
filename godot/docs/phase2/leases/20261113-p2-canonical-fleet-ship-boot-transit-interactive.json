@@ -12,7 +12,8 @@
     "godot/tests/p2_unified_ship_phase_check.gd",
     "godot/scripts/sim/ships/native_location_resolver.gd",
     "godot/scripts/main.gd",
-    "godot/tests/p2_n158_live_production_check.gd"
+    "godot/tests/p2_n158_live_production_check.gd",
+    "godot/scripts/star_system_view.gd"
   ],
   "purpose": "Gate2 single-world 24 frozen starter ships, N46 initial fuel/cargo and ship wallets in existing N9, N14 transit with native moving orbital targets, persistent command/nonce; no second runner or Actions",
   "verification": "CODE_UNVERIFIED",
