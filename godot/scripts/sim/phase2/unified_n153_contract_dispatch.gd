@@ -185,10 +185,20 @@ static func propose(world: Dictionary, graph: RefCounted,
                 continue
             var quoted_payment: int = int(boosted)
             var top_up: int = maxi(0, quoted_payment - int(c["reserved"]))
+            # N154 is paid by the original faction treasury. N104
+            # delivery type is preserved for physical cargo proof.
+            var real_payer: String = str(c.get("requestor_id", ""))
+            var real_balance: int = -1
+            if str(c.get("funding_source", "")) == "faction":
+                if world.get("construction_contracts", {}).has(str(contract_id)) and real_payer == Schema.faction_account(buyer_faction):
+                    real_balance = int(world.get("faction_treasuries", {}).get(buyer_faction, -1))
+            elif str(c.get("funding_source", "")) == "facility":
+                if real_payer == Schema.facility_account(str(buyer_market["owner"])):
+                    real_balance = int(buyer["credits"])
             var quotes: Dictionary = {}
-            quotes[str(contract_id)] = {"valid": int(buyer["credits"]) >= top_up,
+            quotes[str(contract_id)] = {"valid": real_balance >= top_up and real_balance >= 0,
                 "quoted_payment": quoted_payment, "top_up": top_up,
-                "payer_balance": int(buyer["credits"]),
+                "payer_balance": real_balance,
                 "reserved": int(c["reserved"]), "source_purchase_cost": source_purchase}
             var commerce: Dictionary = {}
             commerce[buyer_faction] = true

@@ -927,7 +927,9 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
         return {"ok": false, "fatal": true, "reason": "n104_accept_money_not_conserved"}
     var payer: String = str(c.get("requestor_id", ""))
     var escrow: String = str(c.get("escrow_account", ""))
-    if payer != Schema.facility_account(str(buyer_market["owner"])):
+    var native_site_contract: bool = _world.get("construction_contracts", {}).has(cid)
+    var expected_payer: String = Schema.faction_account(buyer_faction) if native_site_contract else Schema.facility_account(str(buyer_market["owner"]))
+    if payer != expected_payer or (native_site_contract and str(c.get("funding_source", "")) != "faction") or (not native_site_contract and str(c.get("funding_source", "")) != "facility"):
         return {"ok": false, "fatal": true, "reason": "n104_payer_changed"}
     for account in original_money["balances"]:
         if not after_money["balances"].has(account):
@@ -939,7 +941,10 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
     var staged: Dictionary = _world.duplicate(true)
     staged["contract_board"] = board.snapshot()
     staged["escrow_balances"][escrow] = staged_ledger.balance(escrow)
-    staged["facilities"][str(buyer_market["owner"])]["credits"] = staged_ledger.balance(payer)
+    if native_site_contract:
+        staged["faction_treasuries"][buyer_faction] = staged_ledger.balance(payer)
+    else:
+        staged["facilities"][str(buyer_market["owner"])]["credits"] = staged_ledger.balance(payer)
     staged["ships"][sid]["active_contract_id"] = cid
     staged["ships"][sid]["current_goal"] = "fulfill_delivery"
     staged["ships"][sid]["last_plan_tick"] = tick
