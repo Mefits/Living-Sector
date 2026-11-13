@@ -212,6 +212,7 @@ func _ready() -> void:
     map_stage.add_child(_system_view)
     _system_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     _system_view.connect("body_selected", _on_body_selected)
+    _system_view.connect("body_open_requested", _on_body_open_requested)
 
     var details_panel := PanelContainer.new()
     details_panel.custom_minimum_size = Vector2(355, 0)
@@ -234,7 +235,7 @@ func _ready() -> void:
     columns.add_child(_observer_panel)
 
     var footer := Label.new()
-    footer.text = "P2 · орбиты, производство, рынок, 24 корабля N46 и N14 перелёты по команде · автономный флот/ИИ ещё не включены"
+    footer.text = "P2 · карта сектора → система → планета · экономика и автономный флот N84/N153 в интеграции; состояние в Наблюдении"
     footer.add_theme_color_override("font_color", Color("#8da6b5"))
     root.add_child(footer)
 
@@ -828,15 +829,23 @@ func _open_world(world: Dictionary) -> void:
     _system_view.call("set_live_fleet", _runner.fleet_snapshot())
     _map.call("select_system", sid)
     _back_button.visible = true
+    _back_button.text = "← К сектору"
     _open_button.visible = false
     _show_body_details(current)
 
 
 func _return_to_sector() -> void:
+    # Three semantic map levels: globe -> orbital system -> sector.
+    # Do not reset or duplicate the running world on a UI-only transition.
+    if _in_system and _system_view != null and _system_view.is_body_focused():
+        _system_view.unfocus_body()
+        _back_button.text = "← К сектору"
+        return
     _in_system = false
     _system_view.visible = false
     _map.visible = true
     _back_button.visible = false
+    _back_button.text = "← К сектору"
     _open_button.visible = true
     _selected_body_id = ""
     _refresh_selection()
@@ -846,6 +855,19 @@ func _on_body_selected(body: Dictionary) -> void:
     if not _in_system or _model == null:
         return
     _selected_body_id = str(body.get("id", ""))
+    var current: Dictionary = _model.system_by_id(_selected_system)
+    if not current.is_empty():
+        _show_body_details(current)
+
+
+func _on_body_open_requested(body: Dictionary) -> void:
+    if not _in_system or _model == null or _system_view == null:
+        return
+    var id: String = str(body.get("id", ""))
+    if id.is_empty() or not _system_view.focus_body(id):
+        return
+    _selected_body_id = id
+    _back_button.text = "← К системе"
     var current: Dictionary = _model.system_by_id(_selected_system)
     if not current.is_empty():
         _show_body_details(current)
@@ -888,6 +910,10 @@ func _show_body_details(world: Dictionary) -> void:
     lines.append("Тип: " + str(chosen.get("type", "?")) + " · Биом: " +
         str(chosen.get("biome", "?")))
     lines.append("ID: " + _selected_body_id)
+    if _system_view != null and _system_view.is_body_focused():
+        lines.append("Крупный глобус — схематическая поверхность, не реальные координаты построек.")
+    else:
+        lines.append("Двойной клик по телу или приближение к нему открывает крупный глобус.")
     lines.append("Радиус орбиты: %.2f (условные единицы)" %
         float(chosen.get("orbit_radius", 0.0)))
     lines.append("Период: %.1f (нативные единицы)" %
