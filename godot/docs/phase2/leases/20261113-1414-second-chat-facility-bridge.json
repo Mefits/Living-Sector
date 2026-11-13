@@ -1,10 +1,12 @@
 {
   "owner": "second-chat-overnight",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T14:14:17+03:00",
   "scope": [
     "godot/scripts/sim/phase2/unified_facility_lifecycle_phase.gd"
   ],
   "purpose": "N156 source facility lifecycle projection from authoritative N39 world, no second ledger/tick",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "code_commit": "ea73cfc0acb5cd980799c1fbef9d2a0a7a6f4771",
+  "handoff": "godot/docs/phase2/handoffs/20261113-1414-second-chat-overnight.md"
 }
