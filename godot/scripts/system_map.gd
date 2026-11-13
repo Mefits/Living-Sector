@@ -3,6 +3,7 @@ extends Control
 ## Coordinates are NOT light-years and drawn distances are NOT ship routes.
 
 signal system_selected(world: Dictionary)
+signal system_open_requested(world: Dictionary)
 
 const MIN_ZOOM: float = 0.45
 const MAX_ZOOM: float = 8.0
@@ -96,7 +97,7 @@ func _draw() -> void:
             Color("#e5f1f7"))
         _pins.append({"world": item, "pos": pos})
     draw_string(font, Vector2(14, size.y - 16),
-        "ЛКМ: выбрать / переместить · колесо: масштаб · без фиктивных маршрутов",
+        "ЛКМ: выбрать / двигать · двойной клик: открыть систему · колесо: масштаб",
         HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#7d9cad"))
 
 func _zoom_at(pointer: Vector2, multiplier: float) -> void:
@@ -107,7 +108,7 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
     _pan += offset * (1.0 - ratio)
     queue_redraw()
 
-func _pick(point: Vector2) -> void:
+func _pick(point: Vector2, open_system: bool = false) -> void:
     var best_distance: float = 25.0
     var best: Dictionary = {}
     for pin in _pins:
@@ -120,6 +121,8 @@ func _pick(point: Vector2) -> void:
     var system: Dictionary = best.get("system", {})
     select_system(str(system.get("id", "")))
     system_selected.emit(best.duplicate(true))
+    if open_system:
+        system_open_requested.emit(best.duplicate(true))
 
 func _gui_input(event: InputEvent) -> void:
     if event is InputEventMouseButton:
@@ -131,8 +134,12 @@ func _gui_input(event: InputEvent) -> void:
             accept_event()
         elif event.button_index == MOUSE_BUTTON_LEFT:
             if event.pressed:
-                _dragging = true
-                _drag_distance = 0.0
+                if event.double_click:
+                    _dragging = false
+                    _pick(event.position, true)
+                else:
+                    _dragging = true
+                    _drag_distance = 0.0
             else:
                 if _dragging and _drag_distance < 7.0:
                     _pick(event.position)
