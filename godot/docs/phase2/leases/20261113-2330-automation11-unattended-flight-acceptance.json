@@ -1,10 +1,15 @@
 {
   "worker": "automation11",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "scope": [
     "godot/tests/p2_unattended_autonomous_flight_check.gd"
   ],
   "boundary": "Independent end-to-end unattended N14 physical route acceptance, no production runtime or GUI changes",
   "started_at": "2026-11-13T23:30:00+03:00",
-  "expires_at": "2026-11-14T00:35:00+03:00"
+  "expires_at": "2026-11-14T00:35:00+03:00",
+  "released_at": "2026-11-13T23:48:00+03:00",
+  "commits": [
+    "a6c9e0e039da735a6775089c15d91e801cbf3aba",
+    "6b279c805c143827ac88222654e4cca976b94e4a"
+  ]
 }
