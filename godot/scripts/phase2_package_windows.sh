@@ -17,6 +17,27 @@ echo "Exporting with $("$GODOT_BIN" --version) from $PROJECT"
 [[ -s "$OUT/LivingSector.exe" ]] || { echo "Export produced no executable" >&2; exit 3; }
 # With embed_pck=false a separate PCK must exist; never ship an EXE alone.
 [[ -s "$OUT/LivingSector.pck" ]] || { echo "Export produced no PCK" >&2; exit 3; }
+# A nonempty file is not sufficient: reject Linux binaries and malformed packs.
+# This is a cheap structural check, not a claim of successful Windows boot.
+python3 - "$OUT/LivingSector.exe" "$OUT/LivingSector.pck" <<'PY'
+import pathlib, struct, sys
+exe, pck = (pathlib.Path(p) for p in sys.argv[1:])
+with exe.open("rb") as f:
+    dos = f.read(64)
+    if len(dos) < 64 or dos[:2] != b"MZ":
+        raise SystemExit("Export is not a Windows PE executable (MZ missing)")
+    pe_offset = struct.unpack_from("<I", dos, 0x3c)[0]
+    if pe_offset < 64 or pe_offset > exe.stat().st_size - 24:
+        raise SystemExit("Invalid Windows PE header offset")
+    f.seek(pe_offset)
+    header = f.read(24)
+    if header[:4] != b"PE\\0\\0" or struct.unpack_from("<H", header, 4)[0] != 0x8664:
+        raise SystemExit("Export is not a Windows x86_64 PE executable")
+with pck.open("rb") as f:
+    if f.read(4) != b"GDPC":
+        raise SystemExit("Exported PCK has no Godot pack header")
+print("WINDOWS_PE_X64_AND_GODOT_PCK_HEADERS_OK")
+PY
 cat > "$OUT/README-RU.txt" <<'EOF'
 Living Sector — Godot 4 P2 Windows x64
 Распакуйте весь архив в одну папку и запустите LivingSector.exe.
