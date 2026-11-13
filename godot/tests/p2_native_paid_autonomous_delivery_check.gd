@@ -127,6 +127,15 @@ func _initialize() -> void:
     if not source_dock.get("ok", false) or not runtime.production.apply_fleet_logistics(1, source_dock, true):
         _fail("real N21 source docking failed: " + str(source_dock))
         return
+    # A changed live source quote above N153's accepted ceiling must
+    # reject before any N9 credits, N15 inventory or N104 state changes.
+    var overpriced: Dictionary = runtime.economy_snapshot()
+    overpriced["markets"][source]["prices"][good] = float(cost) + 500.0
+    var denied: Dictionary = Paid.propose(overpriced,
+        runtime.production.ledger_snapshot(), ship_id, cid, "pickup", 1)
+    if denied.get("ok", false) or runtime.economy_snapshot()["markets"][source]["supply"][good] != first_stock:
+        _fail("N97 accepted an unauthorised repriced market purchase")
+        return
     var bought: Dictionary = runtime.production.apply_autonomous_contract_cargo(1,
         ship_id, cid, "pickup")
     if not bought.get("ok", false):
