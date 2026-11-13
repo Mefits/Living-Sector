@@ -179,6 +179,28 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             return false
         if not _normalize_row(market["orders"], ["order_expiry_ticks"]):
             return false
+        # JSON decodes integer tick markers as floats. N150 requires TYPE_INT
+        # in its rolling MarketFlow, and equality with the pre-save N151
+        # purchases must survive a real save/restart without changing qty.
+        if not (market.get("consumption_window") is Dictionary):
+            return false
+        var consumption: Dictionary = market["consumption_window"]
+        for commodity in consumption:
+            if not (commodity is String) or commodity.is_empty():
+                return false
+            if not (consumption[commodity] is Array):
+                return false
+            for sample in consumption[commodity]:
+                if not (sample is Dictionary) or not _normalize_row(sample, ["tick"]):
+                    return false
+                if int(sample["tick"]) < 0 or int(sample["tick"]) > int(saved["tick"]):
+                    return false
+                var qty: Variant = sample.get("qty", null)
+                if not (qty is int or qty is float):
+                    return false
+                if not is_finite(float(qty)) or float(qty) <= 0.0:
+                    return false
+                sample["qty"] = float(qty)
         var hist: Dictionary = market["history"]
         if not (hist.get("shortage_ticks", {}) is Dictionary) or not (hist.get("trend_samples", []) is Array):
             return false
