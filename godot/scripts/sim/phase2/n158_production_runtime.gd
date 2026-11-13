@@ -152,7 +152,7 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
         var f: Dictionary = w["facilities"][id]
         if not _normalize_row(f, ["credits", "crew_count", "level", "xp"]):
             return false
-        for key in ["lod_next_tick", "lod_divisor", "fitting_batches_bonus", "assigned_workers"]:
+        for key in ["lod_next_tick", "lod_divisor", "fitting_batches_bonus", "assigned_workers", "abandon_counter"]:
             if f.has(key) and not _normalize_row(f, [key]):
                 return false
         if f.has("work_shift") and not (f["work_shift"] is Dictionary):
