@@ -65,6 +65,11 @@ func last_phase_failure() -> Dictionary:
 func _execute_integrated_phase(_phase: String, _tick: int) -> bool:
     return true
 
+## Derived P2 runtime may supply the actual rejection reason; keep one
+## fail-closed tick authority and never silently resume a partial tick.
+func _integrated_phase_failure_reason(_phase: String) -> String:
+    return "integrated_phase_rejected"
+
 func _advance_one_tick() -> void:
     if not _phase_failure.is_empty():
         clock.set_paused(true)
@@ -87,7 +92,7 @@ func _advance_one_tick() -> void:
                 break
         if not _execute_integrated_phase(phase, tick_count):
             _phase_failure = {"phase": phase, "tick": tick_count,
-                "reason": "integrated_phase_rejected"}
+                "reason": _integrated_phase_failure_reason(phase)}
             push_error("P2 integrated phase rejected: " + phase +
                 " tick=" + str(tick_count))
             break
