@@ -90,6 +90,34 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     _last_tick = tick
     return {"ok": true, "tick": tick, "receipts": receipts, "failures": failures}
 
+## P2 single-market commit boundary: N150 may change price, demand,
+## flow/history/orders but NEVER physical stock, source owner or accounts.
+## Validation of all markets precedes one atomic in-memory swap.
+func apply_market_phase(tick: int, updates: Dictionary) -> bool:
+    if not _ready or tick != _last_tick or tick < 1:
+        return false
+    if updates.size() != _world["markets"].size():
+        return false
+    var staged: Dictionary = _world.duplicate(true)
+    for location in updates:
+        if not staged["markets"].has(location) or not (updates[location] is Dictionary):
+            return false
+        var m: Dictionary = staged["markets"][location]
+        var proposed: Dictionary = updates[location]
+        if str(proposed.get("id", "")) != str(m.get("id", "")):
+            return false
+        for field in ["prices", "demand", "seed_demand", "consumption_window",
+                "orders", "history"]:
+            if not (proposed.get(field) is Dictionary):
+                return false
+            m[field] = proposed[field].duplicate(true)
+        # At this boundary the original shared inventory and all physical
+        # facility/population balances are untouched by the market phase.
+    if Schema.validate(staged) != "":
+        return false
+    _world = staged
+    return true
+
 func _run_recipes(id: String, tick: int, external: Dictionary) -> Dictionary:
     var f: Dictionary = _world["facilities"][id]
     if bool(f["abandoned"]):
