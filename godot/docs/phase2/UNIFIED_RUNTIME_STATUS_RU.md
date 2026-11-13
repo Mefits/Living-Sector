@@ -124,3 +124,10 @@
 - Commit [6c82236d](https://github.com/Mefits/Living-Sector/commit/6c82236d1a334792e94f37cfb7a37259ac551dc3): `SaveState.load_runner` проверяет целостный `.pending` как **последний** источник восстановления после основного и `.bak`, если процесс был прерван до promotion. Неподтверждённый pending никогда не вытесняет исправное основное сохранение/резервную копию. Ответ содержит `recovered_pending`, чтобы интерфейс мог явно сообщить об аварийном восстановлении. Не добавлены второй SaveState/World/Ledger.
 - Статическая проверка: сохранён существующий порядок primary→backup, новый fallback использует прежнюю SHA-256 envelope-проверку и rollback живого состояния при отказе `restore_checkpoint`. Godot Runtime **не запускался**, CODE_UNVERIFIED. Дополнительных Actions: **0**. Windows ZIP не подтверждён.
 - Lease `20261113-save-pending-recovery-automation11f.json` RELEASED. Следующий приоритет: ограниченный Godot import и единый Windows export с настоящим артефактом, с учётом общего бюджета CI.
+
+
+## P2 handoff — 13.11 08:35 МСК, durable pending save recovery
+
+- Commit [57e34551](https://github.com/Mefits/Living-Sector/commit/57e3455133f2eac4c6b91ad6600c6ec8a198cec2): единственный SaveState после успешной проверки SHA-256 и восстановления .pending переносит его в основной checkpoint, если primary отсутствует/повреждён; валидный .bak не затрагивается. Это предотвращает повторную загрузку устаревшего backup при следующем старте. Результат содержит promoted_pending; ошибка файловой операции не выдаётся за успешную запись.
+- Lease 20261113-save-state-recovery-automation11-0835.json RELEASED. Godot Runtime не запускался, CODE_UNVERIFIED; GitHub Actions: 0 дополнительных запусков. Windows ZIP не подтверждён.
+- Следующий свободный приоритет: ограниченный Godot 4.7.2 import + paid-world smoke и один согласованный Windows export; при реальной ошибке парсера исправить её до повторного CI. Общий World/Ledger/Runner не изменены.
