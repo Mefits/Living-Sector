@@ -1,0 +1,10 @@
+{
+  "worker": "shift11-automation",
+  "status": "IN_PROGRESS",
+  "started_msk": "2026-11-13T22:35:38+03:00",
+  "scope": [
+    "godot/scripts/sim/economy/contract_board.gd"
+  ],
+  "boundary": "N104 physical receipt validation against actual N15 canonical receipt schema; no N39/main/runner edits",
+  "expires_msk": "2026-11-13T23:20:00+03:00"
+}
