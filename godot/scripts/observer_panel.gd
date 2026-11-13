@@ -50,6 +50,42 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary) -> v
             str(id), str(f.get("credits", "?")), str(f.get("crew_count", "?")),
             str(f.get("level", "?")), float(f.get("condition", 1.0)),
             "ЗАБРОШЕНА" if bool(f.get("abandoned", false)) else "работает"])
+    lines.append("ОПЛАЧЕННЫЕ СМЕНЫ / ПРОИЗВОДСТВО:")
+    var paid_shifts: int = 0
+    for id in facility_ids:
+        if not (facilities[id] is Dictionary):
+            continue
+        var facility: Dictionary = facilities[id]
+        var shift: Variant = facility.get("work_shift", {})
+        if not (shift is Dictionary) or shift.is_empty():
+            continue
+        var wages: int = int(shift.get("wages", 0))
+        var shift_tick: int = int(shift.get("tick", -1))
+        if shift_tick < 0:
+            continue
+        paid_shifts += 1
+        var workers: Variant = shift.get("workers", {})
+        var employed: int = 0
+        if workers is Dictionary:
+            for pid in workers:
+                employed += int(workers[pid])
+        lines.append("  %s · смена %d · зарплата %d CR · работников %d" % [
+            str(id), shift_tick, wages, employed])
+        var outputs: Variant = shift.get("produced_outputs", {})
+        if outputs is Dictionary and not outputs.is_empty():
+            var recipe_ids: Array = outputs.keys()
+            recipe_ids.sort()
+            for recipe_id in recipe_ids:
+                if not (outputs[recipe_id] is Dictionary):
+                    continue
+                var goods: Array[String] = []
+                var commodity_ids: Array = outputs[recipe_id].keys()
+                commodity_ids.sort()
+                for commodity in commodity_ids:
+                    goods.append("%s=%s" % [str(commodity), str(outputs[recipe_id][commodity])])
+                lines.append("    %s: %s" % [str(recipe_id), ", ".join(goods)])
+    if paid_shifts == 0:
+        lines.append("  Оплаченных смен пока нет")
     lines.append("РЫНКИ / ФИЗИЧЕСКИЕ ЗАПАСЫ:")
     var markets: Dictionary = economy["markets"]
     var market_ids: Array = markets.keys()
@@ -65,6 +101,14 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary) -> v
         for commodity in commodities:
             amounts.append("%s=%s" % [str(commodity), str(stocks[commodity])])
         lines.append("  %s: %s" % [str(id), ", ".join(amounts) if not amounts.is_empty() else "пусто"])
+        var prices: Variant = m.get("prices", {})
+        if prices is Dictionary:
+            var price_items: Array[String] = []
+            var price_ids: Array = prices.keys()
+            price_ids.sort()
+            for commodity in price_ids:
+                price_items.append("%s=%s" % [str(commodity), str(prices[commodity])])
+            lines.append("    цены: %s" % [", ".join(price_items) if not price_items.is_empty() else "нет"])
     lines.append("НАСЕЛЕНИЕ / БЛАГОСОСТОЯНИЕ:")
     var pops: Dictionary = economy["populations"]
     var pop_ids: Array = pops.keys()
@@ -76,6 +120,10 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary) -> v
         lines.append("  %s · жителей %s · CR %s · Food %s · настроение %s" % [
             str(id), str(p.get("count", "?")), str(p.get("wealth", "?")),
             str(p.get("food_satisfaction", "?")), str(p.get("overall_sentiment", "?"))])
+        lines.append("    безопасность %s · досуг %s · беспорядки %s · давление миграции %s" % [
+            str(p.get("safety_satisfaction", "?")),
+            str(p.get("entertainment_satisfaction", "?")),
+            str(p.get("unrest", "?")), str(p.get("migration_pressure", "?"))])
     var failures: Dictionary = summary.get("last_failures", {}) if summary.get("last_failures", {}) is Dictionary else {}
     if not failures.is_empty():
         lines.append("ОСТАНОВКИ ПРОИЗВОДСТВА:")
