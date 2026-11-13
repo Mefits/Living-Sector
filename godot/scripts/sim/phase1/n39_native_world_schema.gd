@@ -261,6 +261,8 @@ static func validate(state: Dictionary) -> String:
                 return "invalid_facility_" + key
         if fac.has("docking_capacity") and (typeof(fac["docking_capacity"]) != TYPE_INT or int(fac["docking_capacity"]) < 0):
             return "invalid_facility_docking_capacity"
+        if fac.has("native_db_id") and (typeof(fac["native_db_id"]) != TYPE_INT or int(fac["native_db_id"]) >= 0 or not _id(fac.get("construction_source_site_id", null))):
+            return "invalid_materialized_native_facility"
         for key in ["crew_count", "level", "xp", "credits"]:
             if typeof(fac.get(key, null)) != TYPE_INT or int(fac[key]) < 0:
                 return "invalid_facility_" + key

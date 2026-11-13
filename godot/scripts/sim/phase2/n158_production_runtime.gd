@@ -549,6 +549,7 @@ func economy_summary() -> Dictionary:
         "research_blocked_factions": _last_research_result.get("blocked", []).size(),
         "research_total_completed": _research_completion_count(current),
         "construction_paid_labor_this_tick": _last_construction_result.get("paid", []).size(),
+        "construction_new_facilities_this_tick": _last_construction_result.get("materialized", []).size(),
         "construction_blocked_labor_this_tick": _last_construction_result.get("blocked", []).size(),
         "construction_sites": current.get("construction_sites", {}).size(),
         "construction_live_paid_contracts": current.get("construction_contracts", {}).size(),
@@ -769,7 +770,7 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             return false
         if f.has("docking_capacity") and not _normalize_row(f, ["docking_capacity"]):
             return false
-        for key in ["lod_next_tick", "lod_divisor", "fitting_batches_bonus", "assigned_workers", "abandon_counter"]:
+        for key in ["lod_next_tick", "lod_divisor", "fitting_batches_bonus", "assigned_workers", "abandon_counter", "native_db_id"]:
             if f.has(key) and not _normalize_row(f, [key]):
                 return false
         if f.has("work_shift") and not (f["work_shift"] is Dictionary):
