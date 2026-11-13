@@ -4,15 +4,18 @@ extends "res://scripts/sim/phase1/n39_native_production_tick_runner.gd"
 ## -> versioned P1 save with N39 native snapshot. No second N23 production.
 const GalaxySeedAdapter = preload("res://scripts/sim/phase2/n158_galaxy_production_seed.gd")
 const MarketPhase = preload("res://scripts/sim/phase2/unified_market_phase.gd")
+const PopulationPhase = preload("res://scripts/sim/phase2/unified_population_phase.gd")
 
 var _boot_error: String = ""
 var _source_stats: Dictionary = {}
 var _last_market_result: Dictionary = {}
+var _last_population_result: Dictionary = {}
 
 func start_from_seed(seed: Dictionary) -> bool:
     _boot_error = ""
     _source_stats = {}
     _last_market_result = {}
+    _last_population_result = {}
     var projected: Dictionary = GalaxySeedAdapter.from_seed(seed)
     if not projected.get("ok", false):
         _boot_error = str(projected.get("reason", "source_projection_failed"))
@@ -35,6 +38,20 @@ func _advance_one_tick() -> void:
 ## The original N150 market phase runs AFTER paid facilities, in the
 ## SAME N39 world and one clock. N131 reprice produces NO stock or cash.
 func _execute_integrated_phase(phase: String, tick: int) -> bool:
+    if phase == "populations":
+        var population_plan: Dictionary = PopulationPhase.propose(
+            production.world_snapshot(), tick, clock.tick_scale(), _tick_multiplier)
+        if not population_plan.get("ok", false):
+            _last_population_result = population_plan
+            return false
+        if not production.apply_population_phase(tick, population_plan["native_result"]):
+            _last_population_result = {"ok": false,
+                "reason": "population_single_ledger_commit_rejected"}
+            return false
+        _last_population_result = {"ok": true, "tick": tick,
+            "purchases": int(population_plan["purchase_count"]),
+            "events": population_plan["native_result"].get("events", []).duplicate(true)}
+        return true
     if phase != "markets":
         return true
     var proposal: Dictionary = MarketPhase.propose(
@@ -51,6 +68,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
 
 func last_market_result() -> Dictionary:
     return _last_market_result.duplicate(true)
+
+func last_population_result() -> Dictionary:
+    return _last_population_result.duplicate(true)
 
 func boot_error() -> String:
     return _boot_error
@@ -88,7 +108,9 @@ func economy_summary() -> Dictionary:
         "last_failures": results.get("failures", {}).duplicate(true),
         "last_result_ok": results.get("ok", true),
         "market_phase_ok": _last_market_result.get("ok", null),
-        "market_phase_tick": _last_market_result.get("tick", -1)
+        "market_phase_tick": _last_market_result.get("tick", -1),
+        "population_phase_ok": _last_population_result.get("ok", null),
+        "population_purchases": _last_population_result.get("purchases", 0)
     }
 
 ## Godot JSON may parse integer-shaped fields as float. Normalize only
@@ -148,7 +170,9 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             if not (trend is Dictionary) or not _normalize_row(trend, ["tick"]):
                 return false
     for id in w.get("populations", {}):
-        if not _normalize_row(w["populations"][id], ["count", "wealth"]):
+        if not _normalize_row(w["populations"][id], ["count", "wealth",
+                "food_satisfaction", "safety_satisfaction", "entertainment_satisfaction",
+                "overall_sentiment", "unrest"]):
             return false
     var ledger: Dictionary = saved["ledger"]
     if not _normalize_row(ledger, ["version"]):
