@@ -1,0 +1,12 @@
+{
+  "owner": "automation11-2110",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T21:10:00+03:00",
+  "expires_at": "2026-11-13T21:55:00+03:00",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_contract_demand_admission.gd",
+    "godot/tests/p2_contract_demand_admission_check.gd"
+  ],
+  "boundary": "Fix blocking N135 sourcing vs N104 admission price mismatch; source market offer only; regression tests; no central runner or ledger edits"
+}
