@@ -113,14 +113,65 @@ func _initialize() -> void:
                     if resumed.checkpoint()["native_production"]["world"]["ships"][assigned_ship]["transit"] != transit:
                         _fail("real N14 transit changed across disk restart")
                         return
-                    if resumed.checkpoint()["native_production"]["ledger"]["balances"] != ledger["balances"]:
+                    var recovered: Dictionary = resumed.checkpoint()["native_production"]
+                    if recovered["world"]["contract_board"] != w["contract_board"]:
+                        _fail("N104 contract lifecycle or escrow changed across N38 disk restart")
+                        return
+                    if recovered["world"]["cargo_receipts"] != w["cargo_receipts"]:
+                        _fail("N15 physical cargo receipts changed across N38 disk restart")
+                        return
+                    if recovered["world"]["ships"][assigned_ship]["cargo"] != ship["cargo"]:
+                        _fail("N15 physical hold changed across N38 disk restart")
+                        return
+                    if recovered["ledger"]["receipts"] != ledger["receipts"]:
+                        _fail("N9 payment receipts changed across N38 disk restart")
+                        return
+                    if recovered["ledger"]["balances"] != ledger["balances"]:
                         _fail("N9 wallets changed across disk restart")
                         return
                     sim = resumed
                     saw_midflight_save = true
+        if str(contract.get("status", "")) == "picked_up" and not assigned_ship.is_empty() and w["ships"].has(assigned_ship):
+            var commodity: String = str(contract.get("commodity", ""))
+            var quantity: int = int(contract.get("quantity", 0))
+            var load_id: String = "contract:" + target_contract + ":load"
+            var load_receipt: Dictionary = w.get("cargo_receipts", {}).get(load_id, {})
+            if quantity < 1 or str(load_receipt.get("action", "")) != "load" or str(load_receipt.get("ship_id", "")) != assigned_ship:
+                _fail("N104 pickup status without real N15 loading receipt")
+                return
+            if int(load_receipt.get("quantities", {}).get(commodity, -1)) != quantity:
+                _fail("N15 pickup quantity differs from N104 obligation")
+                return
+            if float(w["ships"][assigned_ship].get("cargo", {}).get(commodity, 0.0)) < float(quantity):
+                _fail("N104 pickup status without physical ship cargo")
+                return
         if str(contract.get("status", "")) == "paid":
             if not saw_departure or not saw_in_flight or not saw_midflight_save or not saw_pickup:
                 _fail("contract paid without observed physical N14 transit/pickup/restart")
+                return
+            var commodity: String = str(contract.get("commodity", ""))
+            var quantity: int = int(contract.get("quantity", 0))
+            var source_id: String = str(contract.get("source_location", ""))
+            var destination_id: String = str(contract.get("destination_location", ""))
+            var load_id: String = "contract:" + target_contract + ":load"
+            var unload_id: String = "contract:" + target_contract + ":unload"
+            var cargo_receipts: Dictionary = w.get("cargo_receipts", {})
+            var loading: Dictionary = cargo_receipts.get(load_id, {})
+            var unloading: Dictionary = cargo_receipts.get(unload_id, {})
+            if quantity < 1 or str(loading.get("action", "")) != "load" or str(unloading.get("action", "")) != "unload":
+                _fail("N104 paid without BOTH durable physical N15 cargo receipts")
+                return
+            if str(loading.get("location_id", "")) != source_id or str(unloading.get("location_id", "")) != destination_id:
+                _fail("N15 receipts do not match original source and destination")
+                return
+            if str(loading.get("ship_id", "")) != assigned_ship or str(unloading.get("ship_id", "")) != assigned_ship:
+                _fail("N15 pickup/delivery performed by a different ship")
+                return
+            if int(loading.get("quantities", {}).get(commodity, -1)) != quantity or int(unloading.get("quantities", {}).get(commodity, -1)) != quantity:
+                _fail("N15 cargo quantities do not match funded N104 obligation")
+                return
+            if float(w["ships"][assigned_ship].get("cargo", {}).get(commodity, 0.0)) >= float(quantity):
+                _fail("N104 paid but delivered cargo remains in ship hold")
                 return
             var receipt_id: String = "contract:" + target_contract + ":payout"
             if not ledger["receipts"].has(receipt_id):
@@ -130,6 +181,8 @@ func _initialize() -> void:
                 _fail("N104 escrow and canonical reserved remainder diverged")
                 return
             var final_state: Dictionary = sim.checkpoint()
+            var final_receipts: Dictionary = final_state["native_production"]["world"]["cargo_receipts"].duplicate(true)
+            var final_payout: Dictionary = ledger["receipts"][receipt_id].duplicate(true)
             if not sim.queue_control("step", 1):
                 _fail("cannot check payout idempotence")
                 return
@@ -137,6 +190,12 @@ func _initialize() -> void:
             var after: Dictionary = sim.checkpoint()
             if not sim.last_phase_failure().is_empty() or not after["native_production"]["ledger"]["receipts"].has(receipt_id):
                 _fail("settlement not durable after next native tick")
+                return
+            if after["native_production"]["world"]["cargo_receipts"] != final_receipts:
+                _fail("physical cargo receipt changed or repeated after settlement")
+                return
+            if after["native_production"]["ledger"]["receipts"][receipt_id] != final_payout:
+                _fail("N104 payout receipt mutated after settlement")
                 return
             if _total(after["native_production"]["ledger"]["balances"]) != initial_total:
                 _fail("settlement minted or lost credits")
