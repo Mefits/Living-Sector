@@ -109,8 +109,10 @@ func _initialize() -> void:
     if not loaded.get("ok", false):
         _fail("native production restore failed: " + str(loaded.get("error", "")))
         return
-    if b.tick_count != 5 or b.economy_snapshot()["markets"]["earth-station"]["supply"] != produced:
-        _fail("physical market stock mismatch after file restart")
+    var restored_supply: Dictionary = b.economy_snapshot()["markets"]["earth-station"]["supply"]
+    if b.tick_count != 5 or restored_supply != produced:
+        _fail("physical market stock mismatch after file restart: tick=%d expected=5; %s" % [
+            b.tick_count, _stock_restore_diff(produced, restored_supply)])
         return
     if b.economy_snapshot()["markets"]["earth-station"]["prices"] != current["markets"]["earth-station"]["prices"]:
         _fail("N150 real market prices changed across file restart")
@@ -147,6 +149,29 @@ func _initialize() -> void:
     DirAccess.remove_absolute(absolute + ".bak")
     print("P2_UNIFIED_ECONOMY_ACCEPTANCE_PASS: source 8/3, N39 production, N151 paid Food/Water, N150 price/trend, single ledger, saved/restarted")
     quit(0)
+
+func _stock_restore_diff(expected: Dictionary, actual: Dictionary) -> String:
+    # Exact values matter for deterministic physical inventory. Do not hide
+    # serialization loss behind approximate comparisons or mutate live stock.
+    var keys: Array = expected.keys()
+    for key in actual.keys():
+        if not keys.has(key):
+            keys.append(key)
+    keys.sort()
+    var differences: PackedStringArray = PackedStringArray()
+    for key in keys:
+        if not expected.has(key):
+            differences.append("%s: unexpected=%s" % [str(key), str(actual[key])])
+        elif not actual.has(key):
+            differences.append("%s: missing expected=%s" % [str(key), str(expected[key])])
+        elif expected[key] != actual[key]:
+            differences.append("%s: expected=%s actual=%s delta=%s" % [
+                str(key), str(expected[key]), str(actual[key]),
+                str(float(actual[key]) - float(expected[key]))])
+    if differences.is_empty():
+        return "stocks equal; investigate tick mismatch"
+    return "; ".join(differences)
+
 
 func _sum_credits(world: Dictionary) -> int:
     var result: int = 0
