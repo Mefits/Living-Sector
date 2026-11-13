@@ -94,3 +94,9 @@
 - Commit [aa650eaf](https://github.com/Mefits/Living-Sector/commit/aa650eaf8b557a06f2261bb6dea46eedfff515b4): после успешного `SaveState.load_runner` интерфейс повторно получает `worlds()` из восстановленного авторитетного World, выделяет прежнюю систему и синхронизирует `OptionButton` с восстановленным `clock.world_speed`. Если скорость не входит в предустановки, не отображается ложный множитель. Ledger, World, TickRunner, SaveState не менялись.
 - Scope `godot/scripts/main.gd`; lease `20261113-save-load-map-resync-second-chat-0639.json` RELEASED. Проверено по исходным контрактам `SystemMap.set_worlds/select_system`, `clock.world_speed`; Godot не запускался — **CODE_UNVERIFIED**. GitHub Actions запусков: **0**.
 - Windows ZIP не создан в этой итерации. Следующий приоритет: один ограниченный Godot import/smoke/export checkpoint после сверки свежих leases и состояния общего Actions-бюджета; не запускать CI при активной проверке другого исполнителя.
+
+## P2 handoff — 13.11, защита загрузки повреждённых экономических снимков
+
+- Commit [`b237444e`](https://github.com/Mefits/Living-Sector/commit/b237444e18b16905878c3a4cb2745945ebe4c940): `n158_production_runtime.gd` теперь проверяет типы вложенных объектов facility/work_shift, markets/history, populations и ledger/receipts/legs до обращения к ним как к Dictionary/Array. Повреждённый или несовместимый JSON отклоняется через `restore_checkpoint() -> false`, вместо возможного runtime exception в процессе восстановления. Одна авторитетная экономика, без новых подсистем.
+- Проверка: 8 точечных guards внесены в существующий код, без удаления других фаз; GDScript Runtime не запускался — **CODE_UNVERIFIED**. Новых GitHub Actions **0**. Windows ZIP пока не подтверждён.
+- Lease `20261113-n158-restore-shape-guard-automation11.json` RELEASED. Следующий приоритет — ограниченный Godot import/paid-world smoke с диагностикой предыдущего зависания, затем один Windows export.
