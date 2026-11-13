@@ -1,11 +1,22 @@
 {
   "owner": "interactive-chat",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T18:40:00+03:00",
   "expires_at": "2026-11-13T19:30:00+03:00",
   "branch": "integration/godot-phase2-unified-20261113",
   "scope": [
     "godot/scripts/main.gd"
   ],
-  "boundary": "Gate2 N21/N15 player-facing dock/undock/load/unload controls, no independent world, existing N158 command API"
+  "boundary": "Gate2 N21/N15 player-facing dock/undock/load/unload controls, no independent world, existing N158 command API",
+  "released_at": "2026-11-13T18:50:00+03:00",
+  "handoff": "godot/docs/phase2/handoffs/20261113-1850-interactive-gate2-docked-cargo.md",
+  "code_commits": [
+    "950f1dfb",
+    "134527e4",
+    "efe41dd3",
+    "dfc82c99",
+    "4a6fb7ae",
+    "bfac0dc2"
+  ],
+  "verification": "WIRED_CODE_UNVERIFIED: static readback/preloads only; Godot not run"
 }

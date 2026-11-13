@@ -1,6 +1,6 @@
 {
   "owner": "interactive-chat",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T18:27:00+03:00",
   "expires_at": "2026-11-13T19:30:00+03:00",
   "branch": "integration/godot-phase2-unified-20261113",
@@ -14,5 +14,16 @@
     "godot/tests/p2_unified_docked_cargo_check.gd"
   ],
   "boundary": "Gate 2 single N39 world: manual N21 dock/undock and N15 physical cargo via real market warehouse, one atomic N39 apply + checkpoint; no extra ledger/runner; source-only until Godot run",
-  "base_head": "9404c9307c0e1f7a5fb4d4508b7d499176648c57"
+  "base_head": "9404c9307c0e1f7a5fb4d4508b7d499176648c57",
+  "released_at": "2026-11-13T18:50:00+03:00",
+  "handoff": "godot/docs/phase2/handoffs/20261113-1850-interactive-gate2-docked-cargo.md",
+  "code_commits": [
+    "950f1dfb",
+    "134527e4",
+    "efe41dd3",
+    "dfc82c99",
+    "4a6fb7ae",
+    "bfac0dc2"
+  ],
+  "verification": "WIRED_CODE_UNVERIFIED: static readback/preloads only; Godot not run"
 }
