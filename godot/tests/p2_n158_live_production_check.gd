@@ -15,6 +15,9 @@ func _initialize() -> void:
     if not a.start_from_seed(seed):
         _fail("P2 seed projection boot: " + a.boot_error())
         return
+    if a.clock.ticks_per_second != 8 or a.clock.tick_multiplier() != 32:
+        _fail("original Rust 8 TPS / x0.25 tick_multiplier must be 32")
+        return
     var stats: Dictionary = a.production_stats()
     if stats.get("markets") != 3 or stats.get("active_facilities") != 15 or stats.get("populations") != 3:
         _fail("unexpected original source market/facility/population counts: " + str(stats))
@@ -23,11 +26,17 @@ func _initialize() -> void:
         _fail("only bodies and N39 facilities may advertise real execution")
         return
     var before: Dictionary = a.economy_snapshot()
+    if before["markets"]["earth-station"]["owner"] != "facility-earth-station":
+        _fail("physical market owner not resolved from frozen station")
+        return
     var bank_before: int = _sum_credits(before)
     var earth_before: Dictionary = before["markets"]["earth-station"]["supply"]
     a.queue_control("pause")
     a.queue_control("speed", 8.0)
     a.advance_frame(0.0)
+    if a.clock.tick_multiplier() != 1:
+        _fail("source x8 tick_multiplier must be 1")
+        return
     a.advance_frame(1.0)
     if a.tick_count != 0 or a.economy_snapshot() != before:
         _fail("paused simulation must not pay wages or move stock")
