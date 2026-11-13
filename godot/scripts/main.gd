@@ -223,7 +223,7 @@ func _load_game(save_path: String = "") -> void:
 
 func _on_tick_completed(tick: int) -> void:
     _refresh_observer()
-    if tick % 5 == 0:
+    if tick % 8 == 0 or not _runner.last_native_result().get("receipts", []).is_empty():
         _refresh_selection()
     _update_status()
 
