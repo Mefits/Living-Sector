@@ -11,6 +11,7 @@ const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
 const Board = preload("res://scripts/sim/economy/contract_board.gd")
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const Catalog = preload("res://scripts/sim/economy/commodity_catalog.gd")
+const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
 const Bt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 
 func _initialize() -> void:
@@ -52,7 +53,12 @@ func _initialize() -> void:
                 var unit_price: float = float(w["markets"][loc]["prices"].get(commodity, 0.0))
                 if unit_price <= 0.0 or not is_finite(unit_price):
                     continue
-                var estimate: int = int(ceil(unit_price))
+                var seller_faction: String = str(w["facilities"][seller_id]["faction"])
+                var ship_faction: String = str(sh["faction_id"])
+                var posture: Dictionary = MarketRules.posture({}, ship_faction, seller_faction, 0)
+                if not posture.get("ok", false):
+                    continue
+                var estimate: int = int(ceil(unit_price * float(posture["multiplier"])))
                 if estimate < 1 or int(sh["credits"]) < estimate:
                     continue
                 for buyer_loc in market_ids:

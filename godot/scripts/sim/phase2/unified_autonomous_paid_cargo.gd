@@ -7,6 +7,7 @@ const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
 const Board = preload("res://scripts/sim/economy/contract_board.gd")
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const Catalog = preload("res://scripts/sim/economy/commodity_catalog.gd")
+const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
 const MAX_SAFE_MONEY: float = 9007199254740991.0
 
 static func propose(original: Dictionary, bank: Dictionary,
@@ -91,7 +92,14 @@ static func propose(original: Dictionary, bank: Dictionary,
         var price: float = float(original["markets"][location].get("prices", {}).get(good, 0.0))
         if not is_finite(price) or price <= 0.0:
             return {"ok": false, "reason": "n97_invalid_live_source_quote"}
-        var cost: float = ceil(price * float(count))
+        var seller_faction: String = str(original["facilities"][station].get("faction", ""))
+        var ship_faction: String = str(ship.get("faction_id", ""))
+        var reputation: Dictionary = ship.get("faction_reputation", {})
+        var posture: Dictionary = MarketRules.posture({}, ship_faction,
+            seller_faction, int(reputation.get(seller_faction, 0)))
+        if not posture.get("ok", false):
+            return {"ok": false, "reason": "n97_native_market_posture_unavailable"}
+        var cost: float = ceil(price * float(posture["multiplier"]) * float(count))
         if not is_finite(cost) or cost <= 0.0 or cost > MAX_SAFE_MONEY:
             return {"ok": false, "reason": "n97_purchase_overflow"}
         paid = int(cost)

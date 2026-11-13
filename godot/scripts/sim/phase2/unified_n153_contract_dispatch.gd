@@ -4,6 +4,7 @@ extends RefCounted
 ## This adapter only supplies verifiable N104/N150/N9/route observations.
 ## NO fake treaties, ship sensors, market knowledge, fuel or contract success.
 const N153 = preload("res://scripts/sim/phase1/n153_native_ship_contract_selection.gd")
+const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
 const NativePipeline = preload("res://scripts/sim/phase2/unified_ship_ai_planner.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
@@ -118,7 +119,6 @@ static func propose(world: Dictionary, graph: RefCounted,
         if not (source_price is int or source_price is float) or not is_finite(float(source_price)) or float(source_price) <= 0.0:
             blocked.append({"contract_id": str(contract_id), "reason": "missing_source_quote"})
             continue
-        var source_purchase: int = int(ceil(float(qty) * float(source_price)))
         var winner: Dictionary = {}
         for ship_id in ships:
             var ship: Dictionary = world["ships"][ship_id]
@@ -127,6 +127,16 @@ static func propose(world: Dictionary, graph: RefCounted,
                 continue
             if str(factions[ship_faction].get("type", "")) == "outlaw" and (ship_faction != buyer_faction or ship_faction != seller_faction):
                 continue
+            var reputation: Dictionary = ship.get("faction_reputation", {})
+            var posture: Dictionary = MarketRules.posture({},
+                ship_faction, seller_faction,
+                int(reputation.get(seller_faction, 0)))
+            if not posture.get("ok", false):
+                continue
+            var quoted_cost: float = ceil(float(qty) * float(source_price) * float(posture["multiplier"]))
+            if not is_finite(quoted_cost) or quoted_cost <= 0.0 or quoted_cost > 9007199254740991.0:
+                continue
+            var source_purchase: int = int(quoted_cost)
             var readiness: Dictionary = _ready_ship(world, str(ship_id), c, graph, positions, resolver, tick_scale)
             if not readiness.get("ok", false):
                 continue

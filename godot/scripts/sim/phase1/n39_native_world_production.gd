@@ -10,6 +10,7 @@ const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
 const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
 const ContractBoard = preload("res://scripts/sim/economy/contract_board.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
+const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
 const PaidCargo = preload("res://scripts/sim/phase2/unified_autonomous_paid_cargo.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
@@ -635,7 +636,15 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
     var price: float = float(source_market["prices"].get(good, 0.0))
     if not is_finite(stock) or stock < float(qty) or not is_finite(price) or price <= 0.0:
         return {"ok": false, "reason": "source_stock_or_price_changed"}
-    var cost: int = int(ceil(float(qty) * price))
+    var reputation: Dictionary = ship.get("faction_reputation", {})
+    var posture: Dictionary = MarketRules.posture({}, faction,
+        str(seller.get("faction", "")), int(reputation.get(str(seller.get("faction", "")), 0)))
+    if not posture.get("ok", false):
+        return {"ok": false, "reason": "missing_rust_n97_market_posture"}
+    var raw_purchase: float = ceil(float(qty) * price * float(posture["multiplier"]))
+    if not is_finite(raw_purchase) or raw_purchase <= 0.0 or raw_purchase > 9007199254740991.0:
+        return {"ok": false, "reason": "n97_purchase_quote_overflow"}
+    var cost: int = int(raw_purchase)
     var payment: int = int(c.get("payment", 0))
     if cost <= 0 or cost >= payment or cost > int(ship.get("credits", 0)):
         return {"ok": false, "reason": "not_profitable_or_unfunded"}
