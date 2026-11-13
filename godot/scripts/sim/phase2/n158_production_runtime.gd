@@ -11,6 +11,7 @@ const FleetLogistics = preload("res://scripts/sim/phase2/unified_fleet_logistics
 const N153Dispatch = preload("res://scripts/sim/phase2/unified_n153_contract_dispatch.gd")
 const NativeAIExecution = preload("res://scripts/sim/phase2/unified_ship_ai_execution.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
+const NativeCommands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
 const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 const NativeLocations = preload("res://scripts/sim/ships/native_location_resolver.gd")
 
@@ -97,7 +98,33 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_n153_result = {"ok": true, "tick": tick,
             "accepted": [], "blocked": selection.get("blocked", []).duplicate(true),
             "status": "N153_ADMISSION_COMPLETE"}
+        # N146 is the source command-buffer boundary between AI decision
+        # and N39/N104 authoritative Apply. No direct model mutation from
+        # the selector, no new ContractBoard owned by the AI.
+        var ai_commands = NativeCommands.new()
+        if not ai_commands.begin_phase(tick, "factions"):
+            _last_n153_result = {"ok": false, "reason": "n146_faction_phase_rejected"}
+            return false
+        var by_id: Dictionary = {}
         for candidate in selection.get("candidates", []):
+            var cid: String = str(candidate.get("contract_id", ""))
+            var ship_id: String = str(candidate.get("ship_id", ""))
+            if cid.is_empty() or ship_id.is_empty() or by_id.has(cid):
+                _last_n153_result = {"ok": false, "reason": "duplicate_n153_accept_candidate"}
+                return false
+            var command: Dictionary = NativeCommands.make_command("AcceptContract", {
+                "ship": ship_id, "ship_id": ship_id, "contract_id": cid})
+            if command.is_empty() or not ai_commands.push(command):
+                _last_n153_result = {"ok": false, "reason": "n146_invalid_contract_command"}
+                return false
+            by_id[cid] = candidate
+        _last_n153_result["n146_accept_commands"] = ai_commands.len()
+        for command in ai_commands.drain():
+            var cid: String = str(command["contract_id"])
+            var candidate: Dictionary = by_id[cid]
+            if str(command["ship"]) != str(candidate["ship_id"]) or str(command["ship_id"]) != str(candidate["ship_id"]):
+                _last_n153_result = {"ok": false, "reason": "n146_contract_actor_mismatch"}
+                return false
             var admission: Dictionary = production.accept_autonomous_delivery(tick, candidate, _faction_sources)
             if admission.get("ok", false):
                 _last_n153_result["accepted"].append(admission.duplicate(true))
@@ -107,8 +134,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 return false
             else:
                 _last_n153_result["blocked"].append({
-                    "contract_id": str(candidate.get("contract_id", "")),
-                    "ship_id": str(candidate.get("ship_id", "")),
+                    "contract_id": cid, "ship_id": str(candidate["ship_id"]),
                     "reason": str(admission.get("reason", "n104_acceptance_rejected"))})
         return true
     if phase == "ships":
@@ -399,6 +425,7 @@ func economy_summary() -> Dictionary:
         "n153_blocked_this_tick": _last_n153_result.get("blocked", []).size(),
         "n153_departures_this_tick": _last_ship_result.get("autonomous_departures", []).size(),
         "n84_active_traces": _last_ship_result.get("n84_trace", []).size(),
+        "n146_accept_commands": int(_last_n153_result.get("n146_accept_commands", 0)),
         "n146_ship_commands": int(_last_ship_result.get("n146_command_count", 0)),
         "n153_first_blocker": n153_first_blocker,
         "contract_admissions_blocked": _last_contract_admissions.get("blocked", []).size(),
