@@ -1,0 +1,10 @@
+{
+  "owner": "second-chat-overnight",
+  "scope": [
+    "godot/scripts/main.gd"
+  ],
+  "purpose": "Restore existing P2 save automatically on GUI startup, retain manual fallback and visible error",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T07:40:52+03:00",
+  "branch": "integration/godot-phase2-unified-20261113"
+}
