@@ -45,6 +45,15 @@ jobs:
               tail -n 100 godot/logs/p2-release/import.log
               exit 1
             }
+          # The unified tree contains 225+ source scripts; reject a package if any
+          # script fails to load, even when the small N158 smoke still passes.
+          timeout --signal=TERM --kill-after=5s 75s \
+            godot --headless --path godot \
+            --script res://tests/p2_unified_script_compile_check.gd \
+            > godot/logs/p2-release/all-scripts.log 2>&1 || {
+              tail -n 120 godot/logs/p2-release/all-scripts.log
+              exit 1
+            }
           timeout --signal=TERM --kill-after=5s 75s \
             godot --headless --path godot \
             --script res://tests/p2_n158_live_production_check.gd \
