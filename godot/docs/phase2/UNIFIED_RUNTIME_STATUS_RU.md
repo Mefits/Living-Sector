@@ -173,3 +173,9 @@
 - Commit [`46c36362`](https://github.com/Mefits/Living-Sector/commit/46c36362792d4c7097aee84a9d28eabc550948d5): `main.gd` синхронизирует отображаемую скорость с единственным `clock.world_speed` при новом запуске без сохранения; после загрузки checkpoint проверяет наличие ранее выбранной системы в восстановленном World и выбирает первую доступную, если прежний ID исчез. Нет второго состояния мира/скорости.
 - Lease `20261113-p2-ui-boot-speed-automation11-1021.json` RELEASED. Проверка по исходному коду, Godot/Windows не запускались: **CODE_UNVERIFIED**. Дополнительных GitHub Actions: **0**. Windows ZIP не подтверждён.
 - Следующая работа: согласованный ограниченный Godot import/parser/paid-world smoke, исправление реальных ошибок и финальный Windows export; перед CI сверить leases и общий бюджет.
+
+## P2 handoff — 13.11 10:54 МСК, identity admission seed
+
+- Commit `3cec2daf`: `seed_integrity.gd` now rejects duplicate, empty or non-string explicit ship/population IDs across systems before admitting native seed. Missing optional legacy IDs remain accepted. No changes to authoritative World, Ledger or TickRunner.
+- Lease `20261113-seed-integrity-ship-pop-automation11-1054.json` RELEASED. Static source check only; **CODE_UNVERIFIED**. No additional GitHub Actions initiated in this iteration. Prior CI `43347330243` failed at Godot smoke, while `43346470587` passed on an earlier SHA; neither is Windows export. Windows ZIP not confirmed.
+- Next: inspect failing CI diagnostic artifact, correct parser/import failure group and coordinate one final manual Windows export. Avoid new CI until source errors are understood.
