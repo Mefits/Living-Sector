@@ -1,11 +1,16 @@
 {
   "owner": "automation-shift11",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T14:14:28+03:00",
   "scope": [
     "godot/scripts/observer_panel.gd",
     "godot/scripts/main.gd"
   ],
   "boundary": "Read-only live N39 economy observer UI; no world or tick changes",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "finished_at": "2026-11-13T14:14:28+03:00",
+  "commits": [
+    "e3c89bd36ed019e36de8c719d6811699b1e70c14",
+    "37695db72f32583c1423d0a32f03271cf791fc43"
+  ]
 }
