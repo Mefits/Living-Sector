@@ -8,6 +8,7 @@ const Payroll = preload("res://scripts/sim/phase1/n39_native_paid_shift.gd")
 const Inventory = preload("res://scripts/sim/economy/inventory_store.gd")
 const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
 const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
+const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 
 const RECIPE_INTERVAL_BASE: int = 5
 const MINING_INTERVAL_BASE: int = 5
@@ -46,7 +47,7 @@ func balance_of_population(population_id: String) -> int:
 ## Supply external_workers from authoritative N141 construction/N143 Director
 ## shift receipts for THIS tick. No hidden employee registry.
 func run_tick(tick: int, tick_multiplier: int = 1,
-        external_workers: Dictionary = {}) -> Dictionary:
+        external_workers: Dictionary = {}, tick_scale: float = 1.0) -> Dictionary:
     if not _ready or tick != _last_tick + 1 or tick < 1:
         return {"ok": false, "reason": "invalid_or_replayed_tick"}
     if tick_multiplier < 1 or tick_multiplier > 10000:
@@ -54,6 +55,24 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     var labor_error: String = Payroll.validate_reservations(_world, external_workers)
     if not labor_error.is_empty():
         return {"ok": false, "reason": labor_error}
+    # N156 frozen lifecycle: stage condition decay and abandonment BEFORE
+    # production, on the same N39 World. No second clock/ledger or Tools.
+    var lifecycle: Dictionary = FacilityLifecycle.propose(
+        _world, tick, tick_scale, tick_multiplier)
+    if not lifecycle.get("ok", false):
+        return {"ok": false, "reason": "facility_lifecycle_" + str(lifecycle.get("reason", "rejected"))}
+    var lifecycle_world: Dictionary = _world.duplicate(true)
+    for facility_id in lifecycle["changes"]:
+        if not lifecycle_world["facilities"].has(facility_id):
+            return {"ok": false, "reason": "lifecycle_unknown_facility"}
+        var updated: Dictionary = lifecycle_world["facilities"][facility_id]
+        var delta: Dictionary = lifecycle["changes"][facility_id]
+        updated["condition"] = float(delta["condition"])
+        updated["abandoned"] = bool(delta["abandoned"])
+        updated["abandon_counter"] = int(delta["abandon_counter"])
+    if Schema.validate(lifecycle_world) != "":
+        return {"ok": false, "reason": "lifecycle_schema_rejected"}
+    _world = lifecycle_world
     var ids: Array = _world["facilities"].keys()
     ids.sort()
     var lod_fired: Dictionary = {}
@@ -88,7 +107,9 @@ func run_tick(tick: int, tick_multiplier: int = 1,
                     failures[id] = result["reason"]
     # Rust allows per-facility failures without rolling back other facilities.
     _last_tick = tick
-    return {"ok": true, "tick": tick, "receipts": receipts, "failures": failures}
+    return {"ok": true, "tick": tick, "receipts": receipts, "failures": failures,
+        "lifecycle_changes": lifecycle["changes"].duplicate(true),
+        "lifecycle_events": lifecycle["events"].duplicate(true)}
 
 ## P2 single-market commit boundary: N150 may change price, demand,
 ## flow/history/orders but NEVER physical stock, source owner or accounts.
