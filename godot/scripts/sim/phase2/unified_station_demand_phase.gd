@@ -66,10 +66,22 @@ static func propose(world: Dictionary, tick: int) -> Dictionary:
             var estimated_cost: float = ceil(float(quantity) * float(price_value))
             if not is_finite(estimated_cost) or estimated_cost > 9007199254740991.0:
                 return {"ok": false, "reason": "cost_overflow"}
+            # A physical order needs a real supplier, not just a deficit.
+            # Never offer a destination's own stock as cargo or invent goods.
+            var supplier: Dictionary = _find_physical_supplier(markets, facilities,
+                str(location), str(commodity), quantity)
+            if supplier.is_empty():
+                blocked.append({"location": str(location), "commodity": str(commodity),
+                    "reason": "no_physical_supplier_with_available_stock",
+                    "quantity": quantity})
+                continue
             var row: Dictionary = {
                 "id": "n135:need:%s:%s" % [str(location), str(commodity)],
                 "tick": tick, "station_id": owner_id,
                 "location": str(location), "faction": str(owner.get("faction", "")),
+                "source_location": str(supplier["location"]),
+                "source_station_id": str(supplier["station_id"]),
+                "source_available_stock": float(supplier["available"]),
                 "commodity": str(commodity), "quantity": quantity,
                 "observed_consumption": consumed_amount, "observed_stock": stock,
                 "estimated_cost": int(estimated_cost),
@@ -84,3 +96,33 @@ static func propose(world: Dictionary, tick: int) -> Dictionary:
                 proposals.append(row)
     return {"ok": true, "tick": tick, "proposals": proposals, "blocked": blocked,
         "status": "PROPOSALS_ONLY_NOT_POSTED"}
+
+## Read-only matching; no reservations or imaginary freight. The canonical
+## ContractBoard must revalidate source stock at actual escrow admission.
+static func _find_physical_supplier(markets: Dictionary, facilities: Dictionary,
+        destination: String, commodity: String, quantity: int) -> Dictionary:
+    var candidates: Array = markets.keys()
+    candidates.sort()
+    for source in candidates:
+        if str(source) == destination:
+            continue
+        var row = markets[source]
+        if not (row is Dictionary):
+            continue
+        var market: Dictionary = row
+        if not (market.get("supply") is Dictionary):
+            continue
+        var owner_id: String = str(market.get("owner", ""))
+        if not (facilities.get(owner_id) is Dictionary):
+            continue
+        if str(facilities[owner_id].get("location", "")) != str(source):
+            continue
+        var available_value = market["supply"].get(commodity, null)
+        if not (available_value is int or available_value is float):
+            continue
+        var available: float = float(available_value)
+        if not is_finite(available) or available < float(quantity):
+            continue
+        return {"location": str(source), "station_id": owner_id,
+            "available": available}
+    return {}
