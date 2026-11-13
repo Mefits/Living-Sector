@@ -69,3 +69,10 @@
 - Commits `c4b00a97`, `62339a23`: the sole N39 tick runner now stops subsequent phase execution and pauses on a rejected paid production / integrated population / market phase; exposes `last_phase_failure()` with phase/tick/reason. Failed partial ticks cannot be saved as healthy checkpoints. No second world or ledger.
 - Cheap static parenthesis check passed; Godot runtime **not executed**. The failed tick still advances its calendar once and is deliberately not replayed. Follow-up: surface the diagnostic in UI, verify behavior in bounded Godot checkpoint. No Actions launched; no Windows ZIP yet.
 - Lease `20261113-phase2-failclosed-tick-shift11c.json` released. Other workers should avoid reintroducing continue-on-error in this runner.
+
+## P2 handoff — отображение ошибок фаз в GUI, 13.11 06:03 МСК
+
+- Commit `389b0a0c`: `main.gd` показывает реальную ошибку `last_phase_failure()` (phase/tick/reason), запрещает возобновление и ручные шаги после отказа, а также предотвращает перезапись последнего здорового сохранения из UI. `startup_health()` теперь включает `runtime_failure` для диагностики.
+- Изменён только `godot/scripts/main.gd`; авторитетный N39 World/Ledger и Runner не дублируются. Проверка: сверены вызываемые методы с `n39_native_production_tick_runner.gd`; Godot/Windows не запускались, **CODE_UNVERIFIED**. Дополнительных GitHub Actions: **0**.
+- Lease `20261113-p2-runtime-failure-ui-shift11d.json` освобождён. Следующий свободный приоритет — ограниченный импорт Godot 4.7.2 с timeout и устранение группы ошибок перед финальным Windows export; параллельные работы сверять с новыми leases.
+- Скачиваемый Windows ZIP пока не подтверждён.
