@@ -1,6 +1,6 @@
 {
   "block_id": "N158",
-  "status": "IN_PROGRESS",
+  "status": "INTEGRATION_CODE_UNVERIFIED",
   "phase": "P2",
   "owner": "primary-chat-20261113",
   "run_id": "2026-11-13-P2-01-native-production-bootstrap",
@@ -19,5 +19,21 @@
     "Do not invent assets/market prices/world entities",
     "Only announce runtime VERIFIED on actual Godot execution"
   ],
-  "progress": []
+  "progress": [
+    "Created authentic Galaxy production seed adapter with all 8 systems/3 factions loaded; source 15 facility/3 real market/3 household paid world, Rust crew defaults + source only stock/cash. N39 core imported as exact Git blobs.",
+    "Main Godot TickRunner derived from N39 native physical producer; actual P1 clock/orbits/events and dynamic Rust 5*32=160 ticks at x0.25 vs 5 ticks at x8. No N23 demo, no N151 or N150 phantom callbacks.",
+    "Main GUI shows true market supplies and paid facility shifts; FileAccess P2 separate save includes actual stock/WorkShift and N9 ledger receipts, strict normalization for Godot JSON numeric parse.",
+    "Draft PR #248: 12 files, 1347 added lines and 14 deletions, frozen-seed executable Godot acceptance test and Windows helper, all source preloads/delimiters checked but parser/headless NOT RUN as Godot4 binary unavailable. No PR merged.",
+    "Next P2 block must unify N151 paid household consumption + N150 market pricing + N156 physical condition using one N9 owner; P2 ships/contracts and Head later, Phase1 10/10 remains source-only."
+  ],
+  "phase2_block_status": "P2_01_SOURCE_LIVE_WIRED_UNVERIFIED",
+  "pr_url": "https://github.com/Mefits/Living-Sector/pull/248",
+  "work_sha": "8e7c5abf003a9aa0dfd108362ceced8df2af0b9b",
+  "completed_at": "2026-11-13",
+  "evidence": [
+    "Draft PR https://github.com/Mefits/Living-Sector/pull/248, head 8e7c5abf003a9aa0dfd108362ceced8df2af0b9b, 12 changed files, 1347 additions",
+    "Lexical GDScript readback across 8 relevant scripts: bracket strings valid and all preloads resolve against GitHub integration tree; no Godot 4 parser/headless run.",
+    "Native source source projection verified against three source market locations: alpha-station, earth-station and pirate-outpost; 15 source facilities and 3 Pop wallets.",
+    "Docs godot/docs/PHASE2_N158_LIVE_PRODUCTION_INTEGRATION_RU.md, tests godot/tests/p2_n158_live_production_check.gd and godot/RUN-P2-N158-CHECK.cmd."
+  ]
 }
