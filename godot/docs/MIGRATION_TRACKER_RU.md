@@ -1,3 +1,5 @@
+> **N100 / 13.11.2026, macro №7 SOURCE-COVERED / CODE_UNVERIFIED:** User-authorized transfer of stale stopped owner N100 claim, original Draft PR [#188](https://github.com/Mefits/Living-Sector/pull/188) extended: complete source mapping of frozen `strategy/planning/hybrid.rs`, bounded HTN/GOAP/Beam collaboration, single cash/stock/unique-carrier conservative replay and profile-weighted choice. Reuses existing N155 HTN/Telic/NativeDomain/validator, N99 Beam, N98/N121 original receipt/ledger instead of duplication. 2 GDScript files + source audit; source-fixture checks authored **NOT RUN**, static balanced readback only, no Godot parser/runtime or merged functional behavior. Macro7 with N155 marked **source-covered**, 8/10 source-only macro domains (#2–#9); macro1 N39 owned by first chat; macro10 open; symbolic Phase1 source-port remaining ~15–20%, Phase2 assembly entirely separate. VERIFIED counts unchanged.
+
 > **N145 (2026-11-13, macro 5, CODE_UNVERIFIED):** [Draft PR #234](https://github.com/Mefits/Living-Sector/pull/234) ports frozen Rust contracts.rs Posted reputation/price aging, renewal/expiry and faction-tier ship admission; no money or cargo effects. 12 pure GDScript methods, source handoff, static readback only; no Godot runtime. N104 escrow and N135 dispatch remain separate; VERIFIED counts unchanged.
 
 ### N144 / macro 2 (12.11.2026) — CODE_UNVERIFIED
@@ -383,7 +385,7 @@ Three separate branches, three claims closed CODE_UNVERIFIED. Minimal delimiter 
 ### 2026-11-12 N98–N100 phase-1 planning source ports
 - N98 [PR #186](https://github.com/Mefits/Living-Sector/pull/186): Rust durable plan ledger; CODE_UNVERIFIED, external plan validation required.
 - N99 [PR #187](https://github.com/Mefits/Living-Sector/pull/187): Rust bounded Control Beam; CODE_UNVERIFIED, native domain adapter required.
-- N100 [PR #188](https://github.com/Mefits/Living-Sector/pull/188): partial Rust Hybrid planner, IN_PROGRESS; ingredient composition/orchestration not yet ported.
+- N100 [Draft PR #188](https://github.com/Mefits/Living-Sector/pull/188): **SOURCE-COVERED / CODE_UNVERIFIED**, original `hybrid.rs` complete source-function transfer (HTN+GOAP ingredient composition; shared budget; N99 Beam conditional arbitration; N155 NativeDomain/Validator safe replay; Director-weighted tie resolution and rejection trace). Code/fixtures AUTHORED NOT RUN; N121 execution remains separately gated.
 - No Godot runtime checks, no new VERIFIED progress, no integration. Do not treat these PRs as working AI.
 
 ### 2026-11-12 — N101/N102/N103 component ports
