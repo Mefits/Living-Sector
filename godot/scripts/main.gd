@@ -432,9 +432,41 @@ func _select_world(world: Dictionary) -> void:
             lines.append(" • %s: %d CR · %s" % [
                 str(source_fac.get("name", id)), int(live["credits"]), shift_text
             ])
+    # Read only the authoritative N39/N151 population snapshot, not frozen
+    # seed population counts. All purchases are committed by the one ledger.
+    if _runner != null and _runner.has_method("economy_snapshot"):
+        var live_economy: Dictionary = _runner.economy_snapshot()
+        var live_populations: Dictionary = live_economy.get("populations", {})
+        var local_locations: Dictionary = {}
+        for source_market in markets:
+            local_locations[str(source_market.get("facility_id", ""))] = true
+        var population_ids: Array = live_populations.keys()
+        population_ids.sort()
+        var local_population_count: int = 0
+        for pid in population_ids:
+            var population: Dictionary = live_populations[pid]
+            if not local_locations.has(str(population.get("location", ""))):
+                continue
+            if local_population_count == 0:
+                lines.append("")
+                lines.append("ЖИВОЕ НАСЕЛЕНИЕ (ЕДИНЫЙ N39 WORLD)")
+            local_population_count += 1
+            lines.append(" • %s: %d жителей · %d CR · еда %d/100 · настроение %d/100" % [
+                str(population.get("label", pid)), int(population.get("count", 0)),
+                int(population.get("wealth", 0)),
+                int(population.get("food_satisfaction", 0)),
+                int(population.get("overall_sentiment", 0))
+            ])
+        if _runner.has_method("last_population_result"):
+            var population_result: Dictionary = _runner.last_population_result()
+            if population_result.get("ok", false) and local_population_count > 0:
+                lines.append(" Последняя общая оплаченная фаза населения: тик %d · покупок %d" % [
+                    int(population_result.get("tick", -1)),
+                    int(population_result.get("purchases", 0))
+                ])
     lines.append("")
     lines.append("Орбиты и производственный цикл реальны. Корабли, потребление населения,")
-    lines.append("динамическая переоценка рынков и ИИ пока не подключены к общему тику.")
+    lines.append("Корабельный ИИ и контракты пока не подключены к общему тику.")
     _details.text = "\n".join(lines)
 
 ## Read-only boot diagnostics for local Windows/Godot compatibility smoke.
