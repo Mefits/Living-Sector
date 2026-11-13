@@ -1168,6 +1168,15 @@ func restore(saved: Dictionary) -> bool:
         var contract_check := ContractBoard.new(staged_ledger)
         if not contract_check.restore(staged_world["contract_board"]):
             return false
+    # N143 paid research receipts must retain their original N9 transfer
+    # across disk reload; a head cannot manufacture paid work by editing
+    # research progress without the ledger receipt.
+    for receipt_id in staged_world.get("research_receipts", {}):
+        if not staged_ledger.has_receipt(str(receipt_id)):
+            return false
+        var research_receipt: Dictionary = staged_world["research_receipts"][receipt_id]
+        if int(research_receipt.get("tick", -1)) > int(saved["tick"]):
+            return false
     if staged_ledger.snapshot()["balances"].size() != expected.size():
         return false
     for id in staged_world["facilities"]:
