@@ -137,7 +137,7 @@ func _ready() -> void:
     _runner = TickRunner.new()
     if not _runner.start_from_seed(_seed):
         _status.text = "Ошибка индексации исходного мира"
-        _details.text = "Godot не смог построить read-only индексы исходных JSON."
+        _details.text = "Не удалось собрать физический мир P2: " + str(_runner.boot_error())
         _startup_error = _details.text + " / " + str(_runner.boot_error())
         push_error(_startup_error)
         return
