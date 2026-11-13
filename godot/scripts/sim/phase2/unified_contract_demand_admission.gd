@@ -4,6 +4,7 @@ extends RefCounted
 ## reserve anything: the unique N39 Apply must commit the escrow transfer and
 ## board insertion atomically. A successful result is NOT an active contract.
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
+const StationDemand = preload("res://scripts/sim/phase2/unified_station_demand_phase.gd")
 
 static func validate(world: Dictionary, ledger_snapshot: Dictionary,
         demand: Dictionary, tick: int, existing_contracts: Dictionary = {}) -> Dictionary:
@@ -17,6 +18,26 @@ static func validate(world: Dictionary, ledger_snapshot: Dictionary,
         return _reject("not_a_demand_proposal")
     if typeof(demand.get("tick", null)) != TYPE_INT or int(demand["tick"]) > tick:
         return _reject("invalid_demand_tick")
+    # Never fund an arbitrary client-shaped demand. Re-evaluate the original
+    # N135 consumption/stock decision against the current canonical World.
+    # A stale shortage, supplier switch or altered quantity cannot mint a job.
+    var live_demand: Dictionary = StationDemand.propose(world, tick)
+    if not live_demand.get("ok", false):
+        return _reject("canonical_demand_invalid")
+    var matched: bool = false
+    for live_row in live_demand.get("proposals", []):
+        if not (live_row is Dictionary):
+            return _reject("canonical_demand_invalid")
+        if str(live_row.get("id", "")) != str(demand["id"]):
+            continue
+        matched = true
+        for field in ["station_id", "source_station_id", "location",
+                "source_location", "commodity", "quantity", "estimated_cost"]:
+            if live_row.get(field) != demand.get(field):
+                return _reject("stale_or_forged_demand")
+        break
+    if not matched:
+        return _reject("no_live_economic_need")
     var id: String = str(demand["id"])
     if existing_contracts.has(id):
         return _reject("already_posted")
