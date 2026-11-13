@@ -10,6 +10,7 @@ var _native_enabled: bool = false
 var _last_native_result: Dictionary = {}
 var _external_labor_this_tick: Dictionary = {}
 var _tick_multiplier: int = 1
+var _phase_failure: Dictionary = {}
 
 func start_from_seed(seed: Dictionary) -> bool:
     if not super.start_from_seed(seed):
@@ -19,6 +20,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_native_result = {}
     _external_labor_this_tick = {}
     _tick_multiplier = 1
+    _phase_failure = {}
     return true
 
 func configure_native_production(physical_world: Dictionary,
@@ -52,12 +54,21 @@ func implemented_phases() -> PackedStringArray:
 func last_native_result() -> Dictionary:
     return _last_native_result.duplicate(true)
 
+## A failed authoritative phase is not silently retried on the next frame.
+## Partial effects may already have committed: freeze the clock and expose
+## the exact phase/tick for diagnosis rather than running later phases.
+func last_phase_failure() -> Dictionary:
+    return _phase_failure.duplicate(true)
+
 ## Phase2 extension hook: exactly one physical runtime executes each
 ## non-N39 phase, no separate TickRunner/market ledger/clock.
 func _execute_integrated_phase(_phase: String, _tick: int) -> bool:
     return true
 
 func _advance_one_tick() -> void:
+    if not _phase_failure.is_empty():
+        clock.set_paused(true)
+        return
     tick_count += 1
     var native_delta: float = clock.tick_scale()
     for index in range(NATIVE_PHASE_ORDER.size()):
@@ -69,14 +80,24 @@ func _advance_one_tick() -> void:
                 _tick_multiplier, _external_labor_this_tick)
             _external_labor_this_tick = {}
             if not _last_native_result.get("ok", false):
+                _phase_failure = {"phase": phase, "tick": tick_count,
+                    "reason": str(_last_native_result.get("reason", "unknown"))}
                 push_error("N39 native production tick rejected: " +
-                    str(_last_native_result.get("reason", "unknown")))
+                    str(_phase_failure["reason"]))
+                break
         if not _execute_integrated_phase(phase, tick_count):
+            _phase_failure = {"phase": phase, "tick": tick_count,
+                "reason": "integrated_phase_rejected"}
             push_error("P2 integrated phase rejected: " + phase +
                 " tick=" + str(tick_count))
+            break
         for event in events.take_due(tick_count, index):
             scheduled_event_due.emit(event)
+    # Commit elapsed time for the attempted tick, but stop all future ticks.
+    # The error is intentionally sticky until a fresh start/restore.
     calendar.advance_committed_tick(native_delta)
+    if not _phase_failure.is_empty():
+        clock.set_paused(true)
     tick_completed.emit(tick_count)
 
 func checkpoint() -> Dictionary:
@@ -118,4 +139,5 @@ func restore_checkpoint(snapshot: Dictionary, frozen_seed: Dictionary) -> bool:
     _tick_multiplier = mult
     _last_native_result = {}
     _external_labor_this_tick = {}
+    _phase_failure = {}
     return true
