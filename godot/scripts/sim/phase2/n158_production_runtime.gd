@@ -67,6 +67,8 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     if not (saved.get("native_production") is Dictionary):
         return false
     var staged: Dictionary = saved.duplicate(true)
+    if not _normalize_number_at(staged, "native_production_multiplier"):
+        return false
     if not _normalize_native_snapshot(staged["native_production"]):
         return false
     return super.restore_checkpoint(staged, seed)
@@ -115,7 +117,7 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                 return false
     return true
 
-func _normalize_row(row: Dictionary, keys: Array[String]) -> bool:
+func _normalize_row(row: Dictionary, keys: Array) -> bool:
     for key in keys:
         if not row.has(key) or not _normalize_number_at(row, key):
             return false
