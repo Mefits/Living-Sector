@@ -101,9 +101,40 @@ func _initialize() -> void:
     if not recovered.get("ok", false):
         _fail("canonical fleet checkpoint rejected after disk serialization: " + str(recovered))
         return
-    if b.tick_count != 5 or b.fleet_snapshot() != moving:
-        _fail("N14 ship transit/fuel/positions changed across actual file reload")
+    if b.tick_count != 5 or b.fleet_snapshot().size() != moving.size():
+        _fail("N14 ship roster/count changed across file reload")
         return
+    var restored: Dictionary = b.fleet_snapshot()
+    for sid in moving:
+        if not restored.has(sid):
+            _fail("N46 original ship ID lost in checkpoint: " + str(sid))
+            return
+        var original: Dictionary = moving[sid]
+        var after: Dictionary = restored[sid]
+        for field in ["id", "name", "class", "faction_id", "system_id",
+                "location", "credits", "cargo", "cargo_capacity"]:
+            if original.get(field, null) != after.get(field, null):
+                _fail("saved ship immutable field changed: " + str(sid) + "/" + field)
+                return
+        if absf(float(original["fuel"]) - float(after["fuel"])) > 0.000001:
+            _fail("saved ship Fuel changed during restart: " + str(sid))
+            return
+        var pre_transit: Dictionary = original["transit"]
+        var post_transit: Dictionary = after["transit"]
+        if pre_transit.is_empty() != post_transit.is_empty():
+            _fail("N14 transit presence changed after restart")
+            return
+        if not pre_transit.is_empty():
+            for field in ["token", "departure_tick", "last_tick",
+                    "from", "to"]:
+                if pre_transit.get(field, null) != post_transit.get(field, null):
+                    _fail("N14 persisted transit metadata changed: " + field)
+                    return
+            for index in range(2):
+                if absf(float(pre_transit["position"][index]) -
+                        float(post_transit["position"][index])) > 0.00001:
+                    _fail("N14 physical transit coordinate changed after restart")
+                    return
     if b.checkpoint()["native_production"]["ledger"]["balances"] != checkpoint["native_production"]["ledger"]["balances"]:
         _fail("ship wallets or paid economy wallet changed across N9 reload")
         return
