@@ -85,6 +85,7 @@ static func pay_shift(state: Dictionary, ledger: RefCounted, producer_id: String
         return _blocked(state, producer_id, "invalid_cash_balance")
     var distinct: bool = producer_id != owner_id
     var fee: int = 0
+    var service_debit: int = 0
     var cost: int = 0
     var legs: Array = []
     if input_payment != null:
@@ -98,6 +99,7 @@ static func pay_shift(state: Dictionary, ledger: RefCounted, producer_id: String
             legs.append({"account": owner_account, "delta": cost})
     elif distinct:
         fee = int((wages + 9) / 10)
+        service_debit = wages + fee
         if fee > MAX_CREDITS - wages or owner_cash < wages + fee:
             return _blocked(state, producer_id, "insufficient_processing_budget")
         legs.append({"account": owner_account, "delta": -(wages + fee)})
@@ -125,14 +127,14 @@ static func pay_shift(state: Dictionary, ledger: RefCounted, producer_id: String
             maxf(1.0, float(person["count"]) * 0.6), 0.0, 1.0)
     var shift: Dictionary = {
         "tick": tick, "workers": assignments.duplicate(true),
-        "wages": wages, "input_payment": cost, "processing_fee": fee,
+        "wages": wages, "input_payment": cost, "processing_fee": service_debit,
         "last_recipe_ticks": old_shift.get("last_recipe_ticks", {}).duplicate(true),
         "produced_outputs": old_shift.get("produced_outputs", {}).duplicate(true),
         "receipt": operation_id
     }
     producer["work_shift"] = shift
     producer["work_blocked_reason"] = ""
-    return {"ok": true, "receipt": operation_id, "wages": wages, "processing_fee": fee,
+    return {"ok": true, "receipt": operation_id, "wages": wages, "processing_fee": service_debit,
         "input_payment": cost, "workers": assignments.duplicate(true)}
 
 static func _blocked(state: Dictionary, producer_id: String, reason: String) -> Dictionary:
