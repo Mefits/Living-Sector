@@ -15,7 +15,7 @@ permissions:
 jobs:
   verify-real-godot:
     runs-on: ubuntu-24.04
-    timeout-minutes: 9
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
       - name: Check source preloads
@@ -55,14 +55,14 @@ jobs:
           set +e
           mkdir -p godot/logs/p2-unified
           godot --version | tee godot/logs/p2-unified/version.txt
-          godot --headless --path godot --editor --import --quit \
+          timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot --editor --import --quit \
             > godot/logs/p2-unified/editor-import.log 2>&1
           editor=$?
-          godot --headless --path godot \
+          timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot \
             --script res://tests/p2_unified_script_compile_check.gd \
             > godot/logs/p2-unified/compile-all.log 2>&1
           parse=$?
-          godot --headless --path godot \
+          timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot \
             --script res://tests/p2_n158_live_production_check.gd \
             > godot/logs/p2-unified/n158-paid-production.log 2>&1
           economy=$?
