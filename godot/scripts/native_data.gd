@@ -24,14 +24,19 @@ static func _read_json(path: String) -> Dictionary:
 static func load_current_world() -> Dictionary:
     var project_dir: String = ProjectSettings.globalize_path("res://").trim_suffix("/")
     var repo_root: String = project_dir.get_base_dir()
+    # In an exported Windows build, res:// points into the PCK; the original
+    # Rust Galaxy JSON seed is shipped as external, unchanged files beside
+    # LivingSector.exe. Do not depend on the developer repository existing.
+    var executable_dir: String = OS.get_executable_path().get_base_dir()
     var candidates: Array[String] = [
         project_dir.path_join("data/galaxy"),
-        repo_root.path_join("native/priv/galaxy/data")
+        repo_root.path_join("native/priv/galaxy/data"),
+        executable_dir.path_join("data/galaxy")
     ]
     for base in candidates:
         if DirAccess.dir_exists_absolute(base):
             return _load_exact_galaxy(base)
-    return {"error": "Не найден именно Galaxy 0.6.7: data/galaxy или соседняя native/priv/galaxy/data. Другие миры не подставляются."}
+    return {"error": "Не найден именно Galaxy 0.6.7. Требуется папка data/galaxy рядом с LivingSector.exe (или исходный native/priv/galaxy/data). Другие миры не подставляются."}
 
 static func _load_exact_galaxy(base: String) -> Dictionary:
     var checked_factions: Dictionary = _read_json(base.path_join("factions.json"))
