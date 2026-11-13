@@ -180,12 +180,20 @@ func _process(delta: float) -> void:
 func _toggle_pause() -> void:
     if not _runner:
         return
+    if _runner.clock.paused and not _runtime_failure().is_empty():
+        _notice = "Симуляция остановлена из-за ошибки фазы; загрузите последнее корректное сохранение"
+        _update_status()
+        return
     _runner.queue_control("resume" if _runner.clock.paused else "pause")
     _runner.advance_frame(0.0)
     _update_status()
 
 func _step(count: int) -> void:
     if not _runner:
+        return
+    if not _runtime_failure().is_empty():
+        _notice = "Нельзя продолжать повреждённый тик; загрузите сохранение"
+        _update_status()
         return
     _runner.queue_control("pause")
     _runner.queue_control("step", count)
@@ -203,6 +211,10 @@ func _save_game(save_path: String = "") -> void:
     if not _runner:
         return
     _runner.advance_frame(0.0)
+    if not _runtime_failure().is_empty():
+        _notice = "Сохранение запрещено: незавершённая экономическая фаза. Предыдущий файл не изменён."
+        _update_status()
+        return
     var target: String = P2_SAVE_PATH if save_path.is_empty() else save_path
     var result: Error = SaveState.save_runner(_runner, target)
     _notice = "Орбиты, товары, зарплаты и чеки сохранены (P2)" if result == OK else "Ошибка сохранения: " + str(result)
@@ -228,6 +240,11 @@ func _on_tick_completed(tick: int) -> void:
         _refresh_selection()
     _update_status()
 
+func _runtime_failure() -> Dictionary:
+    if _runner != null and _runner.has_method("last_phase_failure"):
+        return _runner.last_phase_failure()
+    return {}
+
 func _update_status() -> void:
     if not _runner:
         return
@@ -245,7 +262,12 @@ func _update_status() -> void:
         _status.text += "   |   Native: %d рын. / %d предприятий" % [int(economic.get("markets", 0)), int(economic.get("facilities", 0))]
         if _runner.tick_count % 5 == 0 and _runner.tick_count > 0:
             _status.text += " · Выпуск: %d · Добыча: %d" % [int(economic.get("last_recipe_facilities", 0)), int(economic.get("last_mining_facilities", 0))]
-    _pause_button.text = "Продолжить" if _runner.clock.paused else "Пауза"
+    var failure: Dictionary = _runtime_failure()
+    if not failure.is_empty():
+        _status.text += "   |   ОШИБКА ФАЗЫ %s / тик %d: %s" % [
+            str(failure.get("phase", "?")), int(failure.get("tick", -1)),
+            str(failure.get("reason", "unknown"))]
+    _pause_button.text = "Ошибка — загрузите" if not failure.is_empty() else ("Продолжить" if _runner.clock.paused else "Пауза")
 
 func _refresh_selection() -> void:
     if not _runner:
@@ -369,5 +391,6 @@ func startup_health() -> Dictionary:
         "map_ready": has_map,
         "ui_ready": has_ui,
         "tick": _runner.tick_count if booted else -1,
+        "runtime_failure": _runtime_failure(),
         "implemented_phases": _runner.implemented_phases() if booted else PackedStringArray()
     }
