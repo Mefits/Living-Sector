@@ -65,6 +65,12 @@ static func propose(world: Dictionary, graph: RefCounted,
         var contract_id: String = str(ship.get("active_contract_id", ""))
         if contract_id.is_empty():
             continue
+        var board: Dictionary = staged.get("contract_board", {})
+        var contracts: Dictionary = board.get("contracts", {})
+        var held: Dictionary = contracts.get(contract_id, {})
+        if held.is_empty() or str(held.get("status", "")) not in ["accepted", "picked_up"] or str(held.get("fulfiller_id", "")) != str(ship_id):
+            return {"ok": false, "reason": "n84_missing_actual_n104_obligation",
+                "ship_id": str(ship_id)}
         var bt: Variant = ship.get("current_bt", null)
         if bt == null:
             # Legacy N153 checkpoint before N84 was attached. Do not
