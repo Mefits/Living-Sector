@@ -1,0 +1,10 @@
+{
+  "owner": "overnight-scheduler-shift11",
+  "status": "IN_PROGRESS",
+  "scope": [
+    "godot/scripts/main.gd"
+  ],
+  "purpose": "Add opt-in exported-scene boot/tick/save/load check without separate world or CI trigger",
+  "claimed_at": "2026-11-13T09:26:41+01:00",
+  "branch": "integration/godot-phase2-unified-20261113"
+}
