@@ -155,3 +155,9 @@
 - Commit [63927316](https://github.com/Mefits/Living-Sector/commit/639273163c70058ad0b4d3131ad50f77f4e60f61): startup и ручная загрузка теперь показывают источник восстановления (.bak / .pending). Если целостный pending успешно загружен, но не удалось перенести в основной файл, UI прямо предупреждает сохранить игру заново. Информация берётся из единственного SaveState, не из дополнительного filesystem scanner.
 - Lease `20261113-p2-pending-recovery-ui-automation11-0938.json` RELEASED. Статическая сверка контракта SaveState и main выполнена; Godot/Windows не запускались — **CODE_UNVERIFIED**. Дополнительных GitHub Actions: **0**. Windows ZIP не подтверждён.
 - Следующая свободная работа: ограниченный Godot 4.7.2 import/parser/paid-world smoke и согласованный Windows export. Проверить новые leases и общий бюджет перед запуском CI.
+
+## P2 handoff — 13.11 09:47 МСК, проверка Windows-артефакта
+
+- Commits [`4027bfce`](https://github.com/Mefits/Living-Sector/commit/4027bfce7c496689840f17e8b1b9c311f1cadd4a), [`33857d82`](https://github.com/Mefits/Living-Sector/commit/33857d82d3ca991a70e4bc66f1159cbabe1588b1): `phase2_package_windows.sh` теперь перед упаковкой проверяет не только наличие EXE/PCK, но и сигнатуру Windows PE, архитектуру AMD64 и заголовок Godot GDPC pack. Это предотвращает публикацию ошибочного ZIP с чужой платформой или повреждённым PCK. Код упаковки не заменяет реальный запуск Windows.
+- Lease `20261113-windows-package-integrity-second-chat-0947.json` RELEASED. Проверка по исходнику; локально Godot и export templates отсутствуют. **CODE_UNVERIFIED**. GitHub Actions не запускались; общий бюджет не расходован. Windows ZIP пока не подтверждён.
+- Следующая свободная работа: ограниченный импорт/paid-world smoke в Godot 4.7.2 и финальный export с проверкой реального артефакта; перед запуском сверить живые leases и бюджет Actions. Единые World/Ledger/TickRunner/SaveState не изменены.
