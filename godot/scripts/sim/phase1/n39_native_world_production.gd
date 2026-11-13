@@ -20,6 +20,10 @@ const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_st
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
 
+const GalaxyConstructionCrew: Dictionary = {
+    "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
+    "farm": 6, "mining_rig": 8, "outpost": 6,
+    "gate": 0, "construction_dock": 0}
 const RECIPE_INTERVAL_BASE: int = 5
 const MINING_INTERVAL_BASE: int = 5
 const RECIPE_MAX_BATCHES: int = 20
@@ -548,6 +552,7 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
         return {"ok": false, "fatal": true, "reason": "n141_cannot_stage_n9"}
     var paid: Array = []
     var blocked: Array = []
+    var completed_sites: Array = []
     for site_id in site_ids:
         var proposed: Dictionary = NativeConstructionLabor.paid_shift(
             staged, str(site_id), tick, multiplier)
@@ -561,7 +566,9 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
         var faction: String = str(proposed["faction_id"])
         if workers <= 0:
             # Native N141 allows successful zero-worker work once all
-            # labor is already completed. The next N154 bridge owns spawn.
+            # labor is already complete; N154 may now materialize.
+            if NativeConstructionMaterial.ready_for_materialization(site):
+                completed_sites.append(str(site_id))
             continue
         var receipt_id: String = "native_construction_labor:" + str(site_id) + ":" + str(tick)
         if staged["construction_receipts"].has(receipt_id) or ledger.has_receipt(receipt_id):
@@ -611,6 +618,95 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
             "executor_id": str(proposed["executor_id"]),
             "wages": wages, "n9_receipt_id": receipt_id}
         paid.append(staged["construction_receipts"][receipt_id].duplicate(true))
+        if NativeConstructionMaterial.ready_for_materialization(site):
+            completed_sites.append(str(site_id))
+    # Native N154 materialization is gated by a successful N141 work()
+    # this SAME tick, including source-allowed zero-worker completion.
+    # Initial working capital is a REAL transfer from the faction N9
+    # account to the new facility's zero balance, not minted currency.
+    var materialized: Array = []
+    for site_id in completed_sites:
+        var site: Dictionary = staged["construction_sites"][site_id]
+        if site.get("labor", {}).get("colony_source", null) != null:
+            # Colony formation belongs to N151's dock+market bridge.
+            blocked.append({"site_id": str(site_id), "reason": "native_N151_colony_establish_required"})
+            continue
+        var faction: String = str(site["faction_id"])
+        var kind: String = str(site["facility_type"])
+        var crew_count: int = int(GalaxyConstructionCrew.get(kind, 6))
+        # Use Rust FacilityFitting.new_default/FacilityCrew::new_for_type:
+        # production_t1 + automation_t1, morale=80, no fresh workforce.
+        var fitting: Dictionary = {
+            "slots": ["production_t1", "automation_t1"],
+            "derived": {"recipe_output_mult": 1.0, "max_batches_bonus": 0},
+            "dirty": false}
+        var crew: Dictionary = {"work_shift": null, "crew_count": crew_count,
+            "morale": 80.0, "hunger": 0.0, "food_debt": 0.0,
+            "work_blocked_reason": null, "dirty": false}
+        var native_facs: Array = []
+        for fid in staged["facilities"]:
+            var f: Dictionary = staged["facilities"][fid]
+            native_facs.append({"id": str(fid),
+                "location_name": str(f["location"]), "location_id": 0})
+        var original: Dictionary = {
+            "factions": {faction: {"treasury": int(staged["faction_treasuries"][faction])}},
+            "facilities": native_facs}
+        var source_receipt: Dictionary = {
+            "trusted_internal_apply": true, "labor_work_succeeded": true,
+            "site_id": str(site_id), "tick": tick}
+        var native: Dictionary = NativeConstructionMaterial.materialize_after_paid_labor(
+            site, original, source_receipt,
+            int(staged["construction_next_db_id"]), null,
+            fitting, crew, tick)
+        if not native.get("ok", false) or str(native.get("kind", "")) != "materialize_native_facility":
+            return {"ok": false, "fatal": true, "reason": "n154_native_materialization_" + str(native.get("reason", native.get("kind", "rejected")))}
+        var raw: Dictionary = native["facility"]
+        var new_id: String = str(raw.get("id", ""))
+        var capital: int = int(raw.get("credits", -1))
+        var new_account: String = Schema.facility_account(new_id)
+        if new_id.is_empty() or staged["facilities"].has(new_id) or capital < 0 or not ledger.register_empty_account(new_account):
+            return {"ok": false, "fatal": true, "reason": "n154_phantom_or_duplicate_facility"}
+        var receipt_id: String = "native_construction_materialize:" + str(site_id) + ":" + str(tick)
+        if staged["construction_receipts"].has(receipt_id) or ledger.has_receipt(receipt_id):
+            return {"ok": false, "fatal": true, "reason": "n154_repeated_facility_materialization"}
+        if capital > 0:
+            var transfer: Dictionary = ledger.transfer(receipt_id,
+                Schema.faction_account(faction), new_account,
+                capital, tick, "n154_native_working_capital")
+            if not transfer.get("ok", false):
+                return {"ok": false, "fatal": true,
+                    "reason": "n154_ledger_capital_" + str(transfer.get("reason", "failed"))}
+        if int(native["world"]["factions"][faction]["treasury"]) != ledger.balance(Schema.faction_account(faction)):
+            return {"ok": false, "fatal": true, "reason": "n154_native_source_capital_mismatch"}
+        staged["faction_treasuries"][faction] = ledger.balance(Schema.faction_account(faction))
+        staged["facilities"][new_id] = {
+            "type": kind, "faction": faction,
+            "location": str(site["location_name"]),
+            "body_id": str(site["body_id"]),
+            "credits": ledger.balance(new_account),
+            "crew_count": crew_count, "docking_capacity": 4,
+            "morale": 80.0, "level": 1, "xp": 0,
+            "abandoned": false, "condition": 1.0,
+            "reserves": {}, "fitting_output_mult": 1.0,
+            "fitting_batches_bonus": 0,
+            "native_db_id": int(staged["construction_next_db_id"]),
+            "construction_source_site_id": str(site_id)}
+        staged["construction_next_db_id"] = int(staged["construction_next_db_id"]) - 1
+        # Physical site and its active materials orders are retired in
+        # the SAME transaction as the new facility's N9 account.
+        for cid in staged["construction_contracts"].keys():
+            if str(staged["construction_contracts"][cid]) == str(site_id):
+                var c: Dictionary = staged["contract_board"].get("contracts", {}).get(cid, {})
+                if str(c.get("status", "")) not in ["paid", "expired"]:
+                    return {"ok": false, "fatal": true, "reason": "n154_unfinished_physical_material_contract"}
+                staged["construction_contracts"].erase(cid)
+        staged["construction_sites"].erase(site_id)
+        staged["construction_receipts"][receipt_id] = {
+            "id": receipt_id, "kind": "materialize",
+            "tick": tick, "site_id": str(site_id), "facility_id": new_id,
+            "capital": capital, "n9_receipt_id": receipt_id if capital > 0 else ""}
+        materialized.append({"site_id": str(site_id), "facility_id": new_id,
+            "capital": capital})
     var error: String = Schema.validate(staged)
     if not error.is_empty():
         return {"ok": false, "fatal": true, "reason": "n141_invalid_world_" + error}
@@ -621,11 +717,12 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     for id in expected:
         if expected[id] != wallet_values.get(id, null):
             return {"ok": false, "fatal": true, "reason": "n141_n9_wallet_mismatch"}
-    if not paid.is_empty():
+    if not paid.is_empty() or not materialized.is_empty():
         _world = staged
         _ledger = ledger
-    return {"ok": true, "status": "N141_PAID_LABOR_PHYSICAL",
-        "tick": tick, "paid": paid, "blocked": blocked}
+    return {"ok": true, "status": "N141_N154_NATIVE_PAID_CONSTRUCTION",
+        "tick": tick, "paid": paid, "materialized": materialized,
+        "blocked": blocked}
 
 
 ## Gate4: N155 observed head → N143 paid research, with ONLY the N9
