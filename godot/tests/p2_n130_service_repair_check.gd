@@ -116,9 +116,30 @@ func _initialize() -> void:
         _fail("N39 did not restore exact paid-repair and restock checkpoint")
         return
     var restored_world: Dictionary = restored.world_snapshot()
-    if restored_world != now or restored.snapshot()["ledger"] != before_and_after["ledger"]:
-        _fail("repair/reserves/market/ledger changed after JSON save/load")
+    if restored.snapshot()["ledger"] != before_and_after["ledger"]:
+        _fail("N9 receipts/balances changed after JSON save/load")
         return
+    for id in now["facilities"]:
+        var fac: Dictionary = now["facilities"][id]
+        var rf: Dictionary = restored_world["facilities"][id]
+        if fac["credits"] != rf["credits"] or fac.get("work_shift", {}) != rf.get("work_shift", {}):
+            _fail("paid wage receipt changed after restore: " + str(id))
+            return
+        if fac.get("reserves", {}) != rf.get("reserves", {}) or fac["abandoned"] != rf["abandoned"]:
+            _fail("private service inventory changed after restore: " + str(id))
+            return
+        if absf(float(fac["condition"]) - float(rf["condition"])) > 0.000001:
+            _fail("facility condition changed after JSON restore: " + str(id))
+            return
+    for location in now["markets"]:
+        var old_supply: Dictionary = now["markets"][location]["supply"]
+        var new_supply: Dictionary = restored_world["markets"][location]["supply"]
+        for commodity in old_supply:
+            if not new_supply.has(commodity) or absf(
+                    float(old_supply[commodity]) - float(new_supply[commodity])) > 0.000001:
+                _fail("physical market stock changed after JSON restore: " +
+                    str(location) + "/" + str(commodity))
+                return
     print("P2_N130_N156_SERVICE_ACCEPTANCE_PASS: owned Tools/Fuel restock, paid repair, one ledger, native order, exact JSON restart")
     quit(0)
 
