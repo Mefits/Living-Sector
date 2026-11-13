@@ -66,13 +66,19 @@ jobs:
             --script res://tests/p2_n158_live_production_check.gd \
             > godot/logs/p2-unified/n158-paid-production.log 2>&1
           economy=$?
-          echo "P2_CI_RESULT editor=$editor parse=$parse economy=$economy"
+          # ONE Gate4 research acceptance on the original frozen Rust
+          # factions, accounts, market electronics and actual N38 disk.
+          timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot \
+            --script res://tests/p2_gate4_native_paid_research_check.gd \
+            > godot/logs/p2-unified/n143-paid-research.log 2>&1
+          research=$?
+          echo "P2_CI_RESULT editor=$editor parse=$parse economy=$economy research=$research"
           for file in godot/logs/p2-unified/*.log; do
             echo "::group::$file"
             tail -n 90 "$file"
             echo "::endgroup::"
           done
-          test "$editor" -eq 0 -a "$parse" -eq 0 -a "$economy" -eq 0
+          test "$editor" -eq 0 -a "$parse" -eq 0 -a "$economy" -eq 0 -a "$research" -eq 0
       - name: Save diagnostic logs
         if: always()
         uses: actions/upload-artifact@v4
