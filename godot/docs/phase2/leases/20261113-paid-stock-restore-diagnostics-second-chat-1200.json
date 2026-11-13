@@ -1,0 +1,10 @@
+{
+  "owner": "second-chat-overnight",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T12:00:09+03:00",
+  "scope": [
+    "godot/tests/p2_n158_live_production_check.gd"
+  ],
+  "purpose": "Expose exact per-commodity post-save mismatch in the failed paid-world acceptance before another expensive CI run",
+  "handoff": "No production world/ledger modifications; no Actions run."
+}
