@@ -1,0 +1,10 @@
+{
+  "worker": "automation11",
+  "status": "ACTIVE",
+  "started_msk": "2026-11-14T02:08:52+03:00",
+  "expires_msk": "2026-11-14T03:05:00+03:00",
+  "scope": [
+    "godot/tests/p2_autonomous_multitick_delivery_restart_check.gd"
+  ],
+  "purpose": "Strengthen actual unattended delivery acceptance with physical cargo/board/receipt save-load and no double settlement; no runtime changes"
+}
