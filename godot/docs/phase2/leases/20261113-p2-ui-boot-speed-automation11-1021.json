@@ -1,0 +1,10 @@
+{
+  "owner": "automation11",
+  "status": "IN_PROGRESS",
+  "scope": [
+    "godot/scripts/main.gd"
+  ],
+  "task": "Synchronize boot speed and selected system projections with restored N158 state",
+  "started_at": "2026-11-13T10:21:57+03:00",
+  "branch": "integration/godot-phase2-unified-20261113"
+}
