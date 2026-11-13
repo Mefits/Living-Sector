@@ -1,11 +1,16 @@
 {
   "worker": "automation11",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T18:18:00+03:00",
   "expires_at": "2026-11-13T18:50:00+03:00",
   "scope": [
     "godot/scripts/sim/ship_transit.gd",
     "godot/tests/p2_ship_transit_fuel_check.gd"
   ],
-  "boundary": "N14 native transit arrival fuel accounting and deterministic regression; no other runner/ledger"
+  "boundary": "N14 native transit arrival fuel accounting and deterministic regression; no other runner/ledger",
+  "released_at": "2026-11-13T18:28:00+03:00",
+  "code_commits": [
+    "826e19ceaa862204306f4bbc2abc69fa2ea379b7",
+    "36db50d66eab084f6a5feb6b454285b8e2ede86d"
+  ]
 }
