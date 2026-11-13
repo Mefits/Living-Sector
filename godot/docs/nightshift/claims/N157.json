@@ -1,0 +1,29 @@
+{
+  "block_id": "N157",
+  "status": "IN_PROGRESS",
+  "owner": "primary-chat-20261113",
+  "run_id": "2026-11-13-primary-n157-macro10-persistence-inventory",
+  "claimed_at": "2026-11-13",
+  "coordination_branch": "feature/godot-nightshift-20261112",
+  "base_branch": "integration/godot-47-n33-n37-20261112",
+  "source_sha": "6e40615be95cc6ddbabe21c3b94def5c52f8622d",
+  "work_branch": "feature/godot-n157-macro10-source-persistence-20261113",
+  "macro_id": 10,
+  "scope": [
+    "Audit exact frozen sim_db/spawner/persistence engine frame semantics, source pathfinder, simulation config against existing Nx and source inventory",
+    "Port missing dirty-frame transactional persistence, stable identity and load recovery, pathfinder source only where not yet owned",
+    "Audit SOURCE_INVENTORY.json 793 frozen blobs and existing PR coverage without falsifying parity/runtime",
+    "Create one large draft PR with source mapping and authored regression probes; update shared plan/queue/log/tracker after work"
+  ],
+  "non_overlap": [
+    "N39 physical production PR #246",
+    "N100 Hybrid PR #188",
+    "N140 LOD tuning",
+    "N142 registry/travel",
+    "N146 commands",
+    "N152 ContractBoard",
+    "N4/N24/N32/N38/N46 save baseline"
+  ],
+  "progress": [],
+  "evidence": []
+}
