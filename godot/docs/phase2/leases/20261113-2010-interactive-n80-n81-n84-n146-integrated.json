@@ -1,0 +1,17 @@
+{
+  "owner": "interactive-chat",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T20:10:00Z",
+  "expires_at": "2026-11-13T23:59:00Z",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "759c0f113231a0389c47e2d70750723a2e610f74",
+  "scope": [
+    "godot/scripts/sim/ships/ai/native_behavior_tree.gd (new N84)",
+    "godot/scripts/sim/phase2/unified_n153_contract_dispatch.gd",
+    "godot/scripts/sim/phase2/unified_ship_ai_planner.gd (new)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (only if safe)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (only if safe)",
+    "godot/tests/p2_n80_n81_n84_n146_pipeline_check.gd (new)"
+  ],
+  "boundary": "Use original N80 ship goal policy and N153 offer eligibility, N81 Dijkstra plan, N84 Rust-sequence/selector semantics and N146 canonical data commands; only actual N39/N104/N14 Apply, N97 actions fail closed; no new action AI, no shadow contracts/ledgers."
+}
