@@ -38,6 +38,8 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary) -> v
     lines.append("Покупок Food/Water: %d · рынок: %s" % [
         int(summary.get("population_purchases", 0)),
         "успешно" if summary.get("market_phase_ok", null) == true else "ещё не исполнялся / отказ"])
+    lines.append("N156 оплаченных ремонтов: %d · N130 покупок Fuel/Tools: %d" % [
+        int(summary.get("last_paid_repairs", 0)), int(summary.get("last_service_restock", 0))])
     lines.append("СТАНЦИИ / КРЕДИТЫ / СОСТОЯНИЕ:")
     var facilities: Dictionary = economy["facilities"]
     var facility_ids: Array = facilities.keys()
@@ -46,10 +48,16 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary) -> v
         if not (facilities[id] is Dictionary):
             continue
         var f: Dictionary = facilities[id]
-        lines.append("  %s · CR %s · экипаж %s · уровень %s · износ %.2f · %s" % [
+        lines.append("  %s · CR %s · экипаж %s · уровень %s · состояние %.2f · %s" % [
             str(id), str(f.get("credits", "?")), str(f.get("crew_count", "?")),
             str(f.get("level", "?")), float(f.get("condition", 1.0)),
             "ЗАБРОШЕНА" if bool(f.get("abandoned", false)) else "работает"])
+        # Services are real private station reserves, not the market's
+        # Food/Water pantry or a synthetic duplicate inventory.
+        var owned: Variant = f.get("reserves", {})
+        if owned is Dictionary:
+            lines.append("    свои запасы: Fuel %.1f · Tools %.1f" % [
+                float(owned.get("fuel", 0.0)), float(owned.get("tools", 0.0))])
     lines.append("ОПЛАЧЕННЫЕ СМЕНЫ / ПРОИЗВОДСТВО:")
     var paid_shifts: int = 0
     for id in facility_ids:
@@ -124,6 +132,13 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary) -> v
             str(p.get("safety_satisfaction", "?")),
             str(p.get("entertainment_satisfaction", "?")),
             str(p.get("unrest", "?")), str(p.get("migration_pressure", "?"))])
+    var repair_failures: Dictionary = summary.get("last_repair_failures", {}) if summary.get("last_repair_failures", {}) is Dictionary else {}
+    if not repair_failures.is_empty():
+        lines.append("ОТКАЗЫ ОПЛАТЫ РЕМОНТА:")
+        var repair_ids: Array = repair_failures.keys()
+        repair_ids.sort()
+        for id in repair_ids:
+            lines.append("  %s: %s" % [str(id), str(repair_failures[id])])
     var failures: Dictionary = summary.get("last_failures", {}) if summary.get("last_failures", {}) is Dictionary else {}
     if not failures.is_empty():
         lines.append("ОСТАНОВКИ ПРОИЗВОДСТВА:")
