@@ -117,9 +117,18 @@ func _initialize() -> void:
     if b.economy_snapshot()["markets"]["earth-station"]["prices"] != current["markets"]["earth-station"]["prices"]:
         _fail("N150 real market prices changed across file restart")
         return
-    if b.economy_snapshot()["markets"]["earth-station"]["consumption_window"] != current["markets"]["earth-station"]["consumption_window"]:
-        _fail("N151 consumed Food/Water rolling MarketFlow was not restored")
+    var expected_flow: Dictionary = current["markets"]["earth-station"]["consumption_window"]
+    var restored_flow: Dictionary = b.economy_snapshot()["markets"]["earth-station"]["consumption_window"]
+    if restored_flow != expected_flow:
+        _fail("N151 consumed Food/Water rolling MarketFlow was not restored; expected=" +
+            JSON.stringify(expected_flow, "", true, true) + " actual=" +
+            JSON.stringify(restored_flow, "", true, true))
         return
+    for commodity in restored_flow:
+        for sample in restored_flow[commodity]:
+            if not (sample is Dictionary) or typeof(sample.get("tick")) != TYPE_INT:
+                _fail("N151 restored MarketFlow sample tick must remain TYPE_INT: " + str(commodity))
+                return
     if _sum_credits(b.economy_snapshot()) != bank_before:
         _fail("funds conservation failed across file restart")
         return
