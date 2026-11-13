@@ -66,6 +66,17 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         "market_count": int(proposal["market_count"])}
     return true
 
+## Propagate the actual rejected proposal/commit reason to the sole
+## authoritative tick runner. A failed paid tick remains frozen.
+func _integrated_phase_failure_reason(phase: String) -> String:
+    var result: Dictionary = {}
+    if phase == "populations":
+        result = _last_population_result
+    elif phase == "markets":
+        result = _last_market_result
+    var detail: String = str(result.get("reason", "integrated_phase_rejected"))
+    return detail if not detail.is_empty() else "integrated_phase_rejected"
+
 func last_market_result() -> Dictionary:
     return _last_market_result.duplicate(true)
 
