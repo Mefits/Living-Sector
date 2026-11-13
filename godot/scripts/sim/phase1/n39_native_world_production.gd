@@ -12,6 +12,8 @@ const ContractBoard = preload("res://scripts/sim/economy/contract_board.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
 const PaidCargo = preload("res://scripts/sim/phase2/unified_autonomous_paid_cargo.gd")
+const NativeResearch = preload("res://scripts/sim/phase2/unified_native_research_phase.gd")
+const ResearchShift = preload("res://scripts/sim/phase1/n143_native_research_shift.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
@@ -483,6 +485,128 @@ func apply_autonomous_contract_cargo(tick: int, ship_id: String,
         "contract_id": contract_id, "ship_id": ship_id,
         "receipt_id": receipt_id, "money_receipt": money_id,
         "credits": int(proposed["credits"]), "tick": tick}
+
+
+## Gate4: N155 observed head → N143 paid research, with ONLY the N9
+## authoritative money and N39 World as the final atomic commit.
+## All candidates are rebuilt from current live markets/work shifts,
+## never trusted merely because an AI proposal claims that it paid.
+func apply_native_research_phase(tick: int, source_factions: Dictionary,
+        multiplier: int) -> Dictionary:
+    if not _ready or tick != _last_tick or tick < 1:
+        return {"ok": false, "reason": "research_outside_live_faction_phase"}
+    var proposed: Dictionary = NativeResearch.propose(_world,
+        source_factions, tick, multiplier)
+    if not proposed.get("ok", false):
+        return proposed
+    if str(proposed.get("status", "")) == "LEGACY_RESEARCH_COMPONENT_ABSENT":
+        return {"ok": true, "status": "LEGACY_RESEARCH_UNFUNDED",
+            "tick": tick, "paid": [], "blocked": []}
+    if not (proposed.get("heads") is Dictionary) or not (proposed.get("shifts") is Array):
+        return {"ok": false, "fatal": true, "reason": "invalid_n143_source_intents"}
+    var staged: Dictionary = _world.duplicate(true)
+    if proposed["heads"].size() != staged["research_directors"].size():
+        return {"ok": false, "fatal": true, "reason": "missing_native_research_head"}
+    for fid in proposed["heads"]:
+        if not staged["research_directors"].has(fid):
+            return {"ok": false, "fatal": true, "reason": "extra_native_research_head"}
+        staged["research_directors"][fid] = proposed["heads"][fid].duplicate(true)
+    var staged_ledger = Ledger.new()
+    if not staged_ledger.restore(_ledger.snapshot()):
+        return {"ok": false, "fatal": true, "reason": "research_ledger_staging_failed"}
+    var paid: Array = []
+    for intent in proposed["shifts"]:
+        if not (intent is Dictionary) or not intent.get("ok", false):
+            return {"ok": false, "fatal": true, "reason": "invalid_native_paid_intent"}
+        var fid: String = str(intent.get("faction_id", ""))
+        var facility_id: String = str(intent.get("facility_id", ""))
+        var population_id: String = str(intent.get("population_id", ""))
+        var location: String = str(intent.get("location", ""))
+        var receipt_id: String = str(intent.get("receipt_id", ""))
+        var stock: Dictionary = {}
+        if fid.is_empty() or not staged["faction_treasuries"].has(fid) or not staged["facilities"].has(facility_id) or not staged["populations"].has(population_id) or not staged["markets"].has(location):
+            return {"ok": false, "fatal": true, "reason": "research_missing_world_actor"}
+        if staged["research_receipts"].has(receipt_id) or staged_ledger.has_receipt(receipt_id):
+            return {"ok": false, "fatal": true, "reason": "research_repeated_paid_receipt"}
+        var market: Dictionary = staged["markets"][location]
+        var facility: Dictionary = staged["facilities"][facility_id]
+        var person: Dictionary = staged["populations"][population_id]
+        var head: Dictionary = staged["research_directors"][fid]
+        if str(market.get("owner", "")) != facility_id or str(facility.get("type", "")) != "station" or str(facility.get("faction", "")) != fid or str(person.get("faction", "")) != fid or str(person.get("location", "")) != location:
+            return {"ok": false, "fatal": true, "reason": "research_source_ownership_changed"}
+        if intent.get("preconditions") != {
+            "treasury": int(staged["faction_treasuries"][fid]),
+            "market_electronics": float(market.get("supply", {}).get("electronics", 0.0)),
+            "facility_credits": int(facility["credits"]),
+            "population_wealth": int(person["wealth"]),
+            "last_research_tick": head.get("last_research_tick", null),
+            "research": head.get("research", null)
+        }:
+            return {"ok": false, "fatal": true, "reason": "stale_native_research_preconditions"}
+        var cost: int = int(intent.get("cost", 0))
+        var payroll: int = int(intent.get("payroll", 0))
+        if cost < 11 or payroll != 10 or float(market["supply"].get("electronics", 0.0)) < 1.0:
+            return {"ok": false, "fatal": true, "reason": "research_missing_paid_input"}
+        var faction_account: String = Schema.faction_account(fid)
+        var facility_account: String = Schema.facility_account(facility_id)
+        var population_account: String = Schema.household_account(population_id)
+        var transaction: Dictionary = staged_ledger.commit(receipt_id, [
+            {"account": faction_account, "delta": -cost},
+            {"account": facility_account, "delta": cost - payroll},
+            {"account": population_account, "delta": payroll}
+        ], tick, "n143_native_research_shift")
+        if not transaction.get("ok", false):
+            # Rust skips shifts when the actual treasury cannot pay;
+            # source AI never turns an unfunded preview into free science.
+            return {"ok": false, "fatal": true,
+                "reason": "research_paid_commit_" + str(transaction.get("reason", "rejected"))}
+        var receipt: Dictionary = {
+            "authoritative": true, "receipt_id": receipt_id,
+            "faction_id": fid, "tick": tick,
+            "market_id": str(market.get("id", "")),
+            "facility_id": facility_id, "population_id": population_id,
+            "effects": intent["effects"].duplicate(true),
+            "technology": str(intent["technology"])
+        }
+        if not staged_ledger.has_receipt(receipt_id):
+            return {"ok": false, "fatal": true, "reason": "research_receipt_not_in_n9"}
+        var validated: Dictionary = ResearchShift.verify_authoritative_receipt(intent, receipt)
+        if not validated.get("ok", false):
+            return {"ok": false, "fatal": true,
+                "reason": "n143_receipt_" + str(validated.get("reason", "invalid"))}
+        market["supply"]["electronics"] = float(market["supply"]["electronics"]) - 1.0
+        staged["faction_treasuries"][fid] = staged_ledger.balance(faction_account)
+        facility["credits"] = staged_ledger.balance(facility_account)
+        person["wealth"] = staged_ledger.balance(population_account)
+        staged["research_directors"][fid] = validated["commander"].duplicate(true)
+        staged["research"][fid] = validated["commander"].get("technologies", []).duplicate(true)
+        staged["research_receipts"][receipt_id] = {
+            "receipt_id": receipt_id, "faction_id": fid, "tick": tick,
+            "facility_id": facility_id, "population_id": population_id,
+            "technology": str(intent["technology"]),
+            "cost": cost, "wages": payroll, "electronics": 1.0,
+            "completed_technology": intent.get("completed_technology", null),
+            "n9_receipt_id": receipt_id
+        }
+        paid.append(staged["research_receipts"][receipt_id].duplicate(true))
+    var error: String = Schema.validate(staged)
+    if not error.is_empty():
+        return {"ok": false, "fatal": true, "reason": "research_world_" + error}
+    var expected: Dictionary = Schema.accounts(staged)
+    var actual: Dictionary = staged_ledger.snapshot().get("balances", {})
+    if expected.size() != actual.size() or staged_ledger.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "research_money_not_conserved"}
+    for account in expected:
+        if actual.get(account, null) != expected[account]:
+            return {"ok": false, "fatal": true, "reason": "research_wallet_divergence"}
+    if staged["research_receipts"].size() != _world["research_receipts"].size() + paid.size():
+        return {"ok": false, "fatal": true, "reason": "research_not_once_per_shift"}
+    _world = staged
+    _ledger = staged_ledger
+    return {"ok": true, "status": "N143_PAID_CANONICAL",
+        "tick": tick, "paid": paid,
+        "blocked": proposed.get("blocked", []).duplicate(true)}
+
 
 ## P2 Gate 3: atomic N135 live need -> N104 prepaid delivery.
 ## EscrowStage only PROPOSES a detached N9+N104 snapshot. This method is
