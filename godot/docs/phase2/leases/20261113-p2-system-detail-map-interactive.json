@@ -1,6 +1,6 @@
 {
   "owner": "interactive-chat-system-map",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "scope": [
     "godot/scripts/system_map.gd",
     "godot/scripts/star_system_view.gd",
@@ -10,6 +10,9 @@
   "purpose": "Sector double click opens live read-only 2D in-system orbital map with body resources/station info and back-navigation; no new simulation owners or Actions",
   "branch": "integration/godot-phase2-unified-20261113",
   "started_at": "2026-11-13",
-  "verification": "NOT_YET_VERIFIED",
-  "actions_budget": "NO_GITHUB_ACTIONS"
+  "verification": "STATIC_CHECKS_PASS_GODOT_CODE_UNVERIFIED",
+  "actions_budget": "ZERO_NEW_GITHUB_ACTIONS",
+  "commit": "791f8b425938f277b43d5677b8d4f08ecf127119",
+  "handoff": "New sector double-click / star-system map / body inspector complete in source. Use actual Godot editor local boot test before next combined Windows release; do not claim GUI verified. Fleet markers are seed-only.",
+  "completed_at": "2026-11-13"
 }
