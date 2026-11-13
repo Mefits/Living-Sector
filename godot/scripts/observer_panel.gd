@@ -46,8 +46,10 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary) -> v
         if not (facilities[id] is Dictionary):
             continue
         var f: Dictionary = facilities[id]
-        lines.append("  %s · CR %s · экипаж %s · уровень %s" % [
-            str(id), str(f.get("credits", "?")), str(f.get("crew_count", "?")), str(f.get("level", "?"))])
+        lines.append("  %s · CR %s · экипаж %s · уровень %s · износ %.2f · %s" % [
+            str(id), str(f.get("credits", "?")), str(f.get("crew_count", "?")),
+            str(f.get("level", "?")), float(f.get("condition", 1.0)),
+            "ЗАБРОШЕНА" if bool(f.get("abandoned", false)) else "работает"])
     lines.append("РЫНКИ / ФИЗИЧЕСКИЕ ЗАПАСЫ:")
     var markets: Dictionary = economy["markets"]
     var market_ids: Array = markets.keys()
