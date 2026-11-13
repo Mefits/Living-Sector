@@ -345,10 +345,10 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
     if w.has("contract_board") != w.has("escrow_balances"):
         return false
     if w.has("contract_board"):
-        var board: Variant = w["contract_board"]
-        var escrows: Variant = w["escrow_balances"]
-        if not (board is Dictionary) or not (escrows is Dictionary):
+        if not (w["contract_board"] is Dictionary) or not (w["escrow_balances"] is Dictionary):
             return false
+        var board: Dictionary = w["contract_board"]
+        var escrows: Dictionary = w["escrow_balances"]
         if not _normalize_row(board, ["version"]):
             return false
         if not (board.get("contracts") is Dictionary) or not (board.get("receipt_claims") is Dictionary):
@@ -357,9 +357,9 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             if not _normalize_number_at(escrows, wallet):
                 return false
         for cid in board["contracts"]:
-            var row: Variant = board["contracts"][cid]
-            if not (row is Dictionary):
+            if not (board["contracts"][cid] is Dictionary):
                 return false
+            var row: Dictionary = board["contracts"][cid]
             for key in ["reserved", "agreed_payment", "quantity", "payment",
                     "initial_payment", "posted_at_tick", "expires_at_tick",
                     "accepted_at_tick", "delivered_at_tick"]:

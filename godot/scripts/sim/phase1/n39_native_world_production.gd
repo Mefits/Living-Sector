@@ -386,7 +386,10 @@ func post_funded_contract(tick: int, demand: Dictionary) -> Dictionary:
     if not (_world.get("markets") is Dictionary) or not _world["markets"].has(str(demand.get("source_location", ""))):
         return {"ok": false, "reason": "missing_source_market"}
     var source_market: Dictionary = _world["markets"][str(demand.get("source_location", ""))]
-    var available: float = float(source_market.get("supply", {}).get(str(demand.get("commodity", "")), 0.0))
+    if not (source_market.get("supply") is Dictionary):
+        return {"ok": false, "reason": "invalid_supplier_inventory"}
+    var source_stock: Dictionary = source_market["supply"]
+    var available: float = float(source_stock.get(str(demand.get("commodity", "")), 0.0))
     if not is_finite(available) or open_source + int(demand.get("quantity", 0)) > int(floor(available)):
         return {"ok": false, "reason": "source_stock_already_promised"}
     var previous_money: Dictionary = _ledger.snapshot()

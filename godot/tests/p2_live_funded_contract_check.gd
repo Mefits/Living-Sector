@@ -51,7 +51,6 @@ func _initialize() -> void:
     var old_total: int = _total(old_balances)
     var buyer_id: String = str(world["markets"][first]["owner"])
     var wallet: String = "facility/" + buyer_id
-    var buyer_credits_before: int = int(old_balances[wallet])
     var runner = Runtime.new()
     if not runner.start_from_seed(seed) or not runner.restore_checkpoint(checkpoint, seed):
         _fail("controlled native consumption fixture did not restore")
@@ -93,11 +92,17 @@ func _initialize() -> void:
     if int(next_balances[wallet]) != int(next_world["facilities"][buyer_id]["credits"]):
         _fail("buyer facility credits not mirrored from N9")
         return
-    if int(next_balances[wallet]) != buyer_credits_before - reserved:
-        _fail("buyer did not pay for N104 escrow")
+    # N151 may buy real food and other facilities can earn/pay in the same
+    # tick. Assert the EXACT N9 contract receipt, not a false assumption
+    # that the buyer's entire wallet was otherwise unchanged.
+    var receipt_key: String = "contract:" + contract_id + ":post"
+    var money_receipts: Dictionary = after["native_production"]["ledger"]["receipts"]
+    if not money_receipts.has(receipt_key):
+        _fail("N104 real funding receipt not committed")
         return
-    if next_world["markets"][first]["supply"] != world["markets"][first]["supply"]:
-        _fail("contract POST minted/destroyed physical commodity")
+    var credit_legs: Array = money_receipts[receipt_key]["legs"]
+    if credit_legs.size() != 2 or credit_legs[0] != {"account": wallet, "delta": -reserved} or credit_legs[1] != {"account": escrow, "delta": reserved}:
+        _fail("N9 contract receipt not a balanced buyer-to-escrow transfer")
         return
     var before_replay: Dictionary = runner.checkpoint()
     var proposal: Dictionary = runner.station_demand_snapshot()
@@ -134,8 +139,16 @@ func _initialize() -> void:
     if recovered.tick_count != 2 or not recovered.last_phase_failure().is_empty():
         _fail("canonical simulation did not continue after N104 restart")
         return
-    if recovered.funded_contracts_snapshot()["contracts"].size() != board["contracts"].size():
-        _fail("unmet demand double-charged after save/restart")
+    var continued: Dictionary = recovered.funded_contracts_snapshot()["contracts"]
+    if not continued.has(contract_id) or continued[contract_id]["reserved"] != reserved:
+        _fail("saved funded order disappeared or was recharged")
+        return
+    var after_restart: Dictionary = recovered.checkpoint()["native_production"]["ledger"]
+    if not after_restart["receipts"].has(receipt_key):
+        _fail("contract payment receipt lost after next tick")
+        return
+    if int(after_restart["balances"][escrow]) != reserved:
+        _fail("saved escrow was debited or double-funded")
         return
     var end_state: Dictionary = recovered.checkpoint()
     if _total(end_state["native_production"]["ledger"]["balances"]) != old_total:
