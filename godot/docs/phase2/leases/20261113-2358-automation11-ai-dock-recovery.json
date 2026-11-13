@@ -1,10 +1,13 @@
 {
   "worker": "automation11-recovery",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_msk": "2026-11-13T23:58:00+03:00",
   "scope": [
     "godot/scripts/sim/phase2/unified_ship_ai_execution.gd"
   ],
   "boundary": "N84 recover wrong dock and require exact market owner for paid pickup/delivery; no N39/ledger edits",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "released_msk": "2026-11-13T23:59:00+03:00",
+  "code_commit": "c9ee6f4a95fbbcf3e26d455a3901323287f84993",
+  "handoff": "godot/docs/phase2/handoffs/20261113-2359-automation11-ai-dock-recovery.md"
 }
