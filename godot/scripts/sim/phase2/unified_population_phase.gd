@@ -15,6 +15,8 @@ static func propose(source: Dictionary, tick: int,
     var pop_ids: Array = source["populations"].keys()
     pop_ids.sort()
     for pid in pop_ids:
+        if not (source["populations"][pid] is Dictionary):
+            return {"ok": false, "reason": "invalid_population_row"}
         var pop: Dictionary = source["populations"][pid]
         if str(pop.get("id", "")) != str(pid) or str(pid).is_empty():
             return {"ok": false, "reason": "population_identity_mismatch"}
@@ -29,7 +31,7 @@ static func propose(source: Dictionary, tick: int,
                 return {"ok": false, "reason": "missing_population_field:" + required}
         if not (pop["consumption"] is Dictionary):
             return {"ok": false, "reason": "invalid_population_consumption"}
-        if int(pop["count"]) < 0 or int(pop["wealth"]) < 0:
+        if not _valid_nonnegative_integer(pop["count"]) or not _valid_nonnegative_integer(pop["wealth"]):
             return {"ok": false, "reason": "negative_population_or_wealth"}
         var projected: Dictionary = pop.duplicate(true)
         projected["facility_location"] = str(pop["location"])
@@ -44,8 +46,10 @@ static func propose(source: Dictionary, tick: int,
     var facility_ids: Array = source["facilities"].keys()
     facility_ids.sort()
     for fid in facility_ids:
+        if not (source["facilities"][fid] is Dictionary):
+            return {"ok": false, "reason": "invalid_facility_row"}
         var facility: Dictionary = source["facilities"][fid]
-        if str(fid).is_empty() or not facility.has("credits") or int(facility["credits"]) < 0:
+        if str(fid).is_empty() or not facility.has("credits") or not _valid_nonnegative_integer(facility["credits"]):
             return {"ok": false, "reason": "invalid_market_seller_account"}
         facility_views[fid] = {
             "id": str(fid),
@@ -54,6 +58,8 @@ static func propose(source: Dictionary, tick: int,
     var market_locations: Array = source["markets"].keys()
     market_locations.sort()
     for location in market_locations:
+        if not (source["markets"][location] is Dictionary):
+            return {"ok": false, "reason": "invalid_market_row"}
         var market: Dictionary = source["markets"][location]
         for required in ["id", "owner", "supply", "prices", "consumption_window"]:
             if not market.has(required):
@@ -88,3 +94,11 @@ static func propose(source: Dictionary, tick: int,
     return {"ok": true, "tick": tick, "native_result": result,
         "purchase_count": result["purchases"].size(),
         "source": "N151 source population phase single-N9 ledger commit"}
+
+## JSON restore may supply integral floats; reject fractional, NaN, negative,
+## and values outside the exact JSON integer range before paid ledger admission.
+static func _valid_nonnegative_integer(value: Variant) -> bool:
+    if not (value is int or value is float):
+        return false
+    var number: float = float(value)
+    return is_finite(number) and number >= 0.0 and number <= 9007199254740991.0 and float(int(number)) == number
