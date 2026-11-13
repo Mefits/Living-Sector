@@ -4,6 +4,9 @@ extends RefCounted
 const Hybrid = preload("res://scripts/sim/phase1/n100_hybrid_planner.gd")
 const N155_DOMAIN := "res://scripts/sim/phase1/n155_native_domain.gd"
 const N99_BEAM := "res://scripts/sim/phase1/n99_control_beam.gd"
+const N155_HTN := "res://scripts/sim/phase1/n155_htn_methods.gd"
+const N155_GOAP := "res://scripts/sim/phase1/n155_telic_goap_shadow.gd"
+const N155_VALIDATOR := "res://scripts/sim/phase1/n155_planning_validation.gd"
 
 static func _fixture() -> Dictionary:
 	var snapshot: Dictionary = {
@@ -54,7 +57,7 @@ static func run_source_parity_fixtures() -> Dictionary:
 		< Hybrid.score(fast,[],{"cost_weight":4.0,"speed_weight":0.2,"caution_weight":0.5}))
 	assert(Hybrid.score(fast,[],{"cost_weight":0.2,"speed_weight":5.0,"caution_weight":0.5})
 		< Hybrid.score(cheap,[],{"cost_weight":0.2,"speed_weight":5.0,"caution_weight":0.5}))
-	if not ResourceLoader.exists(N155_DOMAIN) or not ResourceLoader.exists(N99_BEAM):
+	if not ResourceLoader.exists(N155_DOMAIN) or not ResourceLoader.exists(N99_BEAM) or not ResourceLoader.exists(N155_HTN) or not ResourceLoader.exists(N155_GOAP) or not ResourceLoader.exists(N155_VALIDATOR):
 		return {"status":"NOT_RUN_DEPENDENCIES_NOT_ASSEMBLED",
 			"reason":"N155 HTN/GOAP/domain/validator and N99 are separate Draft PRs"}
 	var f: Dictionary = _fixture()
@@ -92,6 +95,13 @@ static func run_source_parity_fixtures() -> Dictionary:
 		"location_id":"colony","stock":{"water":100.0}})
 	assert(not _ready(Hybrid.plan(ambiguous["snapshot"],ambiguous["goal"],
 		ambiguous["actions"],ambiguous["budget"])))
+	# NativeDomain's departure-slot count alone is insufficient when two
+	# jobs require the one large ship, even if another tiny ship is idle.
+	var distinct: Dictionary = _fixture()
+	distinct["snapshot"]["ships"].append({"ship_id":"tiny","class":"courier",
+		"location_id":"belt","in_transit":false,"free_cargo":1,"fuel":100.0})
+	assert(not bool(Hybrid._carrier_assignment(distinct["snapshot"],distinct["actions"],
+		[{"action_id":"deliver-ice"},{"action_id":"deliver-ice"}])["ok"]))
 	var tight: Dictionary = _fixture()
 	tight["budget"]["max_nodes"] = 15
 	var limited: Dictionary = Hybrid.decide(tight["snapshot"],tight["goal"],
@@ -101,9 +111,9 @@ static func run_source_parity_fixtures() -> Dictionary:
 	fake["steps"][0]["action_id"] = "magic-ice"
 	var domain_tool: Variant = load(N155_DOMAIN)
 	var validator_tool: Variant = load("res://scripts/sim/phase1/n155_planning_validation.gd")
-	var domain: Dictionary = domain_tool.domain_from_native(
-		f["snapshot"],f["goal"],f["actions"])
+	var domain: Dictionary = domain_tool.callv("domain_from_native",
+		[f["snapshot"],f["goal"],f["actions"]])
 	var replay: Dictionary = Hybrid._safe_candidate(domain,f["snapshot"],f["goal"],
 		f["actions"],fake,f["budget"],domain_tool,validator_tool)
 	assert(not bool(replay["ok"]))
-	return {"status":"PASSED","fixtures":10,"native_execution":"NEVER_INVOKED"}
+	return {"status":"PASSED","fixtures":11,"native_execution":"NEVER_INVOKED"}
