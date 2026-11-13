@@ -246,7 +246,11 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
         return false
     if not _normalize_native_snapshot(staged["native_production"]):
         return false
-    return super.restore_checkpoint(staged, seed)
+    if not super.restore_checkpoint(staged, seed):
+        return false
+    # Never show stale in-transit receipts from before a successful load.
+    _last_ship_result = {}
+    return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
     var integer_fields: Array[String] = ["version", "tick"]
