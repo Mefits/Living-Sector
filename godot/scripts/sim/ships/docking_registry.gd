@@ -20,17 +20,17 @@ func register_ship(id: String, location: String, in_transit: bool = false) -> bo
 	ships[id] = {"location": location, "in_transit": in_transit, "docked_at": ""}
 	return true
 
-func request_dock(ship_id: String, operation_id: String, preferred_type: String = "") -> Dictionary:
+func request_dock(ship_id: String, operation_id: String, preferred_type: String = "", preferred_facility_id: String = "") -> Dictionary:
 	if operation_id.is_empty():
 		return {"ok": false, "reason": "missing_operation_id"}
 	if receipts.has(operation_id):
 		return receipts[operation_id].duplicate(true)
-	var result := _dock_once(ship_id, preferred_type)
+	var result := _dock_once(ship_id, preferred_type, preferred_facility_id)
 	# Store both successes and failures: retry must use a fresh operation id.
 	receipts[operation_id] = result.duplicate(true)
 	return result
 
-func _dock_once(ship_id: String, preferred_type: String) -> Dictionary:
+func _dock_once(ship_id: String, preferred_type: String, preferred_facility_id: String = "") -> Dictionary:
 	if not ships.has(ship_id):
 		return {"ok": false, "reason": "unknown_ship"}
 	var ship: Dictionary = ships[ship_id]
@@ -40,6 +40,8 @@ func _dock_once(ship_id: String, preferred_type: String) -> Dictionary:
 		return {"ok": false, "reason": "already_docked"}
 	var candidates: Array[String] = []
 	for facility_id in facilities:
+		if not preferred_facility_id.is_empty() and str(facility_id) != preferred_facility_id:
+			continue
 		var f: Dictionary = facilities[facility_id]
 		if String(f["location"]) != String(ship["location"]):
 			continue
