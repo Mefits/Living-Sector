@@ -16,6 +16,7 @@ var _seed: Dictionary = {}
 var _selected_system: String = "system-sol"
 var _notice: String = ""
 var _startup_error: String = ""
+var _fatal_restore_error: String = ""
 var _pause_button: Button
 var _speed_menu: OptionButton
 var _map: Control
@@ -183,6 +184,7 @@ func _restore_startup_checkpoint() -> void:
     else:
         # Preserve the initialized seed world; the user may still load manually.
         _notice = "Автозагрузка P2 не удалась: " + str(result.get("error", "неизвестная ошибка"))
+        _check_restore_rollback(result)
 
 
 func _toggle_observer() -> void:
@@ -198,11 +200,11 @@ func _refresh_observer() -> void:
     _observer_panel.call("show_observation", _runner.tick_count, "genesis", {})
 
 func _process(delta: float) -> void:
-    if _runner:
+    if _runner and _fatal_restore_error.is_empty():
         _runner.advance_frame(delta)
 
 func _toggle_pause() -> void:
-    if not _runner:
+    if not _runner or not _fatal_restore_error.is_empty():
         return
     if _runner.clock.paused and not _runtime_failure().is_empty():
         _notice = "Симуляция остановлена из-за ошибки фазы; загрузите последнее корректное сохранение"
@@ -213,7 +215,7 @@ func _toggle_pause() -> void:
     _update_status()
 
 func _step(count: int) -> void:
-    if not _runner:
+    if not _runner or not _fatal_restore_error.is_empty():
         return
     if not _runtime_failure().is_empty():
         _notice = "Нельзя продолжать повреждённый тик; загрузите сохранение"
@@ -225,14 +227,14 @@ func _step(count: int) -> void:
     _update_status()
 
 func _change_speed(index: int) -> void:
-    if not _runner or index < 0 or index >= SPEEDS.size():
+    if not _runner or not _fatal_restore_error.is_empty() or index < 0 or index >= SPEEDS.size():
         return
     _runner.queue_control("speed", float(SPEEDS[index]))
     _runner.advance_frame(0.0)
     _update_status()
 
 func _save_game(save_path: String = "") -> void:
-    if not _runner:
+    if not _runner or not _fatal_restore_error.is_empty():
         return
     _runner.advance_frame(0.0)
     if not _runtime_failure().is_empty():
@@ -250,6 +252,7 @@ func _load_game(save_path: String = "") -> void:
     var target: String = P2_SAVE_PATH if save_path.is_empty() else save_path
     var result: Dictionary = SaveState.load_runner(_runner, _seed, target)
     if result.get("ok", false):
+        _fatal_restore_error = ""
         _model = _runner.world
         # A loaded checkpoint replaces the authoritative world and clock. Refresh
         # all read-only projections; never keep a stale seed-era map or speed UI.
@@ -262,7 +265,19 @@ func _load_game(save_path: String = "") -> void:
         _refresh_selection()
     else:
         _notice = str(result.get("error", "Не удалось загрузить"))
+        _check_restore_rollback(result)
     _update_status()
+
+# A failed restore that cannot roll back has left the single authoritative
+# world in an unknown state. No ticks, saves, or controls until a good load.
+func _check_restore_rollback(result: Dictionary) -> void:
+    var reason: String = str(result.get("error", ""))
+    if reason.contains("rollback failed"):
+        _fatal_restore_error = reason
+        _startup_error = reason
+        _runner.queue_control("pause")
+        _runner.advance_frame(0.0)
+        push_error("P2 checkpoint rollback failed: " + reason)
 
 func _sync_speed_control() -> void:
     if _speed_menu == null or _runner == null:
@@ -307,11 +322,13 @@ func _update_status() -> void:
         if _runner.tick_count % 5 == 0 and _runner.tick_count > 0:
             _status.text += " · Выпуск: %d · Добыча: %d" % [int(economic.get("last_recipe_facilities", 0)), int(economic.get("last_mining_facilities", 0))]
     var failure: Dictionary = _runtime_failure()
+    if not _fatal_restore_error.is_empty():
+        _status.text += "   |   КРИТИЧЕСКАЯ ОШИБКА ЗАГРУЗКИ: " + _fatal_restore_error
     if not failure.is_empty():
         _status.text += "   |   ОШИБКА ФАЗЫ %s / тик %d: %s" % [
             str(failure.get("phase", "?")), int(failure.get("tick", -1)),
             str(failure.get("reason", "unknown"))]
-    _pause_button.text = "Ошибка — загрузите" if not failure.is_empty() else ("Продолжить" if _runner.clock.paused else "Пауза")
+    _pause_button.text = "Ошибка — загрузите" if not failure.is_empty() or not _fatal_restore_error.is_empty() else ("Продолжить" if _runner.clock.paused else "Пауза")
 
 func _refresh_selection() -> void:
     if not _runner:
@@ -427,7 +444,7 @@ func startup_health() -> Dictionary:
     var has_ui: bool = _status != null and _details != null and _pause_button != null
     var seed_ok: bool = booted and _model != null and _model.seed_stats().get("systems", 0) == 8
     return {
-        "ok": booted and has_map and has_ui and seed_ok and _startup_error.is_empty(),
+        "ok": booted and has_map and has_ui and seed_ok and _startup_error.is_empty() and _fatal_restore_error.is_empty(),
         "error": _startup_error,
         "godot_version": Engine.get_version_info().get("string", "unknown"),
         "booted": booted,
@@ -436,5 +453,6 @@ func startup_health() -> Dictionary:
         "ui_ready": has_ui,
         "tick": _runner.tick_count if booted else -1,
         "runtime_failure": _runtime_failure(),
+        "fatal_restore_error": _fatal_restore_error,
         "implemented_phases": _runner.implemented_phases() if booted else PackedStringArray()
     }
