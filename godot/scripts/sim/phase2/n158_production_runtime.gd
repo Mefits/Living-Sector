@@ -179,13 +179,64 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 return false
         _last_ship_result["n84_trace"] = planned.get("trace", []).duplicate(true)
         _last_ship_result["n146_command_count"] = planned.get("commands", []).size()
+        _last_ship_result["n97_paid_moves"] = []
+        _last_ship_result["n21_auto_dock"] = []
         for command in planned.get("commands", []):
-            if str(command.get("kind", "")) == "BeginTransit":
+            var kind: String = str(command.get("kind", ""))
+            var ship_id: String = str(command.get("ship", ""))
+            if kind == "BeginTransit":
                 _last_ship_result["autonomous_departures"].append({
-                    "ship_id": str(command.get("ship", "")),
-                    "from": str(command.get("from", "")),
-                    "to": str(command.get("to", "")),
-                    "tick": tick})
+                    "ship_id": ship_id, "from": str(command.get("from", "")),
+                    "to": str(command.get("to", "")), "tick": tick})
+                continue
+            if kind in ["RequestDock", "ReleaseDock"]:
+                var snapshot: Dictionary = production.world_snapshot()
+                var cid: String = str(command.get("contract_id", ""))
+                var contract: Dictionary = snapshot.get("contract_board", {}).get("contracts", {}).get(cid, {})
+                var ship: Dictionary = snapshot.get("ships", {}).get(ship_id, {})
+                var expected_loc: String = str(contract.get("source_location", "")) if str(contract.get("status", "")) == "accepted" else str(contract.get("destination_location", ""))
+                if contract.is_empty() or str(ship.get("active_contract_id", "")) != cid or expected_loc.is_empty() or str(command.get("facility_location", "")) != expected_loc:
+                    _last_ship_result = {"ok": false, "reason": "n146_dock_contract_mismatch"}
+                    return false
+                var operation: String = "dock" if kind == "RequestDock" else "undock"
+                var stage: String = "source" if str(contract.get("status", "")) == "accepted" else "destination"
+                var operation_id: String = "contract:" + cid + ":" + operation + ":" + stage
+                var dock_proposal: Dictionary = FleetLogistics.command(
+                    snapshot, operation, ship_id, operation_id, tick)
+                if not dock_proposal.get("ok", false):
+                    _last_ship_result["autonomous_blocked"].append({
+                        "ship_id": ship_id, "contract_id": cid,
+                        "reason": "n21_" + str(dock_proposal.get("reason", "dock_not_available"))})
+                    continue
+                if not production.apply_fleet_logistics(tick, dock_proposal, true):
+                    _last_ship_result = {"ok": false,
+                        "reason": "n21_single_world_dock_apply_rejected"}
+                    return false
+                _last_ship_result["n21_auto_dock"].append({
+                    "ship_id": ship_id, "contract_id": cid,
+                    "operation": operation, "location": expected_loc})
+                continue
+            if kind == "RequestShipTransaction":
+                var cid: String = str(command.get("contract_id", ""))
+                var operation: String = str(command.get("operation", ""))
+                if operation not in ["pickup", "delivery"]:
+                    _last_ship_result = {"ok": false, "reason": "n146_unknown_contract_transaction"}
+                    return false
+                var receipt: Dictionary = production.apply_autonomous_contract_cargo(
+                    tick, ship_id, cid, operation)
+                if receipt.get("ok", false):
+                    _last_ship_result["n97_paid_moves"].append(receipt.duplicate(true))
+                elif receipt.get("fatal", false):
+                    _last_ship_result = {"ok": false,
+                        "reason": str(receipt.get("reason", "n97_canonical_commit_failed"))}
+                    return false
+                else:
+                    _last_ship_result["autonomous_blocked"].append({
+                        "ship_id": ship_id, "contract_id": cid,
+                        "reason": "n97_" + str(receipt.get("reason", "payment_or_stock_unavailable"))})
+                continue
+            _last_ship_result = {"ok": false, "reason": "n146_unsupported_fleet_command"}
+            return false
         for record in planned.get("trace", []):
             if str(record.get("reason", "")).begins_with("awaiting_native_paid_"):
                 _last_ship_result["autonomous_blocked"].append({
@@ -427,6 +478,8 @@ func economy_summary() -> Dictionary:
         "n84_active_traces": _last_ship_result.get("n84_trace", []).size(),
         "n146_accept_commands": int(_last_n153_result.get("n146_accept_commands", 0)),
         "n146_ship_commands": int(_last_ship_result.get("n146_command_count", 0)),
+        "n97_paid_deliveries_this_tick": _last_ship_result.get("n97_paid_moves", []).size(),
+        "n21_autonomous_dock_ops": _last_ship_result.get("n21_auto_dock", []).size(),
         "n153_first_blocker": n153_first_blocker,
         "contract_admissions_blocked": _last_contract_admissions.get("blocked", []).size(),
         "population_phase_ok": _last_population_result.get("ok", null),
