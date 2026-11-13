@@ -1,0 +1,10 @@
+{
+  "owner": "second-chat-overnight",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T06:39:31+03:00",
+  "scope": [
+    "godot/scripts/main.gd"
+  ],
+  "purpose": "Restore visible orbital map, selection and speed controls after loading P2 checkpoint; no ledger or runner changes",
+  "handoff": "Will release after code commit"
+}
