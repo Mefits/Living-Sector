@@ -32,7 +32,8 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
         return
     var lines: Array[String] = ["ЖИВАЯ ЭКОНОМИКА · ТИК %d" % tick]
     lines.append("АВТОНОМИЯ: производство / потребление / рынок — исполняются по тикам")
-    lines.append("АВТОНОМИЯ КОРАБЛЕЙ: N153/N135 приказы ещё НЕ подключены к общему Apply")
+    lines.append("АВТОНОМИЯ N135/N104: оплаченные заявки публикуются в едином N39 World")
+    lines.append("АВТОНОМИЯ ФЛОТА: N153/N14 исполнение заявок ещё НЕ подключено")
     lines.append("Игрок: режим наблюдения; индивидуальные команды скрыты до отдельного режима")
     lines.append("Станции: %d · рынки: %d · группы населения: %d" % [
         economy["facilities"].size(), economy["markets"].size(), economy["populations"].size()])
@@ -44,6 +45,35 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
         "успешно" if summary.get("market_phase_ok", null) == true else "ещё не исполнялся / отказ"])
     lines.append("N156 оплаченных ремонтов: %d · N130 покупок Fuel/Tools: %d" % [
         int(summary.get("last_paid_repairs", 0)), int(summary.get("last_service_restock", 0))])
+    # The Board and escrow are ONLY the N39 World fields; no UI model owns
+    # a duplicate contract, order queue or wallet.
+    var board: Dictionary = economy.get("contract_board", {})
+    var contracts: Dictionary = board.get("contracts", {})
+    var escrow_balances: Dictionary = economy.get("escrow_balances", {})
+    var paid_orders: int = 0
+    var reserved_credits: int = 0
+    for order_id in contracts:
+        var contract: Dictionary = contracts[order_id]
+        if str(contract.get("status", "")) in ["posted", "accepted", "picked_up", "delivered"]:
+            paid_orders += 1
+        reserved_credits += int(escrow_balances.get(str(contract.get("escrow_account", "")), 0))
+    lines.append("КОНТРАКТЫ N135/N104 · всего %d · активных %d · в escrow %d CR" % [
+        contracts.size(), paid_orders, reserved_credits])
+    lines.append("За этот тик оплачено: %d · отказов: %d" % [
+        int(summary.get("funded_contracts_this_tick", 0)),
+        int(summary.get("contract_admissions_blocked", 0))])
+    var order_ids: Array = contracts.keys()
+    order_ids.sort()
+    for order_index in range(mini(3, order_ids.size())):
+        var id: String = str(order_ids[order_index])
+        var c: Dictionary = contracts[id]
+        lines.append("  %s · %s %s · %s → %s · %s" % [
+            str(c.get("status", "?")), str(c.get("quantity", 0)),
+            str(c.get("commodity", "?")), str(c.get("source_location", "?")),
+            str(c.get("destination_location", "?")),
+            "ОЖИДАЕТ ИИ" if str(c.get("status", "")) == "posted" else "контракт в обработке"])
+    if order_ids.size() > 3:
+        lines.append("  … и ещё %d контрактов" % (order_ids.size() - 3))
     lines.append("СТАНЦИИ / КРЕДИТЫ / СОСТОЯНИЕ:")
     var facilities: Dictionary = economy["facilities"]
     var facility_ids: Array = facilities.keys()
