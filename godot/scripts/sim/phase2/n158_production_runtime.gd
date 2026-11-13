@@ -4,6 +4,7 @@ extends "res://scripts/sim/phase1/n39_native_production_tick_runner.gd"
 ## -> versioned P1 save with N39 native snapshot. No second N23 production.
 const GalaxySeedAdapter = preload("res://scripts/sim/phase2/n158_galaxy_production_seed.gd")
 const MarketPhase = preload("res://scripts/sim/phase2/unified_market_phase.gd")
+const StationDemand = preload("res://scripts/sim/phase2/unified_station_demand_phase.gd")
 const PopulationPhase = preload("res://scripts/sim/phase2/unified_population_phase.gd")
 const ShipPhase = preload("res://scripts/sim/phase2/unified_ship_phase.gd")
 const FleetLogistics = preload("res://scripts/sim/phase2/unified_fleet_logistics.gd")
@@ -13,6 +14,7 @@ const NativeLocations = preload("res://scripts/sim/ships/native_location_resolve
 var _boot_error: String = ""
 var _source_stats: Dictionary = {}
 var _last_market_result: Dictionary = {}
+var _last_station_demand: Dictionary = {}
 var _last_population_result: Dictionary = {}
 var _last_ship_result: Dictionary = {}
 var _fleet_roster: RefCounted
@@ -22,6 +24,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _boot_error = ""
     _source_stats = {}
     _last_market_result = {}
+    _last_station_demand = {}
     _last_population_result = {}
     _last_ship_result = {}
     _fleet_roster = null
@@ -109,7 +112,11 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         return false
     _last_market_result = {"ok": true, "tick": tick,
         "market_count": int(proposal["market_count"])}
-    return true
+    # N135: observe real N151 consumption and current physical stock AFTER
+    # N150 market commit. No contract is posted until the sole escrow Apply
+    # exists; this is a visible, non-mutating autonomous demand candidate.
+    _last_station_demand = StationDemand.propose(production.world_snapshot(), tick)
+    return bool(_last_station_demand.get("ok", false))
 
 ## Propagate the actual rejected proposal/commit reason to the sole
 ## authoritative tick runner. A failed paid tick remains frozen.
@@ -120,12 +127,15 @@ func _integrated_phase_failure_reason(phase: String) -> String:
     elif phase == "ships":
         result = _last_ship_result
     elif phase == "markets":
-        result = _last_market_result
+        result = _last_station_demand if not _last_station_demand.get("ok", true) else _last_market_result
     var detail: String = str(result.get("reason", "integrated_phase_rejected"))
     return detail if not detail.is_empty() else "integrated_phase_rejected"
 
 func last_market_result() -> Dictionary:
     return _last_market_result.duplicate(true)
+
+func station_demand_snapshot() -> Dictionary:
+    return _last_station_demand.duplicate(true)
 
 func last_population_result() -> Dictionary:
     return _last_population_result.duplicate(true)
@@ -260,6 +270,9 @@ func economy_summary() -> Dictionary:
         "last_result_ok": results.get("ok", true),
         "market_phase_ok": _last_market_result.get("ok", null),
         "market_phase_tick": _last_market_result.get("tick", -1),
+        "station_demand_candidates": _last_station_demand.get("proposals", []).size(),
+        "station_demand_blocked": _last_station_demand.get("blocked", []).size(),
+        "station_demand_status": str(_last_station_demand.get("status", "NOT_EVALUATED")),
         "population_phase_ok": _last_population_result.get("ok", null),
         "population_purchases": _last_population_result.get("purchases", 0)
     }
@@ -279,6 +292,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
         return false
     # Never show stale in-transit receipts from before a successful load.
     _last_ship_result = {}
+    _last_station_demand = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
