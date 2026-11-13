@@ -37,22 +37,25 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     var rate: float = float(spec.get("fuel_consumption_base", 0.0))
     if speed <= 0.0 or rate <= 0.0 or float(ship.get("fuel", 0.0)) <= 0.0:
         return {"ok": false, "reason": "invalid_fuel_or_class"}
-    # N14 advances one physical edge per tick. Only check actual first leg
-    # here; future long-route energy policy must be validated before pickup.
-    var legs: Array = inbound["locations"]
-    if legs.size() > 1:
-        var first: String = str(legs[1])
-        if not positions.has(first):
-            return {"ok": false, "reason": "missing_first_hop_position"}
-        var a: Vector2 = positions[here]
-        var b: Vector2 = positions[first]
-        var distance: float = a.distance_to(b)
-        var velocity: float = Transit.BASE_VELOCITY * speed * tick_scale
-        if velocity <= 0.0 or not is_finite(distance) or distance <= 0.0:
-            return {"ok": false, "reason": "invalid_flight_geometry"}
-        var required_ticks: int = maxi(1, ceili(distance / velocity))
-        if float(ship["fuel"]) + 0.0001 < float(required_ticks) * rate * tick_scale:
-            return {"ok": false, "reason": "insufficient_native_first_leg_fuel"}
+    # N14 advances one physical directed edge per tick. Check the COMPLETE
+    # source+destination trip from real moving world positions before an AI
+    # accepts an obligation; otherwise we could strand a ship with cargo.
+    var flight_cost: float = 0.0
+    for path in [inbound["locations"], outbound["locations"]]:
+        for i in range(1, path.size()):
+            var from_id: String = str(path[i - 1])
+            var to_id: String = str(path[i])
+            if not positions.has(from_id) or not positions.has(to_id):
+                return {"ok": false, "reason": "missing_leg_world_position"}
+            var a: Vector2 = positions[from_id]
+            var b: Vector2 = positions[to_id]
+            var distance: float = a.distance_to(b)
+            var velocity: float = Transit.BASE_VELOCITY * speed * tick_scale
+            if velocity <= 0.0 or not is_finite(distance) or distance <= 0.0:
+                return {"ok": false, "reason": "invalid_flight_geometry"}
+            flight_cost += float(maxi(1, ceili(distance / velocity))) * rate * tick_scale
+    if float(ship["fuel"]) + 0.0001 < flight_cost:
+        return {"ok": false, "reason": "insufficient_native_full_route_fuel"}
     return {"ok": true, "path_to_source": inbound["locations"],
         "source_to_destination": outbound["locations"]}
 
@@ -123,6 +126,10 @@ static func propose(world: Dictionary, graph: RefCounted,
             # Source-market quote is genuinely available ONLY to ships at
             # that market. No fabricated omniscient price_knowledge in AI.
             var observations: Dictionary = {}
+            # N80 persists a ship's genuinely observed market knowledge.
+            # We never silently copy every world market into every ship.
+            if ship.get("price_knowledge") is Dictionary:
+                observations = ship["price_knowledge"].duplicate(true)
             if here == source:
                 observations[source] = {}
                 observations[source][good] = {"price": float(source_price)}
