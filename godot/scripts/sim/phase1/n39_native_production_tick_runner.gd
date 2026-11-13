@@ -101,6 +101,10 @@ func _advance_one_tick() -> void:
     tick_completed.emit(tick_count)
 
 func checkpoint() -> Dictionary:
+    # A rejected phase may have partially committed. Never persist it as a
+    # healthy resumable save; keep the previous valid on-disk checkpoint.
+    if not _phase_failure.is_empty():
+        return {}
     var saved: Dictionary = super.checkpoint()
     if saved.is_empty():
         return saved
