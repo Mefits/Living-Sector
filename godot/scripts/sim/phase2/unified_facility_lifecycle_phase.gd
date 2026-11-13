@@ -52,18 +52,29 @@ static func propose(world: Dictionary, tick: int, tick_scale: float,
         facilities, ships, satisfaction, tick, tick_scale, multiplier)
     if not stage.get("ok", false):
         return stage
+    # Frozen order: decay, (no paid repairs without owned Tools), abandonment.
+    # The authoritative N39 world has no station-owned Tools inventory yet;
+    # never debit public market supply as if it belonged to the facility.
+    var after_stage: Dictionary = NativeLifecycle.after_real_paid_repairs_and_abandonment(
+        stage["facilities_before_abandonment"], {}, tick, multiplier)
+    if not after_stage.get("ok", false):
+        return after_stage
     var changes: Dictionary = {}
-    for row in stage["facilities_before_abandonment"]:
+    for row in after_stage["facilities"]:
         var id: String = str(row["id"])
         var original: Dictionary = world["facilities"][id]
         var after: float = float(row["operations"]["condition"])
-        if after != float(original.get("condition", 1.0)):
-            changes[id] = {"condition": after}
+        var life: Dictionary = row["lifecycle"]
+        if after != float(original.get("condition", 1.0)) or bool(life["abandoned"]) != bool(original.get("abandoned", false)) or int(life["abandon_counter"]) != int(original.get("abandon_counter", 0)):
+            changes[id] = {"condition": after,
+                "abandoned": bool(life["abandoned"]),
+                "abandon_counter": int(life["abandon_counter"])}
     return {
         "ok": true, "tick": tick, "changes": changes,
         "repair_candidates": stage["repair_candidates"],
+        "events": after_stage["events"],
         "due": stage["due"],
         "source": "N156 frozen facility lifecycle; staged only",
         "commit_required": true,
-        "limitations": "No authoritative facility condition Apply yet; no repair or abandonment committed"
+        "limitations": "Paid Tools repairs and ship dock queues remain deferred"
     }
