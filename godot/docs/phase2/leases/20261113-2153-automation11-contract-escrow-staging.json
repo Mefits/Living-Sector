@@ -1,0 +1,11 @@
+{
+  "owner": "automation11-2153",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T21:53:00+03:00",
+  "expires_at": "2026-11-13T22:35:00+03:00",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_contract_escrow_staging.gd"
+  ],
+  "boundary": "Stage validated N135 delivery into sole N9 ledger and N104 ContractBoard snapshots; no canonical runner edits or automatic posting until single Apply"
+}
