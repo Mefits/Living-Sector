@@ -5,6 +5,7 @@ extends RefCounted
 const Inventory = preload("res://scripts/sim/economy/inventory_store.gd")
 const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
 const ShipState = preload("res://scripts/sim/ship_state.gd")
+const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 
 static func validate(state: Dictionary) -> String:
     for key in ["facilities", "markets", "populations", "bodies"]:
@@ -34,6 +35,9 @@ static func validate(state: Dictionary) -> String:
             var ship: Dictionary = ship_value
             if str(ship.get("id", "")) != str(ship_id):
                 return "invalid_ship_identity"
+            if ship.has("current_bt") and ship["current_bt"] != null:
+                if not (ship["current_bt"] is Dictionary) or not NativeBt.validate(ship["current_bt"]):
+                    return "invalid_persisted_native_bt"
             var cid: String = str(ship.get("active_contract_id", ""))
             if not cid.is_empty():
                 if not state.has("contract_board") or not (state["contract_board"].get("contracts") is Dictionary):

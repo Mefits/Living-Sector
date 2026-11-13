@@ -9,6 +9,7 @@ const Inventory = preload("res://scripts/sim/economy/inventory_store.gd")
 const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
 const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
 const ContractBoard = preload("res://scripts/sim/economy/contract_board.gd")
+const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
@@ -476,6 +477,8 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
         return {"ok": false, "reason": "offer_no_longer_posted"}
     if not str(ship.get("active_contract_id", "")).is_empty() or not (ship.get("transit", {}) as Dictionary).is_empty():
         return {"ok": false, "reason": "ship_not_idle"}
+    if not (proposal.get("ai_bt") is Dictionary) or not NativeBt.validate(proposal["ai_bt"]):
+        return {"ok": false, "reason": "n84_unplanned_ship_assignment"}
     if not str(ship.get("docked_at", "")).is_empty() or str(ship.get("location", "")).is_empty():
         return {"ok": false, "reason": "ship_not_free"}
     if not (ship.get("cargo") is Dictionary) or not ship["cargo"].is_empty():
@@ -555,6 +558,9 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
     staged["ships"][sid]["active_contract_id"] = cid
     staged["ships"][sid]["current_goal"] = "fulfill_delivery"
     staged["ships"][sid]["last_plan_tick"] = tick
+    staged["ships"][sid]["current_bt"] = proposal["ai_bt"].duplicate(true)
+    staged["ships"][sid]["current_goal_score"] = float(proposal.get("n80_score", 0.0))
+    staged["ships"][sid]["planning_source"] = str(proposal.get("personality_source", ""))
     # Only the source N104 Comms payout top-up moves credits here; never
     # any physical goods. N9 + N104 + facility balance still match.
     var err: String = Schema.validate(staged)

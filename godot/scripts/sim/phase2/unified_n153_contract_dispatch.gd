@@ -4,6 +4,7 @@ extends RefCounted
 ## This adapter only supplies verifiable N104/N150/N9/route observations.
 ## NO fake treaties, ship sensors, market knowledge, fuel or contract success.
 const N153 = preload("res://scripts/sim/phase1/n153_native_ship_contract_selection.gd")
+const NativePipeline = preload("res://scripts/sim/phase2/unified_ship_ai_planner.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const Transit = preload("res://scripts/sim/ship_transit.gd")
@@ -189,11 +190,25 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "tick": tick}
             var choice: Dictionary = N153.select_contract(context)
             if str(choice.get("id", "")) == str(contract_id):
+                var origin_owner: bool = ship_faction == seller_faction
+                var candidate_plan: Dictionary = NativePipeline.propose(ship, {
+                    "contract_id": str(contract_id),
+                    "source": source, "destination": dest,
+                    "commodity": good, "quantity": qty,
+                    "profit": int(choice["profit"]),
+                    "ownership_priority": 1.25 if origin_owner else 1.0
+                }, graph)
+                if not candidate_plan.get("ok", false):
+                    continue
                 var row: Dictionary = {"contract_id": str(contract_id), "ship_id": str(ship_id),
                     "profit": int(choice["profit"]), "source": source,
                     "destination": dest, "path_to_source": readiness["path_to_source"],
                     "path_to_destination": readiness["source_to_destination"],
-                    "source_purchase_cost": source_purchase}
+                    "source_purchase_cost": source_purchase,
+                    "ai_bt": candidate_plan["ai_bt"],
+                    "n80_score": candidate_plan["n80_score"],
+                    "n81_cost": candidate_plan["n81_cost"],
+                    "personality_source": candidate_plan["personality_source"]}
                 if winner.is_empty() or int(row["profit"]) > int(winner["profit"]):
                     winner = row
         if winner.is_empty():
