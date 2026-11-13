@@ -165,6 +165,20 @@ func request_ship_departure(ship_id: String, destination: String) -> Dictionary:
         "tick": tick_count, "next_token": int(proposed["next_token"])}
 
 
+## Advertise only phases currently wired to this one real TickRunner.
+## Older checkpoints intentionally lack the N46 fleet, not refilled silently.
+func implemented_phases() -> PackedStringArray:
+    if not _native_enabled:
+        return super.implemented_phases()
+    var phases: PackedStringArray = PackedStringArray(["bodies"])
+    if production.world_snapshot().has("ships"):
+        phases.append("ships")
+    phases.append("facilities")
+    phases.append("populations")
+    phases.append("markets")
+    return phases
+
+
 func boot_error() -> String:
     return _boot_error
 
@@ -243,6 +257,29 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
     var w: Dictionary = saved["world"]
     if not (w.get("facilities") is Dictionary) or not (w.get("markets") is Dictionary) or not (w.get("populations") is Dictionary):
         return false
+    # First N46 fleet is authoritative in THIS N39 snapshot. Old files
+    # without a fleet remain valid without inventing tanks/ship credits.
+    if w.has("ships"):
+        if not (w["ships"] is Dictionary) or w["ships"].is_empty():
+            return false
+        if not _normalize_row(w, ["ship_next_token"]):
+            return false
+        for id in w["ships"]:
+            if not (w["ships"][id] is Dictionary):
+                return false
+            var ship: Dictionary = w["ships"][id]
+            if not _normalize_row(ship, ["credits", "cargo_capacity", "crew_size"]):
+                return false
+            if not (ship.get("cargo") is Dictionary) or not (ship.get("transit") is Dictionary):
+                return false
+            for commodity in ship["cargo"]:
+                if not _normalize_number_at(ship["cargo"], commodity):
+                    return false
+            if not ship["transit"].is_empty():
+                var transit: Dictionary = ship["transit"]
+                for number in ["token", "departure_tick", "last_tick", "arrival_tick"]:
+                    if not _normalize_number_at(transit, number):
+                        return false
     for id in w["facilities"]:
         if not (w["facilities"][id] is Dictionary):
             return false
