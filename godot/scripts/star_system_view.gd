@@ -1,7 +1,9 @@
 extends Control
 ## Read-only 2D view of one original Galaxy 0.6.7 system.
 ## Orbit radii are compressed for readability; native orbital angles are live.
-## Station markers show native facility anchors. Ship movement is NOT simulated.
+## Station markers use native facility anchors. Fleet markers show ACTUAL
+## ship locations from the same World; in-flight positions are not painted
+## onto the visually compressed orbit map as if they were exact.
 
 signal body_selected(body: Dictionary)
 
@@ -10,6 +12,7 @@ const MAX_ZOOM: float = 5.0
 const BACKGROUND: Color = Color("#0b1421")
 
 var _world: Dictionary = {}
+var _live_fleet: Dictionary = {}
 var _selected_body_id: String = ""
 var _zoom: float = 1.0
 var _pan: Vector2 = Vector2.ZERO
@@ -27,6 +30,11 @@ func set_world(world: Dictionary) -> void:
     _world = world.duplicate(true)
     _selected_body_id = ""
     reset_view()
+
+
+func set_live_fleet(fleet: Dictionary) -> void:
+    _live_fleet = fleet.duplicate(true)
+    queue_redraw()
 
 
 func update_world(world: Dictionary) -> void:
@@ -127,14 +135,15 @@ func _facility_count(body_id: String) -> int:
     return result
 
 
-func _seed_ship_count(body_id: String) -> int:
+func _live_ship_count(body_id: String) -> int:
     var locations: Dictionary = {}
     for facility in _world.get("facilities", []):
         if str(facility.get("body", "")) == body_id:
             locations[str(facility.get("location", ""))] = true
     var total: int = 0
-    for ship in _world.get("ships", []):
-        if locations.has(str(ship.get("location", ""))):
+    for ship_id in _live_fleet:
+        var ship: Dictionary = _live_fleet[ship_id]
+        if locations.has(str(ship.get("location", ""))) and ship.get("transit", {}).is_empty():
             total += 1
     return total
 
@@ -185,9 +194,10 @@ func _draw() -> void:
             # anchor; it does NOT imply that ship traffic is already active.
             draw_rect(Rect2(position + Vector2(visual_radius + 3.0, 4.0),
                 Vector2(5.0, 5.0)), Color("#e5c98b"), true)
-        var initial_ships: int = _seed_ship_count(bid)
-        if initial_ships > 0:
-            # Static source ship roster only. No fake trajectories or motion.
+        var local_ships: int = _live_ship_count(bid)
+        if local_ships > 0:
+            # The marker represents real ships AT this location; active
+            # transits are in the live observer, not fake diagram pixels.
             var ship_marker: PackedVector2Array = PackedVector2Array([
                 position + Vector2(-visual_radius - 13.0, -3.0),
                 position + Vector2(-visual_radius - 7.0, 0.0),
@@ -195,7 +205,7 @@ func _draw() -> void:
             ])
             draw_colored_polygon(ship_marker, Color("#7abacb"))
             draw_string(font, position + Vector2(-visual_radius - 25.0, 16.0),
-                str(initial_ships), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("#7abacb"))
+                str(local_ships), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("#7abacb"))
         var label_offset: Vector2 = Vector2(visual_radius + 8.0, -8.0)
         draw_string(font, position + label_offset, str(body.get("name", bid)),
             HORIZONTAL_ALIGNMENT_LEFT, -1, 13,
