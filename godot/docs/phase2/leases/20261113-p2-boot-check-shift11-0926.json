@@ -1,10 +1,13 @@
 {
   "owner": "overnight-scheduler-shift11",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "scope": [
     "godot/scripts/main.gd"
   ],
   "purpose": "Add opt-in exported-scene boot/tick/save/load check without separate world or CI trigger",
   "claimed_at": "2026-11-13T09:26:41+01:00",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "commit": "06aba2c984ca80b8c218ca5e0df3bfdf49a00e0f",
+  "validation": "Static source only; Godot unavailable locally; no Actions started",
+  "handoff": "Run Godot 4.7.2 --headless --path godot -- --p2-boot-check to exercise actual main scene, two paid ticks and SaveState roundtrip. No Windows ZIP confirmed."
 }
