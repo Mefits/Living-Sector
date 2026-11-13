@@ -15,19 +15,19 @@ static func _canonical(value: Variant) -> String:
         keys.sort()
         var parts: PackedStringArray = PackedStringArray()
         for key in keys:
-            parts.append(JSON.stringify(str(key)) + ":" + _canonical(value[key]))
+            parts.append(JSON.stringify(str(key), "", true, true) + ":" + _canonical(value[key]))
         return "{" + ",".join(parts) + "}"
     if value is Array:
         var parts: PackedStringArray = PackedStringArray()
         for item in value:
             parts.append(_canonical(item))
         return "[" + ",".join(parts) + "]"
-    return JSON.stringify(value)
+    return JSON.stringify(value, "", true, true)
 
 static func _wrap(snapshot: Dictionary) -> Dictionary:
     # Hash the JSON-normalized payload, not GDScript integer/float variants:
     # JSON parsing may turn 7 into 7.0, and the digest must survive reload.
-    var normalized: Variant = JSON.parse_string(JSON.stringify(snapshot))
+    var normalized: Variant = JSON.parse_string(JSON.stringify(snapshot, "", true, true))
     return {
         "envelope_format": ENVELOPE_FORMAT,
         "envelope_version": ENVELOPE_VERSION,
@@ -86,7 +86,7 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
 
     var tmp: String = absolute_path + ".pending"
     var backup: String = absolute_path + ".bak"
-    var encoded: String = JSON.stringify(_wrap(snapshot), "\t") + "\n"
+    var encoded: String = JSON.stringify(_wrap(snapshot), "\t", true, true) + "\n"
     if encoded.to_utf8_buffer().size() > MAX_SAVE_BYTES:
         return ERR_OUT_OF_MEMORY
     var file := FileAccess.open(tmp, FileAccess.WRITE)
