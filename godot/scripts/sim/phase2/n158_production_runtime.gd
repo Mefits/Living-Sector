@@ -6,6 +6,7 @@ const GalaxySeedAdapter = preload("res://scripts/sim/phase2/n158_galaxy_producti
 const MarketPhase = preload("res://scripts/sim/phase2/unified_market_phase.gd")
 const PopulationPhase = preload("res://scripts/sim/phase2/unified_population_phase.gd")
 const ShipPhase = preload("res://scripts/sim/phase2/unified_ship_phase.gd")
+const FleetLogistics = preload("res://scripts/sim/phase2/unified_fleet_logistics.gd")
 const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 const NativeLocations = preload("res://scripts/sim/ships/native_location_resolver.gd")
 
@@ -165,6 +166,34 @@ func request_ship_departure(ship_id: String, destination: String) -> Dictionary:
         "tick": tick_count, "next_token": int(proposed["next_token"])}
 
 
+
+## N21 dock/undock and N15 local Market warehouse load/unload. All manual
+## actions create one atomic N39 World transition with durable op receipts.
+## These are physical transfers, not market purchases or paid contracts.
+func request_ship_dock(ship_id: String, operation_id: String) -> Dictionary:
+    return _command_fleet_logistics("dock", ship_id, operation_id)
+
+func request_ship_undock(ship_id: String, operation_id: String) -> Dictionary:
+    return _command_fleet_logistics("undock", ship_id, operation_id)
+
+func request_ship_cargo(ship_id: String, operation_id: String,
+        direction: String, quantities: Dictionary) -> Dictionary:
+    if direction not in ["load", "unload"]:
+        return {"ok": false, "reason": "invalid_cargo_direction"}
+    return _command_fleet_logistics(direction, ship_id, operation_id, quantities)
+
+func _command_fleet_logistics(action: String, ship_id: String,
+        operation_id: String, quantities: Dictionary = {}) -> Dictionary:
+    if not _native_enabled or not last_phase_failure().is_empty():
+        return {"ok": false, "reason": "single_world_unavailable"}
+    var proposal: Dictionary = FleetLogistics.command(production.world_snapshot(),
+        action, ship_id, operation_id, tick_count, quantities)
+    if not proposal.get("ok", false):
+        return proposal
+    if not production.apply_fleet_logistics(tick_count, proposal):
+        return {"ok": false, "reason": "canonical_fleet_logistics_commit_rejected"}
+    return proposal["receipt"].duplicate(true)
+
 ## Advertise only phases currently wired to this one real TickRunner.
 ## Older checkpoints intentionally lack the N46 fleet, not refilled silently.
 func implemented_phases() -> PackedStringArray:
@@ -284,11 +313,26 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                 for number in ["token", "departure_tick", "last_tick", "arrival_tick"]:
                     if not _normalize_number_at(transit, number):
                         return false
+    for receipts_key in ["dock_receipts", "cargo_receipts"]:
+        if w.has(receipts_key):
+            if not (w[receipts_key] is Dictionary):
+                return false
+            for op in w[receipts_key]:
+                if not (w[receipts_key][op] is Dictionary) or not _normalize_row(w[receipts_key][op], ["tick"]):
+                    return false
+                if receipts_key == "cargo_receipts":
+                    if not (w[receipts_key][op].get("quantities") is Dictionary):
+                        return false
+                    for item in w[receipts_key][op]["quantities"]:
+                        if not _normalize_number_at(w[receipts_key][op]["quantities"], item):
+                            return false
     for id in w["facilities"]:
         if not (w["facilities"][id] is Dictionary):
             return false
         var f: Dictionary = w["facilities"][id]
         if not _normalize_row(f, ["credits", "crew_count", "level", "xp"]):
+            return false
+        if f.has("docking_capacity") and not _normalize_row(f, ["docking_capacity"]):
             return false
         for key in ["lod_next_tick", "lod_divisor", "fitting_batches_bonus", "assigned_workers", "abandon_counter"]:
             if f.has(key) and not _normalize_row(f, [key]):

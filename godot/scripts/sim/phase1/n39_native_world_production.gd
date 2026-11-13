@@ -194,7 +194,7 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
     var previous: Dictionary = _world["ships"]
     var frozen_fields: Array[String] = ["id", "name", "class",
         "faction_id", "size", "cargo_capacity", "fuel_capacity",
-        "crew_size", "crew_roles", "cargo", "credits"]
+        "crew_size", "crew_roles", "cargo", "credits", "docked_at"]
     for ship_id in previous:
         if not new_ships.has(ship_id) or not (new_ships[ship_id] is Dictionary):
             return false
@@ -217,6 +217,134 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
     _world = staged
     return true
 
+
+
+## N21+N15 one-World dock/cargo command commit. N15 is physical inventory
+## transfer only; trade/escrow/payment belongs to a later contract phase.
+## No separate wallet, source stock, arrival process or hidden dock occupancy.
+func apply_fleet_logistics(tick: int, proposal: Dictionary) -> bool:
+    if not _ready or tick != _last_tick or not bool(proposal.get("ok", false)):
+        return false
+    if not (proposal.get("world") is Dictionary) or not (proposal.get("receipt") is Dictionary):
+        return false
+    var staged: Dictionary = proposal["world"]
+    var r: Dictionary = proposal["receipt"]
+    var action: String = str(r.get("action", ""))
+    var ship_id: String = str(r.get("ship_id", ""))
+    var dock_id: String = str(r.get("facility_id", ""))
+    var op_id: String = str(r.get("operation_id", ""))
+    if not (action in ["dock", "undock", "load", "unload"]) or op_id.is_empty() or ship_id.is_empty():
+        return false
+    if int(r.get("tick", -1)) != tick or not _world["ships"].has(ship_id):
+        return false
+    if not (staged.get("ships") is Dictionary) or not (staged.get("markets") is Dictionary):
+        return false
+    if staged["ships"].size() != _world["ships"].size() or staged["markets"].size() != _world["markets"].size():
+        return false
+    # The proposal is not allowed to modify any other authoritative domain.
+    for key in _world:
+        if key not in ["ships", "markets", "dock_receipts", "cargo_receipts"]:
+            if not staged.has(key) or staged[key] != _world[key]:
+                return false
+    if staged.size() != _world.size():
+        return false
+    var receipt_key: String = "cargo_receipts" if action in ["load", "unload"] else "dock_receipts"
+    var other_key: String = "dock_receipts" if receipt_key == "cargo_receipts" else "cargo_receipts"
+    if not (staged.get(receipt_key) is Dictionary) or not (staged.get(other_key) is Dictionary):
+        return false
+    if not (_world.get(receipt_key) is Dictionary) or not (_world.get(other_key) is Dictionary):
+        return false
+    if _world[receipt_key].has(op_id) or _world[other_key].has(op_id):
+        return false
+    if staged[other_key] != _world[other_key] or staged[receipt_key].size() != _world[receipt_key].size() + 1:
+        return false
+    if staged[receipt_key].get(op_id, null) != r:
+        return false
+    for old_op in _world[receipt_key]:
+        if staged[receipt_key].get(old_op, null) != _world[receipt_key][old_op]:
+            return false
+    var before_ship: Dictionary = _world["ships"][ship_id]
+    var after_ship: Dictionary = staged["ships"].get(ship_id, {})
+    var variable_fields: Array[String] = ["cargo", "docked_at"]
+    for sid in _world["ships"]:
+        if not (staged["ships"].get(sid) is Dictionary):
+            return false
+        var before: Dictionary = _world["ships"][sid]
+        var after: Dictionary = staged["ships"][sid]
+        for field in before:
+            if field not in variable_fields or str(sid) != ship_id:
+                if after.get(field, null) != before[field]:
+                    return false
+        for field in after:
+            if not before.has(field) and field != "docked_at":
+                return false
+    for location in _world["markets"]:
+        if not (staged["markets"].get(location) is Dictionary):
+            return false
+        var old_market: Dictionary = _world["markets"][location]
+        var new_market: Dictionary = staged["markets"][location]
+        for field in old_market:
+            if field != "supply" or action in ["dock", "undock"] or location != r.get("location_id", ""):
+                if new_market.get(field, null) != old_market[field]:
+                    return false
+        if new_market.size() != old_market.size():
+            return false
+    if action in ["dock", "undock"]:
+        if after_ship.get("cargo", {}) != before_ship.get("cargo", {}):
+            return false
+        if not _world["facilities"].has(dock_id):
+            return false
+        if str(_world["facilities"][dock_id].get("type", "")) != "station":
+            return false
+        if str(before_ship.get("location", "")) != str(_world["facilities"][dock_id]["location"]):
+            return false
+        if action == "dock" and (not str(before_ship.get("docked_at", "")).is_empty() or str(after_ship.get("docked_at", "")) != dock_id):
+            return false
+        if action == "undock" and (str(before_ship.get("docked_at", "")) != dock_id or not str(after_ship.get("docked_at", "")).is_empty()):
+            return false
+    else:
+        if str(before_ship.get("docked_at", "")) != dock_id or str(after_ship.get("docked_at", "")) != dock_id:
+            return false
+        var location: String = str(r.get("location_id", ""))
+        if not _world["markets"].has(location) or str(_world["markets"][location].get("owner", "")) != dock_id:
+            return false
+        if not (r.get("quantities") is Dictionary) or r["quantities"].is_empty():
+            return false
+        var old_stock: Dictionary = _world["markets"][location]["supply"]
+        var new_stock: Dictionary = staged["markets"][location]["supply"]
+        var old_hold: Dictionary = before_ship["cargo"]
+        var new_hold: Dictionary = after_ship["cargo"]
+        var delta: float = 1.0 if action == "load" else -1.0
+        var commodities: Dictionary = {}
+        for commodity in old_stock:
+            commodities[commodity] = true
+        for commodity in new_stock:
+            commodities[commodity] = true
+        for commodity in old_hold:
+            commodities[commodity] = true
+        for commodity in new_hold:
+            commodities[commodity] = true
+        for commodity in r["quantities"]:
+            commodities[commodity] = true
+        for commodity in commodities:
+            var quantity: Variant = r["quantities"].get(commodity, 0)
+            if typeof(quantity) != TYPE_INT or int(quantity) < 0:
+                return false
+            var expected: float = delta * float(quantity)
+            if not is_equal_approx(float(new_hold.get(commodity, 0)) - float(old_hold.get(commodity, 0)), expected):
+                return false
+            if not is_equal_approx(float(new_stock.get(commodity, 0)) - float(old_stock.get(commodity, 0)), -expected):
+                return false
+    # Staged schema validates source docks, occupancy/capacity, stock and
+    # cargo limits. Existing N9 ledger must still match EVERY account.
+    if Schema.validate(staged) != "":
+        return false
+    var balances: Dictionary = Schema.accounts(staged)
+    for account in balances:
+        if _ledger.balance(str(account)) != int(balances[account]):
+            return false
+    _world = staged.duplicate(true)
+    return true
 
 ## P2 single-market commit boundary: N150 may change price, demand,
 ## flow/history/orders but NEVER physical stock, source owner or accounts.
