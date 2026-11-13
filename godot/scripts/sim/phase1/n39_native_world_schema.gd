@@ -20,6 +20,10 @@ static func validate(state: Dictionary) -> String:
             return "invalid_fleet"
         if typeof(state.get("ship_next_token", null)) != TYPE_INT or int(state["ship_next_token"]) < 1:
             return "invalid_ship_transit_nonce"
+        for receipts_key in ["dock_receipts", "cargo_receipts"]:
+            if state.has(receipts_key) and not (state[receipts_key] is Dictionary):
+                return "invalid_fleet_receipts"
+        var dock_occupancy: Dictionary = {}
         var fleet = ShipState.new()
         var rows: Array = []
         var max_token: int = 0
@@ -37,6 +41,18 @@ static func validate(state: Dictionary) -> String:
                 return "invalid_ship_transit"
             if trans.is_empty() and str(ship.get("location", "")).is_empty():
                 return "invalid_ship_location"
+            var dock_id: String = str(ship.get("docked_at", ""))
+            if not dock_id.is_empty():
+                if not trans.is_empty() or not state["facilities"].has(dock_id):
+                    return "invalid_ship_docked_at"
+                var dock_fac: Dictionary = state["facilities"][dock_id]
+                if str(ship["location"]) != str(dock_fac.get("location", "")):
+                    return "invalid_ship_dock_location"
+                if typeof(dock_fac.get("docking_capacity", null)) != TYPE_INT:
+                    return "missing_dock_capacity"
+                dock_occupancy[dock_id] = int(dock_occupancy.get(dock_id, 0)) + 1
+                if int(dock_occupancy[dock_id]) > int(dock_fac["docking_capacity"]):
+                    return "dock_capacity_exceeded"
             if not trans.is_empty():
                 for key in ["last_tick", "departure_tick", "arrival_tick", "token"]:
                     if typeof(trans.get(key, null)) != TYPE_INT:
@@ -49,6 +65,16 @@ static func validate(state: Dictionary) -> String:
             return "invalid_ship_state"
     elif state.has("ship_next_token"):
         return "orphaned_ship_transit_nonce"
+    for receipt_key in ["dock_receipts", "cargo_receipts"]:
+        for op in state.get(receipt_key, {}):
+            var receipt: Variant = state[receipt_key][op]
+            if not _id(op) or not (receipt is Dictionary) or str(receipt.get("operation_id", "")) != str(op):
+                return "invalid_fleet_receipt_identity"
+            if typeof(receipt.get("tick", null)) != TYPE_INT or int(receipt["tick"]) < 0:
+                return "invalid_fleet_receipt_tick"
+    for op in state.get("dock_receipts", {}):
+        if state.get("cargo_receipts", {}).has(op):
+            return "duplicate_fleet_receipt"
     if state.has("research") and not (state["research"] is Dictionary):
         return "invalid_research"
     if state.has("location_tiers") and not (state["location_tiers"] is Dictionary):
@@ -62,6 +88,8 @@ static func validate(state: Dictionary) -> String:
         for key in ["type", "faction", "location", "body_id"]:
             if not _id(fac.get(key, null)):
                 return "invalid_facility_" + key
+        if fac.has("docking_capacity") and (typeof(fac["docking_capacity"]) != TYPE_INT or int(fac["docking_capacity"]) < 0):
+            return "invalid_facility_docking_capacity"
         for key in ["crew_count", "level", "xp", "credits"]:
             if typeof(fac.get(key, null)) != TYPE_INT or int(fac[key]) < 0:
                 return "invalid_facility_" + key

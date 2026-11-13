@@ -27,7 +27,7 @@ static func from_seed(seed: Dictionary) -> Dictionary:
     var projected: Dictionary = {
         "facilities": {}, "markets": {}, "populations": {}, "bodies": {},
         "research": {}, "location_tiers": {}, "ships": {},
-        "ship_next_token": 1,
+        "ship_next_token": 1, "dock_receipts": {}, "cargo_receipts": {},
         "station_executing": false
     }
     var all_facilities: Dictionary = {}
@@ -125,6 +125,8 @@ static func from_seed(seed: Dictionary) -> Dictionary:
             skipped.append(id)
             continue
         var kind: String = str(fac["type"])
+        if not _whole_json_int(fac.get("docking_capacity", null)):
+            return _fail("missing_native_docking_capacity")
         projected["facilities"][id] = {
             "type": kind,
             "faction": str(fac["faction_id"]),
@@ -132,6 +134,7 @@ static func from_seed(seed: Dictionary) -> Dictionary:
             "body_id": str(fac["body"]),
             "credits": int(fac["credits"]),
             "crew_count": int(NATIVE_CREW_BY_TYPE.get(kind, 6)),
+            "docking_capacity": int(fac.get("docking_capacity", 0)),
             "morale": INITIAL_MORALE,
             "level": 1, "xp": 0, "abandoned": false,
             # Preserve only the ORIGINAL frozen seed's private service
@@ -196,6 +199,8 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         var row: Dictionary = ship.duplicate(true)
         row["credits"] = int(new_fleet["credit_sources"][id])
         row["name"] = str(fleet_roster.metadata(id).get("name", id))
+        # N21 frozen seeder: initial docked_at is NULL for ALL ships.
+        row["docked_at"] = ""
         projected["ships"][id] = row
     var failure: String = Schema.validate(projected)
     if not failure.is_empty():

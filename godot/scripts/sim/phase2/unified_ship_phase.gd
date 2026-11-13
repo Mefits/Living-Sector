@@ -81,6 +81,10 @@ static func depart(world: Dictionary, graph: RefCounted,
         return opened
     var state: RefCounted = opened["fleet"]
     var motion: RefCounted = opened["transit"]
+    # N21: transit cannot release an occupied docking slot implicitly.
+    # Issue a real undock command first; no phantom dock or cargo launch.
+    if not state.ships.has(ship_id) or not str(state.ships[ship_id].get("docked_at", "")).is_empty():
+        return {"ok": false, "reason": "ship_must_undock_first"}
     if not motion.depart(state, graph, ship_id, destination,
             positions, tick, tick_scale):
         return {"ok": false, "reason": "native_departure_rejected"}
