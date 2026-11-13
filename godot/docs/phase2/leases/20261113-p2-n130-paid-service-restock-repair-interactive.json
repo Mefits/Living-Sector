@@ -9,7 +9,8 @@
     "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd",
     "godot/tests/p2_n130_service_repair_check.gd",
     "godot/scripts/sim/phase2/unified_service_restock_phase.gd",
-    "godot/scripts/observer_panel.gd"
+    "godot/scripts/observer_panel.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd"
   ],
   "purpose": "One canonical physical facility-owned Fuel/Tools restock from live N39 markets with one N9 ledger; paid N156 repair before N130 restock, native order; no second clock/world; real save/load",
   "started_at": "2026-11-13",
