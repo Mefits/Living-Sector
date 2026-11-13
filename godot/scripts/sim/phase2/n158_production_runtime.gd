@@ -3,13 +3,16 @@ extends "res://scripts/sim/phase1/n39_native_production_tick_runner.gd"
 ## one real seed -> N39 physical supply/payroll -> P1 clock/events/orbits
 ## -> versioned P1 save with N39 native snapshot. No second N23 production.
 const Projection = preload("res://scripts/sim/phase2/n158_galaxy_production_seed.gd")
+const MarketPhase = preload("res://scripts/sim/phase2/unified_market_phase.gd")
 
 var _boot_error: String = ""
 var _source_stats: Dictionary = {}
+var _last_market_result: Dictionary = {}
 
 func start_from_seed(seed: Dictionary) -> bool:
     _boot_error = ""
     _source_stats = {}
+    _last_market_result = {}
     var projected: Dictionary = Projection.from_seed(seed)
     if not projected.get("ok", false):
         _boot_error = str(projected.get("reason", "source_projection_failed"))
@@ -28,6 +31,26 @@ func start_from_seed(seed: Dictionary) -> bool:
 func _advance_one_tick() -> void:
     _tick_multiplier = maxi(1, clock.tick_multiplier())
     super._advance_one_tick()
+
+## The original N150 market phase runs AFTER paid facilities, in the
+## SAME N39 world and one clock. N131 reprice produces NO stock or cash.
+func _execute_integrated_phase(phase: String, tick: int) -> bool:
+    if phase != "markets":
+        return true
+    var proposal: Dictionary = MarketPhase.propose(
+        production.world_snapshot(), tick, _tick_multiplier)
+    if not proposal.get("ok", false):
+        _last_market_result = proposal
+        return false
+    if not production.apply_market_phase(tick, proposal["updates"]):
+        _last_market_result = {"ok": false, "reason": "market_world_commit_rejected"}
+        return false
+    _last_market_result = {"ok": true, "tick": tick,
+        "market_count": int(proposal["market_count"])}
+    return true
+
+func last_market_result() -> Dictionary:
+    return _last_market_result.duplicate(true)
 
 func boot_error() -> String:
     return _boot_error
@@ -63,7 +86,9 @@ func economy_summary() -> Dictionary:
         "last_recipe_facilities": recipes,
         "last_mining_facilities": mined,
         "last_failures": results.get("failures", {}).duplicate(true),
-        "last_result_ok": results.get("ok", true)
+        "last_result_ok": results.get("ok", true),
+        "market_phase_ok": _last_market_result.get("ok", null),
+        "market_phase_tick": _last_market_result.get("tick", -1)
     }
 
 ## Godot JSON may parse integer-shaped fields as float. Normalize only
@@ -105,6 +130,23 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             for rid in shift.get("last_recipe_ticks", {}):
                 if not _normalize_number_at(shift["last_recipe_ticks"], rid):
                     return false
+    for location in w.get("markets", {}):
+        var market: Dictionary = w["markets"][location]
+        if not (market.get("orders") is Dictionary) or not (market.get("history") is Dictionary):
+            return false
+        if not _normalize_row(market["orders"], ["order_expiry_ticks"]):
+            return false
+        var hist: Dictionary = market["history"]
+        if not _normalize_row(hist, ["last_tick"]):
+            return false
+        if hist.get("spawned_at_tick") != null and not _normalize_number_at(hist, "spawned_at_tick"):
+            return false
+        for commodity in hist.get("shortage_ticks", {}):
+            if not _normalize_number_at(hist["shortage_ticks"], commodity):
+                return false
+        for trend in hist.get("trend_samples", []):
+            if not (trend is Dictionary) or not _normalize_row(trend, ["tick"]):
+                return false
     for id in w.get("populations", {}):
         if not _normalize_row(w["populations"][id], ["count", "wealth"]):
             return false
