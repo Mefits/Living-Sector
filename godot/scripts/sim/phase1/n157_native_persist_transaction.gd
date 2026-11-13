@@ -85,8 +85,7 @@ static func _apply(db: Dictionary, write: Dictionary) -> String:
                 "location": str(data["location"]), "supply": {},
                 "prices": {}, "demand": {}, "shortage_ticks": {}
             }
-        "ship", "market", "faction", "facility", "facility_orbit",
-        "population", "body":
+        "ship", "market", "faction", "facility", "facility_orbit", "population", "body":
             var target: String = _table_for(kind)
             var key: String = str(write["id"]) if kind == "faction" else id
             if db[target].has(key):
