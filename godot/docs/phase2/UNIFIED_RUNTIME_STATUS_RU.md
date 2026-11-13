@@ -167,3 +167,9 @@
 - Commit [`ba9ce357`](https://github.com/Mefits/Living-Sector/commit/ba9ce357ec8e827072348c665813851a016ba41d): ручной `.github/workflows/p2-windows-release.yml` теперь выполняет ограниченный по времени `p2_unified_script_compile_check.gd` для всех перенесённых GDScript после editor import, до paid-world smoke и Windows export. Ошибки parser сохраняются в `all-scripts.log`, сборка не публикует ZIP при ошибке. Ранее проверялась только N158 paid-world вертикаль.
 - Lease `20261113-windows-export-parse-gate-0950-second-chat.json` RELEASED. Проверен workflow source и наличие тестового скрипта; Godot не запускался, **CODE_UNVERIFIED**. Новых Actions **0**, бюджет не расходован. Windows ZIP пока не подтверждён.
 - Следующий приоритет: одна согласованная ограниченная проверка Godot/import/parser/paid-world и Windows export. При FAIL исправить пакет ошибок по сохранённым логам до повторного запуска. Не выдавать исходники за Windows build.
+
+## P2 handoff — 13.11 10:21 МСК, синхронизация старта и загрузки GUI
+
+- Commit [`46c36362`](https://github.com/Mefits/Living-Sector/commit/46c36362792d4c7097aee84a9d28eabc550948d5): `main.gd` синхронизирует отображаемую скорость с единственным `clock.world_speed` при новом запуске без сохранения; после загрузки checkpoint проверяет наличие ранее выбранной системы в восстановленном World и выбирает первую доступную, если прежний ID исчез. Нет второго состояния мира/скорости.
+- Lease `20261113-p2-ui-boot-speed-automation11-1021.json` RELEASED. Проверка по исходному коду, Godot/Windows не запускались: **CODE_UNVERIFIED**. Дополнительных GitHub Actions: **0**. Windows ZIP не подтверждён.
+- Следующая работа: согласованный ограниченный Godot import/parser/paid-world smoke, исправление реальных ошибок и финальный Windows export; перед CI сверить leases и общий бюджет.
