@@ -1,6 +1,6 @@
 {
   "owner": "interactive-chat-autonomy-N153",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "started_at": "2026-11-13T22:45:00+03:00",
   "expires_at": "2026-11-13T23:55:00+03:00",
@@ -12,5 +12,8 @@
     "godot/scripts/sim/phase2/n158_production_runtime.gd",
     "godot/tests/p2_n153_live_contract_dispatch_check.gd"
   ],
-  "boundary": "Use source N153 select_contract against real N104 posted offers; single N39+N9 funded accept with physical fleet assignment; actual N14 native directed dispatch; no invented market cargo/settlement/second board; fail closed if missing route, fuel, cargo or profitable quote."
+  "boundary": "Use source N153 select_contract against real N104 posted offers; single N39+N9 funded accept with physical fleet assignment; actual N14 native directed dispatch; no invented market cargo/settlement/second board; fail closed if missing route, fuel, cargo or profitable quote.",
+  "released_at": "2026-11-13T23:28:00+03:00",
+  "handoff": "godot/docs/phase2/handoffs/20261113-2328-interactive-n153-autonomy-acceptance.md",
+  "verification": "CODE_INTEGRATED_STATIC_PASS; GODOT_NOT_EXECUTED"
 }
