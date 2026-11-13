@@ -56,7 +56,7 @@ static func from_seed(seed: Dictionary) -> Dictionary:
     }
     for faction in factions:
         projected["research"][faction] = []
-    var all_facilities: Dictionary = {
+    var all_facilities: Dictionary = {}
     var source_markets: Array = []
     var source_populations: Array = []
     for solar_system in seed["worlds"]:
