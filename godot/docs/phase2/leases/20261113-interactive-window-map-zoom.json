@@ -1,0 +1,13 @@
+{
+  "owner": "interactive-chat-ui-window-zoom",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "c86e3e103280d68a84a2f471bee2389434559cb0",
+  "scope": [
+    "godot/project.godot",
+    "godot/scripts/system_map.gd",
+    "godot/scripts/star_system_view.gd"
+  ],
+  "intent": "Small start window and limited zoom; maximize standalone play window, restore useful deep zoom in sector and orbital views; no economy/AI changes, one smoke gate",
+  "verification": "static checks then one Godot validation if available"
+}
