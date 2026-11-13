@@ -4,7 +4,10 @@
     ".github/workflows/p2-windows-release.yml"
   ],
   "purpose": "Gate Windows export on all-script GDScript parse and report import failure; no CI dispatch",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T09:50:21+03:00",
-  "base_head": "8a43ceebdec5a4fad0a76f3aa44335ebd34f0fdf"
+  "base_head": "8a43ceebdec5a4fad0a76f3aa44335ebd34f0fdf",
+  "completed_at": "2026-11-13T09:50:21+03:00",
+  "commit": "ba9ce357ec8e827072348c665813851a016ba41d",
+  "validation": "workflow YAML source checked, no Godot execution; no Actions dispatched"
 }
