@@ -690,8 +690,27 @@ func post_authorized_native_construction(tick: int, staged_native: Dictionary) -
     var dest_owner: Dictionary = _world["facilities"][str(dest_market["owner"])]
     if str(dest_owner.get("faction", "")) != faction:
         return {"ok": false, "reason": "construction_not_a_faction_station"}
+    if source == destination:
+        return {"ok": false, "reason": "native_construction_requires_remote_sourcing"}
     if float(source_market["supply"].get(commodity, 0.0)) < float(quantity):
         return {"ok": false, "reason": "construction_unavailable_physical_source"}
+    var real_seller: Dictionary = _world["facilities"][str(source_market.get("owner", ""))] if _world["facilities"].has(str(source_market.get("owner", ""))) else {}
+    if real_seller.is_empty():
+        return {"ok": false, "reason": "construction_real_seller_missing"}
+    var source_price: float = float(source_market.get("prices", {}).get(commodity, -1.0))
+    var seller_faction: String = str(real_seller.get("faction", ""))
+    if not is_finite(source_price) or source_price <= 0.0:
+        return {"ok": false, "reason": "construction_source_price_unavailable"}
+    # Only frozen Neutral commerce is currently authoritative; do not
+    # silently open pirate-to-regular trade before native N150 diplomacy.
+    if seller_faction != faction and (faction == "pirates" or seller_faction == "pirates"):
+        return {"ok": false, "reason": "construction_outlaw_commerce_unintegrated"}
+    var quote: Dictionary = MarketRules.posture({}, faction, seller_faction, 0)
+    if not quote.get("ok", false):
+        return {"ok": false, "reason": "construction_source_n97_posture_invalid"}
+    var cost_float: float = ceil(float(quantity) * source_price * float(quote["multiplier"]))
+    if not is_finite(cost_float) or cost_float <= 0.0 or cost_float >= 10000.0:
+        return {"ok": false, "reason": "construction_source_not_profitable"}
     # No two open construction material orders at the same physical site.
     for old_cid in _world["construction_contracts"]:
         if str(_world["construction_contracts"][old_cid]) != id:
