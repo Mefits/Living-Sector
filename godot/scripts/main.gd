@@ -30,6 +30,8 @@ var _details: RichTextLabel
 var _status: Label
 var _observer_panel: PanelContainer
 var _observer_button: Button
+var _ship_choice: OptionButton
+var _ship_destination: LineEdit
 
 func _ready() -> void:
     var background := ColorRect.new()
@@ -101,6 +103,27 @@ func _ready() -> void:
     _open_button.text = "Открыть систему"
     _open_button.pressed.connect(_open_selected_system)
     toolbar.add_child(_open_button)
+
+    # Explicit N14 command surface: the one N158 runner validates the native
+    # directed route and commits the ship state to its canonical N39 World.
+    # No demo fleet, no separate clock, and no local cargo/credit mutation.
+    var ship_orders := HBoxContainer.new()
+    ship_orders.add_theme_constant_override("separation", 8)
+    root.add_child(ship_orders)
+    var ship_caption := Label.new()
+    ship_caption.text = "Корабль / рейс N14:"
+    ship_orders.add_child(ship_caption)
+    _ship_choice = OptionButton.new()
+    _ship_choice.custom_minimum_size = Vector2(250, 0)
+    ship_orders.add_child(_ship_choice)
+    _ship_destination = LineEdit.new()
+    _ship_destination.placeholder_text = "ID назначения (например alpha-station)"
+    _ship_destination.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    ship_orders.add_child(_ship_destination)
+    var depart_button := Button.new()
+    depart_button.text = "Отправить"
+    depart_button.pressed.connect(_depart_selected_ship)
+    ship_orders.add_child(depart_button)
 
     var columns := HBoxContainer.new()
     columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -177,6 +200,7 @@ func _ready() -> void:
     # Synchronize it even on a fresh seed boot (without a saved checkpoint).
     _sync_speed_control()
     _model = _runner.world
+    _populate_ship_choices()
     _runner.tick_completed.connect(_on_tick_completed)
     var stats: Dictionary = _model.seed_stats()
     _status.text = "Исходный Galaxy: %d систем · %d фракции · %d тел · %d объектов · %d корабля" % [
@@ -311,6 +335,55 @@ func _checkpoint_recovery_suffix(result: Dictionary) -> String:
     return ""
 
 
+func _populate_ship_choices() -> void:
+    if _ship_choice == null or _runner == null:
+        return
+    var previous: String = ""
+    if _ship_choice.selected >= 0:
+        previous = str(_ship_choice.get_item_metadata(_ship_choice.selected))
+    _ship_choice.clear()
+    var ships: Dictionary = _runner.fleet_snapshot()
+    var ids: Array = ships.keys()
+    ids.sort()
+    var restored_index: int = -1
+    for id in ids:
+        var ship: Dictionary = ships[id]
+        var label_text: String = "%s · %s · %s" % [
+            str(ship.get("name", id)), str(ship.get("class", "?")),
+            str(ship.get("location", "в полёте"))]
+        var index: int = _ship_choice.item_count
+        _ship_choice.add_item(label_text)
+        _ship_choice.set_item_metadata(index, str(id))
+        if str(id) == previous:
+            restored_index = index
+    if _ship_choice.item_count > 0:
+        _ship_choice.select(restored_index if restored_index >= 0 else 0)
+
+
+func _depart_selected_ship() -> void:
+    if _runner == null or not _fatal_restore_error.is_empty() or not _runtime_failure().is_empty():
+        return
+    if _ship_choice == null or _ship_choice.selected < 0:
+        _notice = "Нет кораблей в текущем сохранении"
+        _update_status()
+        return
+    var ship_id: String = str(_ship_choice.get_item_metadata(_ship_choice.selected))
+    var destination: String = _ship_destination.text.strip_edges()
+    if destination.is_empty():
+        _notice = "Укажите точный ID назначения из локальных маршрутов"
+        _update_status()
+        return
+    var outcome: Dictionary = _runner.request_ship_departure(ship_id, destination)
+    if outcome.get("ok", false):
+        _notice = "N14: %s отправлен к %s" % [ship_id, destination]
+        _populate_ship_choices()
+        _refresh_observer()
+        _refresh_selection()
+    else:
+        _notice = "Рейс отклонён: " + str(outcome.get("reason", "unknown"))
+    _update_status()
+
+
 func _toggle_observer() -> void:
     _observer_panel.visible = not _observer_panel.visible
     _observer_button.text = "Скрыть наблюдение" if _observer_panel.visible else "Наблюдение"
@@ -392,6 +465,7 @@ func _load_game(save_path: String = "") -> void:
         if not selected.is_empty():
             _map.call("select_system", _selected_system)
         _sync_speed_control()
+        _populate_ship_choices()
         _refresh_observer()
         _notice = "Загружено сохранение: орбиты и производство P2, тик " + str(result.get("tick", "—")) + _checkpoint_recovery_suffix(result)
         if not selected.is_empty():
@@ -430,6 +504,7 @@ func _sync_speed_control() -> void:
 
 
 func _on_tick_completed(tick: int) -> void:
+    _populate_ship_choices()
     _refresh_observer()
     # Orbit positions are read from the SAME live World after each real tick.
     if _in_system and _system_view != null and _model != null:
