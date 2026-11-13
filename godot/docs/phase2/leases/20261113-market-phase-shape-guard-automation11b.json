@@ -1,0 +1,11 @@
+{
+  "owner": "overnight-scheduler",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_market_phase.gd"
+  ],
+  "purpose": "Guard malformed authoritative market and N150 proposal shapes fail-closed without runtime invalid dictionary access",
+  "status": "IN_PROGRESS",
+  "claimed_at": "2026-11-13T07:28:45+03:00",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "ci_runs": 0
+}
