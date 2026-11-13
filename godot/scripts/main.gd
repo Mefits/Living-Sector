@@ -148,6 +148,9 @@ func _ready() -> void:
     # Resume the one authoritative N158 World/ledger before building map/UI projections.
     # A failed or incompatible checkpoint must never prevent a clean seed boot.
     _restore_startup_checkpoint()
+    # The default OptionButton index is not the clock's authoritative speed.
+    # Synchronize it even on a fresh seed boot (without a saved checkpoint).
+    _sync_speed_control()
     _model = _runner.world
     _runner.tick_completed.connect(_on_tick_completed)
     var stats: Dictionary = _model.seed_stats()
@@ -164,6 +167,9 @@ func _ready() -> void:
         initial = worlds[0]
     if not initial.is_empty():
         _select_world(initial)
+    else:
+        _selected_system = ""
+        _details.text = "В сохранённом мире нет доступных звёздных систем"
     print("GODOT_P2_PAID_PRODUCTION_BOOT ", JSON.stringify(_runner.production_stats()))
     _update_status()
 
@@ -267,11 +273,21 @@ func _load_game(save_path: String = "") -> void:
         _model = _runner.world
         # A loaded checkpoint replaces the authoritative world and clock. Refresh
         # all read-only projections; never keep a stale seed-era map or speed UI.
-        _map.call("set_worlds", _model.worlds())
-        _map.call("select_system", _selected_system)
+        var restored_worlds: Array = _model.worlds()
+        _map.call("set_worlds", restored_worlds)
+        var selected: Dictionary = _model.system_by_id(_selected_system)
+        if selected.is_empty() and not restored_worlds.is_empty():
+            selected = restored_worlds[0]
+            _selected_system = str((selected.get("system", {}) as Dictionary).get("id", ""))
+        if not selected.is_empty():
+            _map.call("select_system", _selected_system)
         _sync_speed_control()
         _refresh_observer()
         _notice = "Загружено сохранение: орбиты и производство P2, тик " + str(result.get("tick", "—")) + _checkpoint_recovery_suffix(result)
+        if not selected.is_empty():
+            _select_world(selected)
+        else:
+            _details.text = "В загруженном мире нет доступных звёздных систем"
         _refresh_selection()
     else:
         _notice = str(result.get("error", "Не удалось загрузить"))
