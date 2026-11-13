@@ -57,3 +57,9 @@
 - Commit `7d79fb4c`: устранено расхождение путей Save/Load в `main.gd`: оба используют `P2_SAVE_PATH`, вместо загрузки чужого P1 `SaveState.DEFAULT_PATH`. При восстановлении `.bak` UI явно сообщает о резервной копии. Это реальное исправление доступности сохранённой экономики после перезапуска.
 - Проверка: сверены методы `SaveState.save_runner/load_runner` и строки вызовов; Godot не запускался, статус **CODE_UNVERIFIED**. Actions не запускали, бюджет CI не расходовали.
 - Lease `20261113-p2-save-load-ui-shift11b.json` освобождён. Общая сборка Windows и проверка повторного запуска по-прежнему требуются.
+
+## P2 handoff — Windows export packaging, 13.11 05:32 МСК
+
+- Commits `5f730e47`, `eb7957b4`: added `godot/export_presets.cfg` Windows Desktop x86_64 and `godot/scripts/phase2_package_windows.sh`. The script uses the actual Godot export templates, requires both nonempty EXE and PCK, packages README and verifies ZIP integrity; no fabricated binaries.
+- No GitHub Actions triggered; no Godot binary/export templates available in this execution. **Windows ZIP is not yet built or downloadable**. Source remains CODE_UNVERIFIED.
+- Next: fix cancelled CI import timeout with one bounded checkpoint run if necessary, install matching export templates and run packaging; verify actual boot, paid ticks, save/load before distributing. Lease `20261113-windows-export-preparation-second-chat-overnight.json` released.
