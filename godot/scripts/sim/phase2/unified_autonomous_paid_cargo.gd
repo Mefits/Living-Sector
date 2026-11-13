@@ -51,7 +51,9 @@ static func propose(original: Dictionary, bank: Dictionary,
             return {"ok": false, "reason": "missing_original_paid_pickup"}
         if str(pickup.get("action", "")) != "load" or str(pickup.get("location_id", "")) != str(c["source_location"]):
             return {"ok": false, "reason": "original_pickup_receipt_wrong_source"}
-        if pickup.get("quantities", {}) != {good: count} or str(c.get("picked_up_receipt", "")) != pickup_id:
+        var expected_pickup: Dictionary = {}
+        expected_pickup[good] = count
+        if pickup.get("quantities", {}) != expected_pickup or str(c.get("picked_up_receipt", "")) != pickup_id:
             return {"ok": false, "reason": "original_pickup_receipt_wrong_quantity"}
     var ledger := Ledger.new()
     if not ledger.restore(bank):
@@ -64,7 +66,9 @@ static func propose(original: Dictionary, bank: Dictionary,
     if not opened.get("ok", false):
         return opened
     var gate: RefCounted = opened["gate"]
-    var transfer: Dictionary = gate.transfer(ship_id, station, {good: count},
+    var quantities: Dictionary = {}
+    quantities[good] = count
+    var transfer: Dictionary = gate.transfer(ship_id, station, quantities,
         operation_id, "load" if direction == "pickup" else "unload", tick)
     if not transfer.get("ok", false):
         return transfer
@@ -75,7 +79,7 @@ static func propose(original: Dictionary, bank: Dictionary,
     var receipt: Dictionary = {"ok": true,
         "action": "load" if direction == "pickup" else "unload",
         "ship_id": ship_id, "facility_id": station, "operation_id": operation_id,
-        "tick": tick, "quantities": {good: count}, "location_id": location}
+        "tick": tick, "quantities": quantities.duplicate(true), "location_id": location}
     staged["cargo_receipts"][operation_id] = receipt.duplicate(true)
     # ContractBoard checks the REAL N15 domain's durable receipt. Its old
     # source expected "direction", canonical N15 receipts use "action".
