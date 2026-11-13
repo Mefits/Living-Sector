@@ -10,6 +10,11 @@ static func propose(world: Dictionary, tick: int) -> Dictionary:
     var facilities: Dictionary = world["facilities"]
     var proposals: Array[Dictionary] = []
     var blocked: Array[Dictionary] = []
+    # Proposal-only reservations prevent two destinations claiming the same
+    # physical stock or one station spending its credits twice in one tick.
+    # These are NOT canonical escrow or stock mutations.
+    var proposed_source_stock: Dictionary = {}
+    var proposed_station_spend: Dictionary = {}
     var locations: Array = markets.keys()
     locations.sort()
     for location in locations:
@@ -66,63 +71,74 @@ static func propose(world: Dictionary, tick: int) -> Dictionary:
             var estimated_cost: float = ceil(float(quantity) * float(price_value))
             if not is_finite(estimated_cost) or estimated_cost > 9007199254740991.0:
                 return {"ok": false, "reason": "cost_overflow"}
-            # A physical order needs a real supplier, not just a deficit.
-            # Never offer a destination's own stock as cargo or invent goods.
-            var supplier: Dictionary = _find_physical_supplier(markets, facilities,
-                str(location), str(commodity), quantity)
-            if supplier.is_empty():
-                blocked.append({"location": str(location), "commodity": str(commodity),
-                    "reason": "no_physical_supplier_with_available_stock",
-                    "quantity": quantity})
-                continue
-            var row: Dictionary = {
-                "id": "n135:need:%s:%s" % [str(location), str(commodity)],
-                "tick": tick, "station_id": owner_id,
-                "location": str(location), "faction": str(owner.get("faction", "")),
-                "source_location": str(supplier["location"]),
-                "source_station_id": str(supplier["station_id"]),
-                "source_available_stock": float(supplier["available"]),
-                "commodity": str(commodity), "quantity": quantity,
-                "observed_consumption": consumed_amount, "observed_stock": stock,
-                "estimated_cost": int(estimated_cost),
-                "reason": "observed_consumption_exceeds_physical_market_stock",
-                "status": "UNFUNDED_PROPOSAL"
-            }
-            if credits < int(estimated_cost):
-                blocked.append({"location": str(location), "commodity": str(commodity),
-                    "reason": "station_cannot_fund_purchase", "needed": int(estimated_cost),
-                    "available": credits})
-            else:
+            # N135 may split one real deficit across multiple source stations.
+            # A proposal cannot reserve stock twice, and the destination may
+            # not promise more money than its actual current station credits.
+            var remaining: int = quantity
+            var sources: Array = markets.keys()
+            sources.sort()
+            for source in sources:
+                if remaining <= 0:
+                    break
+                if str(source) == str(location):
+                    continue
+                var source_market = markets[source]
+                if not (source_market is Dictionary) or not (source_market.get("supply") is Dictionary):
+                    continue
+                var source_owner_id: String = str(source_market.get("owner", ""))
+                if not (facilities.get(source_owner_id) is Dictionary):
+                    continue
+                if str(facilities[source_owner_id].get("location", "")) != str(source):
+                    continue
+                var raw_available = source_market["supply"].get(commodity, 0.0)
+                if not (raw_available is int or raw_available is float):
+                    continue
+                var physical_available: float = float(raw_available)
+                if not is_finite(physical_available) or physical_available < 0.0:
+                    return {"ok": false, "reason": "invalid_supplier_stock"}
+                var source_key: String = "%s:%s" % [str(source), str(commodity)]
+                var already_proposed: int = int(proposed_source_stock.get(source_key, 0))
+                var available: int = maxi(0, int(minf(floor(physical_available), 2147483647.0)) - already_proposed)
+                if available <= 0:
+                    continue
+                var station_spend: int = int(proposed_station_spend.get(owner_id, 0))
+                var price: float = float(price_value)
+                var affordable: int = maxi(0, int(floor(float(credits - station_spend) / price)))
+                var allocated: int = mini(remaining, mini(available, affordable))
+                if allocated <= 0:
+                    continue
+                var cost_float: float = ceil(float(allocated) * price)
+                if not is_finite(cost_float) or cost_float > 9007199254740991.0:
+                    return {"ok": false, "reason": "cost_overflow"}
+                var cost: int = int(cost_float)
+                # Ceil on the full order can exceed a fractional unit budget.
+                while allocated > 0 and cost > credits - station_spend:
+                    allocated -= 1
+                    cost = int(ceil(float(allocated) * price))
+                if allocated <= 0:
+                    continue
+                var row: Dictionary = {
+                    "id": "n135:need:%s:%s:%s" % [str(location), str(commodity), str(source)],
+                    "tick": tick, "station_id": owner_id,
+                    "location": str(location), "faction": str(owner.get("faction", "")),
+                    "source_location": str(source),
+                    "source_station_id": source_owner_id,
+                    "source_available_stock": physical_available,
+                    "commodity": str(commodity), "quantity": allocated,
+                    "observed_consumption": consumed_amount, "observed_stock": stock,
+                    "estimated_cost": cost,
+                    "reason": "observed_consumption_exceeds_physical_market_stock",
+                    "status": "UNFUNDED_PROPOSAL"
+                }
                 proposals.append(row)
+                proposed_source_stock[source_key] = already_proposed + allocated
+                proposed_station_spend[owner_id] = station_spend + cost
+                remaining -= allocated
+            if remaining > 0:
+                blocked.append({"location": str(location), "commodity": str(commodity),
+                    "reason": "insufficient_unreserved_stock_or_funds",
+                    "unfilled_quantity": remaining,
+                    "available_funds": maxi(0, credits - int(proposed_station_spend.get(owner_id, 0)))})
     return {"ok": true, "tick": tick, "proposals": proposals, "blocked": blocked,
         "status": "PROPOSALS_ONLY_NOT_POSTED"}
 
-## Read-only matching; no reservations or imaginary freight. The canonical
-## ContractBoard must revalidate source stock at actual escrow admission.
-static func _find_physical_supplier(markets: Dictionary, facilities: Dictionary,
-        destination: String, commodity: String, quantity: int) -> Dictionary:
-    var candidates: Array = markets.keys()
-    candidates.sort()
-    for source in candidates:
-        if str(source) == destination:
-            continue
-        var row = markets[source]
-        if not (row is Dictionary):
-            continue
-        var market: Dictionary = row
-        if not (market.get("supply") is Dictionary):
-            continue
-        var owner_id: String = str(market.get("owner", ""))
-        if not (facilities.get(owner_id) is Dictionary):
-            continue
-        if str(facilities[owner_id].get("location", "")) != str(source):
-            continue
-        var available_value = market["supply"].get(commodity, null)
-        if not (available_value is int or available_value is float):
-            continue
-        var available: float = float(available_value)
-        if not is_finite(available) or available < float(quantity):
-            continue
-        return {"location": str(source), "station_id": owner_id,
-            "available": available}
-    return {}
