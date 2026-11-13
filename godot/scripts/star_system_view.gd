@@ -127,6 +127,18 @@ func _facility_count(body_id: String) -> int:
     return result
 
 
+func _seed_ship_count(body_id: String) -> int:
+    var locations: Dictionary = {}
+    for facility in _world.get("facilities", []):
+        if str(facility.get("body", "")) == body_id:
+            locations[str(facility.get("location", ""))] = true
+    var total: int = 0
+    for ship in _world.get("ships", []):
+        if locations.has(str(ship.get("location", ""))):
+            total += 1
+    return total
+
+
 func _draw() -> void:
     draw_rect(Rect2(Vector2.ZERO, size), BACKGROUND, true)
     _body_pins.clear()
@@ -173,6 +185,17 @@ func _draw() -> void:
             # anchor; it does NOT imply that ship traffic is already active.
             draw_rect(Rect2(position + Vector2(visual_radius + 3.0, 4.0),
                 Vector2(5.0, 5.0)), Color("#e5c98b"), true)
+        var initial_ships: int = _seed_ship_count(bid)
+        if initial_ships > 0:
+            # Static source ship roster only. No fake trajectories or motion.
+            var ship_marker: PackedVector2Array = PackedVector2Array([
+                position + Vector2(-visual_radius - 13.0, -3.0),
+                position + Vector2(-visual_radius - 7.0, 0.0),
+                position + Vector2(-visual_radius - 13.0, 3.0)
+            ])
+            draw_colored_polygon(ship_marker, Color("#7abacb"))
+            draw_string(font, position + Vector2(-visual_radius - 25.0, 16.0),
+                str(initial_ships), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("#7abacb"))
         var label_offset: Vector2 = Vector2(visual_radius + 8.0, -8.0)
         draw_string(font, position + label_offset, str(body.get("name", bid)),
             HORIZONTAL_ALIGNMENT_LEFT, -1, 13,
