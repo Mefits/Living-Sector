@@ -15,6 +15,7 @@ static func run_all() -> Dictionary:
     checks["produced_paid_metals"] = is_equal_approx(float(stock.get("metals", 0.0)), 80.0)
     checks["single_wage_with_service_fee"] = engine.balance_of_facility("hub") == 995 and engine.balance_of_facility("producer") == 101 and engine.balance_of_population("household") == 24
     checks["production_receipt_proves_recipe"] = engine.world_snapshot()["facilities"]["producer"]["work_shift"]["last_recipe_ticks"].get("smelt_metals") == 5
+    checks["rust_processing_fee_is_full_owner_debit"] = int(engine.world_snapshot()["facilities"]["producer"]["work_shift"]["processing_fee"]) == 5
     var before_repeat: Dictionary = engine.snapshot()
     checks["same_tick_rejected_without_mutation"] = not engine.run_tick(5).get("ok", true) and engine.snapshot() == before_repeat
     var restore = WorldBridge.new()
@@ -50,6 +51,24 @@ static func run_all() -> Dictionary:
     locked.initialize(_seed("alloyplant2", {"rare_ore": 100.0, "metals": 100.0, "fuel": 100.0}, {}))
     var research_fail: Dictionary = _through_five(locked)
     checks["t2_faction_research_gate"] = research_fail.get("failures", {}).get("producer") == "research_required"
+    var self_owned = WorldBridge.new()
+    var own: Dictionary = _seed("refinery", {"ore": 100.0, "fuel": 20.0}, {})
+    own["markets"]["terra"]["owner"] = "producer"
+    self_owned.initialize(own)
+    _through_five(self_owned)
+    checks["self_owner_pays_only_wages"] = self_owned.balance_of_facility("producer") == 96 and self_owned.balance_of_population("household") == 24
+    var construction_labor = WorldBridge.new()
+    construction_labor.initialize(_seed("refinery", {"ore": 100.0, "fuel": 20.0}, {}))
+    var conflict: Dictionary = {}
+    for active_tick in range(1, 6):
+        conflict = construction_labor.run_tick(active_tick, 1, {"household": 60})
+    checks["construction_reservation_blocks_double_hiring"] = conflict.get("failures", {}).get("producer") == "insufficient_workers" and float(construction_labor.world_snapshot()["markets"]["terra"]["supply"]["ore"]) == 100.0
+    var foreign_owner = WorldBridge.new()
+    var foreign: Dictionary = _seed("refinery", {"ore": 100.0, "fuel": 20.0}, {})
+    foreign["facilities"]["hub"]["faction"] = "red"
+    foreign_owner.initialize(foreign)
+    var illegal: Dictionary = _through_five(foreign_owner)
+    checks["reject_foreign_stock_owner"] = illegal.get("failures", {}).get("producer") == "foreign_workplace_stock"
     var bad: Dictionary = _seed("mining_rig", {"ore": 1.0}, {"ore": -5.0})
     checks["reject_negative_body_resources"] = Schema.validate(bad) == "invalid_body_resources"
     var total: int = checks.size()
