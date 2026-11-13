@@ -1,0 +1,13 @@
+{
+  "owner": "interactive-chat-ui-status-layout",
+  "status": "IN_PROGRESS",
+  "scope": [
+    "godot/scripts/main.gd: _ready status Label and fleet Choice sizing",
+    "godot/scripts/main.gd: _update_status tooltip"
+  ],
+  "purpose": "User-reproduced once-per-tick Godot screen side-shift: bound status line and dynamic fleet OptionButton minimum widths without touching simulation",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "ci": "ZERO_ACTIONS",
+  "started_at": "2026-11-13T18:40+03:00",
+  "verification": "User screenshot, static code evidence; F5 retest required"
+}
