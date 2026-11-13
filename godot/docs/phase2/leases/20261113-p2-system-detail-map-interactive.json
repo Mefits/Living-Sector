@@ -1,0 +1,15 @@
+{
+  "owner": "interactive-chat-system-map",
+  "status": "IN_PROGRESS",
+  "scope": [
+    "godot/scripts/system_map.gd",
+    "godot/scripts/star_system_view.gd",
+    "godot/scripts/main.gd",
+    "godot/tests/p2_system_view_source_checks.gd"
+  ],
+  "purpose": "Sector double click opens live read-only 2D in-system orbital map with body resources/station info and back-navigation; no new simulation owners or Actions",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "started_at": "2026-11-13",
+  "verification": "NOT_YET_VERIFIED",
+  "actions_budget": "NO_GITHUB_ACTIONS"
+}
