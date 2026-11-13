@@ -1,10 +1,12 @@
 {
   "owner": "automation11",
-  "status": "ACTIVE",
+  "status": "RELEASED",
   "scope": [
     "godot/scripts/main.gd"
   ],
   "purpose": "Expose authoritative N39 live population and paid purchase outcomes in selected-system UI; no new world or ledger",
   "started_at": "2026-11-13T06:09:51Z",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "commit": "d672049001a4717c70bf199401ba17463ebf9c40",
+  "verification": "CODE_UNVERIFIED"
 }
