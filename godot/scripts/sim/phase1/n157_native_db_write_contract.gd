@@ -1,6 +1,6 @@
 extends RefCounted
 ## N157 Rust sim_db/persistence.rs::DbWrite::key and stable payload gate.
-## 19 keyed DbWrite variants + EconomicFrame wrapper = 20 source variants.\n## One value = one source-derived DbWrite envelope, not an ECS Entity handle.
+## 19 keyed DbWrite kinds + EconomicFrame wrapper = 20 source variants, stable DB IDs only.
 ## No path, account, contract or row identity may be invented by this layer.
 const KINDS: PackedStringArray = PackedStringArray([
     "constructed_facility", "colony_population", "colony_established",
