@@ -33,7 +33,7 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
     var lines: Array[String] = ["ЖИВАЯ ЭКОНОМИКА · ТИК %d" % tick]
     lines.append("АВТОНОМИЯ: производство / потребление / рынок — исполняются по тикам")
     lines.append("АВТОНОМИЯ N135/N104: оплаченные заявки публикуются в едином N39 World")
-    lines.append("АВТОНОМИЯ ФЛОТА: N153/N14 исполнение заявок ещё НЕ подключено")
+    lines.append("ФЛОТ N153: принятие оплаченных заявок и N14 рейс до поставщика; N97 доставка ещё НЕ подключена")
     lines.append("Игрок: режим наблюдения; индивидуальные команды скрыты до отдельного режима")
     lines.append("Станции: %d · рынки: %d · группы населения: %d" % [
         economy["facilities"].size(), economy["markets"].size(), economy["populations"].size()])
@@ -62,6 +62,12 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
     lines.append("За этот тик оплачено: %d · отказов: %d" % [
         int(summary.get("funded_contracts_this_tick", 0)),
         int(summary.get("contract_admissions_blocked", 0))])
+    lines.append("ИИ N153: принятых %d · отказов %d · отправлено N14 %d" % [
+        int(summary.get("n153_accepted_this_tick", 0)),
+        int(summary.get("n153_blocked_this_tick", 0)),
+        int(summary.get("n153_departures_this_tick", 0))])
+    if int(summary.get("n153_blocked_this_tick", 0)) > 0:
+        lines.append("  Причина ожидания: " + str(summary.get("n153_first_blocker", "—")))
     var order_ids: Array = contracts.keys()
     order_ids.sort()
     for order_index in range(mini(3, order_ids.size())):

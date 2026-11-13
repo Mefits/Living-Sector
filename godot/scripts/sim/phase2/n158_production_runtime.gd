@@ -382,6 +382,10 @@ func economy_summary() -> Dictionary:
     for transaction in results.get("service_restock", []):
         if transaction is Dictionary:
             restock_count += 1
+    var n153_first_blocker: String = "—"
+    var blocked: Array = _last_n153_result.get("blocked", [])
+    if not blocked.is_empty() and blocked[0] is Dictionary:
+        n153_first_blocker = str(blocked[0].get("reason", "unknown"))
     return {
         "tick": tick_count,
         "markets": current["markets"].size(),
@@ -405,6 +409,7 @@ func economy_summary() -> Dictionary:
         "n153_accepted_this_tick": _last_n153_result.get("accepted", []).size(),
         "n153_blocked_this_tick": _last_n153_result.get("blocked", []).size(),
         "n153_departures_this_tick": _last_ship_result.get("autonomous_departures", []).size(),
+        "n153_first_blocker": n153_first_blocker,
         "contract_admissions_blocked": _last_contract_admissions.get("blocked", []).size(),
         "population_phase_ok": _last_population_result.get("ok", null),
         "population_purchases": _last_population_result.get("purchases", 0)
