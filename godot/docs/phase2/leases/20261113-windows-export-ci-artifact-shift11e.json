@@ -1,0 +1,10 @@
+{
+  "owner": "second-chat-overnight",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T06:22:21+03:00",
+  "scope": [
+    ".github/workflows/p2-unified-godot-smoke.yml"
+  ],
+  "task": "Add bounded Windows x64 export with verified artifact to existing explicitly-triggered P2 CI; no workflow dispatch and no changes to simulation",
+  "branch": "integration/godot-phase2-unified-20261113"
+}
