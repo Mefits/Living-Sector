@@ -1,11 +1,17 @@
 {
   "owner": "second-chat-overnight",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T15:12:07+03:00",
   "scope": [
     "godot/scripts/sim/phase2/unified_facility_lifecycle_phase.gd",
     "godot/scripts/sim/phase1/n39_native_world_production.gd"
   ],
   "boundary": "N156 paid-workshift-derived crew morale, no extra Food charge, one World/ledger",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "finished_at": "2026-11-13T15:12:59+03:00",
+  "code_commits": [
+    "b014d364db553a07dc67aea0c2f5fb5bf65529a6",
+    "f53ce7ba5b6ff89ffd98c9199f4fee7f82f70be7"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261113-1512-second-chat-crew-morale.md"
 }
