@@ -61,6 +61,27 @@ jobs:
               tail -n 100 godot/logs/p2-release/paid-world.log
               exit 1
             }
+      - name: Real main-scene boot, two paid ticks and save/load
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The source-only script check and N158 test cannot prove that the
+          # actual GUI entry scene boots and reaches its save/load controls.
+          # Use a separate isolated user:// directory to avoid stale CI saves.
+          mkdir -p "$RUNNER_TEMP/p2-gui-user"
+          timeout --signal=TERM --kill-after=5s 75s \
+            godot --headless --path godot \
+            --user-data-dir "$RUNNER_TEMP/p2-gui-user" \
+            -- --p2-boot-check \
+            > godot/logs/p2-release/gui-boot.log 2>&1 || {
+              tail -n 120 godot/logs/p2-release/gui-boot.log
+              exit 1
+            }
+          grep -q 'P2_BOOT_CHECK_PASS' godot/logs/p2-release/gui-boot.log || {
+            echo "Real GUI scene did not report successful boot/save/restore"
+            tail -n 120 godot/logs/p2-release/gui-boot.log
+            exit 1
+          }
       - name: Export and validate real Windows package
         shell: bash
         run: |
