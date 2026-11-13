@@ -1,6 +1,6 @@
 {
   "owner": "interactive-chat",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T20:10:00Z",
   "expires_at": "2026-11-13T23:59:00Z",
   "branch": "integration/godot-phase2-unified-20261113",
@@ -13,5 +13,9 @@
     "godot/scripts/sim/phase1/n39_native_world_production.gd (only if safe)",
     "godot/tests/p2_n80_n81_n84_n146_pipeline_check.gd (new)"
   ],
-  "boundary": "Use original N80 ship goal policy and N153 offer eligibility, N81 Dijkstra plan, N84 Rust-sequence/selector semantics and N146 canonical data commands; only actual N39/N104/N14 Apply, N97 actions fail closed; no new action AI, no shadow contracts/ledgers."
+  "boundary": "Use original N80 ship goal policy and N153 offer eligibility, N81 Dijkstra plan, N84 Rust-sequence/selector semantics and N146 canonical data commands; only actual N39/N104/N14 Apply, N97 actions fail closed; no new action AI, no shadow contracts/ledgers.",
+  "released_at": "2026-11-13T22:10:00Z",
+  "handoff": "godot/docs/phase2/handoffs/20261113-interactive-n80-n81-n84-n146-real-pipeline.md",
+  "verification": "STATIC_READBACK_PASS; GODOT_RUNTIME_NOT_EXECUTED",
+  "code_head": "122a38308e0f8c1dd113838652a7cbbbcf061108"
 }
