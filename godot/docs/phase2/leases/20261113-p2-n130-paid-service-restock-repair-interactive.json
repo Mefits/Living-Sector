@@ -1,6 +1,6 @@
 {
   "owner": "interactive-chat-p2-n130-service-repair",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "scope": [
     "godot/scripts/sim/phase1/n39_native_world_production.gd",
@@ -14,6 +14,21 @@
   ],
   "purpose": "One canonical physical facility-owned Fuel/Tools restock from live N39 markets with one N9 ledger; paid N156 repair before N130 restock, native order; no second clock/world; real save/load",
   "started_at": "2026-11-13",
-  "verification": "CODE_UNVERIFIED until local Godot run",
-  "ci": "NO_GITHUB_ACTIONS"
+  "verification": "WIRED_CODE_UNVERIFIED_STATIC_CHECKS_PASS",
+  "ci": "ZERO_NEW_GITHUB_ACTIONS",
+  "completed_at": "2026-11-13",
+  "handoff": "godot/docs/phase2/handoffs/20261113-p2-interactive-n130-paid-repair.md",
+  "code_commits": [
+    "991aa0f8",
+    "25482295",
+    "858902fe",
+    "856cb494",
+    "8a0830df",
+    "1347dff1",
+    "12cf7afa",
+    "3af9b1f7",
+    "80e8a42f",
+    "3d59d63f",
+    "fb0b5e24"
+  ]
 }
