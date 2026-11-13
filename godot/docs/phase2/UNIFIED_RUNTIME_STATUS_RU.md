@@ -106,3 +106,9 @@
 - Commit [`0dbbfd83`](https://github.com/Mefits/Living-Sector/commit/0dbbfd831771e607e1f799cbba8199e9b14f79f6): `unified_market_phase.gd` теперь отклоняет повреждённые строки N39 markets, неверные вложенные типы и неполный/некорректный N150 output до обращения к словарям или применения market phase. Проверяется совпадение числа рынков; прежний запрет создания stock сохраняется. Ни второго ledger, ни нового market state.
 - Минимальная проверка скобок и интерфейса; Godot не запускался, **CODE_UNVERIFIED**. Actions: **0** новых запусков. Lease `20261113-market-phase-shape-guard-automation11b.json` RELEASED.
 - Windows ZIP по-прежнему не подтверждён. Следующий свободный приоритет: ограниченный Godot import/parser, исправление выявленных ошибок группой и затем единый согласованный Windows export. Перед работой проверить актуальные leases.
+
+## P2 handoff — 13.11 07:40 МСК, автоматическое восстановление мира при старте
+
+- Commit [`79c8588f`](https://github.com/Mefits/Living-Sector/commit/79c8588fc5aca07e9a9597731f8794b2f1270da6): `godot/scripts/main.gd` вызывает единственный `SaveState.load_runner` при старте, если существует P2 checkpoint или `.bak`, до построения карты и UI-проекций. После восстановления использует единственный авторитетный N158 World/ledger и синхронизирует скорость. Повреждённое сохранение не блокирует загрузку исходного seed; ошибка видна пользователю. Никакой второй SaveState или World не создаётся.
+- Проверены контракты `SaveState.load_runner`, `_sync_speed_control`, порядок инициализации UI; Godot не запускался — **CODE_UNVERIFIED**. Actions не запускались; Windows ZIP не подтверждён. Lease `20261113-p2-startup-save-recovery-second-chat-0740.json` RELEASED.
+- Следующая свободная работа: локальный/ограниченный Godot import и устранение parser ошибок перед единым Windows export; флот и контракты ещё требуют подключения к общей симуляции.
