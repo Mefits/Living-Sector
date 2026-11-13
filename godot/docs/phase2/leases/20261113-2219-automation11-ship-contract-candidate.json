@@ -1,10 +1,12 @@
 {
   "worker": "automation11",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "scope": [
     "godot/scripts/sim/phase2/unified_autonomous_contract_candidates.gd",
     "godot/tests/p2_autonomous_contract_candidates_check.gd"
   ],
   "boundary": "Pure read-only candidate eligibility for funded N104 contracts; no central runner/ledger edits",
-  "started_at": "2026-11-13T22:19:00+03:00"
+  "started_at": "2026-11-13T22:19:00+03:00",
+  "commit": "7ad41652c8419323fee831f674c7fbab5203fa45",
+  "handoff": "godot/docs/phase2/handoffs/20261113-2219-automation11-contract-ship-candidates.md"
 }
