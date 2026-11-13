@@ -4,6 +4,8 @@
   "scope": [
     "godot/scripts/main.gd"
   ],
-  "status": "IN_PROGRESS",
-  "purpose": "Fix P2 save/load path mismatch, ensure correct P2 snapshot is loaded and report recovery source; no competing runtime modifications"
+  "status": "DONE_CODE_UNVERIFIED",
+  "purpose": "Fix P2 save/load path mismatch, ensure correct P2 snapshot is loaded and report recovery source; no competing runtime modifications",
+  "commit": "7d79fb4cd636c7258a22f438805828e6c1fbf796",
+  "handoff": "main.gd Save and Load now use same P2_SAVE_PATH; .bak recovery is surfaced to user. No CI triggered. Godot runtime not verified."
 }
