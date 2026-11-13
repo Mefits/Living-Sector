@@ -44,20 +44,45 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary) -> v
     var facilities: Dictionary = economy["facilities"]
     var facility_ids: Array = facilities.keys()
     facility_ids.sort()
+    var abandoned_count: int = 0
+    var worn_count: int = 0
+    var repair_ready_count: int = 0
     for id in facility_ids:
         if not (facilities[id] is Dictionary):
             continue
         var f: Dictionary = facilities[id]
+        var abandoned: bool = bool(f.get("abandoned", false))
+        var condition: float = float(f.get("condition", 1.0))
+        var morale: float = float(f.get("morale", 80.0))
+        var abandon_counter: int = int(f.get("abandon_counter", 0))
+        var owned: Variant = f.get("reserves", {})
+        var tools: float = 0.0
+        var fuel: float = 0.0
+        if owned is Dictionary:
+            tools = float(owned.get("tools", 0.0))
+            fuel = float(owned.get("fuel", 0.0))
+        if abandoned:
+            abandoned_count += 1
+        elif condition < 0.8:
+            worn_count += 1
+            if tools >= 1.0:
+                repair_ready_count += 1
         lines.append("  %s · CR %s · экипаж %s · уровень %s · состояние %.2f · %s" % [
             str(id), str(f.get("credits", "?")), str(f.get("crew_count", "?")),
-            str(f.get("level", "?")), float(f.get("condition", 1.0)),
-            "ЗАБРОШЕНА" if bool(f.get("abandoned", false)) else "работает"])
-        # Services are real private station reserves, not the market's
-        # Food/Water pantry or a synthetic duplicate inventory.
-        var owned: Variant = f.get("reserves", {})
-        if owned is Dictionary:
-            lines.append("    свои запасы: Fuel %.1f · Tools %.1f" % [
-                float(owned.get("fuel", 0.0)), float(owned.get("tools", 0.0))])
+            str(f.get("level", "?")), condition,
+            "ЗАБРОШЕНА" if abandoned else "работает"])
+        # N156 morale and abandonment are authoritative facility fields;
+        # these are not unconnected N20 planner projections.
+        lines.append("    N156 мораль %.1f · счётчик заброшенности %d" % [
+            morale, abandon_counter])
+        # Services are real private station reserves, not market supply.
+        lines.append("    свои запасы: Fuel %.1f · Tools %.1f" % [fuel, tools])
+        if not abandoned and condition < 0.8:
+            lines.append("    ремонт: %s" % (
+                "есть собственные Tools; требуется оплаченная смена"
+                if tools >= 1.0 else "ожидание закупки собственных Tools"))
+    lines.append("N156: заброшено %d · изношено (<0.8) %d · с Tools для ремонта %d" % [
+        abandoned_count, worn_count, repair_ready_count])
     lines.append("ОПЛАЧЕННЫЕ СМЕНЫ / ПРОИЗВОДСТВО:")
     var paid_shifts: int = 0
     for id in facility_ids:
