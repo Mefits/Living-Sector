@@ -16,8 +16,14 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     var ship: Dictionary = world["ships"][ship_id]
     if str(ship.get("active_contract_id", "")) != "" or not (ship.get("transit", {}) as Dictionary).is_empty():
         return {"ok": false, "reason": "ship_busy"}
-    if str(ship.get("docked_at", "")) != "" or str(ship.get("location", "")) == "":
-        return {"ok": false, "reason": "ship_docked_or_in_transit"}
+    if str(ship.get("location", "")).is_empty():
+        return {"ok": false, "reason": "ship_not_at_real_location"}
+    var dock_id: String = str(ship.get("docked_at", ""))
+    if not dock_id.is_empty():
+        if not world["facilities"].has(dock_id) or str(world["facilities"][dock_id].get("location", "")) != str(ship["location"]):
+            return {"ok": false, "reason": "invalid_idle_dock"}
+        # Starting already docked is legal: original GOAP plans the real
+        # N21 Undock before travelling on the next assignment.
     if not (ship.get("cargo") is Dictionary) or not ship["cargo"].is_empty():
         return {"ok": false, "reason": "ship_cargo_not_empty"}
     var quantity: int = int(contract.get("quantity", 0))

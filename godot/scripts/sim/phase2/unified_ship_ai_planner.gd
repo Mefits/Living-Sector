@@ -86,7 +86,9 @@ static func propose(ship: Dictionary, selected: Dictionary,
     }, fuel_bucket, route_legs)
     if request.is_empty() or not (request.get("loc_map") is Dictionary):
         return {"ok": false, "reason": "n153_native_plan_request_rejected"}
-    var goap: Dictionary = Goap.plan(Goap.initial("Origin", fuel_bucket),
+    var start_state: Dictionary = Goap.initial("Origin", fuel_bucket)
+    start_state["docked"] = not str(ship.get("docked_at", "")).is_empty()
+    var goap: Dictionary = Goap.plan(start_state,
         "delivery", request["loc_map"], int(request.get("max_depth", 20)),
         int(request.get("goal", {}).get("fuel_bucket_min", 0)))
     if goap.is_empty() or not (goap.get("actions") is Array) or goap["actions"].is_empty():

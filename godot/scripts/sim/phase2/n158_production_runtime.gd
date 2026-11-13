@@ -206,10 +206,16 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 var valid_dock: bool = (expected_loc == source_loc or expected_loc == dest_loc)
                 if operation == "dock":
                     valid_dock = expected_loc == source_loc if str(contract.get("status", "")) == "accepted" else expected_loc == dest_loc
+                else:
+                    # Native GOAP may begin from a ship docked at the
+                    # previous delivery's station, unrelated to this job.
+                    var real_dock_id: String = str(ship.get("docked_at", ""))
+                    if snapshot.get("facilities", {}).has(real_dock_id):
+                        valid_dock = str(snapshot["facilities"][real_dock_id].get("location", "")) == expected_loc
                 if contract.is_empty() or str(ship.get("active_contract_id", "")) != cid or not valid_dock or expected_loc.is_empty() or str(command.get("facility_location", "")) != expected_loc:
                     _last_ship_result = {"ok": false, "reason": "n146_dock_contract_mismatch"}
                     return false
-                var stage: String = "source" if expected_loc == source_loc else "destination"
+                var stage: String = "source" if expected_loc == source_loc else ("destination" if expected_loc == dest_loc else "origin")
                 var operation_id: String = "contract:" + cid + ":" + operation + ":" + stage
                 var dock_proposal: Dictionary = FleetLogistics.command(
                     snapshot, operation, ship_id, operation_id, tick)

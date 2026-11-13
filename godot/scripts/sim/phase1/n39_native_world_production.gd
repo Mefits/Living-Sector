@@ -602,8 +602,11 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
         return {"ok": false, "reason": "ship_not_idle"}
     if not (proposal.get("ai_bt") is Dictionary) or not NativeBt.validate(proposal["ai_bt"]):
         return {"ok": false, "reason": "n84_unplanned_ship_assignment"}
-    if not str(ship.get("docked_at", "")).is_empty() or str(ship.get("location", "")).is_empty():
-        return {"ok": false, "reason": "ship_not_free"}
+    if str(ship.get("location", "")).is_empty():
+        return {"ok": false, "reason": "ship_not_at_source_location"}
+    var dock_id: String = str(ship.get("docked_at", ""))
+    if not dock_id.is_empty() and (not _world["facilities"].has(dock_id) or str(_world["facilities"][dock_id].get("location", "")) != str(ship["location"])):
+        return {"ok": false, "reason": "invalid_existing_n21_dock"}
     if not (ship.get("cargo") is Dictionary) or not ship["cargo"].is_empty():
         return {"ok": false, "reason": "ship_hold_not_empty"}
     var qty: int = int(c.get("quantity", 0))
