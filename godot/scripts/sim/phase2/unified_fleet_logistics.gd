@@ -104,6 +104,16 @@ static func command(source: Dictionary, action: String, ship_id: String,
         # CargoGate mutates only the isolated N15 ship and local market
         # warehouse. Copy the validated hold into the same staged World.
         staged["ships"][ship_id]["cargo"] = (prepared["fleet"].ships[ship_id]["cargo"] as Dictionary).duplicate(true)
+        # N15 mutates its isolated warehouse as well as the isolated ship.
+        # Both physical sides MUST enter the same N39 proposal; otherwise
+        # N39 apply_fleet_logistics correctly rejects the missing stock delta.
+        var warehouse_location: String = str(registry.facilities[facility]["location"])
+        if not staged["markets"].has(warehouse_location):
+            return {"ok": false, "reason": "cargo_market_location_missing"}
+        var market: Dictionary = staged["markets"][warehouse_location]
+        if str(market.get("owner", "")) != facility or not (prepared["gate"].warehouses.get(facility) is Dictionary):
+            return {"ok": false, "reason": "cargo_warehouse_owner_mismatch"}
+        market["supply"] = (prepared["gate"].warehouses[facility] as Dictionary).duplicate(true)
     var receipt: Dictionary = {
         "ok": true, "action": action, "ship_id": ship_id, "facility_id": facility,
         "operation_id": operation_id, "tick": tick
