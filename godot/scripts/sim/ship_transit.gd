@@ -67,14 +67,24 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 	var velocity := BASE_VELOCITY * speed * tick_scale
 	if not is_finite(remaining) or velocity <= 0.0:
 		return "invalid"
-	if remaining <= maxf(velocity, ARRIVAL_THRESHOLD):
+	# A final movement step is still a physical flight step. Previously it
+	# teleported the ship into dock without paying the final tick of fuel.
+	# Check the tank before either advancing or completing this step.
+	var consumption := float(spec["fuel_consumption_base"]) * tick_scale
+	if not is_finite(consumption) or consumption <= 0.0:
+		return "invalid"
+	if remaining <= ARRIVAL_THRESHOLD:
 		ship["location"] = target_id
 		ship["transit"] = {}
 		return "arrived"
-	var consumption := float(spec["fuel_consumption_base"]) * tick_scale
 	if float(ship["fuel"]) < consumption:
 		transit["last_tick"] = tick
 		return "out_of_fuel"
+	if remaining <= velocity:
+		ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
+		ship["location"] = target_id
+		ship["transit"] = {}
+		return "arrived"
 	var next_position := position.move_toward(target, minf(velocity, remaining))
 	ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
 	transit["position"] = [next_position.x, next_position.y]
