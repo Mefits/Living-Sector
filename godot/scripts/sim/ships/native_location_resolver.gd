@@ -99,6 +99,12 @@ func is_mapped(location: String) -> bool:
 func location_count() -> int:
     return _locations.size()
 
+
+## Actual source system ID of a navigation location after N14 arrival.
+## It is NOT inferred from screen coordinates or from a ship's home system.
+func system_for_location(location: String) -> String:
+    return str(_locations[location]["system_id"]) if _loaded and _locations.has(location) else ""
+
 ## Derive every mapped location from CURRENT orbital angles and committed
 ## native elapsed time, not from route length, seed angle, or a UI projection.
 ## If an old checkpoint lacks the clock origin, station phase is unknown.
