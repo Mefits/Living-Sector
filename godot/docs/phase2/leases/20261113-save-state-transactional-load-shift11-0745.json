@@ -1,10 +1,13 @@
 {
   "owner": "second-chat-overnight",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_at": "2026-11-13T07:45:24+03:00",
   "scope": [
     "godot/scripts/sim/save_state.gd"
   ],
   "task": "Prevent partial state mutation on failed checkpoint restore; bound serialized checkpoint before writing",
-  "branch": "integration/godot-phase2-unified-20261113"
+  "branch": "integration/godot-phase2-unified-20261113",
+  "completed_at": "2026-11-13T07:45:24+03:00",
+  "commit": "b677dd7daca4c39e7a1bdfc9c16af93e24059507",
+  "verification": "CODE_UNVERIFIED; source-level static check only; no CI budget spent"
 }
