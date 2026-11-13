@@ -104,7 +104,7 @@ static func prepare_commission(world: Dictionary, faction: String,
 		return _fail("no_physical_navigation")
 	if not _native_idle_carrier(world, faction, source, quantity):
 		return _fail("no_idle_eligible_passenger_ship")
-	var money := Plan._read_cash(world["treasuries"], faction)
+	var money: Dictionary = Plan._read_cash(world["treasuries"], faction)
 	if not bool(money.get("ok", false)):
 		return _fail("missing_faction_treasury")
 	var balance: int = int(money["cash"])

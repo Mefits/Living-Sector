@@ -4,7 +4,7 @@ const Strategy = preload("res://scripts/sim/phase1/n154_native_construction_stra
 const Commission = preload("res://scripts/sim/phase1/n154_native_construction_commission.gd")
 const Module = preload("res://scripts/sim/phase1/n154_native_shipyard_module_tick.gd")
 const Refit = preload("res://scripts/sim/phase1/n154_native_paid_shipyard_refit.gd")
-const Material = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
+const Materializer = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
 
 class NativeAdapters extends RefCounted:
 	func offset(center: Dictionary, _id: String) -> Dictionary:
@@ -100,12 +100,12 @@ static func run() -> Dictionary:
 			and observed["progress_delivered"]==400,
 			"refresh_updates_physical_site_progress_without_faking_a_new_strategic_decision")
 	var msites := [commissioned["site"].duplicate(true)]
-	var shipped := Material.material_delivery(msites,{}, "earth","metals",800)
+	var shipped := Materializer.material_delivery(msites,{}, "earth","metals",800)
 	_expect(errors,bool(shipped.get("ok",false)) and
 		shipped["sites"][0]["progress_delivered"]==600
 		and shipped["admitted_units"]==600,
 		"real_material_delivery_is_capped_at_600_and_not_labor_completion")
-	var delivered_unknown := Material.material_delivery([],
+	var delivered_unknown := Materializer.material_delivery([],
 		{"earth":{"supply":{"metals":2.0}}},"earth","metals",20)
 	_expect(errors,bool(delivered_unknown.get("ok",false)) and
 		delivered_unknown["fallback_to_market"] and
@@ -184,7 +184,7 @@ static func run() -> Dictionary:
 		"location_id":5}], "factions":{"f1":{"treasury":25000}}}
 	var finish_receipt := {"trusted_internal_apply":true,
 		"labor_work_succeeded":true,"site_id":final_site["id"],"tick":125}
-	var built := Material.materialize_after_paid_labor(final_site,material_world,
+	var built := Materializer.materialize_after_paid_labor(final_site,material_world,
 		finish_receipt,-1,0.0,{"slots":{}},{"crew_count":2},125)
 	_expect(errors,bool(built.get("ok",false))
 		and built["facility"]["credits"]==20000
@@ -193,7 +193,7 @@ static func run() -> Dictionary:
 		"actual_paid_materialization_transfers_existing_20k_startup_and_preserves_shift")
 	var unfinished := final_site.duplicate(true)
 	unfinished["labor"]["completed"]=149
-	_expect(errors,not Material.ready_for_materialization(unfinished)
-		and Material.labor_tick_due(125,1),
+	_expect(errors,not Materializer.ready_for_materialization(unfinished)
+		and Materializer.labor_tick_due(125,1),
 		"last_paid_worker_required_before_facility_exists")
 	return {"ok":errors.is_empty(),"errors":errors}

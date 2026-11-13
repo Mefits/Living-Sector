@@ -41,7 +41,7 @@ static func run() -> Dictionary:
 	if not is_equal_approx(float(stage["ships"]["s"]["crew"]["morale"]), 50.0):
 		errors.append("cadence_does_not_mint_morale")
 	# The task after meal reads ACTUALLY observed hunger, not anticipated food.
-	var post_meal := stage["ships"].duplicate(true)
+	var post_meal: Dictionary = stage["ships"].duplicate(true)
 	post_meal["s"]["crew"]["hunger"] = 55.0
 	post_meal["s"]["crew"]["current_task"] = "eating"
 	var after := Batch.after_meals(post_meal, 6, 1)
@@ -55,7 +55,7 @@ static func run() -> Dictionary:
 	var before_food := {"s": _ship()}
 	before_food["s"]["crew"]["hunger"] = 70.0
 	var prepared := Batch.before_meals(before_food, 6, 1)
-	var eaten := prepared["ships"].duplicate(true)
+	var eaten: Dictionary = prepared["ships"].duplicate(true)
 	eaten["s"]["crew"]["hunger"] = 45.0
 	var still_eating := Batch.after_meals(eaten, 6, 1)
 	if str(still_eating["ships"]["s"]["crew"]["current_task"]) != "eating":

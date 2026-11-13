@@ -118,7 +118,7 @@ static func run() -> Dictionary:
 	_expect(errors, saturated["lifecycle"]["idle_ticks"] == Life.MAX_U32
 		and saturated["lifecycle"]["broke_strikes"] == Life.MAX_U8,
 		"rust_u32_u8_counters_saturate_without_overflow")
-	var command := at_3["commands"][0]
+	var command: Dictionary = at_3["commands"][0]
 	var queued := Queue.stage_decommission([], command)
 	_expect(errors, bool(queued["ok"]) and queued["pending"].size() == 1,
 		"native_DecommissionShip_goes_to_AsyncAgentStore")

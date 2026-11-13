@@ -4,8 +4,8 @@ extends RefCounted
 const Tick = preload("res://scripts/sim/phase1/n149_native_crew_tick_single_owner.gd")
 const Basics = preload("res://scripts/sim/phase1/n149_native_ship_components_basics.gd")
 
-static func _expect(errors: Array[String], pass: bool, label: String) -> void:
-	if not pass:
+static func _expect(errors: Array[String], passed: bool, label: String) -> void:
+	if not passed:
 		errors.append(label)
 
 static func _near(actual: Variant, expected: float) -> bool:

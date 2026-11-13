@@ -54,7 +54,7 @@ static func run() -> Dictionary:
 	var w := _world()
 	var original := w.duplicate(true)
 	var views: Array = [_view()]
-	var planned := Planner.plan(views, w)
+	var planned: Dictionary = Planner.plan(views, w)
 	_expect(errors, bool(planned.get("ok", false)) and planned["plans"].has("f1"),
 		"source_ready_colony_proposal")
 	var plan: Dictionary = planned.get("plans", {}).get("f1", {})

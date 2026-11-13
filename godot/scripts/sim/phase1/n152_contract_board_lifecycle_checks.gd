@@ -6,8 +6,8 @@ extends RefCounted
 const Core = preload("res://scripts/sim/phase1/n152_native_contract_board_core.gd")
 const Lifecycle = preload("res://scripts/sim/phase1/n152_native_contract_board_lifecycle.gd")
 
-static func _expect(errors: Array[String], pass: bool, name: String) -> void:
-	if not pass:
+static func _expect(errors: Array[String], passed: bool, name: String) -> void:
+	if not passed:
 		errors.append(name)
 
 static func _terms(kind: String, requestor: String = "station") -> Dictionary:
