@@ -1,0 +1,8 @@
+{
+  "owner": "automation11",
+  "scope": "godot/scripts/sim/seed_integrity.gd",
+  "purpose": "Reject duplicate or malformed ship/population identities before unified seed admission; no changes to world/ledger",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-13T10:54:00+03:00",
+  "branch": "integration/godot-phase2-unified-20261113"
+}
