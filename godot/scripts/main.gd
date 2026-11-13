@@ -253,6 +253,7 @@ func _load_game(save_path: String = "") -> void:
     var result: Dictionary = SaveState.load_runner(_runner, _seed, target)
     if result.get("ok", false):
         _fatal_restore_error = ""
+        _startup_error = ""
         _model = _runner.world
         # A loaded checkpoint replaces the authoritative world and clock. Refresh
         # all read-only projections; never keep a stale seed-era map or speed UI.
