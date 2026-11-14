@@ -123,6 +123,12 @@ func location_count() -> int:
 func system_for_location(location: String) -> String:
     return str(_locations[location]["system_id"]) if _loaded and _locations.has(location) else ""
 
+## Original frozen BodyIdentity.system_name for a real facility's
+## Body ID; new facilities may be at locations absent from the seed's
+## initial N43 nav registry. Source bodies NEVER come from UI pixels.
+func system_for_body(body_id: String) -> String:
+    return str(_bodies[body_id]["system_id"]) if _loaded and _bodies.has(body_id) else ""
+
 ## Original WorldRegistry location -> BodyIdentity link used by Rust
 ## ship/mod.rs::observe_prices. Do not infer from display coords.
 func body_for_location(location: String) -> String:
