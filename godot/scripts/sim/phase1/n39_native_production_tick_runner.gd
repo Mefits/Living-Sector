@@ -12,6 +12,24 @@ var _external_labor_this_tick: Dictionary = {}
 var _tick_multiplier: int = 1
 var _phase_failure: Dictionary = {}
 
+## Read-only opt-in phase timing: LS_PROFILE_NATIVE_PHASES=1.
+## All timings stay outside World/N9/N38. Never affects sim decisions.
+var _profile_enabled: bool = false
+var _profile_phase_us: Dictionary = {}
+var _profile_phase_calls: Dictionary = {}
+
+func profile_native_phases() -> Dictionary:
+    return {"enabled": _profile_enabled, "ticks": tick_count,
+        "phase_usec": _profile_phase_us.duplicate(true),
+        "phase_calls": _profile_phase_calls.duplicate(true)}
+
+func _profile_end_phase(phase: String, started_us: int) -> void:
+    if not _profile_enabled:
+        return
+    var elapsed: int = maxi(0, Time.get_ticks_usec() - started_us)
+    _profile_phase_us[phase] = int(_profile_phase_us.get(phase, 0)) + elapsed
+    _profile_phase_calls[phase] = int(_profile_phase_calls.get(phase, 0)) + 1
+
 func start_from_seed(seed: Dictionary) -> bool:
     if not super.start_from_seed(seed):
         return false
@@ -21,6 +39,9 @@ func start_from_seed(seed: Dictionary) -> bool:
     _external_labor_this_tick = {}
     _tick_multiplier = 1
     _phase_failure = {}
+    _profile_enabled = OS.get_environment("LS_PROFILE_NATIVE_PHASES") == "1"
+    _profile_phase_us = {}
+    _profile_phase_calls = {}
     return true
 
 func configure_native_production(physical_world: Dictionary,
@@ -78,6 +99,7 @@ func _advance_one_tick() -> void:
     var native_delta: float = clock.tick_scale()
     for index in range(NATIVE_PHASE_ORDER.size()):
         var phase: String = NATIVE_PHASE_ORDER[index]
+        var phase_started_us: int = Time.get_ticks_usec() if _profile_enabled else 0
         if phase == "bodies" and cadence.is_due(phase, tick_count):
             world.advance_orbits(native_delta)
         if phase == "facilities" and _native_enabled:
@@ -89,6 +111,7 @@ func _advance_one_tick() -> void:
                     "reason": str(_last_native_result.get("reason", "unknown"))}
                 push_error("N39 native production tick rejected: " +
                     str(_phase_failure["reason"]))
+                _profile_end_phase(phase, phase_started_us)
                 break
         if not _execute_integrated_phase(phase, tick_count):
             _phase_failure = {"phase": phase, "tick": tick_count,
@@ -96,9 +119,11 @@ func _advance_one_tick() -> void:
             push_error("P2 integrated phase rejected: " + phase +
                 " tick=" + str(tick_count) +
                 " reason=" + str(_phase_failure["reason"]))
+            _profile_end_phase(phase, phase_started_us)
             break
         for event in events.take_due(tick_count, index):
             scheduled_event_due.emit(event)
+        _profile_end_phase(phase, phase_started_us)
     # Commit elapsed time for the attempted tick, but stop all future ticks.
     # The error is intentionally sticky until a fresh start/restore.
     calendar.advance_committed_tick(native_delta)
