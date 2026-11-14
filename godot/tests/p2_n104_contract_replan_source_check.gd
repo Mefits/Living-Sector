@@ -159,4 +159,44 @@ static func run_checks() -> Dictionary:
             stranded["contract_board"]["contracts"]["contract-a"],
             missing_route).get("ok", false):
         return {"ok": false, "reason": "n104_replan_invented_interstellar_leg"}
+    # Real cross-system replan: only two physically built reciprocal
+    # N108 GateLinks may form a source GOAP route. No free Travel edge.
+    var remote: Dictionary = fixture("picked_up")
+    remote["ships"]["ship-a"]["location"] = "source"
+    remote["contract_board"]["contracts"]["contract-a"][
+        "destination_location"] = "far"
+    remote["facilities"] = {
+        "gate-left-id": {"type": "gate", "location": "gate-left",
+            "abandoned": false,
+            "gate_link": {"paired_gate_id": "gate-right-id"}},
+        "gate-right-id": {"type": "gate", "location": "gate-right",
+            "abandoned": false,
+            "gate_link": {"paired_gate_id": "gate-left-id"}}}
+    var remote_graph := Graph.new()
+    remote_graph.edges = {
+        "source": [{"to": "gate-left", "distance": 2.0}],
+        "gate-left": [],
+        "gate-right": [{"to": "far", "distance": 2.0}],
+        "far": []}
+    var across: Dictionary = Resume.propose(
+        remote["ships"]["ship-a"],
+        remote["contract_board"]["contracts"]["contract-a"],
+        remote_graph, remote)
+    if not across.get("ok", false):
+        return {"ok": false, "reason": "n104_existing_real_gate_was_ignored"}
+    var gate_count: int = 0
+    for node in across["tree"]["children"]:
+        var action: Dictionary = node.get("action", {})
+        if str(action.get("kind", "")) == "GateJump":
+            gate_count += 1
+            if str(action.get("src_gate", "")) != "gate-left" or str(
+                    action.get("dest_gate", "")) != "gate-right":
+                return {"ok": false, "reason": "n104_replan_invented_gate_target"}
+    if gate_count != 1:
+        return {"ok": false, "reason": "n104_no_original_gatejump_in_resume"}
+    remote["facilities"]["gate-right-id"].erase("gate_link")
+    if Resume.propose(remote["ships"]["ship-a"],
+            remote["contract_board"]["contracts"]["contract-a"],
+            remote_graph, remote).get("ok", false):
+        return {"ok": false, "reason": "n104_unpaired_ghost_gate_accepted"}
     return {"ok": true, "status": "DEFERRED_SOURCE_FIXTURE_NOT_RUN"}
