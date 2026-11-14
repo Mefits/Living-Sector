@@ -1061,18 +1061,19 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                             "reason": "n151_original_colony_dock_not_prepared"})
                         continue
                     expected_type = "construction_dock"
-                var dock_proposal: Dictionary = FleetLogistics.command(
-                    snapshot, operation, ship_id, operation_id, tick, {},
-                    expected_type)
+                var dock_proposal: Dictionary = production.apply_native_n21_request(
+                    tick, ship_id, expected_loc, operation,
+                    expected_type if operation == "dock" else "")
                 if not dock_proposal.get("ok", false):
                     _last_ship_result["autonomous_blocked"].append({
                         "ship_id": ship_id, "contract_id": cid,
                         "reason": "n21_" + str(dock_proposal.get("reason", "dock_not_available"))})
                     continue
-                if not production.apply_fleet_logistics(tick, dock_proposal, true):
-                    _last_ship_result = {"ok": false,
-                        "reason": "n21_single_world_dock_apply_rejected"}
-                    return false
+                if str(dock_proposal.get("status", "")) == "queued":
+                    _last_ship_result["autonomous_blocked"].append({
+                        "ship_id": ship_id, "contract_id": cid,
+                        "reason": "n21_waiting_fifo_contract"})
+                    continue
                 _last_ship_result["n21_auto_dock"].append({
                     "ship_id": ship_id, "contract_id": cid,
                     "operation": operation, "location": expected_loc})
