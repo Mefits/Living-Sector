@@ -1413,13 +1413,10 @@ func post_native_passenger_migration(tick: int, ready: Dictionary,
             break
     if not matched:
         return {"ok": false, "reason": "n147_unapproved_or_stale_source_offer"}
-    # Keep the existing caller behavior until Chat1 releases N158 and its
-    # real N134 Head is wired into this method. Do NOT break the live N147
-    # vertical halfway through a parallel-source integration.
+    # Now that the only N158 caller supplies its original N134 vote,
+    # legacy callers WITHOUT that proof must NOT debit N104/N9.
     if original == null:
-        var existing_post: Dictionary = NativePassengers.post_migration(
-            _world, _ledger.snapshot(), ready, tick, multiplier, graph)
-        return _publish_native_passenger_stage(existing_post, "post", tick)
+        return {"ok": false, "reason": "n147_original_head_grant_required"}
     var faction: String = str(ready.get("faction_id", ""))
     # Independently re-derive the actual Head on current N39 World. The
     # caller cannot fabricate an approval or race another paid N134 grant.
