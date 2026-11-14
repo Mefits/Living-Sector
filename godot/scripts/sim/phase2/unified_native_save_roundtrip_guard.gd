@@ -37,61 +37,37 @@ static func verify_authoritative_frame(original: Dictionary,
 ## Values are compared by their original type, not JSON.stringify output.
 ## JSON may decode an integral token as float; accept only an EXACT integral
 ## conversion, never float rounding of an original 64-bit Rust credit.
-## Godot's JSON writer may shorten the final IEEE-754 digits of the
-## frozen N155 personality profile. These *dimensionless* preferences
-## are the only approved near-float case; N9, markets, N14 physics,
-## receipts, research progress and every other native field remain
-## exactly guarded. A large profile change remains corruption.
-const SOURCE_PROFILE_FIELDS: Array[String] = [
-    "industry", "science", "expansion", "caution", "aggression"]
-const SOURCE_PROFILE_JSON_ROUNDOFF: float = 0.000000000001
+## Godot's JSON serializer writes a shortened decimal token for
+## finite computed doubles. Accept only two doubles that produce the
+## IDENTICAL on-disk JSON token AND differ by <=1e-12 relative.
+## This is unavoidable serialization quantization, not an approximate
+## comparison of actual business values. N9 money/escrow (integers),
+## N15 ship cargo and market supply remain exact and fail closed.
+const SOURCE_FLOAT_JSON_ROUNDOFF: float = 0.000000000001
 
-static func _source_profile_rounding_only(path: String,
+static func _same_safe_json_float(path: String,
         before_value: float, decoded_value: float) -> bool:
-    var parts: PackedStringArray = path.split("/")
-    if parts.size() != 6 or parts[0] != "native_production" or (
-            parts[1] != "world" or parts[2] != "research_directors" or
-            str(parts[3]).is_empty() or parts[4] != "profile" or
-            not (parts[5] in SOURCE_PROFILE_FIELDS)):
-        return false
     if not is_finite(before_value) or not is_finite(decoded_value):
         return false
-    return absf(before_value - decoded_value) <= SOURCE_PROFILE_JSON_ROUNDOFF
-
-## Rust FacilityOperations.condition is a bounded physical ratio
-## [0..1]. The original sim updates this float over many ticks, while
-## Godot JSON may shorten its final decimal digits. No other facility
-## data, inventory, money or receipts inherit this allowance.
-static func _source_facility_condition_rounding_only(path: String,
-        before_value: float, decoded_value: float) -> bool:
-    var parts: PackedStringArray = path.split("/")
-    if parts.size() != 5 or parts[0] != "native_production" or (
-            parts[1] != "world" or parts[2] != "facilities" or
-            str(parts[3]).is_empty() or parts[4] != "condition"):
+    # These original physical quantities and economic authorities must
+    # never be allowed even a last-digit drift by this helper. Stock is
+    # ALSO checked independently by SaveState._physical_stock_matches.
+    if path.begins_with("native_production/ledger/") or (
+            path.contains("/escrow_balances/") or
+            path.contains("/faction_treasuries/") or
+            (path.contains("/markets/") and path.contains("/supply/")) or
+            (path.contains("/ships/") and path.contains("/cargo/")) or
+            path.contains("/contract_board/")):
         return false
-    if not is_finite(before_value) or not is_finite(decoded_value) or (
-            before_value < 0.0 or before_value > 1.0 or
-            decoded_value < 0.0 or decoded_value > 1.0):
+    var scale: float = maxf(1.0,
+        maxf(absf(before_value), absf(decoded_value)))
+    if absf(before_value - decoded_value) > (
+            SOURCE_FLOAT_JSON_ROUNDOFF * scale):
         return false
-    return absf(before_value - decoded_value) <= SOURCE_PROFILE_JSON_ROUNDOFF
-
-## N39 paid shift receipts contain physical *computed output* floating
-## telemetry per recipe and commodity. The real inventory is separately
-## required to match bit-for-bit by SaveState._physical_stock_matches.
-## Never permit rounding in stocks, financial receipts, or wages here.
-static func _source_paid_shift_output_rounding_only(path: String,
-        before_value: float, decoded_value: float) -> bool:
-    var parts: PackedStringArray = path.split("/")
-    if parts.size() != 8 or parts[0] != "native_production" or (
-            parts[1] != "world" or parts[2] != "facilities" or
-            str(parts[3]).is_empty() or parts[4] != "work_shift" or
-            parts[5] != "produced_outputs" or str(parts[6]).is_empty() or
-            str(parts[7]).is_empty()):
-        return false
-    if not is_finite(before_value) or not is_finite(decoded_value) or (
-            before_value < 0.0 or decoded_value < 0.0):
-        return false
-    return absf(before_value - decoded_value) <= SOURCE_PROFILE_JSON_ROUNDOFF
+    # Reject any material or even tiny manually altered value whose
+    # serialized representation is distinguishable in the same file.
+    return JSON.stringify(before_value, "", true, true) == (
+        JSON.stringify(decoded_value, "", true, true))
 
 static func _difference(original: Variant, decoded: Variant,
         path: String, depth: int) -> String:
@@ -151,12 +127,8 @@ static func _difference(original: Variant, decoded: Variant,
         var after_float: float = float(decoded)
         if not is_finite(before_float) or not is_finite(after_float):
             return path + ":non_finite_native_float"
-        if before_float != after_float and not (
-                _source_profile_rounding_only(path, before_float, after_float)
-                or _source_facility_condition_rounding_only(
-                    path, before_float, after_float)
-                or _source_paid_shift_output_rounding_only(
-                    path, before_float, after_float)):
+        if before_float != after_float and not _same_safe_json_float(
+                path, before_float, after_float):
             return path + ":float_changed_by_json"
         return ""
     if kind != decoded_kind:
