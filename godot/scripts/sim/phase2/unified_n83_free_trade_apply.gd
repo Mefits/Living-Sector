@@ -28,8 +28,10 @@ static func _fixture(world: Dictionary, ship_id: String) -> Dictionary:
     if fid.is_empty() or not world["facilities"].has(fid):
         return _bad("n83_market_has_no_actual_facility")
     var facility: Dictionary = world["facilities"][fid]
-    if str(facility.get("location", "")) != loc or str(facility.get("type", "")) != "station":
-        return _bad("n83_market_not_real_station")
+    if str(facility.get("location", "")) != loc or int(
+            facility.get("docking_capacity", 0)) < 1 or bool(
+            facility.get("abandoned", false)):
+        return _bad("n83_market_operator_has_no_source_n21_dock")
     var pairs: Dictionary = world.get("faction_relations", {})
     if not Relations.validate_pairs(pairs):
         return _bad("n83_invalid_real_treaties")
