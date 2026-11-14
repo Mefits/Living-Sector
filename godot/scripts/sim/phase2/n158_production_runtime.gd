@@ -1236,6 +1236,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
         return false
     # Never show stale in-transit receipts from before a successful load.
     _last_ship_result = {}
+    _last_native_crew_result = {}
     _last_station_demand = {}
     _last_contract_admissions = {}
     _last_n153_result = {}
