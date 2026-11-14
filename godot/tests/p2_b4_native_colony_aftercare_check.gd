@@ -43,6 +43,23 @@ func _initialize() -> void:
             "f1", false)):
         _fail("starving colony did not block speculative new expansion")
         return
+    # Frozen source scales per-household purchase rates by resident
+    # count / 1000, rather than treating consumption as whole-colony
+    # per-purchase amount. 50 residents => minimum reserve 20.
+    var actual_view: Dictionary = actual["views"][0]
+    if not is_equal_approx(float(actual_view["food_reserve_target"]), 20.0) or (
+            not is_equal_approx(float(actual_view["water_reserve_target"]), 20.0)):
+        _fail("N92 population-scaled life support reserve diverged")
+        return
+    var emergency: Dictionary = world.duplicate(true)
+    emergency["populations"]["real-settlers"]["count"] = 1000
+    emergency["populations"]["real-settlers"]["food_satisfaction"] = 10
+    var emergency_view: Dictionary = Aftercare.observe(emergency).get(
+        "views", [])[0]
+    if not is_equal_approx(float(emergency_view["water_reserve_target"]), 88.0) or (
+            not is_equal_approx(float(emergency_view["food_reserve_target"]), 80.0)):
+        _fail("N92 frozen emergency water 0.5/1000 below satisfaction 30 missing")
+        return
     if actual.get("shipyards", []).size() != 1 or bool(actual.get(
             "hull_autobuild", true)) or world != before:
         _fail("shipyard observation minted a hull/module or changed World")
