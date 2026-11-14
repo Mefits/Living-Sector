@@ -99,14 +99,46 @@ func initialize(physical_world: Dictionary) -> bool:
     _ready = true
     return true
 
+## Profiling counters are strictly outside N39 snapshot and are never
+## saved or consumed by game decisions. Opt in with LS_PROFILE_NATIVE_PHASES=1.
+var _profile_copy_enabled: bool = OS.get_environment(
+    "LS_PROFILE_NATIVE_PHASES") == "1"
+var _profile_world_copy_calls: int = 0
+var _profile_world_copy_usec: int = 0
+var _profile_ship_copy_calls: int = 0
+var _profile_ship_copy_usec: int = 0
+
+func world_copy_profile() -> Dictionary:
+    return {"enabled": _profile_copy_enabled,
+        "world_copy_calls": _profile_world_copy_calls,
+        "world_copy_usec": _profile_world_copy_usec,
+        "ship_copy_calls": _profile_ship_copy_calls,
+        "ship_copy_usec": _profile_ship_copy_usec}
+
 func world_snapshot() -> Dictionary:
-    return _world.duplicate(true) if _ready else {}
+    if not _ready:
+        return {}
+    if not _profile_copy_enabled:
+        return _world.duplicate(true)
+    var start_us: int = Time.get_ticks_usec()
+    var copy: Dictionary = _world.duplicate(true)
+    _profile_world_copy_calls += 1
+    _profile_world_copy_usec += maxi(0, Time.get_ticks_usec() - start_us)
+    return copy
 
 ## Read-only fleet projection from the SAME authoritative N39 World.
 ## The GUI should not duplicate the entire market/receipts/history graph
 ## merely to draw a few ship markers. No new owner or independent state.
 func ships_snapshot() -> Dictionary:
-    return _world.get("ships", {}).duplicate(true) if _ready else {}
+    if not _ready:
+        return {}
+    if not _profile_copy_enabled:
+        return _world.get("ships", {}).duplicate(true)
+    var start_us: int = Time.get_ticks_usec()
+    var copy: Dictionary = _world.get("ships", {}).duplicate(true)
+    _profile_ship_copy_calls += 1
+    _profile_ship_copy_usec += maxi(0, Time.get_ticks_usec() - start_us)
+    return copy
 
 func balance_of_facility(facility_id: String) -> int:
     return _ledger.balance(Schema.facility_account(facility_id)) if _ready else -1
