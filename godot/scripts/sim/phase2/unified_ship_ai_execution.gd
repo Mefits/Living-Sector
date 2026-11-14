@@ -4,6 +4,8 @@ extends RefCounted
 const Bt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const Commands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
 const ShipPhase = preload("res://scripts/sim/phase2/unified_ship_phase.gd")
+const N91 = preload("res://scripts/ported/n91_construction_executor.gd")
+const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
 
 static func _dispatch(action: Dictionary, _bb: Dictionary,
         world: Dictionary, graph: RefCounted, positions: Dictionary,
@@ -35,6 +37,41 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.FAILURE, "reason": "n146_invalid_transit_command"}
         return {"status": Bt.RUNNING, "commands": [cmd],
             "reason": "issued_n146_begin_transit"}
+    # N91 construction is a noncommercial real engineering task, NOT
+    # a fictitious N104 payment. N141 alone awards paid progress.
+    if kind in ["ConstructionDock", "Construct"]:
+        var site_id: String = str(action.get("site_id", ""))
+        var site: Dictionary = world.get("construction_sites", {}).get(site_id, {})
+        if site.is_empty():
+            return {"status": Bt.SUCCESS, "reason": "n154_site_already_materialized"}
+        if str(ship.get("current_goal", "")) != "construct" or str(ship.get("active_contract_id", "")) != "" or str(site.get("faction_id", "")) != str(ship.get("faction_id", "")):
+            return {"status": Bt.FAILURE, "reason": "n91_invalid_construction_actor"}
+        if not ShipCatalog.spec(str(ship.get("class", ""))).get("crew_roles", []).has("engineer"):
+            return {"status": Bt.FAILURE, "reason": "n91_no_engineering_crew"}
+        var site_location: String = str(site.get("location_name", ""))
+        if location != site_location or not ship.get("transit", {}).is_empty():
+            return {"status": Bt.RUNNING, "reason": "n91_site_arrival_pending"}
+        var station_id: String = str(world.get("markets", {}).get(location, {}).get("owner", ""))
+        if station_id.is_empty() or not world.get("facilities", {}).has(station_id):
+            return {"status": Bt.RUNNING, "reason": "n91_site_station_missing"}
+        var dock_id: String = str(ship.get("docked_at", ""))
+        if kind == "ConstructionDock":
+            if dock_id == station_id:
+                return {"status": Bt.SUCCESS, "reason": "n91_physically_docked"}
+            var request_kind: String = "RequestDock" if dock_id.is_empty() else "ReleaseDock"
+            var command: Dictionary = Commands.make_command(request_kind, {
+                "ship": ship_id, "facility_location": location,
+                "construction_site_id": site_id,
+                "preferred_facility_type": "station"})
+            if command.is_empty():
+                return {"status": Bt.FAILURE, "reason": "n146_n91_dock_request_invalid"}
+            return {"status": Bt.RUNNING, "commands": [command],
+                "reason": "n91_wait_real_n21_dock"}
+        if dock_id != station_id:
+            return {"status": Bt.RUNNING, "reason": "n91_construct_requires_actual_dock"}
+        if int(site.get("progress_delivered", 0)) < int(site.get("progress_required", 1)):
+            return {"status": Bt.RUNNING, "reason": "n91_material_delivery_pending"}
+        return {"status": Bt.RUNNING, "reason": "n91_wait_n141_paid_work"}
     var contract_id: String = str(ship.get("active_contract_id", ""))
     var contracts: Dictionary = world.get("contract_board", {}).get("contracts", {})
     var c: Dictionary = contracts.get(contract_id, {})
@@ -154,11 +191,30 @@ static func propose(world: Dictionary, graph: RefCounted,
         var ship: Dictionary = staged["ships"][ship_id]
         var contract_id: String = str(ship.get("active_contract_id", ""))
         if contract_id.is_empty():
-            continue
+            if str(ship.get("current_goal", "")) != "construct":
+                continue
+            var assigned_bt: Variant = ship.get("current_bt", null)
+            if not (assigned_bt is Dictionary) or not Bt.validate(assigned_bt):
+                return {"ok": false, "reason": "n91_invalid_active_engineer_plan", "ship_id": str(ship_id)}
+            var target_site: String = N91.target(assigned_bt)
+            if target_site.is_empty():
+                return {"ok": false, "reason": "n91_active_construct_target_missing", "ship_id": str(ship_id)}
+            if not staged.get("construction_sites", {}).has(target_site):
+                # Source N154 facility already appeared; relinquish the
+                # mission, not the actual ship dock, goods or credits.
+                ship["current_goal"] = "idle"
+                ship["current_bt"] = null
+                ship["current_goal_score"] = 0.0
+                ship["planning_source"] = "n91_construction_materialized"
+                changed = true
+                records.append({"ship_id": str(ship_id), "contract_id": "",
+                    "site_id": target_site, "leaf": "", "status": Bt.SUCCESS,
+                    "reason": "n154_construction_completed"})
+                continue
         var board: Dictionary = staged.get("contract_board", {})
         var contracts: Dictionary = board.get("contracts", {})
         var held: Dictionary = contracts.get(contract_id, {})
-        if held.is_empty() or str(held.get("status", "")) not in ["accepted", "picked_up"] or str(held.get("fulfiller_id", "")) != str(ship_id):
+        if not contract_id.is_empty() and (held.is_empty() or str(held.get("status", "")) not in ["accepted", "picked_up"] or str(held.get("fulfiller_id", "")) != str(ship_id)):
             return {"ok": false, "reason": "n84_missing_actual_n104_obligation",
                 "ship_id": str(ship_id)}
         var bt: Variant = ship.get("current_bt", null)
@@ -222,6 +278,7 @@ static func propose(world: Dictionary, graph: RefCounted,
         if not next.get("commands", []).is_empty():
             changed = true
         records.append({"ship_id": str(ship_id), "contract_id": contract_id,
+            "site_id": N91.target(next["tree"]) if contract_id.is_empty() else "",
             "leaf": current_leaf, "status": str(next["status"]),
             "reason": detail["reason"]})
     return {"ok": true, "changed": changed, "ships": staged["ships"],
