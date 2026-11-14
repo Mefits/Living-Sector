@@ -194,6 +194,28 @@ def audit(root: Path) -> dict:
         "Source N147 contract must follow the same-faction current-cycle N134 Head grant; no duplicate N104 money.",
         "SOURCE_LINK_PRESENT", "SOURCE_ONLY_NOT_YET_CONNECTED")
 
+    # Native N113 1.20x / 2 REAL decision-cycle confirmation is now a
+    # single N147/N39 strategic-memory gate. This statically checks only
+    # its call links, not the quality of live source candidate inputs.
+    n113 = read(root, "godot/scripts/sim/phase2/unified_n113_strategy_switch.gd")
+    n147_head = read(
+        root, "godot/scripts/sim/phase2/unified_n147_colony_head_grant.gd"
+    )
+    add("n113_frozen_strategy_hysteresis_in_n147",
+        "const SUPERIORITY: float = 1.20" in n113 and
+        "const CONFIRMATIONS: int = 2" in n113 and
+        "SourceN113.decide(memory, options, tick)" in n147_head and
+        "NativeN147Head.authorize(" in n39 and
+        "N113_REAL_STRATEGY_NO_N104_CONTRACT" in n39 and
+        "Schema.validate(next_world)" in n39 and
+        "production.post_native_passenger_migration(" in n158,
+        ["native/crates/sim_core/src/strategy/director.rs",
+         "godot/scripts/sim/phase2/unified_n113_strategy_switch.gd",
+         "godot/scripts/sim/phase2/unified_n147_colony_head_grant.gd",
+         n39_path, n158_path],
+        "Rust N113 memory, two-cycle threshold, and no-payment first vote are connected only for source-scored N147 alternatives. Real research/expansion incumbent comparison remains fail-closed, not completed parity.",
+        "SOURCE_LINK_PRESENT", "SOURCE_ONLY_NOT_YET_CONNECTED")
+
     # Presentation must not claim a phase absent when it really executes.
     method = re.search(
         r"func implemented_phases\([^)]*\).*?(?=\nfunc |\Z)", n158, re.S
