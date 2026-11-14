@@ -1,0 +1,19 @@
+{
+  "worker": "second-chat-colony-n144-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "b5899e382663195b80d6c66225da0a2c946533eb",
+  "goal": "Rust strategy/colony.rs::proposals+commission active founding site, real N134 approval to single N104/N9 prepaid passenger or construction contracts; no phantom cargo/money",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n144_colony_contracts.gd (new)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N144 paid site contract method only)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (N134 strategic colony approval and paid posting only)",
+    "godot/scripts/sim/phase2/unified_n104_passenger_transit.gd (N144 founding passenger acceptance only as needed)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (N144 contract binding and receipt invariants only)",
+    "godot/tests/p2_n144_colony_paid_contract_check.gd (new)",
+    "godot/docs/phase2/handoffs/20261114-second-chat-n144-paid-colony-contracts.md (new)"
+  ],
+  "non_overlap": "N149 lease released; any new leases read before central writes. No N154 materialization, N97 marketplace rewrite, N148 retire, balance or UI changes",
+  "verification": "SOURCE IN PROGRESS; no Godot or Actions tests",
+  "handoff": "pending"
+}
