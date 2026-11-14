@@ -13,7 +13,8 @@
     "godot/scripts/sim/save_state.gd (diagnostics only if needed)",
     "godot/docs/phase2/handoffs/20261114-chat1-stage1-integration-repair.md",
     "godot/docs/phase2/P2_CI_TRIGGER.txt (single CI trigger if necessary)",
-    "godot/scripts/sim/phase2/unified_native_save_roundtrip_guard.gd (only exact N155 profile float JSON rounding exception)"
+    "godot/scripts/sim/phase2/unified_native_save_roundtrip_guard.gd (only exact N155 profile float JSON rounding exception)",
+    "godot/scripts/sim/ship_state.gd (source N108 derived float JSON restore compatibility)"
   ],
   "constraints": [
     "No balance or mechanic changes",
@@ -23,5 +24,5 @@
     "No repeated GitHub Actions unless evidence requires followup"
   ],
   "verification": "IN_PROGRESS",
-  "notes": "First actual Godot run 43640440083: N91 runtime error resolved, stale phase list resolved; both N143 and N158 save rejected because NativeFrameGuard strict profile/science float mismatch after JSON. Narrow 1e-12 source N155 personality-only tolerance; no financial/market leniency."
+  "notes": "CI 43641003750: N143 loaded snapshot failed N39 Schema invalid_ship_state after exact JSON normalization. CI 43641400532: N158 5-tick production save failed at computed work_shift/produced_outputs with 1e-14 IEEE drift; broad same-JSON-token, <=1e-12 relative float rule now used outside money/stock/cargo/contract. N108 derived fitting recomputes exact installed slots and permits only ULP-scale float changes; integer ship progression normalized prior to restore. Final stage one CI pending."
 }
