@@ -226,6 +226,28 @@ static func validate(state: Dictionary) -> String:
                 return "invalid_contract_escrow_balance"
             if int(escrows[account]) != int(c["reserved"]):
                 return "contract_escrow_balance_mismatch"
+        # N144 founder contracts belong to an actual N151 ConstructionSite.
+        # They cannot point at an invented destination or mint an off-board
+        # escrow/household; paid/expired history may outlive the finished site.
+        for cid in contracts:
+            var c: Dictionary = contracts[cid]
+            if str(c.get("mission_category", "")) != "strategy.colony.v1":
+                continue
+            var site_id: String = str(c.get("colony_site_id", ""))
+            if site_id.is_empty() or str(c.get("requestor_id", "")) != (
+                    "faction/" + str(c.get("faction_id", ""))) or (
+                    str(c.get("funding_source", "")) != "faction"):
+                return "n144_forged_original_colony_contract"
+            if str(c.get("contract_type", "")) == "passenger":
+                var original_count: int = int(c.get("quantity", 0))
+                if original_count not in [10, 50] or int(c.get("payment", -1)) != original_count * 80:
+                    return "n144_invalid_original_passenger_quote"
+            if str(c.get("status", "")) in ["posted", "accepted", "picked_up", "delivered"]:
+                var live: Dictionary = state.get("construction_sites", {}).get(site_id, {})
+                if live.is_empty() or str(live.get("location_name", "")) != str(c.get("destination_location", "")) or (
+                        str(live.get("faction_id", "")) != str(c.get("faction_id", "")) or
+                        str(live.get("labor", {}).get("colony_source", "")) != str(c.get("source_location", ""))):
+                    return "n144_active_colony_contract_missing_real_site"
         for account in escrows:
             if not _id(account) or not str(account).begins_with("escrow:"):
                 return "invalid_escrow_account"
@@ -303,6 +325,31 @@ static func validate(state: Dictionary) -> String:
             if pending != null:
                 if head["technologies"].has(str(pending)) or int(head["research_required"]) != Technology.required_work(str(pending)):
                     return "native_target_progress_mismatch"
+            # N113 frozen Director strategic memory, committed by N134
+            # in the one canonical World (not a duplicate head planner).
+            if head.has("strategic"):
+                if not (head["strategic"] is Dictionary):
+                    return "invalid_native_n113_memory"
+                var strategic: Dictionary = head["strategic"]
+                if str(strategic.get("kind", "")) not in ["", "supply", "expand", "research", "migrate"] or (
+                        not (strategic.get("target", "") is String) or
+                        not (strategic.get("reason", "") is String) or
+                        typeof(strategic.get("since", null)) != TYPE_INT or
+                        int(strategic["since"]) < 0 or
+                        not (strategic.get("score", null) is float or strategic.get("score", null) is int) or
+                        not is_finite(float(strategic["score"])) or float(strategic["score"]) < 0.0):
+                    return "invalid_original_director_strategy"
+                var switching: Variant = strategic.get("pending", null)
+                if switching != null:
+                    if not (switching is Dictionary):
+                        return "invalid_native_n113_pending"
+                    if str(switching.get("kind", "")) not in ["supply", "expand", "research", "migrate"] or (
+                            not (switching.get("target", "") is String) or
+                            typeof(switching.get("consecutive_cycles", null)) != TYPE_INT or
+                            int(switching["consecutive_cycles"]) < 1 or int(switching["consecutive_cycles"]) > 8 or
+                            typeof(switching.get("first_seen_tick", null)) != TYPE_INT or
+                            int(switching["first_seen_tick"]) < 0):
+                        return "invalid_original_director_pending_confirmation"
         var research_receipts: Dictionary = state["research_receipts"]
         for receipt_id in research_receipts:
             var item: Variant = research_receipts[receipt_id]
