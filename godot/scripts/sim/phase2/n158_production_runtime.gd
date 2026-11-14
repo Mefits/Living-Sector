@@ -1003,6 +1003,8 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_n134_result = {}
     _last_n100_result = {}
     _last_n121_result = {}
+    _last_n152_result = {}
+    _last_admin_removal = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
