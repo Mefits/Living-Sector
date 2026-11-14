@@ -26,6 +26,7 @@ func _initialize() -> void:
         _fail("unexpected original 8/3 native markets, facilities or 24 ships")
         return
     var money: int = _money(initial["native_production"]["ledger"])
+    var initial_receipts: Dictionary = initial["native_production"]["ledger"].get("receipts", {}).duplicate(true)
     var path: String = "user://tests/p2-clean-stage2-" + str(Time.get_ticks_usec()) + ".json"
     var started: int = Time.get_ticks_msec()
     if not sim.queue_control("pause") or not sim.queue_control("speed", 8.0):
@@ -55,8 +56,10 @@ func _initialize() -> void:
         var frame: Dictionary = checkpoint["native_production"]
         var world: Dictionary = frame["world"]
         var bank: Dictionary = frame["ledger"]
-        if _money(bank) != money:
-            _fail("canonical N9 total money changed at " + str(tick))
+        var money_audit: Dictionary = _money_audit(money, initial_receipts, bank)
+        if not money_audit.get("ok", false):
+            _fail("unaccounted N9 balance mutation at tick " + str(tick) +
+                ": " + str(money_audit))
             return
         if not (world.get("ships") is Dictionary) or not (world.get("contract_board") is Dictionary):
             _fail("N39 lost native fleet/contract board at " + str(tick))
@@ -65,7 +68,9 @@ func _initialize() -> void:
             " elapsed_ms=" + str(Time.get_ticks_msec() - started) +
             " ships=" + str(world["ships"].size()) +
             " contracts=" + str(world["contract_board"].get("contracts", {}).size()) +
-            " receipts=" + str(bank.get("receipts", {}).size()))
+            " receipts=" + str(bank.get("receipts", {}).size()) +
+            " spendable_credits=" + str(money_audit["observed"]) +
+            " native_wages_writeoffs=" + str(money_audit["documented_sinks"]))
         if tick != 360:
             continue
         if Saves.save_runner(sim, path) != OK:
@@ -102,6 +107,43 @@ func _initialize() -> void:
     print("P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=" +
         str(Time.get_ticks_msec() - started))
     quit(0)
+
+
+## Frozen Rust ShipCrew wages are accrued and nonspendable: N9 correctly
+## debits a ship wallet with a SINGLE-leg native_ship_crew_wages receipt.
+## Decommission/removal also closes a real wallet via explicit write-off.
+## Everything else must be a balanced N9 transfer. Never mislabel these
+## authored native sinks as a gameplay money-conservation failure.
+func _money_audit(opening: int, initial: Dictionary, bank: Dictionary) -> Dictionary:
+    var receipts: Dictionary = bank.get("receipts", {})
+    for old_id in initial:
+        if not receipts.has(old_id) or receipts[old_id] != initial[old_id]:
+            return {"ok": false, "reason": "n9_original_receipt_missing_or_modified", "receipt": old_id}
+    var expected: int = opening
+    var sinks: int = 0
+    for id in receipts:
+        if initial.has(id):
+            continue
+        var row: Dictionary = receipts[id]
+        if str(row.get("id", "")) != str(id) or not (row.get("legs") is Array) or row["legs"].is_empty():
+            return {"ok": false, "reason": "n9_new_receipt_invalid", "receipt": id}
+        var delta: int = 0
+        for leg in row["legs"]:
+            if not (leg is Dictionary) or typeof(leg.get("delta")) != TYPE_INT:
+                return {"ok": false, "reason": "n9_new_receipt_leg_invalid", "receipt": id}
+            delta += int(leg["delta"])
+        if delta > 0 or (delta < 0 and str(row.get("kind", "")) not in [
+                "native_ship_crew_wages", "ship_decommissioned", "facility_removed"]):
+            return {"ok": false, "reason": "n9_unapproved_money_creation_or_sink", "receipt": id,
+                "delta": delta, "kind": row.get("kind", "")}
+        expected += delta
+        sinks -= delta
+    var observed: int = _money(bank)
+    if observed != expected:
+        return {"ok": false, "reason": "n9_balances_not_explained_by_receipts",
+            "expected": expected, "observed": observed}
+    return {"ok": true, "expected": expected, "observed": observed,
+        "documented_sinks": sinks}
 
 func _money(bank: Dictionary) -> int:
     var total: int = 0
