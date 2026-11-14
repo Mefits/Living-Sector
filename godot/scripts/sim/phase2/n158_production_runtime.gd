@@ -34,6 +34,7 @@ var _last_construction_result: Dictionary = {}
 var _last_n91_result: Dictionary = {}
 var _last_n134_result: Dictionary = {}
 var _last_n100_result: Dictionary = {}
+var _last_n121_result: Dictionary = {}
 var _last_n147_result: Dictionary = {}
 var _last_n151_founding: Dictionary = {}
 var _last_faction_relations: Dictionary = {}
@@ -58,6 +59,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_n91_result = {}
     _last_n134_result = {}
     _last_n100_result = {}
+    _last_n121_result = {}
     _last_n147_result = {}
     _last_n151_founding = {}
     _last_faction_relations = {}
@@ -119,6 +121,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_n100_result = {"ok": true, "tick": tick,
             "mode": str(production.world_snapshot().get("native_planner_mode", "legacy")),
             "plans": [], "blocked": []}
+        _last_n121_result = {"ok": true, "tick": tick,
+            "submitted": [], "receipts": [], "blocked": []}
         # Rust faction::tick_factions recalculates BodyTerritory FIRST.
         # A world-owned N39 commit, not a UI-local one-off snapshot.
         var territory_pass: Dictionary = production.apply_native_body_territory(
@@ -311,6 +315,30 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                         _last_n134_result["blocked"].append({
                             "faction_id": str(faction),
                             "reason": str(posted_site.get("reason", "source_N154_unfunded"))})
+        # The source N121 execution pass owns the N98 gate and ONE
+        # canonical paid N104 post. Never invoke this independently of
+        # the original 60×mult HeadDecision strategic cycle. All active
+        # native receipts come from actual N104/N15/N9 on the live world.
+        if tick % maxi(1, 60 * _tick_multiplier) == 0:
+            var native_factions: Array = production.world_snapshot().get(
+                "faction_treasuries", {}).keys()
+            native_factions.sort()
+            for active_faction in native_factions:
+                var dispatched: Dictionary = production.apply_native_n121_execution(
+                    tick, str(active_faction), _tick_multiplier,
+                    _fleet_roster.registry.graph())
+                if not dispatched.get("ok", false):
+                    _last_n121_result = dispatched
+                    return false
+                match str(dispatched.get("status", "")):
+                    "submitted_paid_n104_delivery":
+                        _last_n121_result["submitted"].append(dispatched.duplicate(true))
+                    "n121_real_canonical_contract_observed":
+                        _last_n121_result["receipts"].append(dispatched.duplicate(true))
+                    _:
+                        if dispatched.get("due", false) and str(dispatched.get("status", "")) not in [
+                                "await_native_dependencies", "n121_no_receipt_downgrade"]:
+                            _last_n121_result["blocked"].append(dispatched.duplicate(true))
         # Source N92 -> N147 workforce proposals run on the existing
         # strategic cadence. These are observable native intents ONLY.
         # N104 passenger embark/disembark has no canonical P2 Apply yet,
@@ -855,6 +883,9 @@ func economy_summary() -> Dictionary:
         "research_total_completed": _research_completion_count(current),
         "native_n100_mode": str(current.get("native_planner_mode", "legacy")),
         "native_n100_planned_this_tick": _last_n100_result.get("plans", []).size(),
+        "native_n121_paid_posts_this_tick": _last_n121_result.get("submitted", []).size(),
+        "native_n121_receipts_this_tick": _last_n121_result.get("receipts", []).size(),
+        "native_n121_blocked_this_tick": _last_n121_result.get("blocked", []).size(),
         "native_n100_blocked_this_tick": _last_n100_result.get("blocked", []).size(),
         "native_n98_pending_plans": current.get("native_planner_records", {}).size(),
         "construction_head_commissions_this_tick": _last_n134_result.get("commissioned", []).size(),
@@ -928,6 +959,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_n91_result = {}
     _last_n134_result = {}
     _last_n100_result = {}
+    _last_n121_result = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
