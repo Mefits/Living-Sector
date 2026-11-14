@@ -1,0 +1,19 @@
+{
+  "worker": "second-chat-colony-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "3ac69d5bdb4a8b9fa0df02a2b3debe008b5263d9",
+  "goal": "Rust engine/colony.rs prepare_docks: real temporary construction_dock and zero household on approved N151 sites; physical N21 + passenger landing integration without ghost market/wealth",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n151_colony_dock_phase.gd (new)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (dock/household invariants only)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N151 prepare_docks commit only)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (N151 phase call/restore)",
+    "godot/scripts/sim/phase2/unified_n104_passenger_transit.gd (destination colony dock only)",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd (real destination dock selection)",
+    "godot/scripts/sim/phase2/unified_fleet_logistics_phase.gd (if required)"
+  ],
+  "non_overlap": "No N148 retire, no N134 construction funding, no N154 materialization or balance/UI changes",
+  "verification": "SOURCE IN PROGRESS; Godot/Actions not run",
+  "handoff": "pending"
+}
