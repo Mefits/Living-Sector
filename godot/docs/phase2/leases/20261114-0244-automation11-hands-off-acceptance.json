@@ -1,0 +1,10 @@
+{
+  "worker": "automation11",
+  "status": "IN_PROGRESS",
+  "started_at": "2026-11-14T01:44:05Z",
+  "scope": [
+    "godot/tests/p2_unattended_autonomous_flight_check.gd"
+  ],
+  "goal": "Remove manual funded contract posting; assert live tick N135/N104 creates order",
+  "ci_release_owner": false
+}
