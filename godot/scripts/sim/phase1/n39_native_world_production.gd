@@ -32,6 +32,9 @@ const CommodityCatalog = preload("res://scripts/sim/economy/commodity_catalog.gd
 const NativeShipyardRefit = preload("res://scripts/port/n108_shipyard_refit_apply.gd")
 const NativeStationAdministration = preload("res://scripts/sim/phase2/unified_native_station_administration_phase.gd")
 const NativeHybridPlanning = preload("res://scripts/sim/phase2/unified_native_hybrid_planning.gd")
+const NativeN121 = preload("res://scripts/sim/phase2/unified_n121_native_execution_phase.gd")
+const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
+const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 
 const GalaxyConstructionCrew: Dictionary = {
     "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
@@ -2021,6 +2024,210 @@ func _run_shipyard_modules(tick: int, multiplier: int,
             "receipt": str(shift["receipt"]),
             "input_payment": int(shift.get("input_payment", 0))})
     return {"ok": true, "paid": paid_modules, "blocked": blocked}
+
+
+## N121 is the ONLY source-authorized executor of opt-in N100/N98
+## plans. This function re-checks source N121 preflight against current N39
+## and posts to the EXISTING N104 board using its ONE N9 ledger.
+## No second ContractBoard/treasury, no invented cargo or paid receipt.
+func apply_native_n121_execution(tick: int, faction: String,
+        multiplier: int, graph: RefCounted) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick or multiplier < 1:
+        return {"ok": false, "reason": "n121_not_current_faction_tick"}
+    var mode: String = str(_world.get("native_planner_mode", "legacy"))
+    if mode == "legacy":
+        return {"ok": true, "due": false, "status": "source_legacy_director"}
+    if not _world.has("native_execution") or not _world.has("native_planner_records"):
+        return {"ok": false, "reason": "n121_missing_canonical_execution_state"}
+    var record: Dictionary = _world["native_planner_records"].get(faction, {})
+    var state: Dictionary = _world["native_execution"]
+    if not N121State.validate(state):
+        return {"ok": false, "fatal": true, "reason": "n121_invalid_source_execution_memory"}
+    if record.is_empty() and not state["active"].has(faction):
+        return {"ok": true, "due": false, "status": "no_source_head_plan"}
+    if record.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n121_orphaned_active_plan"}
+    var pending: Dictionary = state["active"].get(faction, {})
+    if pending.is_empty():
+        if str(record.get("status", "")) != "n98_planned_not_dispatched":
+            return {"ok": true, "due": false,
+                "status": str(record.get("status", "no_native_plan"))}
+        pending = {"ledger": record.get("ledger", {}).duplicate(true),
+            "goal": record.get("goal", {}).duplicate(true),
+            "actions": record.get("actions", []).duplicate(true),
+            "production_goal": bool(record.get("production_goal", false)),
+            "production_target_delta": int(record.get("production_target_delta", 0)),
+            "production_baselines": record.get("production_baselines", {}).duplicate(true),
+            "production_accounted": {}, "production_started_tick": null,
+            "last_reason": "source_n100_admitted",
+            "planner_rationale": str(record.get("reason", ""))}
+    if not (pending.get("ledger") is Dictionary):
+        return {"ok": false, "fatal": true, "reason": "n121_pending_without_n98_ledger"}
+    if str(pending["ledger"].get("faction_id", "")) != faction:
+        return {"ok": false, "fatal": true, "reason": "n121_mismatched_planner_faction"}
+    var gate: Dictionary = NativeN98.next_gate(pending["ledger"])
+    var kind: String = str(gate.get("kind", ""))
+    var ledger_next = Ledger.new()
+    if not ledger_next.restore(_ledger.snapshot()):
+        return {"ok": false, "fatal": true, "reason": "n121_canonical_bank_missing"}
+    var staged: Dictionary = _world.duplicate(true)
+    var next_state: Dictionary = state.duplicate(true)
+    var event: Dictionary = {"ok": true, "due": true, "tick": tick,
+        "faction_id": faction, "kind": kind, "status": "awaiting_source_step",
+        "committed_credits": 0}
+    match kind:
+        "ready":
+            var chosen: Dictionary = NativeN121.action_for_step(pending, gate)
+            if not chosen.get("ok", false):
+                return {"ok": false, "reason": "n121_source_action_missing"}
+            var action: Dictionary = chosen["action"]
+            var step_id: String = str(gate.get("step_id", ""))
+            var dispatch_key: String = str(gate.get("dispatch_key", ""))
+            if str(action.get("kind", "")) == "deliver":
+                var priced: Dictionary = NativeN121.paid_delivery_quote(
+                    _world, faction, action, dispatch_key, tick, multiplier, graph)
+                if not priced.get("ok", false):
+                    # The source original retries a fresh goal later. An
+                    # unfunded quote MUST NOT create a Prepared ledger step.
+                    event["status"] = "native_source_delivery_blocked"
+                    event["reason"] = str(priced.get("reason", "source_preflight_failed"))
+                    return event
+                if int(staged.get("native_htn_next_id", 0)) < 1:
+                    return {"ok": false, "fatal": true,
+                        "reason": "n121_missing_original_order_serial"}
+                var order_id: String = "n121-" + str(staged["native_htn_next_id"])
+                var escrow: String = "escrow:" + order_id
+                if staged.get("contract_board", {}).get("contracts", {}).has(order_id):
+                    return {"ok": false, "fatal": true,
+                        "reason": "n121_canonical_contract_id_reused"}
+                var source_quote: Dictionary = priced["quote"]
+                var reward: int = int(source_quote["reward"])
+                var payer: String = Schema.faction_account(faction)
+                var balance: int = int(staged["faction_treasuries"].get(faction, -1))
+                if balance < reward or balance - reward < 5000:
+                    return {"ok": false, "reason": "n121_original_faction_reserve"}
+                if not ledger_next.register_empty_account(escrow):
+                    return {"ok": false, "fatal": true, "reason": "n121_duplicate_escrow"}
+                var board = ContractBoard.new(ledger_next)
+                if not board.restore(staged["contract_board"]):
+                    return {"ok": false, "fatal": true, "reason": "n121_real_n104_board_corrupt"}
+                var ready: Dictionary = NativeN98.prepare(pending["ledger"],
+                    step_id, tick)
+                if ready.has("error") or str(ready.get("dispatch_key", "")) != dispatch_key:
+                    return {"ok": false, "fatal": true,
+                        "reason": "n121_nonready_original_n98_step"}
+                var posted: Dictionary = board.post(order_id, "delivery",
+                    payer, escrow, str(source_quote["commodity"]),
+                    int(source_quote["units"]), str(source_quote["source"]),
+                    str(source_quote["destination"]), reward, tick,
+                    tick + int(source_quote["lifespan_ticks"]), "faction")
+                if not posted.get("ok", false):
+                    return {"ok": false, "reason": "n121_real_n104_" +
+                        str(posted.get("reason", "post_rejected"))}
+                var acknowledged: String = NativeN98.acknowledge(
+                    pending["ledger"], step_id, dispatch_key, order_id, tick)
+                if not acknowledged.is_empty():
+                    return {"ok": false, "fatal": true,
+                        "reason": "n121_source_acknowledge_" + acknowledged}
+                staged["contract_board"] = board.snapshot()
+                staged["contract_board"]["contracts"][order_id]["mission_category"] = "strategy.logistics.v1"
+                staged["contract_board"]["contracts"][order_id]["native_htn_key"] = dispatch_key
+                staged["escrow_balances"][escrow] = ledger_next.balance(escrow)
+                staged["faction_treasuries"][faction] = ledger_next.balance(payer)
+                staged["native_htn_next_id"] = int(staged["native_htn_next_id"]) + 1
+                staged["native_htn_contracts"][order_id] = {
+                    "faction_id": faction, "plan_id": str(pending["ledger"]["plan_id"]),
+                    "step_id": step_id, "dispatch_key": dispatch_key,
+                    "tick": tick}
+                event["status"] = "submitted_paid_n104_delivery"
+                event["contract_id"] = order_id
+                event["n9_receipt"] = "contract:" + order_id + ":post"
+                event["committed_credits"] = reward
+            else:
+                # Real production is already executed by N39/N18. N121
+                # must observe authentic paid N116 shift counters and
+                # N98 receipt before claiming Produce as complete.
+                event["status"] = "n121_non_delivery_not_yet_admitted"
+                event["reason"] = str(action.get("kind", ""))
+                return event
+        "await_native":
+            var evidence: Dictionary = NativeN121.native_delivery_receipt(
+                _world, _ledger.snapshot(), faction, pending, gate, tick)
+            if not evidence.get("ok", false):
+                return {"ok": false, "fatal": true,
+                    "reason": str(evidence.get("reason", "n121_invalid_n104_receipt"))}
+            event["status"] = str(evidence.get("reason", "n121_wait_native_receipt"))
+            if evidence.get("receipt", null) is Dictionary:
+                var apply_error: String = NativeN98.apply_receipt(
+                    pending["ledger"], evidence["receipt"])
+                if not apply_error.is_empty():
+                    return {"ok": false, "fatal": true,
+                        "reason": "n121_n98_receipt_" + apply_error}
+                event["native_receipt"] = evidence["receipt"].duplicate(true)
+        "reconcile_prepared":
+            # This state must survive a crash between a prepared source
+            # key and an N104 receipt. Never blindly repost an order.
+            var actual_id: String = ""
+            for cid in staged.get("native_htn_contracts", {}):
+                var meta: Dictionary = staged["native_htn_contracts"][cid]
+                if str(meta.get("dispatch_key", "")) == str(gate.get("dispatch_key", "")) and str(meta.get("faction_id", "")) == faction:
+                    actual_id = str(cid)
+                    break
+            if actual_id.is_empty():
+                event["status"] = "prepared_wait_real_n104_reconcile"
+                return event
+            var error: String = NativeN98.acknowledge(
+                pending["ledger"], str(gate["step_id"]),
+                str(gate["dispatch_key"]), actual_id, tick)
+            if not error.is_empty():
+                return {"ok": false, "fatal": true,
+                    "reason": "n121_prepared_reconcile_" + error}
+            event["status"] = "reconciled_real_native_order"
+        "completed", "needs_replan":
+            var chosen_goal: Dictionary = pending.get("goal", {})
+            var dest: String = str(chosen_goal.get("destination_id", ""))
+            var commodity: String = str(chosen_goal.get("commodity", ""))
+            var stock: float = float(staged.get("markets", {}).get(
+                dest, {}).get("supply", {}).get(commodity, -1.0))
+            var completed: bool = kind == "completed" and stock >= float(
+                chosen_goal.get("target_units", 0))
+            var terminal: Dictionary = N121State.record_terminal(next_state,
+                faction, pending, "completed" if completed else "needs_replan",
+                "n121_real_paid_goal_stock" if completed else
+                    "n121_native_final_stock_short", tick, multiplier, stock)
+            if not terminal.get("ok", false):
+                return {"ok": false, "fatal": true,
+                    "reason": "n121_terminal_state_rejected"}
+            next_state = terminal["state"]
+            event["status"] = "completed" if completed else "needs_replan"
+        "await_dependencies":
+            event["status"] = "await_native_dependencies"
+        _:
+            return {"ok": false, "fatal": true, "reason": "n121_invalid_original_n98_gate"}
+    if kind not in ["completed", "needs_replan"]:
+        next_state["active"][faction] = pending.duplicate(true)
+    var updated: Dictionary = staged["native_planner_records"][faction]
+    updated["status"] = ("n121_closed_" + str(event["status"])
+        if kind in ["completed", "needs_replan"] else "n121_active")
+    updated["last_source_execution_tick"] = tick
+    updated["last_source_execution_kind"] = kind
+    updated["ledger"] = pending["ledger"].duplicate(true)
+    staged["native_execution"] = next_state
+    var invalid: String = Schema.validate(staged)
+    if not invalid.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n121_canonical_n39_schema_" + invalid}
+    var accounts: Dictionary = Schema.accounts(staged)
+    var balances: Dictionary = ledger_next.snapshot().get("balances", {})
+    if accounts.size() != balances.size() or ledger_next.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "n121_fabricated_n9_wallet"}
+    for account in accounts:
+        if balances.get(account, null) != accounts[account]:
+            return {"ok": false, "fatal": true,
+                "reason": "n121_n104_n9_account_divergence"}
+    _world = staged
+    _ledger = ledger_next
+    return event
 
 
 ## Original strategy/planning/hybrid.rs is PURE: the native source
