@@ -1,0 +1,10 @@
+{
+  "worker": "automation11",
+  "status": "IN_PROGRESS",
+  "created_at": "2026-11-14T00:43:27Z",
+  "scope": [
+    "godot/tests/p2_unattended_autopost_flight_check.gd"
+  ],
+  "purpose": "Unattended N135->N104 native automatic posting and physical flight acceptance; unique new test only",
+  "shared_branch": "integration/godot-phase2-unified-20261113"
+}
