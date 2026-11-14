@@ -63,7 +63,7 @@ static func command(source: Dictionary, action: String, ship_id: String,
         return {"ok": false, "reason": "invalid_command_identity"}
     if action not in ["dock", "undock", "load", "unload"]:
         return {"ok": false, "reason": "invalid_fleet_logistics_action"}
-    if requested_dock_type not in ["station", "shipyard", "construction_dock"]:
+    if requested_dock_type not in ["station", "shipyard", "construction_dock", "market"]:
         return {"ok": false, "reason": "unsupported_native_docking_type"}
     # N151's original temporary construction dock is a genuine N21
     # physical port, but never a market warehouse or a free station.
@@ -104,10 +104,25 @@ static func command(source: Dictionary, action: String, ship_id: String,
             target_station = str(staged["markets"][ship_location].get("owner", ""))
             if not registry.facilities.has(target_station):
                 return {"ok": false, "reason": "contract_market_dock_missing"}
+        # N83 source Rust trades against the actual MarketIdentity
+        # operator, even when its physical FacilityIdentity is a farm,
+        # refinery or factory rather than a literal 'station'. Preserve
+        # exact N21 capacity/occupancy and require that market owner.
+        var native_dock_type: String = requested_dock_type
+        if requested_dock_type == "market":
+            if not staged["markets"].has(ship_location):
+                return {"ok": false, "reason": "n83_no_real_market_to_dock"}
+            target_station = str(staged["markets"][ship_location].get("owner", ""))
+            if not registry.facilities.has(target_station):
+                return {"ok": false, "reason": "n83_market_owner_has_no_real_n21_dock"}
+            var operator: Dictionary = staged["facilities"][target_station]
+            if int(operator.get("docking_capacity", 0)) < 1 or bool(operator.get("abandoned", false)):
+                return {"ok": false, "reason": "n83_market_operator_not_dockable"}
+            native_dock_type = "" # exact owner ID, any genuine source facility type
         # Real N108 retrofit: a shipyard has its own N21 docking slots
         # and ModuleStock; it is NOT the source market warehouse.
         result = registry.request_dock(ship_id, operation_id,
-            requested_dock_type, target_station)
+            native_dock_type, target_station)
         if not result.get("ok", false):
             return result
         facility = str(result["facility_id"])
