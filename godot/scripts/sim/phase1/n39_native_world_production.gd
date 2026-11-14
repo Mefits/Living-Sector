@@ -1484,7 +1484,9 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
         return {"ok": false, "fatal": true, "reason": "n104_accept_money_not_conserved"}
     var payer: String = str(c.get("requestor_id", ""))
     var escrow: String = str(c.get("escrow_account", ""))
-    var native_site_contract: bool = _world.get("construction_contracts", {}).has(cid)
+    var native_site_contract: bool = (_world.get(
+        "construction_contracts", {}).has(cid) or _world.get(
+        "native_htn_contracts", {}).has(cid))
     var expected_payer: String = Schema.faction_account(buyer_faction) if native_site_contract else Schema.facility_account(str(buyer_market["owner"]))
     if payer != expected_payer or (native_site_contract and str(c.get("funding_source", "")) != "faction") or (not native_site_contract and str(c.get("funding_source", "")) != "facility"):
         return {"ok": false, "fatal": true, "reason": "n104_payer_changed"}
