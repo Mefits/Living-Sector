@@ -10,6 +10,11 @@ const ENVELOPE_VERSION: int = 1
 const MAX_SAVE_BYTES: int = 16 * 1024 * 1024
 const NativeFrameGuard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
 const NativeCoherence = preload("res://scripts/sim/phase2/unified_native_checkpoint_coherence.gd")
+const SourceClock = preload("res://scripts/sim/clock.gd")
+const SourceCalendar = preload("res://scripts/sim/calendar.gd")
+const SourceCadence = preload("res://scripts/sim/cadence.gd")
+const SourceEvents = preload("res://scripts/sim/event_queue.gd")
+const SourceTickRunner = preload("res://scripts/sim/tick_runner.gd")
 
 static func _canonical(value: Variant) -> String:
     if value is Dictionary:
@@ -96,6 +101,28 @@ static func _trusted_for_backup_rotation(parsed: Dictionary) -> bool:
         return false
     if parsed["pending_controls"].size() > 1024:
         return false
+    # Ask the existing native clock/calendar/cadence/event validators. No
+    # second live timeline is started; all objects are temporary read-only
+    # preflight instances. This catches SHA-valid but nonrestorable clocks
+    # and duplicate/expired source events before backup rotation.
+    var clock := SourceClock.new()
+    if not clock.restore(parsed["clock"]):
+        return false
+    var saved_calendar: Variant = parsed.get("calendar", null)
+    if saved_calendar != null:
+        if not (saved_calendar is Dictionary) or not SourceCalendar.new().restore(
+                saved_calendar):
+            return false
+    var saved_cadence: Variant = parsed.get("cadence", null)
+    if saved_cadence != null:
+        if not (saved_cadence is Dictionary) or not SourceCadence.new().restore(
+                saved_cadence, SourceTickRunner.NATIVE_PHASE_ORDER):
+            return false
+    var saved_events: Variant = parsed.get("events", null)
+    if saved_events != null:
+        if not (saved_events is Dictionary) or not SourceEvents.new().restore(
+                saved_events, int(tick), SourceTickRunner.NATIVE_PHASE_ORDER.size()):
+            return false
     return NativeCoherence.validate_serialized_candidate(parsed).get("ok", false)
 
 static func _exact_nonnegative_whole(value: Variant) -> bool:
