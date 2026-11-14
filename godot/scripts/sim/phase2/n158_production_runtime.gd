@@ -837,7 +837,7 @@ func fleet_snapshot() -> Dictionary:
 ## Explicit native admin API, NOT automatic ship AI or a player
 ## right-click delete. Source events and retirement history are emitted
 ## only after N39 has removed the actor AND closed its N9 account.
-## N148 strike/command-buffer admission remains a separate owner.
+## N148 auto-retirement is wired through the ships phase's N146→N39 Apply.
 func admin_remove_ship(ship_id: String, reason: String = "admin") -> Dictionary:
     return _native_admin_remove("ship", ship_id, reason)
 
