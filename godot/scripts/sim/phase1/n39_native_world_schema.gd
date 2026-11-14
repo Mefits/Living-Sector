@@ -178,6 +178,25 @@ static func validate(state: Dictionary) -> String:
     for op in state.get("dock_receipts", {}):
         if state.get("cargo_receipts", {}).has(op):
             return "duplicate_fleet_receipt"
+    # N128 source command outcomes are durable evidence on the SAME
+    # World. A retired ship's history remains valid after its removal.
+    if state.has("native_crew_xp_receipts"):
+        if not (state["native_crew_xp_receipts"] is Dictionary):
+            return "invalid_native_crew_xp_history"
+        for receipt_id in state["native_crew_xp_receipts"]:
+            var receipt: Variant = state["native_crew_xp_receipts"][receipt_id]
+            if not _id(receipt_id) or not (receipt is Dictionary):
+                return "invalid_native_crew_xp_receipt"
+            if str(receipt.get("id", "")) != str(receipt_id) or str(receipt.get("source", "")) != "N146:GrantCrewXp":
+                return "native_crew_xp_wrong_provenance"
+            if not _id(receipt.get("ship_id", null)) or str(receipt.get("skill", "")) not in [
+                    "navigation", "engineering", "trading", "combat"]:
+                return "native_crew_xp_invalid_actor_or_skill"
+            for numeric in ["tick", "amount", "applied"]:
+                if typeof(receipt.get(numeric, null)) != TYPE_INT or int(receipt[numeric]) < 0:
+                    return "native_crew_xp_invalid_amount_or_tick"
+            if int(receipt["amount"]) > 255 or int(receipt["applied"]) > int(receipt["amount"]):
+                return "native_crew_xp_above_original_u8"
     # ContractBoard and escrow balances are a single optional P2 component.
     # Older saves can lack both. Never accept a half-funded board.
     if state.has("contract_board") != state.has("escrow_balances"):
