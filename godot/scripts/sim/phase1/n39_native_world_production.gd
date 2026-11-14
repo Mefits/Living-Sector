@@ -2900,6 +2900,27 @@ func restore(saved: Dictionary) -> bool:
     var staged_ledger = Ledger.new()
     if not staged_ledger.restore(saved["ledger"]):
         return false
+    # A retired actor's source credits physically disappear, with
+    # one explicit N9 destruction receipt. Saving may NOT resurrect a
+    # vanished wallet or silently invent a different retirement amount.
+    var restored_bank: Dictionary = staged_ledger.snapshot()
+    for operation_id in staged_world.get("native_admin_removals", {}):
+        var removal: Dictionary = staged_world["native_admin_removals"][operation_id]
+        if int(removal.get("tick", -1)) > int(saved["tick"]):
+            return false
+        var kind: String = str(removal.get("kind", ""))
+        var actor_id: String = str(removal.get("id", ""))
+        var account: String = (Schema.ship_account(actor_id)
+            if kind == "ship" else Schema.facility_account(actor_id))
+        var lost: int = int(removal.get("credits_lost", -1))
+        var record: Dictionary = restored_bank.get("receipts", {}).get(operation_id, {})
+        if restored_bank.get("balances", {}).has(account):
+            return false
+        if record.get("id") != operation_id or record.get("kind") != (
+                "ship_decommissioned" if kind == "ship" else "facility_removed"):
+            return false
+        if record.get("tick") != removal.get("tick") or record.get("account_closed") != account or record.get("credits_lost") != lost or record.get("legs") != [{"account": account, "delta": -lost}]:
+            return false
     var expected: Dictionary = Schema.accounts(staged_world)
     for id in expected:
         if staged_ledger.balance(str(id)) != int(expected[id]):
