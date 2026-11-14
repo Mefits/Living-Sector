@@ -30,9 +30,11 @@ static func _candidates(world: Dictionary, loc: String,
                 not preferred_id.is_empty() and str(fid) != preferred_id) or (
                 not preferred_type.is_empty() and str(fac.get("type", "")) != preferred_type):
             continue
-        if str(fac.get("type", "")) not in [
-                "station", "shipyard", "construction_dock"] or (
-                bool(fac.get("abandoned", false)) or
+        # Frozen Rust dockable_candidates_ordered permits any real
+        # non-abandoned facility with a positive N21 capacity when no
+        # explicit preferred type is requested (N83 market owners
+        # can be farms/factories, not necessarily literal stations).
+        if bool(fac.get("abandoned", false)) or (
                 int(fac.get("docking_capacity", 0)) < 1):
             continue
         candidates.append(str(fid))
@@ -157,6 +159,10 @@ static func request(world: Dictionary, ledger: Dictionary,
         return {"ok": true, "changed": false, "status": "no_real_dock",
             "world": world, "ledger_snapshot": ledger}
     for fid in options:
+        if not staged["facilities"][fid].has("dock_queue"):
+            # Genuine legacy P2 checkpoint or original N154 site with
+            # FacilityStorage default not serialized yet.
+            staged["facilities"][fid]["dock_queue"] = []
         _prune(staged, str(fid))
     for fid in options:
         var q: Array = _queue(staged["facilities"][fid])
