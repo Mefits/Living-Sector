@@ -1,6 +1,6 @@
 {
   "worker": "interactive-primary-chat-20261114",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "goal": "Finish remaining Rust N150 faction diplomacy and territory source integration into one N39 World/N158 phases/N38 persistence without intermediate runtime tests",
   "scope": [
@@ -14,5 +14,7 @@
     "godot/docs/phase2/handoffs/20261114-n150-relations-territory.md"
   ],
   "base_head": "cbb6b7bbe37ace6ca2f5333095f276242acaefab",
-  "verification": "NO runtime test until full integration; static source checks only"
+  "verification": "SOURCE_WIRED_STATIC_CHECK_PASS; NO runtime/CI until whole transfer; Actions 0",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n150-relations-territory.md",
+  "commit_head": "35c8f10c6517926227ebcb3582aca4002808bdd5"
 }
