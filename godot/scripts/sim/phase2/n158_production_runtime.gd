@@ -10,6 +10,7 @@ const ShipPhase = preload("res://scripts/sim/phase2/unified_ship_phase.gd")
 const FleetLogistics = preload("res://scripts/sim/phase2/unified_fleet_logistics.gd")
 const N153Dispatch = preload("res://scripts/sim/phase2/unified_n153_contract_dispatch.gd")
 const NativeAIExecution = preload("res://scripts/sim/phase2/unified_ship_ai_execution.gd")
+const NativeLodShipAI = preload("res://scripts/sim/phase2/unified_n140_ship_ai_dispatch.gd")
 const NativeConstruction = preload("res://scripts/sim/phase2/unified_native_construction_phase.gd")
 const N91Dispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
 const N134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
@@ -422,23 +423,29 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             _last_ship_result = {"ok": false, "reason": str(locations.get("error", "missing_native_positions"))}
             return false
         var proposal: Dictionary = ShipPhase.advance(current,
-            locations["positions"], tick, clock.tick_scale(), _fleet_resolver)
+            locations["positions"], tick, clock.tick_scale(), _fleet_resolver,
+            _tick_multiplier)
         if not proposal.get("ok", false):
             _last_ship_result = proposal
             return false
         if not production.apply_ship_phase(tick, proposal):
             _last_ship_result = {"ok": false, "reason": "single_world_ship_commit_rejected"}
             return false
+        var n140_fired: Dictionary = proposal.get("fired", {})
         _last_ship_result = {"ok": true, "tick": tick,
             "outcomes": proposal.get("outcomes", {}).duplicate(true),
+            "n140_fired_count": int(proposal.get("n140_fired_count", 0)),
+            "n140_skipped_count": int(proposal.get("n140_skipped_count", 0)),
+            "n140_recomputed": bool(proposal.get("n140_recomputed", false)),
+            "n140_stats": proposal.get("n140_stats", {}).duplicate(true),
             "autonomous_departures": [], "autonomous_blocked": []}
         # The execution authority is N84 (persistent BT), which emits
         # N146 commands, checked against N14 physical transit and applied
         # ONCE through N39 World. No hand-written contract-to-route loop.
         var scheduled: Dictionary = production.world_snapshot()
-        var planned: Dictionary = NativeAIExecution.propose(scheduled,
+        var planned: Dictionary = NativeLodShipAI.propose(scheduled,
             _fleet_roster.registry.graph(), locations["positions"], tick,
-            clock.tick_scale())
+            clock.tick_scale(), n140_fired)
         if not planned.get("ok", false):
             _last_ship_result = planned
             return false
@@ -460,7 +467,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # P2 N158 visits each live ship once per ships phase; no second
         # artificial LOD runner is created.
         var lifecycle: Dictionary = production.apply_native_n148_ship_lifecycle(
-            tick, _tick_multiplier)
+            tick, _tick_multiplier, n140_fired)
         if not lifecycle.get("ok", false):
             _last_n148_result = lifecycle
             _last_ship_result = {"ok": false,
@@ -1065,6 +1072,9 @@ func economy_summary() -> Dictionary:
         "n152_renewed_this_tick": _last_n152_result.get("renewed", []).size(),
         "n152_refunded_this_tick": _last_n152_result.get("refunded", []).size(),
         "native_admin_last_removed": str(_last_admin_removal.get("id", "")),
+        "n140_ship_fired_this_tick": int(_last_ship_result.get("n140_fired_count", 0)),
+        "n140_ship_skipped_this_tick": int(_last_ship_result.get("n140_skipped_count", 0)),
+        "n140_last_recompute": bool(_last_ship_result.get("n140_recomputed", false)),
         "n148_ship_retired_this_tick": _last_n148_result.get("retired", []).size(),
         "n148_ship_retirement_blocked": _last_n148_result.get("blocked", []).size(),
         "n152_blocked_refunds": _last_n152_result.get("blocked", []).size(),
@@ -1474,6 +1484,12 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             var ship: Dictionary = w["ships"][id]
             if not _normalize_row(ship, ["credits", "cargo_capacity", "crew_size"]):
                 return false
+            # Exact N140 AgentLod cursor survives N38 JSON round-trip.
+            # Genuine older P2 saves without the component stay un-gated.
+            if ship.has("lod"):
+                if not (ship["lod"] is Dictionary) or not _normalize_row(
+                        ship["lod"], ["divisor", "next_tick"]):
+                    return false
             if ship.has("lifecycle"):
                 if not (ship["lifecycle"] is Dictionary):
                     return false
