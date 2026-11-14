@@ -2823,6 +2823,22 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
         var head: Dictionary = staged["research_directors"][fid]
         if str(market.get("owner", "")) != facility_id or str(facility.get("type", "")) != "station" or str(facility.get("faction", "")) != fid or str(person.get("faction", "")) != fid or str(person.get("location", "")) != location:
             return {"ok": false, "fatal": true, "reason": "research_source_ownership_changed"}
+        # Real Rust N110/N109 player policy is part of the original
+        # Director checkpoint. No shift can spend a newer/altered
+        # mandate with a stale previous grant.
+        var live_mandate: Dictionary = staged.get(
+            "research_mandates", {}).get(fid, {})
+        var live_charter: Dictionary = staged.get(
+            "faction_charters", {}).get(fid, {})
+        if intent.get("mandate_preconditions", null) != live_mandate or (
+                intent.get("charter_preconditions", null) != live_charter):
+            return {"ok": false, "fatal": true,
+                "reason": "stale_original_n109_n110_paid_policy"}
+        if bool(intent.get("mandated_shift", false)) and (
+                live_mandate.is_empty() or str(
+                live_mandate.get("mode", "")) != "delegated"):
+            return {"ok": false, "fatal": true,
+                "reason": "unbacked_original_research_mandate"}
         if intent.get("preconditions") != {
             "treasury": int(staged["faction_treasuries"][fid]),
             "market_electronics": float(market.get("supply", {}).get("electronics", 0.0)),
@@ -2869,11 +2885,33 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
         person["wealth"] = staged_ledger.balance(population_account)
         staged["research_directors"][fid] = validated["commander"].duplicate(true)
         staged["research"][fid] = validated["commander"].get("technologies", []).duplicate(true)
+        # Rust governance::paid_research + charter::record_paid occur
+        # ONLY AFTER the actual native money/electronics/wage commit.
+        # The counters are SOURCE receipts, not extra N9 charges.
+        var paid_mandate: Dictionary = validated.get("mandate", {})
+        var paid_charter: Dictionary = validated.get("charter", {})
+        if not (paid_mandate is Dictionary) or not (paid_charter is Dictionary):
+            return {"ok": false, "fatal": true,
+                "reason": "invalid_source_n109_n110_paid_policy_result"}
+        if bool(intent.get("mandated_shift", false)):
+            if not staged.get("research_mandates", {}).has(fid):
+                return {"ok": false, "fatal": true,
+                    "reason": "missing_original_n110_directive_at_commit"}
+            staged["research_mandates"][fid] = paid_mandate.duplicate(true)
+            if staged.get("faction_charters", {}).has(fid):
+                staged["faction_charters"][fid] = paid_charter.duplicate(true)
+            elif not paid_charter.is_empty():
+                return {"ok": false, "fatal": true,
+                    "reason": "unexpected_original_charter_was_created"}
+        elif paid_mandate != live_mandate or paid_charter != live_charter:
+            return {"ok": false, "fatal": true,
+                "reason": "autonomous_research_mutated_player_policy"}
         staged["research_receipts"][receipt_id] = {
             "receipt_id": receipt_id, "faction_id": fid, "tick": tick,
             "facility_id": facility_id, "population_id": population_id,
             "technology": str(intent["technology"]),
             "cost": cost, "wages": payroll, "electronics": 1.0,
+            "mandated_shift": bool(intent.get("mandated_shift", false)),
             "completed_technology": intent.get("completed_technology", null),
             "n9_receipt_id": receipt_id
         }
