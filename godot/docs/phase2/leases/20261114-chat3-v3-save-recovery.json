@@ -1,0 +1,22 @@
+{
+  "worker": "chat3-v3-n38-recovery-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "32ca43fd15497b239d9a102addbebd26140305b2",
+  "goal": "Independent V3: N38 invalid-but-SHA-valid primary must not poison .bak; valid restored .pending must promote even after earlier primary failed semantic restore. Preserve transactional single runner baseline and immutable N39/N9 source.",
+  "scope": [
+    "godot/scripts/sim/save_state.gd (N38 pre-save rotation and load pending promotion only)",
+    "godot/tests/p2_native_save_recovery_check.gd (new deferred regression)",
+    "godot/docs/phase2/handoffs/20261114-chat3-v3-recovery.md (new)"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd",
+    "N9/N104",
+    "balance/behaviors"
+  ],
+  "coordination": "Chat1 active N108 gate jump on N39/N158; chat2 B2 released, subsequent B3 may occupy N39/N158. N38 SaveState only.",
+  "verification": "STATIC_ONLY; deferred Godot acceptance; no GitHub Actions"
+}
