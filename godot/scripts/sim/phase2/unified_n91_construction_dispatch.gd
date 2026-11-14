@@ -91,7 +91,9 @@ static func plan_for(world: Dictionary, resolver: RefCounted, graph: RefCounted,
             return {"ok": false, "reason": "n91_native_waypoints_invalid"}
         var spec: Dictionary = Catalog.spec(str(ship.get("class", "")))
         var rate: float = float(spec.get("fuel_consumption_base", 0.0))
-        var speed: float = Catalog.effective_speed(str(ship.get("class", "")), str(ship.get("size", "")))
+        var speed: float = float(ship.get("speed_modifier",
+            Catalog.effective_speed(str(ship.get("class", "")),
+                str(ship.get("size", "")))))
         var velocity: float = Transit.BASE_VELOCITY * speed * scale
         if velocity <= 0.0 or rate <= 0.0 or not is_finite(velocity) or not is_finite(rate):
             return {"ok": false, "reason": "n91_engineer_flight_specs_invalid"}
