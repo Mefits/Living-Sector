@@ -11,7 +11,10 @@ const FAILED := "failed"
 const CANCELLED := "cancelled"
 
 static func create_plan(snapshot: Dictionary, goal: Dictionary, proposal: Dictionary, plan_id: String) -> Dictionary:
-	if plan_id.is_empty() or str(proposal.get("status", "")) != "ready":
+	# The source Rust PlanStatus serializes as Ready; Godot N100 also
+	# returns Ready, while old standalone N98 checks used lowercase.
+	# Accept both source representations without accepting NoPlan.
+	if plan_id.is_empty() or str(proposal.get("status", "")).to_lower() != "ready":
 		return {"error": "invalid_plan"}
 	if str(snapshot.get("faction_id", "")).is_empty() or str(goal.get("goal_id", "")) != str(proposal.get("goal_id", "")):
 		return {"error": "wrong_goal_or_faction"}
