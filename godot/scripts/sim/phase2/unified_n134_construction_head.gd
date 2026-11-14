@@ -163,17 +163,15 @@ static func choose(world: Dictionary, factions: Dictionary,
             "head": head, "reason": str(staged.get("reason", "n154_not_ready"))}
     var goal: Dictionary = staged.get("post", {})
     var intended: Dictionary = head.get("problem", {})
-    var chosen_goal: Dictionary = {
-        "commodity": str(staged.get("site", {}).get("commodity", "")),
-        "destination": str(goal.get("destination_location", ""))}
-    # The N154 site may use a different input commodity from its
-    # goal. Verify selected target through N154 source offer identity.
+    # N154's chosen site may consume a different INPUT commodity
+    # from the shortage TARGET. Compare the exact approved original
+    # goal rather than erroneously comparing input metal to food.
     var selected_offer: Dictionary = {}
     for row in view.get("offers", []):
         if N134Head.same_problem(row.get("goal", {}), intended) and row.get("ready", false):
             selected_offer = row
             break
-    if selected_offer.is_empty() or str(selected_offer.get("source", "")) != str(goal.get("source_location", "")) or str(selected_offer.get("delivery_commodity", "")) != str(goal.get("commodity", "")):
+    if selected_offer.is_empty() or not N134Head.same_problem(staged.get("approved_goal", {}), intended) or str(selected_offer.get("source", "")) != str(goal.get("source_location", "")) or str(selected_offer.get("delivery_commodity", "")) != str(goal.get("commodity", "")):
         return {"ok": true, "authorized": false, "head": head,
             "reason": "n134_grant_does_not_match_n154_material_contract"}
     return {"ok": true, "authorized": true, "head": head,

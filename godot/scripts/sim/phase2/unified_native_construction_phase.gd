@@ -160,5 +160,6 @@ static func stage(world: Dictionary, sources: Dictionary, original: RefCounted,
     var staged: Dictionary = Commission.stage_commission(ctx, f, offer,
         tick, multiplier, offset)
     if staged.get("ok", false):
+        staged["approved_goal"] = offer.get("goal", {}).duplicate(true)
         staged["status"] = "N154_AUTHORIZED_STAGED_NOT_APPLIED"
     return staged

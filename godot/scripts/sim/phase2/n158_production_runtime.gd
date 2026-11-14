@@ -12,6 +12,7 @@ const N153Dispatch = preload("res://scripts/sim/phase2/unified_n153_contract_dis
 const NativeAIExecution = preload("res://scripts/sim/phase2/unified_ship_ai_execution.gd")
 const NativeConstruction = preload("res://scripts/sim/phase2/unified_native_construction_phase.gd")
 const N91Dispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
+const N134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
 const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const NativeCommands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
@@ -28,6 +29,7 @@ var _last_research_result: Dictionary = {}
 var _last_construction_observation: Dictionary = {}
 var _last_construction_result: Dictionary = {}
 var _last_n91_result: Dictionary = {}
+var _last_n134_result: Dictionary = {}
 var _faction_sources: Dictionary = {}
 var _last_population_result: Dictionary = {}
 var _last_ship_result: Dictionary = {}
@@ -45,6 +47,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_construction_observation = {}
     _last_construction_result = {}
     _last_n91_result = {}
+    _last_n134_result = {}
     _faction_sources = {}
     _last_population_result = {}
     _last_ship_result = {}
@@ -193,6 +196,46 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                         break
                     preview["factions"][faction] = seen["view"].duplicate(true)
             _last_construction_observation = preview
+        # A head may commission no more often than the original
+        # strategic N134 subsidy check interval (60*mult). The N111
+        # comparator evaluates actual source input/production forecasts.
+        # An N154 offer alone is NEVER permission to debit treasury.
+        if tick % maxi(1, 60 * _tick_multiplier) == 0:
+            _last_n134_result = {"ok": true, "tick": tick,
+                "commissioned": [], "blocked": [], "heads": {}}
+            var head_world: Dictionary = production.world_snapshot()
+            if head_world.has("construction_sites"):
+                var head_factions: Array = head_world.get("faction_treasuries", {}).keys()
+                head_factions.sort()
+                for faction in head_factions:
+                    var planned_build: Dictionary = N134Construction.choose(
+                        head_world, _faction_sources, world,
+                        _fleet_roster.registry.graph(),
+                        str(faction), tick, _tick_multiplier)
+                    if not planned_build.get("ok", false):
+                        _last_n134_result["blocked"].append({
+                            "faction_id": str(faction),
+                            "reason": str(planned_build.get("reason", "N134_source_comparison_unavailable"))})
+                        continue
+                    _last_n134_result["heads"][faction] = planned_build.get("head", {}).duplicate(true)
+                    if not planned_build.get("authorized", false):
+                        _last_n134_result["blocked"].append({
+                            "faction_id": str(faction),
+                            "reason": str(planned_build.get("reason", "head_not_authorized"))})
+                        continue
+                    var posted_site: Dictionary = production.post_authorized_native_construction(
+                        tick, planned_build["staged"])
+                    if posted_site.get("ok", false):
+                        _last_n134_result["commissioned"].append(posted_site.duplicate(true))
+                        head_world = production.world_snapshot()
+                    elif posted_site.get("fatal", false):
+                        _last_n134_result = {"ok": false,
+                            "reason": str(posted_site.get("reason", "N134_N154_N9_apply_failed"))}
+                        return false
+                    else:
+                        _last_n134_result["blocked"].append({
+                            "faction_id": str(faction),
+                            "reason": str(posted_site.get("reason", "source_N154_unfunded"))})
         # A blocked or empty N154 preview is NOT a fatal tick.
         return true
     if phase == "ships":
@@ -412,7 +455,7 @@ func _integrated_phase_failure_reason(phase: String) -> String:
     elif phase == "ships":
         result = _last_ship_result
     elif phase == "factions":
-        result = _last_research_result if not _last_research_result.get("ok", true) else (_last_n91_result if not _last_n91_result.get("ok", true) else (_last_construction_result if not _last_construction_result.get("ok", true) else _last_n153_result))
+        result = _last_research_result if not _last_research_result.get("ok", true) else (_last_n134_result if not _last_n134_result.get("ok", true) else (_last_n91_result if not _last_n91_result.get("ok", true) else (_last_construction_result if not _last_construction_result.get("ok", true) else _last_n153_result)))
     elif phase == "markets":
         result = _last_station_demand if not _last_station_demand.get("ok", true) else (_last_contract_admissions if not _last_contract_admissions.get("ok", true) else _last_market_result)
     var detail: String = str(result.get("reason", "integrated_phase_rejected"))
@@ -452,6 +495,9 @@ func last_native_construction_labor() -> Dictionary:
 
 func last_native_n91_assignment() -> Dictionary:
     return _last_n91_result.duplicate(true)
+
+func last_native_n134_construction() -> Dictionary:
+    return _last_n134_result.duplicate(true)
 
 
 ## Read-only canonical ship inventory; source IDs are generated by the
@@ -600,6 +646,8 @@ func economy_summary() -> Dictionary:
         "research_paid_shifts": _last_research_result.get("paid", []).size(),
         "research_blocked_factions": _last_research_result.get("blocked", []).size(),
         "research_total_completed": _research_completion_count(current),
+        "construction_head_commissions_this_tick": _last_n134_result.get("commissioned", []).size(),
+        "construction_head_blocked_this_tick": _last_n134_result.get("blocked", []).size(),
         "construction_engineers_assigned_this_tick": _last_n91_result.get("assigned", []).size(),
         "construction_paid_labor_this_tick": _last_construction_result.get("paid", []).size(),
         "construction_new_facilities_this_tick": _last_construction_result.get("materialized", []).size(),
@@ -643,6 +691,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_construction_observation = {}
     _last_construction_result = {}
     _last_n91_result = {}
+    _last_n134_result = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
