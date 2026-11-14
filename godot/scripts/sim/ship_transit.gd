@@ -47,8 +47,8 @@ func depart(state: RefCounted, graph: RefCounted, ship_id: String, destination: 
 ## Advance exactly one authoritative simulation tick; repeat calls are idempotent.
 ## Arrival is determined by distance, NEVER by the display-only arrival_tick.
 func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: int,
-        tick_scale: float, skipped_ticks: int = 1,
-        authorized_lod_fire: bool = false) -> String:
+		tick_scale: float, skipped_ticks: int = 1,
+		authorized_lod_fire: bool = false) -> String:
 	if not state.ships.has(ship_id) or not is_finite(tick_scale) or tick_scale <= 0.0 or skipped_ticks < 1:
 		return "invalid"
 	var ship: Dictionary = state.ships[ship_id]
