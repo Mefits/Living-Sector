@@ -70,7 +70,12 @@ static func propose_facility_warnings(facilities: Dictionary) -> Dictionary:
         if not (facilities[facility_id] is Dictionary):
             return _fail("invalid_real_facility")
         var facility: Dictionary = facilities[facility_id]
-        var raw_condition: Variant = facility.get("condition", null)
+        # Frozen Rust ECS joins FacilityIdentity + FacilityOperations.
+        # A genuinely older N38 row without Operations/condition does not
+        # participate; do not fabricate a condition or emit a warning.
+        if not facility.has("condition"):
+            continue
+        var raw_condition: Variant = facility["condition"]
         if typeof(raw_condition) not in [TYPE_INT, TYPE_FLOAT]:
             return _fail("missing_real_facility_condition")
         var condition: float = float(raw_condition)
