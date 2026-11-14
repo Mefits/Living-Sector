@@ -307,6 +307,30 @@ static func validate(state: Dictionary) -> String:
             if str(state["construction_receipts"][receipt_id].get("id", "")) != str(receipt_id):
                 return "invalid_construction_receipt_identity"
             var construction_receipt: Dictionary = state["construction_receipts"][receipt_id]
+            if str(construction_receipt.get("kind", "")) == "colony_dock_prepared":
+                var prepared_site: String = str(construction_receipt.get("site_id", ""))
+                var prepared_id: String = str(construction_receipt.get("facility_id", ""))
+                var prepared_pop: String = str(construction_receipt.get("population_id", ""))
+                var planned: Dictionary = state["construction_sites"].get(prepared_site, {})
+                var prepared_facility: Dictionary = state["facilities"].get(prepared_id, {})
+                var prepared_household: Dictionary = state["populations"].get(prepared_pop, {})
+                if planned.is_empty() or prepared_facility.is_empty() or prepared_household.is_empty():
+                    return "n151_temporary_dock_missing_live_actors"
+                if str(receipt_id) != "n151_colony_dock:" + prepared_site or (
+                        str(construction_receipt.get("destination_location", "")) != str(planned.get("location_name", "")) or
+                        str(prepared_facility.get("location", "")) != str(planned.get("location_name", "")) or
+                        str(prepared_facility.get("type", "")) != "construction_dock" or
+                        str(prepared_household.get("colony_dock_id", "")) != prepared_id or
+                        str(prepared_household.get("construction_source_site_id", "")) != prepared_site or
+                        typeof(construction_receipt.get("tick", null)) != TYPE_INT or
+                        int(construction_receipt["tick"]) < int(planned.get("spawned_at_tick", 0)) or
+                        typeof(construction_receipt.get("native_db_id", null)) != TYPE_INT or
+                        int(construction_receipt["native_db_id"]) >= 0 or
+                        int(prepared_facility.get("native_db_id", 0)) != int(construction_receipt["native_db_id"]) or
+                        int(prepared_household.get("native_db_id", 0)) != int(construction_receipt["native_db_id"]) or
+                        int(construction_receipt.get("population_count", -1)) != 0 or
+                        int(construction_receipt.get("credits", -1)) != 0):
+                    return "n151_invalid_source_dock_preparation_proof"
             if str(construction_receipt.get("kind", "")) == "colony_approved":
                 if typeof(construction_receipt.get("tick", null)) != TYPE_INT or int(construction_receipt["tick"]) < 1:
                     return "invalid_native_colony_approval_tick"
@@ -508,7 +532,26 @@ static func validate(state: Dictionary) -> String:
                     if not _id(pid) or typeof(shift["workers"][pid]) != TYPE_INT or int(shift["workers"][pid]) <= 0:
                         return "invalid_work_shift_workers"
         if not state["markets"].has(str(fac["location"])):
-            return "missing_facility_market"
+            # Exact Rust engine/colony.rs::prepare_docks permits an EMPTY
+            # construction_dock for an approved, unfinished colony site.
+            # This dock has NO Market and cannot be used as a warehouse.
+            var site_ref: String = str(fac.get("construction_source_site_id", ""))
+            var founding: Dictionary = state.get("construction_sites", {}).get(site_ref, {})
+            var dock_proof: Dictionary = state.get("construction_receipts", {}).get(
+                "n151_colony_dock:" + site_ref, {})
+            if str(fac["type"]) != "construction_dock" or founding.is_empty() or (
+                    str(founding.get("location_name", "")) != str(fac["location"]) or
+                    str(founding.get("body_id", "")) != str(fac["body_id"]) or
+                    str(founding.get("faction_id", "")) != str(fac["faction"]) or
+                    bool(founding.get("completed", false)) or
+                    str(dock_proof.get("kind", "")) != "colony_dock_prepared" or
+                    str(dock_proof.get("facility_id", "")) != str(id) or
+                    int(dock_proof.get("native_db_id", 0)) != int(fac.get("native_db_id", -1)) or
+                    int(fac.get("credits", -1)) != 0 or
+                    int(fac.get("crew_count", -1)) != 0 or
+                    int(fac.get("docking_capacity", -1)) != 4):
+                return "unapproved_marketless_colony_dock"
+
     for location in state["markets"]:
         if not _id(location) or not (state["markets"][location] is Dictionary):
             return "invalid_market"
@@ -570,6 +613,24 @@ static func validate(state: Dictionary) -> String:
             return "invalid_population_count"
         if typeof(pop.get("wealth", null)) != TYPE_INT or int(pop["wealth"]) < 0:
             return "invalid_household_balance"
+        if not state["markets"].has(str(pop["location"])):
+            var site_ref: String = str(pop.get("construction_source_site_id", ""))
+            var dock_id: String = str(pop.get("colony_dock_id", ""))
+            var house_proof: Dictionary = state.get("construction_receipts", {}).get(
+                "n151_colony_dock:" + site_ref, {})
+            var home_dock: Dictionary = state["facilities"].get(dock_id, {})
+            var home_site: Dictionary = state.get("construction_sites", {}).get(site_ref, {})
+            if str(pop.get("demographic", "")) != "workers" or (
+                    home_dock.is_empty() or home_site.is_empty() or
+                    str(home_dock.get("type", "")) != "construction_dock" or
+                    str(home_dock.get("location", "")) != str(pop["location"]) or
+                    str(home_site.get("location_name", "")) != str(pop["location"]) or
+                    str(home_site.get("faction_id", "")) != str(pop["faction"]) or
+                    str(home_dock.get("faction", "")) != str(pop["faction"]) or
+                    str(house_proof.get("population_id", "")) != str(id) or
+                    str(house_proof.get("facility_id", "")) != dock_id or
+                    int(pop.get("native_db_id", 0)) != int(home_dock.get("native_db_id", -1))):
+                return "unapproved_marketless_colony_household"
         if pop.has("employed_fraction") and (not _fraction(pop["employed_fraction"]) or float(pop["employed_fraction"]) > 1.0):
             return "invalid_employment"
     # N151 native abstract migration has ONE persisted event and, when
