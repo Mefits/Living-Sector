@@ -1,0 +1,17 @@
+{
+  "worker": "interactive-primary-chat",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "c5f28eaaffd3a6be2f3bb110aefcc78c53d422af",
+  "goal": "Restore original Rust sim_db seeder bidirectional travel_route upserts in active N4 WorldRegistry while retaining raw directed RouteGraph for direct test uses; verify runtime reverse freight, no invented colony endpoints",
+  "scope": [
+    "godot/scripts/sim/route_graph.gd",
+    "godot/scripts/sim/world_registry.gd",
+    "godot/tests/n4_registry_routes_check.gd",
+    "godot/tests/p2_gate4_native_construction_check.gd",
+    "godot/tests/p2_native_seeded_route_parity_check.gd (new)",
+    "godot/docs/phase2/handoffs/20261114-n142-seeder-route-parity.md",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
+  ],
+  "verification": "No Godot binary available, no Actions"
+}
