@@ -9,6 +9,12 @@ const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const Seats = preload("res://scripts/port/n104_passenger_contracts.gd")
 const Planner = preload("res://scripts/sim/phase1/n147_native_colony_migration_planner.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
+const Bt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
+const Goap = preload("res://scripts/sim/ships/ai/native_goap_planner.gd")
+const Plans = preload("res://scripts/sim/phase1/n153_native_ship_bt_planning.gd")
+const ShipPlanning = preload("res://scripts/sim/phase2/unified_ship_ai_planner.gd")
+const NativeN153 = preload("res://scripts/sim/phase1/n153_native_ship_contract_selection.gd")
+const SourceN147 = preload("res://scripts/sim/phase2/unified_n147_colony_migration_observer.gd")
 
 class PassengerEvidence extends RefCounted:
     var receipts: Dictionary = {}
@@ -53,8 +59,8 @@ static func _resident(world: Dictionary, faction: String,
             return str(pid)
     return ""
 
-static func _commit(staged: Dictionary, ledger: RefCounted,
-        board: RefCounted, old_bank: Dictionary, tick: int,
+static func _commit(staged: Dictionary, ledger: Variant,
+        board: Variant, old_bank: Dictionary, tick: int,
         status: String, cid: String, sid: String) -> Dictionary:
     staged["contract_board"] = board.snapshot()
     var validation: String = Schema.validate(staged)
@@ -119,8 +125,8 @@ static func post_migration(world: Dictionary, bank: Dictionary,
     var opened: Dictionary = _open(world, bank)
     if not opened.get("ok", false):
         return opened
-    var ledger: RefCounted = opened["ledger"]
-    var board: RefCounted = opened["board"]
+    var ledger: Variant = opened["ledger"]
+    var board: Variant = opened["board"]
     var cid: String = "n147/passenger/" + faction + "/" + dest + "/" + str(tick)
     var escrow: String = "escrow:" + cid
     if not ledger.register_empty_account(escrow):
@@ -148,7 +154,7 @@ static func post_migration(world: Dictionary, bank: Dictionary,
 ## The N84 passenger goal/BT is supplied by the existing N153/N81 source.
 static func accept(world: Dictionary, bank: Dictionary,
         cid: String, sid: String, bt: Dictionary, tick: int) -> Dictionary:
-    if tick < 1 or bt.is_empty() or not world.get("ships", {}).has(sid):
+    if tick < 1 or not Bt.validate(bt) or not world.get("ships", {}).has(sid):
         return _reject("n104_missing_actual_passenger_plan")
     var c: Dictionary = world.get("contract_board", {}).get("contracts", {}).get(cid, {})
     var ship: Dictionary = world["ships"][sid]
@@ -161,8 +167,8 @@ static func accept(world: Dictionary, bank: Dictionary,
     var opened: Dictionary = _open(world, bank)
     if not opened.get("ok", false):
         return opened
-    var ledger: RefCounted = opened["ledger"]
-    var board: RefCounted = opened["board"]
+    var ledger: Variant = opened["ledger"]
+    var board: Variant = opened["board"]
     var comms: float = float(ship.get("comms_bonus", 0.0))
     var result: Dictionary = board.accept(cid, sid, str(ship["faction_id"]), comms, 1.0, tick)
     if not result.get("ok", false):
@@ -202,9 +208,9 @@ static func move(world: Dictionary, bank: Dictionary, cid: String,
     var opened: Dictionary = _open(world, bank)
     if not opened.get("ok", false):
         return opened
-    var ledger: RefCounted = opened["ledger"]
-    var board: RefCounted = opened["board"]
-    var evidence: RefCounted = opened["evidence"]
+    var ledger: Variant = opened["ledger"]
+    var board: Variant = opened["board"]
+    var evidence: Variant = opened["evidence"]
     var staged: Dictionary = world.duplicate(true)
     if not (staged.get("passenger_manifests", {}) is Dictionary and staged.get("passenger_receipts", {}) is Dictionary):
         return _reject("n104_invalid_manifest_registry")
@@ -302,3 +308,118 @@ static func move(world: Dictionary, bank: Dictionary, cid: String,
         committed["receipt_id"] = receipt_id
         committed["wealth_receipt_id"] = wealth_receipt
     return committed
+
+## N153 source chooses a real posted Passenger contract; N81/GOAP and
+## N84 generate the persistent multi-leg flight plan. This is read-only:
+## assigning and escrow top-up still require the single N39 Apply.
+static func propose_assignment(world: Dictionary, graph: RefCounted,
+        resolver: RefCounted, positions: Dictionary,
+        tick: int, scale: float) -> Dictionary:
+    if graph == null or resolver == null or tick < 1:
+        return _reject("n153_passenger_missing_route_authority")
+    var ids: Array = world.get("contract_board", {}).get("contracts", {}).keys()
+    ids.sort()
+    var ship_ids: Array = world.get("ships", {}).keys()
+    ship_ids.sort()
+    for cid in ids:
+        var c: Dictionary = world["contract_board"]["contracts"][cid]
+        if str(c.get("contract_type", "")) != "passenger" or str(c.get("status", "")) != "posted" or tick > int(c.get("expires_at_tick", -1)):
+            continue
+        var faction: String = str(c.get("faction_id", ""))
+        var source: String = str(c.get("source_location", ""))
+        var dest: String = str(c.get("destination_location", ""))
+        var quantity: int = int(c.get("quantity", 0))
+        if not world.get("markets", {}).has(source) or not world.get("markets", {}).has(dest):
+            continue
+        for sid in ship_ids:
+            var ship: Dictionary = world["ships"][sid]
+            var here: String = str(ship.get("location", ""))
+            if str(ship.get("faction_id", "")) != faction or not str(ship.get("active_contract_id", "")).is_empty() or str(ship.get("current_goal", "")) not in ["", "idle"] or not (ship.get("transit", {}) as Dictionary).is_empty() or not (ship.get("cargo", {}) as Dictionary).is_empty():
+                continue
+            if int(Catalog.spec(str(ship.get("class", ""))).get("passenger_capacity", 0)) < quantity:
+                continue
+            if not SourceN147._full_fuel(world, graph, positions, ship, source, dest, scale):
+                continue
+            var systems: Dictionary = {here: resolver.system_for_location(here)}
+            systems[source] = resolver.system_for_location(source)
+            systems[dest] = resolver.system_for_location(dest)
+            if systems.values().has(""):
+                continue
+            var comms: float = float(ship.get("comms_bonus", 0.0))
+            if not is_finite(comms) or comms < 0.0 or comms > 0.10:
+                continue
+            var quoted: int = int(round(float(c.get("payment", 0)) * (1.0 + comms)))
+            var top_up: int = maxi(0, quoted - int(c.get("reserved", 0)))
+            var balance: int = int(world.get("faction_treasuries", {}).get(faction, -1))
+            var choice: Dictionary = NativeN153.select_contract({
+                "offers": [{"id": str(cid), "status": "Posted",
+                    "contract_type": "Passenger", "faction_id": faction,
+                    "requestor_id": faction, "quantity": quantity,
+                    "commodity": "food", "source_location": source,
+                    "destination_location": dest, "may_accept": true}],
+                "ship_id": str(sid), "ship_faction": faction,
+                "ship_location": here, "cargo_capacity": int(ship.get("cargo_capacity", 0)),
+                "credits": int(ship.get("credits", 0)), "sensor_range_au": float(ship.get("sensor_range_au", 1.0)),
+                "system_by_location": systems,
+                "commerce_allowed": {faction: true},
+                "controllers": {source: faction, dest: faction},
+                "quotes": {str(cid): {"valid": balance >= top_up and balance >= 0,
+                    "top_up": top_up, "quoted_payment": quoted,
+                    "payer_balance": balance, "reserved": int(c.get("reserved", 0))}},
+                "memory": {"price_knowledge": {}}, "tick": tick})
+            if str(choice.get("id", "")) != str(cid):
+                continue
+            var to_source: Dictionary = ShipPlanning._route_legs(graph, here, source)
+            var to_dest: Dictionary = ShipPlanning._route_legs(graph, source, dest)
+            if to_source.is_empty() or to_dest.is_empty():
+                continue
+            var routes: Dictionary = {}
+            routes[here + "|" + source] = to_source["legs"]
+            routes[source + "|" + dest] = to_dest["legs"]
+            var tank: float = float(ship.get("fuel_capacity", 0.0))
+            if tank <= 0.0:
+                continue
+            var fuel_bucket: int = Goap.fuel_fraction_to_bucket(float(ship.get("fuel", 0.0)) / tank)
+            var req: Dictionary = Plans.plan_request("passenger", {
+                "current": here, "source": source, "destination": dest,
+                "commodity": "food", "quantity": quantity,
+                "contract_id": str(cid), "fuel_bucket": fuel_bucket}, routes)
+            if req.is_empty():
+                continue
+            var initial: Dictionary = Goap.initial("Source" if here == source else "Origin", fuel_bucket)
+            initial["docked"] = not str(ship.get("docked_at", "")).is_empty()
+            var goap: Dictionary = Goap.plan(initial, "passenger",
+                req["loc_map"], int(req.get("max_depth", 16)),
+                int(req.get("goal", {}).get("fuel_bucket_min", 0)))
+            if goap.is_empty():
+                continue
+            var actions: Array = []
+            for raw in goap.get("actions", []):
+                var action: Dictionary = raw.duplicate(true)
+                action["kind"] = str(action.get("type", ""))
+                action.erase("type")
+                if str(action["kind"]) in ["Refuel", "Refit", "GateJump"] or str(action["kind"]).is_empty():
+                    actions.clear()
+                    break
+                actions.append(action)
+            if actions.is_empty():
+                continue
+            var expanded: Array = Plans.compile_plan_to_bt_actions(
+                actions, req["loc_map"], routes, true)
+            var nodes: Array = []
+            for step in expanded:
+                var leaf: Dictionary = Bt.action(step)
+                if leaf.is_empty():
+                    nodes.clear()
+                    break
+                nodes.append(leaf)
+            if nodes.is_empty():
+                continue
+            var bt: Dictionary = Bt.sequence(nodes)
+            if not Bt.validate(bt):
+                continue
+            return {"ok": true, "assigned": true, "contract_id": str(cid),
+                "ship_id": str(sid), "ai_bt": bt,
+                "n153_profit": int(choice.get("profit", 0)),
+                "n81_cost": int(goap.get("cost", 0))}
+    return {"ok": true, "assigned": false, "status": "NO_FUNDED_REAL_PASSENGER_BID"}
