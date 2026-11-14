@@ -54,6 +54,8 @@ const NativeFreeTrade = preload("res://scripts/sim/phase2/unified_n83_free_trade
 const NativeShipServices = preload("res://scripts/sim/phase2/unified_n97_ship_service_stage.gd")
 const NativeGateJump = preload("res://scripts/sim/phase2/unified_n108_gate_jump_stage.gd")
 const NativeGatePair = preload("res://scripts/sim/phase2/unified_n108_gate_pair_stage.gd")
+const NativeCrisisPhase = preload("res://scripts/sim/phase2/unified_native_crisis_phase.gd")
+const NativeCrisisWarnings = preload("res://scripts/sim/phase2/unified_native_crisis_events.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
@@ -3446,6 +3448,85 @@ func apply_native_population_migration(tick: int, multiplier: int) -> Dictionary
     _ledger = next_ledger
     return {"ok": true, "tick": tick, "moved": moved, "wealth": amount,
         "receipt_id": op, "events": [event]}
+
+
+## Rust engine.rs::scan_crisis_events, AFTER N150 and before apply2.
+## Only N39 may persist FacilityOperations.starving_notified. N150 already
+## committed MarketHistory.crisis_notified through apply_market_phase.
+## Source warning events are returned only AFTER this single World commit.
+func apply_native_crisis_phase(tick: int, proposed: Dictionary) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick:
+        return {"ok": false, "reason": "crisis_wrong_authoritative_tick"}
+    if not proposed.get("ok", false) or typeof(
+            proposed.get("tick", null)) != TYPE_INT or int(
+            proposed["tick"]) != tick:
+        return {"ok": false, "reason": "crisis_missing_native_market_commit"}
+    for key in ["market_events", "facility_events",
+            "events_after_n39_commit"]:
+        if not (proposed.get(key) is Array):
+            return {"ok": false, "reason": "invalid_native_crisis_" + key}
+    var expected_events: Array = proposed["market_events"].duplicate(true)
+    expected_events.append_array(proposed["facility_events"])
+    if expected_events != proposed["events_after_n39_commit"]:
+        return {"ok": false, "reason": "crisis_event_order_or_contents_changed"}
+    # N152 funded contract activity may have happened after N150 on this
+    # P2 tick, but it must NEVER silently roll back the persisted market
+    # notification bit or fake a different physical shortage count.
+    for item in proposed["market_events"]:
+        if not (item is Dictionary):
+            return {"ok": false, "reason": "invalid_native_market_event"}
+        var location: String = str(item.get("location", ""))
+        var commodity: String = str(item.get("commodity", ""))
+        var market: Dictionary = _world.get("markets", {}).get(location, {})
+        if location.is_empty() or commodity.is_empty() or market.is_empty() or (
+                str(market.get("id", "")) != str(item.get("market_id", ""))) or (
+                not (market.get("history") is Dictionary)):
+            return {"ok": false, "reason": "crisis_market_provenance_missing"}
+        var history: Dictionary = market["history"]
+        if not (history.get("crisis_notified") is Dictionary) or not (
+                history.get("shortage_ticks") is Dictionary):
+            return {"ok": false, "reason": "crisis_market_flags_not_committed"}
+        var flagged: bool = bool(history["crisis_notified"].get(commodity, false))
+        var kind: String = str(item.get("kind", ""))
+        if kind == "market_crisis":
+            if not flagged or typeof(item.get("shortage_ticks", null)) != TYPE_INT or (
+                    history["shortage_ticks"].get(commodity, null) != item[
+                        "shortage_ticks"]):
+                return {"ok": false, "reason": "crisis_market_shortage_mismatch"}
+        elif kind == "market_recovered":
+            if flagged or history["shortage_ticks"].get(commodity, null) == null:
+                return {"ok": false, "reason": "crisis_market_recovery_mismatch"}
+        else:
+            return {"ok": false, "reason": "unknown_native_market_warning"}
+    var live_facilities: Dictionary = NativeCrisisWarnings.propose_facility_warnings(
+        _world.get("facilities", {}))
+    if not live_facilities.get("ok", false):
+        return {"ok": false, "reason": "crisis_live_facilities_rejected:" +
+            str(live_facilities.get("reason", ""))}
+    if live_facilities["flag_updates"] != proposed.get(
+            "facility_flag_updates", {}) or live_facilities["events"] != proposed[
+            "facility_events"]:
+        return {"ok": false, "reason": "stale_or_replayed_facility_crisis_proposal"}
+    if not (proposed.get("facility_flag_updates") is Dictionary):
+        return {"ok": false, "reason": "invalid_native_facility_crisis_flags"}
+    if not proposed["facility_flag_updates"].is_empty():
+        var staged: Dictionary = NativeCrisisPhase.expected_facility_flag_world(
+            _world, proposed)
+        if not staged.get("ok", false):
+            return {"ok": false, "reason": str(staged.get("reason", "crisis_flag_stage_failed"))}
+        var next_world: Dictionary = staged["world"]
+        var problem: String = Schema.validate(next_world)
+        if not problem.is_empty() or Schema.accounts(next_world) != Schema.accounts(_world):
+            return {"ok": false, "reason": "crisis_changed_source_economy_or_schema:" +
+                problem}
+        _world = next_world
+    # Not a scheduled future EventQueue. The N158 single TickRunner
+    # broadcasts source transitions once immediately after this commit.
+    return {"ok": true, "tick": tick,
+        "market_count": proposed["market_events"].size(),
+        "facility_count": proposed["facility_events"].size(),
+        "changed_flags": proposed["facility_flag_updates"].size(),
+        "events": expected_events.duplicate(true)}
 
 
 func apply_market_phase(tick: int, updates: Dictionary) -> bool:
