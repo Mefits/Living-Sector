@@ -25,6 +25,7 @@ const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_st
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
 const NativeDiplomacy = preload("res://scripts/sim/phase2/unified_native_diplomacy_phase.gd")
+const NativeFactionFinance = preload("res://scripts/sim/phase2/unified_native_faction_finance_phase.gd")
 
 const GalaxyConstructionCrew: Dictionary = {
     "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
@@ -1764,6 +1765,98 @@ func _grant_xp(fac: Dictionary, recipes_run: int) -> void:
     while int(fac["level"]) < 10 and int(fac["xp"]) >= int(fac["level"]) * 100:
         fac["xp"] = int(fac["xp"]) - int(fac["level"]) * 100
         fac["level"] = int(fac["level"]) + 1
+
+## Rust source: in one faction tick, taxes -> bailouts -> relief.
+## All receipts are immutable transfers of EXISTING N9 wallets, never a
+## second treasury, market account or direct mutation from a planner.
+func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick or multiplier < 1:
+        return {"ok": false, "reason": "n129_invalid_faction_accounting_tick"}
+    if not _world.has("faction_finance_last_tick"):
+        return {"ok": true, "due": false, "status": "legacy_no_native_finance"}
+    var plan: Dictionary = NativeFactionFinance.propose(_world, tick, multiplier)
+    if not plan.get("ok", false):
+        return plan
+    if not plan.get("due", false):
+        return {"ok": true, "due": false, "tick": tick, "transfers": []}
+    if tick <= int(_world["faction_finance_last_tick"]):
+        return {"ok": false, "reason": "n129_duplicate_faction_accounting_tick"}
+    var staged: Dictionary = _world.duplicate(true)
+    var wallets = Ledger.new()
+    if not wallets.restore(_ledger.snapshot()):
+        return {"ok": false, "fatal": true, "reason": "n129_original_n9_ledger_unavailable"}
+    var records: Array = plan.get("transfers", [])
+    if records.size() > 10000:
+        return {"ok": false, "fatal": true, "reason": "n129_unbounded_transfers"}
+    var receipts: Array = []
+    var sequence: int = 0
+    for move in records:
+        if not (move is Dictionary):
+            return {"ok": false, "fatal": true, "reason": "n129_invalid_transfer"}
+        var money: int = int(move.get("amount", 0))
+        var source: String = str(move.get("source", ""))
+        var destination: String = str(move.get("destination", ""))
+        var kind: String = str(move.get("kind", ""))
+        if money < 1 or source == destination or kind not in [
+                "native_faction_tax", "native_facility_bailout",
+                "native_faction_relief"]:
+            return {"ok": false, "fatal": true, "reason": "n129_forbidden_finance_transfer"}
+        var origin_ok: bool = false
+        var target_ok: bool = false
+        if kind == "native_faction_tax":
+            origin_ok = source.begins_with("facility/")
+            target_ok = destination.begins_with("faction/")
+        else:
+            origin_ok = source.begins_with("faction/")
+            target_ok = destination.begins_with("population/") if (
+                kind == "native_faction_relief" and
+                str(move.get("recipient_kind", "")) == "household") else destination.begins_with("facility/")
+        if not origin_ok or not target_ok:
+            return {"ok": false, "fatal": true, "reason": "n129_wrong_source_account_type"}
+        var operation_id: String = "n129:%d:%04d:%s" % [tick, sequence, kind]
+        sequence += 1
+        var posted: Dictionary = wallets.transfer(operation_id, source,
+            destination, money, tick, kind)
+        if not posted.get("ok", false):
+            return {"ok": false, "fatal": true,
+                "reason": "n129_native_account_transfer_rejected:" +
+                    str(posted.get("reason", "unknown"))}
+        receipts.append({"id": operation_id, "source": source,
+            "destination": destination, "amount": money, "kind": kind})
+    var proposed_treasuries: Dictionary = plan.get("faction_treasuries", {})
+    var proposed_facilities: Dictionary = plan.get("facility_credits", {})
+    var proposed_households: Dictionary = plan.get("population_wealth", {})
+    if proposed_treasuries.size() != staged["faction_treasuries"].size() or proposed_facilities.size() != staged["facilities"].size() or proposed_households.size() != staged["populations"].size():
+        return {"ok": false, "fatal": true, "reason": "n129_native_account_roster_changed"}
+    for id in staged["faction_treasuries"]:
+        if not proposed_treasuries.has(id):
+            return {"ok": false, "fatal": true, "reason": "n129_unknown_source_faction"}
+        staged["faction_treasuries"][id] = int(proposed_treasuries[id])
+    for id in staged["facilities"]:
+        if not proposed_facilities.has(id):
+            return {"ok": false, "fatal": true, "reason": "n129_missing_native_facility"}
+        staged["facilities"][id]["credits"] = int(proposed_facilities[id])
+    for id in staged["populations"]:
+        if not proposed_households.has(id):
+            return {"ok": false, "fatal": true, "reason": "n129_missing_native_household"}
+        staged["populations"][id]["wealth"] = int(proposed_households[id])
+    staged["faction_finance_last_tick"] = tick
+    var invalid: String = Schema.validate(staged)
+    if not invalid.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n129_world_schema:" + invalid}
+    var accounts: Dictionary = Schema.accounts(staged)
+    var actual: Dictionary = wallets.snapshot().get("balances", {})
+    if accounts.size() != actual.size() or wallets.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "n129_native_total_not_conserved"}
+    for account in accounts:
+        if int(actual.get(account, -1)) != int(accounts[account]):
+            return {"ok": false, "fatal": true, "reason": "n129_wallet_world_divergence"}
+    _world = staged
+    _ledger = wallets
+    return {"ok": true, "due": true, "tick": tick,
+        "receipts": receipts, "tax_due": plan["tax_due"],
+        "relief_due": plan["relief_due"], "authority": "one_n39_world_n9"}
+
 
 ## Rust agents/faction.rs::tick_factions calls BodyTerritory derivation
 ## at its ORIGINAL 50×tick_multiplier cadence, before the other faction
