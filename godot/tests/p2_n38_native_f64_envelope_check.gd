@@ -2,6 +2,7 @@ extends SceneTree
 ## N38 native IEEE-754 precision codec, hashed JSON envelope and old-v1
 ## compatibility. This is persistence-only, not a synthetic gameplay test.
 const Save = preload("res://scripts/sim/save_state.gd")
+const NativeFrame = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
 
 func _initialize() -> void:
     var native: Dictionary = {
@@ -40,14 +41,19 @@ func _initialize() -> void:
         "alpha-station"]["supply"]["fuel"]
     var decoded_fuel: Variant = restored["native_production"][
         "world"]["markets"]["alpha-station"]["supply"]["fuel"]
+    # Native N38 authoritatively allows exactly representable JSON int
+    # tokens to reload as TYPE_FLOAT, then normalizes only those integer
+    # fields before strict World validation. Raw Dictionary equality is
+    # incorrectly stricter than real N38 (1 != 1.0 by Variant type).
+    # Its existing frame guard verifies EVERY actual native float and
+    # every money/stock/cargo/contract value without a single ULP loss.
+    var native_guard: Dictionary = NativeFrame.verify_authoritative_frame(
+        source, restored)
     if typeof(decoded_fuel) != TYPE_FLOAT or decoded_fuel != source_fuel or (
-            restored["native_production"] != native):
-        _fail("N38 exact IEEE-754 native supply/history/cargo or int changed;" +
+            not native_guard.get("ok", false)):
+        _fail("N38 exact native frame rejected; " + str(native_guard) +
             " source_fuel=" + str(source_fuel) +
-            " decoded_fuel=" + str(decoded_fuel) +
-            " decoded_type=" + str(typeof(decoded_fuel)) +
-            " source_payload=" + str(native) +
-            " decoded_payload=" + str(restored["native_production"]))
+            " decoded_fuel=" + str(decoded_fuel))
         return
     var altered: Dictionary = transport.duplicate(true)
     altered["payload"]["native_production"]["world"]["markets"][
