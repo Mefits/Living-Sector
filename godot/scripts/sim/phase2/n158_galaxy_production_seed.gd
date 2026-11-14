@@ -70,6 +70,9 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         "native_planner_records": {},
         "native_planner_last_tick": 0,
         "native_execution": NativeExecState.empty(),
+        # N121 uses the ONE real N104 board's escrow registry.
+        "native_htn_next_id": 1,
+        "native_htn_contracts": {},
         # Native N18 station-wide administration is the ONLY workforce
         # allocation planner. The original N39/N6 paid shift is its
         # executor, not a parallel production or wallet system.
