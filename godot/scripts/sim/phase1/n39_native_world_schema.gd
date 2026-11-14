@@ -52,6 +52,14 @@ static func validate(state: Dictionary) -> String:
                 var cursor: Dictionary = ship["lod"]
                 if typeof(cursor.get("divisor", null)) != TYPE_INT or typeof(cursor.get("next_tick", null)) != TYPE_INT or not NativeShipLod._cursor_ok(cursor):
                     return "invalid_persisted_native_n140_cursor"
+            # Frozen Rust ShipEconomy.dock_dwell_start_tick is shared
+            # by physical 3-game-second mining shifts and dock dwell.
+            # Nullable = no shift; an integral cursor persists through N38.
+            if ship.has("dock_dwell_start_tick") and ship[
+                    "dock_dwell_start_tick"] != null:
+                if typeof(ship["dock_dwell_start_tick"]) != TYPE_INT or (
+                        int(ship["dock_dwell_start_tick"]) < 0):
+                    return "invalid_native_n97_dwell_cursor"
             # N90 one-outstanding ShipTransaction mailbox. A replay
             # after N38 restore must retain the exact request sequence.
             if ship.has("transaction"):
