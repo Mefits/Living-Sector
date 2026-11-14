@@ -2222,6 +2222,15 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             var ship: Dictionary = w["ships"][id]
             if not _normalize_row(ship, ["credits", "cargo_capacity", "crew_size"]):
                 return false
+            # Rust N101 ShipProgression fields are genuine integers.
+            # JSON can decode them as floats, but ShipState.restore
+            # correctly insists on TYPE_INT. Normalize exact whole
+            # values on this detached checkpoint, never round XP.
+            if ship.has("progression"):
+                if not (ship["progression"] is Dictionary) or not (
+                        _normalize_row(ship["progression"], [
+                            "level", "xp", "retrofit_points"])):
+                    return false
             # Exact N140 AgentLod cursor survives N38 JSON round-trip.
             # Genuine older P2 saves without the component stay un-gated.
             if ship.has("lod"):
