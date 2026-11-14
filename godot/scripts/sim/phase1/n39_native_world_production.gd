@@ -22,6 +22,8 @@ const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
 const N91SourceDispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
 const NativeColonyFounding = preload("res://scripts/sim/phase2/unified_n151_colony_founding_phase.gd")
 const NativeColonyOrders = preload("res://scripts/sim/phase2/unified_n144_colony_contracts.gd")
+const NativeColonyMetals = preload("res://scripts/sim/phase2/unified_n144_colony_metals.gd")
+const NativeColonyMetalAssignment = preload("res://scripts/sim/phase2/unified_n144_colony_metal_assignment.gd")
 const NativeNewColonyHead = preload("res://scripts/sim/phase2/unified_n144_new_colony_head.gd")
 const SourceN134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
 const NativeColonyDocks = preload("res://scripts/sim/phase2/unified_n151_colony_dock_phase.gd")
@@ -1538,7 +1540,10 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
     if approved.get("authorized", false):
         posted = NativeColonyOrders.stage_paid_passengers(
             _world, _ledger.snapshot(), active, faction, tick,
-            multiplier, graph)
+            multiplier, graph) if bool(active.get("plan", {}).get("passenger", false)) else NativeColonyMetals.post(
+            _world, _ledger.snapshot(),
+            str(active.get("plan", {}).get("site_id", "")),
+            tick, multiplier, graph)
         if not posted.get("ok", false):
             return posted
         staged = posted["world"]
@@ -1558,7 +1563,8 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
         return {"ok": false, "fatal": true, "reason": "n144_added_noncanonical_world_domain"}
     for domain in _world:
         if domain not in ["contract_board", "escrow_balances",
-                "faction_treasuries", "research_directors"] and staged[domain] != _world[domain]:
+                "faction_treasuries", "research_directors",
+                "construction_contracts"] and staged[domain] != _world[domain]:
             return {"ok": false, "fatal": true, "reason": "n144_edited_unrelated_world_domain"}
     for other in _world.get("faction_treasuries", {}):
         if str(other) != faction and staged["faction_treasuries"][other] != _world["faction_treasuries"][other]:
@@ -1575,7 +1581,19 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
         for old_id in old_board:
             if new_board.get(old_id, null) != old_board[old_id]:
                 return {"ok": false, "fatal": true, "reason": "n144_existing_contract_changed"}
-    elif staged["contract_board"] != _world["contract_board"] or staged["escrow_balances"] != _world["escrow_balances"]:
+        # A Metals commission adds EXACTLY one original N154 Site mapping;
+        # passenger commission never touches the construction registry.
+        var metal_order: bool = not bool(active.get("plan", {}).get("passenger", false))
+        var old_maps: Dictionary = _world.get("construction_contracts", {})
+        var new_maps: Dictionary = staged.get("construction_contracts", {})
+        if new_maps.size() != old_maps.size() + (1 if metal_order else 0):
+            return {"ok": false, "fatal": true, "reason": "n144_wrong_colony_site_contract_count"}
+        for earlier in old_maps:
+            if new_maps.get(earlier, null) != old_maps[earlier]:
+                return {"ok": false, "fatal": true, "reason": "n144_rewrote_old_construction_commitment"}
+        if metal_order and str(new_maps.get(str(posted["contract_id"]), "")) != str(active["plan"]["site_id"]):
+            return {"ok": false, "fatal": true, "reason": "n144_unverified_real_construction_site"}
+    elif staged["contract_board"] != _world["contract_board"] or staged["escrow_balances"] != _world["escrow_balances"] or staged.get("construction_contracts", {}) != _world.get("construction_contracts", {}):
         return {"ok": false, "fatal": true, "reason": "n144_unapproved_contract_created"}
     if Schema.validate(staged) != "":
         return {"ok": false, "fatal": true, "reason": "n144_invalid_world_" + Schema.validate(staged)}
