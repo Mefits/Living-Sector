@@ -2,6 +2,7 @@ extends RefCounted
 ## P2 single-World N151 adapter. Pure plan only: no wallet/stock mutation.
 ## N39.apply_population_phase is the EXCLUSIVE economic commit authority.
 const NativePop = preload("res://scripts/sim/phase1/n151_native_population_tick.gd")
+const NativeMigration = preload("res://scripts/sim/phase1/n151_native_population_migration.gd")
 const Catalog = preload("res://scripts/sim/economy/commodity_catalog.gd")
 
 static func propose(source: Dictionary, tick: int,
@@ -102,3 +103,57 @@ static func _valid_nonnegative_integer(value: Variant) -> bool:
         return false
     var number: float = float(value)
     return is_finite(number) and number >= 0.0 and number <= 9007199254740991.0 and float(int(number)) == number
+
+## Frozen agents/population.rs::run_population_migration — one abstract
+## demographic transfer on 200*mult tick only. Distinct from N147 physical
+## passenger contracts; no ship or new colony is created by this phase.
+## The N39 owner ALWAYS recomputes this candidate from its own World.
+static func migration_proposal(source: Dictionary, tick: int,
+        multiplier: int) -> Dictionary:
+    if tick < 1 or multiplier < 1 or multiplier > 10000:
+        return {"ok": false, "reason": "invalid_native_migration_clock"}
+    if tick % (NativePop.MIGRATION_CHECK_INTERVAL_BASE * multiplier) != 0:
+        return {"ok": true, "due": false, "moved": 0}
+    for field in ["populations", "facilities", "markets"]:
+        if not (source.get(field) is Dictionary):
+            return {"ok": false, "reason": "missing_native_migration_" + field}
+    var population_ids: Array = source["populations"].keys()
+    population_ids.sort() # stable canonical world order across N38 restore
+    var projected: Array = []
+    for id in population_ids:
+        var p: Variant = source["populations"][id]
+        if not (p is Dictionary) or str(p.get("id", "")) != str(id):
+            return {"ok": false, "reason": "invalid_population_migration_identity"}
+        var pop: Dictionary = p
+        var location: String = str(pop.get("location", ""))
+        var dock: bool = false
+        for fac in source["facilities"].values():
+            if fac is Dictionary and str(fac.get("location", "")) == location and str(fac.get("type", "")) == "construction_dock":
+                dock = true
+                break
+        projected.append({
+            "id": str(id), "label": str(pop.get("label", id)),
+            "facility_location": location,
+            "population_count": int(pop.get("count", -1)),
+            "total_wealth": int(pop.get("wealth", -1)),
+            "migration_pressure": pop.get("migration_pressure", -1.0),
+            "overall_sentiment": int(pop.get("overall_sentiment", 50)),
+            "is_dock": dock})
+    var source_next: Dictionary = NativeMigration.migrate(projected, tick)
+    if not source_next.get("ok", false):
+        return source_next
+    var moved: int = int(source_next.get("moved", 0))
+    if moved == 0:
+        return {"ok": true, "due": true, "moved": 0, "events": []}
+    var events: Array = source_next.get("events", [])
+    if events.size() != 1 or not (events[0] is Dictionary):
+        return {"ok": false, "reason": "missing_native_migration_event"}
+    var event: Dictionary = events[0]
+    var from: String = str(event.get("source_id", ""))
+    var to: String = str(event.get("destination_id", ""))
+    if from == to or not source["populations"].has(from) or not source["populations"].has(to):
+        return {"ok": false, "reason": "invalid_native_migration_endpoints"}
+    return {"ok": true, "due": true, "moved": moved,
+        "wealth": int(source_next.get("wealth_transferred", -1)),
+        "from": from, "to": to, "event": event.duplicate(true),
+        "after": source_next["populations"].duplicate(true)}
