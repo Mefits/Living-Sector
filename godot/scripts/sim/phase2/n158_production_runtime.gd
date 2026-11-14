@@ -1499,6 +1499,7 @@ func economy_summary() -> Dictionary:
         "construction_engineers_assigned_this_tick": _last_n91_result.get("assigned", []).size(),
         "construction_paid_labor_this_tick": _last_construction_result.get("paid", []).size(),
         "construction_new_facilities_this_tick": _last_construction_result.get("materialized", []).size(),
+        "native_b3_real_colonies_established_this_tick": _last_construction_result.get("established", []).size(),
         "construction_blocked_labor_this_tick": _last_construction_result.get("blocked", []).size(),
         "colony_founding_status": str(_last_n151_founding.get("status", "NOT_EVALUATED")),
         "colony_founding_ready_unapproved": _last_n151_founding.get("ready", []).size(),
@@ -1905,7 +1906,8 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             if not (receipt is Dictionary) or not _normalize_row(receipt, ["tick"]):
                 return false
             for key in ["quantity", "wages", "capital",
-                    "native_db_id", "credits", "population_count"]:
+                    "native_db_id", "credits", "population_count",
+                    "delivered_metals", "paid_labor", "shipments", "shifts"]:
                 if receipt.has(key) and not _normalize_number_at(receipt, key):
                     return false
     # First N46 fleet is authoritative in THIS N39 snapshot. Old files
