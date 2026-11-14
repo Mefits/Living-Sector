@@ -1,0 +1,25 @@
+{
+  "worker": "chat3-V3-single-timeline-integrity-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "5e155d220504d665c3297db555cb0e0306bea61c",
+  "goal": "Independent V3 one-tick timeline coherence: native N150 persisted market history/trend samples and other completed source cursors never point beyond canonical N38/N39 tick; use read-only validation before saving, backup promotion and loading, without touching real N39/N158 or clocks.",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_native_timeline_integrity.gd (new)",
+    "godot/scripts/sim/save_state.gd (N38 preflight only)",
+    "godot/tests/p2_native_timeline_coherence_check.gd (new, deferred)",
+    "godot/docs/phase2/handoffs/20261114-chat3-v3-timeline.md (new)"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/scripts/sim/tick_runner.gd",
+    "godot/scripts/sim/clock.gd",
+    "godot/scripts/sim/calendar.gd",
+    "N9/N104",
+    "frozen balance/AI"
+  ],
+  "coordination": "Other chats may work in shared N39/N158, no cross-file edits. Source-only checker operates on read-only snapshot; no running tests/Actions until complete port.",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED until Godot final acceptance"
+}
