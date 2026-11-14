@@ -1,0 +1,22 @@
+{
+  "worker": "chat-continuation-stage2-acceptance",
+  "status": "IN_PROGRESS",
+  "started": "2026-11-15",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "79267943204ab30d0e323559ac98f12e2ac88aa2",
+  "goal": "Stage2 bounded clean-seed integrated Godot runtime acceptance after user confirmed Windows tick361 error no longer reproduces: original Galaxy 0.6.7, real 420 ticks at x8, canonical ledger invariants, tick360 mid-faction N38 save/reload, continuation through 361 and no duplicated phase/receipt. No balance changes.",
+  "scope": [
+    "godot/tests/p2_stage2_clean_seed_420_tick_acceptance.gd",
+    "godot/docs/phase2/handoffs/20261115-stage2-clean-seed-runtime-acceptance.md",
+    "godot/docs/phase2/P2_CI_TRIGGER.txt (only once after source ready)",
+    ".github/workflows/p2-unified-godot-smoke.yml (append one bounded real Godot acceptance only)"
+  ],
+  "constraints": [
+    "Do not mutate gameplay balance or frozen Rust source",
+    "Do not create synthetic money, ships, routes, contracts or AI actions",
+    "Use existing sole N39/N9/N38 world, no duplicate ticks",
+    "One batched Godot Actions run rather than micro runs",
+    "Pass only with actual Godot logs; if it fails, report real blocker"
+  ],
+  "verification": "PENDING"
+}
