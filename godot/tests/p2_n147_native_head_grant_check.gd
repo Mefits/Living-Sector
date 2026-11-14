@@ -84,6 +84,12 @@ func _initialize() -> void:
         _fail("faction received two original Head-paid grants same tick")
         return
     another = _world()
+    another["research_directors"]["terran-authority"]["crisis"] = true
+    if HeadGrant.authorize(another, "terran-authority",
+            _ready(), _head(), 60).get("authorized", true):
+        _fail("original survival crisis wrongly approved workforce migration")
+        return
+    another = _world()
     another["research_directors"]["terran-authority"]["strategic"][
         "kind"] = "supply"
     another["research_directors"]["terran-authority"]["strategic"][
