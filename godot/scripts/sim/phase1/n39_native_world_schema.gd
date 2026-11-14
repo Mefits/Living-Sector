@@ -6,6 +6,7 @@ const Inventory = preload("res://scripts/sim/economy/inventory_store.gd")
 const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
 const ShipState = preload("res://scripts/sim/ship_state.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
+const NativeTradeSlot = preload("res://scripts/simulation/ai/native_ship_transaction_slot.gd")
 const NativeShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 const NativeShipLod = preload("res://scripts/sim/phase1/n140_native_spatial_lod.gd")
 const Technology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
@@ -51,6 +52,24 @@ static func validate(state: Dictionary) -> String:
                 var cursor: Dictionary = ship["lod"]
                 if typeof(cursor.get("divisor", null)) != TYPE_INT or typeof(cursor.get("next_tick", null)) != TYPE_INT or not NativeShipLod._cursor_ok(cursor):
                     return "invalid_persisted_native_n140_cursor"
+            # N90 one-outstanding ShipTransaction mailbox. A replay
+            # after N38 restore must retain the exact request sequence.
+            if ship.has("transaction"):
+                if not (ship["transaction"] is Dictionary) or not NativeTradeSlot.valid_slot(
+                        ship["transaction"]):
+                    return "invalid_native_n90_transaction"
+            if ship.has("cargo_origin"):
+                if not (ship["cargo_origin"] is Dictionary):
+                    return "invalid_native_n97_cargo_origin"
+                for commodity in ship["cargo_origin"]:
+                    var origin: Variant = ship["cargo_origin"][commodity]
+                    if not _id(commodity) or not (origin is Dictionary) or not _id(
+                            origin.get("location", null)):
+                        return "invalid_native_n97_purchase_location"
+                    var unit_cost: Variant = origin.get("unit_cost", null)
+                    if not (unit_cost is float or unit_cost is int) or not is_finite(
+                            float(unit_cost)) or float(unit_cost) < 0.0:
+                        return "invalid_native_n97_cost_basis"
             # Frozen Rust ShipMemory: each observed PriceMemory carries a
             # current source MarketPricing float and its exact tick.
             # No omniscient/mirrored market or second Market book.
@@ -78,6 +97,18 @@ static func validate(state: Dictionary) -> String:
                             return "invalid_native_price_memory_amount"
                         if typeof(known.get("tick", null)) != TYPE_INT or int(known["tick"]) < 0:
                             return "invalid_native_price_memory_tick"
+                # Original N83 learning updates only after a
+                # fully paid final sale, not from proposed trade routes.
+                for route_key in mem["route_performance"]:
+                    var stat: Variant = mem["route_performance"][route_key]
+                    if not _id(route_key) or not (stat is Dictionary) or (
+                            typeof(stat.get("attempts", null)) != TYPE_INT or
+                            int(stat["attempts"]) < 0):
+                        return "invalid_source_n83_trade_history"
+                    var raw_profit: Variant = stat.get("total_profit_per_unit", null)
+                    if not (raw_profit is int or raw_profit is float) or (
+                            not is_finite(float(raw_profit))):
+                        return "invalid_n83_learned_real_profit"
                 for loc in mem["visited"]:
                     if not _id(loc):
                         return "invalid_native_visited_location"
