@@ -128,6 +128,19 @@ func system_for_location(location: String) -> String:
 func body_for_location(location: String) -> String:
     return str(_locations[location]["body_id"]) if _loaded and _locations.has(location) else ""
 
+## Frozen Rust BodyOrbit::universe_offset comes from the original
+## registered source system, NOT the rendered body's orbital position.
+## N97 mine must prove ship.system_id == target body system before
+## comparing these offsets (equal offsets alone do not prove it).
+func source_system_offset_for_body(body_id: String) -> Array:
+    if not _loaded or not _bodies.has(body_id):
+        return []
+    var source: Variant = _bodies[body_id].get("offset", null)
+    if not (source is Vector2):
+        return []
+    return [source.x, source.y]
+
+
 ## Derive every mapped location from CURRENT orbital angles and committed
 ## native elapsed time, not from route length, seed angle, or a UI projection.
 ## If an old checkpoint lacks the clock origin, station phase is unknown.
