@@ -30,7 +30,8 @@ func depart(state: RefCounted, graph: RefCounted, ship_id: String, destination: 
 		return false
 	var spec: Dictionary = Catalog.spec(str(ship["class"]))
 	var rate := float(spec.get("fuel_consumption_base", 0.0))
-	var speed := Catalog.effective_speed(str(ship["class"]), str(ship["size"]))
+	var speed := float(ship.get("speed_modifier", Catalog.effective_speed(
+		str(ship["class"]), str(ship["size"]))))
 	if rate <= 0.0 or speed <= 0.0 or float(ship["fuel"]) <= 0.0:
 		return false
 	var token := _next_token
@@ -60,7 +61,8 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 	if not positions.has(target_id) or not _valid_position(positions[target_id]):
 		return "missing_destination"
 	var spec: Dictionary = Catalog.spec(str(ship["class"]))
-	var speed := Catalog.effective_speed(str(ship["class"]), str(ship["size"]))
+	var speed := float(ship.get("speed_modifier", Catalog.effective_speed(
+		str(ship["class"]), str(ship["size"]))))
 	var position := Vector2(float(transit["position"][0]), float(transit["position"][1]))
 	var target: Vector2 = positions[target_id]
 	var remaining := position.distance_to(target)
