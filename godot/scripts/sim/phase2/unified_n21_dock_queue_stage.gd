@@ -120,8 +120,11 @@ static func _admit(world: Dictionary, ledger: Dictionary, fid: String,
         var bank := Bank.new()
         if not bank.restore(ledger):
             return _bad("n9_original_bank_restore_failed")
+        # N39 Schema.facility_account(fid) is "facility/" + fid.
+        # A colon key is NOT a real wallet and wrongly rejected every
+        # original paid dock, leaving the fleet stuck in the N84 BT.
         var moved: Dictionary = bank.transfer(op_id, "ship:" + sid,
-            "facility:" + fid, price, tick, "native_n21_dock")
+            "facility/" + fid, price, tick, "native_n21_dock")
         if not moved.get("ok", false):
             return _bad("n9_original_dock_debit_rejected")
         paid = bank.snapshot()
