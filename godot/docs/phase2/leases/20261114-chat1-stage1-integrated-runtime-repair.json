@@ -1,6 +1,6 @@
 {
   "worker": "chat1-stage1",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started": "2026-11-14",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "96c978dd7a8990b31c1fb0e141ccac8343a573fb",
@@ -23,6 +23,11 @@
     "No long soak",
     "No repeated GitHub Actions unless evidence requires followup"
   ],
-  "verification": "IN_PROGRESS",
-  "notes": "CI 43641003750: N143 loaded snapshot failed N39 Schema invalid_ship_state after exact JSON normalization. CI 43641400532: N158 5-tick production save failed at computed work_shift/produced_outputs with 1e-14 IEEE drift; broad same-JSON-token, <=1e-12 relative float rule now used outside money/stock/cargo/contract. N108 derived fitting recomputes exact installed slots and permits only ULP-scale float changes; integer ship progression normalized prior to restore. Final stage one CI pending."
+  "verification": "GODOT_4_7_2_INTEGRATED_SMOKE_PASS (not whole-game A/B/V/G or Windows)",
+  "notes": "CI 43641003750: N143 loaded snapshot failed N39 Schema invalid_ship_state after exact JSON normalization. CI 43641400532: N158 5-tick production save failed at computed work_shift/produced_outputs with 1e-14 IEEE drift; broad same-JSON-token, <=1e-12 relative float rule now used outside money/stock/cargo/contract. N108 derived fitting recomputes exact installed slots and permits only ULP-scale float changes; integer ship progression normalized prior to restore. Final stage one CI pending.",
+  "completed": "2026-11-14",
+  "result": "Stage1 real Godot 4.7.2 combined smoke success on tested commit b40a9428b0314b5d63e51d1d8303d539f5009f62; parser 310/310 and editor/economy/research exit codes all zero; N158 native production N151/N150/N9 and N38 save/reload/continue PASS; N143 paid N9 research and N38 save/reload/tech PASS.",
+  "ci_run_url": "https://github.com/Mefits/Living-Sector/actions/runs/43642388330",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat1-stage1-integration-repair.md",
+  "next": "Stage2 economic mandates N109/N110 -> N111 quoted right action -> N121/N104/N9 paid with counters; then coordinated A/B/V/G whole game acceptance and long-tick profiling. Do not rebalance while port verification."
 }
