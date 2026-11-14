@@ -1,0 +1,23 @@
+{
+  "worker": "chat3-takeover-chat2-B4-N147-head-auth-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "25fcde0cb695c9cd4f2b4f104815a19f21c5c2e9",
+  "reason": "User states chat2 stopped; B1-B4 lease already RELEASED. Take over remaining N147 strategic Head grant/source parity discovered on audit; no double N104 posting.",
+  "goal": "Restore exact frozen Rust coordination::run_cycle guard: N147 workforce commission only after real faction Head selected migrate_colony, not merely a ready read-only proposal; reuse single N39/N9/N104 with no extra AI/ledger/ship and preserve B4 aftercare.",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n147_colony_head_grant.gd (new; pure source authorization)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (source N147 post gate only, independent of Chat1)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (ONLY AFTER Chat1 N80/N103 lease RELEASED; N147 posting source grant)",
+    "godot/tests/p2_n147_native_head_grant_check.gd (new deferred)",
+    "godot/docs/phase2/handoffs/20261114-chat3-takeover-chat2-n147-head.md (new)"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase2/unified_n80_ship_exploration_stage.gd",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd",
+    "balance/AI rework",
+    "Godot tests/Actions"
+  ],
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED until one final test",
+  "coordination": "Chat2 B4 RELEASED, Chat1 owns N158 current ship-phase; reserve work isolated and wait release for N158."
+}
