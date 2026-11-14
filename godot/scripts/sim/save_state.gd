@@ -85,11 +85,11 @@ static func _read_checkpoint(path: String) -> Dictionary:
 static func _trusted_for_backup_rotation(parsed: Dictionary) -> bool:
     if parsed.is_empty() or str(parsed.get("format", "")) != "living-sector-godot":
         return false
-    if str(parsed.get("scenario", "")) != "galaxy-067":
+    if str(parsed.get("scenario", "")) != SourceTickRunner.SCENARIO_ID:
         return false
     var schema: Variant = parsed.get("schema_version", null)
     var tick: Variant = parsed.get("tick", null)
-    if not _exact_nonnegative_whole(schema) or int(schema) != 1:
+    if not _exact_nonnegative_whole(schema) or int(schema) != SourceTickRunner.SAVE_SCHEMA:
         return false
     if not _exact_nonnegative_whole(tick):
         return false
