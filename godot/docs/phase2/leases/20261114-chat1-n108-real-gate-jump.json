@@ -1,0 +1,18 @@
+{
+  "worker": "chat1-ships",
+  "status": "IN_PROGRESS",
+  "started": "2026-11-14",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "goal": "P2 N108 real source paired GateLink RequestGateJump via native N84/N146, one N39 World and N9 transfer, native position/ShipMemory recent systems, N38 receipt; never invent a gate or link",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n108_gate_jump_stage.gd (new pure stage)",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd (GateJump BT leaf only)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (one real gate Apply)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (N146 GateJump dispatch and N38)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (gate receipt only)",
+    "godot/docs/phase2/handoffs/20261114-chat1-n108-gate-jump.md",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
+  ],
+  "nonoverlap": "Chat2 owns colony N144/N151 and N39/N158 colony segments; Chat3 owns crisis/faction/N38 general guards. Current B2 lease is RELEASED; gate-only append via fresh SHA. No touching N154 gate construction or changing source balance.",
+  "status_policy": "SOURCE_WIRED / CODE_UNVERIFIED until Godot runtime verification"
+}
