@@ -168,17 +168,20 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         }
     if owners_by_location.is_empty():
         return _fail("no_native_markets")
-    # Only source facilities at actual source market locations are currently
-    # runnable by N39. Other facilities stay in the frozen seed/UI and must
-    # be joined by later Phase2 world owners (never silently funded).
+    # Rust spawner creates real GateLink facilities even when they
+    # have NO market warehouse. Preserve only genuine source gate rows,
+    # their credits, body and original pairing; never invent gates for
+    # the eight frozen starter worlds (those currently contain none).
+    # Other marketless industries remain excluded until their native
+    # economy projection is integrated.
     var skipped: Array = []
     for id in all_facilities:
         var fac: Dictionary = all_facilities[id]
         var location: String = str(fac["location"])
-        if not owners_by_location.has(location):
+        var kind: String = str(fac["type"])
+        if not owners_by_location.has(location) and kind != "gate":
             skipped.append(id)
             continue
-        var kind: String = str(fac["type"])
         if not _whole_json_int(fac.get("docking_capacity", null)):
             return _fail("missing_native_docking_capacity")
         projected["facilities"][id] = {
@@ -199,6 +202,33 @@ static func from_seed(seed: Dictionary) -> Dictionary:
             "fitting_output_mult": 1.0,
             "fitting_batches_bonus": 0
         }
+    # Original Rust sim_db::spawner attaches GateLink only from
+    # gate_paired_id and the SOURCE constants 200/2/3. A partial
+    # unpaired gate remains present but cannot be jumped. The stricter
+    # N108 P2 atomic Apply admits only reciprocal built pairs.
+    for gate_id in projected["facilities"]:
+        var raw: Dictionary = all_facilities[gate_id]
+        if str(raw.get("type", "")) != "gate":
+            continue
+        if raw.get("position", null) is Dictionary:
+            var pos: Dictionary = raw["position"]
+            if not (pos.get("x") is float or pos.get("x") is int) or not (
+                    pos.get("y") is float or pos.get("y") is int) or not is_finite(
+                    float(pos["x"])) or not is_finite(float(pos["y"])):
+                return _fail("gate_has_invalid_source_orbit_position")
+            projected["facilities"][gate_id]["position"] = pos.duplicate(true)
+        var paired: String = str(raw.get("gate_paired_id", ""))
+        if paired.is_empty() or not projected["facilities"].has(paired) or (
+                not all_facilities.has(paired)):
+            continue
+        var other_raw: Dictionary = all_facilities[paired]
+        if str(other_raw.get("type", "")) != "gate" or str(
+                other_raw.get("gate_paired_id", "")) != str(gate_id):
+            continue
+        projected["facilities"][gate_id]["gate_link"] = {
+            "paired_gate_id": paired,
+            "fee_flat": 200, "fee_per_cargo_unit": 2,
+            "throughput_cap": 3}
     for pop in source_populations:
         if not _id(pop.get("label", null)) or not _id(pop.get("faction_id", null)):
             return _fail("population_missing_identity")
