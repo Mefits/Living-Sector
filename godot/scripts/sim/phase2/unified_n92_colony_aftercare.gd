@@ -79,8 +79,15 @@ static func observe(world: Dictionary) -> Dictionary:
             if count < 0:
                 return _fail("b4_invalid_original_residents")
             people += count
-            food_per += float(household.get("consumption", {}).get("food", 0.0))
-            water_per += float(household.get("consumption", {}).get("water", 0.0))
+            # Exact frozen PopEconomy purchase demand: per-1000
+            # coefficients scale with real residents. Emergency water
+            # is an extra +0.5/1000/person below food satisfaction 30.
+            var share: float = float(count) / 1000.0
+            var consumption: Dictionary = household.get("consumption", {})
+            food_per += maxf(0.0, float(consumption.get("food", 0.0))) * share
+            water_per += maxf(0.0, float(consumption.get("water", 0.0))) * share
+            if int(household.get("food_satisfaction", 50)) < 30:
+                water_per += 0.5 * share
         if not is_finite(food_per) or not is_finite(water_per) or (
                 food_per < 0.0 or water_per < 0.0):
             return _fail("b4_invalid_original_household_demand")
