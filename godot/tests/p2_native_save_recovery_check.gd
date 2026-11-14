@@ -185,6 +185,36 @@ func _initialize() -> void:
             "recovered_pending", true):
         _fail("recoverable backup was bypassed in favor of pending")
         return
+
+    # A correct SHA with a FUTURE N9 receipt may not poison .bak.
+    var future_receipt: Dictionary = _frame(20)
+    future_receipt["native_production"]["ledger"]["receipts"]["contract-a"]["tick"] = 21
+    if not _write_envelope(path, future_receipt) or not (
+            Saves._read_checkpoint(path) is Dictionary) or (
+            Saves._trusted_for_backup_rotation(Saves._read_checkpoint(path))):
+        _fail("correct digest with receipt from future entered backup rotation")
+        return
+    # If ALL three candidates fail real Runner restore, neither the
+    # loaded baseline nor any on-disk file is rewritten or promoted.
+    if not _write_envelope(path, _frame(19, "reject")) or not _write_envelope(
+            path + ".bak", _frame(18, "reject")) or not _write_envelope(
+            path + ".pending", _frame(20, "reject")):
+        _fail("all-rejected safety setup failed")
+        return
+    var failed_primary: String = FileAccess.get_file_as_string(absolute)
+    var failed_pending: String = FileAccess.get_file_as_string(absolute + ".pending")
+    runner.source = _frame(10)
+    runner.tick_count = 10
+    var original_world: Dictionary = runner.source.duplicate(true)
+    recovered = Saves.load_runner(runner, seed, path)
+    if recovered.get("ok", false) or runner.tick_count != 10 or (
+            runner.source != original_world):
+        _fail("all invalid saves corrupted the living runner's baseline")
+        return
+    if FileAccess.get_file_as_string(absolute) != failed_primary or (
+            FileAccess.get_file_as_string(absolute + ".pending") != failed_pending):
+        _fail("rejected pending or primary was rewritten despite failed restore")
+        return
     _cleanup(path)
     print("P2_N38_RECOVERY_BACKUP_PENDING_SOURCE_CHECK_PASS")
     quit(0)
