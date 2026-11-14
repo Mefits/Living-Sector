@@ -15,6 +15,10 @@ static func _loyalty(ship: Dictionary) -> float:
         native = Personality.for_class(str(ship.get("class", "")))
     return float(native.get("loyalty", 0.0))
 
+static func _station_order(site: Dictionary) -> Dictionary:
+    var order: Variant = site.get("labor", {}).get("station_order", null)
+    return order if order is Dictionary else {}
+
 static func propose(world: Dictionary, resolver: RefCounted,
         tick: int) -> Dictionary:
     if tick < 1 or resolver == null or not (world.get("construction_sites") is Dictionary) or not (world.get("ships") is Dictionary):
@@ -34,8 +38,7 @@ static func propose(world: Dictionary, resolver: RefCounted,
             "labor_required": int(site.get("labor", {}).get("required", 0)),
             # Source N154 has station_order=null until it is assigned.
             # Port N91.offers expects an object; represent NONE with {}.
-            "station_order": site.get("labor", {}).get("station_order", {})
-                if site.get("labor", {}).get("station_order", null) is Dictionary else {},
+            "station_order": _station_order(site),
             "location": str(site.get("location_name", "")),
             "faction": str(site.get("faction_id", ""))
         })
