@@ -11,6 +11,7 @@ const FleetLogistics = preload("res://scripts/sim/phase2/unified_fleet_logistics
 const N153Dispatch = preload("res://scripts/sim/phase2/unified_n153_contract_dispatch.gd")
 const NativeAIExecution = preload("res://scripts/sim/phase2/unified_ship_ai_execution.gd")
 const NativeLodShipAI = preload("res://scripts/sim/phase2/unified_n140_ship_ai_dispatch.gd")
+const NativeTradeRoute = preload("res://scripts/sim/phase2/unified_n83_trade_route_planner.gd")
 const NativeConstruction = preload("res://scripts/sim/phase2/unified_native_construction_phase.gd")
 const N91Dispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
 const N134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
@@ -570,6 +571,25 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_ship_result["n149_fired_count"] = int(actual_crew.get("fired_count", 0))
         _last_ship_result["n149_wages"] = int(actual_crew.get("wages_total", 0))
         _last_ship_result["n149_food_consumed"] = int(actual_crew.get("food_consumed", 0))
+        # Rust N83 best_trade_route_with_ownership -> N80 -> N81:
+        # choose a real original route ONLY from N140-fired ships'
+        # learned price samples and buyer N9 cash. No contract or stock
+        # effect is performed by the planning stage.
+        var trade_source: Dictionary = NativeTradeRoute.stage(
+            production.world_snapshot(), _fleet_roster.registry.graph(),
+            tick, n140_fired)
+        if not trade_source.get("ok", false):
+            _last_ship_result = {"ok": false,
+                "reason": "n83_native_source_plan_" +
+                    str(trade_source.get("reason", "rejected"))}
+            return false
+        if trade_source.get("changed", false):
+            if not production.apply_ship_phase(tick, trade_source):
+                _last_ship_result = {"ok": false,
+                    "reason": "n83_one_n39_ship_plan_rejected"}
+                return false
+        _last_ship_result["n83_autonomous_plans"] = trade_source.get(
+            "accepted", []).duplicate(true)
         # The execution authority is N84 (persistent BT), which emits
         # N146 commands, checked against N14 physical transit and applied
         # ONCE through N39 World. No hand-written contract-to-route loop.
@@ -589,6 +609,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_ship_result["n146_command_count"] = planned.get("commands", []).size()
         _last_ship_result["n128_crew_xp"] = []
         _last_ship_result["n97_paid_moves"] = []
+        _last_ship_result["n83_free_trades"] = []
         _last_ship_result["n104_passenger_moves"] = []
         _last_ship_result["n108_paid_refits"] = []
         _last_ship_result["n21_auto_dock"] = []
@@ -622,6 +643,42 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 var contract: Dictionary = snapshot.get("contract_board", {}).get("contracts", {}).get(cid, {})
                 var ship: Dictionary = snapshot.get("ships", {}).get(ship_id, {})
                 var operation: String = "dock" if kind == "RequestDock" else "undock"
+                if bool(command.get("native_free_trade", false)):
+                    # Independent N83 trading has no N104 contract. Check
+                    # its actual Market->station and N84 plan before
+                    # passing a typed command to the same N21 Apply.
+                    var trading_loc: String = str(ship.get("location", ""))
+                    var station_id: String = str(snapshot.get(
+                        "markets", {}).get(trading_loc, {}).get("owner", ""))
+                    var station: Dictionary = snapshot.get(
+                        "facilities", {}).get(station_id, {})
+                    if str(ship.get("current_goal", "")) != "trade_route" or (
+                            not str(ship.get("active_contract_id", "")).is_empty() or
+                            str(command.get("facility_location", "")) != trading_loc or
+                            station_id.is_empty() or
+                            str(station.get("type", "")) != "station" or
+                            str(station.get("location", "")) != trading_loc):
+                        _last_ship_result = {"ok": false,
+                            "reason": "n83_n146_untrusted_free_market_dock"}
+                        return false
+                    var trade_dock: Dictionary = FleetLogistics.command(
+                        snapshot, operation, ship_id,
+                        "n83:dock:" + ship_id + ":" + operation + ":" + str(tick),
+                        tick, {}, "station")
+                    if not trade_dock.get("ok", false):
+                        _last_ship_result["autonomous_blocked"].append({
+                            "ship_id": ship_id,
+                            "reason": "n83_n21_" +
+                                str(trade_dock.get("reason", "dock_not_ready"))})
+                        continue
+                    if not production.apply_fleet_logistics(tick, trade_dock, true):
+                        _last_ship_result = {"ok": false,
+                            "reason": "n83_single_n39_n21_dock_apply_rejected"}
+                        return false
+                    _last_ship_result["n21_auto_dock"].append({
+                        "ship_id": ship_id, "operation": operation,
+                        "location": trading_loc, "kind": "source_free_trade"})
+                    continue
                 # After the N97 pickup the ship is STILL physically docked
                 # at the source, although N104 stage is now picked_up.
                 # Do not confuse contractual destination with dock location.
@@ -812,6 +869,25 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             if kind == "RequestShipTransaction":
                 var cid: String = str(command.get("contract_id", ""))
                 var operation: String = str(command.get("operation", ""))
+                if operation == "free_trade":
+                    # An N90 real per-ship sequence/id is mandatory. P1 N97
+                    # proves dock/stock/cash/quote. ONE N39 commits goods
+                    # and the same actual N9 money with immutable receipts.
+                    var free_paid: Dictionary = production.apply_native_n83_free_trade(
+                        tick, ship_id, int(command.get("request_id", -1)))
+                    if free_paid.get("ok", false):
+                        if str(free_paid.get("status", "")) == "applied":
+                            _last_ship_result["n83_free_trades"].append(
+                                free_paid.duplicate(true))
+                        else:
+                            _last_ship_result["autonomous_blocked"].append({
+                                "ship_id": ship_id, "reason": "n83_real_market_" +
+                                    str(free_paid.get("reason", "rejected"))})
+                    else:
+                        _last_ship_result = {"ok": false, "reason": "n83_native_paid_" +
+                            str(free_paid.get("reason", "apply_failed"))}
+                        return false
+                    continue
                 if operation not in ["pickup", "delivery",
                         "passenger_embark", "passenger_delivery"]:
                     _last_ship_result = {"ok": false, "reason": "n146_unknown_contract_transaction"}
@@ -1740,6 +1816,19 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                         return false
             # Rust PriceMemory.tick is integer even after N38 JSON;
             # commodity prices stay real (native f32), NEVER integer.
+            if ship.has("transaction"):
+                if not (ship["transaction"] is Dictionary) or not _normalize_row(
+                        ship["transaction"], ["sequence"]):
+                    return false
+                var pending: Variant = ship["transaction"].get("pending", null)
+                if not (pending is Dictionary):
+                    return false
+                if not pending.is_empty():
+                    if not _normalize_row(pending, ["id"]):
+                        return false
+                    if not (pending.get("request", null) is Dictionary) or not _normalize_row(
+                            pending["request"], ["quantity"]):
+                        return false
             if ship.has("memory"):
                 if not (ship["memory"] is Dictionary):
                     return false
@@ -1787,6 +1876,11 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                 if not (w[receipts_key][op] is Dictionary) or not _normalize_row(w[receipts_key][op], ["tick"]):
                     return false
                 if receipts_key == "cargo_receipts":
+                    if str(w[receipts_key][op].get("kind", "")).begins_with(
+                            "native_n97_free_"):
+                        if not _normalize_row(w[receipts_key][op], [
+                                "quantity", "payment", "request_id"]):
+                            return false
                     if not (w[receipts_key][op].get("quantities") is Dictionary):
                         return false
                     for item in w[receipts_key][op]["quantities"]:
