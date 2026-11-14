@@ -13,7 +13,10 @@ static func capable(ship_class: String, class_catalogue: Dictionary) -> bool:
 static func target(tree: Dictionary) -> String:
 	match str(tree.get("kind", "")):
 		"action":
-			if tree.get("action", "") == "construct":
+			var action: Variant = tree.get("action", "")
+			if action is Dictionary and str(action.get("kind", "")) == "Construct":
+				return str(action.get("site_id", ""))
+			if action == "construct":
 				return str(tree.get("site_id", ""))
 		"sequence":
 			for child in tree.get("children", []):
@@ -25,7 +28,10 @@ static func target(tree: Dictionary) -> String:
 static func active(tree: Dictionary) -> String:
 	match str(tree.get("kind", "")):
 		"action":
-			if tree.get("action", "") == "construct":
+			var action: Variant = tree.get("action", "")
+			if action is Dictionary and str(action.get("kind", "")) == "Construct":
+				return str(action.get("site_id", ""))
+			if action == "construct":
 				return str(tree.get("site_id", ""))
 		"sequence":
 			var children: Array = tree.get("children", [])
