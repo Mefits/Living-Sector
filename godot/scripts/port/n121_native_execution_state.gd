@@ -147,6 +147,23 @@ static func record_terminal(state: Dictionary, faction: String,
 ## Frozen Rust product-qualified counters; repeated steps share a
 ## cumulative output key. Legacy unqualified source counters apply to
 ## action.commodity ONLY, not to a co-product from the same recipe.
+## N155 frozen ActionSpec encodes recipe outputs as [Commodity, u32].
+## Standalone N121 fixtures also used {commodity, quantity}. Normalize at
+## the driver boundary; never change the planner catalogue's source shape.
+static func output_spec(raw: Variant) -> Dictionary:
+    if raw is Array and raw.size() == 2:
+        var good: String = str(raw[0])
+        if good.is_empty() or typeof(raw[1]) != TYPE_INT or int(raw[1]) <= 0:
+            return {}
+        return {"commodity": good, "quantity": int(raw[1])}
+    if raw is Dictionary:
+        var good: String = str(raw.get("commodity", ""))
+        var count: Variant = raw.get("quantity", null)
+        if good.is_empty() or typeof(count) != TYPE_INT or int(count) <= 0:
+            return {}
+        return {"commodity": good, "quantity": int(count)}
+    return {}
+
 static func output_key(action: Dictionary, commodity: String) -> String:
     return str(action.get("action_id", "")) + "::output:" + commodity
 
@@ -175,11 +192,10 @@ static func produced_goal_units(plan: Dictionary) -> float:
             continue
         if str(action.get("destination_id", "")) != dest:
             continue
-        for output in action.get("outputs", []):
-            if not (output is Dictionary):
-                continue
-            if (str(output.get("commodity", "")) != commodity
-                    or int(output.get("quantity", 0)) <= 0):
+        for raw_output in action.get("outputs", []):
+            var output: Dictionary = output_spec(raw_output)
+            if output.is_empty() or (str(output["commodity"]) != commodity
+                    or int(output["quantity"]) <= 0):
                 continue
             var start_value: Variant = output_value(baselines, action, commodity)
             var start: float = float(start_value) if start_value != null else 0.0
@@ -208,10 +224,10 @@ static func active_production_priority(plan: Dictionary,
         if str(action.get("kind", "")) != "produce":
             return {"ok": true, "priority": null}
         var preferred: String = str(action.get("commodity", ""))
-        for out in action.get("outputs", []):
-            if (str(out.get("commodity", "")) ==
-                    str(plan.get("goal", {}).get("commodity", ""))
-                    and int(out.get("quantity", 0)) > 0):
+        for raw_output in action.get("outputs", []):
+            var out: Dictionary = output_spec(raw_output)
+            if not out.is_empty() and (str(out["commodity"]) ==
+                    str(plan.get("goal", {}).get("commodity", ""))):
                 preferred = str(out["commodity"])
         if preferred.is_empty():
             return {"ok": false, "reason": "unknown_recipe_product"}
