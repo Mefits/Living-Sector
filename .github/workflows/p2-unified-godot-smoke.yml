@@ -86,13 +86,20 @@ jobs:
             --script res://tests/p2_n91_marketless_colony_dock_stage_check.gd \
             > godot/logs/p2-unified/n91-colony-dock.log 2>&1
           n91=$?
-          echo "P2_CI_RESULT editor=$editor parse=$parse economy=$economy research=$research stage2=$stage2 n91=$n91"
+          # Check exact binary representation of native market float values
+          # inside the existing authenticated JSON N38 envelope, and
+          # backward-compatible loading of old plain numeric v1 payloads.
+          timeout --signal=TERM --kill-after=5s 45s godot --headless --path godot \
+            --script res://tests/p2_n38_native_f64_envelope_check.gd \
+            > godot/logs/p2-unified/n38-exact-f64.log 2>&1
+          n38=$?
+          echo "P2_CI_RESULT editor=$editor parse=$parse economy=$economy research=$research stage2=$stage2 n91=$n91 n38=$n38"
           for file in godot/logs/p2-unified/*.log; do
             echo "::group::$file"
             tail -n 90 "$file"
             echo "::endgroup::"
           done
-          test "$editor" -eq 0 -a "$parse" -eq 0 -a "$economy" -eq 0 -a "$research" -eq 0 -a "$stage2" -eq 0 -a "$n91" -eq 0
+          test "$editor" -eq 0 -a "$parse" -eq 0 -a "$economy" -eq 0 -a "$research" -eq 0 -a "$stage2" -eq 0 -a "$n91" -eq 0 -a "$n38" -eq 0
       - name: Save diagnostic logs
         if: always()
         uses: actions/upload-artifact@v4
