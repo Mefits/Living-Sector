@@ -123,6 +123,7 @@ jobs:
           print("TICK_SPEED_BUCKETS:", data.get("tick_speed_buckets", []))
           print("N39_WORLD_COPY_PROFILE:", data.get("n39_world_copy_profile", {}))
           print("N84_BLOCK_REASONS:", data.get("native_n84_block_reasons", {}))
+          print("N83_N97_N21_CANONICAL_PAID_ACCOUNT_GATE:", "checked by full clean World through tick", data.get("observed_ticks"))
           assert data.get("result") == "PASS"
           assert data.get("manual_ship_commands") == 0
           assert data.get("injected_goods") == 0
