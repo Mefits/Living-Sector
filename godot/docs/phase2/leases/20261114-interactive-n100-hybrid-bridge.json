@@ -1,6 +1,6 @@
 {
   "worker": "interactive-primary-chat-20261114",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "78efa5490e3606e1c1a3ec149c69bfc33c41caa6",
   "goal": "Connect frozen Rust PlanningSnapshot from real N39 World to N155 catalogue and N100 Hybrid selection with N98 durable plan ledger, preserving N134/N121 dispatch authority and N38 saves",
@@ -12,7 +12,14 @@
     "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd",
     "godot/scripts/sim/phase2/n158_production_runtime.gd",
     "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md",
-    "godot/docs/phase2/handoffs/20261114-n100-live-planning-bridge.md"
+    "godot/docs/phase2/handoffs/20261114-n100-live-planning-bridge.md",
+    "godot/scripts/port/n121_native_execution_state.gd",
+    "godot/scripts/port/n121_native_production_baselines.gd",
+    "godot/scripts/port/n121_native_driver.gd",
+    "godot/scripts/port/n121_native_receipts.gd"
   ],
-  "verification": "STATIC_SOURCE_ONLY; NO_TESTS_UNTIL_FULL_PORT"
+  "verification": "STATIC_QUOTES_BRACKETS_PRELOADS_INDENT_NUL_PASS; GODOT_NOT_RUN_BY_USER_REQUEST; GITHUB_ACTIONS_0; N121_EXECUTION_NOT_YET_WIRED",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n100-live-planning-bridge.md",
+  "code_head": "44906da5095ef8be53e1fa1b2e0c8820a998b1a4",
+  "remaining": "Canonical N121 N98 NextGate/Prepared/NativeReceipt and actual N104/N9 escrow physical delivery is next unintegrated source block"
 }
