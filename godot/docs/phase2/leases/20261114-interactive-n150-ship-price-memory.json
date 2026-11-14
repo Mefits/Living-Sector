@@ -1,6 +1,6 @@
 {
   "worker": "primary-interactive",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_on": "2026-11-14",
   "branch": "integration/godot-phase2-unified-20261113",
   "goal": "Frozen Rust ship/mod.rs::observe_prices N140-fired comms-tier exact visibility via original market prices to per-ship source ShipMemory; N38 persistence, N39 one World; follow with source-confirmed skill grant command if available",
@@ -11,7 +11,15 @@
     "godot/scripts/sim/phase1/n39_native_world_schema.gd (memory invariant only)",
     "godot/scripts/sim/phase1/n39_native_world_production.gd (one N39 price memory commit only)",
     "godot/scripts/sim/phase2/n158_production_runtime.gd (ships source Pass2 and N38 only)",
-    "godot/docs/phase2/handoffs/20261114-ship-price-knowledge.md"
+    "godot/docs/phase2/handoffs/20261114-ship-price-knowledge.md",
+    "godot/scripts/sim/phase2/unified_ship_phase.gd (physical arrival ShipMemory.visited only)",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd (N146 skill command pass-through only)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N128 trusted command apply only)",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
   ],
-  "non_overlap": "No N151 colony, N141 work, N154 materialization, N9 wallet or N149 crew changes. Preserve other worker commits by fetch SHA before each write."
+  "non_overlap": "No N151 colony, N141 work, N154 materialization, N9 wallet or N149 crew changes. Preserve other worker commits by fetch SHA before each write.",
+  "handoff": "godot/docs/phase2/handoffs/20261114-ship-price-knowledge.md",
+  "verification": "GitHub static readback of 8 GDScript paths: quote and bracket balancing, uniform indentation, zero NUL, newline, all N140/N39/N158/N38/N146 source call links present. NO Godot parser, runtime, Windows build, CI or Actions. SOURCE_WIRED / CODE_UNVERIFIED.",
+  "remaining": "N83 autonomous free-market buy/sell/SellAll actual N97/N9 paid execution; N128 original command producer not established, so no artificial XP; original gate jumps/recent_systems and exact Rust f32 differential replay.",
+  "finished_on": "2026-11-14"
 }
