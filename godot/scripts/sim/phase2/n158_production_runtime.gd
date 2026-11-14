@@ -21,6 +21,7 @@ const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const NativeCommands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
 const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 const NativeLocations = preload("res://scripts/sim/ships/native_location_resolver.gd")
+const N148RetirementQueue = preload("res://scripts/sim/phase1/n148_native_ship_retirement_queue.gd")
 
 var _boot_error: String = ""
 var _source_stats: Dictionary = {}
@@ -29,6 +30,7 @@ var _last_station_demand: Dictionary = {}
 var _last_contract_admissions: Dictionary = {}
 var _last_n152_result: Dictionary = {}
 var _last_admin_removal: Dictionary = {}
+var _last_n148_result: Dictionary = {}
 var _last_n153_result: Dictionary = {}
 var _last_research_result: Dictionary = {}
 var _last_construction_observation: Dictionary = {}
@@ -56,6 +58,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_contract_admissions = {}
     _last_n152_result = {}
     _last_admin_removal = {}
+    _last_n148_result = {}
     _last_n153_result = {}
     _last_research_result = {}
     _last_construction_observation = {}
@@ -578,6 +581,87 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     "ship_id": str(record.get("ship_id", "")),
                     "contract_id": str(record.get("contract_id", "")),
                     "reason": str(record.get("reason", ""))})
+        # N148 is evaluated AFTER N84/N146/real N97 payout has
+        # committed. This is the same current ship tick and same N39
+        # World. Only actual delivered credits can clear hoard strikes.
+        # Rust ShipLifecycle runs once per fired ship decision. The P2
+        # runner currently visits every live ship once per ships phase;
+        # never run a second autonomous fleet clock to fake LOD.
+        var lifecycle: Dictionary = production.apply_native_n148_ship_lifecycle(
+            tick, _tick_multiplier)
+        if not lifecycle.get("ok", false):
+            _last_n148_result = lifecycle
+            _last_ship_result = {"ok": false,
+                "reason": "n148_canonical_lifecycle_" +
+                    str(lifecycle.get("reason", "invalid"))}
+            return false
+        var requests: Array = []
+        for emitted in lifecycle.get("commands", []):
+            # N146 is the typed command source; the frozen N148 P1
+            # queue uses lowercase labels from original Rust trace.
+            if str(emitted.get("kind", "")) != "DecommissionShip":
+                _last_ship_result = {"ok": false,
+                    "reason": "n146_n148_unrecognized_decommission"}
+                return false
+            var queued: Dictionary = N148RetirementQueue.stage_decommission(
+                requests, {"kind": "decommission_ship",
+                    "ship": str(emitted.get("ship", "")),
+                    "reason": str(emitted.get("reason", ""))})
+            if not queued.get("ok", false):
+                _last_ship_result = {"ok": false,
+                    "reason": str(queued.get("reason", "n148_queue_failed"))}
+                return false
+            requests = queued["pending"]
+        var real_ships: Dictionary = production.world_snapshot().get("ships", {})
+        var current_ids: Dictionary = {}
+        for sid in real_ships:
+            var row: Dictionary = real_ships[sid]
+            current_ids[str(sid)] = {"ship_id": str(sid),
+                "faction_id": str(row.get("faction_id", ""))}
+        var drained: Dictionary = N148RetirementQueue.drain_pending_decommissions(
+            requests, current_ids)
+        if not drained.get("ok", false):
+            _last_ship_result = {"ok": false,
+                "reason": "n148_source_drain_failed"}
+            return false
+        _last_n148_result = {"ok": true, "tick": tick,
+            "advanced": lifecycle.get("advanced", []).duplicate(true),
+            "commands": lifecycle.get("commands", []).duplicate(true),
+            "retired": [], "blocked": [], "events": []}
+        for req in drained.get("drained", []):
+            var ship_id: String = str(req["ship_id"])
+            var applied: Dictionary = production.apply_native_admin_removal(
+                tick, "ship", ship_id, str(req["reason"]), true)
+            if not applied.get("ok", false):
+                # Frozen admin.rs intentionally blocks a ship with
+                # embarked passengers; the decommission queue is
+                # already drained, so the same strike may retry later.
+                if str(applied.get("reason", "")) == "passengers_aboard":
+                    _last_n148_result["blocked"].append({"ship_id": ship_id,
+                        "reason": "passengers_aboard"})
+                    continue
+                _last_ship_result = {"ok": false, "reason":
+                    "n148_n152_actual_removal_" +
+                        str(applied.get("reason", "failed"))}
+                return false
+            _last_admin_removal = applied.duplicate(true)
+            var committed: Dictionary = N148RetirementQueue.on_authoritative_ship_removed(
+                req, {"trusted_internal_apply": true,
+                    "admin_remove_succeeded": true,
+                    "ship_still_present": production.world_snapshot().get(
+                        "ships", {}).has(ship_id), "ship_id": ship_id},
+                tick, false) # Frozen Genesis finite fleet: NO free hulls
+            if not committed.get("ok", false):
+                _last_ship_result = {"ok": false,
+                    "reason": "n148_retirement_after_real_apply_rejected"}
+                return false
+            _last_n148_result["retired"].append(applied.duplicate(true))
+            _last_n148_result["events"].append_array(
+                applied.get("events", []).duplicate(true))
+            _last_n148_result["events"].append_array(
+                committed.get("events", []).duplicate(true))
+        _last_ship_result["n148_retirements"] = _last_n148_result["retired"].size()
+        _last_ship_result["n148_blocked"] = _last_n148_result["blocked"].size()
         return true
     if phase == "populations":
         var population_plan: Dictionary = PopulationPhase.propose(
@@ -763,6 +847,9 @@ func admin_remove_facility(facility_id: String) -> Dictionary:
 func last_native_admin_removal() -> Dictionary:
     return _last_admin_removal.duplicate(true)
 
+func last_native_ship_retirement() -> Dictionary:
+    return _last_n148_result.duplicate(true)
+
 func _native_admin_remove(kind: String, actor_id: String,
         reason: String) -> Dictionary:
     if not _native_enabled or not last_phase_failure().is_empty():
@@ -919,6 +1006,8 @@ func economy_summary() -> Dictionary:
         "n152_renewed_this_tick": _last_n152_result.get("renewed", []).size(),
         "n152_refunded_this_tick": _last_n152_result.get("refunded", []).size(),
         "native_admin_last_removed": str(_last_admin_removal.get("id", "")),
+        "n148_ship_retired_this_tick": _last_n148_result.get("retired", []).size(),
+        "n148_ship_retirement_blocked": _last_n148_result.get("blocked", []).size(),
         "n152_blocked_refunds": _last_n152_result.get("blocked", []).size(),
         "n153_accepted_this_tick": _last_n153_result.get("accepted", []).size(),
         "research_paid_shifts": _last_research_result.get("paid", []).size(),
@@ -1005,6 +1094,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_n121_result = {}
     _last_n152_result = {}
     _last_admin_removal = {}
+    _last_n148_result = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
@@ -1289,7 +1379,7 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
     # First N46 fleet is authoritative in THIS N39 snapshot. Old files
     # without a fleet remain valid without inventing tanks/ship credits.
     if w.has("ships"):
-        if not (w["ships"] is Dictionary) or w["ships"].is_empty():
+        if not (w["ships"] is Dictionary):
             return false
         if not _normalize_row(w, ["ship_next_token"]):
             return false
@@ -1299,6 +1389,12 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             var ship: Dictionary = w["ships"][id]
             if not _normalize_row(ship, ["credits", "cargo_capacity", "crew_size"]):
                 return false
+            if ship.has("lifecycle"):
+                if not (ship["lifecycle"] is Dictionary):
+                    return false
+                if not _normalize_row(ship["lifecycle"], [
+                        "broke_strikes", "hoard_strikes", "idle_ticks"]):
+                    return false
             if ship.has("last_plan_tick") and not _normalize_row(ship, ["last_plan_tick"]):
                 return false
             if ship.has("max_source_cost") and not _normalize_row(ship, ["max_source_cost"]):
