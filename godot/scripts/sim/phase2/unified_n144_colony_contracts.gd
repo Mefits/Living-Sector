@@ -13,6 +13,7 @@ const N134Policy = preload("res://scripts/sim/phase1/n134_coordination_policy.gd
 const Commission = preload("res://scripts/sim/phase1/n151_native_colony_commission.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 
+const PROJECT_TAG: String = "strategy.colony.v1"
 const DIRECTOR_SETTLERS: int = 50
 const PASSENGER_PAYMENT_PER_HEAD: int = 80
 const STARTUP_CAPITAL: int = 20000
@@ -254,7 +255,7 @@ static func approval(world: Dictionary, baseline: Dictionary,
 static func stage_paid_passengers(world: Dictionary, bank: Dictionary,
         active: Dictionary, faction: String, tick: int, multiplier: int,
         graph: RefCounted) -> Dictionary:
-    if not active.get("ready", false) or not active.get("plan") is Dictionary:
+    if not active.get("ready", false) or not (active.get("plan") is Dictionary):
         return _error("n144_no_current_source_paid_passenger_plan")
     var plan: Dictionary = active["plan"]
     if not plan.get("passenger", false):
