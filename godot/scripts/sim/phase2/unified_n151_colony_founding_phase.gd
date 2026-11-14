@@ -4,6 +4,8 @@ extends RefCounted
 ## No destination may be invented outside the ORIGINAL N4 directed registry.
 const Commission = preload("res://scripts/sim/phase1/n151_native_colony_commission.gd")
 const Locations = preload("res://scripts/sim/ships/native_location_resolver.gd")
+const Catalog = preload("res://scripts/sim/ship_catalog.gd")
+const N91 = preload("res://scripts/ported/n91_construction_executor.gd")
 
 static func proposal(world: Dictionary, original: RefCounted, graph: RefCounted,
         faction: String, body_id: String, source: String, tick: int,
@@ -72,6 +74,36 @@ static func proposal(world: Dictionary, original: RefCounted, graph: RefCounted,
     var founding_cost: int = 3 * 10000 + 20000 + 150 + settlers * 80
     if int(treasury[faction]) - Commission.SUBSIDY_FLOOR < founding_cost:
         return {"ok": false, "reason": "n151_native_colony_budget_unavailable"}
+    # Native N144 also requires a real passenger ship, solvent metal
+    # carrier, engineer, and one feasible home-to-project expedition.
+    # Existing ship rows and class specs are canonical: no proxy hull.
+    var has_passengers: bool = false
+    var has_materials: bool = false
+    var has_engineer: bool = false
+    var unit_price: float = float(market.get("prices", {}).get("metals", 0.0))
+    var lot_cost: int = ceili(unit_price * 200.0) if is_finite(unit_price) and unit_price > 0.0 else 2147483647
+    for raw in world.get("ships", {}).values():
+        if not (raw is Dictionary) or str(raw.get("faction_id", "")) != faction:
+            continue
+        var ship: Dictionary = raw
+        if float(ship.get("fuel", 0.0)) <= 0.0 or str(ship.get("location", "")).is_empty():
+            continue
+        var point: String = str(ship["location"])
+        if point != source and not graph.shortest_path(point, source).get("reachable", false):
+            continue
+        var class_id: String = str(ship.get("class", ""))
+        var spec: Dictionary = Catalog.spec(class_id)
+        if spec.is_empty():
+            continue
+        has_passengers = has_passengers or int(spec.get("passenger_capacity", 0)) >= settlers
+        has_materials = has_materials or (int(ship.get("cargo_capacity", 0)) >= 200 and lot_cost < 10000 and int(ship.get("credits", 0)) >= lot_cost)
+        has_engineer = has_engineer or N91.capable(class_id, Catalog.CLASSES)
+    if not has_passengers:
+        return {"ok": false, "reason": "n151_no_original_passenger_ship"}
+    if not has_materials:
+        return {"ok": false, "reason": "n151_no_solvent_metals_carrier"}
+    if not has_engineer:
+        return {"ok": false, "reason": "n151_no_original_engineering_ship"}
     var sponsor_position: Vector2 = original.seed_universe_position(same_system)
     if not is_finite(sponsor_position.x) or not is_finite(sponsor_position.y):
         return {"ok": false, "reason": "n151_missing_original_orbit_center"}
@@ -110,3 +142,51 @@ static func proposal(world: Dictionary, original: RefCounted, graph: RefCounted,
         "faction_id": faction, "body_id": body_id, "source": source,
         "site": site, "event": staged.get("event", {}).duplicate(true),
         "cost": 0, "destination": destination}
+
+## Read-only readiness over original body IDs and actual source stations.
+## This is NOT a colony-head authorization: it never calls N39 Apply.
+static func scan(world: Dictionary, original: RefCounted, graph: RefCounted,
+        tick: int, multiplier: int) -> Dictionary:
+    if tick < 1 or original == null or graph == null or not (world.get("faction_treasuries") is Dictionary):
+        return {"ok": false, "reason": "n151_source_world_not_ready"}
+    var ready: Array = []
+    var blocked: Array = []
+    var factions: Array = world["faction_treasuries"].keys()
+    factions.sort()
+    var body_ids: Array = world.get("bodies", {}).keys()
+    body_ids.sort()
+    for faction in factions:
+        var best_reason: String = "n151_no_planet_or_native_source_station"
+        var found: bool = false
+        for body_id in body_ids:
+            var item: Dictionary = original.body_by_id(str(body_id))
+            if str(item.get("value", {}).get("type", "")) != "planet":
+                continue
+            var source_ids: Array = world.get("markets", {}).keys()
+            source_ids.sort()
+            for source in source_ids:
+                var owner_id: String = str(world["markets"][source].get("owner", ""))
+                var sponsor: Dictionary = world.get("facilities", {}).get(owner_id, {})
+                if str(sponsor.get("faction", "")) != str(faction) or str(sponsor.get("type", "")) != "station":
+                    continue
+                if str(original.body_by_id(str(sponsor.get("body_id", ""))).get("system_id", "")) != str(item.get("system_id", "")):
+                    continue
+                var plan: Dictionary = proposal(world, original, graph,
+                    str(faction), str(body_id), str(source), tick,
+                    multiplier, true)
+                if plan.get("ok", false):
+                    ready.append({"faction_id": str(faction),
+                        "body_id": str(body_id),
+                        "source": str(source),
+                        "site_id": str(plan.get("site", {}).get("id", "")),
+                        "status": "UNAUTHORIZED_PLAN_ONLY"})
+                    found = true
+                    break
+                best_reason = str(plan.get("reason", "n151_colony_blocked"))
+            if found:
+                break
+        if not found:
+            blocked.append({"faction_id": str(faction), "reason": best_reason})
+    return {"ok": true, "tick": tick, "ready": ready,
+        "blocked": blocked, "applied": [],
+        "status": "N151_SOURCE_NAV_AND_HEAD_REQUIRES_INTEGRATION"}
