@@ -740,8 +740,13 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # choose a real original route ONLY from N140-fired ships'
         # learned price samples and buyer N9 cash. No contract or stock
         # effect is performed by the planning stage.
+        # N83/N103/N80 are pure proposal stages. Reuse this isolated
+        # authoritative read-only frame until a stage actually commits
+        # new ship state through N39. Previously each stage copied the
+        # entire growing ledger/history even when NO decision changed.
+        var planning_world: Dictionary = production.world_snapshot()
         var trade_source: Dictionary = NativeTradeRoute.stage(
-            production.world_snapshot(), _fleet_roster.registry.graph(),
+            planning_world, _fleet_roster.registry.graph(),
             tick, n140_fired)
         if not trade_source.get("ok", false):
             _last_ship_result = {"ok": false,
@@ -753,6 +758,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 _last_ship_result = {"ok": false,
                     "reason": "n83_one_n39_ship_plan_rejected"}
                 return false
+            planning_world = production.world_snapshot()
         _last_ship_result["n83_autonomous_plans"] = trade_source.get(
             "accepted", []).duplicate(true)
         # Source Rust N103 mining and N80 smart_idle_fallback operate
@@ -761,33 +767,35 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # Proposals mutate neither bodies nor Market nor ship wallets;
         # N39 admits their serialized N84 plan before single N146 Apply.
         var native_ice: Dictionary = NativeIceMining.stage(
-            production.world_snapshot(), _fleet_roster.registry.graph(),
+            planning_world, _fleet_roster.registry.graph(),
             _fleet_resolver, tick, n140_fired,
             locations["positions"], clock.tick_scale())
         if not native_ice.get("ok", false):
             _last_ship_result = {"ok": false, "reason": "n103_native_source_" +
                 str(native_ice.get("reason", "rejected"))}
             return false
-        if native_ice.get("changed", false) and not production.apply_ship_phase(
-                tick, native_ice):
-            _last_ship_result = {"ok": false, "reason": "n103_single_n39_plan_commit_rejected"}
-            return false
+        if native_ice.get("changed", false):
+            if not production.apply_ship_phase(tick, native_ice):
+                _last_ship_result = {"ok": false, "reason": "n103_single_n39_plan_commit_rejected"}
+                return false
+            planning_world = production.world_snapshot()
         _last_ship_result["n103_native_mining_goals"] = native_ice.get(
             "accepted", []).duplicate(true)
         _last_ship_result["n103_native_mining_blocked"] = native_ice.get(
             "blocked", []).duplicate(true)
         var native_explore: Dictionary = NativeGateExploration.stage(
-            production.world_snapshot(), _fleet_roster.registry.graph(),
+            planning_world, _fleet_roster.registry.graph(),
             _fleet_resolver, tick, n140_fired,
             locations["positions"], clock.tick_scale())
         if not native_explore.get("ok", false):
             _last_ship_result = {"ok": false, "reason": "n80_native_source_" +
                 str(native_explore.get("reason", "rejected"))}
             return false
-        if native_explore.get("changed", false) and not production.apply_ship_phase(
-                tick, native_explore):
-            _last_ship_result = {"ok": false, "reason": "n80_single_n39_plan_commit_rejected"}
-            return false
+        if native_explore.get("changed", false):
+            if not production.apply_ship_phase(tick, native_explore):
+                _last_ship_result = {"ok": false, "reason": "n80_single_n39_plan_commit_rejected"}
+                return false
+            planning_world = production.world_snapshot()
         _last_ship_result["n80_native_explore_goals"] = native_explore.get(
             "accepted", []).duplicate(true)
         _last_ship_result["n80_native_explore_blocked"] = native_explore.get(
@@ -795,7 +803,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # The execution authority is N84 (persistent BT), which emits
         # N146 commands, checked against N14 physical transit and applied
         # ONCE through N39 World. No hand-written contract-to-route loop.
-        var scheduled: Dictionary = production.world_snapshot()
+        var scheduled: Dictionary = planning_world
         var planned: Dictionary = NativeLodShipAI.propose(scheduled,
             _fleet_roster.registry.graph(), locations["positions"], tick,
             clock.tick_scale(), n140_fired, _tick_multiplier)
