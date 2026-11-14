@@ -13,6 +13,7 @@ const N134Policy = preload("res://scripts/sim/phase1/n134_coordination_policy.gd
 const Commission = preload("res://scripts/sim/phase1/n151_native_colony_commission.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 const N155Director = preload("res://scripts/sim/phase1/n155_director_native_observation.gd")
+const OriginalMetals = preload("res://scripts/sim/phase2/unified_n144_colony_metals.gd")
 
 const PROJECT_TAG: String = "strategy.colony.v1"
 const DIRECTOR_SETTLERS: int = 50
@@ -98,11 +99,29 @@ static func active_site(world: Dictionary, graph: RefCounted,
     plan["quantity"] = settlers
     plan["cost"] = settlers * PASSENGER_PAYMENT_PER_HEAD
     if settled:
+        # Frozen Rust colony.rs::proposals immediately switches from
+        # 10/50-passenger transport to Construction(200 Metals) on the
+        # SAME original site; a real source N97 market buys the material.
+        # Never insert phantom stock into the marketless target.
         plan["passenger"] = false
-        plan["quantity"] = mini(200, maxi(0,
+        plan["quantity"] = mini(OriginalMetals.LOT, maxi(0,
             int(site.get("progress_required", 0)) - int(site.get("progress_delivered", 0))))
-        plan["cost"] = 10000
-        plan["reason"] = "n144_original_metals_marketless_delivery_pending"
+        plan["cost"] = OriginalMetals.PAYMENT
+        if plan["quantity"] <= 0:
+            plan["reason"] = "awaiting_paid_labor"
+        else:
+            var quote: Dictionary = OriginalMetals.source_quote(world, site_id)
+            plan["reason"] = str(quote.get("reason", "ready"))
+            if quote.get("ok", false) and int(quote.get("quantity", -1)) != int(plan["quantity"]):
+                plan["reason"] = "n144_stale_native_construction_quantity"
+            elif quote.get("ok", false):
+                plan["source_cost"] = int(quote["source_cost"])
+            for c in world.get("contract_board", {}).get("contracts", {}).values():
+                if str(c.get("requestor_id", "")) == Schema.faction_account(faction) and (
+                        str(c.get("destination_location", "")) == dest and
+                        str(c.get("status", "")) not in ["paid", "expired"]):
+                    plan["reason"] = "colony_contract_in_progress"
+                    break
     elif not valid_origin:
         plan["reason"] = "insufficient_settlers"
     else:
