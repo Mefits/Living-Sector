@@ -229,7 +229,7 @@ static func stage(world: Dictionary, ledger_snapshot: Dictionary,
         if not paid.get("ok", false):
             return _bad("n9_real_refuel_" + str(paid.get("reason", "rejected")))
         if money.balance("ship:" + ship_id) != int(projected_ship[
-                "credits"]) or money.balance("facility:" + fid) != int(
+                "credits"]) or money.balance("facility/" + fid) != int(
                 p_facility["credits"]):
             return _bad("n97_and_real_n9_refuel_cash_mismatch")
         next_ledger = money.snapshot()
