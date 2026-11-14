@@ -1,0 +1,15 @@
+{
+  "worker": "interactive-n152-continuation-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "goal": "Integrate N152 expiry and N104 one-board escrow closure, N9 real refund receipts, unified N39 transactional apply and P2 tick cadence; no Rust balance changes/no runtime tests",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n152_contract_lifecycle.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/docs/phase2/handoffs/20261114-n152-canonical-close-refund.md",
+    "godot/docs/phase2/leases/20261114-interactive-n152-canonical-close-refund.json"
+  ],
+  "created_at": "2026-11-14T15:45:00+03:00",
+  "preflight": "P1 N152 PR241 is already source-covered; P2 PR249 remains integration truth; N121 lease RELEASED"
+}
