@@ -12,6 +12,8 @@ const NativeTimeline = preload("res://scripts/sim/phase2/unified_native_timeline
 const NativeFrameGuard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
 const WorldSchema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const NativeProduction = preload("res://scripts/sim/phase1/n39_native_world_production.gd")
+const ShipState = preload("res://scripts/sim/ship_state.gd")
+const ShipModules = preload("res://scripts/port/n108_shipyard_module_catalog.gd")
 
 func _initialize() -> void:
     var seed: Dictionary = Native.load_current_world()
@@ -181,6 +183,30 @@ func _initialize() -> void:
             if native_ok:
                 diagnostic["native_world_schema"] = WorldSchema.validate(
                     staged["native_production"]["world"])
+                if diagnostic["native_world_schema"] == "invalid_ship_state":
+                    var invalid_ships: Array = []
+                    for sid in staged["native_production"]["world"].get(
+                            "ships", {}):
+                        var row: Dictionary = staged["native_production"][
+                            "world"]["ships"][sid]
+                        if not ShipState.new().restore([row]):
+                            var fitting: Dictionary = row.get("fitting", {})
+                            var expected_derived: Dictionary = ShipModules.combine(
+                                fitting.get("slots", {}))
+                            var actual_derived: Dictionary = fitting.get(
+                                "derived", {})
+                            invalid_ships.append({"ship_id": sid,
+                                "progression": row.get("progression", {}),
+                                "fitting_exact": actual_derived == expected_derived,
+                                "fitting_compatible": ShipState._derived_matches_slots(
+                                    actual_derived, expected_derived),
+                                "fuel": row.get("fuel", null),
+                                "fuel_capacity": row.get("fuel_capacity", null),
+                                "crew_size": row.get("crew_size", null),
+                                "roles": row.get("crew_roles", [])})
+                            if invalid_ships.size() >= 3:
+                                break
+                    diagnostic["invalid_ships"] = invalid_ships
                 var isolated := NativeProduction.new()
                 diagnostic["n39_restore"] = isolated.restore(
                     staged["native_production"])
