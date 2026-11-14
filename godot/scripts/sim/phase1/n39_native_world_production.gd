@@ -18,6 +18,7 @@ const ResearchShift = preload("res://scripts/sim/phase1/n143_native_research_shi
 const OriginalResearchMandate = preload("res://scripts/sim/phase1/n143_native_research_director.gd")
 const OriginalFactionCharter = preload("res://scripts/native_port/n109_charter.gd")
 const OriginalTechnology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
+const OriginalPolicyCheckpoint = preload("res://scripts/sim/phase2/unified_n109_n110_policy_checkpoint.gd")
 const NativeConstructionMaterial = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
 const NativeConstructionLabor = preload("res://scripts/sim/phase2/unified_native_construction_labor.gd")
 const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
@@ -4870,6 +4871,14 @@ func restore(saved: Dictionary) -> bool:
     if not (saved.get("world") is Dictionary) or not (saved.get("ledger") is Dictionary):
         return false
     var staged_world: Dictionary = saved["world"].duplicate(true)
+    # Godot JSON may materialize exact Rust u64/i64 as floats.
+    # Normalize ONLY proven integral N109/N110 fields on a detached copy;
+    # never coerce fractional budgets or invent a default policy.
+    var normalized_policy: Dictionary = OriginalPolicyCheckpoint.normalize(
+        staged_world)
+    if not normalized_policy.get("ok", false):
+        return false
+    staged_world = normalized_policy["world"]
     if Schema.validate(staged_world) != "":
         return false
     # N150 phase cursors and pair timestamps cannot point beyond the
