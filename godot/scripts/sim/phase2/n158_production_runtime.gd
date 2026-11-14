@@ -801,7 +801,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 # physical construction_dock, not an N15 Market warehouse.
                 # Ordinary delivery/undock still uses the existing N21 type.
                 var expected_type: String = "station"
-                if operation == "dock" and str(contract.get("contract_type", "")) == "passenger" and (
+                if operation == "dock" and str(contract.get("contract_type", "")) in ["passenger", "construction"] and (
                         str(contract.get("mission_category", "")) == "strategy.colony.v1" and
                         expected_loc == dest_loc and not snapshot.get("markets", {}).has(expected_loc)):
                     var authentic: bool = false
@@ -817,7 +817,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                             "facilities", {}).get(str(proof.get("facility_id", "")), {})
                         if str(proof.get("kind", "")) == "colony_dock_prepared" and (
                                 str(fac.get("type", "")) == "construction_dock" and
-                                str(fac.get("location", "")) == expected_loc):
+                                str(fac.get("location", "")) == expected_loc and
+                                (str(contract.get("contract_type", "")) == "passenger" or
+                                str(contract.get("colony_site_id", "")) == str(site_id))):
                             authentic = true
                             break
                     if not authentic:
