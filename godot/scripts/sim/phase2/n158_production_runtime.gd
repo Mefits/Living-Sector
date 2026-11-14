@@ -1922,6 +1922,24 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
     var w: Dictionary = saved["world"]
     if not (w.get("facilities") is Dictionary) or not (w.get("markets") is Dictionary) or not (w.get("populations") is Dictionary):
         return false
+    # Original Rust N150/N129 phase cursors are monotonically
+    # increasing integer tick IDs. Godot JSON parses some exact whole
+    # numbers as TYPE_FLOAT, while N39 Schema correctly requires
+    # TYPE_INT. Normalize ONLY existing integral values, never round a
+    # fractional tick or create a missing source phase.
+    for source_tick in ["faction_relations_last_tick",
+            "territory_last_tick", "faction_finance_last_tick",
+            "station_administration_last_tick"]:
+        if w.has(source_tick) and not _normalize_number_at(w, source_tick):
+            return false
+    if w.get("faction_relations") is Dictionary:
+        for pair in w["faction_relations"].values():
+            if not (pair is Dictionary):
+                return false
+            for time_field in ["since_tick", "last_event_tick"]:
+                if pair.has(time_field) and pair[time_field] != null and (
+                        not _normalize_number_at(pair, time_field)):
+                    return false
     # N100/N98 source search snapshots and the original N121 execution
     # memory survive a real N38 JSON round-trip, not a duplicate agent
     # save. JSON numeric tokens must regain their original Rust integer
