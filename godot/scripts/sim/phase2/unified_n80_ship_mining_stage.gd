@@ -65,6 +65,12 @@ static func _physical_sources(world: Dictionary, graph: RefCounted,
                 resolver.system_for_location(str(loc)) != system_id):
             continue
         var body_id: String = resolver.body_for_location(str(loc))
+        # The frozen N97 Mine transaction can only execute at the
+        # real registered "mine-<body_id>" navigation waypoint.
+        # A Market/station on an ice-rich planet is NOT an extraction
+        # endpoint. Never synthesize a waypoint or source route here.
+        if body_id.is_empty() or str(loc) != "mine-" + body_id:
+            continue
         var richness: Variant = world.get("bodies", {}).get(
             body_id, {}).get("resources", {}).get("ice", null)
         if not (richness is int or richness is float) or (
