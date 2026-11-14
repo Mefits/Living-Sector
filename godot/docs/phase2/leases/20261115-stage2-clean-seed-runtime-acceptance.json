@@ -1,6 +1,6 @@
 {
   "worker": "chat-continuation-stage2-acceptance",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started": "2026-11-15",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "79267943204ab30d0e323559ac98f12e2ac88aa2",
@@ -13,7 +13,9 @@
     "godot/scripts/sim/phase2/unified_n91_construction_dispatch.gd",
     "godot/scripts/sim/phase1/n39_native_world_production.gd (N91 site dock validation only)",
     "godot/tests/p2_n91_marketless_colony_dock_stage_check.gd",
-    "godot/scripts/sim/save_state.gd (strict N38 native float lossless JSON envelope codec only)"
+    "godot/scripts/sim/save_state.gd (strict N38 native float lossless JSON envelope codec only)",
+    "godot/scripts/sim/phase2/unified_native_save_roundtrip_guard.gd (strict typed BT key checks only)",
+    "godot/tests/p2_n38_native_f64_envelope_check.gd"
   ],
   "constraints": [
     "Do not mutate gameplay balance or frozen Rust source",
@@ -22,6 +24,12 @@
     "One batched Godot Actions run rather than micro runs",
     "Pass only with actual Godot logs; if it fails, report real blocker"
   ],
-  "verification": "PENDING",
-  "notes": "CI 43644368572: editor/parse/economy/research/N91 all PASS; source clean tick360 and N9 receipts PASS. N38 ERR_FILE_CORRUPT code16; coherence and timeline PASS, but JSON changed market history alpha-station fuel 0th supply and actual physical market supply. Keep exact stock invariant, add lossless native float encoding/decode in hashed envelope; old v1 plain JSON and P1 saves must continue to load."
+  "verification": "GODOT_4_7_2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS",
+  "notes": "Original smoke 43647029802 SUCCESS on exactly d3473f36. Later concurrent commits through e556cccf were GUT/testing/tooling only (no simulation changes). All Stage2 failures encountered were repaired in this same PR; no balance changes. Stage2 full acceptance 116476ms incl test audit and disk restart; separate performance profiling required.",
+  "completed": "2026-11-15",
+  "tested_commit": "d3473f36f1976235ff32bc5e1bc7a6e84736bec2",
+  "ci_run_url": "https://github.com/Mefits/Living-Sector/actions/runs/43647029802",
+  "handoff": "godot/docs/phase2/handoffs/20261115-stage2-clean-seed-runtime-acceptance.md",
+  "result": "Godot parser 310/310, N158/N151/N150 native economy, N143 research, N91/N151 marketless dock and N38 IEEE-754 + typed BT exact envelope all passed real Godot 4.7.2. Original untouched Galaxy source ran 420 real ticks with no rejected phases. At tick360 save on real disk -> new N158 runner load -> strict complete NativeFrameGuard -> tick361 and tick420 passed; 24 original ships, N9 receipts reconcile source crew wage writeoffs and a genuine funded contract without synthetic grants.",
+  "next": "One Stage3 whole-game A/Б/В/Г macro: actual autonomous paid N104 delivery/midflight restore, full colony B and head/admin mandate V with real receipts, plus Windows G and long-soak; profile per-tick snapshot/ledger validation for growth with 2168 receipts/420 ticks. Do not claim SOURCE_INTEGRATION_COMPLETE until those gates actually pass."
 }
