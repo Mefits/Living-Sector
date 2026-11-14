@@ -106,6 +106,59 @@ func refund_closed(id: String, tick: int) -> Dictionary:
 	c["reserved"] = 0
 	return {"ok": true, "refunded": amount}
 
+## Frozen N152::drop_ship_holdings under the EXISTING N104 authority.
+## Called only inside N39's isolated admin commit, after preflight has
+## verified the real ship exists and has no embarked passengers.
+## Never refund or fabricate cargo here: the next N152 market pass
+## returns any stranded escrow through a REAL N9 receipt.
+func drop_removed_ship_holdings(ship_id: String) -> Dictionary:
+    if ship_id.is_empty():
+        return _error("missing_removed_ship")
+    var ids: Array = _contracts.keys()
+    ids.sort()
+    var released: Array = []
+    var cancelled: Array = []
+    for id in ids:
+        var c: Dictionary = _contracts[id]
+        if str(c.get("fulfiller_id", "")) != ship_id:
+            continue
+        var previous: String = str(c.get("status", ""))
+        if previous == "accepted":
+            c["status"] = "posted"
+            c["fulfiller_id"] = ""
+            c["accepted_at_tick"] = -1
+            c["agreed_payment"] = -1
+            released.append(str(id))
+        elif previous == "picked_up":
+            c["status"] = "expired"
+            cancelled.append(str(id))
+    return {"ok": true, "released": released, "cancelled": cancelled}
+
+## Frozen N152::cancel_for_facility, using only the actual removed ID.
+## Location cancellations are admitted ONLY if it was the LAST local
+## facility. Keep PAID/EXPIRED history and the original N15 receipts.
+func cancel_removed_facility_contracts(facility_id: String,
+        location: String, last_at_location: bool) -> Dictionary:
+    if facility_id.is_empty() or location.is_empty():
+        return _error("missing_removed_facility")
+    var cancelled: Array = []
+    var ids: Array = _contracts.keys()
+    ids.sort()
+    for id in ids:
+        var c: Dictionary = _contracts[id]
+        if str(c.get("status", "")) in ["paid", "expired"]:
+            continue
+        var is_requestor: bool = str(c.get("requestor_id", "")) in [
+            facility_id, "facility/" + facility_id]
+        var is_unserved_endpoint: bool = last_at_location and (
+            str(c.get("source_location", "")) == location or
+            str(c.get("destination_location", "")) == location)
+        if not is_requestor and not is_unserved_endpoint:
+            continue
+        c["status"] = "expired"
+        cancelled.append(str(id))
+    return {"ok": true, "cancelled": cancelled}
+
 func get_contract(id: String) -> Dictionary:
 	if not _contracts.has(id):
 		return {}
