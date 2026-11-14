@@ -178,7 +178,20 @@ static func propose(world: Dictionary, faction: String, head: Dictionary,
     if ledger.has("error"):
         return {"ok": false, "reason": "n98_real_source_plan_ledger:" +
             str(ledger["error"])}
+    # Rust distinguishes a promoted INDUSTRY-OUTPUT goal from a stock
+    # import: true completion needs real paid recipe receipts as well
+    # as a physical stock observation, not only ledger step success.
+    var observed_stock: float = -1.0
+    for market in projected.get("owned_markets", []):
+        if str(market.get("location_id", "")) == str(goal["destination_id"]):
+            observed_stock = float(market.get("stock", {}).get(
+                str(goal["commodity"]), -1.0))
+            break
+    var delta: int = maxi(0, int(goal["target_units"]) -
+        maxi(0, int(floor(observed_stock))))
     return {"ok": true, "status": "n98_planned_not_dispatched",
+        "production_goal": not promoted.is_empty() and delta > 0,
+        "production_target_delta": delta,
         "tick": tick, "faction_id": faction, "planner_mode": mode,
         "goal": goal.duplicate(true), "actions": actions.duplicate(true),
         "plan": plan.duplicate(true), "ledger": ledger.duplicate(true),
