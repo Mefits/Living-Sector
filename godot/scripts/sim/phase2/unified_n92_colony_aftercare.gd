@@ -215,7 +215,8 @@ static func verify_promoted_plan(world: Dictionary, faction: String,
     var ledger: Dictionary = stored.get("ledger", {})
     var planner_goal: Dictionary = stored.get("goal", {})
     if str(stored.get("status", "")) != status or (
-            int(stored.get("tick", -1)) != int(candidate.get("tick", -2)) or
+            not bool(candidate.get("due", false)) or
+            int(stored.get("tick", 0)) < 1 or
             not (stored.get("ledger") is Dictionary) or
             str(ledger.get("faction_id", "")) != faction or
             str(planner_goal.get("destination_id", "")) != str(
