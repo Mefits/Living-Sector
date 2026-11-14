@@ -4,8 +4,7 @@ extends RefCounted
 ## phase1/n39_native_world_production.gd::snapshot/restore,
 ## economy/credit_ledger.gd::snapshot. Pure read-only preflight.
 ## No invented wallets, money conservation rule, new contracts or world state.
-const MAX_I64: int = 9223372036854775807
-const MAX_PHASE: int = 19 # tick_runner.gd::NATIVE_PHASE_ORDER has 20 source phases.
+const NativePhases = preload("res://scripts/sim/tick_runner.gd")
 
 static func _bad(code: String) -> Dictionary:
     return {"ok": false, "reason": code}
@@ -126,7 +125,7 @@ static func validate(snapshot: Dictionary) -> Dictionary:
                     typeof(event.get("due_tick", null)) != TYPE_INT) or (
                     int(event["due_tick"]) <= int(tick)) or (
                     typeof(event.get("phase", null)) != TYPE_INT) or (
-                    int(event["phase"]) < 0) or int(event["phase"]) > MAX_PHASE:
+                    int(event["phase"]) < 0) or int(event["phase"]) >= NativePhases.NATIVE_PHASE_ORDER.size():
                 return _bad("stale_or_invalid_native_event")
     return {"ok": true, "scope": "canonical_n39_n9_receipts_and_n38_clocks",
         "accounts_checked": expected.size(), "receipts_checked": receipts.size()}
