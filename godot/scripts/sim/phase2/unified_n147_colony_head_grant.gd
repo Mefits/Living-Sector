@@ -182,13 +182,14 @@ static func authorize(world: Dictionary, faction: String, ready: Dictionary,
                 options.append(candidate.duplicate(true))
     # An original previously funded choice must not be declared extinct
     # merely because a narrower, construction-only adapter omitted it.
-    if incumbent in ["research", "expand"] and original == null or (
+    if (incumbent in ["research", "expand"] and original == null) or (
             incumbent == "supply" and (real_supply.is_empty() or
             str(real_supply.get("target", "")) != current_target) and
             not resolved_previous):
         return {"ok": true, "authorized": false,
             "reason": "n113_original_incumbent_needs_real_comparison"}
-    var source_choice: Dictionary = SourceN113.decide(memory, options, tick)
+    var source_choice: Dictionary = SourceN113.decide(
+        memory, options, tick, false, false, 60 * multiplier)
     if not source_choice.get("ok", false):
         return source_choice
     if source_choice.get("choice", {}).get("action", "") != "migrate" or (
