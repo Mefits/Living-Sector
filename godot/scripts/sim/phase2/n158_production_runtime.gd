@@ -851,7 +851,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     var original_goal: String = str(ship.get("current_goal", ""))
                     var tagged_goal: String = str(command.get("native_source_goal", ""))
                     var native_goal_authorized: bool = (
-                        original_goal in ["trade_route", "mine", "explore"] and
+                        original_goal in ["trade_route", "mine",
+                            "mine_ice", "deliver_mined_ice", "explore"] and
                         original_goal == tagged_goal and
                         ship.get("current_bt", null) is Dictionary and
                         NativeBt.validate(ship["current_bt"]))
@@ -859,7 +860,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     # Market-owned N21 station, never a gate/shipyard or
                     # invented docking facility. N83 retains its own
                     # existing original market-operator check.
-                    if original_goal in ["mine", "explore"] and operation == "dock":
+                    if original_goal in [
+                            "mine", "mine_ice", "deliver_mined_ice", "explore"] and (
+                            operation == "dock"):
                         authentic_dock = authentic_dock and str(station.get(
                             "type", "")) == "station"
                     if not native_goal_authorized or (
