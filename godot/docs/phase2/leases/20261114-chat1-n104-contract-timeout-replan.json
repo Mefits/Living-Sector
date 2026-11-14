@@ -1,6 +1,6 @@
 {
   "worker": "chat1-n104-timeout-release-resume",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "started": "2026-11-14",
   "goal": "Close frozen Rust N84 failure/replan parity: guarded N146 ReleaseContract for Accepted, same N104/N39 atomic board and ship release + breach standing, no escaped escrow; PickedUp physical cargo resumes real N81 BT without phantom Accept/Buy; no second scheduler",
@@ -19,5 +19,10 @@
     "new markets, free goods or ships",
     "GitHub Actions interim"
   ],
-  "source": "native/crates/sim_core/src/agents/ship/behavior.rs; native/crates/sim_server/src/engine/apply.rs::ReleaseContract; contracts.rs::release; ship/behavior.rs::resume_contract_bt"
+  "source": "native/crates/sim_core/src/agents/ship/behavior.rs; native/crates/sim_server/src/engine/apply.rs::ReleaseContract; contracts.rs::release; ship/behavior.rs::resume_contract_bt",
+  "completed": "2026-11-14",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED / RUNTIME_UNVERIFIED; 7 changed artifacts re-fetched; 7/7 lexical/EOF/required cross-file callsite checks pass. Deferred source scenario fixture authored; no Godot, tests, CI, or Windows acceptance executed.",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat1-n104-release-replan.md",
+  "result": "N84 failure emits N146 ReleaseContract for accepted/empty physical hold; N39 atomically reposts N104 and applies original breach reputation/standing without escrow transfer. PickedUp and N38 missing BT recover existing cargo through original N81/GOAP and N4 or reciprocal built N108 gateways, never a second accept/pickup. Existing N153 may rebid next native cycle.",
+  "next": "Single complete p2_v4_source_gate.py --require-complete and Godot/Windows A/B/V/G end-to-end acceptance; specifically N104 posted-rebid + same-world escrow conservation and N38 PickedUp through built N108 pair. Do not claim engine runtime pass without execution."
 }
