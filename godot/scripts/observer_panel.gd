@@ -265,6 +265,18 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
                     str(view.get("reason", "—"))])
     # An N147 proposal is deliberately NOT a paid passenger contract or
     # a colonized location. Display the last real read-only policy scan.
+    # N151 site approval is a separate source-backed action, NOT an
+    # existing colony nor a paid N104 passenger mission.
+    var foundation_status: String = str(summary.get("colony_founding_status", "NOT_EVALUATED"))
+    if foundation_status != "NOT_EVALUATED":
+        lines.append("ОСНОВАНИЕ N151 · доступных планов без утверждения: %d" % [
+            int(summary.get("colony_founding_ready_unapproved", 0))])
+        var foundation_blocked: Array = summary.get("colony_founding_blocked", [])
+        for blocked in foundation_blocked.slice(0, 3):
+            if blocked is Dictionary:
+                lines.append("  %s · %s" % [
+                    str(blocked.get("faction_id", "?")),
+                    str(blocked.get("reason", "неизвестная блокировка"))])
     var colony_status: String = str(summary.get("colony_migration_status", "NOT_EVALUATED"))
     if colony_status == "N147_NO_ESTABLISHED_COLONIES":
         lines.append("КОЛОНИИ N147 · действующих колоний нет · пассажирских контрактов 0")
