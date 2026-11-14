@@ -74,7 +74,10 @@ static func _apply(world: Dictionary, ship_id: String,
         var operator: Variant = world["facilities"].get(yard_id, null)
         if not (operator is Dictionary):
             return _reject("not_shipyard")
-        if str(operator.get("facility_type", "")) != "shipyard":
+        # Phase 1 source adapter calls the type "facility_type";
+        # the only writable N39 World stores the same native kind as
+        # "type". Accept either without copying or renaming the owner.
+        if str(operator.get("facility_type", operator.get("type", ""))) != "shipyard":
             return _reject("not_shipyard")
         if not (operator.get("module_stock", null) is Dictionary):
             return _reject("no_module_stock")
