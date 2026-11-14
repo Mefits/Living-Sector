@@ -238,15 +238,11 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         var row: Dictionary = ship.duplicate(true)
         row["credits"] = int(new_fleet["credit_sources"][id])
         row["name"] = str(fleet_roster.metadata(id).get("name", id))
-        # Rust modules::CATALOG Comms derived stat. The frozen 24-ship
-        # source contains only comms_t2 overrides; default is comms_t1.
-        # N104 acceptance must reserve its actual 5% top-up, not use 0.
-        var native_ship: Dictionary = fleet_roster.registry.get_entity("ship", id).get("value", {})
-        var raw_fit: Dictionary = native_ship.get("fitting", {})
-        var comms_slug: String = str(raw_fit.get("comms", "comms_t1"))
-        if comms_slug not in ["comms_t1", "comms_t2"]:
-            return _fail("unsupported_native_comms_fitting")
-        row["comms_bonus"] = 0.05 if comms_slug == "comms_t2" else 0.0
+        # N51 now stores full source-born ShipFitting in the SAME
+        # N46/39 row. Do not project comms separately from cargo/speed.
+        if not (row.get("fitting") is Dictionary) or not (row.get("progression") is Dictionary):
+            return _fail("native_ship_missing_fitted_source_components")
+        row["comms_bonus"] = float(row["fitting"]["derived"]["comms_bonus"])
         # N21 frozen seeder: initial docked_at is NULL for ALL ships.
         row["docked_at"] = ""
         projected["ships"][id] = row
