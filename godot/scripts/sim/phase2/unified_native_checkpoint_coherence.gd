@@ -174,7 +174,8 @@ static func validate_serialized_candidate(saved: Dictionary) -> Dictionary:
     # Trust no digest-valid checkpoint as a backup without checking the
     # original N109/N110 budget counters and charter authority. Share
     # exactly the SAME pure policy validator used by N39.restore.
-    var policy: Dictionary = OriginalPolicyCheckpoint.normalize(world)
+    var policy: Dictionary = OriginalPolicyCheckpoint.normalize(
+        world, int(staged["tick"]))
     if not policy.get("ok", false):
         return _bad("serialized_original_policy_rejected:" + str(
             policy.get("reason", "invalid")))
