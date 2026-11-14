@@ -1559,7 +1559,7 @@ func last_native_ship_crew() -> Dictionary:
 
 
 func fleet_snapshot() -> Dictionary:
-    return production.world_snapshot().get("ships", {}).duplicate(true) if _native_enabled else {}
+    return production.ships_snapshot() if _native_enabled else {}
 
 
 ## A strictly controlled ship order (not fleet AI). N14 checks the real
