@@ -4,6 +4,9 @@ extends SceneTree
 const NativeData = preload("res://scripts/native_data.gd")
 const Runner = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const Saves = preload("res://scripts/sim/save_state.gd")
+const NativeCoherence = preload("res://scripts/sim/phase2/unified_native_checkpoint_coherence.gd")
+const NativeTimeline = preload("res://scripts/sim/phase2/unified_native_timeline_integrity.gd")
+const NativeFrame = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
 const LAST_TICK: int = 420
 const CHECK_TICKS: Array[int] = [1, 60, 120, 240, 360, 361, 420]
 
@@ -73,8 +76,26 @@ func _initialize() -> void:
             " native_wages_writeoffs=" + str(money_audit["documented_sinks"]))
         if tick != 360:
             continue
-        if Saves.save_runner(sim, path) != OK:
-            _fail("N38 disk save rejected at tick360")
+        var save_error: Error = Saves.save_runner(sim, path)
+        if save_error != OK:
+            # The N38 guard must stay strict. Diagnose the offending exact
+            # source invariant or JSON field, never bypass it.
+            var candidate: Variant = JSON.parse_string(JSON.stringify(
+                checkpoint, "", true, true))
+            var roundtrip: Dictionary = {"ok": false, "reason": "json_parse_failed"}
+            var stock_exact: bool = false
+            if candidate is Dictionary:
+                roundtrip = NativeFrame.verify_authoritative_frame(
+                    checkpoint, candidate)
+                stock_exact = Saves._physical_stock_matches(
+                    checkpoint, candidate)
+            _fail("N38 disk save rejected at tick360 code=" + str(save_error) +
+                " coherence=" + str(NativeCoherence.validate(checkpoint)) +
+                " timeline=" + str(NativeTimeline.validate(checkpoint)) +
+                " native_json=" + str(roundtrip) +
+                " market_stock_exact=" + str(stock_exact) +
+                " encoded_bytes=" + str(JSON.stringify(checkpoint,
+                    "", true, true).to_utf8_buffer().size()))
             return
         var resumed = Runner.new()
         if not resumed.start_from_seed(seed):
