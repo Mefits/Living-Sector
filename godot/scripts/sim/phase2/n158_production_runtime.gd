@@ -1934,9 +1934,15 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                 if not pending.is_empty():
                     if not _normalize_row(pending, ["id"]):
                         return false
-                    if not (pending.get("request", null) is Dictionary) or not _normalize_row(
-                            pending["request"], ["quantity"]):
+                    if not (pending.get("request", null) is Dictionary):
                         return false
+                    # N90 Rust Refuel has ONLY a location; Buy/Sell/Mine
+                    # carry original integral quantities. Never invent
+                    # a zero quantity on an in-flight paid fuel request.
+                    var request_kind: String = str(pending["request"].get("kind", ""))
+                    if request_kind in ["buy", "sell", "mine"]:
+                        if not _normalize_row(pending["request"], ["quantity"]):
+                            return false
             if ship.has("memory"):
                 if not (ship["memory"] is Dictionary):
                     return false
