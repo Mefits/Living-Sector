@@ -52,7 +52,9 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
         for pop_id in population_ids:
             var p: Dictionary = world["populations"][pop_id]
             if str(p.get("faction", "")) == faction and str(p.get("location", "")) == location:
-                total_population += int(p.get("count", 0))
+                var people: int = maxi(0, int(p.get("count", 0)))
+                total_population += people
+                real_workforce += int(people * 3 / 5)
                 working += int(occupied.get(pop_id, 0))
         var jobs: Array = []
         for id in facility_ids:
