@@ -122,6 +122,11 @@ static func run_checks() -> Dictionary:
     if Stage.stage(poor, graph, resolver, 12000, {
             "ship-a": 1}, real_positions(), 1.0).get("changed", false):
         return {"ok": false, "reason": "n80_unfunded_gate"}
+    var impossible_flight: Dictionary = real_positions()
+    impossible_flight["sol-gate"] = Vector2(100000.0, 0.0)
+    if Stage.stage(fixture(), graph, resolver, 12000, {
+            "ship-a": 1}, impossible_flight, 1.0).get("changed", false):
+        return {"ok": false, "reason": "n80_accepted_fuel_stranding_route"}
     var no_route := FakeGraph.new()
     no_route.edges["sol-dock"] = []
     if Stage.stage(fixture(), no_route, resolver, 12000, {
