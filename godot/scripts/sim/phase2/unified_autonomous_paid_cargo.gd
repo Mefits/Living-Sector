@@ -9,6 +9,7 @@ const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const Catalog = preload("res://scripts/sim/economy/commodity_catalog.gd")
 const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
 const NativeDiplomacy = preload("res://scripts/sim/phase2/unified_native_diplomacy_phase.gd")
+const ShipProgression = preload("res://scripts/sim/native/ship_progression_n101.gd")
 const MAX_SAFE_MONEY: float = 9007199254740991.0
 
 static func propose(original: Dictionary, bank: Dictionary,
@@ -143,6 +144,16 @@ static func propose(original: Dictionary, bank: Dictionary,
         staged["ships"][ship_id]["current_goal"] = "idle"
         staged["ships"][ship_id]["current_bt"] = null
         staged["ships"][ship_id]["max_source_cost"] = 0
+        # Frozen ShipProgression::grant_delivery_xp occurs after a
+        # real delivered+settled N104 contract, never on preview,
+        # accepted status or incomplete N15 unloading.
+        if ship.get("progression") is Dictionary:
+            var experience: Dictionary = ShipProgression.grant_delivery_xp(
+                ship["progression"])
+            if not experience.get("ok", false):
+                return {"ok": false, "fatal": true,
+                    "reason": "n101_paid_delivery_progression_rejected"}
+            staged["ships"][ship_id]["progression"] = experience["state"].duplicate(true)
     staged["contract_board"] = board.snapshot()
     if not Schema.validate(staged).is_empty():
         return {"ok": false, "fatal": true, "reason": "n97_invalid_staged_n39_world"}
