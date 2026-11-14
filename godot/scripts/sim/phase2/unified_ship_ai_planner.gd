@@ -100,9 +100,10 @@ static func propose(ship: Dictionary, selected: Dictionary,
         var spec: Dictionary = raw.duplicate(true)
         spec["kind"] = str(raw.get("type", ""))
         spec.erase("type")
-        # No free refuelling/retrofitting in P2. Those N88/N97 leaves
-        # must have a real physical paid Apply before acceptance.
-        if str(spec["kind"]) in ["Refuel", "Refit"] or str(spec["kind"]).is_empty():
+        # Rust N97 Refuel now has genuine N90 paid exclusive Apply.
+        # Refit still needs a supported original N108 drydock order
+        # and cannot be silently manufactured by a freight route.
+        if str(spec["kind"]) == "Refit" or str(spec["kind"]).is_empty():
             return {"ok": false, "reason": "n81_requires_unwired_paid_action"}
         normalized.append(spec)
     var expanded: Array = Plans.compile_plan_to_bt_actions(
