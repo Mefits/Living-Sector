@@ -134,9 +134,13 @@ func _initialize() -> void:
     remote_fixture["ships"][engineer_id]["location"] = sol_nav
     remote_fixture["ships"][engineer_id]["docked_at"] = ""
     remote_fixture["construction_sites"]["route-fixture"]["location_name"] = sol_source
-    if N91.plan_for(remote_fixture, resolver, route_graph, coordinates["positions"],
-            engineer_id, "route-fixture", 1.0).get("ok", false):
-        _fail("N91 invented a prohibited reverse directed route")
+    # Original Rust DB seeder stored the reverse of this real Sol
+    # corridor too. The return trip must pass identical N14 preflight.
+    var returning: Dictionary = N91.plan_for(remote_fixture,
+        resolver, route_graph, coordinates["positions"], engineer_id,
+        "route-fixture", 1.0)
+    if not returning.get("ok", false) or returning.get("route", []) != [sol_nav, sol_source]:
+        _fail("N91 cannot return via the native Rust-seeded corridor")
         return
     var before: Dictionary = runner.checkpoint()
     var ids: Array = source_factions.keys()
