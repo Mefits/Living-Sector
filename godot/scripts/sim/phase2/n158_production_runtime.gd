@@ -107,6 +107,15 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_n134_result = {"ok": true, "tick": tick,
             "commissioned": [], "blocked": [], "heads": {},
             "status": "N134_COORDINATION_NOT_DUE"}
+        # Rust faction::tick_factions recalculates BodyTerritory FIRST.
+        # A world-owned N39 commit, not a UI-local one-off snapshot.
+        var territory_pass: Dictionary = production.apply_native_body_territory(
+            tick, _tick_multiplier, world)
+        if not territory_pass.get("ok", false):
+            _last_body_territory = territory_pass
+            return false
+        if territory_pass.get("due", false):
+            _last_body_territory = territory_pass.duplicate(true)
         if _fleet_roster == null or _fleet_resolver == null:
             _last_n153_result = {"ok": false, "reason": "missing_native_ship_ai_sources"}
             return false
@@ -484,9 +493,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             tick, _tick_multiplier)
         if not _last_faction_relations.get("ok", false):
             return false
-        _last_body_territory = NativeDiplomacy.territory(
-            production.world_snapshot(), world)
-        return _last_body_territory.get("ok", false)
+        return true
     if phase != "markets":
         return true
     var proposal: Dictionary = MarketPhase.propose(
@@ -536,6 +543,8 @@ func _integrated_phase_failure_reason(phase: String) -> String:
     elif phase == "ships":
         result = _last_ship_result
     elif phase == "factions":
+        if not _last_body_territory.get("ok", true):
+            return str(_last_body_territory.get("reason", "native_territory_phase_rejected"))
         result = _last_n147_result if not _last_n147_result.get("ok", true) else (_last_research_result if not _last_research_result.get("ok", true) else (_last_n134_result if not _last_n134_result.get("ok", true) else (_last_n91_result if not _last_n91_result.get("ok", true) else (_last_construction_result if not _last_construction_result.get("ok", true) else _last_n153_result))))
     elif phase == "relations":
         result = _last_faction_relations if not _last_faction_relations.get("ok", true) else _last_body_territory
@@ -754,6 +763,7 @@ func economy_summary() -> Dictionary:
         "faction_treasuries": current.get("faction_treasuries", {}).duplicate(true),
         "faction_relations": current.get("faction_relations", {}).duplicate(true),
         "native_relations_last_tick": int(current.get("faction_relations_last_tick", 0)),
+        "native_territory_last_tick": int(current.get("territory_last_tick", 0)),
         "native_treaty_changes_last_pass": _last_faction_relations.get("treaty_changes", []).duplicate(true),
         "native_body_controllers": _last_body_territory.get("bodies", {}).duplicate(true),
         "native_system_controllers": _last_body_territory.get("systems", {}).duplicate(true),
