@@ -53,6 +53,7 @@ const N146Commands = preload("res://scripts/simulation/native_sim_command_buffer
 const NativeFreeTrade = preload("res://scripts/sim/phase2/unified_n83_free_trade_apply.gd")
 const NativeShipServices = preload("res://scripts/sim/phase2/unified_n97_ship_service_stage.gd")
 const NativeGateJump = preload("res://scripts/sim/phase2/unified_n108_gate_jump_stage.gd")
+const NativeGatePair = preload("res://scripts/sim/phase2/unified_n108_gate_pair_stage.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
@@ -413,11 +414,83 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
 
 
 
+## Explicit native admin pairing of two ALREADY REAL N154/seed gates.
+## Rust spawner reads paired_gate_id from existing facilities; it never
+## chooses the destination system or creates a gate for the player.
+## No N9 money, ship, construction material or tech state is changed.
+## Caller must be an explicitly approved external admin action, never
+## speculative N80/N134 AI or a guessed market shortage.
+func apply_native_n108_gate_pair(tick: int, gate_a: String,
+        gate_b: String, resolver: RefCounted) -> Dictionary:
+    if not _ready or tick < 0 or tick != _last_tick or (
+            gate_a.is_empty() or gate_b.is_empty() or resolver == null):
+        return {"ok": false, "reason": "n108_pair_invalid_admin_boundary"}
+    var previous_money: Dictionary = _ledger.snapshot()
+    var proposal: Dictionary = NativeGatePair.stage(_world,
+        resolver, gate_a, gate_b, tick)
+    if not proposal.get("ok", false):
+        return proposal
+    var future: Dictionary = proposal.get("world", {})
+    var id: String = str(proposal.get("pair_id", ""))
+    if id.is_empty() or future.size() != _world.size() + (
+            0 if _world.has("native_gate_pair_receipts") else 1):
+        return {"ok": false, "fatal": true,
+            "reason": "n108_pair_unauthorized_new_world_domain"}
+    for domain in _world:
+        if domain not in ["facilities", "native_gate_pair_receipts"] and (
+                future.get(domain, null) != _world[domain]):
+            return {"ok": false, "fatal": true,
+                "reason": "n108_pair_changed_unrelated_canonical_source"}
+    var ids: Array = [gate_a, gate_b]
+    for fid in _world["facilities"]:
+        if not future["facilities"].has(fid) or (
+                str(fid) not in ids and future["facilities"][fid] !=
+                _world["facilities"][fid]):
+            return {"ok": false, "fatal": true,
+                "reason": "n108_pair_modified_other_physical_facility"}
+    if future["facilities"].size() != _world["facilities"].size():
+        return {"ok": false, "fatal": true,
+            "reason": "n108_pair_created_fictitious_gate"}
+    for selected in ids:
+        var before: Dictionary = _world["facilities"][selected]
+        var after: Dictionary = future["facilities"][selected]
+        var expected: Dictionary = before.duplicate(true)
+        expected["gate_link"] = after.get("gate_link", {}).duplicate(true)
+        expected["dirty"] = true
+        if after != expected or int(after.get("credits", -1)) != int(
+                before.get("credits", -2)):
+            return {"ok": false, "fatal": true,
+                "reason": "n108_pair_modified_credits_or_facility_lifecycle"}
+    var receipts: Dictionary = future.get("native_gate_pair_receipts", {})
+    if not receipts.has(id) or receipts.size() != _world.get(
+            "native_gate_pair_receipts", {}).size() + 1 or str(
+            receipts[id].get("kind", "")) != "native_n108_explicit_gate_pair":
+        return {"ok": false, "fatal": true,
+            "reason": "n108_pair_missing_unique_source_receipt"}
+    for prior in _world.get("native_gate_pair_receipts", {}):
+        if receipts.get(prior, null) != _world["native_gate_pair_receipts"][prior]:
+            return {"ok": false, "fatal": true,
+                "reason": "n108_pair_changed_existing_source_history"}
+    var schema_reason: String = Schema.validate(future)
+    if not schema_reason.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n108_pair_schema_" + schema_reason}
+    if Schema.accounts(future) != Schema.accounts(_world) or (
+            _ledger.snapshot() != previous_money):
+        return {"ok": false, "fatal": true,
+            "reason": "n108_pair_minted_or_moved_real_n9_money"}
+    _world = future
+    return {"ok": true, "status": "N108_REAL_EXPLICIT_GATE_PAIR",
+        "pair_id": id, "receipt": proposal.get("receipt", {}).duplicate(true),
+        "tick": tick}
+
+
 ## Rust N108 RequestGateJump: original linked GateLink, actual position,
 ## and one source gate fee. This is the ONLY canonical publisher:
 ## N84/N146 request never moves the ship or changes money itself.
 func apply_native_n108_gate_jump(tick: int, ship_id: String,
-        from_loc: String, to_loc: String, resolver: RefCounted) -> Dictionary:
+        from_loc: String, to_loc: String, resolver: RefCounted,
+        original_orbits: RefCounted = null) -> Dictionary:
     if not _ready or tick != _last_tick + 1 or tick < 1 or (
             ship_id.is_empty() or from_loc.is_empty() or to_loc.is_empty()):
         return {"ok": false, "reason": "n108_not_real_ships_apply"}
@@ -429,7 +502,8 @@ func apply_native_n108_gate_jump(tick: int, ship_id: String,
         return {"ok": false, "reason": "n108_no_current_source_gate_bt"}
     var before_bank: Dictionary = _ledger.snapshot()
     var staged: Dictionary = NativeGateJump.stage(
-        _world, before_bank, resolver, ship_id, from_loc, to_loc, tick)
+        _world, before_bank, resolver, ship_id, from_loc, to_loc,
+        tick, original_orbits)
     if not staged.get("ok", false):
         return staged
     var future: Dictionary = staged.get("world", {})
@@ -2418,6 +2492,24 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
             "fitting_batches_bonus": 0,
             "native_db_id": int(staged["construction_next_db_id"]),
             "construction_source_site_id": str(site_id)}
+        if kind == "gate":
+            # Original paid N154 site is a real physical facility
+            # source, not a newly invented world object. The site
+            # position is durable commissioning provenance; N108
+            # recomputes the *current* Rust facility-id orbital exit
+            # from BodyOrbit at each actual jump. Link stays UNPAIRED
+            # until a separate explicit two-gate admin operation.
+            var original_site_position: Variant = site.get("position", null)
+            if not (original_site_position is Dictionary) or not (
+                    original_site_position.get("x") is float or
+                    original_site_position.get("x") is int) or not (
+                    original_site_position.get("y") is float or
+                    original_site_position.get("y") is int) or not is_finite(
+                    float(original_site_position["x"])) or not is_finite(
+                    float(original_site_position["y"])):
+                return {"ok": false, "fatal": true,
+                    "reason": "n108_paid_gate_missing_real_source_site_position"}
+            staged["facilities"][new_id]["position"] = original_site_position.duplicate(true)
         staged["construction_next_db_id"] = int(staged["construction_next_db_id"]) - 1
         # Physical site and its active materials orders are retired in
         # the SAME transaction as the new facility's N9 account.
