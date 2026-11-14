@@ -156,7 +156,7 @@ func _initialize() -> void:
     if not (json_policy is Dictionary):
         _fail("canonical policy JSON is not a source object")
         return
-    var normalized: Dictionary = NativePolicyJSON.normalize(json_policy)
+    var normalized: Dictionary = NativePolicyJSON.normalize(json_policy, 60)
     if not normalized.get("ok", false) or normalized[
             "world"]["research_mandates"]["own"] != world[
             "research_mandates"]["own"] or normalized[
@@ -173,6 +173,16 @@ func _initialize() -> void:
     bad_large["faction_charters"]["own"]["updated_tick"] = 9.007199254740994e15
     if NativePolicyJSON.normalize(bad_large).get("ok", true):
         _fail("inexact native charter time passed N38 backup guard")
+        return
+    var from_future: Dictionary = world.duplicate(true)
+    from_future["faction_charters"]["own"]["updated_tick"] = 61
+    if NativePolicyJSON.normalize(from_future, 60).get("ok", true):
+        _fail("future N109 charter was admitted before the saved N39 tick")
+        return
+    from_future = world.duplicate(true)
+    from_future["research_mandates"]["own"]["created_tick"] = 61
+    if NativePolicyJSON.normalize(from_future, 60).get("ok", true):
+        _fail("future N110 mandate was admitted before the N38 checkpoint")
         return
     var orphaned: Dictionary = world.duplicate(true)
     orphaned["research_mandates"]["alien"] = incoming.duplicate(true)
