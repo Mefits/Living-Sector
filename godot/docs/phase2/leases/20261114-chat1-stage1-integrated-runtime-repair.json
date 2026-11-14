@@ -1,0 +1,25 @@
+{
+  "worker": "chat1-stage1",
+  "status": "IN_PROGRESS",
+  "started": "2026-11-14",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "96c978dd7a8990b31c1fb0e141ccac8343a573fb",
+  "goal": "P2 Stage 1: remove confirmed N91 Dictionary==String runtime error, reconcile N158 phase registry and stale test, diagnose and repair N143 N38-save blocker without relaxing ledger/cargo safeguards; run one bundled Godot smoke after edits.",
+  "scope": [
+    "godot/scripts/ported/n91_construction_executor.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (phase registry only)",
+    "godot/tests/p2_n158_live_production_check.gd",
+    "godot/tests/p2_gate4_native_paid_research_check.gd (error diagnostics only)",
+    "godot/scripts/sim/save_state.gd (diagnostics only if needed)",
+    "godot/docs/phase2/handoffs/20261114-chat1-stage1-integration-repair.md",
+    "godot/docs/phase2/P2_CI_TRIGGER.txt (single CI trigger if necessary)"
+  ],
+  "constraints": [
+    "No balance or mechanic changes",
+    "No weakening N38/N9 checks",
+    "Do not overlap others' current leases",
+    "No long soak",
+    "No repeated GitHub Actions unless evidence requires followup"
+  ],
+  "verification": "IN_PROGRESS"
+}
