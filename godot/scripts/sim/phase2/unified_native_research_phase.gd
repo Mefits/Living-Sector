@@ -63,6 +63,13 @@ static func propose(world: Dictionary, seed_factions: Dictionary,
         var f: Dictionary = world["facilities"][id]
         native_facilities.append({"id": str(id), "faction_id": str(f["faction"]),
             "facility_type": str(f["type"]), "location_name": str(f["location"])})
+    # N109/N110 live in the one N39 World. Legacy checkpoints and the
+    # frozen clean seed without explicit directives mean empty maps.
+    var research_mandates: Variant = world.get("research_mandates", {})
+    var faction_charters: Variant = world.get("faction_charters", {})
+    if not (research_mandates is Dictionary) or not (
+            faction_charters is Dictionary):
+        return {"ok": false, "reason": "invalid_original_research_policy_maps"}
     var heads: Dictionary = {}
     var shifts: Array = []
     var blocked: Array = []
@@ -80,8 +87,12 @@ static func propose(world: Dictionary, seed_factions: Dictionary,
             old_head, seed_factions[faction], native_snapshot, tick, multiplier)
         if observed.is_empty():
             return {"ok": false, "reason": "n155_commander_observation_failed"}
-        var selected: Dictionary = Director.observe_research(observed, {},
-            {}, Technology.all())
+        var mandate: Dictionary = research_mandates.get(faction, {})
+        var charter: Dictionary = faction_charters.get(faction, {})
+        if not (mandate is Dictionary) or not (charter is Dictionary):
+            return {"ok": false, "reason": "invalid_original_faction_research_policy"}
+        var selected: Dictionary = Director.observe_research(observed,
+            mandate, charter, Technology.all())
         if not selected.get("ok", false):
             return {"ok": false, "reason": str(selected.get("reason", "n143_observe_failed"))}
         var head: Dictionary = selected["commander"]
@@ -90,9 +101,14 @@ static func propose(world: Dictionary, seed_factions: Dictionary,
             "faction_id": faction, "tick": tick,
             "commander": head, "markets": markets,
             "people": people, "treasury": int(world["faction_treasuries"][faction]),
-            "mandate": {}, "charter": {}
+            "mandate": mandate, "charter": charter
         }, Technology.all())
         if intent.get("ok", false):
+            # One N143 preflight captures the exact policy it used. N39
+            # confirms these same Director resources BEFORE its real
+            # N9 money + market + worker + policy receipt commit.
+            intent["mandate_preconditions"] = mandate.duplicate(true)
+            intent["charter_preconditions"] = charter.duplicate(true)
             shifts.append(intent)
         else:
             blocked.append({"faction_id": faction,
