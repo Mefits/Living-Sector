@@ -35,6 +35,8 @@ const NativeHybridPlanning = preload("res://scripts/sim/phase2/unified_native_hy
 const NativeN121 = preload("res://scripts/sim/phase2/unified_n121_native_execution_phase.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
+const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
+const N121Receipts = preload("res://scripts/port/n121_native_receipts.gd")
 
 const GalaxyConstructionCrew: Dictionary = {
     "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
@@ -2145,19 +2147,71 @@ func apply_native_n121_execution(tick: int, faction: String,
                 event["contract_id"] = order_id
                 event["n9_receipt"] = "contract:" + order_id + ":post"
                 event["committed_credits"] = reward
+            elif str(action.get("kind", "")) == "produce":
+                # Rust N121 only observes an already-running native
+                # FacilityCrew. It must NOT start another factory, grant
+                # materials or debit a second workforce account.
+                var observation: Dictionary = NativeN121.production_context(
+                    _world, faction, action, tick)
+                if not observation.get("ok", false):
+                    event["status"] = "native_source_producer_unverifiable"
+                    event["reason"] = str(observation.get("reason", "missing_source_producer"))
+                    return event
+                var baselines: Dictionary = N121Baselines.capture(
+                    observation["source_world"], observation["snapshot"],
+                    pending["actions"])
+                if not baselines.get("ok", false):
+                    return {"ok": false, "fatal": true,
+                        "reason": "n121_invalid_paid_production_baselines"}
+                var readied: Dictionary = NativeN98.prepare(
+                    pending["ledger"], step_id, tick)
+                if readied.has("error") or str(readied.get("dispatch_key", "")) != dispatch_key:
+                    return {"ok": false, "fatal": true,
+                        "reason": "n121_producer_source_step_not_ready"}
+                var native_producer: String = "facility:" + str(
+                    observation["pin"]["facility_id"])
+                var ack: String = NativeN98.acknowledge(pending["ledger"],
+                    step_id, dispatch_key, native_producer, tick)
+                if not ack.is_empty():
+                    return {"ok": false, "fatal": true,
+                        "reason": "n121_producer_ack_" + ack}
+                pending["production_started_tick"] = tick
+                pending["production_baselines"] = baselines["production_baselines"].duplicate(true)
+                event["status"] = "n121_observe_existing_paid_production"
+                event["facility_id"] = str(observation["pin"]["facility_id"])
+                event["recipe_id"] = str(observation["pin"]["recipe_id"])
             else:
-                # Real production is already executed by N39/N18. N121
-                # must observe authentic paid N116 shift counters and
-                # N98 receipt before claiming Produce as complete.
-                event["status"] = "n121_non_delivery_not_yet_admitted"
+                event["status"] = "n121_unsupported_source_action"
                 event["reason"] = str(action.get("kind", ""))
                 return event
         "await_native":
-            var evidence: Dictionary = NativeN121.native_delivery_receipt(
-                _world, _ledger.snapshot(), faction, pending, gate, tick)
+            var evidence: Dictionary = {}
+            var native_id: String = str(gate.get("native_order_id", ""))
+            if native_id.begins_with("facility:"):
+                var source_action: Dictionary = N121Receipts.action_for_step(
+                    pending, str(gate.get("step_id", "")))
+                if not source_action.get("ok", false):
+                    return {"ok": false, "fatal": true,
+                        "reason": "n121_paid_production_action_lost"}
+                var source_producer: Dictionary = NativeN121.production_context(
+                    _world, faction, source_action["action"], tick)
+                if not source_producer.get("ok", false):
+                    event["status"] = "n121_producer_receipt_unavailable"
+                    event["reason"] = str(source_producer.get("reason", "producer_missing"))
+                    return event
+                if native_id != "facility:" + str(source_producer["pin"]["facility_id"]):
+                    return {"ok": false, "fatal": true,
+                        "reason": "n121_source_producer_identity_changed"}
+                evidence = N121Receipts.production_receipt(
+                    source_producer["source_world"],
+                    source_producer["snapshot"], pending,
+                    str(gate["step_id"]), native_id, tick, multiplier)
+            else:
+                evidence = NativeN121.native_delivery_receipt(
+                    _world, _ledger.snapshot(), faction, pending, gate, tick)
             if not evidence.get("ok", false):
                 return {"ok": false, "fatal": true,
-                    "reason": str(evidence.get("reason", "n121_invalid_n104_receipt"))}
+                    "reason": str(evidence.get("reason", "n121_invalid_native_receipt"))}
             event["status"] = str(evidence.get("reason", "n121_wait_native_receipt"))
             if evidence.get("receipt", null) is Dictionary:
                 var apply_error: String = NativeN98.apply_receipt(
@@ -2166,6 +2220,9 @@ func apply_native_n121_execution(tick: int, faction: String,
                     return {"ok": false, "fatal": true,
                         "reason": "n121_n98_receipt_" + apply_error}
                 event["native_receipt"] = evidence["receipt"].duplicate(true)
+                if evidence.get("accounted_after_ack", null) is Dictionary:
+                    pending["production_accounted"] = evidence[
+                        "accounted_after_ack"].duplicate(true)
         "reconcile_prepared":
             # This state must survive a crash between a prepared source
             # key and an N104 receipt. Never blindly repost an order.
