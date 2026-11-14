@@ -9,7 +9,8 @@
     "godot/scripts/sim/phase2/unified_n21_dock_queue_stage.gd (source FIFO stale queue policy)",
     "godot/scripts/sim/phase2/n158_production_runtime.gd (existing external/debug docking route if safe)",
     "godot/tests/p2_n21_dock_timeout_source_check.gd (deferred)",
-    "godot/docs/phase2/handoffs/20261114-chat1-n21-timeout-audit.md"
+    "godot/docs/phase2/handoffs/20261114-chat1-n21-timeout-audit.md",
+    "godot/tools/p2_v4_source_gate.py (new source audit checks for N84 patience and manual N21 bypass)"
   ],
   "avoid": [
     "godot/scripts/sim/phase1/n39_native_world_production.gd (currently chat3 N113 active)",
