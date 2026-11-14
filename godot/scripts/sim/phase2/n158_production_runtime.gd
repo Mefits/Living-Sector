@@ -565,8 +565,23 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                         _last_ship_result = {"ok": false, "reason": "n91_n146_unverified_site_dock"}
                         return false
                     var op_id: String = "n91:" + construction_site_id + ":" + ship_id + ":" + operation
+                    var site_dock_type: String = "station"
+                    if operation == "dock" and not snapshot.get("markets", {}).has(
+                            str(site.get("location_name", ""))):
+                        var dock_proof: Dictionary = snapshot.get(
+                            "construction_receipts", {}).get(
+                            "n151_colony_dock:" + construction_site_id, {})
+                        var original_dock: Dictionary = snapshot.get(
+                            "facilities", {}).get(str(dock_proof.get("facility_id", "")), {})
+                        if str(original_dock.get("type", "")) != "construction_dock":
+                            _last_ship_result["autonomous_blocked"].append({
+                                "ship_id": ship_id, "site_id": construction_site_id,
+                                "reason": "n151_no_original_temporary_n21_dock"})
+                            continue
+                        site_dock_type = "construction_dock"
                     var real_request: Dictionary = FleetLogistics.command(
-                        snapshot, operation, ship_id, op_id, tick)
+                        snapshot, operation, ship_id, op_id, tick, {},
+                        site_dock_type)
                     if not real_request.get("ok", false):
                         _last_ship_result["autonomous_blocked"].append({
                             "ship_id": ship_id, "site_id": construction_site_id,
@@ -593,8 +608,38 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     return false
                 var stage: String = "source" if expected_loc == source_loc else ("destination" if expected_loc == dest_loc else "origin")
                 var operation_id: String = "contract:" + cid + ":" + operation + ":" + stage
+                # The original Rust colony passenger's destination is a
+                # physical construction_dock, not an N15 Market warehouse.
+                # Ordinary delivery/undock still uses the existing N21 type.
+                var expected_type: String = "station"
+                if operation == "dock" and str(contract.get("contract_type", "")) == "passenger" and (
+                        str(contract.get("mission_category", "")) == "strategy.colony.v1" and
+                        expected_loc == dest_loc and not snapshot.get("markets", {}).has(expected_loc)):
+                    var authentic: bool = false
+                    for site_id in snapshot.get("construction_sites", {}):
+                        var colony_site: Dictionary = snapshot["construction_sites"][site_id]
+                        if str(colony_site.get("location_name", "")) != expected_loc or (
+                                str(colony_site.get("faction_id", "")) != str(contract.get("faction_id", ""))):
+                            continue
+                        var proof: Dictionary = snapshot.get(
+                            "construction_receipts", {}).get(
+                            "n151_colony_dock:" + str(site_id), {})
+                        var fac: Dictionary = snapshot.get(
+                            "facilities", {}).get(str(proof.get("facility_id", "")), {})
+                        if str(proof.get("kind", "")) == "colony_dock_prepared" and (
+                                str(fac.get("type", "")) == "construction_dock" and
+                                str(fac.get("location", "")) == expected_loc):
+                            authentic = true
+                            break
+                    if not authentic:
+                        _last_ship_result["autonomous_blocked"].append({
+                            "ship_id": ship_id, "contract_id": cid,
+                            "reason": "n151_original_colony_dock_not_prepared"})
+                        continue
+                    expected_type = "construction_dock"
                 var dock_proposal: Dictionary = FleetLogistics.command(
-                    snapshot, operation, ship_id, operation_id, tick)
+                    snapshot, operation, ship_id, operation_id, tick, {},
+                    expected_type)
                 if not dock_proposal.get("ok", false):
                     _last_ship_result["autonomous_blocked"].append({
                         "ship_id": ship_id, "contract_id": cid,
