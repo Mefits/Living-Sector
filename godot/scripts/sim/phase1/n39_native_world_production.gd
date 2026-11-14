@@ -1765,6 +1765,43 @@ func _grant_xp(fac: Dictionary, recipes_run: int) -> void:
         fac["xp"] = int(fac["xp"]) - int(fac["level"]) * 100
         fac["level"] = int(fac["level"]) + 1
 
+## Rust agents/faction.rs::tick_factions calls BodyTerritory derivation
+## at its ORIGINAL 50×tick_multiplier cadence, before the other faction
+## decisions. Only finished physical facilities can vote on ownership.
+## Body control is a persisted ECS component; system control is derived
+## alongside it, not a second mutable faction ownership database.
+func apply_native_body_territory(tick: int, multiplier: int,
+        orbits: RefCounted) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick or multiplier < 1:
+        return {"ok": false, "reason": "n150_invalid_native_territory_tick"}
+    if not _world.has("body_territory"):
+        return {"ok": true, "due": false,
+            "status": "legacy_checkpoint_without_territory"}
+    if tick % (50 * multiplier) != 0:
+        return {"ok": true, "due": false, "tick": tick}
+    if tick <= int(_world.get("territory_last_tick", 0)):
+        return {"ok": false, "reason": "n150_duplicate_native_territory_tick"}
+    var native: Dictionary = NativeDiplomacy.territory(_world, orbits)
+    if not native.get("ok", false):
+        return native
+    var staged: Dictionary = _world.duplicate(true)
+    staged["body_territory"] = native["bodies"].duplicate(true)
+    staged["territory_last_tick"] = tick
+    var invalid: String = Schema.validate(staged)
+    if not invalid.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n150_native_body_territory_invalid:" + invalid}
+    if Schema.accounts(staged) != Schema.accounts(_world):
+        return {"ok": false, "fatal": true,
+            "reason": "n150_territory_changed_canonical_funds"}
+    _world = staged
+    return {"ok": true, "due": true, "tick": tick,
+        "bodies": native["bodies"].duplicate(true),
+        "systems": native["systems"].duplicate(true),
+        "market_controllers": native["market_controllers"].duplicate(true),
+        "ambiguous_rust_ties": native.get("ambiguous_rust_ties", []).duplicate(true)}
+
+
 ## Rust engine.rs "relations" phase: source N150 scheduled treaty changes.
 ## Only THIS N39 owner commits the matrix. No extra ledger or faction clock.
 ## Old saves lacking the matrix intentionally keep it absent: no invented
