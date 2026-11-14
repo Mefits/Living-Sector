@@ -1425,6 +1425,11 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
         for leg in receipt.get("legs", []):
             if not (leg is Dictionary) or not _normalize_row(leg, ["delta"]):
                 return false
+        # Native administrative ship/facility write-off is the ONLY
+        # recorded non-balanced N9 destruction receipt.
+        if str(receipt.get("kind", "")) in ["ship_decommissioned", "facility_removed"]:
+            if not _normalize_row(receipt, ["credits_lost"]):
+                return false
     return true
 
 func _normalize_number_at_worker(worker: Array) -> bool:
