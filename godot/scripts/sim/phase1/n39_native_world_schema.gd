@@ -437,6 +437,11 @@ static func validate(state: Dictionary) -> String:
                 return "native_territory_has_phantom_owner"
             if bool(row["contested"]) and controlling == null:
                 return "native_contested_body_without_controller"
+    # N129 tax, bailout and targeted relief share one persisted
+    # phase cursor, so restoring a checkpoint cannot pay twice.
+    if state.has("faction_finance_last_tick"):
+        if typeof(state["faction_finance_last_tick"]) != TYPE_INT or int(state["faction_finance_last_tick"]) < 0:
+            return "invalid_native_faction_finance_cursor"
     if Recipes.validate() != "":
         return "native_recipes_unavailable"
     return ""
