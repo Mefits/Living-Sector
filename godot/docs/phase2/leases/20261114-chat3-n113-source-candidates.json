@@ -1,0 +1,24 @@
+{
+  "worker": "chat3-n113-full-source-options-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "9a60f1f9fc1d7ce0e52f5b7328dcf7725a8ed6f3",
+  "goal": "Extend canonical N113/N147 Rust source candidate set with original N143 research readiness, N144 expansion site proposals, prior N111 supply exact source re-quote; no fabricated alternatives and no duplicate Head/ledger; defer Godot execution until final acceptance.",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n113_original_candidates.gd (new pure source projector)",
+    "godot/scripts/sim/phase2/unified_n147_colony_head_grant.gd (source candidate integration)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N147 source context pass; one authoritative N39)",
+    "godot/tests/p2_n113_original_candidates_check.gd (deferred)",
+    "godot/tests/p2_n147_native_head_grant_check.gd (deferred update)",
+    "godot/docs/phase2/handoffs/20261114-chat3-n113-source-candidates.md (new)",
+    "godot/docs/phase2/P2_V4_FINAL_ACCEPTANCE_MATRIX_RU.md (precise status update)"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (no second Head or phase)",
+    "N21 FIFO, N9, contracts, physics",
+    "Any balance or new thresholds",
+    "Godot/headless/F5/CI/Actions until source closure"
+  ],
+  "coordination": "All prior Chat1 N21 and Chat2 B4 leases RELEASED at start. Re-fetch SHA before each touched shared file; no edits to ship code.",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED"
+}
