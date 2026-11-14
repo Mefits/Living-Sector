@@ -1,0 +1,21 @@
+{
+  "worker": "interactive-primary-chat-20261114",
+  "status": "RELEASED",
+  "base_head": "304d2d63c18878df24e6841dd7f2fc7ef9312201",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "goal": "Integrate frozen N151/N114 native 200*mult population migration pass into one N39 World with exact N9 household->household journaled movement and N38 persistence, source parity and regression gate",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_population_phase.gd (N151 migration propose wrapper)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (migration commit)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (N151 migration due call/summary)",
+    "godot/tests/p2_n151_population_migration_paid_check.gd (new)",
+    "godot/docs/phase2/handoffs/20261114-n151-native-population-migration.md",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (optional N151 migration event validation)",
+    "godot/scripts/observer_panel.gd (real migration in population tab)"
+  ],
+  "verification": "STATIC_DELIMITER_IMPORT_INDENTATION_PASS; TEST_ADDED_NOT_EXECUTED; GODOT_NOT_RUN; GITHUB_ACTIONS_0",
+  "code_head": "e428668d6c3c519f3d4124ac5d256e21adc639a7",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n151-native-population-migration.md",
+  "release_summary": "Native 200*mult migration on canonical N39 World, ledger/N38-proof, sparse-phase rollback, one real-seed acceptance fixture"
+}

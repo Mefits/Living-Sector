@@ -2,6 +2,8 @@ extends RefCounted
 ## Data-only ship state; Rust components: ShipIdentity, ShipCargo, ShipFuel,
 ## ShipCrew and ShipPosition. Economic transfers are NOT performed here.
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
+const ModuleCatalog = preload("res://scripts/port/n108_shipyard_module_catalog.gd")
+const Progression = preload("res://scripts/sim/native/ship_progression_n101.gd")
 var ships: Dictionary = {}
 
 func add_ship(id: String, ship_class: String, faction_id: String, system_id: String, size: String = "") -> bool:
@@ -89,8 +91,48 @@ func restore(records: Array) -> bool:
 			if str(commodity).is_empty() or typeof(cargo[commodity]) != TYPE_INT or int(cargo[commodity]) < 0:
 				return false
 			total += int(cargo[commodity])
-		if total > int(record["cargo_capacity"]):
+		# Rust ShipCargo::free saturates after a real refit; it does
+		# not discard an existing cargo hold when capacity shrinks.
+		if total > int(record["cargo_capacity"]) and not record.has("fitting"):
 			return false
+		# Old checkpoints may lack N51+N101; new-source ships carry
+		# both components together.
+		if record.has("fitting") != record.has("progression"):
+			return false
+		if record.has("fitting"):
+			var fitting: Variant = record["fitting"]
+			if not (fitting is Dictionary) or not (fitting.get("slots") is Dictionary) or not (fitting.get("derived") is Dictionary):
+				return false
+			var derived: Dictionary = ModuleCatalog.combine(fitting["slots"])
+			if derived.is_empty() or fitting["derived"] != derived:
+				return false
+			var cap: int = roundi(float(spec["cargo_capacity"]) *
+				float(derived["cargo_capacity_mult"]))
+			if int(record["cargo_capacity"]) != cap:
+				return false
+			if not (record.get("speed_modifier") is float or record.get("speed_modifier") is int):
+				return false
+			var speed: float = float(record["speed_modifier"])
+			if not is_finite(speed) or speed <= 0.0:
+				return false
+			if not (record.get("fuel_efficiency_mult") is float or record.get("fuel_efficiency_mult") is int):
+				return false
+			if not is_equal_approx(float(record["fuel_efficiency_mult"]),
+					float(derived["fuel_efficiency_mult"])):
+				return false
+			if not is_equal_approx(float(record.get("comms_bonus", -1.0)),
+					float(derived["comms_bonus"])):
+				return false
+			var progression: Variant = record["progression"]
+			if not (progression is Dictionary):
+				return false
+			for k in ["level", "xp", "retrofit_points"]:
+				if typeof(progression.get(k, null)) != TYPE_INT or int(progression[k]) < 0:
+					return false
+			if int(progression["level"]) < 1 or int(progression["level"]) > Progression.LEVEL_CAP or int(progression["xp"]) > Progression.U32_MAX or int(progression["retrofit_points"]) > Progression.U8_MAX:
+				return false
+			if progression.has("dirty") and typeof(progression["dirty"]) != TYPE_BOOL:
+				return false
 		var fuel := float(record.get("fuel", -1.0))
 		var capacity := float(record.get("fuel_capacity", -1.0))
 		if not is_finite(fuel) or not is_finite(capacity) or capacity <= 0.0 or fuel < 0.0 or fuel > capacity:

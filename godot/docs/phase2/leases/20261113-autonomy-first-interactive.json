@@ -1,0 +1,19 @@
+{
+  "owner": "interactive-chat-autonomy-pivot",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T19:02:00+03:00",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/main.gd (manual UI flag)",
+    "godot/scripts/observer_panel.gd (autonomy visibility)",
+    "godot/docs/phase2/P2_INTEGRATION_EXECUTION_PLAN_RU.md (priority addendum)",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md (priority addendum)",
+    "godot/docs/phase2/AUTONOMY_FIRST_RU.md"
+  ],
+  "boundary": "User directive: freeze per-ship manual commands, pivot to observer-first self-directed N153/N135/N100/Head integration; don't rewrite World/Ledger, no invented cargo contracts",
+  "expires_at": "2026-11-13T20:15:00+03:00",
+  "released_at": "2026-11-13T19:09:00+03:00",
+  "code_commit": "af7f618b0b3193470431a6a480c532d87adf7123",
+  "verification": "STATIC_READBACK_PASS (zero NUL, balanced text/scripts), GODOT_RUNTIME_UNVERIFIED",
+  "handoff": "godot/docs/phase2/handoffs/20261113-1909-autonomy-pivot.md"
+}

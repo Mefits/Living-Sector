@@ -1,0 +1,20 @@
+{
+  "worker": "automation11",
+  "status": "RELEASED",
+  "started_at": "2026-11-14T01:44:05Z",
+  "scope": [
+    "godot/tests/p2_unattended_autonomous_flight_check.gd"
+  ],
+  "goal": "Remove manual funded contract posting; assert live tick N135/N104 creates order",
+  "ci_release_owner": false,
+  "commit": "59c0a5e5c1de88a27080d9c39e1089ca38cb6e42",
+  "checks": {
+    "no_manual_post": true,
+    "no_manual_departure": true,
+    "autonomous_tick": true,
+    "contract_discovery": true,
+    "save_reload": true,
+    "replay": true
+  },
+  "runtime": "CODE_UNVERIFIED"
+}

@@ -1,0 +1,28 @@
+{
+  "worker": "second-chat-passenger-colony-20261114",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "3379141490a601d79f8a569014429d9bee31012d",
+  "goal": "N104/N147 paid physical passenger vertical and authentic Rust N142 chartered colony navigation in active N158/N39; N144/N151 source head/dock/materialization blockers recorded",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n104_passenger_transit.gd (new)",
+    "godot/scripts/sim/economy/contract_board.gd (passenger evidence branch only)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (passenger manifest invariants only)",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd (passenger leaves only)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (passenger method only; reconcile with N148 before touching)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (passenger dispatch only; reconcile with N148 before touching)",
+    "godot/scripts/sim/phase2/unified_n142_original_colony_chart.gd (new source SQL)",
+    "godot/scripts/sim/route_graph.gd (native-db-only source chart step)",
+    "godot/scripts/sim/ships/native_location_resolver.gd (empty planet waypoints)",
+    "godot/scripts/sim/route_graph_audit.gd (Rust chart provenance)",
+    "godot/tests/n4_registry_routes_check.gd (170 original SQLite edges, NOT RUN)",
+    "godot/tests/p2_native_seeded_route_parity_check.gd (N142 targets, NOT RUN)",
+    "godot/docs/phase2/handoffs/20261114-second-chat-n104-passengers-n142-colony-navigation.md"
+  ],
+  "non_overlap": "N148 fleet retirement/lifecycle: do not edit any retirement implementation or admin cleanup",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED; original Rust SQL compared and 8 worlds/170 edges independently counted; every imported preload exists; GODOT NOT RUN; ACTIONS 0; N144/N151 head/dock/commission/materialization still UNWIRED",
+  "started_at": "2026-11-14T16:34:00+03:00",
+  "handoff": "godot/docs/phase2/handoffs/20261114-second-chat-n104-passengers-n142-colony-navigation.md",
+  "code_head": "1f82a8a1c00d6a28913d74364ff7b9ae8462af3e",
+  "released_at": "2026-11-14"
+}

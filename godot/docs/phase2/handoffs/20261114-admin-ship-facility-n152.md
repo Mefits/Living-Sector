@@ -1,0 +1,31 @@
+# Living Sector — 14.11.2026 — N152 Rust administrative removal cascades in canonical P2
+
+## Scope and rules
+- Continued after source-wired N152 expiry/refund handoff. One working P2 PR #249, `integration/godot-phase2-unified-20261113`.
+- **Source only / CODE_UNVERIFIED.** By user instruction: no intermediate Godot gameplay checks, no new Actions, no economy balancing or feature redesign.
+- Exact Rust source audited: `native/crates/sim_server/src/engine/admin.rs::admin_remove_ship/admin_remove_facility`, `engine/drains.rs::drain_pending_decommissions`, `native/crates/sim_core/src/economy/contracts.rs::drop_ship_holdings/cancel_for_facility`, `engine/contract_funding.rs::refund_closed`.
+- Runtime architecture: **one N39 physical World, one N104 Board, one N9 Ledger and one N158 TickRunner.** No second ship/market/contract authority.
+
+## Added in this iteration
+1. **Canonical N104 Board** `contract_board.gd` now contains original Rust N152 administrative transitions, invoked only by N39's detached stage: removal of ship releases its Accepted contracts back to Posted (clears fulfiller and pending agreed payment) while PickedUp -> Expired with cargo lost; PAID/EXPIRED history and N15 physical receipt claims stay unchanged. Facility cleanup cancels still-live contracts by original requestor, and by source/destination ONLY if last facility at location is removed.
+2. **Native N9 ledger** `credit_ledger.gd::close_removed_entity_account` implements a precise, auditable source **write-off** on entity destruction: remaining actual ship/facility credits disappear with the actor just as in Rust, and the old wallet is removed. The canonical ledger records one `admin:<kind>:<id>:remove` receipt with old account, exact lost credits, tick, and sole negative leg. This is NOT a new transfer, not a refund, and not money minted for a faction.
+3. **P2 staging adapter** `unified_n152_admin_cleanup.gd` snapshots the real actor, verifies Rust passenger/colony guards, updates the *existing* N104 Board, removes actual ship or non-market facility, undocks ships from a removed facility, clears doomed delivery BT assignments, and emits a retirement snapshot including original ship identity, location, class, crew morale (where represented in current P2), fuel and strikes. Nothing is committed by this adapter.
+4. **N39 exclusive Apply** `apply_native_admin_removal` checks that the exact actor disappeared, all surviving wallet values and prior receipts are intact, one N9 account went away, total money dropped by precisely the source actor's old credits, no contract was deleted or altered beyond permitted N152 state changes, no foreign world domain changed, and the final N39 Schema + N104 Board + N9 account map all agree before publishing both snapshots.
+5. **N158 admin entrypoints** `admin_remove_ship`, `admin_remove_facility` require the *existing* running healthy native P2 world and route to N39. These are explicit internal administrative operations — no new UI controls, extra tick runner, free replacement hull, or autonomous strike mechanic.
+6. **N38 save/reload integrity**: optional durable `native_admin_removals` historical rows are schema-validated, integer-shaped fields normalized by the existing N158 restore, and each retired actor's original N9 destruction receipt + missing live wallet is checked at restore. Last runtime admin diagnostic resets on restore. A valid 0-ship fleet is now permitted in the canonical schema; no free seeding of 24 ships after their actual retirement.
+
+## Original source guards / deliberate fail-closed gaps
+- Actual embarked passengers aboard a removed ship: **BLOCK**. At a facility's destination or an active colony site: **BLOCK**; no fictitious loss of settlers.
+- Deleting an existing P2 Market owner/station: **BLOCK** until native market and its ownership/stock/consumer cleanup can be done physically. Arbitrarily changing Market.owner or dropping paid goods would break the current single-world invariant.
+- Deleting a paired gate: **BLOCK** until the canonical route graph and opposite GateLink are atomically unpaired; otherwise ships could travel along a nonexistent edge.
+- Other non-market, non-gate facilities can be removed with original source N152 requestor/last-location selection. Removed docking references are cleared; never teleport ships or goods.
+- Escrow of contracts cancelled because their payer facility was removed stays reserved, exactly as native `refund_closed` does when the original beneficiary no longer exists. The existing N152 market pass performs real N9 refunds of still-reachable PAID/EXPIRED claims in a subsequent tick. **Immediate admin-frame refund parity is still a known timing gap**; do not report this portion as completed.
+- The N148 `DecommissionShip` strike-to-admin call and deferred respawn policy are already source-authored but **not yet connected to this new N158 admin entrypoint**. Ordinary Rust auto-retirement is therefore not claimed executable. Finite hulls are never auto-replaced in this iteration.
+- Original Rust SQL `DbWrite::DeleteShip/RetireShip/DeleteFacility` are represented by P2's existing N38 checkpoint state and historical row, not verified real SQLite durable writes; no claim of native DB parity.
+- Frozen Rust ships may retain morale, strikes and live crew fields not represented in current P2 row; retirement snapshot uses existing real fields and source missing-component defaults, never invents morale data.
+
+## Static readback performed; final actual tests deliberately deferred
+- GitHub readback of touched GDScripts, lexical brackets/quotes, no NUL, canonical preload path and indentation check; **no Godot executable, headless parser, cloud CI, UI acceptance or Rust/Godot replay performed.**
+- Required final tests after all source is integrated: remove idle ship / Accepted / PickedUp; block embarked passengers; verify payout/refund closure and stable N9 totals; remove non-market service with docked ship, retain an active station at same location; block market-owner/gate/colony owner; save/load with strict retirement receipt; handle last ship; N148 auto-retirement and real DB persistence.
+- Overall full Rust->Godot integration remains OPEN; this specific admin entrypoint is source-wired and unverified.
+

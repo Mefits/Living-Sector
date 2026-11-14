@@ -1,0 +1,19 @@
+{
+  "worker": "chat2-colony-B2",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "f7619971c7998b08c405faf07b36c2638a0ceede",
+  "goal": "Miro B2: frozen Rust N144 200-Metals contract to marketless N151 temporary dock; N15 real ship hold, N104 escrow, N9 physical source purchase and payout, N154 site progress; no fake Market",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n144_colony_metals.gd (new pure stage)",
+    "godot/scripts/sim/phase2/unified_n144_colony_contracts.gd (existing-site metals quote + paid post)",
+    "godot/scripts/sim/phase2/unified_n144_colony_metal_assignment.gd (new N153 source cargo BT)",
+    "godot/tests/p2_b2_colony_metals_source_check.gd (new; NOT RUN)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (LATER only B2 methods once Chat1 releases shared lease)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (LATER only B2 insertion points once Chat1 releases)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (LATER only B2 validation once Chat1 releases)",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd (LATER only construction cargo docking once Chat1 releases)"
+  ],
+  "non_overlap": "Chat1 active shared N39/N158/Schema/N84 trade: no concurrent edits to their files until confirmed RELEASED; independently implement source-pure adapters first",
+  "verification": "SOURCE_IN_PROGRESS / CODE_UNVERIFIED; no Godot or Actions"
+}

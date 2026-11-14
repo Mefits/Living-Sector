@@ -16,6 +16,16 @@ func import_accounts(accounts: Dictionary) -> bool:
 	_balances = accounts.duplicate(true)
 	return true
 
+## Register a previously unknown escrow wallet at ZERO only. This is the same
+## authoritative N9 ledger: it cannot create credits or replace an existing
+## account. The caller must stage/validate the entire contract transaction
+## before publishing this ledger snapshot to the canonical World Apply.
+func register_empty_account(account: String) -> bool:
+	if not _valid_account(account) or _balances.has(account):
+		return false
+	_balances[account] = 0
+	return true
+
 func balance(account: String) -> int:
 	return int(_balances.get(account, -1))
 
@@ -82,6 +92,58 @@ func transfer(operation_id: String, source: String, destination: String, amount:
 	if source == destination or amount <= 0:
 		return {"ok": false, "reason": "invalid_transfer"}
 	return commit(operation_id, [{"account": source, "delta": -amount}, {"account": destination, "delta": amount}], tick, kind)
+
+## A frozen Rust admin despawn physically destroys the actor and its
+## remaining personal/facility credits. It is NOT a treasury transfer.
+## Keep an explicit immutable N9 write-off receipt and remove the wallet;
+## total credits fall by exactly the erased actor's old credits. This
+## privileged operation is used ONLY by the N39 atomic admin cascade.
+func close_removed_entity_account(operation_id: String,
+		account: String, tick: int, kind: String) -> Dictionary:
+	if operation_id.is_empty() or not _valid_account(account) or tick < 0:
+		return {"ok": false, "reason": "invalid_admin_account_removal"}
+	if kind not in ["ship_decommissioned", "facility_removed"]:
+		return {"ok": false, "reason": "invalid_admin_writeoff_kind"}
+	if not _balances.has(account) or _receipts.has(operation_id):
+		return {"ok": false, "reason": "account_missing_or_previously_removed"}
+	if kind == "ship_decommissioned" and not account.begins_with("ship:"):
+		return {"ok": false, "reason": "not_a_ship_wallet"}
+	if kind == "facility_removed" and not account.begins_with("facility/"):
+		return {"ok": false, "reason": "not_a_facility_wallet"}
+	var lost: int = int(_balances[account])
+	if lost < 0:
+		return {"ok": false, "reason": "invalid_decommission_balance"}
+	_balances.erase(account)
+	var record: Dictionary = {"id": operation_id, "tick": tick,
+		"kind": kind, "account_closed": account, "credits_lost": lost,
+		"legs": [{"account": account, "delta": -lost}]}
+	_receipts[operation_id] = record
+	return {"ok": true, "receipt": record.duplicate(true),
+		"credits_lost": lost}
+
+## Frozen Rust ShipEconomy.credits -> ShipCrew.wages_credits. Crew
+## wages are nonspendable accrued savings in the ECS crew component,
+## NOT a parallel tradable N9 wallet. The live economic supply drops
+## by this paid amount. This one-leg receipt proves the actual source
+## debit instead of silently erasing ship credits or minting a payee.
+func pay_native_ship_crew(operation_id: String, ship_account: String,
+		ship_id: String, amount: int, tick: int) -> Dictionary:
+	if operation_id.is_empty() or ship_id.is_empty() or tick < 0 or amount <= 0:
+		return {"ok": false, "reason": "invalid_native_crew_wage"}
+	if ship_account != "ship:" + ship_id or not _balances.has(ship_account):
+		return {"ok": false, "reason": "missing_native_ship_wallet"}
+	if _receipts.has(operation_id):
+		return {"ok": false, "reason": "native_crew_wage_replay"}
+	if int(_balances[ship_account]) < amount:
+		return {"ok": false, "reason": "unfunded_native_crew_wage"}
+	_balances[ship_account] = int(_balances[ship_account]) - amount
+	var receipt: Dictionary = {"id": operation_id, "tick": tick,
+		"kind": "native_ship_crew_wages", "ship_id": ship_id,
+		"wages_credits_accrued": amount,
+		"legs": [{"account": ship_account, "delta": -amount}]}
+	_receipts[operation_id] = receipt
+	return {"ok": true, "receipt": receipt.duplicate(true), "amount": amount}
+
 
 func snapshot() -> Dictionary:
 	return {"version": 1, "balances": _balances.duplicate(true), "receipts": _receipts.duplicate(true)}

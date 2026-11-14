@@ -1,0 +1,15 @@
+{
+  "worker": "shift11-2030",
+  "status": "RELEASED",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_station_demand_phase.gd"
+  ],
+  "boundary": "N135 deterministic physical supplier selection only; no escrow, no central runner or ledger edits",
+  "started_at": "2026-11-13T20:30:33+03:00",
+  "expires_at": "2026-11-13T21:15:33+03:00",
+  "finished_at": "2026-11-13T20:39:00+03:00",
+  "code_commits": [
+    "767a01de466029069f7ff21b7db16110a0b5259e",
+    "71c055ceb076adc16e57060b189fa9ecb8fef9dc"
+  ]
+}

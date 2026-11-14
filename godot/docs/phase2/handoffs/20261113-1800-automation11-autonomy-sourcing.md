@@ -1,0 +1,13 @@
+# P2 handoff — 2026-11-13 18:00 CET — automation11
+- Base checked: P2 AUTONOMY_FIRST, execution plan, shared handoff, current N158, N135 demand, N104 ContractBoard, N9 ledger, N14 fleet, N15 logistics.
+- Lease: `godot/docs/phase2/leases/20261113-1800-automation11-autonomy-sourcing.json`; isolated new file only.
+- Commit: `07096f5335265c07685332506e26b9e4a74af37a`.
+- Added `godot/scripts/sim/phase2/unified_autonomy_source_matching.gd`: deterministic read-only source-market candidate matching for real N135 demand.
+- Requires existing physical market supply, canonical owner/location, sufficient stock, finite source price, and real payer credits. Rejects malformed canonical data and exposes blocked reasons.
+- No synthetic ship orders, cargo, ledger mutations, escrow, or ContractBoard. Does not claim transport graph feasibility.
+- **SOURCE_PRESENT / CODE_UNVERIFIED**: no Godot binary in local runtime; no Godot parse/smoke or Windows test. No Actions launched.
+- The matcher is not yet wired to the sole TickRunner. Do not claim autonomous trading or completed contract lifecycle.
+- Next: validate candidate source via native directed route and actual N153 ship decision; admit an N104 escrow proposal through one N39 Apply, then N21/N15/N14 execution and receipt settlement.
+- Important: N135 `station_demand_snapshot` currently remains proposals only; no canonical escrow state in N158 yet. Coordinate a central-runner lease before wiring.
+- Directory enumeration for other active leases was not supported by the available GitHub connector. Avoid touching shared central files until verified.
+- Files released: `unified_autonomy_source_matching.gd`. No central files occupied.

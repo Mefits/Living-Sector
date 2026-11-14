@@ -1,0 +1,16 @@
+{
+  "owner": "interactive-chat-ui-status-layout",
+  "status": "RELEASED",
+  "scope": [
+    "godot/scripts/main.gd: _ready status Label and fleet Choice sizing",
+    "godot/scripts/main.gd: _update_status tooltip"
+  ],
+  "purpose": "User-reproduced once-per-tick Godot screen side-shift: bound status line and dynamic fleet OptionButton minimum widths without touching simulation",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "ci": "ZERO_GITHUB_ACTIONS",
+  "started_at": "2026-11-13T18:40+03:00",
+  "verification": "STATIC_BRACKET_CHECK_PASS; USER_GODOT_F5_RETEST_REQUIRED",
+  "commit": "51ece3651608e464f0fd9d26930526373be66732",
+  "handoff": "godot/docs/phase2/handoffs/20261113-live-ui-tick-layout-jitter-interactive.md",
+  "completed_at": "2026-11-13"
+}

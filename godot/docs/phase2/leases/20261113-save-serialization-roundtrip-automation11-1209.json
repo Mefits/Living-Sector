@@ -1,0 +1,12 @@
+{
+  "owner": "second-chat-overnight",
+  "scope": [
+    "godot/scripts/sim/save_state.gd"
+  ],
+  "purpose": "Fail closed if serialized checkpoint changes physical market stocks before replacing last healthy save",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T12:09:07+03:00",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "commit": "0dd282a96aca0383996356202307f2c9f47675ce",
+  "validation": "Static source contract only; Godot runtime not available"
+}

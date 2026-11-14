@@ -1,11 +1,15 @@
 extends RefCounted
-## Frozen Galaxy 0.6.7 travel_routes are directed edges. Do NOT synthesize
-## reverse edges, or infer light-years from universe_offset / screen pixels.
+## N4 raw JSON routes stay directed. But original Rust sim_db/seeder.rs
+## inserts BOTH forward and reverse travel_routes into the active DB.
+## Only the native-seeded mode below reconstructs those proven DB rows.
+## Only native seeded mode includes spawner::chart_colony_routes SQL,
+## strictly from original planet IDs and orbit radii, not render geometry.
+const NativeChart = preload("res://scripts/sim/phase2/unified_n142_original_colony_chart.gd")
 var _edges: Dictionary = {}
 var _nodes: Dictionary = {}
 var _edge_count: int = 0
 
-func load_worlds(worlds: Array) -> bool:
+func load_worlds(worlds: Array, native_seeded_db: bool = false) -> bool:
     var edges: Dictionary = {}
     var nodes: Dictionary = {}
     var count: int = 0
@@ -38,14 +42,63 @@ func load_worlds(worlds: Array) -> bool:
                 return false
             nodes[from_id] = true
             nodes[to_id] = true
-            if not edges.has(from_id):
-                edges[from_id] = []
-            # Repeated source edges are ambiguous: reject instead of choosing
-            # a cheaper one silently.
-            for existing in edges[from_id]:
-                if existing["to"] == to_id:
-                    return false
-            edges[from_id].append({"to": to_id, "distance": distance, "system_id": sid})
+            if native_seeded_db:
+                # This is EXACTLY the Rust sim_db seeder's two INSERT ...
+                # ON CONFLICT(from_location,to_location) DO UPDATE loops.
+                # A repeated reverse edge is a DB upsert, not an extra arc.
+                for pair in [[from_id, to_id], [to_id, from_id]]:
+                    var origin: String = str(pair[0])
+                    var target: String = str(pair[1])
+                    if not edges.has(origin):
+                        edges[origin] = []
+                    var updated: bool = false
+                    for existing in edges[origin]:
+                        if str(existing["to"]) == target:
+                            existing["distance"] = distance
+                            existing["system_id"] = sid
+                            updated = true
+                            break
+                    if not updated:
+                        edges[origin].append({
+                            "to": target, "distance": distance, "system_id": sid})
+                        count += 1
+            else:
+                # Source JSON is still directional: generic N59/N58
+                # tests and callers must not infer the Rust DB migration.
+                if not edges.has(from_id):
+                    edges[from_id] = []
+                for existing in edges[from_id]:
+                    if existing["to"] == to_id:
+                        return false
+                edges[from_id].append({
+                    "to": to_id, "distance": distance, "system_id": sid})
+                count += 1
+    if native_seeded_db:
+        # Rust startup: seeder::seed_all() THEN the explicit original
+        # spawner::chart_colony_routes SQLite INSERT OR IGNORE transaction.
+        # Raw mode remains exactly the original directed JSON graph.
+        var chart: Dictionary = NativeChart.chart(worlds)
+        if not chart.get("ok", false):
+            return false
+        for location in chart.get("charted", {}):
+            nodes[location] = true
+        for native in chart.get("edges", []):
+            var origin: String = str(native["from"])
+            var dest: String = str(native["to"])
+            if not nodes.has(origin) or not nodes.has(dest):
+                return false
+            if not edges.has(origin):
+                edges[origin] = []
+            var exists: bool = false
+            for active in edges[origin]:
+                if str(active["to"]) == dest:
+                    exists = true
+                    break
+            if exists:
+                continue # SQL INSERT OR IGNORE preserves explicit seed edge
+            edges[origin].append({"to": dest,
+                "distance": float(native["distance"]),
+                "system_id": str(native["system_id"])})
             count += 1
     for from_id in edges:
         edges[from_id].sort_custom(func(a: Dictionary, b: Dictionary) -> bool:

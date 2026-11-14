@@ -1,0 +1,17 @@
+# P2 N151 — native founding ConstructionSite in sole N39 World (14 Nov 2026)
+
+Repository: Mefits/Living-Sector. Coordination PR #249, branch `integration/godot-phase2-unified-20261113`. Start HEAD `8821c7b`.
+
+## Changed native integration
+- New `unified_n151_colony_founding_phase.gd`: validates actual Rust Galaxy planet identity, nonempty ore/ice/gas source richness, owning sponsor station, own real funds, settlers and N143 `orbital_habitats`, source metals and metal quote, real N46 class-specific passenger / profitable cargo / engineering hulls; requires reachable directed N4 route to exactly `<body_id>-colony`; uses the original `n151_native_colony_commission.gd` rather than rewriting the site recipe.
+- `n39_native_world_production.gd::apply_native_colony_foundation`: new guarded N39 authoritative writer requiring an explicit head grant. Recomputes proposal from CURRENT World before commit. Writes only real `construction_sites` and immutable `construction_receipts` `colony_approved`; **no debit, no new wallet, no ship, no metal, no households, no market/station**.
+- `n39_native_world_schema.gd`: source-compatible exception: only an **unfinished colony-origin site** may exist before its destination market, backed by an actual same-faction sponsor, correct `body_id-colony` name, zero delivered metals and 600 required metals. Approval receipts require real site binding, zero capital and no N9 receipt; old site/legacy save format still supported.
+- `n158_production_runtime.gd`: read-only founding feasibility scan on tick 1 then 200×mult strategic cadence; reports blockers in canonical summary. `observer_panel.gd`: compact N151 site readiness/blockers in Construction section only, separate from actual N147 colony and passengers.
+- Test `p2_n151_colony_founding_site_check.gd`: uses authentic frozen Sol planet/market/ships/treasury plus a TEST-ONLY `earth-station → mars-colony` directed route and detached research unlock, checks source-authenticated N39 site admission, no-authorization rejection, no ghost residents/station/metal/CR, N38 persistence, duplicate/tamper rejection.
+
+## Critical truth
+- **CODE-WIRED / GODOT NOT RUN / GITHUB ACTIONS=0.** Static delimiter, imports, quoting, indent checks passed on affected GDScripts.
+- The ORIGINAL frozen Galaxy JSON currently contains stations and mining nav sites, **NOT real `*-colony` navigation nodes or real directed routes**. Consequently there is **no live authorized colony site creation on clean seed**. Test navigation and `orbital_habitats` unlock are explicitly synthetic detached prerequisites, NOT evidence that native player world can found Mars.
+- The N134 faction head currently delegates only industrial `N154` construction, not N144/N151 colony grants. So `apply_native_colony_foundation` remains wired but NOT invoked from source N134; none of the read-only plans can bypass it.
+- Physical N104 Passenger boarding/delivery and N151 dock/location/market creation AFTER founding are still absent. Initial site exception does NOT pretend to solve these or make unregistered nodes traversable.
+- Next substantial integration block: authoritative source-backed N142 registration of NEW colony nav location and physically reachable N4 route (must be grounded, not invented); then N134/N144 colony head delegation, N104 prepaid physical passenger+metals, N151 actual station/zero-pop settlement, N38 save through stages. Finish with ONE coordinated Godot runtime gate, not micro Actions.

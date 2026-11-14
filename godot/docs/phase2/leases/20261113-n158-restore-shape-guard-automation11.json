@@ -1,0 +1,13 @@
+{
+  "owner": "overnight-scheduler",
+  "scope": [
+    "godot/scripts/sim/phase2/n158_production_runtime.gd"
+  ],
+  "purpose": "Fail-closed structural validation of JSON native snapshot before typed dictionary access during SaveState restore",
+  "status": "RELEASED",
+  "claimed_at": "2026-11-13T04:09:26Z",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "conflicts": "Do not edit other workers' files; no CI",
+  "result_commit": "b237444e18b16905878c3a4cb2745945ebe4c940",
+  "verification": "CODE_UNVERIFIED; static source guard review only; Actions 0"
+}

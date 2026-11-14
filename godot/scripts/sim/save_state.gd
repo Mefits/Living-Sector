@@ -1,9 +1,111 @@
 extends RefCounted
-## Versioned Godot FileAccess save for the P1 orbital-only state.
-## Never changes original Rust SQLite or world JSON files.
-## Atomic temp->primary promotion with recoverable .bak if an old save exists.
+## P1 checkpoint persistence with SHA-256 integrity envelope and atomic recovery.
+## The digest protects against accidental corruption, NOT malicious save editing.
+## Legacy schema-v1 bare checkpoints remain readable (without a digest).
+## CODE_UNVERIFIED until the Godot headless regression is executed.
 
 const DEFAULT_PATH: String = "user://saves/galaxy-067-p1.json"
+const ENVELOPE_FORMAT: String = "living-sector-checkpoint-envelope"
+const ENVELOPE_VERSION: int = 1
+const MAX_SAVE_BYTES: int = 16 * 1024 * 1024
+const NativeFrameGuard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
+
+static func _canonical(value: Variant) -> String:
+    if value is Dictionary:
+        var keys: Array = value.keys()
+        keys.sort()
+        var parts: PackedStringArray = PackedStringArray()
+        for key in keys:
+            parts.append(JSON.stringify(str(key), "", true, true) + ":" + _canonical(value[key]))
+        return "{" + ",".join(parts) + "}"
+    if value is Array:
+        var parts: PackedStringArray = PackedStringArray()
+        for item in value:
+            parts.append(_canonical(item))
+        return "[" + ",".join(parts) + "]"
+    return JSON.stringify(value, "", true, true)
+
+static func _wrap(snapshot: Dictionary) -> Dictionary:
+    # Hash the JSON-normalized payload, not GDScript integer/float variants:
+    # JSON parsing may turn 7 into 7.0, and the digest must survive reload.
+    var normalized: Variant = JSON.parse_string(JSON.stringify(snapshot, "", true, true))
+    return {
+        "envelope_format": ENVELOPE_FORMAT,
+        "envelope_version": ENVELOPE_VERSION,
+        "payload_sha256": _canonical(normalized).sha256_text(),
+        "payload": normalized
+    }
+
+static func _unwrap(raw: Variant) -> Dictionary:
+    if not (raw is Dictionary):
+        return {}
+    if raw.has("envelope_format") or raw.has("payload_sha256") or raw.has("payload"):
+        if raw.get("envelope_format", "") != ENVELOPE_FORMAT:
+            return {}
+        if raw.get("envelope_version", 0) != ENVELOPE_VERSION:
+            return {}
+        var payload: Variant = raw.get("payload", null)
+        var digest: Variant = raw.get("payload_sha256", null)
+        if not (payload is Dictionary) or not (digest is String):
+            return {}
+        if digest.length() != 64 or _canonical(payload).sha256_text() != digest:
+            return {}
+        return payload
+    # Old P1 saves: validation still occurs inside TickRunner.restore_checkpoint.
+    if raw.get("format", "") == "living-sector-godot":
+        return raw
+    return {}
+
+static func _read_checkpoint(path: String) -> Dictionary:
+    if not FileAccess.file_exists(path):
+        return {}
+    var file := FileAccess.open(path, FileAccess.READ)
+    if file == null:
+        return {}
+    var size: int = file.get_length()
+    if size <= 0 or size > MAX_SAVE_BYTES:
+        file.close()
+        return {}
+    var raw_text: String = file.get_as_text()
+    file.close()
+    var parser := JSON.new()
+    if parser.parse(raw_text) != OK:
+        return {}
+    return _unwrap(parser.data)
+
+static func _physical_stock_matches(original: Dictionary, decoded: Dictionary) -> bool:
+    # The unified N39 runtime owns market supply; SaveState must not silently
+    # change any physical stock during the JSON round trip.
+    if not original.has("native_production"):
+        return true # Legacy P1 snapshots have no N39 market state.
+    if not (decoded.get("native_production") is Dictionary):
+        return false
+    var original_native: Variant = original["native_production"]
+    var decoded_native: Dictionary = decoded["native_production"]
+    if not (original_native is Dictionary):
+        return false
+    var original_world: Variant = original_native.get("world")
+    var decoded_world: Variant = decoded_native.get("world")
+    if not (original_world is Dictionary) or not (decoded_world is Dictionary):
+        return false
+    var original_markets: Variant = original_world.get("markets")
+    var decoded_markets: Variant = decoded_world.get("markets")
+    if not (original_markets is Dictionary) or not (decoded_markets is Dictionary):
+        return false
+    if original_markets.size() != decoded_markets.size():
+        return false
+    for market_id in original_markets:
+        if not decoded_markets.has(market_id):
+            return false
+        var before: Variant = original_markets[market_id]
+        var after: Variant = decoded_markets[market_id]
+        if not (before is Dictionary) or not (after is Dictionary):
+            return false
+        if not (before.get("supply") is Dictionary) or not (after.get("supply") is Dictionary):
+            return false
+        if before["supply"] != after["supply"]:
+            return false
+    return true
 
 static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) -> Error:
     if not runner.is_started():
@@ -19,20 +121,37 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
 
     var tmp: String = absolute_path + ".pending"
     var backup: String = absolute_path + ".bak"
+    var encoded: String = JSON.stringify(_wrap(snapshot), "\t", true, true) + "\n"
+    if encoded.to_utf8_buffer().size() > MAX_SAVE_BYTES:
+        return ERR_OUT_OF_MEMORY
     var file := FileAccess.open(tmp, FileAccess.WRITE)
     if file == null:
         return FileAccess.get_open_error()
-    file.store_string(JSON.stringify(snapshot, "\t") + "\n")
+    file.store_string(encoded)
     file.flush()
+    var write_error: Error = file.get_error()
     file.close()
-    # Validate our full output before touching the existing save.
-    var candidate: Variant = JSON.parse_string(FileAccess.get_file_as_string(tmp))
-    if not (candidate is Dictionary) or candidate.get("schema_version", null) == null:
+    if write_error != OK:
+        DirAccess.remove_absolute(tmp)
+        return write_error
+    # The file is not a safe replacement merely because its SHA-256 matches:
+    # both writer and reader can agree on a lossy JSON representation. Compare
+    # physical market inventories against the live checkpoint BEFORE promotion.
+    var verified: Dictionary = _read_checkpoint(tmp)
+    # A valid N38 SHA256 still cannot guarantee native economic fidelity
+    # if JSON rounded a credit, escrow, cargo amount or receipt before hash.
+    # Fail closed BEFORE replacing a valid primary/.bak save.
+    var native_frame_check: Dictionary = NativeFrameGuard.verify_authoritative_frame(
+        snapshot, verified)
+    if verified.is_empty() or not _physical_stock_matches(snapshot, verified) or \
+            not native_frame_check.get("ok", false):
         DirAccess.remove_absolute(tmp)
         return ERR_FILE_CORRUPT
 
     var had_primary: bool = FileAccess.file_exists(absolute_path)
-    if had_primary:
+    var primary_is_valid: bool = had_primary and not _read_checkpoint(absolute_path).is_empty()
+    # Never overwrite a known-good backup with a damaged primary.
+    if had_primary and primary_is_valid:
         if FileAccess.file_exists(backup):
             var remove_result: Error = DirAccess.remove_absolute(backup)
             if remove_result != OK:
@@ -42,10 +161,16 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
         if backup_result != OK:
             DirAccess.remove_absolute(tmp)
             return backup_result
+    elif had_primary:
+        # Invalid primary is not a usable recovery point.
+        var remove_primary: Error = DirAccess.remove_absolute(absolute_path)
+        if remove_primary != OK:
+            DirAccess.remove_absolute(tmp)
+            return remove_primary
 
     var promote_result: Error = DirAccess.rename_absolute(tmp, absolute_path)
     if promote_result != OK:
-        if had_primary:
+        if had_primary and primary_is_valid:
             DirAccess.rename_absolute(backup, absolute_path)
         return promote_result
     return OK
@@ -54,16 +179,46 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
         save_path: String = DEFAULT_PATH) -> Dictionary:
     if not runner.is_started():
         return {"ok": false, "error": "Simulation is not initialized"}
+    # restore_checkpoint may reject an invalid payload after touching some state.
+    # Keep the authoritative live snapshot and roll back before trying .bak.
+    var baseline: Dictionary = runner.checkpoint()
+    if baseline.is_empty():
+        return {"ok": false, "error": "Cannot protect live state before restore"}
     var absolute_path: String = ProjectSettings.globalize_path(save_path)
-    for candidate in [absolute_path, absolute_path + ".bak"]:
-        if not FileAccess.file_exists(candidate):
-            continue
-        var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(candidate))
-        if not (parsed is Dictionary):
+    # The .pending file may be the only intact checkpoint if a process died
+    # between writing it and promoting it to the primary path. Never prefer
+    # an uncommitted pending save over a healthy primary or known-good backup.
+    for candidate in [absolute_path, absolute_path + ".bak", absolute_path + ".pending"]:
+        var parsed: Dictionary = _read_checkpoint(candidate)
+        if parsed.is_empty():
             continue
         if runner.restore_checkpoint(parsed, seed):
-            return {"ok": true, "source": candidate, "tick": runner.tick_count}
+            # A verified pending checkpoint was fully restored after an
+            # interrupted save. Promote it for the next application launch,
+            # otherwise a subsequent restart may load the older .bak instead.
+            # Never touch a valid primary or the last good backup.
+            var promoted_pending: bool = false
+            if candidate == absolute_path + ".pending":
+                var primary_valid: bool = not _read_checkpoint(absolute_path).is_empty()
+                if not primary_valid:
+                    var can_promote: bool = true
+                    if FileAccess.file_exists(absolute_path):
+                        can_promote = DirAccess.remove_absolute(absolute_path) == OK
+                    if can_promote:
+                        promoted_pending = DirAccess.rename_absolute(candidate, absolute_path) == OK
+            return {
+                "ok": true,
+                "source": candidate,
+                "tick": runner.tick_count,
+                "recovered_pending": candidate == absolute_path + ".pending",
+                "promoted_pending": promoted_pending
+            }
+        if not runner.restore_checkpoint(baseline, seed):
+            return {
+                "ok": false,
+                "error": "Checkpoint rejected and live-state rollback failed; stop simulation"
+            }
     return {
         "ok": false,
-        "error": "Save is missing, incompatible, incomplete or corrupted; live world unchanged"
+        "error": "Save is missing, incompatible, incomplete or corrupted; live world restored"
     }

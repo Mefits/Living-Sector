@@ -1,0 +1,28 @@
+{
+  "worker": "interactive-primary-chat-20261114",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "08f9948fa3dfd1781c1e6342990ac35cfbfb126b",
+  "goal": "Integrate original Rust N51 initial fittings + N101 ship progression + N108/N154 paid shipyard refit into canonical N46 ShipState and real N39/N9 wallet, N14 propulsion and N38 saves",
+  "scope": [
+    "godot/scripts/sim/ships/native_fleet_bootstrap.gd",
+    "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd",
+    "godot/scripts/sim/ship_state.gd",
+    "godot/scripts/sim/ship_transit.gd",
+    "godot/scripts/port/n108_shipyard_refit_apply.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase2/unified_autonomous_paid_cargo.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/docs/phase2/handoffs/20261114-n51-n108-ship-fitting.md",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md",
+    "godot/scripts/sim/phase2/unified_fleet_logistics.gd",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/scripts/sim/phase1/n153_native_ship_bt_planning.gd",
+    "godot/scripts/sim/phase2/unified_n153_contract_dispatch.gd",
+    "godot/scripts/sim/phase2/unified_n91_construction_dispatch.gd"
+  ],
+  "verification": "SOURCE_INTEGRATION_STATIC_DELIMITERS_PRELOADS_INDENT_NUL_PASS; NO_GODOT_RUNTIME; NO_ACTIONS; AUTONOMOUS_REFIT_GOAL_NOT_YET_LIVE",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n51-n108-ship-fitting.md",
+  "commit_head": "e8ec11c96aaa9e1dd38beb7dc55f132266b6905e"
+}

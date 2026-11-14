@@ -1,0 +1,12 @@
+{
+  "owner": "second-chat-overnight",
+  "scope": [
+    "godot/scripts/sim/phase1/n39_native_production_tick_runner.gd"
+  ],
+  "purpose": "Fail-closed pause and diagnostic on authoritative N39/integrated phase rejection; no duplicate ticks or ledgers",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T02:33:32Z",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "completed_at": "2026-11-13T02:43:00Z",
+  "commit": "62339a23e205a5a29c205702c3d2668414f83b58"
+}

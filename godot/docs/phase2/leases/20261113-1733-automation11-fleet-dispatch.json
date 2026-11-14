@@ -1,0 +1,12 @@
+{
+  "worker": "automation11",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T17:33:00+03:00",
+  "scope": [
+    "godot/scripts/main.gd"
+  ],
+  "boundary": "P2 UI manual ship departure control only; no world/ledger changes",
+  "expires_at": "2026-11-13T18:05:00+03:00",
+  "released_at": "2026-11-13T17:41:00+03:00",
+  "code_commit": "30c645d4a9c3c33027bceacd1e87ec417e2be23a"
+}

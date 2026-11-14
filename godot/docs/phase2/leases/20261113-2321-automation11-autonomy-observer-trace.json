@@ -1,0 +1,13 @@
+{
+  "owner": "automation11",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T23:21:00+03:00",
+  "expires_at": "2026-11-14T00:21:00+03:00",
+  "scope": [
+    "godot/scripts/observer_panel.gd"
+  ],
+  "boundary": "Read-only observable N104 contract lifecycle, N84 ship decisions, physical cargo and escrow from canonical world; no engine/ledger changes; no new controls.",
+  "released_at": "2026-11-13T23:27:00+03:00",
+  "handoff": "godot/docs/phase2/handoffs/20261113-2321-automation11-autonomy-observer-trace.md",
+  "verification": "CODE_UNVERIFIED; static GitHub SHA update only; Actions 0"
+}

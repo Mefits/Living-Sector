@@ -1,0 +1,21 @@
+{
+  "worker": "chat2-colony-B1",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "125b5be1b60be1f1814f38954075e4b38255857a",
+  "goal": "Miro B1 autonomous Rust N134/N144 found_colony: grounded ranked original body/port proposal, actual N113/N134 HeadDecision authorization, single N39 new-site Apply in N158; no phantom actors/funds",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n144_new_colony_head.gd (new)",
+    "godot/scripts/sim/phase2/unified_n144_colony_contracts.gd (reuse N134 head grant for new site)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (new B1 N134-verified founding method, no changes to others)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (N134 new-site dispatch only)",
+    "godot/tests/p2_b1_n144_found_colony_source_check.gd (new; not run)",
+    "godot/docs/phase2/handoffs/20261114-chat2-b1-source-head-found-colony.md (new)"
+  ],
+  "excludes": "No B2 marketless Metals delivery, B3 N154 materialization, N9 money mint, N148 ship, N135 contracts, UI or balance changes",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED; original source/N134 graph review + 5 scripts preloads/brackets static verified; new test ADDED NOT RUN; Godot/Actions 0",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat2-b1-native-found-colony-head.md",
+  "code_head": "ec788721a2af7feb28b7bfcc41deaa1346daed06",
+  "next": "Miro B2 physical 3x200 Metals marketless N15/N104/N9 delivery, then B3 N154 station materialization",
+  "released_on": "2026-11-14"
+}

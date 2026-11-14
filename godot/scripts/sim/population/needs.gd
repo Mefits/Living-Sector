@@ -38,7 +38,7 @@ static func purchase(pop: Dictionary, market: Dictionary, slug: String, needed: 
     var qty := minf(needed, minf(stock, float(cash) / price))
     if qty <= 0.0:
         return {"reason": "insufficient_household_credits"}
-    var payment_float := ceil(qty * price)
+    var payment_float: float = ceil(qty * price)
     # Never permit floating point rounding to overdraw the wallet.
     while payment_float > float(cash) and qty > 0.0:
         qty = qty * (1.0 - 0.0000001)

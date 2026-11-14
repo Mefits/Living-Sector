@@ -1,0 +1,15 @@
+{
+  "owner": "second-chat-overnight",
+  "started_at": "2026-11-13T05:31:59+03:00",
+  "scope": [
+    "godot/export_presets.cfg",
+    "godot/scripts/phase2_package_windows.sh"
+  ],
+  "status": "RELEASED",
+  "handoff": "Windows export preset and fail-closed ZIP packager added. Requires Godot 4.7.2 Windows export templates, then run godot/scripts/phase2_package_windows.sh in Linux/macOS with GODOT_BIN set. No export, CI or runtime test performed; build not yet downloadable.",
+  "finished_at": "2026-11-13T05:31:59+03:00",
+  "commits": [
+    "5f730e47d5e5a709f9f0504070993a96c54b7959",
+    "eb7957b4e7ce4a49229f752f6c917f29a3f8ad39"
+  ]
+}

@@ -5,6 +5,9 @@ const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
 const TYPES = ["delivery", "courier", "passenger", "subsidy", "supply", "crew_mission", "construction"]
 const ACTIVE = ["posted", "accepted", "picked_up", "delivered"]
 var _contracts: Dictionary = {}
+## One physical cargo operation can prove at most one contract transition.
+## Claims survive save/reload and are rebuilt from legacy version-1 snapshots.
+var _receipt_claims: Dictionary = {}
 var _ledger: RefCounted
 var _physical_cargo: RefCounted
 
@@ -27,7 +30,7 @@ func post(id: String, kind: String, payer: String, escrow: String, commodity: St
 	var paid: Dictionary = _ledger.transfer("contract:" + id + ":post", payer, escrow, payment, tick, "contract_advance")
 	if not paid.get("ok", false):
 		return paid
-	_contracts[id] = {"id": id, "contract_type": kind, "status": "posted", "requestor_id": payer, "funding_source": funding_source, "escrow_account": escrow, "reserved": payment, "agreed_payment": -1, "fulfiller_id": "", "commodity": commodity, "quantity": quantity, "source_location": source, "destination_location": destination, "payment": payment, "initial_payment": payment, "posted_at_tick": tick, "expires_at_tick": expiry, "accepted_at_tick": -1, "delivered_at_tick": -1}
+	_contracts[id] = {"id": id, "contract_type": kind, "status": "posted", "requestor_id": payer, "funding_source": funding_source, "escrow_account": escrow, "reserved": payment, "agreed_payment": -1, "fulfiller_id": "", "commodity": commodity, "quantity": quantity, "source_location": source, "destination_location": destination, "payment": payment, "initial_payment": payment, "posted_at_tick": tick, "expires_at_tick": expiry, "accepted_at_tick": -1, "delivered_at_tick": -1, "renewal_count": 0, "min_reputation": (70 if kind == "subsidy" else (50 if kind == "crew_mission" else 0)), "initial_min_reputation": (70 if kind == "subsidy" else (50 if kind == "crew_mission" else 0))}
 	return {"ok": true, "contract": get_contract(id)}
 
 func accept(id: String, ship: String, ship_faction: String, comms_bonus: float, treaty_multiplier: float, tick: int) -> Dictionary:
@@ -103,13 +106,66 @@ func refund_closed(id: String, tick: int) -> Dictionary:
 	c["reserved"] = 0
 	return {"ok": true, "refunded": amount}
 
+## Frozen N152::drop_ship_holdings under the EXISTING N104 authority.
+## Called only inside N39's isolated admin commit, after preflight has
+## verified the real ship exists and has no embarked passengers.
+## Never refund or fabricate cargo here: the next N152 market pass
+## returns any stranded escrow through a REAL N9 receipt.
+func drop_removed_ship_holdings(ship_id: String) -> Dictionary:
+	if ship_id.is_empty():
+		return _error("missing_removed_ship")
+	var ids: Array = _contracts.keys()
+	ids.sort()
+	var released: Array = []
+	var cancelled: Array = []
+	for id in ids:
+		var c: Dictionary = _contracts[id]
+		if str(c.get("fulfiller_id", "")) != ship_id:
+			continue
+		var previous: String = str(c.get("status", ""))
+		if previous == "accepted":
+			c["status"] = "posted"
+			c["fulfiller_id"] = ""
+			c["accepted_at_tick"] = -1
+			c["agreed_payment"] = -1
+			released.append(str(id))
+		elif previous == "picked_up":
+			c["status"] = "expired"
+			cancelled.append(str(id))
+	return {"ok": true, "released": released, "cancelled": cancelled}
+
+## Frozen N152::cancel_for_facility, using only the actual removed ID.
+## Location cancellations are admitted ONLY if it was the LAST local
+## facility. Keep PAID/EXPIRED history and the original N15 receipts.
+func cancel_removed_facility_contracts(facility_id: String,
+		location: String, last_at_location: bool) -> Dictionary:
+	if facility_id.is_empty() or location.is_empty():
+		return _error("missing_removed_facility")
+	var cancelled: Array = []
+	var ids: Array = _contracts.keys()
+	ids.sort()
+	for id in ids:
+		var c: Dictionary = _contracts[id]
+		if str(c.get("status", "")) in ["paid", "expired"]:
+			continue
+		var is_requestor: bool = str(c.get("requestor_id", "")) in [
+			facility_id, "facility/" + facility_id]
+		var is_unserved_endpoint: bool = last_at_location and (
+			str(c.get("source_location", "")) == location or
+			str(c.get("destination_location", "")) == location)
+		if not is_requestor and not is_unserved_endpoint:
+			continue
+		c["status"] = "expired"
+		cancelled.append(str(id))
+	return {"ok": true, "cancelled": cancelled}
+
 func get_contract(id: String) -> Dictionary:
 	if not _contracts.has(id):
 		return {}
 	return _contracts[id].duplicate(true)
 
 func snapshot() -> Dictionary:
-	return {"version": 1, "contracts": _contracts.duplicate(true)}
+	return {"version": 1, "contracts": _contracts.duplicate(true), "receipt_claims": _receipt_claims.duplicate(true)}
 
 func restore(data: Dictionary) -> bool:
 	if data.get("version") != 1 or not (data.get("contracts") is Dictionary):
@@ -123,7 +179,28 @@ func restore(data: Dictionary) -> bool:
 			return false
 		if typeof(c.get("reserved")) != TYPE_INT or int(c["reserved"]) < 0 or _ledger.balance(str(c.get("escrow_account"))) < int(c["reserved"]):
 			return false
+	var reconstructed: Dictionary = {}
+	for id in candidate:
+		var c: Dictionary = candidate[id]
+		for phase in ["picked_up", "delivered"]:
+			var key: String = phase + "_receipt"
+			if not c.has(key):
+				continue
+			var receipt_id: String = str(c[key])
+			if receipt_id.is_empty() or reconstructed.has(receipt_id):
+				return false
+			reconstructed[receipt_id] = str(id) + ":" + phase
+	if data.has("receipt_claims"):
+		if not (data["receipt_claims"] is Dictionary):
+			return false
+		var stored: Dictionary = data["receipt_claims"]
+		if stored.size() != reconstructed.size():
+			return false
+		for receipt_id in reconstructed:
+			if stored.get(receipt_id) != reconstructed[receipt_id]:
+				return false
 	_contracts = candidate.duplicate(true)
+	_receipt_claims = reconstructed
 	return true
 
 func _transition(id: String, ship: String, before: String, after: String, tick: int, receipt_id: String) -> Dictionary:
@@ -133,11 +210,14 @@ func _transition(id: String, ship: String, before: String, after: String, tick: 
 	if receipt_id.is_empty() or c["status"] != before or c["fulfiller_id"] != ship or tick < int(c["accepted_at_tick"]):
 		return _error("invalid_transition")
 	var direction := "load" if after == "picked_up" else "unload"
+	if _receipt_claims.has(receipt_id):
+		return _error("physical_receipt_already_claimed")
 	if not _valid_physical_receipt(c, ship, direction, receipt_id, tick):
 		return _error("unverified_physical_receipt")
 	# Receipt validation is authoritative for delivery contracts, not a string assertion.
 	c["status"] = after
 	c[after + "_receipt"] = receipt_id
+	_receipt_claims[receipt_id] = id + ":" + after
 	if after == "delivered":
 		c["delivered_at_tick"] = tick
 	return {"ok": true}
@@ -145,20 +225,46 @@ func _transition(id: String, ship: String, before: String, after: String, tick: 
 ## Delivery contracts require the actual N15 receipt registry; no direct board transition bypass.
 ## Non-delivery contract types are not granted a synthetic physical receipt.
 func _valid_physical_receipt(c: Dictionary, ship: String, direction: String, receipt_id: String, tick: int) -> bool:
-	if str(c.get("contract_type", "")) != "delivery":
+	var kind: String = str(c.get("contract_type", ""))
+	# N104 Passenger must be proven by the physical N21 dock and N104
+	# manifest receipt, never by a forged commodity/N15 transfer.
+	if kind == "passenger":
+		if _physical_cargo == null or receipt_id.is_empty():
+			return false
+		var passenger: Dictionary = _physical_cargo.receipts.get(receipt_id, {})
+		var expected_location: String = str(c["source_location"]) if direction == "load" else str(c["destination_location"])
+		return passenger.get("ok", false) == true and str(passenger.get("kind", "")) == "passenger" and str(passenger.get("ship_id", "")) == ship and str(passenger.get("contract_id", "")) == str(c["id"]) and str(passenger.get("operation_id", "")) == receipt_id and str(passenger.get("action", "")) == direction and str(passenger.get("location_id", "")) == expected_location and typeof(passenger.get("quantity", null)) == TYPE_INT and int(passenger["quantity"]) == int(c["quantity"]) and typeof(passenger.get("tick", null)) == TYPE_INT and int(passenger["tick"]) <= tick
+	# Rust transactions::deliver lets Construction bypass a destination
+	# Market and unload directly into a REAL ConstructionSite. It still
+	# requires a live N15 ship-hold receipt, not a fabricated Market stock.
+	if kind not in ["delivery", "construction"]:
 		return false
 	if _physical_cargo == null or receipt_id.is_empty():
 		return false
 	var receipt: Dictionary = _physical_cargo.receipts.get(receipt_id, {})
 	if receipt.get("ok", false) != true or str(receipt.get("ship_id", "")) != ship:
 		return false
-	if str(receipt.get("direction", "")) != direction or int(receipt.get("tick", -1)) > tick:
+	# The live N15/N97 docked cargo gate writes action (load/unload),
+	# not the older source-only direction field. Require canonical identity.
+	if str(receipt.get("operation_id", "")) != receipt_id:
+		return false
+	if str(receipt.get("action", "")) != direction or int(receipt.get("tick", -1)) > tick:
 		return false
 	var expected_location := str(c["source_location"]) if direction == "load" else str(c["destination_location"])
 	if str(receipt.get("location_id", "")) != expected_location:
 		return false
 	var quantities: Variant = receipt.get("quantities", null)
-	return quantities is Dictionary and quantities.size() == 1 and typeof(quantities.get(str(c["commodity"]))) == TYPE_INT and int(quantities[str(c["commodity"]]) ) == int(c["quantity"])
+	if not (quantities is Dictionary and quantities.size() == 1
+			and typeof(quantities.get(str(c["commodity"]))) == TYPE_INT
+			and int(quantities[str(c["commodity"])]) == int(c["quantity"])):
+		return false
+	if kind == "construction" and direction == "unload":
+		# The only valid physical delivery destination is the source
+		# ConstructionSite; ordinary warehouse unloading has no site ID.
+		return str(receipt.get("kind", "")) == "construction_site" and (
+			not str(c.get("colony_site_id", "")).is_empty() and
+			str(receipt.get("site_id", "")) == str(c["colony_site_id"]))
+	return true
 
 func _error(reason: String) -> Dictionary:
 	return {"ok": false, "reason": reason}

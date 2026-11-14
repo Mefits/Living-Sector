@@ -1,0 +1,19 @@
+{
+  "worker": "interactive-primary-chat-20261114-n147",
+  "status": "RELEASED",
+  "base_head": "03b34dd11f164ee438f6b6109ffc257b92720c4c",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n147_colony_migration_observer.gd (new)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (colony read-only tick)",
+    "godot/tests/p2_n147_colony_migration_policy_check.gd (new)",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md",
+    "godot/docs/phase2/handoffs/20261114-n147-colony-migration-observation.md",
+    "godot/scripts/observer_panel.gd (single honest colony status line)"
+  ],
+  "goal": "N147 live source-backed N92 colony observation + native N147 migration offers against canonical N39 world/N9 faction treasuries/N4 routes/N46 ships, reject unsupported paid passenger Apply until real physical implementation; no ghost colonies",
+  "verification": "STATIC_BRACKETS_STRINGS_PRELOADS_INDENTATION_PASS; N92/N147 CODE_WIRED_READ_ONLY; GODOT_4_7_2_NOT_RUN; ACTIONS_0",
+  "code_head": "3bd51306c4f92fb074b9bdeb6a14d149baa2e74b",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n147-colony-migration-observation.md",
+  "unresolved": "Full N151 colony lifecycle and N104 paid passenger executor not present in unified runtime; zero real colony spawns, zero real passengers"
+}

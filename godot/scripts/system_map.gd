@@ -3,9 +3,11 @@ extends Control
 ## Coordinates are NOT light-years and drawn distances are NOT ship routes.
 
 signal system_selected(world: Dictionary)
+signal system_open_requested(world: Dictionary)
 
-const MIN_ZOOM: float = 0.45
-const MAX_ZOOM: float = 8.0
+const MIN_ZOOM: float = 0.40
+const MAX_ZOOM: float = 32.0
+const WHEEL_ZOOM: float = 1.32
 
 var worlds: Array = []
 var _pins: Array = []
@@ -88,15 +90,18 @@ func _draw() -> void:
         var pos: Vector2 = _screen_point(item)
         var selected: bool = str(system.get("id", "")) == _selected_id
         var orbit_color: Color = Color("#81c8d8") if selected else Color("#344c63")
-        draw_arc(pos, 16.0, 0.0, TAU, 32, orbit_color, 1.5)
-        draw_circle(pos, 6.0 if selected else 4.5,
+        # Symbols grow mildly with map zoom; they remain pickable even
+        # when native universe_offset distances become very spread out.
+        var marker_scale: float = clampf(sqrt(_zoom), 0.8, 2.6)
+        draw_arc(pos, 16.0 * marker_scale, 0.0, TAU, 32, orbit_color, 1.5)
+        draw_circle(pos, (6.0 if selected else 4.5) * marker_scale,
             Color("#b5edfc") if selected else Color("#6c9eac"))
-        draw_string(font, pos + Vector2(13, -10),
+        draw_string(font, pos + Vector2(13.0 * marker_scale, -10),
             str(system.get("name", "—")), HORIZONTAL_ALIGNMENT_LEFT, -1, 14,
             Color("#e5f1f7"))
-        _pins.append({"world": item, "pos": pos})
+        _pins.append({"world": item, "pos": pos, "hit_radius": maxf(25.0, 16.0 * marker_scale + 8.0)})
     draw_string(font, Vector2(14, size.y - 16),
-        "ЛКМ: выбрать / переместить · колесо: масштаб · без фиктивных маршрутов",
+        "ЛКМ: выбрать / двигать · двойной клик: открыть · колесо: масштаб ×%.1f" % _zoom,
         HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#7d9cad"))
 
 func _zoom_at(pointer: Vector2, multiplier: float) -> void:
@@ -107,12 +112,12 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
     _pan += offset * (1.0 - ratio)
     queue_redraw()
 
-func _pick(point: Vector2) -> void:
-    var best_distance: float = 25.0
+func _pick(point: Vector2, open_system: bool = false) -> void:
+    var best_distance: float = INF
     var best: Dictionary = {}
     for pin in _pins:
         var distance: float = point.distance_to(pin["pos"])
-        if distance < best_distance:
+        if distance <= float(pin.get("hit_radius", 25.0)) and distance < best_distance:
             best_distance = distance
             best = pin["world"]
     if best.is_empty():
@@ -120,19 +125,25 @@ func _pick(point: Vector2) -> void:
     var system: Dictionary = best.get("system", {})
     select_system(str(system.get("id", "")))
     system_selected.emit(best.duplicate(true))
+    if open_system:
+        system_open_requested.emit(best.duplicate(true))
 
 func _gui_input(event: InputEvent) -> void:
     if event is InputEventMouseButton:
         if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-            _zoom_at(event.position, 1.18)
+            _zoom_at(event.position, WHEEL_ZOOM)
             accept_event()
         elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-            _zoom_at(event.position, 1.0 / 1.18)
+            _zoom_at(event.position, 1.0 / WHEEL_ZOOM)
             accept_event()
         elif event.button_index == MOUSE_BUTTON_LEFT:
             if event.pressed:
-                _dragging = true
-                _drag_distance = 0.0
+                if event.double_click:
+                    _dragging = false
+                    _pick(event.position, true)
+                else:
+                    _dragging = true
+                    _drag_distance = 0.0
             else:
                 if _dragging and _drag_distance < 7.0:
                     _pick(event.position)

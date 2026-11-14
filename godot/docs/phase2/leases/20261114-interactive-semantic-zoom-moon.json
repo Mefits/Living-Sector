@@ -1,0 +1,17 @@
+{
+  "owner": "interactive-chat",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "dadcc60849614485ff84713fa097750d4595a188",
+  "scope": [
+    "godot/scripts/star_system_view.gd",
+    "godot/scripts/main.gd",
+    "godot/tests/p2_semantic_orbital_view_check.gd",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
+  ],
+  "goal": "semantic zoom sector -> system -> globe; truthful Luna/Earth and Callisto/Jupiter visual parent rendering, no mutation of frozen Rust physical world; 1 smoke test",
+  "boundary": "No new player micromanagement or invented facility positions; unknown Wreckhold parent remains unknown; source orbital periods unchanged; Godot runtime verification required",
+  "verification": "STATIC_PASS; ONE_GODOT_TEST_WRITTEN_NOT_EXECUTED",
+  "code_head": "26cd77ab066557e575973576bc1bbc2ff5675318",
+  "handoff": "godot/docs/phase2/handoffs/20261114-semantic-zoom-moon-parent.md"
+}

@@ -1,0 +1,11 @@
+{
+  "owner": "automation11",
+  "status": "RELEASED",
+  "scope": [
+    "godot/scripts/sim/save_state.gd"
+  ],
+  "started_at": "2026-11-13T08:35:15+03:00",
+  "completed_at": "2026-11-13T08:35:15+03:00",
+  "commit": "57e3455133f2eac4c6b91ad6600c6ec8a198cec2",
+  "result": "Verified .pending checkpoint promoted to primary after successful restore; backup preserved; CODE_UNVERIFIED"
+}

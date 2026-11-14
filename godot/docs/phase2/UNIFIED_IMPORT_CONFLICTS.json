@@ -1,0 +1,135 @@
+{
+  "title": "P2 unified source import — conflict register and runtime admission rules",
+  "checked_prs_range": [
+    89,
+    247
+  ],
+  "checked_pr_count": 159,
+  "git_integration_branch": "integration/godot-phase2-unified-20261113",
+  "scope": "Code files added from source PRs only; conflicted edits were skipped unless explicitly resolved. No source-only model is authorized to mutate global funds until adapted.",
+  "merged_into_code": true,
+  "source_prs_not_merged_to_original_branches": true,
+  "conflicts": [
+    {
+      "path": "godot/scripts/sim/ship_transit.gd",
+      "prs": [
+        154,
+        144
+      ],
+      "resolution": "Keep current N57 transit; reconcile N65 distress changes with native departure when ship runtime is admitted"
+    },
+    {
+      "path": "godot/scripts/sim/ship_tick_runner.gd",
+      "prs": [
+        144,
+        136,
+        133
+      ],
+      "resolution": "Keep already integrated N57 fleet runner as source; single Godot phase dispatch must compose ships inside unique TickRunner"
+    },
+    {
+      "path": "godot/scripts/sim/clock.gd",
+      "prs": [
+        140
+      ],
+      "resolution": "Keep current N1 runtime; Rust multiplier and x16 speed already honoured, check N40 source delta separately"
+    },
+    {
+      "path": "godot/scripts/main.gd",
+      "prs": [
+        138,
+        128,
+        125,
+        120,
+        108,
+        89
+      ],
+      "resolution": "Keep N158 P2 real market UI; manually incorporate useful inspector/ship UI after runtime authority exists"
+    },
+    {
+      "path": "godot/scripts/sim/ships/native_ship_roster.gd",
+      "prs": [
+        130
+      ],
+      "resolution": "Keep latest included N50+ native roster, review older PR changes for optional ship bootstrap"
+    },
+    {
+      "path": "godot/scripts/sim/save_state.gd",
+      "prs": [
+        127
+      ],
+      "resolution": "RESOLVED: replaced older baseline with backwards-compatible N38 SHA-256 integrity+atomic .bak recovery from PR #127"
+    },
+    {
+      "path": "godot/tests/n36_startup_compat_check.gd",
+      "prs": [
+        125
+      ],
+      "resolution": "Keep newer baseline test; P2 N158 dedicated runtime acceptance"
+    },
+    {
+      "path": "godot/scripts/run_integration_acceptance.ps1",
+      "prs": [
+        121
+      ],
+      "resolution": "Keep newer integration acceptance runner; use new unified CI instead of legacy patch"
+    },
+    {
+      "path": "godot/scripts/observer_panel.gd",
+      "prs": [
+        120,
+        108
+      ],
+      "resolution": "Keep current observer UI; source views not admitted without ECS population/cash bridge"
+    },
+    {
+      "path": "godot/scripts/sim/economy/contract_board.gd",
+      "prs": [
+        102
+      ],
+      "resolution": "Keep stable N28 board; N152 source physical ContractBoard to be sole canonical owner on execution"
+    },
+    {
+      "path": "godot/scripts/sim/ship_catalog.gd",
+      "prs": [
+        95
+      ],
+      "resolution": "Keep newer integrated ship catalog; original frozen ShipCargo reference through N49/N148 later"
+    },
+    {
+      "path": "godot/scripts/sim/ship_state.gd",
+      "prs": [
+        95
+      ],
+      "resolution": "Keep newer integrated ship physical state; no duplicate fleet registry"
+    },
+    {
+      "path": "godot/scripts/sim/tick_runner.gd",
+      "prs": [
+        91
+      ],
+      "resolution": "Keep N158 P1 phase implementation, not early N3 events branch copy"
+    }
+  ],
+  "remaining_nonautomatic": [
+    "godot/scripts/sim/ship_transit.gd",
+    "godot/scripts/sim/ship_tick_runner.gd",
+    "godot/scripts/sim/clock.gd",
+    "godot/scripts/main.gd",
+    "godot/scripts/sim/ships/native_ship_roster.gd",
+    "godot/tests/n36_startup_compat_check.gd",
+    "godot/scripts/run_integration_acceptance.ps1",
+    "godot/scripts/observer_panel.gd",
+    "godot/scripts/sim/economy/contract_board.gd",
+    "godot/scripts/sim/ship_catalog.gd",
+    "godot/scripts/sim/ship_state.gd",
+    "godot/scripts/sim/tick_runner.gd"
+  ],
+  "runtime_admission": [
+    "Godot main loads ONE TickRunner from N158. P1 orbit + N39 paid facility receipts are currently the only live mutable domain.",
+    "N38 SaveState integrity adapter replaces baseline; main UI retains P2 distinct namespace.",
+    "N100/N155, N151, N150, N156, N152, N97/N104/N108, fleet live engines are now physically present but not automatically called; single world+ledger is a strict prerequisite.",
+    "No automatic PR merges, no duplicated data stores, no assertion of Godot parser success until CI reports."
+  ],
+  "next_gate": "Godot 4.7.2 headless editor/import, all-script parse scan, N158 physical production acceptance; fix parser and transactional model in same integration branch."
+}
