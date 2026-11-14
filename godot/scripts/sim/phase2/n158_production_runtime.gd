@@ -873,6 +873,13 @@ func last_native_colony_migration() -> Dictionary:
 func last_native_passenger_contracts() -> Dictionary:
     return _last_native_passengers.duplicate(true)
 
+func _native_embarked_passenger_count(snapshot: Dictionary) -> int:
+    var total: int = 0
+    for manifest in snapshot.get("passenger_manifests", {}).values():
+        if manifest is Dictionary and str(manifest.get("phase", "")) == "embarked":
+            total += int(manifest.get("quantity", 0))
+    return total
+
 func last_native_n134_construction() -> Dictionary:
     return _last_n134_result.duplicate(true)
 
@@ -1086,7 +1093,7 @@ func economy_summary() -> Dictionary:
         "colony_passenger_proposals_unposted": _last_n147_result.get("ready", []).size(),
         "colony_passenger_contracts_posted": _last_n147_result.get("posted", []).size(),
         "native_n104_passenger_accepted_this_tick": _last_native_passengers.get("accepted", []).size(),
-        "native_n104_passenger_in_transit": current.get("passenger_manifests", {}).values().filter(func(m): return str(m.get("phase", "")) == "embarked").size(),
+        "native_n104_passenger_in_transit": _native_embarked_passenger_count(current),
         "native_n104_passenger_moves_this_tick": _last_ship_result.get("n104_passenger_moves", []).size(),
         "colony_migration_blocked_last_scan": _last_n147_result.get("blocked", []).size(),
         "colony_last_scan_tick": int(_last_n147_result.get("tick", -1)),
