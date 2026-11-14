@@ -2795,7 +2795,7 @@ func apply_native_player_research_policy(tick: int, faction: String,
             "set_faction_charter"]:
         return {"ok": false, "reason": "n110_invalid_original_policy_action"}
     var next_world: Dictionary = _world.duplicate(true)
-    if not next_world.get("research_mandates") is Dictionary or not (
+    if not (next_world.get("research_mandates") is Dictionary) or not (
             next_world.get("faction_charters") is Dictionary):
         # An old N38 save without these two optional maps uses the same
         # frozen Rust default as the clean seed until player installs one.
