@@ -59,15 +59,18 @@ func audit(worlds: Array, graph: RefCounted,
 				errors.append("invalid_weight:%s:%d" % [sid, ri])
 				continue
 			var key: String = origin + "\u001f" + target
-			if expected.has(key):
-				errors.append("duplicate_arc:" + origin + "->" + target)
-			else:
-				expected[key] = {"from": origin, "to": target, "distance": float(weight), "system_id": sid}
 			if native_db_mode:
-				# Rust SQLite seeder upserts reverse AFTER forward. A later
-				# source route may overwrite either direction in the real DB.
+				# Rust SQLite seeder UPSERTS both directions per row; a
+				# later explicit opposite corridor updates both DB entries.
+				expected[key] = {"from": origin, "to": target,
+					"distance": float(weight), "system_id": sid}
 				var reverse_key: String = target + "\u001f" + origin
 				expected[reverse_key] = {"from": target, "to": origin,
+					"distance": float(weight), "system_id": sid}
+			elif expected.has(key):
+				errors.append("duplicate_arc:" + origin + "->" + target)
+			else:
+				expected[key] = {"from": origin, "to": target,
 					"distance": float(weight), "system_id": sid}
 			endpoints[origin] = true
 			endpoints[target] = true
