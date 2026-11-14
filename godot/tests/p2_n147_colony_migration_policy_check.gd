@@ -70,7 +70,8 @@ func _initialize() -> void:
     for kind in ["mining_rig", "refinery", "farm"]:
         fixture["facilities"]["fixture-" + kind] = {
             "type": kind, "faction": "terran-authority",
-            "location": "mars-colony", "crew_count": 8}
+            "location": "mars-colony",
+            "crew_count": {"mining_rig": 8, "refinery": 12, "farm": 6}[kind]}
     var market: Dictionary = fixture["markets"][home].duplicate(true)
     market["owner"] = "fixture-colony-station"
     market["supply"]["food"] = 2000.0
