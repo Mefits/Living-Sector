@@ -619,6 +619,9 @@ static func _compact_summary(tick: int, economy: Dictionary, summary: Dictionary
             int(warnings.get("facility_count", 0)),
             int(warnings.get("pending_facility_count", 0))] if warnings.get("ok", false)
             else "Rust сигналы: источник пока недоступен",
+        "Rust переходы за тик: рынок %d · объекты %d" % [
+            int(summary.get("native_crisis_market_events_this_tick", 0)),
+            int(summary.get("native_crisis_facility_events_this_tick", 0))],
         "",
         "РАЗВИТИЕ",
         "Исследования: оплаченных смен %d" % int(summary.get("research_paid_shifts", 0)),
