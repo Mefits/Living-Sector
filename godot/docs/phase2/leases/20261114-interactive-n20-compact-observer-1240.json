@@ -1,0 +1,13 @@
+{
+  "worker": "interactive-primary-chat",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "b9cd3d8819a6317305cf7b47bf1bb107321c65fb",
+  "goal": "Compact N20 observer sections with no endless scroll; truthful N135 empty demand diagnosis and fleet counters, preserve all detailed contract/receipt evidence in section selector",
+  "scope": [
+    "godot/scripts/observer_panel.gd",
+    "godot/tests/p2_n20_compact_observer_check.gd (new)",
+    "godot/docs/phase2/handoffs/20261114-n20-compact-diagnostics.md"
+  ],
+  "verification": "No Godot run, no GitHub Actions"
+}
