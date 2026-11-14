@@ -111,9 +111,10 @@ func _initialize() -> void:
             "unsafe_new_colony_factions", {}).has("f1"):
         _fail("empty market spoofed a rescue plan or a safe new colony")
         return
-    if not Aftercare.verify_promoted_plan(world, "f1", priority, {
-            "ok": true, "due": true,
-            "status": "no_source_native_candidate"}).get("accepted", true) == false:
+    var fallback: Dictionary = Aftercare.verify_promoted_plan(
+        world, "f1", priority, {"ok": true, "due": true,
+        "status": "no_source_native_candidate"})
+    if not fallback.get("ok", false) or fallback.get("accepted", true):
         _fail("B4 missing-route fallback was not kept observational")
         return
     if world != before:
