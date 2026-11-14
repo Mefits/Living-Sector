@@ -15,6 +15,9 @@ const PaidCargo = preload("res://scripts/sim/phase2/unified_autonomous_paid_carg
 const NativeResearch = preload("res://scripts/sim/phase2/unified_native_research_phase.gd")
 const NativePopulation = preload("res://scripts/sim/phase2/unified_population_phase.gd")
 const ResearchShift = preload("res://scripts/sim/phase1/n143_native_research_shift.gd")
+const OriginalResearchMandate = preload("res://scripts/sim/phase1/n143_native_research_director.gd")
+const OriginalFactionCharter = preload("res://scripts/native_port/n109_charter.gd")
+const OriginalTechnology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
 const NativeConstructionMaterial = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
 const NativeConstructionLabor = preload("res://scripts/sim/phase2/unified_native_construction_labor.gd")
 const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
@@ -2774,6 +2777,71 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     return {"ok": true, "status": "N141_N154_N151_NATIVE_PAID_CONSTRUCTION",
         "tick": tick, "paid": paid, "materialized": materialized,
         "established": established, "blocked": blocked}
+
+
+## Frozen Rust governance::set_mandate/clear_mandate and
+## charter::set_charter. Only the canonical N39 World may hold policy:
+## no second Director resource, no default player mandate, no money.
+## This adapter is available for the eventual source command gateway;
+## untrusted UI data must still arrive through an explicit caller action.
+func apply_native_player_research_policy(tick: int, faction: String,
+        operation: String, incoming: Dictionary = {}) -> Dictionary:
+    if not _ready or tick != _last_tick or tick < 0:
+        return {"ok": false, "reason": "n110_policy_not_live_world_tick"}
+    if not _world.get("research_directors", {}).has(faction) or (
+            not _world.get("faction_treasuries", {}).has(faction)):
+        return {"ok": false, "reason": "n110_unknown_actual_faction"}
+    if operation not in ["set_research_mandate", "clear_research_mandate",
+            "set_faction_charter"]:
+        return {"ok": false, "reason": "n110_invalid_original_policy_action"}
+    var next_world: Dictionary = _world.duplicate(true)
+    if not next_world.get("research_mandates") is Dictionary or not (
+            next_world.get("faction_charters") is Dictionary):
+        # An old N38 save without these two optional maps uses the same
+        # frozen Rust default as the clean seed until player installs one.
+        if next_world.has("research_mandates") or next_world.has(
+                "faction_charters"):
+            return {"ok": false, "reason": "n110_partial_native_policy_world"}
+        next_world["research_mandates"] = {}
+        next_world["faction_charters"] = {}
+    var operation_result: Dictionary = {}
+    match operation:
+        "set_research_mandate":
+            var old: Dictionary = next_world["research_mandates"].get(
+                faction, {})
+            operation_result = OriginalResearchMandate.update_mandate(
+                old, incoming, tick, OriginalResearchMandate.catalogue_map(
+                    OriginalTechnology.all()))
+            if not operation_result.get("ok", false):
+                return operation_result
+            next_world["research_mandates"][faction] = operation_result[
+                "mandate"].duplicate(true)
+        "clear_research_mandate":
+            operation_result = OriginalResearchMandate.clear_mandate(
+                next_world["research_mandates"], faction)
+            if not operation_result.get("ok", false):
+                return operation_result
+            next_world["research_mandates"] = operation_result[
+                "mandates"].duplicate(true)
+        "set_faction_charter":
+            operation_result = OriginalFactionCharter.install(
+                next_world["faction_charters"], faction, incoming,
+                next_world["research_directors"].keys(), tick)
+            if operation_result.has("error") or not operation_result.has(
+                    "charter"):
+                return {"ok": false, "reason": str(operation_result.get(
+                    "error", "n109_invalid_original_charter"))}
+            next_world["faction_charters"][faction] = operation_result[
+                "charter"].duplicate(true)
+    var reason: String = Schema.validate(next_world)
+    if not reason.is_empty() or Schema.accounts(next_world) != Schema.accounts(
+            _world):
+        return {"ok": false, "reason": "n109_n110_policy_invalid_single_world:" +
+            reason}
+    _world = next_world
+    return {"ok": true, "tick": tick, "faction_id": faction,
+        "operation": operation, "status": "N109_N110_ORIGINAL_DIRECTOR_POLICY",
+        "changed": not operation_result.is_empty()}
 
 
 ## Gate4: N155 observed head → N143 paid research, with ONLY the N9
