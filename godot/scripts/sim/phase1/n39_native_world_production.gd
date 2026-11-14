@@ -1858,6 +1858,15 @@ func restore(saved: Dictionary) -> bool:
     var staged_world: Dictionary = saved["world"].duplicate(true)
     if Schema.validate(staged_world) != "":
         return false
+    # N150 phase cursors and pair timestamps cannot point beyond the
+    # physical World tick restored from disk. Source Rust stores treaties
+    # persistently; body system control is re-derived from live facilities.
+    for clock_key in ["faction_relations_last_tick", "territory_last_tick"]:
+        if int(staged_world.get(clock_key, 0)) > int(saved["tick"]):
+            return false
+    for relation in staged_world.get("faction_relations", {}).values():
+        if int(relation.get("since_tick", -1)) > int(saved["tick"]) or int(relation.get("last_event_tick", -1)) > int(saved["tick"]):
+            return false
     var staged_ledger = Ledger.new()
     if not staged_ledger.restore(saved["ledger"]):
         return false
