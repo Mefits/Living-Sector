@@ -74,6 +74,37 @@ static func _read_checkpoint(path: String) -> Dictionary:
         return {}
     return _unwrap(parser.data)
 
+## A SHA-valid primary is not necessarily a valid native World. Only a
+## structurally plausible, coherent N38/N39/N9 snapshot may rotate over the
+## last good .bak. Actual seed/runtime restorability belongs to TickRunner.
+static func _trusted_for_backup_rotation(parsed: Dictionary) -> bool:
+    if parsed.is_empty() or str(parsed.get("format", "")) != "living-sector-godot":
+        return false
+    if str(parsed.get("scenario", "")) != "galaxy-067":
+        return false
+    var schema: Variant = parsed.get("schema_version", null)
+    var tick: Variant = parsed.get("tick", null)
+    if not _exact_nonnegative_whole(schema) or int(schema) != 1:
+        return false
+    if not _exact_nonnegative_whole(tick):
+        return false
+    if not (parsed.get("seed_fingerprint") is String) or str(parsed["seed_fingerprint"]).is_empty():
+        return false
+    if not (parsed.get("clock") is Dictionary) or not (
+            parsed.get("orbital_angles") is Dictionary) or not (
+            parsed.get("pending_controls") is Array):
+        return false
+    if parsed["pending_controls"].size() > 1024:
+        return false
+    return NativeCoherence.validate_serialized_candidate(parsed).get("ok", false)
+
+static func _exact_nonnegative_whole(value: Variant) -> bool:
+    if typeof(value) not in [TYPE_INT, TYPE_FLOAT]:
+        return false
+    var amount: float = float(value)
+    return is_finite(amount) and amount >= 0.0 and (
+        amount <= 9007199254740991.0) and amount == floorf(amount)
+
 static func _physical_stock_matches(original: Dictionary, decoded: Dictionary) -> bool:
     # The unified N39 runtime owns market supply; SaveState must not silently
     # change any physical stock during the JSON round trip.
@@ -156,7 +187,10 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
         return ERR_FILE_CORRUPT
 
     var had_primary: bool = FileAccess.file_exists(absolute_path)
-    var primary_is_valid: bool = had_primary and not _read_checkpoint(absolute_path).is_empty()
+    var primary_is_valid: bool = false
+    if had_primary:
+        primary_is_valid = _trusted_for_backup_rotation(
+            _read_checkpoint(absolute_path))
     # Never overwrite a known-good backup with a damaged primary.
     if had_primary and primary_is_valid:
         if FileAccess.file_exists(backup):
@@ -206,13 +240,15 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
             # Never touch a valid primary or the last good backup.
             var promoted_pending: bool = false
             if candidate == absolute_path + ".pending":
-                var primary_valid: bool = not _read_checkpoint(absolute_path).is_empty()
-                if not primary_valid:
-                    var can_promote: bool = true
-                    if FileAccess.file_exists(absolute_path):
-                        can_promote = DirAccess.remove_absolute(absolute_path) == OK
-                    if can_promote:
-                        promoted_pending = DirAccess.rename_absolute(candidate, absolute_path) == OK
+                # Reaching pending means neither primary nor backup was
+                # successfully restored by the actual Runner. A primary can
+                # have a valid SHA yet fail seed/schema/N39 restore. Never
+                # let that unusable primary block recovered pending data.
+                var can_promote: bool = true
+                if FileAccess.file_exists(absolute_path):
+                    can_promote = DirAccess.remove_absolute(absolute_path) == OK
+                if can_promote:
+                    promoted_pending = DirAccess.rename_absolute(candidate, absolute_path) == OK
             return {
                 "ok": true,
                 "source": candidate,
