@@ -166,8 +166,22 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
     # facility starving_notified, and only the existing N1 signal publishes
     # the two source transition arrays AFTER the single World commit.
     if phase == "dock_queue":
-        # Rust original FIFO advances AFTER apply1 independently of N140.
-        if not production.world_snapshot().has("ships"):
+        # Original Rust advances FIFO AFTER apply1, independent of
+        # N140. Do not invoke N39 full schema/ledger validation and
+        # duplicate all N38 history on ticks with zero queued ships.
+        var source_queue_world: Dictionary = production.world_snapshot()
+        if not source_queue_world.has("ships"):
+            return true
+        var has_native_queue: bool = false
+        for physical_port in source_queue_world.get("facilities", {}).values():
+            if physical_port is Dictionary and (
+                    physical_port.get("dock_queue", []) is Array) and (
+                    not physical_port.get("dock_queue", []).is_empty()):
+                has_native_queue = true
+                break
+        if not has_native_queue:
+            _last_n21_queue_result = {"ok": true, "tick": tick,
+                "changed": false, "status": "SOURCE_N21_FIFO_EMPTY"}
             return true
         _last_n21_queue_result = production.apply_native_n21_dock_queue(tick)
         return bool(_last_n21_queue_result.get("ok", false))
