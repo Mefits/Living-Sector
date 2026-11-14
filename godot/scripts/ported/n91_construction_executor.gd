@@ -16,7 +16,7 @@ static func target(tree: Dictionary) -> String:
 			var action: Variant = tree.get("action", "")
 			if action is Dictionary and str(action.get("kind", "")) == "Construct":
 				return str(action.get("site_id", ""))
-			if action == "construct":
+			if action is String and action == "construct":
 				return str(tree.get("site_id", ""))
 		"sequence":
 			for child in tree.get("children", []):
@@ -31,7 +31,7 @@ static func active(tree: Dictionary) -> String:
 			var action: Variant = tree.get("action", "")
 			if action is Dictionary and str(action.get("kind", "")) == "Construct":
 				return str(action.get("site_id", ""))
-			if action == "construct":
+			if action is String and action == "construct":
 				return str(tree.get("site_id", ""))
 		"sequence":
 			var children: Array = tree.get("children", [])
