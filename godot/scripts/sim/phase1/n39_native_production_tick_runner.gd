@@ -94,7 +94,8 @@ func _advance_one_tick() -> void:
             _phase_failure = {"phase": phase, "tick": tick_count,
                 "reason": _integrated_phase_failure_reason(phase)}
             push_error("P2 integrated phase rejected: " + phase +
-                " tick=" + str(tick_count))
+                " tick=" + str(tick_count) +
+                " reason=" + str(_phase_failure["reason"]))
             break
         for event in events.take_due(tick_count, index):
             scheduled_event_due.emit(event)
