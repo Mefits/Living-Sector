@@ -164,6 +164,35 @@ func run_tick(tick: int, tick_multiplier: int = 1,
             return {"ok": false, "reason": "lifecycle_restock_account_mismatch"}
     _world = lifecycle_world
     _ledger = lifecycle_ledger
+    # Frozen Rust station::plan occurs AFTER real N156 repair and N130
+    # restock, BEFORE N6 recipe/mining paid work on the 5×mult cadence.
+    # The original administrator only allocates WORKERS: the sole N39
+    # payroll/recipe writers below still independently enforce N9 money,
+    # physical stock, crew availability and all shift receipts.
+    var station_admin: Dictionary = {"ok": true, "due": false,
+        "views": [], "assignments": {}}
+    if bool(_world.get("station_executing", false)):
+        station_admin = NativeStationAdministration.propose(
+            _world, _ledger, tick, tick_multiplier, external_workers)
+        if not station_admin.get("ok", false):
+            return {"ok": false, "reason": "n18_station_administration_" +
+                str(station_admin.get("reason", "rejected"))}
+        if station_admin.get("due", false):
+            var staffed: Dictionary = _world.duplicate(true)
+            for facility_id in staffed["facilities"]:
+                if not station_admin["assignments"].has(facility_id):
+                    return {"ok": false, "reason": "n18_incomplete_station_staffing"}
+                staffed["facilities"][facility_id]["assigned_workers"] = int(
+                    station_admin["assignments"][facility_id])
+            staffed["station_administration"] = station_admin["snapshots"].duplicate(true)
+            staffed["station_administration_last_tick"] = tick
+            var staffing_error: String = Schema.validate(staffed)
+            if not staffing_error.is_empty():
+                return {"ok": false, "reason": "n18_invalid_native_workforce_state:" +
+                    staffing_error}
+            if Schema.accounts(staffed) != Schema.accounts(_world):
+                return {"ok": false, "reason": "n18_administrator_invented_money"}
+            _world = staffed
     var ids: Array = _world["facilities"].keys()
     ids.sort()
     var lod_fired: Dictionary = {}
@@ -218,7 +247,9 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         "repair_failures": repair_failures,
         "service_restock": restocked.get("purchases", []).duplicate(true),
         "shipyard_modules": shipyard_modules.get("paid", []).duplicate(true),
-        "shipyard_module_blocked": shipyard_modules.get("blocked", []).duplicate(true)}
+        "shipyard_module_blocked": shipyard_modules.get("blocked", []).duplicate(true),
+        "native_station_administration": station_admin.get("views", []).duplicate(true),
+        "native_station_staffing_due": bool(station_admin.get("due", false))}
 
 ## Native N108/N154 agent RequestRefit. A real N84 ship must be at a
 ## real paid shipyard dock; inventory, N101 retrofit point and ship wallet
