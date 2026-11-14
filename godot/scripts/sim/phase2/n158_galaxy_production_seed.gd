@@ -49,6 +49,10 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         "facilities": {}, "markets": {}, "populations": {}, "bodies": {},
         "research": {}, "research_directors": source_directors,
         "research_receipts": {}, "faction_treasuries": source_treasuries,
+        # Frozen Rust Director has NO player mandates/charters by default.
+        # These optional maps are source authority, NOT a second treasury
+        # or a default player directive. N38 persists later actual edits.
+        "research_mandates": {}, "faction_charters": {},
         # No construction progress or working capital exists in frozen
         # clean seed. Sites appear only after the N154 funded source action.
         "construction_sites": {}, "construction_contracts": {},
