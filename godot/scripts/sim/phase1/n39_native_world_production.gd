@@ -102,6 +102,12 @@ func initialize(physical_world: Dictionary) -> bool:
 func world_snapshot() -> Dictionary:
     return _world.duplicate(true) if _ready else {}
 
+## Read-only fleet projection from the SAME authoritative N39 World.
+## The GUI should not duplicate the entire market/receipts/history graph
+## merely to draw a few ship markers. No new owner or independent state.
+func ships_snapshot() -> Dictionary:
+    return _world.get("ships", {}).duplicate(true) if _ready else {}
+
 func balance_of_facility(facility_id: String) -> int:
     return _ledger.balance(Schema.facility_account(facility_id)) if _ready else -1
 
