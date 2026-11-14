@@ -9,6 +9,7 @@ const Roster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 const NativeInitialFitting = preload("res://scripts/sim/ships/native_initial_fitting.gd")
 const ModuleCatalog = preload("res://scripts/port/n108_shipyard_module_catalog.gd")
 const ShipProgression = preload("res://scripts/sim/native/ship_progression_n101.gd")
+const ShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 const PROVENANCE: String = "frozen-rust-sim_db-seeder-fresh-ship-20261112"
 
 static func build_new_game(seed: Dictionary) -> Dictionary:
@@ -88,6 +89,8 @@ static func build_new_game(seed: Dictionary) -> Dictionary:
         ship["fitting"] = {"slots": slots.duplicate(true),
             "derived": derived.duplicate(true)}
         ship["progression"] = ShipProgression.initial_state()
+        # Rust ShipLifecycle::default on fresh ECS ships; NOT a balance tweak.
+        ship["lifecycle"] = ShipLifecycle.default_lifecycle()
         ship["cargo_capacity"] = roundi(float(ship_spec["cargo_capacity"]) *
             float(derived["cargo_capacity_mult"]))
         ship["speed_modifier"] = Catalog.effective_speed(
