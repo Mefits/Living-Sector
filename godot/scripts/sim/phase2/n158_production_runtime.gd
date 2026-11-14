@@ -737,6 +737,8 @@ func economy_summary() -> Dictionary:
         "last_recipe_facilities": recipes,
         "last_mining_facilities": mined,
         "last_paid_repairs": repair_count,
+        "last_paid_shipyard_modules": results.get("shipyard_modules", []).size(),
+        "last_shipyard_module_blocked": results.get("shipyard_module_blocked", []).size(),
         "last_service_restock": restock_count,
         "last_repair_failures": results.get("repair_failures", {}).duplicate(true),
         "last_failures": results.get("failures", {}).duplicate(true),
