@@ -1,0 +1,10 @@
+{
+  "worker": "automation11",
+  "status": "IN_PROGRESS",
+  "started_msk": "2026-11-14T03:10:39+03:00",
+  "expires_msk": "2026-11-14T04:00:00+03:00",
+  "scope": [
+    "godot/tests/p2_autonomous_multitick_delivery_restart_check.gd"
+  ],
+  "purpose": "Fix acceptance blocker: demand fixture mutated only local world, not restored checkpoint; ensure real N135 deficit enters live single World"
+}
