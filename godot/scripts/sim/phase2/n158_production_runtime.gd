@@ -496,6 +496,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 return false
         _last_ship_result["n84_trace"] = planned.get("trace", []).duplicate(true)
         _last_ship_result["n146_command_count"] = planned.get("commands", []).size()
+        _last_ship_result["n128_crew_xp"] = []
         _last_ship_result["n97_paid_moves"] = []
         _last_ship_result["n104_passenger_moves"] = []
         _last_ship_result["n108_paid_refits"] = []
@@ -514,7 +515,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 "reason": "n148_canonical_lifecycle_" +
                     str(lifecycle.get("reason", "invalid"))}
             return false
+        var source_command_ordinal: int = 0
         for command in planned.get("commands", []):
+            source_command_ordinal += 1
             var kind: String = str(command.get("kind", ""))
             var ship_id: String = str(command.get("ship", ""))
             if kind == "BeginTransit":
@@ -701,6 +704,19 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     _last_ship_result["autonomous_blocked"].append({
                         "ship_id": ship_id, "reason": "n108_" +
                             str(refit.get("reason", "shipyard_module_unavailable"))})
+                continue
+            if kind == "GrantCrewXp":
+                # Native Rust apply_ship_commands calls ShipCrewSkills.grant
+                # only for a REAL N146 command emitted by N84/ship actions;
+                # never grant skills from a tick counter or synthetic trip.
+                var award: Dictionary = production.apply_native_n128_crew_xp(
+                    tick, command, source_command_ordinal)
+                if not award.get("ok", false):
+                    _last_ship_result = {"ok": false,
+                        "reason": "n128_n146_skill_apply_" +
+                            str(award.get("reason", "rejected"))}
+                    return false
+                _last_ship_result["n128_crew_xp"].append(award.duplicate(true))
                 continue
             if kind == "RequestShipTransaction":
                 var cid: String = str(command.get("contract_id", ""))
@@ -1377,6 +1393,16 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
     # N152 administrative removal history is immutable N38/N9 state.
     # JSON numbers must be normalized without rebuilding a vanished ship,
     # facility wallet, or release/refund receipt.
+    # N128 original GrantCrewXp provenance survives the one N38 world
+    # checkpoint; only integer-shaped source evidence is normalized.
+    if w.has("native_crew_xp_receipts"):
+        if not (w["native_crew_xp_receipts"] is Dictionary):
+            return false
+        for receipt_id in w["native_crew_xp_receipts"]:
+            var receipt: Variant = w["native_crew_xp_receipts"][receipt_id]
+            if not (receipt is Dictionary) or not _normalize_row(
+                    receipt, ["tick", "amount", "applied"]):
+                return false
     if w.has("native_admin_removals"):
         if not (w["native_admin_removals"] is Dictionary):
             return false
