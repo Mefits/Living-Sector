@@ -658,7 +658,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     var authentic_dock: bool = not station.is_empty() and (
                         str(station.get("location", "")) == trading_loc)
                     if operation == "dock":
-                        authentic_dock = authentic_dock and str(station.get("type", "")) == "station"
+                        authentic_dock = authentic_dock and int(station.get(
+                            "docking_capacity", 0)) >= 1 and not bool(station.get(
+                            "abandoned", false))
                     if str(ship.get("current_goal", "")) != "trade_route" or (
                             not str(ship.get("active_contract_id", "")).is_empty() or
                             str(command.get("facility_location", "")) != trading_loc or
@@ -669,7 +671,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     var trade_dock: Dictionary = FleetLogistics.command(
                         snapshot, operation, ship_id,
                         "n83:dock:" + ship_id + ":" + operation + ":" + str(tick),
-                        tick, {}, "station")
+                        tick, {}, "market")
                     if not trade_dock.get("ok", false):
                         _last_ship_result["autonomous_blocked"].append({
                             "ship_id": ship_id,
