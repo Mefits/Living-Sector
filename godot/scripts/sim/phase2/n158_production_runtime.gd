@@ -927,6 +927,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_construction_result = {}
     _last_n91_result = {}
     _last_n134_result = {}
+    _last_n100_result = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
@@ -938,6 +939,53 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
     var w: Dictionary = saved["world"]
     if not (w.get("facilities") is Dictionary) or not (w.get("markets") is Dictionary) or not (w.get("populations") is Dictionary):
         return false
+    # N100/N98 source search snapshots and the original N121 execution
+    # memory survive a real N38 JSON round-trip, not a duplicate agent
+    # save. JSON numeric tokens must regain their original Rust integer
+    # types before the same N39 World validator checks their identity.
+    if w.has("native_planner_mode"):
+        if not _normalize_row(w, ["native_planner_last_tick"]):
+            return false
+        if not (w.get("native_planner_records") is Dictionary) or not (w.get("native_execution") is Dictionary):
+            return false
+        for fid in w["native_planner_records"]:
+            var record: Variant = w["native_planner_records"][fid]
+            if not (record is Dictionary) or not _normalize_row(record,
+                    ["tick", "source_snapshot_tick"]):
+                return false
+            if record.get("ledger") is Dictionary:
+                var original_ledger: Dictionary = record["ledger"]
+                if not _normalize_row(original_ledger, [
+                        "schema_version", "created_tick", "snapshot_tick"]):
+                    return false
+                if not (original_ledger.get("steps") is Array):
+                    return false
+                for original_step in original_ledger["steps"]:
+                    if not (original_step is Dictionary) or not _normalize_row(
+                            original_step, ["updated_tick"]):
+                        return false
+            if record.get("goal") is Dictionary:
+                if not _normalize_row(record["goal"], ["target_units", "priority"]):
+                    return false
+            if record.get("plan") is Dictionary:
+                if not _normalize_row(record["plan"], [
+                        "forecast_credits", "forecast_ticks", "nodes_expanded"]):
+                    return false
+            if record.get("actions") is Array:
+                for action in record["actions"]:
+                    if not (action is Dictionary) or not _normalize_row(action,
+                            ["units", "cost_credits", "expected_ticks"]):
+                        return false
+                    for side in ["inputs", "outputs"]:
+                        for pair in action.get(side, []):
+                            if not (pair is Array) or pair.size() != 2 or not _normalize_number_at_worker(pair):
+                                return false
+        var native_exec: Dictionary = w["native_execution"]
+        if not (native_exec.get("blocked_until") is Dictionary):
+            return false
+        for fid in native_exec["blocked_until"]:
+            if not _normalize_number_at(native_exec["blocked_until"], fid):
+                return false
     # N104 posted contracts/escrow are persisted inside the SAME N39 World.
     # JSON integer-shaped values must be restored before N39/Board preflight.
     # Older checkpoints without both fields remain valid as legacy.
