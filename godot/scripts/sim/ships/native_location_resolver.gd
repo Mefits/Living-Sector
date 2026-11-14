@@ -123,6 +123,11 @@ func location_count() -> int:
 func system_for_location(location: String) -> String:
     return str(_locations[location]["system_id"]) if _loaded and _locations.has(location) else ""
 
+## Original WorldRegistry location -> BodyIdentity link used by Rust
+## ship/mod.rs::observe_prices. Do not infer from display coords.
+func body_for_location(location: String) -> String:
+    return str(_locations[location]["body_id"]) if _loaded and _locations.has(location) else ""
+
 ## Derive every mapped location from CURRENT orbital angles and committed
 ## native elapsed time, not from route length, seed angle, or a UI projection.
 ## If an old checkpoint lacks the clock origin, station phase is unknown.
