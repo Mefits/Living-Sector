@@ -375,6 +375,14 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
                 price_items.append("%s=%s" % [str(commodity), str(prices[commodity])])
             lines.append("    цены: %s" % [", ".join(price_items) if not price_items.is_empty() else "нет"])
     lines.append("НАСЕЛЕНИЕ / БЛАГОСОСТОЯНИЕ:")
+    var last_migration: Dictionary = summary.get("population_last_migration", {})
+    if not last_migration.is_empty():
+        lines.append("  N151 миграция · тик %d · %s → %s · жителей %d · переведено %d CR (N9)" % [
+            int(last_migration.get("tick", -1)),
+            str(last_migration.get("source_location", "?")),
+            str(last_migration.get("destination_location", "?")),
+            int(last_migration.get("count", 0)),
+            int(last_migration.get("wealth_transferred", 0))])
     var pops: Dictionary = economy["populations"]
     var pop_ids: Array = pops.keys()
     pop_ids.sort()
