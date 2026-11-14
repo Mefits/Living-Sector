@@ -67,7 +67,8 @@ func _initialize() -> void:
     if buyer_loc.is_empty():
         _fail("no funded buyer with a stocked FIRST N135 supplier and reachable native directed ship route")
         return
-    print("P2_NATIVE_ROUTE_FIXTURE: buyer=" + buyer_loc + " first_supplier=" + seller_loc)\n    # A genuine original station and commodity; only a controlled N151
+    print("P2_NATIVE_ROUTE_FIXTURE: buyer=" + buyer_loc + " first_supplier=" + seller_loc)
+    # A genuine original station and commodity; only a controlled N151
     # consumption history creates urgency. No free goods or fake ships.
     var stock: float = float(world["markets"][buyer_loc]["supply"].get(good, 0.0))
     world["markets"][buyer_loc]["consumption_window"][good] = [
