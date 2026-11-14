@@ -252,7 +252,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # strategic cadence. These are observable native intents ONLY.
         # N104 passenger embark/disembark has no canonical P2 Apply yet,
         # so no phantom passenger order or minted population is admitted.
-        if tick % maxi(1, 60 * _tick_multiplier) == 0:
+        if tick == 1 or tick % maxi(1, 60 * _tick_multiplier) == 0:
             _last_n147_result = N147Colonies.observe(
                 production.world_snapshot(), _fleet_roster.registry.graph(),
                 _fleet_resolver, positions["positions"], tick, clock.tick_scale())
