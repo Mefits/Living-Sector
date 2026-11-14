@@ -41,7 +41,9 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     if not positions.has(here) or not positions.has(source) or not positions.has(dest):
         return {"ok": false, "reason": "missing_real_world_position"}
     var spec: Dictionary = Catalog.spec(str(ship.get("class", "")))
-    var speed: float = Catalog.effective_speed(str(ship.get("class", "")), str(ship.get("size", "")))
+    var speed: float = float(ship.get("speed_modifier",
+            Catalog.effective_speed(str(ship.get("class", "")),
+                str(ship.get("size", "")))))
     var rate: float = float(spec.get("fuel_consumption_base", 0.0))
     if speed <= 0.0 or rate <= 0.0 or float(ship.get("fuel", 0.0)) <= 0.0:
         return {"ok": false, "reason": "invalid_fuel_or_class"}
