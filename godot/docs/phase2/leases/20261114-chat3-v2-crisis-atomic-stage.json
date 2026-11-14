@@ -3,20 +3,21 @@
   "status": "IN_PROGRESS",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "60db31b029e8b7e32ffa41bf6710c98dace90ec2",
-  "goal": "Close independent Rust scan_crisis_events source integration preparation: immutable pre/post N150 flags attest transitions, N156 persisted facility flag proposal and exactly once combined event emissions, no parallel authority. Only pure adapter and deferred regression while Chat1 N108 owns N39/N158/Schema.",
+  "goal": "Complete live Rust Bundle(S) source crisis integration after chat1 release: atomic N39 facility flags, N158 crisis phase pre/post-market proof, exactly once signal after commit, N38 serialization.",
   "scope": [
     "godot/scripts/sim/phase2/unified_native_crisis_phase.gd (new)",
     "godot/tests/p2_native_crisis_atomic_phase_check.gd (new)",
-    "godot/docs/phase2/handoffs/20261114-chat3-v2-crisis-atomic-stage.md (new)"
+    "godot/docs/phase2/handoffs/20261114-chat3-v2-crisis-atomic-stage.md (new)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (only new V2 crisis apply and preload)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (only optional starving_notified validation)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (only V2 crisis phase+transient state/summary/restore)",
+    "godot/scripts/sim/phase2/unified_native_crisis_events.gd (pure legacy FacilityOperations handling)"
   ],
   "excludes": [
-    "godot/scripts/sim/phase1/n39_native_world_production.gd",
-    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
-    "godot/scripts/sim/phase2/n158_production_runtime.gd",
     "N9/N104",
     "unified_ship_ai_execution.gd",
     "balance"
   ],
-  "coordination": "Chat1 N108 real built gate pair has active lease on all shared World files. No shared edits until release. User requires final-only tests.",
+  "coordination": "Chat1 N108 GatePair and Chat2 B3 RELEASED; latest PR HEAD checked before shared file claims. Re-fetch blob SHA before every edit, never force.",
   "verification": "SOURCE_WIRED / CODE_UNVERIFIED"
 }
