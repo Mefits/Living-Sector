@@ -317,6 +317,64 @@ static func validate(state: Dictionary) -> String:
                         return "native_n100_preempted_n121_without_receipt"
                     if typeof(entry.get("updated_tick", null)) != TYPE_INT or int(entry["updated_tick"]) != int(record["tick"]) or not (entry.get("step") is Dictionary):
                         return "invalid_native_n98_step_cursor"
+    # Source N121 dispatch IDs belong to one REAL canonical N104 board.
+    # No second indexed contract authority or off-ledger faction escrow.
+    if state.has("native_htn_contracts") != state.has("native_htn_next_id"):
+        return "partial_native_n121_contract_identity"
+    if state.has("native_htn_contracts"):
+        if not (state["native_htn_contracts"] is Dictionary) or typeof(state["native_htn_next_id"]) != TYPE_INT or int(state["native_htn_next_id"]) < 1:
+            return "invalid_native_n121_contract_serial"
+        var native_ids: Dictionary = {}
+        var seen_dispatch: Dictionary = {}
+        for contract_id in state["native_htn_contracts"]:
+            var meta: Variant = state["native_htn_contracts"][contract_id]
+            var contract: Variant = state.get("contract_board", {}).get("contracts", {}).get(contract_id, null)
+            if not (meta is Dictionary) or not (contract is Dictionary):
+                return "n121_orphaned_real_n104_contract"
+            var faction: String = str(meta.get("faction_id", ""))
+            var key: String = str(meta.get("dispatch_key", ""))
+            if faction.is_empty() or key.is_empty() or seen_dispatch.has(key) or not state.get("faction_treasuries", {}).has(faction):
+                return "n121_duplicate_or_foreign_native_dispatch"
+            seen_dispatch[key] = true
+            if str(meta.get("plan_id", "")).is_empty() or str(meta.get("step_id", "")).is_empty() or typeof(meta.get("tick", null)) != TYPE_INT or int(meta["tick"]) < 1:
+                return "n121_malformed_original_step_receipt"
+            if (str(contract.get("contract_type", "")) != "delivery" or
+                    str(contract.get("funding_source", "")) != "faction" or
+                    str(contract.get("requestor_id", "")) != "faction/" + faction or
+                    str(contract.get("native_htn_key", "")) != key or
+                    str(contract.get("escrow_account", "")) != "escrow:" + str(contract_id) or
+                    str(contract.get("mission_category", "")) != "strategy.logistics.v1"):
+                return "n121_forbidden_parallel_contract_authority"
+            var identifier: String = str(contract_id)
+            if not identifier.begins_with("n121-") or not identifier.substr(5).is_valid_int():
+                return "n121_invalid_original_order_serial"
+            var number: int = int(identifier.substr(5))
+            if number < 1 or number >= int(state["native_htn_next_id"]) or native_ids.has(number):
+                return "n121_duplicate_or_future_order"
+            native_ids[number] = true
+        var source_execution: Dictionary = state.get("native_execution", {})
+        for active_id in source_execution.get("active", {}):
+            var plan: Variant = source_execution["active"][active_id]
+            if not state.get("faction_treasuries", {}).has(active_id) or not (plan is Dictionary) or not (plan.get("ledger") is Dictionary):
+                return "n121_orphaned_original_active_plan"
+            var ledger: Dictionary = plan["ledger"]
+            if str(ledger.get("faction_id", "")) != str(active_id) or not (ledger.get("steps") is Array) or str(ledger.get("plan_id", "")).is_empty():
+                return "n121_invalid_original_active_plan_identity"
+            var record: Dictionary = state.get("native_planner_records", {}).get(active_id, {})
+            if str(record.get("status", "")) != "n121_active" or str(record.get("ledger", {}).get("plan_id", "")) != str(ledger["plan_id"]):
+                return "n121_active_plan_outside_authoritative_n39"
+            for step in ledger["steps"]:
+                if not (step is Dictionary) or typeof(step.get("updated_tick", null)) != TYPE_INT:
+                    return "n121_invalid_real_n98_step_tick"
+                var phase: String = str(step.get("phase", ""))
+                if phase not in ["planned", "prepared", "submitted", "running", "succeeded", "failed", "cancelled"]:
+                    return "n121_unknown_native_n98_phase"
+                if phase in ["submitted", "running", "succeeded", "failed"]:
+                    var order: String = str(step.get("native_order_id", ""))
+                    if order.begins_with("n121-"):
+                        var evidence: Dictionary = state["native_htn_contracts"].get(order, {})
+                        if str(evidence.get("plan_id", "")) != str(ledger["plan_id"]) or str(evidence.get("step_id", "")) != str(step.get("step", {}).get("step_id", "")):
+                            return "n121_n98_step_not_paid_by_n104"
     if state.has("station_executing") and typeof(state["station_executing"]) != TYPE_BOOL:
         return "invalid_station_phase"
     # Source N18 one administrator per (faction, location). Retention
