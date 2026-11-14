@@ -263,6 +263,18 @@ static func validate(state: Dictionary) -> String:
                 return "invalid_construction_receipt"
             if str(state["construction_receipts"][receipt_id].get("id", "")) != str(receipt_id):
                 return "invalid_construction_receipt_identity"
+            var construction_receipt: Dictionary = state["construction_receipts"][receipt_id]
+            if str(construction_receipt.get("kind", "")) == "colony_approved":
+                if typeof(construction_receipt.get("tick", null)) != TYPE_INT or int(construction_receipt["tick"]) < 1:
+                    return "invalid_native_colony_approval_tick"
+                if int(construction_receipt.get("capital", -1)) != 0 or str(construction_receipt.get("n9_receipt_id", "invalid")) != "":
+                    return "native_colony_approval_cannot_mint_credits"
+                if not _id(construction_receipt.get("site_id", null)) or not _id(construction_receipt.get("body_id", null)) or not _id(construction_receipt.get("source_location", null)):
+                    return "invalid_native_colony_approval_identity"
+                var active_site: Dictionary = state["construction_sites"].get(str(construction_receipt["site_id"]), {})
+                if not active_site.is_empty():
+                    if str(active_site.get("body_id", "")) != str(construction_receipt["body_id"]) or str(active_site.get("location_name", "")) != str(construction_receipt.get("destination_location", "")) or str(active_site.get("labor", {}).get("colony_source", "")) != str(construction_receipt["source_location"]):
+                        return "native_colony_approval_site_diverged"
     if state.has("location_tiers") and not (state["location_tiers"] is Dictionary):
         return "invalid_location_tiers"
     if state.has("station_executing") and typeof(state["station_executing"]) != TYPE_BOOL:
