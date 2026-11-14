@@ -65,9 +65,10 @@ static func observe(world: Dictionary, graph: RefCounted,
             "faction_treasuries", "contract_board"]:
         if not (world.get(field) is Dictionary):
             return {"ok": false, "reason": "n147_missing_canonical_" + field}
-    var board: Dictionary = world["contract_board"].get("contracts", {})
-    if not (board is Dictionary):
+    var board_value: Variant = world["contract_board"].get("contracts", null)
+    if not (board_value is Dictionary):
         return {"ok": false, "reason": "n147_missing_one_contract_board"}
+    var board: Dictionary = board_value
     var contracts: Array = []
     var ids: Array = board.keys()
     ids.sort()
