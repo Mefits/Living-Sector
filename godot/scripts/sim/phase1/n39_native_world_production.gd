@@ -16,6 +16,8 @@ const NativeResearch = preload("res://scripts/sim/phase2/unified_native_research
 const ResearchShift = preload("res://scripts/sim/phase1/n143_native_research_shift.gd")
 const NativeConstructionMaterial = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
 const NativeConstructionLabor = preload("res://scripts/sim/phase2/unified_native_construction_labor.gd")
+const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
+const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
@@ -525,6 +527,86 @@ func apply_autonomous_contract_cargo(tick: int, ship_id: String,
         "receipt_id": receipt_id, "money_receipt": money_id,
         "credits": int(proposed["credits"]), "tick": tick}
 
+
+
+
+## Native N91 engineer dispatch is ONE live N39 ship mutation only.
+## The original N91 choose() supplies a candidate; actual ownership,
+## physical site completion and idle ship are checked AGAIN before commit.
+## No money, materials, position, building or dock status is altered here.
+func apply_native_construction_assignments(tick: int, proposals: Array) -> Dictionary:
+    if not _ready or tick != _last_tick or tick < 1:
+        return {"ok": false, "reason": "n91_not_canonical_faction_tick"}
+    if not _world.has("construction_sites"):
+        return {"ok": true, "status": "N91_LEGACY_DISABLED", "assigned": []}
+    var staged: Dictionary = _world.duplicate(true)
+    var updated: Array = []
+    var used_sites: Dictionary = {}
+    var used_ships: Dictionary = {}
+    for raw in proposals:
+        if not (raw is Dictionary):
+            return {"ok": false, "fatal": true, "reason": "n91_invalid_native_proposal"}
+        var site_id: String = str(raw.get("site_id", ""))
+        var ship_id: String = str(raw.get("ship_id", ""))
+        if ship_id.is_empty() or site_id.is_empty() or used_sites.has(site_id) or used_ships.has(ship_id):
+            return {"ok": false, "fatal": true, "reason": "n91_duplicate_site_or_ship"}
+        if not staged["ships"].has(ship_id) or not staged["construction_sites"].has(site_id):
+            return {"ok": false, "fatal": true, "reason": "n91_phantom_actor_or_site"}
+        var site: Dictionary = staged["construction_sites"][site_id]
+        var ship: Dictionary = staged["ships"][ship_id]
+        var loc: String = str(site.get("location_name", ""))
+        if bool(site.get("completed", false)) or int(site.get("progress_delivered", 0)) != int(site.get("progress_required", -1)) or int(site.get("labor", {}).get("completed", 0)) >= int(site.get("labor", {}).get("required", 0)):
+            return {"ok": false, "fatal": true, "reason": "n91_site_not_paid_and_ready"}
+        if str(site.get("faction_id", "")) != str(ship.get("faction_id", "")) or str(ship.get("location", "")) != loc or not ship.get("transit", {}).is_empty():
+            return {"ok": false, "fatal": true, "reason": "n91_engineer_not_physically_local"}
+        if str(ship.get("current_goal", "")) not in ["", "idle"] or not str(ship.get("active_contract_id", "")).is_empty() or not ship.get("cargo", {}).is_empty():
+            return {"ok": false, "fatal": true, "reason": "n91_ship_has_existing_obligation"}
+        if not N91Executor.capable(str(ship.get("class", "")), ShipCatalog.CLASSES):
+            return {"ok": false, "fatal": true, "reason": "n91_ship_has_no_native_engineer"}
+        var market: Dictionary = staged.get("markets", {}).get(loc, {})
+        var dock: Dictionary = staged.get("facilities", {}).get(str(market.get("owner", "")), {})
+        if dock.is_empty() or str(dock.get("faction", "")) != str(site["faction_id"]) or int(dock.get("docking_capacity", -1)) < 1:
+            return {"ok": false, "fatal": true, "reason": "n91_no_real_site_warehouse"}
+        var claimed: bool = false
+        for other_id in staged["ships"]:
+            if str(other_id) == ship_id:
+                continue
+            var other: Dictionary = staged["ships"][other_id]
+            if str(other.get("current_goal", "")) == "construct" and other.get("current_bt") is Dictionary and N91Executor.target(other["current_bt"]) == site_id:
+                claimed = true
+                break
+        if claimed:
+            return {"ok": false, "fatal": true, "reason": "n91_construction_site_already_assigned"}
+        var plan: Dictionary = raw.get("bt", {})
+        if not NativeBt.validate(plan) or plan != NativeBt.sequence([
+            NativeBt.action({"kind": "ConstructionDock", "site_id": site_id}),
+            NativeBt.action({"kind": "Construct", "site_id": site_id})]):
+            return {"ok": false, "fatal": true, "reason": "n91_untrusted_goal_tree"}
+        var loyalty: float = float(ship.get("loyalty", 0.0))
+        var priority: float = N91Executor.utility(loyalty)
+        if not is_finite(priority) or not is_equal_approx(float(raw.get("score", -1.0)), priority):
+            return {"ok": false, "fatal": true, "reason": "n91_source_utility_mismatch"}
+        ship["current_goal"] = "construct"
+        ship["current_bt"] = plan.duplicate(true)
+        ship["current_goal_score"] = priority
+        ship["last_plan_tick"] = tick
+        ship["planning_source"] = "source_n91_utility_local_engineer"
+        used_sites[site_id] = true
+        used_ships[ship_id] = true
+        updated.append({"ship_id": ship_id, "site_id": site_id})
+    var issue: String = Schema.validate(staged)
+    if not issue.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n91_invalid_world_" + issue}
+    var balances: Dictionary = Schema.accounts(staged)
+    if balances.size() != _ledger.snapshot().get("balances", {}).size():
+        return {"ok": false, "fatal": true, "reason": "n91_wallet_count_changed"}
+    for account in balances:
+        if _ledger.balance(str(account)) != int(balances[account]):
+            return {"ok": false, "fatal": true, "reason": "n91_wallet_modified"}
+    if not updated.is_empty():
+        _world = staged
+    return {"ok": true, "status": "N91_NATIVE_ENGINEERS_ASSIGNED",
+        "tick": tick, "assigned": updated}
 
 
 ## N141: real docked-engineer physical construction shift + one N9 payroll.
