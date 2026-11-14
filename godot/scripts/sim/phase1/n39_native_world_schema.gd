@@ -537,13 +537,13 @@ static func validate(state: Dictionary) -> String:
             var carried: int = int(m.get("wealth", -1))
             if phase not in ["embarked", "delivered"] or quantity <= 0 or quantity != int(c.get("quantity", -1)) or carried < 0 or int(m.get("initial_wealth", -1)) < carried:
                 return "invalid_passenger_manifest_values"
-            if str(m.get("ship_id", "")) != str(c.get("fulfiller_id", "")) or not state.get("ships", {}).has(str(m.get("ship_id", ""))) or not state["populations"].has(str(m.get("origin_population_id", ""))):
+            if str(m.get("ship_id", "")) != str(c.get("fulfiller_id", "")) or (phase == "embarked" and not state.get("ships", {}).has(str(m.get("ship_id", "")))) or not state["populations"].has(str(m.get("origin_population_id", ""))):
                 return "invalid_passenger_manifest_actor"
             var boarding_id: String = "passenger:" + str(cid) + ":embark"
             if str(c.get("picked_up_receipt", "")) != boarding_id or str(receipts.get(boarding_id, {}).get("action", "")) != "load":
                 return "passenger_missing_original_boarding"
             if phase == "embarked":
-                if str(c.get("status", "")) != "picked_up":
+                if str(c.get("status", "")) != "picked_up" or not (c.get("embarked", null) is Dictionary) or int(c["embarked"].get("wealth", -1)) != int(m["wealth"]):
                     return "passenger_manifest_not_in_flight"
             else:
                 var landing_id: String = "passenger:" + str(cid) + ":delivery"
