@@ -2796,15 +2796,14 @@ func apply_native_player_research_policy(tick: int, faction: String,
             "set_faction_charter"]:
         return {"ok": false, "reason": "n110_invalid_original_policy_action"}
     var next_world: Dictionary = _world.duplicate(true)
-    if not (next_world.get("research_mandates") is Dictionary) or not (
-            next_world.get("faction_charters") is Dictionary):
-        # An old N38 save without these two optional maps uses the same
-        # frozen Rust default as the clean seed until player installs one.
-        if next_world.has("research_mandates") or next_world.has(
-                "faction_charters"):
-            return {"ok": false, "reason": "n110_partial_native_policy_world"}
-        next_world["research_mandates"] = {}
-        next_world["faction_charters"] = {}
+    # Rust's two optional Director maps are independent. A legacy
+    # checkpoint may contain neither OR only one: do not erase a
+    # genuine existing charter while installing the first mandate.
+    for key in ["research_mandates", "faction_charters"]:
+        if next_world.has(key) and not (next_world[key] is Dictionary):
+            return {"ok": false, "reason": "invalid_original_policy_map:" + key}
+        if not next_world.has(key):
+            next_world[key] = {}
     var operation_result: Dictionary = {}
     match operation:
         "set_research_mandate":
