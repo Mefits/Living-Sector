@@ -63,7 +63,7 @@ func _initialize() -> void:
         print("SIM_BENCH ", JSON.stringify(metrics))
     # Intermediate state checks catch timing differences hidden by matching endpoints.
     var checkpoints: Array = []
-    for checkpoint in [5, 10, 30, 365]:
+    for checkpoint in [5, 10, 19, 30, 365]:
         if checkpoint >= horizon:
             continue
         var baseline_at_tick: Dictionary = Runner.run(
