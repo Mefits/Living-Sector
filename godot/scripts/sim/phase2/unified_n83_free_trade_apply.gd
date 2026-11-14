@@ -165,11 +165,14 @@ static func stage(world: Dictionary, original_ledger: Dictionary,
         return _bad("n83_missing_original_n15_receipt_registry")
     if paid_world["cargo_receipts"].has(receipt_id):
         return _bad("n83_replayed_native_n15_goods")
+    var actual_quantities: Dictionary = {}
+    actual_quantities[str(request.get("commodity", ""))] = int(roundi(units))
     var event: Dictionary = {
         "operation_id": receipt_id, "tick": tick,
         "kind": "native_n97_free_" + kind, "ship_id": ship_id,
         "facility_id": fid, "location": market_id,
         "commodity": str(request.get("commodity", "")),
+        "quantities": actual_quantities,
         "quantity": int(roundi(units)), "payment": payment,
         "request_id": request_id, "financial_receipt": receipt_id}
     paid_world["cargo_receipts"][receipt_id] = event.duplicate(true)
