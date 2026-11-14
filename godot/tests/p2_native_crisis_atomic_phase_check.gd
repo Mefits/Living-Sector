@@ -183,6 +183,17 @@ func _initialize() -> void:
     if _crossing(invalid, invalid, [], 400).get("ok", false):
         _fail("negative facility condition admitted to original source scan")
         return
+    # The Rust query requires FacilityOperations; old N38 rows without
+    # that component must be skipped instead of stopping the whole tick.
+    var old_facility: Dictionary = _world(0, false, 0.7, false)
+    old_facility["facilities"]["facility-refinery"].erase("condition")
+    var legacy_warning: Dictionary = _crossing(
+        old_facility, old_facility, [], 401)
+    if not legacy_warning.get("ok", false) or not legacy_warning[
+            "events_after_n39_commit"].is_empty() or not legacy_warning[
+            "facility_flag_updates"].is_empty():
+        _fail("legacy missing FacilityOperations minted a warning or failed")
+        return
 
     # Flags survive JSON without creating a secondary event registry.
     var restored: Variant = JSON.parse_string(JSON.stringify(
