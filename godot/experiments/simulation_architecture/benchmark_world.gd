@@ -11,6 +11,7 @@ var facilities: Array[Dictionary] = []
 var ships: Array[Dictionary] = []
 var active: Array[bool] = []
 var active_count: int = 0
+var facilities_by_market: Dictionary = {}
 var attempts: int = 0
 var batches: int = 0
 var arrivals: int = 0
@@ -20,21 +21,40 @@ var errors: Array[String] = []
 
 func initialize(facility_count: int, ship_count: int, seed: int) -> void:
     var count: int = maxi(3, int(ceil(float(facility_count) / 8.0)))
+    facilities_by_market.clear()
     var recipes: Array[String] = [
         "smelt_metals", "process_ice", "crack_fuel", "refine_polymers",
         "assemble_components", "build_electronics", "forge_tools", "grow_food"
     ]
     for i in range(count):
+        facilities_by_market[i] = []
         var variation: int = (i * 37 + seed * 13) % 11
-        markets.append({
+        var market: Dictionary = {
             "ore": float(32 + variation), "ice": float(20 + variation),
             "gas": float(20 + variation), "fuel": 20.0, "metals": 12.0,
             "polymers": 6.0, "components": 9.0, "electronics": 1.0,
             "water": 18.0, "food": 7.0, "tools": 0.0
-        })
+        }
+        # Three deliberately asymmetric planet fixtures: Earthlike, volcanic, icy.
+        # This changes initial stock only, NEVER the N73/N9 economic formulas.
+        if i % 3 == 0:
+            market["ore"] += 40.0
+            market["food"] += 30.0
+        elif i % 3 == 1:
+            market["ore"] += 70.0
+            market["gas"] += 25.0
+            market["ice"] = 0.0
+            market["food"] = 2.0
+        else:
+            market["ice"] += 65.0
+            market["water"] += 25.0
+            market["ore"] = 8.0
+            market["food"] = 1.0
+        markets.append(market)
     for i in range(facility_count):
         facilities.append({"market": i % count, "recipe": recipes[i % recipes.size()]})
         active.append(true)
+        facilities_by_market[i % count].append(i)
     active_count = facility_count
     for i in range(ship_count):
         var start: int = i % count
@@ -107,8 +127,9 @@ func sleep(facility_id: int) -> void:
 
 func wake_market(market_id: int) -> void:
     # Invalidation of a calculation cache, NOT a grant of goods or free work.
-    for i in range(facilities.size()):
-        if not active[i] and int(facilities[i]["market"]) == market_id:
+    for entry in facilities_by_market.get(market_id, []):
+        var i: int = int(entry)
+        if not active[i]:
             active[i] = true
             active_count += 1
 
