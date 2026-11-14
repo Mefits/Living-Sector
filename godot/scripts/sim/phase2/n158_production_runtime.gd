@@ -1018,6 +1018,58 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
         for fid in native_exec["blocked_until"]:
             if not _normalize_number_at(native_exec["blocked_until"], fid):
                 return false
+        if not (native_exec.get("active") is Dictionary) or not (native_exec.get("history") is Array) or not (native_exec.get("deferred_goals") is Dictionary):
+            return false
+        for fid in native_exec["active"]:
+            var pending: Variant = native_exec["active"][fid]
+            if not (pending is Dictionary) or not (pending.get("ledger") is Dictionary):
+                return false
+            var native_ledger: Dictionary = pending["ledger"]
+            if not _normalize_row(native_ledger, ["schema_version", "created_tick", "snapshot_tick"]):
+                return false
+            if not (native_ledger.get("steps") is Array):
+                return false
+            for original_step in native_ledger["steps"]:
+                if not (original_step is Dictionary) or not _normalize_row(original_step, ["updated_tick"]):
+                    return false
+            if not (pending.get("goal") is Dictionary) or not _normalize_row(pending["goal"], ["target_units", "priority"]):
+                return false
+            if not (pending.get("actions") is Array) or not _normalize_row(pending, ["production_target_delta"]):
+                return false
+            if pending.get("production_started_tick") != null and not _normalize_row(pending, ["production_started_tick"]):
+                return false
+            for action in pending["actions"]:
+                if not (action is Dictionary) or not _normalize_row(action,
+                        ["units", "cost_credits", "expected_ticks"]):
+                    return false
+                for side in ["inputs", "outputs"]:
+                    for pair in action.get(side, []):
+                        if not (pair is Array) or pair.size() != 2 or not _normalize_number_at_worker(pair):
+                            return false
+        for outcome in native_exec["history"]:
+            if not (outcome is Dictionary):
+                return false
+            for numeric in ["tick", "committed_credits", "required_goal_production_units"]:
+                if outcome.has(numeric) and outcome[numeric] != null and not _normalize_row(outcome, [numeric]):
+                    return false
+        for fid in native_exec["deferred_goals"]:
+            var deferred: Variant = native_exec["deferred_goals"][fid]
+            if not (deferred is Dictionary) or not _normalize_row(deferred, ["failed_attempts", "last_failed_tick"]):
+                return false
+            if not (deferred.get("goal") is Dictionary) or not _normalize_row(deferred["goal"], ["target_units", "priority"]):
+                return false
+        if w.has("native_htn_contracts") != w.has("native_htn_next_id"):
+            return false
+        if w.has("native_htn_contracts"):
+            if not _normalize_row(w, ["native_htn_next_id"]) or not (w["native_htn_contracts"] is Dictionary):
+                return false
+            for cid in w["native_htn_contracts"]:
+                if not (w["native_htn_contracts"][cid] is Dictionary) or not _normalize_row(w["native_htn_contracts"][cid], ["tick"]):
+                    return false
+        for fid in w["native_planner_records"]:
+            var previous: Dictionary = w["native_planner_records"][fid]
+            if previous.has("last_source_execution_tick") and not _normalize_row(previous, ["last_source_execution_tick"]):
+                return false
     # N104 posted contracts/escrow are persisted inside the SAME N39 World.
     # JSON integer-shaped values must be restored before N39/Board preflight.
     # Older checkpoints without both fields remain valid as legacy.
