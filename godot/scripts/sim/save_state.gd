@@ -103,12 +103,12 @@ static func _canonical(value: Variant) -> String:
 static func _wrap(snapshot: Dictionary) -> Dictionary:
     # Hash the JSON-normalized payload, not GDScript integer/float variants:
     # JSON parsing may turn 7 into 7.0, and the digest must survive reload.
-    # Only native N39 float values get lossless string tokens. No N9 money,
-    # ship cargo, physical market supply or N104 contract gets rounded.
-    var transport: Dictionary = snapshot.duplicate(true)
-    if transport.has("native_production"):
-        transport["native_production"] = _encode_native_f64(
-            transport["native_production"])
+    # Every f64 in the checkpoint (orbits, calendar, original World,
+    # N39 market history and ship state) uses exact binary64. Otherwise
+    # a second JSON stringify of a P1 float can invalidate our payload
+    # SHA despite the native frame itself being bit-preserved.
+    # P1 bare saves and earlier untagged envelope payloads still decode.
+    var transport: Variant = _encode_native_f64(snapshot)
     var normalized: Variant = JSON.parse_string(JSON.stringify(transport, "", true, true))
     return {
         "envelope_format": ENVELOPE_FORMAT,
@@ -131,18 +131,14 @@ static func _unwrap(raw: Variant) -> Dictionary:
             return {}
         if digest.length() != 64 or _canonical(payload).sha256_text() != digest:
             return {}
-        # Old v1 checkpoints contained raw numeric native floats; they
-        # still deserialize here without any migration or balance edit.
-        if payload.has("native_production"):
-            var valid: Dictionary = {"ok": true}
-            var restored: Variant = _decode_native_f64(
-                payload["native_production"], valid)
-            if not valid["ok"] or not (restored is Dictionary):
-                return {}
-            var exact_payload: Dictionary = payload.duplicate(true)
-            exact_payload["native_production"] = restored
-            return exact_payload
-        return payload
+        # SHA authenticates the stored JSON BEFORE decoding the exact
+        # binary64 tags. This handles both old plain v1 payloads and
+        # new checkpoints, without an unverified lossy float promotion.
+        var valid: Dictionary = {"ok": true}
+        var restored: Variant = _decode_native_f64(payload, valid)
+        if not valid["ok"] or not (restored is Dictionary):
+            return {}
+        return restored
     # Old P1 saves: validation still occurs inside TickRunner.restore_checkpoint.
     if raw.get("format", "") == "living-sector-godot":
         return raw
