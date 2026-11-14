@@ -4,6 +4,7 @@ extends RefCounted
 const Strategy = preload("res://scripts/sim/phase1/n154_native_construction_strategy.gd")
 const Commission = preload("res://scripts/sim/phase1/n154_native_construction_commission.gd")
 const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
+const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
 
 static func context(world: Dictionary, sources: Dictionary, original: RefCounted,
         graph: RefCounted, authorized: String = "") -> Dictionary:
@@ -103,13 +104,19 @@ static func context(world: Dictionary, sources: Dictionary, original: RefCounted
     var tiers: Dictionary = {}
     for fid in world["facilities"]:
         tiers[fid] = int(world["facilities"][fid].get("level", 1))
+    # Source N154 fallback-input inspection is based on the REAL Rust
+    # recipe catalogue, not an always-empty invented factory table.
+    var recipes: Array = []
+    for r in Recipes.TABLE:
+        recipes.append({"facility_type": str(r["facility"]),
+            "inputs": r["in"].duplicate(true), "outputs": r["out"].duplicate(true)})
     return {"markets": markets, "facilities": facilities,
         "sites": sites, "body_centers": body_centers,
         "body_resources": body_resources, "contracts": contracts,
         "physical_distances": physical_distances,
         "technologies": tech, "station_tiers": tiers,
         "commodity_base_prices": MarketRules.BASE_PRICE,
-        "production_recipes": [], "has_director": true,
+        "production_recipes": recipes, "has_director": true,
         "persistent_objectives": {}, "authorized_industry_goals": {},
         "executing": not authorized.is_empty(),
         "construction_authorizations": {authorized: true} if not authorized.is_empty() else {}}
