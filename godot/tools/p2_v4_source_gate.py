@@ -187,7 +187,8 @@ def audit(root: Path) -> dict:
         "NativeN147Head.authorize(" in n39 and
         'head_source.get("head", {}) != baseline' in n39 and
         "production.post_native_passenger_migration(" in n158 and
-        "_last_n134_result[\"heads\"].get(" in n158,
+        'var head: Dictionary = _last_n134_result.get(' in n158 and
+        'world, _faction_sources, head)' in n158,
         ["native/crates/sim_core/src/strategy/coordination.rs",
          n39_path, n158_path],
         "Source N147 contract must follow the same-faction current-cycle N134 Head grant; no duplicate N104 money.",
