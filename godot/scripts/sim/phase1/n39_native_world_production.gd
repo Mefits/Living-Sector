@@ -33,6 +33,7 @@ const NativeShipyardRefit = preload("res://scripts/port/n108_shipyard_refit_appl
 const NativeStationAdministration = preload("res://scripts/sim/phase2/unified_native_station_administration_phase.gd")
 const NativeHybridPlanning = preload("res://scripts/sim/phase2/unified_native_hybrid_planning.gd")
 const NativeN121 = preload("res://scripts/sim/phase2/unified_n121_native_execution_phase.gd")
+const NativeN152 = preload("res://scripts/sim/phase2/unified_n152_contract_lifecycle.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
@@ -1386,6 +1387,148 @@ func post_funded_contract(tick: int, demand: Dictionary) -> Dictionary:
         "contract_id": id, "escrow_account": escrow,
         "payment": int(next_money["balances"][escrow]),
         "receipt_id": str(proposed["receipt_id"])}
+
+
+## N152 canonical close/refund. This is the ONLY live owner of N104
+## posted expiry and PAID/EXPIRED N9 residual escrow returns. Old history,
+## N15 receipts and N121 dispatch keys remain stored for reconciliation.
+## A detached quote is published ONLY if every wallet, Board and World
+## invariant succeeds together; no second ledger and no magic refund.
+func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick:
+        return {"ok": false, "reason": "n152_not_the_canonical_post_facility_tick"}
+    if not _world.has("contract_board") and not _world.has("escrow_balances"):
+        return {"ok": true, "tick": tick, "expired": [], "refunded": [],
+            "blocked": [], "status": "LEGACY_NO_CONTRACT_BOARD"}
+    if not _world.has("contract_board") or not _world.has("escrow_balances"):
+        return {"ok": false, "fatal": true, "reason": "n152_partial_contract_authority"}
+    var old_bank: Dictionary = _ledger.snapshot()
+    var proposal: Dictionary = NativeN152.stage(_world, old_bank, tick)
+    if not proposal.get("ok", false):
+        return {"ok": false, "fatal": true, "reason": "n152_" + str(proposal.get("reason", "stage_rejected"))}
+    if not bool(proposal.get("changed", false)):
+        return {"ok": true, "tick": tick, "expired": [],
+            "refunded": [], "blocked": proposal.get("blocked", []).duplicate(true),
+            "status": "NO_DUE_CONTRACT_CLOSURES"}
+    var next_board: Dictionary = proposal["board_snapshot"]
+    var next_bank: Dictionary = proposal["ledger_snapshot"]
+    var old_board: Dictionary = _world["contract_board"]
+    if next_board.get("version") != old_board.get("version") or next_board.get("receipt_claims") != old_board.get("receipt_claims"):
+        return {"ok": false, "fatal": true, "reason": "n152_board_history_or_receipts_mutated"}
+    if next_board.get("contracts", {}).size() != old_board.get("contracts", {}).size():
+        return {"ok": false, "fatal": true, "reason": "n152_deleted_historical_contract"}
+    var expirations: Dictionary = {}
+    for expired_id in proposal["expired"]:
+        if expirations.has(expired_id):
+            return {"ok": false, "fatal": true, "reason": "n152_duplicate_expiry"}
+        expirations[expired_id] = true
+    var authorized_accounts: Dictionary = {}
+    var refunded_ids: Dictionary = {}
+    var expected_money_receipts: Dictionary = {}
+    for refunded in proposal["refunded"]:
+        var id: String = str(refunded.get("contract_id", ""))
+        var payer: String = str(refunded.get("payer", ""))
+        var escrow: String = str(refunded.get("escrow", ""))
+        var amount: int = int(refunded.get("amount", 0))
+        var receipt_id: String = "contract:" + id + ":refund"
+        if refunded_ids.has(id) or amount <= 0 or receipt_id != str(refunded.get("receipt_id", "")):
+            return {"ok": false, "fatal": true, "reason": "n152_invalid_duplicate_refund"}
+        if escrow != "escrow:" + id or not old_board["contracts"].has(id):
+            return {"ok": false, "fatal": true, "reason": "n152_refund_orphaned_escrow"}
+        var before_contract: Dictionary = old_board["contracts"][id]
+        if str(before_contract.get("requestor_id", "")) != payer or int(before_contract.get("reserved", -1)) != amount:
+            return {"ok": false, "fatal": true, "reason": "n152_refund_payer_or_reserve_mismatch"}
+        if str(before_contract.get("status", "")) not in ["paid", "expired", "posted"] or (str(before_contract.get("status", "")) == "posted" and not expirations.has(id)):
+            return {"ok": false, "fatal": true, "reason": "n152_refunded_active_delivery"}
+        if old_bank.get("balances", {}).get(escrow, null) != amount:
+            return {"ok": false, "fatal": true, "reason": "n152_refund_escrow_not_funded"}
+        var receipt: Dictionary = next_bank.get("receipts", {}).get(receipt_id, {})
+        var expected_legs: Array = [
+            {"account": escrow, "delta": -amount},
+            {"account": payer, "delta": amount}]
+        if receipt.get("id") != receipt_id or receipt.get("kind") != "contract_refund" or receipt.get("tick") != tick or receipt.get("legs") != expected_legs:
+            return {"ok": false, "fatal": true, "reason": "n152_unverified_real_n9_refund"}
+        authorized_accounts[escrow] = true
+        authorized_accounts[payer] = true
+        refunded_ids[id] = true
+        expected_money_receipts[receipt_id] = true
+    if old_board["contracts"].keys().size() != next_board["contracts"].keys().size():
+        return {"ok": false, "fatal": true, "reason": "n152_contract_identity_changed"}
+    for id in old_board["contracts"]:
+        if not next_board["contracts"].has(id):
+            return {"ok": false, "fatal": true, "reason": "n152_missing_original_contract"}
+        var old_contract: Dictionary = old_board["contracts"][id]
+        var new_contract: Dictionary = next_board["contracts"][id]
+        var allowed: Dictionary = old_contract.duplicate(true)
+        if expirations.has(id):
+            if str(old_contract.get("status", "")) != "posted" or str(new_contract.get("status", "")) != "expired" or tick < int(old_contract.get("expires_at_tick", 9223372036854775807)):
+                return {"ok": false, "fatal": true, "reason": "n152_invalid_posted_expiry"}
+            allowed["status"] = "expired"
+        if refunded_ids.has(id):
+            if int(new_contract.get("reserved", -1)) != 0:
+                return {"ok": false, "fatal": true, "reason": "n152_unclosed_funded_contract"}
+            allowed["reserved"] = 0
+        if allowed != new_contract:
+            return {"ok": false, "fatal": true, "reason": "n152_mutated_unrelated_contract_terms"}
+    if old_bank.get("balances", {}).size() != next_bank.get("balances", {}).size() or next_bank.get("receipts", {}).size() != old_bank.get("receipts", {}).size() + expected_money_receipts.size():
+        return {"ok": false, "fatal": true, "reason": "n152_changed_ledger_account_or_receipt_count"}
+    for receipt_id in old_bank["receipts"]:
+        if next_bank["receipts"].get(receipt_id, null) != old_bank["receipts"][receipt_id]:
+            return {"ok": false, "fatal": true, "reason": "n152_changed_existing_money_receipt"}
+    for receipt_id in next_bank["receipts"]:
+        if not old_bank["receipts"].has(receipt_id) and not expected_money_receipts.has(receipt_id):
+            return {"ok": false, "fatal": true, "reason": "n152_unexpected_money_receipt"}
+    for account in old_bank["balances"]:
+        if not next_bank["balances"].has(account):
+            return {"ok": false, "fatal": true, "reason": "n152_lost_account"}
+        if next_bank["balances"][account] != old_bank["balances"][account] and not authorized_accounts.has(account):
+            return {"ok": false, "fatal": true, "reason": "n152_modified_unrelated_wallet"}
+    var ledger_next := Ledger.new()
+    if not ledger_next.restore(next_bank) or ledger_next.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "n152_money_not_conserved"}
+    var board_next := ContractBoard.new(ledger_next)
+    if not board_next.restore(next_board):
+        return {"ok": false, "fatal": true, "reason": "n152_board_restore_rejected"}
+    var staged: Dictionary = _world.duplicate(true)
+    staged["contract_board"] = next_board.duplicate(true)
+    for item in proposal["refunded"]:
+        var id: String = str(item["contract_id"])
+        var escrow: String = str(item["escrow"])
+        var payer: String = str(item["payer"])
+        staged["escrow_balances"][escrow] = ledger_next.balance(escrow)
+        var payer_balance: int = ledger_next.balance(payer)
+        if payer.begins_with("facility/"):
+            var facility_id: String = payer.substr(9)
+            if not staged["facilities"].has(facility_id):
+                return {"ok": false, "fatal": true, "reason": "n152_refund_missing_facility"}
+            staged["facilities"][facility_id]["credits"] = payer_balance
+        elif payer.begins_with("population/"):
+            var population_id: String = payer.substr(11)
+            if not staged["populations"].has(population_id):
+                return {"ok": false, "fatal": true, "reason": "n152_refund_missing_household"}
+            staged["populations"][population_id]["wealth"] = payer_balance
+        elif payer.begins_with("faction/"):
+            var faction_id: String = payer.substr(8)
+            if not staged.get("faction_treasuries", {}).has(faction_id):
+                return {"ok": false, "fatal": true, "reason": "n152_refund_missing_treasury"}
+            staged["faction_treasuries"][faction_id] = payer_balance
+        else:
+            return {"ok": false, "fatal": true, "reason": "n152_refund_noncanonical_beneficiary"}
+    var valid: String = Schema.validate(staged)
+    if not valid.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n152_invalid_world_" + valid}
+    var expected: Dictionary = Schema.accounts(staged)
+    if expected.size() != next_bank["balances"].size():
+        return {"ok": false, "fatal": true, "reason": "n152_wallet_cardinality_mismatch"}
+    for account in expected:
+        if next_bank["balances"].get(account, null) != expected[account]:
+            return {"ok": false, "fatal": true, "reason": "n152_ledger_world_balance_divergence"}
+    _world = staged
+    _ledger = ledger_next
+    return {"ok": true, "tick": tick, "status": "N152_CLOSED_WITH_REAL_N9_RECEIPTS",
+        "expired": proposal["expired"].duplicate(true),
+        "refunded": proposal["refunded"].duplicate(true),
+        "blocked": proposal.get("blocked", []).duplicate(true)}
 
 
 ## N153 accepted assignment COMMIT: same N104 Board, N9 Ledger and N39
