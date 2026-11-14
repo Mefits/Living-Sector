@@ -91,6 +91,11 @@ func _advance_one_tick() -> void:
 ## SAME N39 world and one clock. N131 reprice produces NO stock or cash.
 func _execute_integrated_phase(phase: String, tick: int) -> bool:
     if phase == "factions":
+        # Read-only counters are per-tick. Never show yesterday's funded
+        # N134 commission as a new building order today.
+        _last_n134_result = {"ok": true, "tick": tick,
+            "commissioned": [], "blocked": [], "heads": {},
+            "status": "N134_COORDINATION_NOT_DUE"}
         if _fleet_roster == null or _fleet_resolver == null:
             _last_n153_result = {"ok": false, "reason": "missing_native_ship_ai_sources"}
             return false
@@ -202,7 +207,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # An N154 offer alone is NEVER permission to debit treasury.
         if tick % maxi(1, 60 * _tick_multiplier) == 0:
             _last_n134_result = {"ok": true, "tick": tick,
-                "commissioned": [], "blocked": [], "heads": {}}
+                "commissioned": [], "blocked": [], "heads": {},
+                "status": "N134_SOURCE_EVALUATED"}
             var head_world: Dictionary = production.world_snapshot()
             if head_world.has("construction_sites"):
                 var head_factions: Array = head_world.get("faction_treasuries", {}).keys()
