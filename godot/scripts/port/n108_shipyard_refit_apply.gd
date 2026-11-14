@@ -122,6 +122,12 @@ static func _apply(world: Dictionary, ship_id: String,
     ship["fitting"]["derived"] = effects
     ship["cargo_capacity"] = roundi(new_cargo)
     ship["speed_modifier"] = new_speed
+    # Keep N51's ONE derived fitting authoritative for every consumer:
+    # N104 contract acceptance uses comms, N14 uses speed, N15 cargo.
+    # Frozen Rust stores fuel-efficiency as a derived stat; its native
+    # ShipFuel consumption rate remains class-base during movement.
+    ship["comms_bonus"] = float(effects["comms_bonus"])
+    ship["fuel_efficiency_mult"] = float(effects["fuel_efficiency_mult"])
     if ship.has("lifecycle_dirty"):
         ship["lifecycle_dirty"] = true
     if mode != "admin_override":
