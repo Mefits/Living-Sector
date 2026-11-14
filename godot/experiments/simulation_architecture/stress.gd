@@ -184,7 +184,8 @@ func _execute_case(config: Dictionary, case_index: int,
                 # still has a recoverable record of completed measurements.
                 _report["in_progress"] = {
                     "case": name, "seed": seed, "repeat": repetition + 1,
-                    "mode": mode, "last_metrics": metrics}
+                    "mode": mode, "last_metrics": metrics,
+                    "all_samples_in_case": samples}
                 _save()
             var reference: Dictionary = results["tick"]["state"]
             for mode in ["event", "hybrid"]:
@@ -225,9 +226,10 @@ func _execute_case(config: Dictionary, case_index: int,
 func _median(values: Array[float]) -> float:
     values.sort()
     var count: int = values.size()
+    var middle: int = int(count / 2)
     if count % 2 == 1:
-        return values[count / 2]
-    return (values[count / 2 - 1] + values[count / 2]) / 2.0
+        return values[middle]
+    return (values[middle - 1] + values[middle]) / 2.0
 
 func _save() -> void:
     var json_file: FileAccess = FileAccess.open(JSON_PATH, FileAccess.WRITE)
