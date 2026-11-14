@@ -411,6 +411,20 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_ship_result["n97_paid_moves"] = []
         _last_ship_result["n108_paid_refits"] = []
         _last_ship_result["n21_auto_dock"] = []
+        # Frozen Rust behavior.rs: accumulate idle/strike state after
+        # deciding the active goal, BEFORE the BT's ship transactions
+        # take effect. A confirmed paid delivery later clears hoard
+        # strikes, but cannot retroactively erase a source command.
+        # P2 N158 visits each live ship once per ships phase; no second
+        # artificial LOD runner is created.
+        var lifecycle: Dictionary = production.apply_native_n148_ship_lifecycle(
+            tick, _tick_multiplier)
+        if not lifecycle.get("ok", false):
+            _last_n148_result = lifecycle
+            _last_ship_result = {"ok": false,
+                "reason": "n148_canonical_lifecycle_" +
+                    str(lifecycle.get("reason", "invalid"))}
+            return false
         for command in planned.get("commands", []):
             var kind: String = str(command.get("kind", ""))
             var ship_id: String = str(command.get("ship", ""))
@@ -581,20 +595,6 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     "ship_id": str(record.get("ship_id", "")),
                     "contract_id": str(record.get("contract_id", "")),
                     "reason": str(record.get("reason", ""))})
-        # N148 is evaluated AFTER N84/N146/real N97 payout has
-        # committed. This is the same current ship tick and same N39
-        # World. Only actual delivered credits can clear hoard strikes.
-        # Rust ShipLifecycle runs once per fired ship decision. The P2
-        # runner currently visits every live ship once per ships phase;
-        # never run a second autonomous fleet clock to fake LOD.
-        var lifecycle: Dictionary = production.apply_native_n148_ship_lifecycle(
-            tick, _tick_multiplier)
-        if not lifecycle.get("ok", false):
-            _last_n148_result = lifecycle
-            _last_ship_result = {"ok": false,
-                "reason": "n148_canonical_lifecycle_" +
-                    str(lifecycle.get("reason", "invalid"))}
-            return false
         var requests: Array = []
         for emitted in lifecycle.get("commands", []):
             # N146 is the typed command source; the frozen N148 P1
