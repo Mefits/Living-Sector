@@ -9,6 +9,7 @@ const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
 const NativeTradeAction = preload("res://scripts/sim/phase2/unified_n83_trade_action.gd")
 const NativeServiceAction = preload("res://scripts/sim/phase2/unified_n97_ship_service_action.gd")
 const N90 = preload("res://scripts/simulation/ai/native_ship_transaction_slot.gd")
+const N104Resume = preload("res://scripts/sim/phase2/unified_n104_contract_resume.gd")
 
 ## Original colony contract targets a temporary physical dock, not a
 ## market warehouse. All IDs come from the one N39 source receipt.
@@ -508,11 +509,29 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "ship_id": str(ship_id)}
         var bt: Variant = ship.get("current_bt", null)
         if bt == null:
-            # Legacy N153 checkpoint before N84 was attached. Do not
-            # synthesize a tree or halt the whole simulation on restore.
-            records.append({"ship_id": str(ship_id), "contract_id": contract_id,
-                "leaf": "", "status": Bt.RUNNING,
-                "reason": "legacy_n153_order_needs_n81_replan"})
+            if not contract_id.is_empty():
+                # Rust resume_contract_bt rebuilds a real GOAP tree
+                # from the current ship, cargo and held N104 contract.
+                var recovered: Dictionary = N104Resume.propose(
+                    ship, held, graph)
+                if recovered.get("ok", false):
+                    ship["current_bt"] = recovered["tree"].duplicate(true)
+                    ship["current_goal"] = str(recovered["goal"])
+                    ship["last_plan_tick"] = tick
+                    ship["planning_source"] = "n104_original_n81_checkpoint_resume"
+                    changed = true
+                    records.append({"ship_id": str(ship_id),
+                        "contract_id": contract_id, "leaf": "",
+                        "status": Bt.RUNNING,
+                        "reason": "n104_original_goap_recovered"})
+                    continue
+            records.append({"ship_id": str(ship_id),
+                "contract_id": contract_id, "leaf": "",
+                "status": Bt.RUNNING,
+                "reason": "n104_wait_source_resume_" + str(
+                    recovered.get("reason", "no_held_contract"))
+                    if not contract_id.is_empty() else
+                    "n84_no_source_idle_plan"})
             continue
         if not (bt is Dictionary) or not Bt.validate(bt):
             return {"ok": false, "reason": "n84_invalid_saved_plan",
@@ -556,23 +575,73 @@ static func propose(world: Dictionary, graph: RefCounted,
                     "leaf": current_leaf, "status": Bt.FAILURE,
                     "reason": detail["reason"]})
                 continue
-            if not contract_id.is_empty() and detail["reason"] == (
-                    "n21_original_dock_wait_timeout"):
-                # N104 accepted / picked_up jobs have prepaid escrow and
-                # possibly real N15 cargo. Never cancel or lose this paid
-                # obligation just because its N21 queue ran out of patience.
-                # Source planner cannot safely replace an occupied N104
-                # job with a speculative new one in this same ship phase.
-                # Clear only its FIFO wait cursor and retry the *persisted*
-                # BT next N140 fire; this is a safe fail-closed bridge
-                # pending a full source-aware N153 contract replan.
+            if not contract_id.is_empty():
+                var picked_up: bool = str(held.get("status", "")) == "picked_up"
+                var good: String = str(held.get("commodity", ""))
+                var has_original_load: bool = int(ship.get(
+                    "cargo", {}).get(good, 0)) >= int(held.get("quantity", 1))
+                # Rust ContractBoard::release is guarded Accepted only.
+                # A physically loaded ship must never release this
+                # paid N104 obligation for a second free pickup.
+                if not picked_up and not has_original_load:
+                    var release: Dictionary = Commands.make_command(
+                        "ReleaseContract", {"ship": str(ship_id),
+                        "ship_id": str(ship_id), "contract_id": contract_id,
+                        "reason": "bt_failure"})
+                    if release.is_empty() or not cmd_buffer.push(release):
+                        return {"ok": false,
+                            "reason": "n104_invalid_n146_release_command",
+                            "ship_id": str(ship_id)}
+                    var pending: Dictionary = N90.cancel_on_replan(
+                        ship.get("transaction", N90.empty()))
+                    if not pending.get("ok", false):
+                        return {"ok": false,
+                            "reason": "n104_invalid_original_n90_cancel",
+                            "ship_id": str(ship_id)}
+                    ship["transaction"] = pending["state"].duplicate(true)
+                    ship["current_bt"] = null
+                    ship["dock_attempt_start_tick"] = null
+                    # Only N39 ReleaseContract Apply is authorized to
+                    # clear active_contract_id and return to Posted.
+                    ship["planning_source"] = (
+                        "n104_pending_release_on_bt_failure")
+                    changed = true
+                    records.append({"ship_id": str(ship_id),
+                        "contract_id": contract_id, "leaf": current_leaf,
+                        "status": Bt.FAILURE,
+                        "reason": "n104_release_accepted_to_n153"})
+                    continue
+                # Rust resume_contract_bt starts with actual cargo;
+                # a PickedUp run bypasses Accept and Buy permanently.
+                var resume: Dictionary = N104Resume.propose(
+                    ship, held, graph)
                 ship["dock_attempt_start_tick"] = null
-                ship["planning_source"] = "n21_paid_contract_retry_after_timeout"
+                if resume.get("ok", false):
+                    var canceled_slot: Dictionary = N90.cancel_on_replan(
+                        ship.get("transaction", N90.empty()))
+                    if not canceled_slot.get("ok", false):
+                        return {"ok": false,
+                            "reason": "n104_invalid_pickup_resume_mailbox"}
+                    ship["transaction"] = canceled_slot["state"].duplicate(true)
+                    ship["current_bt"] = resume["tree"].duplicate(true)
+                    ship["current_goal"] = str(resume["goal"])
+                    ship["last_plan_tick"] = tick
+                    ship["planning_source"] = "n104_original_n81_pickedup_resume"
+                    changed = true
+                    records.append({"ship_id": str(ship_id),
+                        "contract_id": contract_id, "leaf": current_leaf,
+                        "status": Bt.RUNNING,
+                        "reason": "n104_replanned_from_actual_paid_cargo"})
+                    continue
+                # Missing physical proof/route cannot justify
+                # destroying N104 escrow. The next N140 gate can
+                # retry; no phantom goods, money or board release.
+                ship["planning_source"] = "n104_replan_blocked_real_source"
                 changed = true
                 records.append({"ship_id": str(ship_id),
                     "contract_id": contract_id, "leaf": current_leaf,
-                    "status": Bt.RUNNING,
-                    "reason": "n21_contract_wait_timed_out_safe_retry"})
+                    "status": Bt.RUNNING, "reason": str(resume.get(
+                        "reason", "no_native_resume_route"))})
                 continue
             return {"ok": false, "reason": "n84_leaf_failed_" + current_leaf,
                 "ship_id": str(ship_id)}
