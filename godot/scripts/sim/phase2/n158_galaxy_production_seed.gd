@@ -192,6 +192,9 @@ static func from_seed(seed: Dictionary) -> Dictionary:
             "credits": int(fac["credits"]),
             "crew_count": int(NATIVE_CREW_BY_TYPE.get(kind, 6)),
             "docking_capacity": int(fac.get("docking_capacity", 0)),
+            # Source Rust FacilityStorage default is an empty FIFO.
+            # It stays inside this physical facility in N39/N38.
+            "dock_queue": [],
             "morale": INITIAL_MORALE,
             "level": 1, "xp": 0, "abandoned": false,
             # Preserve only the ORIGINAL frozen seed's private service
