@@ -6,6 +6,8 @@ const Commands = preload("res://scripts/simulation/native_sim_command_buffer.gd"
 const ShipPhase = preload("res://scripts/sim/phase2/unified_ship_phase.gd")
 const N91 = preload("res://scripts/ported/n91_construction_executor.gd")
 const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
+const NativeTradeAction = preload("res://scripts/sim/phase2/unified_n83_trade_action.gd")
+const N90 = preload("res://scripts/simulation/ai/native_ship_transaction_slot.gd")
 
 ## Original colony contract targets a temporary physical dock, not a
 ## market warehouse. All IDs come from the one N39 source receipt.
@@ -137,6 +139,32 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.RUNNING, "reason": "n91_material_delivery_pending"}
         return {"status": Bt.RUNNING, "reason": "n91_wait_n141_paid_work"}
     var contract_id: String = str(ship.get("active_contract_id", ""))
+    if contract_id.is_empty() and str(ship.get("current_goal", "")) == "trade_route":
+        if kind in ["Buy", "Sell", "SellAll"]:
+            return NativeTradeAction.propose(ship, action, world, tick)
+        if kind in ["Dock", "Undock"]:
+            # A free trade run uses a genuine station N21 slot, not an
+            # invented N104 contract. The N158 command Apply revalidates
+            # the original market owner, ship and physical location.
+            var market: Dictionary = world.get("markets", {}).get(location, {})
+            var station_id: String = str(market.get("owner", ""))
+            var station: Dictionary = world.get("facilities", {}).get(station_id, {})
+            if station.is_empty() or str(station.get("location", "")) != location or (
+                    str(station.get("type", "")) != "station"):
+                return {"status": Bt.RUNNING, "reason": "n83_no_real_trade_dock"}
+            if not ship.get("transit", {}).is_empty():
+                return {"status": Bt.RUNNING, "reason": "n83_wait_real_ship_arrival"}
+            var docked: String = str(ship.get("docked_at", ""))
+            if kind == "Dock" and docked == station_id:
+                return {"status": Bt.SUCCESS}
+            if kind == "Undock" and docked.is_empty():
+                return {"status": Bt.SUCCESS}
+            var operation: String = "RequestDock" if kind == "Dock" and docked.is_empty() else "ReleaseDock"
+            var dock_cmd: Dictionary = Commands.make_command(operation, {
+                "ship": ship_id, "facility_location": location,
+                "native_free_trade": true, "preferred_facility_type": "station"})
+            return {"status": Bt.RUNNING, "commands": [dock_cmd],
+                "reason": "n83_wait_real_market_dock"} if not dock_cmd.is_empty() else {"status": Bt.FAILURE}
     var contracts: Dictionary = world.get("contract_board", {}).get("contracts", {})
     var c: Dictionary = contracts.get(contract_id, {})
     var stage: String = str(c.get("status", ""))
@@ -307,7 +335,7 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             "ship": ship_id, "slot": slot, "slug": slug})
         return {"status": Bt.RUNNING, "commands": [command],
             "reason": "n146_n108_paid_refit_request"} if not command.is_empty() else {"status": Bt.FAILURE}
-    if kind in ["SellAll", "Refuel", "Rest"]:
+    if kind in ["Refuel", "Rest"]:
         return {"status": Bt.RUNNING, "reason": "awaiting_native_paid_" + kind}
     if kind == "Idle":
         return {"status": Bt.SUCCESS}
@@ -333,7 +361,7 @@ static func propose(world: Dictionary, graph: RefCounted,
         var contract_id: String = str(ship.get("active_contract_id", ""))
         if contract_id.is_empty():
             var own_goal: String = str(ship.get("current_goal", ""))
-            if own_goal not in ["construct", "retrofit", "refit"]:
+            if own_goal not in ["construct", "retrofit", "refit", "trade_route"]:
                 continue
             var assigned_bt: Variant = ship.get("current_bt", null)
             if not (assigned_bt is Dictionary) or not Bt.validate(assigned_bt):
@@ -387,7 +415,24 @@ static func propose(world: Dictionary, graph: RefCounted,
             return {"ok": false, "reason": "n84_tick_rejected",
                 "ship_id": str(ship_id)}
         if next["status"] == Bt.FAILURE:
-            # Fail closed: leave this original physical World untouched.
+            if contract_id.is_empty() and str(ship.get("current_goal", "")) == "trade_route":
+                # Rust failed speculative trade goal can be abandoned;
+                # never halt the N158 world or manufacture a fill.
+                # Any settled prior purchases remain physical cargo.
+                var active_slot: Dictionary = ship.get("transaction", N90.empty())
+                var canceled: Dictionary = N90.cancel_on_replan(active_slot)
+                if not canceled.get("ok", false):
+                    return {"ok": false, "reason": "n83_replan_invalid_n90_slot"}
+                ship["transaction"] = canceled["state"].duplicate(true)
+                ship["current_goal"] = "idle"
+                ship["current_goal_score"] = 0.0
+                ship["current_bt"] = null
+                ship["planning_source"] = "n83_original_rejected_replan"
+                changed = true
+                records.append({"ship_id": str(ship_id), "contract_id": "",
+                    "leaf": current_leaf, "status": Bt.FAILURE,
+                    "reason": detail["reason"]})
+                continue
             return {"ok": false, "reason": "n84_leaf_failed_" + current_leaf,
                 "ship_id": str(ship_id)}
         for command in next.get("commands", []):
@@ -419,7 +464,18 @@ static func propose(world: Dictionary, graph: RefCounted,
             ship = staged["ships"][ship_id]
         if next["tree"] != bt:
             changed = true
+        if ship != world["ships"][ship_id]:
+            # An N90 poll may clear a paid acknowledgment without a new
+            # command; that single-owner cursor must still be committed.
+            changed = true
         ship["current_bt"] = next["tree"].duplicate(true)
+        if next["status"] == Bt.SUCCESS and contract_id.is_empty() and (
+                str(ship.get("current_goal", "")) == "trade_route"):
+            ship["current_goal"] = "idle"
+            ship["current_goal_score"] = 0.0
+            ship["current_bt"] = null
+            ship["planning_source"] = "n83_original_traded_and_finished"
+            changed = true
         if not next.get("commands", []).is_empty():
             changed = true
         records.append({"ship_id": str(ship_id), "contract_id": contract_id,
