@@ -223,14 +223,15 @@ static func move(world: Dictionary, bank: Dictionary, cid: String,
         return _reject("n104_replayed_physical_passenger_receipt")
     var action: String = "load" if embarking else "unload"
     var wealth_receipt: String = ""
+    var origin_population: String = ""
     if embarking:
         if staged["passenger_manifests"].has(cid):
             return _reject("n104_duplicate_embark_manifest")
         var reserve: int = Seats.COLONY_SETTLERS if str(c.get("mission_category", "")) == "strategy.colony.v1" else 0
-        var origin: String = _resident(staged, faction, loc, qty + reserve)
-        if origin.is_empty():
+        origin_population = _resident(staged, faction, loc, qty + reserve)
+        if origin_population.is_empty():
             return _reject("n104_insufficient_real_settlers")
-        var household: Dictionary = staged["populations"][origin]
+        var household: Dictionary = staged["populations"][origin_population]
         var people: int = int(household["count"])
         var wealth: int = int(household["wealth"])
         if people <= 0 or wealth < 0 or wealth > Seats.MAX_SAFE_FLOAT_INT or (
@@ -243,14 +244,14 @@ static func move(world: Dictionary, bank: Dictionary, cid: String,
         if moved > 0:
             wealth_receipt = "passenger:" + cid + ":wealth_out"
             var paid: Dictionary = ledger.transfer(wealth_receipt,
-                Schema.household_account(origin), pocket, moved,
+                Schema.household_account(origin_population), pocket, moved,
                 tick, "real_passenger_wealth_embark")
             if not paid.get("ok", false):
                 return paid
-        staged["populations"][origin]["count"] = people - qty
-        staged["populations"][origin]["wealth"] = ledger.balance(Schema.household_account(origin))
+        staged["populations"][origin_population]["count"] = people - qty
+        staged["populations"][origin_population]["wealth"] = ledger.balance(Schema.household_account(origin_population))
         staged["passenger_manifests"][cid] = {
-            "ship_id": sid, "origin_population_id": origin,
+            "ship_id": sid, "origin_population_id": origin_population,
             "destination_population_id": "", "faction_id": faction,
             "quantity": qty, "wealth": moved, "initial_wealth": moved,
             "phase": "embarked", "embarked_at_tick": tick}
@@ -290,7 +291,7 @@ static func move(world: Dictionary, bank: Dictionary, cid: String,
     # manifest on the canonical ContractBoard, not a shadow register.
     var board_manifest: Dictionary = board.snapshot()
     board_manifest["contracts"][cid]["embarked"] = {
-        "origin_population": origin, "wealth": int(staged["passenger_manifests"][cid]["initial_wealth"])
+        "origin_population": origin_population, "wealth": int(staged["passenger_manifests"][cid]["initial_wealth"])
     } if embarking else null
     if not board.restore(board_manifest):
         return _reject("n104_passenger_manifest_board_rejected")
