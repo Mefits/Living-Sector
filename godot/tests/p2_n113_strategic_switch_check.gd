@@ -68,6 +68,22 @@ func _initialize() -> void:
     if not _assert(equal.get("pending", false),
             "equality at Rust >=1.20 threshold was rejected"):
         return
+    var skipped: Dictionary = Switch.decide(first["memory"],
+        _offers(), 180, false, false, 60)
+    if not _assert(skipped.get("ok", false) and
+            skipped.get("pending", false) and
+            skipped["choice"]["action"] == "supply" and
+            int(skipped["memory"]["pending"]["first_seen_tick"]) == 180 and
+            int(skipped["memory"]["pending"]["consecutive_cycles"]) == 1,
+            "missing N147 offer on intervening real N134 cycle was counted"):
+        return
+    var consecutive: Dictionary = Switch.decide(first["memory"],
+        _offers(), 120, false, false, 60)
+    if not _assert(consecutive.get("reason", "") ==
+            "sustained_higher_utility" and
+            consecutive["choice"]["action"] == "migrate",
+            "adjacent 60-tick real cycle was not counted"):
+        return
     var weak: Dictionary = Switch.decide(_old(),
         _offers(51.0, 60.0), 60)
     if not _assert(weak.get("reason") ==
