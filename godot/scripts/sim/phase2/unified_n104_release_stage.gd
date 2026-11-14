@@ -34,6 +34,18 @@ static func stage(world: Dictionary, tick: int, ship_id: String,
     # Source ContractFunding.agreed_payment is None after release;
     # the existing N104 P2 representation has this top-level field.
     board["agreed_payment"] = -1
+    if board.get("funding") is Dictionary:
+        var funded: Dictionary = board["funding"]
+        funded["agreed_payment"] = null
+    # Rust Contract::fixed_strategy_reward: an original faction
+    # strategy offer must regain its authorized initial fixed price
+    # rather than retain an old increased/negotiated quote.
+    if str(board.get("funding_source", "")) == "faction" and str(
+            board.get("mission_category", "")) in [
+            "strategy.logistics.v1", "strategy.construction.v1",
+            "strategy.colony.v1"]:
+        board["payment"] = int(board.get(
+            "initial_payment", board.get("payment", 0)))
     # Never refund or decrease prepaid reserved escrow on a release.
     var ship: Dictionary = next["ships"][ship_id]
     ship["active_contract_id"] = ""
