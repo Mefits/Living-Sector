@@ -1,0 +1,16 @@
+{
+  "worker": "interactive-primary-continuation",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "goal": "Wire frozen Rust admin_remove_ship and admin_remove_facility N152 cascades with authoritative P2 N39/N104/N9, persisted retirement histories and physical-reference cleanup; source-only, no game tests/balance changes",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n152_admin_cleanup.gd",
+    "godot/scripts/sim/economy/credit_ledger.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/docs/phase2/handoffs/20261114-admin-ship-facility-n152.md"
+  ],
+  "created": "2026-11-14",
+  "predecessor": "N152 expiration/refund lease RELEASED, PR249 head 25e169f"
+}
