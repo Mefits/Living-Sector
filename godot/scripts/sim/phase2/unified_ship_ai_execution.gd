@@ -258,28 +258,27 @@ static func propose(world: Dictionary, graph: RefCounted,
             var own_goal: String = str(ship.get("current_goal", ""))
             if own_goal not in ["construct", "retrofit", "refit"]:
                 continue
-            if own_goal in ["retrofit", "refit"]:
-                if not (ship.get("current_bt") is Dictionary) or not Bt.validate(ship["current_bt"]):
-                    return {"ok": false, "reason": "n108_missing_source_refit_bt", "ship_id": str(ship_id)}
-            else:
-                var assigned_bt: Variant = ship.get("current_bt", null)
+            var assigned_bt: Variant = ship.get("current_bt", null)
             if not (assigned_bt is Dictionary) or not Bt.validate(assigned_bt):
-                return {"ok": false, "reason": "n91_invalid_active_engineer_plan", "ship_id": str(ship_id)}
+                return {"ok": false, "reason": "n84_invalid_active_source_plan",
+                    "ship_id": str(ship_id)}
+            if own_goal == "construct":
                 var target_site: String = N91.target(assigned_bt)
                 if target_site.is_empty():
-                return {"ok": false, "reason": "n91_active_construct_target_missing", "ship_id": str(ship_id)}
-            if not staged.get("construction_sites", {}).has(target_site):
-                # Source N154 facility already appeared; relinquish the
-                # mission, not the actual ship dock, goods or credits.
-                ship["current_goal"] = "idle"
-                ship["current_bt"] = null
-                ship["current_goal_score"] = 0.0
-                ship["planning_source"] = "n91_construction_materialized"
-                changed = true
-                records.append({"ship_id": str(ship_id), "contract_id": "",
-                    "site_id": target_site, "leaf": "", "status": Bt.SUCCESS,
-                    "reason": "n154_construction_completed"})
-                continue
+                    return {"ok": false, "reason": "n91_active_construct_target_missing",
+                        "ship_id": str(ship_id)}
+                if not staged.get("construction_sites", {}).has(target_site):
+                    # Native N154 has materialized the construction site:
+                    # release only its N91 plan, never its physical dock.
+                    ship["current_goal"] = "idle"
+                    ship["current_bt"] = null
+                    ship["current_goal_score"] = 0.0
+                    ship["planning_source"] = "n91_construction_materialized"
+                    changed = true
+                    records.append({"ship_id": str(ship_id), "contract_id": "",
+                        "site_id": target_site, "leaf": "", "status": Bt.SUCCESS,
+                        "reason": "n154_construction_completed"})
+                    continue
         var board: Dictionary = staged.get("contract_board", {})
         var contracts: Dictionary = board.get("contracts", {})
         var held: Dictionary = contracts.get(contract_id, {})
@@ -321,7 +320,7 @@ static func propose(world: Dictionary, graph: RefCounted,
             if str(command.get("ship", "")) != str(ship_id):
                 return {"ok": false, "reason": "n146_ship_actor_mismatch",
                     "ship_id": str(ship_id)}
-            if str(command.get("kind", "")) in ["RequestDock", "ReleaseDock", "RequestShipTransaction"]:
+            if str(command.get("kind", "")) in ["RequestDock", "ReleaseDock", "RequestShipTransaction", "RequestRefit"]:
                 # N39 applies these commands in the same physical ships
                 # phase, AFTER the N84 cursor is committed. No side effects
                 # in a BT or command-buffer proposal.
