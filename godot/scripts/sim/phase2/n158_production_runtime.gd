@@ -13,6 +13,8 @@ const N153Dispatch = preload("res://scripts/sim/phase2/unified_n153_contract_dis
 const NativeAIExecution = preload("res://scripts/sim/phase2/unified_ship_ai_execution.gd")
 const NativeLodShipAI = preload("res://scripts/sim/phase2/unified_n140_ship_ai_dispatch.gd")
 const NativeTradeRoute = preload("res://scripts/sim/phase2/unified_n83_trade_route_planner.gd")
+const NativeIceMining = preload("res://scripts/sim/phase2/unified_n80_ship_mining_stage.gd")
+const NativeGateExploration = preload("res://scripts/sim/phase2/unified_n80_ship_exploration_stage.gd")
 const NativeConstruction = preload("res://scripts/sim/phase2/unified_native_construction_phase.gd")
 const N91Dispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
 const N134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
@@ -712,6 +714,41 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 return false
         _last_ship_result["n83_autonomous_plans"] = trade_source.get(
             "accepted", []).duplicate(true)
+        # Source Rust N103 mining and N80 smart_idle_fallback operate
+        # AFTER real N153 contracts and N83 paid trade choice. Only ships
+        # fired by the SAME N140 source LOD gate and STILL idle qualify.
+        # Proposals mutate neither bodies nor Market nor ship wallets;
+        # N39 admits their serialized N84 plan before single N146 Apply.
+        var native_ice: Dictionary = NativeIceMining.stage(
+            production.world_snapshot(), _fleet_roster.registry.graph(),
+            _fleet_resolver, tick, n140_fired)
+        if not native_ice.get("ok", false):
+            _last_ship_result = {"ok": false, "reason": "n103_native_source_" +
+                str(native_ice.get("reason", "rejected"))}
+            return false
+        if native_ice.get("changed", false) and not production.apply_ship_phase(
+                tick, native_ice):
+            _last_ship_result = {"ok": false, "reason": "n103_single_n39_plan_commit_rejected"}
+            return false
+        _last_ship_result["n103_native_mining_goals"] = native_ice.get(
+            "accepted", []).duplicate(true)
+        _last_ship_result["n103_native_mining_blocked"] = native_ice.get(
+            "blocked", []).duplicate(true)
+        var native_explore: Dictionary = NativeGateExploration.stage(
+            production.world_snapshot(), _fleet_roster.registry.graph(),
+            _fleet_resolver, tick, n140_fired)
+        if not native_explore.get("ok", false):
+            _last_ship_result = {"ok": false, "reason": "n80_native_source_" +
+                str(native_explore.get("reason", "rejected"))}
+            return false
+        if native_explore.get("changed", false) and not production.apply_ship_phase(
+                tick, native_explore):
+            _last_ship_result = {"ok": false, "reason": "n80_single_n39_plan_commit_rejected"}
+            return false
+        _last_ship_result["n80_native_explore_goals"] = native_explore.get(
+            "accepted", []).duplicate(true)
+        _last_ship_result["n80_native_explore_blocked"] = native_explore.get(
+            "blocked", []).duplicate(true)
         # The execution authority is N84 (persistent BT), which emits
         # N146 commands, checked against N14 physical transit and applied
         # ONCE through N39 World. No hand-written contract-to-route loop.
@@ -809,7 +846,21 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                         authentic_dock = authentic_dock and int(station.get(
                             "docking_capacity", 0)) >= 1 and not bool(station.get(
                             "abandoned", false))
-                    if str(ship.get("current_goal", "")) != "trade_route" or (
+                    var original_goal: String = str(ship.get("current_goal", ""))
+                    var tagged_goal: String = str(command.get("native_source_goal", ""))
+                    var native_goal_authorized: bool = (
+                        original_goal in ["trade_route", "mine", "explore"] and
+                        original_goal == tagged_goal and
+                        ship.get("current_bt", null) is Dictionary and
+                        NativeBt.validate(ship["current_bt"]))
+                    # Mining and exploration are allowed only at a real
+                    # Market-owned N21 station, never a gate/shipyard or
+                    # invented docking facility. N83 retains its own
+                    # existing original market-operator check.
+                    if original_goal in ["mine", "explore"] and operation == "dock":
+                        authentic_dock = authentic_dock and str(station.get(
+                            "type", "")) == "station"
+                    if not native_goal_authorized or (
                             not str(ship.get("active_contract_id", "")).is_empty() or
                             str(command.get("facility_location", "")) != trading_loc or
                             station_id.is_empty() or not authentic_dock):
@@ -818,21 +869,21 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                         return false
                     var trade_dock: Dictionary = FleetLogistics.command(
                         snapshot, operation, ship_id,
-                        "n83:dock:" + ship_id + ":" + operation + ":" + str(tick),
+                        "n80:n21:" + original_goal + ":" + ship_id + ":" + operation + ":" + str(tick),
                         tick, {}, "market")
                     if not trade_dock.get("ok", false):
                         _last_ship_result["autonomous_blocked"].append({
                             "ship_id": ship_id,
-                            "reason": "n83_n21_" +
+                            "reason": "native_n80_n21_" +
                                 str(trade_dock.get("reason", "dock_not_ready"))})
                         continue
                     if not production.apply_fleet_logistics(tick, trade_dock, true):
                         _last_ship_result = {"ok": false,
-                            "reason": "n83_single_n39_n21_dock_apply_rejected"}
+                            "reason": "n80_single_n39_n21_dock_apply_rejected"}
                         return false
                     _last_ship_result["n21_auto_dock"].append({
                         "ship_id": ship_id, "operation": operation,
-                        "location": trading_loc, "kind": "source_free_trade"})
+                        "location": trading_loc, "kind": original_goal})
                     continue
                 # After the N97 pickup the ship is STILL physically docked
                 # at the source, although N104 stage is now picked_up.
