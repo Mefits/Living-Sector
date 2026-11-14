@@ -1428,11 +1428,37 @@ func _integrated_phase_failure_reason(phase: String) -> String:
     elif phase == "dock_queue":
         result = _last_n21_queue_result
     elif phase == "factions":
-        if not _last_body_territory.get("ok", true):
-            return str(_last_body_territory.get("reason", "native_territory_phase_rejected"))
-        if not _last_native_faction_finance.get("ok", true):
-            return str(_last_native_faction_finance.get("reason", "native_faction_finance_rejected"))
-        result = _last_n147_result if not _last_n147_result.get("ok", true) else (_last_research_result if not _last_research_result.get("ok", true) else (_last_n134_result if not _last_n134_result.get("ok", true) else (_last_n91_result if not _last_n91_result.get("ok", true) else (_last_construction_result if not _last_construction_result.get("ok", true) else _last_n153_result))))
+        # A failed N151 dock or N104/colony passenger operation must
+        # report ITS own source refusal, not an unrelated previous OK
+        # N153 result. The runner already freezes this attempted tick.
+        # Probe every live faction substage in source execution order.
+        var stages: Array = [
+            ["n150_body_territory", _last_body_territory],
+            ["n129_faction_finance", _last_native_faction_finance],
+            ["n153_freight_bid", _last_n153_result],
+            ["n104_passengers", _last_native_passengers],
+            ["n144_colony_metals", _last_b2_colony_metals],
+            ["n143_research", _last_research_result],
+            ["n91_engineers", _last_n91_result],
+            ["n141_construction_labor", _last_construction_result],
+            ["n134_head", _last_n134_result],
+            ["n92_colony_aftercare", _last_b4_aftercare],
+            ["n144_founding", _last_n144_new_sites],
+            ["n144_passenger_contracts", _last_n144_contracts],
+            ["n100_native_planner", _last_n100_result],
+            ["n121_native_execution", _last_n121_result],
+            ["n151_colony_scan", _last_n151_founding],
+            ["n151_colony_docks", _last_n151_docks],
+            ["n147_workforce_scan", _last_n147_result]
+        ]
+        for item in stages:
+            var stage: Dictionary = item[1]
+            if not stage.get("ok", true):
+                var detail: String = str(stage.get("reason", ""))
+                return str(item[0]) + ":" + (
+                    detail if not detail.is_empty() else
+                    "native_stage_rejected_without_reason")
+        return "factions_rejected_without_substage_result"
     elif phase == "relations":
         result = _last_faction_relations if not _last_faction_relations.get("ok", true) else _last_body_territory
     elif phase == "crisis":
