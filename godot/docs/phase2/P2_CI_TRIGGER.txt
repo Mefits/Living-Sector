@@ -1,5 +1,4 @@
-P2 STAGE1 CORRECTED GODOT SCRIPT IMPORT + N38 INTEGRATION — 2026-11-14
-Current source head before this combined test: ace66c97859ae089550f3e819f3e47fa2f91259d
-Previous run 43641857842 was blocked by space indentation in the new helper inside the tab-indented ship_state.gd. Converted that helper to tabs; no new gameplay/balance changes.
-Godot 4.7.2 must now prove script parser, N158 5-tick native production plus N38 persistence/restart, and N143 paid research plus N38 persistence/restart.
-Still not a Windows or full-autonomy PASS; no bypass of N9 money, cargo or contract integrity.
+P2 STAGE1 N38 NUMERIC ROUNDTRIP FINAL CHECK — 2026-11-14
+Source HEAD before check: 0ab4751d4247bac03e752cf643e207bddefbc1fb.
+The prior Godot 4.7.2 run showed both tests failing only on N38 serializer: last-bit native floats. Godot JSON float print is not token-idempotent. Use at most 1e-12 relative finite drift in non-financial fields, never N9/escrow/contract, never physical market supply or ship cargo. Ship N101 integer progression is normalized exactly and N108 fitting is verified from real module slots.
+One combined parser + paid production/save/load + N143 science/save/load check. No synthetic credit, stock or ship changes and no Windows/soak assertion.
