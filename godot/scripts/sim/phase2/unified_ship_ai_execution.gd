@@ -156,7 +156,8 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             if kind == "Dock":
                 var station: Dictionary = world.get("facilities", {}).get(station_id, {})
                 if station.is_empty() or str(station.get("location", "")) != location or (
-                        str(station.get("type", "")) != "station"):
+                        int(station.get("docking_capacity", 0)) < 1 or
+                        bool(station.get("abandoned", false))):
                     return {"status": Bt.RUNNING, "reason": "n83_no_real_trade_dock"}
                 if docked == station_id:
                     return {"status": Bt.SUCCESS}
