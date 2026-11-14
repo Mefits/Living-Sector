@@ -147,6 +147,24 @@ func source_system_offset_for_body(body_id: String) -> Array:
     return [source.x, source.y]
 
 
+## The actual frozen BodyOrbit::universe_position for one source
+## BodyIdentity. Native GateJump uses this plus DefaultHasher of the
+## ORIGINAL facility id, never FNV(location), route cost or screen pixels.
+func body_universe_position(body_id: String, model: RefCounted) -> Dictionary:
+    if not _loaded or model == null or not _bodies.has(body_id) or not (
+            model.has_method("orbital_snapshot")):
+        return {"ok": false, "reason": "unknown_original_body_or_model"}
+    if model.has_method("seed_fingerprint") and model.seed_fingerprint() != _fingerprint:
+        return {"ok": false, "reason": "wrong_original_seed"}
+    var actual: Variant = model.orbital_snapshot().get(body_id, null)
+    if not _finite_number(actual) or float(actual) < 0.0 or float(actual) >= 360.0:
+        return {"ok": false, "reason": "invalid_current_body_orbit"}
+    var source: Dictionary = _bodies[body_id]
+    var center: Vector2 = source["offset"] + Vector2(
+        cos(deg_to_rad(float(actual))),
+        sin(deg_to_rad(float(actual)))) * float(source["radius"])
+    return {"ok": true, "position": center}
+
 ## Derive every mapped location from CURRENT orbital angles and committed
 ## native elapsed time, not from route length, seed angle, or a UI projection.
 ## If an old checkpoint lacks the clock origin, station phase is unknown.
