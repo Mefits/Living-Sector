@@ -23,7 +23,7 @@ static func _type(c: Dictionary) -> String:
 static func _fixed_reward(c: Dictionary) -> bool:
 	var funding: Dictionary = c.get("funding", {}) if c.get("funding", {}) is Dictionary else {}
 	var category := str(c.get("mission_category", ""))
-	return str(funding.get("source", "")).to_lower() == "faction" and category in ["strategy.logistics.v1", "strategy.construction.v1", "strategy.colony.v1"]
+	return str(funding.get("source", c.get("funding_source", ""))).to_lower() == "faction" and category in ["strategy.logistics.v1", "strategy.construction.v1", "strategy.colony.v1"]
 
 static func _age(tick: int, posted: int) -> int:
 	return maxi(0, tick - posted)
