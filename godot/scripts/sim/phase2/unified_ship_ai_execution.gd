@@ -18,7 +18,10 @@ static func _real_contract_dock(world: Dictionary,
         var owner_id: String = str(market.get("owner", ""))
         if world.get("facilities", {}).has(owner_id) and str(world["facilities"][owner_id].get("type", "")) == "station":
             return {"id": owner_id, "type": "station"}
-    if str(contract.get("contract_type", "")) != "passenger" or (
+    # The Rust ContractType::Construction uses the SAME prepared site
+    # dock as founding passengers, but deposits into N154 rather than a
+    # non-existent Market warehouse.
+    if str(contract.get("contract_type", "")) not in ["passenger", "construction"] or (
             str(contract.get("mission_category", "")) != "strategy.colony.v1" or
             str(contract.get("destination_location", "")) != location):
         return {}
@@ -27,7 +30,9 @@ static func _real_contract_dock(world: Dictionary,
         if str(site.get("location_name", "")) != location or (
                 str(site.get("faction_id", "")) != str(contract.get("faction_id", "")) or
                 site.get("labor", {}) is not Dictionary or
-                site.get("labor", {}).get("colony_source", null) == null):
+                site.get("labor", {}).get("colony_source", null) == null or
+                (str(contract.get("contract_type", "")) == "construction" and
+                str(contract.get("colony_site_id", "")) != str(site_id))):
             continue
         var proof: Dictionary = world.get("construction_receipts", {}).get(
             "n151_colony_dock:" + str(site_id), {})
