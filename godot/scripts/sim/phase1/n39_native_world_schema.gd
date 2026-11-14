@@ -10,6 +10,7 @@ const Technology = preload("res://scripts/sim/strategy/native_technology_catalog
 const Construction = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
 const NativeRelations = preload("res://scripts/sim/phase1/n150_native_full_faction_relations.gd")
 const ShipyardRecipes = preload("res://scripts/sim/shipyard/native_module_recipes_n132.gd")
+const SourceExecution = preload("res://scripts/port/n121_native_execution_state.gd")
 
 static func validate(state: Dictionary) -> String:
     for key in ["facilities", "markets", "populations", "bodies"]:
@@ -279,6 +280,43 @@ static func validate(state: Dictionary) -> String:
                         return "native_colony_approval_site_diverged"
     if state.has("location_tiers") and not (state["location_tiers"] is Dictionary):
         return "invalid_location_tiers"
+    if state.has("native_planner_mode") or state.has("native_planner_records") or state.has("native_execution"):
+        if not state.has("native_planner_mode") or not state.has("native_planner_records") or not state.has("native_planner_last_tick") or not state.has("native_execution"):
+            return "incomplete_native_n100_n98_n121_state"
+        if str(state["native_planner_mode"]) not in ["legacy", "htn", "hybrid"]:
+            return "invalid_native_planner_mode"
+        if not (state["native_planner_records"] is Dictionary) or typeof(state["native_planner_last_tick"]) != TYPE_INT or int(state["native_planner_last_tick"]) < 0:
+            return "invalid_native_n100_plan_cursor"
+        if not (state["native_execution"] is Dictionary) or not SourceExecution.validate(state["native_execution"]):
+            return "invalid_native_n121_execution_state"
+        for faction in state["native_planner_records"]:
+            if not state.get("faction_treasuries", {}).has(faction):
+                return "n100_plan_for_unknown_faction"
+            var record: Variant = state["native_planner_records"][faction]
+            if not (record is Dictionary):
+                return "invalid_native_n100_record"
+            if str(record.get("faction_id", "")) != str(faction) or typeof(record.get("tick", null)) != TYPE_INT or int(record["tick"]) < 1 or int(record["tick"]) > int(state["native_planner_last_tick"]):
+                return "invalid_native_n100_plan_time"
+            if typeof(record.get("source_snapshot_tick", null)) != TYPE_INT or int(record["source_snapshot_tick"]) != int(record["tick"]):
+                return "invalid_native_n100_source_time"
+            if str(record.get("status", "")) == "n98_planned_not_dispatched":
+                for part in ["goal", "plan", "ledger"]:
+                    if not (record.get(part) is Dictionary):
+                        return "missing_original_n100_plan"
+                if not (record.get("actions") is Array):
+                    return "missing_original_n100_actions"
+                var ledger: Dictionary = record["ledger"]
+                if typeof(ledger.get("schema_version", null)) != TYPE_INT or int(ledger["schema_version"]) != 1 or str(ledger.get("faction_id", "")) != str(faction):
+                    return "invalid_native_n98_ledger_identity"
+                if str(ledger.get("goal_id", "")) != str(record["goal"].get("goal_id", "")) or str(ledger.get("planner_id", "")) != str(record["plan"].get("planner_id", "")):
+                    return "native_n100_n98_goal_disagreement"
+                if not (ledger.get("steps") is Array) or ledger["steps"].is_empty():
+                    return "missing_native_n98_steps"
+                for entry in ledger["steps"]:
+                    if not (entry is Dictionary) or str(entry.get("phase", "")) != "planned" or str(entry.get("native_order_id", "")) != "":
+                        return "native_n100_preempted_n121_without_receipt"
+                    if typeof(entry.get("updated_tick", null)) != TYPE_INT or int(entry["updated_tick"]) != int(record["tick"]) or not (entry.get("step") is Dictionary):
+                        return "invalid_native_n98_step_cursor"
     if state.has("station_executing") and typeof(state["station_executing"]) != TYPE_BOOL:
         return "invalid_station_phase"
     # Source N18 one administrator per (faction, location). Retention
