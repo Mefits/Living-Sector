@@ -35,6 +35,8 @@ const NativeHybridPlanning = preload("res://scripts/sim/phase2/unified_native_hy
 const NativeN121 = preload("res://scripts/sim/phase2/unified_n121_native_execution_phase.gd")
 const NativeN152 = preload("res://scripts/sim/phase2/unified_n152_contract_lifecycle.gd")
 const NativeAdminN152 = preload("res://scripts/sim/phase2/unified_n152_admin_cleanup.gd")
+const NativeN148 = preload("res://scripts/sim/phase2/unified_n148_ship_retirement_phase.gd")
+const NativeShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
@@ -395,6 +397,60 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
 
 
 
+## Rust N148 behavior.rs lifecycle runs once on the EXISTING N158 ships
+## phase after its physical N14 + N84 command execution. This stage
+## cannot alter money, cargo, BT, goals, stations or the ship roster.
+## N146 DecommissionShip commands are returned to the sole N158 Apply,
+## never executed from this state transition.
+func apply_native_n148_ship_lifecycle(tick: int, multiplier: int) -> Dictionary:
+    if not _ready or tick != _last_tick + 1 or multiplier < 1:
+        return {"ok": false, "reason": "n148_not_authoritative_ships_phase"}
+    if not (_world.get("ships") is Dictionary):
+        return {"ok": true, "changed": false, "commands": [],
+            "advanced": [], "tick": tick}
+    var candidate: Dictionary = NativeN148.stage(_world, tick, multiplier)
+    if not candidate.get("ok", false):
+        return candidate
+    var new_ships: Dictionary = candidate["ships"]
+    var before: Dictionary = _world["ships"]
+    if before.size() != new_ships.size():
+        return {"ok": false, "fatal": true, "reason": "n148_ship_cardinality_modified"}
+    var allowed: Dictionary = {}
+    for sid in before:
+        if not new_ships.has(sid):
+            return {"ok": false, "fatal": true, "reason": "n148_removed_ship_in_lifecycle"}
+        var prior: Dictionary = before[sid]
+        var next: Dictionary = new_ships[sid]
+        var copy: Dictionary = prior.duplicate(true)
+        if not (next.get("lifecycle", null) is Dictionary):
+            return {"ok": false, "fatal": true, "reason": "n148_missing_real_lifecycle"}
+        if not NativeShipLifecycle._valid_lifecycle(next["lifecycle"]):
+            return {"ok": false, "fatal": true, "reason": "n148_invalid_strike_change"}
+        copy["lifecycle"] = next["lifecycle"].duplicate(true)
+        if copy != next:
+            return {"ok": false, "fatal": true, "reason": "n148_changed_non_lifecycle_field"}
+        allowed[sid] = copy
+    var updated: Dictionary = _world.duplicate(true)
+    updated["ships"] = allowed
+    var validation: String = Schema.validate(updated)
+    if not validation.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n148_world_" + validation}
+    var balances: Dictionary = Schema.accounts(updated)
+    var old_bank: Dictionary = _ledger.snapshot()
+    if balances.size() != old_bank.get("balances", {}).size():
+        return {"ok": false, "fatal": true, "reason": "n148_changed_wallet_count"}
+    for account in balances:
+        if old_bank.get("balances", {}).get(account, null) != balances[account]:
+            return {"ok": false, "fatal": true, "reason": "n148_changed_source_money"}
+    # Mutating exactly one physical ship domain, with immutable N9
+    # balances and unchanged native BT, respects one World authority.
+    _world = updated
+    return {"ok": true, "tick": tick,
+        "changed": candidate.get("changed", false),
+        "commands": candidate.get("commands", []).duplicate(true),
+        "advanced": candidate.get("advanced", []).duplicate(true)}
+
+
 ## N21+N15 one-World dock/cargo command commit. N15 is physical inventory
 ## transfer only; trade/escrow/payment belongs to a later contract phase.
 ## No separate wallet, source stock, arrival process or hidden dock occupancy.
@@ -576,7 +632,7 @@ func apply_autonomous_contract_cargo(tick: int, ship_id: String,
         # Native N101 ship XP/retrofit points are credited ONLY by the
         # same actual N97/N104 paid delivery receipt.
         ship_fields.append_array(["active_contract_id", "current_goal",
-            "current_bt", "max_source_cost", "progression"])
+            "current_bt", "max_source_cost", "progression", "lifecycle"])
     for field in original_ship:
         if field not in ship_fields and changed_ship.get(field, null) != original_ship[field]:
             return {"ok": false, "fatal": true, "reason": "paid_delivery_changed_ship_state"}
@@ -676,6 +732,19 @@ func apply_autonomous_contract_cargo(tick: int, ship_id: String,
             "site_id": site_id, "contract_id": contract_id,
             "quantity": consumed, "tick": tick,
             "n15_receipt_id": receipt_id, "n9_receipt_id": money_id}
+    # Rust engine/apply.rs: successful, REAL N97/N104 PAID delivery
+    # resets hoard strikes (never broke strikes or idle ticks).
+    # This mutation is inside the SAME original physical+financial
+    # settlement, after both source receipts and before N39 publication.
+    if operation == "delivery":
+        var previous_life: Variant = changed_ship.get("lifecycle", null)
+        if previous_life is Dictionary:
+            var reset: Dictionary = NativeShipLifecycle.after_confirmed_delivery(
+                previous_life, {"trusted_internal_apply": true,
+                    "delivery_succeeded": true, "ship_entity": ship_id})
+            if not reset.get("ok", false):
+                return {"ok": false, "fatal": true, "reason": "n148_paid_delivery_reset_rejected"}
+            changed_ship["lifecycle"] = reset["lifecycle"].duplicate(true)
     var error: String = Schema.validate(staged)
     if not error.is_empty():
         return {"ok": false, "fatal": true, "reason": "paid_delivery_invalid_world_" + error}
@@ -1559,8 +1628,9 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
 ## N152 cascade, one auditable N9 actor write-off, and source history.
 ## A missing payer's contract escrow stays held for later recovery.
 func apply_native_admin_removal(tick: int, kind: String,
-        actor_id: String, reason: String = "admin") -> Dictionary:
-    if not _ready or tick < 0 or tick != _last_tick:
+        actor_id: String, reason: String = "admin",
+        in_native_ships_phase: bool = false) -> Dictionary:
+    if not _ready or tick < 0 or tick != _last_tick + (1 if in_native_ships_phase else 0):
         return {"ok": false, "reason": "admin_not_at_authoritative_tick"}
     if not kind in ["ship", "facility"] or actor_id.is_empty():
         return {"ok": false, "reason": "invalid_admin_actor"}
