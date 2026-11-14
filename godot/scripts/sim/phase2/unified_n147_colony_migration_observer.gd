@@ -189,7 +189,7 @@ static func observe(world: Dictionary, graph: RefCounted,
         var can_fly: bool = false
         for id in ship_ids:
             var ship: Dictionary = world["ships"][id]
-            if str(ship.get("faction_id", "")) != str(faction) or not str(ship.get("active_contract_id", "")).is_empty() or not (ship.get("transit", {}) as Dictionary).is_empty():
+            if str(ship.get("faction_id", "")) != str(faction) or str(ship.get("current_goal", "")) not in ["", "idle"] or not str(ship.get("active_contract_id", "")).is_empty() or not (ship.get("transit", {}) as Dictionary).is_empty():
                 continue
             if int(Catalog.spec(str(ship.get("class", ""))).get("passenger_capacity", 0)) < int(p["quantity"]):
                 continue
