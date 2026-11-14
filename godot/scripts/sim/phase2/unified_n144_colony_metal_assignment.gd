@@ -7,6 +7,9 @@ const SourceDispatch = preload("res://scripts/sim/phase2/unified_n153_contract_d
 const Planning = preload("res://scripts/sim/phase2/unified_ship_ai_planner.gd")
 const SourceMarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
 const Materials = preload("res://scripts/sim/phase2/unified_n144_colony_metals.gd")
+const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
+const Board = preload("res://scripts/sim/economy/contract_board.gd")
+const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, resolver: RefCounted,
@@ -134,3 +137,67 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "contract_id": str(cid), "ship_id": str(winner["ship_id"]),
                 "ai_bt": winner["ai_bt"], "status": "B2_N153_REAL_CONSTRUCTION_HULL_SELECTED"}
     return {"ok": true, "assigned": false, "status": "B2_NO_FUNDABLE_REAL_METAL_SHIP"}
+
+## One canonical N104 Acceptance from an independently rerun source N153
+## election. This pure stage must be atomically committed by N39 only.
+static func accept(world: Dictionary, bank: Dictionary,
+        bid: Dictionary, graph: RefCounted, positions: Dictionary,
+        resolver: RefCounted, tick: int, scale: float) -> Dictionary:
+    var selection: Dictionary = propose(world, graph, positions, resolver, tick, scale)
+    if not selection.get("ok", false) or not selection.get("assigned", false):
+        return {"ok": false, "reason": "b2_n153_no_real_prepaid_metals_ship"}
+    var current: Dictionary = selection.get("candidate", {})
+    var cid: String = str(current.get("contract_id", ""))
+    var sid: String = str(current.get("ship_id", ""))
+    if cid != str(bid.get("contract_id", "")) or sid != str(bid.get("ship_id", "")) or (
+            current.get("ai_bt", {}) != bid.get("ai_bt", {}) or
+            int(current.get("source_purchase_cost", -1)) != int(bid.get("source_purchase_cost", -2))):
+        return {"ok": false, "reason": "b2_stale_original_n153_merchant_quote"}
+    var c: Dictionary = world.get("contract_board", {}).get("contracts", {}).get(cid, {})
+    var ship: Dictionary = world.get("ships", {}).get(sid, {})
+    var faction: String = str(c.get("faction_id", ""))
+    var cost: int = int(current.get("source_purchase_cost", 0))
+    if cost <= 0 or cost >= Materials.PAYMENT or cost > int(ship.get("credits", 0)) or (
+            str(ship.get("faction_id", "")) != faction or
+            str(c.get("contract_type", "")) != "construction" or
+            str(c.get("mission_category", "")) != Materials.PROJECT_TAG or
+            str(c.get("status", "")) != "posted"):
+        return {"ok": false, "reason": "b2_invalid_real_colony_ship_or_contract"}
+    var ledger := Ledger.new()
+    if not ledger.restore(bank):
+        return {"ok": false, "fatal": true, "reason": "b2_one_ledger_restore_failed"}
+    var board := Board.new(ledger)
+    if not board.restore(world["contract_board"]):
+        return {"ok": false, "fatal": true, "reason": "b2_one_n104_restore_failed"}
+    var comms: float = float(ship.get("comms_bonus", 0.0))
+    var accepted: Dictionary = board.accept(cid, sid, faction, comms, 1.0, tick)
+    if not accepted.get("ok", false):
+        return accepted
+    var payer: String = Schema.faction_account(faction)
+    var escrow: String = str(c.get("escrow_account", ""))
+    var top_up: int = int(accepted.get("top_up", -1))
+    if str(c.get("requestor_id", "")) != payer or (
+            top_up < 0 or ledger.total() != _balance_total(bank) or
+            ledger.balance(escrow) != int(c.get("reserved", 0)) + top_up):
+        return {"ok": false, "fatal": true, "reason": "b2_unbacked_n9_accept_topup"}
+    var staged: Dictionary = world.duplicate(true)
+    staged["contract_board"] = board.snapshot()
+    staged["escrow_balances"][escrow] = ledger.balance(escrow)
+    staged["faction_treasuries"][faction] = ledger.balance(payer)
+    staged["ships"][sid]["active_contract_id"] = cid
+    staged["ships"][sid]["current_goal"] = "fulfill_delivery"
+    staged["ships"][sid]["current_bt"] = current["ai_bt"].duplicate(true)
+    staged["ships"][sid]["last_plan_tick"] = tick
+    staged["ships"][sid]["max_source_cost"] = cost
+    staged["ships"][sid]["current_goal_score"] = float(current.get("n80_score", 0.0))
+    staged["ships"][sid]["planning_source"] = str(current.get("personality_source", ""))
+    return {"ok": true, "status": "B2_N153_REAL_CONSTRUCTION_ACCEPTED",
+        "world": staged, "ledger_snapshot": ledger.snapshot(),
+        "contract_id": cid, "ship_id": sid, "site_id": str(c.get("colony_site_id", "")),
+        "top_up": top_up, "source_purchase_cost": cost, "tick": tick}
+
+static func _balance_total(bank: Dictionary) -> int:
+    var sum: int = 0
+    for balance in bank.get("balances", {}).values():
+        sum += int(balance)
+    return sum
