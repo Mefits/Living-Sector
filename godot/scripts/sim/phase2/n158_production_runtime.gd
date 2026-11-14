@@ -14,6 +14,7 @@ const NativeConstruction = preload("res://scripts/sim/phase2/unified_native_cons
 const N91Dispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
 const N134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
 const N147Colonies = preload("res://scripts/sim/phase2/unified_n147_colony_migration_observer.gd")
+const N151Founding = preload("res://scripts/sim/phase2/unified_n151_colony_founding_phase.gd")
 const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const NativeCommands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
@@ -32,6 +33,7 @@ var _last_construction_result: Dictionary = {}
 var _last_n91_result: Dictionary = {}
 var _last_n134_result: Dictionary = {}
 var _last_n147_result: Dictionary = {}
+var _last_n151_founding: Dictionary = {}
 var _faction_sources: Dictionary = {}
 var _last_population_result: Dictionary = {}
 var _last_ship_result: Dictionary = {}
@@ -51,6 +53,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_n91_result = {}
     _last_n134_result = {}
     _last_n147_result = {}
+    _last_n151_founding = {}
     _faction_sources = {}
     _last_population_result = {}
     _last_ship_result = {}
@@ -252,6 +255,12 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # strategic cadence. These are observable native intents ONLY.
         # N104 passenger embark/disembark has no canonical P2 Apply yet,
         # so no phantom passenger order or minted population is admitted.
+        if tick == 1 or tick % maxi(1, 200 * _tick_multiplier) == 0:
+            _last_n151_founding = N151Founding.scan(
+                production.world_snapshot(), world,
+                _fleet_roster.registry.graph(), tick, _tick_multiplier)
+            if not _last_n151_founding.get("ok", false):
+                return false
         if tick == 1 or tick % maxi(1, 60 * _tick_multiplier) == 0:
             _last_n147_result = N147Colonies.observe(
                 production.world_snapshot(), _fleet_roster.registry.graph(),
@@ -710,6 +719,9 @@ func economy_summary() -> Dictionary:
         "construction_paid_labor_this_tick": _last_construction_result.get("paid", []).size(),
         "construction_new_facilities_this_tick": _last_construction_result.get("materialized", []).size(),
         "construction_blocked_labor_this_tick": _last_construction_result.get("blocked", []).size(),
+        "colony_founding_status": str(_last_n151_founding.get("status", "NOT_EVALUATED")),
+        "colony_founding_ready_unapproved": _last_n151_founding.get("ready", []).size(),
+        "colony_founding_blocked": _last_n151_founding.get("blocked", []).duplicate(true),
         "colony_migration_status": str(_last_n147_result.get("status", "NOT_EVALUATED")),
         "colony_observed_groups": _last_n147_result.get("views", []).size(),
         "colony_passenger_proposals_unposted": _last_n147_result.get("ready", []).size(),
