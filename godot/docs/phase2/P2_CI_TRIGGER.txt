@@ -1,4 +1,4 @@
-P2 STAGE1 N38 NUMERIC ROUNDTRIP FINAL CHECK — 2026-11-14
-Source HEAD before check: 0ab4751d4247bac03e752cf643e207bddefbc1fb.
-The prior Godot 4.7.2 run showed both tests failing only on N38 serializer: last-bit native floats. Godot JSON float print is not token-idempotent. Use at most 1e-12 relative finite drift in non-financial fields, never N9/escrow/contract, never physical market supply or ship cargo. Ship N101 integer progression is normalized exactly and N108 fitting is verified from real module slots.
-One combined parser + paid production/save/load + N143 science/save/load check. No synthetic credit, stock or ship changes and no Windows/soak assertion.
+P2 STAGE1 N38 EXACT SOURCE TICK CURSORS — 2026-11-14
+PR #249 head before this bounded test: 9d150cebc61c80351453a5c2ab8fe0f6470d4c7d
+Last Godot smoke 43642159780 PASSED 310/310 parser and both N38 writes; N143 load failed with invalid_native_relations_tick because JSON restored the source N150 tick as floating value. N158 now recovers exact whole-number N150 relations/territory, N129 finance and N18 station administration cursors before N39 Schema; nonintegral values still fail.
+One Godot 4.7.2 combined real paid 5-tick economy/restart and N143 research/restart gate, no fabricated ships/goods/credits.
