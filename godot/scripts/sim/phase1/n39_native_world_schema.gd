@@ -812,9 +812,11 @@ static func validate(state: Dictionary) -> String:
             # NOT Market warehouses. A genuine unpaired gate may exist
             # while its destination is still under construction.
             if str(fac["type"]) == "gate":
+                # Rust gate crews are automated (zero) but a real
+                # source gate may still expose ordinary docking slots.
+                # Preserve N154's source docking capacity unchanged.
                 if not state["bodies"].has(str(fac["body_id"])) or int(
-                        fac.get("crew_count", -1)) != 0 or int(
-                        fac.get("docking_capacity", -1)) != 0:
+                        fac.get("crew_count", -1)) != 0:
                     return "invalid_marketless_original_gate"
                 continue
             # Exact Rust engine/colony.rs::prepare_docks permits an EMPTY
