@@ -11,6 +11,8 @@ const FleetLogistics = preload("res://scripts/sim/phase2/unified_fleet_logistics
 const N153Dispatch = preload("res://scripts/sim/phase2/unified_n153_contract_dispatch.gd")
 const NativeAIExecution = preload("res://scripts/sim/phase2/unified_ship_ai_execution.gd")
 const NativeConstruction = preload("res://scripts/sim/phase2/unified_native_construction_phase.gd")
+const N91Dispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
+const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const NativeCommands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
 const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
@@ -25,6 +27,7 @@ var _last_n153_result: Dictionary = {}
 var _last_research_result: Dictionary = {}
 var _last_construction_observation: Dictionary = {}
 var _last_construction_result: Dictionary = {}
+var _last_n91_result: Dictionary = {}
 var _faction_sources: Dictionary = {}
 var _last_population_result: Dictionary = {}
 var _last_ship_result: Dictionary = {}
@@ -41,6 +44,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_research_result = {}
     _last_construction_observation = {}
     _last_construction_result = {}
+    _last_n91_result = {}
     _faction_sources = {}
     _last_population_result = {}
     _last_ship_result = {}
@@ -150,6 +154,19 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             tick, _faction_sources, _tick_multiplier)
         if not _last_research_result.get("ok", false):
             return false
+        # Source N91 chooses physically local engineering hulls for
+        # already N154-funded material-complete sites. N39 validates
+        # and assigns the persistent N84 Construct plan atomically.
+        var engineer_plan: Dictionary = N91Dispatch.propose(
+            production.world_snapshot(), _fleet_resolver, tick)
+        if not engineer_plan.get("ok", false):
+            _last_n91_result = engineer_plan
+            return false
+        _last_n91_result = production.apply_native_construction_assignments(
+            tick, engineer_plan.get("assignments", []))
+        if not _last_n91_result.get("ok", false):
+            return false
+        _last_n91_result["blocked"] = engineer_plan.get("blocked", []).duplicate(true)
         # Original N141 paid shifts require real N84 Construct leaf,
         # engineering crew, physical N21 dock and the SAME N9 treasury.
         _last_construction_result = production.apply_native_construction_labor(
@@ -243,6 +260,37 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     expected_loc = str(ship.get("location", ""))
                 var source_loc: String = str(contract.get("source_location", ""))
                 var dest_loc: String = str(contract.get("destination_location", ""))
+                # An N91 engineer site is a noncommercial paid job:
+                # authorize its N21 dock against the actual N154 site and
+                # the persisted N84 Construct target, NOT an invented
+                # N104 cargo contract.
+                var construction_site_id: String = str(command.get("construction_site_id", ""))
+                if not construction_site_id.is_empty():
+                    var site: Dictionary = snapshot.get("construction_sites", {}).get(construction_site_id, {})
+                    var bt: Variant = ship.get("current_bt", null)
+                    var approved: bool = not site.is_empty() and bt is Dictionary and N91Executor.target(bt) == construction_site_id
+                    approved = approved and str(ship.get("current_goal", "")) == "construct" and str(ship.get("active_contract_id", "")) == ""
+                    approved = approved and str(site.get("faction_id", "")) == str(ship.get("faction_id", ""))
+                    approved = approved and str(site.get("location_name", "")) == str(ship.get("location", ""))
+                    approved = approved and str(command.get("facility_location", "")) == str(ship.get("location", ""))
+                    if not approved:
+                        _last_ship_result = {"ok": false, "reason": "n91_n146_unverified_site_dock"}
+                        return false
+                    var op_id: String = "n91:" + construction_site_id + ":" + ship_id + ":" + operation
+                    var real_request: Dictionary = FleetLogistics.command(
+                        snapshot, operation, ship_id, op_id, tick)
+                    if not real_request.get("ok", false):
+                        _last_ship_result["autonomous_blocked"].append({
+                            "ship_id": ship_id, "site_id": construction_site_id,
+                            "reason": "n91_n21_" + str(real_request.get("reason", "real_dock_unavailable"))})
+                        continue
+                    if not production.apply_fleet_logistics(tick, real_request, true):
+                        _last_ship_result = {"ok": false, "reason": "n91_n21_atomic_dock_rejected"}
+                        return false
+                    _last_ship_result["n21_auto_dock"].append({
+                        "ship_id": ship_id, "site_id": construction_site_id,
+                        "operation": operation, "location": str(ship.get("location", ""))})
+                    continue
                 var valid_dock: bool = (expected_loc == source_loc or expected_loc == dest_loc)
                 if operation == "dock":
                     valid_dock = expected_loc == source_loc if str(contract.get("status", "")) == "accepted" else expected_loc == dest_loc
@@ -363,7 +411,7 @@ func _integrated_phase_failure_reason(phase: String) -> String:
     elif phase == "ships":
         result = _last_ship_result
     elif phase == "factions":
-        result = _last_research_result if not _last_research_result.get("ok", true) else (_last_construction_result if not _last_construction_result.get("ok", true) else _last_n153_result)
+        result = _last_research_result if not _last_research_result.get("ok", true) else (_last_n91_result if not _last_n91_result.get("ok", true) else (_last_construction_result if not _last_construction_result.get("ok", true) else _last_n153_result))
     elif phase == "markets":
         result = _last_station_demand if not _last_station_demand.get("ok", true) else (_last_contract_admissions if not _last_contract_admissions.get("ok", true) else _last_market_result)
     var detail: String = str(result.get("reason", "integrated_phase_rejected"))
@@ -400,6 +448,9 @@ func last_native_construction_observation() -> Dictionary:
 
 func last_native_construction_labor() -> Dictionary:
     return _last_construction_result.duplicate(true)
+
+func last_native_n91_assignment() -> Dictionary:
+    return _last_n91_result.duplicate(true)
 
 
 ## Read-only canonical ship inventory; source IDs are generated by the
@@ -548,6 +599,7 @@ func economy_summary() -> Dictionary:
         "research_paid_shifts": _last_research_result.get("paid", []).size(),
         "research_blocked_factions": _last_research_result.get("blocked", []).size(),
         "research_total_completed": _research_completion_count(current),
+        "construction_engineers_assigned_this_tick": _last_n91_result.get("assigned", []).size(),
         "construction_paid_labor_this_tick": _last_construction_result.get("paid", []).size(),
         "construction_new_facilities_this_tick": _last_construction_result.get("materialized", []).size(),
         "construction_blocked_labor_this_tick": _last_construction_result.get("blocked", []).size(),
@@ -589,6 +641,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_research_result = {}
     _last_construction_observation = {}
     _last_construction_result = {}
+    _last_n91_result = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
