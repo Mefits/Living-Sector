@@ -1,5 +1,5 @@
-P2 STAGE1 FINAL RUNTIME GATE — 2026-11-14
-PR #249 source HEAD before final smoke: 48b3d2b60ef3c15cdda3b29e142c891826c4d6d1
-Previous combined run 43640440083 found precise N38 JSON last-digit loss for N155 research director science profile, while N91/N158 old errors were cleared.
-This last bounded Godot 4.7.2 smoke validates exact source N91 BT typing, one N158 dock_queue/crisis/relations phase, and native N143 N38 save/load after *narrow* <=1e-12 personality-only precision allowance. Same negative fixture rejects material profile changes and one created treasury credit.
-No balance changes, no loose escrow/cargo float allowance, no Windows release or soak claim.
+P2 STAGE1 N38 ISOLATION GATE — 2026-11-14
+PR #249 source HEAD before gate: 784e1482694308a5f285d50d0d7cf0d3ee7524ff
+Prior smoke 43640700423: parser passes all 310/310, N91 and N158 phase registry are clear. N143 now writes N38 JSON but restore fails; N158 at fifth tick rejects save.
+This consolidated diagnostic test distinguishes strict serialized-frame drift, timeline/coherence, N158 JSON integer normalization, N39 schema and N39 restore. Fail closed for all financial/stock fields; the sole <=1e-12 exception remains original N155 personality weights.
+No balance or business logic change. Stage1 evidence only, not final Windows acceptance.
