@@ -1,0 +1,15 @@
+{
+  "worker": "interactive-primary-chat-20261114-n147",
+  "status": "IN_PROGRESS",
+  "base_head": "03b34dd11f164ee438f6b6109ffc257b92720c4c",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n147_colony_migration_observer.gd (new)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (colony read-only tick)",
+    "godot/tests/p2_n147_colony_migration_policy_check.gd (new)",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md",
+    "godot/docs/phase2/handoffs/20261114-n147-colony-migration-observation.md"
+  ],
+  "goal": "N147 live source-backed N92 colony observation + native N147 migration offers against canonical N39 world/N9 faction treasuries/N4 routes/N46 ships, reject unsupported paid passenger Apply until real physical implementation; no ghost colonies",
+  "verification": "NOT_RUN; no Github Actions"
+}
