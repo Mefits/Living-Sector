@@ -6,6 +6,9 @@ extends RefCounted
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 const ShipState = preload("res://scripts/sim/ship_state.gd")
 const Roster = preload("res://scripts/sim/ships/native_ship_roster.gd")
+const NativeInitialFitting = preload("res://scripts/sim/ships/native_initial_fitting.gd")
+const ModuleCatalog = preload("res://scripts/port/n108_shipyard_module_catalog.gd")
+const ShipProgression = preload("res://scripts/sim/native/ship_progression_n101.gd")
 const PROVENANCE: String = "frozen-rust-sim_db-seeder-fresh-ship-20261112"
 
 static func build_new_game(seed: Dictionary) -> Dictionary:
@@ -68,6 +71,31 @@ static func build_new_game(seed: Dictionary) -> Dictionary:
     if fleet.ships.size() != keys.size() or not roster.validate_authoritative_state(
             fleet, fuel, cargo):
         return _reject("fleet_provenance_mismatch")
+    # Native Rust spawner N51: persist the ACTUAL initial fitting on
+    # each ship, including deterministic size-based T2 sensor assignment.
+    # No extra goods, retrofit points, fuel, money or random rolls.
+    var projected: Dictionary = NativeInitialFitting.project_native_seed(seed, fleet)
+    if not projected.get("ok", false):
+        return _reject("source_N51_fitting_unavailable:" +
+            str(projected.get("error", "unknown")))
+    for ship_id in keys:
+        var ship: Dictionary = fleet.ships[ship_id]
+        var slots: Dictionary = projected["records"][ship_id]["slots"]
+        var derived: Dictionary = ModuleCatalog.combine(slots)
+        if derived.is_empty():
+            return _reject("native_ship_fitting_catalogue_mismatch")
+        var ship_spec: Dictionary = Catalog.spec(str(ship["class"]))
+        ship["fitting"] = {"slots": slots.duplicate(true),
+            "derived": derived.duplicate(true)}
+        ship["progression"] = ShipProgression.initial_state()
+        ship["cargo_capacity"] = roundi(float(ship_spec["cargo_capacity"]) *
+            float(derived["cargo_capacity_mult"]))
+        ship["speed_modifier"] = Catalog.effective_speed(
+            str(ship["class"]), str(ship["size"])) * float(derived["speed_mult"])
+        # Rust's fuel_consumption_rate is class-base, not multiplied
+        # by the fitted efficiency metadata in the native flight loop.
+        ship["fuel_efficiency_mult"] = float(derived["fuel_efficiency_mult"])
+        ship["comms_bonus"] = float(derived["comms_bonus"])
     return {
         "ok": true,
         "provenance": PROVENANCE,
