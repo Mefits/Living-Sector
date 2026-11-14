@@ -1526,7 +1526,8 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             var receipt: Dictionary = w["construction_receipts"][receipt_id]
             if not (receipt is Dictionary) or not _normalize_row(receipt, ["tick"]):
                 return false
-            for key in ["quantity", "wages", "capital"]:
+            for key in ["quantity", "wages", "capital",
+                    "native_db_id", "credits", "population_count"]:
                 if receipt.has(key) and not _normalize_number_at(receipt, key):
                     return false
     # First N46 fleet is authoritative in THIS N39 snapshot. Old files
@@ -1662,6 +1663,11 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
         if not _normalize_row(w["populations"][id], ["count", "wealth",
                 "food_satisfaction", "safety_satisfaction", "entertainment_satisfaction",
                 "overall_sentiment", "unrest"]):
+            return false
+        # Rust colony::prepare_docks shares one allocated negative DB id
+        # between its real empty dock and zero-resident household.
+        if w["populations"][id].has("native_db_id") and not _normalize_row(
+                w["populations"][id], ["native_db_id"]):
             return false
     var ledger: Dictionary = saved["ledger"]
     if not _normalize_row(ledger, ["version"]):
