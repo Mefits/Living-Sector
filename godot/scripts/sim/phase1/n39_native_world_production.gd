@@ -42,6 +42,8 @@ const NativeN147 = preload("res://scripts/sim/phase2/unified_n147_colony_migrati
 const NativeShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 const NativeN149Crew = preload("res://scripts/sim/phase2/unified_n149_ship_crew_phase.gd")
 const NativeShipPrices = preload("res://scripts/sim/phase2/unified_native_ship_price_observation.gd")
+const NativeCrewXp = preload("res://scripts/sim/ship_crew_skills_n128.gd")
+const N146Commands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
@@ -504,6 +506,66 @@ func apply_native_ship_price_observation(tick: int, resolver: RefCounted,
     return {"ok": true, "tick": tick, "changed": true,
         "observed": candidate.get("observed", []).duplicate(true),
         "active_count": int(candidate.get("active_count", 0))}
+
+
+## Frozen Rust engine/apply.rs::SimCommand::GrantCrewXp. This
+## privileged call requires a genuine typed N146 command from the
+## existing N84 executor. No unconditional per-tick XP or fake mission.
+## The original ShipCrewSkills is in the one N39 ship record; immutable
+## receipt keeps N38 replay deterministic without a second XP wallet.
+func apply_native_n128_crew_xp(tick: int, source_command: Dictionary,
+        command_ordinal: int) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick + 1 or command_ordinal < 1:
+        return {"ok": false, "reason": "n128_not_native_ship_apply"}
+    if str(source_command.get("kind", "")) != "GrantCrewXp":
+        return {"ok": false, "reason": "n128_not_source_skill_command"}
+    var ship_id: String = str(source_command.get("ship", ""))
+    var skill: String = str(source_command.get("skill", ""))
+    var amount: Variant = source_command.get("amount", null)
+    if N146Commands.make_command("GrantCrewXp", source_command).is_empty() or (
+            ship_id.is_empty() or not _world.get("ships", {}).has(ship_id) or
+            typeof(amount) != TYPE_INT or int(amount) < 0 or int(amount) > 255):
+        return {"ok": false, "reason": "n128_invalid_real_skill_actor"}
+    if not NativeCrewXp.DEFAULTS.has(skill):
+        # Native Rust ShipCrewSkills::grant unknown skill is a no-op.
+        return {"ok": true, "status": "source_unknown_skill_noop",
+            "ship_id": ship_id, "skill": skill, "amount": 0}
+    var before: Dictionary = _world["ships"][ship_id]
+    if not (before.get("crew_skills") is Dictionary):
+        return {"ok": false, "reason": "n128_missing_original_ship_crew_skills"}
+    var receipt_id: String = "n128:crew:" + str(tick) + ":" + str(command_ordinal)
+    if _world.get("native_crew_xp_receipts", {}).has(receipt_id):
+        return {"ok": false, "reason": "n128_duplicate_real_n146_command"}
+    var outcome: Dictionary = NativeCrewXp.grant(
+        before["crew_skills"], skill, int(amount))
+    if not outcome.get("ok", false):
+        return {"ok": false, "reason": "n128_source_grant_refused"}
+    var credited: int = int(outcome["skills"][skill]) - int(before["crew_skills"][skill])
+    if credited < 0 or credited > int(amount):
+        return {"ok": false, "fatal": true, "reason": "n128_skill_grant_overflow"}
+    var stage: Dictionary = _world.duplicate(true)
+    stage["ships"][ship_id]["crew_skills"] = outcome["skills"].duplicate(true)
+    if not (stage.get("native_crew_xp_receipts", {}) is Dictionary):
+        return {"ok": false, "fatal": true, "reason": "n128_corrupt_prior_receipts"}
+    if not stage.has("native_crew_xp_receipts"):
+        stage["native_crew_xp_receipts"] = {}
+    stage["native_crew_xp_receipts"][receipt_id] = {
+        "id": receipt_id, "tick": tick, "ship_id": ship_id,
+        "skill": skill, "amount": int(amount), "applied": credited,
+        "source": "N146:GrantCrewXp"}
+    var invalid: String = Schema.validate(stage)
+    if not invalid.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n128_world_" + invalid}
+    var accounts: Dictionary = Schema.accounts(stage)
+    var bank: Dictionary = _ledger.snapshot().get("balances", {})
+    if accounts.size() != bank.size():
+        return {"ok": false, "fatal": true, "reason": "n128_changed_n9_wallet_roster"}
+    for account in accounts:
+        if bank.get(account, null) != accounts[account]:
+            return {"ok": false, "fatal": true, "reason": "n128_changed_n9_credit"}
+    _world = stage
+    return {"ok": true, "ship_id": ship_id, "skill": skill,
+        "amount": int(amount), "applied": credited, "receipt": receipt_id}
 
 
 ## Rust ship/mod.rs::tick_ships Pass 3, once per actual N140 fire.
