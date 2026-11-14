@@ -205,10 +205,15 @@ def audit(root: Path) -> dict:
     n147_head = read(
         root, "godot/scripts/sim/phase2/unified_n147_colony_head_grant.gd"
     )
+    candidates_path = (
+        "godot/scripts/sim/phase2/unified_n113_original_candidates.gd"
+    )
+    n113_sources = read(root, candidates_path)
     add("n113_frozen_strategy_hysteresis_in_n147",
         "const SUPERIORITY: float = 1.20" in n113 and
         "const CONFIRMATIONS: int = 2" in n113 and
-        "SourceN113.decide(memory, options, tick)" in n147_head and
+        "SourceN113.decide(" in n147_head and
+        "60 * multiplier" in n147_head and
         "NativeN147Head.authorize(" in n39 and
         "N113_REAL_STRATEGY_NO_N104_CONTRACT" in n39 and
         "Schema.validate(next_world)" in n39 and
@@ -217,7 +222,22 @@ def audit(root: Path) -> dict:
          "godot/scripts/sim/phase2/unified_n113_strategy_switch.gd",
          "godot/scripts/sim/phase2/unified_n147_colony_head_grant.gd",
          n39_path, n158_path],
-        "Rust N113 memory, two-cycle threshold, and no-payment first vote are connected only for source-scored N147 alternatives. Real research/expansion incumbent comparison remains fail-closed, not completed parity.",
+        "Rust N113 memory, 1.20 threshold, adjacent real-cycle confirmation, and no-payment first vote are source-wired. Gameplay remains UNVERIFIED.",
+        "SOURCE_LINK_PRESENT", "SOURCE_ONLY_NOT_YET_CONNECTED")
+    add("n113_full_original_candidate_sources",
+        "SourceN113Candidates.project(" in n147_head and
+        "NativeN147Head.authorize(" in n39 and
+        "sources, original, graph, multiplier)" in n39 and
+        "ResearchShift.research_ready(" in n113_sources and
+        "NativeColonyContracts.active_site(" in n113_sources and
+        "NativeNewColony.propose(" in n113_sources and
+        "NativeConstruction.observe(" in n113_sources and
+        "N111.compare_goal(" in n113_sources,
+        [candidates_path,
+         "godot/scripts/sim/phase1/n143_native_research_shift.gd",
+         "godot/scripts/sim/phase2/unified_n144_new_colony_head.gd",
+         "godot/scripts/native_port/n111_options.gd", n39_path],
+        "Research, active/new colonies, and current source N154/N111 prior-supply quote are connected. Unknown prior logistics quotes and delegated charter actions remain fail-closed, not synthesized.",
         "SOURCE_LINK_PRESENT", "SOURCE_ONLY_NOT_YET_CONNECTED")
 
     # Presentation must not claim a phase absent when it really executes.
