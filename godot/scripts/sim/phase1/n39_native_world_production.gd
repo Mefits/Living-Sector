@@ -1323,6 +1323,27 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
         return {"ok": false, "fatal": true, "reason": "n144_invalid_world_" + Schema.validate(staged)}
     if ledger.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n144_original_money_supply_changed"}
+    # Source N104 Board.post MUST leave one immutable N9 transfer from
+    # real faction treasury to that order's new escrow. No extra pays
+    # and no invented financial receipt on the unapproved/head-only path.
+    var prior_money: Dictionary = _ledger.snapshot()
+    var new_money: Dictionary = ledger.snapshot()
+    var prior_receipts: Dictionary = prior_money.get("receipts", {})
+    var new_receipts: Dictionary = new_money.get("receipts", {})
+    if posted.get("ok", false):
+        var posted_cid: String = str(posted.get("contract_id", ""))
+        var original_post: String = "contract:" + posted_cid + ":post"
+        if new_receipts.size() != prior_receipts.size() + 1 or not new_receipts.has(original_post):
+            return {"ok": false, "fatal": true, "reason": "n144_missing_exact_prepaid_n9_receipt"}
+        var before_treasury: int = int(_world["faction_treasuries"][faction])
+        var paid_amount: int = int(posted.get("money_debited", -1))
+        if paid_amount <= 0 or int(staged["faction_treasuries"][faction]) != before_treasury - paid_amount or int(staged["escrow_balances"].get("escrow:" + posted_cid, -1)) != paid_amount:
+            return {"ok": false, "fatal": true, "reason": "n144_treasury_escrow_not_conserved"}
+    elif new_receipts != prior_receipts:
+        return {"ok": false, "fatal": true, "reason": "n144_head_memory_minted_payment"}
+    for receipt_id in prior_receipts:
+        if new_receipts.get(receipt_id, null) != prior_receipts[receipt_id]:
+            return {"ok": false, "fatal": true, "reason": "n144_modified_existing_payment"}
     var expected: Dictionary = Schema.accounts(staged)
     var actual: Dictionary = ledger.snapshot().get("balances", {})
     if expected.size() != actual.size():
