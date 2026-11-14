@@ -1570,6 +1570,9 @@ func implemented_phases() -> PackedStringArray:
     phases.append("facilities")
     phases.append("populations")
     phases.append("markets")
+    # This is a real N39 source phase between markets and apply2;
+    # previously omitted from diagnostics despite executing every tick.
+    phases.append("crisis")
     phases.append("factions")
     phases.append("relations")
     return phases
