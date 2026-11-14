@@ -184,7 +184,52 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             "operation": "delivery", "contract_id": contract_id})
         return {"status": Bt.RUNNING, "commands": [delivery_cmd],
             "reason": "n146_n104_real_delivery"} if not delivery_cmd.is_empty() else {"status": Bt.FAILURE}
-    if kind in ["DockAtShipyard", "SellAll", "Refuel", "Refit", "DeliverPassengers",
+    if kind == "DockAtShipyard":
+        # Real N108 shipyard has a separate N21 slot from the N97
+        # station warehouse. Do not fabricate a dock just from location.
+        if str(ship.get("current_goal", "")) not in ["retrofit", "refit"] or not contract_id.is_empty():
+            return {"status": Bt.FAILURE, "reason": "n108_no_real_refit_goal"}
+        var old_dock: String = str(ship.get("docked_at", ""))
+        var dock_fac: Dictionary = world.get("facilities", {}).get(old_dock, {})
+        if not dock_fac.is_empty() and str(dock_fac.get("type", "")) == "shipyard":
+            return {"status": Bt.SUCCESS}
+        if not ship.get("transit", {}).is_empty():
+            return {"status": Bt.RUNNING, "reason": "n108_wait_native_arrival"}
+        var found: bool = false
+        for id in world.get("facilities", {}):
+            var fac: Dictionary = world["facilities"][id]
+            if str(fac.get("type", "")) == "shipyard" and not fac.get("abandoned", false) and str(fac.get("location", "")) == location:
+                found = true
+                break
+        if not found:
+            return {"status": Bt.RUNNING, "reason": "n108_no_built_shipyard_here"}
+        var dock_cmd: Dictionary = Commands.make_command(
+            "RequestDock" if old_dock.is_empty() else "ReleaseDock", {
+                "ship": ship_id, "facility_location": location,
+                "preferred_facility_type": "shipyard", "native_refit": true})
+        return {"status": Bt.RUNNING, "commands": [dock_cmd],
+            "reason": "n108_wait_real_n21_shipyard_dock"} if not dock_cmd.is_empty() else {"status": Bt.FAILURE}
+    if kind == "Refit":
+        if str(ship.get("current_goal", "")) not in ["retrofit", "refit"] or not contract_id.is_empty():
+            return {"status": Bt.FAILURE, "reason": "n108_refit_without_live_goal"}
+        var slot: String = str(action.get("slot", action.get("refit_slot", "")))
+        var slug: String = str(action.get("slug", action.get("refit_slug", "")))
+        var slots: Dictionary = ship.get("fitting", {}).get("slots", {})
+        if slot.is_empty() or slug.is_empty() or not slots.has(slot):
+            return {"status": Bt.RUNNING, "reason": "n108_missing_original_refit_slot_or_slug"}
+        if str(slots[slot]) == slug:
+            return {"status": Bt.SUCCESS}
+        var yard_id: String = str(ship.get("docked_at", ""))
+        var yard: Dictionary = world.get("facilities", {}).get(yard_id, {})
+        if yard.is_empty() or str(yard.get("type", "")) != "shipyard" or bool(yard.get("abandoned", false)):
+            return {"status": Bt.RUNNING, "reason": "n108_ship_not_physically_at_yard"}
+        if int(yard.get("module_stock", {}).get("stock", {}).get(slug, 0)) < 1 or int(ship.get("progression", {}).get("retrofit_points", 0)) < 1:
+            return {"status": Bt.RUNNING, "reason": "n108_no_paid_module_or_retrofit_point"}
+        var command: Dictionary = Commands.make_command("RequestRefit", {
+            "ship": ship_id, "slot": slot, "slug": slug})
+        return {"status": Bt.RUNNING, "commands": [command],
+            "reason": "n146_n108_paid_refit_request"} if not command.is_empty() else {"status": Bt.FAILURE}
+    if kind in ["SellAll", "Refuel", "DeliverPassengers",
             "EmbarkPassengers", "Rest"]:
         return {"status": Bt.RUNNING, "reason": "awaiting_native_paid_" + kind}
     if kind == "Idle":
@@ -210,13 +255,18 @@ static func propose(world: Dictionary, graph: RefCounted,
         var ship: Dictionary = staged["ships"][ship_id]
         var contract_id: String = str(ship.get("active_contract_id", ""))
         if contract_id.is_empty():
-            if str(ship.get("current_goal", "")) != "construct":
+            var own_goal: String = str(ship.get("current_goal", ""))
+            if own_goal not in ["construct", "retrofit", "refit"]:
                 continue
-            var assigned_bt: Variant = ship.get("current_bt", null)
+            if own_goal in ["retrofit", "refit"]:
+                if not (ship.get("current_bt") is Dictionary) or not Bt.validate(ship["current_bt"]):
+                    return {"ok": false, "reason": "n108_missing_source_refit_bt", "ship_id": str(ship_id)}
+            else:
+                var assigned_bt: Variant = ship.get("current_bt", null)
             if not (assigned_bt is Dictionary) or not Bt.validate(assigned_bt):
                 return {"ok": false, "reason": "n91_invalid_active_engineer_plan", "ship_id": str(ship_id)}
-            var target_site: String = N91.target(assigned_bt)
-            if target_site.is_empty():
+                var target_site: String = N91.target(assigned_bt)
+                if target_site.is_empty():
                 return {"ok": false, "reason": "n91_active_construct_target_missing", "ship_id": str(ship_id)}
             if not staged.get("construction_sites", {}).has(target_site):
                 # Source N154 facility already appeared; relinquish the
