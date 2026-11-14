@@ -1,0 +1,15 @@
+# P2 autonomy acceptance — tick-driven N135/N104 (14.11.2026)
+- Branch: `integration/godot-phase2-unified-20261113`; common Draft PR #249.
+- Code commit: `59c0a5e5c1de88a27080d9c39e1089ca38cb6e42`.
+- File: `godot/tests/p2_unattended_autonomous_flight_check.gd`.
+- Fixed an acceptance false-positive: test no longer calls `Demand.propose` + `production.post_funded_contract` manually.
+- The only fixture is a controlled market food shortage and price pair on original Galaxy data; original 24 ships, balances, physical stock and routes are retained.
+- The test now advances the single N158 runner and discovers an N135/N104 posted funded delivery contract in the actual canonical ContractBoard by source/destination/commodity.
+- If no contract is posted by the live market phase, it fails explicitly (`posted=false`) rather than accepting manual fixture admission.
+- Existing checks retained: N9 total credit conservation, accepted/pickup/transit/destination dock, N15 physical load/unload receipts, escrow payout, N38 save/reload in transit, rejection of duplicate delivery.
+- No new World, Ledger, ContractBoard, TickRunner, manual fleet UI or Actions changes.
+- Static verification: no manual `post_funded_contract`/ship departure in test; tick-driven discovery, save/load and replay assertions present.
+- **CODE_UNVERIFIED**: no local Godot executable available; no runtime PASS claimed. Actions=0.
+- Risks: controlled shortage may be overwritten by population/market phase; posted contract may not be serviceable by an available native ship. Test is intentionally strict and will expose these.
+- Next: execute `godot --headless --path godot --script res://tests/p2_unattended_autonomous_flight_check.gd` on Godot 4.7.2, inspect first failure and repair actual N158 phase or physical logistics, not test with manual contract injection.
+- Lease: `leases/20261114-0244-automation11-hands-off-acceptance.json` RELEASED. Other files free; no CI release ownership.
