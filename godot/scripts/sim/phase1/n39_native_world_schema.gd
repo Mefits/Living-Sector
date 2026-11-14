@@ -12,6 +12,7 @@ const NativeShipLod = preload("res://scripts/sim/phase1/n140_native_spatial_lod.
 const Technology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
 const OriginalResearchMandate = preload("res://scripts/sim/phase1/n143_native_research_director.gd")
 const OriginalFactionCharter = preload("res://scripts/native_port/n109_charter.gd")
+const OriginalEconomicMandate = preload("res://scripts/simulation/strategy/native_mandate_policy.gd")
 const Construction = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
 const NativeColonyArchive = preload("res://scripts/sim/phase2/unified_n151_colony_establish_archive.gd")
 const NativeRelations = preload("res://scripts/sim/phase1/n150_native_full_faction_relations.gd")
@@ -506,6 +507,32 @@ static func validate(state: Dictionary) -> String:
                 issue = OriginalFactionCharter.validate(policy)
             if not issue.is_empty():
                 return "invalid_original_" + policy_key + ":" + issue
+    # Original Rust Director::economic_mandates is an optional
+    # POLICY, not a source of free contracts. A real faction-owned
+    # station must match before any delegated industrial/supply goal.
+    if state.has("economic_mandates"):
+        if not (state["economic_mandates"] is Dictionary):
+            return "invalid_original_economic_mandate_map"
+        for faction in state["economic_mandates"]:
+            if not known_directors.has(faction) or not (
+                    state["economic_mandates"][faction] is Dictionary):
+                return "orphaned_original_economic_mandate"
+            var directive: Dictionary = state["economic_mandates"][faction]
+            if str(directive.get("mode", "")) not in [
+                    "delegated", "advise", "hold"]:
+                return "invalid_original_economic_mandate_mode"
+            var issue: String = OriginalEconomicMandate.validate_economic(
+                directive)
+            if not issue.is_empty():
+                return "invalid_original_economic_mandate:" + issue
+            var location: String = str(directive.get("location", ""))
+            var market: Dictionary = state.get("markets", {}).get(location, {})
+            var actor: Dictionary = state.get("facilities", {}).get(
+                str(market.get("owner", "")), {})
+            if actor.is_empty() or str(actor.get("type", "")) != "station" or (
+                    str(actor.get("faction", "")) != str(faction)) or (
+                    str(actor.get("location", "")) != location):
+                return "economic_mandate_station_not_owned_by_faction"
     # Construction is a complete optional canonical N154 domain, not
     # a second SiteRegistry. Legacy checkpoints omit all four fields.
     var construction_keys: Array[String] = [
