@@ -1638,6 +1638,179 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
         "faction_id": faction, "tick": tick,
         "head": approved.get("head", {}).duplicate(true)}
 
+## Miro B2: original N153 contract AI accepts ONE prepaid N144
+## Construction offer, with real 200-Metals ship/route, full fuel
+## preflight and source N97 purchase quote. Exactly the canonical
+## N104 Board + N9 top-up, no other ship/market mutation.
+func accept_native_b2_colony_metals(tick: int, bid: Dictionary,
+        graph: RefCounted, positions: Dictionary,
+        resolver: RefCounted, scale: float) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick or (
+            graph == null or resolver == null):
+        return {"ok": false, "reason": "b2_not_live_original_n153_faction_tick"}
+    var result: Dictionary = NativeColonyMetalAssignment.accept(
+        _world, _ledger.snapshot(), bid, graph, positions,
+        resolver, tick, scale)
+    if not result.get("ok", false):
+        return result
+    var staged: Dictionary = result.get("world", {})
+    var money: Dictionary = result.get("ledger_snapshot", {})
+    var cid: String = str(result.get("contract_id", ""))
+    var sid: String = str(result.get("ship_id", ""))
+    if not _world.get("ships", {}).has(sid) or (
+            not _world.get("contract_board", {}).get("contracts", {}).has(cid)):
+        return {"ok": false, "fatal": true, "reason": "b2_accept_missing_canonical_contract"}
+    if staged.size() != _world.size() or staged.get("markets", {}) != _world.get("markets", {}):
+        return {"ok": false, "fatal": true, "reason": "b2_accept_created_fake_world_or_market"}
+    for domain in _world:
+        if domain not in ["ships", "contract_board", "escrow_balances",
+                "faction_treasuries"] and staged[domain] != _world[domain]:
+            return {"ok": false, "fatal": true,
+                "reason": "b2_accept_modified_unrelated_domain:" + str(domain)}
+    if staged["ships"].size() != _world["ships"].size():
+        return {"ok": false, "fatal": true, "reason": "b2_accept_invented_real_hull"}
+    for other in _world["ships"]:
+        if str(other) != sid and staged["ships"][other] != _world["ships"][other]:
+            return {"ok": false, "fatal": true, "reason": "b2_accept_modified_other_ship"}
+    var old_contracts: Dictionary = _world["contract_board"]["contracts"]
+    var new_contracts: Dictionary = staged["contract_board"]["contracts"]
+    if old_contracts.size() != new_contracts.size() or (
+            str(new_contracts[cid].get("status", "")) != "accepted" or
+            str(new_contracts[cid].get("fulfiller_id", "")) != sid):
+        return {"ok": false, "fatal": true, "reason": "b2_accept_fake_n104_contract"}
+    for old_id in old_contracts:
+        if str(old_id) != cid and new_contracts[old_id] != old_contracts[old_id]:
+            return {"ok": false, "fatal": true, "reason": "b2_accept_changed_foreign_contract"}
+    var payer_faction: String = str(old_contracts[cid].get("faction_id", ""))
+    for other in _world.get("faction_treasuries", {}):
+        if str(other) != payer_faction and staged["faction_treasuries"][other] != _world["faction_treasuries"][other]:
+            return {"ok": false, "fatal": true, "reason": "b2_accept_changed_foreign_treasury"}
+    var next_ledger := Ledger.new()
+    if not next_ledger.restore(money) or next_ledger.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "b2_accept_minted_n9_money"}
+    var prior: Dictionary = _ledger.snapshot()
+    var old_receipts: Dictionary = prior["receipts"]
+    var new_receipts: Dictionary = money["receipts"]
+    var top_up: int = int(result.get("top_up", -1))
+    var topup_id: String = "contract:" + cid + ":topup"
+    if top_up < 0 or new_receipts.size() != old_receipts.size() + (1 if top_up > 0 else 0):
+        return {"ok": false, "fatal": true, "reason": "b2_accept_wrong_n9_topup_count"}
+    if top_up > 0 and not new_receipts.has(topup_id):
+        return {"ok": false, "fatal": true, "reason": "b2_accept_missing_paid_n9_topup"}
+    for old_id in old_receipts:
+        if new_receipts.get(old_id, null) != old_receipts[old_id]:
+            return {"ok": false, "fatal": true, "reason": "b2_accept_modified_old_escrow_receipt"}
+    var schema_error: String = Schema.validate(staged)
+    if not schema_error.is_empty():
+        return {"ok": false, "fatal": true, "reason": "b2_accept_schema_" + schema_error}
+    var accounts: Dictionary = Schema.accounts(staged)
+    if accounts.size() != money["balances"].size():
+        return {"ok": false, "fatal": true, "reason": "b2_accept_n9_account_count"}
+    for wallet in accounts:
+        if money["balances"].get(wallet, null) != accounts[wallet]:
+            return {"ok": false, "fatal": true, "reason": "b2_accept_n9_account_diverged"}
+    _world = staged
+    _ledger = next_ledger
+    return {"ok": true, "status": "B2_REAL_N153_N104_CONSTRUCTION_ACCEPTED",
+        "contract_id": cid, "ship_id": sid, "site_id": str(result["site_id"]),
+        "top_up": top_up, "tick": tick}
+
+## Miro B2 original Rust engine/apply.rs construction delivery:
+## after actual N14 flight and N21 dock, move physical Metals directly
+## from the same N15 ship hold into N154 Site progress. The marketless
+## destination NEVER owns a fake warehouse. N104 escrow payout is ONE
+## immutable real N9 transfer in the SAME authoritative commit.
+func apply_native_b2_colony_metals_delivery(tick: int, sid: String,
+        cid: String) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick + 1:
+        return {"ok": false, "reason": "b2_not_live_original_n84_ship_phase"}
+    var ship: Dictionary = _world.get("ships", {}).get(sid, {})
+    if not (ship.get("current_bt") is Dictionary) or (
+            NativeBt.current_action(ship["current_bt"]) != "DeliverCargo"):
+        return {"ok": false, "reason": "b2_unapproved_native_n84_delivery_leaf"}
+    var stage: Dictionary = NativeColonyMetals.deliver(
+        _world, _ledger.snapshot(), cid, sid, tick)
+    if not stage.get("ok", false):
+        return stage
+    var staged: Dictionary = stage.get("world", {})
+    var money: Dictionary = stage.get("ledger_snapshot", {})
+    var site_id: String = str(stage.get("site_id", ""))
+    var count: int = int(stage.get("quantity", 0))
+    var old_site: Dictionary = _world.get("construction_sites", {}).get(site_id, {})
+    var new_site: Dictionary = staged.get("construction_sites", {}).get(site_id, {})
+    if old_site.is_empty() or count <= 0 or new_site.is_empty() or (
+            int(new_site.get("progress_delivered", -1)) != int(old_site.get("progress_delivered", 0)) + count):
+        return {"ok": false, "fatal": true, "reason": "b2_no_real_original_200_metal_progress"}
+    if staged.size() != _world.size() or staged.get("markets", {}) != _world.get("markets", {}) or (
+            staged.get("facilities", {}) != _world.get("facilities", {}) or
+            staged.get("populations", {}) != _world.get("populations", {})):
+        return {"ok": false, "fatal": true, "reason": "b2_delivery_fabricated_market_or_population"}
+    for domain in _world:
+        if domain not in ["ships", "contract_board", "escrow_balances",
+                "construction_sites", "construction_receipts",
+                "cargo_receipts"] and staged[domain] != _world[domain]:
+            return {"ok": false, "fatal": true,
+                "reason": "b2_delivery_modified_unrelated_world:" + str(domain)}
+    if staged["ships"].size() != _world["ships"].size():
+        return {"ok": false, "fatal": true, "reason": "b2_delivery_invented_ship"}
+    for other in _world["ships"]:
+        if str(other) != sid and staged["ships"][other] != _world["ships"][other]:
+            return {"ok": false, "fatal": true, "reason": "b2_delivery_modified_other_ship"}
+    if int(staged["ships"][sid]["cargo"].get("metals", 0)) != int(ship["cargo"].get("metals", 0)) - count:
+        return {"ok": false, "fatal": true, "reason": "b2_delivery_no_physical_ship_hold_debit"}
+    for other in _world["construction_sites"]:
+        if str(other) != site_id and staged["construction_sites"][other] != _world["construction_sites"][other]:
+            return {"ok": false, "fatal": true, "reason": "b2_delivery_changed_another_site"}
+    var original_contracts: Dictionary = _world["contract_board"]["contracts"]
+    var completed: Dictionary = staged["contract_board"]["contracts"]
+    if completed.size() != original_contracts.size() or (
+            str(completed.get(cid, {}).get("status", "")) != "paid"):
+        return {"ok": false, "fatal": true, "reason": "b2_delivery_unsettled_original_n104"}
+    for other in original_contracts:
+        if str(other) != cid and completed[other] != original_contracts[other]:
+            return {"ok": false, "fatal": true, "reason": "b2_delivery_modified_other_n104"}
+    var cargo_id: String = str(stage.get("n15_receipt", ""))
+    var site_receipt: String = str(stage.get("construction_receipt", ""))
+    if staged["cargo_receipts"].size() != _world["cargo_receipts"].size() + 1 or (
+            staged["construction_receipts"].size() != _world["construction_receipts"].size() + 1 or
+            not staged["cargo_receipts"].has(cargo_id) or
+            not staged["construction_receipts"].has(site_receipt)):
+        return {"ok": false, "fatal": true, "reason": "b2_delivery_missing_n15_or_n154_receipt"}
+    for old_id in _world["cargo_receipts"]:
+        if staged["cargo_receipts"].get(old_id, null) != _world["cargo_receipts"][old_id]:
+            return {"ok": false, "fatal": true, "reason": "b2_delivery_rewrote_physical_receipt"}
+    for old_id in _world["construction_receipts"]:
+        if staged["construction_receipts"].get(old_id, null) != _world["construction_receipts"][old_id]:
+            return {"ok": false, "fatal": true, "reason": "b2_delivery_rewrote_paid_material_proof"}
+    var ledger := Ledger.new()
+    if not ledger.restore(money) or ledger.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "b2_delivery_fabricated_money"}
+    var prior_bank: Dictionary = _ledger.snapshot()
+    var old_money: Dictionary = prior_bank["receipts"]
+    var new_money: Dictionary = money["receipts"]
+    var payment_id: String = "contract:" + cid + ":payout"
+    if new_money.size() != old_money.size() + 1 or not new_money.has(payment_id):
+        return {"ok": false, "fatal": true, "reason": "b2_delivery_missing_real_n9_payout"}
+    for old_id in old_money:
+        if new_money.get(old_id, null) != old_money[old_id]:
+            return {"ok": false, "fatal": true, "reason": "b2_delivery_modified_historical_n9"}
+    var err: String = Schema.validate(staged)
+    if not err.is_empty():
+        return {"ok": false, "fatal": true, "reason": "b2_delivery_schema_" + err}
+    var expected_accounts: Dictionary = Schema.accounts(staged)
+    if expected_accounts.size() != money.get("balances", {}).size():
+        return {"ok": false, "fatal": true, "reason": "b2_delivery_n9_account_count"}
+    for wallet in expected_accounts:
+        if money["balances"].get(wallet, null) != expected_accounts[wallet]:
+            return {"ok": false, "fatal": true, "reason": "b2_delivery_n9_account_diverged"}
+    _world = staged
+    _ledger = ledger
+    return {"ok": true, "status": "B2_NATIVE_RUST_200_METALS_DELIVERED_PAID",
+        "contract_id": cid, "ship_id": sid, "site_id": site_id,
+        "quantity": count, "payout": int(stage.get("payout", 0)),
+        "n15_receipt": cargo_id, "n9_receipt": payment_id,
+        "construction_receipt": site_receipt, "tick": tick}
+
 ## Native Rust engine/colony.rs::prepare_docks, AFTER a real N144
 ## founder authorization: one empty temporary N21 dock and one zero-
 ## resident household, NOT a free colony, market or passenger.
