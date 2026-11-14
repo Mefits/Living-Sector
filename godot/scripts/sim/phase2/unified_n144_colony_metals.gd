@@ -47,6 +47,18 @@ static func source_quote(world: Dictionary, site_id: String) -> Dictionary:
             str(dock.get("location", "")) != destination or
             str(dock.get("faction", "")) != faction):
         return _reject("b2_no_real_marketless_original_destination")
+    # Rust colony.rs::proposals posts Construction only AFTER actual
+    # settlers have arrived. The zero-head N151 dock is not a colony.
+    var required_settlers: int = 50 if world.get("research_directors", {}).has(faction) else 10
+    var settled: bool = false
+    for household in world.get("populations", {}).values():
+        if str(household.get("faction", "")) == faction and (
+                str(household.get("location", "")) == destination and
+                int(household.get("count", 0)) >= required_settlers):
+            settled = true
+            break
+    if not settled:
+        return _reject("b2_no_real_delivered_founding_settlers")
     var left: int = int(site.get("progress_required", 0)) - int(site.get("progress_delivered", 0))
     var qty: int = mini(LOT, left)
     if left <= 0 or qty <= 0:
