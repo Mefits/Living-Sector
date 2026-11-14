@@ -22,8 +22,8 @@ func _initialize() -> void:
         _fail("raw JSON or original Rust database seeder graph rejected")
         return
     var db: RefCounted = registry.graph()
-    if raw.edge_count() != 12 or db.edge_count() != 24:
-        _fail("expected 12 raw forward and 24 native SQLite corridor rows")
+    if raw.edge_count() != 12 or db.edge_count() != 170:
+        _fail("expected 12 raw, 24 seeded and 146 original charted colony rows")
         return
     if raw.shortest_path("alpha-station", "earth-station").get("reachable", false):
         _fail("generic raw directed graph changed unexpectedly")
@@ -63,9 +63,9 @@ func _initialize() -> void:
             float(return_trip.get("distance", -1)), 855.0):
         _fail("Rust-seeded multi-system reverse corridor has wrong physical cost")
         return
-    if db.has_location("mars-colony") or db.shortest_path(
-            "earth-station", "mars-colony").get("reachable", false):
-        _fail("invalid phantom colony navigation inferred from reversible routes")
+    var to_mars: Dictionary = db.shortest_path("earth-station", "mars-colony")
+    if not db.has_location("mars-colony") or not to_mars.get("reachable", false) or int(to_mars.get("distance", -1)) != 18:
+        _fail("frozen Rust spawner charted Mars location or cost not reproduced")
         return
     var model = World.new()
     var resolver = Locations.new()
@@ -102,7 +102,10 @@ func _initialize() -> void:
     if before["ships"][target_ship]["transit"] != {}:
         _fail("N14 pure departure mutated original N39 input")
         return
-    print("P2_NATIVE_SEEDED_ROUTES_N14_RETURN_FLIGHT_NO_GHOST_COLONY_PASS")
+    if not resolver.is_mapped("mars-colony") or not points["positions"].has("mars-colony"):
+        _fail("native N43 has no original moving charted planet target")
+        return
+    print("P2_NATIVE_SEEDED_ROUTES_N142_CHARTED_COLONY_PASS")
     quit(0)
 
 func _fail(reason: String) -> void:
