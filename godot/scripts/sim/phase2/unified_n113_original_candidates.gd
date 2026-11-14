@@ -12,6 +12,8 @@ const NativeConstruction = preload("res://scripts/sim/phase2/unified_native_cons
 const NativeN134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
 const N111 = preload("res://scripts/native_port/n111_options.gd")
 const N155Director = preload("res://scripts/sim/phase1/n155_director_native_observation.gd")
+const OriginalResearchMandate = preload("res://scripts/sim/phase1/n143_native_research_director.gd")
+const OriginalCharter = preload("res://scripts/native_port/n109_charter.gd")
 
 static func _fail(reason: String) -> Dictionary:
     return {"ok": false, "reason": reason}
@@ -35,13 +37,17 @@ static func _research(world: Dictionary, faction: String,
     var occupied: Dictionary = Payroll.occupied(world, tick)
     var people: Array = NativeResearch._population_rows(world, occupied)
     var markets: Array = NativeResearch._market_rows(world)
+    var mandates: Dictionary = world.get("research_mandates", {})
+    var charters: Dictionary = world.get("faction_charters", {})
+    var mandate: Dictionary = mandates.get(faction, {})
+    var charter: Dictionary = charters.get(faction, {})
     var ready: Dictionary = ResearchShift.research_ready({
         "faction_id": faction, "tick": tick,
         "commander": director, "markets": markets, "people": people,
         "treasury": int(world["faction_treasuries"][faction]),
-        # These match the current actual N143 active source adapter,
-        # not an invented extra mandate or player charter.
-        "mandate": {}, "charter": {}
+        # Exact N143 uses these SAME canonical policy maps. Empty means
+        # original frozen Rust 0.6.7 autonomous default.
+        "mandate": mandate, "charter": charter
     }, ResearchTech.all())
     if not ready.get("ok", false):
         return _fail("n113_native_research_ready_error:" +
@@ -55,6 +61,16 @@ static func _research(world: Dictionary, faction: String,
             return _fail("n113_missing_source_science_profile")
         score = 18.0 * science + (2.0 if str(
             memory.get("kind", "")) == "research" else 0.0)
+        # Rust coordination.rs adds the player charter PRIORITY (not
+        # money) only for a genuinely active delegated research mandate
+        # whose original charter allows player direction. N143 still
+        # owns the real paid authorization and N9 receipt.
+        var active: Dictionary = OriginalResearchMandate.active_mandate(
+            mandates, faction, director.get("technologies", []))
+        if str(active.get("mode", "")) == "delegated" and (
+                OriginalCharter.may_direct(charters, faction, "research")):
+            score += OriginalCharter.priority_score(
+                charters, faction, "research", 160.0)
     return {"ok": true, "offer": {
         "action": "research", "target": target,
         "score": score, "available": score > 0.0,
