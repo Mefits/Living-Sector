@@ -40,6 +40,7 @@ const NativeN148 = preload("res://scripts/sim/phase2/unified_n148_ship_retiremen
 const NativePassengers = preload("res://scripts/sim/phase2/unified_n104_passenger_transit.gd")
 const NativeN147 = preload("res://scripts/sim/phase2/unified_n147_colony_migration_observer.gd")
 const NativeShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
+const NativeN149Crew = preload("res://scripts/sim/phase2/unified_n149_ship_crew_phase.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
@@ -453,6 +454,75 @@ func apply_native_n148_ship_lifecycle(tick: int, multiplier: int,
         "changed": candidate.get("changed", false),
         "commands": candidate.get("commands", []).duplicate(true),
         "advanced": candidate.get("advanced", []).duplicate(true)}
+
+
+## Rust ship/mod.rs::tick_ships Pass 3, once per actual N140 fire.
+## ShipCrew welfare, real N15 hold Food and actual N9 wage outflow
+## settle in ONE N39 atomic commit, before N84 BT/command execution.
+## Native Crew.wages_credits is nonspendable historical savings, NOT a
+## wallet that could mint or spend a second set of credits.
+func apply_native_n149_ship_crew(tick: int, tick_scale: float,
+        multiplier: int, n140_fired: Dictionary) -> Dictionary:
+    if not _ready or tick != _last_tick + 1 or tick < 1:
+        return {"ok": false, "reason": "n149_not_native_ship_phase"}
+    var before_world: Dictionary = _world
+    var before_bank: Dictionary = _ledger.snapshot()
+    var result: Dictionary = NativeN149Crew.stage(
+        before_world, before_bank, tick, tick_scale, multiplier, n140_fired)
+    if not result.get("ok", false):
+        return result
+    var after_ships: Dictionary = result["ships"]
+    if after_ships.size() != before_world.get("ships", {}).size():
+        return {"ok": false, "fatal": true, "reason": "n149_changed_native_ship_roster"}
+    for sid in before_world["ships"]:
+        if not after_ships.has(sid):
+            return {"ok": false, "fatal": true, "reason": "n149_removed_actual_ship"}
+        var original: Dictionary = before_world["ships"][sid]
+        var updated: Dictionary = after_ships[sid]
+        if not n140_fired.has(sid):
+            if updated != original:
+                return {"ok": false, "fatal": true, "reason": "n149_mutated_sleeping_ship"}
+            continue
+        var compare: Dictionary = original.duplicate(true)
+        for field in ["crew", "credits", "cargo", "cargo_age",
+                "crew_efficiency"]:
+            if updated.has(field):
+                compare[field] = updated[field]
+            else:
+                compare.erase(field)
+        if compare != updated:
+            return {"ok": false, "fatal": true, "reason": "n149_changed_unrelated_ship_field"}
+    var next_world: Dictionary = before_world.duplicate(true)
+    next_world["ships"] = after_ships.duplicate(true)
+    var invalid: String = Schema.validate(next_world)
+    if not invalid.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n149_schema_" + invalid}
+    var new_bank: Dictionary = result["ledger_snapshot"]
+    var staged_ledger := Ledger.new()
+    if not staged_ledger.restore(new_bank):
+        return {"ok": false, "fatal": true, "reason": "n149_invalid_single_n9_receipts"}
+    var wages: int = int(result.get("wages_total", -1))
+    if wages < 0 or staged_ledger.total() != _ledger.total() - wages:
+        return {"ok": false, "fatal": true, "reason": "n149_wage_total_not_source_accrual"}
+    if new_bank["receipts"].size() != before_bank["receipts"].size() + (
+            result.get("records", []).filter(func(x): return int(x.get("wages", 0)) > 0).size()):
+        return {"ok": false, "fatal": true, "reason": "n149_expected_wage_receipts_missing"}
+    for rid in before_bank["receipts"]:
+        if new_bank["receipts"].get(rid, null) != before_bank["receipts"][rid]:
+            return {"ok": false, "fatal": true, "reason": "n149_mutated_existing_n9_receipt"}
+    var accounts: Dictionary = Schema.accounts(next_world)
+    if accounts.size() != new_bank["balances"].size():
+        return {"ok": false, "fatal": true, "reason": "n149_added_unauthorized_wallet"}
+    for account in accounts:
+        if new_bank["balances"].get(account, null) != accounts[account]:
+            return {"ok": false, "fatal": true, "reason": "n149_n9_ship_wallet_mismatch"}
+    _world = next_world
+    _ledger = staged_ledger
+    return {"ok": true, "tick": tick,
+        "fired_count": int(result.get("fired_count", 0)),
+        "wages_total": wages,
+        "food_consumed": int(result.get("food_consumed", 0)),
+        "records": result.get("records", []).duplicate(true)}
 
 
 ## N21+N15 one-World dock/cargo command commit. N15 is physical inventory
