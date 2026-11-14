@@ -1,25 +1,57 @@
 extends PanelContainer
 ## N20 observational UI: no command buttons until real executor is wired.
 const ObserverProjection = preload("res://scripts/sim/observer/observer_projection.gd")
+const SECTIONS := ["Сводка", "Заказы", "Исследования", "Строительство",
+    "Станции", "Производство", "Рынки", "Население", "Флот"]
 var _label: RichTextLabel
+var _section_choice: OptionButton
+var _section_texts: Dictionary = {}
 
 func _ready() -> void:
-    custom_minimum_size = Vector2(380, 320)
+    custom_minimum_size = Vector2(340, 280)
     var column := VBoxContainer.new()
+    column.size_flags_vertical = Control.SIZE_EXPAND_FILL
     add_child(column)
     var heading := Label.new()
-    heading.text = "НАБЛЮДЕНИЕ / УПРАВЛЕНИЕ · N20"
+    heading.text = "НАБЛЮДЕНИЕ"
+    heading.add_theme_font_size_override("font_size", 16)
     column.add_child(heading)
+    _section_choice = OptionButton.new()
+    _section_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    for section in SECTIONS:
+        _section_choice.add_item(str(section))
+    _section_choice.item_selected.connect(_on_section_selected)
+    column.add_child(_section_choice)
     _label = RichTextLabel.new()
     _label.size_flags_vertical = Control.SIZE_EXPAND_FILL
     _label.selection_enabled = true
+    _label.scroll_following = false
+    _label.add_theme_font_size_override("normal_font_size", 15)
     column.add_child(_label)
     show_observation(0, "unselected", {})
 
+func _on_section_selected(_index: int) -> void:
+    _show_selected(true)
+
+func _show_selected(reset_scroll: bool = false) -> void:
+    if _label == null or _section_choice == null:
+        return
+    var section: String = str(SECTIONS[_section_choice.selected])
+    var content: String = str(_section_texts.get(section, "Пока нет данных"))
+    if _label.text == content:
+        return
+    var scrollbar: VScrollBar = _label.get_v_scroll_bar()
+    var old_position: float = scrollbar.value
+    _label.text = content
+    if reset_scroll:
+        scrollbar.value = 0.0
+    else:
+        scrollbar.value = minf(old_position, maxf(0.0, scrollbar.max_value - scrollbar.page))
+
 func show_observation(tick: int, faction_id: String, state: Dictionary) -> void:
-    var text_value: String = ObserverProjection.describe(ObserverProjection.build(tick, faction_id, state))
-    if _label:
-        _label.text = text_value
+    var value: String = ObserverProjection.describe(ObserverProjection.build(tick, faction_id, state))
+    _section_texts["Сводка"] = value
+    _show_selected()
 
 ## P2 live economy inspection: read ONLY the authoritative N39 snapshot.
 ## Do not present unconnected N20 planner decisions as active gameplay.
@@ -433,4 +465,122 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
             flight_count, ships.size() - flight_count, stranded_count])
         lines.append("Доставка считается завершённой только после N104 receipt и физического N15/N97 Apply.")
     lines.append("N134/N100/N155 стратегические планировщики: полная автономия ещё не подтверждена.")
-    _label.text = "\n".join(lines)
+    _split_diagnostics(lines)
+    _section_texts["Сводка"] = _compact_summary(tick, economy, summary, ships, contracts)
+    _show_selected()
+
+## Keep complete N9/N104/N14 evidence in its own page, but never force
+## a user to scroll through 15 facilities and 24 ships just to diagnose AI.
+func _split_diagnostics(lines: Array[String]) -> void:
+    var pages: Dictionary = {}
+    for section in SECTIONS:
+        pages[str(section)] = []
+    var section: String = ""
+    for line in lines:
+        if line.begins_with("КОНТРАКТЫ N135") or line.begins_with("АВТОНОМНЫЕ ЗАКАЗЫ"):
+            section = "Заказы"
+        elif line.begins_with("ИССЛЕДОВАНИЯ N143"):
+            section = "Исследования"
+        elif line.begins_with("СТРОИТЕЛЬСТВО N154") or line.begins_with("КОЛОНИИ N147"):
+            section = "Строительство"
+        elif line.begins_with("СТАНЦИИ / КРЕДИТЫ"):
+            section = "Станции"
+        elif line.begins_with("ОПЛАЧЕННЫЕ СМЕНЫ") or line.begins_with("ОТКАЗЫ ОПЛАТЫ РЕМОНТА") or line.begins_with("ОСТАНОВКИ ПРОИЗВОДСТВА"):
+            section = "Производство"
+        elif line.begins_with("РЫНКИ / ФИЗИЧЕСКИЕ"):
+            section = "Рынки"
+        elif line.begins_with("НАСЕЛЕНИЕ / БЛАГОСОСТОЯНИЕ"):
+            section = "Население"
+        elif line.begins_with("РЕАЛЬНЫЙ ФЛОТ") or line.begins_with("Флот: старый checkpoint"):
+            section = "Флот"
+        elif line.begins_with("N134/N100/N155"):
+            section = "Строительство"
+        if not section.is_empty():
+            (pages[section] as Array).append(line)
+    for key in pages:
+        var content: Array = pages[key]
+        _section_texts[key] = "\n".join(content) if not content.is_empty() else "В этом разделе данных пока нет."
+
+## N135 posts only when real N151 consumption-window purchases exceed
+## the physical market supply; zero contract count alone is not an AI error.
+## This is observation, never a second demand queue or invented contract.
+static func demand_diagnosis(economy: Dictionary, summary: Dictionary) -> String:
+    if str(summary.get("station_demand_status", "NOT_EVALUATED")) == "NOT_EVALUATED":
+        return "N135: рынок ещё не оценивал потребности"
+    var created: int = int(summary.get("station_demand_candidates", 0))
+    if created > 0:
+        return "N135: найдено заявок %d; публикацию см. в «Заказы»" % created
+    var markets: Dictionary = economy.get("markets", {})
+    var with_purchases: int = 0
+    var deficits: int = 0
+    for raw in markets.values():
+        if not (raw is Dictionary):
+            continue
+        var supply: Dictionary = raw.get("supply", {})
+        var windows: Dictionary = raw.get("consumption_window", {})
+        for commodity in windows:
+            if not (windows[commodity] is Array):
+                continue
+            var consumed: float = 0.0
+            for entry in windows[commodity]:
+                if entry is Dictionary:
+                    consumed += float(entry.get("qty", 0.0))
+            if consumed > 0.0:
+                with_purchases += 1
+            if consumed > float(supply.get(commodity, 0.0)):
+                deficits += 1
+    if deficits > 0:
+        return "N135: дефицитов %d, но заявок 0 — проверьте «Заказы»" % deficits
+    if with_purchases == 0:
+        return "N135: нет истории покупок для расчёта дефицита"
+    return "N135: спрос пока покрыт запасами; заказов нет"
+
+static func _compact_summary(tick: int, economy: Dictionary, summary: Dictionary,
+        ships: Dictionary, contracts: Dictionary) -> String:
+    var active: int = 0
+    for contract in contracts.values():
+        if contract is Dictionary and str(contract.get("status", "")) in ["posted", "accepted", "picked_up", "delivered"]:
+            active += 1
+    var traveling: int = 0
+    var assigned: int = 0
+    for raw in ships.values():
+        if not (raw is Dictionary):
+            continue
+        if raw.get("transit", {}) is Dictionary and not raw["transit"].is_empty():
+            traveling += 1
+        if not str(raw.get("active_contract_id", "")).is_empty():
+            assigned += 1
+    var lines: Array[String] = [
+        "ТИК %d · ЖИВАЯ ЭКОНОМИКА" % tick,
+        "Станций %d · рынков %d · население %d групп" % [
+            economy.get("facilities", {}).size(), economy.get("markets", {}).size(),
+            economy.get("populations", {}).size()],
+        "",
+        "ЗАКАЗЫ / ФЛОТ",
+        "N104: %d контрактов · активных %d" % [contracts.size(), active],
+        "N153: принято %d · отказов %d" % [
+            int(summary.get("n153_accepted_this_tick", 0)),
+            int(summary.get("n153_blocked_this_tick", 0))],
+        "Корабли: %d · в пути %d · с заказом %d" % [
+            ships.size(), traveling, assigned],
+        demand_diagnosis(economy, summary),
+        "",
+        "ПРОИЗВОДСТВО (последний тик)",
+        "Зарплаты %d CR · добыча %d · выпуск %d" % [
+            int(summary.get("last_wages_paid", 0)),
+            int(summary.get("last_mining_facilities", 0)),
+            int(summary.get("last_recipe_facilities", 0))],
+        "Покупки Food/Water: %d" % int(summary.get("population_purchases", 0)),
+        "",
+        "РАЗВИТИЕ",
+        "Исследования: оплаченных смен %d" % int(summary.get("research_paid_shifts", 0)),
+        "Стройка: площадок %d · новых объектов %d" % [
+            economy.get("construction_sites", {}).size(),
+            int(summary.get("construction_new_facilities_this_tick", 0))],
+        "Колонии: %s" % (
+            "нет" if summary.get("colony_migration_status", "") == "N147_NO_ESTABLISHED_COLONIES"
+            else str(summary.get("colony_migration_status", "не оценены"))),
+        "",
+        "Подробности — в выборе раздела выше."
+    ]
+    return "\n".join(lines)
