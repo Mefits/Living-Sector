@@ -1,8 +1,10 @@
 extends RefCounted
-## N58: read-only provenance audit for the directed native route graph.
-## Does not infer reverse arcs, world-space coordinates, or game time.
-## Accepts only the exact edge multiset from native travel_routes.
-func audit(worlds: Array, graph: RefCounted) -> Dictionary:
+## N58: read-only provenance audit. Raw JSON is directional, while
+## the Rust sim_db seeder inserts actual reverse rows in its SQLite DB.
+## Explicit native_db_mode verifies that exact persisted two-way topology;
+## default generic audit NEVER infers extra source JSON edges.
+func audit(worlds: Array, graph: RefCounted,
+        native_db_mode: bool = false) -> Dictionary:
 	var errors: Array[String] = []
 	var expected: Dictionary = {}
 	var systems: Dictionary = {}
@@ -61,6 +63,12 @@ func audit(worlds: Array, graph: RefCounted) -> Dictionary:
 				errors.append("duplicate_arc:" + origin + "->" + target)
 			else:
 				expected[key] = {"from": origin, "to": target, "distance": float(weight), "system_id": sid}
+			if native_db_mode:
+				# Rust SQLite seeder upserts reverse AFTER forward. A later
+				# source route may overwrite either direction in the real DB.
+				var reverse_key: String = target + "\u001f" + origin
+				expected[reverse_key] = {"from": target, "to": origin,
+					"distance": float(weight), "system_id": sid}
 			endpoints[origin] = true
 			endpoints[target] = true
 	var snapshot: Dictionary = graph.snapshot()
