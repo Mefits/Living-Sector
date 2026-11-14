@@ -91,13 +91,27 @@ static func stage(world: Dictionary, graph: RefCounted, tick: int,
             profile = Personality.for_class(str(ship.get("class", "")))
         if not Personality.validate(profile):
             continue
+        # Native Rust takes contested status from the actual
+        # BodyTerritory of each market's host facility, then applies
+        # own_market_priority AGAIN during N80 goal scoring. N83's
+        # initial margin rank already includes its own source boost.
+        var contested: bool = false
+        var ownership_weight: float = 0.0
+        for endpoint in [buy, sell]:
+            var market_owner: String = str(world["markets"][endpoint].get("owner", ""))
+            var home: Dictionary = world.get("facilities", {}).get(market_owner, {})
+            var body_id: String = str(home.get("body_id", ""))
+            var territory: Dictionary = world.get("body_territory", {}).get(body_id, {})
+            contested = contested or bool(territory.get("contested", false))
+            ownership_weight += 1.25 if str(home.get("faction", "")) == str(ship.get("faction_id", "")) else 1.0
+        ownership_weight /= 2.0
         var chosen: Dictionary = Goal.choose_goal({
             "location": loc, "class": str(ship.get("class", "")),
             "fuel_fraction": fuel_fraction,
             "cargo_capacity": int(ship.get("cargo_capacity", 0)),
             "cargo_used": cargo_used,
             "trade": {"profit": int(route.get("estimated_profit", 0)),
-                "contested": false, "ownership_priority": 1.0,
+                "contested": contested, "ownership_priority": ownership_weight,
                 "feasible": true, "combined_retrofit": false},
             "idle_goal": "idle"
         }, profile)
