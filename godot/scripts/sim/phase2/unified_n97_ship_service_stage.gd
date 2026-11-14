@@ -12,6 +12,26 @@ const Relations = preload("res://scripts/sim/phase1/n150_native_full_faction_rel
 static func _bad(why: String) -> Dictionary:
     return {"ok": false, "reason": "n97_service_" + why}
 
+## Native source Apply rejection must acknowledge the ONE N90
+## pending request without changing any physical/financial domain.
+## This is used only for genuine physical rejection (missing port,
+## not at a registered mining body); corrupted authority still fails.
+static func _rejected(world: Dictionary, ledger_snapshot: Dictionary,
+        ship_id: String, request_id: int, tick: int,
+        kind: String, why: String) -> Dictionary:
+    var staged: Dictionary = world.duplicate(true)
+    var ship: Dictionary = staged["ships"][ship_id]
+    var reply: Dictionary = N90.acknowledge(
+        ship["transaction"], request_id, false)
+    if not reply.get("ok", false):
+        return _bad("source_negative_ack_cannot_be_persisted")
+    ship["transaction"] = reply["state"].duplicate(true)
+    return {"ok": true, "status": "rejected", "world": staged,
+        "ledger_snapshot": ledger_snapshot.duplicate(true),
+        "kind": kind, "tick": tick, "ship_id": ship_id,
+        "request_id": request_id, "reason": why}
+
+
 static func _source_view(world: Dictionary, resolver: RefCounted,
         ship_id: String, request: Dictionary) -> Dictionary:
     if not (world.get("ships") is Dictionary) or not world["ships"].has(ship_id):
@@ -125,6 +145,15 @@ static func stage(world: Dictionary, ledger_snapshot: Dictionary,
     var kind: String = str(request["kind"])
     var projection: Dictionary = _source_view(world, resolver, ship_id, request)
     if not projection.get("ok", false):
+        var physical: String = str(projection.get("reason", ""))
+        if physical in [
+                "n97_service_request_location_not_reached",
+                "n97_service_mining_ship_not_in_original_body_system",
+                "n97_service_missing_real_deposit_body",
+                "n97_service_no_actual_native_fuel_operator",
+                "n97_service_real_dock_not_at_ships_location"]:
+            return _rejected(world, ledger_snapshot, ship_id,
+                request_id, tick, kind, physical)
         return projection
     var p_world: Dictionary = projection["world"]
     var outcome: Dictionary = SourceN97.apply(p_world, ship_id, request_id, tick)
