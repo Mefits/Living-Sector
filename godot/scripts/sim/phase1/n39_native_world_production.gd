@@ -54,6 +54,7 @@ const NativeCrewXp = preload("res://scripts/sim/ship_crew_skills_n128.gd")
 const N146Commands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
 const NativeFreeTrade = preload("res://scripts/sim/phase2/unified_n83_free_trade_apply.gd")
 const NativeShipServices = preload("res://scripts/sim/phase2/unified_n97_ship_service_stage.gd")
+const N21Source = preload("res://scripts/sim/phase2/unified_n21_dock_queue_stage.gd")
 const NativeGateJump = preload("res://scripts/sim/phase2/unified_n108_gate_jump_stage.gd")
 const NativeGatePair = preload("res://scripts/sim/phase2/unified_n108_gate_pair_stage.gd")
 const NativeCrisisPhase = preload("res://scripts/sim/phase2/unified_native_crisis_phase.gd")
@@ -1125,6 +1126,104 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
         "wages_total": wages,
         "food_consumed": int(result.get("food_consumed", 0)),
         "records": result.get("records", []).duplicate(true)}
+
+
+## Original Rust N21: source FIFO FacilityStorage dock_queue + dock fee.
+## This is the ONLY paid N21 Apply. A source proposal cannot publish
+## facilities, ships or N9 by itself. N38 owns snapshot of these fields.
+func _commit_native_n21(proposal: Dictionary) -> Dictionary:
+    if not proposal.get("ok", false) or not (proposal.get("world") is Dictionary) or (
+            not (proposal.get("ledger_snapshot") is Dictionary)):
+        return {"ok": false, "reason": "n21_invalid_staged_source_world"}
+    var future: Dictionary = proposal["world"]
+    var money: Dictionary = proposal["ledger_snapshot"]
+    if future.size() != _world.size():
+        return {"ok": false, "reason": "n21_changed_world_domain"}
+    for key in _world:
+        if key not in ["ships", "facilities", "dock_receipts"] and (
+                future.get(key, null) != _world[key]):
+            return {"ok": false, "reason": "n21_modified_unrelated_domain"}
+    if future.get("ships", {}).size() != _world.get("ships", {}).size() or (
+            future.get("facilities", {}).size() != _world.get("facilities", {}).size()):
+        return {"ok": false, "reason": "n21_modified_canonical_entities"}
+    for ship_id in _world["ships"]:
+        var before: Dictionary = _world["ships"][ship_id]
+        var after: Dictionary = future["ships"].get(ship_id, {})
+        if after.is_empty():
+            return {"ok": false, "reason": "n21_removed_original_ship"}
+        var expected: Dictionary = before.duplicate(true)
+        for field in ["credits", "docked_at", "dock_attempt_start_tick"]:
+            if after.has(field):
+                expected[field] = after[field]
+            elif field == "dock_attempt_start_tick" and before.has(field):
+                return {"ok": false, "reason": "n21_erased_attempt_cursor"}
+        if after != expected:
+            return {"ok": false, "reason": "n21_mutated_other_ship_component"}
+    for fid in _world["facilities"]:
+        var previous: Dictionary = _world["facilities"][fid]
+        var next: Dictionary = future["facilities"].get(fid, {})
+        if next.is_empty():
+            return {"ok": false, "reason": "n21_removed_original_facility"}
+        var allowed: Dictionary = previous.duplicate(true)
+        for field in ["credits", "dirty", "dock_queue"]:
+            if next.has(field):
+                allowed[field] = next[field]
+            elif field == "dock_queue" and previous.has(field):
+                return {"ok": false, "reason": "n21_erased_original_fifo"}
+        if next != allowed:
+            return {"ok": false, "reason": "n21_modified_other_facility_component"}
+    if not (future.get("dock_receipts") is Dictionary) or (
+            future["dock_receipts"].size() < _world.get("dock_receipts", {}).size()):
+        return {"ok": false, "reason": "n21_lost_original_dock_receipts"}
+    for op in _world.get("dock_receipts", {}):
+        if future["dock_receipts"].get(op, null) != _world["dock_receipts"][op]:
+            return {"ok": false, "reason": "n21_rewrote_paid_dock_receipt"}
+    var checked := Ledger.new()
+    if not checked.restore(money) or checked.total() != _ledger.total():
+        return {"ok": false, "reason": "n21_ledger_money_not_conservative"}
+    if not (money.get("receipts") is Dictionary) or (
+            money["receipts"].size() < _ledger.snapshot().get("receipts", {}).size()):
+        return {"ok": false, "reason": "n21_paid_receipt_missing"}
+    for id in _ledger.snapshot().get("receipts", {}):
+        if money["receipts"].get(id, null) != _ledger.snapshot()["receipts"][id]:
+            return {"ok": false, "reason": "n21_replayed_or_edited_n9_receipt"}
+    var schema_error: String = Schema.validate(future)
+    if not schema_error.is_empty():
+        return {"ok": false, "reason": "n21_schema_" + schema_error}
+    var expected_balances: Dictionary = Schema.accounts(future)
+    if expected_balances.size() != money.get("balances", {}).size():
+        return {"ok": false, "reason": "n21_noncanonical_account_count"}
+    for key in expected_balances:
+        if money["balances"].get(key, null) != expected_balances[key]:
+            return {"ok": false, "reason": "n21_wallet_did_not_match_source_n9"}
+    _world = future.duplicate(true)
+    _ledger = checked
+    return {"ok": true, "status": str(proposal.get("status", "")),
+        "changed": bool(proposal.get("changed", false)),
+        "receipt": proposal.get("receipt", {}).duplicate(true),
+        "events": proposal.get("events", []).duplicate(true)}
+
+func apply_native_n21_request(tick: int, ship_id: String,
+        location: String, operation: String,
+        preferred_type: String = "", preferred_id: String = "") -> Dictionary:
+    if not _ready or tick != _last_tick + 1 or tick < 1:
+        return {"ok": false, "reason": "n21_not_current_single_ship_phase"}
+    var proposed: Dictionary = {}
+    if operation == "dock":
+        proposed = N21Source.request(_world, _ledger.snapshot(), ship_id,
+            location, tick, preferred_type, preferred_id)
+    elif operation == "undock":
+        proposed = N21Source.release(_world, _ledger.snapshot(),
+            ship_id, location, tick)
+    else:
+        return {"ok": false, "reason": "n21_unknown_source_dock_action"}
+    return _commit_native_n21(proposed)
+
+func apply_native_n21_dock_queue(tick: int) -> Dictionary:
+    if not _ready or tick != _last_tick + 1 or tick < 1:
+        return {"ok": false, "reason": "n21_not_original_dock_queue_phase"}
+    return _commit_native_n21(N21Source.advance(
+        _world, _ledger.snapshot(), tick))
 
 
 ## N21+N15 one-World dock/cargo command commit. N15 is physical inventory
