@@ -18,10 +18,20 @@ if (-not (Test-Path (Join-Path $project "project.godot"))) {
     throw "ProjectDir must contain Living Sector's godot/project.godot"
 }
 $destination = Join-Path $project "addons\gut"
+function Copy-ProjectGutSpecs {
+    $specDir = Join-Path $PSScriptRoot "specs"
+    $testDest = Join-Path $project "tests\gut"
+    New-Item -ItemType Directory -Force -Path $testDest | Out-Null
+    Get-ChildItem -Path $specDir -Filter "test_*.gd.txt" -File | ForEach-Object {
+        $name = $_.Name.Substring(0, $_.Name.Length - 4)
+        Copy-Item -Path $_.FullName -Destination (Join-Path $testDest $name) -Force
+    }
+}
 if ((Test-Path (Join-Path $destination "plugin.cfg")) -and -not $Force) {
     $existing = Get-Content (Join-Path $destination "plugin.cfg") -Raw
     if ($existing -match 'version="9\.7\.1"') {
-        Write-Host "GUT 9.7.1 already installed at $destination"
+        Copy-ProjectGutSpecs
+        Write-Host "GUT 9.7.1 installed; refreshed Living Sector GUT specs"
         exit 0
     }
     throw "Another GUT version is installed. Review it; use -Force to replace."
@@ -52,6 +62,7 @@ try {
     if (-not (Test-Path (Join-Path $destination "gut_cmdln.gd"))) {
         throw "GUT CLI entry missing after installation"
     }
+    Copy-ProjectGutSpecs
     Write-Host "Installed official GUT $version ($commit) to $destination"
     Write-Host "Run headless: godot --headless --path $project --script res://addons/gut/gut_cmdln.gd -gdir=res://tests/gut -gexit"
     Write-Host "In editor enable Project > Project Settings > Plugins > Gut (optional for CLI)"
