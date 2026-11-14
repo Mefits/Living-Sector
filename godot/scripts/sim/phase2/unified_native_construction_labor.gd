@@ -64,7 +64,7 @@ static func executor(world: Dictionary, site: Dictionary) -> String:
 
 static func _native_shift(shift: Dictionary) -> Dictionary:
     var workers: Array = []
-    var by_id: Dictionary = shift.get("workers", {})
+    var by_id = shift.get("workers", {})
     if by_id is Dictionary:
         var ids: Array = by_id.keys()
         ids.sort()
