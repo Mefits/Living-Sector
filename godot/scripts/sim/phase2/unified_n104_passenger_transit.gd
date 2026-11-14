@@ -383,8 +383,27 @@ static func propose_assignment(world: Dictionary, graph: RefCounted,
         var source: String = str(c.get("source_location", ""))
         var dest: String = str(c.get("destination_location", ""))
         var quantity: int = int(c.get("quantity", 0))
-        if not world.get("markets", {}).has(source) or not world.get("markets", {}).has(dest):
+        # Native N144 founding ships deliver to the original temporary
+        # construction_dock with zero residents, BEFORE a market exists.
+        # All other passenger missions still require two real markets.
+        if not world.get("markets", {}).has(source):
             continue
+        if not world.get("markets", {}).has(dest):
+            if str(c.get("mission_category", "")) != "strategy.colony.v1":
+                continue
+            var site_id: String = str(c.get("colony_site_id", ""))
+            var site: Dictionary = world.get("construction_sites", {}).get(site_id, {})
+            var proof: Dictionary = world.get("construction_receipts", {}).get(
+                "n151_colony_dock:" + site_id, {})
+            var fid: String = str(proof.get("facility_id", ""))
+            var dock: Dictionary = world.get("facilities", {}).get(fid, {})
+            if site.is_empty() or str(site.get("location_name", "")) != dest or (
+                    str(site.get("faction_id", "")) != faction or
+                    str(site.get("labor", {}).get("colony_source", "")) != source or
+                    str(proof.get("kind", "")) != "colony_dock_prepared" or
+                    str(dock.get("type", "")) != "construction_dock" or
+                    str(dock.get("location", "")) != dest):
+                continue
         for sid in ship_ids:
             var ship: Dictionary = world["ships"][sid]
             var here: String = str(ship.get("location", ""))
