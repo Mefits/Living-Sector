@@ -143,22 +143,25 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
         if kind in ["Buy", "Sell", "SellAll"]:
             return NativeTradeAction.propose(ship, action, world, tick)
         if kind in ["Dock", "Undock"]:
-            # A free trade run uses a genuine station N21 slot, not an
-            # invented N104 contract. The N158 command Apply revalidates
-            # the original market owner, ship and physical location.
-            var market: Dictionary = world.get("markets", {}).get(location, {})
-            var station_id: String = str(market.get("owner", ""))
-            var station: Dictionary = world.get("facilities", {}).get(station_id, {})
-            if station.is_empty() or str(station.get("location", "")) != location or (
-                    str(station.get("type", "")) != "station"):
-                return {"status": Bt.RUNNING, "reason": "n83_no_real_trade_dock"}
+            # Rust lets a ship leave its original real dock before
+            # travelling to a market; departure does NOT require an
+            # origin market. Destination Dock DOES require N39 Market.
             if not ship.get("transit", {}).is_empty():
                 return {"status": Bt.RUNNING, "reason": "n83_wait_real_ship_arrival"}
             var docked: String = str(ship.get("docked_at", ""))
-            if kind == "Dock" and docked == station_id:
-                return {"status": Bt.SUCCESS}
             if kind == "Undock" and docked.is_empty():
                 return {"status": Bt.SUCCESS}
+            var market: Dictionary = world.get("markets", {}).get(location, {})
+            var station_id: String = str(market.get("owner", ""))
+            if kind == "Dock":
+                var station: Dictionary = world.get("facilities", {}).get(station_id, {})
+                if station.is_empty() or str(station.get("location", "")) != location or (
+                        str(station.get("type", "")) != "station"):
+                    return {"status": Bt.RUNNING, "reason": "n83_no_real_trade_dock"}
+                if docked == station_id:
+                    return {"status": Bt.SUCCESS}
+            elif not world.get("facilities", {}).has(docked) or str(world["facilities"][docked].get("location", "")) != location:
+                return {"status": Bt.FAILURE, "reason": "n83_cannot_leave_missing_real_origin_dock"}
             var operation: String = "RequestDock" if kind == "Dock" and docked.is_empty() else "ReleaseDock"
             var dock_cmd: Dictionary = Commands.make_command(operation, {
                 "ship": ship_id, "facility_location": location,
