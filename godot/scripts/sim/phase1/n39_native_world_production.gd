@@ -2255,7 +2255,8 @@ func apply_native_hybrid_planning(tick: int, faction: String,
         return {"ok": false, "reason": "n100_duplicate_faction_planning_pass"}
     # Until the N121 receipt-driven execution bridge admits this plan,
     # NEVER discard/reissue its unique N98 dispatch keys.
-    if str(existing.get("status", "")) == "n98_planned_not_dispatched":
+    if str(existing.get("status", "")) in ["n98_planned_not_dispatched",
+            "n121_active"]:
         return {"ok": true, "due": false, "faction_id": faction,
             "status": "awaiting_n121_canonical_execution"}
     var candidate: Dictionary = NativeHybridPlanning.propose(
