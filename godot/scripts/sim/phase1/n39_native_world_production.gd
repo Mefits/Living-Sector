@@ -1957,10 +1957,16 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
     for id in staged["facilities"]:
         if not proposed_facilities.has(id):
             return {"ok": false, "fatal": true, "reason": "n129_missing_native_facility"}
+        if int(proposed_facilities[id]) != int(_world["facilities"][id]["credits"]):
+            staged["facilities"][id]["dirty"] = true
         staged["facilities"][id]["credits"] = int(proposed_facilities[id])
     for id in staged["populations"]:
         if not proposed_households.has(id):
             return {"ok": false, "fatal": true, "reason": "n129_missing_native_household"}
+        if int(proposed_households[id]) != int(_world["populations"][id]["wealth"]):
+            # Rust relief.rs marks PopSentiment dirty when giving an
+            # actual household wallet support transfer.
+            staged["populations"][id]["sentiment_dirty"] = true
         staged["populations"][id]["wealth"] = int(proposed_households[id])
     staged["faction_finance_last_tick"] = tick
     var invalid: String = Schema.validate(staged)
