@@ -1,0 +1,39 @@
+extends GutTest
+## Original N21 paid docking must settle against the *same* N39/N9
+## facility/ account key, never a fabricated facility: alias.
+const N21 = preload("res://scripts/sim/phase2/unified_n21_dock_queue_stage.gd")
+const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
+
+func test_real_dock_fee_moves_exact_money_to_canonical_facility_wallet() -> void:
+    var bank = Ledger.new()
+    assert_true(bank.import_accounts({"ship:test": 500, "facility/port": 0}))
+    var source_world: Dictionary = {
+        "ships": {"test": {
+            "id": "test", "class": "freighter", "location": "earth-station",
+            "faction_id": "faction-a", "transit": {}, "docked_at": "",
+            "credits": 500, "dock_attempt_start_tick": null}},
+        "facilities": {"port": {
+            "location": "earth-station", "faction": "faction-a",
+            "type": "station", "docking_capacity": 2, "condition": 1.0,
+            "credits": 0, "dock_queue": [], "dirty": false,
+            "abandoned": false}},
+        "dock_receipts": {}, "faction_relations": {}
+    }
+    var before: Dictionary = source_world.duplicate(true)
+    var admitted: Dictionary = N21.request(source_world, bank.snapshot(),
+        "test", "earth-station", 1)
+    assert_true(admitted.get("ok", false), "Original payable N21 must dock")
+    assert_eq(str(admitted.get("status", "")), "docked")
+    if not admitted.get("ok", false):
+        return
+    var receipt: Dictionary = admitted.get("receipt", {})
+    var fee: int = int(receipt.get("fee", -1))
+    assert_gt(fee, 0, "A real dock is paid, not free")
+    var snapshot: Dictionary = admitted["ledger_snapshot"]
+    assert_eq(int(snapshot["balances"]["ship:test"]), 500 - fee)
+    assert_eq(int(snapshot["balances"]["facility/port"]), fee)
+    assert_eq(int(admitted["world"]["ships"]["test"]["credits"]), 500 - fee)
+    assert_eq(int(admitted["world"]["facilities"]["port"]["credits"]), fee)
+    assert_eq(int(admitted["world"]["dock_receipts"].size()), 1)
+    assert_eq(source_world, before, "Staging may not mutate original N39")
+    assert_eq(bank.total(), 500, "Source N9 was not published by proposal")
