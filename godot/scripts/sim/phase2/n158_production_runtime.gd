@@ -649,15 +649,20 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     # passing a typed command to the same N21 Apply.
                     var trading_loc: String = str(ship.get("location", ""))
                     var station_id: String = str(snapshot.get(
-                        "markets", {}).get(trading_loc, {}).get("owner", ""))
+                        "markets", {}).get(trading_loc, {}).get("owner", "")) if operation == "dock" else str(ship.get("docked_at", ""))
                     var station: Dictionary = snapshot.get(
                         "facilities", {}).get(station_id, {})
+                    # Undock can originate at a real non-market station
+                    # (including a shipyard); only an arrival Dock requires
+                    # the exact source N39 Market owner and station kind.
+                    var authentic_dock: bool = not station.is_empty() and (
+                        str(station.get("location", "")) == trading_loc)
+                    if operation == "dock":
+                        authentic_dock = authentic_dock and str(station.get("type", "")) == "station"
                     if str(ship.get("current_goal", "")) != "trade_route" or (
                             not str(ship.get("active_contract_id", "")).is_empty() or
                             str(command.get("facility_location", "")) != trading_loc or
-                            station_id.is_empty() or
-                            str(station.get("type", "")) != "station" or
-                            str(station.get("location", "")) != trading_loc):
+                            station_id.is_empty() or not authentic_dock):
                         _last_ship_result = {"ok": false,
                             "reason": "n83_n146_untrusted_free_market_dock"}
                         return false
