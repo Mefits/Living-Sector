@@ -6,6 +6,7 @@ const Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 const Bt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const Personality = preload("res://scripts/sim/ships/ai/native_personality.gd")
+const Transit = preload("res://scripts/sim/ship_transit.gd")
 
 ## Frozen 24-ship seed lacks per-ship Personality RNG. The same source
 ## class fallback as N153 is used, never a fabricated max loyalty value.
@@ -57,8 +58,80 @@ static func physical_site_funded(world: Dictionary, money: Dictionary,
             return false
     return delivered == int(site.get("progress_delivered", -1))
 
+
+## Build only an N84 plan backed by an ORIGINAL directed N4 path.
+## N14 can depart one edge at a time; shortest_path by itself does not
+## prove a full trip is feasible. No virtual engineer, cargo or credits.
+static func plan_for(world: Dictionary, resolver: RefCounted, graph: RefCounted,
+        positions: Dictionary, ship_id: String, site_id: String,
+        scale: float) -> Dictionary:
+    var ship: Dictionary = world.get("ships", {}).get(ship_id, {})
+    var site: Dictionary = world.get("construction_sites", {}).get(site_id, {})
+    if ship.is_empty() or site.is_empty():
+        return {"ok": false, "reason": "n91_missing_real_actor_or_site"}
+    var from: String = str(ship.get("location", ""))
+    var dest: String = str(site.get("location_name", ""))
+    if from.is_empty() or dest.is_empty() or not world.get("markets", {}).has(dest):
+        return {"ok": false, "reason": "n91_remote_endpoint_missing"}
+    var nodes: Array = []
+    var route: Array = [from]
+    if from != dest:
+        if resolver == null or graph == null or not is_finite(scale) or scale <= 0.0:
+            return {"ok": false, "reason": "n91_native_route_context_missing"}
+        var system: String = resolver.system_for_location(from)
+        if system.is_empty() or system != resolver.system_for_location(dest):
+            return {"ok": false, "reason": "n91_site_outside_native_system"}
+        var shortest: Dictionary = graph.shortest_path(from, dest)
+        if not bool(shortest.get("reachable", false)):
+            return {"ok": false, "reason": "n91_directed_route_unreachable"}
+        route = shortest.get("locations", [])
+        if route.size() < 2 or str(route[0]) != from or str(route[-1]) != dest:
+            return {"ok": false, "reason": "n91_native_waypoints_invalid"}
+        var spec: Dictionary = Catalog.spec(str(ship.get("class", "")))
+        var rate: float = float(spec.get("fuel_consumption_base", 0.0))
+        var speed: float = Catalog.effective_speed(str(ship.get("class", "")), str(ship.get("size", "")))
+        var velocity: float = Transit.BASE_VELOCITY * speed * scale
+        if velocity <= 0.0 or rate <= 0.0 or not is_finite(velocity) or not is_finite(rate):
+            return {"ok": false, "reason": "n91_engineer_flight_specs_invalid"}
+        var fuel_required: float = 0.0
+        for i in range(1, route.size()):
+            var a: String = str(route[i - 1])
+            var b: String = str(route[i])
+            if resolver.system_for_location(a) != system or resolver.system_for_location(b) != system:
+                return {"ok": false, "reason": "n91_route_leaves_native_system"}
+            var directed: bool = false
+            for edge in graph.outgoing(a):
+                if str(edge.get("to", "")) == b:
+                    directed = true
+                    break
+            if not directed or not positions.get(a) is Vector2 or not positions.get(b) is Vector2:
+                return {"ok": false, "reason": "n91_physical_route_edge_missing"}
+            var distance: float = (positions[a] as Vector2).distance_to(positions[b])
+            if not is_finite(distance) or distance <= 0.0:
+                return {"ok": false, "reason": "n91_invalid_physical_route_length"}
+            fuel_required += float(maxi(1, ceili(distance / velocity))) * rate * scale
+        if not is_finite(fuel_required) or float(ship.get("fuel", 0.0)) + 0.0001 < fuel_required:
+            return {"ok": false, "reason": "n91_insufficient_real_fuel"}
+        var docked_at: String = str(ship.get("docked_at", ""))
+        if not docked_at.is_empty():
+            var old_dock: Dictionary = world.get("facilities", {}).get(docked_at, {})
+            if old_dock.is_empty() or str(old_dock.get("location", "")) != from:
+                return {"ok": false, "reason": "n91_invalid_origin_dock"}
+            nodes.append(Bt.action({"kind": "ConstructionUndock", "site_id": site_id}))
+        for i in range(1, route.size()):
+            nodes.append(Bt.action({"kind": "Travel", "destination": str(route[i]),
+                "construction_site_id": site_id}))
+    nodes.append(Bt.action({"kind": "ConstructionDock", "site_id": site_id}))
+    nodes.append(Bt.action({"kind": "Construct", "site_id": site_id}))
+    var plan: Dictionary = Bt.sequence(nodes)
+    if not Bt.validate(plan):
+        return {"ok": false, "reason": "n91_native_bt_route_invalid"}
+    return {"ok": true, "bt": plan, "route": route,
+        "remote": from != dest}
+
 static func propose(world: Dictionary, resolver: RefCounted,
-        tick: int, money: Dictionary) -> Dictionary:
+        tick: int, money: Dictionary, graph: RefCounted = null,
+        positions: Dictionary = {}, scale: float = 1.0) -> Dictionary:
     if tick < 1 or resolver == null or not (world.get("construction_sites") is Dictionary) or not (world.get("ships") is Dictionary):
         return {"ok": false, "reason": "missing_real_n91_world"}
     var sites: Array = []
@@ -121,46 +194,44 @@ static func propose(world: Dictionary, resolver: RefCounted,
             "faction": str(ship["faction_id"]), "location": location,
             "loyalty": _loyalty(ship)}
         var competing: float = maxf(0.0, float(ship.get("current_goal_score", 0.0)))
-        # A physically local construction choice must not be starved
-        # by an unimplemented remote N91 travel offer sorted before it.
-        var local_offers: Array = offers.filter(func(offer: Dictionary) -> bool:
+        # Source N91 permits a same-system construction offer. Prefer a
+        # physically local site, then validate every remote N4 edge before
+        # committing an N84 plan; a failed route cannot reserve a ship.
+        var candidates: Array = offers.filter(func(offer: Dictionary) -> bool:
             return str(offer.get("location", "")) == location)
-        var choice: Dictionary = Executor.choose(local_offers, view, systems,
-            class_catalogue, competing, false)
-        if choice.is_empty():
-            continue
-        var site_id: String = str(choice.get("site_id", ""))
-        var site: Dictionary = world["construction_sites"].get(site_id, {})
-        if site.is_empty() or claimed_sites.has(site_id):
-            continue
-        # Original N91 permits construction elsewhere in the local SYSTEM.
-        # Unintegrated N91 GOAP travel is NOT assumed: first admit only
-        # ships at the REAL paid site itself. No teleport or fake fuel.
-        if location != str(site.get("location_name", "")):
-            blocked.append({"ship_id": str(ship_id), "site_id": site_id,
-                "reason": "n91_native_route_to_site_not_yet_integrated"})
-            continue
-        var station_id: String = str(world["markets"][location].get("owner", ""))
-        if not world.get("facilities", {}).has(station_id):
-            blocked.append({"ship_id": str(ship_id), "site_id": site_id,
-                "reason": "n91_missing_real_dock"})
-            continue
-        var station: Dictionary = world["facilities"][station_id]
-        if str(station.get("faction", "")) != str(ship.get("faction_id", "")) or int(station.get("docking_capacity", 0)) < 1:
-            blocked.append({"ship_id": str(ship_id), "site_id": site_id,
-                "reason": "n91_no_same_faction_dock"})
-            continue
-        var nodes: Array = [
-            Bt.action({"kind": "ConstructionDock", "site_id": site_id}),
-            Bt.action({"kind": "Construct", "site_id": site_id})]
-        var plan: Dictionary = Bt.sequence(nodes)
-        if not Bt.validate(plan):
-            return {"ok": false, "reason": "n91_cannot_compile_native_n84_plan"}
-        assigned.append({"ship_id": str(ship_id), "site_id": site_id,
-            "bt": plan, "score": Executor.utility(float(view["loyalty"])),
-            "source": "source_n91_utility_local_engineer"})
-        claimed_sites[site_id] = true
-        offers = offers.filter(func(offer: Dictionary) -> bool:
-            return str(offer.get("site_id", "")) != site_id)
+        candidates.append_array(offers.filter(func(offer: Dictionary) -> bool:
+            return str(offer.get("location", "")) != location))
+        while not candidates.is_empty():
+            var choice: Dictionary = Executor.choose(candidates, view, systems,
+                class_catalogue, competing, false)
+            if choice.is_empty():
+                break
+            var site_id: String = str(choice.get("site_id", ""))
+            candidates = candidates.filter(func(offer: Dictionary) -> bool:
+                return str(offer.get("site_id", "")) != site_id)
+            var site: Dictionary = world["construction_sites"].get(site_id, {})
+            if site.is_empty() or claimed_sites.has(site_id):
+                continue
+            var target: String = str(site.get("location_name", ""))
+            var station_id: String = str(world["markets"][target].get("owner", ""))
+            var station: Dictionary = world.get("facilities", {}).get(station_id, {})
+            if station.is_empty() or str(station.get("faction", "")) != str(ship.get("faction_id", "")) or int(station.get("docking_capacity", 0)) < 1:
+                blocked.append({"ship_id": str(ship_id), "site_id": site_id,
+                    "reason": "n91_no_same_faction_dock"})
+                continue
+            var planned: Dictionary = plan_for(world, resolver, graph,
+                positions, str(ship_id), site_id, scale)
+            if not planned.get("ok", false):
+                blocked.append({"ship_id": str(ship_id), "site_id": site_id,
+                    "reason": str(planned.get("reason", "n91_no_real_route"))})
+                continue
+            assigned.append({"ship_id": str(ship_id), "site_id": site_id,
+                "bt": planned["bt"], "route": planned["route"],
+                "score": Executor.utility(float(view["loyalty"])),
+                "source": "source_n91_same_system_engineer"})
+            claimed_sites[site_id] = true
+            offers = offers.filter(func(offer: Dictionary) -> bool:
+                return str(offer.get("site_id", "")) != site_id)
+            break
     return {"ok": true, "tick": tick, "assignments": assigned,
         "blocked": blocked, "status": "N91_ENGINEER_SOURCE_PROPOSAL"}
