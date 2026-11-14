@@ -1,3 +1,3 @@
-P2 STAGE2 N38 REAL IEEE-754 EIGHT-BYTE CODEC — 2026-11-15
-Current code HEAD: 7e2b2a0737f90abc44cfb2f8ceeffb27bd71ad0f.
-Prior CI 43645585563: parser, production/research, N91 source dock PASS; N38 exact small fixture failed before long stage2. Replaced Variant byte codec with literal IEEE-754 8-byte PackedByteArray.encode_double/decode_double, preserving source floats without JSON decimal drift. Diagnostic fixture now prints exact small payload differences if failure persists. Workflow now fails fast at parser and short codec before long 420-tick clean-source N38 save/restart. No game balance or money/stock changes.
+P2 STAGE2 N38 BYTE-EXACT F64 WITH ORIGINAL FRAME GUARD — 2026-11-15
+Current head: bd26086726c2ac3af99f6244d37712af8f6f1f16.
+Prior CI 43645754517: parser/economy/research/N91 PASS; N38 exact decoded floating values identical, but test incorrectly used unnormalized Dictionary equality (1 vs JSON-parsed 1.0). Test now checks the official strict N38 NativeFrameGuard, which validates exact money/physical supply/cargo/contract values while permitting exact JSON integer tokens before standard normalization. Run fast codec then source-clean 420-tick N38 disk restart. No simulation/balance changes.
