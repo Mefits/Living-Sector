@@ -1,0 +1,14 @@
+# P2 autonomy acceptance — paid pickup disk restart
+- Worker: automation11; incoming HEAD cd817ebcceff89d42cb060aaf29704b92cd57fd3.
+- Code commit: 4ad092e0a4d0115589e47a7edfedd570c704706a.
+- Changed: godot/tests/p2_autonomous_multitick_delivery_restart_check.gd.
+- Explicitly restores controlled N135 demand through canonical N39 checkpoint.
+- Adds a second real SaveState disk restart after N97 source purchase, before N104 settlement.
+- Requires exact preservation of ContractBoard, N15 cargo receipts, loaded ship hold and complete N9 ledger (including escrow and receipts).
+- Full end-to-end PASS now requires both in-flight and paid-pickup restart, and next-tick idempotent settlement.
+- No new manual ship UI, second World/Runner/Ledger/Board or synthetic flights.
+- Scope: regression acceptance only, not a new runtime gameplay integration.
+- Verification: static source-level changes; local Godot binary unavailable. CODE_UNVERIFIED; test has NOT passed.
+- Actions: zero. No CI trigger/workflow changes.
+- Next: run this exact test with Godot 4.7.2 locally; fix genuine parser/runtime failures as a batch; then verify one full hands-off flight on original seed.
+- Lease 20261114-0310-automation11-demand-fixture.json RELEASED; no files remain reserved.
