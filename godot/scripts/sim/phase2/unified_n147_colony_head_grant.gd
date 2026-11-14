@@ -4,7 +4,6 @@ extends RefCounted
 ## the actual Head must choose "migrate_colony" before N92::commission
 ## posts a paid N104 Passenger order. This is a pure read-only grant
 ## validation/proposal: the one N39 World/N9/ContractBoard owns Apply.
-const StrategicSwitchAdvantage: float = 1.20
 const SourceMigrationScore: float = 60.0
 
 static func _fail(why: String) -> Dictionary:
@@ -69,6 +68,11 @@ static func authorize(world: Dictionary, faction: String, ready: Dictionary,
             return {"ok": true, "authorized": false,
                 "reason": "n147_existing_original_funded_head_commit"}
     var director: Dictionary = world["research_directors"][faction]
+    # Rust Director::build_candidates excludes migration in an active
+    # faction survival crisis, even when N92 has a physical passenger plan.
+    if bool(director.get("crisis", false)):
+        return {"ok": true, "authorized": false,
+            "reason": "n147_original_director_survival_first"}
     var old: Variant = director.get("strategic", {})
     if not (old is Dictionary):
         return _fail("n147_invalid_retained_director_strategy")
