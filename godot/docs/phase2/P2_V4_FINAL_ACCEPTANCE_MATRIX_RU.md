@@ -32,7 +32,7 @@
 | `bodies_regen` и auto respawn списанных кораблей | В `native/priv/galaxy/data/tuning.json` оба выключены: `regenerate_body_resources=false`, `auto_replace_retired_ships=false` | **NOT APPLICABLE** для замороженного Galaxy; не включать их |
 | LOD / корабельный source BT / N146 команды | N140/N80/N81/N84/N153 → N39 `ships` | SOURCE-WIRED **частично**, end-to-end А неизвестен |
 | Apply 1/2 и N15/N97/N104 оплаченные операции | Команды применяются в N39, отдельный fake apply2 не нужен | SOURCE-WIRED, требуется trace в одном непрерывном рейсе |
-| **N21 `tick_dock_queue_advance`** | `godot/scripts/sim/ships/docking_registry.gd` сейчас возвращает `no_available_dock`; `n158_production_runtime.gd` не выполняет `dock_queue` | **SOURCE-GAP: существенный блокер полного Rust parity** |
+| **N21 `tick_dock_queue_advance`** | `unified_n21_dock_queue_stage.gd` → N39 реальная FIFO+N9 оплата → N158 `dock_queue` в штатной фазе | **SOURCE-WIRED / CODE_UNVERIFIED**; legacy manual dock и timeout N84 ещё проверить |
 | `drain_pending_materializations` | N154/N151 непосредственно материализуют объект в N39, исторические квитанции N38 | SOURCE-WIRED функционально; не создавать отдельную очередь SQL |
 | `drain_pending_decommissions/respawns` | N148/N152 retirement/removal через N39 и N9; replacement запрещён исходным tuning | SOURCE-WIRED для removal, free respawn NOT APPLICABLE; проверить отсутствие повторной эмиссии |
 | `tick_facilities`, N156 lifecycle, N143 research, N141 labor | N39 `run_tick`, отдельные source paid stages | SOURCE-WIRED; проверить Faction → реальное финансирование и выпуск |
@@ -45,17 +45,17 @@
 
 ### Проверенные незакрытые границы исходников
 
-**P0 — N21 FIFO докование, подтверждённое исходное отличие.**
-В `native/crates/sim_server/src/engine/apply.rs::apply_request_dock_typed` и `tick_dock_queue_advance` присутствуют: очередь при полном доке; соблюдение места в FIFO; отсутствие queue-jump при освобождении слота; удаление устаревших и неплатёжеспособных заявок; реальная плата на admission через существующие деньги; продвижение головного корабля **каждый тик независимо от LOD**. В `godot/scripts/sim/ships/docking_registry.gd` нет хранимой `dock_queue`; при полной вместимости немедленно возвращается `no_available_dock`, а `_execute_integrated_phase` N158 не обрабатывает фазу `dock_queue`. Это **не** можно объявить перенесённым по наличию N21 docking API. Следующий ответственный за флот должен перенести настоящую FIFO-природу внутрь канонического N39 FacilityStorage + N9 fee/receipts + N38 и N1/N158 phase `dock_queue` без второго DockingRegistry, прежде чем делать финальный release.
+**N21 FIFO — исходный основной цикл теперь подключён (чат №1, lease RELEASED).**
+В `godot/scripts/sim/phase2/unified_n21_dock_queue_stage.gd` и `n39_native_world_production.gd` реализован исходный FIFO queue + N9 dock fee + per-facility queue in World, а N158 теперь запускает настоящую фазу `dock_queue` независимо от N140. Handoff: `20261114-chat1-n21-fifo.md`. Оставшиеся риски: N84 Dock timeout/replan, legacy ручной/отладочный Dock без оплаты, удаление/переименование пристаней, N38 midqueue restore. **Исходные вызовы не заменяют фактическую приёмку Godot.**
 
 **P1 — автономный exploration/source N80, N103 mining.**
 Существуют `unified_n80_ship_exploration_stage.gd` и source варианты, однако в проверенном N158 нет подтверждённого подключения соответствующего source-adapter как активного генератора реальной команды (на время среза Chat1 N80 lease уже RELEASED как source-only). Не заявлять реальный самозапуск исследовательских походов. Владелец: чат №1 / флот.
 
 **N92/B4 — SOURCE-WIRED после закрытия чата №2.**
-Chat2 B4 lease **RELEASED**: `unified_n92_colony_aftercare.gd` действительно вызывается через `N158 → N39.apply_native_b4_colony_aftercare → N100/N98 → N121/N104/N9`, а не прямо из N158. Состояние активных рейсов, потребление Food/Water и N154 stock читаются из канонического World. Это **НЕ** доказанный физический сценарий в Godot. После закрытия чата №2 чат №3 дополнительно связал N147 рабочую миграцию с текущим N134 Head; стратегическое переключение N113 между уже действующими целями остаётся отдельной задачей проверки исходного parity.
+Chat2 B4 lease **RELEASED**: `unified_n92_colony_aftercare.gd` действительно вызывается через `N158 → N39.apply_native_b4_colony_aftercare → N100/N98 → N121/N104/N9`, а не прямо из N158. Состояние активных рейсов, потребление Food/Water и N154 stock читаются из канонического World. Это **НЕ** доказанный физический сценарий в Godot. После закрытия чата №2 чат №3 связал N147 рабочую миграцию с текущим N134 Head и добавил **точный Rust N113 retain_or_switch** для проверенных source-конкурентов: превосходство 1.20×, два РАЗНЫХ реальных стратегических цикла, сохранение pending в N39 без N9/N104 и законный переключатель на физический пассажирский контракт только после подтверждения. Исторические стратегические science/expand и альтернативный supply, не подтверждаемые сегодняшним N134, пока осторожно сохраняются (не выдумываем отсутствующие офферы).
 
 **P2 — диагностика списка фаз исправлена в исходниках.**
-После освобождения N158 `implemented_phases()` уже содержит фактически выполняемую фазу `crisis` (коммит `6f6a2a4`). Проверка фактического исполнения в Godot остаётся отложенной. Нельзя объявлять фазой исполнения отсутствующие `dock_queue` или `bodies_regen` лишь по записи в общем списке N1.
+После освобождения N158 `implemented_phases()` уже содержит фактически выполняемые `crisis` (коммит `6f6a2a4`) и `dock_queue` (handoff Chat1 N21). Проверка фактического исполнения в Godot остаётся отложенной. `bodies_regen` выключена исходным tuning; не включать ради совпадения списка N1.
 
 **P1 — непрерывная автономная вертикаль clean seed.**
 Ранее зафиксированы отсутствие funded N104 заявок и отправлений на тике 652 в предоставленном пользователем прогона. Даже если N153/флот/доставка проходят искусственный fixture, «игра сама торгует и летает» нельзя считать подтверждённым. Source freeze запрещает накручивать спрос, удалять ресурсы или создавать бесплатные корабли ради видимости активности.
@@ -73,10 +73,10 @@ Chat2 B4 lease **RELEASED**: `unified_n92_colony_aftercare.gd` действит�
 
 ## 4. Практический порядок
 
-1. Погасить P0 FIFO N21 в коде, не затрагивая чужие lease без релиза. N80/N103 и N92/B4 получили реальные связи в исходниках, но end-to-end исполнение ещё не проверено.
-2. Проверить именно source N113 strategic retain/switch для колониальных N147 миграций. Уже подключённый N134 grant запрещает случайную повторную оплату, но законное переключение от другого действующего стратегического намерения требует сравнения с оригинальным Rust.
+1. N21 FIFO, N80/N103 и N92/B4 получили основные исходные связи, но end-to-end исполнение ещё не проверено. Провести оставшийся source audit N84 Dock timeout, старого manual Dock и физического N38 midqueue.
+2. N113 точный 1.20×/два цикла source-модуль подключён к действительному N134 альтернативному Build/Deliver. Закрыть оставшееся полное сравнение из Rust `coordination.rs`: текущий research/expand, ранее сохранённый другой supply и delegated policy с исходными проверками, без синтетических оценок.
 3. Одним offline read-only проходом выполнить **только в конце переноса**: `python3 godot/tools/p2_v4_source_gate.py --require-complete --json`. Его `SOURCE_LINK_PRESENT` — проверка связей, а не Godot PASS.
 4. При отсутствии SOURCE-GAP зафиксировать `SOURCE_INTEGRATION_COMPLETE` с SHA. Только тогда объединённая проверка существующих Godot smoke, реального GUI и Windows RC. Устранить реальные parse/runtime FAIL по логам, не запускать десятки Actions на каждую правку.
 5. Отдельно **после** полного переноса — пакет пользовательских решений по балансу и механикам. Во время P2 ни один его пункт не менять.
 
-**Обновлённый итог после закрытия чата №2:** N92/B4 source-wired, N147 миграция проверяет реальный N134 grant, диагностическая фаза crisis отражена в N158. Однако P0 N21 FIFO и полнота выбора стратегических направлений N113 ещё требуют согласования с Rust. Ни один макрогейт А/Б/В/Г пока не имеет реального Godot PASS; запрет на пользовательские балансные правки до интеграции остаётся.
+**Обновлённый итог В4:** N92/B4, N147 проверяемая стратегия N113→N134, N21 FIFO и реальные фазы `crisis`/`dock_queue` source-wired. Остались проверки полного соперничества стратегий (research/expand/другой supply), N84 таймаутов, legacy docking, N38 длительных рейсов и один финальный Godot/Windows gate. Ни один макрогейт А/Б/В/Г не имеет реального Godot PASS; балансные правки отложены.
