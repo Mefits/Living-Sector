@@ -37,6 +37,7 @@ var _last_n147_result: Dictionary = {}
 var _last_n151_founding: Dictionary = {}
 var _last_faction_relations: Dictionary = {}
 var _last_body_territory: Dictionary = {}
+var _last_native_faction_finance: Dictionary = {}
 var _faction_sources: Dictionary = {}
 var _last_population_result: Dictionary = {}
 var _last_ship_result: Dictionary = {}
@@ -59,6 +60,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_n151_founding = {}
     _last_faction_relations = {}
     _last_body_territory = {}
+    _last_native_faction_finance = {}
     _faction_sources = {}
     _last_population_result = {}
     _last_ship_result = {}
@@ -116,6 +118,12 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             return false
         if territory_pass.get("due", false):
             _last_body_territory = territory_pass.duplicate(true)
+        # Rust source: tax+bailout at 200×mult; targeted relief at
+        # 25×mult. Execute BEFORE faction supply, research and grants.
+        _last_native_faction_finance = production.apply_native_faction_finance(
+            tick, _tick_multiplier)
+        if not _last_native_faction_finance.get("ok", false):
+            return false
         if _fleet_roster == null or _fleet_resolver == null:
             _last_n153_result = {"ok": false, "reason": "missing_native_ship_ai_sources"}
             return false
@@ -545,6 +553,8 @@ func _integrated_phase_failure_reason(phase: String) -> String:
     elif phase == "factions":
         if not _last_body_territory.get("ok", true):
             return str(_last_body_territory.get("reason", "native_territory_phase_rejected"))
+        if not _last_native_faction_finance.get("ok", true):
+            return str(_last_native_faction_finance.get("reason", "native_faction_finance_rejected"))
         result = _last_n147_result if not _last_n147_result.get("ok", true) else (_last_research_result if not _last_research_result.get("ok", true) else (_last_n134_result if not _last_n134_result.get("ok", true) else (_last_n91_result if not _last_n91_result.get("ok", true) else (_last_construction_result if not _last_construction_result.get("ok", true) else _last_n153_result))))
     elif phase == "relations":
         result = _last_faction_relations if not _last_faction_relations.get("ok", true) else _last_body_territory
@@ -764,6 +774,10 @@ func economy_summary() -> Dictionary:
         "faction_relations": current.get("faction_relations", {}).duplicate(true),
         "native_relations_last_tick": int(current.get("faction_relations_last_tick", 0)),
         "native_territory_last_tick": int(current.get("territory_last_tick", 0)),
+        "native_faction_finance_last_tick": int(current.get("faction_finance_last_tick", 0)),
+        "native_faction_finance_receipts_this_tick": _last_native_faction_finance.get("receipts", []).size(),
+        "native_faction_finance_tax_due": bool(_last_native_faction_finance.get("tax_due", false)),
+        "native_faction_finance_relief_due": bool(_last_native_faction_finance.get("relief_due", false)),
         "native_treaty_changes_last_pass": _last_faction_relations.get("treaty_changes", []).duplicate(true),
         "native_body_controllers": _last_body_territory.get("bodies", {}).duplicate(true),
         "native_system_controllers": _last_body_territory.get("systems", {}).duplicate(true),
