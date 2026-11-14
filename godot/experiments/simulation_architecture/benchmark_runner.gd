@@ -4,9 +4,9 @@ const World = preload("res://experiments/simulation_architecture/benchmark_world
 const Heap = preload("res://experiments/simulation_architecture/event_heap.gd")
 
 static func run(mode: String, plant_count: int, ship_count: int,
-        ticks: int, seed: int) -> Dictionary:
+        ticks: int, seed: int, stock_profile: String = "normal") -> Dictionary:
     var world = World.new()
-    world.initialize(plant_count, ship_count, seed)
+    world.initialize(plant_count, ship_count, seed, stock_profile, ticks)
     var checks: int = 0
     var handled: int = 0
     var peak: int = 0
@@ -106,5 +106,7 @@ static func run(mode: String, plant_count: int, ship_count: int,
         "microseconds": duration, "checks": checks,
         "events": handled, "queue_peak": peak,
         "attempts": world.attempts, "batches": world.batches,
-        "arrivals": world.arrivals, "state": world.state()
+        "arrivals": world.arrivals, "final_active": world.active_count,
+        "stock_profile": stock_profile,
+        "state": world.state()
     }
