@@ -799,12 +799,13 @@ static func validate(state: Dictionary) -> String:
                         not state.get("ships", {}).has(sid)):
                     return "invalid_native_n21_fifo_identity"
                 waiting[sid] = true
-                var sailor: Dictionary = state["ships"][sid]
-                if str(sailor.get("location", "")) != str(fac["location"]) or (
-                        not str(sailor.get("docked_at", "")).is_empty() or
-                        not sailor.get("transit", {}).is_empty() or
-                        sailor.get("dock_attempt_start_tick", null) == null):
-                    return "invalid_native_n21_fifo_waiter"
+                # Rust intentionally allows a temporarily stale queue
+                # entry after departure / interrupted Dock; the later
+                # dock_queue phase prunes it. Requiring location+waiting
+                # here would REJECT the earlier N14 physical departure
+                # before Rust's legitimate stale-queue cleanup runs.
+                # Only ID uniqueness and referenced ship existence
+                # are schema invariants at this phase boundary.
                 for other_id in state["facilities"]:
                     if str(other_id) != str(id) and (
                             state["facilities"][other_id].get("dock_queue", []) is Array) and (
