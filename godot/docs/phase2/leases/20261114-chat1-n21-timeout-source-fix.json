@@ -10,7 +10,9 @@
     "godot/scripts/sim/phase2/n158_production_runtime.gd (existing external/debug docking route if safe)",
     "godot/tests/p2_n21_dock_timeout_source_check.gd (deferred)",
     "godot/docs/phase2/handoffs/20261114-chat1-n21-timeout-audit.md",
-    "godot/tools/p2_v4_source_gate.py (new source audit checks for N84 patience and manual N21 bypass)"
+    "godot/tools/p2_v4_source_gate.py (new source audit checks for N84 patience and manual N21 bypass)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N21 manual same-tick paid Apply, AFTER Chat3 RELEASED)",
+    "godot/tests/p2_n21_manual_paid_source_check.gd (deferred)"
   ],
   "avoid": [
     "godot/scripts/sim/phase1/n39_native_world_production.gd (currently chat3 N113 active)",
@@ -20,5 +22,6 @@
     "Godot or Actions intermediate tests"
   ],
   "verification": "SOURCE_ONLY_NOT_RUN",
-  "started": "2026-11-14"
+  "started": "2026-11-14",
+  "coordination": "20261114-chat3-n113-source-candidates lease RELEASED verified; read current N39 SHA before editing, never force or overwrite other work."
 }
