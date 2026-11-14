@@ -1501,6 +1501,11 @@ func post_native_passenger_migration(tick: int, ready: Dictionary,
         sources: Dictionary = {}, baseline: Dictionary = {}) -> Dictionary:
     if not _ready or tick != _last_tick or tick < 1 or multiplier < 1:
         return {"ok": false, "reason": "n147_not_canonical_faction_tick"}
+    # The source N113 vote exists ONLY once on Rust coordination's
+    # 60*mult boundary, not on tick 1 or arbitrary NPC frames. A fake
+    # intermediate call cannot accelerate a two-cycle confirmation.
+    if tick % (60 * multiplier) != 0:
+        return {"ok": false, "reason": "n113_not_original_decision_cycle"}
     var scan: Dictionary = NativeN147.observe(_world, graph, resolver,
         positions, tick, scale)
     if not scan.get("ok", false):
