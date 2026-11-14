@@ -121,6 +121,30 @@ func close_removed_entity_account(operation_id: String,
 	return {"ok": true, "receipt": record.duplicate(true),
 		"credits_lost": lost}
 
+## Frozen Rust ShipEconomy.credits -> ShipCrew.wages_credits. Crew
+## wages are nonspendable accrued savings in the ECS crew component,
+## NOT a parallel tradable N9 wallet. The live economic supply drops
+## by this paid amount. This one-leg receipt proves the actual source
+## debit instead of silently erasing ship credits or minting a payee.
+func pay_native_ship_crew(operation_id: String, ship_account: String,
+        ship_id: String, amount: int, tick: int) -> Dictionary:
+	if operation_id.is_empty() or ship_id.is_empty() or tick < 0 or amount <= 0:
+		return {"ok": false, "reason": "invalid_native_crew_wage"}
+	if ship_account != "ship:" + ship_id or not _balances.has(ship_account):
+		return {"ok": false, "reason": "missing_native_ship_wallet"}
+	if _receipts.has(operation_id):
+		return {"ok": false, "reason": "native_crew_wage_replay"}
+	if int(_balances[ship_account]) < amount:
+		return {"ok": false, "reason": "unfunded_native_crew_wage"}
+	_balances[ship_account] = int(_balances[ship_account]) - amount
+	var receipt: Dictionary = {"id": operation_id, "tick": tick,
+		"kind": "native_ship_crew_wages", "ship_id": ship_id,
+		"wages_credits_accrued": amount,
+		"legs": [{"account": ship_account, "delta": -amount}]}
+	_receipts[operation_id] = receipt
+	return {"ok": true, "receipt": receipt.duplicate(true), "amount": amount}
+
+
 func snapshot() -> Dictionary:
 	return {"version": 1, "balances": _balances.duplicate(true), "receipts": _receipts.duplicate(true)}
 
