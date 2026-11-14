@@ -172,9 +172,13 @@ static func native_delivery_receipt(world: Dictionary, bank: Dictionary,
             var cargo: Dictionary = world.get("cargo_receipts", {})
             if not bank["receipts"].has(paid) or not cargo.has(load) or not cargo.has(unload):
                 return {"ok": false, "reason": "n121_missing_paid_physical_delivery"}
+            var expected_goods: Dictionary = {}
+            expected_goods[str(c.get("commodity", ""))] = int(c.get("quantity", 0))
             for physical in [cargo[load], cargo[unload]]:
                 if not (physical is Dictionary) or physical.get("ok", false) != true or str(physical.get("ship_id", "")) != str(c.get("fulfiller_id", "")):
                     return {"ok": false, "reason": "n121_forbidden_synthetic_delivery"}
+                if physical.get("quantities", {}) != expected_goods or str(physical.get("operation_id", "")) not in [load, unload]:
+                    return {"ok": false, "reason": "n121_fake_physical_cargo_quantity"}
             if (str(cargo[load].get("action", "")) != "load" or str(cargo[unload].get("action", "")) != "unload" or
                     str(cargo[load].get("location_id", "")) != str(c.get("source_location", "")) or
                     str(cargo[unload].get("location_id", "")) != str(c.get("destination_location", ""))):
