@@ -11,6 +11,7 @@ const NativeShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_l
 const NativeShipLod = preload("res://scripts/sim/phase1/n140_native_spatial_lod.gd")
 const Technology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
 const Construction = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
+const NativeColonyArchive = preload("res://scripts/sim/phase2/unified_n151_colony_establish_archive.gd")
 const NativeRelations = preload("res://scripts/sim/phase1/n150_native_full_faction_relations.gd")
 const ShipyardRecipes = preload("res://scripts/sim/shipyard/native_module_recipes_n132.gd")
 const SourceExecution = preload("res://scripts/port/n121_native_execution_state.gd")
@@ -571,7 +572,18 @@ static func validate(state: Dictionary) -> String:
                 var planned: Dictionary = state["construction_sites"].get(prepared_site, {})
                 var prepared_facility: Dictionary = state["facilities"].get(prepared_id, {})
                 var prepared_household: Dictionary = state["populations"].get(prepared_pop, {})
-                if planned.is_empty() or prepared_facility.is_empty() or prepared_household.is_empty():
+                # Rust colony::establish DESPAWNS the original Site.
+                # The immutable N151 dock receipt then becomes historical
+                # evidence for the SAME facility, now a station+Market.
+                # Source B3 verifies the 600 real N15 Metals and 150 paid
+                # N141 shifts and keeps the original N9 transfer receipt.
+                if planned.is_empty():
+                    var archive_error: String = NativeColonyArchive.validate_archived(
+                        state, prepared_site)
+                    if not archive_error.is_empty():
+                        return archive_error
+                    continue
+                if prepared_facility.is_empty() or prepared_household.is_empty():
                     return "n151_temporary_dock_missing_live_actors"
                 if str(receipt_id) != "n151_colony_dock:" + prepared_site or (
                         str(construction_receipt.get("destination_location", "")) != str(planned.get("location_name", "")) or
@@ -599,6 +611,13 @@ static func validate(state: Dictionary) -> String:
                 if not active_site.is_empty():
                     if str(active_site.get("body_id", "")) != str(construction_receipt["body_id"]) or str(active_site.get("location_name", "")) != str(construction_receipt.get("destination_location", "")) or str(active_site.get("labor", {}).get("colony_source", "")) != str(construction_receipt["source_location"]):
                         return "native_colony_approval_site_diverged"
+    if state.has("construction_receipts"):
+        # Reject a vanished temporary dock/site without one original B3
+        # completion proof, and reject a fake completed-site archive on
+        # load; historical paid N104 and N9 receipts are never deleted.
+        var archival_error: String = NativeColonyArchive.validate_all(state)
+        if not archival_error.is_empty():
+            return archival_error
     if state.has("location_tiers") and not (state["location_tiers"] is Dictionary):
         return "invalid_location_tiers"
     if state.has("native_planner_mode") or state.has("native_planner_records") or state.has("native_execution"):
