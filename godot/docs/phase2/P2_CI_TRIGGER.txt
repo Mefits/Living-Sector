@@ -1,5 +1,4 @@
-P2 STAGE1 N38 EXACT RESTORE + PRECISION PROOF — 2026-11-14
-Source HEAD before combined Godot 4.7.2 smoke: 45846cf2b84b9bfb2ded6fc5681f2b1b72e99958.
-Previous test 43641003750 localized two blockers: N143 saved successfully but strict ShipState.restore rejected un-normalized N101 integer progression as invalid_ship_state; N158 tick5 save rejected 1e-15 decimal loss in FacilityOperations.condition.
-N158 now normalizes exactly integral N101 level/xp/retrofit_points on a detached checkpoint. N38 authorizes <=1e-12 roundoff ONLY in N155 director personality weights and bounded original physical facility condition. All N9 money, N15 cargo, market supplies and contracts retain original integrity validation.
-One combined bounded diagnostic Godot smoke; no gameplay balancing, Windows export or soak claims.
+P2 STAGE1 N38 SERIALIZED ENGINE GATE — 2026-11-14
+Source HEAD: 588e20511598c7fde3df31a146c162dbc5a27e50
+Consolidated high-priority runtime repair: N91 construction BT type, N158 phase registry, N101 progression restore, N108 fitting re-derived from real slots, N38 finite IEEE floats accepted ONLY if Godot serializes both as identical JSON text and drift <=1e-12 relative (excluding cargo, stocks, ledger, escrow and contracts). Real N143 and N158 native five-tick acceptance must both save and restart.
+This is a bounded Godot 4.7.2 integration smoke. No balance changes; no full autonomy, long soak, or Windows acceptance claim.
