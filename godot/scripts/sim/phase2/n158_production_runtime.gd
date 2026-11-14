@@ -2167,6 +2167,12 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                     "dock_dwell_start_tick"] != null:
                 if not _normalize_row(ship, ["dock_dwell_start_tick"]):
                     return false
+            # Rust ShipEconomy N21 FIFO attempt timestamp survives N38
+            # JSON integral floats without assigning a new queue position.
+            if ship.has("dock_attempt_start_tick") and ship[
+                    "dock_attempt_start_tick"] != null:
+                if not _normalize_row(ship, ["dock_attempt_start_tick"]):
+                    return false
             if ship.has("transaction"):
                 if not (ship["transaction"] is Dictionary) or not _normalize_row(
                         ship["transaction"], ["sequence"]):
