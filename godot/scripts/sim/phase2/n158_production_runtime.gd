@@ -1212,6 +1212,16 @@ func last_native_n144_colony_orders() -> Dictionary:
 func last_native_b2_colony_metals() -> Dictionary:
     return _last_b2_colony_metals.duplicate(true)
 
+## Avoid inline lambda allocation in the N158 Observer snapshot.
+## Only the original N134 committed statuses, never source forecasts,
+## contribute to these per-tick paid contracts counters.
+func _count_original_colony_posts(tag: String) -> int:
+    var total: int = 0
+    for item in _last_n144_contracts.get("posted", []):
+        if item is Dictionary and str(item.get("status", "")).find(tag) >= 0:
+            total += 1
+    return total
+
 func last_native_b1_colony_founding() -> Dictionary:
     return _last_n144_new_sites.duplicate(true)
 
@@ -1443,10 +1453,8 @@ func economy_summary() -> Dictionary:
         "colony_founding_status": str(_last_n151_founding.get("status", "NOT_EVALUATED")),
         "colony_founding_ready_unapproved": _last_n151_founding.get("ready", []).size(),
         "native_n151_temporary_docks_created": _last_n151_docks.get("created", []).size(),
-        "native_n144_funded_colony_passenger_posts": _last_n144_contracts.get("posted", []).filter(
-            func(x): return str(x.get("status", "")).find("PASSENGER") >= 0).size(),
-        "native_b2_metals_contract_posts": _last_n144_contracts.get("posted", []).filter(
-            func(x): return str(x.get("status", "")).find("METALS") >= 0).size(),
+        "native_n144_funded_colony_passenger_posts": _count_original_colony_posts("PASSENGERS"),
+        "native_b2_metals_contract_posts": _count_original_colony_posts("METALS"),
         "native_b2_metals_accepted": _last_b2_colony_metals.get("accepted", []).size(),
         "native_b2_metals_physical_moves": _last_ship_result.get("n144_metals_moves", []).size(),
         "native_b1_n144_real_colony_sites_founded": _last_n144_new_sites.get("founded", []).size(),
