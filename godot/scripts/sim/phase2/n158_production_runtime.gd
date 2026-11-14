@@ -292,7 +292,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     # Never let legacy N134 also commit a construction
                     # grant in the same cycle as an outstanding N98
                     # hybrid plan. Await the ONE N121 dispatch owner.
-                    if str(hybrid_plan.get("status", "")) == "n98_planned_not_dispatched":
+                    if str(hybrid_plan.get("status", "")) in [
+                            "n98_planned_not_dispatched",
+                            "awaiting_n121_canonical_execution"]:
                         _last_n134_result["blocked"].append({
                             "faction_id": str(faction),
                             "reason": "n100_plan_awaits_original_n121_executor"})
