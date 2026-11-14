@@ -26,7 +26,9 @@ static func _error(why: String) -> Dictionary:
     return {"ok": false, "reason": why}
 
 static func _target(goal: Dictionary) -> String:
-    return str(goal.get("goal_id", "")) + "|" + str(goal.get("destination", "")) + "|" + str(goal.get("commodity", ""))
+    # The existing N134Policy port uses the plain live source
+    # destination/target key; never introduce a competing address key.
+    return str(goal.get("target", goal.get("destination", "")))
 
 static func _available_ship(world: Dictionary, faction: String, qty: int) -> bool:
     for raw in world.get("ships", {}).values():
@@ -54,6 +56,13 @@ static func active_site(world: Dictionary, graph: RefCounted,
     if site.is_empty():
         return {"ok": true, "ready": false, "reason": "no_active_native_colony_site"}
     var site_id: String = str(site["id"])
+    # Rust native execution retains its own prepaid sequence. Do not
+    # commission N144 over an outstanding HTN/N98/N121 plan.
+    var native: Dictionary = world.get("native_planner_records", {}).get(faction, {})
+    if str(native.get("status", "")) in [
+            "n98_planned_not_dispatched", "n121_active"]:
+        return {"ok": true, "ready": false,
+            "reason": "outstanding_native_plan_retained"}
     var source: String = str(site["labor"]["colony_source"])
     var dest: String = str(site["location_name"])
     var plan: Dictionary = {"site_id": site_id, "faction_id": faction,
@@ -191,6 +200,12 @@ static func approval(world: Dictionary, baseline: Dictionary,
         var row: Dictionary = c.duplicate(true)
         if str(row.get("requestor_id", "")) == Schema.faction_account(faction):
             row["requestor_id"] = faction
+        # P1 N134Policy expects the ORIGINAL Rust enum case and the
+        # prepaid Funding struct, not N104's storage representation.
+        var phase: String = str(row.get("status", ""))
+        if not phase.is_empty():
+            row["status"] = phase.substr(0, 1).to_upper() + phase.substr(1)
+        row["funding"] = {"reserved": int(c.get("reserved", 0))}
         contracts.append(row)
     var comparison: Dictionary = {"goal": head.get("problem", {}).duplicate(true),
         "alternatives": head.get("alternatives", []).duplicate(true),
