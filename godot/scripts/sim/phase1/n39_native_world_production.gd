@@ -1229,6 +1229,11 @@ func apply_native_n21_request(tick: int, ship_id: String,
             ship_id, location, tick)
     else:
         return {"ok": false, "reason": "n21_unknown_source_dock_action"}
+    # An ordinary N21 source refusal is not a malformed or half-published
+    # World. Preserve the original reason for N84 replan/diagnostics and
+    # do not pass an unsuccessful proposal into the paid commit gate.
+    if not proposed.get("ok", false):
+        return proposed
     return _commit_native_n21(proposed)
 
 ## Manual UI Dock is an explicit command in the current committed
