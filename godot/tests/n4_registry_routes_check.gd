@@ -30,8 +30,10 @@ func _initialize() -> void:
         _fail("registry leaked writable references")
         return
     var graph = registry.graph()
-    if graph == null or graph.edge_count() != 12:
-        _fail("native route count")
+    # Rust native sim_db seeder stores 12 source JSON corridors as 24
+    # actual travel_routes records (each forward + its reverse).
+    if graph == null or graph.edge_count() != 24:
+        _fail("native seeded DB route count")
         return
     var path: Dictionary = graph.shortest_path("earth-station", "pirate-outpost")
     var expected_path: Array = [
