@@ -195,10 +195,12 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
     # use the SAME actual N21 market dock and N146 command Apply.
     # Mine may SELL its physically extracted ice, never buy free stock.
     var local_goal: String = str(ship.get("current_goal", ""))
-    if contract_id.is_empty() and local_goal in ["trade_route", "mine", "explore"]:
+    if contract_id.is_empty() and local_goal in [
+            "trade_route", "mine", "mine_ice", "deliver_mined_ice", "explore"]:
         if kind in ["Buy", "Sell", "SellAll"]:
             if local_goal == "trade_route" or (
-                    local_goal == "mine" and kind == "Sell" and
+                    local_goal in ["mine", "mine_ice", "deliver_mined_ice"] and
+                    kind == "Sell" and
                     str(action.get("commodity", "")) == "ice"):
                 return NativeTradeAction.propose(ship, action, world, tick)
             return {"status": Bt.FAILURE, "reason": "n80_unverified_market_leaf"}
@@ -432,7 +434,7 @@ static func propose(world: Dictionary, graph: RefCounted,
         if contract_id.is_empty():
             var own_goal: String = str(ship.get("current_goal", ""))
             if own_goal not in ["construct", "retrofit", "refit", "trade_route",
-                    "mine", "explore", "refuel"]:
+                    "mine", "mine_ice", "deliver_mined_ice", "explore", "refuel"]:
                 continue
             var assigned_bt: Variant = ship.get("current_bt", null)
             if not (assigned_bt is Dictionary) or not Bt.validate(assigned_bt):
@@ -487,7 +489,9 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "ship_id": str(ship_id)}
         if next["status"] == Bt.FAILURE:
             if contract_id.is_empty() and str(ship.get(
-                    "current_goal", "")) in ["trade_route", "mine", "explore", "refuel"]:
+                    "current_goal", "")) in [
+                        "trade_route", "mine", "mine_ice",
+                        "deliver_mined_ice", "explore", "refuel"]:
                 # Rust failed speculative trade goal can be abandoned;
                 # never halt the N158 world or manufacture a fill.
                 # Any settled prior purchases remain physical cargo.
@@ -543,7 +547,8 @@ static func propose(world: Dictionary, graph: RefCounted,
         ship["current_bt"] = next["tree"].duplicate(true)
         if next["status"] == Bt.SUCCESS and contract_id.is_empty() and (
                 str(ship.get("current_goal", "")) in [
-                    "trade_route", "mine", "explore", "refuel"]):
+                    "trade_route", "mine", "mine_ice",
+                    "deliver_mined_ice", "explore", "refuel"]):
             ship["current_goal"] = "idle"
             ship["current_goal_score"] = 0.0
             ship["current_bt"] = null
