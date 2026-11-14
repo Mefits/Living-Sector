@@ -1,40 +1,115 @@
 @echo off
 setlocal EnableExtensions
+rem Living Sector experimental headless benchmark.
+rem Always pause and keep a log: Explorer otherwise closes a failed .cmd instantly.
 cd /d "%~dp0"
+set "BASE=%CD%"
+set "RESULT_DIR=%BASE%\experiments\simulation_architecture\results"
+set "LOG=%RESULT_DIR%\last-run.log"
+set "CODE=1"
+if not exist "%RESULT_DIR%" mkdir "%RESULT_DIR%" >nul 2>&1
+if not exist "%RESULT_DIR%" (
+  echo [SIM_BENCH] Cannot create results directory:
+  echo   %RESULT_DIR%
+  goto :finish
+)
+
+> "%LOG%" echo Living Sector Simulation Architecture Benchmark
+>>"%LOG%" echo Working directory: %BASE%
+>>"%LOG%" echo Expected branch: experiment/simulation-architecture-20261114
+>>"%LOG%" echo.
+
+echo.
+echo =============================================================
+echo   LIVING SECTOR - SIMULATION ARCHITECTURE BENCHMARK
+echo =============================================================
+echo.
+echo Working folder: %BASE%
+echo Log file: %LOG%
+echo.
+
+if not exist "%BASE%\experiments\simulation_architecture\benchmark.gd" (
+  echo [SIM_BENCH] The experiment script is missing.
+  >>"%LOG%" echo [SIM_BENCH] The experiment script is missing.
+  echo Check out branch: experiment/simulation-architecture-20261114
+  goto :show_log
+)
+
+rem First prefer explicit GODOT_EXE. If absent, try PATH and common
+rem portable Godot locations (the console executable is preferred).
 set "GODOT=%GODOT_EXE%"
-if not defined GODOT (
-  where godot.exe >nul 2>nul && set "GODOT=godot.exe"
-)
-if not defined GODOT (
-  where godot4.exe >nul 2>nul && set "GODOT=godot4.exe"
-)
-if not defined GODOT (
-  for %%G in (
-    "%~dp0Godot*win64*console*.exe"
-    "%~dp0Godot*win64*.exe"
-    "%USERPROFILE%\Downloads\Godot*win64*console*.exe"
-    "%USERPROFILE%\Downloads\Godot*win64*.exe"
-    "%USERPROFILE%\Desktop\Godot*win64*console*.exe"
-    "%USERPROFILE%\Desktop\Godot*win64*.exe"
-  ) do (
-    if not defined GODOT if exist "%%~fG" set "GODOT=%%~fG"
+if defined GODOT (
+  if not exist "%GODOT%" (
+    echo [SIM_BENCH] GODOT_EXE points to a missing file:
+    echo   %GODOT%
+    >>"%LOG%" echo [SIM_BENCH] GODOT_EXE does not exist: %GODOT%
+    set "GODOT="
   )
 )
 if not defined GODOT (
-  echo [SIM_BENCH] Godot executable not found.
-  echo Specify the path to your portable Godot console executable:
-  echo   set "GODOT_EXE=C:\Tools\Godot_v4.x_win64_console.exe"
-  exit /b 2
+  for %%E in (godot.exe godot4.exe godot_console.exe godot4_console.exe) do (
+    if not defined GODOT (
+      where %%E >nul 2>&1
+      if not errorlevel 1 set "GODOT=%%E"
+    )
+  )
 )
+if not defined GODOT (
+  for %%F in (
+    "%BASE%\Godot*console*.exe"
+    "%BASE%\..\Godot*console*.exe"
+    "%USERPROFILE%\Downloads\Godot*console*.exe"
+    "%USERPROFILE%\Desktop\Godot*console*.exe"
+    "%BASE%\Godot*.exe"
+    "%BASE%\..\Godot*.exe"
+    "%USERPROFILE%\Downloads\Godot*.exe"
+    "%USERPROFILE%\Desktop\Godot*.exe"
+  ) do (
+    if not defined GODOT (
+      if exist "%%~fF" set "GODOT=%%~fF"
+    )
+  )
+)
+if not defined GODOT (
+  echo [SIM_BENCH] Godot was not found automatically.
+  echo The portable Godot exe may be inside an extracted folder.
+  echo.
+  set /p "GODOT=Paste full path to Godot .exe, or press Enter to cancel: "
+)
+if not defined GODOT (
+  echo [SIM_BENCH] No executable selected.
+  >>"%LOG%" echo [SIM_BENCH] Godot executable not found.
+  goto :show_log
+)
+
+echo Using Godot: %GODOT%
+>>"%LOG%" echo Godot command: %GODOT%
+echo.
+echo Running three scheduler variants; results will be compared.
+echo.
+
 if "%~1"=="" (
-  "%GODOT%" --headless --path "%CD%" --script res://experiments/simulation_architecture/benchmark.gd -- --plants=100 --ships=20 --years=1 --seed=42
+  "%GODOT%" --headless --path "%BASE%" --script res://experiments/simulation_architecture/benchmark.gd -- --plants=100 --ships=20 --years=1 --seed=42 >>"%LOG%" 2>&1
 ) else (
-  "%GODOT%" --headless --path "%CD%" --script res://experiments/simulation_architecture/benchmark.gd -- %*
+  "%GODOT%" --headless --path "%BASE%" --script res://experiments/simulation_architecture/benchmark.gd -- %* >>"%LOG%" 2>&1
 )
 set "CODE=%ERRORLEVEL%"
-if not "%CODE%"=="0" (
-  echo [SIM_BENCH] FAIL. See errors above.
-  exit /b %CODE%
+
+:show_log
+echo.
+echo -------------------- OUTPUT --------------------
+type "%LOG%"
+echo ------------------------------------------------
+echo.
+if "%CODE%"=="0" (
+  echo [SIM_BENCH] PASS. Open:
+  echo   experiments\simulation_architecture\results\latest.json
+) else (
+  echo [SIM_BENCH] FAILED or could not start. Exit code: %CODE%
+  echo Copy the contents of last-run.log if you want me to diagnose it.
 )
-echo [SIM_BENCH] PASS. Open experiments\simulation_architecture\results\latest.json
-exit /b 0
+:finish
+echo.
+echo Press any key to close this window.
+pause >nul
+exit /b %CODE%
