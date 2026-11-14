@@ -99,9 +99,6 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_n134_result = {"ok": true, "tick": tick,
             "commissioned": [], "blocked": [], "heads": {},
             "status": "N134_COORDINATION_NOT_DUE"}
-        _last_n147_result = {"ok": true, "tick": tick,
-            "views": [], "ready": [], "blocked": [], "posted": [],
-            "status": "N147_COORDINATION_NOT_DUE"}
         if _fleet_roster == null or _fleet_resolver == null:
             _last_n153_result = {"ok": false, "reason": "missing_native_ship_ai_sources"}
             return false
@@ -688,10 +685,11 @@ func economy_summary() -> Dictionary:
         "construction_new_facilities_this_tick": _last_construction_result.get("materialized", []).size(),
         "construction_blocked_labor_this_tick": _last_construction_result.get("blocked", []).size(),
         "colony_migration_status": str(_last_n147_result.get("status", "NOT_EVALUATED")),
-        "colony_observations_this_tick": _last_n147_result.get("views", []).size(),
+        "colony_observed_groups": _last_n147_result.get("views", []).size(),
         "colony_passenger_proposals_unposted": _last_n147_result.get("ready", []).size(),
         "colony_passenger_contracts_posted": _last_n147_result.get("posted", []).size(),
-        "colony_migration_blocked_this_tick": _last_n147_result.get("blocked", []).size(),
+        "colony_migration_blocked_last_scan": _last_n147_result.get("blocked", []).size(),
+        "colony_last_scan_tick": int(_last_n147_result.get("tick", -1)),
         "construction_sites": current.get("construction_sites", {}).size(),
         "construction_live_paid_contracts": current.get("construction_contracts", {}).size(),
         "construction_last_observation": _last_construction_observation.duplicate(true),
