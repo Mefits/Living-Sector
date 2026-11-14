@@ -404,13 +404,14 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
 ## cannot alter money, cargo, BT, goals, stations or the ship roster.
 ## N146 DecommissionShip commands are returned to the sole N158 Apply,
 ## never executed from this state transition.
-func apply_native_n148_ship_lifecycle(tick: int, multiplier: int) -> Dictionary:
+func apply_native_n148_ship_lifecycle(tick: int, multiplier: int,
+        n140_fired: Dictionary) -> Dictionary:
     if not _ready or tick != _last_tick + 1 or multiplier < 1:
         return {"ok": false, "reason": "n148_not_authoritative_ships_phase"}
     if not (_world.get("ships") is Dictionary):
         return {"ok": true, "changed": false, "commands": [],
             "advanced": [], "tick": tick}
-    var candidate: Dictionary = NativeN148.stage(_world, tick, multiplier)
+    var candidate: Dictionary = NativeN148.stage(_world, tick, multiplier, n140_fired)
     if not candidate.get("ok", false):
         return candidate
     var new_ships: Dictionary = candidate["ships"]
