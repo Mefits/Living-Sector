@@ -519,6 +519,40 @@ static func validate(state: Dictionary) -> String:
         for commodity in market["prices"]:
             if not Inventory.valid_amount(market["prices"][commodity]):
                 return "invalid_market_price"
+    # N104 physical passengers carry people and real N9 wealth between stations.
+    if state.has("passenger_manifests") != state.has("passenger_receipts"):
+        return "partial_passenger_authority"
+    if state.has("passenger_manifests"):
+        var manifests: Variant = state["passenger_manifests"]
+        var receipts: Variant = state["passenger_receipts"]
+        if not (manifests is Dictionary and receipts is Dictionary):
+            return "invalid_passenger_registries"
+        for cid in manifests:
+            var m: Variant = manifests[cid]
+            var c: Dictionary = state.get("contract_board", {}).get("contracts", {}).get(cid, {})
+            if not (m is Dictionary) or str(c.get("contract_type", "")) != "passenger":
+                return "orphaned_passenger_manifest"
+            var phase: String = str(m.get("phase", ""))
+            var quantity: int = int(m.get("quantity", 0))
+            var carried: int = int(m.get("wealth", -1))
+            if phase not in ["embarked", "delivered"] or quantity <= 0 or quantity != int(c.get("quantity", -1)) or carried < 0 or int(m.get("initial_wealth", -1)) < carried:
+                return "invalid_passenger_manifest_values"
+            if str(m.get("ship_id", "")) != str(c.get("fulfiller_id", "")) or not state.get("ships", {}).has(str(m.get("ship_id", ""))) or not state["populations"].has(str(m.get("origin_population_id", ""))):
+                return "invalid_passenger_manifest_actor"
+            var boarding_id: String = "passenger:" + str(cid) + ":embark"
+            if str(c.get("picked_up_receipt", "")) != boarding_id or str(receipts.get(boarding_id, {}).get("action", "")) != "load":
+                return "passenger_missing_original_boarding"
+            if phase == "embarked":
+                if str(c.get("status", "")) != "picked_up":
+                    return "passenger_manifest_not_in_flight"
+            else:
+                var landing_id: String = "passenger:" + str(cid) + ":delivery"
+                if str(c.get("status", "")) != "paid" or carried != 0 or str(c.get("delivered_receipt", "")) != landing_id or str(receipts.get(landing_id, {}).get("action", "")) != "unload" or not state["populations"].has(str(m.get("destination_population_id", ""))):
+                    return "passenger_missing_paid_disembarkation"
+        for receipt_id in receipts:
+            var proof: Variant = receipts[receipt_id]
+            if not (proof is Dictionary) or str(proof.get("kind", "")) != "passenger" or str(proof.get("operation_id", "")) != str(receipt_id) or not manifests.has(str(proof.get("contract_id", ""))):
+                return "orphaned_passenger_receipt"
     for id in state["populations"]:
         if not _id(id) or not (state["populations"][id] is Dictionary):
             return "invalid_population"
@@ -626,6 +660,8 @@ static func accounts(state: Dictionary) -> Dictionary:
         result[faction_account(str(faction))] = int(state["faction_treasuries"][faction])
     for escrow in state.get("escrow_balances", {}):
         result[str(escrow)] = int(state["escrow_balances"][escrow])
+    for cid in state.get("passenger_manifests", {}):
+        result["passengers/" + str(cid)] = int(state["passenger_manifests"][cid]["wealth"])
     return result
 
 static func facility_account(id: String) -> String:
