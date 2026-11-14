@@ -1,6 +1,6 @@
 {
   "worker": "interactive-primary-chat",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "c5f28eaaffd3a6be2f3bb110aefcc78c53d422af",
   "goal": "Restore original Rust sim_db seeder bidirectional travel_route upserts in active N4 WorldRegistry while retaining raw directed RouteGraph for direct test uses; verify runtime reverse freight, no invented colony endpoints",
@@ -11,7 +11,11 @@
     "godot/tests/p2_gate4_native_construction_check.gd",
     "godot/tests/p2_native_seeded_route_parity_check.gd (new)",
     "godot/docs/phase2/handoffs/20261114-n142-seeder-route-parity.md",
-    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md",
+    "godot/scripts/sim/route_graph_audit.gd (N58 both raw and Rust DB parity)"
   ],
-  "verification": "No Godot binary available, no Actions"
+  "verification": "STATIC_QUOTES_BRACKETS_IMPORTS_INDENT_PASS; VERIFIED_SOURCE_JSON_ROUTE_COUNTS_12_INPUT_24_RUST_DB; TEST_ADDED_NOT_EXECUTED; GODOT_NOT_RUN; GITHUB_ACTIONS_0",
+  "code_head": "b29cb53132f0bd89b944a4ffa583b1d7c78a52dd",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n142-seeder-route-parity.md",
+  "release_summary": "Correct native N4 seeder-db-mode reverse SQL upsert parity, N142/N14 shared graph, N58 audit mode and N4/Gate4 return regression; no colonial ghost nodes"
 }
