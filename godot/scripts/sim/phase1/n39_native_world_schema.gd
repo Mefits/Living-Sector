@@ -51,6 +51,39 @@ static func validate(state: Dictionary) -> String:
                 var cursor: Dictionary = ship["lod"]
                 if typeof(cursor.get("divisor", null)) != TYPE_INT or typeof(cursor.get("next_tick", null)) != TYPE_INT or not NativeShipLod._cursor_ok(cursor):
                     return "invalid_persisted_native_n140_cursor"
+            # Frozen Rust ShipMemory: each observed PriceMemory carries a
+            # current source MarketPricing float and its exact tick.
+            # No omniscient/mirrored market or second Market book.
+            if ship.has("memory"):
+                if not (ship["memory"] is Dictionary):
+                    return "invalid_native_ship_memory"
+                var mem: Dictionary = ship["memory"]
+                for key in ["price_knowledge", "visited", "recent_systems",
+                        "route_performance", "contract_rejections"]:
+                    if not mem.has(key):
+                        return "incomplete_native_ship_memory_" + key
+                if not (mem["price_knowledge"] is Dictionary and mem["visited"] is Array and
+                        mem["recent_systems"] is Array and mem["route_performance"] is Dictionary and
+                        mem["contract_rejections"] is Dictionary):
+                    return "invalid_native_ship_memory_components"
+                for loc in mem["price_knowledge"]:
+                    var records: Variant = mem["price_knowledge"][loc]
+                    if not _id(loc) or not (records is Dictionary):
+                        return "invalid_native_price_market_location"
+                    for commodity in records:
+                        var known: Variant = records[commodity]
+                        if not _id(commodity) or not (known is Dictionary) or not (
+                                known.get("price", null) is float or known.get("price", null) is int) or (
+                                not is_finite(float(known["price"])) or float(known["price"]) < 0.0):
+                            return "invalid_native_price_memory_amount"
+                        if typeof(known.get("tick", null)) != TYPE_INT or int(known["tick"]) < 0:
+                            return "invalid_native_price_memory_tick"
+                for loc in mem["visited"]:
+                    if not _id(loc):
+                        return "invalid_native_visited_location"
+                for system in mem["recent_systems"]:
+                    if not _id(system):
+                        return "invalid_native_recent_system"
             # N149 live ship crew is the original aggregated Rust ShipCrew:
             # payroll accumulates nonspendable wages_credits, not a new
             # N9 bank. Older P2 saves without this component stay valid.
