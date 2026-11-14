@@ -29,6 +29,7 @@ const NativeFactionFinance = preload("res://scripts/sim/phase2/unified_native_fa
 const NativeShipyardModules = preload("res://scripts/sim/phase1/n154_native_shipyard_module_tick.gd")
 const NativeModuleRecipes = preload("res://scripts/sim/shipyard/native_module_recipes_n132.gd")
 const CommodityCatalog = preload("res://scripts/sim/economy/commodity_catalog.gd")
+const NativeShipyardRefit = preload("res://scripts/port/n108_shipyard_refit_apply.gd")
 
 const GalaxyConstructionCrew: Dictionary = {
     "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
@@ -217,6 +218,95 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         "service_restock": restocked.get("purchases", []).duplicate(true),
         "shipyard_modules": shipyard_modules.get("paid", []).duplicate(true),
         "shipyard_module_blocked": shipyard_modules.get("blocked", []).duplicate(true)}
+
+## Native N108/N154 agent RequestRefit. A real N84 ship must be at a
+## real paid shipyard dock; inventory, N101 retrofit point and ship wallet
+## are consumed together with one N9 transfer. No admin override here.
+func apply_native_shipyard_refit(tick: int, ship_id: String,
+        slot: String, slug: String) -> Dictionary:
+    if not _ready or tick != _last_tick + 1 or tick < 1:
+        return {"ok": false, "reason": "n108_not_the_live_ship_phase"}
+    if not _world.get("ships", {}).has(ship_id):
+        return {"ok": false, "reason": "n108_unknown_real_ship"}
+    var ship: Dictionary = _world["ships"][ship_id]
+    if not str(ship.get("active_contract_id", "")).is_empty() or not (
+            ship.get("transit", {}) as Dictionary).is_empty():
+        return {"ok": false, "reason": "n108_ship_busy_on_native_obligation"}
+    var bt: Variant = ship.get("current_bt", null)
+    if not (bt is Dictionary) or not NativeBt.validate(bt) or NativeBt.current_action(bt) != "Refit":
+        return {"ok": false, "reason": "n108_no_persisted_native_refit_order"}
+    var dock_id: String = str(ship.get("docked_at", ""))
+    if dock_id.is_empty() or not _world["facilities"].has(dock_id):
+        return {"ok": false, "reason": "n108_not_docked_at_physical_yard"}
+    var yard: Dictionary = _world["facilities"][dock_id]
+    if str(yard.get("type", "")) != "shipyard" or bool(yard.get("abandoned", false)):
+        return {"ok": false, "reason": "n108_real_paid_shipyard_absent"}
+    if str(ship.get("location", "")) != str(yard.get("location", "")):
+        return {"ok": false, "reason": "n108_wrong_native_shipyard_dock"}
+    var next: Dictionary = NativeShipyardRefit.agent_refit(
+        _world, ship_id, slot, slug)
+    if not next.get("ok", false):
+        return next
+    var stage: Dictionary = next.get("world", {})
+    if stage.size() != _world.size() or stage["ships"].size() != _world["ships"].size() or stage["facilities"].size() != _world["facilities"].size():
+        return {"ok": false, "fatal": true, "reason": "n108_invalid_single_world_shape"}
+    for domain in _world:
+        if domain not in ["ships", "facilities"] and stage.get(domain, null) != _world[domain]:
+            return {"ok": false, "fatal": true, "reason": "n108_modified_unrelated_domain"}
+    for other in _world["ships"]:
+        if str(other) != ship_id and stage["ships"][other] != _world["ships"][other]:
+            return {"ok": false, "fatal": true, "reason": "n108_modified_other_ship"}
+    for other in _world["facilities"]:
+        if str(other) != dock_id and stage["facilities"][other] != _world["facilities"][other]:
+            return {"ok": false, "fatal": true, "reason": "n108_modified_other_facility"}
+    var ship_fields: Array[String] = ["credits", "fitting", "cargo_capacity",
+        "speed_modifier", "progression", "lifecycle_dirty"]
+    for field in ship:
+        if field not in ship_fields and stage["ships"][ship_id].get(field, null) != ship[field]:
+            return {"ok": false, "fatal": true, "reason": "n108_invalid_physical_ship_change"}
+    var original_yard: Dictionary = _world["facilities"][dock_id]
+    for field in original_yard:
+        if field not in ["credits", "module_stock", "dirty"] and stage["facilities"][dock_id].get(field, null) != original_yard[field]:
+            return {"ok": false, "fatal": true, "reason": "n108_invalid_native_shipyard_change"}
+    var original_stock: Dictionary = original_yard.get("module_stock", {}).get("stock", {})
+    var new_stock: Dictionary = stage["facilities"][dock_id].get("module_stock", {}).get("stock", {})
+    if int(original_stock.get(slug, 0)) < 1 or int(new_stock.get(slug, -1)) != int(original_stock[slug]) - 1:
+        return {"ok": false, "fatal": true, "reason": "n108_unpaid_module_stock_delta"}
+    for module_slug in original_stock:
+        if module_slug != slug and new_stock.get(module_slug, null) != original_stock[module_slug]:
+            return {"ok": false, "fatal": true, "reason": "n108_modified_unrelated_module_stock"}
+    var cost: int = int(next.get("cost", -1))
+    if cost <= 0 or int(ship["credits"]) - int(stage["ships"][ship_id]["credits"]) != cost or int(stage["facilities"][dock_id]["credits"]) - int(original_yard["credits"]) != cost:
+        return {"ok": false, "fatal": true, "reason": "n108_invalid_original_module_price"}
+    var staged_money = Ledger.new()
+    if not staged_money.restore(_ledger.snapshot()):
+        return {"ok": false, "fatal": true, "reason": "n108_n9_ledger_unavailable"}
+    var receipt_id: String = "n108:refit:" + ship_id + ":" + slot + ":" + str(tick)
+    var receipt: Dictionary = staged_money.transfer(receipt_id,
+        Schema.ship_account(ship_id), Schema.facility_account(dock_id),
+        cost, tick, "native_paid_shipyard_refit")
+    if not receipt.get("ok", false):
+        return {"ok": false, "reason": "n108_n9_paid_refit_rejected:" +
+            str(receipt.get("reason", "unknown"))}
+    if staged_money.balance(Schema.ship_account(ship_id)) != int(stage["ships"][ship_id]["credits"]) or staged_money.balance(Schema.facility_account(dock_id)) != int(stage["facilities"][dock_id]["credits"]):
+        return {"ok": false, "fatal": true, "reason": "n108_inconsistent_paid_refit_accounts"}
+    var invalid: String = Schema.validate(stage)
+    if not invalid.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n108_invalid_native_ship_after_refit:" + invalid}
+    var accounts: Dictionary = Schema.accounts(stage)
+    var balances: Dictionary = staged_money.snapshot().get("balances", {})
+    if accounts.size() != balances.size() or staged_money.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "n108_native_money_was_created"}
+    for account in accounts:
+        if balances.get(account, null) != accounts[account]:
+            return {"ok": false, "fatal": true, "reason": "n108_n39_n9_wallet_diverged"}
+    _world = stage
+    _ledger = staged_money
+    return {"ok": true, "ship_id": ship_id, "shipyard_id": dock_id,
+        "tick": tick, "slug": slug, "slot": slot, "cost": cost,
+        "receipt": receipt_id, "event": next.get("events", []).duplicate(true),
+        "authority": "one_native_n39_n9_refit_apply"}
+
 
 ## Single authoritative fleet commit. Called by the N158 ships phase
 ## (before facilities), or by a validated explicit departure command between
