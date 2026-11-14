@@ -19,8 +19,46 @@ static func _station_order(site: Dictionary) -> Dictionary:
     var order: Variant = site.get("labor", {}).get("station_order", null)
     return order if order is Dictionary else {}
 
+## A fully funded N154 site is proved by physical N15 unload
+## receipts + final paid N104 receipts, not an untrusted progress count.
+## Refuse a hand-edited save that claims 600/600 materials without cargo.
+static func physical_site_funded(world: Dictionary, money: Dictionary,
+        site_id: String) -> bool:
+    var site: Dictionary = world.get("construction_sites", {}).get(site_id, {})
+    if site.is_empty() or not (money.get("receipts") is Dictionary):
+        return false
+    var delivered: int = 0
+    var seen: Dictionary = {}
+    for id in world.get("construction_receipts", {}):
+        var row: Dictionary = world["construction_receipts"][id]
+        if str(row.get("kind", "")) != "delivery" or str(row.get("site_id", "")) != site_id:
+            continue
+        var cargo_id: String = str(row.get("n15_receipt_id", ""))
+        var money_id: String = str(row.get("n9_receipt_id", ""))
+        var contract_id: String = str(row.get("contract_id", ""))
+        var qty: int = int(row.get("quantity", 0))
+        if qty <= 0 or seen.has(cargo_id) or cargo_id.is_empty() or money_id.is_empty():
+            return false
+        var cargo: Dictionary = world.get("cargo_receipts", {}).get(cargo_id, {})
+        var contract: Dictionary = world.get("contract_board", {}).get("contracts", {}).get(contract_id, {})
+        if cargo.is_empty() or contract.is_empty() or not money["receipts"].has(money_id):
+            return false
+        if str(cargo.get("action", "")) != "unload" or str(cargo.get("location_id", "")) != str(site.get("location_name", "")):
+            return false
+        if int(cargo.get("quantities", {}).get(str(site.get("commodity", "")), -1)) != qty:
+            return false
+        if str(contract.get("status", "")) != "paid" or str(contract.get("commodity", "")) != str(site.get("commodity", "")):
+            return false
+        if str(contract.get("destination_location", "")) != str(site.get("location_name", "")) or int(contract.get("quantity", -1)) != qty:
+            return false
+        seen[cargo_id] = true
+        delivered += qty
+        if delivered > int(site.get("progress_required", 0)):
+            return false
+    return delivered == int(site.get("progress_delivered", -1))
+
 static func propose(world: Dictionary, resolver: RefCounted,
-        tick: int) -> Dictionary:
+        tick: int, money: Dictionary) -> Dictionary:
     if tick < 1 or resolver == null or not (world.get("construction_sites") is Dictionary) or not (world.get("ships") is Dictionary):
         return {"ok": false, "reason": "missing_real_n91_world"}
     var sites: Array = []
@@ -30,6 +68,10 @@ static func propose(world: Dictionary, resolver: RefCounted,
         var site: Dictionary = world["construction_sites"][id]
         if not world.get("markets", {}).has(str(site.get("location_name", ""))):
             return {"ok": false, "reason": "n91_site_without_real_market"}
+        if not physical_site_funded(world, money, str(id)):
+            # N154 site may still be waiting for paid material; omit from
+            # N91 offers rather than invent an engineer job.
+            continue
         sites.append({
             "id": str(id), "completed": bool(site.get("completed", false)),
             "remaining_material": maxi(0, int(site.get("progress_required", 0)) -

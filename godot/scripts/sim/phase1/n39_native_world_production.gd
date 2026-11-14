@@ -555,6 +555,8 @@ func apply_native_construction_assignments(tick: int, proposals: Array) -> Dicti
             return {"ok": false, "fatal": true, "reason": "n91_phantom_actor_or_site"}
         var site: Dictionary = staged["construction_sites"][site_id]
         var ship: Dictionary = staged["ships"][ship_id]
+        if not N91SourceDispatch.physical_site_funded(staged, _ledger.snapshot(), site_id):
+            return {"ok": false, "fatal": true, "reason": "n91_unpaid_site_materials_cannot_dispatch"}
         var loc: String = str(site.get("location_name", ""))
         if bool(site.get("completed", false)) or int(site.get("progress_delivered", 0)) != int(site.get("progress_required", -1)) or int(site.get("labor", {}).get("completed", 0)) >= int(site.get("labor", {}).get("required", 0)):
             return {"ok": false, "fatal": true, "reason": "n91_site_not_paid_and_ready"}

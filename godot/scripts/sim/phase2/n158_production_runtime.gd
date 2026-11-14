@@ -158,7 +158,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # already N154-funded material-complete sites. N39 validates
         # and assigns the persistent N84 Construct plan atomically.
         var engineer_plan: Dictionary = N91Dispatch.propose(
-            production.world_snapshot(), _fleet_resolver, tick)
+            production.world_snapshot(), _fleet_resolver, tick,
+            production.ledger_snapshot())
         if not engineer_plan.get("ok", false):
             _last_n91_result = engineer_plan
             return false
