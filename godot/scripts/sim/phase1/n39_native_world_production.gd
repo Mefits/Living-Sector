@@ -260,7 +260,8 @@ func apply_native_shipyard_refit(tick: int, ship_id: String,
         if str(other) != dock_id and stage["facilities"][other] != _world["facilities"][other]:
             return {"ok": false, "fatal": true, "reason": "n108_modified_other_facility"}
     var ship_fields: Array[String] = ["credits", "fitting", "cargo_capacity",
-        "speed_modifier", "progression", "lifecycle_dirty"]
+        "speed_modifier", "fuel_efficiency_mult", "comms_bonus",
+        "progression", "lifecycle_dirty"]
     for field in ship:
         if field not in ship_fields and stage["ships"][ship_id].get(field, null) != ship[field]:
             return {"ok": false, "fatal": true, "reason": "n108_invalid_physical_ship_change"}
