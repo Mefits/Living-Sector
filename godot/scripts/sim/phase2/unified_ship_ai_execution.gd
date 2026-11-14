@@ -578,8 +578,11 @@ static func propose(world: Dictionary, graph: RefCounted,
             if not contract_id.is_empty():
                 var picked_up: bool = str(held.get("status", "")) == "picked_up"
                 var good: String = str(held.get("commodity", ""))
-                var has_original_load: bool = int(ship.get(
-                    "cargo", {}).get(good, 0)) >= int(held.get("quantity", 1))
+                var required: int = int(held.get("quantity", 0))
+                var physical_job: bool = str(held.get(
+                    "contract_type", "")) not in ["passenger", "crew_mission"]
+                var has_original_load: bool = physical_job and required > 0 and (
+                    int(ship.get("cargo", {}).get(good, 0)) >= required)
                 # Rust ContractBoard::release is guarded Accepted only.
                 # A physically loaded ship must never release this
                 # paid N104 obligation for a second free pickup.
