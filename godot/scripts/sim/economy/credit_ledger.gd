@@ -93,6 +93,34 @@ func transfer(operation_id: String, source: String, destination: String, amount:
 		return {"ok": false, "reason": "invalid_transfer"}
 	return commit(operation_id, [{"account": source, "delta": -amount}, {"account": destination, "delta": amount}], tick, kind)
 
+## A frozen Rust admin despawn physically destroys the actor and its
+## remaining personal/facility credits. It is NOT a treasury transfer.
+## Keep an explicit immutable N9 write-off receipt and remove the wallet;
+## total credits fall by exactly the erased actor's old credits. This
+## privileged operation is used ONLY by the N39 atomic admin cascade.
+func close_removed_entity_account(operation_id: String,
+        account: String, tick: int, kind: String) -> Dictionary:
+    if operation_id.is_empty() or not _valid_account(account) or tick < 0:
+        return {"ok": false, "reason": "invalid_admin_account_removal"}
+    if kind not in ["ship_decommissioned", "facility_removed"]:
+        return {"ok": false, "reason": "invalid_admin_writeoff_kind"}
+    if not _balances.has(account) or _receipts.has(operation_id):
+        return {"ok": false, "reason": "account_missing_or_previously_removed"}
+    if kind == "ship_decommissioned" and not account.begins_with("ship:"):
+        return {"ok": false, "reason": "not_a_ship_wallet"}
+    if kind == "facility_removed" and not account.begins_with("facility/"):
+        return {"ok": false, "reason": "not_a_facility_wallet"}
+    var lost: int = int(_balances[account])
+    if lost < 0:
+        return {"ok": false, "reason": "invalid_decommission_balance"}
+    _balances.erase(account)
+    var record: Dictionary = {"id": operation_id, "tick": tick,
+        "kind": kind, "account_closed": account, "credits_lost": lost,
+        "legs": [{"account": account, "delta": -lost}]}
+    _receipts[operation_id] = record
+    return {"ok": true, "receipt": record.duplicate(true),
+        "credits_lost": lost}
+
 func snapshot() -> Dictionary:
 	return {"version": 1, "balances": _balances.duplicate(true), "receipts": _receipts.duplicate(true)}
 
