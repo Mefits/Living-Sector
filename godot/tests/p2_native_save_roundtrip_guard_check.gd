@@ -4,6 +4,13 @@ extends SceneTree
 const Guard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
 const Saves = preload("res://scripts/sim/save_state.gd")
 
+class FixtureRunner extends RefCounted:
+    var source: Dictionary = {}
+    func is_started() -> bool:
+        return true
+    func checkpoint() -> Dictionary:
+        return source.duplicate(true)
+
 func _fail(message: String) -> void:
     push_error("P2_N38_ECONOMIC_FRAME: " + message)
     quit(1)
@@ -128,5 +135,34 @@ func _initialize() -> void:
     if original != original_copy:
         _fail("verification mutated authoritative snapshot")
         return
+
+    # Actual SaveState promotion contract: an unsafe .pending may NEVER
+    # overwrite the last healthy primary even if its own SHA is valid.
+    var runner := FixtureRunner.new()
+    runner.source = original.duplicate(true)
+    var path: String = "user://tests/p2-native-n38-save-" + str(Time.get_ticks_usec()) + ".json"
+    if Saves.save_runner(runner, path) != OK:
+        _fail("valid synthetic N39 full economic frame not saved")
+        return
+    var absolute: String = ProjectSettings.globalize_path(path)
+    var on_disk: Dictionary = Saves._read_checkpoint(absolute)
+    if not Guard.verify_authoritative_frame(original, on_disk).get("ok", false):
+        _fail("healthy primary N38 file did not match source")
+        return
+    var old_primary: String = FileAccess.get_file_as_string(absolute)
+    # JSON can only encode object keys as strings. A numeric dictionary
+    # key deep inside the source World would silently change its identity.
+    runner.source = original.duplicate(true)
+    runner.source["native_production"]["world"]["non_json_index"] = {8: "identity"}
+    if Saves.save_runner(runner, path) != ERR_FILE_CORRUPT:
+        _fail("lossy native frame was promoted instead of rejected")
+        return
+    if FileAccess.get_file_as_string(absolute) != old_primary:
+        _fail("failed guard damaged last valid primary file")
+        return
+    if FileAccess.file_exists(absolute + ".bak") or FileAccess.file_exists(absolute + ".pending"):
+        _fail("unsafe pending replaced backup or survived failure")
+        return
+    DirAccess.remove_absolute(absolute)
     print("P2_NATIVE_N38_FULL_ECONOMIC_ROUNDTRIP_GUARD_PASS")
     quit(0)
