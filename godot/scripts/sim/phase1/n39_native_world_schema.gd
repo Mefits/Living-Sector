@@ -273,6 +273,16 @@ static func validate(state: Dictionary) -> String:
                 var original_count: int = int(c.get("quantity", 0))
                 if original_count not in [10, 50] or int(c.get("payment", -1)) != original_count * 80:
                     return "n144_invalid_original_passenger_quote"
+            elif str(c.get("contract_type", "")) == "construction":
+                # Exact Rust N144 fixed 10000 credit commission / up to
+                # 200 actual Metals per shipment, never a virtual Market.
+                if str(c.get("commodity", "")) != "metals" or (
+                        int(c.get("quantity", 0)) <= 0 or
+                        int(c.get("quantity", 0)) > 200 or
+                        int(c.get("payment", -1)) != 10000):
+                    return "n144_invalid_original_metals_quote"
+            else:
+                return "n144_unknown_colony_contract_kind"
             if str(c.get("status", "")) in ["posted", "accepted", "picked_up", "delivered"]:
                 var live: Dictionary = state.get("construction_sites", {}).get(site_id, {})
                 if live.is_empty() or str(live.get("location_name", "")) != str(c.get("destination_location", "")) or (
@@ -429,8 +439,39 @@ static func validate(state: Dictionary) -> String:
                 var owner: String = str(state["markets"][sponsor].get("owner", ""))
                 if not state["facilities"].has(owner) or str(state["facilities"][owner].get("faction", "")) != str(site["faction_id"]) or str(state["facilities"][owner].get("type", "")) != "station":
                     return "colony_foundation_invalid_sponsor"
-                if int(site["progress_delivered"]) != 0 or int(site.get("progress_required", -1)) != 600:
+                if int(site.get("progress_required", -1)) != 600:
                     return "colony_foundation_invalid_physical_progress"
+                # No marketless construction progress without REAL N104
+                # paid Construction, N15 site unloading and unique
+                # source-linked N154 receipt. No free staged stock.
+                var delivered_total: int = 0
+                for delivery in state.get("construction_receipts", {}).values():
+                    if str(delivery.get("kind", "")) != "delivery" or (
+                            str(delivery.get("site_id", "")) != str(sid)):
+                        continue
+                    var cid: String = str(delivery.get("contract_id", ""))
+                    var count: int = int(delivery.get("quantity", 0))
+                    var n15_id: String = str(delivery.get("n15_receipt_id", ""))
+                    var paid_id: String = str(delivery.get("n9_receipt_id", ""))
+                    var proof: Dictionary = state.get("cargo_receipts", {}).get(n15_id, {})
+                    var contract: Dictionary = state.get("contract_board", {}).get("contracts", {}).get(cid, {})
+                    if count <= 0 or count > 200 or (
+                            str(state.get("construction_contracts", {}).get(cid, "")) != str(sid) or
+                            str(contract.get("contract_type", "")) != "construction" or
+                            str(contract.get("mission_category", "")) != "strategy.colony.v1" or
+                            str(contract.get("status", "")) != "paid" or
+                            int(contract.get("quantity", -1)) != count or
+                            paid_id != "contract:" + cid + ":payout" or
+                            n15_id != "contract:" + cid + ":unload" or
+                            str(proof.get("kind", "")) != "construction_site" or
+                            str(proof.get("site_id", "")) != str(sid) or
+                            str(proof.get("action", "")) != "unload" or
+                            str(proof.get("location_id", "")) != str(site["location_name"]) or
+                            proof.get("quantities", {}) != {"metals": count}):
+                        return "colony_foundation_unbacked_real_metals"
+                    delivered_total += count
+                if delivered_total != int(site.get("progress_delivered", -1)):
+                    return "colony_foundation_materials_not_conserved"
             for field in ["progress_required", "progress_delivered", "spawned_at_tick"]:
                 if typeof(site.get(field, null)) != TYPE_INT or int(site[field]) < 0:
                     return "invalid_native_site_progress"
@@ -463,7 +504,13 @@ static func validate(state: Dictionary) -> String:
                 return "orphaned_construction_delivery"
             var c: Dictionary = state["contract_board"]["contracts"][cid]
             var site: Dictionary = state["construction_sites"][site_id]
-            if str(c.get("contract_type", "")) != "delivery" or str(c.get("commodity", "")) != str(site["commodity"]) or str(c.get("destination_location", "")) != str(site["location_name"]):
+            var kind: String = str(c.get("contract_type", ""))
+            var valid_kind: bool = kind == "delivery" or (
+                kind == "construction" and
+                str(c.get("mission_category", "")) == "strategy.colony.v1" and
+                str(c.get("colony_site_id", "")) == str(site_id) and
+                site.get("labor", {}).get("colony_source", null) != null)
+            if not valid_kind or str(c.get("commodity", "")) != str(site["commodity"]) or str(c.get("destination_location", "")) != str(site["location_name"]):
                 return "construction_contract_terms_mismatch"
             if str(c.get("requestor_id", "")) != faction_account(str(site["faction_id"])):
                 return "construction_contract_payer_mismatch"
