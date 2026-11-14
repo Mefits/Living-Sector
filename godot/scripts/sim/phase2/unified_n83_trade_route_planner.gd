@@ -110,6 +110,10 @@ static func stage(world: Dictionary, graph: RefCounted, tick: int,
             "fuel_fraction": fuel_fraction,
             "cargo_capacity": int(ship.get("cargo_capacity", 0)),
             "cargo_used": cargo_used,
+            # Rust N80 biological morale priority outranks optional
+            # trade when a physically occupied N21 rest dock exists.
+            "crew_morale": float(ship.get("crew", {}).get("morale", 70.0)),
+            "can_rest": not str(ship.get("docked_at", "")).is_empty(),
             "trade": {"profit": int(route.get("estimated_profit", 0)),
                 "contested": contested, "ownership_priority": ownership_weight,
                 "feasible": true, "combined_retrofit": false},
