@@ -12,7 +12,10 @@
     "godot/scripts/sim/phase2/unified_n80_ship_mining_stage.gd (N103 runtime preflight)",
     "godot/tests/p2_n80_n103_live_bridge_check.gd (deferred)",
     "godot/docs/phase2/handoffs/20261114-chat1-n80-n103-runtime.md",
-    "godot/scripts/sim/phase2/unified_n83_free_trade_apply.gd (legal original N97 paid sell from miner goal only)"
+    "godot/scripts/sim/phase2/unified_n83_free_trade_apply.gd (legal original N97 paid sell from miner goal only)",
+    "godot/scripts/sim/phase2/unified_n80_ship_route_fuel.gd (NEW physical N14 multi-leg fuel preflight)",
+    "godot/tests/p2_n80_native_gate_explore_check.gd (deferred real positions)",
+    "godot/tests/p2_n80_native_mining_source_check.gd (deferred real positions)"
   ],
   "exclude": [
     "n39_native_world_production.gd unless absolutely required and verified available",
