@@ -82,6 +82,7 @@ jobs:
         shell: bash
         env:
           LS_AUTONOMY_TICKS: ${{ inputs.ticks || '420' }}
+          LS_PROFILE_NATIVE_PHASES: "1"
         run: |
           set -euo pipefail
           export LS_AUTONOMY_REPORT="$GITHUB_WORKSPACE/godot/logs/autonomy/report.json"
@@ -106,6 +107,18 @@ jobs:
                           "new_facilities", "new_population_groups",
                           "new_research_receipts", "actual_tps")
           })
+          print("SOURCE_N153_OWN_MARKET_BLOCKS:", data.get("native_n153_block_reasons", {}))
+          print("SOURCE_N153_SHIP_CAUSES:", data.get("native_n153_ship_causes", {}))
+          print("SOURCE_N153_ACCEPTED:", data.get("native_n153_accepted_total", 0),
+                "N84_DEPARTURES:", data.get("native_n84_departures_total", 0),
+                "N140_FIRED:", data.get("native_n140_fired_total", 0))
+          timing = data.get("native_phase_profile", {})
+          microseconds = timing.get("phase_usec", {})
+          print("N158_PHASE_PROFILE_MS:", [
+              (phase, round(total / 1000, 2))
+              for phase, total in sorted(microseconds.items(), key=lambda item: item[1], reverse=True)
+          ])
+          print("TICK_SPEED_BUCKETS:", data.get("tick_speed_buckets", []))
           assert data.get("result") == "PASS"
           assert data.get("manual_ship_commands") == 0
           assert data.get("injected_goods") == 0
