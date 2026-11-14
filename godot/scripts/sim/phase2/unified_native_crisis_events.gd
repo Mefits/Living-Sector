@@ -89,3 +89,77 @@ static func propose_facility_warnings(facilities: Dictionary) -> Dictionary:
             events.append({"kind": "facility_recovered",
                 "facility_id": facility_id, "condition": condition})
     return {"ok": true, "flag_updates": updates, "events": events}
+
+## Read-only Observer projection from the SAME N39 World. These are source
+## warning FLAGS, not newly-emitted events. Missing facility flags are
+## reported separately as pending until the canonical N39 writer is wired.
+## Both dictionaries are snapshots; this function must never repair them.
+static func current_warning_state(world: Dictionary) -> Dictionary:
+    if not (world.get("markets") is Dictionary) or not (world.get("facilities") is Dictionary):
+        return _fail("missing_canonical_market_or_facilities")
+    var active_markets: Array[Dictionary] = []
+    var active_facilities: Array[Dictionary] = []
+    var pending_facilities: Array[Dictionary] = []
+    var locations: Array = world["markets"].keys()
+    locations.sort()
+    for location in locations:
+        var raw_market: Variant = world["markets"][location]
+        if not (location is String) or not (raw_market is Dictionary):
+            return _fail("invalid_real_market")
+        var market: Dictionary = raw_market
+        if not (market.get("history") is Dictionary):
+            return _fail("missing_real_market_history")
+        var history: Dictionary = market["history"]
+        if not (history.get("shortage_ticks") is Dictionary):
+            return _fail("missing_real_shortage_history")
+        var flags: Variant = history.get("crisis_notified", {})
+        if not (flags is Dictionary):
+            return _fail("invalid_real_market_warning_flags")
+        var slugs: Array = flags.keys()
+        slugs.sort()
+        for commodity in slugs:
+            if not (commodity is String) or typeof(flags[commodity]) != TYPE_BOOL:
+                return _fail("invalid_real_market_warning_flag")
+            if bool(flags[commodity]):
+                var raw_count: Variant = history["shortage_ticks"].get(commodity, 0)
+                if typeof(raw_count) != TYPE_INT or int(raw_count) < 0:
+                    return _fail("invalid_real_market_shortage_counter")
+                active_markets.append({
+                    "market_id": str(market.get("id", "")),
+                    "location": location, "commodity": commodity,
+                    "shortage_ticks": int(raw_count)})
+    var ids: Array = world["facilities"].keys()
+    ids.sort()
+    for facility_id in ids:
+        var raw_facility: Variant = world["facilities"][facility_id]
+        if not (facility_id is String) or not (raw_facility is Dictionary):
+            return _fail("invalid_real_facility")
+        var facility: Dictionary = raw_facility
+        # N156 optional component is absent in older P2 seeds; do not
+        # invent a condition value or report an active warning for it.
+        if not facility.has("condition"):
+            continue
+        var raw_condition: Variant = facility["condition"]
+        if typeof(raw_condition) not in [TYPE_INT, TYPE_FLOAT]:
+            return _fail("invalid_real_facility_condition")
+        var condition: float = float(raw_condition)
+        if not is_finite(condition) or condition < 0.0 or condition > 1.0:
+            return _fail("invalid_real_facility_condition")
+        var flag: Variant = facility.get("starving_notified", false)
+        if typeof(flag) != TYPE_BOOL:
+            return _fail("invalid_real_facility_warning_flag")
+        var row: Dictionary = {"facility_id": facility_id, "condition": condition}
+        if bool(flag):
+            # Rust hysteresis: flagged facilities can remain under warning
+            # between the 0.3 entry and 0.5 recovery boundary.
+            active_facilities.append(row)
+        elif condition < FACILITY_STARVING_CONDITION:
+            # This is not a emitted event: the N39 writer is still missing.
+            pending_facilities.append(row)
+    return {"ok": true,
+        "active_markets": active_markets,
+        "active_facilities": active_facilities,
+        "pending_facilities": pending_facilities,
+        "market_count": active_markets.size(),
+        "facility_count": active_facilities.size(),
+        "pending_facility_count": pending_facilities.size()}
