@@ -1247,9 +1247,9 @@ func apply_native_n21_dock_queue(tick: int) -> Dictionary:
         _world, _ledger.snapshot(), tick))
 
 
-## N21+N15 one-World dock/cargo command commit. N15 is physical inventory
-## transfer only; trade/escrow/payment belongs to a later contract phase.
-## No separate wallet, source stock, arrival process or hidden dock occupancy.
+## Legacy N15 physical cargo and free Undock helper ONLY. Paid N21 Dock
+## is handled exclusively above through N21Source/N9, even from the UI.
+## No second wallet, source stock, arrival process or dock occupancy.
 func apply_fleet_logistics(tick: int, proposal: Dictionary,
         in_native_ship_phase: bool = false) -> bool:
     if not _ready or tick != _last_tick + (1 if in_native_ship_phase else 0) or not bool(proposal.get("ok", false)):
