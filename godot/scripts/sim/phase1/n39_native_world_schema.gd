@@ -281,6 +281,32 @@ static func validate(state: Dictionary) -> String:
         return "invalid_location_tiers"
     if state.has("station_executing") and typeof(state["station_executing"]) != TYPE_BOOL:
         return "invalid_station_phase"
+    # Source N18 one administrator per (faction, location). Retention
+    # memory and its tick cursor belong to the SAME N39/N38 world; they
+    # may be omitted only on genuinely old, non-executing checkpoints.
+    if state.has("station_administration") != state.has("station_administration_last_tick"):
+        return "partial_native_station_administration"
+    if bool(state.get("station_executing", false)) and not state.has("station_administration"):
+        return "native_station_execution_without_persisted_admin"
+    if state.has("station_administration"):
+        if not (state["station_administration"] is Dictionary) or typeof(state["station_administration_last_tick"]) != TYPE_INT or int(state["station_administration_last_tick"]) < 0:
+            return "invalid_native_administrator_cursor"
+        for key in state["station_administration"]:
+            var saved: Variant = state["station_administration"][key]
+            if not (key is String) or not (saved is Dictionary):
+                return "invalid_native_administrator_record"
+            if int(saved.get("version", -1)) != 1 or not (saved.get("last_plan") is Dictionary) or not (saved.get("retained") is Dictionary) or not (saved.get("producer") is Dictionary):
+                return "invalid_native_administrator_snapshot"
+            if typeof(saved.get("last_plan_tick", null)) != TYPE_INT or int(saved["last_plan_tick"]) < 0 or int(saved["last_plan_tick"]) > int(state["station_administration_last_tick"]):
+                return "invalid_native_administrator_plan_time"
+            var view: Dictionary = saved["last_plan"]
+            if str(view.get("faction_id", "")) + "|" + str(view.get("location", "")) != str(key):
+                return "native_administrator_wrong_station"
+            if not state.get("faction_treasuries", {}).has(str(view.get("faction_id", ""))) or not state["markets"].has(str(view.get("location", ""))):
+                return "native_administrator_unknown_faction_or_station"
+            for fid in saved["retained"]:
+                if not state["facilities"].has(fid) or typeof(saved["retained"][fid]) != TYPE_BOOL:
+                    return "native_administrator_retained_foreign_facility"
     for id in state["facilities"]:
         if not _id(id) or not (state["facilities"][id] is Dictionary):
             return "invalid_facility"
