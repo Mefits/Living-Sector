@@ -15,6 +15,8 @@ const Plans = preload("res://scripts/sim/phase1/n153_native_ship_bt_planning.gd"
 const ShipPlanning = preload("res://scripts/sim/phase2/unified_ship_ai_planner.gd")
 const NativeN153 = preload("res://scripts/sim/phase1/n153_native_ship_contract_selection.gd")
 const SourceN147 = preload("res://scripts/sim/phase2/unified_n147_colony_migration_observer.gd")
+const ShipProgression = preload("res://scripts/sim/native/ship_progression_n101.gd")
+const ShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 
 class PassengerEvidence extends RefCounted:
     var receipts: Dictionary = {}
@@ -308,6 +310,31 @@ static func move(world: Dictionary, bank: Dictionary, cid: String,
         staged["ships"][sid]["current_goal"] = "idle"
         staged["ships"][sid]["current_bt"] = null
         staged["ships"][sid]["current_goal_score"] = 0.0
+        # Rust apply::commit_contract_delivery grants real N101 XP and
+        # resets N148 hoard strikes on all paid deliveries, passengers too.
+        var original_ship: Dictionary = world["ships"][sid]
+        if original_ship.get("progression") is Dictionary:
+            var xp: Dictionary = ShipProgression.grant_delivery_xp(
+                original_ship["progression"])
+            if not xp.get("ok", false):
+                return _reject("n101_real_passenger_xp_rejected")
+            staged["ships"][sid]["progression"] = xp["state"].duplicate(true)
+        if original_ship.get("lifecycle") is Dictionary:
+            var recovered: Dictionary = ShipLifecycle.after_confirmed_delivery(
+                original_ship["lifecycle"], {"trusted_internal_apply": true,
+                    "delivery_succeeded": true, "ship_entity": sid})
+            if not recovered.get("ok", false):
+                return _reject("n148_real_passenger_delivery_lifecycle_rejected")
+            staged["ships"][sid]["lifecycle"] = recovered["lifecycle"].duplicate(true)
+        # Original commit_contract_delivery: gain 5 + payment/2000
+        # reputation, clamped [1..15] and total [0..100].
+        var reputation: Dictionary = original_ship.get("faction_reputation", {}).duplicate(true)
+        var requestor_faction: String = str(c.get("faction_id", ""))
+        if not requestor_faction.is_empty():
+            var gain: int = clampi(5 + int(credited / 2000), 1, 15)
+            reputation[requestor_faction] = mini(100,
+                int(reputation.get(requestor_faction, 0)) + gain)
+            staged["ships"][sid]["faction_reputation"] = reputation
     var committed: Dictionary = _commit(staged, ledger, board, bank, tick,
         "N104_REAL_PASSENGERS_EMBARKED" if embarking else "N104_REAL_PASSENGERS_DELIVERED_PAID",
         cid, sid)
