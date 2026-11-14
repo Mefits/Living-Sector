@@ -47,6 +47,7 @@ const NativeN149Crew = preload("res://scripts/sim/phase2/unified_n149_ship_crew_
 const NativeShipPrices = preload("res://scripts/sim/phase2/unified_native_ship_price_observation.gd")
 const NativeCrewXp = preload("res://scripts/sim/ship_crew_skills_n128.gd")
 const N146Commands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
+const NativeFreeTrade = preload("res://scripts/sim/phase2/unified_n83_free_trade_apply.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
@@ -405,6 +406,147 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
     _world = staged
     return true
 
+
+
+## Original Rust engine/transactions.rs::buy/sell without a N104
+## obligation. Only a genuinely pending N90 RequestShipTransaction
+## can pass this guarded N39/N9 single-owner Apply boundary. P1 N97
+## performs the authoritative physical market settlement on a staged
+## adapter; its result is then reconciled with N9 and N15 receipts.
+func apply_native_n83_free_trade(tick: int, ship_id: String,
+        request_id: int) -> Dictionary:
+    if not _ready or tick != _last_tick + 1 or tick < 1 or (
+            ship_id.is_empty() or request_id < 1):
+        return {"ok": false, "reason": "n83_not_real_native_ships_tick"}
+    var before_world: Dictionary = _world
+    var before_bank: Dictionary = _ledger.snapshot()
+    var result: Dictionary = NativeFreeTrade.stage(
+        before_world, before_bank, ship_id, request_id, tick)
+    if not result.get("ok", false):
+        return result
+    var next_world: Dictionary = result.get("world", {})
+    var next_bank: Dictionary = result.get("ledger_snapshot", {})
+    if next_world.size() != before_world.size() or (
+            not next_world.get("ships") is Dictionary or
+            next_world["ships"].size() != before_world["ships"].size()):
+        return {"ok": false, "fatal": true,
+            "reason": "n83_changed_single_world_topology"}
+    var domains: Array[String] = ["ships", "markets", "facilities", "cargo_receipts"]
+    for domain in before_world:
+        if domain not in domains and next_world.get(domain, null) != before_world[domain]:
+            return {"ok": false, "fatal": true,
+                "reason": "n83_changed_unrelated_native_domain"}
+    for sid in before_world["ships"]:
+        if not next_world["ships"].has(sid):
+            return {"ok": false, "fatal": true, "reason": "n83_removed_real_ship"}
+        if str(sid) != ship_id and next_world["ships"][sid] != before_world["ships"][sid]:
+            return {"ok": false, "fatal": true,
+                "reason": "n83_modified_someone_else_ship"}
+    var prior: Dictionary = before_world["ships"][ship_id]
+    var after: Dictionary = next_world["ships"][ship_id]
+    var allowed_ship: Array[String] = ["transaction", "cargo", "cargo_age",
+        "cargo_origin", "credits", "crew_skills", "crew", "lifecycle",
+        "memory"]
+    for field in prior:
+        if field not in allowed_ship and after.get(field, null) != prior[field]:
+            return {"ok": false, "fatal": true,
+                "reason": "n83_changed_unrelated_ship_state"}
+    for field in after:
+        if not prior.has(field) and field not in allowed_ship:
+            return {"ok": false, "fatal": true,
+                "reason": "n83_added_phantom_ship_component"}
+    var status: String = str(result.get("status", ""))
+    var paid: bool = status == "applied"
+    if not paid and status != "rejected":
+        return {"ok": false, "fatal": true, "reason": "n83_unrecognized_source_result"}
+    var receipt_id: String = "n83:ship:" + ship_id + ":" + str(request_id)
+    if paid:
+        if not next_world.get("cargo_receipts", {}).has(receipt_id) or (
+                next_world["cargo_receipts"].size() !=
+                before_world.get("cargo_receipts", {}).size() + 1):
+            return {"ok": false, "fatal": true,
+                "reason": "n83_missing_original_physical_n15_receipt"}
+        var detail: Dictionary = next_world["cargo_receipts"][receipt_id]
+        var location: String = str(detail.get("location", ""))
+        var fid: String = str(detail.get("facility_id", ""))
+        if not before_world["markets"].has(location) or not before_world["facilities"].has(fid):
+            return {"ok": false, "fatal": true,
+                "reason": "n83_paid_unregistered_facility_or_market"}
+        var commodity: String = str(detail.get("commodity", ""))
+        var direction: int = 1 if str(detail.get("kind", "")) == "native_n97_free_buy" else -1
+        var quantity: int = int(detail.get("quantity", 0))
+        if quantity < 1 or str(detail.get("kind", "")) not in [
+                "native_n97_free_buy", "native_n97_free_sell"]:
+            return {"ok": false, "fatal": true,
+                "reason": "n83_invalid_original_trade_quantity"}
+        if int(after["cargo"].get(commodity, 0)) - int(prior["cargo"].get(commodity, 0)) != direction * quantity:
+            return {"ok": false, "fatal": true,
+                "reason": "n83_n15_physical_hold_mismatch"}
+        if not is_equal_approx(float(next_world["markets"][location]["supply"].get(
+                commodity, 0.0)) - float(before_world["markets"][location]["supply"].get(
+                commodity, 0.0)), float(-direction * quantity)):
+            return {"ok": false, "fatal": true,
+                "reason": "n83_unbacked_market_stock_delta"}
+        for m in before_world["markets"]:
+            if str(m) != location and next_world["markets"].get(m, null) != before_world["markets"][m]:
+                return {"ok": false, "fatal": true,
+                    "reason": "n83_modified_other_market"}
+        for f in before_world["facilities"]:
+            if str(f) != fid and next_world["facilities"].get(f, null) != before_world["facilities"][f]:
+                return {"ok": false, "fatal": true,
+                    "reason": "n83_modified_other_station"}
+        var buyer_delta: int = int(next_world["facilities"][fid]["credits"]) - int(
+            before_world["facilities"][fid]["credits"])
+        var ship_delta: int = int(after["credits"]) - int(prior["credits"])
+        if buyer_delta != -ship_delta or absi(ship_delta) != int(detail["payment"]):
+            return {"ok": false, "fatal": true,
+                "reason": "n83_source_market_money_not_conservative"}
+    else:
+        for key in ["markets", "facilities", "cargo_receipts"]:
+            if next_world[key] != before_world[key]:
+                return {"ok": false, "fatal": true,
+                    "reason": "n83_rejected_trade_changed_actual_world"}
+        var source_copy: Dictionary = prior.duplicate(true)
+        source_copy["transaction"] = after.get("transaction", {})
+        if source_copy != after:
+            return {"ok": false, "fatal": true,
+                "reason": "n83_rejection_changed_actual_ship"}
+    for existing in before_world.get("cargo_receipts", {}):
+        if next_world["cargo_receipts"].get(existing, null) != before_world["cargo_receipts"][existing]:
+            return {"ok": false, "fatal": true,
+                "reason": "n83_changed_existing_n15_receipt"}
+    var restored := Ledger.new()
+    if not restored.restore(next_bank) or restored.total() != _ledger.total():
+        return {"ok": false, "fatal": true,
+            "reason": "n83_original_n9_created_or_lost_money"}
+    if next_bank["receipts"].size() != before_bank["receipts"].size() + (1 if paid else 0):
+        return {"ok": false, "fatal": true,
+            "reason": "n83_wrong_paid_receipt_cardinality"}
+    if paid and not next_bank["receipts"].has(receipt_id):
+        return {"ok": false, "fatal": true,
+            "reason": "n83_no_actual_n9_trade_receipt"}
+    for old_receipt in before_bank["receipts"]:
+        if next_bank["receipts"].get(old_receipt, null) != before_bank["receipts"][old_receipt]:
+            return {"ok": false, "fatal": true,
+                "reason": "n83_tampered_original_n9_history"}
+    var schema_error: String = Schema.validate(next_world)
+    if not schema_error.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n83_single_world_schema_" + schema_error}
+    var accounts: Dictionary = Schema.accounts(next_world)
+    if accounts.size() != next_bank["balances"].size():
+        return {"ok": false, "fatal": true,
+            "reason": "n83_fabricated_native_wallet"}
+    for account in accounts:
+        if next_bank["balances"].get(account, null) != accounts[account]:
+            return {"ok": false, "fatal": true,
+                "reason": "n83_true_n9_balance_mismatch"}
+    _world = next_world
+    _ledger = restored
+    return {"ok": true, "status": status, "tick": tick,
+        "ship_id": ship_id, "request_id": request_id,
+        "receipt": result.get("receipt", {}).duplicate(true),
+        "reason": str(result.get("reason", ""))}
 
 
 ## Rust N148 behavior.rs lifecycle runs once on the EXISTING N158 ships
