@@ -4,7 +4,6 @@ extends RefCounted
 ## Pure source projection of ACTUAL N39 World; no phantom stock, crew,
 ## market, shipyard hull, money, migration or N104 order.
 const N92 = preload("res://scripts/ported/n92_colony_development.gd")
-const N121Stock = preload("res://scripts/sim/phase2/unified_native_hybrid_planning.gd")
 
 static func _fail(reason: String) -> Dictionary:
     return {"ok": false, "reason": reason}
@@ -213,9 +212,16 @@ static func verify_promoted_plan(world: Dictionary, faction: String,
         return {"ok": true, "accepted": false,
             "reason": str(candidate.get("reason", status))}
     var stored: Dictionary = world.get("native_planner_records", {}).get(faction, {})
+    var ledger: Dictionary = stored.get("ledger", {})
+    var planner_goal: Dictionary = stored.get("goal", {})
     if str(stored.get("status", "")) != status or (
-            stored.get("goal", {}) != candidate.get("goal", {}) or
-            not (stored.get("ledger") is Dictionary)):
+            int(stored.get("tick", -1)) != int(candidate.get("tick", -2)) or
+            not (stored.get("ledger") is Dictionary) or
+            str(ledger.get("faction_id", "")) != faction or
+            str(planner_goal.get("destination_id", "")) != str(
+                promoted.get("goal", {}).get("destination", "")) or
+            str(planner_goal.get("commodity", "")) != str(
+                promoted.get("goal", {}).get("commodity", ""))):
         return _fail("b4_original_n100_result_not_canonical")
     return {"ok": true, "accepted": true,
         "status": "B4_ORIGINAL_N92_NATIVE_STOCK_PLAN_RECORDED",
