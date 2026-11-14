@@ -69,6 +69,8 @@ static func plan_for(world: Dictionary, resolver: RefCounted, graph: RefCounted,
     var site: Dictionary = world.get("construction_sites", {}).get(site_id, {})
     if ship.is_empty() or site.is_empty():
         return {"ok": false, "reason": "n91_missing_real_actor_or_site"}
+    if str(ship.get("faction_id", "")) != str(site.get("faction_id", "")) or not Executor.capable(str(ship.get("class", "")), Catalog.CLASSES):
+        return {"ok": false, "reason": "n91_unauthorized_or_unqualified_engineer"}
     var from: String = str(ship.get("location", ""))
     var dest: String = str(site.get("location_name", ""))
     if from.is_empty() or dest.is_empty() or not world.get("markets", {}).has(dest):
