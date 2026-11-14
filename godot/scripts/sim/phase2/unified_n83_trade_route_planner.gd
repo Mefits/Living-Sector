@@ -143,7 +143,7 @@ static func stage(world: Dictionary, graph: RefCounted, tick: int,
             var step: Dictionary = raw.duplicate(true)
             step["kind"] = str(raw.get("type", ""))
             step.erase("type")
-            if str(step["kind"]) in ["Refuel", "Refit"]:
+            if str(step["kind"]) == "Refit":
                 # No ghost gas, module or payment to make GOAP work.
                 has_unsupported = true
                 break
