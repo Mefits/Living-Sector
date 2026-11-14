@@ -46,9 +46,18 @@ func _initialize() -> void:
     if not prepared.get("ok", false) or prepared.get("created", []).size() != 1:
         _fail("original N151 physical construction_dock missing")
         return
-    var before: Dictionary = n39.world_snapshot()
+    var pristine: Dictionary = n39.world_snapshot()
     var bank: Dictionary = n39.ledger_snapshot()
     var id: String = str(founded["site_id"])
+    if Materials.source_quote(pristine, id).get("ok", false):
+        _fail("empty founding household illegally ordered construction Metals")
+        return
+    # Detached test-only after-arrival condition: this fixture starts
+    # after a prior actual N104 passenger flight; NOT a free resident
+    # grant in production N39 and NOT proof that the physical flight ran.
+    var before: Dictionary = pristine.duplicate(true)
+    var pop: String = str(prepared["created"][0]["population_id"])
+    before["populations"][pop]["count"] = 50
     var quote: Dictionary = Materials.source_quote(before, id)
     if not quote.get("ok", false) or int(quote.get("quantity", -1)) != 200 or (
             int(quote.get("payment", -1)) != 10000):
