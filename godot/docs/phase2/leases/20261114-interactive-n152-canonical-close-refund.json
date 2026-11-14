@@ -1,6 +1,6 @@
 {
   "worker": "interactive-n152-continuation-20261114",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "goal": "Integrate N152 expiry and N104 one-board escrow closure, N9 real refund receipts, unified N39 transactional apply and P2 tick cadence; no Rust balance changes/no runtime tests",
   "scope": [
@@ -8,8 +8,15 @@
     "godot/scripts/sim/phase1/n39_native_world_production.gd",
     "godot/scripts/sim/phase2/n158_production_runtime.gd",
     "godot/docs/phase2/handoffs/20261114-n152-canonical-close-refund.md",
-    "godot/docs/phase2/leases/20261114-interactive-n152-canonical-close-refund.json"
+    "godot/docs/phase2/leases/20261114-interactive-n152-canonical-close-refund.json",
+    "godot/scripts/sim/economy/contract_board.gd",
+    "godot/scripts/sim/native_contract_aging.gd",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
   ],
   "created_at": "2026-11-14T15:45:00+03:00",
-  "preflight": "P1 N152 PR241 is already source-covered; P2 PR249 remains integration truth; N121 lease RELEASED"
+  "preflight": "P1 N152 PR241 is already source-covered; P2 PR249 remains integration truth; N121 lease RELEASED",
+  "verification": "SOURCE_WIRED; STATIC_READBACK_AND_DELIMITER_PASS; GODOT_NOT_RUN; GITHUB_ACTIONS_0; NO_BALANCE_CHANGES",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n152-canonical-close-refund.md",
+  "remaining": "Full Rust/Godot project not complete; N152 admin drop_ship_holdings/cancel_for_facility entrypoints still to wire; final Godot parser/gameplay/Rust parity later",
+  "code_head": "34de72c5d85c8f663bf89f3a8f177b43a2e9e837"
 }
