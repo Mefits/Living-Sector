@@ -24,6 +24,15 @@ var _observed_transit: bool = false
 var _observed_contract: bool = false
 var _observed_picked_up: bool = false
 var _observed_paid: bool = false
+var _n153_block_reasons: Dictionary = {}
+var _n84_block_reasons: Dictionary = {}
+var _n153_accept_total: int = 0
+var _n84_departures_total: int = 0
+var _n140_fired_total: int = 0
+var _tick_usec_total: int = 0
+var _tick_timing_buckets: Array[Dictionary] = []
+var _ticks_in_bucket: int = 0
+var _bucket_usec: int = 0
 
 func _initialize() -> void:
     _started_ms = Time.get_ticks_msec()
@@ -88,6 +97,7 @@ func _initialize() -> void:
     var interval: int = maxi(25, mini(250,
         int(ceil(float(ticks) / 24.0))))
     for n in range(1, ticks + 1):
+        var step_started_us: int = Time.get_ticks_usec()
         if not sim.queue_control("step", 1):
             _finish(false, "N1 refused to advance at tick " + str(n))
             return
@@ -100,6 +110,38 @@ func _initialize() -> void:
                 "; source=" + str(fault))
             return
         _report["observed_ticks"] = n
+        # These are original N153/N84 phase results, not synthetic
+        # predictions. Record even one-tick departures that a sparse
+        # 25-tick ship snapshot could otherwise miss.
+        var ai: Dictionary = sim.native_autonomy_diagnostics()
+        _n153_accept_total += int(ai.get("n153_accepted", 0))
+        _n84_departures_total += ai.get("n84_departures", []).size()
+        _n140_fired_total += int(ai.get("n140_fired", 0))
+        for blocked in ai.get("n153_blocked", []):
+            if blocked is Dictionary:
+                var reason: String = str(blocked.get("reason", "unknown"))
+                _n153_block_reasons[reason] = int(
+                    _n153_block_reasons.get(reason, 0)) + 1
+        for blocked in ai.get("n84_blocked", []):
+            if blocked is Dictionary:
+                var reason: String = str(blocked.get("reason", "unknown"))
+                _n84_block_reasons[reason] = int(
+                    _n84_block_reasons.get(reason, 0)) + 1
+        if not ai.get("n84_departures", []).is_empty():
+            _observed_transit = true
+        var elapsed_step_us: int = maxi(0,
+            Time.get_ticks_usec() - step_started_us)
+        _tick_usec_total += elapsed_step_us
+        _bucket_usec += elapsed_step_us
+        _ticks_in_bucket += 1
+        if n % 60 == 0 or n == ticks:
+            _tick_timing_buckets.append({
+                "until_tick": n, "ticks": _ticks_in_bucket,
+                "total_usec": _bucket_usec,
+                "average_ms": float(_bucket_usec) / (
+                    1000.0 * float(maxi(1, _ticks_in_bucket)))})
+            _bucket_usec = 0
+            _ticks_in_bucket = 0
         if n != 1 and n != ticks and n % interval != 0:
             continue
         var frame: Dictionary = sim.checkpoint()
@@ -167,6 +209,14 @@ func _initialize() -> void:
             "elapsed_ms": Time.get_ticks_msec() - _started_ms
         }
         _report["samples"].append(sample)
+    _report["native_n153_accepted_total"] = _n153_accept_total
+    _report["native_n153_block_reasons"] = _n153_block_reasons
+    _report["native_n84_block_reasons"] = _n84_block_reasons
+    _report["native_n84_departures_total"] = _n84_departures_total
+    _report["native_n140_fired_total"] = _n140_fired_total
+    _report["actual_tick_usec"] = _tick_usec_total
+    _report["tick_speed_buckets"] = _tick_timing_buckets
+    _report["native_phase_profile"] = sim.profile_native_phases()
     _report["physical_market_change_samples"] = _market_changes
     _report["n9_new_receipts"] = _last_receipt_count - _first_receipt_count
     _report["observed_n104_board"] = _observed_contract
