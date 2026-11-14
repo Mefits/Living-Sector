@@ -644,6 +644,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_ship_result["n104_passenger_moves"] = []
         _last_ship_result["n144_metals_moves"] = []
         _last_ship_result["n108_paid_refits"] = []
+        _last_ship_result["n108_gate_jumps"] = []
         _last_ship_result["n21_auto_dock"] = []
         # Frozen Rust behavior.rs: accumulate idle/strike state after
         # deciding the active goal, BEFORE the BT's ship transactions
@@ -669,6 +670,29 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     "ship_id": ship_id, "from": str(command.get("from", "")),
                     "to": str(command.get("to", "")), "tick": tick})
                 continue
+            if kind == "RequestGateJump":
+                # Frozen Rust SimCommand::RequestGateJump exclusive Apply.
+                # Only N39 can commit a real N108 hop and its N9 fee;
+                # absent/unbuilt/unpaired gates leave the ship untouched.
+                var actual_gate: Dictionary = production.apply_native_n108_gate_jump(
+                    tick, ship_id, str(command.get("src_gate_location", "")),
+                    str(command.get("dest_gate_location", "")),
+                    _fleet_resolver)
+                if actual_gate.get("ok", false):
+                    _last_ship_result["n108_gate_jumps"].append(
+                        actual_gate.duplicate(true))
+                elif actual_gate.get("fatal", false):
+                    _last_ship_result = {"ok": false,
+                        "reason": "n108_source_gate_integrity_" +
+                            str(actual_gate.get("reason", "invalid"))}
+                    return false
+                else:
+                    _last_ship_result["autonomous_blocked"].append({
+                        "ship_id": ship_id,
+                        "reason": "n108_real_gate_" +
+                            str(actual_gate.get("reason", "unavailable"))})
+                continue
+
             if kind in ["RequestDock", "ReleaseDock"]:
                 var snapshot: Dictionary = production.world_snapshot()
                 var cid: String = str(command.get("contract_id", ""))
@@ -1517,6 +1541,7 @@ func economy_summary() -> Dictionary:
         "n146_ship_commands": int(_last_ship_result.get("n146_command_count", 0)),
         "n97_paid_deliveries_this_tick": _last_ship_result.get("n97_paid_moves", []).size(),
         "n108_paid_refits_this_tick": _last_ship_result.get("n108_paid_refits", []).size(),
+        "n108_real_gate_jumps_this_tick": _last_ship_result.get("n108_gate_jumps", []).size(),
         "n21_autonomous_dock_ops": _last_ship_result.get("n21_auto_dock", []).size(),
         "n153_first_blocker": n153_first_blocker,
         "contract_admissions_blocked": _last_contract_admissions.get("blocked", []).size(),
@@ -1990,6 +2015,17 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                 for number in ["token", "departure_tick", "last_tick", "arrival_tick"]:
                     if not _normalize_number_at(transit, number):
                         return false
+    # The N108 gate-jump receipt is a distinct physical event, not a
+    # market goods movement. Normalize only original integer counters;
+    # its source orbital coordinates remain continuous real numbers.
+    if w.has("native_gate_jump_receipts"):
+        if not (w["native_gate_jump_receipts"] is Dictionary):
+            return false
+        for op in w["native_gate_jump_receipts"]:
+            var gate_receipt: Variant = w["native_gate_jump_receipts"][op]
+            if not (gate_receipt is Dictionary) or not _normalize_row(
+                    gate_receipt, ["tick", "fee", "cargo_used"]):
+                return false
     for receipts_key in ["dock_receipts", "cargo_receipts"]:
         if w.has(receipts_key):
             if not (w[receipts_key] is Dictionary):
@@ -2028,6 +2064,10 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             return false
         if f.has("docking_capacity") and not _normalize_row(f, ["docking_capacity"]):
             return false
+        if f.has("gate_link"):
+            if not (f["gate_link"] is Dictionary) or not _normalize_row(
+                    f["gate_link"], ["fee_flat", "fee_per_cargo_unit"]):
+                return false
         for key in ["lod_next_tick", "lod_divisor", "fitting_batches_bonus", "assigned_workers", "abandon_counter", "native_db_id"]:
             if f.has(key) and not _normalize_row(f, [key]):
                 return false
