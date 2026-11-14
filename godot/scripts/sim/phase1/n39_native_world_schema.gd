@@ -9,6 +9,7 @@ const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const Technology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
 const Construction = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
 const NativeRelations = preload("res://scripts/sim/phase1/n150_native_full_faction_relations.gd")
+const ShipyardRecipes = preload("res://scripts/sim/shipyard/native_module_recipes_n132.gd")
 
 static func validate(state: Dictionary) -> String:
     for key in ["facilities", "markets", "populations", "bodies"]:
@@ -316,6 +317,18 @@ static func validate(state: Dictionary) -> String:
                 return "invalid_fitting"
         if fac.has("fitting_batches_bonus") and (typeof(fac["fitting_batches_bonus"]) != TYPE_INT or int(fac["fitting_batches_bonus"]) < 0):
             return "invalid_fitting_batches"
+        # Real N154 shipyards store manufactured modules on the actual
+        # FacilityOperations, not in the adjacent public Market supply.
+        if fac.has("module_stock"):
+            if str(fac["type"]) != "shipyard" or not (fac["module_stock"] is Dictionary):
+                return "invalid_native_shipyard_module_owner"
+            var module_state: Dictionary = fac["module_stock"]
+            if not (module_state.get("stock") is Dictionary) or typeof(module_state.get("dirty", null)) != TYPE_BOOL:
+                return "invalid_native_module_stock"
+            for slug in module_state["stock"]:
+                var units: Variant = module_state["stock"][slug]
+                if not ShipyardRecipes.RECIPES.has(slug) or typeof(units) != TYPE_INT or int(units) < 0 or int(units) > 4294967295:
+                    return "unknown_native_module_stock_entry"
         if fac.has("assigned_workers") and (typeof(fac["assigned_workers"]) != TYPE_INT or int(fac["assigned_workers"]) < 0):
             return "invalid_station_assignment"
         if fac.has("lod_divisor") and (typeof(fac["lod_divisor"]) != TYPE_INT or int(fac["lod_divisor"]) < 1):
