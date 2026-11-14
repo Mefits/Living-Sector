@@ -63,7 +63,12 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         # SystemControl is derived live during the native faction pass.
         "body_territory": {}, "territory_last_tick": 0,
         "faction_finance_last_tick": 0,
-        "station_executing": false
+        # Native N18 station-wide administration is the ONLY workforce
+        # allocation planner. The original N39/N6 paid shift is its
+        # executor, not a parallel production or wallet system.
+        "station_administration": {},
+        "station_administration_last_tick": 0,
+        "station_executing": true
     }
     for faction in factions:
         projected["research"][faction] = []
