@@ -6,6 +6,7 @@ const Commission = preload("res://scripts/sim/phase1/n151_native_colony_commissi
 const Locations = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 const N91 = preload("res://scripts/ported/n91_construction_executor.gd")
+const SourcePlanner = preload("res://scripts/sim/native/colony_proposal_planner.gd")
 
 static func proposal(world: Dictionary, original: RefCounted, graph: RefCounted,
         faction: String, body_id: String, source: String, tick: int,
@@ -94,6 +95,12 @@ static func proposal(world: Dictionary, original: RefCounted, graph: RefCounted,
         var class_id: String = str(ship.get("class", ""))
         var spec: Dictionary = Catalog.spec(class_id)
         if spec.is_empty():
+            continue
+        # Frozen N144 rejects hulls unable to intercept the moving
+        # destination's true orbit; a valid nav edge alone is insufficient.
+        if not SourcePlanner.can_rendezvous(body,
+                Catalog.effective_speed(class_id, str(ship.get("size", ""))),
+                0.05):
             continue
         has_passengers = has_passengers or int(spec.get("passenger_capacity", 0)) >= settlers
         has_materials = has_materials or (int(ship.get("cargo_capacity", 0)) >= 200 and lot_cost < 10000 and int(ship.get("credits", 0)) >= lot_cost)
