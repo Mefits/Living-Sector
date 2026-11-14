@@ -1,0 +1,18 @@
+{
+  "worker": "interactive-primary-chat-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "78efa5490e3606e1c1a3ec149c69bfc33c41caa6",
+  "goal": "Connect frozen Rust PlanningSnapshot from real N39 World to N155 catalogue and N100 Hybrid selection with N98 durable plan ledger, preserving N134/N121 dispatch authority and N38 saves",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_native_hybrid_planning.gd (new)",
+    "godot/scripts/sim/phase1/n98_plan_ledger.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md",
+    "godot/docs/phase2/handoffs/20261114-n100-live-planning-bridge.md"
+  ],
+  "verification": "STATIC_SOURCE_ONLY; NO_TESTS_UNTIL_FULL_PORT"
+}
