@@ -1,8 +1,8 @@
 {
   "worker": "chat2-colony-B3",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
-  "goal": "Miro Chat2 B3 — exact native engine/colony.rs::establish after 600 paid physical Metals and 150 N141 paid shifts: same N151 dock becomes station, authentic Market, 20000 real N9 capital transfer, drop site, historical N38 receipts safe",
+  "goal": "Miro Chat2 B3 SOURCE_WIRED exact frozen Rust engine/colony.rs::establish on same temporary N151 dock after 600 real N15 Metals, 150 paid N141 workforce, 20000 CR single N9 transfer, authentic Market and N38 history",
   "scope": [
     "godot/scripts/sim/phase2/unified_n151_colony_establish.gd (NEW pure detached source stage)",
     "godot/tests/p2_b3_native_colony_establish_check.gd (NEW test; DO NOT RUN)",
@@ -11,5 +11,10 @@
     "godot/scripts/sim/phase2/n158_production_runtime.gd (B3 optional native diagnostic integration only after Chat1 N108 RELEASED)"
   ],
   "avoid": "Chat1 active lease 20261114-chat1-n108-real-gate-jump.json owns N39/N158/Schema; DO NOT touch before lease release",
-  "requirements": "No fake station, facility, resident, Market, 600 Metals, N141 labor, funds, ship, route, Dock; same N9 Ledger/N39 World/N38 checkpoint. No Actions or Godot runs. SOURCE_WIRED/CODE_UNVERIFIED."
+  "requirements": "No fake station, facility, resident, Market, 600 Metals, N141 labor, funds, ship, route, Dock; same N9 Ledger/N39 World/N38 checkpoint. No Actions or Godot runs. SOURCE_WIRED/CODE_UNVERIFIED.",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat2-b3-original-colony-establish.md",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED; GitHub static balanced-source/imports only. No Godot F5, parser, test execution or GitHub Actions.",
+  "released_on": "2026-11-14",
+  "completed_head": "6740de93fb640d828803d70dbf8de122439830a0",
+  "next": "Chat2 colony B1-B3 finished SOURCE_WIRED. Next: overall Phase2 source audit/remaining unclaimed migration scope, then one coordinated whole-project Godot integration test, no balance changes yet."
 }
