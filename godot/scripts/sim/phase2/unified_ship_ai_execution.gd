@@ -7,6 +7,37 @@ const ShipPhase = preload("res://scripts/sim/phase2/unified_ship_phase.gd")
 const N91 = preload("res://scripts/ported/n91_construction_executor.gd")
 const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
 
+## Original colony contract targets a temporary physical dock, not a
+## market warehouse. All IDs come from the one N39 source receipt.
+static func _real_contract_dock(world: Dictionary,
+        contract: Dictionary, location: String) -> Dictionary:
+    var market: Dictionary = world.get("markets", {}).get(location, {})
+    if not market.is_empty():
+        var owner_id: String = str(market.get("owner", ""))
+        if world.get("facilities", {}).has(owner_id) and str(world["facilities"][owner_id].get("type", "")) == "station":
+            return {"id": owner_id, "type": "station"}
+    if str(contract.get("contract_type", "")) != "passenger" or (
+            str(contract.get("mission_category", "")) != "strategy.colony.v1" or
+            str(contract.get("destination_location", "")) != location):
+        return {}
+    for site_id in world.get("construction_sites", {}):
+        var site: Dictionary = world["construction_sites"][site_id]
+        if str(site.get("location_name", "")) != location or (
+                str(site.get("faction_id", "")) != str(contract.get("faction_id", "")) or
+                site.get("labor", {}) is not Dictionary or
+                site.get("labor", {}).get("colony_source", null) == null):
+            continue
+        var proof: Dictionary = world.get("construction_receipts", {}).get(
+            "n151_colony_dock:" + str(site_id), {})
+        var fid: String = str(proof.get("facility_id", ""))
+        var fac: Dictionary = world.get("facilities", {}).get(fid, {})
+        if str(proof.get("kind", "")) == "colony_dock_prepared" and (
+                str(fac.get("type", "")) == "construction_dock" and
+                str(fac.get("location", "")) == location and
+                not bool(fac.get("abandoned", false))):
+            return {"id": fid, "type": "construction_dock"}
+    return {}
+
 static func _dispatch(action: Dictionary, _bb: Dictionary,
         world: Dictionary, graph: RefCounted, positions: Dictionary,
         ship_id: String, tick: int, scale: float) -> Dictionary:
@@ -99,7 +130,10 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
     if kind == "Dock":
         if stage not in ["accepted", "picked_up"] or location != at:
             return {"status": Bt.RUNNING, "reason": "n21_contract_location_not_ready"}
-        var facility: String = str(world.get("markets", {}).get(at, {}).get("owner", ""))
+        var assigned_dock: Dictionary = _real_contract_dock(world, c, at)
+        var facility: String = str(assigned_dock.get("id", ""))
+        if facility.is_empty():
+            return {"status": Bt.RUNNING, "reason": "n151_original_contract_dock_not_prepared"}
         var existing_dock: String = str(ship.get("docked_at", ""))
         if not existing_dock.is_empty():
             if existing_dock == facility:
@@ -116,7 +150,8 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.RUNNING, "reason": "n21_flight_not_finished"}
         var dock_cmd: Dictionary = Commands.make_command("RequestDock", {
             "ship": ship_id, "facility_location": at,
-            "contract_id": contract_id, "preferred_facility_type": "station"})
+            "contract_id": contract_id,
+            "preferred_facility_type": str(assigned_dock["type"])})
         return {"status": Bt.RUNNING, "commands": [dock_cmd],
             "reason": "n146_n21_request_dock"} if not dock_cmd.is_empty() else {"status": Bt.FAILURE}
     if kind == "DockDwell":
@@ -192,17 +227,19 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.FAILURE, "reason": "n104_passenger_leaf_wrong_kind"}
         if stage != "picked_up" or location != str(c.get("destination_location", "")):
             return {"status": Bt.RUNNING, "reason": "n104_delivery_location_unavailable"}
-        var destination_owner: String = str(world.get("markets", {}).get(location, {}).get("owner", ""))
+        var destination: Dictionary = _real_contract_dock(world, c, location)
+        var destination_owner: String = str(destination.get("id", ""))
         if destination_owner.is_empty():
-            return {"status": Bt.FAILURE, "reason": "n104_destination_market_owner_missing"}
+            return {"status": Bt.RUNNING, "reason": "n104_real_destination_dock_not_ready"}
         var destination_dock: String = str(ship.get("docked_at", ""))
         if destination_dock != destination_owner:
             var fix_kind: String = "RequestDock" if destination_dock.is_empty() else "ReleaseDock"
             var fix_cmd: Dictionary = Commands.make_command(fix_kind, {
                 "ship": ship_id, "facility_location": location,
-                "contract_id": contract_id, "preferred_facility_type": "station"})
+                "contract_id": contract_id,
+                "preferred_facility_type": str(destination["type"])})
             return {"status": Bt.RUNNING, "commands": [fix_cmd],
-                "reason": "n104_wait_exact_destination_warehouse"} if not fix_cmd.is_empty() else {"status": Bt.FAILURE}
+                "reason": "n104_wait_exact_destination_dock"} if not fix_cmd.is_empty() else {"status": Bt.FAILURE}
         if str(action.get("contract_id", "")) != contract_id:
             return {"status": Bt.FAILURE, "reason": "n104_delivery_wrong_contract"}
         var delivery_cmd: Dictionary = Commands.make_command("RequestShipTransaction", {
