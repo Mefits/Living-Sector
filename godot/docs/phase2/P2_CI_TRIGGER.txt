@@ -1,5 +1,5 @@
-P2 STAGE1 N38 ISOLATION GATE — 2026-11-14
-PR #249 source HEAD before gate: 784e1482694308a5f285d50d0d7cf0d3ee7524ff
-Prior smoke 43640700423: parser passes all 310/310, N91 and N158 phase registry are clear. N143 now writes N38 JSON but restore fails; N158 at fifth tick rejects save.
-This consolidated diagnostic test distinguishes strict serialized-frame drift, timeline/coherence, N158 JSON integer normalization, N39 schema and N39 restore. Fail closed for all financial/stock fields; the sole <=1e-12 exception remains original N155 personality weights.
-No balance or business logic change. Stage1 evidence only, not final Windows acceptance.
+P2 STAGE1 N38 EXACT RESTORE + PRECISION PROOF — 2026-11-14
+Source HEAD before combined Godot 4.7.2 smoke: 45846cf2b84b9bfb2ded6fc5681f2b1b72e99958.
+Previous test 43641003750 localized two blockers: N143 saved successfully but strict ShipState.restore rejected un-normalized N101 integer progression as invalid_ship_state; N158 tick5 save rejected 1e-15 decimal loss in FacilityOperations.condition.
+N158 now normalizes exactly integral N101 level/xp/retrofit_points on a detached checkpoint. N38 authorizes <=1e-12 roundoff ONLY in N155 director personality weights and bounded original physical facility condition. All N9 money, N15 cargo, market supplies and contracts retain original integrity validation.
+One combined bounded diagnostic Godot smoke; no gameplay balancing, Windows export or soak claims.
