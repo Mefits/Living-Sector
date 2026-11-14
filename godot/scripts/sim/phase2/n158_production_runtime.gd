@@ -450,6 +450,19 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             "n140_recomputed": bool(proposal.get("n140_recomputed", false)),
             "n140_stats": proposal.get("n140_stats", {}).duplicate(true),
             "autonomous_departures": [], "autonomous_blocked": []}
+        # Frozen Rust ship/mod.rs::tick_ships Pass 2: N140-fired,
+        # stationary N46 ships learn actual N39 MarketPricing at
+        # fitted N51 comms T1 body / T2 system / T3 paired-gate
+        # neighbor range. No omniscient global price visibility.
+        var source_prices: Dictionary = production.apply_native_ship_price_observation(
+            tick, _fleet_resolver, n140_fired)
+        if not source_prices.get("ok", false):
+            _last_ship_result = {"ok": false,
+                "reason": "native_ship_price_observation_" +
+                    str(source_prices.get("reason", "rejected"))}
+            return false
+        _last_ship_result["source_price_observations"] = source_prices.get(
+            "observed", []).duplicate(true)
         # Frozen Rust ship/mod.rs::tick_ships: after actual N14 flight
         # and before the N84 ship decision, run N149 exactly ONCE for
         # every fired N140 ship. Real Food is consumed from N15 hold,
@@ -1588,6 +1601,22 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                             ship["crew_skills"], ["navigation", "engineering",
                             "trading", "combat"]):
                         return false
+            # Rust PriceMemory.tick is integer even after N38 JSON;
+            # commodity prices stay real (native f32), NEVER integer.
+            if ship.has("memory"):
+                if not (ship["memory"] is Dictionary):
+                    return false
+                var memory: Dictionary = ship["memory"]
+                if not (memory.get("price_knowledge", null) is Dictionary):
+                    return false
+                for market_id in memory["price_knowledge"]:
+                    var prices: Variant = memory["price_knowledge"][market_id]
+                    if not (prices is Dictionary):
+                        return false
+                    for commodity in prices:
+                        var sample: Variant = prices[commodity]
+                        if not (sample is Dictionary) or not _normalize_row(sample, ["tick"]):
+                            return false
             if ship.has("lifecycle"):
                 if not (ship["lifecycle"] is Dictionary):
                     return false
