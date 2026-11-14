@@ -95,7 +95,8 @@ static func stage(world: Dictionary, original_ledger: Dictionary,
     if kind not in ["buy", "sell"] or str(request.get("location", "")) != str(ship.get("location", "")):
         return _bad("n83_wrong_original_free_trade_request")
     var current_goal: String = str(ship.get("current_goal", ""))
-    var source_ice_sale: bool = current_goal == "mine" and kind == "sell" and (
+    var source_ice_sale: bool = current_goal in [
+        "mine", "mine_ice", "deliver_mined_ice"] and kind == "sell" and (
         str(request.get("commodity", "")) == "ice")
     if not str(ship.get("active_contract_id", "")).is_empty() or (
             current_goal != "trade_route" and not source_ice_sale):
