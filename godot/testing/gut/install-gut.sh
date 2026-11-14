@@ -9,8 +9,19 @@ if [[ ! -f "$PROJECT_DIR/project.godot" ]]; then
   echo "Not a Godot project: $PROJECT_DIR" >&2
   exit 2
 fi
+copy_project_specs() {
+  local specs="$PROJECT_DIR/testing/gut/specs"
+  local target="$PROJECT_DIR/tests/gut"
+  mkdir -p "$target"
+  local file
+  for file in "$specs"/test_*.gd.txt; do
+    [[ -f "$file" ]] || continue
+    cp "$file" "$target/$(basename "${file%.txt}")"
+  done
+}
 if [[ -f "$DEST/plugin.cfg" ]] && grep -q 'version="9.7.1"' "$DEST/plugin.cfg"; then
-  echo "GUT 9.7.1 already installed: $DEST"
+  copy_project_specs
+  echo "GUT 9.7.1 already installed; refreshed Living Sector unit specs"
   exit 0
 fi
 if [[ -e "$DEST" ]]; then
