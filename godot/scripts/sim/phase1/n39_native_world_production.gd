@@ -1398,7 +1398,7 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
     if not _ready or tick < 1 or tick != _last_tick:
         return {"ok": false, "reason": "n152_not_the_canonical_post_facility_tick"}
     if not _world.has("contract_board") and not _world.has("escrow_balances"):
-        return {"ok": true, "tick": tick, "expired": [], "refunded": [],
+        return {"ok": true, "tick": tick, "expired": [], "renewed": [], "refunded": [],
             "blocked": [], "status": "LEGACY_NO_CONTRACT_BOARD"}
     if not _world.has("contract_board") or not _world.has("escrow_balances"):
         return {"ok": false, "fatal": true, "reason": "n152_partial_contract_authority"}
@@ -1407,7 +1407,7 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
     if not proposal.get("ok", false):
         return {"ok": false, "fatal": true, "reason": "n152_" + str(proposal.get("reason", "stage_rejected"))}
     if not bool(proposal.get("changed", false)):
-        return {"ok": true, "tick": tick, "expired": [],
+        return {"ok": true, "tick": tick, "expired": [], "renewed": [],
             "refunded": [], "blocked": proposal.get("blocked", []).duplicate(true),
             "status": "NO_DUE_CONTRACT_CLOSURES"}
     var next_board: Dictionary = proposal["board_snapshot"]
@@ -1422,6 +1422,12 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
         if expirations.has(expired_id):
             return {"ok": false, "fatal": true, "reason": "n152_duplicate_expiry"}
         expirations[expired_id] = true
+    var renewals: Dictionary = {}
+    for renewal in proposal.get("renewed", []):
+        var renewal_id: String = str(renewal.get("id", ""))
+        if renewal_id.is_empty() or renewals.has(renewal_id) or not old_board["contracts"].has(renewal_id):
+            return {"ok": false, "fatal": true, "reason": "n152_invalid_source_renewal_id"}
+        renewals[renewal_id] = true
     var authorized_accounts: Dictionary = {}
     var refunded_ids: Dictionary = {}
     var expected_money_receipts: Dictionary = {}
@@ -1460,6 +1466,20 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
         var old_contract: Dictionary = old_board["contracts"][id]
         var new_contract: Dictionary = next_board["contracts"][id]
         var allowed: Dictionary = old_contract.duplicate(true)
+        # Frozen N145 changes only these OFFER terms for Posted records.
+        # Do not admit an aged contract with arbitrary cargo, ship,
+        # funding, destination or physical receipt mutations.
+        if str(old_contract.get("status", "")) == "posted":
+            for aged_field in ["payment", "min_reputation"]:
+                if new_contract.has(aged_field):
+                    allowed[aged_field] = new_contract[aged_field]
+            if renewals.has(id):
+                var old_count: int = int(old_contract.get("renewal_count", 0))
+                var new_count: int = int(new_contract.get("renewal_count", -1))
+                if new_count != old_count + 1 or new_count > 3 or str(new_contract.get("status", "")) != "posted" or int(new_contract.get("expires_at_tick", -1)) <= tick:
+                    return {"ok": false, "fatal": true, "reason": "n152_invalid_source_renewal"}
+                allowed["expires_at_tick"] = new_contract["expires_at_tick"]
+                allowed["renewal_count"] = new_contract["renewal_count"]
         if expirations.has(id):
             if str(old_contract.get("status", "")) != "posted" or str(new_contract.get("status", "")) != "expired" or tick < int(old_contract.get("expires_at_tick", 9223372036854775807)):
                 return {"ok": false, "fatal": true, "reason": "n152_invalid_posted_expiry"}
@@ -1527,6 +1547,7 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
     _ledger = ledger_next
     return {"ok": true, "tick": tick, "status": "N152_CLOSED_WITH_REAL_N9_RECEIPTS",
         "expired": proposal["expired"].duplicate(true),
+        "renewed": proposal.get("renewed", []).duplicate(true),
         "refunded": proposal["refunded"].duplicate(true),
         "blocked": proposal.get("blocked", []).duplicate(true)}
 
