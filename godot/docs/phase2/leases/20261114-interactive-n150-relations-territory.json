@@ -1,0 +1,18 @@
+{
+  "worker": "interactive-primary-chat-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "goal": "Finish remaining Rust N150 faction diplomacy and territory source integration into one N39 World/N158 phases/N38 persistence without intermediate runtime tests",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_native_diplomacy_phase.gd (new)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd",
+    "godot/scripts/sim/phase2/unified_autonomous_paid_cargo.gd",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md",
+    "godot/docs/phase2/handoffs/20261114-n150-relations-territory.md"
+  ],
+  "base_head": "cbb6b7bbe37ace6ca2f5333095f276242acaefab",
+  "verification": "NO runtime test until full integration; static source checks only"
+}
