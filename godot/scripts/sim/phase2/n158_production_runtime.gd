@@ -791,6 +791,12 @@ func economy_summary() -> Dictionary:
         "last_wages_paid": paid,
         "last_recipe_facilities": recipes,
         "last_mining_facilities": mined,
+        "native_station_admin_last_tick": int(current.get(
+            "station_administration_last_tick", 0)),
+        "native_station_admin_views_this_tick": results.get(
+            "native_station_administration", []).size(),
+        "native_station_staffing_due": bool(results.get(
+            "native_station_staffing_due", false)),
         "last_paid_repairs": repair_count,
         "last_paid_shipyard_modules": results.get("shipyard_modules", []).size(),
         "last_shipyard_module_blocked": results.get("shipyard_module_blocked", []).size(),
@@ -896,6 +902,35 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
     # Source-backed faction treasury + N143 director/progress are optional
     # only for truly older P2 saves. Never backfill an old save with
     # invented new money when N9 ledger lacks faction accounts.
+    # N18 retention is saved on its own native work cadence; normalize
+    # JSON numeric fields before any N39 validator/StationAdmin.restore.
+    if w.has("station_administration") != w.has("station_administration_last_tick"):
+        return false
+    if w.has("station_administration"):
+        if not (w["station_administration"] is Dictionary) or not _normalize_row(
+                w, ["station_administration_last_tick"]):
+            return false
+        for station_key in w["station_administration"]:
+            var admin: Variant = w["station_administration"][station_key]
+            if not (admin is Dictionary) or not _normalize_row(
+                    admin, ["version", "last_plan_tick"]):
+                return false
+            if not (admin.get("last_plan") is Dictionary) or not (admin.get("producer") is Dictionary):
+                return false
+            var view: Dictionary = admin["last_plan"]
+            if not _normalize_row(view, ["tick", "workforce",
+                    "already_working", "assigned_workers", "idle_workers"]):
+                return false
+            for module in view.get("modules", []):
+                if not (module is Dictionary) or not _normalize_row(module,
+                        ["required_workers", "assigned_workers", "actual_workers"]):
+                    return false
+            var producer: Dictionary = admin["producer"]
+            if not _normalize_row(producer, ["version"]) or not (producer.get("last_ticks") is Dictionary):
+                return false
+            for facility in producer["last_ticks"]:
+                if not _normalize_number_at(producer["last_ticks"], facility):
+                    return false
     var finance_fields: Array[String] = [
         "faction_treasuries", "research_directors", "research_receipts"]
     var found: int = 0
