@@ -3,6 +3,8 @@ extends SceneTree
 ## checkpoint can be restored. Deferred: not run before final integration.
 const Saves = preload("res://scripts/sim/save_state.gd")
 const Coherence = preload("res://scripts/sim/phase2/unified_native_checkpoint_coherence.gd")
+const SourceClock = preload("res://scripts/sim/clock.gd")
+const SourceCalendar = preload("res://scripts/sim/calendar.gd")
 
 class FakeRunner extends RefCounted:
     var source: Dictionary = {}
@@ -29,7 +31,9 @@ func _frame(tick: int, status: String = "accept") -> Dictionary:
         "format": "living-sector-godot", "schema_version": 1,
         "scenario": "galaxy-067", "seed_fingerprint": "test-seed",
         "tick": tick, "restore_status": status,
-        "clock": {"paused": false},
+        "clock": SourceClock.new().snapshot(),
+        "calendar": SourceCalendar.new().snapshot(),
+        "cadence": {"bodies": {"period": 1, "offset": 0}},
         "orbital_angles": {}, "pending_controls": [],
         "events": {"next_sequence": 1, "pending": []},
         "native_production": {"version": 1, "tick": tick,
@@ -186,6 +190,14 @@ func _initialize() -> void:
         _fail("recoverable backup was bypassed in favor of pending")
         return
 
+    # The real native N1 clock validator must catch self-consistent SHA
+    # envelopes whose clock cannot be restored (not just bad credits).
+    var wrong_clock: Dictionary = _frame(20)
+    wrong_clock["clock"]["ticks_per_second"] = 0
+    if not _write_envelope(path, wrong_clock) or (
+            Saves._trusted_for_backup_rotation(Saves._read_checkpoint(path))):
+        _fail("SHA-valid checkpoint with impossible original N1 clock trusted")
+        return
     # A correct SHA with a FUTURE N9 receipt may not poison .bak.
     var future_receipt: Dictionary = _frame(20)
     future_receipt["native_production"]["ledger"]["receipts"]["contract-a"]["tick"] = 21
