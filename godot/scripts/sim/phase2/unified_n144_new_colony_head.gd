@@ -5,6 +5,7 @@ extends RefCounted
 ## Source coordination.rs::run_cycle later needs a single Head grant.
 const SourceFounding = preload("res://scripts/sim/phase2/unified_n151_colony_founding_phase.gd")
 const Commission = preload("res://scripts/sim/phase1/n151_native_colony_commission.gd")
+const N92Aftercare = preload("res://scripts/sim/phase2/unified_n92_colony_aftercare.gd")
 
 static func _rejected(reason: String) -> Dictionary:
     return {"ok": true, "ready": false, "reason": reason,
@@ -64,6 +65,11 @@ static func propose(world: Dictionary, original: RefCounted, graph: RefCounted,
                 site.get("labor", {}) is Dictionary and
                 site["labor"].get("colony_source", null) != null):
             return _rejected("n144_existing_colony_expedition_takes_priority")
+    var existing: Dictionary = N92Aftercare.observe(world)
+    if not existing.get("ok", false):
+        return existing
+    if bool(existing.get("unsafe_new_colony_factions", {}).get(faction, false)):
+        return _rejected("existing_colony_life_support_crisis")
     var execution: Dictionary = world.get("native_planner_records", {}).get(faction, {})
     if str(execution.get("status", "")) in [
             "n98_planned_not_dispatched", "n121_active"]:
