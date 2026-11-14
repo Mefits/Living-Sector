@@ -82,8 +82,17 @@ static func propose(world: Dictionary, graph: RefCounted,
             var sensor: float = float(ship.get("sensor_range_au", 1.0))
             if not is_finite(sensor) or sensor < 0.0:
                 continue
-            var commerce: Dictionary = {faction: true}
-            var owners: Dictionary = {source: faction, dest: faction}
+            var commerce: Dictionary = {}
+            commerce[faction] = true
+            var owners: Dictionary = {}
+            owners[source] = faction
+            owners[dest] = faction
+            var quotes: Dictionary = {}
+            quotes[str(cid)] = {"valid": true, "top_up": maxi(0, extra),
+                "quoted_payment": int(c.get("payment", 0)) + maxi(0, extra),
+                "payer_balance": treasury, "source_purchase_cost": source_cost,
+                "fixed_strategy_reward": Materials.PAYMENT,
+                "reserved": int(c.get("reserved", 0))}
             var selected: Dictionary = SourceSelection.select_contract({
                 "offers": [{"id": str(cid), "status": "Posted",
                     "contract_type": "Construction", "faction_id": faction,
@@ -95,12 +104,7 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "credits": int(ship.get("credits", 0)),
                 "sensor_range_au": sensor, "system_by_location": systems,
                 "commerce_allowed": commerce, "controllers": owners,
-                "quotes": {str(cid): {"valid": true, "top_up": maxi(0, extra),
-                    "quoted_payment": int(c.get("payment", 0)) + maxi(0, extra),
-                    "payer_balance": treasury,
-                    "source_purchase_cost": source_cost,
-                    "fixed_strategy_reward": Materials.PAYMENT,
-                    "reserved": int(c.get("reserved", 0))}},
+                "quotes": quotes,
                 "memory": {"price_knowledge": current_price}, "tick": tick})
             if str(selected.get("id", "")) != str(cid):
                 continue
