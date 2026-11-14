@@ -224,6 +224,7 @@ func _initialize() -> void:
     _report["actual_tick_usec"] = _tick_usec_total
     _report["tick_speed_buckets"] = _tick_timing_buckets
     _report["native_phase_profile"] = sim.profile_native_phases()
+    _report["n39_world_copy_profile"] = sim.production.world_copy_profile()
     _report["physical_market_change_samples"] = _market_changes
     _report["n9_new_receipts"] = _last_receipt_count - _first_receipt_count
     _report["observed_n104_board"] = _observed_contract
