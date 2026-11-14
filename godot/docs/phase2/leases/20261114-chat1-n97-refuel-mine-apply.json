@@ -1,6 +1,6 @@
 {
   "worker": "chat1-ships",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "started": "2026-11-14",
   "goal": "Large Chat1 A2: frozen Rust N97 Refuel/Mine through genuine N90/N146 request, detached P1 physical stage, atomic N39 and N9, existing N158 ships-phase; no parallel world/bank, no balance changes",
@@ -11,8 +11,15 @@
     "godot/scripts/sim/phase1/n39_native_world_production.gd ONLY new N97 service apply method",
     "godot/scripts/sim/phase2/n158_production_runtime.gd ONLY N97 service dispatcher + restore guards",
     "godot/scripts/sim/phase2/unified_ship_ai_execution.gd ONLY N97 service leaves",
-    "godot/docs/phase2/handoffs/20261114-chat1-n97-ship-service.md"
+    "godot/docs/phase2/handoffs/20261114-chat1-n97-ship-service.md",
+    "godot/scripts/sim/phase2/unified_ship_ai_planner.gd (only allow paid Refuel leaf)",
+    "godot/scripts/sim/phase2/unified_n83_trade_route_planner.gd (only allow paid Refuel leaf)",
+    "godot/scripts/sim/phase2/unified_n140_ship_ai_dispatch.gd (native time multiplier forwarded)",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
   ],
   "non_overlap": "Chat2 B2 has IN_PROGRESS source metal delivery; it owns N144 colony methods and later N39/N158. Chat3 owns crisis, saving, faction planning; re-fetch SHA before writes. Release shared files as soon as integration is complete.",
-  "verification": "SOURCE_WIRED / CODE_UNVERIFIED until full post-migration Godot acceptance"
+  "verification": "10 GDScripts re-fetched and static delimiter/string/indent/zero NUL/newline checks; source N90/N97/N39/N9/N158/N38 connections verified. Godot parser/runtime/F5/Actions not executed. SOURCE_WIRED / CODE_UNVERIFIED.",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat1-n97-ship-service.md",
+  "finished": "2026-11-14",
+  "remaining": "Original N108 GateJump fee and position plus recent_systems through one N39/N9/N158; autonomous Mine goal issuance unproven. Final differential/checkpoint tests after migration."
 }
