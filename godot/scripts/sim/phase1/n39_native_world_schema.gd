@@ -217,6 +217,42 @@ static func validate(state: Dictionary) -> String:
     for op in state.get("dock_receipts", {}):
         if state.get("cargo_receipts", {}).has(op):
             return "duplicate_fleet_receipt"
+    # N108 gate jumps are durable original source physical events,
+    # not N15 goods or N21 docking. Optional for older checkpoints.
+    if state.has("native_gate_jump_receipts"):
+        if not (state["native_gate_jump_receipts"] is Dictionary):
+            return "invalid_source_n108_gate_jumps"
+        for op in state["native_gate_jump_receipts"]:
+            var jumped: Variant = state["native_gate_jump_receipts"][op]
+            if not _id(op) or not (jumped is Dictionary) or str(
+                    jumped.get("operation_id", "")) != str(op) or str(
+                    jumped.get("kind", "")) != "native_n108_gate_jump":
+                return "invalid_source_gate_jump_identity"
+            for field in ["ship_id", "source_gate_id",
+                    "destination_gate_id", "source", "destination",
+                    "source_system", "destination_system"]:
+                if not _id(jumped.get(field, null)):
+                    return "invalid_source_gate_jump_provenance"
+            for number in ["tick", "fee", "cargo_used"]:
+                if typeof(jumped.get(number, null)) != TYPE_INT or int(
+                        jumped[number]) < 0:
+                    return "invalid_source_gate_jump_number"
+            if str(jumped.get("source_gate_id", "")) == str(jumped.get(
+                    "destination_gate_id", "")) or (
+                    str(jumped.get("source", "")) == str(jumped.get(
+                    "destination", ""))):
+                return "invalid_source_gate_jump_endpoints"
+            var exact: Variant = jumped.get("position", null)
+            if not (exact is Array) or exact.size() != 2:
+                return "invalid_native_gate_exit_position"
+            for coord in exact:
+                if not (coord is int or coord is float) or not is_finite(
+                        float(coord)):
+                    return "invalid_native_gate_exit_coordinate"
+            var financial: String = str(jumped.get("financial_receipt", ""))
+            if (int(jumped["fee"]) > 0 and financial != str(op)) or (
+                    int(jumped["fee"]) == 0 and not financial.is_empty()):
+                return "invalid_native_gate_fee_provenance"
     # N128 source command outcomes are durable evidence on the SAME
     # World. A retired ship's history remains valid after its removal.
     if state.has("native_crew_xp_receipts"):
@@ -742,6 +778,25 @@ static func validate(state: Dictionary) -> String:
             return "invalid_lod_divisor"
         if fac.has("lod_next_tick") and (typeof(fac["lod_next_tick"]) != TYPE_INT or int(fac["lod_next_tick"]) < 0):
             return "invalid_lod_cursor"
+        # Original frozen GateLink exists only for real 'gate' type.
+        # An unpaired gate is allowed to exist but cannot teleport.
+        if fac.has("gate_link"):
+            var link: Variant = fac["gate_link"]
+            if str(fac.get("type", "")) != "gate" or not (link is Dictionary):
+                return "invalid_original_gate_link_owner"
+            var paired: String = str(link.get("paired_gate_id", ""))
+            if not _id(paired) or paired == str(id) or not state[
+                    "facilities"].has(paired):
+                return "invalid_actual_paired_gate_id"
+            var other_gate: Dictionary = state["facilities"][paired]
+            if str(other_gate.get("type", "")) != "gate" or not (
+                    other_gate.get("gate_link") is Dictionary) or str(
+                    other_gate["gate_link"].get("paired_gate_id", "")) != str(id):
+                return "nonreciprocal_original_gate_link"
+            for price_field in ["fee_flat", "fee_per_cargo_unit"]:
+                if typeof(link.get(price_field, null)) != TYPE_INT or int(
+                        link[price_field]) < 0:
+                    return "invalid_native_gate_fee"
         if fac.has("work_shift"):
             var shift: Variant = fac["work_shift"]
             if not (shift is Dictionary):
@@ -753,6 +808,15 @@ static func validate(state: Dictionary) -> String:
                     if not _id(pid) or typeof(shift["workers"][pid]) != TYPE_INT or int(shift["workers"][pid]) <= 0:
                         return "invalid_work_shift_workers"
         if not state["markets"].has(str(fac["location"])):
+            # Rust GateLink facilities are physical transport nodes,
+            # NOT Market warehouses. A genuine unpaired gate may exist
+            # while its destination is still under construction.
+            if str(fac["type"]) == "gate":
+                if not state["bodies"].has(str(fac["body_id"])) or int(
+                        fac.get("crew_count", -1)) != 0 or int(
+                        fac.get("docking_capacity", -1)) != 0:
+                    return "invalid_marketless_original_gate"
+                continue
             # Exact Rust engine/colony.rs::prepare_docks permits an EMPTY
             # construction_dock for an approved, unfinished colony site.
             # This dock has NO Market and cannot be used as a warehouse.
