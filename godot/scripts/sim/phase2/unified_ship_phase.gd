@@ -5,6 +5,7 @@ extends RefCounted
 const ShipState = preload("res://scripts/sim/ship_state.gd")
 const ShipTransit = preload("res://scripts/sim/ship_transit.gd")
 const N140Gate = preload("res://scripts/sim/phase2/unified_n140_ship_lod_phase.gd")
+const NativeShipMemory = preload("res://scripts/sim/phase2/unified_native_ship_price_observation.gd")
 
 static func _load(world: Dictionary) -> Dictionary:
     if not (world.get("ships") is Dictionary) or typeof(world.get("ship_next_token", null)) != TYPE_INT:
@@ -78,6 +79,20 @@ static func advance(world: Dictionary, positions: Dictionary,
             if system_id.is_empty():
                 return {"ok": false, "reason": "arrival_system_unmapped", "ship": str(id)}
             state.ships[id]["system_id"] = system_id
+            # Rust ship/mod.rs::advance_transits records ONLY real
+            # arrived destinations in ShipMemory.visited; do not
+            # pre-reveal markets or neighboring systems on departure.
+            var existing_memory: Variant = state.ships[id].get("memory", null)
+            if existing_memory == null:
+                existing_memory = NativeShipMemory.default_memory()
+            if not (existing_memory is Dictionary) or not (
+                    existing_memory.get("visited") is Array):
+                return {"ok": false, "reason": "native_arrival_memory_invalid",
+                    "ship": str(id)}
+            var remembered: Dictionary = existing_memory.duplicate(true)
+            if not remembered["visited"].has(location):
+                remembered["visited"].append(location)
+            state.ships[id]["memory"] = remembered
         outcomes[str(id)] = outcome
         mutable = true
     if not mutable:
