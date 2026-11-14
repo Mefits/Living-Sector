@@ -891,6 +891,7 @@ func economy_summary() -> Dictionary:
         "funded_contract_count": current.get("contract_board", {}).get("contracts", {}).size(),
         "funded_contracts_this_tick": _last_contract_admissions.get("posted", []).size(),
         "n152_expired_this_tick": _last_n152_result.get("expired", []).size(),
+        "n152_renewed_this_tick": _last_n152_result.get("renewed", []).size(),
         "n152_refunded_this_tick": _last_n152_result.get("refunded", []).size(),
         "n152_blocked_refunds": _last_n152_result.get("blocked", []).size(),
         "n153_accepted_this_tick": _last_n153_result.get("accepted", []).size(),
@@ -1186,6 +1187,12 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                     "initial_payment", "posted_at_tick", "expires_at_tick",
                     "accepted_at_tick", "delivered_at_tick"]:
                 if not _normalize_number_at(row, key):
+                    return false
+            # N145 source renewal/rep-tier fields are optional on
+            # older saves; normalize when present without inventing ages.
+            for key in ["renewal_count", "min_reputation",
+                    "initial_min_reputation"]:
+                if row.has(key) and not _normalize_number_at(row, key):
                     return false
     # Source N154 sites are persistent and their labor/receipt counters
     # need integral JSON normalization before N39 world validation.
