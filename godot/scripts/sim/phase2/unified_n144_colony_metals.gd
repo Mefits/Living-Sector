@@ -150,6 +150,7 @@ static func post(world: Dictionary, bank: Dictionary,
         "world": staged, "ledger_snapshot": ledger.snapshot(),
         "site_id": site_id, "contract_id": cid, "escrow_account": escrow,
         "quantity": int(quote["quantity"]), "payment": PAYMENT,
+        "money_debited": PAYMENT,
         "source_cost": int(quote["source_cost"]), "tick": tick}
 
 ## Rust transactions.rs::deliver + apply.rs::commit_contract_delivery:
