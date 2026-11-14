@@ -1566,7 +1566,24 @@ func request_ship_departure(ship_id: String, destination: String) -> Dictionary:
 ## actions create one atomic N39 World transition with durable op receipts.
 ## These are physical transfers, not market purchases or paid contracts.
 func request_ship_dock(ship_id: String, operation_id: String) -> Dictionary:
-    return _command_fleet_logistics("dock", ship_id, operation_id)
+    if not _native_enabled or not last_phase_failure().is_empty() or (
+            operation_id.is_empty() or ship_id.is_empty()):
+        return {"ok": false, "reason": "n21_manual_source_unavailable"}
+    var current: Dictionary = production.world_snapshot().get(
+        "ships", {}).get(ship_id, {})
+    var location: String = str(current.get("location", ""))
+    if current.is_empty() or location.is_empty():
+        return {"ok": false, "reason": "n21_manual_ship_not_at_real_port"}
+    # Manual interaction is out-of-tick, but still pays the original
+    # N21 source fee through N39/N9. Full FIFO ports fail closed:
+    # the user has no persistent N84 Dock BT and cannot queue-jump.
+    var dock: Dictionary = production.apply_native_n21_manual_dock(
+        tick_count, ship_id, location)
+    if not dock.get("ok", false):
+        return dock
+    var receipt: Dictionary = dock.get("receipt", {}).duplicate(true)
+    receipt["requested_operation_id"] = operation_id
+    return receipt
 
 func request_ship_undock(ship_id: String, operation_id: String) -> Dictionary:
     return _command_fleet_logistics("undock", ship_id, operation_id)
@@ -1579,12 +1596,9 @@ func request_ship_cargo(ship_id: String, operation_id: String,
 
 func _command_fleet_logistics(action: String, ship_id: String,
         operation_id: String, quantities: Dictionary = {}) -> Dictionary:
-    # Rust N21 commit_dock ALWAYS charges the real ship and credits
-    # its actual facility through N9. A manual UI/debug action arrives
-    # BETWEEN native ticks; the existing legacy N15 cargo-only path
-    # has no authority to settle a Dock fee in that boundary.
-    # Fail closed instead of resurrecting free capacity/money bypass.
-    # Autonomous N84/N146 docking remains fully live and paid in N39.
+    # Legacy N15 logistics remains cargo/undock only. An explicit
+    # manual Dock uses request_ship_dock -> N39 paid N21 instead,
+    # never this unpriced warehouse helper.
     if action == "dock":
         return {"ok": false,
             "reason": "n21_manual_dock_requires_paid_native_tick"}
