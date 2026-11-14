@@ -1,6 +1,6 @@
 {
   "worker": "chat3-takeover-chat2-B4-N147-head-auth-20261114",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "25fcde0cb695c9cd4f2b4f104815a19f21c5c2e9",
   "reason": "User states chat2 stopped; B1-B4 lease already RELEASED. Take over remaining N147 strategic Head grant/source parity discovered on audit; no double N104 posting.",
@@ -18,6 +18,25 @@
     "balance/AI rework",
     "Godot tests/Actions"
   ],
-  "verification": "SOURCE_WIRED / CODE_UNVERIFIED until one final test",
-  "coordination": "Chat2 B4 RELEASED, Chat1 owns N158 current ship-phase; reserve work isolated and wait release for N158."
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED. GitHub readback: balanced GDScript delimiters, quotes, NUL, LF; Godot/CI/Actions NOT RUN.",
+  "coordination": "Chat2 B4 RELEASED, Chat1 owns N158 current ship-phase; reserve work isolated and wait release for N158.",
+  "result": "Chat2 B1–B4 already RELEASED and source-wired, verified. Chat3 took over missing frozen Rust N147 commission Head permission: current-cycle N134 Head revalidated by N39; source N113 strategic migration memory + real N104/N9 passenger escrow committed as one canonical World; N158 now forwards authorized Head, no fake posted receipt; V4 B4 source gate/matrix updated and crisis phase diagnostic fixed.",
+  "commits": [
+    "cb8ed8b",
+    "7703772",
+    "9712033",
+    "c029e47",
+    "9b620d5",
+    "6092f96",
+    "5e59e90",
+    "6f6a2a4",
+    "f20e1b5",
+    "8e6bce6",
+    "780a42e",
+    "cad7222",
+    "4eefe8e",
+    "b253075"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat3-takeover-chat2-n147-head.md",
+  "remaining": "N113 strategic 1.20 superiority/2-cycle switches from another valid incumbent conservatively blocked in Head authorization; N21 FIFO and final Godot/Windows acceptance still outstanding."
 }
