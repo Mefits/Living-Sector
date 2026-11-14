@@ -25,8 +25,26 @@ static func propose(original: Dictionary, bank: Dictionary,
     var c: Dictionary = contracts[contract_id]
     var ship: Dictionary = original["ships"][ship_id]
     var expected: String = "accepted" if direction == "pickup" else "picked_up"
-    if str(c.get("status", "")) != expected or str(c.get("contract_type", "")) != "delivery":
+    var kind: String = str(c.get("contract_type", ""))
+    if str(c.get("status", "")) != expected or kind not in ["delivery", "construction"]:
         return {"ok": false, "reason": "invalid_delivery_stage"}
+    if kind == "construction":
+        # Frozen Rust construction contracts purchase at a real source
+        # Market; their destination is a marketless original N151 Site.
+        # The destination unload is a separate physical N15-to-Site
+        # executor and must never use this warehouse delivery branch.
+        if direction != "pickup" or str(c.get("mission_category", "")) != "strategy.colony.v1":
+            return {"ok": false, "reason": "construction_not_ordinary_market_delivery"}
+        var site_id: String = str(c.get("colony_site_id", ""))
+        var site: Dictionary = original.get("construction_sites", {}).get(site_id, {})
+        var dock_proof: Dictionary = original.get("construction_receipts", {}).get(
+            "n151_colony_dock:" + site_id, {})
+        if site.is_empty() or str(site.get("location_name", "")) != str(c.get("destination_location", "")) or (
+                str(site.get("faction_id", "")) != str(c.get("faction_id", "")) or
+                str(site.get("labor", {}).get("colony_source", "")) != str(c.get("source_location", "")) or
+                str(site.get("commodity", "")) != "metals" or
+                str(dock_proof.get("kind", "")) != "colony_dock_prepared"):
+            return {"ok": false, "reason": "construction_missing_original_n151_site"}
     if str(c.get("fulfiller_id", "")) != ship_id or str(ship.get("active_contract_id", "")) != contract_id:
         return {"ok": false, "reason": "not_the_contract_ship"}
     var location: String = str(c["source_location"]) if direction == "pickup" else str(c["destination_location"])
