@@ -201,6 +201,50 @@ def audit(root: Path) -> dict:
         "reject manual queue-jumping; legacy N15 free Dock is disabled.",
         "SOURCE_LINK_PRESENT", "BLOCKING_SOURCE_GAP")
 
+    # Rust N84 BT::Failure emits guarded SimCommand::ReleaseContract.
+    # Only Accepted -> Posted is legal; PickedUp reconstructs N81 from
+    # physical cargo, without duplicate Buy/Accept or escrow funding.
+    n104_release = read(
+        root, "godot/scripts/sim/phase2/unified_n104_release_stage.gd"
+    )
+    n104_resume = read(
+        root, "godot/scripts/sim/phase2/unified_n104_contract_resume.gd"
+    )
+    add("n104_frozen_contract_failure_replanning",
+        all(k in n84 for k in [
+            "N104Resume.propose(", '"ReleaseContract"',
+            "n104_pending_release_on_bt_failure",
+            "n104_original_n81_pickedup_resume",
+            "n104_original_n81_checkpoint_resume",
+        ]) and all(k in n158 for k in [
+            'if kind == "ReleaseContract":',
+            "production.apply_native_n104_release_contract(",
+        ]) and all(k in n39 for k in [
+            "func apply_native_n104_release_contract(",
+            "NativeN104Release.stage(", "Schema.validate(next)",
+            "n104_release_changed_prepaid_n9_escrow",
+        ]) and all(k in n104_release for k in [
+            'board["status"] = "posted"',
+            'board["fulfiller_id"] = ""',
+            "reason != \"issuer_funding_failure\"",
+            "Relations.bump_standing(", "initial_payment",
+        ]) and all(k in n104_resume for k in [
+            "Plans.resume_contract_request(", "Goap.plan(",
+            "Plans.compile_plan_to_bt_actions(", "n104_resume_would_duplicate_pickup",
+            "n104_picked_up_cargo_not_physical",
+        ]),
+        ["native/crates/sim_core/src/agents/ship/behavior.rs",
+         "native/crates/sim_server/src/engine/apply.rs",
+         "native/crates/sim_core/src/economy/contracts.rs",
+         "godot/scripts/sim/phase2/unified_n104_release_stage.gd",
+         "godot/scripts/sim/phase2/unified_n104_contract_resume.gd",
+         "godot/scripts/sim/phase2/unified_ship_ai_execution.gd",
+         n39_path, n158_path],
+        "N104 source: guarded Accepted release and next N153 rebid, exact "
+        "penalty, no escrow refund; PickedUp real N81/GOAP resume from "
+        "existing cargo. Still needs whole-game Godot acceptance.",
+        "SOURCE_LINK_PRESENT", "BLOCKING_SOURCE_GAP")
+
     # These adapters may exist without being called by the live engine.
     # N80 is direct N158 ship execution. N92 is deliberately mediated
     # by N39: do not misreport the released Chat2 B4 as SOURCE_ONLY just
