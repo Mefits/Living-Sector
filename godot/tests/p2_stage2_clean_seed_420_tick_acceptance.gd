@@ -89,13 +89,30 @@ func _initialize() -> void:
                     checkpoint, candidate)
                 stock_exact = Saves._physical_stock_matches(
                     checkpoint, candidate)
+            # Check the actual hashed/tagged N38 envelope, not only an
+            # unauthenticated raw JSON preview that is expected to lose
+            # binary64 precision. Diagnose SHA/codec vs disk/platform.
+            var envelope: Dictionary = Saves._wrap(checkpoint)
+            var wire: Variant = JSON.parse_string(JSON.stringify(
+                envelope, "\t", true, true))
+            var actual_decoded: Dictionary = Saves._unwrap(wire)
+            var actual_frame: Dictionary = {"ok": false, "reason": "sha_or_codec_rejected"}
+            var actual_stock: bool = false
+            if not actual_decoded.is_empty():
+                actual_frame = NativeFrame.verify_authoritative_frame(
+                    checkpoint, actual_decoded)
+                actual_stock = Saves._physical_stock_matches(
+                    checkpoint, actual_decoded)
             _fail("N38 disk save rejected at tick360 code=" + str(save_error) +
                 " coherence=" + str(NativeCoherence.validate(checkpoint)) +
                 " timeline=" + str(NativeTimeline.validate(checkpoint)) +
-                " native_json=" + str(roundtrip) +
-                " market_stock_exact=" + str(stock_exact) +
-                " encoded_bytes=" + str(JSON.stringify(checkpoint,
-                    "", true, true).to_utf8_buffer().size()))
+                " raw_json=" + str(roundtrip) +
+                " raw_stock_exact=" + str(stock_exact) +
+                " tagged_unwrap=" + str(not actual_decoded.is_empty()) +
+                " tagged_native_frame=" + str(actual_frame) +
+                " tagged_stock_exact=" + str(actual_stock) +
+                " encoded_bytes=" + str(JSON.stringify(envelope,
+                    "\t", true, true).to_utf8_buffer().size()))
             return
         var resumed = Runner.new()
         if not resumed.start_from_seed(seed):
