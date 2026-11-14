@@ -1565,6 +1565,15 @@ func request_ship_cargo(ship_id: String, operation_id: String,
 
 func _command_fleet_logistics(action: String, ship_id: String,
         operation_id: String, quantities: Dictionary = {}) -> Dictionary:
+    # Rust N21 commit_dock ALWAYS charges the real ship and credits
+    # its actual facility through N9. A manual UI/debug action arrives
+    # BETWEEN native ticks; the existing legacy N15 cargo-only path
+    # has no authority to settle a Dock fee in that boundary.
+    # Fail closed instead of resurrecting free capacity/money bypass.
+    # Autonomous N84/N146 docking remains fully live and paid in N39.
+    if action == "dock":
+        return {"ok": false,
+            "reason": "n21_manual_dock_requires_paid_native_tick"}
     if not _native_enabled or not last_phase_failure().is_empty():
         return {"ok": false, "reason": "single_world_unavailable"}
     var proposal: Dictionary = FleetLogistics.command(production.world_snapshot(),
