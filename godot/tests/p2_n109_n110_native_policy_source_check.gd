@@ -7,6 +7,7 @@ const Research = preload("res://scripts/sim/phase2/unified_native_research_phase
 const Shift = preload("res://scripts/sim/phase1/n143_native_research_shift.gd")
 const Tech = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
 const OriginalN113 = preload("res://scripts/sim/phase2/unified_n113_original_candidates.gd")
+const NativePolicyJSON = preload("res://scripts/sim/phase2/unified_n109_n110_policy_checkpoint.gd")
 
 func _fail(reason: String) -> void:
     push_error("P2_ORIGINAL_N109_N110_SOURCE: " + reason)
@@ -148,6 +149,41 @@ func _initialize() -> void:
     if revised_charter.has("error") or int(
             revised_charter["charter"]["spent_research_cr"]) != 15:
         _fail("N109 reconfiguration erased prior approved research payment")
+        return
+    # N38 is allowed to decode integral Rust policy counters as float.
+    # N39 must preserve every paid policy amount exactly on restore.
+    var json_policy: Variant = JSON.parse_string(JSON.stringify(world))
+    if not (json_policy is Dictionary):
+        _fail("canonical policy JSON is not a source object")
+        return
+    var normalized: Dictionary = NativePolicyJSON.normalize(json_policy)
+    if not normalized.get("ok", false) or normalized[
+            "world"]["research_mandates"]["own"] != world[
+            "research_mandates"]["own"] or normalized[
+            "world"]["faction_charters"]["own"] != world[
+            "faction_charters"]["own"]:
+        _fail("valid original N109/N110 policy changed across N38 JSON")
+        return
+    var bad_decimal: Dictionary = world.duplicate(true)
+    bad_decimal["research_mandates"]["own"]["spent_cr"] = 15.5
+    if NativePolicyJSON.normalize(bad_decimal).get("ok", true):
+        _fail("fractional research spending passed original JSON guard")
+        return
+    var bad_large: Dictionary = world.duplicate(true)
+    bad_large["faction_charters"]["own"]["updated_tick"] = 9.007199254740994e15
+    if NativePolicyJSON.normalize(bad_large).get("ok", true):
+        _fail("inexact native charter time passed N38 backup guard")
+        return
+    var orphaned: Dictionary = world.duplicate(true)
+    orphaned["research_mandates"]["alien"] = incoming.duplicate(true)
+    if NativePolicyJSON.normalize(orphaned).get("ok", true):
+        _fail("policy for foreign faction was admitted by N39 restore")
+        return
+    var legacy: Dictionary = clean.duplicate(true)
+    legacy.erase("research_mandates")
+    legacy.erase("faction_charters")
+    if not NativePolicyJSON.normalize(legacy).get("ok", false):
+        _fail("native policy-less legacy checkpoint was not accepted")
         return
     print("P2_N109_N110_N143_N113_NATIVE_POLICY_SOURCE_CHECK_PASS")
     quit(0)
