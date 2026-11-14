@@ -127,6 +127,21 @@ func start_from_seed(seed: Dictionary) -> bool:
     _source_stats = projected["stats"].duplicate(true)
     return true
 
+## Explicit operator/admin gate pairing. This does NOT decide which
+## systems should connect, add construction materials, spawn gates,
+## alter faction policies or select a T3/T4 unlock. Both physical gates
+## must already exist and the ONE authoritative N39 validates all
+## pairing and N9 invariants. Only callable when simulation is paused.
+func link_existing_native_gates(gate_a: String,
+        gate_b: String) -> Dictionary:
+    if not is_started() or not _native_enabled or (
+            not clock.paused or not _phase_failure.is_empty() or
+            _fleet_resolver == null):
+        return {"ok": false, "reason": "n108_pair_requires_paused_real_runtime"}
+    return production.apply_native_n108_gate_pair(tick_count,
+        gate_a, gate_b, _fleet_resolver)
+
+
 ## Rust TickConfig::tick_multiplier() is dynamic across speed changes:
 ## default 8 TPS / 0.25 speed = 32, so 5*32 = 160 real ticks per cycle.
 func _advance_one_tick() -> void:
@@ -677,7 +692,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 var actual_gate: Dictionary = production.apply_native_n108_gate_jump(
                     tick, ship_id, str(command.get("src_gate_location", "")),
                     str(command.get("dest_gate_location", "")),
-                    _fleet_resolver)
+                    _fleet_resolver, world)
                 if actual_gate.get("ok", false):
                     _last_ship_result["n108_gate_jumps"].append(
                         actual_gate.duplicate(true))
@@ -2017,6 +2032,18 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                 for number in ["token", "departure_tick", "last_tick", "arrival_tick"]:
                     if not _normalize_number_at(transit, number):
                         return false
+    # GateLink pairing is an explicit durable physical source action.
+    # Restore only integral Rust fee/tick fields, never reinterpret
+    # the facility's moving orbital x/y coordinates as integers.
+    if w.has("native_gate_pair_receipts"):
+        if not (w["native_gate_pair_receipts"] is Dictionary):
+            return false
+        for key in w["native_gate_pair_receipts"]:
+            var pair: Variant = w["native_gate_pair_receipts"][key]
+            if not (pair is Dictionary) or not _normalize_row(pair, [
+                    "tick", "fee_flat", "fee_per_cargo_unit",
+                    "throughput_cap"]):
+                return false
     # The N108 gate-jump receipt is a distinct physical event, not a
     # market goods movement. Normalize only original integer counters;
     # its source orbital coordinates remain continuous real numbers.
@@ -2068,7 +2095,8 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             return false
         if f.has("gate_link"):
             if not (f["gate_link"] is Dictionary) or not _normalize_row(
-                    f["gate_link"], ["fee_flat", "fee_per_cargo_unit"]):
+                    f["gate_link"], ["fee_flat", "fee_per_cargo_unit",
+                    "throughput_cap"]):
                 return false
         for key in ["lod_next_tick", "lod_divisor", "fitting_batches_bonus", "assigned_workers", "abandon_counter", "native_db_id"]:
             if f.has(key) and not _normalize_row(f, [key]):
