@@ -36,6 +36,8 @@ const NativeN121 = preload("res://scripts/sim/phase2/unified_n121_native_executi
 const NativeN152 = preload("res://scripts/sim/phase2/unified_n152_contract_lifecycle.gd")
 const NativeAdminN152 = preload("res://scripts/sim/phase2/unified_n152_admin_cleanup.gd")
 const NativeN148 = preload("res://scripts/sim/phase2/unified_n148_ship_retirement_phase.gd")
+const NativePassengers = preload("res://scripts/sim/phase2/unified_n104_passenger_transit.gd")
+const NativeN147 = preload("res://scripts/sim/phase2/unified_n147_colony_migration_observer.gd")
 const NativeShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
@@ -592,6 +594,131 @@ func apply_fleet_logistics(tick: int, proposal: Dictionary,
     return true
 
 
+
+## N147/N104 passengers run in the SAME N39 World/N9/N104 transaction.
+## The stage is source-driven; only this method can publish its World/ledger.
+func _publish_native_passenger_stage(proposed: Dictionary, phase: String,
+        tick: int) -> Dictionary:
+    if not proposed.get("ok", false):
+        return proposed
+    var staged: Dictionary = proposed.get("world", {})
+    var bank: Dictionary = proposed.get("ledger_snapshot", {})
+    var cid: String = str(proposed.get("contract_id", ""))
+    var sid: String = str(proposed.get("ship_id", ""))
+    if staged.is_empty() or bank.is_empty() or cid.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n104_missing_authoritative_staged_result"}
+    var allowed: Array[String] = ["contract_board", "escrow_balances",
+        "faction_treasuries", "ships", "populations", "passenger_manifests",
+        "passenger_receipts"]
+    if staged.size() < _world.size() or not staged.get("contract_board", {}).get("contracts", {}).has(cid):
+        return {"ok": false, "fatal": true, "reason": "n104_passenger_world_cardinality"}
+    for domain in _world:
+        if not staged.has(domain):
+            return {"ok": false, "fatal": true, "reason": "n104_passenger_world_field_removed"}
+        if domain not in allowed and staged[domain] != _world[domain]:
+            return {"ok": false, "fatal": true, "reason": "n104_passenger_unrelated_world_write"}
+    for domain in staged:
+        if not _world.has(domain) and domain not in ["passenger_manifests", "passenger_receipts"]:
+            return {"ok": false, "fatal": true, "reason": "n104_passenger_fake_domain"}
+    if staged.get("markets", {}) != _world.get("markets", {}) or staged.get("facilities", {}) != _world.get("facilities", {}):
+        return {"ok": false, "fatal": true, "reason": "n104_passenger_market_or_facility_changed"}
+    if staged.get("ships", {}).size() != _world.get("ships", {}).size() or staged.get("populations", {}).size() != _world.get("populations", {}).size():
+        return {"ok": false, "fatal": true, "reason": "n104_passenger_ghost_actor"}
+    if phase in ["post", "accept"] and staged["populations"] != _world["populations"]:
+        return {"ok": false, "fatal": true, "reason": "n104_passenger_moved_without_flight"}
+    if phase == "post" and staged["ships"] != _world["ships"]:
+        return {"ok": false, "fatal": true, "reason": "n147_funded_offer_modified_ship"}
+    if phase in ["accept", "move"]:
+        if not staged["ships"].has(sid):
+            return {"ok": false, "fatal": true, "reason": "n104_missing_real_ship"}
+        for other in _world["ships"]:
+            if str(other) != sid and staged["ships"][other] != _world["ships"][other]:
+                return {"ok": false, "fatal": true, "reason": "n104_passenger_changed_other_ship"}
+    if phase == "move":
+        for pid in _world["populations"]:
+            if staged["populations"][pid] != _world["populations"][pid]:
+                var target: String = str(_world["contract_board"]["contracts"][cid]["source_location"]) if str(proposed.get("status", "")) == "N104_REAL_PASSENGERS_EMBARKED" else str(_world["contract_board"]["contracts"][cid]["destination_location"])
+                if str(_world["populations"][pid].get("location", "")) != target:
+                    return {"ok": false, "fatal": true, "reason": "n104_moved_foreign_household"}
+    if phase != "move" and (staged.get("passenger_manifests", {}) != _world.get("passenger_manifests", {}) or staged.get("passenger_receipts", {}) != _world.get("passenger_receipts", {})):
+        return {"ok": false, "fatal": true, "reason": "n104_fake_embark_without_physical_phase"}
+    var err: String = Schema.validate(staged)
+    if not err.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n104_passenger_schema_" + err}
+    var ledger := Ledger.new()
+    if not ledger.restore(bank) or ledger.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "n104_passenger_money_not_conserved"}
+    var accounts: Dictionary = Schema.accounts(staged)
+    if accounts.size() != bank.get("balances", {}).size():
+        return {"ok": false, "fatal": true, "reason": "n104_passenger_wallets_disagree"}
+    for wallet in accounts:
+        if bank["balances"].get(wallet, null) != accounts[wallet]:
+            return {"ok": false, "fatal": true, "reason": "n104_passenger_account_divergence"}
+    _world = staged
+    _ledger = ledger
+    var receipt: Dictionary = proposed.duplicate()
+    receipt.erase("world")
+    receipt.erase("ledger_snapshot")
+    receipt["tick"] = tick
+    return receipt
+
+## Actual source N147 offer; independently rerun the same native N92/N147
+## planner, hull/route/fuel and treasury gates against CURRENT World.
+func post_native_passenger_migration(tick: int, ready: Dictionary,
+        multiplier: int, graph: RefCounted, resolver: RefCounted,
+        positions: Dictionary, scale: float) -> Dictionary:
+    if not _ready or tick != _last_tick or tick < 1 or multiplier < 1:
+        return {"ok": false, "reason": "n147_not_canonical_faction_tick"}
+    var scan: Dictionary = NativeN147.observe(_world, graph, resolver,
+        positions, tick, scale)
+    if not scan.get("ok", false):
+        return scan
+    var matched: bool = false
+    for p in scan.get("ready", []):
+        if p == ready:
+            matched = true
+            break
+    if not matched:
+        return {"ok": false, "reason": "n147_unapproved_or_stale_source_offer"}
+    var plan: Dictionary = NativePassengers.post_migration(_world,
+        _ledger.snapshot(), ready, tick, multiplier, graph)
+    return _publish_native_passenger_stage(plan, "post", tick)
+
+## Only a real, preflighted N153 passenger ship gets the source N81/N84
+## tree; original Board.accept and potential Comms escrow top-up are real.
+func accept_native_passenger(tick: int, candidate: Dictionary,
+        graph: RefCounted, resolver: RefCounted,
+        positions: Dictionary, scale: float) -> Dictionary:
+    if not _ready or tick != _last_tick or tick < 1:
+        return {"ok": false, "reason": "n104_not_canonical_accept_tick"}
+    var proposed: Dictionary = NativePassengers.propose_assignment(
+        _world, graph, resolver, positions, tick, scale)
+    if not proposed.get("ok", false) or not proposed.get("assigned", false):
+        return {"ok": false, "reason": "n153_no_authoritative_passenger_assignment"}
+    if candidate.get("contract_id", null) != proposed["contract_id"] or candidate.get("ship_id", null) != proposed["ship_id"] or candidate.get("ai_bt", null) != proposed["ai_bt"]:
+        return {"ok": false, "reason": "n153_stale_passenger_ai_selection"}
+    var taken: Dictionary = NativePassengers.accept(_world, _ledger.snapshot(),
+        str(proposed["contract_id"]), str(proposed["ship_id"]),
+        proposed["ai_bt"], tick)
+    return _publish_native_passenger_stage(taken, "accept", tick)
+
+## Invoked ONLY by N84->N146 RequestShipTransaction after actual N21
+## source/destination docking, full N14 flight and unchanged contract ID.
+func apply_native_passenger_move(tick: int, ship_id: String,
+        contract_id: String, operation: String) -> Dictionary:
+    if not _ready or tick != _last_tick + 1 or tick < 1:
+        return {"ok": false, "reason": "n104_not_canonical_physical_ship_tick"}
+    if operation not in ["passenger_embark", "passenger_delivery"]:
+        return {"ok": false, "reason": "n104_unknown_passenger_command"}
+    var ship: Dictionary = _world.get("ships", {}).get(ship_id, {})
+    if str(ship.get("active_contract_id", "")) != contract_id or not (ship.get("current_bt") is Dictionary):
+        return {"ok": false, "reason": "n104_no_active_native_passenger_bt"}
+    var action: String = NativeBt.current_action(ship["current_bt"])
+    if (operation == "passenger_embark" and action != "EmbarkPassengers") or (operation == "passenger_delivery" and action not in ["DeliverCargo", "DeliverPassengers"]):
+        return {"ok": false, "reason": "n104_passenger_command_wrong_native_leaf"}
+    var movement: Dictionary = NativePassengers.move(_world, _ledger.snapshot(),
+        contract_id, ship_id, operation, tick)
+    return _publish_native_passenger_stage(movement, "move", tick)
 
 ## N84/N146 ship execution during the native SHIPS phase. This is the
 ## ONLY atomic publishing authority for N15 stock, N97 purchase/credits,
