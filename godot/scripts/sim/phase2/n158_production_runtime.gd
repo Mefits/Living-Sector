@@ -910,9 +910,10 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                         continue
                     # N39 has already settled any actual N21 fee in N9.
                     # A queued source action is not a physical docking.
-                    if str(trade_dock.get("status", "")) == "queued":
+                    if str(trade_dock.get("status", "")) not in ["docked", "undocked"]:
                         _last_ship_result["autonomous_blocked"].append({
-                            "ship_id": ship_id, "reason": "n21_waiting_fifo"})
+                            "ship_id": ship_id, "reason": "n21_" + str(
+                                trade_dock.get("status", "source_dock_rejected"))})
                         continue
                     _last_ship_result["n21_auto_dock"].append({
                         "ship_id": ship_id, "operation": operation,
@@ -954,9 +955,10 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                                 str(refit_dock.get("reason", "shipyard_dock_unavailable"))})
                         continue
                     var allotted: String = str(refit_dock.get("receipt", {}).get("facility_id", ""))
-                    if str(refit_dock.get("status", "")) == "queued":
+                    if str(refit_dock.get("status", "")) not in ["docked", "undocked"]:
                         _last_ship_result["autonomous_blocked"].append({
-                            "ship_id": ship_id, "reason": "n21_waiting_fifo_shipyard"})
+                            "ship_id": ship_id, "reason": "n21_shipyard_" + str(
+                                refit_dock.get("status", "source_dock_rejected"))})
                         continue
                     if operation == "dock" and str(snapshot.get("facilities", {}).get(allotted, {}).get("type", "")) != "shipyard":
                         _last_ship_result = {"ok": false,
@@ -1008,9 +1010,10 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                             "ship_id": ship_id, "site_id": construction_site_id,
                             "reason": "n91_n21_" + str(real_request.get("reason", "real_dock_unavailable"))})
                         continue
-                    if str(real_request.get("status", "")) == "queued":
+                    if str(real_request.get("status", "")) not in ["docked", "undocked"]:
                         _last_ship_result["autonomous_blocked"].append({
-                            "ship_id": ship_id, "reason": "n21_waiting_fifo_construction"})
+                            "ship_id": ship_id, "reason": "n21_construction_" + str(
+                                real_request.get("status", "source_dock_rejected"))})
                         continue
                     _last_ship_result["n21_auto_dock"].append({
                         "ship_id": ship_id, "site_id": construction_site_id,
@@ -1069,10 +1072,11 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                         "ship_id": ship_id, "contract_id": cid,
                         "reason": "n21_" + str(dock_proposal.get("reason", "dock_not_available"))})
                     continue
-                if str(dock_proposal.get("status", "")) == "queued":
+                if str(dock_proposal.get("status", "")) not in ["docked", "undocked"]:
                     _last_ship_result["autonomous_blocked"].append({
                         "ship_id": ship_id, "contract_id": cid,
-                        "reason": "n21_waiting_fifo_contract"})
+                        "reason": "n21_contract_" + str(
+                            dock_proposal.get("status", "source_dock_rejected"))})
                     continue
                 _last_ship_result["n21_auto_dock"].append({
                     "ship_id": ship_id, "contract_id": cid,
