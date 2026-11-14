@@ -115,8 +115,15 @@ func _initialize() -> void:
         return
     var still_docked: Dictionary = N14.depart(remote_fixture, route_graph,
         coordinates["positions"], 1, 1.0, engineer_id, sol_nav)
-    if still_docked.get("ok", false):
+    if still_docked.get("ok", false) or str(still_docked.get("reason", "")) != "ship_must_undock_first":
         _fail("N14 departed an N91 engineer without real N21 undock")
+        return
+    var physically_undocked: Dictionary = remote_fixture.duplicate(true)
+    physically_undocked["ships"][engineer_id]["docked_at"] = ""
+    var actual_leg: Dictionary = N14.depart(physically_undocked,
+        route_graph, coordinates["positions"], 1, 1.0, engineer_id, sol_nav)
+    if not actual_leg.get("ok", false) or str(actual_leg.get("ships", {}).get(engineer_id, {}).get("transit", {}).get("to", "")) != sol_nav:
+        _fail("N14 refused the legitimate native directed engineer leg")
         return
     remote_fixture["ships"][engineer_id]["fuel"] = 0.0
     if N91.plan_for(remote_fixture, resolver, route_graph, coordinates["positions"],
