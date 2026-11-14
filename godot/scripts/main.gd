@@ -612,17 +612,26 @@ func _sync_speed_control() -> void:
 
 
 func _on_tick_completed(tick: int) -> void:
-    _populate_ship_choices()
-    _refresh_observer()
-    # Orbit positions are read from the SAME live World after each real tick.
+    # N39 writes receipts almost every tick. Checking their existence
+    # previously forced a full rich-text inspector + World/ledger clone on
+    # EVERY tick, and on system screens drew the same view a second time.
+    # Keep the actual N158 simulation and native orbit tick unchanged;
+    # presentation can update the slower inspector on an 8-tick cadence.
+    if tick % 8 == 0:
+        if ENABLE_DEBUG_MANUAL_FLEET_UI:
+            _populate_ship_choices()
+        _refresh_observer()
+        _refresh_selection()
+        _update_status()
+        return
+    # Native orbit angles may continue to refresh each tick. Only ship
+    # state presentation is sampled every 4 ticks; it never drives N14.
     if _in_system and _system_view != null and _model != null:
         var live_system: Dictionary = _model.system_by_id(_selected_system)
         if not live_system.is_empty():
             _system_view.update_world(live_system)
-            _system_view.call("set_live_fleet", _runner.fleet_snapshot())
-    if tick % 8 == 0 or not _runner.last_native_result().get("receipts", []).is_empty():
-        _refresh_selection()
-    _update_status()
+            if tick % 4 == 0:
+                _system_view.call("set_live_fleet", _runner.fleet_snapshot())
 
 func _runtime_failure() -> Dictionary:
     if _runner != null and _runner.has_method("last_phase_failure"):
