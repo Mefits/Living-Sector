@@ -30,7 +30,12 @@ static func _encode_native_f64(value: Variant, depth: int = 0) -> Variant:
     if depth > MAX_NATIVE_DEPTH:
         return null
     if typeof(value) == TYPE_FLOAT:
-        return {NATIVE_F64_TAG: Marshalls.raw_to_base64(var_to_bytes(value))}
+        # PackedByteArray double is the actual 8-byte IEEE-754 payload,
+        # independent of Godot Variant serializer implementation details.
+        var bits: PackedByteArray = PackedByteArray()
+        bits.resize(8)
+        bits.encode_double(0, float(value))
+        return {NATIVE_F64_TAG: Marshalls.raw_to_base64(bits)}
     if value is Dictionary:
         var output: Dictionary = {}
         for key in value:
@@ -55,14 +60,12 @@ static func _decode_native_f64(value: Variant, state: Dictionary,
                 return null
             var bytes: PackedByteArray = Marshalls.base64_to_raw(
                 value[NATIVE_F64_TAG])
-            # A plain float Variant has a tiny fixed-sized binary encoding.
-            # Never decode large or unexpected native objects from a save.
-            if bytes.is_empty() or bytes.size() > 32:
+            # Exactly one binary64, never a serialized native object.
+            if bytes.size() != 8:
                 state["ok"] = false
                 return null
-            var restored: Variant = bytes_to_var(bytes)
-            if typeof(restored) != TYPE_FLOAT or not is_finite(restored) or (
-                    var_to_bytes(restored) != bytes):
+            var restored: float = bytes.decode_double(0)
+            if not is_finite(restored):
                 state["ok"] = false
                 return null
             return restored
