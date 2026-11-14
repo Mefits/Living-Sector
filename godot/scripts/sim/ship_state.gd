@@ -72,29 +72,29 @@ func snapshot() -> Array:
 ## restore, only the final decimal digits of its derived floats may
 ## differ. All actual slots, power integers and booleans stay exact.
 static func _derived_matches_slots(saved: Dictionary,
-        canonical: Dictionary) -> bool:
-    if saved.size() != canonical.size():
-        return false
-    for key in canonical:
-        if not saved.has(key):
-            return false
-        var expected: Variant = canonical[key]
-        var actual: Variant = saved[key]
-        if typeof(expected) == TYPE_FLOAT and typeof(actual) in [
-                TYPE_FLOAT, TYPE_INT]:
-            var left: float = float(expected)
-            var right: float = float(actual)
-            if not is_finite(left) or not is_finite(right) or (
-                    absf(left - right) > 0.000000000001):
-                return false
-        elif typeof(expected) == TYPE_INT:
-            if typeof(actual) not in [TYPE_INT, TYPE_FLOAT] or not (
-                    is_finite(float(actual))) or float(actual) != (
-                    float(expected)):
-                return false
-        elif actual != expected or typeof(actual) != typeof(expected):
-            return false
-    return true
+		canonical: Dictionary) -> bool:
+	if saved.size() != canonical.size():
+		return false
+	for key in canonical:
+		if not saved.has(key):
+			return false
+		var expected: Variant = canonical[key]
+		var actual: Variant = saved[key]
+		if typeof(expected) == TYPE_FLOAT and typeof(actual) in [
+				TYPE_FLOAT, TYPE_INT]:
+			var left: float = float(expected)
+			var right: float = float(actual)
+			if not is_finite(left) or not is_finite(right) or (
+					absf(left - right) > 0.000000000001):
+				return false
+		elif typeof(expected) == TYPE_INT:
+			if typeof(actual) not in [TYPE_INT, TYPE_FLOAT] or not (
+					is_finite(float(actual))) or float(actual) != (
+					float(expected)):
+				return false
+		elif actual != expected or typeof(actual) != typeof(expected):
+			return false
+	return true
 
 func restore(records: Array) -> bool:
 	var restored := {}
