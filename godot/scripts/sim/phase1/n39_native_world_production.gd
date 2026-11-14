@@ -46,6 +46,7 @@ const NativeAdminN152 = preload("res://scripts/sim/phase2/unified_n152_admin_cle
 const NativeN148 = preload("res://scripts/sim/phase2/unified_n148_ship_retirement_phase.gd")
 const NativePassengers = preload("res://scripts/sim/phase2/unified_n104_passenger_transit.gd")
 const NativeN147 = preload("res://scripts/sim/phase2/unified_n147_colony_migration_observer.gd")
+const NativeN147Head = preload("res://scripts/sim/phase2/unified_n147_colony_head_grant.gd")
 const NativeShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 const NativeN149Crew = preload("res://scripts/sim/phase2/unified_n149_ship_crew_phase.gd")
 const NativeShipPrices = preload("res://scripts/sim/phase2/unified_native_ship_price_observation.gd")
@@ -1307,6 +1308,40 @@ func _publish_native_passenger_stage(proposed: Dictionary, phase: String,
     var allowed: Array[String] = ["contract_board", "escrow_balances",
         "faction_treasuries", "ships", "populations", "passenger_manifests",
         "passenger_receipts"]
+    # Rust N92::commission may follow a real N134 Head grant. Only that
+    # exact single-faction N113 StrategicMemory is allowed alongside
+    # the paid N147 contract; no other Director field is writable.
+    if phase == "post" and proposed.has("n147_head_grant"):
+        var grant: Dictionary = proposed["n147_head_grant"]
+        var faction: String = str(grant.get("faction_id", ""))
+        var directors: Dictionary = staged.get("research_directors", {})
+        var originals: Dictionary = _world.get("research_directors", {})
+        if faction.is_empty() or not directors.has(faction) or (
+                not originals.has(faction)) or not (
+                grant.get("strategy") is Dictionary):
+            return {"ok": false, "fatal": true,
+                "reason": "n147_missing_real_single_faction_head"}
+        for fid in originals:
+            if not directors.has(fid):
+                return {"ok": false, "fatal": true,
+                    "reason": "n147_director_removed_on_passenger_post"}
+            var old_director: Dictionary = originals[fid]
+            var next_director: Dictionary = directors[fid]
+            var restored: Dictionary = next_director.duplicate(true)
+            if str(fid) == faction:
+                if restored.get("strategic", null) != grant["strategy"]:
+                    return {"ok": false, "fatal": true,
+                        "reason": "n147_strategic_grant_not_committed"}
+                restored["strategic"] = old_director.get("strategic", {})
+                if not old_director.has("strategic"):
+                    restored.erase("strategic")
+            if restored != old_director:
+                return {"ok": false, "fatal": true,
+                    "reason": "n147_rewrote_unrelated_native_director"}
+        if directors.size() != originals.size():
+            return {"ok": false, "fatal": true,
+                "reason": "n147_fabricated_native_director"}
+        allowed.append("research_directors")
     if staged.size() < _world.size() or not staged.get("contract_board", {}).get("contracts", {}).has(cid):
         return {"ok": false, "fatal": true, "reason": "n104_passenger_world_cardinality"}
     for domain in _world:
@@ -1363,7 +1398,8 @@ func _publish_native_passenger_stage(proposed: Dictionary, phase: String,
 ## planner, hull/route/fuel and treasury gates against CURRENT World.
 func post_native_passenger_migration(tick: int, ready: Dictionary,
         multiplier: int, graph: RefCounted, resolver: RefCounted,
-        positions: Dictionary, scale: float) -> Dictionary:
+        positions: Dictionary, scale: float, original: RefCounted,
+        sources: Dictionary, baseline: Dictionary) -> Dictionary:
     if not _ready or tick != _last_tick or tick < 1 or multiplier < 1:
         return {"ok": false, "reason": "n147_not_canonical_faction_tick"}
     var scan: Dictionary = NativeN147.observe(_world, graph, resolver,
@@ -1377,9 +1413,40 @@ func post_native_passenger_migration(tick: int, ready: Dictionary,
             break
     if not matched:
         return {"ok": false, "reason": "n147_unapproved_or_stale_source_offer"}
+    if original == null or graph == null:
+        return {"ok": false, "reason": "n147_missing_original_head_source"}
+    var faction: String = str(ready.get("faction_id", ""))
+    # Independently re-derive the actual Head on current N39 World. The
+    # caller cannot fabricate an approval or race another paid N134 grant.
+    var head_source: Dictionary = SourceN134Construction.choose(
+        _world, sources, original, graph, faction, tick, multiplier)
+    if not head_source.get("ok", false) or (
+            head_source.get("head", {}) != baseline):
+        return {"ok": false, "reason": "n147_stale_or_forged_n134_decision"}
+    var grant: Dictionary = NativeN147Head.authorize(
+        _world, faction, ready, baseline, tick)
+    if not grant.get("ok", false) or not grant.get("authorized", false):
+        return grant
     var plan: Dictionary = NativePassengers.post_migration(_world,
         _ledger.snapshot(), ready, tick, multiplier, graph)
-    return _publish_native_passenger_stage(plan, "post", tick)
+    if not plan.get("ok", false):
+        return plan
+    # Stage the source strategic vote and original N104 escrow debit in
+    # the SAME one N39 World/ledger commit, never before paid admission.
+    var staged: Dictionary = plan.get("world", {})
+    if not (staged.get("research_directors") is Dictionary) or not (
+            staged["research_directors"].get(faction) is Dictionary):
+        return {"ok": false, "fatal": true,
+            "reason": "n147_source_director_dropped_during_post"}
+    staged["research_directors"][faction]["strategic"] = grant[
+        "strategy"].duplicate(true)
+    plan["n147_head_grant"] = grant.duplicate(true)
+    var posted: Dictionary = _publish_native_passenger_stage(
+        plan, "post", tick)
+    if posted.get("ok", false):
+        posted["head"] = grant["head"].duplicate(true)
+        posted["source_grant"] = "original_n134_migrate_colony"
+    return posted
 
 ## Only a real, preflighted N153 passenger ship gets the source N81/N84
 ## tree; original Board.accept and potential Comms escrow top-up are real.
