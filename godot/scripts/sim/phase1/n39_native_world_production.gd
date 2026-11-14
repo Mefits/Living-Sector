@@ -26,6 +26,9 @@ const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lif
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
 const NativeDiplomacy = preload("res://scripts/sim/phase2/unified_native_diplomacy_phase.gd")
 const NativeFactionFinance = preload("res://scripts/sim/phase2/unified_native_faction_finance_phase.gd")
+const NativeShipyardModules = preload("res://scripts/sim/phase1/n154_native_shipyard_module_tick.gd")
+const NativeModuleRecipes = preload("res://scripts/sim/shipyard/native_module_recipes_n132.gd")
+const CommodityCatalog = preload("res://scripts/sim/economy/commodity_catalog.gd")
 
 const GalaxyConstructionCrew: Dictionary = {
     "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
@@ -191,6 +194,19 @@ func run_tick(tick: int, tick_multiplier: int = 1,
                     receipts.append(result)
                 elif result.has("reason"):
                     failures[id] = result["reason"]
+    # Frozen N154: genuine shipyard modules only after paid
+    # FacilityWorkforce shift and physical N132 input consumption.
+    var shipyard_modules: Dictionary = _run_shipyard_modules(
+        tick, tick_multiplier, external_workers)
+    if not shipyard_modules.get("ok", false):
+        return {"ok": false, "reason": str(shipyard_modules.get(
+            "reason", "native_shipyard_module_failed"))}
+    for made in shipyard_modules.get("paid", []):
+        receipts.append(made.duplicate(true))
+        failures.erase(str(made.get("facility", "")))
+    for refused in shipyard_modules.get("blocked", []):
+        if refused is Dictionary:
+            failures[str(refused.get("facility", ""))] = str(refused.get("reason", "module_blocked"))
     # Rust allows per-facility failures without rolling back other facilities.
     _last_tick = tick
     return {"ok": true, "tick": tick, "receipts": receipts, "failures": failures,
@@ -198,7 +214,9 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         "lifecycle_events": lifecycle["events"].duplicate(true),
         "paid_repairs": repairs,
         "repair_failures": repair_failures,
-        "service_restock": restocked.get("purchases", []).duplicate(true)}
+        "service_restock": restocked.get("purchases", []).duplicate(true),
+        "shipyard_modules": shipyard_modules.get("paid", []).duplicate(true),
+        "shipyard_module_blocked": shipyard_modules.get("blocked", []).duplicate(true)}
 
 ## Single authoritative fleet commit. Called by the N158 ships phase
 ## (before facilities), or by a validated explicit departure command between
@@ -1765,6 +1783,110 @@ func _grant_xp(fac: Dictionary, recipes_run: int) -> void:
     while int(fac["level"]) < 10 and int(fac["xp"]) >= int(fac["level"]) * 100:
         fac["xp"] = int(fac["xp"]) - int(fac["level"]) * 100
         fac["level"] = int(fac["level"]) + 1
+
+## Native facility/mod.rs: produce exactly one N132 T2/T3 module per
+## real shipyard per 15×mult cycle. Same physical markets, shifts, and N9.
+## There are NO shipyards in the clean frozen 0.6.7 starting seed;
+## this activates once an actually funded N154 shipyard exists.
+func _run_shipyard_modules(tick: int, multiplier: int,
+        external_workers: Dictionary) -> Dictionary:
+    var paid_modules: Array = []
+    var blocked: Array = []
+    if tick < 1 or multiplier < 1:
+        return {"ok": false, "reason": "invalid_native_shipyard_clock"}
+    if tick % (NativeShipyardModules.INTERVAL_BASE * multiplier) != 0:
+        return {"ok": true, "paid": paid_modules, "blocked": blocked}
+    var base_prices: Dictionary = {}
+    for commodity in CommodityCatalog.ORDER:
+        base_prices[commodity] = CommodityCatalog.base_price(str(commodity))
+    var ids: Array = _world["facilities"].keys()
+    ids.sort()
+    for id in ids:
+        var fac: Dictionary = _world["facilities"][id]
+        if str(fac.get("type", "")) != "shipyard" or bool(fac.get("abandoned", false)):
+            continue
+        var location: String = str(fac.get("location", ""))
+        if not _world["markets"].has(location):
+            blocked.append({"facility": str(id), "reason": "no_actual_local_market"})
+            continue
+        var warehouse: Dictionary = _world["markets"][location]
+        var owner: String = str(warehouse.get("owner", ""))
+        if not _world["facilities"].has(owner):
+            return {"ok": false, "reason": "native_shipyard_market_owner_missing"}
+        var yard: Dictionary = {"id": str(id),
+            "facility_type": str(fac["type"]),
+            "location_name": location,
+            "abandoned": bool(fac["abandoned"]),
+            "module_stock": fac.get("module_stock",
+                {"stock": {}, "dirty": false}).duplicate(true)}
+        var local_market: Dictionary = {
+            "id": str(warehouse["id"]),
+            "facility_location": location, "owner_facility_id": owner,
+            "supply": warehouse["supply"].duplicate(true),
+            "prices": warehouse["prices"].duplicate(true)}
+        var candidate: Dictionary = NativeShipyardModules.plan_one(
+            yard, local_market, NativeModuleRecipes.RECIPES,
+            tick, multiplier, base_prices)
+        if not candidate.get("ok", false):
+            return {"ok": false, "reason": "n154_source_plan:" +
+                str(candidate.get("reason", "invalid_module"))}
+        if candidate.get("plan", null) == null:
+            continue
+        var plan: Dictionary = candidate["plan"]
+        # The source checks stock and input prices BEFORE paying workers.
+        # Never deduct goods or award a module on an unfunded wage shift.
+        var staged: Dictionary = _world.duplicate(true)
+        var ledger_copy = Ledger.new()
+        if not ledger_copy.restore(_ledger.snapshot()):
+            return {"ok": false, "reason": "n154_canonical_ledger_clone_failed"}
+        var shift: Dictionary = Payroll.pay_shift(staged, ledger_copy,
+            str(id), owner, tick, external_workers,
+            int(plan["input_payment"]))
+        if not shift.get("ok", false):
+            blocked.append({"facility": str(id),
+                "reason": str(shift.get("reason", "unpaid_module_shift"))})
+            continue
+        var acknowledged: Dictionary = {
+            "trusted_internal_apply": true,
+            "paid_shift_committed": ledger_copy.has_receipt(
+                str(shift.get("receipt", ""))),
+            "producer_id": str(id), "stock_owner_id": owner,
+            "tick": tick, "wages": int(shift["wages"]),
+            "input_payment": int(shift.get("input_payment", 0))}
+        var manufactured: Dictionary = NativeShipyardModules.after_paid_shift(
+            plan, yard, local_market, acknowledged)
+        if not manufactured.get("ok", false):
+            return {"ok": false, "reason": "n154_paid_module_stage_failed:" +
+                str(manufactured.get("reason", "unknown"))}
+        staged["facilities"][id]["module_stock"] = (
+            manufactured["yard"]["module_stock"] as Dictionary).duplicate(true)
+        staged["markets"][location]["supply"] = (
+            manufactured["market"]["supply"] as Dictionary).duplicate(true)
+        if staged["markets"][location].get("history") is Dictionary:
+            staged["markets"][location]["history"]["dirty"] = true
+        var error: String = Schema.validate(staged)
+        if not error.is_empty():
+            return {"ok": false, "reason": "n154_paid_module_invalid_world:" + error}
+        var accounts: Dictionary = Schema.accounts(staged)
+        var balances: Dictionary = ledger_copy.snapshot().get("balances", {})
+        if balances.size() != accounts.size() or ledger_copy.total() != _ledger.total():
+            return {"ok": false, "reason": "n154_module_wages_destroyed_money"}
+        for account in accounts:
+            if balances.get(account, null) != accounts[account]:
+                return {"ok": false, "reason": "n154_module_ledger_mismatch"}
+        # Commit once only after the real wages/inputs/stock all agree.
+        _world = staged
+        _ledger = ledger_copy
+        paid_modules.append({
+            "kind": "shipyard_module",
+            "facility": str(id), "tick": tick,
+            "module": str(plan["module_slug"]),
+            "inputs": plan["inputs"].duplicate(true),
+            "wages": int(shift["wages"]),
+            "receipt": str(shift["receipt"]),
+            "input_payment": int(shift.get("input_payment", 0))})
+    return {"ok": true, "paid": paid_modules, "blocked": blocked}
+
 
 ## Rust source: in one faction tick, taxes -> bailouts -> relief.
 ## All receipts are immutable transfers of EXISTING N9 wallets, never a
