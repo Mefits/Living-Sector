@@ -497,11 +497,14 @@ func _toggle_observer() -> void:
 func _refresh_observer() -> void:
     if not _observer_panel or not _observer_panel.visible or not _runner:
         return
-    # The current P1 world contains only seed/orbital state. Never present
-    # an unconnected N19/N18/N16 subsystem as if it were executing.
+    # A read-only checkpoint projection lets the Observer distinguish a
+    # planned route from durable N15/N97 cargo and N9/N104 receipts. It
+    # never owns, mutates, or reconstructs a second World/Ledger/Board.
+    var checkpoint: Dictionary = _runner.checkpoint()
+    var native_production: Dictionary = checkpoint.get("native_production", {})
     _observer_panel.call("show_live_economy", _runner.tick_count,
         _runner.economy_snapshot(), _runner.economy_summary(),
-        _runner.fleet_snapshot())
+        _runner.fleet_snapshot(), native_production)
 
 func _process(delta: float) -> void:
     if _runner and _fatal_restore_error.is_empty():
