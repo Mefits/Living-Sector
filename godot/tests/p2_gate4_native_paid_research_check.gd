@@ -113,6 +113,33 @@ func _initialize() -> void:
         return
     # Real disk save/reload, not an in-memory restore of a conveniently
     # supplied dictionary. A restart must keep faction/tech progress.
+    # A tiny IEEE-754 JSON difference in a dimensionless N155
+    # personality weight is permitted. Real money, stock, contracts,
+    # scientific progress and material changes to personality are not.
+    var before_disk: Dictionary = runner.checkpoint()
+    var corrupted: Variant = JSON.parse_string(
+        JSON.stringify(before_disk, "", true, true))
+    if not (corrupted is Dictionary):
+        _fail("N38 diagnostic JSON cannot decode canonical World")
+        return
+    var marked: Dictionary = corrupted
+    var director: Dictionary = marked["native_production"]["world"][
+        "research_directors"][str(faction_ids[0])]
+    director["profile"]["science"] = float(
+        director["profile"]["science"]) + 0.01
+    if NativeFrameGuard.verify_authoritative_frame(
+            before_disk, marked).get("ok", false):
+        _fail("N38 erroneously accepted material personality corruption")
+        return
+    marked = JSON.parse_string(JSON.stringify(before_disk, "", true, true))
+    marked["native_production"]["world"][
+        "faction_treasuries"][str(faction_ids[0])] = int(
+        marked["native_production"]["world"]["faction_treasuries"][
+            str(faction_ids[0])]) + 1
+    if NativeFrameGuard.verify_authoritative_frame(
+            before_disk, marked).get("ok", false):
+        _fail("N38 erroneously accepted even one invented treasury credit")
+        return
     var save_path: String = "user://tests/p2-n143-" + str(Time.get_ticks_usec()) + ".json"
     var save_error: Error = SaveState.save_runner(runner, save_path)
     if save_error != OK:
