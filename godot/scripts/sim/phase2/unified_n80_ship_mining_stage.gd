@@ -259,7 +259,8 @@ static func stage(world: Dictionary, graph: RefCounted,
         var tree: Dictionary = BT.sequence(nodes)
         if not BT.validate(tree):
             return {"ok": false, "reason": "n103_invalid_source_mining_bt"}
-        ship["current_goal"] = "mine"
+        # Persist the exact frozen Rust N80 goal, not a synthetic alias.
+        ship["current_goal"] = str(chosen["name"])
         ship["current_goal_score"] = float(preference["score"])
         ship["current_bt"] = tree
         ship["last_plan_tick"] = tick
