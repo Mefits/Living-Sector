@@ -134,7 +134,7 @@ static func observe(world: Dictionary, sources: Dictionary, original: RefCounted
 ## read-only goal preview or manual ship GUI cannot call it with authority.
 static func stage(world: Dictionary, sources: Dictionary, original: RefCounted,
         graph: RefCounted, faction: String, tick: int, multiplier: int,
-        head_authorized: bool) -> Dictionary:
+        head_authorized: bool, preferred_goal: Dictionary = {}) -> Dictionary:
     if not head_authorized:
         return {"ok": false, "reason": "n134_head_authorization_required"}
     if tick < 1 or multiplier < 1 or not sources.has(faction) or not world.get("faction_treasuries", {}).has(faction):
@@ -148,6 +148,16 @@ static func stage(world: Dictionary, sources: Dictionary, original: RefCounted,
     if not evaluated.get("ok", false):
         return evaluated
     var offer: Variant = evaluated.get("chosen", null)
+    # Source N134's grant is for an EXACT shortage goal; original
+    # Strategy.run_cycle must not accidentally build the first ready
+    # project if the HeadDecision funded a different one.
+    if not preferred_goal.is_empty():
+        offer = null
+        for candidate in evaluated.get("view", {}).get("offers", []):
+            var goal: Dictionary = candidate.get("goal", {})
+            if bool(candidate.get("ready", false)) and str(goal.get("destination", "")) == str(preferred_goal.get("destination", "")) and str(goal.get("commodity", "")) == str(preferred_goal.get("commodity", "")):
+                offer = candidate
+                break
     if not (offer is Dictionary) or not offer.get("ready", false):
         return {"ok": false, "reason": str(evaluated.get("view", {}).get("reason", "no_native_ready_site"))}
     var source: String = str(offer.get("source", ""))

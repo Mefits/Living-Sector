@@ -157,7 +157,8 @@ static func choose(world: Dictionary, factions: Dictionary,
     if not permission:
         return {"ok": false, "reason": "n134_grant_not_verified"}
     var staged: Dictionary = NativeConstruction.stage(
-        world, factions, original, graph, faction, tick, multiplier, true)
+        world, factions, original, graph, faction, tick, multiplier, true,
+        head.get("problem", {}))
     if not staged.get("ok", false):
         return {"ok": true, "authorized": false,
             "head": head, "reason": str(staged.get("reason", "n154_not_ready"))}
