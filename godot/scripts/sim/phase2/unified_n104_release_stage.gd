@@ -45,7 +45,7 @@ static func stage(world: Dictionary, tick: int, ship_id: String,
     var penalty: int = 0
     var faction: String = str(original.get("faction_id", ""))
     if reason != "issuer_funding_failure" and not faction.is_empty():
-        penalty = clampi(10 + int(original.get("payment", 0)) / 1000, 1, 25)
+        penalty = clampi(10 + int(floor(float(original.get("payment", 0)) / 1000.0)), 1, 25)
         var standing: Dictionary = ship.get("faction_reputation", {})
         standing[faction] = maxi(0, int(standing.get(faction, 0)) - penalty)
         ship["faction_reputation"] = standing
