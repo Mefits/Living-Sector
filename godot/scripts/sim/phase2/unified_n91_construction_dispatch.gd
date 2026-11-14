@@ -106,7 +106,7 @@ static func plan_for(world: Dictionary, resolver: RefCounted, graph: RefCounted,
                 if str(edge.get("to", "")) == b:
                     directed = true
                     break
-            if not directed or not positions.get(a) is Vector2 or not positions.get(b) is Vector2:
+            if not directed or not (positions.get(a) is Vector2) or not (positions.get(b) is Vector2):
                 return {"ok": false, "reason": "n91_physical_route_edge_missing"}
             var distance: float = (positions[a] as Vector2).distance_to(positions[b])
             if not is_finite(distance) or distance <= 0.0:
