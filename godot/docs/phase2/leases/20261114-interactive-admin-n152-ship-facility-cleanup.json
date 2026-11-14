@@ -1,6 +1,6 @@
 {
   "worker": "interactive-primary-continuation",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "goal": "Wire frozen Rust admin_remove_ship and admin_remove_facility N152 cascades with authoritative P2 N39/N104/N9, persisted retirement histories and physical-reference cleanup; source-only, no game tests/balance changes",
   "scope": [
@@ -9,8 +9,14 @@
     "godot/scripts/sim/phase1/n39_native_world_production.gd",
     "godot/scripts/sim/phase1/n39_native_world_schema.gd",
     "godot/scripts/sim/phase2/n158_production_runtime.gd",
-    "godot/docs/phase2/handoffs/20261114-admin-ship-facility-n152.md"
+    "godot/docs/phase2/handoffs/20261114-admin-ship-facility-n152.md",
+    "godot/scripts/sim/economy/contract_board.gd",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
   ],
   "created": "2026-11-14",
-  "predecessor": "N152 expiration/refund lease RELEASED, PR249 head 25e169f"
+  "predecessor": "N152 expiration/refund lease RELEASED, PR249 head 25e169f",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED; static readback all six GDScripts: brackets/quotes, NUL, per-file indentation PASS; no Godot headless/runtime; GitHub Actions 0; no gameplay tests or balance edits",
+  "handoff": "godot/docs/phase2/handoffs/20261114-admin-ship-facility-n152.md",
+  "remaining": "N148 autonomous strike admin invocation; native Sqlite DB writes; market-owned station and paired-gate deletion; immediate paused-admin refund timing; final Godot parse/runtime/Rust parity",
+  "code_head": "c75415625ff7890c31a516ff6337925394459bec"
 }
