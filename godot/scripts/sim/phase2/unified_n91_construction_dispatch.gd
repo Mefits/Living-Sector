@@ -5,6 +5,15 @@ extends RefCounted
 const Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 const Bt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
+const Personality = preload("res://scripts/sim/ships/ai/native_personality.gd")
+
+## Frozen 24-ship seed lacks per-ship Personality RNG. The same source
+## class fallback as N153 is used, never a fabricated max loyalty value.
+static func _loyalty(ship: Dictionary) -> float:
+    var native: Dictionary = ship.get("personality", {})
+    if not Personality.validate(native):
+        native = Personality.for_class(str(ship.get("class", "")))
+    return float(native.get("loyalty", 0.0))
 
 static func propose(world: Dictionary, resolver: RefCounted,
         tick: int) -> Dictionary:
@@ -23,7 +32,10 @@ static func propose(world: Dictionary, resolver: RefCounted,
                 int(site.get("progress_delivered", 0))),
             "labor_completed": int(site.get("labor", {}).get("completed", 0)),
             "labor_required": int(site.get("labor", {}).get("required", 0)),
-            "station_order": site.get("labor", {}).get("station_order", {}),
+            # Source N154 has station_order=null until it is assigned.
+            # Port N91.offers expects an object; represent NONE with {}.
+            "station_order": site.get("labor", {}).get("station_order", {})
+                if site.get("labor", {}).get("station_order", null) is Dictionary else {},
             "location": str(site.get("location_name", "")),
             "faction": str(site.get("faction_id", ""))
         })
@@ -43,7 +55,7 @@ static func propose(world: Dictionary, resolver: RefCounted,
             "location": str(row.get("location", "")),
             "current_goal": str(row.get("current_goal", "")),
             "bt": current_bt if current_bt is Dictionary else {},
-            "loyalty": float(row.get("loyalty", 0.0))
+            "loyalty": _loyalty(row)
         })
         systems[str(row.get("location", ""))] = resolver.system_for_location(str(row.get("location", "")))
     var offers: Array = Executor.offers(sites, ship_rows, class_catalogue, false)
@@ -62,7 +74,7 @@ static func propose(world: Dictionary, resolver: RefCounted,
         var view: Dictionary = {
             "id": str(ship_id), "class": str(ship["class"]),
             "faction": str(ship["faction_id"]), "location": location,
-            "loyalty": float(ship.get("loyalty", 0.0))}
+            "loyalty": _loyalty(ship)}
         var competing: float = maxf(0.0, float(ship.get("current_goal_score", 0.0)))
         # A physically local construction choice must not be starved
         # by an unimplemented remote N91 travel offer sorted before it.

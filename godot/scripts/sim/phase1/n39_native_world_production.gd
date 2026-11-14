@@ -18,6 +18,7 @@ const NativeConstructionMaterial = preload("res://scripts/sim/phase1/n154_native
 const NativeConstructionLabor = preload("res://scripts/sim/phase2/unified_native_construction_labor.gd")
 const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
+const N91SourceDispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
@@ -582,7 +583,7 @@ func apply_native_construction_assignments(tick: int, proposals: Array) -> Dicti
             NativeBt.action({"kind": "ConstructionDock", "site_id": site_id}),
             NativeBt.action({"kind": "Construct", "site_id": site_id})]):
             return {"ok": false, "fatal": true, "reason": "n91_untrusted_goal_tree"}
-        var loyalty: float = float(ship.get("loyalty", 0.0))
+        var loyalty: float = N91SourceDispatch._loyalty(ship)
         var priority: float = N91Executor.utility(loyalty)
         if not is_finite(priority) or not is_equal_approx(float(raw.get("score", -1.0)), priority):
             return {"ok": false, "fatal": true, "reason": "n91_source_utility_mismatch"}
