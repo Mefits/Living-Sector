@@ -1,0 +1,14 @@
+{
+  "worker": "interactive-primary-chat-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "e71d3e4320a593a5ed94e34b99939966cb359450",
+  "goal": "Unify Rust N154 native shipyard module production after genuine N39 paid FacilityWorkforce shift and N132 exact recipes, with physical market input debit and N38 stock",
+  "scope": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/docs/phase2/handoffs/20261114-n154-shipyard-module-production.md"
+  ],
+  "verification": "No intermediate tests until all Rust transferred"
+}
