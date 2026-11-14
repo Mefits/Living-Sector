@@ -17,6 +17,7 @@ const NativePopulation = preload("res://scripts/sim/phase2/unified_population_ph
 const ResearchShift = preload("res://scripts/sim/phase1/n143_native_research_shift.gd")
 const OriginalResearchMandate = preload("res://scripts/sim/phase1/n143_native_research_director.gd")
 const OriginalFactionCharter = preload("res://scripts/native_port/n109_charter.gd")
+const OriginalEconomicMandate = preload("res://scripts/simulation/strategy/native_mandate_policy.gd")
 const OriginalTechnology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
 const OriginalPolicyCheckpoint = preload("res://scripts/sim/phase2/unified_n109_n110_policy_checkpoint.gd")
 const NativeConstructionMaterial = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
@@ -2868,7 +2869,8 @@ func apply_native_player_research_policy(tick: int, faction: String,
             not _world.get("faction_treasuries", {}).has(faction)):
         return {"ok": false, "reason": "n110_unknown_actual_faction"}
     if operation not in ["set_research_mandate", "clear_research_mandate",
-            "set_faction_charter"]:
+            "set_faction_charter", "set_economic_mandate",
+            "clear_economic_mandate"]:
         return {"ok": false, "reason": "n110_invalid_original_policy_action"}
     if operation == "clear_research_mandate" and not _world.get(
             "research_mandates", {}).has(faction):
@@ -2877,11 +2879,17 @@ func apply_native_player_research_policy(tick: int, faction: String,
         return {"ok": true, "tick": tick, "faction_id": faction,
             "operation": operation, "changed": false,
             "status": "N110_ORIGINAL_DIRECTIVE_ALREADY_ABSENT"}
+    if operation == "clear_economic_mandate" and not _world.get(
+            "economic_mandates", {}).has(faction):
+        return {"ok": true, "tick": tick, "faction_id": faction,
+            "operation": operation, "changed": false,
+            "status": "N110_ECONOMIC_DIRECTIVE_ALREADY_ABSENT"}
     var next_world: Dictionary = _world.duplicate(true)
-    # Rust's two optional Director maps are independent. A legacy
+    # Rust's original optional Director maps are independent. A legacy
     # checkpoint may contain neither OR only one: do not erase a
     # genuine existing charter while installing the first mandate.
-    for key in ["research_mandates", "faction_charters"]:
+    for key in ["research_mandates", "faction_charters",
+            "economic_mandates"]:
         if next_world.has(key) and not (next_world[key] is Dictionary):
             return {"ok": false, "reason": "invalid_original_policy_map:" + key}
         if not next_world.has(key):
@@ -2905,6 +2913,48 @@ func apply_native_player_research_policy(tick: int, faction: String,
                 return operation_result
             next_world["research_mandates"] = operation_result[
                 "mandates"].duplicate(true)
+        "set_economic_mandate":
+            var incoming_policy: Dictionary = incoming.duplicate(true)
+            var error: String = OriginalEconomicMandate.validate_economic(
+                incoming_policy)
+            if not error.is_empty() or str(incoming_policy.get(
+                    "mode", "")) not in ["delegated", "advise", "hold"]:
+                return {"ok": false, "reason": "invalid_original_economic_policy:" +
+                    error}
+            var owned_location: String = str(incoming_policy["location"])
+            var location_market: Dictionary = next_world.get(
+                "markets", {}).get(owned_location, {})
+            var station_id: String = str(location_market.get("owner", ""))
+            var actual_station: Dictionary = next_world.get(
+                "facilities", {}).get(station_id, {})
+            if str(actual_station.get("type", "")) != "station" or (
+                    str(actual_station.get("faction", "")) != faction) or (
+                    str(actual_station.get("location", "")) != owned_location):
+                return {"ok": false, "reason": "station_not_owned_by_faction"}
+            var prior: Dictionary = next_world["economic_mandates"].get(
+                faction, {})
+            var same: bool = (not prior.is_empty() and
+                str(prior.get("location", "")) == owned_location and
+                str(prior.get("commodity", "")) == str(
+                    incoming_policy.get("commodity", "")) and
+                str(prior.get("kind", "")) == str(
+                    incoming_policy.get("kind", "")))
+            incoming_policy["spent_cr"] = int(prior.get(
+                "spent_cr", 0)) if same else 0
+            incoming_policy["created_tick"] = int(prior.get(
+                "created_tick", tick)) if same else tick
+            incoming_policy["last_commitment_tick"] = prior.get(
+                "last_commitment_tick", null) if same else null
+            incoming_policy["last_reason"] = "approved_native_governance"
+            error = OriginalEconomicMandate.validate_economic(
+                incoming_policy)
+            if not error.is_empty():
+                return {"ok": false, "reason": error}
+            next_world["economic_mandates"][faction] = incoming_policy
+            operation_result = {"ok": true}
+        "clear_economic_mandate":
+            next_world["economic_mandates"].erase(faction)
+            operation_result = {"ok": true}
         "set_faction_charter":
             operation_result = OriginalFactionCharter.install(
                 next_world["faction_charters"], faction, incoming,
