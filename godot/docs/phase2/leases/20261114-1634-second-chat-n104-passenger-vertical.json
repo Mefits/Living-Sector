@@ -1,0 +1,18 @@
+{
+  "worker": "second-chat-passenger-colony-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "3379141490a601d79f8a569014429d9bee31012d",
+  "goal": "N104 physical passenger embark/disembark with N9 household wealth conservation, N147 paid board path, N84 native ship transitions, source-only integration",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n104_passenger_transit.gd (new)",
+    "godot/scripts/sim/economy/contract_board.gd (passenger evidence branch only)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (passenger manifest invariants only)",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd (passenger leaves only)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (passenger method only; reconcile with N148 before touching)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (passenger dispatch only; reconcile with N148 before touching)"
+  ],
+  "non_overlap": "N148 fleet retirement/lifecycle: do not edit any retirement implementation or admin cleanup",
+  "verification": "SOURCE IN PROGRESS; NO GODOT/ACTIONS",
+  "started_at": "2026-11-14T16:34:00+03:00"
+}
