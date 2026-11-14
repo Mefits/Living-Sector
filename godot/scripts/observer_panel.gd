@@ -228,6 +228,15 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
                 lines.append("  N154 %s: %s · %s (план, не постройка)" % [
                     str(fid), str(view.get("status", "—")),
                     str(view.get("reason", "—"))])
+    # An N147 proposal is deliberately NOT a paid passenger contract or
+    # a colonized location. Display the last real read-only policy scan.
+    var colony_status: String = str(summary.get("colony_migration_status", "NOT_EVALUATED"))
+    if colony_status == "N147_NO_ESTABLISHED_COLONIES":
+        lines.append("КОЛОНИИ N147 · действующих колоний нет · пассажирских контрактов 0")
+    elif colony_status == "N147_SOURCE_EVALUATED":
+        lines.append("КОЛОНИИ N147 · наблюдается %d · предложений переселения %d (НЕ отправлены)" % [
+            int(summary.get("colony_observed_groups", 0)),
+            int(summary.get("colony_passenger_proposals_unposted", 0))])
     lines.append("СТАНЦИИ / КРЕДИТЫ / СОСТОЯНИЕ:")
     var facilities: Dictionary = economy["facilities"]
     var facility_ids: Array = facilities.keys()
