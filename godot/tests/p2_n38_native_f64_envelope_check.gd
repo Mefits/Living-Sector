@@ -17,7 +17,8 @@ func _initialize() -> void:
         "ledger": {"version": 1,
             "balances": {"faction/faction": 2743001}, "receipts": {}}}
     var source: Dictionary = {"format": "living-sector-godot",
-        "tick": 360, "native_production": native}
+        "tick": 360, "native_production": native,
+        "orbital_angles": {"source_orbit": 0.1 + 0.2}}
     var envelope: Dictionary = Save._wrap(source)
     if not (envelope.get("payload") is Dictionary):
         _fail("N38 exact native envelope not written")
@@ -49,6 +50,12 @@ func _initialize() -> void:
     # every money/stock/cargo/contract value without a single ULP loss.
     var native_guard: Dictionary = NativeFrame.verify_authoritative_frame(
         source, restored)
+    var orbit_original: float = source["orbital_angles"]["source_orbit"]
+    var orbit_restored: Variant = restored.get("orbital_angles", {}).get(
+        "source_orbit", null)
+    if typeof(orbit_restored) != TYPE_FLOAT or orbit_restored != orbit_original:
+        _fail("P1 orbital f64 changed across the same N38 hashed JSON envelope")
+        return
     if typeof(decoded_fuel) != TYPE_FLOAT or decoded_fuel != source_fuel or (
             not native_guard.get("ok", false)):
         _fail("N38 exact native frame rejected; " + str(native_guard) +
