@@ -403,6 +403,19 @@ static func validate(state: Dictionary) -> String:
                 var tier: Variant = state["location_tiers"][faction][location]
                 if not _id(location) or typeof(tier) != TYPE_INT or int(tier) < 1 or int(tier) > 4:
                     return "invalid_tier"
+    # N150 original faction-relations matrix is empty at fresh seed.
+    # Old N38 saves may omit it; no silent diplomatic reinitialization.
+    if state.has("faction_relations") != state.has("faction_relations_last_tick"):
+        return "half_present_native_faction_relations"
+    if state.has("faction_relations"):
+        if not (state["faction_relations"] is Dictionary) or not NativeRelations.validate_pairs(state["faction_relations"]):
+            return "invalid_native_faction_relations"
+        if typeof(state["faction_relations_last_tick"]) != TYPE_INT or int(state["faction_relations_last_tick"]) < 0:
+            return "invalid_native_relations_tick"
+        var owners: Dictionary = state.get("faction_treasuries", {})
+        for pair in state["faction_relations"].values():
+            if not owners.has(str(pair.get("a", ""))) or not owners.has(str(pair.get("b", ""))):
+                return "phantom_native_relation_faction"
     if Recipes.validate() != "":
         return "native_recipes_unavailable"
     return ""
