@@ -1,6 +1,6 @@
 {
   "owner": "interactive-primary-developer",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_on": "2026-11-14",
   "branch": "integration/godot-phase2-unified-20261113",
   "scope": [
@@ -11,5 +11,9 @@
     "godot/scripts/sim/phase2/n158_production_runtime.gd",
     "godot/docs/phase2/handoffs/20261114-n148-native-retirement-runtime.md"
   ],
-  "goal": "Source N148 per-tick strikes, N146 DecommissionShip => native queue => N39 actual N152 admin removal, finite hull policy, checkpoint N38, no balance changes; avoid other chat's N126/N147/N142 colonization"
+  "goal": "Source N148 per-tick strikes, N146 DecommissionShip => native queue => N39 actual N152 admin removal, finite hull policy, checkpoint N38, no balance changes; avoid other chat's N126/N147/N142 colonization",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n148-native-retirement-runtime.md",
+  "verification": "Static GitHub readback of 5 changed GDScripts: brackets/quotes/NUL/trailing newline and per-file consistent indentation PASS. Godot parser/runtime/Windows CI and game tests not run by user request. SOURCE_WIRED / CODE_UNVERIFIED.",
+  "remaining": "Native N140 LOD fired-skip cadence exact Rust parity, Rust SQLite deletion persistence, non-Genesis auto replacement; final game test after full Rust port",
+  "finished_on": "2026-11-14"
 }
