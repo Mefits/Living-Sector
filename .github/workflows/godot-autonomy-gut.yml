@@ -54,6 +54,7 @@ jobs:
           grep -q 'version="9.7.1"' godot/addons/gut/plugin.cfg
           test -f godot/tests/gut/test_native_bt.gd
           test -f godot/tests/gut/test_n9_n38_integrity.gd
+          test -f godot/tests/gut/test_n80_n21_source_guards.gd
       - name: Import project and third-party plugin once
         shell: bash
         run: |
@@ -119,6 +120,8 @@ jobs:
               for phase, total in sorted(microseconds.items(), key=lambda item: item[1], reverse=True)
           ])
           print("TICK_SPEED_BUCKETS:", data.get("tick_speed_buckets", []))
+          print("N39_WORLD_COPY_PROFILE:", data.get("n39_world_copy_profile", {}))
+          print("N84_BLOCK_REASONS:", data.get("native_n84_block_reasons", {}))
           assert data.get("result") == "PASS"
           assert data.get("manual_ship_commands") == 0
           assert data.get("injected_goods") == 0
