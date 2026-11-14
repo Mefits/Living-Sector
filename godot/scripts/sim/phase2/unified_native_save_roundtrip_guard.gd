@@ -37,6 +37,27 @@ static func verify_authoritative_frame(original: Dictionary,
 ## Values are compared by their original type, not JSON.stringify output.
 ## JSON may decode an integral token as float; accept only an EXACT integral
 ## conversion, never float rounding of an original 64-bit Rust credit.
+## Godot's JSON writer may shorten the final IEEE-754 digits of the
+## frozen N155 personality profile. These *dimensionless* preferences
+## are the only approved near-float case; N9, markets, N14 physics,
+## receipts, research progress and every other native field remain
+## exactly guarded. A large profile change remains corruption.
+const SOURCE_PROFILE_FIELDS: Array[String] = [
+    "industry", "science", "expansion", "caution", "aggression"]
+const SOURCE_PROFILE_JSON_ROUNDOFF: float = 0.000000000001
+
+static func _source_profile_rounding_only(path: String,
+        before_value: float, decoded_value: float) -> bool:
+    var parts: PackedStringArray = path.split("/")
+    if parts.size() != 6 or parts[0] != "native_production" or (
+            parts[1] != "world" or parts[2] != "research_directors" or
+            str(parts[3]).is_empty() or parts[4] != "profile" or
+            not (parts[5] in SOURCE_PROFILE_FIELDS)):
+        return false
+    if not is_finite(before_value) or not is_finite(decoded_value):
+        return false
+    return absf(before_value - decoded_value) <= SOURCE_PROFILE_JSON_ROUNDOFF
+
 static func _difference(original: Variant, decoded: Variant,
         path: String, depth: int) -> String:
     if depth > MAX_NESTED_DEPTH:
@@ -93,8 +114,10 @@ static func _difference(original: Variant, decoded: Variant,
             return path + ":float_type_changed"
         var before_float: float = float(original)
         var after_float: float = float(decoded)
-        if not is_finite(before_float) or not is_finite(after_float) or (
-                before_float != after_float):
+        if not is_finite(before_float) or not is_finite(after_float):
+            return path + ":non_finite_native_float"
+        if before_float != after_float and not _source_profile_rounding_only(
+                path, before_float, after_float):
             return path + ":float_changed_by_json"
         return ""
     if kind != decoded_kind:
