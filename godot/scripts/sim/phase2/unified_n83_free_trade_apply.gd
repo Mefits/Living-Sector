@@ -63,12 +63,13 @@ static func _fixture(world: Dictionary, ship_id: String) -> Dictionary:
     projected_market["location"] = loc
     projected_market["trade_volume"] = market.get("trade_volume", {}).duplicate(true)
     var projection: Dictionary = {
-        "ships": {ship_id: projected_ship},
-        "facilities": {fid: projected_facility},
-        "markets": {loc: projected_market},
-        "relations": normalized,
-        "market_controllers": {loc: str(facility.get("faction", ""))}
+        "ships": {}, "facilities": {}, "markets": {},
+        "relations": normalized, "market_controllers": {}
     }
+    projection["ships"][ship_id] = projected_ship
+    projection["facilities"][fid] = projected_facility
+    projection["markets"][loc] = projected_market
+    projection["market_controllers"][loc] = str(facility.get("faction", ""))
     return {"ok": true, "world": projection, "market_id": loc,
         "facility_id": fid}
 
