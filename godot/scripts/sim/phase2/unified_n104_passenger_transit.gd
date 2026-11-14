@@ -286,6 +286,14 @@ static func move(world: Dictionary, bank: Dictionary, cid: String,
     var transition: Dictionary = board.confirm_pickup(cid, sid, tick, receipt_id) if embarking else board.confirm_delivery(cid, sid, tick, receipt_id)
     if not transition.get("ok", false):
         return transition
+    # N152/N148 source admin_remove_ship MUST see an embarked
+    # manifest on the canonical ContractBoard, not a shadow register.
+    var board_manifest: Dictionary = board.snapshot()
+    board_manifest["contracts"][cid]["embarked"] = {
+        "origin_population": origin, "wealth": int(staged["passenger_manifests"][cid]["initial_wealth"])
+    } if embarking else null
+    if not board.restore(board_manifest):
+        return _reject("n104_passenger_manifest_board_rejected")
     var credited: int = 0
     if not embarking:
         var settled: Dictionary = board.settle(cid, sid,
