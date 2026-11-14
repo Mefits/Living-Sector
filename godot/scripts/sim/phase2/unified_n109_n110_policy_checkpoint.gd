@@ -65,9 +65,9 @@ static func normalize(world: Dictionary, saved_tick: int = -1) -> Dictionary:
             # The engine control thread alone installed this directive at
             # its real tick; JSON may never move source policy into the
             # future relative to the one saved N39 authoritative clock.
-            var source_tick: int = int(entry.get(
-                "created_tick" if kind == "research_mandates"
-                    else "updated_tick", 0))
+            var time_field: String = "created_tick" if (
+                kind == "research_mandates") else "updated_tick"
+            var source_tick: int = int(entry.get(time_field, 0))
             if saved_tick >= 0 and source_tick > saved_tick:
                 return _bad("n109_n110_json_policy_from_future:" +
                     str(faction))
