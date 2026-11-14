@@ -51,6 +51,7 @@ const NativeCrewXp = preload("res://scripts/sim/ship_crew_skills_n128.gd")
 const N146Commands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
 const NativeFreeTrade = preload("res://scripts/sim/phase2/unified_n83_free_trade_apply.gd")
 const NativeShipServices = preload("res://scripts/sim/phase2/unified_n97_ship_service_stage.gd")
+const NativeGateJump = preload("res://scripts/sim/phase2/unified_n108_gate_jump_stage.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
@@ -409,6 +410,122 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
     _world = staged
     return true
 
+
+
+## Rust N108 RequestGateJump: original linked GateLink, actual position,
+## and one source gate fee. This is the ONLY canonical publisher:
+## N84/N146 request never moves the ship or changes money itself.
+func apply_native_n108_gate_jump(tick: int, ship_id: String,
+        from_loc: String, to_loc: String, resolver: RefCounted) -> Dictionary:
+    if not _ready or tick != _last_tick + 1 or tick < 1 or (
+            ship_id.is_empty() or from_loc.is_empty() or to_loc.is_empty()):
+        return {"ok": false, "reason": "n108_not_real_ships_apply"}
+    if not _world.get("ships", {}).has(ship_id):
+        return {"ok": false, "reason": "n108_missing_real_ship"}
+    var live: Dictionary = _world["ships"][ship_id]
+    if not (live.get("current_bt", null) is Dictionary) or (
+            NativeBt.current_action(live["current_bt"]) != "GateJump"):
+        return {"ok": false, "reason": "n108_no_current_source_gate_bt"}
+    var before_bank: Dictionary = _ledger.snapshot()
+    var staged: Dictionary = NativeGateJump.stage(
+        _world, before_bank, resolver, ship_id, from_loc, to_loc, tick)
+    if not staged.get("ok", false):
+        return staged
+    var future: Dictionary = staged.get("world", {})
+    var money: Dictionary = staged.get("ledger_snapshot", {})
+    var receipt: Dictionary = staged.get("receipt", {})
+    var fee: int = int(staged.get("fee", -1))
+    var old_size: int = _world.size()
+    if future.size() != old_size + (0 if _world.has(
+            "native_gate_jump_receipts") else 1):
+        return {"ok": false, "fatal": true, "reason": "n108_unexpected_world_domain"}
+    for domain in _world:
+        if domain not in ["ships", "facilities", "native_gate_jump_receipts"] and (
+                future.get(domain, null) != _world[domain]):
+            return {"ok": false, "fatal": true, "reason": "n108_modified_unrelated_world"}
+    for sid in _world["ships"]:
+        if not future["ships"].has(sid) or (
+                str(sid) != ship_id and future["ships"][sid] != _world["ships"][sid]):
+            return {"ok": false, "fatal": true, "reason": "n108_moved_other_ship"}
+    if future["ships"].size() != _world["ships"].size() or (
+            future["facilities"].size() != _world["facilities"].size()):
+        return {"ok": false, "fatal": true, "reason": "n108_created_ghost_ship_or_gate"}
+    var source_gate: String = str(receipt.get("source_gate_id", ""))
+    var destination_gate: String = str(receipt.get("destination_gate_id", ""))
+    if not _world["facilities"].has(source_gate) or not (
+            _world["facilities"].has(destination_gate)) or source_gate == destination_gate:
+        return {"ok": false, "fatal": true, "reason": "n108_fee_has_no_real_gate"}
+    for fid in _world["facilities"]:
+        if not future["facilities"].has(fid) or (
+                str(fid) != source_gate and future["facilities"][fid] != _world["facilities"][fid]):
+            return {"ok": false, "fatal": true, "reason": "n108_changed_other_gate_or_station"}
+    var old_ship: Dictionary = _world["ships"][ship_id]
+    var new_ship: Dictionary = future["ships"][ship_id]
+    var allowed_fields: Array = ["credits", "location", "docked_at",
+        "position", "system_id", "memory"]
+    for field in old_ship:
+        if field not in allowed_fields and new_ship.get(field, null) != old_ship[field]:
+            return {"ok": false, "fatal": true, "reason": "n108_mutated_other_ship_field"}
+    for field in new_ship:
+        if not old_ship.has(field) and field not in allowed_fields:
+            return {"ok": false, "fatal": true, "reason": "n108_added_fake_ship_component"}
+    var expected_memory: Dictionary = old_ship.get("memory", {}).duplicate(true)
+    if not (expected_memory.get("recent_systems", null) is Array) or (
+            not (new_ship.get("memory", null) is Dictionary)):
+        return {"ok": false, "fatal": true, "reason": "n108_invalid_real_gate_memory"}
+    expected_memory["recent_systems"] = new_ship["memory"].get(
+        "recent_systems", []).duplicate(true)
+    if expected_memory != new_ship["memory"] or (
+            new_ship["transit"] != old_ship["transit"]):
+        return {"ok": false, "fatal": true, "reason": "n108_fabricated_ship_history_or_transit"}
+    if str(old_ship.get("location", "")) != from_loc or str(
+            new_ship.get("location", "")) != to_loc or str(
+            new_ship.get("system_id", "")) != str(receipt.get(
+            "destination_system", "")):
+        return {"ok": false, "fatal": true, "reason": "n108_unverified_destination"}
+    if not (new_ship.get("position", null) is Array) or (
+            new_ship["position"] != receipt.get("position", null)):
+        return {"ok": false, "fatal": true, "reason": "n108_missing_exact_source_exit_position"}
+    if fee < 0 or int(old_ship["credits"]) - int(
+            new_ship["credits"]) != fee or int(
+            future["facilities"][source_gate]["credits"]) - int(
+            _world["facilities"][source_gate]["credits"]) != fee:
+        return {"ok": false, "fatal": true, "reason": "n108_source_gate_fee_not_conserved"}
+    var op: String = str(receipt.get("operation_id", ""))
+    if op.is_empty() or not future.get("native_gate_jump_receipts", {}).has(op) or (
+            future["native_gate_jump_receipts"].size() != _world.get(
+            "native_gate_jump_receipts", {}).size() + 1):
+        return {"ok": false, "fatal": true, "reason": "n108_source_gate_receipt_not_unique"}
+    for prior in _world.get("native_gate_jump_receipts", {}):
+        if future["native_gate_jump_receipts"].get(prior, null) != _world[
+                "native_gate_jump_receipts"][prior]:
+            return {"ok": false, "fatal": true, "reason": "n108_rewrote_prior_jump"}
+    var required_money_receipt: int = 1 if fee > 0 else 0
+    if money.get("receipts", {}).size() != before_bank.get(
+            "receipts", {}).size() + required_money_receipt:
+        return {"ok": false, "fatal": true, "reason": "n108_wrong_n9_fee_receipt_count"}
+    if fee > 0 and not money["receipts"].has(op):
+        return {"ok": false, "fatal": true, "reason": "n108_missing_source_gate_paid_receipt"}
+    for prior_id in before_bank["receipts"]:
+        if money["receipts"].get(prior_id, null) != before_bank["receipts"][prior_id]:
+            return {"ok": false, "fatal": true, "reason": "n108_modified_old_bank_history"}
+    var original_bank := Ledger.new()
+    if not original_bank.restore(money) or original_bank.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "n108_real_n9_money_created_or_lost"}
+    var err: String = Schema.validate(future)
+    if not err.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n108_gate_world_" + err}
+    var accounts: Dictionary = Schema.accounts(future)
+    if accounts.size() != money.get("balances", {}).size():
+        return {"ok": false, "fatal": true, "reason": "n108_different_original_n9_wallets"}
+    for account in accounts:
+        if money["balances"].get(account, null) != accounts[account]:
+            return {"ok": false, "fatal": true, "reason": "n108_wallet_not_backed_by_real_n9"}
+    _world = future
+    _ledger = original_bank
+    return {"ok": true, "tick": tick, "ship_id": ship_id,
+        "source": from_loc, "destination": to_loc, "fee": fee,
+        "receipt": receipt.duplicate(true)}
 
 
 ## Frozen Rust N97 Refuel/Mine single-owner Apply. A genuine N90
