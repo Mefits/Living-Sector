@@ -1,0 +1,10 @@
+{
+  "worker": "automation11",
+  "status": "IN_PROGRESS",
+  "started_msk": "2026-11-14T05:55:00+03:00",
+  "expires_msk": "2026-11-14T06:35:00+03:00",
+  "scope": [
+    "godot/tests/p2_autonomous_multitick_delivery_restart_check.gd"
+  ],
+  "purpose": "Make end-to-end acceptance reject pre-existing/foreign contracts and require native N135 posted + N153 accepted provenance before paid-delivery PASS"
+}
