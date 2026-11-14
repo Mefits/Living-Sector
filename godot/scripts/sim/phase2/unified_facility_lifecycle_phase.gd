@@ -27,11 +27,22 @@ static func propose(world: Dictionary, tick: int, tick_scale: float,
         if not (fac is Dictionary):
             return {"ok": false, "reason": "invalid_authoritative_facility"}
         var location: String = str(fac.get("location", ""))
-        if location.is_empty() or not world["markets"].has(location):
-            return {"ok": false, "reason": "facility_has_no_physical_market"}
-        var market: Variant = world["markets"][location]
-        if not (market is Dictionary) or not (market.get("supply") is Dictionary):
-            return {"ok": false, "reason": "invalid_physical_market"}
+        if location.is_empty():
+            return {"ok": false, "reason": "facility_has_no_physical_location"}
+        # Rust colony::prepare_docks has no market until completion.
+        # Only an approved unfinished N151 construction_dock may lack
+        # a seller. N156 still updates its real lifecycle/condition.
+        if not world["markets"].has(location):
+            var site_ref: String = str(fac.get("construction_source_site_id", ""))
+            var site: Dictionary = world.get("construction_sites", {}).get(site_ref, {})
+            if str(fac.get("type", "")) != "construction_dock" or (
+                    site.is_empty() or str(site.get("location_name", "")) != location or
+                    str(site.get("faction_id", "")) != str(fac.get("faction", ""))):
+                return {"ok": false, "reason": "facility_has_no_physical_market"}
+        else:
+            var market: Variant = world["markets"][location]
+            if not (market is Dictionary) or not (market.get("supply") is Dictionary):
+                return {"ok": false, "reason": "invalid_physical_market"}
         var condition: float = float(fac.get("condition", 1.0))
         if not is_finite(condition) or condition < 0.0 or condition > 1.0:
             return {"ok": false, "reason": "invalid_facility_condition"}
