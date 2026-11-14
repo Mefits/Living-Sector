@@ -1,4 +1,3 @@
-P2 STAGE2 CLEAN SEED 420-TICK N38 CONTINUITY — 2026-11-15
-Source HEAD before this single combined Godot run: 1ef9ffbe7a0826e20b0e39bbe4430dee2b655ace
-Previous CI 43643329724: parser/economy/research PASS; new stage2 test stopped at tick60 from incorrect assumption that crew wages are spendable N9 wallets. Frozen Rust ShipCrew accrues paid wages as nonspendable savings, and N9 records immutable one-leg native_ship_crew_wages receipts. The stage2 test now reconciles every balance change to original N9 receipts and only permits source-legal wages/admin writeoffs; no simulation or economy behavior changed.
-Run one parser + economy + research + clean original 420 tick x8/one N38 disk restart at tick360. No invented demand, ships, money, routes or resources. This is not full A/B/V/G or Windows PASS.
+P2 STAGE2 CLEAN SOURCE N91/N151 AND DIAGNOSTIC N38 TICK360 — 2026-11-15
+Head before trigger: e7bbf86f2ce200b1c53e91d37b3ed41dcf9e4b01
+Prior CI 43643954303: Godot parser/economy/research PASS, clean seed 360 native ticks with 24 ships and N9 source receipts, save failed at tick360 without details. Pure N91 fixture exposed false 0/600 material qualification; fixed by requiring exact all-material delivery and N151 receipt-owned physical dock. This single combined run identifies the N38 guard/reason; no balance or simulation changes, no fabricated objects.
