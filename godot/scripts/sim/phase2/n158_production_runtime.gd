@@ -721,7 +721,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # N39 admits their serialized N84 plan before single N146 Apply.
         var native_ice: Dictionary = NativeIceMining.stage(
             production.world_snapshot(), _fleet_roster.registry.graph(),
-            _fleet_resolver, tick, n140_fired)
+            _fleet_resolver, tick, n140_fired,
+            locations["positions"], clock.tick_scale())
         if not native_ice.get("ok", false):
             _last_ship_result = {"ok": false, "reason": "n103_native_source_" +
                 str(native_ice.get("reason", "rejected"))}
@@ -736,7 +737,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             "blocked", []).duplicate(true)
         var native_explore: Dictionary = NativeGateExploration.stage(
             production.world_snapshot(), _fleet_roster.registry.graph(),
-            _fleet_resolver, tick, n140_fired)
+            _fleet_resolver, tick, n140_fired,
+            locations["positions"], clock.tick_scale())
         if not native_explore.get("ok", false):
             _last_ship_result = {"ok": false, "reason": "n80_native_source_" +
                 str(native_explore.get("reason", "rejected"))}
