@@ -102,8 +102,22 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
         if location != site_location or not ship.get("transit", {}).is_empty():
             return {"status": Bt.RUNNING, "reason": "n91_site_arrival_pending"}
         var station_id: String = str(world.get("markets", {}).get(location, {}).get("owner", ""))
+        var required_type: String = "station"
+        if station_id.is_empty():
+            # Rust N91 engineer physically docks at prepare_docks' temporary
+            # colony port while N154 still has no station or Market.
+            var proof: Dictionary = world.get("construction_receipts", {}).get(
+                "n151_colony_dock:" + site_id, {})
+            var candidate: String = str(proof.get("facility_id", ""))
+            var fac: Dictionary = world.get("facilities", {}).get(candidate, {})
+            if str(proof.get("kind", "")) == "colony_dock_prepared" and (
+                    str(fac.get("type", "")) == "construction_dock" and
+                    str(fac.get("location", "")) == location and
+                    str(fac.get("construction_source_site_id", "")) == site_id):
+                station_id = candidate
+                required_type = "construction_dock"
         if station_id.is_empty() or not world.get("facilities", {}).has(station_id):
-            return {"status": Bt.RUNNING, "reason": "n91_site_station_missing"}
+            return {"status": Bt.RUNNING, "reason": "n91_site_physical_dock_not_prepared"}
         var dock_id: String = str(ship.get("docked_at", ""))
         if kind == "ConstructionDock":
             if dock_id == station_id:
@@ -112,7 +126,7 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             var command: Dictionary = Commands.make_command(request_kind, {
                 "ship": ship_id, "facility_location": location,
                 "construction_site_id": site_id,
-                "preferred_facility_type": "station"})
+                "preferred_facility_type": required_type})
             if command.is_empty():
                 return {"status": Bt.FAILURE, "reason": "n146_n91_dock_request_invalid"}
             return {"status": Bt.RUNNING, "commands": [command],
