@@ -5,6 +5,69 @@ extends RefCounted
 ## posts a paid N104 Passenger order. This is a pure read-only grant
 ## validation/proposal: the one N39 World/N9/ContractBoard owns Apply.
 const SourceMigrationScore: float = 60.0
+const SourceN113 = preload("res://scripts/sim/phase2/unified_n113_strategy_switch.gd")
+
+## Frozen Rust director.rs::option_score for CURRENT authentic N111
+## alternative, never stale N113.strategic.score or a synthetic bid.
+static func _native_supply_offer(head: Dictionary,
+        director: Dictionary) -> Dictionary:
+    var selection: String = str(head.get("selected_option", ""))
+    if selection not in ["deliver", "build"]:
+        return {}
+    var goal: Variant = head.get("problem", null)
+    var profile: Variant = director.get("profile", null)
+    if not (goal is Dictionary) or goal.is_empty() or (
+            not (profile is Dictionary)):
+        return {}
+    var target: String = "%s|%s|%s" % [
+        str(goal.get("goal_id", "")),
+        str(goal.get("destination", "")),
+        str(goal.get("commodity", ""))]
+    if target.begins_with("|") or str(goal.get("destination", "")).is_empty():
+        return {}
+    var alternatives: Variant = head.get("alternatives", null)
+    if not (alternatives is Array):
+        return {}
+    for raw in alternatives:
+        if not (raw is Dictionary):
+            continue
+        var alt: Dictionary = raw
+        if str(alt.get("action", "")) != selection or (
+                str(alt.get("status", "")) != "ready"):
+            continue
+        var site: bool = alt.get("site_id", null) != null and (
+            not str(alt.get("site_id", "")).is_empty())
+        var industry: float = float(profile.get("industry", -1.0))
+        if not is_finite(industry) or industry < 0.0:
+            return {}
+        var score: float = -1.0
+        if selection == "build" and (str(goal.get("goal_id", "")) in [
+                "develop_colony", "player_industry"] or (
+                str(goal.get("destination", "")).ends_with("-colony")
+                and site)):
+            score = 35.0 * industry + (8.0 if site else 0.0)
+        else:
+            var covered: float = float(alt.get("covered_units", -1.0))
+            var net_value: Variant = alt.get("estimated_net_value", null)
+            if not is_finite(covered) or covered <= 0.0 or (
+                    not (net_value is float or net_value is int)):
+                return {}
+            var net: float = float(net_value)
+            if not is_finite(net) or net <= 0.0:
+                return {}
+            score = log(1.0 + net) * (
+                industry if selection == "build" else 1.0)
+            score += float(mini(1000, maxi(0, int(
+                goal.get("shortage_ticks", 0))))) * 0.01
+            if site:
+                score += 5.0
+        if not is_finite(score) or score <= 0.0:
+            return {}
+        return {"action": "supply", "target": target,
+            "score": score, "available": true,
+            "reason": str(head.get("reason", ""))}
+    return {}
+
 
 static func _fail(why: String) -> Dictionary:
     return {"ok": false, "reason": why}
@@ -32,9 +95,10 @@ static func authorize(world: Dictionary, faction: String, ready: Dictionary,
     if int(baseline.get("observed_tick", -1)) != tick:
         return _fail("n147_head_not_from_this_decision_tick")
     var choice: String = str(baseline.get("selected_option", ""))
-    # A real already-funded construction, supply, research or native-plan
-    # decision cannot silently be displaced by the ready migration offer.
-    if choice not in ["wait", "migrate_colony"] or str(
+    # A live N134 build/deliver option is a candidate to re-score,
+    # NOT automatic authority for a second paid action. Real existing
+    # N104/Construction financial commitments are blocked below.
+    if choice not in ["wait", "migrate_colony", "build", "deliver"] or str(
             baseline.get("reason", "")) in [
             "already_commissioned_this_tick",
             "outstanding_native_plan_retained"]:
@@ -79,23 +143,38 @@ static func authorize(world: Dictionary, faction: String, ready: Dictionary,
     var memory: Dictionary = old
     var incumbent: String = str(memory.get("kind", ""))
     var current_target: String = str(memory.get("target", ""))
-    # Rust Director::retain_or_switch keeps a viable existing commitment
-    # until 1.2x superiority over TWO actual strategic cycles. This small
-    # N147 branch must NOT invent an extra Director vote and override
-    # an unrelated already selected supply/research/expansion strategy.
-    if not incumbent.is_empty() and (
-            incumbent != "migrate" or current_target != destination):
+    # All migration candidates have ALREADY passed real N92/N147
+    # inhabitants/market/cargo/seats/route/fuel/treasury preflight.
+    var options: Array = [{"action": "migrate", "target": destination,
+        "score": SourceMigrationScore, "available": true,
+        "reason": "colony_needs_workers"}]
+    var real_supply: Dictionary = _native_supply_offer(baseline, director)
+    if not real_supply.is_empty():
+        options.append(real_supply)
+    # The construction-only N134 bridge cannot reconstruct a historical
+    # alternate supply quote, or score a current science/expansion offer.
+    # Preserve those commitments, rather than falsely claiming they
+    # vanished and switching on an invented comparator score.
+    if incumbent in ["research", "expand"] or (
+            incumbent == "supply" and (real_supply.is_empty() or
+            str(real_supply.get("target", "")) != current_target)):
         return {"ok": true, "authorized": false,
-            "reason": "n147_source_director_strategy_not_migration"}
-    var staged: Dictionary = memory.duplicate(true)
-    var changing: bool = incumbent != "migrate" or current_target != destination
-    staged["kind"] = "migrate"
-    staged["target"] = destination
-    staged["score"] = SourceMigrationScore
-    staged["since"] = tick if changing else int(staged.get("since", tick))
-    staged["reason"] = "colony_workforce_needed" if changing else (
-        "viable_commitment_retained")
-    staged["pending"] = null
+            "reason": "n113_original_incumbent_needs_real_comparison"}
+    var source_choice: Dictionary = SourceN113.decide(memory, options, tick)
+    if not source_choice.get("ok", false):
+        return source_choice
+    if source_choice.get("choice", {}).get("action", "") != "migrate" or (
+            str(source_choice.get("choice", {}).get("target", "")) != destination):
+        # One first-cycle or insufficient-advantage decision only updates
+        # N113 StrategicMemory; NOT a passenger post or paid vote.
+        return {"ok": true, "authorized": false, "pending": bool(
+            source_choice.get("pending", false)),
+            "reason": str(source_choice.get("reason", "")),
+            "faction_id": faction, "tick": tick,
+            "strategy": source_choice["memory"].duplicate(true),
+            "head": baseline.duplicate(true),
+            "money_spent": 0}
+    var staged: Dictionary = source_choice["memory"].duplicate(true)
     var head: Dictionary = baseline.duplicate(true)
     head["selected_option"] = "migrate_colony"
     head["selected_administrator"] = ""
@@ -105,4 +184,5 @@ static func authorize(world: Dictionary, faction: String, ready: Dictionary,
     return {"ok": true, "authorized": true,
         "faction_id": faction, "tick": tick, "head": head,
         "strategy": staged, "ready": ready.duplicate(true),
-        "money_spent": 0, "source": "rust_n92_migration_only_after_one_n134_head"}
+        "money_spent": 0, "reason": str(source_choice.get("reason", "")),
+        "source": "rust_n113_retain_or_switch_then_n92_migration_commission"}
