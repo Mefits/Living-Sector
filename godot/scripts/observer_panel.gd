@@ -24,7 +24,7 @@ func show_observation(tick: int, faction_id: String, state: Dictionary) -> void:
 ## P2 live economy inspection: read ONLY the authoritative N39 snapshot.
 ## Do not present unconnected N20 planner decisions as active gameplay.
 func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
-        ships: Dictionary = {}) -> void:
+        ships: Dictionary = {}, proof: Dictionary = {}) -> void:
     if _label == null:
         return
     if not (economy.get("facilities") is Dictionary) or not (economy.get("markets") is Dictionary) or not (economy.get("populations") is Dictionary):
@@ -135,6 +135,37 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
     for stage in stages:
         stage_labels.append("%s=%d" % [str(stage), int(lifecycle_counts[stage])])
     lines.append("Стадии N104: " + (", ".join(stage_labels) if not stage_labels.is_empty() else "контрактов нет"))
+    # This is evidence, not a new event log: receipts are read from the
+    # exact N38 checkpoint of the one N39/N9 world. A BT plan, route or
+    # ContractBoard status alone is never displayed as physical delivery.
+    var proof_ledger: Dictionary = proof.get("ledger", {}) if proof.get("ledger", {}) is Dictionary else {}
+    var proof_receipts: Dictionary = proof_ledger.get("receipts", {}) if proof_ledger.get("receipts", {}) is Dictionary else {}
+    var cargo_receipts: Dictionary = economy.get("cargo_receipts", {}) if economy.get("cargo_receipts", {}) is Dictionary else {}
+    if not order_ids.is_empty():
+        lines.append("ДОКАЗАТЕЛЬСТВА АВТОНОМНОЙ ЦЕПОЧКИ (сохранённые receipts):")
+        for cid_variant in order_ids.slice(0, 8):
+            var proof_id: String = str(cid_variant)
+            var proof_contract: Dictionary = contracts.get(proof_id, {})
+            var proof_ship: String = str(proof_contract.get("fulfiller_id", ""))
+            var load_receipt: Dictionary = cargo_receipts.get("contract:" + proof_id + ":load", {})
+            var unload_receipt: Dictionary = cargo_receipts.get("contract:" + proof_id + ":unload", {})
+            var payout_receipt: Dictionary = proof_receipts.get("contract:" + proof_id + ":payout", {})
+            var milestones: Array[String] = []
+            if not load_receipt.is_empty() and str(load_receipt.get("action", "")) == "load":
+                milestones.append("N15/N97 pickup подтверждён")
+            if not unload_receipt.is_empty() and str(unload_receipt.get("action", "")) == "unload":
+                milestones.append("N15 delivery подтверждён")
+            if not payout_receipt.is_empty():
+                milestones.append("N104/N9 payout подтверждён")
+            if milestones.is_empty():
+                lines.append("  %s · %s · физического/денежного receipt пока нет" % [
+                    proof_id, str(proof_contract.get("status", "unknown"))])
+            else:
+                lines.append("  %s · корабль %s · %s" % [proof_id,
+                    proof_ship if not proof_ship.is_empty() else "не назначен",
+                    " → ".join(milestones)])
+                if not payout_receipt.is_empty():
+                    lines.append("    payout: %s" % str(payout_receipt.get("id", "сохранён в N9")))
     if summary.get("n84_trace", null) is Array:
         var trace: Array = summary["n84_trace"]
         lines.append("N84 решения текущего тика: %d" % trace.size())
