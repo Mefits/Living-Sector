@@ -416,6 +416,27 @@ static func validate(state: Dictionary) -> String:
         for pair in state["faction_relations"].values():
             if not owners.has(str(pair.get("a", ""))) or not owners.has(str(pair.get("b", ""))):
                 return "phantom_native_relation_faction"
+    # Frozen Rust BodyTerritory defaults exist even before first
+    # faction-cycle recomputation. Older saves lacking both keys remain
+    # compatible; never fill them with fabricated territorial claims.
+    if state.has("body_territory") != state.has("territory_last_tick"):
+        return "half_present_native_body_territory"
+    if state.has("body_territory"):
+        if not (state["body_territory"] is Dictionary) or typeof(state["territory_last_tick"]) != TYPE_INT or int(state["territory_last_tick"]) < 0:
+            return "invalid_native_territory_clock"
+        if state["body_territory"].size() != state["bodies"].size():
+            return "missing_native_body_territory"
+        for body in state["body_territory"]:
+            if not state["bodies"].has(body) or not (state["body_territory"][body] is Dictionary):
+                return "foreign_native_body_territory"
+            var row: Dictionary = state["body_territory"][body]
+            if not row.has("controlling_faction") or not row.has("contested") or typeof(row["contested"]) != TYPE_BOOL:
+                return "invalid_native_body_control"
+            var controlling: Variant = row["controlling_faction"]
+            if controlling != null and (not (controlling is String) or not state.get("faction_treasuries", {}).has(controlling)):
+                return "native_territory_has_phantom_owner"
+            if bool(row["contested"]) and controlling == null:
+                return "native_contested_body_without_controller"
     if Recipes.validate() != "":
         return "native_recipes_unavailable"
     return ""
