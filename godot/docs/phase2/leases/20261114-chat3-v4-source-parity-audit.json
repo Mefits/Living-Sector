@@ -1,0 +1,22 @@
+{
+  "worker": "chat3-V4-full-source-audit-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "5a036bf037f0909be5f0f6b5d192049934eef414",
+  "goal": "V4 full Rust Galaxy 0.6.7 -> Godot integration source audit: map active engine phase/action/contract/faction paths to real N158 and N39/N9/N104 callsites, distinguish source-wired vs not yet connected and identify critical errors. Produce evidence-based actionable audit+final acceptance specification; fix independent high-risk defect only outside other chats' leases.",
+  "scope": [
+    "godot/docs/phase2/handoffs/20261114-chat3-v4-source-parity-audit.md (new)",
+    "godot/docs/phase2/P2_V4_FINAL_ACCEPTANCE_MATRIX_RU.md (new)",
+    "godot/tests/p2_v4_wiring_contract_check.gd (new source regression, deferred)",
+    "other exclusively reserved nonoverlap file if confirmed necessary"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (chat2 B4)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (chat2 B4)",
+    "godot/scripts/sim/phase2/unified_n80_ship_exploration_stage.gd (chat1)",
+    "all balance changes",
+    "Godot runs and GitHub Actions"
+  ],
+  "coordination": "Read latest active leases on each shared-file action; existing Chat1 N80 and Chat2 B4 IN_PROGRESS. No touching owner files. No invented source coverage claims.",
+  "verification": "SOURCE_AUDIT_ONLY/UNVERIFIED_RUNTIME"
+}
