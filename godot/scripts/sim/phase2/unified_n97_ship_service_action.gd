@@ -31,19 +31,18 @@ static func propose(ship: Dictionary, action: Dictionary,
         if not result.get("ok", false):
             return _failed("n90_poll_source_mismatch")
         ship["transaction"] = result["state"].duplicate(true)
-        match str(result.get("status", "")):
-            N90.RUNNING:
-                return {"status": Bt.RUNNING,
-                    "reason": "n90_await_original_n97_apply"}
-            N90.FAILURE:
-                return _failed("original_n97_negative_ack")
-            N90.SUCCESS:
-                if kind == "mine":
-                    return {"status": Bt.SUCCESS, "reason": "n97_real_ice_mined"}
-                # Original Refuel loops for multiple 2-unit batches
-                # until actual tank capacity, not instant full refill.
-            _:
-                return _failed("unknown_native_transaction_ack")
+        var settled: String = str(result.get("status", ""))
+        if settled == N90.RUNNING:
+            return {"status": Bt.RUNNING,
+                "reason": "n90_await_original_n97_apply"}
+        if settled == N90.FAILURE:
+            return _failed("original_n97_negative_ack")
+        if settled != N90.SUCCESS:
+            return _failed("unknown_native_transaction_ack")
+        if kind == "mine":
+            return {"status": Bt.SUCCESS, "reason": "n97_real_ice_mined"}
+        # Original Refuel loops for multiple 2-unit batches
+        # until actual tank capacity, not instant full refill.
     if kind == "refuel":
         var fuel: Variant = ship.get("fuel", null)
         var cap: Variant = ship.get("fuel_capacity", null)
