@@ -47,6 +47,7 @@ var _last_native_passengers: Dictionary = {}
 var _last_n151_founding: Dictionary = {}
 var _last_n151_docks: Dictionary = {}
 var _last_n144_contracts: Dictionary = {}
+var _last_n144_new_sites: Dictionary = {}
 var _last_faction_relations: Dictionary = {}
 var _last_body_territory: Dictionary = {}
 var _last_native_faction_finance: Dictionary = {}
@@ -79,6 +80,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_n151_founding = {}
     _last_n151_docks = {}
     _last_n144_contracts = {}
+    _last_n144_new_sites = {}
     _last_faction_relations = {}
     _last_body_territory = {}
     _last_native_faction_finance = {}
@@ -300,6 +302,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             _last_n144_contracts = {"ok": true, "tick": tick,
                 "posted": [], "blocked": [], "decisions": [],
                 "status": "N144_NATIVE_N134_REAL_HEAD_DECISIONS"}
+            _last_n144_new_sites = {"ok": true, "tick": tick,
+                "founded": [], "blocked": [], "decisions": [],
+                "status": "N144_REAL_FOUND_COLONY_HEAD_CYCLE"}
             var head_world: Dictionary = production.world_snapshot()
             if head_world.has("construction_sites"):
                 var head_factions: Array = head_world.get("faction_treasuries", {}).keys()
@@ -315,6 +320,43 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                             "reason": str(planned_build.get("reason", "N134_source_comparison_unavailable"))})
                         continue
                     _last_n134_result["heads"][faction] = planned_build.get("head", {}).duplicate(true)
+                    # Miro B1: frozen colony.rs::proposals -> original
+                    # N113/N134 HeadDecision found_colony -> ONE real N39
+                    # zero-cost ConstructionSite Apply. N151 prepare_docks
+                    # will run later in this SAME tick; no passenger grant
+                    # or metal/market exists at this instant.
+                    var founding: Dictionary = production.apply_native_n144_found_colony(
+                        tick, str(faction), planned_build, world,
+                        _fleet_roster.registry.graph(), _faction_sources,
+                        _tick_multiplier)
+                    if not founding.get("ok", false):
+                        if founding.get("fatal", false):
+                            _last_n144_new_sites = founding
+                            return false
+                        _last_n144_new_sites["blocked"].append({
+                            "faction_id": str(faction),
+                            "reason": str(founding.get("reason",
+                                "b1_original_head_not_authorized"))})
+                    elif founding.get("founded", false):
+                        _last_n144_new_sites["founded"].append(founding.duplicate(true))
+                        _last_n144_new_sites["decisions"].append(
+                            founding.get("head", {}).duplicate(true))
+                        head_world = production.world_snapshot()
+                        # Rust one Head grant per faction: construction
+                        # and passenger funding cannot run twice here.
+                        continue
+                    elif not founding.get("head", {}).is_empty():
+                        _last_n144_new_sites["decisions"].append(
+                            founding.get("head", {}).duplicate(true))
+                        var chosen_head: Dictionary = founding["head"]
+                        if str(chosen_head.get("selected_option", "wait")) != str(
+                                planned_build.get("head", {}).get("selected_option", "wait")):
+                            # The original Director may prioritize science
+                            # or retain a prior strategic commitment.
+                            _last_n134_result["blocked"].append({
+                                "faction_id": str(faction),
+                                "reason": "b1_native_head_preempts_competing_n154"})
+                            continue
                     # N144 is the SAME source N134 strategic decision, not
                     # a second Director/clock: only a genuine current
                     # N113/N134 colony grant can post one funded N104
@@ -1036,6 +1078,9 @@ func last_native_colony_docks() -> Dictionary:
 func last_native_n144_colony_orders() -> Dictionary:
     return _last_n144_contracts.duplicate(true)
 
+func last_native_b1_colony_founding() -> Dictionary:
+    return _last_n144_new_sites.duplicate(true)
+
 func _native_embarked_passenger_count(snapshot: Dictionary) -> int:
     var total: int = 0
     for manifest in snapshot.get("passenger_manifests", {}).values():
@@ -1261,6 +1306,8 @@ func economy_summary() -> Dictionary:
         "colony_founding_ready_unapproved": _last_n151_founding.get("ready", []).size(),
         "native_n151_temporary_docks_created": _last_n151_docks.get("created", []).size(),
         "native_n144_funded_colony_passenger_posts": _last_n144_contracts.get("posted", []).size(),
+        "native_b1_n144_real_colony_sites_founded": _last_n144_new_sites.get("founded", []).size(),
+        "native_b1_n144_head_blocked": _last_n144_new_sites.get("blocked", []).size(),
         "colony_founding_blocked": _last_n151_founding.get("blocked", []).duplicate(true),
         "colony_migration_status": str(_last_n147_result.get("status", "NOT_EVALUATED")),
         "colony_observed_groups": _last_n147_result.get("views", []).size(),
@@ -1334,6 +1381,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_n148_result = {}
     _last_native_passengers = {}
     _last_n144_contracts = {}
+    _last_n144_new_sites = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
