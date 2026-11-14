@@ -30,9 +30,10 @@ func _initialize() -> void:
         _fail("registry leaked writable references")
         return
     var graph = registry.graph()
-    # Rust native sim_db seeder stores 12 source JSON corridors as 24
-    # actual travel_routes records (each forward + its reverse).
-    if graph == null or graph.edge_count() != 24:
+    # Rust seeder charts 12 raw JSON lanes in both directions (24),
+    # then spawner::chart_colony_routes adds 25 UNINHABITED planet
+    # endpoints with 146 SAME-SYSTEM INSERT OR IGNORE corridors.
+    if graph == null or graph.edge_count() != 170 or not graph.has_location("mars-colony") or int(graph.shortest_path("earth-station", "mars-colony").get("distance", -1)) != 18:
         _fail("native seeded DB route count")
         return
     var path: Dictionary = graph.shortest_path("earth-station", "pirate-outpost")
