@@ -626,7 +626,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         var scheduled: Dictionary = production.world_snapshot()
         var planned: Dictionary = NativeLodShipAI.propose(scheduled,
             _fleet_roster.registry.graph(), locations["positions"], tick,
-            clock.tick_scale(), n140_fired)
+            clock.tick_scale(), n140_fired, _tick_multiplier)
         if not planned.get("ok", false):
             _last_ship_result = planned
             return false
@@ -640,6 +640,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_ship_result["n128_crew_xp"] = []
         _last_ship_result["n97_paid_moves"] = []
         _last_ship_result["n83_free_trades"] = []
+        _last_ship_result["n97_ship_services"] = []
         _last_ship_result["n104_passenger_moves"] = []
         _last_ship_result["n144_metals_moves"] = []
         _last_ship_result["n108_paid_refits"] = []
@@ -909,6 +910,27 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             if kind == "RequestShipTransaction":
                 var cid: String = str(command.get("contract_id", ""))
                 var operation: String = str(command.get("operation", ""))
+                if operation == "ship_service":
+                    # Genuine N90 pending Refuel/Mine, source N97 physics,
+                    # one N39 World/N9 Ledger, current frozen body offset.
+                    var service: Dictionary = production.apply_native_n97_ship_service(
+                        tick, ship_id, int(command.get("request_id", -1)),
+                        _fleet_resolver)
+                    if service.get("ok", false):
+                        if str(service.get("status", "")) == "applied":
+                            _last_ship_result["n97_ship_services"].append(
+                                service.duplicate(true))
+                        else:
+                            _last_ship_result["autonomous_blocked"].append({
+                                "ship_id": ship_id,
+                                "reason": "n97_service_" +
+                                    str(service.get("reason", "rejected"))})
+                    else:
+                        _last_ship_result = {"ok": false,
+                            "reason": "n97_real_ship_service_" +
+                                str(service.get("reason", "apply_failed"))}
+                        return false
+                    continue
                 if operation == "free_trade":
                     # An N90 real per-ship sequence/id is mandatory. P1 N97
                     # proves dock/stock/cash/quote. ONE N39 commits goods
@@ -1427,6 +1449,8 @@ func economy_summary() -> Dictionary:
             "n83_autonomous_plans", []).size(),
         "n83_paid_exchanges_this_tick": _last_ship_result.get(
             "n83_free_trades", []).size(),
+        "n97_ship_services_this_tick": _last_ship_result.get(
+            "n97_ship_services", []).size(),
         "n149_crew_paid_this_tick": int(_last_ship_result.get("n149_wages", 0)),
         "n149_crew_food_this_tick": int(_last_ship_result.get("n149_food_consumed", 0)),
         "n140_ship_fired_this_tick": int(_last_ship_result.get("n140_fired_count", 0)),
@@ -1894,6 +1918,12 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                         return false
             # Rust PriceMemory.tick is integer even after N38 JSON;
             # commodity prices stay real (native f32), NEVER integer.
+            # Rust Mine uses the same persisted economic dwell
+            # cursor as dock dwell; null means no active work shift.
+            if ship.has("dock_dwell_start_tick") and ship[
+                    "dock_dwell_start_tick"] != null:
+                if not _normalize_row(ship, ["dock_dwell_start_tick"]):
+                    return false
             if ship.has("transaction"):
                 if not (ship["transaction"] is Dictionary) or not _normalize_row(
                         ship["transaction"], ["sequence"]):
@@ -1962,6 +1992,18 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                 if not (w[receipts_key][op] is Dictionary) or not _normalize_row(w[receipts_key][op], ["tick"]):
                     return false
                 if receipts_key == "cargo_receipts":
+                    var service_kind: String = str(w[receipts_key][op].get(
+                        "kind", ""))
+                    if service_kind in ["native_n97_mine", "native_n97_refuel"]:
+                        if not _normalize_row(w[receipts_key][op], [
+                                "request_id", "payment"]):
+                            return false
+                        # Rust mine extracts discrete integer ice units.
+                        # Refuel uses f32 fuel, not fabricated full units.
+                        if service_kind == "native_n97_mine" and not (
+                                _normalize_row(w[receipts_key][op], [
+                                    "quantity"])):
+                            return false
                     if str(w[receipts_key][op].get("kind", "")).begins_with(
                             "native_n97_free_"):
                         if not _normalize_row(w[receipts_key][op], [
