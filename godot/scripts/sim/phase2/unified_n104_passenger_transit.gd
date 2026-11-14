@@ -340,7 +340,8 @@ static func propose_assignment(world: Dictionary, graph: RefCounted,
                 continue
             if not SourceN147._full_fuel(world, graph, positions, ship, source, dest, scale):
                 continue
-            var systems: Dictionary = {here: resolver.system_for_location(here)}
+            var systems: Dictionary = {}
+            systems[here] = resolver.system_for_location(here)
             systems[source] = resolver.system_for_location(source)
             systems[dest] = resolver.system_for_location(dest)
             if systems.values().has(""):
@@ -351,6 +352,15 @@ static func propose_assignment(world: Dictionary, graph: RefCounted,
             var quoted: int = int(round(float(c.get("payment", 0)) * (1.0 + comms)))
             var top_up: int = maxi(0, quoted - int(c.get("reserved", 0)))
             var balance: int = int(world.get("faction_treasuries", {}).get(faction, -1))
+            var commerce: Dictionary = {}
+            commerce[faction] = true
+            var controllers: Dictionary = {}
+            controllers[source] = faction
+            controllers[dest] = faction
+            var quotes: Dictionary = {}
+            quotes[str(cid)] = {"valid": balance >= top_up and balance >= 0,
+                "top_up": top_up, "quoted_payment": quoted,
+                "payer_balance": balance, "reserved": int(c.get("reserved", 0))}
             var choice: Dictionary = NativeN153.select_contract({
                 "offers": [{"id": str(cid), "status": "Posted",
                     "contract_type": "Passenger", "faction_id": faction,
@@ -361,11 +371,9 @@ static func propose_assignment(world: Dictionary, graph: RefCounted,
                 "ship_location": here, "cargo_capacity": int(ship.get("cargo_capacity", 0)),
                 "credits": int(ship.get("credits", 0)), "sensor_range_au": float(ship.get("sensor_range_au", 1.0)),
                 "system_by_location": systems,
-                "commerce_allowed": {faction: true},
-                "controllers": {source: faction, dest: faction},
-                "quotes": {str(cid): {"valid": balance >= top_up and balance >= 0,
-                    "top_up": top_up, "quoted_payment": quoted,
-                    "payer_balance": balance, "reserved": int(c.get("reserved", 0))}},
+                "commerce_allowed": commerce,
+                "controllers": controllers,
+                "quotes": quotes,
                 "memory": {"price_knowledge": {}}, "tick": tick})
             if str(choice.get("id", "")) != str(cid):
                 continue
