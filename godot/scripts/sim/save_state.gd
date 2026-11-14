@@ -60,7 +60,7 @@ static func _decode_native_f64(value: Variant, state: Dictionary,
             if bytes.is_empty() or bytes.size() > 32:
                 state["ok"] = false
                 return null
-            var restored: Variant = bytes_to_var(bytes, false)
+            var restored: Variant = bytes_to_var(bytes)
             if typeof(restored) != TYPE_FLOAT or not is_finite(restored) or (
                     var_to_bytes(restored) != bytes):
                 state["ok"] = false
