@@ -3,6 +3,7 @@ extends SceneTree
 ## No ship commands, forced docking, teleportation, or fabricated inventory.
 ## Run locally: godot --headless --path godot --script res://tests/p2_autonomous_multitick_delivery_restart_check.gd
 const Native = preload("res://scripts/native_data.gd")
+const NativeRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 const Runtime = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const Save = preload("res://scripts/sim/save_state.gd")
 const MAX_TICKS: int = 6000
@@ -23,24 +24,50 @@ func _initialize() -> void:
     var buyer_loc: String = ""
     var seller_loc: String = ""
     var good: String = "food"
+    var roster = NativeRoster.new()
+    if not roster.load_seed(seed):
+        _fail("native directed route graph unavailable for fixture")
+        return
+    var graph: RefCounted = roster.registry.graph()
+    var ship_ids: Array = world["ships"].keys()
+    ship_ids.sort()
+    # N135 chooses source markets in sorted order, not by ship proximity.
+    # Choose a real buyer whose FIRST stocked supplier is reachable in the
+    # native directed graph from an actual idle ship. Do not fabricate a
+    # route or alter the dispatcher to make a test pass.
     for destination in markets:
         var buyer: Dictionary = world["markets"][destination]
         var buyer_fac: Dictionary = world["facilities"][str(buyer["owner"])]
         if int(buyer_fac.get("credits", 0)) < 200 or not buyer.get("prices", {}).has(good):
             continue
+        var first_source: String = ""
         for source in markets:
             if source == destination:
                 continue
             if float(world["markets"][source].get("supply", {}).get(good, 0.0)) >= 2.0:
-                buyer_loc = str(destination)
-                seller_loc = str(source)
+                first_source = str(source)
                 break
-        if not buyer_loc.is_empty():
+        if first_source.is_empty() or not graph.has_location(str(destination)) or not graph.has_location(first_source):
+            continue
+        if not graph.shortest_path(first_source, str(destination)).get("reachable", false):
+            continue
+        var ship_can_reach: bool = false
+        for ship_id in ship_ids:
+            var ship: Dictionary = world["ships"][ship_id]
+            var here: String = str(ship.get("location", ""))
+            if not graph.has_location(here) or not (ship.get("transit", {}) as Dictionary).is_empty():
+                continue
+            if graph.shortest_path(here, first_source).get("reachable", false):
+                ship_can_reach = true
+                break
+        if ship_can_reach:
+            buyer_loc = str(destination)
+            seller_loc = first_source
             break
     if buyer_loc.is_empty():
-        _fail("no real funded buyer and source market for N135 fixture")
+        _fail("no funded buyer with a stocked FIRST N135 supplier and reachable native directed ship route")
         return
-    # A genuine original station and commodity; only a controlled N151
+    print("P2_NATIVE_ROUTE_FIXTURE: buyer=" + buyer_loc + " first_supplier=" + seller_loc)\n    # A genuine original station and commodity; only a controlled N151
     # consumption history creates urgency. No free goods or fake ships.
     var stock: float = float(world["markets"][buyer_loc]["supply"].get(good, 0.0))
     world["markets"][buyer_loc]["consumption_window"][good] = [
