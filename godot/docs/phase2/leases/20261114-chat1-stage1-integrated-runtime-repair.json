@@ -12,7 +12,8 @@
     "godot/tests/p2_gate4_native_paid_research_check.gd (error diagnostics only)",
     "godot/scripts/sim/save_state.gd (diagnostics only if needed)",
     "godot/docs/phase2/handoffs/20261114-chat1-stage1-integration-repair.md",
-    "godot/docs/phase2/P2_CI_TRIGGER.txt (single CI trigger if necessary)"
+    "godot/docs/phase2/P2_CI_TRIGGER.txt (single CI trigger if necessary)",
+    "godot/scripts/sim/phase2/unified_native_save_roundtrip_guard.gd (only exact N155 profile float JSON rounding exception)"
   ],
   "constraints": [
     "No balance or mechanic changes",
@@ -21,5 +22,6 @@
     "No long soak",
     "No repeated GitHub Actions unless evidence requires followup"
   ],
-  "verification": "IN_PROGRESS"
+  "verification": "IN_PROGRESS",
+  "notes": "First actual Godot run 43640440083: N91 runtime error resolved, stale phase list resolved; both N143 and N158 save rejected because NativeFrameGuard strict profile/science float mismatch after JSON. Narrow 1e-12 source N155 personality-only tolerance; no financial/market leniency."
 }
