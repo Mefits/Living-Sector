@@ -26,6 +26,10 @@ static func stage(world: Dictionary, bank: Dictionary, tick: int,
     if not (world.get("contract_board") is Dictionary) or not (
             world.get("escrow_balances") is Dictionary):
         return _bad("missing_one_n104_escrow_authority")
+    if kind == "ship" and not (world.get("ships") is Dictionary):
+        return _bad("missing_canonical_ship_world")
+    if kind == "facility" and not (world.get("facilities") is Dictionary):
+        return _bad("missing_canonical_facility_world")
     var source: Dictionary = world["ships"] if kind == "ship" else world["facilities"]
     if not source.has(actor_id):
         return _bad("native_actor_not_found")
@@ -124,7 +128,7 @@ static func stage(world: Dictionary, bank: Dictionary, tick: int,
             "faction_id": str(actor.get("faction_id", "")),
             "final_location": location,
             "final_credits": int(actor.get("credits", 0)),
-            "final_crew_morale": int(round(float(actor.get("crew_morale", 0.0)))),
+            "final_crew_morale": clampi(int(round(float(actor.get("crew_morale", 0.0)))), 0, 100),
             "final_fuel_pct": fuel_percent,
             "broke_strikes": int(lifecycle.get("broke_strikes",
                 actor.get("broke_strikes", 0))),
