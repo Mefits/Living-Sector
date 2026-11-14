@@ -46,6 +46,45 @@ static func _real_contract_dock(world: Dictionary,
             return {"id": fid, "type": "construction_dock"}
     return {}
 
+## Frozen Rust ShipAction::Dock / DockAtShipyard: ShipEconomy
+## wait starts on the FIRST N84 attempt, not when N21 FIFO grants a slot.
+## N38 saves this nullable integer cursor.
+const DOCK_WAIT_CONTRACT: int = 150
+const DOCK_WAIT_DEFAULT: int = 60
+const DOCK_WAIT_LOW_MORALE: int = 30
+const DOCK_LOW_MORALE_THRESHOLD: float = 40.0
+
+static func _native_dock_wait(ship: Dictionary, tick: int,
+        multiplier: int) -> Dictionary:
+    if not (ship.get("transit", {}) is Dictionary):
+        return {"status": Bt.FAILURE, "reason": "n21_invalid_original_transit"}
+    if not ship["transit"].is_empty():
+        # N14 Travel must finish before the N21 wait clock begins.
+        return {"status": Bt.RUNNING, "reason": "n21_wait_real_n14_arrival"}
+    if not str(ship.get("docked_at", "")).is_empty():
+        ship["dock_attempt_start_tick"] = null
+        return {}
+    if str(ship.get("location", "")).is_empty():
+        ship["dock_attempt_start_tick"] = null
+        return {"status": Bt.FAILURE, "reason": "n21_missing_real_dock_location"}
+    var start: Variant = ship.get("dock_attempt_start_tick", null)
+    if start == null:
+        ship["dock_attempt_start_tick"] = tick
+        start = tick
+    elif typeof(start) != TYPE_INT or int(start) < 0 or int(start) > tick:
+        return {"status": Bt.FAILURE, "reason": "n21_invalid_saved_wait_clock"}
+    var crew: Dictionary = ship.get("crew", {})
+    var morale: float = float(crew.get("morale", 100.0))
+    var budget: int = DOCK_WAIT_CONTRACT if not str(
+        ship.get("active_contract_id", "")).is_empty() else (
+        DOCK_WAIT_LOW_MORALE if morale < DOCK_LOW_MORALE_THRESHOLD else
+        DOCK_WAIT_DEFAULT)
+    budget *= maxi(1, multiplier)
+    if tick - int(start) >= budget:
+        ship["dock_attempt_start_tick"] = null
+        return {"status": Bt.FAILURE, "reason": "n21_original_dock_wait_timeout"}
+    return {}
+
 static func _dispatch(action: Dictionary, _bb: Dictionary,
         world: Dictionary, graph: RefCounted, positions: Dictionary,
         ship_id: String, tick: int, scale: float,
@@ -53,6 +92,10 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
     var kind: String = str(action.get("kind", ""))
     var ship: Dictionary = world["ships"][ship_id]
     var location: String = str(ship.get("location", ""))
+    if kind in ["Dock", "DockAtShipyard"]:
+        var patience: Dictionary = _native_dock_wait(ship, tick, multiplier)
+        if not patience.is_empty():
+            return patience
     if kind == "GateJump":
         # Frozen Rust ShipAction::GateJump proposes a N146 command;
         # position and the gate fee change ONLY in N108's single N39
