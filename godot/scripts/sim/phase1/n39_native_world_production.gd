@@ -2274,7 +2274,8 @@ func restore(saved: Dictionary) -> bool:
     # physical World tick restored from disk. Source Rust stores treaties
     # persistently; body system control is re-derived from live facilities.
     for clock_key in ["faction_relations_last_tick", "territory_last_tick",
-            "faction_finance_last_tick", "station_administration_last_tick"]:
+            "faction_finance_last_tick", "station_administration_last_tick",
+            "native_planner_last_tick"]:
         if int(staged_world.get(clock_key, 0)) > int(saved["tick"]):
             return false
     for relation in staged_world.get("faction_relations", {}).values():
