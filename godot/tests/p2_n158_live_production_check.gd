@@ -115,12 +115,16 @@ func _initialize() -> void:
         var parsed: Variant = JSON.parse_string(JSON.stringify(
             source_save, "", true, true))
         var frame: Dictionary = {"ok": false, "reason": "json_decode_failed"}
+        var drifts: Array[String] = []
         if parsed is Dictionary:
             frame = FrameGuard.verify_authoritative_frame(source_save, parsed)
+            _float_drifts(source_save.get("native_production", {}),
+                parsed.get("native_production", {}), "native_production", drifts)
         _fail("atomic native production save failed: " + str(write_result) +
             " coherence=" + str(NativeCoherence.validate(source_save)) +
             " timeline=" + str(NativeTimeline.validate(source_save)) +
-            " exact_native_json=" + str(frame))
+            " exact_native_json=" + str(frame) +
+            " first_float_drifts=" + str(drifts))
         return
     var b = Runner.new()
     if not b.start_from_seed(seed):
@@ -179,6 +183,34 @@ func _initialize() -> void:
     DirAccess.remove_absolute(absolute + ".bak")
     print("P2_UNIFIED_ECONOMY_ACCEPTANCE_PASS: source 8/3, N39 production, N151 paid Food/Water, N150 price/trend, single ledger, saved/restarted")
     quit(0)
+
+## Diagnostic only: distinguish harmless JSON last-bit float effects
+## from substantial physical stock or price drift. No writes to World.
+func _float_drifts(before: Variant, after: Variant,
+        path: String, output: Array[String]) -> void:
+    if output.size() >= 12:
+        return
+    if before is Dictionary and after is Dictionary:
+        var keys: Array = before.keys()
+        keys.sort_custom(func(a, z): return str(a) < str(z))
+        for key in keys:
+            if after.has(key):
+                _float_drifts(before[key], after[key],
+                    path + "/" + str(key), output)
+                if output.size() >= 12:
+                    return
+        return
+    if before is Array and after is Array:
+        for i in range(mini(before.size(), after.size())):
+            _float_drifts(before[i], after[i],
+                path + "/" + str(i), output)
+            if output.size() >= 12:
+                return
+        return
+    if typeof(before) == TYPE_FLOAT and typeof(after) in [
+            TYPE_FLOAT, TYPE_INT] and before != after:
+        output.append(path + ": " + str(before) + " -> " +
+            str(after) + " delta=" + str(float(after) - float(before)))
 
 func _stock_restore_diff(expected: Dictionary, actual: Dictionary) -> String:
     # Exact values matter for deterministic physical inventory. Do not hide
