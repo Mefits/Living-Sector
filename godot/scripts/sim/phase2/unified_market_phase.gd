@@ -4,6 +4,7 @@ extends RefCounted
 ## No alternate stock, wallet, ContractBoard or invented market trades.
 const Markets = preload("res://scripts/sim/phase1/n150_native_full_market_tick.gd")
 const Price = preload("res://scripts/sim/economy/native_price_engine.gd")
+const NativeCrisisWarnings = preload("res://scripts/sim/phase2/unified_native_crisis_events.gd")
 
 static func propose(physical_world: Dictionary, tick: int,
         tick_multiplier: int) -> Dictionary:
@@ -51,6 +52,7 @@ static func propose(physical_world: Dictionary, tick: int,
     if not (computed.get("markets") is Dictionary):
         return {"ok": false, "reason": "invalid_native_market_output"}
     var updates: Dictionary = {}
+    var crisis_events: Array[Dictionary] = []
     var output: Dictionary = computed["markets"]
     if output.size() != views.size():
         return {"ok": false, "reason": "incomplete_native_market_output"}
@@ -72,6 +74,13 @@ static func propose(physical_world: Dictionary, tick: int,
         for key in ["orders", "history"]:
             if not (result.get(key) is Dictionary):
                 return {"ok": false, "reason": "invalid_native_market_result_field:" + key}
+        # Original sim_server::scan_crisis_events follows the N150 market
+        # phase; stage hysteresis in canonical MarketHistory before N39 Apply.
+        var crisis: Dictionary = NativeCrisisWarnings.stage_market_history(
+            str(id), location, result["history"])
+        if not crisis.get("ok", false):
+            return {"ok": false, "reason": "native_market_crisis_" + str(crisis.get("reason", "invalid"))}
+        crisis_events.append_array(crisis["events"])
         var m: Dictionary = physical_world["markets"][location]
         if result["pricing"]["supply"] != m["supply"]:
             return {"ok": false, "reason": "market_tick_must_not_mint_stock"}
@@ -82,8 +91,9 @@ static func propose(physical_world: Dictionary, tick: int,
             "seed_demand": result["flow"]["seed_demand"].duplicate(true),
             "consumption_window": result["flow"]["consumption_window"].duplicate(true),
             "orders": result["orders"].duplicate(true),
-            "history": result["history"].duplicate(true)
+            "history": crisis["history"].duplicate(true)
         }
     return {"ok": true, "tick": tick, "updates": updates,
         "market_count": updates.size(),
-        "source": "N150 native full market tick + existing N131 price engine"}
+        "crisis_events": crisis_events,
+        "source": "N150 native full market tick + original Rust structural warning hysteresis + existing N131 price engine"}
