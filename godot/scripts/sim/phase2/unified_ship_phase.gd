@@ -68,7 +68,7 @@ static func advance(world: Dictionary, positions: Dictionary,
         if scale < 1:
             return {"ok": false, "reason": "invalid_native_lod_fired_scale"}
         var outcome: String = motion.advance(
-            state, str(id), positions, tick, tick_scale * float(scale), scale)
+            state, str(id), positions, tick, tick_scale * float(scale), scale, true)
         if not (outcome in ["arrived", "moving", "out_of_fuel"]):
             return {"ok": false, "reason": "native_ship_" + outcome,
                 "ship": str(id)}
