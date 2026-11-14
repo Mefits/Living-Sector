@@ -171,6 +171,11 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
     lines.append("СТРОИТЕЛЬСТВО N154 · площадок %d · оплаченных смен N141 %d · новых объектов %d" % [
         live_sites.size(), int(summary.get("construction_paid_labor_this_tick", 0)),
         int(summary.get("construction_new_facilities_this_tick", 0))])
+    var head_paid: int = int(summary.get("construction_head_commissions_this_tick", 0))
+    var engineers: int = int(summary.get("construction_engineers_assigned_this_tick", 0))
+    if head_paid > 0 or engineers > 0:
+        lines.append("  N134: оплаченных проектов %d | N91: инженеров назначено %d" % [
+            head_paid, engineers])
     var site_ids: Array = live_sites.keys()
     site_ids.sort()
     for sid in site_ids.slice(0, 8):
