@@ -30,7 +30,7 @@ func post(id: String, kind: String, payer: String, escrow: String, commodity: St
 	var paid: Dictionary = _ledger.transfer("contract:" + id + ":post", payer, escrow, payment, tick, "contract_advance")
 	if not paid.get("ok", false):
 		return paid
-	_contracts[id] = {"id": id, "contract_type": kind, "status": "posted", "requestor_id": payer, "funding_source": funding_source, "escrow_account": escrow, "reserved": payment, "agreed_payment": -1, "fulfiller_id": "", "commodity": commodity, "quantity": quantity, "source_location": source, "destination_location": destination, "payment": payment, "initial_payment": payment, "posted_at_tick": tick, "expires_at_tick": expiry, "accepted_at_tick": -1, "delivered_at_tick": -1}
+	_contracts[id] = {"id": id, "contract_type": kind, "status": "posted", "requestor_id": payer, "funding_source": funding_source, "escrow_account": escrow, "reserved": payment, "agreed_payment": -1, "fulfiller_id": "", "commodity": commodity, "quantity": quantity, "source_location": source, "destination_location": destination, "payment": payment, "initial_payment": payment, "posted_at_tick": tick, "expires_at_tick": expiry, "accepted_at_tick": -1, "delivered_at_tick": -1, "renewal_count": 0, "min_reputation": (70 if kind == "subsidy" else (50 if kind == "crew_mission" else 0)), "initial_min_reputation": (70 if kind == "subsidy" else (50 if kind == "crew_mission" else 0))}
 	return {"ok": true, "contract": get_contract(id)}
 
 func accept(id: String, ship: String, ship_faction: String, comms_bonus: float, treaty_multiplier: float, tick: int) -> Dictionary:
