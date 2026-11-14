@@ -42,7 +42,7 @@ static func _stations(world: Dictionary, resolver: RefCounted,
     var markets: Dictionary = world.get("markets", {})
     for location in markets:
         var loc: String = str(location)
-        if loc == excluded or resolver.system_for_location(loc) != system_id:
+        if resolver.system_for_location(loc) != system_id:
             continue
         var owner_id: String = str(markets[location].get("owner", ""))
         var station: Dictionary = world.get("facilities", {}).get(owner_id, {})
@@ -115,7 +115,7 @@ static func _neighbor_gates(world: Dictionary, graph: RefCounted,
         var to_landing: Array = []
         for loc in landing_options:
             var leg: Array = _route(graph, destination, str(loc))
-            if not leg.is_empty():
+            if str(loc) == destination or not leg.is_empty():
                 landing = str(loc)
                 to_landing = leg
                 break
