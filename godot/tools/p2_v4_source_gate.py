@@ -187,15 +187,18 @@ def audit(root: Path) -> dict:
 
     # Never let the legacy manual/debug N15 cargo transfer code silently
     # dock a physical ship for free when N39's N21/N9 is authoritative.
-    add("n21_manual_unpriced_dock_disabled",
+    add("n21_manual_paid_dock_no_legacy_bypass",
         'if action == "dock":' in n158 and
         "n21_manual_dock_requires_paid_native_tick" in n158 and
-        "production.apply_native_n21_request(" in n158,
+        "production.apply_native_n21_manual_dock(" in n158 and
+        "func apply_native_n21_manual_dock(" in n39 and
+        'if action == "dock":\n        return false' in n39 and
+        "n21_manual_no_free_paid_slot" in n39,
         [n158_path, n39_path,
-         "godot/scripts/sim/phase2/unified_fleet_logistics.gd"],
-        "Legacy out-of-tick UI Dock is fail-closed, not free. A future "
-        "manual docking UX must schedule an authorized paid N21 command "
-        "at the native ships phase, never modify N15 directly.",
+         "godot/scripts/sim/phase2/unified_n21_dock_queue_stage.gd"],
+        "Explicit user Dock settles in the current committed N39/N9 "
+        "tick when a real FIFO-free paid berth exists. Full ports "
+        "reject manual queue-jumping; legacy N15 free Dock is disabled.",
         "SOURCE_LINK_PRESENT", "BLOCKING_SOURCE_GAP")
 
     # These adapters may exist without being called by the live engine.
