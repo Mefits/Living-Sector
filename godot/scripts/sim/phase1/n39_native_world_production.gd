@@ -1933,8 +1933,16 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
             return {"ok": false, "fatal": true, "reason": "n91_ship_has_existing_obligation"}
         if not N91Executor.capable(str(ship.get("class", "")), ShipCatalog.CLASSES):
             return {"ok": false, "fatal": true, "reason": "n91_ship_has_no_native_engineer"}
-        var market: Dictionary = staged.get("markets", {}).get(loc, {})
-        var dock: Dictionary = staged.get("facilities", {}).get(str(market.get("owner", "")), {})
+        # Rust ConstructionSite has no Market of its own. An approved
+        # N151 colony project is dockable ONLY at its receipted physical
+        # construction_dock; ordinary N154 sites retain real station rules.
+        var port: Dictionary = N91SourceDispatch.physical_site_dock(staged,
+            site_id)
+        if not port.get("ok", false):
+            return {"ok": false, "fatal": true,
+                "reason": str(port.get("reason", "n91_unverified_original_site_dock"))}
+        var dock: Dictionary = staged.get("facilities", {}).get(
+            str(port["facility_id"]), {})
         if dock.is_empty() or str(dock.get("faction", "")) != str(site["faction_id"]) or int(dock.get("docking_capacity", -1)) < 1:
             return {"ok": false, "fatal": true, "reason": "n91_no_real_site_warehouse"}
         var claimed: bool = false
