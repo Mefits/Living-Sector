@@ -30,6 +30,7 @@ const NativeShipyardModules = preload("res://scripts/sim/phase1/n154_native_ship
 const NativeModuleRecipes = preload("res://scripts/sim/shipyard/native_module_recipes_n132.gd")
 const CommodityCatalog = preload("res://scripts/sim/economy/commodity_catalog.gd")
 const NativeShipyardRefit = preload("res://scripts/port/n108_shipyard_refit_apply.gd")
+const NativeStationAdministration = preload("res://scripts/sim/phase2/unified_native_station_administration_phase.gd")
 
 const GalaxyConstructionCrew: Dictionary = {
     "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
