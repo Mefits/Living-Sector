@@ -1,0 +1,22 @@
+{
+  "worker": "chat3-V2-crisis-source-atomic-staging",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "60db31b029e8b7e32ffa41bf6710c98dace90ec2",
+  "goal": "Close independent Rust scan_crisis_events source integration preparation: immutable pre/post N150 flags attest transitions, N156 persisted facility flag proposal and exactly once combined event emissions, no parallel authority. Only pure adapter and deferred regression while Chat1 N108 owns N39/N158/Schema.",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_native_crisis_phase.gd (new)",
+    "godot/tests/p2_native_crisis_atomic_phase_check.gd (new)",
+    "godot/docs/phase2/handoffs/20261114-chat3-v2-crisis-atomic-stage.md (new)"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "N9/N104",
+    "unified_ship_ai_execution.gd",
+    "balance"
+  ],
+  "coordination": "Chat1 N108 real built gate pair has active lease on all shared World files. No shared edits until release. User requires final-only tests.",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED"
+}
