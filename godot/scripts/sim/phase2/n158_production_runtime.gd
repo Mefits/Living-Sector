@@ -33,6 +33,7 @@ var _last_construction_observation: Dictionary = {}
 var _last_construction_result: Dictionary = {}
 var _last_n91_result: Dictionary = {}
 var _last_n134_result: Dictionary = {}
+var _last_n100_result: Dictionary = {}
 var _last_n147_result: Dictionary = {}
 var _last_n151_founding: Dictionary = {}
 var _last_faction_relations: Dictionary = {}
@@ -56,6 +57,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_construction_result = {}
     _last_n91_result = {}
     _last_n134_result = {}
+    _last_n100_result = {}
     _last_n147_result = {}
     _last_n151_founding = {}
     _last_faction_relations = {}
@@ -70,6 +72,11 @@ func start_from_seed(seed: Dictionary) -> bool:
     if not projected.get("ok", false):
         _boot_error = str(projected.get("reason", "source_projection_failed"))
         return false
+    # Exact frozen Rust opt-in LIVING_SECTOR_PLANNER=hybrid|htn;
+    # original director remains the default. No new balance toggle.
+    var native_planner_mode: String = OS.get_environment("LIVING_SECTOR_PLANNER")
+    if native_planner_mode in ["htn", "hybrid"]:
+        projected["world"]["native_planner_mode"] = native_planner_mode
     if not super.start_from_seed(seed):
         _boot_error = "base_world_seed_rejected"
         return false
@@ -109,6 +116,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_n134_result = {"ok": true, "tick": tick,
             "commissioned": [], "blocked": [], "heads": {},
             "status": "N134_COORDINATION_NOT_DUE"}
+        _last_n100_result = {"ok": true, "tick": tick,
+            "mode": str(production.world_snapshot().get("native_planner_mode", "legacy")),
+            "plans": [], "blocked": []}
         # Rust faction::tick_factions recalculates BodyTerritory FIRST.
         # A world-owned N39 commit, not a UI-local one-off snapshot.
         var territory_pass: Dictionary = production.apply_native_body_territory(
@@ -255,6 +265,34 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                             "reason": str(planned_build.get("reason", "N134_source_comparison_unavailable"))})
                         continue
                     _last_n134_result["heads"][faction] = planned_build.get("head", {}).duplicate(true)
+                    # The source N100 Hybrid/HTN planner is a pure
+                    # candidate creator. It receives ONLY the genuine
+                    # N134 head's selected problem and the N39 world.
+                    # Its N98 plan is saved in the same N38 checkpoint;
+                    # the N121 receipt-driven native executor alone
+                    # may publish its funded steps.
+                    var hybrid_plan: Dictionary = production.apply_native_hybrid_planning(
+                        tick, str(faction), planned_build.get("head", {}),
+                        _tick_multiplier)
+                    if not hybrid_plan.get("ok", false):
+                        if hybrid_plan.get("fatal", false):
+                            _last_n100_result = hybrid_plan
+                            return false
+                        _last_n100_result["blocked"].append({
+                            "faction_id": str(faction),
+                            "reason": str(hybrid_plan.get("reason",
+                                "n100_source_planning_unavailable"))})
+                    elif hybrid_plan.get("due", false):
+                        _last_n100_result["plans"].append(
+                            hybrid_plan.duplicate(true))
+                    # Never let legacy N134 also commit a construction
+                    # grant in the same cycle as an outstanding N98
+                    # hybrid plan. Await the ONE N121 dispatch owner.
+                    if str(hybrid_plan.get("status", "")) == "n98_planned_not_dispatched":
+                        _last_n134_result["blocked"].append({
+                            "faction_id": str(faction),
+                            "reason": "n100_plan_awaits_original_n121_executor"})
+                        continue
                     if not planned_build.get("authorized", false):
                         _last_n134_result["blocked"].append({
                             "faction_id": str(faction),
@@ -815,6 +853,10 @@ func economy_summary() -> Dictionary:
         "research_paid_shifts": _last_research_result.get("paid", []).size(),
         "research_blocked_factions": _last_research_result.get("blocked", []).size(),
         "research_total_completed": _research_completion_count(current),
+        "native_n100_mode": str(current.get("native_planner_mode", "legacy")),
+        "native_n100_planned_this_tick": _last_n100_result.get("plans", []).size(),
+        "native_n100_blocked_this_tick": _last_n100_result.get("blocked", []).size(),
+        "native_n98_pending_plans": current.get("native_planner_records", {}).size(),
         "construction_head_commissions_this_tick": _last_n134_result.get("commissioned", []).size(),
         "construction_head_blocked_this_tick": _last_n134_result.get("blocked", []).size(),
         "construction_engineers_assigned_this_tick": _last_n91_result.get("assigned", []).size(),
