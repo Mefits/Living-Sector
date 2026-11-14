@@ -954,6 +954,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                         _last_ship_result["n104_passenger_moves"].append(receipt.duplicate(true))
                     elif colony_metals:
                         _last_ship_result["n144_metals_moves"].append(receipt.duplicate(true))
+                        if operation == "delivery":
+                            _last_b2_colony_metals["delivered"].append(receipt.duplicate(true))
                     else:
                         _last_ship_result["n97_paid_moves"].append(receipt.duplicate(true))
                 elif receipt.get("fatal", false):
