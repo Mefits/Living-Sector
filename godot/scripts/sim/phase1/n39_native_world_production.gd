@@ -504,8 +504,15 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
     var wages: int = int(result.get("wages_total", -1))
     if wages < 0 or staged_ledger.total() != _ledger.total() - wages:
         return {"ok": false, "fatal": true, "reason": "n149_wage_total_not_source_accrual"}
-    if new_bank["receipts"].size() != before_bank["receipts"].size() + (
-            result.get("records", []).filter(func(x): return int(x.get("wages", 0)) > 0).size()):
+    var due_receipts: int = 0
+    for record in result.get("records", []):
+        if int(record.get("wages", 0)) > 0:
+            due_receipts += 1
+            var wage_id: String = "n149:crew:" + str(record["ship_id"]) + ":" + str(tick)
+            var receipt: Variant = new_bank["receipts"].get(wage_id, null)
+            if not (receipt is Dictionary) or str(receipt.get("kind", "")) != "native_ship_crew_wages" or int(receipt.get("wages_credits_accrued", -1)) != int(record["wages"]):
+                return {"ok": false, "fatal": true, "reason": "n149_missing_native_paid_crew_evidence"}
+    if new_bank["receipts"].size() != before_bank["receipts"].size() + due_receipts:
         return {"ok": false, "fatal": true, "reason": "n149_expected_wage_receipts_missing"}
     for rid in before_bank["receipts"]:
         if new_bank["receipts"].get(rid, null) != before_bank["receipts"][rid]:
