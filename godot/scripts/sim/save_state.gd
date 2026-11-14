@@ -17,6 +17,71 @@ const SourceCadence = preload("res://scripts/sim/cadence.gd")
 const SourceEvents = preload("res://scripts/sim/event_queue.gd")
 const SourceTickRunner = preload("res://scripts/sim/tick_runner.gd")
 
+## Native N39 stores exact f64 amounts and market history. Godot's JSON
+## formatter is not always a bit-exact roundtrip even with full_precision.
+## Store native f64 as lossless Variant bytes encoded in an ordinary JSON
+## string. The existing SHA-256 envelope authenticates these strings.
+## No gameplay field is rounded, coerced, removed or reset. P1 and old
+## plain numeric N38 JSON payloads remain readable.
+const NATIVE_F64_TAG: String = "__ls_native_f64_exact_b64_v1__"
+const MAX_NATIVE_DEPTH: int = 96
+
+static func _encode_native_f64(value: Variant, depth: int = 0) -> Variant:
+    if depth > MAX_NATIVE_DEPTH:
+        return null
+    if typeof(value) == TYPE_FLOAT:
+        return {NATIVE_F64_TAG: Marshalls.raw_to_base64(var_to_bytes(value))}
+    if value is Dictionary:
+        var output: Dictionary = {}
+        for key in value:
+            output[key] = _encode_native_f64(value[key], depth + 1)
+        return output
+    if value is Array:
+        var output: Array = []
+        for item in value:
+            output.append(_encode_native_f64(item, depth + 1))
+        return output
+    return value
+
+static func _decode_native_f64(value: Variant, state: Dictionary,
+        depth: int = 0) -> Variant:
+    if depth > MAX_NATIVE_DEPTH:
+        state["ok"] = false
+        return null
+    if value is Dictionary:
+        if value.has(NATIVE_F64_TAG):
+            if value.size() != 1 or not (value[NATIVE_F64_TAG] is String):
+                state["ok"] = false
+                return null
+            var bytes: PackedByteArray = Marshalls.base64_to_raw(
+                value[NATIVE_F64_TAG])
+            # A plain float Variant has a tiny fixed-sized binary encoding.
+            # Never decode large or unexpected native objects from a save.
+            if bytes.is_empty() or bytes.size() > 32:
+                state["ok"] = false
+                return null
+            var restored: Variant = bytes_to_var(bytes, false)
+            if typeof(restored) != TYPE_FLOAT or not is_finite(restored) or (
+                    var_to_bytes(restored) != bytes):
+                state["ok"] = false
+                return null
+            return restored
+        var output: Dictionary = {}
+        for key in value:
+            output[key] = _decode_native_f64(value[key], state, depth + 1)
+            if not state["ok"]:
+                return null
+        return output
+    if value is Array:
+        var output: Array = []
+        for item in value:
+            output.append(_decode_native_f64(item, state, depth + 1))
+            if not state["ok"]:
+                return null
+        return output
+    return value
+
+
 static func _canonical(value: Variant) -> String:
     if value is Dictionary:
         var keys: Array = value.keys()
@@ -35,7 +100,13 @@ static func _canonical(value: Variant) -> String:
 static func _wrap(snapshot: Dictionary) -> Dictionary:
     # Hash the JSON-normalized payload, not GDScript integer/float variants:
     # JSON parsing may turn 7 into 7.0, and the digest must survive reload.
-    var normalized: Variant = JSON.parse_string(JSON.stringify(snapshot, "", true, true))
+    # Only native N39 float values get lossless string tokens. No N9 money,
+    # ship cargo, physical market supply or N104 contract gets rounded.
+    var transport: Dictionary = snapshot.duplicate(true)
+    if transport.has("native_production"):
+        transport["native_production"] = _encode_native_f64(
+            transport["native_production"])
+    var normalized: Variant = JSON.parse_string(JSON.stringify(transport, "", true, true))
     return {
         "envelope_format": ENVELOPE_FORMAT,
         "envelope_version": ENVELOPE_VERSION,
@@ -57,6 +128,17 @@ static func _unwrap(raw: Variant) -> Dictionary:
             return {}
         if digest.length() != 64 or _canonical(payload).sha256_text() != digest:
             return {}
+        # Old v1 checkpoints contained raw numeric native floats; they
+        # still deserialize here without any migration or balance edit.
+        if payload.has("native_production"):
+            var valid: Dictionary = {"ok": true}
+            var restored: Variant = _decode_native_f64(
+                payload["native_production"], valid)
+            if not valid["ok"] or not (restored is Dictionary):
+                return {}
+            var exact_payload: Dictionary = payload.duplicate(true)
+            exact_payload["native_production"] = restored
+            return exact_payload
         return payload
     # Old P1 saves: validation still occurs inside TickRunner.restore_checkpoint.
     if raw.get("format", "") == "living-sector-godot":
