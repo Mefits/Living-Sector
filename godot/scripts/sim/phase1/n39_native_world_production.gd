@@ -535,7 +535,9 @@ func apply_autonomous_contract_cargo(tick: int, ship_id: String,
 ## The original N91 choose() supplies a candidate; actual ownership,
 ## physical site completion and idle ship are checked AGAIN before commit.
 ## No money, materials, position, building or dock status is altered here.
-func apply_native_construction_assignments(tick: int, proposals: Array) -> Dictionary:
+func apply_native_construction_assignments(tick: int, proposals: Array,
+        resolver: RefCounted = null, graph: RefCounted = null,
+        positions: Dictionary = {}, scale: float = 1.0) -> Dictionary:
     if not _ready or tick != _last_tick or tick < 1:
         return {"ok": false, "reason": "n91_not_canonical_faction_tick"}
     if not _world.has("construction_sites"):
@@ -560,8 +562,8 @@ func apply_native_construction_assignments(tick: int, proposals: Array) -> Dicti
         var loc: String = str(site.get("location_name", ""))
         if bool(site.get("completed", false)) or int(site.get("progress_delivered", 0)) != int(site.get("progress_required", -1)) or int(site.get("labor", {}).get("completed", 0)) >= int(site.get("labor", {}).get("required", 0)):
             return {"ok": false, "fatal": true, "reason": "n91_site_not_paid_and_ready"}
-        if str(site.get("faction_id", "")) != str(ship.get("faction_id", "")) or str(ship.get("location", "")) != loc or not ship.get("transit", {}).is_empty():
-            return {"ok": false, "fatal": true, "reason": "n91_engineer_not_physically_local"}
+        if str(site.get("faction_id", "")) != str(ship.get("faction_id", "")) or str(ship.get("location", "")).is_empty() or not ship.get("transit", {}).is_empty():
+            return {"ok": false, "fatal": true, "reason": "n91_engineer_not_in_real_system"}
         if str(ship.get("current_goal", "")) not in ["", "idle"] or not str(ship.get("active_contract_id", "")).is_empty() or not ship.get("cargo", {}).is_empty():
             return {"ok": false, "fatal": true, "reason": "n91_ship_has_existing_obligation"}
         if not N91Executor.capable(str(ship.get("class", "")), ShipCatalog.CLASSES):
@@ -580,10 +582,16 @@ func apply_native_construction_assignments(tick: int, proposals: Array) -> Dicti
                 break
         if claimed:
             return {"ok": false, "fatal": true, "reason": "n91_construction_site_already_assigned"}
+        # Regenerate the ONLY allowed N84 sequence from canonical World
+        # and the original N4 graph, including real fuel and N21 origin dock.
+        # The selector's proposed route/BT is NEVER trusted as authority.
+        var expected: Dictionary = N91SourceDispatch.plan_for(staged, resolver,
+            graph, positions, ship_id, site_id, scale)
+        if not expected.get("ok", false):
+            return {"ok": false, "fatal": true,
+                "reason": str(expected.get("reason", "n91_unverified_remote_route"))}
         var plan: Dictionary = raw.get("bt", {})
-        if not NativeBt.validate(plan) or plan != NativeBt.sequence([
-            NativeBt.action({"kind": "ConstructionDock", "site_id": site_id}),
-            NativeBt.action({"kind": "Construct", "site_id": site_id})]):
+        if not NativeBt.validate(plan) or plan != expected["bt"] or raw.get("route", expected["route"]) != expected["route"]:
             return {"ok": false, "fatal": true, "reason": "n91_untrusted_goal_tree"}
         var loyalty: float = N91SourceDispatch._loyalty(ship)
         var priority: float = N91Executor.utility(loyalty)
@@ -593,7 +601,7 @@ func apply_native_construction_assignments(tick: int, proposals: Array) -> Dicti
         ship["current_bt"] = plan.duplicate(true)
         ship["current_goal_score"] = priority
         ship["last_plan_tick"] = tick
-        ship["planning_source"] = "source_n91_utility_local_engineer"
+        ship["planning_source"] = "source_n91_same_system_engineer"
         used_sites[site_id] = true
         used_ships[ship_id] = true
         updated.append({"ship_id": ship_id, "site_id": site_id})
