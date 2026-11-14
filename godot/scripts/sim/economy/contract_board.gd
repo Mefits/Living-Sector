@@ -234,7 +234,10 @@ func _valid_physical_receipt(c: Dictionary, ship: String, direction: String, rec
 		var passenger: Dictionary = _physical_cargo.receipts.get(receipt_id, {})
 		var expected_location: String = str(c["source_location"]) if direction == "load" else str(c["destination_location"])
 		return passenger.get("ok", false) == true and str(passenger.get("kind", "")) == "passenger" and str(passenger.get("ship_id", "")) == ship and str(passenger.get("contract_id", "")) == str(c["id"]) and str(passenger.get("operation_id", "")) == receipt_id and str(passenger.get("action", "")) == direction and str(passenger.get("location_id", "")) == expected_location and typeof(passenger.get("quantity", null)) == TYPE_INT and int(passenger["quantity"]) == int(c["quantity"]) and typeof(passenger.get("tick", null)) == TYPE_INT and int(passenger["tick"]) <= tick
-	if kind != "delivery":
+	# Rust transactions::deliver lets Construction bypass a destination
+	# Market and unload directly into a REAL ConstructionSite. It still
+	# requires a live N15 ship-hold receipt, not a fabricated Market stock.
+	if kind not in ["delivery", "construction"]:
 		return false
 	if _physical_cargo == null or receipt_id.is_empty():
 		return false
@@ -251,9 +254,17 @@ func _valid_physical_receipt(c: Dictionary, ship: String, direction: String, rec
 	if str(receipt.get("location_id", "")) != expected_location:
 		return false
 	var quantities: Variant = receipt.get("quantities", null)
-	return (quantities is Dictionary and quantities.size() == 1
-		and typeof(quantities.get(str(c["commodity"]))) == TYPE_INT
-		and int(quantities[str(c["commodity"])]) == int(c["quantity"]))
+	if not (quantities is Dictionary and quantities.size() == 1
+			and typeof(quantities.get(str(c["commodity"]))) == TYPE_INT
+			and int(quantities[str(c["commodity"])]) == int(c["quantity"])):
+		return false
+	if kind == "construction" and direction == "unload":
+		# The only valid physical delivery destination is the source
+		# ConstructionSite; ordinary warehouse unloading has no site ID.
+		return str(receipt.get("kind", "")) == "construction_site" and (
+			not str(c.get("colony_site_id", "")).is_empty() and
+			str(receipt.get("site_id", "")) == str(c["colony_site_id"]))
+	return true
 
 func _error(reason: String) -> Dictionary:
 	return {"ok": false, "reason": reason}
