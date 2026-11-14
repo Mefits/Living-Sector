@@ -126,9 +126,11 @@ static func run_checks() -> Dictionary:
             graph).get("ok", false):
         return {"ok": false, "reason": "n104_resume_invented_missing_paid_cargo"}
     var missing_route := Graph.new()
-    missing_route.edges["destination"] = []
-    if Resume.propose(loaded["ships"]["ship-a"],
-            loaded["contract_board"]["contracts"]["contract-a"],
+    missing_route.edges["source"] = []
+    var stranded: Dictionary = fixture("picked_up")
+    stranded["ships"]["ship-a"]["location"] = "source"
+    if Resume.propose(stranded["ships"]["ship-a"],
+            stranded["contract_board"]["contracts"]["contract-a"],
             missing_route).get("ok", false):
         return {"ok": false, "reason": "n104_replan_invented_interstellar_leg"}
     return {"ok": true, "status": "DEFERRED_SOURCE_FIXTURE_NOT_RUN"}
