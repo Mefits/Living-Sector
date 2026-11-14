@@ -123,19 +123,28 @@ func _initialize() -> void:
             _fail("N38 disk restore tick360 rejected: " + str(loaded))
             return
         var after: Dictionary = resumed.checkpoint()
-        if after.is_empty() or after["native_production"]["ledger"].get("balances", {}) != bank.get("balances", {}) or after["native_production"]["ledger"].get("receipts", {}) != bank.get("receipts", {}):
-            _fail("N38 changed canonical N9 balances or immutable receipts")
+        if after.is_empty() or not after.has("native_production"):
+            _fail("N38 restarted runner lost canonical native frame")
+            return
+        # Source ledger and contracts MUST remain bit-exact in their
+        # authoritative values. JSON may express an integer as 1.0; the
+        # original N38 guard permits only exact integers under 2^53,
+        # never a changed cent, stock unit, cargo amount or receipt.
+        # Raw Dictionary == incorrectly treats 1 vs 1.0 as different
+        # before N158 normalizes source numeric fields on restore.
+        var exact_restart: Dictionary = NativeFrame.verify_authoritative_frame(
+            checkpoint, after)
+        if not exact_restart.get("ok", false):
+            _fail("N38 strict canonical N9/N104/N15 frame changed at tick360: " +
+                str(exact_restart))
             return
         var restored_world: Dictionary = after["native_production"]["world"]
-        if restored_world.get("contract_board", {}).get("contracts", {}) != world["contract_board"].get("contracts", {}):
-            _fail("N38 changed real N104 obligations at tick360")
+        if restored_world.get("ships", {}).size() != world["ships"].size() or (
+                restored_world.get("contract_board", {}).get(
+                "contracts", {}).size() != world["contract_board"].get(
+                "contracts", {}).size()):
+            _fail("N38 changed real actor or contract cardinality at tick360")
             return
-        for id in world["ships"]:
-            var before_ship: Dictionary = world["ships"][id]
-            var after_ship: Dictionary = restored_world.get("ships", {}).get(id, {})
-            if before_ship.get("cargo", {}) != after_ship.get("cargo", {}) or before_ship.get("credits") != after_ship.get("credits"):
-                _fail("N38 changed physical cargo or wallet: " + str(id))
-                return
         sim = resumed
         restarted = true
     _cleanup(path)
