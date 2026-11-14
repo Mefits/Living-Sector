@@ -66,6 +66,10 @@ static func _verify_paid_history(world: Dictionary, bank: Dictionary,
             var payment: Dictionary = money.get(pay, {})
             var ship: String = str(c.get("fulfiller_id", ""))
             var legs: Variant = payment.get("legs", null)
+            if not (legs is Array) or legs.size() != 2 or (
+                    not (legs[0] is Dictionary) or
+                    not (legs[1] is Dictionary)):
+                return fail("b3_invalid_original_escrow_payout_legs")
             if amount <= 0 or amount > 200 or (
                     str(world.get("construction_contracts", {}).get(cid, "")) != id or
                     str(c.get("contract_type", "")) != "construction" or
