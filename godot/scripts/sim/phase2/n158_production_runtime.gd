@@ -1940,6 +1940,16 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                 if pair.has(time_field) and pair[time_field] != null and (
                         not _normalize_number_at(pair, time_field)):
                     return false
+    # N18 station planning memory is historical source data, not a new
+    # simulation. Recover its immutable whole-number version and tick
+    # before the existing strict N39 schema verifies the old plan.
+    if w.has("station_administration"):
+        if not (w["station_administration"] is Dictionary):
+            return false
+        for record in w["station_administration"].values():
+            if not (record is Dictionary) or not _normalize_row(
+                    record, ["version", "last_plan_tick"]):
+                return false
     # N100/N98 source search snapshots and the original N121 execution
     # memory survive a real N38 JSON round-trip, not a duplicate agent
     # save. JSON numeric tokens must regain their original Rust integer
