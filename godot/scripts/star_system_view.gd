@@ -316,12 +316,68 @@ func _draw_system() -> void:
             HORIZONTAL_ALIGNMENT_LEFT, -1, 13,
             Color("#f2f7fa") if picked else Color("#a9bbc8"))
         _body_pins.append({"body": body, "position": position, "hit_radius": maxf(22.0, visual_radius + 9.0)})
+    # Draw ONLY ships with a real committed N14 transit.position. The
+    # radial display is compressed by the same source orbit transform as
+    # the planets; there is no fabricated travel or per-frame motion.
+    _draw_real_native_transits(system, scale)
     draw_string(font, Vector2(14.0, 26.0),
         "%s  /  %d тел  /  масштаб ×%.1f" % [str(system.get("name", "?")), bodies.size(), _zoom],
         HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#dce8ee"))
     draw_string(font, Vector2(14.0, size.y - 14.0),
         "ЛКМ: выбрать · двойной клик / крупное колесо: глобус · колесо: орбиты · схематичный масштаб",
         HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#7d9cad"))
+
+
+## Visual-only projection of N14's physical absolute world position.
+## NativePositionResolver uses system.universe_offset + polar body orbit;
+## the system diagram uses the same orbit with a nonlinear radial scale
+## and flipped vertical screen axis. This function never advances travel,
+## invents a route or changes the ship's canonical N39 location.
+func _draw_real_native_transits(system: Dictionary,
+        scale: float) -> void:
+    var system_offset: Variant = system.get("universe_offset", null)
+    if not (system_offset is Array) or system_offset.size() != 2:
+        return
+    if not (system_offset[0] is float or system_offset[0] is int) or (
+            not (system_offset[1] is float or system_offset[1] is int)):
+        return
+    var offset: Vector2 = Vector2(float(system_offset[0]),
+        float(system_offset[1]))
+    var bounds: Rect2 = Rect2(Vector2.ZERO, size).grow(7.0)
+    for raw in _live_fleet.values():
+        if not (raw is Dictionary):
+            continue
+        var ship: Dictionary = raw
+        if str(ship.get("system_id", "")) != str(system.get("id", "")):
+            continue
+        var transit: Variant = ship.get("transit", null)
+        if not (transit is Dictionary) or transit.is_empty():
+            continue
+        var native_xy: Variant = transit.get("position", null)
+        if not (native_xy is Array) or native_xy.size() != 2:
+            continue
+        if not (native_xy[0] is int or native_xy[0] is float) or (
+                not (native_xy[1] is int or native_xy[1] is float)):
+            continue
+        var physical: Vector2 = Vector2(float(native_xy[0]),
+            float(native_xy[1])) - offset
+        if not is_finite(physical.x) or not is_finite(physical.y):
+            continue
+        var distance: float = physical.length()
+        var display: Vector2 = Vector2.ZERO
+        if distance > 0.0:
+            display = Vector2(physical.x, -physical.y) / distance * (
+                _radius_transform(distance) * scale * _zoom)
+        var screen: Vector2 = _center() + display
+        if not bounds.has_point(screen):
+            continue # Cross-system transfers are not painted in this map.
+        var tone: Color = Color("#8ec9da")
+        if str(ship.get("class", "")) == "miner":
+            tone = Color("#9ecb95")
+        elif str(ship.get("class", "")) == "freighter":
+            tone = Color("#ddc287")
+        draw_circle(screen, 3.4, tone)
+        draw_arc(screen, 5.0, 0.0, TAU, 12, tone, 1.0, true)
 
 
 func _zoom_at(pointer: Vector2, multiplier: float) -> void:
