@@ -4,6 +4,7 @@ extends "res://scripts/sim/phase1/n39_native_production_tick_runner.gd"
 ## -> versioned P1 save with N39 native snapshot. No second N23 production.
 const GalaxySeedAdapter = preload("res://scripts/sim/phase2/n158_galaxy_production_seed.gd")
 const MarketPhase = preload("res://scripts/sim/phase2/unified_market_phase.gd")
+const NativeCrisisPhase = preload("res://scripts/sim/phase2/unified_native_crisis_phase.gd")
 const StationDemand = preload("res://scripts/sim/phase2/unified_station_demand_phase.gd")
 const PopulationPhase = preload("res://scripts/sim/phase2/unified_population_phase.gd")
 const ShipPhase = preload("res://scripts/sim/phase2/unified_ship_phase.gd")
@@ -31,6 +32,8 @@ const NativeColonyMetalAssignment = preload("res://scripts/sim/phase2/unified_n1
 var _boot_error: String = ""
 var _source_stats: Dictionary = {}
 var _last_market_result: Dictionary = {}
+var _last_crisis_result: Dictionary = {}
+var _pending_crisis_plan: Dictionary = {}
 var _last_station_demand: Dictionary = {}
 var _last_contract_admissions: Dictionary = {}
 var _last_n152_result: Dictionary = {}
@@ -65,6 +68,8 @@ func start_from_seed(seed: Dictionary) -> bool:
     _boot_error = ""
     _source_stats = {}
     _last_market_result = {}
+    _last_crisis_result = {}
+    _pending_crisis_plan = {}
     _last_station_demand = {}
     _last_contract_admissions = {}
     _last_n152_result = {}
@@ -151,6 +156,26 @@ func _advance_one_tick() -> void:
 ## The original N150 market phase runs AFTER paid facilities, in the
 ## SAME N39 world and one clock. N131 reprice produces NO stock or cash.
 func _execute_integrated_phase(phase: String, tick: int) -> bool:
+    # Frozen Rust engine.rs orders MARKETS -> CRISIS -> APPLY2. N150 has
+    # already persisted market hysteresis; this is the ONLY N39 writer of
+    # facility starving_notified, and only the existing N1 signal publishes
+    # the two source transition arrays AFTER the single World commit.
+    if phase == "crisis":
+        if int(_pending_crisis_plan.get("tick", -1)) != tick:
+            _last_crisis_result = {"ok": false,
+                "reason": "native_crisis_missing_current_market_stage", "tick": tick}
+            return false
+        var native_crisis: Dictionary = production.apply_native_crisis_phase(
+            tick, _pending_crisis_plan)
+        _pending_crisis_plan = {}
+        _last_crisis_result = native_crisis.duplicate(true)
+        if not native_crisis.get("ok", false):
+            return false
+        for event in native_crisis.get("events", []):
+            # Rust appends these immediately to its tick's events Vec.
+            # Do not schedule a future notification or keep a replay cache.
+            scheduled_event_due.emit(event.duplicate(true))
+        return true
     if phase == "factions":
         # Read-only counters are per-tick. Never show yesterday's funded
         # N134 commission as a new building order today.
@@ -1157,14 +1182,23 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         return true
     if phase != "markets":
         return true
+    var premarket_world: Dictionary = production.world_snapshot()
     var proposal: Dictionary = MarketPhase.propose(
-        production.world_snapshot(), tick, _tick_multiplier)
+        premarket_world, tick, _tick_multiplier)
     if not proposal.get("ok", false):
         _last_market_result = proposal
         return false
     if not production.apply_market_phase(tick, proposal["updates"]):
         _last_market_result = {"ok": false, "reason": "market_world_commit_rejected"}
         return false
+    var crisis_plan: Dictionary = NativeCrisisPhase.propose(
+        premarket_world, production.world_snapshot(), proposal, tick)
+    if not crisis_plan.get("ok", false):
+        _last_market_result = {"ok": false, "tick": tick,
+            "reason": "native_crisis_stage_rejected:" +
+                str(crisis_plan.get("reason", "unknown"))}
+        return false
+    _pending_crisis_plan = crisis_plan
     _last_market_result = {"ok": true, "tick": tick,
         "market_count": int(proposal["market_count"])}
     # N152 closes due POSTED offers and returns unused PAID/EXPIRED N104
@@ -1217,6 +1251,8 @@ func _integrated_phase_failure_reason(phase: String) -> String:
         result = _last_n147_result if not _last_n147_result.get("ok", true) else (_last_research_result if not _last_research_result.get("ok", true) else (_last_n134_result if not _last_n134_result.get("ok", true) else (_last_n91_result if not _last_n91_result.get("ok", true) else (_last_construction_result if not _last_construction_result.get("ok", true) else _last_n153_result))))
     elif phase == "relations":
         result = _last_faction_relations if not _last_faction_relations.get("ok", true) else _last_body_territory
+    elif phase == "crisis":
+        result = _last_crisis_result
     elif phase == "markets":
         result = _last_n152_result if not _last_n152_result.get("ok", true) else (_last_station_demand if not _last_station_demand.get("ok", true) else (_last_contract_admissions if not _last_contract_admissions.get("ok", true) else _last_market_result))
     var detail: String = str(result.get("reason", "integrated_phase_rejected"))
@@ -1224,6 +1260,10 @@ func _integrated_phase_failure_reason(phase: String) -> String:
 
 func last_market_result() -> Dictionary:
     return _last_market_result.duplicate(true)
+
+## Current-tick immutable Rust Bundle(S) events, only after N39 Apply.
+func last_crisis_result() -> Dictionary:
+    return _last_crisis_result.duplicate(true)
 
 func station_demand_snapshot() -> Dictionary:
     return _last_station_demand.duplicate(true)
@@ -1475,6 +1515,11 @@ func economy_summary() -> Dictionary:
         "last_result_ok": results.get("ok", true),
         "market_phase_ok": _last_market_result.get("ok", null),
         "market_phase_tick": _last_market_result.get("tick", -1),
+        "native_crisis_phase_ok": _last_crisis_result.get("ok", null),
+        "native_crisis_market_events_this_tick": int(_last_crisis_result.get(
+            "market_count", 0)),
+        "native_crisis_facility_events_this_tick": int(_last_crisis_result.get(
+            "facility_count", 0)),
         "station_demand_candidates": _last_station_demand.get("proposals", []).size(),
         "station_demand_blocked": _last_station_demand.get("blocked", []).size(),
         "station_demand_status": str(_last_station_demand.get("status", "NOT_EVALUATED")),
@@ -1581,6 +1626,11 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
         return false
     if not super.restore_checkpoint(staged, seed):
         return false
+    # Never replay a pre-save crisis; the ONE N39 World already holds its
+    # original Rust notification flags and next tick rechecks hysteresis.
+    _pending_crisis_plan = {}
+    _last_crisis_result = {}
+    _last_market_result = {}
     # Never show stale in-transit receipts from before a successful load.
     _last_ship_result = {}
     _last_native_crew_result = {}
