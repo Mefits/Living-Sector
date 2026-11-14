@@ -534,8 +534,9 @@ static func propose(world: Dictionary, graph: RefCounted,
             if contract_id.is_empty() and str(ship.get(
                     "current_goal", "")) in [
                         "trade_route", "mine", "mine_ice",
-                        "deliver_mined_ice", "explore", "refuel"]:
-                # Rust failed speculative trade goal can be abandoned;
+                        "deliver_mined_ice", "explore", "refuel",
+                        "construct", "retrofit", "refit"]:
+                # Rust failed speculative ship goals may be replanned;
                 # never halt the N158 world or manufacture a fill.
                 # Any settled prior purchases remain physical cargo.
                 var active_slot: Dictionary = ship.get("transaction", N90.empty())
@@ -546,11 +547,32 @@ static func propose(world: Dictionary, graph: RefCounted,
                 ship["current_goal"] = "idle"
                 ship["current_goal_score"] = 0.0
                 ship["current_bt"] = null
-                ship["planning_source"] = "n83_original_rejected_replan"
+                ship["dock_attempt_start_tick"] = null
+                ship["planning_source"] = "n21_source_dock_timeout_replan" if (
+                    detail["reason"] == "n21_original_dock_wait_timeout") else (
+                    "n84_original_failed_goal_replan")
                 changed = true
                 records.append({"ship_id": str(ship_id), "contract_id": "",
                     "leaf": current_leaf, "status": Bt.FAILURE,
                     "reason": detail["reason"]})
+                continue
+            if not contract_id.is_empty() and detail["reason"] == (
+                    "n21_original_dock_wait_timeout"):
+                # N104 accepted / picked_up jobs have prepaid escrow and
+                # possibly real N15 cargo. Never cancel or lose this paid
+                # obligation just because its N21 queue ran out of patience.
+                # Source planner cannot safely replace an occupied N104
+                # job with a speculative new one in this same ship phase.
+                # Clear only its FIFO wait cursor and retry the *persisted*
+                # BT next N140 fire; this is a safe fail-closed bridge
+                # pending a full source-aware N153 contract replan.
+                ship["dock_attempt_start_tick"] = null
+                ship["planning_source"] = "n21_paid_contract_retry_after_timeout"
+                changed = true
+                records.append({"ship_id": str(ship_id),
+                    "contract_id": contract_id, "leaf": current_leaf,
+                    "status": Bt.RUNNING,
+                    "reason": "n21_contract_wait_timed_out_safe_retry"})
                 continue
             return {"ok": false, "reason": "n84_leaf_failed_" + current_leaf,
                 "ship_id": str(ship_id)}
