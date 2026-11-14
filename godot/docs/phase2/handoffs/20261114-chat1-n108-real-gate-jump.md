@@ -1,0 +1,33 @@
+# P2 Chat №1 — source N108 real GateJump with N39/N9 and N38
+
+**Date:** 14 Nov 2026. **Branch:** `integration/godot-phase2-unified-20261113`. **PR:** #249.
+
+**Status: SOURCE_WIRED / CODE_UNVERIFIED.** User requested completing Rust → Godot source integration before *any* full Godot parser/F5/headless/Windows/Actions gameplay testing or mechanics/balance adjustments.
+
+## What source Rust actually does
+
+- `native/crates/sim_core/src/agents/ship/actions.rs::ShipAction::GateJump` emits `SimCommand::RequestGateJump` at source location, with a preliminary affordability check (50 credits). Its original speculative position change before server Apply is a documented Rust drift bug; P2 uses confirmed movement ONLY.
+- `native/crates/sim_server/src/engine/apply.rs::apply_gate_jump` finds a source GateLink, charges `gate_transit_fee(link, cargo_used)` to ship ShipEconomy, credits the exact source FacilityOperations, locates the paired destination and uses original `facility_offset_position(body_center, *facility_id*)`, then updates ShipPosition and source ShipMemory.recent_systems (max 5). Fee defaults frozen from `sim_core::facility`: `flat=200, per_cargo_unit=2, throughput_cap=3` (throughput not enforced in original MVP).
+- In frozen `sim_db::spawner`, **gate facilities have no Market**, GateLink is instantiated ONLY when the physical facility's original `gate_paired_id` exists. The eight checked `native/priv/galaxy/data/worlds` starter systems have **zero seeded gates**, so a fresh game cannot claim to have actually executed a jump yet.
+- The frozen orbit position `facility_offset_position` hashes **facility agent ID** with Rust DefaultHasher; N43 location orbit uses a DIFFERENT FNV hash. **Never substitute the FNV location position** to make a gate appear at a fictional spot. Stage requires an already persisted source positional record (x/y or coordinate array). Reconstructing Rust's id-hash exactly for dynamically commissioned gates remains open if native saved position unavailable.
+
+## Work actually committed
+
+1. New `godot/scripts/sim/phase2/unified_n108_gate_jump_stage.gd`: pure one-World source view derived only from N39 real current ships/facilities/bodies, original reciprocal GateLink pair, original source fee fields and actual persisted destination position. Validates ship not in N14 transit, undocked, real originating system and destination source body, source cargo quantity, affordability, no overflow, no abandoned gate. Calls existing P1 `res://scripts/port/n108_gate_jump_apply.gd::apply`, checks physical output, derives actual target system from N43 BodyIdentity, stages exact one N9 ship→original source gate fee transfer and immutable `native_gate_jump_receipts`. No N9 fees deducted on missing/unbuilt/unpaired gates, missing coordinates or insolvent ship; no simulated teleport.
+2. `godot/scripts/sim/phase1/n39_native_world_production.gd::apply_native_n108_gate_jump`: the ONLY committing authority validates authentic current N84 `GateJump` leaf, exact physical one-ship location/system/position change, only source operator's wallet and dirty flag, and ONLY source ShipMemory.recent_systems (no extra visited/unverified history). Proves N9 money conservation, one receipt and immutable original history, all Schema.accounts wallet balances, then atomically swaps the existing World+N9 Ledger.
+3. `godot/scripts/sim/phase2/unified_ship_ai_execution.gd`: N84 `GateJump` leaf emits only typed N146 RequestGateJump with source/destination from original N81 GOAP; it remains RUNNING until physical location confirms jump at the NEXT N140-fired tick. No optimistic location or credit mutation in BT. Missing pair / fees produce a waiting/blocking state instead of phantom jump.
+4. `godot/scripts/sim/phase2/n158_production_runtime.gd`: handles RequestGateJump through one N39 exclusive Apply; logs real jumps/blocked requests, exposes `n108_real_gate_jumps_this_tick`, and normalizes N38 source `native_gate_jump_receipts` integer fee/tick/cargo fields and GateLink integer prices without truncating real coordinates. No second clock or service.
+5. `godot/scripts/sim/phase1/n39_native_world_schema.gd`: validates optional real marketless gate facilities (original zero gate crew but allows genuine nonzero N154 docking capacity), paired reciprocal GateLink fee fields, and an append-only distinct source GateJump physical receipt. Existing N151 colony temporary docks remain independently validated.
+6. `godot/scripts/sim/phase2/n158_galaxy_production_seed.gd`: no fake starter gates. If a real frozen source seed explicitly supplies gates, their original nonmarket facilities and cash can enter N39; only genuinely reciprocal `gate_paired_id` rows receive the original 200/2/3 GateLink defaults. Any explicit actual x/y position is copied; none guessed. Other marketless industries are still handled separately.
+7. `godot/scripts/sim/ships/native_location_resolver.gd::system_for_body` exposes the existing real BodyIdentity.system_name for actual gate source/destination (a constructed gate's location might not be in the initial N43 point registry).
+8. New `godot/tests/p2_n108_native_gate_jump_stage_check.gd`: **NOT RUN** static source fixture for genuine pair/fee/cargo and physical exit, frozen N9 conservation, one receipt and replay refusal, no pair, insufficient funds, missing original orbit and totally absent gates.
+
+## Remaining actual source work (next Chat1 if free)
+
+- **Real gate availability:** all eight starter systems have none. Newly commissioned N154 gates need confirmed `GateLink` pairing/physical position and live N43 graph registration before a generated BT can actually traverse them. Rust saved gate ID-hash orbit coordinates must match the authoritative source; the stage deliberately blocks unproven locations instead of taking an invented shortcut.
+- Complete native idle/exploration route planner and mining-goal assignment so the newly connected N97 paid physical Mine runs autonomously. Reconciling free Refuel/Rest, full GOAP/Rust f32 parity and entire N104/N83 cargo+payment checkpoint are subsequent work.
+- Actual Godot parser/runtime + Windows + differential source tests **NOT run**. At final integrated test, verify successful two-gate hop, 200+2/cargo receipt to operator, retry and save/reload at N90 and gate boundaries, destination coordinate/system/ShipMemory, failures never spend money or teleport.
+
+## Safety and ownership
+
+Chat2 colony B1/B2 and Chat3 factions/checkpoint are separate; all shared N39/N158/Schema changes were fetched with fresh blob SHA, one file write at a time, without force or changed balance. GitHub Actions not called. Gate lease to be marked RELEASED.
