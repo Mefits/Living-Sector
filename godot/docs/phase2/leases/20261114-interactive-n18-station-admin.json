@@ -1,6 +1,6 @@
 {
   "worker": "interactive-primary-chat-20261114",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "base_head": "98b7a2b5267fbbc26785db472410223d23bc9b05",
   "branch": "integration/godot-phase2-unified-20261113",
   "goal": "Integrate actual N18 native StationAdministration workforce allocations and persisted retention into N39 paid production on real 5×mult Rust work cadence; keep N100 hybrid forecasts separate from authoritative actions",
@@ -10,7 +10,12 @@
     "godot/scripts/sim/phase1/n39_native_world_production.gd",
     "godot/scripts/sim/phase1/n39_native_world_schema.gd",
     "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md",
-    "godot/docs/phase2/handoffs/20261114-n18-station-admin-native-production.md"
+    "godot/docs/phase2/handoffs/20261114-n18-station-admin-native-production.md",
+    "godot/scripts/sim/strategy/station_administrator.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd"
   ],
-  "verification": "No Godot/CI runtime checks before entire Rust integration, user instruction"
+  "verification": "SOURCE_STATIC_DELIMITERS_IMPORTS_INDENT_PASS; GODOT_NOT_EXECUTED; GITHUB_ACTIONS_0; USER_DEFERRED_FULL_PLAYTEST",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n18-station-admin-native-production.md",
+  "code_head": "8a5e4b0bbaaf299d40b9a1b1df9ced43a17b9a58",
+  "remaining": "N100 HybridPlanner goal/action publication through real N121/N134/N143/N153 still missing; full Rust source integration incomplete"
 }
