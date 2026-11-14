@@ -5,6 +5,7 @@ const Snapshot = preload("res://scripts/sim/phase2/unified_native_hybrid_plannin
 const Dispatch = preload("res://scripts/port/n121_native_dispatch.gd")
 const N98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121Receipts = preload("res://scripts/port/n121_native_receipts.gd")
+const N155Catalogue = preload("res://scripts/sim/phase1/n155_native_catalogue.gd")
 
 ## Source Dispatch.preflight takes the original ECS projection, whereas
 ## N39 owns keyed facilities, escrow accounts and the real N104 board.
@@ -86,6 +87,49 @@ static func action_for_step(plan: Dictionary, gate: Dictionary) -> Dictionary:
     if not action.get("ok", false):
         return action
     return action
+
+## Source native_execution.rs::native_production_baselines and
+## production_receipt observe the ALREADY-PAID N39/N18 work shift.
+## Producer IDs and recipe identity are pinned by the exact original
+## N155 catalogue. They never select a different facility after planning.
+static func production_context(world: Dictionary, faction: String,
+        action: Dictionary, tick: int) -> Dictionary:
+    var captured: Dictionary = Snapshot.capture(world, faction, tick)
+    if not captured.get("ok", false):
+        return captured
+    var snapshot: Dictionary = captured["snapshot"]
+    var pin: Dictionary = N155Catalogue.pinned_producer_recipe(
+        snapshot, action)
+    if pin.is_empty():
+        return {"ok": false, "reason": "n121_unverified_native_producer_recipe"}
+    var facility_id: String = str(pin.get("facility_id", ""))
+    var source: Dictionary = world.get("facilities", {}).get(facility_id, {})
+    if source.is_empty() or str(source.get("faction", "")) != faction or (
+            str(source.get("location", "")) !=
+            str(action.get("destination_id", ""))):
+        return {"ok": false, "reason": "n121_actual_producer_location_changed"}
+    var facilities: Dictionary = {}
+    facilities[facility_id] = {
+        "id": facility_id, "faction_id": faction,
+        "facility_type": str(source.get("type", "")),
+        "location": str(source.get("location", "")),
+        "work_shift": source.get("work_shift", {}).duplicate(true)}
+    var global_markets: Array = []
+    var market_locations: Array = world.get("markets", {}).keys()
+    market_locations.sort()
+    for loc in market_locations:
+        var market: Dictionary = world["markets"][loc]
+        global_markets.append({"market_id": str(market.get("id", "")),
+            "location_id": str(loc),
+            "facility_id": str(market.get("owner", ""))})
+    var pins: Dictionary = {}
+    pins[str(action["action_id"])] = pin.duplicate(true)
+    return {"ok": true, "snapshot": snapshot,
+        "pin": pin.duplicate(true),
+        "source_world": {"facilities": facilities,
+            "global_markets": global_markets,
+            "producer_recipe_pins": pins}}
+
 
 ## Paid only if the source N104 actual settlement and N9 immutable
 ## receipts exist; the N15 load/unload operations are never simulated.
