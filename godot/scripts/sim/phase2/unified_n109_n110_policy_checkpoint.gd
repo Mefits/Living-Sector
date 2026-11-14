@@ -4,6 +4,7 @@ extends RefCounted
 ## No policy installation, money, world migration or new default charter.
 const Research = preload("res://scripts/sim/phase1/n143_native_research_director.gd")
 const Charter = preload("res://scripts/native_port/n109_charter.gd")
+const OriginalEconomic = preload("res://scripts/simulation/strategy/native_mandate_policy.gd")
 const Technology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
 const MAX_EXACT_JSON_INT: float = 9007199254740991.0
 
@@ -28,7 +29,8 @@ static func _integer_field(row: Dictionary, field: String) -> bool:
 static func normalize(world: Dictionary, saved_tick: int = -1) -> Dictionary:
     var staged: Dictionary = world.duplicate(true)
     var directors: Variant = staged.get("research_directors", null)
-    for kind in ["research_mandates", "faction_charters"]:
+    for kind in ["research_mandates", "faction_charters",
+            "economic_mandates"]:
         if not staged.has(kind):
             continue # Original Rust old checkpoint: no player controls.
         if not (staged[kind] is Dictionary) or not (
@@ -43,6 +45,9 @@ static func normalize(world: Dictionary, saved_tick: int = -1) -> Dictionary:
             if kind == "research_mandates":
                 fields = ["budget_ceiling_cr", "treasury_floor_cr",
                     "spent_cr", "created_tick"]
+            elif kind == "economic_mandates":
+                fields = ["min_stock", "budget_ceiling_cr", "treasury_floor_cr",
+                    "spent_cr", "created_tick", "last_commitment_tick"]
             else:
                 fields = ["research_priority", "economy_priority",
                     "shared_ceiling_cr", "protected_treasury_cr",
@@ -57,6 +62,11 @@ static func normalize(world: Dictionary, saved_tick: int = -1) -> Dictionary:
             if kind == "research_mandates":
                 problem = Research.validate_mandate(entry,
                     Research.catalogue_map(Technology.all()))
+            elif kind == "economic_mandates":
+                problem = OriginalEconomic.validate_economic(entry)
+                if str(entry.get("mode", "")) not in [
+                        "delegated", "advise", "hold"]:
+                    problem = "invalid_original_economic_mode"
             else:
                 problem = Charter.validate(entry)
             if not problem.is_empty():
@@ -65,10 +75,15 @@ static func normalize(world: Dictionary, saved_tick: int = -1) -> Dictionary:
             # The engine control thread alone installed this directive at
             # its real tick; JSON may never move source policy into the
             # future relative to the one saved N39 authoritative clock.
-            var time_field: String = "created_tick" if (
-                kind == "research_mandates") else "updated_tick"
+            var time_field: String = "updated_tick" if (
+                kind == "faction_charters") else "created_tick"
             var source_tick: int = int(entry.get(time_field, 0))
             if saved_tick >= 0 and source_tick > saved_tick:
                 return _bad("n109_n110_json_policy_from_future:" +
+                    str(faction))
+            if kind == "economic_mandates" and saved_tick >= 0 and (
+                    entry.get("last_commitment_tick", null) != null) and (
+                    int(entry["last_commitment_tick"]) > saved_tick):
+                return _bad("n110_economic_commitment_from_future:" +
                     str(faction))
     return {"ok": true, "world": staged}
