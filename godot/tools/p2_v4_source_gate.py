@@ -142,13 +142,17 @@ def audit(root: Path) -> dict:
     # Rust admits queued ships every tick independently of ship AI cadence.
     queue_link = (
         "tick_dock_queue_advance" in rust_dock
-        and "dock_queue" in docking
-        and 'phase == "dock_queue"' in n158
+        and "unified_n21_dock_queue_stage.gd" in n39
+        and "func apply_native_n21_request(" in n39
+        and "func apply_native_n21_dock_queue(" in n39
+        and 'if phase == "dock_queue"' in n158
+        and "production.apply_native_n21_dock_queue(" in n158
     )
     add("original_n21_fifo_dock_queue",
         queue_link,
-        [rust_dock_path, docking_path, n158_path],
-        "Rust has FIFO queue, stale-entry pruning, per-tick head advance and fees; Godot immediate no_available_dock is not equivalent.",
+        [rust_dock_path, "godot/scripts/sim/phase2/unified_n21_dock_queue_stage.gd",
+         n39_path, n158_path, docking_path],
+        "Chat1 N21 real N39 FIFO + real N9 paid dock + N158 tick phase are source-wired. Source N84 timeout and legacy manual Dock still need parity audit; runtime is NOT verified.",
         "SOURCE_LINK_PRESENT", "BLOCKING_SOURCE_GAP")
 
     # These adapters may exist without being called by the live engine.
