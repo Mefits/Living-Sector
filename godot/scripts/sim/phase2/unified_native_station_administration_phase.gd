@@ -82,6 +82,7 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
         var source: Dictionary = {
             "faction_id": faction, "location": location,
             "population_count": total_population,
+            "workforce_limit": real_workforce,
             "occupied_workers": working,
             "market_owner": Schema.facility_account(owner_id),
             "stock": market.get("supply", {}).duplicate(true),
