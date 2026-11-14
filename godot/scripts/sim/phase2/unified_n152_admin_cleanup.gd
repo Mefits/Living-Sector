@@ -50,6 +50,11 @@ static func stage(world: Dictionary, bank: Dictionary, tick: int,
         if kind == "facility" and str(c.get("destination_location", "")) == location:
             return _bad("active_passengers_at_facility")
     if kind == "facility":
+        # Frozen admin.rs also unpairs GateLink on the OTHER end.
+        # Until N39 owns mutable paired links and a rebuilt route graph,
+        # removing a gate here would leave a phantom traversable edge.
+        if str(actor.get("type", "")) == "gate":
+            return _bad("paired_gate_route_cleanup_not_yet_source_wired")
         # A colony Site with a physically embarked workforce must not
         # be deleted with its sponsor. This is Rust admin.rs guard.
         for site in world.get("construction_sites", {}).values():
