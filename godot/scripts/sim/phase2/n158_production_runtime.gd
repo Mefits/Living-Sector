@@ -22,6 +22,7 @@ const NativeCommands = preload("res://scripts/simulation/native_sim_command_buff
 const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 const NativeLocations = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const N148RetirementQueue = preload("res://scripts/sim/phase1/n148_native_ship_retirement_queue.gd")
+const NativePassengers = preload("res://scripts/sim/phase2/unified_n104_passenger_transit.gd")
 
 var _boot_error: String = ""
 var _source_stats: Dictionary = {}
@@ -40,6 +41,7 @@ var _last_n134_result: Dictionary = {}
 var _last_n100_result: Dictionary = {}
 var _last_n121_result: Dictionary = {}
 var _last_n147_result: Dictionary = {}
+var _last_native_passengers: Dictionary = {}
 var _last_n151_founding: Dictionary = {}
 var _last_faction_relations: Dictionary = {}
 var _last_body_territory: Dictionary = {}
@@ -68,6 +70,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_n100_result = {}
     _last_n121_result = {}
     _last_n147_result = {}
+    _last_native_passengers = {}
     _last_n151_founding = {}
     _last_faction_relations = {}
     _last_body_territory = {}
@@ -130,6 +133,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             "plans": [], "blocked": []}
         _last_n121_result = {"ok": true, "tick": tick,
             "submitted": [], "receipts": [], "blocked": []}
+        _last_native_passengers = {"ok": true, "tick": tick,
+            "posted": [], "accepted": [], "moved": [], "blocked": []}
         # Rust faction::tick_factions recalculates BodyTerritory FIRST.
         # A world-owned N39 commit, not a UI-local one-off snapshot.
         var territory_pass: Dictionary = production.apply_native_body_territory(
@@ -204,6 +209,29 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 _last_n153_result["blocked"].append({
                     "contract_id": cid, "ship_id": str(candidate["ship_id"]),
                     "reason": str(admission.get("reason", "n104_acceptance_rejected"))})
+        # Native N153/N81 passenger bid: claim one existing prepaid N104
+        # offer only after real routes, seats, fuel and current escrow pass.
+        # N39 re-evaluates this source plan before a single atomic Apply.
+        var passenger_bid: Dictionary = NativePassengers.propose_assignment(
+            production.world_snapshot(), _fleet_roster.registry.graph(),
+            _fleet_resolver, positions["positions"], tick, clock.tick_scale())
+        if not passenger_bid.get("ok", false):
+            _last_native_passengers = passenger_bid
+            return false
+        if passenger_bid.get("assigned", false):
+            var passenger_admitted: Dictionary = production.accept_native_passenger(
+                tick, passenger_bid, _fleet_roster.registry.graph(),
+                _fleet_resolver, positions["positions"], clock.tick_scale())
+            if passenger_admitted.get("ok", false):
+                _last_native_passengers["accepted"].append(passenger_admitted.duplicate(true))
+            elif passenger_admitted.get("fatal", false):
+                _last_native_passengers = passenger_admitted
+                return false
+            else:
+                _last_native_passengers["blocked"].append({
+                    "contract_id": str(passenger_bid.get("contract_id", "")),
+                    "ship_id": str(passenger_bid.get("ship_id", "")),
+                    "reason": str(passenger_admitted.get("reason", "n104_real_passenger_accept_rejected"))})
         # Gate4 source N155/N143 research follows the same faction tick
         # after real N150 market data and N39 facility staffing. There is
         # no separate head clock, market, treasury or N9 ledger.
@@ -348,10 +376,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                         if dispatched.get("due", false) and str(dispatched.get("status", "")) not in [
                                 "await_native_dependencies", "n121_no_receipt_downgrade"]:
                             _last_n121_result["blocked"].append(dispatched.duplicate(true))
-        # Source N92 -> N147 workforce proposals run on the existing
-        # strategic cadence. These are observable native intents ONLY.
-        # N104 passenger embark/disembark has no canonical P2 Apply yet,
-        # so no phantom passenger order or minted population is admitted.
+        # N92 -> N147 source workforce intentions are compiled into N104
+        # REAL faction-funded passenger posts. No contracts exist at clean
+        # seed without an established colony and the original directed route.
         if tick == 1 or tick % maxi(1, 200 * _tick_multiplier) == 0:
             _last_n151_founding = N151Founding.scan(
                 production.world_snapshot(), world,
@@ -364,7 +391,21 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 _fleet_resolver, positions["positions"], tick, clock.tick_scale())
             if not _last_n147_result.get("ok", false):
                 return false
-        # A blocked or empty N154/N147 preview is NOT a fatal tick.
+            for ready in _last_n147_result.get("ready", []):
+                var posted: Dictionary = production.post_native_passenger_migration(
+                    tick, ready, _tick_multiplier, _fleet_roster.registry.graph(),
+                    _fleet_resolver, positions["positions"], clock.tick_scale())
+                if posted.get("ok", false):
+                    _last_native_passengers["posted"].append(posted.duplicate(true))
+                    _last_n147_result["posted"].append(posted.duplicate(true))
+                elif posted.get("fatal", false):
+                    _last_native_passengers = posted
+                    return false
+                else:
+                    _last_native_passengers["blocked"].append({
+                        "faction_id": str(ready.get("faction_id", "")),
+                        "reason": str(posted.get("reason", "n147_funding_unavailable"))})
+        # An unqualified N147 offer is NOT a paid passenger contract.
         return true
     if phase == "ships":
         # The base TickRunner has ALREADY advanced real body orbits. Ship
@@ -409,6 +450,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_ship_result["n84_trace"] = planned.get("trace", []).duplicate(true)
         _last_ship_result["n146_command_count"] = planned.get("commands", []).size()
         _last_ship_result["n97_paid_moves"] = []
+        _last_ship_result["n104_passenger_moves"] = []
         _last_ship_result["n108_paid_refits"] = []
         _last_ship_result["n21_auto_dock"] = []
         # Frozen Rust behavior.rs: accumulate idle/strike state after
@@ -571,21 +613,28 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             if kind == "RequestShipTransaction":
                 var cid: String = str(command.get("contract_id", ""))
                 var operation: String = str(command.get("operation", ""))
-                if operation not in ["pickup", "delivery"]:
+                if operation not in ["pickup", "delivery",
+                        "passenger_embark", "passenger_delivery"]:
                     _last_ship_result = {"ok": false, "reason": "n146_unknown_contract_transaction"}
                     return false
-                var receipt: Dictionary = production.apply_autonomous_contract_cargo(
+                var real_passenger: bool = operation in ["passenger_embark", "passenger_delivery"]
+                var receipt: Dictionary = production.apply_native_passenger_move(
+                    tick, ship_id, cid, operation) if real_passenger else production.apply_autonomous_contract_cargo(
                     tick, ship_id, cid, operation)
                 if receipt.get("ok", false):
-                    _last_ship_result["n97_paid_moves"].append(receipt.duplicate(true))
+                    if real_passenger:
+                        _last_ship_result["n104_passenger_moves"].append(receipt.duplicate(true))
+                    else:
+                        _last_ship_result["n97_paid_moves"].append(receipt.duplicate(true))
                 elif receipt.get("fatal", false):
                     _last_ship_result = {"ok": false,
-                        "reason": str(receipt.get("reason", "n97_canonical_commit_failed"))}
+                        "reason": str(receipt.get("reason", "n104_canonical_commit_failed"))}
                     return false
                 else:
                     _last_ship_result["autonomous_blocked"].append({
                         "ship_id": ship_id, "contract_id": cid,
-                        "reason": "n97_" + str(receipt.get("reason", "payment_or_stock_unavailable"))})
+                        "reason": ("n104_passenger_" if real_passenger else "n97_") +
+                            str(receipt.get("reason", "physical_payment_unavailable"))})
                 continue
             _last_ship_result = {"ok": false, "reason": "n146_unsupported_fleet_command"}
             return false
@@ -821,6 +870,9 @@ func last_native_n91_assignment() -> Dictionary:
 func last_native_colony_migration() -> Dictionary:
     return _last_n147_result.duplicate(true)
 
+func last_native_passenger_contracts() -> Dictionary:
+    return _last_native_passengers.duplicate(true)
+
 func last_native_n134_construction() -> Dictionary:
     return _last_n134_result.duplicate(true)
 
@@ -1033,6 +1085,9 @@ func economy_summary() -> Dictionary:
         "colony_observed_groups": _last_n147_result.get("views", []).size(),
         "colony_passenger_proposals_unposted": _last_n147_result.get("ready", []).size(),
         "colony_passenger_contracts_posted": _last_n147_result.get("posted", []).size(),
+        "native_n104_passenger_accepted_this_tick": _last_native_passengers.get("accepted", []).size(),
+        "native_n104_passenger_in_transit": current.get("passenger_manifests", {}).values().filter(func(m): return str(m.get("phase", "")) == "embarked").size(),
+        "native_n104_passenger_moves_this_tick": _last_ship_result.get("n104_passenger_moves", []).size(),
         "colony_migration_blocked_last_scan": _last_n147_result.get("blocked", []).size(),
         "colony_last_scan_tick": int(_last_n147_result.get("tick", -1)),
         "construction_sites": current.get("construction_sites", {}).size(),
@@ -1095,6 +1150,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_n152_result = {}
     _last_admin_removal = {}
     _last_n148_result = {}
+    _last_native_passengers = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
@@ -1331,6 +1387,28 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                     "initial_min_reputation"]:
                 if row.has(key) and not _normalize_number_at(row, key):
                     return false
+    # N104 physical passenger manifests and receipts survive N38 JSON
+    # without silently converting actual headcount/wealth into floats.
+    if w.has("passenger_manifests") != w.has("passenger_receipts"):
+        return false
+    if w.has("passenger_manifests"):
+        if not (w["passenger_manifests"] is Dictionary and w["passenger_receipts"] is Dictionary):
+            return false
+        for cid in w["passenger_manifests"]:
+            var m: Variant = w["passenger_manifests"][cid]
+            if not (m is Dictionary) or not _normalize_row(m, [
+                    "quantity", "wealth", "initial_wealth", "embarked_at_tick"]):
+                return false
+        for receipt_id in w["passenger_receipts"]:
+            var proof: Variant = w["passenger_receipts"][receipt_id]
+            if not (proof is Dictionary) or not _normalize_row(proof, [
+                    "quantity", "tick"]):
+                return false
+    for cid in w.get("contract_board", {}).get("contracts", {}):
+        var contract: Dictionary = w["contract_board"]["contracts"][cid]
+        if contract.get("embarked", null) is Dictionary and not _normalize_row(
+                contract["embarked"], ["wealth"]):
+            return false
     # Source N154 sites are persistent and their labor/receipt counters
     # need integral JSON normalization before N39 world validation.
     var construction_fields: Array[String] = [
