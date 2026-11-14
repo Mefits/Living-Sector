@@ -36,7 +36,10 @@ func _on_section_selected(_index: int) -> void:
 func _show_selected(reset_scroll: bool = false) -> void:
     if _label == null or _section_choice == null:
         return
-    var section: String = str(SECTIONS[_section_choice.selected])
+    var selected: int = _section_choice.selected
+    if selected < 0 or selected >= SECTIONS.size():
+        return
+    var section: String = str(SECTIONS[selected])
     var content: String = str(_section_texts.get(section, "Пока нет данных"))
     if _label.text == content:
         return
@@ -546,7 +549,8 @@ static func _compact_summary(tick: int, economy: Dictionary, summary: Dictionary
     for raw in ships.values():
         if not (raw is Dictionary):
             continue
-        if raw.get("transit", {}) is Dictionary and not raw["transit"].is_empty():
+        var transit: Variant = raw.get("transit", {})
+        if transit is Dictionary and not transit.is_empty():
             traveling += 1
         if not str(raw.get("active_contract_id", "")).is_empty():
             assigned += 1
