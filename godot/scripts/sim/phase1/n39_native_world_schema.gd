@@ -335,6 +335,25 @@ static func validate(state: Dictionary) -> String:
             return "invalid_household_balance"
         if pop.has("employed_fraction") and (not _fraction(pop["employed_fraction"]) or float(pop["employed_fraction"]) > 1.0):
             return "invalid_employment"
+    # N151 native abstract migration has ONE persisted event and, when
+    # wealth > 0, ONE corresponding immutable N9 household transfer.
+    # Old saves without this optional metadata stay valid.
+    if state.has("population_migration_last"):
+        if not (state["population_migration_last"] is Dictionary):
+            return "invalid_native_migration_record"
+        var event: Dictionary = state["population_migration_last"]
+        var origin: String = str(event.get("source_id", ""))
+        var destination: String = str(event.get("destination_id", ""))
+        if origin == destination or not state["populations"].has(origin) or not state["populations"].has(destination):
+            return "invalid_native_migration_endpoints"
+        if typeof(event.get("tick", null)) != TYPE_INT or int(event["tick"]) <= 0 or typeof(event.get("count", null)) != TYPE_INT or int(event["count"]) < 1 or int(event["count"]) > 100:
+            return "invalid_native_migration_count_or_tick"
+        if typeof(event.get("wealth_transferred", null)) != TYPE_INT or int(event["wealth_transferred"]) < 0 or not (event.get("receipt_id", null) is String):
+            return "invalid_native_migration_money"
+        if (int(event["wealth_transferred"]) == 0) != str(event["receipt_id"]).is_empty():
+            return "invalid_native_migration_receipt_link"
+        if str(event.get("source_location", "")) != str(state["populations"][origin]["location"]) or str(event.get("destination_location", "")) != str(state["populations"][destination]["location"]):
+            return "invalid_native_migration_location"
     for id in state["bodies"]:
         if not _id(id) or not (state["bodies"][id] is Dictionary):
             return "invalid_body"
