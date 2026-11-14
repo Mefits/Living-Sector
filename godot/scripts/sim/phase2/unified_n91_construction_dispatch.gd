@@ -59,6 +59,48 @@ static func physical_site_funded(world: Dictionary, money: Dictionary,
     return delivered == int(site.get("progress_delivered", -1))
 
 
+## A Rust ConstructionSite owns neither a Market nor a wallet.
+## Industrial sites use an existing real station; approved N151 colony
+## sites use a real, RECEIPTED temporary construction_dock instead.
+## Never treat an arbitrary marketless location as an eligible port.
+static func physical_site_dock(world: Dictionary, site_id: String) -> Dictionary:
+    var site: Dictionary = world.get("construction_sites", {}).get(site_id, {})
+    if site.is_empty():
+        return {"ok": false, "reason": "n91_missing_original_site"}
+    var location: String = str(site.get("location_name", ""))
+    var faction: String = str(site.get("faction_id", ""))
+    var market: Dictionary = world.get("markets", {}).get(location, {})
+    if not market.is_empty():
+        var station_id: String = str(market.get("owner", ""))
+        var station: Dictionary = world.get("facilities", {}).get(station_id, {})
+        if str(station.get("type", "")) == "station" and (
+                str(station.get("location", "")) == location and
+                str(station.get("faction", "")) == faction and
+                int(station.get("docking_capacity", 0)) > 0 and
+                not bool(station.get("abandoned", false))):
+            return {"ok": true, "facility_id": station_id, "type": "station"}
+        return {"ok": false, "reason": "n91_no_real_site_warehouse"}
+    var labor: Dictionary = site.get("labor", {})
+    if labor.get("colony_source", null) == null:
+        return {"ok": false, "reason": "n91_site_without_real_market"}
+    var proof: Dictionary = world.get("construction_receipts", {}).get(
+        "n151_colony_dock:" + site_id, {})
+    var dock_id: String = str(proof.get("facility_id", ""))
+    var dock: Dictionary = world.get("facilities", {}).get(dock_id, {})
+    if str(proof.get("kind", "")) != "colony_dock_prepared" or (
+            str(proof.get("site_id", "")) != site_id or
+            str(proof.get("destination_location", "")) != location or
+            str(proof.get("faction_id", "")) != faction or
+            dock_id.is_empty() or
+            str(dock.get("type", "")) != "construction_dock" or
+            str(dock.get("construction_source_site_id", "")) != site_id or
+            str(dock.get("location", "")) != location or
+            str(dock.get("faction", "")) != faction or
+            int(dock.get("docking_capacity", 0)) < 1 or
+            bool(dock.get("abandoned", false))):
+        return {"ok": false, "reason": "n91_unverified_original_colony_dock"}
+    return {"ok": true, "facility_id": dock_id, "type": "construction_dock"}
+
 ## Build only an N84 plan backed by an ORIGINAL directed N4 path.
 ## N14 can depart one edge at a time; shortest_path by itself does not
 ## prove a full trip is feasible. No virtual engineer, cargo or credits.
@@ -73,8 +115,11 @@ static func plan_for(world: Dictionary, resolver: RefCounted, graph: RefCounted,
         return {"ok": false, "reason": "n91_unauthorized_or_unqualified_engineer"}
     var from: String = str(ship.get("location", ""))
     var dest: String = str(site.get("location_name", ""))
-    if from.is_empty() or dest.is_empty() or not world.get("markets", {}).has(dest):
+    if from.is_empty() or dest.is_empty():
         return {"ok": false, "reason": "n91_remote_endpoint_missing"}
+    var destination_dock: Dictionary = physical_site_dock(world, site_id)
+    if not destination_dock.get("ok", false):
+        return destination_dock
     var nodes: Array = []
     var route: Array = [from]
     if from != dest:
@@ -139,15 +184,20 @@ static func propose(world: Dictionary, resolver: RefCounted,
     if tick < 1 or resolver == null or not (world.get("construction_sites") is Dictionary) or not (world.get("ships") is Dictionary):
         return {"ok": false, "reason": "missing_real_n91_world"}
     var sites: Array = []
+    var blocked: Array = []
     var site_ids: Array = world["construction_sites"].keys()
     site_ids.sort()
     for id in site_ids:
         var site: Dictionary = world["construction_sites"][id]
-        if not world.get("markets", {}).has(str(site.get("location_name", ""))):
-            return {"ok": false, "reason": "n91_site_without_real_market"}
         if not physical_site_funded(world, money, str(id)):
-            # N154 site may still be waiting for paid material; omit from
-            # N91 offers rather than invent an engineer job.
+            # Native N91.offers only sees sites with fully receipted N15
+            # material deliveries. A fresh N151 site has NO Market yet;
+            # before real delivery, it is simply not an engineering job.
+            continue
+        var dock: Dictionary = physical_site_dock(world, str(id))
+        if not dock.get("ok", false):
+            blocked.append({"site_id": str(id), "reason": str(dock.get(
+                "reason", "n91_unverified_site_dock"))})
             continue
         sites.append({
             "id": str(id), "completed": bool(site.get("completed", false)),
@@ -182,7 +232,6 @@ static func propose(world: Dictionary, resolver: RefCounted,
         systems[str(row.get("location", ""))] = resolver.system_for_location(str(row.get("location", "")))
     var offers: Array = Executor.offers(sites, ship_rows, class_catalogue, false)
     var assigned: Array = []
-    var blocked: Array = []
     var claimed_sites: Dictionary = {}
     for ship_id in ship_ids:
         var ship: Dictionary = world["ships"][ship_id]
@@ -216,8 +265,12 @@ static func propose(world: Dictionary, resolver: RefCounted,
             var site: Dictionary = world["construction_sites"].get(site_id, {})
             if site.is_empty() or claimed_sites.has(site_id):
                 continue
-            var target: String = str(site.get("location_name", ""))
-            var station_id: String = str(world["markets"][target].get("owner", ""))
+            var site_dock: Dictionary = physical_site_dock(world, site_id)
+            if not site_dock.get("ok", false):
+                blocked.append({"ship_id": str(ship_id), "site_id": site_id,
+                    "reason": str(site_dock.get("reason", "n91_unverified_site_dock"))})
+                continue
+            var station_id: String = str(site_dock["facility_id"])
             var station: Dictionary = world.get("facilities", {}).get(station_id, {})
             if station.is_empty() or str(station.get("faction", "")) != str(ship.get("faction_id", "")) or int(station.get("docking_capacity", 0)) < 1:
                 blocked.append({"ship_id": str(ship_id), "site_id": site_id,
