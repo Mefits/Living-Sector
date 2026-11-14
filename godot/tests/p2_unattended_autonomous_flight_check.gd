@@ -7,7 +7,6 @@ extends SceneTree
 const Native = preload("res://scripts/native_data.gd")
 const Runtime = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const SaveState = preload("res://scripts/sim/save_state.gd")
-const Demand = preload("res://scripts/sim/phase2/unified_station_demand_phase.gd")
 
 const MAX_TICKS := 12000
 
@@ -35,26 +34,10 @@ func _initialize() -> void:
     if not runner.restore_checkpoint(initial, seed):
         _fail("controlled economic fixture cannot restore")
         return
-    var need: Dictionary = Demand.propose(runner.economy_snapshot(), 0)
-    if not need.get("ok", false):
-        _fail("N135 did not evaluate real station needs")
-        return
-    var order: Dictionary = {}
-    for candidate in need.get("proposals", []):
-        if str(candidate.get("location", "")) == "alpha-station" and str(candidate.get("source_location", "")) == "earth-station" and str(candidate.get("commodity", "")) == "food":
-            order = candidate
-            break
-    if order.is_empty():
-        _fail("no native directed economic demand for fixture")
-        return
-    # N135/N104 funded posting is the ONLY permitted explicit fixture
-    # admission. All subsequent N153/N84/N146/N14/N21/N97/N15/N104
-    # operations must happen autonomously in the canonical tick runner.
-    var posted: Dictionary = runner.production.post_funded_contract(0, order)
-    if not posted.get("ok", false):
-        _fail("canonical N104 funded posting refused: " + str(posted))
-        return
-    var cid: String = str(posted["contract_id"])
+    # N135 and N104 MUST execute through the real market phase of the
+    # authoritative TickRunner. Merely calling Demand.propose or manually
+    # posting a funded order would bypass the autonomy requirement.
+    var cid: String = ""
     var initial_money: int = _money(runner.checkpoint()["native_production"]["ledger"]["balances"])
     var saved: bool = false
     var saw_accept: bool = false
@@ -77,8 +60,21 @@ func _initialize() -> void:
             _fail("N9 credits not conserved at tick " + str(n))
             return
         var board: Dictionary = w["contract_board"]["contracts"]
+        if cid.is_empty():
+            # Discover the canonical order created by N135/N104 this tick.
+            # A matching paid contract must refer to the original source,
+            # destination and commodity, never a synthetic test contract.
+            var contract_ids: Array = board.keys()
+            contract_ids.sort()
+            for candidate_id in contract_ids:
+                var candidate: Dictionary = board[candidate_id]
+                if str(candidate.get("source_location", "")) == "earth-station" and str(candidate.get("destination_location", "")) == "alpha-station" and str(candidate.get("commodity", "")) == "food" and not str(candidate.get("escrow_account", "")).is_empty():
+                    cid = str(candidate_id)
+                    break
+            if cid.is_empty():
+                continue
         if not board.has(cid):
-            _fail("N104 order vanished")
+            _fail("N104 order vanished after autonomous posting")
             return
         var contract: Dictionary = board[cid]
         var status: String = str(contract.get("status", ""))
@@ -132,7 +128,7 @@ func _initialize() -> void:
             quit(0)
             return
     _cleanup(path)
-    _fail("no end-to-end paid flight after " + str(MAX_TICKS) + " native ticks; accepted=" + str(saw_accept) + " pickup=" + str(saw_pickup) + " transit=" + str(saw_transit) + " dock=" + str(saw_destination_dock) + " saved=" + str(saved))
+    _fail("no end-to-end paid flight after " + str(MAX_TICKS) + " native ticks; posted=" + str(not cid.is_empty()) + " accepted=" + str(saw_accept) + " pickup=" + str(saw_pickup) + " transit=" + str(saw_transit) + " dock=" + str(saw_destination_dock) + " saved=" + str(saved))
 
 func _money(balances: Dictionary) -> int:
     var total: int = 0
