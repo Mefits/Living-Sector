@@ -15,6 +15,7 @@ const N91Dispatch = preload("res://scripts/sim/phase2/unified_n91_construction_d
 const N134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
 const N147Colonies = preload("res://scripts/sim/phase2/unified_n147_colony_migration_observer.gd")
 const N151Founding = preload("res://scripts/sim/phase2/unified_n151_colony_founding_phase.gd")
+const NativeDiplomacy = preload("res://scripts/sim/phase2/unified_native_diplomacy_phase.gd")
 const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const NativeCommands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
@@ -34,6 +35,8 @@ var _last_n91_result: Dictionary = {}
 var _last_n134_result: Dictionary = {}
 var _last_n147_result: Dictionary = {}
 var _last_n151_founding: Dictionary = {}
+var _last_faction_relations: Dictionary = {}
+var _last_body_territory: Dictionary = {}
 var _faction_sources: Dictionary = {}
 var _last_population_result: Dictionary = {}
 var _last_ship_result: Dictionary = {}
@@ -54,6 +57,8 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_n134_result = {}
     _last_n147_result = {}
     _last_n151_founding = {}
+    _last_faction_relations = {}
+    _last_body_territory = {}
     _faction_sources = {}
     _last_population_result = {}
     _last_ship_result = {}
@@ -470,6 +475,18 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             "migration_receipt_id": str(native_migration.get("receipt_id", "")),
             "events": population_events}
         return true
+    # The frozen Rust engine calls relations AFTER faction, progression
+    # and colony phases. Update the existing matrix only on 200×mult.
+    # Derive territorial control from real present facilities and bodies,
+    # not colored UI markers or an external territory service.
+    if phase == "relations":
+        _last_faction_relations = production.apply_native_faction_relations(
+            tick, _tick_multiplier)
+        if not _last_faction_relations.get("ok", false):
+            return false
+        _last_body_territory = NativeDiplomacy.territory(
+            production.world_snapshot(), world)
+        return _last_body_territory.get("ok", false)
     if phase != "markets":
         return true
     var proposal: Dictionary = MarketPhase.propose(
@@ -520,6 +537,8 @@ func _integrated_phase_failure_reason(phase: String) -> String:
         result = _last_ship_result
     elif phase == "factions":
         result = _last_n147_result if not _last_n147_result.get("ok", true) else (_last_research_result if not _last_research_result.get("ok", true) else (_last_n134_result if not _last_n134_result.get("ok", true) else (_last_n91_result if not _last_n91_result.get("ok", true) else (_last_construction_result if not _last_construction_result.get("ok", true) else _last_n153_result))))
+    elif phase == "relations":
+        result = _last_faction_relations if not _last_faction_relations.get("ok", true) else _last_body_territory
     elif phase == "markets":
         result = _last_station_demand if not _last_station_demand.get("ok", true) else (_last_contract_admissions if not _last_contract_admissions.get("ok", true) else _last_market_result)
     var detail: String = str(result.get("reason", "integrated_phase_rejected"))
@@ -638,6 +657,7 @@ func implemented_phases() -> PackedStringArray:
     phases.append("populations")
     phases.append("markets")
     phases.append("factions")
+    phases.append("relations")
     return phases
 
 
@@ -732,6 +752,12 @@ func economy_summary() -> Dictionary:
         "construction_live_paid_contracts": current.get("construction_contracts", {}).size(),
         "construction_last_observation": _last_construction_observation.duplicate(true),
         "faction_treasuries": current.get("faction_treasuries", {}).duplicate(true),
+        "faction_relations": current.get("faction_relations", {}).duplicate(true),
+        "native_relations_last_tick": int(current.get("faction_relations_last_tick", 0)),
+        "native_treaty_changes_last_pass": _last_faction_relations.get("treaty_changes", []).duplicate(true),
+        "native_body_controllers": _last_body_territory.get("bodies", {}).duplicate(true),
+        "native_system_controllers": _last_body_territory.get("systems", {}).duplicate(true),
+        "native_market_controllers": _last_body_territory.get("market_controllers", {}).duplicate(true),
         "n153_blocked_this_tick": _last_n153_result.get("blocked", []).size(),
         "n153_departures_this_tick": _last_ship_result.get("autonomous_departures", []).size(),
         "n84_active_traces": _last_ship_result.get("n84_trace", []).size(),
