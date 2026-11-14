@@ -28,6 +28,12 @@ static func physical_site_funded(world: Dictionary, money: Dictionary,
     var site: Dictionary = world.get("construction_sites", {}).get(site_id, {})
     if site.is_empty() or not (money.get("receipts") is Dictionary):
         return false
+    # Rust N91.offers requires zero remaining material BEFORE it can
+    # reserve an engineer. 0 receipts for an empty 0/600 colony site are
+    # consistent bookkeeping, but are NOT proof of a funded 600/600 site.
+    var required: int = int(site.get("progress_required", -1))
+    if required < 1 or int(site.get("progress_delivered", -1)) != required:
+        return false
     var delivered: int = 0
     var seen: Dictionary = {}
     for id in world.get("construction_receipts", {}):
