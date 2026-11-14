@@ -261,7 +261,10 @@ static func approval(world: Dictionary, baseline: Dictionary,
     if not preview.get("ok", false):
         return preview
     var real_head: Dictionary = preview.get("heads", {}).get(faction, {})
-    var permitted: bool = str(real_head.get("selected_option", "")) == "supply_colony" and (
+    # Frozen coordination.rs issues found_colony ONLY for a new site,
+    # supply_colony only for an existing approved unfinished site.
+    var source_action: String = "found_colony" if plan.get("site_id", null) == null else "supply_colony"
+    var permitted: bool = str(real_head.get("selected_option", "")) == source_action and (
         str(real_head.get("selected_administrator", "")) == "construction" and
         N134Head.authorized(true, preview.get("grants", {}), faction,
             "construction", plan["goal"]))
