@@ -532,8 +532,27 @@ func apply_fleet_logistics(tick: int, proposal: Dictionary,
         if not _world["facilities"].has(dock_id):
             return false
         var real_kind: String = str(_world["facilities"][dock_id].get("type", ""))
-        if real_kind not in ["station", "shipyard"]:
+        if real_kind not in ["station", "shipyard", "construction_dock"]:
             return false
+        if real_kind == "construction_dock":
+            # A marketless N151 dock exists ONLY for an original
+            # active site. Authorize boarding/landing under the ship's
+            # real colony N104 mission, or N91 assigned engineer.
+            var dock_fac: Dictionary = _world["facilities"][dock_id]
+            var site_id: String = str(dock_fac.get("construction_source_site_id", ""))
+            var site: Dictionary = _world.get("construction_sites", {}).get(site_id, {})
+            if site.is_empty() or str(site.get("location_name", "")) != str(dock_fac.get("location", "")) or str(site.get("faction_id", "")) != str(before_ship.get("faction_id", "")):
+                return false
+            if action == "dock":
+                var active_id: String = str(before_ship.get("active_contract_id", ""))
+                var active: Dictionary = _world.get("contract_board", {}).get("contracts", {}).get(active_id, {})
+                var passenger: bool = str(active.get("contract_type", "")) == "passenger" and str(active.get("mission_category", "")) == "strategy.colony.v1" and str(active.get("destination_location", "")) == str(dock_fac.get("location", ""))
+                var engineer: bool = str(before_ship.get("current_goal", "")) == "construct" and (
+                    str(before_ship.get("active_contract_id", "")).is_empty() and
+                    before_ship.get("current_bt") is Dictionary and
+                    N91Executor.target(before_ship["current_bt"]) == site_id)
+                if not passenger and not engineer:
+                    return false
         if real_kind == "shipyard":
             # N108: stations cannot stand in for actual paid shipyards.
             # A real N84 ship refit mission must own this dock/undock;
