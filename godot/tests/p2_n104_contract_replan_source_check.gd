@@ -119,6 +119,32 @@ static func run_checks() -> Dictionary:
     if ship["cargo"].get("Ore", -1) != 2 or loaded[
             "contract_board"]["contracts"]["contract-a"]["status"] != "picked_up":
         return {"ok": false, "reason": "n104_replan_modified_real_cargo_or_board"}
+    var restored: Dictionary = fixture("picked_up")
+    restored["ships"]["ship-a"]["current_bt"] = null
+    restored["ships"]["ship-a"]["dock_attempt_start_tick"] = null
+    var rebuilt: Dictionary = N84.propose(restored, graph, {}, 155, 1.0, 1)
+    if not rebuilt.get("ok", false) or not (
+            rebuilt.get("commands", []).is_empty()) or not (
+            rebuilt["ships"]["ship-a"]["current_bt"] is Dictionary):
+        return {"ok": false, "reason": "n104_saved_midcargo_missing_original_resume"}
+    var issuer: Dictionary = stage.duplicate(true)
+    var no_fault: Dictionary = Release.stage(
+        issuer, 151, "ship-a", "contract-a", "issuer_funding_failure")
+    if not no_fault.get("changed", false) or no_fault["world"][
+            "ships"]["ship-a"]["faction_reputation"]["blue"] != 90:
+        return {"ok": false, "reason": "n104_issuer_failure_did_not_waive_penalty"}
+    var strategy: Dictionary = stage.duplicate(true)
+    var original_order: Dictionary = strategy["contract_board"][
+        "contracts"]["contract-a"]
+    original_order["funding_source"] = "faction"
+    original_order["mission_category"] = "strategy.logistics.v1"
+    original_order["initial_payment"] = 5000
+    original_order["payment"] = 7000
+    var fixed: Dictionary = Release.stage(strategy, 151, "ship-a",
+        "contract-a", "bt_failure")
+    if not fixed.get("changed", false) or fixed["world"][
+            "contract_board"]["contracts"]["contract-a"]["payment"] != 5000:
+        return {"ok": false, "reason": "n104_strategic_fixed_reward_was_reescalated"}
     var no_cargo: Dictionary = fixture("picked_up")
     no_cargo["ships"]["ship-a"]["cargo"] = {}
     if Resume.propose(no_cargo["ships"]["ship-a"],
