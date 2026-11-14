@@ -1,4 +1,4 @@
-P2 STAGE1 N38 EXACT SOURCE TICK CURSORS — 2026-11-14
-PR #249 head before this bounded test: 9d150cebc61c80351453a5c2ab8fe0f6470d4c7d
-Last Godot smoke 43642159780 PASSED 310/310 parser and both N38 writes; N143 load failed with invalid_native_relations_tick because JSON restored the source N150 tick as floating value. N158 now recovers exact whole-number N150 relations/territory, N129 finance and N18 station administration cursors before N39 Schema; nonintegral values still fail.
-One Godot 4.7.2 combined real paid 5-tick economy/restart and N143 research/restart gate, no fabricated ships/goods/credits.
+P2 STAGE2 CLEAN SEED 420-TICK N38 CONTINUITY — 2026-11-15
+Source HEAD before this single combined Godot run: 1ef9ffbe7a0826e20b0e39bbe4430dee2b655ace
+Previous CI 43643329724: parser/economy/research PASS; new stage2 test stopped at tick60 from incorrect assumption that crew wages are spendable N9 wallets. Frozen Rust ShipCrew accrues paid wages as nonspendable savings, and N9 records immutable one-leg native_ship_crew_wages receipts. The stage2 test now reconciles every balance change to original N9 receipts and only permits source-legal wages/admin writeoffs; no simulation or economy behavior changed.
+Run one parser + economy + research + clean original 420 tick x8/one N38 disk restart at tick360. No invented demand, ships, money, routes or resources. This is not full A/B/V/G or Windows PASS.
