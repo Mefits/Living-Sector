@@ -82,7 +82,7 @@ static func run_checks() -> Dictionary:
         return {"ok": false, "reason": "n103_source_mutated_live_world"}
     var ship: Dictionary = result["ships"]["miner-a"]
     var tree: Dictionary = ship.get("current_bt", {})
-    if str(ship.get("current_goal", "")) != "mine" or not BT.validate(tree):
+    if str(ship.get("current_goal", "")) != "mine_ice" or not BT.validate(tree):
         return {"ok": false, "reason": "n103_missing_rust_mine_bt"}
     var actions: Array = []
     for node in tree.get("children", []):
