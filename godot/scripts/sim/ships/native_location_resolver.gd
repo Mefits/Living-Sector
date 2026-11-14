@@ -5,6 +5,7 @@ extends RefCounted
 ## Route distance is only routing cost; it is NOT world-space geometry.
 
 const WorldModel = preload("res://scripts/sim/world_model.gd")
+const NativeChart = preload("res://scripts/sim/phase2/unified_n142_original_colony_chart.gd")
 const FACILITY_ORBIT_RADIUS: float = 0.55
 const FACILITY_ORBIT_PERIOD: float = 8000.0
 const HASH_OFFSET: int = 2166136261
@@ -66,6 +67,23 @@ func load_seed(seed: Dictionary) -> bool:
             if not _register(staged_locations, str(site.get("name", "")),
                     str(site.get("body", "")), sid, false, system_bodies):
                 return false
+    # Native Rust spawner::chart_colony_routes registers empty planet
+    # endpoints before any ship, market, household or facility exists.
+    # An unbuilt colony target is the real planet's moving orbit, not
+    # a fictitious stationary dock or free settlement.
+    var chart: Dictionary = NativeChart.chart(seed.get("worlds", []))
+    if not chart.get("ok", false):
+        return false
+    for colony_location in chart.get("charted", {}):
+        var entry: Dictionary = chart["charted"][colony_location]
+        var bid: String = str(entry["body_id"])
+        var sid: String = str(entry["system_id"])
+        if not staged_bodies.has(bid) or str(staged_bodies[bid]["system_id"]) != sid:
+            return false
+        var catalog: Dictionary = {}
+        catalog[bid] = true
+        if not _register(staged_locations, str(colony_location), bid, sid, false, catalog):
+            return false
     if staged_bodies.is_empty() or staged_locations.is_empty():
         return false
     _bodies = staged_bodies
