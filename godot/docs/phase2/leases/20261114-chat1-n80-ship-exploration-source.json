@@ -2,11 +2,13 @@
   "worker": "chat1-continuation-n80",
   "status": "IN_PROGRESS",
   "branch": "integration/godot-phase2-unified-20261113",
-  "goal": "Recover frozen Rust smart_idle_fallback / gate-based autonomous exploration goal creation from one canonical World; no invented gate/route, no N39/N158 concurrent edits",
+  "goal": "Recover frozen Rust N80 smart-idle gated exploration and profitable ice mining source candidates from same canonical N39 World, with no synthetic fuel, nav, gates or wallets",
   "scope": [
     "godot/scripts/sim/phase2/unified_n80_ship_exploration_stage.gd (NEW source-only proposal)",
     "godot/tests/p2_n80_native_gate_explore_check.gd (NEW deferred fixture)",
-    "godot/docs/phase2/handoffs/20261114-chat1-n80-exploration-source.md (NEW)"
+    "godot/docs/phase2/handoffs/20261114-chat1-n80-exploration-source.md (NEW)",
+    "godot/scripts/sim/phase2/unified_n80_ship_mining_stage.gd (NEW read-only N103/N80 source candidate)",
+    "godot/tests/p2_n80_native_mining_source_check.gd (NEW deferred fixture)"
   ],
   "excludes": [
     "godot/scripts/sim/phase1/n39_native_world_production.gd",
