@@ -13,6 +13,7 @@ const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
 const PaidCargo = preload("res://scripts/sim/phase2/unified_autonomous_paid_cargo.gd")
 const NativeResearch = preload("res://scripts/sim/phase2/unified_native_research_phase.gd")
+const NativePopulation = preload("res://scripts/sim/phase2/unified_population_phase.gd")
 const ResearchShift = preload("res://scripts/sim/phase1/n143_native_research_shift.gd")
 const NativeConstructionMaterial = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
 const NativeConstructionLabor = preload("res://scripts/sim/phase2/unified_native_construction_labor.gd")
@@ -1323,6 +1324,102 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
 ## P2 single-market commit boundary: N150 may change price, demand,
 ## flow/history/orders but NEVER physical stock, source owner or accounts.
 ## Validation of all markets precedes one atomic in-memory swap.
+## Native Phase 19d: ONE abstract population movement on its true
+## 200*mult cadence. N147 interplanetary passenger missions are unrelated.
+## No new households, ships, contracts, or credits can be fabricated here.
+## N39 recomputes N151 from its current World; N9 transfers real household
+## wealth in the SAME validated commit, with N38 persistent receipt.
+func apply_native_population_migration(tick: int, multiplier: int) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick or multiplier < 1 or multiplier > 10000:
+        return {"ok": false, "reason": "n151_noncanonical_migration_tick"}
+    if tick % (200 * multiplier) != 0:
+        return {"ok": false, "reason": "n151_migration_interval_not_due"}
+    var old_event: Dictionary = _world.get("population_migration_last", {})
+    if int(old_event.get("tick", -1)) == tick:
+        return {"ok": false, "reason": "n151_duplicate_migration_tick"}
+    var candidate: Dictionary = NativePopulation.migration_proposal(
+        _world, tick, multiplier)
+    if not candidate.get("ok", false):
+        return {"ok": false, "fatal": true,
+            "reason": str(candidate.get("reason", "n151_migration_projection_failed"))}
+    if not candidate.get("due", false):
+        return {"ok": false, "fatal": true, "reason": "n151_interval_proposal_mismatch"}
+    var moved: int = int(candidate.get("moved", -1))
+    if moved == 0:
+        return {"ok": true, "tick": tick, "moved": 0, "events": []}
+    if moved < 0 or moved > 100 or not (candidate.get("after") is Array):
+        return {"ok": false, "fatal": true, "reason": "n151_invalid_population_migration"}
+    var from: String = str(candidate.get("from", ""))
+    var to: String = str(candidate.get("to", ""))
+    var amount: int = int(candidate.get("wealth", -1))
+    if amount < 0 or from.is_empty() or to.is_empty() or from == to or not _world["populations"].has(from) or not _world["populations"].has(to):
+        return {"ok": false, "fatal": true, "reason": "n151_invalid_migrant_economy"}
+    var next_world: Dictionary = _world.duplicate(true)
+    var next_ledger = Ledger.new()
+    var before_money: Dictionary = _ledger.snapshot()
+    if not next_ledger.restore(before_money):
+        return {"ok": false, "fatal": true, "reason": "n151_canonical_ledger_copy_failed"}
+    var op: String = ""
+    if amount > 0:
+        op = "n151/migration/%d/%s/%s" % [tick, from, to]
+        var transferred: Dictionary = next_ledger.transfer(op,
+            Schema.household_account(from), Schema.household_account(to),
+            amount, tick, "native_population_migration")
+        if not transferred.get("ok", false):
+            return {"ok": false, "fatal": true,
+                "reason": "n151_household_wealth_transfer_" + str(transferred.get("reason", "rejected"))}
+    var before_src: Dictionary = _world["populations"][from]
+    var before_dst: Dictionary = _world["populations"][to]
+    var after_rows: Dictionary = {}
+    for row in candidate["after"]:
+        if not (row is Dictionary):
+            return {"ok": false, "fatal": true, "reason": "n151_invalid_population_after_row"}
+        var id: String = str(row.get("id", ""))
+        if not _world["populations"].has(id) or after_rows.has(id):
+            return {"ok": false, "fatal": true, "reason": "n151_untrusted_population_after"}
+        after_rows[id] = row
+    if after_rows.size() != _world["populations"].size():
+        return {"ok": false, "fatal": true, "reason": "n151_population_identity_changed"}
+    for id in after_rows:
+        var next_row: Dictionary = after_rows[id]
+        var actual: Dictionary = _world["populations"][id]
+        var new_count: int = int(next_row.get("population_count", -1))
+        var new_wealth: int = int(next_row.get("total_wealth", -1))
+        if str(next_row.get("facility_location", "")) != str(actual.get("location", "")) or new_count < 0 or new_wealth < 0:
+            return {"ok": false, "fatal": true, "reason": "n151_population_location_or_balance_mismatch"}
+        if id not in [from, to] and (new_count != int(actual["count"]) or new_wealth != int(actual["wealth"])):
+            return {"ok": false, "fatal": true, "reason": "n151_unrelated_population_changed"}
+        if id in [from, to]:
+            if next_ledger.balance(Schema.household_account(str(id))) != new_wealth:
+                return {"ok": false, "fatal": true, "reason": "n151_migration_receipt_balance_mismatch"}
+            next_world["populations"][id]["count"] = new_count
+            next_world["populations"][id]["wealth"] = new_wealth
+            next_world["populations"][id]["migration_pressure"] = float(next_row.get("migration_pressure", 0.0))
+            next_world["populations"][id]["sentiment_dirty"] = true
+    if int(next_world["populations"][from]["count"]) != int(before_src["count"]) - moved or int(next_world["populations"][to]["count"]) != int(before_dst["count"]) + moved or int(next_world["populations"][from]["wealth"]) != int(before_src["wealth"]) - amount or int(next_world["populations"][to]["wealth"]) != int(before_dst["wealth"]) + amount:
+        return {"ok": false, "fatal": true, "reason": "n151_migration_conservation_mismatch"}
+    var event: Dictionary = candidate.get("event", {}).duplicate(true)
+    event["tick"] = tick
+    event["wealth_transferred"] = amount
+    event["receipt_id"] = op
+    next_world["population_migration_last"] = event.duplicate(true)
+    var schema_error: String = Schema.validate(next_world)
+    if not schema_error.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n151_invalid_committed_world_" + schema_error}
+    if next_ledger.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "n151_unbalanced_migration_money"}
+    var accounts: Dictionary = Schema.accounts(next_world)
+    if accounts.size() != next_ledger.snapshot()["balances"].size():
+        return {"ok": false, "fatal": true, "reason": "n151_new_or_missing_migration_accounts"}
+    for account in accounts:
+        if int(accounts[account]) != next_ledger.balance(str(account)):
+            return {"ok": false, "fatal": true, "reason": "n151_migration_ledger_world_divergence"}
+    _world = next_world
+    _ledger = next_ledger
+    return {"ok": true, "tick": tick, "moved": moved, "wealth": amount,
+        "receipt_id": op, "events": [event]}
+
+
 func apply_market_phase(tick: int, updates: Dictionary) -> bool:
     if not _ready or tick != _last_tick or tick < 1:
         return false
