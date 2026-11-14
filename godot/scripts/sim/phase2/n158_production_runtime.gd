@@ -427,6 +427,12 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         if not population_plan.get("ok", false):
             _last_population_result = population_plan
             return false
+        # On the sparse 200×mult migration boundary, N151 consumption
+        # and demographic transfer are one phase as far as the tick runner
+        # is concerned. Keep a source-authoritative rollback snapshot so
+        # a rejected migration cannot leave half of this phase published.
+        var migration_due: bool = bool(population_plan["native_result"].get("due", {}).get("migration", false))
+        var population_before: Dictionary = production.snapshot() if migration_due else {}
         if not production.apply_population_phase(tick, population_plan["native_result"]):
             _last_population_result = {"ok": false,
                 "reason": "population_single_ledger_commit_rejected"}
@@ -436,11 +442,15 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # N39 recomputes and atomically commits both households and N9.
         var native_migration: Dictionary = {"ok": true, "moved": 0,
             "wealth": 0, "events": []}
-        if bool(population_plan["native_result"].get("due", {}).get("migration", false)):
+        if migration_due:
             native_migration = production.apply_native_population_migration(
                 tick, _tick_multiplier)
             if not native_migration.get("ok", false):
-                _last_population_result = native_migration
+                if not production.restore(population_before):
+                    _last_population_result = {"ok": false,
+                        "reason": "n151_population_phase_rollback_failed"}
+                else:
+                    _last_population_result = native_migration
                 return false
         var population_events: Array = population_plan["native_result"].get("events", []).duplicate(true)
         population_events.append_array(native_migration.get("events", []))
