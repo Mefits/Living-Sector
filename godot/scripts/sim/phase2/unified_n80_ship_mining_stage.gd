@@ -1,15 +1,15 @@
 extends RefCounted
-## SOURCE ONLY: frozen Rust agents/ship/behavior.rs choose_ice_mining_trip
+## SOURCE-WIRED, runtime unverified: frozen Rust choose_ice_mining_trip
 ## and N80 scoring. The original N103 ice deposit, N15 hold and source
 ## market buyer belong to ONE current N39 World. No invented ice or cash.
-## This proposal is intentionally NOT scheduled by N158 while the shared
-## V2 crisis lease owns N39/N158. N84/N90/N97 settlement must be wired
-## before activating this source-only adapter.
+## Scheduled by ONE canonical N158 N140-fired phase, with paid N90/N97
+## Mine and existing N83 N97 sale only in N39/N9 final Apply.
 const Ice = preload("res://scripts/sim/ships/ai/native_ice_mining_policy.gd")
 const Goal = preload("res://scripts/sim/ships/ai/native_ship_goal_policy.gd")
 const Personality = preload("res://scripts/sim/ships/ai/native_personality.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 const BT = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
+const RouteFuel = preload("res://scripts/sim/phase2/unified_n80_ship_route_fuel.gd")
 const MAX_U32: int = 4294967295
 
 static func _locations(world: Dictionary, graph: RefCounted,
@@ -135,7 +135,8 @@ static func _physical_sources(world: Dictionary, graph: RefCounted,
     return {"sites": sites, "depots": depots, "distances": distances}
 
 static func stage(world: Dictionary, graph: RefCounted,
-        resolver: RefCounted, tick: int, fired: Dictionary) -> Dictionary:
+        resolver: RefCounted, tick: int, fired: Dictionary,
+        positions: Dictionary, tick_scale: float) -> Dictionary:
     if tick < 1 or graph == null or resolver == null or (
             not resolver.has_method("body_for_location") or
             not resolver.has_method("system_for_location") or
@@ -162,6 +163,11 @@ static func stage(world: Dictionary, graph: RefCounted,
                 not ship["transit"].is_empty()):
             continue
         var loc: String = str(ship.get("location", ""))
+        var old_dock: String = str(ship.get("docked_at", ""))
+        if not old_dock.is_empty() and (
+                not world["markets"].has(loc) or str(world["facilities"].get(
+                old_dock, {}).get("type", "")) != "station"):
+            continue # Do not release a shipyard or original colony dock.
         if not graph.has_location(loc) or (
                 resolver.system_for_location(loc) != str(ship.get("system_id", ""))):
             blocked.append({"ship_id": str(ship_id), "reason": "n103_unmapped_real_miner"})
@@ -215,6 +221,7 @@ static func stage(world: Dictionary, graph: RefCounted,
                 str(preference.get("name", "")) in ["mine_ice", "deliver_mined_ice"]):
             continue
         var nodes: Array = []
+        var flight_routes: Array = []
         var cursor: String = loc
         var valid: bool = true
         for action in chosen["actions"]:
@@ -225,6 +232,8 @@ static func stage(world: Dictionary, graph: RefCounted,
                 if cursor != target and route.is_empty():
                     valid = false
                     break
+                if not route.is_empty():
+                    flight_routes.append({"start": cursor, "nodes": route})
                 nodes.append_array(route)
                 cursor = target
             else:
@@ -240,6 +249,12 @@ static func stage(world: Dictionary, graph: RefCounted,
                 nodes.append(BT.action(leaf))
         if not valid:
             blocked.append({"ship_id": str(ship_id), "reason": "n103_unreachable_original_mining_bt"})
+            continue
+        var readiness: Dictionary = RouteFuel.preflight(
+            ship, positions, tick_scale, flight_routes)
+        if not readiness.get("ok", false):
+            blocked.append({"ship_id": str(ship_id), "reason": str(readiness.get(
+                "reason", "n14_mining_flight_unfunded"))})
             continue
         var tree: Dictionary = BT.sequence(nodes)
         if not BT.validate(tree):
