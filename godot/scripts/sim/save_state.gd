@@ -24,6 +24,7 @@ const SourceTickRunner = preload("res://scripts/sim/tick_runner.gd")
 ## No gameplay field is rounded, coerced, removed or reset. P1 and old
 ## plain numeric N38 JSON payloads remain readable.
 const NATIVE_F64_TAG: String = "__ls_native_f64_exact_b64_v1__"
+const NATIVE_DICT_TAG: String = "__ls_native_exact_dictionary_b64_v1__"
 const MAX_NATIVE_DEPTH: int = 96
 
 static func _encode_native_f64(value: Variant, depth: int = 0) -> Variant:
@@ -37,6 +38,14 @@ static func _encode_native_f64(value: Variant, depth: int = 0) -> Variant:
         bits.encode_double(0, float(value))
         return {NATIVE_F64_TAG: Marshalls.raw_to_base64(bits)}
     if value is Dictionary:
+        # A StringName key (as produced by some native N81 BT actions)
+        # cannot be represented faithfully as a JSON object key. Keep
+        # that small original Dictionary in a SHA-covered binary blob,
+        # never drop/coerce its keys or paid contract identity.
+        for key in value:
+            if not (key is String):
+                return {NATIVE_DICT_TAG: Marshalls.raw_to_base64(
+                    var_to_bytes(value))}
         var output: Dictionary = {}
         for key in value:
             output[key] = _encode_native_f64(value[key], depth + 1)
@@ -54,6 +63,22 @@ static func _decode_native_f64(value: Variant, state: Dictionary,
         state["ok"] = false
         return null
     if value is Dictionary:
+        if value.has(NATIVE_DICT_TAG):
+            if value.size() != 1 or not (value[NATIVE_DICT_TAG] is String):
+                state["ok"] = false
+                return null
+            var packed: PackedByteArray = Marshalls.base64_to_raw(
+                value[NATIVE_DICT_TAG])
+            # Only tiny semantic dictionaries are encoded this way; do
+            # not permit arbitrary native objects or unbounded blobs.
+            if packed.is_empty() or packed.size() > 8192:
+                state["ok"] = false
+                return null
+            var object: Variant = bytes_to_var(packed)
+            if not (object is Dictionary) or var_to_bytes(object) != packed:
+                state["ok"] = false
+                return null
+            return object
         if value.has(NATIVE_F64_TAG):
             if value.size() != 1 or not (value[NATIVE_F64_TAG] is String):
                 state["ok"] = false
