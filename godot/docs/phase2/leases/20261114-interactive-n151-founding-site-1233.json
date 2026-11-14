@@ -1,6 +1,6 @@
 {
   "worker": "interactive-primary-chat-20261114",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "8821c7b0c71a23cc7bc2a12d863732c711a71aea",
   "scope": [
@@ -9,8 +9,13 @@
     "godot/scripts/sim/phase1/n39_native_world_schema.gd (unbuilt physical colony project invariants)",
     "godot/scripts/sim/phase2/n158_production_runtime.gd (read-only source N144 readiness)",
     "godot/tests/p2_n151_colony_founding_site_check.gd (new)",
-    "godot/docs/phase2/handoffs/20261114-n151-colony-founding-site.md"
+    "godot/docs/phase2/handoffs/20261114-n151-colony-founding-site.md",
+    "godot/scripts/observer_panel.gd (N151 blocker display)",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
   ],
   "goal": "Native N144/N151 colony plan and authoritative N39 site founding without free market/cargo/passengers/credits; source registry route must exist; no synthetic nav links",
-  "verification": "Static no Actions"
+  "verification": "STATIC_DELIMITER_IMPORTS_INDENTATION_PASS; GODOT_NOT_RUN; GITHUB_ACTIONS_0; TEST_ADDED_NOT_EXECUTED",
+  "code_head": "015be04ce004c79257878b1c127e2a7955f94092",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n151-colony-founding-site.md",
+  "residual": "clean native Galaxy contains no *-colony directed nav; N134 head authorization and paid N104 Passenger, dock/market generation not yet wired; test route synthetic fixture only"
 }
