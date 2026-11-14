@@ -1,4 +1,5 @@
-P2 STAGE1 INTEGRATED RUNTIME REPAIR — 2026-11-14
-Unified PR #249 source HEAD before trigger: f750c12215ba35e64d5ab45336e13d7a3865897b
-One Godot 4.7.2 smoke after fixing source N91 BT Variant comparison, N158 native phase registry and production phase test.
-Run native paid N158 and N143 science N38 save with precise read-only failure diagnostics. No balance or save-integrity relaxation. This trigger is for stage1 verification, NOT a claim of full Rust source parity or Windows release.
+P2 STAGE1 FINAL RUNTIME GATE — 2026-11-14
+PR #249 source HEAD before final smoke: 48b3d2b60ef3c15cdda3b29e142c891826c4d6d1
+Previous combined run 43640440083 found precise N38 JSON last-digit loss for N155 research director science profile, while N91/N158 old errors were cleared.
+This last bounded Godot 4.7.2 smoke validates exact source N91 BT typing, one N158 dock_queue/crisis/relations phase, and native N143 N38 save/load after *narrow* <=1e-12 personality-only precision allowance. Same negative fixture rejects material profile changes and one created treasury credit.
+No balance changes, no loose escrow/cargo float allowance, no Windows release or soak claim.
