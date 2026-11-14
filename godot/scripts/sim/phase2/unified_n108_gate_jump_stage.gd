@@ -6,6 +6,7 @@ extends RefCounted
 ## Pure stage: the one N39 World and N9 remain the only authorities.
 const SourceGate = preload("res://scripts/port/n108_gate_jump_apply.gd")
 const N9 = preload("res://scripts/sim/economy/credit_ledger.gd")
+const RustOrbit = preload("res://scripts/sim/phase2/unified_n108_native_facility_orbit.gd")
 
 static func _bad(reason: String) -> Dictionary:
     return {"ok": false, "reason": "n108_gate_" + reason}
@@ -47,7 +48,8 @@ static func _real_gate(world: Dictionary, location: String) -> Dictionary:
         "facility": world["facilities"][chosen]}
 
 static func preflight(world: Dictionary, resolver: RefCounted,
-        ship_id: String, source: String, destination: String) -> Dictionary:
+        ship_id: String, source: String, destination: String,
+        original_orbits: RefCounted = null) -> Dictionary:
     if ship_id.is_empty() or source.is_empty() or destination.is_empty() or (
             source == destination or resolver == null or not resolver.has_method(
             "system_for_body")):
@@ -93,6 +95,18 @@ static func preflight(world: Dictionary, resolver: RefCounted,
             str(ship.get("system_id", "")) != source_system):
         return _bad("wrong_actual_ship_system")
     var pos: Array = _original_position(dst)
+    if original_orbits != null:
+        # Rust apply_gate_jump re-evaluates *current* BodyOrbit and
+        # deterministic facility_offset_position(body_center, agent_id)
+        # for the destination. A static N154 site coordinate is NOT the
+        # live station center and must never be substituted at runtime.
+        if not resolver.has_method("body_universe_position"):
+            return _bad("missing_native_live_body_orbit")
+        var body: Dictionary = resolver.body_universe_position(
+            str(dst["body_id"]), original_orbits)
+        if not body.get("ok", false) or not (body.get("position") is Vector2):
+            return _bad("invalid_original_gate_destination_orbit")
+        pos = RustOrbit.position(body["position"], dest_id)
     if pos.is_empty():
         return _bad("missing_original_paired_gate_orbit_position")
     var fee_flat: Variant = link.get("fee_flat", null)
@@ -126,11 +140,12 @@ static func preflight(world: Dictionary, resolver: RefCounted,
 
 static func stage(world: Dictionary, ledger_snapshot: Dictionary,
         resolver: RefCounted, ship_id: String, source: String,
-        destination: String, tick: int) -> Dictionary:
+        destination: String, tick: int,
+        original_orbits: RefCounted = null) -> Dictionary:
     if tick < 1:
         return _bad("invalid_real_n158_ships_tick")
     var checked: Dictionary = preflight(world, resolver, ship_id,
-        source, destination)
+        source, destination, original_orbits)
     if not checked.get("ok", false):
         return checked
     var source_id: String = str(checked["source_gate_id"])
