@@ -1318,6 +1318,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_admin_removal = {}
     _last_n148_result = {}
     _last_native_passengers = {}
+    _last_n144_contracts = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
@@ -1513,6 +1514,15 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             var head: Dictionary = w["research_directors"][fid]
             if not _normalize_row(head, ["progress", "research_required"]):
                 return false
+            if head.has("strategic"):
+                if not (head["strategic"] is Dictionary) or not _normalize_row(
+                        head["strategic"], ["since"]):
+                    return false
+                var strategic: Dictionary = head["strategic"]
+                if strategic.get("pending", null) != null:
+                    if not (strategic["pending"] is Dictionary) or not _normalize_row(
+                            strategic["pending"], ["consecutive_cycles", "first_seen_tick"]):
+                        return false
             if head.get("last_research_tick") != null and not _normalize_number_at(head, "last_research_tick"):
                 return false
             if head.get("last_shift") is Dictionary:
