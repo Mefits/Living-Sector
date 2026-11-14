@@ -3,12 +3,12 @@
   "status": "IN_PROGRESS",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "5a036bf037f0909be5f0f6b5d192049934eef414",
-  "goal": "V4 full Rust Galaxy 0.6.7 -> Godot integration source audit: map active engine phase/action/contract/faction paths to real N158 and N39/N9/N104 callsites, distinguish source-wired vs not yet connected and identify critical errors. Produce evidence-based actionable audit+final acceptance specification; fix independent high-risk defect only outside other chats' leases.",
+  "goal": "V4 full Rust Galaxy 0.6.7 -> Godot integration source audit: map active engine phase/action/contract/faction paths to real N158 and N39/N9/N104 callsites, distinguish source-wired vs not yet connected and identify critical errors. Produce evidence-based actionable audit+final acceptance specification; fix independent high-risk defect only outside other chats' leases. Confirm frozen tuning, Rust N21 dock FIFO gap, and phase inventory; no gameplay or intermediate tests.",
   "scope": [
     "godot/docs/phase2/handoffs/20261114-chat3-v4-source-parity-audit.md (new)",
     "godot/docs/phase2/P2_V4_FINAL_ACCEPTANCE_MATRIX_RU.md (new)",
-    "godot/tests/p2_v4_wiring_contract_check.gd (new source regression, deferred)",
-    "other exclusively reserved nonoverlap file if confirmed necessary"
+    "other exclusively reserved nonoverlap file if confirmed necessary",
+    "godot/tools/p2_v4_source_gate.py (new: consolidated offline Rust/Godot source-gate tool, authored NOT RUN)"
   ],
   "excludes": [
     "godot/scripts/sim/phase1/n39_native_world_production.gd (chat2 B4)",
