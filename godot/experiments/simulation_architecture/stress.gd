@@ -63,6 +63,11 @@ func _initialize() -> void:
         "status": "RUNNING", "options": options.duplicate(true),
         "source_base_sha": "5a036bf037f0909be5f0f6b5d192049934eef414",
         "scope": "N73 fractional recipes and N9 physical cargo only; NO AI/contracts/payroll",
+        "environment": {
+            "godot_version": Engine.get_version_info(),
+            "processor": OS.get_processor_name(),
+            "memory_caveat": "OS static memory counters only work with debug Godot, and peak is process-wide cumulative; neither is a per-mode peak RSS measurement"
+        },
         "timing_scope": "scheduler runtime measured by benchmark_runner.gd, excludes setup, stock audit, checksum and JSON/CSV writes",
         "stock_scope": "finite inventory seeded at time zero; no infinite resource spawn",
         "cases": [], "failures": [],
@@ -88,6 +93,8 @@ func _initialize() -> void:
 
     _report["status"] = "PASS"
     _report["failures"] = _failures.duplicate()
+    _report["end_process_static_memory_bytes"] = OS.get_static_memory_usage()
+    _report["process_cumulative_peak_static_bytes"] = OS.get_static_memory_peak_usage()
     _save()
     _say("SIM_STRESS_PASS All " + str(_finished_samples) +
         " measurements completed with identical states per scenario.")
@@ -172,6 +179,8 @@ func _execute_case(config: Dictionary, case_index: int,
                     "batches": int(result["batches"]),
                     "arrivals": int(result["arrivals"]),
                     "final_active": int(result["final_active"]),
+                    "static_memory_bytes_after": OS.get_static_memory_usage(),
+                    "process_cumulative_peak_static_bytes": OS.get_static_memory_peak_usage(),
                     "sha256": JSON.stringify(result["state"]).sha256_text()
                 }
                 samples[mode].append(metrics)
