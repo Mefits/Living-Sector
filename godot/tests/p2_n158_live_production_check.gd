@@ -5,6 +5,9 @@ extends SceneTree
 const NativeData = preload("res://scripts/native_data.gd")
 const Runner = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const Saves = preload("res://scripts/sim/save_state.gd")
+const NativeCoherence = preload("res://scripts/sim/phase2/unified_native_checkpoint_coherence.gd")
+const NativeTimeline = preload("res://scripts/sim/phase2/unified_native_timeline_integrity.gd")
+const FrameGuard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
 
 func _initialize() -> void:
     var seed: Dictionary = NativeData.load_current_world()
@@ -109,7 +112,15 @@ func _initialize() -> void:
     var path: String = "user://tests/p2-n158-production-" + str(Time.get_ticks_usec()) + ".json"
     var write_result: Error = Saves.save_runner(a, path)
     if write_result != OK:
-        _fail("atomic native production save failed: " + str(write_result))
+        var parsed: Variant = JSON.parse_string(JSON.stringify(
+            source_save, "", true, true))
+        var frame: Dictionary = {"ok": false, "reason": "json_decode_failed"}
+        if parsed is Dictionary:
+            frame = FrameGuard.verify_authoritative_frame(source_save, parsed)
+        _fail("atomic native production save failed: " + str(write_result) +
+            " coherence=" + str(NativeCoherence.validate(source_save)) +
+            " timeline=" + str(NativeTimeline.validate(source_save)) +
+            " exact_native_json=" + str(frame))
         return
     var b = Runner.new()
     if not b.start_from_seed(seed):
