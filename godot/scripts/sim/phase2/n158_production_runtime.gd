@@ -28,6 +28,7 @@ var _last_market_result: Dictionary = {}
 var _last_station_demand: Dictionary = {}
 var _last_contract_admissions: Dictionary = {}
 var _last_n152_result: Dictionary = {}
+var _last_admin_removal: Dictionary = {}
 var _last_n153_result: Dictionary = {}
 var _last_research_result: Dictionary = {}
 var _last_construction_observation: Dictionary = {}
@@ -54,6 +55,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_station_demand = {}
     _last_contract_admissions = {}
     _last_n152_result = {}
+    _last_admin_removal = {}
     _last_n153_result = {}
     _last_research_result = {}
     _last_construction_observation = {}
@@ -748,6 +750,29 @@ func fleet_snapshot() -> Dictionary:
 ## A strictly controlled ship order (not fleet AI). N14 checks the real
 ## directed Rust route, native positions, fuel and active transit; N39 owns
 ## the ONLY actual world commit and persisted token cursor.
+## Explicit native admin API, NOT automatic ship AI or a player
+## right-click delete. Source events and retirement history are emitted
+## only after N39 has removed the actor AND closed its N9 account.
+## N148 strike/command-buffer admission remains a separate owner.
+func admin_remove_ship(ship_id: String, reason: String = "admin") -> Dictionary:
+    return _native_admin_remove("ship", ship_id, reason)
+
+func admin_remove_facility(facility_id: String) -> Dictionary:
+    return _native_admin_remove("facility", facility_id, "admin")
+
+func last_native_admin_removal() -> Dictionary:
+    return _last_admin_removal.duplicate(true)
+
+func _native_admin_remove(kind: String, actor_id: String,
+        reason: String) -> Dictionary:
+    if not _native_enabled or not last_phase_failure().is_empty():
+        return {"ok": false, "reason": "native_admin_world_unavailable"}
+    var done: Dictionary = production.apply_native_admin_removal(
+        tick_count, kind, actor_id, reason)
+    _last_admin_removal = done.duplicate(true)
+    return done
+
+
 func request_ship_departure(ship_id: String, destination: String) -> Dictionary:
     if not _native_enabled or _fleet_roster == null or _fleet_resolver == null:
         return {"ok": false, "reason": "fleet_unavailable"}
@@ -893,6 +918,7 @@ func economy_summary() -> Dictionary:
         "n152_expired_this_tick": _last_n152_result.get("expired", []).size(),
         "n152_renewed_this_tick": _last_n152_result.get("renewed", []).size(),
         "n152_refunded_this_tick": _last_n152_result.get("refunded", []).size(),
+        "native_admin_last_removed": str(_last_admin_removal.get("id", "")),
         "n152_blocked_refunds": _last_n152_result.get("blocked", []).size(),
         "n153_accepted_this_tick": _last_n153_result.get("accepted", []).size(),
         "research_paid_shifts": _last_research_result.get("paid", []).size(),
@@ -1087,6 +1113,25 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             var previous: Dictionary = w["native_planner_records"][fid]
             if previous.has("last_source_execution_tick") and not _normalize_row(previous, ["last_source_execution_tick"]):
                 return false
+    # N152 administrative removal history is immutable N38/N9 state.
+    # JSON numbers must be normalized without rebuilding a vanished ship,
+    # facility wallet, or release/refund receipt.
+    if w.has("native_admin_removals"):
+        if not (w["native_admin_removals"] is Dictionary):
+            return false
+        for removal_id in w["native_admin_removals"]:
+            var removal: Variant = w["native_admin_removals"][removal_id]
+            if not (removal is Dictionary) or not _normalize_row(
+                    removal, ["tick", "credits_lost"]):
+                return false
+            if not (removal.get("retirement") is Dictionary):
+                return false
+            if str(removal.get("kind", "")) == "ship":
+                var past: Dictionary = removal["retirement"]
+                if not _normalize_row(past, ["final_credits", "final_crew_morale",
+                        "final_fuel_pct", "broke_strikes", "hoard_strikes",
+                        "retired_at_tick"]):
+                    return false
     # N104 posted contracts/escrow are persisted inside the SAME N39 World.
     # JSON integer-shaped values must be restored before N39/Board preflight.
     # Older checkpoints without both fields remain valid as legacy.
