@@ -225,7 +225,16 @@ func _transition(id: String, ship: String, before: String, after: String, tick: 
 ## Delivery contracts require the actual N15 receipt registry; no direct board transition bypass.
 ## Non-delivery contract types are not granted a synthetic physical receipt.
 func _valid_physical_receipt(c: Dictionary, ship: String, direction: String, receipt_id: String, tick: int) -> bool:
-	if str(c.get("contract_type", "")) != "delivery":
+	var kind: String = str(c.get("contract_type", ""))
+	# N104 Passenger must be proven by the physical N21 dock and N104
+	# manifest receipt, never by a forged commodity/N15 transfer.
+	if kind == "passenger":
+		if _physical_cargo == null or receipt_id.is_empty():
+			return false
+		var passenger: Dictionary = _physical_cargo.receipts.get(receipt_id, {})
+		var expected_location: String = str(c["source_location"]) if direction == "load" else str(c["destination_location"])
+		return passenger.get("ok", false) == true and str(passenger.get("kind", "")) == "passenger" and str(passenger.get("ship_id", "")) == ship and str(passenger.get("contract_id", "")) == str(c["id"]) and str(passenger.get("operation_id", "")) == receipt_id and str(passenger.get("action", "")) == direction and str(passenger.get("location_id", "")) == expected_location and typeof(passenger.get("quantity", null)) == TYPE_INT and int(passenger["quantity"]) == int(c["quantity"]) and typeof(passenger.get("tick", null)) == TYPE_INT and int(passenger["tick"]) <= tick
+	if kind != "delivery":
 		return false
 	if _physical_cargo == null or receipt_id.is_empty():
 		return false
