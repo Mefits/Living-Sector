@@ -41,15 +41,33 @@ static func _open(world: Dictionary, bank: Dictionary) -> Dictionary:
     board.bind_physical_cargo(evidence)
     return {"ok": true, "ledger": ledger, "board": board, "evidence": evidence}
 
-static func _valid_dock(world: Dictionary, ship: Dictionary, location: String) -> bool:
+static func _valid_dock(world: Dictionary, ship: Dictionary,
+        location: String, contract: Dictionary) -> bool:
     if str(ship.get("location", "")) != location or not (ship.get("transit", {}) as Dictionary).is_empty():
         return false
     var fid: String = str(ship.get("docked_at", ""))
     var facility: Dictionary = world.get("facilities", {}).get(fid, {})
-    if facility.is_empty() or bool(facility.get("abandoned", false)):
+    if facility.is_empty() or bool(facility.get("abandoned", false)) or str(facility.get("location", "")) != location:
         return false
-    return str(facility.get("location", "")) == location and (
-        fid == str(world.get("markets", {}).get(location, {}).get("owner", "")))
+    if fid == str(world.get("markets", {}).get(location, {}).get("owner", "")):
+        return true
+    # Rust founding passenger arrives at engine/colony.rs::prepare_docks,
+    # before any public market or station exists. No other contract may
+    # claim this uninhabited location as a commercial warehouse.
+    if str(contract.get("contract_type", "")) != "passenger" or (
+            str(contract.get("mission_category", "")) != "strategy.colony.v1" or
+            str(contract.get("destination_location", "")) != location or
+            str(contract.get("faction_id", "")) != str(facility.get("faction", "")) or
+            str(facility.get("type", "")) != "construction_dock"):
+        return false
+    var site_id: String = str(facility.get("construction_source_site_id", ""))
+    var site: Dictionary = world.get("construction_sites", {}).get(site_id, {})
+    var proof: Dictionary = world.get("construction_receipts", {}).get(
+        "n151_colony_dock:" + site_id, {})
+    return not site.is_empty() and str(site.get("location_name", "")) == location and (
+        str(site.get("faction_id", "")) == str(contract.get("faction_id", "")) and
+        str(proof.get("kind", "")) == "colony_dock_prepared" and
+        str(proof.get("facility_id", "")) == fid)
 
 static func _resident(world: Dictionary, faction: String,
         location: String, minimum: int) -> String:
@@ -201,7 +219,7 @@ static func move(world: Dictionary, bank: Dictionary, cid: String,
     var loc: String = str(c.get("source_location", "")) if embarking else str(c.get("destination_location", ""))
     if str(c.get("contract_type", "")) != "passenger" or str(c.get("status", "")) != expected or str(c.get("fulfiller_id", "")) != sid or str(ship.get("active_contract_id", "")) != cid:
         return _reject("n104_not_active_passenger_contract")
-    if not _valid_dock(world, ship, loc):
+    if not _valid_dock(world, ship, loc, c):
         return _reject("n104_passenger_requires_real_n21_dock")
     var qty: int = int(c.get("quantity", 0))
     if qty < 1 or qty > int(Catalog.spec(str(ship.get("class", ""))).get("passenger_capacity", 0)) or qty > int(Seats.PASSENGER_SEATS.get(str(ship.get("class", "")), 0)):
