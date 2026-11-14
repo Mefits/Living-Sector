@@ -20,6 +20,7 @@ const NativeConstructionLabor = preload("res://scripts/sim/phase2/unified_native
 const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
 const N91SourceDispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
+const NativeColonyFounding = preload("res://scripts/sim/phase2/unified_n151_colony_founding_phase.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
@@ -619,6 +620,53 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
         _world = staged
     return {"ok": true, "status": "N91_NATIVE_ENGINEERS_ASSIGNED",
         "tick": tick, "assigned": updated}
+
+
+## Stage a native N151 founding expedition as a real but UNBUILT N39
+## ConstructionSite. No N9 charge: the frozen Rust commission creates the
+## site first, and only later posts paid passenger/metals contracts.
+## A live N134 colony-head grant (not a GUI instruction) is required.
+func apply_native_colony_foundation(tick: int, faction: String,
+        body_id: String, source: String, original: RefCounted,
+        graph: RefCounted, head_authorized: bool) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick or not head_authorized:
+        return {"ok": false, "reason": "n151_colony_head_or_native_tick_missing"}
+    if not (_world.get("construction_sites") is Dictionary):
+        return {"ok": false, "reason": "n151_no_canonical_site_registry"}
+    var candidate: Dictionary = NativeColonyFounding.proposal(_world,
+        original, graph, faction, body_id, source, tick, 1, true)
+    if not candidate.get("ok", false):
+        return candidate
+    var site: Dictionary = candidate["site"]
+    var site_id: String = str(site.get("id", ""))
+    if site_id.is_empty() or _world["construction_sites"].has(site_id):
+        return {"ok": false, "reason": "n151_colony_site_duplicate"}
+    var receipt_id: String = "n151_colony_approved:" + site_id
+    if _world["construction_receipts"].has(receipt_id) or _ledger.has_receipt(receipt_id):
+        return {"ok": false, "reason": "n151_colony_approval_replayed"}
+    var original_money: Dictionary = _ledger.snapshot()
+    var staged: Dictionary = _world.duplicate(true)
+    staged["construction_sites"][site_id] = site.duplicate(true)
+    staged["construction_receipts"][receipt_id] = {
+        "id": receipt_id, "kind": "colony_approved",
+        "site_id": site_id, "tick": tick,
+        "faction_id": faction, "source_location": source,
+        "destination_location": str(site["location_name"]),
+        "body_id": body_id, "capital": 0, "n9_receipt_id": ""}
+    var validation: String = Schema.validate(staged)
+    if not validation.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n151_native_site_world_" + validation}
+    if _ledger.snapshot() != original_money or Schema.accounts(staged) != Schema.accounts(_world):
+        return {"ok": false, "fatal": true, "reason": "n151_colony_spawn_invented_funds"}
+    # Sole authority: N39 World; N9 Ledger untouched as original Rust
+    # colony::commission's initial site approval has zero monetary cost.
+    _world = staged
+    return {"ok": true, "status": "N151_PHYSICAL_COLONY_SITE_CREATED",
+        "tick": tick, "site_id": site_id, "receipt_id": receipt_id,
+        "faction_id": faction, "body_id": body_id,
+        "passengers": 0, "metals_delivered": 0,
+        "money_debited": 0}
 
 
 ## N141: real docked-engineer physical construction shift + one N9 payroll.
