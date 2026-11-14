@@ -1,6 +1,6 @@
 {
   "worker": "chat3-n113-strategy-hysteresis-20261114",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "8b97fdbcc52a47b54fc5299bc1772ad535ad920a",
   "goal": "Port frozen Rust director.rs::retain_or_switch 1.20×/two REAL decision cycles in native N147 Head-grant path; preserve N113 memory/pending in sole World; no unconditional second Head or free N104 contract.",
@@ -19,5 +19,21 @@
     "balance thresholds, new head/ledger/world"
   ],
   "coordination": "Chat1 N21 FIFO lease IN_PROGRESS owns N39/N158, do not edit until RELEASED; re-read current SHA before shared file updates.",
-  "verification": "SOURCE_IN_PROGRESS / CODE_UNVERIFIED"
+  "verification": "SOURCE_WIRED for authentic current N134 Build/Deliver vs N147 / CODE_UNVERIFIED / RUNTIME_UNVERIFIED. Eight files reread, 5 GDScripts bracket/string/EOF/NUL static pass. NO Godot/parser/F5/Windows/tests/Actions.",
+  "result": "Frozen Rust director.rs::retain_or_switch ported as pure N113 (1.20 superiority, 2 distinct real decision cycles, incumbent re-score, paid-plan lock). N147 source Head checks authentic N134 N111 Build/Deliver candidate and N92 migration, N39 commits first-cycle pending to ONE World with no N104/N9, second-cycle Head may create the original funded N104; enforces 60×mult strategic boundary. V4 N21 source gate/matrix refreshed from released Chat1 N21.",
+  "commits": [
+    "47b53cb",
+    "aa66522",
+    "d330da1",
+    "851c9b7",
+    "5b983e7",
+    "0362078",
+    "8344e38",
+    "43bde6a",
+    "0cd4817",
+    "c4b17a1",
+    "1bd447d"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat3-n113-strategy-switch.md",
+  "remaining": "Rust N113 candidate completeness: research/expansion/previous alternate supply not yet re-scored in construction-only N134, conservatively blocked. Source N84 dock timeout/legacy manual path, and eventual one Godot+Windows end-to-end acceptance."
 }
