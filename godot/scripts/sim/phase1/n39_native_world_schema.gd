@@ -51,6 +51,42 @@ static func validate(state: Dictionary) -> String:
                 var cursor: Dictionary = ship["lod"]
                 if typeof(cursor.get("divisor", null)) != TYPE_INT or typeof(cursor.get("next_tick", null)) != TYPE_INT or not NativeShipLod._cursor_ok(cursor):
                     return "invalid_persisted_native_n140_cursor"
+            # N149 live ship crew is the original aggregated Rust ShipCrew:
+            # payroll accumulates nonspendable wages_credits, not a new
+            # N9 bank. Older P2 saves without this component stay valid.
+            if ship.has("crew"):
+                if not (ship["crew"] is Dictionary):
+                    return "invalid_native_ship_crew"
+                var crew: Dictionary = ship["crew"]
+                if typeof(crew.get("size", null)) != TYPE_INT or int(crew["size"]) != int(ship.get("crew_size", -1)):
+                    return "invalid_native_crew_headcount"
+                if typeof(crew.get("wages_credits", null)) != TYPE_INT or int(crew["wages_credits"]) < 0:
+                    return "invalid_native_crew_accrued_wages"
+                if not (crew.get("current_task") is String) or str(crew["current_task"]) not in [
+                        "idle", "piloting", "engineering", "trading", "loading",
+                        "unloading", "eating", "resting", "on_mission"]:
+                    return "invalid_native_crew_task"
+                for stat in ["hunger", "fatigue", "morale", "health"]:
+                    if not (crew.get(stat) is int or crew.get(stat) is float) or not is_finite(float(crew[stat])) or float(crew[stat]) < 0.0 or float(crew[stat]) > 100.0:
+                        return "invalid_native_ship_crew_" + stat
+                if crew.has("dirty") and typeof(crew["dirty"]) != TYPE_BOOL:
+                    return "invalid_native_ship_crew_dirty"
+                if not (ship.get("cargo_age", null) is Dictionary):
+                    return "missing_native_ship_cargo_age"
+                for commodity in ship["cargo_age"]:
+                    if not _id(commodity) or typeof(ship["cargo_age"][commodity]) != TYPE_INT or int(ship["cargo_age"][commodity]) < 0:
+                        return "invalid_native_ship_cargo_age"
+                if not (ship.get("crew_efficiency", null) is float or ship.get("crew_efficiency", null) is int):
+                    return "invalid_native_crew_economy_efficiency"
+                if not is_finite(float(ship["crew_efficiency"])) or float(ship["crew_efficiency"]) < 0.1 or float(ship["crew_efficiency"]) > 1.0:
+                    return "native_crew_efficiency_out_of_bounds"
+                if ship.has("crew_skills"):
+                    if not (ship["crew_skills"] is Dictionary):
+                        return "invalid_native_crew_skills"
+                    for skill in ["navigation", "engineering", "trading", "combat"]:
+                        if typeof(ship["crew_skills"].get(skill, null)) != TYPE_INT or int(ship["crew_skills"][skill]) < 0 or int(ship["crew_skills"][skill]) > 100:
+                            return "invalid_native_ship_crew_skill"
+
             if ship.has("current_bt") and ship["current_bt"] != null:
                 if not (ship["current_bt"] is Dictionary) or not NativeBt.validate(ship["current_bt"]):
                     return "invalid_persisted_native_bt"
