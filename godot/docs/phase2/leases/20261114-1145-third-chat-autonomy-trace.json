@@ -2,13 +2,14 @@
   "worker": "third-chat-autonomy",
   "status": "IN_PROGRESS",
   "scope": [
-    "godot/scripts/sim/phase2/n158_production_runtime.gd",
     "godot/scripts/main.gd",
-    "godot/tests/p2_autonomous_multitick_delivery_restart_check.gd",
+    "godot/scripts/observer_panel.gd",
+    "godot/tests/p2_autonomy_observer_trace_check.gd",
     "godot/docs/phase2/handoffs/20261114-1145-third-chat-autonomy-trace.md"
   ],
-  "goal": "Persist and expose a truthful canonical autonomous-delivery trace (demand, contract, assignment, physical actions, settlement) from the one N158 World; no duplicate fleet/ledger/board.",
+  "goal": "Expose only canonical N135→N104→N153→N14/N21/N15/N97→N104/N9 proof in Observer, including durable physical/financial receipts. No World/Ledger/Board mutation.",
   "started_at": "2026-11-14T11:45:49+03:00",
   "source_sha": "8a70fadb8f4826fecde5b6bf31d7530134f66aed",
-  "expires_at": "2026-11-14T13:15:00+03:00"
+  "expires_at": "2026-11-14T13:15:00+03:00",
+  "updated_at": "2026-11-14T11:49:00+03:00"
 }
