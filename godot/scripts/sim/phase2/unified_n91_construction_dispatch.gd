@@ -64,7 +64,11 @@ static func propose(world: Dictionary, resolver: RefCounted,
             "faction": str(ship["faction_id"]), "location": location,
             "loyalty": float(ship.get("loyalty", 0.0))}
         var competing: float = maxf(0.0, float(ship.get("current_goal_score", 0.0)))
-        var choice: Dictionary = Executor.choose(offers, view, systems,
+        # A physically local construction choice must not be starved
+        # by an unimplemented remote N91 travel offer sorted before it.
+        var local_offers: Array = offers.filter(func(offer: Dictionary) -> bool:
+            return str(offer.get("location", "")) == location)
+        var choice: Dictionary = Executor.choose(local_offers, view, systems,
             class_catalogue, competing, false)
         if choice.is_empty():
             continue
