@@ -41,6 +41,7 @@ const NativePassengers = preload("res://scripts/sim/phase2/unified_n104_passenge
 const NativeN147 = preload("res://scripts/sim/phase2/unified_n147_colony_migration_observer.gd")
 const NativeShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 const NativeN149Crew = preload("res://scripts/sim/phase2/unified_n149_ship_crew_phase.gd")
+const NativeShipPrices = preload("res://scripts/sim/phase2/unified_native_ship_price_observation.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
@@ -454,6 +455,55 @@ func apply_native_n148_ship_lifecycle(tick: int, multiplier: int,
         "changed": candidate.get("changed", false),
         "commands": candidate.get("commands", []).duplicate(true),
         "advanced": candidate.get("advanced", []).duplicate(true)}
+
+
+## Rust ship/mod.rs::observe_prices (Pass 2, after N14 motion and
+## before N149 crew). Only the real per-ship ShipMemory may change;
+## actual markets/price history, N104, N9 wallets and N14 remain frozen.
+func apply_native_ship_price_observation(tick: int, resolver: RefCounted,
+        fired: Dictionary) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick + 1:
+        return {"ok": false, "reason": "n150_price_observation_not_ship_phase"}
+    var candidate: Dictionary = NativeShipPrices.stage(_world, resolver, tick, fired)
+    if not candidate.get("ok", false):
+        return candidate
+    var updated_ships: Dictionary = candidate.get("ships", {})
+    if updated_ships.size() != _world.get("ships", {}).size():
+        return {"ok": false, "fatal": true, "reason": "n150_price_changed_ship_roster"}
+    for sid in _world["ships"]:
+        if not updated_ships.has(sid):
+            return {"ok": false, "fatal": true, "reason": "n150_price_removed_ship"}
+        var original: Dictionary = _world["ships"][sid]
+        var observed: Dictionary = updated_ships[sid]
+        if not fired.has(sid):
+            if original != observed:
+                return {"ok": false, "fatal": true, "reason": "n150_changed_sleeping_ship"}
+            continue
+        var permitted: Dictionary = original.duplicate(true)
+        if observed.has("memory"):
+            permitted["memory"] = observed["memory"].duplicate(true)
+        if observed != permitted:
+            return {"ok": false, "fatal": true, "reason": "n150_modified_nonmemory_ship_component"}
+    if not candidate.get("changed", false):
+        return {"ok": true, "tick": tick, "changed": false,
+            "observed": candidate.get("observed", []).duplicate(true),
+            "active_count": int(candidate.get("active_count", 0))}
+    var next_world: Dictionary = _world.duplicate(true)
+    next_world["ships"] = updated_ships.duplicate(true)
+    var invalid: String = Schema.validate(next_world)
+    if not invalid.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n150_invalid_native_memory_" + invalid}
+    var bank: Dictionary = _ledger.snapshot()
+    var accounts: Dictionary = Schema.accounts(next_world)
+    if accounts.size() != bank.get("balances", {}).size():
+        return {"ok": false, "fatal": true, "reason": "n150_modified_n9_wallet_roster"}
+    for account in accounts:
+        if bank["balances"].get(account, null) != accounts[account]:
+            return {"ok": false, "fatal": true, "reason": "n150_modified_actual_credit_balance"}
+    _world = next_world
+    return {"ok": true, "tick": tick, "changed": true,
+        "observed": candidate.get("observed", []).duplicate(true),
+        "active_count": int(candidate.get("active_count", 0))}
 
 
 ## Rust ship/mod.rs::tick_ships Pass 3, once per actual N140 fire.
