@@ -430,8 +430,16 @@ func apply_fleet_logistics(tick: int, proposal: Dictionary,
             return false
         if not _world["facilities"].has(dock_id):
             return false
-        if str(_world["facilities"][dock_id].get("type", "")) != "station":
+        var real_kind: String = str(_world["facilities"][dock_id].get("type", ""))
+        if real_kind not in ["station", "shipyard"]:
             return false
+        if real_kind == "shipyard":
+            # N108: stations cannot stand in for actual paid shipyards.
+            # A real N84 ship refit mission must own this dock/undock;
+            # manual contract delivery may never request a shipyard slot.
+            var tree: Variant = before_ship.get("current_bt", null)
+            if str(before_ship.get("current_goal", "")) not in ["retrofit", "refit"] or not (tree is Dictionary) or not NativeBt.validate(tree):
+                return false
         if str(before_ship.get("location", "")) != str(_world["facilities"][dock_id]["location"]):
             return false
         if action == "dock" and (not str(before_ship.get("docked_at", "")).is_empty() or str(after_ship.get("docked_at", "")) != dock_id):
