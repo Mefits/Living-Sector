@@ -75,6 +75,24 @@ static func _source_facility_condition_rounding_only(path: String,
         return false
     return absf(before_value - decoded_value) <= SOURCE_PROFILE_JSON_ROUNDOFF
 
+## N39 paid shift receipts contain physical *computed output* floating
+## telemetry per recipe and commodity. The real inventory is separately
+## required to match bit-for-bit by SaveState._physical_stock_matches.
+## Never permit rounding in stocks, financial receipts, or wages here.
+static func _source_paid_shift_output_rounding_only(path: String,
+        before_value: float, decoded_value: float) -> bool:
+    var parts: PackedStringArray = path.split("/")
+    if parts.size() != 8 or parts[0] != "native_production" or (
+            parts[1] != "world" or parts[2] != "facilities" or
+            str(parts[3]).is_empty() or parts[4] != "work_shift" or
+            parts[5] != "produced_outputs" or str(parts[6]).is_empty() or
+            str(parts[7]).is_empty()):
+        return false
+    if not is_finite(before_value) or not is_finite(decoded_value) or (
+            before_value < 0.0 or decoded_value < 0.0):
+        return false
+    return absf(before_value - decoded_value) <= SOURCE_PROFILE_JSON_ROUNDOFF
+
 static func _difference(original: Variant, decoded: Variant,
         path: String, depth: int) -> String:
     if depth > MAX_NESTED_DEPTH:
@@ -136,6 +154,8 @@ static func _difference(original: Variant, decoded: Variant,
         if before_float != after_float and not (
                 _source_profile_rounding_only(path, before_float, after_float)
                 or _source_facility_condition_rounding_only(
+                    path, before_float, after_float)
+                or _source_paid_shift_output_rounding_only(
                     path, before_float, after_float)):
             return path + ":float_changed_by_json"
         return ""
