@@ -11,6 +11,7 @@ const ModuleCatalog = preload("res://scripts/port/n108_shipyard_module_catalog.g
 const ShipProgression = preload("res://scripts/sim/native/ship_progression_n101.gd")
 const ShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 const SourceLod = preload("res://scripts/sim/phase1/n140_native_spatial_lod.gd")
+const NativeCrewRoster = preload("res://scripts/sim/ships/native_crew_roster.gd")
 const PROVENANCE: String = "frozen-rust-sim_db-seeder-fresh-ship-20261112"
 
 static func build_new_game(seed: Dictionary) -> Dictionary:
@@ -103,6 +104,27 @@ static func build_new_game(seed: Dictionary) -> Dictionary:
         # by the fitted efficiency metadata in the native flight loop.
         ship["fuel_efficiency_mult"] = float(derived["fuel_efficiency_mult"])
         ship["comms_bonus"] = float(derived["comms_bonus"])
+    # Source N50 spawner initializes the ONE aggregate ShipCrew for
+    # each original N46 ship (no phantom individual crew actors).
+    # Salary starts at zero, not paid at seeding; cargo ages are empty.
+    var actual_crew := NativeCrewRoster.new()
+    if not actual_crew.initialize_new_game(fleet):
+        return _reject("native_crew_initialization_rejected")
+    for record in actual_crew.snapshot():
+        var crew_id: String = str(record["ship_id"])
+        if not fleet.ships.has(crew_id):
+            return _reject("native_crew_orphaned_from_original_ship")
+        var crew: Dictionary = record.duplicate(true)
+        var roles: Array = crew["roles"].duplicate(true)
+        crew.erase("ship_id")
+        crew.erase("roles")
+        var skills: Dictionary = crew["skills"].duplicate(true)
+        crew.erase("skills")
+        crew["dirty"] = false
+        fleet.ships[crew_id]["crew"] = crew
+        fleet.ships[crew_id]["crew_skills"] = skills
+        fleet.ships[crew_id]["cargo_age"] = {}
+        fleet.ships[crew_id]["crew_efficiency"] = actual_crew.efficiency(crew_id)
     return {
         "ok": true,
         "provenance": PROVENANCE,
