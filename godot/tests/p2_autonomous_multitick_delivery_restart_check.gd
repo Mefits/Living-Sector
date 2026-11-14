@@ -52,6 +52,9 @@ func _initialize() -> void:
         _fail("native demand checkpoint rejected")
         return
     var initial_total: int = _total(initial["native_production"]["ledger"]["balances"])
+    var initial_contracts: Dictionary = world["contract_board"]["contracts"].duplicate(true)
+    var posted_by_native_n135: Dictionary = {}
+    var accepted_by_native_n153: Dictionary = {}
     var target_contract: String = ""
     var assigned_ship: String = ""
     var escrow_account: String = ""
@@ -76,12 +79,41 @@ func _initialize() -> void:
             _fail("N9 credit conservation failed at tick " + str(sim.tick_count))
             return
         var contracts: Dictionary = w["contract_board"]["contracts"]
+        # Prove provenance from live N158 market/faction phases.
+        # An injected or pre-existing N104 contract cannot pass this gate.
+        var posting: Dictionary = sim.contract_admissions_snapshot()
+        for row in posting.get("posted", []):
+            if not (row is Dictionary):
+                _fail("N135 admission contains an invalid receipt")
+                return
+            var posted_id: String = str(row.get("contract_id", ""))
+            if posted_id.is_empty() or initial_contracts.has(posted_id) or not contracts.has(posted_id):
+                _fail("N135 claimed a missing or pre-existing funded contract")
+                return
+            if str(row.get("status", "")) != "POSTED_FUNDED":
+                _fail("N135 admission was not funded through canonical N104")
+                return
+            if not ledger["receipts"].has(str(row.get("receipt_id", ""))):
+                _fail("N135 funded order has no durable N9 escrow receipt")
+                return
+            posted_by_native_n135[posted_id] = true
+        var assignments: Dictionary = sim.last_n153_result()
+        for row in assignments.get("accepted", []):
+            if not (row is Dictionary):
+                _fail("N153 acceptance contains an invalid assignment")
+                return
+            var accepted_id: String = str(row.get("contract_id", ""))
+            var accepted_ship: String = str(row.get("ship_id", ""))
+            if not posted_by_native_n135.has(accepted_id) or accepted_ship.is_empty():
+                _fail("N153 accepted a contract without observed native N135 funding")
+                return
+            accepted_by_native_n153[accepted_id] = accepted_ship
         if target_contract.is_empty():
             var keys: Array = contracts.keys()
             keys.sort()
             for cid in keys:
                 var c: Dictionary = contracts[cid]
-                if str(c.get("destination_location", "")) == buyer_loc and str(c.get("commodity", "")) == good and world["markets"].has(str(c.get("source_location", ""))):
+                if posted_by_native_n135.has(str(cid)) and str(c.get("destination_location", "")) == buyer_loc and str(c.get("commodity", "")) == good and world["markets"].has(str(c.get("source_location", ""))):
                     target_contract = str(cid)
                     escrow_account = str(c.get("escrow_account", ""))
                     break
@@ -91,8 +123,11 @@ func _initialize() -> void:
             _fail("funded contract vanished from canonical board")
             return
         var contract: Dictionary = contracts[target_contract]
-        if assigned_ship.is_empty():
-            assigned_ship = str(contract.get("fulfiller_id", ""))
+        if assigned_ship.is_empty() and accepted_by_native_n153.has(target_contract):
+            assigned_ship = str(accepted_by_native_n153[target_contract])
+        if not assigned_ship.is_empty() and str(contract.get("fulfiller_id", "")) != assigned_ship:
+            _fail("N104 fulfiller diverged from observed independent N153 assignment")
+            return
         if str(contract.get("status", "")) in ["picked_up", "paid"]:
             saw_pickup = true
         if not assigned_ship.is_empty() and w["ships"].has(assigned_ship):
@@ -179,6 +214,9 @@ func _initialize() -> void:
             sim = loaded_runtime
             saw_loaded_restart = true
         if str(contract.get("status", "")) == "paid":
+            if not posted_by_native_n135.has(target_contract) or not accepted_by_native_n153.has(target_contract):
+                _fail("paid contract lacks observed N135 funding or N153 assignment")
+                return
             if not saw_departure or not saw_in_flight or not saw_midflight_save or not saw_loaded_restart or not saw_pickup:
                 _fail("contract paid without observed physical N14 transit/pickup/restart")
                 return
