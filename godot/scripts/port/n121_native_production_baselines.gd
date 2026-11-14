@@ -51,11 +51,12 @@ static func capture(world: Dictionary, snapshot: Dictionary,
         var per_recipe: Variant = totals.get(recipe_id, {})
         if not (per_recipe is Dictionary):
             continue
-        for product in action.get("outputs", []):
-            if not (product is Dictionary):
-                return {"ok": false, "reason": "invalid_recipe_output"}
-            var commodity: String = str(product.get("commodity", ""))
-            var units: int = int(product.get("quantity", 0))
+        for raw_product in action.get("outputs", []):
+            var product: Dictionary = State.output_spec(raw_product)
+            if product.is_empty():
+                return {"ok": false, "reason": "invalid_original_recipe_output"}
+            var commodity: String = str(product["commodity"])
+            var units: int = int(product["quantity"])
             if commodity.is_empty() or units <= 0:
                 continue
             var total: Variant = per_recipe.get(commodity, 0.0)
