@@ -65,12 +65,18 @@ static func fixture() -> Dictionary:
                 "price_knowledge": {}, "route_performance": {},
                 "contract_rejections": {}}}}}
 
+static func real_positions() -> Dictionary:
+    return {"sol-dock": Vector2(0.0, 0.0),
+        "sol-gate": Vector2(0.1, 0.0),
+        "alpha-gate": Vector2(1.0, 0.0),
+        "alpha-dock": Vector2(1.1, 0.0)}
+
 static func run_checks() -> Dictionary:
     var original: Dictionary = fixture()
     var graph := FakeGraph.new()
     var resolver := FakeResolver.new()
     var accepted: Dictionary = Stage.stage(original, graph, resolver,
-        12000, {"ship-a": 1})
+        12000, {"ship-a": 1}, real_positions(), 1.0)
     if not accepted.get("ok", false) or not accepted.get("changed", false):
         return {"ok": false, "reason": "n80_did_not_recover_real_idle_gate_plan"}
     if original["ships"]["ship-a"]["current_bt"] != null or (
@@ -96,7 +102,7 @@ static func run_checks() -> Dictionary:
     shared_dock["markets"].erase("alpha-dock")
     shared_dock["markets"]["alpha-gate"] = {"owner": "alpha-station"}
     var same_endpoint: Dictionary = Stage.stage(shared_dock, graph, resolver,
-        12000, {"ship-a": 1})
+        12000, {"ship-a": 1}, real_positions(), 1.0)
     if not same_endpoint.get("changed", false):
         return {"ok": false, "reason": "n80_rejected_real_market_at_gate_location"}
     var same_bt: Dictionary = same_endpoint["ships"]["ship-a"]["current_bt"]
@@ -109,18 +115,18 @@ static func run_checks() -> Dictionary:
     var no_pair: Dictionary = fixture()
     no_pair["facilities"]["sol-gate-id"].erase("gate_link")
     if Stage.stage(no_pair, graph, resolver, 12000, {
-            "ship-a": 1}).get("changed", false):
+            "ship-a": 1}, real_positions(), 1.0).get("changed", false):
         return {"ok": false, "reason": "n80_ghost_gate_exploration"}
     var poor: Dictionary = fixture()
     poor["ships"]["ship-a"]["credits"] = 100
     if Stage.stage(poor, graph, resolver, 12000, {
-            "ship-a": 1}).get("changed", false):
+            "ship-a": 1}, real_positions(), 1.0).get("changed", false):
         return {"ok": false, "reason": "n80_unfunded_gate"}
     var no_route := FakeGraph.new()
     no_route.edges["sol-dock"] = []
     if Stage.stage(fixture(), no_route, resolver, 12000, {
-            "ship-a": 1}).get("changed", false):
+            "ship-a": 1}, real_positions(), 1.0).get("changed", false):
         return {"ok": false, "reason": "n80_unreachable_gate"}
-    if Stage.stage(fixture(), graph, resolver, 12000, {}).get("changed", false):
+    if Stage.stage(fixture(), graph, resolver, 12000, {}, real_positions(), 1.0).get("changed", false):
         return {"ok": false, "reason": "n80_sleeping_ship_woke_up"}
     return {"ok": true, "status": "DEFERRED_SOURCE_FIXTURE_NOT_RUN"}
