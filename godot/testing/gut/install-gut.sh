@@ -54,5 +54,6 @@ if [[ ! -f "$DEST/gut_cmdln.gd" ]] || [[ ! -f "$DEST/LICENSE.md" ]]; then
   echo "GUT installation incomplete" >&2
   exit 2
 fi
+copy_project_specs
 echo "Installed official GUT 9.7.1 at commit $PIN"
 echo "godot --headless --path \"$PROJECT_DIR\" --script res://addons/gut/gut_cmdln.gd -gdir=res://tests/gut -gexit"
