@@ -100,6 +100,16 @@ func _initialize() -> void:
     if not exp.get("ok", false) or bool(exp["offer"]["available"]):
         _fail("empty original physical bodies spawned a fake colony site")
         return
+    var whole: Dictionary = Original.project(
+        state, {"own": {"personality": {"prefer_goals": {}}}},
+        NoInventedBodies.new(), NoInventedRoutes.new(), "own",
+        {"selected_option": "wait", "observed_tick": 60}, 60, 1)
+    if not whole.get("ok", false) or whole.get(
+            "offers", []).size() != 2 or not bool(
+            whole["offers"][0]["available"]) or bool(
+            whole["offers"][1]["available"]):
+        _fail("actual N113 source projector failed research/expansion pair")
+        return
     var old_supply: Dictionary = state.duplicate(true)
     old_supply["research_directors"]["own"]["strategic"][
         "kind"] = "supply"
