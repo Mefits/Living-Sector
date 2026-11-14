@@ -1,1 +1,4 @@
-Gate4 final focused replay (2026-11-14): Godot parse/import plus the EXISTING unified economy acceptance (6 real phases and all N9 accounts) and ONE N143 native paid research save/restore test. No broad scenario suite.
+P2 FINAL COORDINATED GATE — 2026-11-14
+PR #249 shared source HEAD before trigger: 6256e39596c18df4ed0a2ef68d82086ff32ba4be
+ONE GitHub Actions Godot 4.7.2 smoke: static preloads, editor import, compile-all, real N158 paid-production, N143 research N9/N38. This is the first actual combined parser/runtime gate, NOT a declaration of full Rust parity or Windows PASS.
+Source parity comparator: godot/tools/p2_v4_source_gate.py --require-complete --json; release only after real CI results and remaining economic/legacy-source policy gaps are reconciled.
