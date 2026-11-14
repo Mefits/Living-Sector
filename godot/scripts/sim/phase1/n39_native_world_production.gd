@@ -50,6 +50,7 @@ const NativeShipPrices = preload("res://scripts/sim/phase2/unified_native_ship_p
 const NativeCrewXp = preload("res://scripts/sim/ship_crew_skills_n128.gd")
 const N146Commands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
 const NativeFreeTrade = preload("res://scripts/sim/phase2/unified_n83_free_trade_apply.gd")
+const NativeShipServices = preload("res://scripts/sim/phase2/unified_n97_ship_service_stage.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
@@ -408,6 +409,145 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
     _world = staged
     return true
 
+
+
+## Frozen Rust N97 Refuel/Mine single-owner Apply. A genuine N90
+## request is processed on detached P1 physical authority; only its
+## verified delta may enter this existing N39 World and N9 Ledger.
+## Refuel consumes REAL facility private Fuel reserves and optionally
+## current Market Fuel with paid credits. Mine consumes ORIGINAL
+## celestial body ice richness and adds exactly the mined ship cargo.
+## Both persist the ONE N90 result; rejection never creates assets.
+func apply_native_n97_ship_service(tick: int, ship_id: String,
+        request_id: int, resolver: RefCounted) -> Dictionary:
+    if not _ready or tick != _last_tick + 1 or tick < 1 or (
+            ship_id.is_empty() or request_id < 1):
+        return {"ok": false, "reason": "n97_service_not_native_ships_phase"}
+    var old_world: Dictionary = _world
+    var old_bank: Dictionary = _ledger.snapshot()
+    var proposal: Dictionary = NativeShipServices.stage(
+        old_world, old_bank, resolver, ship_id, request_id, tick)
+    if not proposal.get("ok", false):
+        return proposal
+    var staged: Dictionary = proposal.get("world", {})
+    var money: Dictionary = proposal.get("ledger_snapshot", {})
+    if not (staged.get("ships") is Dictionary) or not (
+            old_world["ships"].has(ship_id)) or (
+            staged["ships"].size() != old_world["ships"].size()):
+        return {"ok": false, "fatal": true, "reason": "n97_service_changed_fleet"}
+    var affected: Array[String] = ["ships", "bodies", "facilities",
+        "markets", "cargo_receipts"]
+    for key in old_world:
+        if key not in affected and staged.get(key, null) != old_world[key]:
+            return {"ok": false, "fatal": true, "reason": "n97_service_modified_unrelated_world"}
+    var before: Dictionary = old_world["ships"][ship_id]
+    var after: Dictionary = staged["ships"][ship_id]
+    for sid in old_world["ships"]:
+        if not staged["ships"].has(sid) or (
+                str(sid) != ship_id and staged["ships"][sid] != old_world["ships"][sid]):
+            return {"ok": false, "fatal": true, "reason": "n97_service_mutated_other_ship"}
+    var source_kind: String = str(proposal.get("kind", ""))
+    var source_status: String = str(proposal.get("status", ""))
+    if source_kind not in ["mine", "refuel"] or source_status not in [
+            "applied", "rejected"]:
+        return {"ok": false, "fatal": true, "reason": "n97_service_invalid_native_outcome"}
+    var paid: bool = source_status == "applied" and source_kind == "refuel"
+    var mined: bool = source_status == "applied" and source_kind == "mine"
+    var receipt_id: String = "n97:service:" + ship_id + ":" + str(request_id)
+    if source_status == "rejected":
+        if money != old_bank:
+            return {"ok": false, "fatal": true, "reason": "n97_rejected_money_modified"}
+        for key in ["facilities", "markets", "bodies", "cargo_receipts"]:
+            if staged[key] != old_world[key]:
+                return {"ok": false, "fatal": true, "reason": "n97_rejected_physics_modified"}
+        var accepted_cursor: Dictionary = before.duplicate(true)
+        accepted_cursor["transaction"] = after["transaction"].duplicate(true)
+        if accepted_cursor != after:
+            return {"ok": false, "fatal": true, "reason": "n97_rejected_ship_modified"}
+    else:
+        if not staged.get("cargo_receipts", {}).has(receipt_id) or (
+                staged["cargo_receipts"].size() != old_world.get(
+                "cargo_receipts", {}).size() + 1):
+            return {"ok": false, "fatal": true, "reason": "n97_missing_unique_physical_receipt"}
+        var receipt: Dictionary = staged["cargo_receipts"][receipt_id]
+        if str(receipt.get("kind", "")) != "native_n97_" + source_kind or (
+                str(receipt.get("ship_id", "")) != ship_id or int(
+                receipt.get("request_id", -1)) != request_id):
+            return {"ok": false, "fatal": true, "reason": "n97_wrong_original_service_receipt"}
+        var permitted: Array[String] = ["transaction", "fuel", "credits",
+            "cargo", "cargo_age", "crew_skills", "crew"]
+        for field in before:
+            if field not in permitted and after.get(field, null) != before[field]:
+                return {"ok": false, "fatal": true, "reason": "n97_changed_other_ship_component"}
+        for field in after:
+            if not before.has(field) and field not in permitted:
+                return {"ok": false, "fatal": true, "reason": "n97_added_unauthorized_ship_state"}
+        if paid:
+            if staged["bodies"] != old_world["bodies"] or (
+                    staged["facilities"].size() != old_world["facilities"].size() or
+                    staged["markets"].size() != old_world["markets"].size()):
+                return {"ok": false, "fatal": true, "reason": "n97_refuel_changed_original_topology"}
+            if not (after["cargo"] == before["cargo"]) or (
+                    int(after["credits"]) != int(before["credits"]) - int(
+                    receipt.get("payment", -1))):
+                return {"ok": false, "fatal": true, "reason": "n97_refuel_changed_ice_or_money"}
+            for fid in old_world["facilities"]:
+                if not staged["facilities"].has(fid):
+                    return {"ok": false, "fatal": true, "reason": "n97_refuel_erased_operator"}
+                if str(fid) != str(receipt.get("facility_id", "")) and (
+                        staged["facilities"][fid] != old_world["facilities"][fid]):
+                    return {"ok": false, "fatal": true, "reason": "n97_refuel_changed_other_owner"}
+            for loc in old_world["markets"]:
+                if not staged["markets"].has(loc) or (
+                        str(loc) != str(receipt.get("location", "")) and
+                        staged["markets"][loc] != old_world["markets"][loc]):
+                    return {"ok": false, "fatal": true, "reason": "n97_refuel_changed_other_market"}
+        if mined:
+            if staged["facilities"] != old_world["facilities"] or (
+                    staged["markets"] != old_world["markets"]) or (
+                    int(after["credits"]) != int(before["credits"])):
+                return {"ok": false, "fatal": true, "reason": "n97_mine_changed_cash_or_stations"}
+            if staged["bodies"].size() != old_world["bodies"].size():
+                return {"ok": false, "fatal": true, "reason": "n97_mine_created_celestial_body"}
+            for bid in old_world["bodies"]:
+                if not staged["bodies"].has(bid) or (
+                        str(bid) != str(receipt.get("body_id", "")) and
+                        staged["bodies"][bid] != old_world["bodies"][bid]):
+                    return {"ok": false, "fatal": true, "reason": "n97_mine_modified_other_deposit"}
+            if int(after["cargo"].get("ice", 0)) - int(
+                    before["cargo"].get("ice", 0)) != int(
+                    receipt.get("quantity", -1)):
+                return {"ok": false, "fatal": true, "reason": "n97_mine_created_unbacked_ice"}
+    for prior_receipt in old_world.get("cargo_receipts", {}):
+        if staged["cargo_receipts"].get(prior_receipt, null) != old_world["cargo_receipts"][prior_receipt]:
+            return {"ok": false, "fatal": true, "reason": "n97_edited_prior_physical_receipt"}
+    var receipt_delta: int = 1 if paid else 0
+    if money.get("receipts", {}).size() != old_bank.get(
+            "receipts", {}).size() + receipt_delta:
+        return {"ok": false, "fatal": true, "reason": "n97_wrong_n9_payment_receipts"}
+    if paid and not money["receipts"].has(receipt_id):
+        return {"ok": false, "fatal": true, "reason": "n97_missing_paid_fuel_receipt"}
+    for prior_id in old_bank["receipts"]:
+        if money["receipts"].get(prior_id, null) != old_bank["receipts"][prior_id]:
+            return {"ok": false, "fatal": true, "reason": "n97_tampered_original_n9_receipts"}
+    var canonical := Ledger.new()
+    if not canonical.restore(money) or canonical.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "n97_did_not_conserve_original_n9_cash"}
+    var invalid: String = Schema.validate(staged)
+    if not invalid.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n97_schema_" + invalid}
+    var accounts: Dictionary = Schema.accounts(staged)
+    if accounts.size() != money["balances"].size():
+        return {"ok": false, "fatal": true, "reason": "n97_created_or_erased_real_wallet"}
+    for account in accounts:
+        if money["balances"].get(account, null) != accounts[account]:
+            return {"ok": false, "fatal": true, "reason": "n97_service_real_n9_wallet_disagreed"}
+    _world = staged
+    _ledger = canonical
+    return {"ok": true, "tick": tick, "status": source_status,
+        "ship_id": ship_id, "request_id": request_id, "kind": source_kind,
+        "receipt": proposal.get("receipt", {}).duplicate(true),
+        "reason": str(proposal.get("reason", ""))}
 
 
 ## Original Rust engine/transactions.rs::buy/sell without a N104
