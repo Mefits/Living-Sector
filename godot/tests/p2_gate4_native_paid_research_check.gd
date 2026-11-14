@@ -10,6 +10,8 @@ const N143 = preload("res://scripts/sim/phase2/unified_native_research_phase.gd"
 const NativeCoherence = preload("res://scripts/sim/phase2/unified_native_checkpoint_coherence.gd")
 const NativeTimeline = preload("res://scripts/sim/phase2/unified_native_timeline_integrity.gd")
 const NativeFrameGuard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
+const WorldSchema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
+const NativeProduction = preload("res://scripts/sim/phase1/n39_native_world_production.gd")
 
 func _initialize() -> void:
     var seed: Dictionary = Native.load_current_world()
@@ -168,7 +170,25 @@ func _initialize() -> void:
         return
     var load: Dictionary = SaveState.load_runner(restored, seed, save_path)
     if not load.get("ok", false):
-        _fail("N38 could not restore N143 research and accounts: " + str(load))
+        var on_disk: Dictionary = SaveState._read_checkpoint(save_path)
+        var diagnostic: Dictionary = {"disk_read": not on_disk.is_empty()}
+        if not on_disk.is_empty() and on_disk.get(
+                "native_production") is Dictionary:
+            var staged: Dictionary = on_disk.duplicate(true)
+            var native_ok: bool = restored._normalize_native_snapshot(
+                staged["native_production"])
+            diagnostic["native_integer_normalization"] = native_ok
+            if native_ok:
+                diagnostic["native_world_schema"] = WorldSchema.validate(
+                    staged["native_production"]["world"])
+                var isolated := NativeProduction.new()
+                diagnostic["n39_restore"] = isolated.restore(
+                    staged["native_production"])
+            diagnostic["disk_timeline"] = NativeTimeline.validate(on_disk)
+            diagnostic["disk_coherence"] = NativeCoherence.validate_serialized_candidate(
+                on_disk)
+        _fail("N38 could not restore N143 research and accounts: " +
+            str(load) + " diagnostic=" + str(diagnostic))
         return
     # Source profile weights are floating-point, and Godot JSON may
     # round their last bit without changing the director's decisions.
