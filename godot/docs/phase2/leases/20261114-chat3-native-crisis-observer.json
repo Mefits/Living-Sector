@@ -1,0 +1,22 @@
+{
+  "worker": "chat3-V2-factions-final-assembly",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "b23e8cc64d8766a8624d8e8fb88207ca3c062fa7",
+  "goal": "Continue Rust Bundle(S) port without touching chat1 central code: provide source-only persisted market warning view, pending facility warning view, compact single World observer evidence and deferred regression",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_native_crisis_events.gd",
+    "godot/scripts/observer_panel.gd",
+    "godot/tests/p2_native_crisis_observer_projection_check.gd (new)",
+    "godot/docs/phase2/handoffs/20261114-chat3-crisis-observer.md (new)"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "N9 Ledger",
+    "N104 ContractBoard"
+  ],
+  "dependency": "Chat1 active on N39/N158 free trade; facility flag and dispatched original Rust event transition cannot be marked live yet",
+  "verification": "No intermediate Godot, no Actions by user instruction"
+}
