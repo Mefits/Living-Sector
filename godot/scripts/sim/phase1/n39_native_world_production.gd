@@ -1219,6 +1219,27 @@ func apply_native_n21_request(tick: int, ship_id: String,
         return {"ok": false, "reason": "n21_unknown_source_dock_action"}
     return _commit_native_n21(proposed)
 
+## Manual UI Dock is an explicit command in the current committed
+## native tick, not an arbitrary N15 cargo transfer. No free port may
+## bypass N9; an occupied FIFO line cannot be skipped by an out-of-tick
+## UI click. Unlike N84, a manual caller has no persisted Dock BT, so
+## a full port REJECTS instead of inserting a phantom waiting ship.
+func apply_native_n21_manual_dock(tick: int, ship_id: String,
+        location: String) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick:
+        return {"ok": false, "reason": "n21_manual_not_a_committed_native_tick"}
+    var source: Dictionary = N21Source.request(
+        _world, _ledger.snapshot(), ship_id, location, tick)
+    if not source.get("ok", false):
+        return source
+    if str(source.get("status", "")) != "docked" or (
+            not (source.get("receipt", null) is Dictionary)):
+        # No second persistent manual queue or invented dock BT.
+        # A paid N21 slot is required on THIS committed tick.
+        return {"ok": false, "reason": "n21_manual_no_free_paid_slot",
+            "status": str(source.get("status", "blocked"))}
+    return _commit_native_n21(source)
+
 func apply_native_n21_dock_queue(tick: int) -> Dictionary:
     if not _ready or tick != _last_tick + 1 or tick < 1:
         return {"ok": false, "reason": "n21_not_original_dock_queue_phase"}
@@ -1241,7 +1262,12 @@ func apply_fleet_logistics(tick: int, proposal: Dictionary,
     var ship_id: String = str(r.get("ship_id", ""))
     var dock_id: String = str(r.get("facility_id", ""))
     var op_id: String = str(r.get("operation_id", ""))
-    if not (action in ["dock", "undock", "load", "unload"]) or op_id.is_empty() or ship_id.is_empty():
+    # Legacy N15 warehouse logistics must NEVER create a free N21
+    # Dock. Native N84 and the explicit user Dock use the same paid
+    # N21Source -> N9 -> _commit_native_n21 authority above.
+    if action == "dock":
+        return false
+    if not (action in ["undock", "load", "unload"]) or op_id.is_empty() or ship_id.is_empty():
         return false
     if int(r.get("tick", -1)) != tick or not _world["ships"].has(ship_id):
         return false
