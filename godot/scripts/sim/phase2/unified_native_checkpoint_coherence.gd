@@ -129,3 +129,96 @@ static func validate(snapshot: Dictionary) -> Dictionary:
                 return _bad("stale_or_invalid_native_event")
     return {"ok": true, "scope": "canonical_n39_n9_receipts_and_n38_clocks",
         "accounts_checked": expected.size(), "receipts_checked": receipts.size()}
+
+## N38 reads serialized JSON *before* N158 source restore normalizes
+## known integer fields. A restored Godot JSON number can be a float;
+## preserve exactness while validating the same canonical N9/N39 model.
+## This is a read-only staging view; never update the source checkpoint.
+const MAX_EXACT_JSON_INTEGER: float = 9007199254740991.0
+
+static func _exact_integer_in_place(row: Dictionary, key: Variant) -> bool:
+    if not row.has(key):
+        return false
+    var raw: Variant = row[key]
+    if typeof(raw) == TYPE_INT:
+        return true
+    if typeof(raw) != TYPE_FLOAT:
+        return false
+    var number: float = float(raw)
+    if not is_finite(number) or absf(number) > MAX_EXACT_JSON_INTEGER or (
+            number != floorf(number)):
+        return false
+    row[key] = int(number)
+    return true
+
+## Called ONLY by N38 backup rotation against a SHA-valid on-disk payload.
+## Full restore still belongs to the actual Runner and frozen seed.
+static func validate_serialized_candidate(saved: Dictionary) -> Dictionary:
+    if not saved.has("native_production"):
+        return validate(saved)
+    var staged: Dictionary = saved.duplicate(true)
+    if not _exact_integer_in_place(staged, "tick"):
+        return _bad("serialized_native_clock_not_exact")
+    if not (staged["native_production"] is Dictionary):
+        return _bad("serialized_native_frame_not_object")
+    var native: Dictionary = staged["native_production"]
+    for field in ["version", "tick"]:
+        if not _exact_integer_in_place(native, field):
+            return _bad("serialized_native_" + field + "_not_exact")
+    if not (native.get("world") is Dictionary) or not (
+            native.get("ledger") is Dictionary):
+        return _bad("serialized_world_or_ledger_not_object")
+    var world: Dictionary = native["world"]
+    var ledger: Dictionary = native["ledger"]
+    if not _exact_integer_in_place(ledger, "version"):
+        return _bad("serialized_ledger_version_not_exact")
+    for group in ["facilities", "populations", "ships", "passenger_manifests"]:
+        if not world.has(group):
+            continue
+        if not (world[group] is Dictionary):
+            return _bad("serialized_account_group_invalid:" + group)
+        var money_field: String = "wealth" if group in [
+            "populations", "passenger_manifests"] else "credits"
+        for id in world[group]:
+            if not (world[group][id] is Dictionary):
+                return _bad("serialized_account_actor_invalid:" + str(id))
+            if not _exact_integer_in_place(world[group][id], money_field):
+                return _bad("serialized_actor_money_not_exact:" + str(id))
+    for group in ["faction_treasuries", "escrow_balances"]:
+        if not world.has(group):
+            continue
+        if not (world[group] is Dictionary):
+            return _bad("serialized_wallets_invalid:" + group)
+        for account in world[group]:
+            if not _exact_integer_in_place(world[group], account):
+                return _bad("serialized_wallet_money_not_exact:" + str(account))
+    for group in ["balances", "receipts"]:
+        if not (ledger.get(group) is Dictionary):
+            return _bad("serialized_ledger_" + group + "_not_object")
+    for account in ledger["balances"]:
+        if not _exact_integer_in_place(ledger["balances"], account):
+            return _bad("serialized_n9_money_not_exact:" + str(account))
+    for operation in ledger["receipts"]:
+        var record: Variant = ledger["receipts"][operation]
+        if not (record is Dictionary):
+            return _bad("serialized_receipt_invalid:" + str(operation))
+        if not _exact_integer_in_place(record, "tick"):
+            return _bad("serialized_receipt_tick_not_exact:" + str(operation))
+        var legs: Variant = record.get("legs", null)
+        if not (legs is Array):
+            return _bad("serialized_receipt_legs_invalid:" + str(operation))
+        for leg in legs:
+            if not (leg is Dictionary) or not _exact_integer_in_place(
+                    leg, "delta"):
+                return _bad("serialized_receipt_delta_not_exact:" + str(operation))
+    if staged.has("events"):
+        if not (staged["events"] is Dictionary) or not (
+                staged["events"].get("pending") is Array):
+            return _bad("serialized_event_queue_invalid")
+        for event in staged["events"]["pending"]:
+            if not (event is Dictionary):
+                return _bad("serialized_pending_event_invalid")
+            for field in ["due_tick", "phase"]:
+                if not _exact_integer_in_place(event, field):
+                    return _bad("serialized_event_" + field + "_not_exact")
+    return validate(staged)
