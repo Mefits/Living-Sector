@@ -1,6 +1,6 @@
 {
   "worker": "primary-interactive-n140",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "goal": "Integrate frozen Rust N140 AgentLod ship gating/cursor with one N46/N14 world and N148 retirement; no second tick; defer central N39/N158/N84 edits while second-chat passenger lease active",
   "scope": [
@@ -16,6 +16,9 @@
     "godot/scripts/sim/phase2/n158_production_runtime.gd (N140 fired gate in ships phase, N38 integer cursor restore)"
   ],
   "non_overlap": "The passenger chat N104 lease is RELEASED (confirmed fresh GitHub); edits strictly N140 ship gate and N38 cursor fields, preserve N104 passenger code.",
-  "verification": "SOURCE_IN_PROGRESS; no Godot/Actions",
-  "started": "2026-11-14"
+  "verification": "Static GitHub readback: 9 touched GDScripts no NUL, balanced brackets/quotes, uniform file indentation, expected N140/N14/N84/N148/N38 cross-links present; Godot parser/runtime/Actions not run by user request. SOURCE_WIRED / CODE_UNVERIFIED.",
+  "started": "2026-11-14",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n140-ship-lod-unified.md",
+  "remaining": "Real observer source not yet connected (none => original Rust divisor1), original crew/market observation LOD, full live gameplay/Rust parity and Windows F5 after source integration complete",
+  "closed_on": "2026-11-14"
 }
