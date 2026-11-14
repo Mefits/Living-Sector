@@ -111,6 +111,70 @@ func _initialize() -> void:
             "strategy"]["since"]) != 30:
         _fail("existing source migration strategic commitment not retained")
         return
+    # Real N111 ready construction produces a LIVE competitor score
+    # 35*industry + 8 (site present). 60-point native migration needs
+    # two distinct strategic decision cycles to overcome 43 by 1.20.
+    var competing: Dictionary = _world()
+    competing["research_directors"]["terran-authority"]["profile"] = {
+        "industry": 1.0, "science": 1.0, "expansion": 1.0}
+    competing["research_directors"]["terran-authority"]["strategic"] = {
+        "kind": "supply",
+        "target": "develop_colony|earth-station|metals",
+        "score": 43.0, "since": 10, "reason": "viable_commitment_retained",
+        "pending": null}
+    var build: Dictionary = _head()
+    build["selected_option"] = "build"
+    build["selected_administrator"] = "construction"
+    build["problem"] = {"goal_id": "develop_colony",
+        "destination": "earth-station", "commodity": "metals",
+        "shortage_ticks": 0}
+    build["alternatives"] = [{"action": "build", "status": "ready",
+        "site_id": "original-n154-site", "covered_units": 1.0,
+        "estimated_net_value": 0.0}]
+    var source_copy: Dictionary = competing.duplicate(true)
+    var first_cycle: Dictionary = HeadGrant.authorize(
+        competing, "terran-authority", _ready(), build, 60)
+    if not first_cycle.get("ok", false) or first_cycle.get(
+            "authorized", true) or not first_cycle.get(
+            "pending", false) or str(first_cycle.get(
+            "reason", "")) != "alternative_pending_confirmation" or (
+            competing != source_copy):
+        _fail("live N111 build lost source N113 first-cycle pending vote")
+        return
+    var repeat_cycle: Dictionary = HeadGrant.authorize(
+        {"faction_treasuries": competing["faction_treasuries"],
+        "research_directors": {"terran-authority": {
+            "profile": competing["research_directors"][
+                "terran-authority"]["profile"],
+            "strategic": first_cycle["strategy"]}},
+        "native_execution": {"active": {}},
+        "native_planner_records": {}, "contract_board": {"contracts": {}}},
+        "terran-authority", _ready(), build, 60)
+    if repeat_cycle.get("ok", true):
+        _fail("one native strategic tick counted twice")
+        return
+    competing["research_directors"]["terran-authority"][
+        "strategic"] = first_cycle["strategy"].duplicate(true)
+    build["observed_tick"] = 120
+    var second_cycle: Dictionary = HeadGrant.authorize(
+        competing, "terran-authority", _ready(), build, 120)
+    if not second_cycle.get("ok", false) or not second_cycle.get(
+            "authorized", false) or str(second_cycle.get(
+            "reason", "")) != "sustained_higher_utility" or (
+            second_cycle["head"]["selected_option"] != "migrate_colony"):
+        _fail("real N113 1.2x two-cycle migration never received Head grant")
+        return
+    var recovered: Dictionary = competing.duplicate(true)
+    recovered["research_directors"]["terran-authority"]["profile"][
+        "industry"] = 2.0
+    # The real N111 incumbent capability score is now 78 > 60.
+    var reset_cycle: Dictionary = HeadGrant.authorize(
+        recovered, "terran-authority", _ready(), build, 120)
+    if not reset_cycle.get("ok", false) or reset_cycle.get(
+            "authorized", true) or reset_cycle["strategy"][
+            "pending"] != null:
+        _fail("stale migration pending overrode newly stronger real N111 build")
+        return
     var wrong_faction: Dictionary = _ready()
     wrong_faction["faction_id"] = "ceti-freeholds"
     if HeadGrant.authorize(source, "terran-authority",
