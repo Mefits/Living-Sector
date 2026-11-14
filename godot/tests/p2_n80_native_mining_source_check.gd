@@ -66,12 +66,16 @@ static func fixture() -> Dictionary:
                 "fuel": {"price": 2.0, "tick": 1}}},
                 "visited": [], "recent_systems": []}}}}
 
+static func real_positions() -> Dictionary:
+    return {"ice-dock": Vector2(0.0, 0.0),
+        "ice-field": Vector2(0.1, 0.0)}
+
 static func run_checks() -> Dictionary:
     var world: Dictionary = fixture()
     var graph := FakeGraph.new()
     var resolver := FakeResolver.new()
     var result: Dictionary = Source.stage(world, graph, resolver,
-        500, {"miner-a": 1})
+        500, {"miner-a": 1}, real_positions(), 1.0)
     if not result.get("ok", false) or not result.get("changed", false):
         return {"ok": false, "reason": "n103_original_ice_candidate_not_found"}
     if world["ships"]["miner-a"]["current_bt"] != null:
@@ -91,23 +95,23 @@ static func run_checks() -> Dictionary:
     var depleted: Dictionary = fixture()
     depleted["bodies"]["ice-body"]["resources"]["ice"] = 0.0
     if Source.stage(depleted, graph, resolver, 500, {
-            "miner-a": 1}).get("changed", false):
+            "miner-a": 1}, real_positions(), 1.0).get("changed", false):
         return {"ok": false, "reason": "n103_free_ice_when_depleted"}
     var insolvent: Dictionary = fixture()
     insolvent["facilities"]["real-depot"]["credits"] = 0
     if Source.stage(insolvent, graph, resolver, 500, {
-            "miner-a": 1}).get("changed", false):
+            "miner-a": 1}, real_positions(), 1.0).get("changed", false):
         return {"ok": false, "reason": "n103_unpaid_mining_buyer"}
     var unknown: Dictionary = fixture()
     unknown["ships"]["miner-a"]["memory"]["price_knowledge"] = {}
     if Source.stage(unknown, graph, resolver, 500, {
-            "miner-a": 1}).get("changed", false):
+            "miner-a": 1}, real_positions(), 1.0).get("changed", false):
         return {"ok": false, "reason": "n103_invented_market_quotes"}
     var severed := FakeGraph.new()
     severed.edges["ice-field"] = []
     if Source.stage(fixture(), severed, resolver, 500, {
-            "miner-a": 1}).get("changed", false):
+            "miner-a": 1}, real_positions(), 1.0).get("changed", false):
         return {"ok": false, "reason": "n103_one_way_delivery_was_accepted"}
-    if Source.stage(fixture(), graph, resolver, 500, {}).get("changed", false):
+    if Source.stage(fixture(), graph, resolver, 500, {}, real_positions(), 1.0).get("changed", false):
         return {"ok": false, "reason": "n103_woke_sleeping_n140_ship"}
     return {"ok": true, "status": "DEFERRED_SOURCE_FIXTURE_NOT_RUN"}
