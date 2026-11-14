@@ -1358,6 +1358,10 @@ func economy_summary() -> Dictionary:
         "n152_renewed_this_tick": _last_n152_result.get("renewed", []).size(),
         "n152_refunded_this_tick": _last_n152_result.get("refunded", []).size(),
         "native_admin_last_removed": str(_last_admin_removal.get("id", "")),
+        "n83_trade_plans_this_tick": _last_ship_result.get(
+            "n83_autonomous_plans", []).size(),
+        "n83_paid_exchanges_this_tick": _last_ship_result.get(
+            "n83_free_trades", []).size(),
         "n149_crew_paid_this_tick": int(_last_ship_result.get("n149_wages", 0)),
         "n149_crew_food_this_tick": int(_last_ship_result.get("n149_food_consumed", 0)),
         "n140_ship_fired_this_tick": int(_last_ship_result.get("n140_fired_count", 0)),
