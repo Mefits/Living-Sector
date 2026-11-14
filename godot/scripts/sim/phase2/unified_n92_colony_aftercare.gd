@@ -113,6 +113,26 @@ static func observe(world: Dictionary) -> Dictionary:
             "required_workers": workers_needed,
             "pending_passenger_contract": pending_passenger})
     var views: Array = N92.observe(colony_inputs)
+    # Rust coordination::run_cycle blocks speculative founding while
+    # ANY real colony of that faction is starving, has ambiguous market
+    # ownership or lacks verifiable Food/Water reserve. Existing already
+    # prepaid N151 sites are not cancelled by this source safety gate.
+    var unsafe_founding: Dictionary = {}
+    for view in views:
+        if int(view.get("population", 0)) <= 0:
+            continue
+        var safe: bool = bool(view.get("market_unambiguous", false))
+        var food: float = float(view.get("food", -1.0))
+        var water: float = float(view.get("water", -1.0))
+        var food_floor: float = float(view.get("food_reserve_target", -1.0))
+        var water_floor: float = float(view.get("water_reserve_target", -1.0))
+        if not is_finite(food) or not is_finite(water) or (
+                not is_finite(food_floor) or not is_finite(water_floor) or
+                food_floor < 0.0 or water_floor < 0.0 or
+                food < food_floor or water < water_floor):
+            safe = false
+        if not safe:
+            unsafe_founding[str(view.get("faction_id", ""))] = true
     var goals: Dictionary = {}
     var faction_ids: Array = world["faction_treasuries"].keys()
     faction_ids.sort()
@@ -149,6 +169,7 @@ static func observe(world: Dictionary) -> Dictionary:
             "abandoned": bool(fac.get("abandoned", false))})
     return {"ok": true, "status": "B4_RUST_N92_ACTUAL_COLONY_AFTERCARE",
         "views": views, "goals": goals,
+        "unsafe_new_colony_factions": unsafe_founding,
         "shipyards": shipyards,
         "hull_autobuild": false,
         "source": "frozen_N92_N134_N100_N121_N154_modules_and_paid_refit",
