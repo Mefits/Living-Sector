@@ -63,6 +63,7 @@ var _last_native_faction_finance: Dictionary = {}
 var _faction_sources: Dictionary = {}
 var _last_population_result: Dictionary = {}
 var _last_ship_result: Dictionary = {}
+var _last_n21_queue_result: Dictionary = {}
 var _last_native_crew_result: Dictionary = {}
 var _fleet_roster: RefCounted
 var _fleet_resolver: RefCounted
@@ -164,6 +165,12 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
     # already persisted market hysteresis; this is the ONLY N39 writer of
     # facility starving_notified, and only the existing N1 signal publishes
     # the two source transition arrays AFTER the single World commit.
+    if phase == "dock_queue":
+        # Rust original FIFO advances AFTER apply1 independently of N140.
+        if not production.world_snapshot().has("ships"):
+            return true
+        _last_n21_queue_result = production.apply_native_n21_dock_queue(tick)
+        return bool(_last_n21_queue_result.get("ok", false))
     if phase == "crisis":
         if int(_pending_crisis_plan.get("tick", -1)) != tick:
             _last_crisis_result = {"ok": false,
@@ -1371,6 +1378,8 @@ func _integrated_phase_failure_reason(phase: String) -> String:
         result = _last_population_result
     elif phase == "ships":
         result = _last_ship_result
+    elif phase == "dock_queue":
+        result = _last_n21_queue_result
     elif phase == "factions":
         if not _last_body_territory.get("ok", true):
             return str(_last_body_territory.get("reason", "native_territory_phase_rejected"))
@@ -1567,9 +1576,11 @@ func implemented_phases() -> PackedStringArray:
     var phases: PackedStringArray = PackedStringArray(["bodies"])
     if production.world_snapshot().has("ships"):
         phases.append("ships")
+        phases.append("dock_queue")
     phases.append("facilities")
     phases.append("populations")
     phases.append("markets")
+    phases.append("crisis")
     # This is a real N39 source phase between markets and apply2;
     # previously omitted from diagnostics despite executing every tick.
     phases.append("crisis")
