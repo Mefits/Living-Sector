@@ -1,0 +1,23 @@
+{
+  "worker": "chat1-n104-timeout-release-resume",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "started": "2026-11-14",
+  "goal": "Close frozen Rust N84 failure/replan parity: guarded N146 ReleaseContract for Accepted, same N104/N39 atomic board and ship release + breach standing, no escaped escrow; PickedUp physical cargo resumes real N81 BT without phantom Accept/Buy; no second scheduler",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd",
+    "godot/scripts/sim/phase2/unified_n104_contract_resume.gd (new)",
+    "godot/scripts/sim/phase2/unified_n104_release_stage.gd (new)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/tests/p2_n104_contract_replan_source_check.gd (new deferred)",
+    "godot/tools/p2_v4_source_gate.py",
+    "godot/docs/phase2/handoffs/20261114-chat1-n104-release-replan.md"
+  ],
+  "exclude": [
+    "balance",
+    "new markets, free goods or ships",
+    "GitHub Actions interim"
+  ],
+  "source": "native/crates/sim_core/src/agents/ship/behavior.rs; native/crates/sim_server/src/engine/apply.rs::ReleaseContract; contracts.rs::release; ship/behavior.rs::resume_contract_bt"
+}
