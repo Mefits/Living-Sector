@@ -21,6 +21,8 @@ const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
 const N91SourceDispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
 const NativeColonyFounding = preload("res://scripts/sim/phase2/unified_n151_colony_founding_phase.gd")
+const NativeColonyOrders = preload("res://scripts/sim/phase2/unified_n144_colony_contracts.gd")
+const SourceN134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
 const NativeColonyDocks = preload("res://scripts/sim/phase2/unified_n151_colony_dock_phase.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
@@ -1236,6 +1238,108 @@ func apply_native_colony_foundation(tick: int, faction: String,
         "passengers": 0, "metals_delivered": 0,
         "money_debited": 0}
 
+
+## Frozen Rust strategy/colony.rs::commission: live N134 head approval
+## of an ALREADY approved N151 ConstructionSite posts exactly one prepaid
+## real Passenger contract; the source cargo route for 200 Metals remains
+## separate and is never replaced by a phantom warehouse.
+func apply_native_n144_colony_passengers(tick: int, faction: String,
+        baseline: Dictionary, original: RefCounted, graph: RefCounted,
+        sources: Dictionary, multiplier: int) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick or (
+            original == null or graph == null or multiplier < 1):
+        return {"ok": false, "reason": "n144_not_canonical_head_tick"}
+    if not _world.get("faction_treasuries", {}).has(faction):
+        return {"ok": false, "reason": "n144_unknown_original_faction"}
+    # Never trust N158's proposed HeadDecision. Recompute the source
+    # N111/N134 comparator against the CURRENT canonical N39 World.
+    var verified: Dictionary = SourceN134Construction.choose(
+        _world, sources, original, graph, faction, tick, multiplier)
+    if not verified.get("ok", false):
+        return {"ok": false, "reason": str(verified.get("reason", "n134_missing_real_head"))}
+    if verified.get("head", {}) != baseline.get("head", {}):
+        return {"ok": false, "reason": "n144_stale_n134_head"}
+    var active: Dictionary = NativeColonyOrders.active_site(
+        _world, graph, faction, tick, multiplier)
+    if not active.get("ok", false):
+        return active
+    if not active.get("ready", false):
+        return {"ok": true, "due": true, "posted": false,
+            "status": str(active.get("reason", "n144_no_prepaid_passenger_plan")),
+            "faction_id": faction, "tick": tick}
+    var approved: Dictionary = NativeColonyOrders.approval(
+        _world, verified, active, faction, tick, multiplier)
+    if not approved.get("ok", false):
+        return approved
+    var head_memory: Dictionary = approved.get("memory", {})
+    var staged: Dictionary = _world.duplicate(true)
+    var ledger := Ledger.new()
+    if not ledger.restore(_ledger.snapshot()):
+        return {"ok": false, "fatal": true, "reason": "n144_missing_single_n9"}
+    var posted: Dictionary = {}
+    if approved.get("authorized", false):
+        posted = NativeColonyOrders.stage_paid_passengers(
+            _world, _ledger.snapshot(), active, faction, tick,
+            multiplier, graph)
+        if not posted.get("ok", false):
+            return posted
+        staged = posted["world"]
+        var funded := Ledger.new()
+        if not funded.restore(posted["ledger_snapshot"]):
+            return {"ok": false, "fatal": true, "reason": "n144_invalid_paid_n9"}
+        ledger = funded
+        var cid: String = str(posted.get("contract_id", ""))
+        var site_id: String = str(active.get("plan", {}).get("site_id", ""))
+        var c: Dictionary = staged.get("contract_board", {}).get("contracts", {}).get(cid, {})
+        if cid.is_empty() or str(c.get("colony_site_id", "")) != site_id or (
+                str(c.get("mission_category", "")) != NativeColonyOrders.PROJECT_TAG):
+            return {"ok": false, "fatal": true, "reason": "n144_forged_source_colony_contract"}
+    if not head_memory.is_empty() and staged.get("research_directors", {}).has(faction):
+        staged["research_directors"][faction]["strategic"] = head_memory.duplicate(true)
+    if staged.size() != _world.size():
+        return {"ok": false, "fatal": true, "reason": "n144_added_noncanonical_world_domain"}
+    for domain in _world:
+        if domain not in ["contract_board", "escrow_balances",
+                "faction_treasuries", "research_directors"] and staged[domain] != _world[domain]:
+            return {"ok": false, "fatal": true, "reason": "n144_edited_unrelated_world_domain"}
+    for other in _world.get("faction_treasuries", {}):
+        if str(other) != faction and staged["faction_treasuries"][other] != _world["faction_treasuries"][other]:
+            return {"ok": false, "fatal": true, "reason": "n144_forged_foreign_funds"}
+    for other in _world.get("research_directors", {}):
+        if str(other) != faction and staged["research_directors"][other] != _world["research_directors"][other]:
+            return {"ok": false, "fatal": true, "reason": "n144_tampered_foreign_director"}
+    var old_board: Dictionary = _world.get("contract_board", {}).get("contracts", {})
+    var new_board: Dictionary = staged.get("contract_board", {}).get("contracts", {})
+    if posted.get("ok", false):
+        if new_board.size() != old_board.size() + 1 or (
+                staged["escrow_balances"].size() != _world["escrow_balances"].size() + 1):
+            return {"ok": false, "fatal": true, "reason": "n144_not_exactly_one_paid_order"}
+        for old_id in old_board:
+            if new_board.get(old_id, null) != old_board[old_id]:
+                return {"ok": false, "fatal": true, "reason": "n144_existing_contract_changed"}
+    elif staged["contract_board"] != _world["contract_board"] or staged["escrow_balances"] != _world["escrow_balances"]:
+        return {"ok": false, "fatal": true, "reason": "n144_unapproved_contract_created"}
+    if Schema.validate(staged) != "":
+        return {"ok": false, "fatal": true, "reason": "n144_invalid_world_" + Schema.validate(staged)}
+    if ledger.total() != _ledger.total():
+        return {"ok": false, "fatal": true, "reason": "n144_original_money_supply_changed"}
+    var expected: Dictionary = Schema.accounts(staged)
+    var actual: Dictionary = ledger.snapshot().get("balances", {})
+    if expected.size() != actual.size():
+        return {"ok": false, "fatal": true, "reason": "n144_n9_wrong_wallet_count"}
+    for wallet in expected:
+        if not actual.has(wallet) or actual[wallet] != expected[wallet]:
+            return {"ok": false, "fatal": true, "reason": "n144_n9_balance_diverged"}
+    if staged != _world:
+        _world = staged
+        _ledger = ledger
+    return {"ok": true, "due": true, "posted": bool(posted.get("ok", false)),
+        "status": str(posted.get("status", approved.get("reason", "n144_head_wait"))),
+        "contract_id": str(posted.get("contract_id", "")),
+        "money_debited": int(posted.get("money_debited", 0)),
+        "site_id": str(active["plan"]["site_id"]),
+        "faction_id": faction, "tick": tick,
+        "head": approved.get("head", {}).duplicate(true)}
 
 ## Native Rust engine/colony.rs::prepare_docks, AFTER a real N144
 ## founder authorization: one empty temporary N21 dock and one zero-
