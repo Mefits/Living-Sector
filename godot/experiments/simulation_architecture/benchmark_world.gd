@@ -113,6 +113,12 @@ func arrive(ship_id: int, tick: int) -> int:
             errors.append("rejected_unload_" + str(ship_id))
             return -1
         unloaded_units += quantity
+        # N9 legitimately retains zero-valued inventory keys after a transfer.
+        # For a ship hold, successful unloading means those empty slots must
+        # be removed before its NEXT arrival (otherwise a zero-quantity
+        # shipment is erroneously attempted and rejected by N9).
+        # Clear only AFTER the authoritative transfer succeeds.
+        cargo.clear()
     arrivals += 1
     ship["market"] = destination
     ship["target"] = (destination + 1) % markets.size()
