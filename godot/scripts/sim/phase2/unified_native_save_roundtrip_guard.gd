@@ -86,9 +86,17 @@ static func _difference(original: Variant, decoded: Variant,
         keys.sort_custom(func(a: Variant, b: Variant) -> bool:
             return str(a) < str(b))
         for key in keys:
-            # JSON object keys are strings. Numeric Dictionary keys would
-            # change identity on restore even when their values match.
-            if not (key is String) or not after.has(key):
+            # Plain JSON object keys are strings. The N38 exact binary
+            # Dictionary token additionally preserves original StringName
+            # BT action keys and their identity. Accept ONLY matching
+            # key types and values; never coerce a contract actor key.
+            var exact_key: bool = false
+            if key is String or key is StringName:
+                for restored_key in after:
+                    if typeof(restored_key) == typeof(key) and restored_key == key:
+                        exact_key = true
+                        break
+            if not exact_key or not after.has(key):
                 return path + ":dictionary_key_changed:" + str(key)
             var difference: String = _difference(before[key], after[key],
                 path + "/" + str(key), depth + 1)
