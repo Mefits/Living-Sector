@@ -1562,9 +1562,9 @@ func request_ship_departure(ship_id: String, destination: String) -> Dictionary:
 
 
 
-## N21 dock/undock and N15 local Market warehouse load/unload. All manual
-## actions create one atomic N39 World transition with durable op receipts.
-## These are physical transfers, not market purchases or paid contracts.
+## Manual N21 Dock pays through N39/N9; full FIFO stays protected.
+## Undock and N15 internal warehouse load/unload retain their source
+## physical transfer API. Every successful action has a durable receipt.
 func request_ship_dock(ship_id: String, operation_id: String) -> Dictionary:
     if not _native_enabled or not last_phase_failure().is_empty() or (
             operation_id.is_empty() or ship_id.is_empty()):
