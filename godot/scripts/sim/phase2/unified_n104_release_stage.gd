@@ -55,7 +55,9 @@ static func stage(world: Dictionary, tick: int, ship_id: String,
     ship["dock_attempt_start_tick"] = null
     ship["planning_source"] = "n104_source_release_for_real_rebid"
     var penalty: int = 0
-    var faction: String = str(original.get("faction_id", ""))
+    var faction: String = ""
+    if original.get("faction_id", null) != null:
+        faction = str(original["faction_id"])
     if reason != "issuer_funding_failure" and not faction.is_empty():
         penalty = clampi(10 + int(floor(float(original.get("payment", 0)) / 1000.0)), 1, 25)
         var standing: Dictionary = ship.get("faction_reputation", {})
