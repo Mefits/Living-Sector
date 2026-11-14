@@ -83,7 +83,11 @@ static func _fee(world: Dictionary, fid: String, ship_id: String) -> int:
     if cap <= 0:
         return -1
     var occupied: int = _occupants(world, fid)
-    var condition: float = clampf(float(fac.get("condition", 1.0)), 0.0, 1.0)
+    var raw_condition: Variant = fac.get("condition", 1.0)
+    if not (raw_condition is int or raw_condition is float) or (
+            not is_finite(float(raw_condition))):
+        return -1
+    var condition: float = clampf(float(raw_condition), 0.0, 1.0)
     # Rust f32 docking_fee(50, occupied, capacity, condition) followed
     # by trade_pact_dock_modifier + ROUND; no invented free docking.
     var gross: int = roundi(50.0 *
