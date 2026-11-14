@@ -1565,6 +1565,24 @@ func _native_admin_remove(kind: String, actor_id: String,
     return done
 
 
+## Explicit player/governance command gateway. Do NOT call this
+## from automatic N113 research/colony observation: Rust mandates
+## are user-owned and never appear as free AI-generated defaults.
+## N39 alone validates source charter/station ownership and persists
+## the policy in its real N38 World without any direct money mutation.
+func request_faction_policy(faction_id: String, operation: String,
+        policy: Dictionary = {}) -> Dictionary:
+    if not _native_enabled or not last_phase_failure().is_empty():
+        return {"ok": false, "reason": "native_policy_world_unavailable"}
+    if faction_id.is_empty() or operation not in [
+            "set_research_mandate", "clear_research_mandate",
+            "set_faction_charter", "set_economic_mandate",
+            "clear_economic_mandate"]:
+        return {"ok": false, "reason": "invalid_original_player_policy_command"}
+    return production.apply_native_player_research_policy(
+        tick_count, faction_id, operation, policy)
+
+
 func request_ship_departure(ship_id: String, destination: String) -> Dictionary:
     if not _native_enabled or _fleet_roster == null or _fleet_resolver == null:
         return {"ok": false, "reason": "fleet_unavailable"}
