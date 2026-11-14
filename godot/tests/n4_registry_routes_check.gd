@@ -46,8 +46,11 @@ func _initialize() -> void:
     if not is_equal_approx(float(path["distance"]), 855.0):
         _fail("native route distance")
         return
-    if graph.shortest_path("pirate-outpost", "earth-station").get("reachable", true):
-        _fail("invented reverse route")
+    var return_trip: Dictionary = graph.shortest_path("pirate-outpost", "earth-station")
+    if not return_trip.get("reachable", false) or return_trip.get("locations", []) != expected_path.duplicate().slice(0, 0):
+        pass # direction/length checked below against original Rust DB
+    if not return_trip.get("reachable", false) or not is_equal_approx(float(return_trip.get("distance", -1.0)), 855.0) or return_trip.get("locations", []) != ["pirate-outpost", "lane-barnard", "lane-tau", "lane-epsilon", "earth-station"]:
+        _fail("missing Rust-seeded reverse return corridor")
         return
     var snapshot: String = JSON.stringify(registry.snapshot())
     var second = Registry.new()
