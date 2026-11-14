@@ -620,19 +620,39 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             if not _last_n147_result.get("ok", false):
                 return false
             for ready in _last_n147_result.get("ready", []):
+                var source_faction: String = str(ready.get("faction_id", ""))
+                # Frozen Rust coordination.rs::run_cycle commissions N147
+                # ONLY if the original same-cycle Head selected migration.
+                # Tick 1 can OBSERVE established colonies; a funded order
+                # waits for the real 60*mult strategic decision.
+                var head: Dictionary = _last_n134_result.get(
+                    "heads", {}).get(source_faction, {})
+                if int(head.get("observed_tick", -1)) != tick:
+                    _last_native_passengers["blocked"].append({
+                        "faction_id": source_faction,
+                        "reason": "n147_awaiting_original_current_head_vote"})
+                    continue
                 var posted: Dictionary = production.post_native_passenger_migration(
                     tick, ready, _tick_multiplier, _fleet_roster.registry.graph(),
-                    _fleet_resolver, positions["positions"], clock.tick_scale())
-                if posted.get("ok", false):
+                    _fleet_resolver, positions["positions"], clock.tick_scale(),
+                    world, _faction_sources, head)
+                # A read-only 'authorized:false' result is NOT a contract,
+                # N9 payment or confirmed N104 passenger mission.
+                if posted.get("ok", false) and str(posted.get(
+                        "status", "")) == "N147_CANONICAL_PREPAID_PASSENGER_POSTED":
                     _last_native_passengers["posted"].append(posted.duplicate(true))
                     _last_n147_result["posted"].append(posted.duplicate(true))
+                    if posted.get("head") is Dictionary:
+                        _last_n134_result["heads"][source_faction] = posted[
+                            "head"].duplicate(true)
                 elif posted.get("fatal", false):
                     _last_native_passengers = posted
                     return false
                 else:
                     _last_native_passengers["blocked"].append({
-                        "faction_id": str(ready.get("faction_id", "")),
-                        "reason": str(posted.get("reason", "n147_funding_unavailable"))})
+                        "faction_id": source_faction,
+                        "reason": str(posted.get("reason",
+                            "n147_not_original_head_authorized"))})
         # An unqualified N147 offer is NOT a paid passenger contract.
         return true
     if phase == "ships":
