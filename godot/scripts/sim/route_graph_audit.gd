@@ -1,4 +1,5 @@
 extends RefCounted
+const NativeChart = preload("res://scripts/sim/phase2/unified_n142_original_colony_chart.gd")
 ## N58: read-only provenance audit. Raw JSON is directional, while
 ## the Rust sim_db seeder inserts actual reverse rows in its SQLite DB.
 ## Explicit native_db_mode verifies that exact persisted two-way topology;
@@ -74,6 +75,20 @@ func audit(worlds: Array, graph: RefCounted,
 					"distance": float(weight), "system_id": sid}
 			endpoints[origin] = true
 			endpoints[target] = true
+	if native_db_mode:
+		# The original Rust DB pass charts uninhabited planet locations
+		# AFTER the seeder reverse UPSERTs. INSERT OR IGNORE must leave
+		# real explicit JSON corridors unchanged.
+		var chart: Dictionary = NativeChart.chart(worlds)
+		if not chart.get("ok", false):
+			errors.append("invalid_n142_original_colony_chart")
+		else:
+			for loc in chart.get("charted", {}):
+				endpoints[loc] = true
+			for edge in chart.get("edges", []):
+				var key: String = str(edge["from"]) + "\u001f" + str(edge["to"])
+				if not expected.has(key):
+					expected[key] = edge.duplicate(true)
 	var snapshot: Dictionary = graph.snapshot()
 	var actual: Variant = snapshot.get("edges", null)
 	if not (actual is Array):
