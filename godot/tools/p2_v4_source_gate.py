@@ -232,6 +232,8 @@ def audit(root: Path) -> dict:
             "Plans.resume_contract_request(", "Goap.plan(",
             "Plans.compile_plan_to_bt_actions(", "n104_resume_would_duplicate_pickup",
             "n104_picked_up_cargo_not_physical",
+            "static func _original_gate_edges(",
+            "gate_link", "paired_gate_id", '"kind": "gate"',
         ]),
         ["native/crates/sim_core/src/agents/ship/behavior.rs",
          "native/crates/sim_server/src/engine/apply.rs",
