@@ -31,6 +31,7 @@ const NativeModuleRecipes = preload("res://scripts/sim/shipyard/native_module_re
 const CommodityCatalog = preload("res://scripts/sim/economy/commodity_catalog.gd")
 const NativeShipyardRefit = preload("res://scripts/port/n108_shipyard_refit_apply.gd")
 const NativeStationAdministration = preload("res://scripts/sim/phase2/unified_native_station_administration_phase.gd")
+const NativeHybridPlanning = preload("res://scripts/sim/phase2/unified_native_hybrid_planning.gd")
 
 const GalaxyConstructionCrew: Dictionary = {
     "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
@@ -2020,6 +2021,62 @@ func _run_shipyard_modules(tick: int, multiplier: int,
             "receipt": str(shift["receipt"]),
             "input_payment": int(shift.get("input_payment", 0))})
     return {"ok": true, "paid": paid_modules, "blocked": blocked}
+
+
+## Original strategy/planning/hybrid.rs is PURE: the native source
+## head owns the goal, N155 builds the physical-action catalogue and N98
+## owns step identity. A new N121 native command/receipt must authorize
+## every later paid action. This does NOT post a contract or spend money.
+func apply_native_hybrid_planning(tick: int, faction: String,
+        head: Dictionary, multiplier: int) -> Dictionary:
+    if not _ready or tick != _last_tick or tick < 1 or multiplier < 1:
+        return {"ok": false, "reason": "n100_wrong_native_faction_phase"}
+    var mode: String = str(_world.get("native_planner_mode", "legacy"))
+    if mode == "legacy":
+        return {"ok": true, "status": "source_legacy_director",
+            "due": false, "faction_id": faction}
+    if mode not in ["htn", "hybrid"] or not _world.has(
+            "native_planner_records"):
+        return {"ok": false, "reason": "n100_invalid_native_planner_state"}
+    if tick % (60 * multiplier) != 0:
+        return {"ok": true, "due": false, "faction_id": faction}
+    if not _world["faction_treasuries"].has(faction):
+        return {"ok": false, "reason": "n100_missing_canonical_faction"}
+    var existing: Dictionary = _world["native_planner_records"].get(
+        faction, {})
+    if int(existing.get("tick", -1)) == tick:
+        return {"ok": false, "reason": "n100_duplicate_faction_planning_pass"}
+    # Until the N121 receipt-driven execution bridge admits this plan,
+    # NEVER discard/reissue its unique N98 dispatch keys.
+    if str(existing.get("status", "")) == "n98_planned_not_dispatched":
+        return {"ok": true, "due": false, "faction_id": faction,
+            "status": "awaiting_n121_canonical_execution"}
+    var candidate: Dictionary = NativeHybridPlanning.propose(
+        _world, faction, head, tick, mode)
+    if not candidate.get("ok", false):
+        return candidate
+    var staged: Dictionary = _world.duplicate(true)
+    var record: Dictionary = {
+        "faction_id": faction, "tick": tick,
+        "status": str(candidate.get("status", "")),
+        "reason": str(candidate.get("reason", "")),
+        "source_snapshot_tick": int(candidate.get("source_snapshot_tick", tick))}
+    if str(candidate.get("status", "")) == "n98_planned_not_dispatched":
+        for key in ["goal", "actions", "plan", "ledger", "roles"]:
+            record[key] = candidate.get(key, {}).duplicate(true)
+    staged["native_planner_records"][faction] = record
+    staged["native_planner_last_tick"] = tick
+    var invalid: String = Schema.validate(staged)
+    if not invalid.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n100_source_planning_invalid_world:" + invalid}
+    if Schema.accounts(staged) != Schema.accounts(_world):
+        return {"ok": false, "fatal": true, "reason": "n100_forecast_modified_wallets"}
+    _world = staged
+    return {"ok": true, "due": true, "faction_id": faction,
+        "status": record["status"], "reason": record["reason"],
+        "native_dispatch_authorized": false,
+        "planned_steps": record.get("ledger", {}).get("steps", []).size()}
 
 
 ## Rust source: in one faction tick, taxes -> bailouts -> relief.
