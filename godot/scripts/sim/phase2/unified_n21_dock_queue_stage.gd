@@ -239,6 +239,19 @@ static func advance(world: Dictionary, ledger: Dictionary,
     if tick < 1 or not (world.get("facilities") is Dictionary) or (
             not (world.get("ships") is Dictionary)):
         return _bad("missing_canonical_dock_queue")
+    # A clean finite Galaxy has no queued arrivals most ticks. Do not
+    # deep-copy all markets/factions/ships/receipts or N9 just to perform
+    # an empty Rust tick_dock_queue_advance pass.
+    var has_waiters: bool = false
+    for facility in world["facilities"].values():
+        if facility is Dictionary and facility.get("dock_queue", []) is Array and (
+                not facility.get("dock_queue", []).is_empty()):
+            has_waiters = true
+            break
+    if not has_waiters:
+        return {"ok": true, "changed": false, "world": world,
+            "ledger_snapshot": ledger, "events": [], "tick": tick,
+            "status": "SOURCE_N21_FIFO_EMPTY"}
     var staged: Dictionary = world.duplicate(true)
     var bank: Dictionary = ledger.duplicate(true)
     var events: Array = []
