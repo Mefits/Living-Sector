@@ -218,6 +218,34 @@ static func validate(state: Dictionary) -> String:
     for op in state.get("dock_receipts", {}):
         if state.get("cargo_receipts", {}).has(op):
             return "duplicate_fleet_receipt"
+    # A Native GateLink is configured only when TWO existing physical
+    # gate facilities are explicitly paired; the source N9 receipts
+    # remain immutable. History survives later facility retirement.
+    if state.has("native_gate_pair_receipts"):
+        if not (state["native_gate_pair_receipts"] is Dictionary):
+            return "invalid_native_gate_pair_receipts"
+        for key in state["native_gate_pair_receipts"]:
+            var pair: Variant = state["native_gate_pair_receipts"][key]
+            if not _id(key) or not (pair is Dictionary) or str(
+                    pair.get("operation_id", "")) != str(key) or str(
+                    pair.get("kind", "")) != "native_n108_explicit_gate_pair" or str(
+                    pair.get("source", "")) != "explicit_native_admin":
+                return "invalid_native_gate_pair_source"
+            for field in ["a", "b", "system_a", "system_b"]:
+                if not _id(pair.get(field, null)):
+                    return "invalid_native_gate_pair_endpoints"
+            if str(pair["a"]) == str(pair["b"]) or str(
+                    pair["system_a"]) == str(pair["system_b"]):
+                return "invalid_native_gate_pair_same_endpoint"
+            for field in ["tick", "fee_flat", "fee_per_cargo_unit",
+                    "throughput_cap"]:
+                if typeof(pair.get(field, null)) != TYPE_INT or int(
+                        pair[field]) < 0:
+                    return "invalid_native_gate_pair_number"
+            if int(pair["fee_flat"]) != 200 or int(pair[
+                    "fee_per_cargo_unit"]) != 2 or int(pair[
+                    "throughput_cap"]) != 3:
+                return "non_original_gate_pair_price"
     # N108 gate jumps are durable original source physical events,
     # not N15 goods or N21 docking. Optional for older checkpoints.
     if state.has("native_gate_jump_receipts"):
@@ -812,10 +840,26 @@ static func validate(state: Dictionary) -> String:
                     other_gate.get("gate_link") is Dictionary) or str(
                     other_gate["gate_link"].get("paired_gate_id", "")) != str(id):
                 return "nonreciprocal_original_gate_link"
-            for price_field in ["fee_flat", "fee_per_cargo_unit"]:
+            for price_field in ["fee_flat", "fee_per_cargo_unit",
+                    "throughput_cap"]:
                 if typeof(link.get(price_field, null)) != TYPE_INT or int(
                         link[price_field]) < 0:
                     return "invalid_native_gate_fee"
+            if fac.has("position"):
+                var gate_pos: Variant = fac["position"]
+                if not (gate_pos is Dictionary or gate_pos is Array):
+                    return "invalid_original_gate_orbit"
+                var xy: Array = []
+                if gate_pos is Dictionary:
+                    xy = [gate_pos.get("x", null), gate_pos.get("y", null)]
+                else:
+                    xy = gate_pos
+                if xy.size() != 2:
+                    return "invalid_original_gate_position"
+                for coordinate in xy:
+                    if not (coordinate is int or coordinate is float) or not is_finite(
+                            float(coordinate)):
+                        return "invalid_original_gate_coordinate"
         if fac.has("work_shift"):
             var shift: Variant = fac["work_shift"]
             if not (shift is Dictionary):
