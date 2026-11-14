@@ -513,7 +513,7 @@ static func propose(world: Dictionary, graph: RefCounted,
             if not contract_id.is_empty():
                 # Rust resume_contract_bt rebuilds a real GOAP tree
                 # from the current ship, cargo and held N104 contract.
-                recovered = N104Resume.propose(ship, held, graph)
+                recovered = N104Resume.propose(ship, held, graph, staged)
                 if recovered.get("ok", false):
                     ship["current_bt"] = recovered["tree"].duplicate(true)
                     ship["current_goal"] = str(recovered["goal"])
@@ -617,7 +617,7 @@ static func propose(world: Dictionary, graph: RefCounted,
                 # Rust resume_contract_bt starts with actual cargo;
                 # a PickedUp run bypasses Accept and Buy permanently.
                 var resume: Dictionary = N104Resume.propose(
-                    ship, held, graph)
+                    ship, held, graph, staged)
                 ship["dock_attempt_start_tick"] = null
                 if resume.get("ok", false):
                     var canceled_slot: Dictionary = N90.cancel_on_replan(
