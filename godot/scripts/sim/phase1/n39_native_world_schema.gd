@@ -797,6 +797,11 @@ static func validate(state: Dictionary) -> String:
             return "invalid_facility_owned_reserves"
         if fac.has("condition") and (not _fraction(fac["condition"]) or float(fac["condition"]) > 1.0):
             return "invalid_facility_condition"
+        # Rust FacilityOperations::starving_notified persists in the SAME
+        # facility row. Older N38 rows without this optional bit remain
+        # compatible; no parallel cache or synthetic warning flag.
+        if fac.has("starving_notified") and typeof(fac["starving_notified"]) != TYPE_BOOL:
+            return "invalid_source_facility_starving_notified"
         if fac.has("abandon_counter") and (typeof(fac["abandon_counter"]) != TYPE_INT or int(fac["abandon_counter"]) < 0 or int(fac["abandon_counter"]) > 4294967295):
             return "invalid_facility_abandon_counter"
         var morale: Variant = fac.get("morale", null)
@@ -906,6 +911,17 @@ static func validate(state: Dictionary) -> String:
         if not _id(location) or not (state["markets"][location] is Dictionary):
             return "invalid_market"
         var market: Dictionary = state["markets"][location]
+        # Native MarketHistory crisis hysteresis is written by the real
+        # N150 MarketPhase; boolean flags survive N38 roundtrips exactly.
+        if market.has("history"):
+            if not (market["history"] is Dictionary):
+                return "invalid_native_crisis_market_history"
+            var native_flags: Variant = market["history"].get("crisis_notified", {})
+            if not (native_flags is Dictionary):
+                return "invalid_native_market_crisis_flags"
+            for commodity in native_flags:
+                if not _id(commodity) or typeof(native_flags[commodity]) != TYPE_BOOL:
+                    return "invalid_native_market_crisis_flag"
         if not _id(market.get("owner", null)) or not state["facilities"].has(market["owner"]):
             return "missing_market_owner"
         var owner: Dictionary = state["facilities"][market["owner"]]
