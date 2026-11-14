@@ -81,6 +81,8 @@ static func from_seed(seed: Dictionary) -> Dictionary:
             projected["bodies"][bid] = {
                 "resources": body["resources"].duplicate(true)
             }
+            projected["body_territory"][bid] = {
+                "controlling_faction": null, "contested": false}
         for fac in solar_system.get("facilities", []):
             if not (fac is Dictionary):
                 return _fail("invalid_source_facility")
