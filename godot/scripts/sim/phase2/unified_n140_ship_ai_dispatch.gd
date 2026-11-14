@@ -8,7 +8,7 @@ const NativeAI = preload("res://scripts/sim/phase2/unified_ship_ai_execution.gd"
 
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, tick: int, tick_scale: float,
-        fired: Dictionary) -> Dictionary:
+        fired: Dictionary, multiplier: int = 1) -> Dictionary:
     if not (world.get("ships") is Dictionary) or tick < 1:
         return {"ok": false, "reason": "n140_n84_no_single_fleet"}
     var ships: Dictionary = world["ships"]
@@ -29,7 +29,7 @@ static func propose(world: Dictionary, graph: RefCounted,
     var candidate: Dictionary = world.duplicate(true)
     candidate["ships"] = active
     var result: Dictionary = NativeAI.propose(
-        candidate, graph, positions, tick, tick_scale)
+        candidate, graph, positions, tick, tick_scale, multiplier)
     if not result.get("ok", false):
         return result
     var proposed: Variant = result.get("ships", null)
