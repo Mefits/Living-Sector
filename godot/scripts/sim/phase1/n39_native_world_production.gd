@@ -22,6 +22,7 @@ const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
 const N91SourceDispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
 const NativeColonyFounding = preload("res://scripts/sim/phase2/unified_n151_colony_founding_phase.gd")
 const NativeColonyOrders = preload("res://scripts/sim/phase2/unified_n144_colony_contracts.gd")
+const NativeNewColonyHead = preload("res://scripts/sim/phase2/unified_n144_new_colony_head.gd")
 const SourceN134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
 const NativeColonyDocks = preload("res://scripts/sim/phase2/unified_n151_colony_dock_phase.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
@@ -1191,6 +1192,121 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
     return {"ok": true, "status": "N91_NATIVE_ENGINEERS_ASSIGNED",
         "tick": tick, "assigned": updated}
 
+
+## Miro B1 — the REAL frozen N134/N144 "found_colony" HeadDecision
+## over a source-scored original planet. Approval and subsequent N151
+## zero-cost site materialization happen in ONE canonical N39 commit.
+## A read-only N151 scan alone NEVER authorizes a new colony.
+func apply_native_n144_found_colony(tick: int, faction: String,
+        baseline: Dictionary, original: RefCounted, graph: RefCounted,
+        sources: Dictionary, multiplier: int) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick or (
+            original == null or graph == null or multiplier < 1):
+        return {"ok": false, "reason": "b1_not_live_original_head_tick"}
+    if not _world.get("faction_treasuries", {}).has(faction):
+        return {"ok": false, "reason": "b1_not_original_faction"}
+    # The central World, not the caller's cached preview, re-evaluates
+    # the same real market/shortage N111 and N134 construction comparison.
+    var baseline_live: Dictionary = SourceN134Construction.choose(
+        _world, sources, original, graph, faction, tick, multiplier)
+    if not baseline_live.get("ok", false):
+        return {"ok": false, "reason": str(baseline_live.get(
+            "reason", "b1_source_n134_comparator_missing"))}
+    if baseline_live.get("head", {}) != baseline.get("head", {}):
+        return {"ok": false, "reason": "b1_stale_original_n134_head"}
+    var source: Dictionary = NativeNewColonyHead.propose(
+        _world, original, graph, faction, tick, multiplier)
+    if not source.get("ok", false):
+        return source
+    if not source.get("ready", false):
+        return {"ok": true, "founded": false, "due": true,
+            "status": str(source.get("reason", "b1_no_viable_original_colony")),
+            "blocked": source.get("blocked", []).duplicate(true),
+            "faction_id": faction, "tick": tick, "head": {}}
+    var grant: Dictionary = NativeColonyOrders.approval(
+        _world, baseline_live, source, faction, tick, multiplier)
+    if not grant.get("ok", false):
+        return grant
+    var staged: Dictionary = _world.duplicate(true)
+    var authorized: bool = bool(grant.get("authorized", false))
+    var candidate: Dictionary = source.get("candidate", {})
+    var site: Dictionary = candidate.get("site", {})
+    var site_id: String = str(site.get("id", ""))
+    var receipt_id: String = "n151_colony_approved:" + site_id
+    if authorized:
+        # Verify exact source proposal against current original N151 rules
+        # once more. No rogue planet, location or ship can be injected.
+        var rechecked: Dictionary = NativeColonyFounding.proposal(
+            _world, original, graph, faction,
+            str(source["plan"]["body_id"]),
+            str(source["plan"]["source"]), tick, multiplier, true)
+        if not rechecked.get("ok", false) or rechecked.get("site", {}) != site:
+            return {"ok": false, "fatal": true,
+                "reason": "b1_colony_proposal_changed_before_apply"}
+        if site_id.is_empty() or staged["construction_sites"].has(site_id) or (
+                staged["construction_receipts"].has(receipt_id) or
+                _ledger.has_receipt(receipt_id)):
+            return {"ok": false, "fatal": true,
+                "reason": "b1_duplicate_original_colony_approval"}
+        staged["construction_sites"][site_id] = site.duplicate(true)
+        staged["construction_receipts"][receipt_id] = {
+            "id": receipt_id, "kind": "colony_approved",
+            "site_id": site_id, "tick": tick, "faction_id": faction,
+            "source_location": str(source["plan"]["source"]),
+            "destination_location": str(source["plan"]["destination"]),
+            "body_id": str(source["plan"]["body_id"]),
+            "capital": 0, "n9_receipt_id": ""}
+    var memory: Dictionary = grant.get("memory", {})
+    if not memory.is_empty():
+        if not staged.get("research_directors", {}).has(faction):
+            return {"ok": false, "fatal": true,
+                "reason": "b1_missing_single_n113_director"}
+        staged["research_directors"][faction]["strategic"] = memory.duplicate(true)
+    var allowed: Array[String] = ["construction_sites",
+        "construction_receipts", "research_directors"]
+    if staged.size() != _world.size():
+        return {"ok": false, "fatal": true,
+            "reason": "b1_cannot_create_parallel_world_domain"}
+    for domain in _world:
+        if domain not in allowed and staged[domain] != _world[domain]:
+            return {"ok": false, "fatal": true,
+                "reason": "b1_changed_unrelated_world_domain:" + str(domain)}
+    for other in _world.get("research_directors", {}):
+        if str(other) != faction and staged["research_directors"][other] != _world["research_directors"][other]:
+            return {"ok": false, "fatal": true,
+                "reason": "b1_modified_other_faction_head"}
+    var growth: int = 1 if authorized else 0
+    if staged["construction_sites"].size() != _world["construction_sites"].size() + growth or (
+            staged["construction_receipts"].size() != _world["construction_receipts"].size() + growth):
+        return {"ok": false, "fatal": true,
+            "reason": "b1_not_exactly_one_new_original_site"}
+    var validity: String = Schema.validate(staged)
+    if not validity.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "b1_source_schema_rejected:" + validity}
+    if Schema.accounts(staged) != Schema.accounts(_world):
+        return {"ok": false, "fatal": true,
+            "reason": "b1_created_money_or_wallet_without_source"}
+    # N9 remains unchanged: Rust colony::commission initially spawns
+    # a ConstructionSite costing ZERO; only the subsequent N104 posts
+    # reserve 80 CR per passenger / 10k CR per material shipment.
+    var bank_before: Dictionary = _ledger.snapshot()
+    if staged != _world:
+        _world = staged
+    if _ledger.snapshot() != bank_before:
+        return {"ok": false, "fatal": true,
+            "reason": "b1_changed_original_n9_credits"}
+    return {"ok": true, "due": true, "founded": authorized,
+        "status": "N144_SOURCE_HEAD_FOUNDED_REAL_N151_SITE" if authorized else "N144_SOURCE_HEAD_DID_NOT_APPROVE_FOUNDING",
+        "faction_id": faction, "site_id": site_id if authorized else "",
+        "receipt_id": receipt_id if authorized else "",
+        "body_id": str(source["plan"]["body_id"]),
+        "source": str(source["plan"]["source"]),
+        "destination": str(source["plan"]["destination"]),
+        "score": float(source["plan"]["goal"]["score"]),
+        "money_debited": 0, "population_created": 0,
+        "metals_created": 0, "dock_created": 0,
+        "head": grant.get("head", {}).duplicate(true), "tick": tick}
 
 ## Stage a native N151 founding expedition as a real but UNBUILT N39
 ## ConstructionSite. No N9 charge: the frozen Rust commission creates the
