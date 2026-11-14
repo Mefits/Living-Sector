@@ -45,6 +45,7 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
         if faction.is_empty():
             return {"ok": false, "reason": "n18_station_without_original_faction"}
         var total_population: int = 0
+        var real_workforce: int = 0
         var working: int = 0
         var population_ids: Array = world["populations"].keys()
         population_ids.sort()
