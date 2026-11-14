@@ -137,7 +137,8 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.RUNNING, "reason": "cannot_leave_without_n97_pickup"}
         var release_cmd: Dictionary = Commands.make_command("ReleaseDock", {
             "ship": ship_id, "facility_location": location,
-            "contract_id": contract_id})
+            "contract_id": contract_id,
+            "native_refit": contract_id.is_empty() and str(ship.get("current_goal", "")) in ["refit", "retrofit"]})
         return {"status": Bt.RUNNING, "commands": [release_cmd],
             "reason": "n146_n21_release_dock"} if not release_cmd.is_empty() else {"status": Bt.FAILURE}
     if kind == "Buy":
