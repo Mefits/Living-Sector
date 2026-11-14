@@ -10,6 +10,8 @@ const NativeTradeSlot = preload("res://scripts/simulation/ai/native_ship_transac
 const NativeShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 const NativeShipLod = preload("res://scripts/sim/phase1/n140_native_spatial_lod.gd")
 const Technology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
+const OriginalResearchMandate = preload("res://scripts/sim/phase1/n143_native_research_director.gd")
+const OriginalFactionCharter = preload("res://scripts/native_port/n109_charter.gd")
 const Construction = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
 const NativeColonyArchive = preload("res://scripts/sim/phase2/unified_n151_colony_establish_archive.gd")
 const NativeRelations = preload("res://scripts/sim/phase1/n150_native_full_faction_relations.gd")
@@ -480,6 +482,30 @@ static func validate(state: Dictionary) -> String:
                 return "orphaned_paid_research_receipt"
             if typeof(item.get("tick", null)) != TYPE_INT or int(item["tick"]) < 1:
                 return "invalid_research_receipt_tick"
+    # Rust Director::research_mandates/faction_charters are optional
+    # dictionaries in the SAME N39 World. Empty on the frozen seed;
+    # legacy N38 checkpoints may omit both. No parallel policy purse.
+    var known_directors: Dictionary = state.get("research_directors", {})
+    var research_policy_catalogue: Dictionary = OriginalResearchMandate.catalogue_map(
+        Technology.all())
+    for policy_key in ["research_mandates", "faction_charters"]:
+        if not state.has(policy_key):
+            continue
+        if not (state[policy_key] is Dictionary):
+            return "invalid_source_native_" + policy_key
+        for faction in state[policy_key]:
+            if not known_directors.has(faction) or not (
+                    state[policy_key][faction] is Dictionary):
+                return "orphaned_source_native_policy"
+            var policy: Dictionary = state[policy_key][faction]
+            var issue: String = ""
+            if policy_key == "research_mandates":
+                issue = OriginalResearchMandate.validate_mandate(
+                    policy, research_policy_catalogue)
+            else:
+                issue = OriginalFactionCharter.validate(policy)
+            if not issue.is_empty():
+                return "invalid_original_" + policy_key + ":" + issue
     # Construction is a complete optional canonical N154 domain, not
     # a second SiteRegistry. Legacy checkpoints omit all four fields.
     var construction_keys: Array[String] = [
