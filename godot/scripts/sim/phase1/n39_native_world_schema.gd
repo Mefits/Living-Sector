@@ -22,7 +22,7 @@ static func validate(state: Dictionary) -> String:
     # their tanks from the frozen seed during restoration. A new game has
     # all 24 ships in this SAME authoritative physical world and ledger.
     if state.has("ships"):
-        if not (state["ships"] is Dictionary) or state["ships"].is_empty():
+        if not (state["ships"] is Dictionary):
             return "invalid_fleet"
         if typeof(state.get("ship_next_token", null)) != TYPE_INT or int(state["ship_next_token"]) < 1:
             return "invalid_ship_transit_nonce"
@@ -132,6 +132,35 @@ static func validate(state: Dictionary) -> String:
                 return "invalid_escrow_account"
             if not contracts.has(str(account).substr(7)):
                 return "orphaned_escrow_account"
+    # N152 native administrative removal records are historical source
+    # snapshots, NOT second ship/facility registries. Every record must
+    # name one gone actor and one auditable N9 wallet-destruction receipt.
+    if state.has("native_admin_removals"):
+        if not (state["native_admin_removals"] is Dictionary):
+            return "invalid_native_admin_history"
+        for operation_id in state["native_admin_removals"]:
+            var row: Variant = state["native_admin_removals"][operation_id]
+            if not (row is Dictionary):
+                return "invalid_native_admin_row"
+            var kind: String = str(row.get("kind", ""))
+            var id: String = str(row.get("id", ""))
+            var expected_id: String = "admin:" + kind + ":" + id + ":remove"
+            if kind not in ["ship", "facility"] or not _id(id) or str(operation_id) != expected_id or str(row.get("ledger_receipt", "")) != expected_id:
+                return "invalid_native_admin_identity"
+            if typeof(row.get("tick", null)) != TYPE_INT or int(row["tick"]) < 0 or typeof(row.get("credits_lost", null)) != TYPE_INT or int(row["credits_lost"]) < 0:
+                return "invalid_native_admin_finances"
+            if kind == "ship":
+                if state.get("ships", {}).has(id) or not (row.get("retirement", null) is Dictionary):
+                    return "native_retired_ship_still_live"
+                var retirement: Dictionary = row["retirement"]
+                for field in ["final_credits", "final_crew_morale", "final_fuel_pct",
+                        "broke_strikes", "hoard_strikes", "retired_at_tick"]:
+                    if typeof(retirement.get(field, null)) != TYPE_INT:
+                        return "invalid_native_retirement_value"
+                if str(retirement.get("agent_id", "")) != id or int(retirement["retired_at_tick"]) != int(row["tick"]) or int(retirement["final_credits"]) != int(row["credits_lost"]):
+                    return "native_retirement_money_diverged"
+            elif state["facilities"].has(id) or not (row.get("retirement", null) is Dictionary):
+                return "native_removed_facility_still_live"
     if state.has("research") and not (state["research"] is Dictionary):
         return "invalid_research"
     # N143 + N9 are a single source-grounded optional component. Legacy
