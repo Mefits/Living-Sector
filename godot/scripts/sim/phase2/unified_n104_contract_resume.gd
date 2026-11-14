@@ -7,51 +7,127 @@ const Goap = preload("res://scripts/sim/ships/ai/native_goap_planner.gd")
 const Plans = preload("res://scripts/sim/phase1/n153_native_ship_bt_planning.gd")
 const Bt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 
-static func _route(graph: RefCounted, origin: String, dest: String) -> Dictionary:
+## A synthetic N4 edge cannot represent a real Rust N108 gate jump.
+## Only the two already-built reciprocal physical GateLinks may add a
+## GateJump leaf; actual N108/N9 Apply remains the final authority.
+static func _original_gate_edges(world: Dictionary,
+        graph: RefCounted) -> Dictionary:
+    var by_location: Dictionary = {}
+    var facilities: Dictionary = world.get("facilities", {})
+    var ids: Array = facilities.keys()
+    ids.sort()
+    for fid in ids:
+        var gate: Dictionary = facilities[fid]
+        if str(gate.get("type", "")) != "gate" or (
+                bool(gate.get("abandoned", false)) or
+                not (gate.get("gate_link") is Dictionary)):
+            continue
+        var mate_id: String = str(gate["gate_link"].get(
+            "paired_gate_id", ""))
+        var mate: Dictionary = facilities.get(mate_id, {})
+        if str(mate.get("type", "")) != "gate" or (
+                bool(mate.get("abandoned", false)) or
+                not (mate.get("gate_link") is Dictionary) or
+                str(mate["gate_link"].get("paired_gate_id", "")) != str(fid)):
+            continue
+        var at: String = str(gate.get("location", ""))
+        var target: String = str(mate.get("location", ""))
+        if at.is_empty() or target.is_empty() or at == target or (
+                not graph.has_location(at) or not graph.has_location(target)):
+            continue
+        if not by_location.has(at):
+            by_location[at] = []
+        by_location[at].append({"from": at, "to": target,
+            "kind": "gate", "distance": 0.0})
+    return by_location
+
+static func _route(graph: RefCounted, world: Dictionary,
+        origin: String, dest: String) -> Dictionary:
     if not graph.has_location(origin) or not graph.has_location(dest):
         return {}
     if origin == dest:
         return {"legs": [], "distance": 0.0}
     var found: Dictionary = graph.shortest_path(origin, dest)
-    if not bool(found.get("reachable", false)):
+    if bool(found.get("reachable", false)):
+        var places: Array = found.get("locations", [])
+        if places.size() >= 2 and str(places[0]) == origin and str(
+                places[-1]) == dest:
+            var plain: Array = []
+            var distance: float = 0.0
+            for i in range(1, places.size()):
+                var a: String = str(places[i - 1])
+                var to: String = str(places[i])
+                var matched: Dictionary = {}
+                for e in graph.outgoing(a):
+                    if str(e.get("to", "")) == to:
+                        matched = e
+                        break
+                if matched.is_empty() or not is_finite(float(
+                        matched.get("distance", -1.0))) or float(
+                        matched.get("distance", -1.0)) <= 0.0:
+                    return {}
+                var d: float = float(matched["distance"])
+                distance += d
+                if not is_finite(distance):
+                    return {}
+                plain.append({"from": a, "to": to,
+                    "kind": "travel", "distance": d})
+            return {"legs": plain, "distance": distance}
+    # Fallback ONLY through authentic, reciprocal N108 gate pairs.
+    # BFS is deterministic on the existing N4 node names; gate hops
+    # have zero physical N14 distance, not a fabricated Travel edge.
+    var gate_edges: Dictionary = _original_gate_edges(world, graph)
+    if gate_edges.is_empty():
         return {}
-    var places: Array = found.get("locations", [])
-    if places.size() < 2 or str(places[0]) != origin or str(places[-1]) != dest:
-        return {}
-    var legs: Array = []
-    var distance: float = 0.0
-    for i in range(1, places.size()):
-        var a: String = str(places[i - 1])
-        var to: String = str(places[i])
-        var matched: Dictionary = {}
-        for edge in graph.outgoing(a):
-            if str(edge.get("to", "")) == to:
-                matched = edge
-                break
-        if matched.is_empty() or not is_finite(
-                float(matched.get("distance", -1.0))) or (
-                float(matched.get("distance", -1.0)) <= 0.0):
-            return {}
-        var d: float = float(matched["distance"])
-        distance += d
-        if not is_finite(distance):
-            return {}
-        legs.append({"from": a, "to": to, "kind": "travel", "distance": d})
-    return {"legs": legs, "distance": distance}
+    var frontier: Array = [{"at": origin, "legs": []}]
+    var visited: Dictionary = {origin: true}
+    var cursor: int = 0
+    while cursor < frontier.size() and cursor < 4096:
+        var entry: Dictionary = frontier[cursor]
+        cursor += 1
+        var at: String = str(entry["at"])
+        var neighbors: Array = []
+        for edge in graph.outgoing(at):
+            var target: String = str(edge.get("to", ""))
+            var d: float = float(edge.get("distance", -1.0))
+            if target.is_empty() or not graph.has_location(target) or (
+                    not is_finite(d) or d <= 0.0):
+                continue
+            neighbors.append({"from": at, "to": target,
+                "kind": "travel", "distance": d})
+        neighbors.append_array(gate_edges.get(at, []))
+        neighbors.sort_custom(func(a, z):
+            if str(a["kind"]) != str(z["kind"]):
+                return str(a["kind"]) < str(z["kind"])
+            return str(a["to"]) < str(z["to"]))
+        for leg in neighbors:
+            var to: String = str(leg["to"])
+            if visited.has(to):
+                continue
+            visited[to] = true
+            var steps: Array = entry["legs"].duplicate(true)
+            steps.append(leg.duplicate(true))
+            if to == dest:
+                var actual_distance: float = 0.0
+                for step in steps:
+                    actual_distance += float(step["distance"])
+                return {"legs": steps, "distance": actual_distance}
+            frontier.append({"at": to, "legs": steps})
+    return {}
 
-static func _routes(graph: RefCounted, start: String,
-        source: String, dest: String) -> Dictionary:
+static func _routes(graph: RefCounted, world: Dictionary,
+        start: String, source: String, dest: String) -> Dictionary:
     var result: Dictionary = {}
     for pair in [[start, source], [source, dest], [start, dest]]:
         var a: String = str(pair[0])
         var to: String = str(pair[1])
-        var row: Dictionary = _route(graph, a, to)
+        var row: Dictionary = _route(graph, world, a, to)
         if not row.is_empty():
             result[a + "|" + to] = row["legs"]
     return result
 
 static func propose(ship: Dictionary, contract: Dictionary,
-        graph: RefCounted) -> Dictionary:
+        graph: RefCounted, world: Dictionary = {}) -> Dictionary:
     var id: String = str(contract.get("id", ""))
     var status: String = str(contract.get("status", ""))
     var owner: String = str(contract.get("fulfiller_id", ""))
@@ -92,7 +168,7 @@ static func propose(ship: Dictionary, contract: Dictionary,
     if not is_finite(capacity) or capacity <= 0.0 or (
             not is_finite(fuel) or fuel < 0.0):
         return {"ok": false, "reason": "n104_invalid_original_fuel"}
-    var routes: Dictionary = _routes(graph, origin, source, dest)
+    var routes: Dictionary = _routes(graph, world, origin, source, dest)
     if origin != dest and not routes.has(origin + "|" + dest):
         return {"ok": false, "reason": "n104_no_real_destination_route"}
     var request: Dictionary = Plans.resume_contract_request(
