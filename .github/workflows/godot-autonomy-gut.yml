@@ -83,11 +83,11 @@ jobs:
       - name: Clean N158 world — NO player, no patched market demand
         shell: bash
         env:
-          # Full trading 420-tick World exceeded 360s in run
-          # 43654281125. A 100-tick recovery on 43654891011 passed.
-          # Profile up to tick 240 with per-sample progress to locate
-          # later nonlinear growth; dispatch retains explicit count.
-          LS_AUTONOMY_TICKS: ${{ github.event_name == 'push' && '240' || inputs.ticks || '420' }}
+          # Original 100 and 240 tick paid-trade worlds pass,
+          # but full 420 exceeded 360s. Verify through native tick 361
+          # boundary with streamed phase samples and new real N14 view
+          # parser. Manual dispatch retains its explicit tick count.
+          LS_AUTONOMY_TICKS: ${{ github.event_name == 'push' && '360' || inputs.ticks || '420' }}
           LS_PROFILE_NATIVE_PHASES: "1"
         run: |
           set -euo pipefail
