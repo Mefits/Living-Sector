@@ -155,6 +155,49 @@ def audit(root: Path) -> dict:
         "Chat1 N21 real N39 FIFO + real N9 paid dock + N158 tick phase are source-wired. Source N84 timeout and legacy manual Dock still need parity audit; runtime is NOT verified.",
         "SOURCE_LINK_PRESENT", "BLOCKING_SOURCE_GAP")
 
+    # Frozen Rust ShipAction::Dock wait budget is 150 base ticks for a
+    # prepaid N104 job, 30 for low morale, 60 otherwise, x multiplier.
+    # The nullable N21 cursor belongs to the same persisted N39 ship.
+    n84 = read(root, "godot/scripts/sim/phase2/unified_ship_ai_execution.gd")
+    add("n21_original_dock_patience_and_replan",
+        all(k in n84 for k in [
+            "DOCK_WAIT_CONTRACT: int = 150",
+            "DOCK_WAIT_DEFAULT: int = 60",
+            "DOCK_WAIT_LOW_MORALE: int = 30",
+            "DOCK_LOW_MORALE_THRESHOLD: float = 40.0",
+            "func _native_dock_wait(",
+            'ship["dock_attempt_start_tick"] = tick',
+            'ship["dock_attempt_start_tick"] = null',
+            "n21_original_dock_wait_timeout",
+            "n21_paid_contract_retry_after_timeout",
+        ]) and
+        "dock_attempt_start_tick" in read(
+            root, "godot/scripts/sim/phase1/n39_native_world_schema.gd"
+        ) and
+        "dock_attempt_start_tick" in n158,
+        ["native/crates/sim_core/src/agents/ship/actions.rs",
+         "native/crates/sim_core/src/agents/ship/mod.rs",
+         "godot/scripts/sim/phase2/unified_ship_ai_execution.gd",
+         "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+         n158_path],
+        "Source Dock patience and N38 cursor are wired. Active N104 contract keeps "
+        "its prepaid obligation on timeout; full original contract route replan "
+        "still needs real end-to-end inspection.",
+        "SOURCE_LINK_PRESENT", "BLOCKING_SOURCE_GAP")
+
+    # Never let the legacy manual/debug N15 cargo transfer code silently
+    # dock a physical ship for free when N39's N21/N9 is authoritative.
+    add("n21_manual_unpriced_dock_disabled",
+        'if action == "dock":' in n158 and
+        "n21_manual_dock_requires_paid_native_tick" in n158 and
+        "production.apply_native_n21_request(" in n158,
+        [n158_path, n39_path,
+         "godot/scripts/sim/phase2/unified_fleet_logistics.gd"],
+        "Legacy out-of-tick UI Dock is fail-closed, not free. A future "
+        "manual docking UX must schedule an authorized paid N21 command "
+        "at the native ships phase, never modify N15 directly.",
+        "SOURCE_LINK_PRESENT", "BLOCKING_SOURCE_GAP")
+
     # These adapters may exist without being called by the live engine.
     # N80 is direct N158 ship execution. N92 is deliberately mediated
     # by N39: do not misreport the released Chat2 B4 as SOURCE_ONLY just
