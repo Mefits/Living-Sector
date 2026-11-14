@@ -13,6 +13,7 @@ const ShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecyc
 const SourceLod = preload("res://scripts/sim/phase1/n140_native_spatial_lod.gd")
 const NativeCrewRoster = preload("res://scripts/sim/ships/native_crew_roster.gd")
 const NativePriceMemory = preload("res://scripts/sim/phase2/unified_native_ship_price_observation.gd")
+const NativeTradeSlot = preload("res://scripts/simulation/ai/native_ship_transaction_slot.gd")
 const PROVENANCE: String = "frozen-rust-sim_db-seeder-fresh-ship-20261112"
 
 static func build_new_game(seed: Dictionary) -> Dictionary:
@@ -100,6 +101,12 @@ static func build_new_game(seed: Dictionary) -> Dictionary:
         # Rust ShipMemory::default is an empty LEARNED record, not
         # omniscient market prices from the source seed.
         ship["memory"] = NativePriceMemory.default_memory()
+        # Rust ShipEconomy::default: N90 outstanding transaction is
+        # empty, trade cargo has no invented origin/cost and reputation
+        # is unknown until real diplomacy effects occur.
+        ship["transaction"] = NativeTradeSlot.empty()
+        ship["cargo_origin"] = {}
+        ship["faction_reputation"] = {}
         ship["cargo_capacity"] = roundi(float(ship_spec["cargo_capacity"]) *
             float(derived["cargo_capacity_mult"]))
         ship["speed_modifier"] = Catalog.effective_speed(
