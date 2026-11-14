@@ -1,6 +1,6 @@
 {
   "worker": "chat1-continuation-n80-n103-live",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "48b8f3911e3c6cc17ef9b090b72e9dd8f7c1c6d7",
   "goal": "Wire frozen Rust N80 gated exploration and N103 mining into one canonical N158 N140/N84/N146 ship phase, with legal real N21/N90/N97/N108 command apply and no extra authority",
@@ -24,6 +24,9 @@
     "worlds, market prices, frozen balance"
   ],
   "coordination": "V2 Chat3 / V4 Chat3 and Chat2 B4 leases RELEASED confirmed; re-fetch blob sha immediately before shared edit; no Godot or Actions intermediate run",
-  "verification": "IN_PROGRESS SOURCE_ONLY",
-  "started": "2026-11-14"
+  "verification": "SOURCE_WIRED/CODE_UNVERIFIED. 10 touched GDScripts fetched and checked lexical brace/quote/EOF/NUL and live source callsites; 0 Godot F5/tests/Actions.",
+  "started": "2026-11-14",
+  "completed": "2026-11-14",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat1-n80-n103-runtime.md",
+  "next": "N21 FIFO dock_queue is P0 outstanding source parity gap; take new fresh lease, preserving one N39/N158 and N38. Whole Godot acceptance later."
 }
