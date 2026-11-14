@@ -525,13 +525,13 @@ static func propose(world: Dictionary, graph: RefCounted,
                         "status": Bt.RUNNING,
                         "reason": "n104_original_goap_recovered"})
                     continue
+            var missing_plan_reason: String = "n84_no_source_idle_plan"
+            if not contract_id.is_empty():
+                missing_plan_reason = "n104_wait_source_resume_" + str(
+                    recovered.get("reason", "missing_real_route"))
             records.append({"ship_id": str(ship_id),
                 "contract_id": contract_id, "leaf": "",
-                "status": Bt.RUNNING,
-                "reason": "n104_wait_source_resume_" + str(
-                    recovered.get("reason", "no_held_contract"))
-                    if not contract_id.is_empty() else
-                    "n84_no_source_idle_plan"})
+                "status": Bt.RUNNING, "reason": missing_plan_reason})
             continue
         if not (bt is Dictionary) or not Bt.validate(bt):
             return {"ok": false, "reason": "n84_invalid_saved_plan",
