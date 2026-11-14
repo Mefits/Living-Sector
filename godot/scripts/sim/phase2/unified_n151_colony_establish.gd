@@ -214,6 +214,23 @@ static func stage(world: Dictionary, bank: Dictionary,
     if not services.has("market"):
         services.append("market")
     staged["facilities"][fid]["services"] = services
+    # Rust tick_construction_labor preserves the FINAL N141 WorkShift
+    # on the upgraded facility crew in the same tick. N39 station
+    # snapshots use a per-household worker map instead of Rust tuples.
+    var source_shift: Variant = site.get("labor", {}).get("last_shift", null)
+    if source_shift is Dictionary:
+        var crew_workers: Dictionary = {}
+        var shift_rows: Variant = source_shift.get("workers", null)
+        if not (shift_rows is Array):
+            return fail("b3_missing_original_n141_last_shift")
+        for pair in shift_rows:
+            if not (pair is Array) or pair.size() != 2 or (
+                    crew_workers.has(str(pair[0])) or int(pair[1]) <= 0):
+                return fail("b3_invalid_original_final_shift")
+            crew_workers[str(pair[0])] = int(pair[1])
+        staged["facilities"][fid]["work_shift"] = {
+            "tick": int(source_shift.get("tick", -1)),
+            "workers": crew_workers}
     staged["markets"][location] = market
     var closed: Array = []
     for cid in staged["construction_contracts"].keys():
