@@ -1,0 +1,23 @@
+{
+  "worker": "chat3-v3-native-save-integrity",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "017ebc94f8976f01c3b4a752d3ff358b2bcccb14",
+  "goal": "V3 N38 guard for lossless JSON roundtrip of exact authoritative N39 economic frame (World, N9 balances and receipts, N104 contracts, cargo, plans). Fail closed before promoting .pending; no changes to gameplay/ledger or occupied files",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_native_save_roundtrip_guard.gd (new)",
+    "godot/scripts/sim/save_state.gd (N38 promotion verification only)",
+    "godot/tests/p2_native_save_roundtrip_guard_check.gd (new)",
+    "godot/docs/phase2/handoffs/20261114-chat3-v3-save-roundtrip.md (new)"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "N9 ledger",
+    "N104 ContractBoard",
+    "godot/scripts/observer_panel.gd"
+  ],
+  "coordination": "Chat1 and Chat2 IN_PROGRESS on shared World; N38 SaveState free, no overlapping file edits. No Actions.",
+  "verification": "DEFERRED_GODOT_RUNTIME_AND_ACTIONS_BY_USER_REQUEST"
+}
