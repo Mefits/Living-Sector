@@ -44,6 +44,7 @@ var _last_n121_result: Dictionary = {}
 var _last_n147_result: Dictionary = {}
 var _last_native_passengers: Dictionary = {}
 var _last_n151_founding: Dictionary = {}
+var _last_n151_docks: Dictionary = {}
 var _last_faction_relations: Dictionary = {}
 var _last_body_territory: Dictionary = {}
 var _last_native_faction_finance: Dictionary = {}
@@ -73,6 +74,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_n147_result = {}
     _last_native_passengers = {}
     _last_n151_founding = {}
+    _last_n151_docks = {}
     _last_faction_relations = {}
     _last_body_territory = {}
     _last_native_faction_finance = {}
@@ -386,6 +388,13 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 _fleet_roster.registry.graph(), tick, _tick_multiplier)
             if not _last_n151_founding.get("ok", false):
                 return false
+        # Rust engine::colony::prepare_docks runs only for approved
+        # unfinished sites. This is a real N39/N9 zero-asset actor
+        # registration; it NEVER approves a new colony by itself.
+        _last_n151_docks = production.apply_native_colony_prepare_docks(
+            tick, _fleet_roster.registry.graph())
+        if not _last_n151_docks.get("ok", false):
+            return false
         if tick == 1 or tick % maxi(1, 60 * _tick_multiplier) == 0:
             _last_n147_result = N147Colonies.observe(
                 production.world_snapshot(), _fleet_roster.registry.graph(),
@@ -880,6 +889,9 @@ func last_native_colony_migration() -> Dictionary:
 func last_native_passenger_contracts() -> Dictionary:
     return _last_native_passengers.duplicate(true)
 
+func last_native_colony_docks() -> Dictionary:
+    return _last_n151_docks.duplicate(true)
+
 func _native_embarked_passenger_count(snapshot: Dictionary) -> int:
     var total: int = 0
     for manifest in snapshot.get("passenger_manifests", {}).values():
@@ -1097,6 +1109,7 @@ func economy_summary() -> Dictionary:
         "construction_blocked_labor_this_tick": _last_construction_result.get("blocked", []).size(),
         "colony_founding_status": str(_last_n151_founding.get("status", "NOT_EVALUATED")),
         "colony_founding_ready_unapproved": _last_n151_founding.get("ready", []).size(),
+        "native_n151_temporary_docks_created": _last_n151_docks.get("created", []).size(),
         "colony_founding_blocked": _last_n151_founding.get("blocked", []).duplicate(true),
         "colony_migration_status": str(_last_n147_result.get("status", "NOT_EVALUATED")),
         "colony_observed_groups": _last_n147_result.get("views", []).size(),
