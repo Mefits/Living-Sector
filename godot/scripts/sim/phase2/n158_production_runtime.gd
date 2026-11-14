@@ -26,6 +26,7 @@ const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 const NativeLocations = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const N148RetirementQueue = preload("res://scripts/sim/phase1/n148_native_ship_retirement_queue.gd")
 const NativePassengers = preload("res://scripts/sim/phase2/unified_n104_passenger_transit.gd")
+const NativeColonyMetalAssignment = preload("res://scripts/sim/phase2/unified_n144_colony_metal_assignment.gd")
 
 var _boot_error: String = ""
 var _source_stats: Dictionary = {}
@@ -49,6 +50,7 @@ var _last_n151_founding: Dictionary = {}
 var _last_n151_docks: Dictionary = {}
 var _last_n144_contracts: Dictionary = {}
 var _last_n144_new_sites: Dictionary = {}
+var _last_b2_colony_metals: Dictionary = {}
 var _last_faction_relations: Dictionary = {}
 var _last_body_territory: Dictionary = {}
 var _last_native_faction_finance: Dictionary = {}
@@ -82,6 +84,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_n151_docks = {}
     _last_n144_contracts = {}
     _last_n144_new_sites = {}
+    _last_b2_colony_metals = {}
     _last_faction_relations = {}
     _last_body_territory = {}
     _last_native_faction_finance = {}
@@ -146,6 +149,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             "submitted": [], "receipts": [], "blocked": []}
         _last_native_passengers = {"ok": true, "tick": tick,
             "posted": [], "accepted": [], "moved": [], "blocked": []}
+        _last_b2_colony_metals = {"ok": true, "tick": tick,
+            "accepted": [], "delivered": [], "blocked": []}
         # Rust faction::tick_factions recalculates BodyTerritory FIRST.
         # A world-owned N39 commit, not a UI-local one-off snapshot.
         var territory_pass: Dictionary = production.apply_native_body_territory(
@@ -243,6 +248,31 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     "contract_id": str(passenger_bid.get("contract_id", "")),
                     "ship_id": str(passenger_bid.get("ship_id", "")),
                     "reason": str(passenger_admitted.get("reason", "n104_real_passenger_accept_rejected"))})
+        # Frozen N144 Construction source is another original N104
+        # posted offer. Native N153 chooses ONE real hull with complete
+        # N14 fuel/route and actual N97 source purchase funds. N39
+        # independently reruns N153 before it accepts the original BT.
+        var b2_bid: Dictionary = NativeColonyMetalAssignment.propose(
+            production.world_snapshot(), _fleet_roster.registry.graph(),
+            positions["positions"], _fleet_resolver, tick,
+            clock.tick_scale())
+        if not b2_bid.get("ok", false):
+            _last_b2_colony_metals = b2_bid
+            return false
+        if b2_bid.get("assigned", false):
+            var b2_accepted: Dictionary = production.accept_native_b2_colony_metals(
+                tick, b2_bid["candidate"], _fleet_roster.registry.graph(),
+                positions["positions"], _fleet_resolver, clock.tick_scale())
+            if b2_accepted.get("ok", false):
+                _last_b2_colony_metals["accepted"].append(b2_accepted.duplicate(true))
+            elif b2_accepted.get("fatal", false):
+                _last_b2_colony_metals = b2_accepted
+                return false
+            else:
+                _last_b2_colony_metals["blocked"].append({
+                    "contract_id": str(b2_bid.get("contract_id", "")),
+                    "ship_id": str(b2_bid.get("ship_id", "")),
+                    "reason": str(b2_accepted.get("reason", "b2_n104_accept_rejected"))})
         # Gate4 source N155/N143 research follows the same faction tick
         # after real N150 market data and N39 facility staffing. There is
         # no separate head clock, market, treasury or N9 ledger.
@@ -611,6 +641,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_ship_result["n97_paid_moves"] = []
         _last_ship_result["n83_free_trades"] = []
         _last_ship_result["n104_passenger_moves"] = []
+        _last_ship_result["n144_metals_moves"] = []
         _last_ship_result["n108_paid_refits"] = []
         _last_ship_result["n21_auto_dock"] = []
         # Frozen Rust behavior.rs: accumulate idle/strike state after
@@ -902,12 +933,27 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     _last_ship_result = {"ok": false, "reason": "n146_unknown_contract_transaction"}
                     return false
                 var real_passenger: bool = operation in ["passenger_embark", "passenger_delivery"]
-                var receipt: Dictionary = production.apply_native_passenger_move(
-                    tick, ship_id, cid, operation) if real_passenger else production.apply_autonomous_contract_cargo(
-                    tick, ship_id, cid, operation)
+                var moving_contract: Dictionary = production.world_snapshot().get(
+                    "contract_board", {}).get("contracts", {}).get(cid, {})
+                var colony_metals: bool = str(moving_contract.get("contract_type", "")) == "construction" and (
+                    str(moving_contract.get("mission_category", "")) == "strategy.colony.v1")
+                var receipt: Dictionary = {}
+                if real_passenger:
+                    receipt = production.apply_native_passenger_move(
+                        tick, ship_id, cid, operation)
+                elif colony_metals and operation == "delivery":
+                    receipt = production.apply_native_b2_colony_metals_delivery(
+                        tick, ship_id, cid)
+                else:
+                    # Construction pickup is the SAME original N15
+                    # paid Market purchase as a normal N97 delivery.
+                    receipt = production.apply_autonomous_contract_cargo(
+                        tick, ship_id, cid, operation)
                 if receipt.get("ok", false):
                     if real_passenger:
                         _last_ship_result["n104_passenger_moves"].append(receipt.duplicate(true))
+                    elif colony_metals:
+                        _last_ship_result["n144_metals_moves"].append(receipt.duplicate(true))
                     else:
                         _last_ship_result["n97_paid_moves"].append(receipt.duplicate(true))
                 elif receipt.get("fatal", false):
@@ -1163,6 +1209,9 @@ func last_native_colony_docks() -> Dictionary:
 func last_native_n144_colony_orders() -> Dictionary:
     return _last_n144_contracts.duplicate(true)
 
+func last_native_b2_colony_metals() -> Dictionary:
+    return _last_b2_colony_metals.duplicate(true)
+
 func last_native_b1_colony_founding() -> Dictionary:
     return _last_n144_new_sites.duplicate(true)
 
@@ -1394,7 +1443,12 @@ func economy_summary() -> Dictionary:
         "colony_founding_status": str(_last_n151_founding.get("status", "NOT_EVALUATED")),
         "colony_founding_ready_unapproved": _last_n151_founding.get("ready", []).size(),
         "native_n151_temporary_docks_created": _last_n151_docks.get("created", []).size(),
-        "native_n144_funded_colony_passenger_posts": _last_n144_contracts.get("posted", []).size(),
+        "native_n144_funded_colony_passenger_posts": _last_n144_contracts.get("posted", []).filter(
+            func(x): return str(x.get("status", "")).find("PASSENGER") >= 0).size(),
+        "native_b2_metals_contract_posts": _last_n144_contracts.get("posted", []).filter(
+            func(x): return str(x.get("status", "")).find("METALS") >= 0).size(),
+        "native_b2_metals_accepted": _last_b2_colony_metals.get("accepted", []).size(),
+        "native_b2_metals_physical_moves": _last_ship_result.get("n144_metals_moves", []).size(),
         "native_b1_n144_real_colony_sites_founded": _last_n144_new_sites.get("founded", []).size(),
         "native_b1_n144_head_blocked": _last_n144_new_sites.get("blocked", []).size(),
         "colony_founding_blocked": _last_n151_founding.get("blocked", []).duplicate(true),
@@ -1471,6 +1525,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_native_passengers = {}
     _last_n144_contracts = {}
     _last_n144_new_sites = {}
+    _last_b2_colony_metals = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
