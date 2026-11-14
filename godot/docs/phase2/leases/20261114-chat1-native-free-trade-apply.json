@@ -1,0 +1,16 @@
+{
+  "worker": "chat-1-trade-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "started": "2026-11-14",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd (free trade leaves only)",
+    "godot/scripts/sim/phase2/unified_n83_free_trade_apply.gd (new)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (new free trade single-owner N9 apply only)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (free trade command dispatch only)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (if exact needed)",
+    "godot/docs/phase2/handoffs/20261114-chat1-free-trade.md"
+  ],
+  "goal": "Rust N83/N84 Buy/Sell/SellAll real market trade through frozen N97 physical settlement and ONE N39/N9 apply; no shadow economy, no fake contracts, preserve original N104 paid route.",
+  "nonoverlap": "Chat2 owns colony N144/N151/N154 sections; chat3 owns Head/admin and final assembly; re-fetch HEAD and blob SHA for every shared-file write, use exclusively source-backed free-trade sections."
+}
