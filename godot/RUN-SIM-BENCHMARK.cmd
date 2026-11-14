@@ -76,6 +76,14 @@ if not defined GODOT (
   echo.
   set /p "GODOT=Paste full path to Godot .exe, or press Enter to cancel: "
 )
+rem Accept Windows "Copy as path" input with surrounding quotes.
+if defined GODOT set "GODOT=%GODOT:"=%"
+if defined GODOT if not exist "%GODOT%" (
+  echo [SIM_BENCH] The selected Godot executable was not found:
+  echo   %GODOT%
+  >>"%LOG%" echo [SIM_BENCH] Invalid selected Godot executable: %GODOT%
+  set "GODOT="
+)
 if not defined GODOT (
   echo [SIM_BENCH] No executable selected.
   >>"%LOG%" echo [SIM_BENCH] Godot executable not found.
