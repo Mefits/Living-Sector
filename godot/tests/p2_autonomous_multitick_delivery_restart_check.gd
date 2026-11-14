@@ -45,6 +45,8 @@ func _initialize() -> void:
     var stock: float = float(world["markets"][buyer_loc]["supply"].get(good, 0.0))
     world["markets"][buyer_loc]["consumption_window"][good] = [
         {"tick": 0, "qty": stock + 2.0}]
+    # Explicitly restore the controlled demand into the authoritative checkpoint.
+    initial["native_production"]["world"] = world
     var sim = Runtime.new()
     if not sim.start_from_seed(seed) or not sim.restore_checkpoint(initial, seed):
         _fail("native demand checkpoint rejected")
@@ -57,6 +59,7 @@ func _initialize() -> void:
     var saw_in_flight: bool = false
     var saw_pickup: bool = false
     var saw_midflight_save: bool = false
+    var saw_loaded_restart: bool = false
     var save_path: String = "user://tests/p2-autonomous-flight-" + str(Time.get_ticks_usec()) + ".json"
     for i in range(MAX_TICKS):
         if not sim.queue_control("step", 1):
@@ -145,8 +148,38 @@ func _initialize() -> void:
             if float(w["ships"][assigned_ship].get("cargo", {}).get(commodity, 0.0)) < float(quantity):
                 _fail("N104 pickup status without physical ship cargo")
                 return
+        # Restart again after the paid source purchase: cargo and seller
+        # payment exist, but N104 escrow must not settle before delivery.
+        if str(contract.get("status", "")) == "picked_up" and saw_midflight_save and not saw_loaded_restart:
+            if Save.save_runner(sim, save_path) != OK:
+                _fail("N38 could not persist paid N97 pickup")
+                return
+            var loaded_runtime = Runtime.new()
+            if not loaded_runtime.start_from_seed(seed):
+                _fail("N38 pickup restart rejected native seed")
+                return
+            var loaded_result: Dictionary = Save.load_runner(loaded_runtime, seed, save_path)
+            if not loaded_result.get("ok", false):
+                _fail("N38 pickup reload failed: " + str(loaded_result))
+                return
+            var before_pickup_restart: Dictionary = sim.checkpoint()["native_production"]
+            var after_pickup_restart: Dictionary = loaded_runtime.checkpoint()["native_production"]
+            if after_pickup_restart["world"]["contract_board"] != before_pickup_restart["world"]["contract_board"]:
+                _fail("N104 picked-up contract changed across disk restart")
+                return
+            if after_pickup_restart["world"]["cargo_receipts"] != before_pickup_restart["world"]["cargo_receipts"]:
+                _fail("N15 loading proof changed across disk restart")
+                return
+            if after_pickup_restart["world"]["ships"][assigned_ship]["cargo"] != before_pickup_restart["world"]["ships"][assigned_ship]["cargo"]:
+                _fail("N15 loaded hold changed across disk restart")
+                return
+            if after_pickup_restart["ledger"] != before_pickup_restart["ledger"]:
+                _fail("N9 paid pickup or escrow changed across disk restart")
+                return
+            sim = loaded_runtime
+            saw_loaded_restart = true
         if str(contract.get("status", "")) == "paid":
-            if not saw_departure or not saw_in_flight or not saw_midflight_save or not saw_pickup:
+            if not saw_departure or not saw_in_flight or not saw_midflight_save or not saw_loaded_restart or not saw_pickup:
                 _fail("contract paid without observed physical N14 transit/pickup/restart")
                 return
             var commodity: String = str(contract.get("commodity", ""))
@@ -211,7 +244,8 @@ func _initialize() -> void:
     _fail("no full hands-off paid delivery within " + str(MAX_TICKS) +
         " ticks; contract=" + target_contract + " ship=" + assigned_ship +
         " departed=" + str(saw_departure) + " pickup=" + str(saw_pickup) +
-        " saved_in_flight=" + str(saw_midflight_save))
+        " saved_in_flight=" + str(saw_midflight_save) +
+        " saved_after_pickup=" + str(saw_loaded_restart))
 
 func _total(balances: Dictionary) -> int:
     var total: int = 0
