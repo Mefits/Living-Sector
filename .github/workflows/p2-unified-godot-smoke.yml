@@ -62,6 +62,11 @@ jobs:
             --script res://tests/p2_unified_script_compile_check.gd \
             > godot/logs/p2-unified/compile-all.log 2>&1
           parse=$?
+          if test "$editor" -ne 0 -o "$parse" -ne 0; then
+            echo "P2_CI_PARSE_FAIL editor=$editor parse=$parse"
+            tail -n 100 godot/logs/p2-unified/compile-all.log
+            exit 1
+          fi
           timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot \
             --script res://tests/p2_n158_live_production_check.gd \
             > godot/logs/p2-unified/n158-paid-production.log 2>&1
@@ -72,13 +77,12 @@ jobs:
             --script res://tests/p2_gate4_native_paid_research_check.gd \
             > godot/logs/p2-unified/n143-paid-research.log 2>&1
           research=$?
-          # Stage2 once per source checkpoint: original clean Galaxy,
-          # real faction cycles and N38 restart at tick 360, through 361.
-          # No seeded contracts, player orders, balance or World rewrites.
-          timeout --signal=TERM --kill-after=5s 180s godot --headless --path godot \
-            --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
-            > godot/logs/p2-unified/stage2-native-420.log 2>&1
-          stage2=$?
+          if test "$economy" -ne 0 -o "$research" -ne 0; then
+            echo "P2_CI_BASE_SMOKE_FAIL economy=$economy research=$research"
+            tail -n 80 godot/logs/p2-unified/n158-paid-production.log
+            tail -n 80 godot/logs/p2-unified/n143-paid-research.log
+            exit 1
+          fi
           # Source N151 prepares a real temporary construction dock BEFORE
           # a colony has its own Market. N91 must not reject that native
           # phase, or accept an unreceipted/foreign dock or unpaid site.
@@ -93,6 +97,19 @@ jobs:
             --script res://tests/p2_n38_native_f64_envelope_check.gd \
             > godot/logs/p2-unified/n38-exact-f64.log 2>&1
           n38=$?
+          if test "$n91" -ne 0 -o "$n38" -ne 0; then
+            echo "P2_CI_N91_N38_FAST_FAIL n91=$n91 n38=$n38"
+            tail -n 80 godot/logs/p2-unified/n91-colony-dock.log
+            tail -n 80 godot/logs/p2-unified/n38-exact-f64.log
+            exit 1
+          fi
+          # Stage2 once per source checkpoint: original clean Galaxy,
+          # real faction cycles and N38 restart at tick 360, through 361.
+          # No seeded contracts, player orders, balance or World rewrites.
+          timeout --signal=TERM --kill-after=5s 180s godot --headless --path godot \
+            --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+            > godot/logs/p2-unified/stage2-native-420.log 2>&1
+          stage2=$?
           echo "P2_CI_RESULT editor=$editor parse=$parse economy=$economy research=$research stage2=$stage2 n91=$n91 n38=$n38"
           for file in godot/logs/p2-unified/*.log; do
             echo "::group::$file"
