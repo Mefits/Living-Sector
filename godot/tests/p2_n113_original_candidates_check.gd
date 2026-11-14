@@ -100,6 +100,20 @@ func _initialize() -> void:
     if not exp.get("ok", false) or bool(exp["offer"]["available"]):
         _fail("empty original physical bodies spawned a fake colony site")
         return
+    var old_supply: Dictionary = state.duplicate(true)
+    old_supply["research_directors"]["own"]["strategic"][
+        "kind"] = "supply"
+    old_supply["research_directors"]["own"]["strategic"][
+        "target"] = "unknown|alpha|food"
+    var prior: Dictionary = Original._previous_supply(
+        old_supply, "own",
+        old_supply["research_directors"]["own"],
+        old_supply["research_directors"]["own"]["strategic"],
+        {}, NoInventedBodies.new(), NoInventedRoutes.new(), 60, 1)
+    if not prior.get("ok", false) or bool(prior.get(
+            "resolved", true)) or not prior.get("offer", {}).is_empty():
+        _fail("unknown old N111 supply quote was treated as a vanished goal")
+        return
     if state != exact:
         _fail("source N113 candidates modified the ONLY N39 world")
         return
