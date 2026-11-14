@@ -10,6 +10,12 @@ const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const Transit = preload("res://scripts/sim/ship_transit.gd")
 
+## Read-only rejection accounting for native N153. The selector and its
+## business requirements remain unchanged. This is only persisted in the
+## transient phase result, never in the authoritative contract or wallet.
+static func _blocked_ship(reasons: Dictionary, name: String) -> void:
+    reasons[name] = int(reasons.get(name, 0)) + 1
+
 static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary,
         graph: RefCounted, positions: Dictionary, resolver: RefCounted,
         tick_scale: float) -> Dictionary:
@@ -128,25 +134,32 @@ static func propose(world: Dictionary, graph: RefCounted,
             blocked.append({"contract_id": str(contract_id), "reason": "missing_source_quote"})
             continue
         var winner: Dictionary = {}
+        var ship_blockers: Dictionary = {}
         for ship_id in ships:
             var ship: Dictionary = world["ships"][ship_id]
             var ship_faction: String = str(ship.get("faction_id", ""))
             if not factions.has(ship_faction) or already_assigned.has(str(ship_id)):
+                _blocked_ship(ship_blockers, "ship_faction_missing_or_already_assigned")
                 continue
             if str(factions[ship_faction].get("type", "")) == "outlaw" and (ship_faction != buyer_faction or ship_faction != seller_faction):
+                _blocked_ship(ship_blockers, "outlaw_source_commerce_restricted")
                 continue
             var reputation: Dictionary = ship.get("faction_reputation", {})
             var posture: Dictionary = MarketRules.posture({},
                 ship_faction, seller_faction,
                 int(reputation.get(seller_faction, 0)))
             if not posture.get("ok", false):
+                _blocked_ship(ship_blockers, "source_reputation_posture_rejected")
                 continue
             var quoted_cost: float = ceil(float(qty) * float(source_price) * float(posture["multiplier"]))
             if not is_finite(quoted_cost) or quoted_cost <= 0.0 or quoted_cost > 9007199254740991.0:
+                _blocked_ship(ship_blockers, "invalid_source_purchase_quote")
                 continue
             var source_purchase: int = int(quoted_cost)
             var readiness: Dictionary = _ready_ship(world, str(ship_id), c, graph, positions, resolver, tick_scale)
             if not readiness.get("ok", false):
+                _blocked_ship(ship_blockers, "n14_" + str(
+                    readiness.get("reason", "unavailable")))
                 continue
             var here: String = str(ship["location"])
             # Source-market quote is genuinely available ONLY to ships at
@@ -164,6 +177,7 @@ static func propose(world: Dictionary, graph: RefCounted,
             systems[source] = resolver.system_for_location(source)
             systems[dest] = resolver.system_for_location(dest)
             if systems.values().has(""):
+                _blocked_ship(ship_blockers, "missing_system_for_market")
                 continue
             var sensor: Variant = ship.get("sensor_range_au", null)
             if not (sensor is int or sensor is float) or not is_finite(float(sensor)) or float(sensor) < 0.0:
@@ -181,9 +195,11 @@ static func propose(world: Dictionary, graph: RefCounted,
             controllers[dest] = buyer_faction
             var bonus: float = float(ship.get("comms_bonus", 0.0))
             if not is_finite(bonus) or bonus < 0.0 or bonus > 0.10:
+                _blocked_ship(ship_blockers, "invalid_native_comms_bonus")
                 continue
             var boosted: float = round(float(c["payment"]) * (1.0 + bonus))
             if not is_finite(boosted) or boosted > 9007199254740991.0:
+                _blocked_ship(ship_blockers, "invalid_native_payment_quote")
                 continue
             var quoted_payment: int = int(boosted)
             var top_up: int = maxi(0, quoted_payment - int(c["reserved"]))
@@ -228,6 +244,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                     "ownership_priority": 1.25 if origin_owner else 1.0
                 }, graph)
                 if not candidate_plan.get("ok", false):
+                    _blocked_ship(ship_blockers, "n81_" + str(
+                        candidate_plan.get("reason", "plan_rejected")))
                     continue
                 var row: Dictionary = {"contract_id": str(contract_id), "ship_id": str(ship_id),
                     "profit": int(choice["profit"]), "source": source,
@@ -240,8 +258,12 @@ static func propose(world: Dictionary, graph: RefCounted,
                     "personality_source": candidate_plan["personality_source"]}
                 if winner.is_empty() or int(row["profit"]) > int(winner["profit"]):
                     winner = row
+            else:
+                _blocked_ship(ship_blockers, "rust_n153_selector_declined")
         if winner.is_empty():
-            blocked.append({"contract_id": str(contract_id), "reason": "n153_no_eligible_profitable_known_ship"})
+            blocked.append({"contract_id": str(contract_id),
+                "reason": "n153_no_eligible_profitable_known_ship",
+                "ship_rejection_counts": ship_blockers})
             continue
         candidates.append(winner)
         already_assigned[str(winner["ship_id"])] = true
