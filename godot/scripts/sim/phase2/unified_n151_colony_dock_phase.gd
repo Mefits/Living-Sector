@@ -31,7 +31,14 @@ static func _dock_identity(site: Dictionary) -> Dictionary:
 ## Rust creates these actors from its existing approved ConstructionSite,
 ## not from a planet proposal or an unverified player-supplied order.
 static func stage(world: Dictionary, tick: int, graph: RefCounted) -> Dictionary:
-    if tick < 1 or graph == null or not (world.get("construction_sites") is Dictionary
+    if tick < 1 or graph == null:
+        return _fail("n151_missing_original_colony_clock_or_graph")
+    # Pre-N154 N38 checkpoints legitimately have no construction domain.
+    # Never invent it; old-world phase is simply not applicable.
+    if not world.has("construction_sites") and not world.has("construction_receipts"):
+        return {"ok": true, "created": [], "world": world.duplicate(true),
+            "status": "N151_LEGACY_CONSTRUCTION_UNAVAILABLE"}
+    if not (world.get("construction_sites") is Dictionary
             and world.get("construction_receipts") is Dictionary
             and world.get("facilities") is Dictionary
             and world.get("populations") is Dictionary
