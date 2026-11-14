@@ -42,7 +42,8 @@ static func _chosen(memory: Dictionary, row: Dictionary, tick: int,
 ## once per real N134 cycle, and only N147's admitted Head may post N104.
 static func decide(memory: Dictionary, offers: Array, tick: int,
         urgent_life_support: bool = false,
-        native_plan_outstanding: bool = false) -> Dictionary:
+        native_plan_outstanding: bool = false,
+        cycle_stride: int = 0) -> Dictionary:
     if tick < 1 or not (memory.get("kind", "") is String) or (
             memory.get("target", "") != null and
             not (memory.get("target") is String)) or (
@@ -95,6 +96,13 @@ static func decide(memory: Dictionary, offers: Array, tick: int,
     if matching and int(prior.get("first_seen_tick", -1)) >= tick:
         return {"ok": false,
             "reason": "n113_second_confirmation_in_same_decision_cycle"}
+    # Rust coordination recomputes every cycle. Because N147 is invoked
+    # only when a REAL prepared passenger offer exists, a missing intervening
+    # cycle must invalidate pending confirmation instead of fast-forwarding.
+    # The generic source helper still allows unknown cadence by default.
+    if matching and cycle_stride > 0 and int(
+            prior.get("first_seen_tick", 0)) + cycle_stride != tick:
+        matching = false
     var count: int = mini(255, int(prior.get(
         "consecutive_cycles", 0)) + 1) if matching else 1
     if count >= CONFIRMATIONS:
