@@ -72,13 +72,20 @@ jobs:
             --script res://tests/p2_gate4_native_paid_research_check.gd \
             > godot/logs/p2-unified/n143-paid-research.log 2>&1
           research=$?
-          echo "P2_CI_RESULT editor=$editor parse=$parse economy=$economy research=$research"
+          # Stage2 once per source checkpoint: original clean Galaxy,
+          # real faction cycles and N38 restart at tick 360, through 361.
+          # No seeded contracts, player orders, balance or World rewrites.
+          timeout --signal=TERM --kill-after=5s 180s godot --headless --path godot \
+            --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+            > godot/logs/p2-unified/stage2-native-420.log 2>&1
+          stage2=$?
+          echo "P2_CI_RESULT editor=$editor parse=$parse economy=$economy research=$research stage2=$stage2"
           for file in godot/logs/p2-unified/*.log; do
             echo "::group::$file"
             tail -n 90 "$file"
             echo "::endgroup::"
           done
-          test "$editor" -eq 0 -a "$parse" -eq 0 -a "$economy" -eq 0 -a "$research" -eq 0
+          test "$editor" -eq 0 -a "$parse" -eq 0 -a "$economy" -eq 0 -a "$research" -eq 0 -a "$stage2" -eq 0
       - name: Save diagnostic logs
         if: always()
         uses: actions/upload-artifact@v4
