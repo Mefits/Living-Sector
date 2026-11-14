@@ -1,0 +1,17 @@
+{
+  "worker": "primary-interactive",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "goal": "N149 frozen Rust ship/mod.rs::tick_crew and N72/N138 integrated on real N39/N9 native ships after N140 fired gate, wages/food/efficiency, N38 persistence. No new wallet, no balance changes",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n149_ship_crew_phase.gd (new)",
+    "godot/scripts/sim/economy/credit_ledger.gd (auditable real crew wage outflow only)",
+    "godot/scripts/sim/ships/native_fleet_bootstrap.gd (source crew defaults)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (crew proof only; coordinate with colony owner)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N149 commit only)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (N140 ships crew stage and N38 normalize only)",
+    "godot/docs/phase2/handoffs/20261114-n149-ship-crew-live.md"
+  ],
+  "non_overlap": "Second chat active on N151 colony dock/household and separate methods in N39/N158/Schema. Re-fetch SHA before each shared-file write, only own method, never overwrite N151 additions.",
+  "verification": "SOURCE_IN_PROGRESS; Godot/Actions not run."
+}
