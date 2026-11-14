@@ -12,6 +12,7 @@ const N134Head = preload("res://scripts/sim/phase1/n134_coordination_head.gd")
 const N134Policy = preload("res://scripts/sim/phase1/n134_coordination_policy.gd")
 const Commission = preload("res://scripts/sim/phase1/n151_native_colony_commission.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
+const N155Director = preload("res://scripts/sim/phase1/n155_director_native_observation.gd")
 
 const PROJECT_TAG: String = "strategy.colony.v1"
 const DIRECTOR_SETTLERS: int = 50
@@ -214,12 +215,16 @@ static func approval(world: Dictionary, baseline: Dictionary,
     var inputs: Dictionary = {"colony": plan, "faction_id": faction,
         "native_active": false, "contracts": contracts,
         "native_target": _target(head.get("problem", {}))}
+    # Rust director::option_score is a logarithmic, profile-weighted
+    # utility; raw N111 credits are NOT comparable to expand=80.
     var computed_score: float = 0.0
     if comparison["selected"] != "wait":
         for alt in comparison["alternatives"]:
-            if str(alt.get("action", "")) == str(comparison["selected"]) and (
-                    alt.get("estimated_net_value", null) != null):
-                computed_score = maxf(computed_score, float(alt["estimated_net_value"]))
+            if str(alt.get("action", "")) == str(comparison["selected"]):
+                var score: float = N155Director.option_score(
+                    commander, comparison["goal"], alt)
+                if is_finite(score) and score > 0.0:
+                    computed_score = maxf(computed_score, score)
     inputs["native_option_score"] = computed_score
     # Only a real, still funded research target counts as a competing
     # strategic option. Actual paid research stays owned by N143.
