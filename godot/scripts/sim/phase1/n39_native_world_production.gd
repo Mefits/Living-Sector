@@ -398,7 +398,7 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
 
 
 ## Rust N148 behavior.rs lifecycle runs once on the EXISTING N158 ships
-## phase after its physical N14 + N84 command execution. This stage
+## phase after N14 and N84 planning, but BEFORE their paid N97 Apply. This stage
 ## cannot alter money, cargo, BT, goals, stations or the ship roster.
 ## N146 DecommissionShip commands are returned to the sole N158 Apply,
 ## never executed from this state transition.
