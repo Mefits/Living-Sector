@@ -22,6 +22,7 @@ const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
 const N91SourceDispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
 const NativeColonyFounding = preload("res://scripts/sim/phase2/unified_n151_colony_founding_phase.gd")
 const NativeColonyOrders = preload("res://scripts/sim/phase2/unified_n144_colony_contracts.gd")
+const NativeB4ColonyAftercare = preload("res://scripts/sim/phase2/unified_n92_colony_aftercare.gd")
 const NativeColonyMetals = preload("res://scripts/sim/phase2/unified_n144_colony_metals.gd")
 const NativeColonyMetalAssignment = preload("res://scripts/sim/phase2/unified_n144_colony_metal_assignment.gd")
 const NativeNewColonyHead = preload("res://scripts/sim/phase2/unified_n144_new_colony_head.gd")
@@ -4279,6 +4280,72 @@ func apply_native_hybrid_planning(tick: int, faction: String,
         "native_dispatch_authorized": false,
         "planned_steps": record.get("ledger", {}).get("steps", []).size()}
 
+
+## Chat2 B4: frozen Rust coordination.rs gives an established starving
+## colony's ACTUAL N92 market-stock goal priority before speculative
+## Head grants. N100/N98 is still PURE planning; only N121 can create
+## the real N104/N9 prepaid supply contract and N14/N15 flight.
+## N39 recomputes both N134 baseline and N92 from its current World;
+## caller cannot inject a fictitious shortage/alternative/recipient.
+func apply_native_b4_colony_aftercare(tick: int, faction: String,
+        baseline: Dictionary, original: RefCounted, graph: RefCounted,
+        sources: Dictionary, multiplier: int) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick or (
+            original == null or graph == null or multiplier < 1):
+        return {"ok": false, "reason": "b4_not_single_native_faction_tick"}
+    if not _world.get("faction_treasuries", {}).has(faction):
+        return {"ok": false, "reason": "b4_missing_actual_faction"}
+    var live_head: Dictionary = SourceN134Construction.choose(
+        _world, sources, original, graph, faction, tick, multiplier)
+    if not live_head.get("ok", false):
+        return live_head
+    if live_head.get("head", {}) != baseline.get("head", {}):
+        return {"ok": false, "reason": "b4_stale_or_forged_n134_head"}
+    var observed: Dictionary = NativeB4ColonyAftercare.observe(_world)
+    if not observed.get("ok", false):
+        return observed
+    var proposed: Dictionary = NativeB4ColonyAftercare.stock_head(
+        _world, observed, faction, live_head.get("head", {}))
+    if not proposed.get("ok", false):
+        return proposed
+    if not proposed.get("promoted", false):
+        return {"ok": true, "due": true, "promoted": false,
+            "accepted": false, "faction_id": faction, "tick": tick,
+            "status": str(proposed.get("reason", "b4_no_actual_colony_goal"))}
+    var prior: Dictionary = _world.duplicate(true)
+    var money: Dictionary = _ledger.snapshot()
+    var planned: Dictionary = apply_native_hybrid_planning(
+        tick, faction, proposed["head"], multiplier)
+    if not planned.get("ok", false):
+        return planned
+    # This is the SAME original N100/N98 state owner and no new World.
+    # Fail closed if any non-planner domain or N9 money was altered.
+    if _ledger.snapshot() != money or _world.size() != prior.size():
+        _world = prior
+        return {"ok": false, "fatal": true,
+            "reason": "b4_n92_planner_modified_real_money_or_world"}
+    for key in prior:
+        if key not in ["native_planner_records", "native_planner_last_tick"] and (
+                _world[key] != prior[key]):
+            _world = prior
+            return {"ok": false, "fatal": true,
+                "reason": "b4_n92_planner_changed_canonical_domain:" + str(key)}
+    var verified: Dictionary = NativeB4ColonyAftercare.verify_promoted_plan(
+        _world, faction, proposed, planned)
+    if not verified.get("ok", false):
+        _world = prior
+        return {"ok": false, "fatal": true,
+            "reason": str(verified.get("reason", "b4_n98_stock_goal_not_receipted"))}
+    return {"ok": true, "due": true, "promoted": true,
+        "accepted": bool(verified.get("accepted", false)),
+        "status": str(verified.get("status", verified.get(
+            "reason", "b4_no_source_native_plan"))),
+        "faction_id": faction, "tick": tick,
+        "goal": proposed.get("goal", {}).duplicate(true),
+        "plan": planned.duplicate(true),
+        "fallback_head": proposed.get("fallback_head", {}).duplicate(true),
+        "money_spent": 0,
+        "actual_dispatch_owner": "n121_one_n104_board_one_n9_ledger"}
 
 ## Rust source: in one faction tick, taxes -> bailouts -> relief.
 ## All receipts are immutable transfers of EXISTING N9 wallets, never a
