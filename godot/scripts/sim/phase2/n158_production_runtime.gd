@@ -16,6 +16,7 @@ const N91Dispatch = preload("res://scripts/sim/phase2/unified_n91_construction_d
 const N134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
 const N147Colonies = preload("res://scripts/sim/phase2/unified_n147_colony_migration_observer.gd")
 const N151Founding = preload("res://scripts/sim/phase2/unified_n151_colony_founding_phase.gd")
+const N144FoundingOrders = preload("res://scripts/sim/phase2/unified_n144_colony_contracts.gd")
 const NativeDiplomacy = preload("res://scripts/sim/phase2/unified_native_diplomacy_phase.gd")
 const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
@@ -45,6 +46,7 @@ var _last_n147_result: Dictionary = {}
 var _last_native_passengers: Dictionary = {}
 var _last_n151_founding: Dictionary = {}
 var _last_n151_docks: Dictionary = {}
+var _last_n144_contracts: Dictionary = {}
 var _last_faction_relations: Dictionary = {}
 var _last_body_territory: Dictionary = {}
 var _last_native_faction_finance: Dictionary = {}
@@ -76,6 +78,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_native_passengers = {}
     _last_n151_founding = {}
     _last_n151_docks = {}
+    _last_n144_contracts = {}
     _last_faction_relations = {}
     _last_body_territory = {}
     _last_native_faction_finance = {}
@@ -294,6 +297,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             _last_n134_result = {"ok": true, "tick": tick,
                 "commissioned": [], "blocked": [], "heads": {},
                 "status": "N134_SOURCE_EVALUATED"}
+            _last_n144_contracts = {"ok": true, "tick": tick,
+                "posted": [], "blocked": [], "decisions": [],
+                "status": "N144_NATIVE_N134_REAL_HEAD_DECISIONS"}
             var head_world: Dictionary = production.world_snapshot()
             if head_world.has("construction_sites"):
                 var head_factions: Array = head_world.get("faction_treasuries", {}).keys()
@@ -309,6 +315,34 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                             "reason": str(planned_build.get("reason", "N134_source_comparison_unavailable"))})
                         continue
                     _last_n134_result["heads"][faction] = planned_build.get("head", {}).duplicate(true)
+                    # N144 is the SAME source N134 strategic decision, not
+                    # a second Director/clock: only a genuine current
+                    # N113/N134 colony grant can post one funded N104
+                    # Passenger to the original marketless colony dock.
+                    var colony_order: Dictionary = production.apply_native_n144_colony_passengers(
+                        tick, str(faction), planned_build, world,
+                        _fleet_roster.registry.graph(), _faction_sources,
+                        _tick_multiplier)
+                    if not colony_order.get("ok", false):
+                        if colony_order.get("fatal", false):
+                            _last_n144_contracts = colony_order
+                            return false
+                        _last_n144_contracts["blocked"].append({
+                            "faction_id": str(faction),
+                            "reason": str(colony_order.get("reason",
+                                "n144_original_head_not_authorized"))})
+                    elif colony_order.get("posted", false):
+                        _last_n144_contracts["posted"].append(
+                            colony_order.duplicate(true))
+                        _last_n144_contracts["decisions"].append(
+                            colony_order.get("head", {}).duplicate(true))
+                        head_world = production.world_snapshot()
+                        # One Head grant/order per decision. N154 and N100
+                        # must not duplicate the prepaid colony commitment.
+                        continue
+                    elif str(colony_order.get("status", "")) != "no_active_native_colony_site":
+                        _last_n144_contracts["decisions"].append(
+                            colony_order.duplicate(true))
                     # The source N100 Hybrid/HTN planner is a pure
                     # candidate creator. It receives ONLY the genuine
                     # N134 head's selected problem and the N39 world.
@@ -984,6 +1018,9 @@ func last_native_passenger_contracts() -> Dictionary:
 func last_native_colony_docks() -> Dictionary:
     return _last_n151_docks.duplicate(true)
 
+func last_native_n144_colony_orders() -> Dictionary:
+    return _last_n144_contracts.duplicate(true)
+
 func _native_embarked_passenger_count(snapshot: Dictionary) -> int:
     var total: int = 0
     for manifest in snapshot.get("passenger_manifests", {}).values():
@@ -1208,6 +1245,7 @@ func economy_summary() -> Dictionary:
         "colony_founding_status": str(_last_n151_founding.get("status", "NOT_EVALUATED")),
         "colony_founding_ready_unapproved": _last_n151_founding.get("ready", []).size(),
         "native_n151_temporary_docks_created": _last_n151_docks.get("created", []).size(),
+        "native_n144_funded_colony_passenger_posts": _last_n144_contracts.get("posted", []).size(),
         "colony_founding_blocked": _last_n151_founding.get("blocked", []).duplicate(true),
         "colony_migration_status": str(_last_n147_result.get("status", "NOT_EVALUATED")),
         "colony_observed_groups": _last_n147_result.get("views", []).size(),
