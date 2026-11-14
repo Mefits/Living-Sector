@@ -7,6 +7,9 @@ const Native = preload("res://scripts/native_data.gd")
 const Runtime = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const SaveState = preload("res://scripts/sim/save_state.gd")
 const N143 = preload("res://scripts/sim/phase2/unified_native_research_phase.gd")
+const NativeCoherence = preload("res://scripts/sim/phase2/unified_native_checkpoint_coherence.gd")
+const NativeTimeline = preload("res://scripts/sim/phase2/unified_native_timeline_integrity.gd")
+const NativeFrameGuard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
 
 func _initialize() -> void:
     var seed: Dictionary = Native.load_current_world()
@@ -111,8 +114,26 @@ func _initialize() -> void:
     # Real disk save/reload, not an in-memory restore of a conveniently
     # supplied dictionary. A restart must keep faction/tech progress.
     var save_path: String = "user://tests/p2-n143-" + str(Time.get_ticks_usec()) + ".json"
-    if SaveState.save_runner(runner, save_path) != OK:
-        _fail("N38 failed to persist real native science")
+    var save_error: Error = SaveState.save_runner(runner, save_path)
+    if save_error != OK:
+        # No N38 integrity guard is weakened. Report the precise
+        # read-only failed preflight when the real paid-world save fails.
+        var live: Dictionary = runner.checkpoint()
+        var parsed: Variant = JSON.parse_string(
+            JSON.stringify(live, "", true, true))
+        var consistency: Dictionary = NativeCoherence.validate(live)
+        var timeline: Dictionary = NativeTimeline.validate(live)
+        var json_frame: Dictionary = {"ok": false, "reason": "json_not_dictionary"}
+        var encoded_bytes: int = 0
+        if parsed is Dictionary:
+            json_frame = NativeFrameGuard.verify_authoritative_frame(
+                live, parsed)
+            encoded_bytes = JSON.stringify(
+                SaveState._wrap(live), "\t", true, true).to_utf8_buffer().size()
+        _fail("N38 failed to persist real native science: Error=" +
+            str(save_error) + " coherence=" + str(consistency) +
+            " timeline=" + str(timeline) + " exact_native_json=" +
+            str(json_frame) + " envelope_bytes=" + str(encoded_bytes))
         return
     var restored = Runtime.new()
     if not restored.start_from_seed(seed):
