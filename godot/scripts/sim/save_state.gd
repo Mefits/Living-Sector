@@ -10,6 +10,7 @@ const ENVELOPE_VERSION: int = 1
 const MAX_SAVE_BYTES: int = 16 * 1024 * 1024
 const NativeFrameGuard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
 const NativeCoherence = preload("res://scripts/sim/phase2/unified_native_checkpoint_coherence.gd")
+const NativeTimeline = preload("res://scripts/sim/phase2/unified_native_timeline_integrity.gd")
 const SourceClock = preload("res://scripts/sim/clock.gd")
 const SourceCalendar = preload("res://scripts/sim/calendar.gd")
 const SourceCadence = preload("res://scripts/sim/cadence.gd")
@@ -123,7 +124,8 @@ static func _trusted_for_backup_rotation(parsed: Dictionary) -> bool:
         if not (saved_events is Dictionary) or not SourceEvents.new().restore(
                 saved_events, int(tick), SourceTickRunner.NATIVE_PHASE_ORDER.size()):
             return false
-    return NativeCoherence.validate_serialized_candidate(parsed).get("ok", false)
+    return NativeCoherence.validate_serialized_candidate(parsed).get("ok", false) and \
+        NativeTimeline.validate(parsed).get("ok", false)
 
 static func _exact_nonnegative_whole(value: Variant) -> bool:
     if typeof(value) not in [TYPE_INT, TYPE_FLOAT]:
@@ -176,7 +178,8 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
     # transaction frame, receipts do not claim future ticks, and P1 events
     # have not already expired. Do not write .pending on inconsistent input.
     var native_coherence: Dictionary = NativeCoherence.validate(snapshot)
-    if not native_coherence.get("ok", false):
+    if not native_coherence.get("ok", false) or not (
+            NativeTimeline.validate(snapshot).get("ok", false)):
         return ERR_INVALID_DATA
     var absolute_path: String = ProjectSettings.globalize_path(save_path)
     var folder: String = absolute_path.get_base_dir()
@@ -258,7 +261,7 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
     # an uncommitted pending save over a healthy primary or known-good backup.
     for candidate in [absolute_path, absolute_path + ".bak", absolute_path + ".pending"]:
         var parsed: Dictionary = _read_checkpoint(candidate)
-        if parsed.is_empty():
+        if parsed.is_empty() or not NativeTimeline.validate(parsed).get("ok", false):
             continue
         if runner.restore_checkpoint(parsed, seed):
             # A verified pending checkpoint was fully restored after an
