@@ -211,11 +211,12 @@ static func production_receipt(world: Dictionary, snapshot: Dictionary,
     var new_accounting: Dictionary = accounted.duplicate(true)
     var fully_measured: bool = true
     var missing_baseline: bool = false
-    for output in outputs:
-        if not (output is Dictionary):
-            return _waiting("invalid_recipe_outputs")
-        var commodity: String = str(output.get("commodity", ""))
-        var units: int = int(output.get("quantity", 0))
+    for raw_output in outputs:
+        var output: Dictionary = State.output_spec(raw_output)
+        if output.is_empty():
+            return _waiting("invalid_original_recipe_outputs")
+        var commodity: String = str(output["commodity"])
+        var units: int = int(output["quantity"])
         if units <= 0 or commodity.is_empty():
             fully_measured = false
             continue
@@ -243,13 +244,16 @@ static func production_receipt(world: Dictionary, snapshot: Dictionary,
     var legacy: bool = false
     if missing_baseline and paid:
         var source_outputs_visible: bool = true
-        for output in outputs:
+        for raw_output in outputs:
+            var output: Dictionary = State.output_spec(raw_output)
+            if output.is_empty():
+                source_outputs_visible = false
+                break
             var value: Dictionary = commodity_stock(snapshot, world,
-                location, str(output.get("commodity", "")))
-            if (int(output.get("quantity", 0)) <= 0
-                    or not bool(value.get("ok", false))
+                location, str(output["commodity"]))
+            if (not bool(value.get("ok", false))
                     or float(value.get("stock", 0.0)) <
-                    float(output.get("quantity", 0))):
+                    float(output["quantity"])):
                 source_outputs_visible = false
                 break
         var own: Dictionary = commodity_stock(snapshot, world,
