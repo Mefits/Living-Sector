@@ -1954,7 +1954,8 @@ func restore(saved: Dictionary) -> bool:
     # N150 phase cursors and pair timestamps cannot point beyond the
     # physical World tick restored from disk. Source Rust stores treaties
     # persistently; body system control is re-derived from live facilities.
-    for clock_key in ["faction_relations_last_tick", "territory_last_tick"]:
+    for clock_key in ["faction_relations_last_tick", "territory_last_tick",
+            "faction_finance_last_tick"]:
         if int(staged_world.get(clock_key, 0)) > int(saved["tick"]):
             return false
     for relation in staged_world.get("faction_relations", {}).values():
