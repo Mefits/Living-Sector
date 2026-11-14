@@ -2091,10 +2091,29 @@ func apply_native_n121_execution(tick: int, faction: String,
                 var priced: Dictionary = NativeN121.paid_delivery_quote(
                     _world, faction, action, dispatch_key, tick, multiplier, graph)
                 if not priced.get("ok", false):
-                    # The source original retries a fresh goal later. An
-                    # unfunded quote MUST NOT create a Prepared ledger step.
+                    # Original native_execution.rs: a failed paid source
+                    # preflight RELEASES the old attempt and retains only
+                    # its goal with bounded cooldown. Never resubmit its
+                    # old dispatch_key/quote on the next strategic tick.
+                    var failed_reason: String = str(priced.get(
+                        "reason", "source_preflight_failed"))
+                    var ended: Dictionary = N121State.record_terminal(
+                        next_state, faction, pending, "blocked",
+                        failed_reason, tick, multiplier, null)
+                    if not ended.get("ok", false):
+                        return {"ok": false, "fatal": true,
+                            "reason": "n121_unfunded_terminal_state_rejected"}
+                    staged["native_execution"] = ended["state"].duplicate(true)
+                    staged["native_planner_records"][faction]["status"] = "n121_closed_blocked"
+                    staged["native_planner_records"][faction]["last_source_execution_tick"] = tick
+                    staged["native_planner_records"][faction]["last_source_execution_kind"] = "blocked"
+                    var invalid_block: String = Schema.validate(staged)
+                    if not invalid_block.is_empty() or Schema.accounts(staged) != Schema.accounts(_world):
+                        return {"ok": false, "fatal": true,
+                            "reason": "n121_blocked_source_state_modified_world"}
+                    _world = staged
                     event["status"] = "native_source_delivery_blocked"
-                    event["reason"] = str(priced.get("reason", "source_preflight_failed"))
+                    event["reason"] = failed_reason
                     return event
                 if int(staged.get("native_htn_next_id", 0)) < 1:
                     return {"ok": false, "fatal": true,
@@ -2323,6 +2342,14 @@ func apply_native_hybrid_planning(tick: int, faction: String,
             "n121_active"]:
         return {"ok": true, "due": false, "faction_id": faction,
             "status": "awaiting_n121_canonical_execution"}
+    # Frozen N121::blocked_until ensures no repeated plan/quote storm
+    # while the ORIGINAL failed head stock goal is awaiting retry.
+    var source_cooldown: int = int(_world.get("native_execution", {}).get(
+        "blocked_until", {}).get(faction, 0))
+    if tick < source_cooldown:
+        return {"ok": true, "due": false, "faction_id": faction,
+            "status": "source_n121_retry_cooldown",
+            "retry_after_tick": source_cooldown}
     var candidate: Dictionary = NativeHybridPlanning.propose(
         _world, faction, head, tick, mode)
     if not candidate.get("ok", false):
