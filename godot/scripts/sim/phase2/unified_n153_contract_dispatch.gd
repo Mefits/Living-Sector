@@ -192,7 +192,8 @@ static func propose(world: Dictionary, graph: RefCounted,
             var real_payer: String = str(c.get("requestor_id", ""))
             var real_balance: int = -1
             if str(c.get("funding_source", "")) == "faction":
-                if world.get("construction_contracts", {}).has(str(contract_id)) and real_payer == Schema.faction_account(buyer_faction):
+                if (world.get("construction_contracts", {}).has(str(contract_id)) or
+                        world.get("native_htn_contracts", {}).has(str(contract_id))) and real_payer == Schema.faction_account(buyer_faction):
                     real_balance = int(world.get("faction_treasuries", {}).get(buyer_faction, -1))
             elif str(c.get("funding_source", "")) == "facility":
                 if real_payer == Schema.facility_account(str(buyer_market["owner"])):
