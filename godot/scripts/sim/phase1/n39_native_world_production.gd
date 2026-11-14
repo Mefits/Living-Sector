@@ -34,6 +34,7 @@ const NativeStationAdministration = preload("res://scripts/sim/phase2/unified_na
 const NativeHybridPlanning = preload("res://scripts/sim/phase2/unified_native_hybrid_planning.gd")
 const NativeN121 = preload("res://scripts/sim/phase2/unified_n121_native_execution_phase.gd")
 const NativeN152 = preload("res://scripts/sim/phase2/unified_n152_contract_lifecycle.gd")
+const NativeAdminN152 = preload("res://scripts/sim/phase2/unified_n152_admin_cleanup.gd")
 const NativeN98 = preload("res://scripts/sim/phase1/n98_plan_ledger.gd")
 const N121State = preload("res://scripts/port/n121_native_execution_state.gd")
 const N121Baselines = preload("res://scripts/port/n121_native_production_baselines.gd")
@@ -1550,6 +1551,142 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
         "renewed": proposal.get("renewed", []).duplicate(true),
         "refunded": proposal["refunded"].duplicate(true),
         "blocked": proposal.get("blocked", []).duplicate(true)}
+
+
+## Frozen Rust admin_remove_ship/admin_remove_facility is a DISTINCT
+## administrative boundary, not a planner action. This is the only
+## N39 authoritative commit: one real actor deletion, the existing N104
+## N152 cascade, one auditable N9 actor write-off, and source history.
+## A missing payer's contract escrow stays held for later recovery.
+func apply_native_admin_removal(tick: int, kind: String,
+        actor_id: String, reason: String = "admin") -> Dictionary:
+    if not _ready or tick < 0 or tick != _last_tick:
+        return {"ok": false, "reason": "admin_not_at_authoritative_tick"}
+    if not kind in ["ship", "facility"] or actor_id.is_empty():
+        return {"ok": false, "reason": "invalid_admin_actor"}
+    var old_bank: Dictionary = _ledger.snapshot()
+    var old_world: Dictionary = _world
+    var proposal: Dictionary = NativeAdminN152.stage(_world, old_bank,
+        tick, kind, actor_id, reason)
+    if not proposal.get("ok", false):
+        return proposal
+    var next_world: Dictionary = proposal["world"]
+    var next_bank: Dictionary = proposal["ledger_snapshot"]
+    var closed_account: String = (Schema.ship_account(actor_id)
+        if kind == "ship" else Schema.facility_account(actor_id))
+    var receipt_id: String = str(proposal["receipt_id"])
+    var lost: int = int(proposal["credits_lost"])
+    if old_bank.get("balances", {}).get(closed_account, null) != lost:
+        return {"ok": false, "fatal": true, "reason": "admin_deleted_unfunded_actor"}
+    if next_bank.get("balances", {}).has(closed_account) or next_bank.get("balances", {}).size() != old_bank.get("balances", {}).size() - 1:
+        return {"ok": false, "fatal": true, "reason": "admin_wallet_was_not_removed_exactly_once"}
+    for account in old_bank["balances"]:
+        if str(account) != closed_account and old_bank["balances"][account] != next_bank.get("balances", {}).get(account, null):
+            return {"ok": false, "fatal": true, "reason": "admin_changed_unrelated_n9_balance"}
+    if next_bank.get("receipts", {}).size() != old_bank.get("receipts", {}).size() + 1:
+        return {"ok": false, "fatal": true, "reason": "admin_wrong_n9_receipt_count"}
+    for old_receipt in old_bank["receipts"]:
+        if old_bank["receipts"][old_receipt] != next_bank.get("receipts", {}).get(old_receipt, null):
+            return {"ok": false, "fatal": true, "reason": "admin_changed_prior_n9_receipt"}
+    var writeoff: Dictionary = next_bank.get("receipts", {}).get(receipt_id, {})
+    if writeoff.get("id") != receipt_id or writeoff.get("tick") != tick or writeoff.get("account_closed") != closed_account or writeoff.get("credits_lost") != lost:
+        return {"ok": false, "fatal": true, "reason": "admin_missing_real_financial_writeoff"}
+    if writeoff.get("kind") != ("ship_decommissioned" if kind == "ship" else "facility_removed") or writeoff.get("legs") != [{"account": closed_account, "delta": -lost}]:
+        return {"ok": false, "fatal": true, "reason": "admin_writeoff_not_source_destruct"}
+    var later := Ledger.new()
+    if not later.restore(next_bank) or later.total() != _ledger.total() - lost:
+        return {"ok": false, "fatal": true, "reason": "admin_source_money_loss_mismatch"}
+    var board := ContractBoard.new(later)
+    if not board.restore(next_world.get("contract_board", {})):
+        return {"ok": false, "fatal": true, "reason": "admin_real_board_restore_rejected"}
+    var before_board: Dictionary = old_world["contract_board"]
+    var after_board: Dictionary = next_world["contract_board"]
+    if before_board.get("receipt_claims") != after_board.get("receipt_claims") or before_board.get("contracts", {}).size() != after_board.get("contracts", {}).size():
+        return {"ok": false, "fatal": true, "reason": "admin_deleted_cargo_history"}
+    for cid in before_board["contracts"]:
+        if not after_board["contracts"].has(cid):
+            return {"ok": false, "fatal": true, "reason": "admin_deleted_original_contract"}
+        var before: Dictionary = before_board["contracts"][cid]
+        var after: Dictionary = after_board["contracts"][cid]
+        if before == after:
+            continue
+        var expected: Dictionary = before.duplicate(true)
+        if kind == "ship" and str(before.get("fulfiller_id", "")) == actor_id:
+            if str(before.get("status", "")) == "accepted":
+                expected["status"] = "posted"
+                expected["fulfiller_id"] = ""
+                expected["accepted_at_tick"] = -1
+                expected["agreed_payment"] = -1
+            elif str(before.get("status", "")) == "picked_up":
+                expected["status"] = "expired"
+        elif kind == "facility" and str(before.get("status", "")) not in ["paid", "expired"]:
+            var location: String = str(old_world["facilities"][actor_id]["location"])
+            var matches_owner: bool = str(before.get("requestor_id", "")) in [
+                actor_id, Schema.facility_account(actor_id)]
+            var matches_endpoint: bool = bool(proposal["last_at_location"]) and (
+                str(before.get("source_location", "")) == location or
+                str(before.get("destination_location", "")) == location)
+            if matches_owner or matches_endpoint:
+                expected["status"] = "expired"
+        if after != expected:
+            return {"ok": false, "fatal": true, "reason": "admin_changed_unrelated_contract_terms"}
+    if next_world.size() != old_world.size() and not (
+            next_world.size() == old_world.size() + 1 and not old_world.has("native_admin_removals")):
+        return {"ok": false, "fatal": true, "reason": "admin_changed_world_structure"}
+    for domain in old_world:
+        if domain not in ["ships", "facilities", "contract_board",
+                "native_admin_removals", "station_administration"] and (
+                old_world[domain] != next_world.get(domain, null)):
+            return {"ok": false, "fatal": true, "reason": "admin_changed_other_world_domain_" + str(domain)}
+    if kind == "ship":
+        if not old_world["ships"].has(actor_id) or next_world["ships"].has(actor_id) or next_world["ships"].size() != old_world["ships"].size() - 1 or next_world["facilities"] != old_world["facilities"] or next_world.get("station_administration") != old_world.get("station_administration"):
+            return {"ok": false, "fatal": true, "reason": "admin_wrong_ship_removal_domain"}
+        for sid in old_world["ships"]:
+            if str(sid) != actor_id and next_world["ships"].get(sid, null) != old_world["ships"][sid]:
+                return {"ok": false, "fatal": true, "reason": "admin_changed_surviving_ship"}
+    else:
+        if not old_world["facilities"].has(actor_id) or next_world["facilities"].has(actor_id) or next_world["facilities"].size() != old_world["facilities"].size() - 1:
+            return {"ok": false, "fatal": true, "reason": "admin_wrong_facility_removal_domain"}
+        for facility_id in old_world["facilities"]:
+            if str(facility_id) != actor_id and next_world["facilities"].get(facility_id, null) != old_world["facilities"][facility_id]:
+                return {"ok": false, "fatal": true, "reason": "admin_changed_surviving_facility"}
+    var history: Dictionary = next_world.get("native_admin_removals", {})
+    var original_history: Dictionary = old_world.get("native_admin_removals", {})
+    if history.size() != original_history.size() + 1 or not history.has(receipt_id):
+        return {"ok": false, "fatal": true, "reason": "admin_history_not_append_only"}
+    for old_id in original_history:
+        if history.get(old_id, null) != original_history[old_id]:
+            return {"ok": false, "fatal": true, "reason": "admin_modified_prior_removal"}
+    var error: String = Schema.validate(next_world)
+    if not error.is_empty():
+        return {"ok": false, "fatal": true, "reason": "admin_invalid_world_" + error}
+    var accounts: Dictionary = Schema.accounts(next_world)
+    if accounts.size() != next_bank["balances"].size():
+        return {"ok": false, "fatal": true, "reason": "admin_wallet_count_diverged"}
+    for account in accounts:
+        if next_bank["balances"].get(account, null) != accounts[account]:
+            return {"ok": false, "fatal": true, "reason": "admin_wallet_world_diverged"}
+    _world = next_world
+    _ledger = later
+    var events: Array = []
+    for cid in proposal["released"]:
+        events.append({"kind": "contract_released", "id": cid,
+            "ship_id": actor_id, "reason": "ship_destroyed"})
+    for cid in proposal["cancelled"]:
+        events.append({"kind": "contract_expired", "id": cid,
+            "reason": "ship_destroyed_with_cargo" if kind == "ship" else "facility_destroyed"})
+    for sid in proposal["kicked"]:
+        events.append({"kind": "ship_undocked", "id": sid,
+            "reason": "facility_destroyed", "facility_id": actor_id})
+    events.append({"kind": "ship_decommissioned" if kind == "ship" else "facility_removed",
+        "id": actor_id, "reason": reason, "credits_lost": lost, "tick": tick})
+    return {"ok": true, "kind": kind, "id": actor_id, "tick": tick,
+        "receipt_id": receipt_id, "credits_lost": lost,
+        "released": proposal["released"].duplicate(true),
+        "cancelled": proposal["cancelled"].duplicate(true),
+        "kicked": proposal["kicked"].duplicate(true),
+        "retirement": proposal["retirement"].duplicate(true),
+        "events": events}
 
 
 ## N153 accepted assignment COMMIT: same N104 Board, N9 Ledger and N39
