@@ -24,6 +24,7 @@ const NativeColonyFounding = preload("res://scripts/sim/phase2/unified_n151_colo
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
+const NativeDiplomacy = preload("res://scripts/sim/phase2/unified_native_diplomacy_phase.gd")
 
 const GalaxyConstructionCrew: Dictionary = {
     "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
@@ -1763,6 +1764,42 @@ func _grant_xp(fac: Dictionary, recipes_run: int) -> void:
     while int(fac["level"]) < 10 and int(fac["xp"]) >= int(fac["level"]) * 100:
         fac["xp"] = int(fac["xp"]) - int(fac["level"]) * 100
         fac["level"] = int(fac["level"]) + 1
+
+## Rust engine.rs "relations" phase: source N150 scheduled treaty changes.
+## Only THIS N39 owner commits the matrix. No extra ledger or faction clock.
+## Old saves lacking the matrix intentionally keep it absent: no invented
+## diplomatic history is injected into an already-running checkpoint.
+func apply_native_faction_relations(tick: int, multiplier: int) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick or multiplier < 1:
+        return {"ok": false, "reason": "n150_invalid_canonical_relations_phase"}
+    if not _world.has("faction_relations") or not _world.has("faction_relations_last_tick"):
+        return {"ok": true, "tick": tick, "due": false,
+            "status": "legacy_checkpoint_no_native_diplomacy", "treaty_changes": []}
+    var plan: Dictionary = NativeDiplomacy.propose_pass(_world, tick, multiplier)
+    if not plan.get("ok", false):
+        return plan
+    if not plan.get("due", false):
+        return {"ok": true, "tick": tick, "due": false, "treaty_changes": []}
+    var last: int = int(_world["faction_relations_last_tick"])
+    if tick <= last:
+        return {"ok": false, "reason": "n150_duplicate_or_replayed_relations_pass"}
+    var staged: Dictionary = _world.duplicate(true)
+    staged["faction_relations"] = plan["pairs"].duplicate(true)
+    staged["faction_relations_last_tick"] = tick
+    var invalid: String = Schema.validate(staged)
+    if not invalid.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n150_native_relations_invalid_world:" + invalid}
+    # This pass changes neither treasury nor market stock. The N9 owner
+    # and its immutable transaction history are unchanged by treaties.
+    if Schema.accounts(staged) != Schema.accounts(_world):
+        return {"ok": false, "fatal": true, "reason": "n150_treaties_changed_real_wallets"}
+    _world = staged
+    return {"ok": true, "due": true, "tick": tick,
+        "treaty_changes": plan.get("treaty_changes", []).duplicate(true),
+        "pairs": staged["faction_relations"].size(),
+        "authority": "n39_one_faction_relations_matrix"}
+
 
 func _blocked(id: String, reason: String) -> Dictionary:
     _world["facilities"][id]["work_blocked_reason"] = reason
