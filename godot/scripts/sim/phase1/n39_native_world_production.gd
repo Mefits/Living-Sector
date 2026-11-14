@@ -2176,7 +2176,12 @@ func apply_native_n121_execution(tick: int, faction: String,
                     return {"ok": false, "fatal": true,
                         "reason": "n121_producer_ack_" + ack}
                 pending["production_started_tick"] = tick
-                pending["production_baselines"] = baselines["production_baselines"].duplicate(true)
+                # Keep the FIRST paid producer baseline across repeated
+                # steps using the same source recipe/action identity.
+                for output_key in baselines["production_baselines"]:
+                    if not pending["production_baselines"].has(output_key):
+                        pending["production_baselines"][output_key] = (
+                            baselines["production_baselines"][output_key])
                 event["status"] = "n121_observe_existing_paid_production"
                 event["facility_id"] = str(observation["pin"]["facility_id"])
                 event["recipe_id"] = str(observation["pin"]["recipe_id"])
