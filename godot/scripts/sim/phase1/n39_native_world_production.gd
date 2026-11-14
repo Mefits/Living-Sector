@@ -21,6 +21,7 @@ const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const ShipCatalog = preload("res://scripts/sim/ship_catalog.gd")
 const N91SourceDispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
 const NativeColonyFounding = preload("res://scripts/sim/phase2/unified_n151_colony_founding_phase.gd")
+const NativeColonyDocks = preload("res://scripts/sim/phase2/unified_n151_colony_dock_phase.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
@@ -1027,6 +1028,94 @@ func apply_native_colony_foundation(tick: int, faction: String,
         "passengers": 0, "metals_delivered": 0,
         "money_debited": 0}
 
+
+## Native Rust engine/colony.rs::prepare_docks, AFTER a real N144
+## founder authorization: one empty temporary N21 dock and one zero-
+## resident household, NOT a free colony, market or passenger.
+## N39 is the sole actor/credit authority, preserving original N9 totals.
+func apply_native_colony_prepare_docks(tick: int, graph: RefCounted) -> Dictionary:
+    if not _ready or tick < 1 or tick != _last_tick or graph == null:
+        return {"ok": false, "reason": "n151_not_canonical_colony_dock_tick"}
+    var proposed: Dictionary = NativeColonyDocks.stage(_world, tick, graph)
+    if not proposed.get("ok", false):
+        return proposed
+    var created: Array = proposed.get("created", [])
+    if created.is_empty():
+        return {"ok": true, "status": "N151_NO_NEW_DOCKS",
+            "created": [], "tick": tick}
+    var staged: Dictionary = proposed.get("world", {})
+    if staged.is_empty() or staged.get("markets", {}) != _world.get("markets", {}):
+        return {"ok": false, "fatal": true,
+            "reason": "n151_dock_cannot_create_market"}
+    var immutable_domains: Array[String] = [
+        "ships", "faction_treasuries", "contract_board",
+        "escrow_balances", "bodies", "research"]
+    for domain in _world:
+        if not staged.has(domain):
+            return {"ok": false, "fatal": true,
+                "reason": "n151_dock_removed_canonical_domain"}
+        if domain not in ["facilities", "populations", "construction_receipts",
+                "construction_next_db_id"] and staged[domain] != _world[domain]:
+            return {"ok": false, "fatal": true,
+                "reason": "n151_dock_modified_unrelated_domain:" + str(domain)}
+    if staged.size() != _world.size():
+        return {"ok": false, "fatal": true,
+            "reason": "n151_dock_invented_canonical_domain"}
+    if staged["facilities"].size() != _world["facilities"].size() + created.size() or (
+            staged["populations"].size() != _world["populations"].size() + created.size() or
+            staged["construction_receipts"].size() != _world["construction_receipts"].size() + created.size()):
+        return {"ok": false, "fatal": true,
+            "reason": "n151_dock_actor_receipt_cardinality"}
+    for existing in _world["facilities"]:
+        if staged["facilities"].get(existing, null) != _world["facilities"][existing]:
+            return {"ok": false, "fatal": true,
+                "reason": "n151_dock_edited_existing_facility"}
+    for existing in _world["populations"]:
+        if staged["populations"].get(existing, null) != _world["populations"][existing]:
+            return {"ok": false, "fatal": true,
+                "reason": "n151_dock_edited_existing_household"}
+    for existing in _world["construction_receipts"]:
+        if staged["construction_receipts"].get(existing, null) != _world["construction_receipts"][existing]:
+            return {"ok": false, "fatal": true,
+                "reason": "n151_dock_rewrote_construction_receipt"}
+    if int(staged["construction_next_db_id"]) != int(_world["construction_next_db_id"]) - created.size():
+        return {"ok": false, "fatal": true,
+            "reason": "n151_dock_allocator_not_source_monotonic"}
+    var staged_ledger := Ledger.new()
+    if not staged_ledger.restore(_ledger.snapshot()):
+        return {"ok": false, "fatal": true, "reason": "n151_original_n9_unavailable"}
+    for made in created:
+        var dock_id: String = str(made.get("facility_id", ""))
+        var pop_id: String = str(made.get("population_id", ""))
+        if not staged_ledger.register_empty_account(Schema.facility_account(dock_id)) or (
+                not staged_ledger.register_empty_account(Schema.household_account(pop_id))):
+            return {"ok": false, "fatal": true, "reason": "n151_double_or_forged_n9_actor"}
+        if int(staged["facilities"][dock_id]["credits"]) != 0 or (
+                int(staged["populations"][pop_id]["wealth"]) != 0 or
+                int(staged["populations"][pop_id]["count"]) != 0):
+            return {"ok": false, "fatal": true,
+                "reason": "n151_dock_minted_credits_or_residents"}
+    var invalid: String = Schema.validate(staged)
+    if not invalid.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n151_invalid_original_temporary_dock:" + invalid}
+    if staged_ledger.total() != _ledger.total() or (
+            staged_ledger.snapshot().get("receipts", {}) != _ledger.snapshot().get("receipts", {})):
+        return {"ok": false, "fatal": true,
+            "reason": "n151_dock_changed_real_economy"}
+    var accounts: Dictionary = Schema.accounts(staged)
+    var balances: Dictionary = staged_ledger.snapshot().get("balances", {})
+    if accounts.size() != balances.size():
+        return {"ok": false, "fatal": true,
+            "reason": "n151_dock_money_account_cardinality"}
+    for account in accounts:
+        if not balances.has(account) or int(balances[account]) != int(accounts[account]):
+            return {"ok": false, "fatal": true,
+                "reason": "n151_dock_money_account_mismatch"}
+    _world = staged
+    _ledger = staged_ledger
+    return {"ok": true, "status": "N151_SOURCE_COLONY_DOCK_AND_EMPTY_HOUSEHOLD",
+        "created": created.duplicate(true), "tick": tick}
 
 ## N141: real docked-engineer physical construction shift + one N9 payroll.
 ## Source N141 WorkShift chooses existing households and excludes labor
