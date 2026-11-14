@@ -25,6 +25,7 @@ var _observed_contract: bool = false
 var _observed_picked_up: bool = false
 var _observed_paid: bool = false
 var _n153_block_reasons: Dictionary = {}
+var _n153_ship_causes: Dictionary = {}
 var _n84_block_reasons: Dictionary = {}
 var _n153_accept_total: int = 0
 var _n84_departures_total: int = 0
@@ -122,6 +123,11 @@ func _initialize() -> void:
                 var reason: String = str(blocked.get("reason", "unknown"))
                 _n153_block_reasons[reason] = int(
                     _n153_block_reasons.get(reason, 0)) + 1
+                for ship_reason in blocked.get("ship_rejection_counts", {}):
+                    var copies: int = int(
+                        blocked["ship_rejection_counts"][ship_reason])
+                    _n153_ship_causes[str(ship_reason)] = int(
+                        _n153_ship_causes.get(str(ship_reason), 0)) + copies
         for blocked in ai.get("n84_blocked", []):
             if blocked is Dictionary:
                 var reason: String = str(blocked.get("reason", "unknown"))
@@ -211,6 +217,7 @@ func _initialize() -> void:
         _report["samples"].append(sample)
     _report["native_n153_accepted_total"] = _n153_accept_total
     _report["native_n153_block_reasons"] = _n153_block_reasons
+    _report["native_n153_ship_causes"] = _n153_ship_causes
     _report["native_n84_block_reasons"] = _n84_block_reasons
     _report["native_n84_departures_total"] = _n84_departures_total
     _report["native_n140_fired_total"] = _n140_fired_total
