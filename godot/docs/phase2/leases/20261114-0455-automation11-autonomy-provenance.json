@@ -1,10 +1,15 @@
 {
   "worker": "automation11",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_msk": "2026-11-14T05:55:00+03:00",
   "expires_msk": "2026-11-14T06:35:00+03:00",
   "scope": [
     "godot/tests/p2_autonomous_multitick_delivery_restart_check.gd"
   ],
-  "purpose": "Make end-to-end acceptance reject pre-existing/foreign contracts and require native N135 posted + N153 accepted provenance before paid-delivery PASS"
+  "purpose": "Make end-to-end acceptance reject pre-existing/foreign contracts and require native N135 posted + N153 accepted provenance before paid-delivery PASS",
+  "released_msk": "2026-11-14T06:00:00+03:00",
+  "commits": [
+    "1202245a70cb6086931a5eef86dc2b1582a13011"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261114-0559-automation11-autonomy-provenance.md"
 }
