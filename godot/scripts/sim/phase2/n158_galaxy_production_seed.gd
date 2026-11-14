@@ -64,6 +64,12 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         # SystemControl is derived live during the native faction pass.
         "body_territory": {}, "territory_last_tick": 0,
         "faction_finance_last_tick": 0,
+        # Native Rust LIVING_SECTOR_PLANNER opt-in: legacy is default.
+        # N100/N98 are the planning authority, N121 alone posts orders.
+        "native_planner_mode": "legacy",
+        "native_planner_records": {},
+        "native_planner_last_tick": 0,
+        "native_execution": NativeExecState.empty(),
         # Native N18 station-wide administration is the ONLY workforce
         # allocation planner. The original N39/N6 paid shift is its
         # executor, not a parallel production or wallet system.
