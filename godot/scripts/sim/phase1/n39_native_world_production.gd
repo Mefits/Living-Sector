@@ -2548,6 +2548,19 @@ func restore(saved: Dictionary) -> bool:
     for relation in staged_world.get("faction_relations", {}).values():
         if int(relation.get("since_tick", -1)) > int(saved["tick"]) or int(relation.get("last_event_tick", -1)) > int(saved["tick"]):
             return false
+    # The original N121 prepared/acknowledged and N98 step timestamps
+    # must not outlive the actual World tick. Never replay a future
+    # dispatch or resurrect credits from a rewritten N38 checkpoint.
+    for record in staged_world.get("native_planner_records", {}).values():
+        if int(record.get("last_source_execution_tick", 0)) > int(saved["tick"]):
+            return false
+    for meta in staged_world.get("native_htn_contracts", {}).values():
+        if int(meta.get("tick", -1)) > int(saved["tick"]):
+            return false
+    for plan in staged_world.get("native_execution", {}).get("active", {}).values():
+        for step in plan.get("ledger", {}).get("steps", []):
+            if int(step.get("updated_tick", -1)) > int(saved["tick"]):
+                return false
     var staged_ledger = Ledger.new()
     if not staged_ledger.restore(saved["ledger"]):
         return false
