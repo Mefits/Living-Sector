@@ -2,7 +2,9 @@ extends RefCounted
 ## N4 raw JSON routes stay directed. But original Rust sim_db/seeder.rs
 ## inserts BOTH forward and reverse travel_routes into the active DB.
 ## Only the native-seeded mode below reconstructs those proven DB rows.
-## Never infer distance from space/screen geometry or create colony nodes.
+## Only native seeded mode includes spawner::chart_colony_routes SQL,
+## strictly from original planet IDs and orbit radii, not render geometry.
+const NativeChart = preload("res://scripts/sim/phase2/unified_n142_original_colony_chart.gd")
 var _edges: Dictionary = {}
 var _nodes: Dictionary = {}
 var _edge_count: int = 0
@@ -71,6 +73,33 @@ func load_worlds(worlds: Array, native_seeded_db: bool = false) -> bool:
                 edges[from_id].append({
                     "to": to_id, "distance": distance, "system_id": sid})
                 count += 1
+    if native_seeded_db:
+        # Rust startup: seeder::seed_all() THEN the explicit original
+        # spawner::chart_colony_routes SQLite INSERT OR IGNORE transaction.
+        # Raw mode remains exactly the original directed JSON graph.
+        var chart: Dictionary = NativeChart.chart(worlds)
+        if not chart.get("ok", false):
+            return false
+        for location in chart.get("charted", {}):
+            nodes[location] = true
+        for native in chart.get("edges", []):
+            var origin: String = str(native["from"])
+            var dest: String = str(native["to"])
+            if not nodes.has(origin) or not nodes.has(dest):
+                return false
+            if not edges.has(origin):
+                edges[origin] = []
+            var exists: bool = false
+            for active in edges[origin]:
+                if str(active["to"]) == dest:
+                    exists = true
+                    break
+            if exists:
+                continue # SQL INSERT OR IGNORE preserves explicit seed edge
+            edges[origin].append({"to": dest,
+                "distance": float(native["distance"]),
+                "system_id": str(native["system_id"])})
+            count += 1
     for from_id in edges:
         edges[from_id].sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
             return str(a["to"]) < str(b["to"]))
