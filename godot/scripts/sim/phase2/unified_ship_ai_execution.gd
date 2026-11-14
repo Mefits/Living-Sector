@@ -53,6 +53,51 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
     var kind: String = str(action.get("kind", ""))
     var ship: Dictionary = world["ships"][ship_id]
     var location: String = str(ship.get("location", ""))
+    if kind == "GateJump":
+        # Frozen Rust ShipAction::GateJump proposes a N146 command;
+        # position and the gate fee change ONLY in N108's single N39
+        # Apply. Waiting for an actual paired gate is NOT a teleport.
+        var source_gate_location: String = str(action.get("src_gate", ""))
+        var dest_gate_location: String = str(action.get("dest_gate", ""))
+        if source_gate_location.is_empty() or dest_gate_location.is_empty() or (
+                source_gate_location == dest_gate_location):
+            return {"status": Bt.FAILURE, "reason": "n108_invalid_source_gate_leaf"}
+        if location == dest_gate_location and ship.get("transit", {}).is_empty():
+            return {"status": Bt.SUCCESS, "reason": "n108_real_gate_arrival_confirmed"}
+        if location != source_gate_location or not ship.get("transit", {}).is_empty():
+            return {"status": Bt.RUNNING, "reason": "n108_source_gate_arrival_pending"}
+        if not str(ship.get("docked_at", "")).is_empty():
+            return {"status": Bt.RUNNING, "reason": "n108_actual_n21_gate_undock_needed"}
+        var gates: Array = []
+        for fid in world.get("facilities", {}):
+            var fac: Dictionary = world["facilities"][fid]
+            if str(fac.get("type", "")) == "gate" and str(
+                    fac.get("location", "")) == location and fac.get(
+                    "gate_link", null) is Dictionary:
+                gates.append(str(fid))
+        if gates.size() != 1:
+            return {"status": Bt.RUNNING, "reason": "n108_unbuilt_or_ambiguous_source_gate"}
+        var origin: Dictionary = world["facilities"][gates[0]]
+        var paired: String = str(origin["gate_link"].get(
+            "paired_gate_id", ""))
+        var destination: Dictionary = world.get("facilities", {}).get(paired, {})
+        if destination.is_empty() or str(destination.get("type", "")) != "gate" or (
+                str(destination.get("location", "")) != dest_gate_location or
+                not (destination.get("gate_link") is Dictionary) or str(
+                destination["gate_link"].get("paired_gate_id", "")) != str(
+                gates[0])):
+            return {"status": Bt.RUNNING, "reason": "n108_gate_has_no_real_paired_exit"}
+        if int(ship.get("credits", 0)) < 50:
+            return {"status": Bt.RUNNING, "reason": "n108_ship_cannot_pay_source_gate"}
+        # A real fee may exceed Rust's optimistic 50-credit BT
+        # estimate; the authoritative N39/N9 Apply rechecks it.
+        var gate_cmd: Dictionary = Commands.make_command(
+            "RequestGateJump", {"ship": ship_id,
+                "src_gate_location": source_gate_location,
+                "dest_gate_location": dest_gate_location})
+        return {"status": Bt.RUNNING, "commands": [gate_cmd],
+            "reason": "n108_wait_exclusive_real_gate_apply"} if not gate_cmd.is_empty() else {
+            "status": Bt.FAILURE, "reason": "n108_invalid_n146_request"}
     if kind == "Travel":
         var engineering_site: String = str(action.get("construction_site_id", ""))
         if not engineering_site.is_empty():
@@ -460,7 +505,7 @@ static func propose(world: Dictionary, graph: RefCounted,
             if str(command.get("ship", "")) != str(ship_id):
                 return {"ok": false, "reason": "n146_ship_actor_mismatch",
                     "ship_id": str(ship_id)}
-            if str(command.get("kind", "")) in ["RequestDock", "ReleaseDock", "RequestShipTransaction", "RequestRefit", "GrantCrewXp"]:
+            if str(command.get("kind", "")) in ["RequestDock", "ReleaseDock", "RequestShipTransaction", "RequestRefit", "GrantCrewXp", "RequestGateJump"]:
                 # N39 applies these commands in the same physical ships
                 # phase, AFTER the N84 cursor is committed. No side effects
                 # in a BT or command-buffer proposal.
