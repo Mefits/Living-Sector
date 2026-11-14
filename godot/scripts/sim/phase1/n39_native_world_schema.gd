@@ -205,8 +205,23 @@ static func validate(state: Dictionary) -> String:
                     "facility_type", "name"]:
                 if not _id(site.get(field, null)):
                     return "invalid_native_site_" + field
-            if not state["faction_treasuries"].has(str(site["faction_id"])) or not state["bodies"].has(str(site["body_id"])) or not state["markets"].has(str(site["location_name"])):
+            if not state["faction_treasuries"].has(str(site["faction_id"])) or not state["bodies"].has(str(site["body_id"])):
                 return "construction_missing_physical_owner"
+            # Rust colony::commission registers a ConstructionSite BEFORE
+            # any colony dock/market exists. Only an actual colony project
+            # with a source station may lack a destination market.
+            var is_foundation: bool = site.get("labor", {}) is Dictionary and site["labor"].get("colony_source", null) != null
+            if not state["markets"].has(str(site["location_name"])):
+                if not is_foundation or str(site["location_name"]) != str(site["body_id"]) + "-colony" or bool(site.get("completed", false)):
+                    return "construction_missing_physical_owner"
+                var sponsor: String = str(site["labor"].get("colony_source", ""))
+                if not state["markets"].has(sponsor):
+                    return "colony_foundation_missing_real_sponsor"
+                var owner: String = str(state["markets"][sponsor].get("owner", ""))
+                if not state["facilities"].has(owner) or str(state["facilities"][owner].get("faction", "")) != str(site["faction_id"]) or str(state["facilities"][owner].get("type", "")) != "station":
+                    return "colony_foundation_invalid_sponsor"
+                if int(site["progress_delivered"]) != 0 or int(site.get("progress_required", -1)) != 600:
+                    return "colony_foundation_invalid_physical_progress"
             for field in ["progress_required", "progress_delivered", "spawned_at_tick"]:
                 if typeof(site.get(field, null)) != TYPE_INT or int(site[field]) < 0:
                     return "invalid_native_site_progress"
