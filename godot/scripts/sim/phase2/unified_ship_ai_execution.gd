@@ -164,7 +164,32 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             "operation": "pickup", "contract_id": contract_id})
         return {"status": Bt.RUNNING, "commands": [buy_cmd],
             "reason": "n146_n97_actual_purchase"} if not buy_cmd.is_empty() else {"status": Bt.FAILURE}
-    if kind == "DeliverCargo":
+    if kind == "EmbarkPassengers":
+        if str(c.get("contract_type", "")) != "passenger" or str(ship.get("active_contract_id", "")) != contract_id:
+            return {"status": Bt.FAILURE, "reason": "n104_nonpassenger_embark_leaf"}
+        if stage == "picked_up":
+            return {"status": Bt.SUCCESS}
+        if stage != "accepted" or location != str(c.get("source_location", "")) or not (ship.get("transit", {}) as Dictionary).is_empty():
+            return {"status": Bt.RUNNING, "reason": "n104_wait_physical_passenger_origin"}
+        var origin_station: String = str(world.get("markets", {}).get(location, {}).get("owner", ""))
+        if origin_station.is_empty() or not world.get("facilities", {}).has(origin_station):
+            return {"status": Bt.RUNNING, "reason": "n104_missing_real_passenger_source"}
+        var real_dock: String = str(ship.get("docked_at", ""))
+        if real_dock != origin_station:
+            var dock_kind: String = "RequestDock" if real_dock.is_empty() else "ReleaseDock"
+            var dock_cmd: Dictionary = Commands.make_command(dock_kind, {
+                "ship": ship_id, "facility_location": location,
+                "contract_id": contract_id, "preferred_facility_type": "station"})
+            return {"status": Bt.RUNNING, "commands": [dock_cmd],
+                "reason": "n104_wait_real_embark_dock"} if not dock_cmd.is_empty() else {"status": Bt.FAILURE}
+        var boarding: Dictionary = Commands.make_command("RequestShipTransaction", {
+            "ship": ship_id, "request_id": tick, "operation": "passenger_embark",
+            "contract_id": contract_id})
+        return {"status": Bt.RUNNING, "commands": [boarding],
+            "reason": "n146_n104_real_passenger_embark"} if not boarding.is_empty() else {"status": Bt.FAILURE}
+    if kind in ["DeliverCargo", "DeliverPassengers"]:
+        if kind == "DeliverPassengers" and str(c.get("contract_type", "")) != "passenger":
+            return {"status": Bt.FAILURE, "reason": "n104_passenger_leaf_wrong_kind"}
         if stage != "picked_up" or location != str(c.get("destination_location", "")):
             return {"status": Bt.RUNNING, "reason": "n104_delivery_location_unavailable"}
         var destination_owner: String = str(world.get("markets", {}).get(location, {}).get("owner", ""))
@@ -182,7 +207,8 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.FAILURE, "reason": "n104_delivery_wrong_contract"}
         var delivery_cmd: Dictionary = Commands.make_command("RequestShipTransaction", {
             "ship": ship_id, "request_id": tick,
-            "operation": "delivery", "contract_id": contract_id})
+            "operation": "passenger_delivery" if str(c.get("contract_type", "")) == "passenger" else "delivery",
+            "contract_id": contract_id})
         return {"status": Bt.RUNNING, "commands": [delivery_cmd],
             "reason": "n146_n104_real_delivery"} if not delivery_cmd.is_empty() else {"status": Bt.FAILURE}
     if kind == "DockAtShipyard":
@@ -230,8 +256,7 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             "ship": ship_id, "slot": slot, "slug": slug})
         return {"status": Bt.RUNNING, "commands": [command],
             "reason": "n146_n108_paid_refit_request"} if not command.is_empty() else {"status": Bt.FAILURE}
-    if kind in ["SellAll", "Refuel", "DeliverPassengers",
-            "EmbarkPassengers", "Rest"]:
+    if kind in ["SellAll", "Refuel", "Rest"]:
         return {"status": Bt.RUNNING, "reason": "awaiting_native_paid_" + kind}
     if kind == "Idle":
         return {"status": Bt.SUCCESS}
