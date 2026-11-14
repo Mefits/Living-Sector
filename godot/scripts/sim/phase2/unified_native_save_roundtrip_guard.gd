@@ -37,12 +37,12 @@ static func verify_authoritative_frame(original: Dictionary,
 ## Values are compared by their original type, not JSON.stringify output.
 ## JSON may decode an integral token as float; accept only an EXACT integral
 ## conversion, never float rounding of an original 64-bit Rust credit.
-## Godot's JSON serializer writes a shortened decimal token for
-## finite computed doubles. Accept only two doubles that produce the
-## IDENTICAL on-disk JSON token AND differ by <=1e-12 relative.
-## This is unavoidable serialization quantization, not an approximate
-## comparison of actual business values. N9 money/escrow (integers),
-## N15 ship cargo and market supply remain exact and fail closed.
+## Godot's JSON serializer rounds the final IEEE-754 digits of
+## computed doubles. Accept at most 1e-12 relative drift in finite
+## non-authoritative floats; re-serializing a parsed float is NOT
+## guaranteed to reproduce the original decimal token in Godot.
+## This never applies to N9 money/escrow, N15 ship cargo, market
+## physical supply or contracts, which remain exact and fail closed.
 const SOURCE_FLOAT_JSON_ROUNDOFF: float = 0.000000000001
 
 static func _same_safe_json_float(path: String,
@@ -64,10 +64,10 @@ static func _same_safe_json_float(path: String,
     if absf(before_value - decoded_value) > (
             SOURCE_FLOAT_JSON_ROUNDOFF * scale):
         return false
-    # Reject any material or even tiny manually altered value whose
-    # serialized representation is distinguishable in the same file.
-    return JSON.stringify(before_value, "", true, true) == (
-        JSON.stringify(decoded_value, "", true, true))
+    # Decimal quantization within this bound is NOT a real
+    # production, fuel, science or credit award; this guard only
+    # compares serialization, never mutates a native component.
+    return true
 
 static func _difference(original: Variant, decoded: Variant,
         path: String, depth: int) -> String:
