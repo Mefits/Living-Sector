@@ -1,0 +1,133 @@
+name: Living Sector GUT and autonomous world
+
+on:
+  # Single initial integration check when the workflow itself is added.
+  # Ordinary game-code pushes do NOT run this expensive test job.
+  push:
+    branches:
+      - integration/godot-phase2-unified-20261113
+    paths:
+      - .github/workflows/godot-autonomy-gut.yml
+  workflow_dispatch:
+    inputs:
+      ticks:
+        description: "Clean original world ticks, 1..30000 (420 smoke; 10000 soak)"
+        type: string
+        default: "420"
+        required: true
+      strict_delivery:
+        description: "Also run existing genuine N135/N104/N14/N15 paid flight/restart"
+        type: boolean
+        default: false
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: living-sector-autonomy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gut-and-clean-autonomy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install official Godot 4.7.2 Standard (Linux)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot"
+          curl --fail --location --retry 3 --silent --show-error \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          mv "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/godot/godot"
+          chmod +x "$RUNNER_TEMP/godot/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+      - name: Install pinned official GUT 9.7.1 (no vendored forks)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash godot/testing/gut/install-gut.sh godot
+          grep -q 'version="9.7.1"' godot/addons/gut/plugin.cfg
+          test -f godot/tests/gut/test_native_bt.gd
+          test -f godot/tests/gut/test_n9_n38_integrity.gd
+      - name: Import project and third-party plugin once
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p godot/logs/autonomy
+          timeout --signal=TERM --kill-after=5s 90s \
+            godot --headless --path godot --editor --import --quit \
+            > godot/logs/autonomy/editor-import.log 2>&1 || {
+              tail -n 120 godot/logs/autonomy/editor-import.log
+              exit 1
+            }
+      - name: GUT actual native N84/N9/N38 unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 120s \
+            godot --headless --path godot \
+            --script res://addons/gut/gut_cmdln.gd \
+            -gdir=res://tests/gut -gexit \
+            > godot/logs/autonomy/gut.log 2>&1 || {
+              tail -n 140 godot/logs/autonomy/gut.log
+              exit 1
+            }
+          tail -n 65 godot/logs/autonomy/gut.log
+      - name: Clean N158 world — NO player, no patched market demand
+        shell: bash
+        env:
+          LS_AUTONOMY_TICKS: ${{ inputs.ticks || '420' }}
+        run: |
+          set -euo pipefail
+          export LS_AUTONOMY_REPORT="$GITHUB_WORKSPACE/godot/logs/autonomy/report.json"
+          timeout --signal=TERM --kill-after=5s 360s \
+            godot --headless --path godot \
+            --script res://tests/p2_autonomous_world_observer_check.gd \
+            > godot/logs/autonomy/clean-world.log 2>&1 || {
+              tail -n 120 godot/logs/autonomy/clean-world.log
+              test -f godot/logs/autonomy/report.json && cat godot/logs/autonomy/report.json
+              exit 1
+            }
+          tail -n 40 godot/logs/autonomy/clean-world.log
+          python3 - <<'PY'
+          import json
+          with open("godot/logs/autonomy/report.json", encoding="utf-8") as file:
+              data = json.load(file)
+          print("CLEAN_AUTONOMY_EVIDENCE:", {
+              key: data.get(key)
+              for key in ("result", "observed_ticks", "n9_new_receipts",
+                          "physical_market_change_samples",
+                          "observed_any_flight", "observed_n104_payout",
+                          "new_facilities", "new_population_groups",
+                          "new_research_receipts", "actual_tps")
+          })
+          assert data.get("result") == "PASS"
+          assert data.get("manual_ship_commands") == 0
+          assert data.get("injected_goods") == 0
+          assert data.get("injected_orders") == 0
+          PY
+      - name: Optional authentic paid freight + N38 restart proof
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.strict_delivery }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 420s \
+            godot --headless --path godot \
+            --script res://tests/p2_autonomous_multitick_delivery_restart_check.gd \
+            > godot/logs/autonomy/strict-paid-delivery.log 2>&1 || {
+              tail -n 120 godot/logs/autonomy/strict-paid-delivery.log
+              exit 1
+            }
+          tail -n 40 godot/logs/autonomy/strict-paid-delivery.log
+      - name: Upload test logs and clean world JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: living-sector-autonomy-evidence
+          path: godot/logs/autonomy/
+          if-no-files-found: warn
