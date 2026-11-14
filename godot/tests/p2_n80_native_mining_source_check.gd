@@ -107,6 +107,11 @@ static func run_checks() -> Dictionary:
     if Source.stage(unknown, graph, resolver, 500, {
             "miner-a": 1}, real_positions(), 1.0).get("changed", false):
         return {"ok": false, "reason": "n103_invented_market_quotes"}
+    var impossible_flight: Dictionary = real_positions()
+    impossible_flight["ice-field"] = Vector2(100000.0, 0.0)
+    if Source.stage(fixture(), graph, resolver, 500, {
+            "miner-a": 1}, impossible_flight, 1.0).get("changed", false):
+        return {"ok": false, "reason": "n103_accepted_fuel_stranding_route"}
     var severed := FakeGraph.new()
     severed.edges["ice-field"] = []
     if Source.stage(fixture(), severed, resolver, 500, {
