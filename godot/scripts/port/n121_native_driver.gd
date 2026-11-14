@@ -335,9 +335,9 @@ static func _receipted_goal_output(plan: Dictionary) -> bool:
         if str(action.get("kind", "")) != "produce" or not successful.has(
                 str(action.get("action_id", ""))):
             continue
-        for output in action.get("outputs", []):
-            if str(output.get("commodity", "")) == commodity and (
-                    int(output.get("quantity", 0)) > 0):
+        for raw_output in action.get("outputs", []):
+            var output: Dictionary = State.output_spec(raw_output)
+            if not output.is_empty() and str(output["commodity"]) == commodity:
                 return true
     return false
 
