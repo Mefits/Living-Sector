@@ -1,6 +1,6 @@
 {
   "worker": "chat3-final-economic-source-and-acceptance-20261114",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "6a39b7bce44ddda6ca6082fc145e480367743413",
   "goal": "Finish one source command bridge N158->N39 for N109/N110 research charter and native economic mandates, fail closed on unapproved economics, static final gate; preserve single N39/N9/N104, no player balance changes",
@@ -18,5 +18,20 @@
     "balance, AI defaults, new fee or supply",
     "Godot Actions intermediate runs"
   ],
-  "verification": "source pre-acceptance; one final Godot acceptance only after all source is available"
+  "verification": "Code source links checked. Godot smoke CI trigger commit 40bfff2 pushed, push-run result not accessible via linked GitHub status methods; no claim PASS. Windows untested.",
+  "result": "Final Chat3 RC1 feature-source block done. N110 economic mandate empty-on-seed, exact N39 faction-owned station policy control and N109 charter/research now accessible by explicit N158 request_faction_policy. N38/N39 policy JSON protects exact amounts/ticks. Source gate N84 stale marker reconciled with real N104 release. One actual push-triggered Godot smoke on 40bfff2. Real test status unverified.",
+  "commits": [
+    "5ae0ce3",
+    "364521f",
+    "c1cdace",
+    "ce98383",
+    "f653590",
+    "73aa79e",
+    "6256e39",
+    "40bfff2",
+    "eb08499",
+    "abc1e5c"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat3-final-economic-policy-and-gates.md",
+  "remaining": "N109/N110 economic mandate exact N111 source paid authorization/receipt and old N135/N121 source previous-supply quote remain gaps; UI player context and full A/B/V/G Godot Windows acceptance must be proven with actual logs."
 }
