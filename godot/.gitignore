@@ -2,3 +2,7 @@
 logs/
 diagnostics-*.zip
 data/galaxy/
+
+# Optional official GUT 9.7.1 installed from pinned upstream commit.
+# Do not commit 259 third-party addon assets into the simulation source.
+addons/gut/
