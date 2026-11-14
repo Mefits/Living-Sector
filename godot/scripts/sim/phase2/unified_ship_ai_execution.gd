@@ -509,11 +509,11 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "ship_id": str(ship_id)}
         var bt: Variant = ship.get("current_bt", null)
         if bt == null:
+            var recovered: Dictionary = {}
             if not contract_id.is_empty():
                 # Rust resume_contract_bt rebuilds a real GOAP tree
                 # from the current ship, cargo and held N104 contract.
-                var recovered: Dictionary = N104Resume.propose(
-                    ship, held, graph)
+                recovered = N104Resume.propose(ship, held, graph)
                 if recovered.get("ok", false):
                     ship["current_bt"] = recovered["tree"].duplicate(true)
                     ship["current_goal"] = str(recovered["goal"])
