@@ -1,6 +1,7 @@
 extends PanelContainer
 ## N20 observational UI: no command buttons until real executor is wired.
 const ObserverProjection = preload("res://scripts/sim/observer/observer_projection.gd")
+const NativeCrisis = preload("res://scripts/sim/phase2/unified_native_crisis_events.gd")
 const SECTIONS := ["Сводка", "Заказы", "Исследования", "Строительство",
     "Станции", "Производство", "Рынки", "Население", "Флот"]
 var _label: RichTextLabel
@@ -65,6 +66,7 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
     if not (economy.get("facilities") is Dictionary) or not (economy.get("markets") is Dictionary) or not (economy.get("populations") is Dictionary):
         _label.text = "Живая экономика недоступна: нет единого N39 World"
         return
+    var warnings: Dictionary = NativeCrisis.current_warning_state(economy)
     var lines: Array[String] = ["ЖИВАЯ ЭКОНОМИКА · ТИК %d" % tick]
     lines.append("АВТОНОМИЯ: производство / потребление / рынок — исполняются по тикам")
     lines.append("АВТОНОМИЯ N135/N104: оплаченные заявки публикуются в едином N39 World")
@@ -325,6 +327,16 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
             lines.append("    ремонт: %s" % (
                 "есть собственные Tools; требуется оплаченная смена"
                 if tools >= 1.0 else "ожидание закупки собственных Tools"))
+    # Authoritative warning flags are read, never set by the Observer.
+    # A facility below the Rust 0.3 threshold without a committed flag
+    # is displayed as NOT WIRED, not as an event that already fired.
+    if warnings.get("ok", false):
+        for item in warnings["active_facilities"]:
+            lines.append("  Rust Bundle(S) объект %s: сохранён сигнал, состояние %.2f" % [
+                str(item["facility_id"]), float(item["condition"])])
+        for item in warnings["pending_facilities"]:
+            lines.append("  Rust Bundle(S) объект %s: состояние %.2f, сигнал ещё не записан N39" % [
+                str(item["facility_id"]), float(item["condition"])])
     lines.append("N156: заброшено %d · изношено (<0.8) %d · с Tools для ремонта %d" % [
         abandoned_count, worn_count, repair_ready_count])
     lines.append("ОПЛАЧЕННЫЕ СМЕНЫ / ПРОИЗВОДСТВО:")
@@ -386,6 +398,13 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
             for commodity in price_ids:
                 price_items.append("%s=%s" % [str(commodity), str(prices[commodity])])
             lines.append("    цены: %s" % [", ".join(price_items) if not price_items.is_empty() else "нет"])
+    if warnings.get("ok", false):
+        for item in warnings["active_markets"]:
+            lines.append("  Rust Bundle(S) рынок %s: %s · флаг дефицита сохранён · тиков %d" % [
+                str(item["location"]), str(item["commodity"]), int(item["shortage_ticks"])])
+    else:
+        lines.append("  Rust Bundle(S): некорректные данные источника (" +
+            str(warnings.get("reason", "unknown")) + ")")
     lines.append("НАСЕЛЕНИЕ / БЛАГОСОСТОЯНИЕ:")
     var last_migration: Dictionary = summary.get("population_last_migration", {})
     if not last_migration.is_empty():
@@ -489,7 +508,7 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
         lines.append("Доставка считается завершённой только после N104 receipt и физического N15/N97 Apply.")
     lines.append("N134/N100/N155 стратегические планировщики: полная автономия ещё не подтверждена.")
     _split_diagnostics(lines)
-    _section_texts["Сводка"] = _compact_summary(tick, economy, summary, ships, contracts)
+    _section_texts["Сводка"] = _compact_summary(tick, economy, summary, ships, contracts, warnings)
     _show_selected()
 
 ## Keep complete N9/N104/N14 evidence in its own page, but never force
@@ -559,7 +578,7 @@ static func demand_diagnosis(economy: Dictionary, summary: Dictionary) -> String
     return "N135: спрос пока покрыт запасами; заказов нет"
 
 static func _compact_summary(tick: int, economy: Dictionary, summary: Dictionary,
-        ships: Dictionary, contracts: Dictionary) -> String:
+        ships: Dictionary, contracts: Dictionary, warnings: Dictionary = {}) -> String:
     var active: int = 0
     for contract in contracts.values():
         if contract is Dictionary and str(contract.get("status", "")) in ["posted", "accepted", "picked_up", "delivered"]:
@@ -595,6 +614,11 @@ static func _compact_summary(tick: int, economy: Dictionary, summary: Dictionary
             int(summary.get("last_mining_facilities", 0)),
             int(summary.get("last_recipe_facilities", 0))],
         "Покупки Food/Water: %d" % int(summary.get("population_purchases", 0)),
+        "Rust сигналы: рынок %d · объекты %d · ожидают N39 %d" % [
+            int(warnings.get("market_count", 0)),
+            int(warnings.get("facility_count", 0)),
+            int(warnings.get("pending_facility_count", 0))] if warnings.get("ok", false)
+            else "Rust сигналы: источник пока недоступен",
         "",
         "РАЗВИТИЕ",
         "Исследования: оплаченных смен %d" % int(summary.get("research_paid_shifts", 0)),
