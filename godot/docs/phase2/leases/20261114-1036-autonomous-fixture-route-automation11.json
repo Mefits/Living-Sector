@@ -1,0 +1,10 @@
+{
+  "worker": "automation11",
+  "status": "IN_PROGRESS",
+  "scope": [
+    "godot/tests/p2_autonomous_multitick_delivery_restart_check.gd"
+  ],
+  "goal": "Route-aware native demand fixture, preserve actual N135/N153 decisions",
+  "started_at": "2026-11-14T10:36:55+03:00",
+  "expires_at": "2026-11-14T11:20:00+03:00"
+}
