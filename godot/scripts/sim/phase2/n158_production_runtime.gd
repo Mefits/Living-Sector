@@ -945,22 +945,22 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                             "reason": "n108_unverified_native_shipyard_actor"}
                         return false
                     var refit_op: String = "n108:refit:" + ship_id + ":" + operation + ":" + str(tick)
-                    var refit_dock: Dictionary = FleetLogistics.command(
-                        snapshot, operation, ship_id, refit_op, tick, {},
-                        "shipyard")
+                    var refit_dock: Dictionary = production.apply_native_n21_request(
+                        tick, ship_id, str(ship.get("location", "")), operation,
+                        "shipyard" if operation == "dock" else "")
                     if not refit_dock.get("ok", false):
                         _last_ship_result["autonomous_blocked"].append({
                             "ship_id": ship_id, "reason": "n108_n21_" +
                                 str(refit_dock.get("reason", "shipyard_dock_unavailable"))})
                         continue
                     var allotted: String = str(refit_dock.get("receipt", {}).get("facility_id", ""))
+                    if str(refit_dock.get("status", "")) == "queued":
+                        _last_ship_result["autonomous_blocked"].append({
+                            "ship_id": ship_id, "reason": "n21_waiting_fifo_shipyard"})
+                        continue
                     if operation == "dock" and str(snapshot.get("facilities", {}).get(allotted, {}).get("type", "")) != "shipyard":
                         _last_ship_result = {"ok": false,
                             "reason": "n108_non_shipyard_dock_was_allocated"}
-                        return false
-                    if not production.apply_fleet_logistics(tick, refit_dock, true):
-                        _last_ship_result = {"ok": false,
-                            "reason": "n108_real_shipyard_n21_apply_rejected"}
                         return false
                     _last_ship_result["n21_auto_dock"].append({
                         "ship_id": ship_id, "facility_id": allotted,
@@ -1000,17 +1000,18 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                                 "reason": "n151_no_original_temporary_n21_dock"})
                             continue
                         site_dock_type = "construction_dock"
-                    var real_request: Dictionary = FleetLogistics.command(
-                        snapshot, operation, ship_id, op_id, tick, {},
-                        site_dock_type)
+                    var real_request: Dictionary = production.apply_native_n21_request(
+                        tick, ship_id, str(ship.get("location", "")), operation,
+                        site_dock_type if operation == "dock" else "")
                     if not real_request.get("ok", false):
                         _last_ship_result["autonomous_blocked"].append({
                             "ship_id": ship_id, "site_id": construction_site_id,
                             "reason": "n91_n21_" + str(real_request.get("reason", "real_dock_unavailable"))})
                         continue
-                    if not production.apply_fleet_logistics(tick, real_request, true):
-                        _last_ship_result = {"ok": false, "reason": "n91_n21_atomic_dock_rejected"}
-                        return false
+                    if str(real_request.get("status", "")) == "queued":
+                        _last_ship_result["autonomous_blocked"].append({
+                            "ship_id": ship_id, "reason": "n21_waiting_fifo_construction"})
+                        continue
                     _last_ship_result["n21_auto_dock"].append({
                         "ship_id": ship_id, "site_id": construction_site_id,
                         "operation": operation, "location": str(ship.get("location", ""))})
