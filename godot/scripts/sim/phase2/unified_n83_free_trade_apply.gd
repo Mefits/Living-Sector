@@ -94,8 +94,11 @@ static func stage(world: Dictionary, original_ledger: Dictionary,
     var kind: String = str(request.get("kind", ""))
     if kind not in ["buy", "sell"] or str(request.get("location", "")) != str(ship.get("location", "")):
         return _bad("n83_wrong_original_free_trade_request")
+    var current_goal: String = str(ship.get("current_goal", ""))
+    var source_ice_sale: bool = current_goal == "mine" and kind == "sell" and (
+        str(request.get("commodity", "")) == "ice")
     if not str(ship.get("active_contract_id", "")).is_empty() or (
-            str(ship.get("current_goal", "")) != "trade_route"):
+            current_goal != "trade_route" and not source_ice_sale):
         return _bad("n83_ship_has_other_live_obligation")
     if str(ship.get("docked_at", "")) != str(projection["facility_id"]):
         # Native N97 will also enforce docked_ships and all balances;
