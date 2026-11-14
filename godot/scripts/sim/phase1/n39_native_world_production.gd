@@ -532,7 +532,10 @@ func apply_autonomous_contract_cargo(tick: int, ship_id: String,
             return {"ok": false, "fatal": true, "reason": "paid_delivery_altered_other_ship"}
     var ship_fields: Array[String] = ["cargo", "credits"]
     if operation == "delivery":
-        ship_fields.append_array(["active_contract_id", "current_goal", "current_bt", "max_source_cost"])
+        # Native N101 ship XP/retrofit points are credited ONLY by the
+        # same actual N97/N104 paid delivery receipt.
+        ship_fields.append_array(["active_contract_id", "current_goal",
+            "current_bt", "max_source_cost", "progression"])
     for field in original_ship:
         if field not in ship_fields and changed_ship.get(field, null) != original_ship[field]:
             return {"ok": false, "fatal": true, "reason": "paid_delivery_changed_ship_state"}
