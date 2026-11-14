@@ -65,12 +65,12 @@ static func propose(ship: Dictionary, contract: Dictionary,
             status not in ["accepted", "picked_up"] or
             origin.is_empty() or source.is_empty() or dest.is_empty()):
         return {"ok": false, "reason": "n104_no_active_original_obligation"}
-    var source_kind: String = {
+    var source_kind: String = str({
         "delivery": "Delivery", "construction": "Construction",
         "supply": "Supply", "subsidy": "Subsidy",
-        "courier": "Courier",
-        "passenger": "Passenger", "crew_mission": "CrewMission"
-    }.get(kind, "")
+        "courier": "Courier", "passenger": "Passenger",
+        "crew_mission": "CrewMission"
+    }.get(kind, ""))
     if source_kind.is_empty():
         return {"ok": false, "reason": "n104_unknown_native_resume_catalog"}
     var cargo: Variant = ship.get("cargo", null)
