@@ -334,6 +334,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_ship_result["n84_trace"] = planned.get("trace", []).duplicate(true)
         _last_ship_result["n146_command_count"] = planned.get("commands", []).size()
         _last_ship_result["n97_paid_moves"] = []
+        _last_ship_result["n108_paid_refits"] = []
         _last_ship_result["n21_auto_dock"] = []
         for command in planned.get("commands", []):
             var kind: String = str(command.get("kind", ""))
@@ -361,6 +362,42 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 # authorize its N21 dock against the actual N154 site and
                 # the persisted N84 Construct target, NOT an invented
                 # N104 cargo contract.
+                # A source N108 retrofit is not a delivery contract.
+                # Its N21 dock must be an actual shipyard slot, whereas
+                # N97 continues to dock only at original market stations.
+                if bool(command.get("native_refit", false)):
+                    var refit_bt: Variant = ship.get("current_bt", null)
+                    var refit_goal: String = str(ship.get("current_goal", ""))
+                    var refit_valid: bool = refit_goal in ["refit", "retrofit"]
+                    refit_valid = refit_valid and str(ship.get("active_contract_id", "")).is_empty()
+                    refit_valid = refit_valid and refit_bt is Dictionary and NativeBt.validate(refit_bt)
+                    refit_valid = refit_valid and str(command.get("facility_location", "")) == str(ship.get("location", ""))
+                    if not refit_valid:
+                        _last_ship_result = {"ok": false,
+                            "reason": "n108_unverified_native_shipyard_actor"}
+                        return false
+                    var refit_op: String = "n108:refit:" + ship_id + ":" + operation + ":" + str(tick)
+                    var refit_dock: Dictionary = FleetLogistics.command(
+                        snapshot, operation, ship_id, refit_op, tick, {},
+                        "shipyard")
+                    if not refit_dock.get("ok", false):
+                        _last_ship_result["autonomous_blocked"].append({
+                            "ship_id": ship_id, "reason": "n108_n21_" +
+                                str(refit_dock.get("reason", "shipyard_dock_unavailable"))})
+                        continue
+                    var allotted: String = str(refit_dock.get("receipt", {}).get("facility_id", ""))
+                    if operation == "dock" and str(snapshot.get("facilities", {}).get(allotted, {}).get("type", "")) != "shipyard":
+                        _last_ship_result = {"ok": false,
+                            "reason": "n108_non_shipyard_dock_was_allocated"}
+                        return false
+                    if not production.apply_fleet_logistics(tick, refit_dock, true):
+                        _last_ship_result = {"ok": false,
+                            "reason": "n108_real_shipyard_n21_apply_rejected"}
+                        return false
+                    _last_ship_result["n21_auto_dock"].append({
+                        "ship_id": ship_id, "facility_id": allotted,
+                        "operation": operation, "kind": "real_shipyard"})
+                    continue
                 var construction_site_id: String = str(command.get("construction_site_id", ""))
                 if not construction_site_id.is_empty():
                     var site: Dictionary = snapshot.get("construction_sites", {}).get(construction_site_id, {})
@@ -423,6 +460,24 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 _last_ship_result["n21_auto_dock"].append({
                     "ship_id": ship_id, "contract_id": cid,
                     "operation": operation, "location": expected_loc})
+                continue
+            if kind == "RequestRefit":
+                var slot: String = str(command.get("slot", ""))
+                var slug: String = str(command.get("slug", ""))
+                var refit: Dictionary = production.apply_native_shipyard_refit(
+                    tick, ship_id, slot, slug)
+                if refit.get("ok", false):
+                    _last_ship_result["n108_paid_refits"].append(
+                        refit.duplicate(true))
+                elif refit.get("fatal", false):
+                    _last_ship_result = {"ok": false,
+                        "reason": str(refit.get("reason",
+                            "n108_single_n39_n9_refit_failed"))}
+                    return false
+                else:
+                    _last_ship_result["autonomous_blocked"].append({
+                        "ship_id": ship_id, "reason": "n108_" +
+                            str(refit.get("reason", "shipyard_module_unavailable"))})
                 continue
             if kind == "RequestShipTransaction":
                 var cid: String = str(command.get("contract_id", ""))
@@ -790,6 +845,7 @@ func economy_summary() -> Dictionary:
         "n146_accept_commands": int(_last_n153_result.get("n146_accept_commands", 0)),
         "n146_ship_commands": int(_last_ship_result.get("n146_command_count", 0)),
         "n97_paid_deliveries_this_tick": _last_ship_result.get("n97_paid_moves", []).size(),
+        "n108_paid_refits_this_tick": _last_ship_result.get("n108_paid_refits", []).size(),
         "n21_autonomous_dock_ops": _last_ship_result.get("n21_auto_dock", []).size(),
         "n153_first_blocker": n153_first_blocker,
         "contract_admissions_blocked": _last_contract_admissions.get("blocked", []).size(),
