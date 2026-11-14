@@ -8,6 +8,7 @@ const ShipState = preload("res://scripts/sim/ship_state.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const Technology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
 const Construction = preload("res://scripts/sim/phase1/n154_native_construction_materialize.gd")
+const NativeRelations = preload("res://scripts/sim/phase1/n150_native_full_faction_relations.gd")
 
 static func validate(state: Dictionary) -> String:
     for key in ["facilities", "markets", "populations", "bodies"]:
