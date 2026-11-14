@@ -61,6 +61,27 @@ func _initialize() -> void:
         }
         report["results"].append(metrics)
         print("SIM_BENCH ", JSON.stringify(metrics))
+    # Intermediate state checks catch timing differences hidden by matching endpoints.
+    var checkpoints: Array = []
+    for checkpoint in [5, 10, 30, 365]:
+        if checkpoint >= horizon:
+            continue
+        var baseline_at_tick: Dictionary = Runner.run(
+            "tick", int(options["plants"]), int(options["ships"]),
+            checkpoint, int(options["seed"]))
+        if not baseline_at_tick.get("ok", false):
+            failures.append("tick audit at checkpoint " + str(checkpoint))
+            continue
+        for other in ["event", "hybrid"]:
+            var candidate_at_tick: Dictionary = Runner.run(
+                other, int(options["plants"]), int(options["ships"]),
+                checkpoint, int(options["seed"]))
+            if not candidate_at_tick.get("ok", false):
+                failures.append(str(other) + " audit at checkpoint " + str(checkpoint))
+            elif candidate_at_tick["state"] != baseline_at_tick["state"]:
+                failures.append(str(other) + " diverges at tick " + str(checkpoint))
+        checkpoints.append(checkpoint)
+    report["checked_intermediate_ticks"] = checkpoints
     report["equivalent"] = failures.is_empty()
     report["failures"] = failures.duplicate()
     var local_path: String = ProjectSettings.globalize_path(
