@@ -1526,7 +1526,35 @@ func post_native_passenger_migration(tick: int, ready: Dictionary,
         return {"ok": false, "reason": "n147_stale_or_forged_n134_decision"}
     var grant: Dictionary = NativeN147Head.authorize(
         _world, faction, ready, baseline, tick)
-    if not grant.get("ok", false) or not grant.get("authorized", false):
+    if not grant.get("ok", false):
+        return grant
+    if not grant.get("authorized", false):
+        # Frozen Rust N113 persists a first-cycle pending strategy in
+        # Director::strategic but DOES NOT post a paid passenger order.
+        # Stage ONLY that original per-faction memory in the same N39 World.
+        if grant.get("strategy") is Dictionary:
+            var current: Dictionary = _world.get(
+                "research_directors", {}).get(faction, {})
+            if current.is_empty():
+                return {"ok": false, "fatal": true,
+                    "reason": "n113_pending_missing_original_director"}
+            var next_world: Dictionary = _world.duplicate(true)
+            next_world["research_directors"][faction][
+                "strategic"] = grant["strategy"].duplicate(true)
+            var invalid: String = Schema.validate(next_world)
+            if not invalid.is_empty() or Schema.accounts(
+                    next_world) != Schema.accounts(_world):
+                return {"ok": false, "fatal": true,
+                    "reason": "n113_pending_changed_canonical_source:" +
+                        invalid}
+            _world = next_world
+            return {"ok": true, "authorized": false,
+                "status": "N113_REAL_STRATEGY_NO_N104_CONTRACT",
+                "reason": str(grant.get("reason", "")),
+                "tick": tick, "faction_id": faction,
+                "pending": bool(grant.get("pending", false)),
+                "memory": grant["strategy"].duplicate(true),
+                "money_spent": 0}
         return grant
     var plan: Dictionary = NativePassengers.post_migration(_world,
         _ledger.snapshot(), ready, tick, multiplier, graph)
