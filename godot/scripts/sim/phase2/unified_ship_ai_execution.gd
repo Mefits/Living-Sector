@@ -14,6 +14,11 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
     var ship: Dictionary = world["ships"][ship_id]
     var location: String = str(ship.get("location", ""))
     if kind == "Travel":
+        var engineering_site: String = str(action.get("construction_site_id", ""))
+        if not engineering_site.is_empty():
+            var actual_site: Dictionary = world.get("construction_sites", {}).get(engineering_site, {})
+            if actual_site.is_empty() or str(ship.get("current_goal", "")) != "construct" or str(ship.get("active_contract_id", "")) != "" or str(actual_site.get("faction_id", "")) != str(ship.get("faction_id", "")):
+                return {"status": Bt.FAILURE, "reason": "n91_unverified_engineering_travel"}
         var to: String = str(action.get("destination", ""))
         if to.is_empty() or not graph.has_location(to):
             return {"status": Bt.FAILURE, "reason": "invalid_native_bt_travel"}
@@ -39,7 +44,7 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             "reason": "issued_n146_begin_transit"}
     # N91 construction is a noncommercial real engineering task, NOT
     # a fictitious N104 payment. N141 alone awards paid progress.
-    if kind in ["ConstructionDock", "Construct"]:
+    if kind in ["ConstructionUndock", "ConstructionDock", "Construct"]:
         var site_id: String = str(action.get("site_id", ""))
         var site: Dictionary = world.get("construction_sites", {}).get(site_id, {})
         if site.is_empty():
@@ -49,6 +54,20 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
         if not ShipCatalog.spec(str(ship.get("class", ""))).get("crew_roles", []).has("engineer"):
             return {"status": Bt.FAILURE, "reason": "n91_no_engineering_crew"}
         var site_location: String = str(site.get("location_name", ""))
+        if kind == "ConstructionUndock":
+            if not ship.get("transit", {}).is_empty():
+                return {"status": Bt.RUNNING, "reason": "n91_undock_waiting_for_flight"}
+            var old_dock: String = str(ship.get("docked_at", ""))
+            if old_dock.is_empty():
+                return {"status": Bt.SUCCESS, "reason": "n91_released_real_origin_dock"}
+            var origin_station: Dictionary = world.get("facilities", {}).get(old_dock, {})
+            if origin_station.is_empty() or str(origin_station.get("location", "")) != location:
+                return {"status": Bt.FAILURE, "reason": "n91_invalid_engineer_origin_dock"}
+            var unmoor: Dictionary = Commands.make_command("ReleaseDock", {
+                "ship": ship_id, "facility_location": location,
+                "construction_site_id": site_id})
+            return {"status": Bt.RUNNING, "commands": [unmoor],
+                "reason": "n91_real_origin_n21_undock"} if not unmoor.is_empty() else {"status": Bt.FAILURE}
         if location != site_location or not ship.get("transit", {}).is_empty():
             return {"status": Bt.RUNNING, "reason": "n91_site_arrival_pending"}
         var station_id: String = str(world.get("markets", {}).get(location, {}).get("owner", ""))
