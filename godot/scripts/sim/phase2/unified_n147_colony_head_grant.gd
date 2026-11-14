@@ -6,6 +6,7 @@ extends RefCounted
 ## validation/proposal: the one N39 World/N9/ContractBoard owns Apply.
 const SourceMigrationScore: float = 60.0
 const SourceN113 = preload("res://scripts/sim/phase2/unified_n113_strategy_switch.gd")
+const SourceN113Candidates = preload("res://scripts/sim/phase2/unified_n113_original_candidates.gd")
 
 ## Frozen Rust director.rs::option_score for CURRENT authentic N111
 ## alternative, never stale N113.strategic.score or a synthetic bid.
@@ -73,7 +74,9 @@ static func _fail(why: String) -> Dictionary:
     return {"ok": false, "reason": why}
 
 static func authorize(world: Dictionary, faction: String, ready: Dictionary,
-        baseline: Dictionary, tick: int) -> Dictionary:
+        baseline: Dictionary, tick: int, sources: Dictionary = {},
+        original: RefCounted = null, graph: RefCounted = null,
+        multiplier: int = 1) -> Dictionary:
     if tick <= 0 or faction.is_empty() or not (
             world.get("faction_treasuries") is Dictionary) or not (
             world.get("research_directors") is Dictionary) or not (
@@ -151,13 +154,38 @@ static func authorize(world: Dictionary, faction: String, ready: Dictionary,
     var real_supply: Dictionary = _native_supply_offer(baseline, director)
     if not real_supply.is_empty():
         options.append(real_supply)
-    # The construction-only N134 bridge cannot reconstruct a historical
-    # alternate supply quote, or score a current science/expansion offer.
-    # Preserve those commitments, rather than falsely claiming they
-    # vanished and switching on an invented comparator score.
-    if incumbent in ["research", "expand"] or (
+    var resolved_previous: bool = false
+    if original != null and graph != null:
+        # Same N39 World, real N143 paid research readiness, real N144
+        # colonies, and source N111 recomparison of the prior supply.
+        # This is NOT an additional strategy tick or cloned director.
+        var current: Dictionary = SourceN113Candidates.project(
+            world, sources, original, graph,
+            faction, baseline, tick, multiplier)
+        if not current.get("ok", false):
+            return {"ok": true, "authorized": false,
+                "reason": str(current.get("reason",
+                    "n113_original_source_candidates_unavailable"))}
+        resolved_previous = bool(current.get("prior_supply_resolved", false))
+        for candidate in current.get("offers", []):
+            # On duplicated action+target use the actual source N134
+            # Head score, never double-count the same incumbent.
+            var duplicate: bool = false
+            for existing in options:
+                if str(existing.get("action", "")) == str(
+                        candidate.get("action", "")) and str(
+                        existing.get("target", "")) == str(
+                        candidate.get("target", "")):
+                    duplicate = true
+                    break
+            if not duplicate:
+                options.append(candidate.duplicate(true))
+    # An original previously funded choice must not be declared extinct
+    # merely because a narrower, construction-only adapter omitted it.
+    if incumbent in ["research", "expand"] and original == null or (
             incumbent == "supply" and (real_supply.is_empty() or
-            str(real_supply.get("target", "")) != current_target)):
+            str(real_supply.get("target", "")) != current_target) and
+            not resolved_previous):
         return {"ok": true, "authorized": false,
             "reason": "n113_original_incumbent_needs_real_comparison"}
     var source_choice: Dictionary = SourceN113.decide(memory, options, tick)
@@ -165,6 +193,16 @@ static func authorize(world: Dictionary, faction: String, ready: Dictionary,
         return source_choice
     if source_choice.get("choice", {}).get("action", "") != "migrate" or (
             str(source_choice.get("choice", {}).get("target", "")) != destination):
+        # This N147 path is not a second Head owner of research/expansion
+        # actions. If a newly elected NON-migration choice differs from
+        # the retained incumbent, its real N134/N143/N144 grant belongs
+        # to its own phase; do not install a fake Director choice here.
+        var elected: Dictionary = source_choice.get("choice", {})
+        if not elected.is_empty() and (
+                str(elected.get("action", "")) != incumbent or
+                str(elected.get("target", "")) != current_target):
+            return {"ok": true, "authorized": false,
+                "reason": "n113_nonmigration_grant_owned_by_original_phase"}
         # One first-cycle or insufficient-advantage decision only updates
         # N113 StrategicMemory; NOT a passenger post or paid vote.
         return {"ok": true, "authorized": false, "pending": bool(
