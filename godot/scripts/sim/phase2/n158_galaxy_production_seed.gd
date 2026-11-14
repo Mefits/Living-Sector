@@ -56,6 +56,9 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         "ship_next_token": 1, "dock_receipts": {}, "cargo_receipts": {},
         "contract_board": {"version": 1, "contracts": {}, "receipt_claims": {}},
         "escrow_balances": {},
+        # Frozen faction-relations DB starts with no explicit pairs;
+        # unspecified relations read as Neutral with standing 0.
+        "faction_relations": {}, "faction_relations_last_tick": 0,
         "station_executing": false
     }
     for faction in factions:
