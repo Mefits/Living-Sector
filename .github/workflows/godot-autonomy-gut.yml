@@ -83,7 +83,11 @@ jobs:
       - name: Clean N158 world — NO player, no patched market demand
         shell: bash
         env:
-          LS_AUTONOMY_TICKS: ${{ inputs.ticks || '420' }}
+          # The fully trading 420-tick World exceeded the 360s
+          # runner budget (43654281125). Profile 100 real native
+          # ticks on this one push to localize the actual hot path.
+          # workflow_dispatch retains arbitrary explicit tick count.
+          LS_AUTONOMY_TICKS: ${{ github.event_name == 'push' && '100' || inputs.ticks || '420' }}
           LS_PROFILE_NATIVE_PHASES: "1"
         run: |
           set -euo pipefail
