@@ -1,9 +1,9 @@
 {
   "worker": "second-chat-colony-20261114",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "3ac69d5bdb4a8b9fa0df02a2b3debe008b5263d9",
-  "goal": "Rust engine/colony.rs prepare_docks: real temporary construction_dock and zero household on approved N151 sites; physical N21 + passenger landing integration without ghost market/wealth",
+  "goal": "Native Rust N151 prepare_docks physical zero-resident colony dock and N21/N104/N91 marketless destination, source-wired in N158/N39; N144 head and N154 establish pending",
   "scope": [
     "godot/scripts/sim/phase2/unified_n151_colony_dock_phase.gd (new)",
     "godot/scripts/sim/phase1/n39_native_world_schema.gd (dock/household invariants only)",
@@ -11,9 +11,15 @@
     "godot/scripts/sim/phase2/n158_production_runtime.gd (N151 phase call/restore)",
     "godot/scripts/sim/phase2/unified_n104_passenger_transit.gd (destination colony dock only)",
     "godot/scripts/sim/phase2/unified_ship_ai_execution.gd (real destination dock selection)",
-    "godot/scripts/sim/phase2/unified_fleet_logistics_phase.gd (if required)"
+    "godot/scripts/sim/phase2/unified_fleet_logistics.gd (N21 construction_dock only)",
+    "godot/scripts/sim/phase2/unified_facility_lifecycle_phase.gd (no unearned seller)",
+    "godot/scripts/sim/phase2/unified_service_restock_phase.gd (marketless dock skip)",
+    "godot/tests/p2_n151_original_temporary_dock_check.gd (new, NOT RUN)",
+    "godot/docs/phase2/handoffs/20261114-second-chat-n151-native-temporary-dock.md"
   ],
   "non_overlap": "No N148 retire, no N134 construction funding, no N154 materialization or balance/UI changes",
-  "verification": "SOURCE IN PROGRESS; Godot/Actions not run",
-  "handoff": "pending"
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED; static preloads/brackets/line-end checks only for 10 files; Godot, user tests and Actions 0. N149 owner concurrently editing unrelated N39/N158/Schema sections; no edits after overlap discovered.",
+  "handoff": "godot/docs/phase2/handoffs/20261114-second-chat-n151-native-temporary-dock.md",
+  "code_head": "51a1fa9892ccc71bb2ba1e6062e54f71b1cadb01",
+  "released_on": "2026-11-14"
 }
