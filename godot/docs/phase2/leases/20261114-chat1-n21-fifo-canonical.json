@@ -1,0 +1,20 @@
+{
+  "worker": "chat1-continuation-n21-fifo",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "6092f9652fc4c1ab7bf17d90c204d4487eb8c95d",
+  "goal": "Port frozen Rust N21 FIFO dock_queue to the same N39 World and N158 dock_queue phase; preserve real fees via N9, N38 persistent queues, source stale/insolvent pruning; no second queue world",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n21_dock_queue_stage.gd (new original pure queue admission/prune)",
+    "godot/scripts/sim/phase2/unified_fleet_logistics.gd (N21 queue intent and exact dock)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (single authoritative N21 queue and N9 payment commit)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (persisted queue invariants)",
+    "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd (real source empty storage queue)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (native dock_queue phase not N140)",
+    "godot/tests/p2_n21_fifo_paid_source_check.gd (deferred)",
+    "godot/docs/phase2/handoffs/20261114-chat1-n21-fifo.md"
+  ],
+  "coordination": "Chat3 V2,V4 and Chat2 B4 leases RELEASED; no balance threshold change; actual N39/N9/N38 authority only, no Godot/Actions intermediate runs",
+  "verification": "IN_PROGRESS SOURCE_ONLY",
+  "started": "2026-11-14"
+}
