@@ -59,6 +59,7 @@ const N146Commands = preload("res://scripts/simulation/native_sim_command_buffer
 const NativeFreeTrade = preload("res://scripts/sim/phase2/unified_n83_free_trade_apply.gd")
 const NativeShipServices = preload("res://scripts/sim/phase2/unified_n97_ship_service_stage.gd")
 const N21Source = preload("res://scripts/sim/phase2/unified_n21_dock_queue_stage.gd")
+const NativeN104Release = preload("res://scripts/sim/phase2/unified_n104_release_stage.gd")
 const NativeGateJump = preload("res://scripts/sim/phase2/unified_n108_gate_jump_stage.gd")
 const NativeGatePair = preload("res://scripts/sim/phase2/unified_n108_gate_pair_stage.gd")
 const NativeCrisisPhase = preload("res://scripts/sim/phase2/unified_native_crisis_phase.gd")
@@ -1249,6 +1250,80 @@ func apply_native_n21_dock_queue(tick: int) -> Dictionary:
         return {"ok": false, "reason": "n21_not_original_dock_queue_phase"}
     return _commit_native_n21(N21Source.advance(
         _world, _ledger.snapshot(), tick))
+
+
+## Frozen Rust SimCommand::ReleaseContract (N146) is applied AFTER
+## N84 ship intent was saved. Only accepted+matching fulfiller may
+## return to Posted; N9 reserved escrow and all real N15 cargo remain.
+## N39 is the ONLY publisher. No parallel Board/ledger/ship registry.
+func apply_native_n104_release_contract(tick: int, ship_id: String,
+        contract_id: String, reason: String) -> Dictionary:
+    if not _ready or tick != _last_tick + 1 or tick < 1:
+        return {"ok": false, "fatal": true,
+            "reason": "n104_release_not_native_ship_phase"}
+    if not _world.get("ships", {}).has(ship_id) or str(_world[
+            "ships"][ship_id].get("planning_source", "")) != (
+            "n104_pending_release_on_bt_failure"):
+        return {"ok": false, "fatal": true,
+            "reason": "n104_release_not_from_real_n84_failure"}
+    var candidate: Dictionary = NativeN104Release.stage(
+        _world, tick, ship_id, contract_id, reason)
+    if not candidate.get("ok", false):
+        return {"ok": false, "fatal": true,
+            "reason": str(candidate.get("reason", "n104_source_release_rejected"))}
+    if not candidate.get("changed", false):
+        return {"ok": true, "status": "GUARDED_NO_OP", "changed": false}
+    var next: Dictionary = candidate["world"]
+    if next.size() != _world.size():
+        return {"ok": false, "fatal": true,
+            "reason": "n104_release_changed_world_domain"}
+    for key in _world:
+        if key not in ["ships", "contract_board", "faction_relations"] and (
+                next.get(key, null) != _world[key]):
+            return {"ok": false, "fatal": true,
+                "reason": "n104_release_modified_unrelated_domain"}
+    var old_board: Dictionary = _world["contract_board"]
+    var updated: Dictionary = next["contract_board"]
+    if updated.get("version") != old_board.get("version") or (
+            updated.get("receipt_claims") != old_board.get("receipt_claims") or
+            updated.get("contracts", {}).size() != old_board.get(
+                "contracts", {}).size()):
+        return {"ok": false, "fatal": true,
+            "reason": "n104_release_changed_historical_contracts"}
+    for id in old_board["contracts"]:
+        if str(id) != contract_id and updated["contracts"].get(id, null) != (
+                old_board["contracts"][id]):
+            return {"ok": false, "fatal": true,
+                "reason": "n104_release_modified_other_paid_contract"}
+    for id in _world["ships"]:
+        if str(id) != ship_id and next["ships"].get(id, null) != (
+                _world["ships"][id]):
+            return {"ok": false, "fatal": true,
+                "reason": "n104_release_modified_other_ship"}
+    var old_ship: Dictionary = _world["ships"][ship_id]
+    var new_ship: Dictionary = next["ships"][ship_id]
+    var permitted: Dictionary = old_ship.duplicate(true)
+    for key in ["active_contract_id", "current_goal", "current_bt",
+            "current_goal_score", "dock_attempt_start_tick",
+            "planning_source", "faction_reputation"]:
+        if new_ship.has(key):
+            permitted[key] = new_ship[key]
+    if new_ship != permitted:
+        return {"ok": false, "fatal": true,
+            "reason": "n104_release_modified_physical_ship"}
+    if Schema.validate(next) != "":
+        return {"ok": false, "fatal": true,
+            "reason": "n104_release_source_schema_invalid"}
+    var expected_accounts: Dictionary = Schema.accounts(next)
+    var actual_money: Dictionary = _ledger.snapshot()
+    if expected_accounts != actual_money.get("balances", {}):
+        return {"ok": false, "fatal": true,
+            "reason": "n104_release_changed_prepaid_n9_escrow"}
+    _world = next.duplicate(true)
+    return {"ok": true, "changed": true, "tick": tick,
+        "contract_id": contract_id, "ship_id": ship_id,
+        "status": "N104_SOURCE_REPOSTED_FOR_N153",
+        "event": candidate.get("event", {}).duplicate(true)}
 
 
 ## Legacy N15 physical cargo and free Undock helper ONLY. Paid N21 Dock
