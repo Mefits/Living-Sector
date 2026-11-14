@@ -9,6 +9,7 @@ const ENVELOPE_FORMAT: String = "living-sector-checkpoint-envelope"
 const ENVELOPE_VERSION: int = 1
 const MAX_SAVE_BYTES: int = 16 * 1024 * 1024
 const NativeFrameGuard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
+const NativeCoherence = preload("res://scripts/sim/phase2/unified_native_checkpoint_coherence.gd")
 
 static func _canonical(value: Variant) -> String:
     if value is Dictionary:
@@ -112,6 +113,12 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
         return ERR_INVALID_DATA
     var snapshot: Dictionary = runner.checkpoint()
     if snapshot.is_empty():
+        return ERR_INVALID_DATA
+    # Before serializing, confirm the ONE World and N9 ledger are the same
+    # transaction frame, receipts do not claim future ticks, and P1 events
+    # have not already expired. Do not write .pending on inconsistent input.
+    var native_coherence: Dictionary = NativeCoherence.validate(snapshot)
+    if not native_coherence.get("ok", false):
         return ERR_INVALID_DATA
     var absolute_path: String = ProjectSettings.globalize_path(save_path)
     var folder: String = absolute_path.get_base_dir()
