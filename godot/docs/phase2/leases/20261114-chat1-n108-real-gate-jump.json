@@ -1,6 +1,6 @@
 {
   "worker": "chat1-ships",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started": "2026-11-14",
   "branch": "integration/godot-phase2-unified-20261113",
   "goal": "P2 N108 real source paired GateLink RequestGateJump via native N84/N146, one N39 World and N9 transfer, native position/ShipMemory recent systems, N38 receipt; never invent a gate or link",
@@ -11,8 +11,15 @@
     "godot/scripts/sim/phase2/n158_production_runtime.gd (N146 GateJump dispatch and N38)",
     "godot/scripts/sim/phase1/n39_native_world_schema.gd (gate receipt only)",
     "godot/docs/phase2/handoffs/20261114-chat1-n108-gate-jump.md",
-    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md",
+    "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd (only import real source gate facility & reciprocal links)",
+    "godot/scripts/sim/ships/native_location_resolver.gd (body->original system method)",
+    "godot/tests/p2_n108_native_gate_jump_stage_check.gd (authored, NOT RUN)"
   ],
   "nonoverlap": "Chat2 owns colony N144/N151 and N39/N158 colony segments; Chat3 owns crisis/faction/N38 general guards. Current B2 lease is RELEASED; gate-only append via fresh SHA. No touching N154 gate construction or changing source balance.",
-  "status_policy": "SOURCE_WIRED / CODE_UNVERIFIED until Godot runtime verification"
+  "status_policy": "SOURCE_WIRED / CODE_UNVERIFIED until Godot runtime verification",
+  "finished": "2026-11-14",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat1-n108-real-gate-jump.md",
+  "verification": "GitHub readback static delimiters, comments/quotes, no NUL, indent and LF across 8 touched/new files; exact N84->N146->N158->N39->P1 N108->N9 method wiring inspected. Zero Godot parser/F5/Actions/Windows tests, SOURCE_WIRED / CODE_UNVERIFIED.",
+  "remaining": "Eight original starter worlds have no gates; follow up native N154 actual gate construction/pair creation and real Rust DefaultHasher-id destination orbit position, navigation graph update, autonomous mining/exploration goal issuance; final source differential and save/reload when all integration complete."
 }
