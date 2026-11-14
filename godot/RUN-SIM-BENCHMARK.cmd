@@ -9,6 +9,18 @@ if not defined GODOT (
   where godot4.exe >nul 2>nul && set "GODOT=godot4.exe"
 )
 if not defined GODOT (
+  for %%G in (
+    "%~dp0Godot*win64*console*.exe"
+    "%~dp0Godot*win64*.exe"
+    "%USERPROFILE%\Downloads\Godot*win64*console*.exe"
+    "%USERPROFILE%\Downloads\Godot*win64*.exe"
+    "%USERPROFILE%\Desktop\Godot*win64*console*.exe"
+    "%USERPROFILE%\Desktop\Godot*win64*.exe"
+  ) do (
+    if not defined GODOT if exist "%%~fG" set "GODOT=%%~fG"
+  )
+)
+if not defined GODOT (
   echo [SIM_BENCH] Godot executable not found.
   echo Specify the path to your portable Godot console executable:
   echo   set "GODOT_EXE=C:\Tools\Godot_v4.x_win64_console.exe"
