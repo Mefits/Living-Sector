@@ -127,7 +127,7 @@ func close_removed_entity_account(operation_id: String,
 ## by this paid amount. This one-leg receipt proves the actual source
 ## debit instead of silently erasing ship credits or minting a payee.
 func pay_native_ship_crew(operation_id: String, ship_account: String,
-        ship_id: String, amount: int, tick: int) -> Dictionary:
+		ship_id: String, amount: int, tick: int) -> Dictionary:
 	if operation_id.is_empty() or ship_id.is_empty() or tick < 0 or amount <= 0:
 		return {"ok": false, "reason": "invalid_native_crew_wage"}
 	if ship_account != "ship:" + ship_id or not _balances.has(ship_account):
