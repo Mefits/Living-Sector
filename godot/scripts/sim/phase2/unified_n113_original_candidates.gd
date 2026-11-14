@@ -156,12 +156,18 @@ static func _previous_supply(world: Dictionary, faction: String,
             continue
         score = N155Director.option_score(director, goal, row)
         break
+    # This bridge can PROVE an old N154 build remains viable, but
+    # N135/N121 may still fulfill the same prior supply goal via a
+    # separate funded transport that N154's local builder cannot see.
+    # "no positive N154 quote" is NOT a proof that the old Rust supply
+    # commitment has disappeared. Preserve it conservatively.
+    if not is_finite(score) or score <= 0.0:
+        return {"ok": true, "resolved": false, "offer": {},
+            "reason": "n113_prior_supply_logistics_quote_not_reconstructed"}
     return {"ok": true, "resolved": true, "offer": {
         "action": "supply", "target": prior,
-        "score": score if is_finite(score) else -1.0,
-        "available": is_finite(score) and score > 0.0,
-        "reason": "previous_supply_still_feasible" if score > 0.0 else
-            "previous_source_supply_not_feasible"}}
+        "score": score, "available": true,
+        "reason": "previous_supply_still_feasible"}}
 
 ## Caller already has the exact N134 Head and physically verified N147
 ## migration quote, and has rechecked it against CURRENT source World.
