@@ -27,6 +27,7 @@ var _source_stats: Dictionary = {}
 var _last_market_result: Dictionary = {}
 var _last_station_demand: Dictionary = {}
 var _last_contract_admissions: Dictionary = {}
+var _last_n152_result: Dictionary = {}
 var _last_n153_result: Dictionary = {}
 var _last_research_result: Dictionary = {}
 var _last_construction_observation: Dictionary = {}
@@ -52,6 +53,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_market_result = {}
     _last_station_demand = {}
     _last_contract_admissions = {}
+    _last_n152_result = {}
     _last_n153_result = {}
     _last_research_result = {}
     _last_construction_observation = {}
@@ -637,6 +639,12 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         return false
     _last_market_result = {"ok": true, "tick": tick,
         "market_count": int(proposal["market_count"])}
+    # N152 closes due POSTED offers and returns unused PAID/EXPIRED N104
+    # escrow through real N9 receipts before N135 attempts new demand.
+    # N39 is the sole commit authority; completed history is retained.
+    _last_n152_result = production.apply_native_n152_contract_lifecycle(tick)
+    if not _last_n152_result.get("ok", false):
+        return false
     # N135 observes actual N151 consumption after N150 price commit.
     # N39 alone admits funded N104 contracts and N9 escrow in one atomic
     # commit. Demand previews are not themselves contracts or ship orders.
@@ -682,7 +690,7 @@ func _integrated_phase_failure_reason(phase: String) -> String:
     elif phase == "relations":
         result = _last_faction_relations if not _last_faction_relations.get("ok", true) else _last_body_territory
     elif phase == "markets":
-        result = _last_station_demand if not _last_station_demand.get("ok", true) else (_last_contract_admissions if not _last_contract_admissions.get("ok", true) else _last_market_result)
+        result = _last_n152_result if not _last_n152_result.get("ok", true) else (_last_station_demand if not _last_station_demand.get("ok", true) else (_last_contract_admissions if not _last_contract_admissions.get("ok", true) else _last_market_result))
     var detail: String = str(result.get("reason", "integrated_phase_rejected"))
     return detail if not detail.is_empty() else "integrated_phase_rejected"
 
@@ -695,6 +703,9 @@ func station_demand_snapshot() -> Dictionary:
 ## Durable N104 contracts live in N39 World; this is only a read-only view.
 func funded_contracts_snapshot() -> Dictionary:
     return production.contract_snapshot() if _native_enabled else {}
+
+func n152_contract_lifecycle_snapshot() -> Dictionary:
+    return _last_n152_result.duplicate(true)
 
 func contract_admissions_snapshot() -> Dictionary:
     return _last_contract_admissions.duplicate(true)
@@ -879,6 +890,9 @@ func economy_summary() -> Dictionary:
         "station_demand_status": str(_last_station_demand.get("status", "NOT_EVALUATED")),
         "funded_contract_count": current.get("contract_board", {}).get("contracts", {}).size(),
         "funded_contracts_this_tick": _last_contract_admissions.get("posted", []).size(),
+        "n152_expired_this_tick": _last_n152_result.get("expired", []).size(),
+        "n152_refunded_this_tick": _last_n152_result.get("refunded", []).size(),
+        "n152_blocked_refunds": _last_n152_result.get("blocked", []).size(),
         "n153_accepted_this_tick": _last_n153_result.get("accepted", []).size(),
         "research_paid_shifts": _last_research_result.get("paid", []).size(),
         "research_blocked_factions": _last_research_result.get("blocked", []).size(),
