@@ -79,7 +79,8 @@ static func propose(ship: Dictionary, contract: Dictionary,
     var good: String = str(contract.get("commodity", ""))
     var quantity: int = int(contract.get("quantity", -1))
     var onboard: int = int(cargo.get(good, 0))
-    if quantity < 0 or onboard < 0:
+    if quantity < 0 or onboard < 0 or (
+            source_kind not in ["Passenger", "CrewMission"] and quantity == 0):
         return {"ok": false, "reason": "n104_invalid_real_quantity"}
     if status == "picked_up" and source_kind not in ["Passenger", "CrewMission"] and (
             onboard < quantity):
