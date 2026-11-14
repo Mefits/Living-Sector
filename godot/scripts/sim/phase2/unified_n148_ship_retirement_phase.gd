@@ -6,10 +6,17 @@ extends RefCounted
 const Lifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 const Commands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
 
-static func stage(world: Dictionary, tick: int, multiplier: int) -> Dictionary:
+static func stage(world: Dictionary, tick: int, multiplier: int,
+        n140_fired: Variant = null) -> Dictionary:
     if tick < 1 or multiplier <= 0 or not (world.get("ships") is Dictionary):
         return {"ok": false, "reason": "n148_no_native_ship_clock"}
+    if n140_fired != null and not (n140_fired is Dictionary):
+        return {"ok": false, "reason": "n148_invalid_native_n140_gate"}
     var ships: Dictionary = world["ships"].duplicate(true)
+    if n140_fired is Dictionary:
+        for ship_id in n140_fired:
+            if not ships.has(ship_id) or typeof(n140_fired[ship_id]) != TYPE_INT or int(n140_fired[ship_id]) < 1:
+                return {"ok": false, "reason": "n148_foreign_lod_fire"}
     var ids: Array = ships.keys()
     ids.sort()
     var buffer := Commands.new()
@@ -17,6 +24,11 @@ static func stage(world: Dictionary, tick: int, multiplier: int) -> Dictionary:
         return {"ok": false, "reason": "n146_n148_bad_phase"}
     var advanced: Array = []
     for sid in ids:
+        # Rust ship/mod.rs::tick_ships passes ONE N140 'active' map
+        # through all ship phases; sleeping ships do not accumulate
+        # idle ticks or bankruptcy/hoard strikes this tick.
+        if n140_fired is Dictionary and not n140_fired.has(str(sid)):
+            continue
         var ship: Dictionary = ships[sid]
         var original: Variant = ship.get("lifecycle", null)
         # Old P2 saves predate ShipLifecycle. Reconstruct only Rust's
@@ -37,9 +49,9 @@ static func stage(world: Dictionary, tick: int, multiplier: int) -> Dictionary:
         var obligation: Variant = ship.get("active_contract_id", null)
         if obligation is String and str(obligation).is_empty():
             obligation = null
-        # The single N158 ship-phase already visits ALL present P2
-        # ships once: a separate made-up LOD calculator is forbidden.
-        # Frozen N148 increments idle only on a genuinely fired step.
+        # N140 source fired map is the only actual authority for
+        # counting an N148 decision. Old callers with no LOD gate
+        # preserve the Rust fallback: every ship fires each tick.
         var facts: Dictionary = {"ship_entity": str(sid),
             "current_goal": str(ship.get("current_goal", "idle")),
             "credits": ship.get("credits", null),
