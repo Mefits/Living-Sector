@@ -1756,6 +1756,23 @@ func restore(saved: Dictionary) -> bool:
         var research_receipt: Dictionary = staged_world["research_receipts"][receipt_id]
         if int(research_receipt.get("tick", -1)) > int(saved["tick"]):
             return false
+    # N38: verify last N151 migration against the exact immutable N9
+    # receipt on disk. No invented passengers or stale wealth transfer.
+    var last_migration: Dictionary = staged_world.get("population_migration_last", {})
+    if not last_migration.is_empty():
+        if int(last_migration.get("tick", -1)) > int(saved["tick"]):
+            return false
+        var transfer_id: String = str(last_migration.get("receipt_id", ""))
+        if not transfer_id.is_empty():
+            var receipt: Dictionary = staged_ledger.snapshot().get("receipts", {}).get(transfer_id, {})
+            var from: String = str(last_migration.get("source_id", ""))
+            var to: String = str(last_migration.get("destination_id", ""))
+            var quantity: int = int(last_migration.get("wealth_transferred", 0))
+            var expected_legs: Array = [
+                {"account": Schema.household_account(from), "delta": -quantity},
+                {"account": Schema.household_account(to), "delta": quantity}]
+            if str(receipt.get("id", "")) != transfer_id or int(receipt.get("tick", -1)) != int(last_migration["tick"]) or str(receipt.get("kind", "")) != "native_population_migration" or receipt.get("legs", []) != expected_legs:
+                return false
     if staged_ledger.snapshot()["balances"].size() != expected.size():
         return false
     for id in staged_world["facilities"]:
