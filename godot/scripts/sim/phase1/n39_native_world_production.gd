@@ -2870,6 +2870,13 @@ func apply_native_player_research_policy(tick: int, faction: String,
     if operation not in ["set_research_mandate", "clear_research_mandate",
             "set_faction_charter"]:
         return {"ok": false, "reason": "n110_invalid_original_policy_action"}
+    if operation == "clear_research_mandate" and not _world.get(
+            "research_mandates", {}).has(faction):
+        # Rust clear_mandate on an absent directive is a pure no-op,
+        # not a reason to materialize a new policy map in an old save.
+        return {"ok": true, "tick": tick, "faction_id": faction,
+            "operation": operation, "changed": false,
+            "status": "N110_ORIGINAL_DIRECTIVE_ALREADY_ABSENT"}
     var next_world: Dictionary = _world.duplicate(true)
     # Rust's two optional Director maps are independent. A legacy
     # checkpoint may contain neither OR only one: do not erase a
@@ -2913,10 +2920,12 @@ func apply_native_player_research_policy(tick: int, faction: String,
             _world):
         return {"ok": false, "reason": "n109_n110_policy_invalid_single_world:" +
             reason}
-    _world = next_world
+    var changed: bool = next_world != _world
+    if changed:
+        _world = next_world
     return {"ok": true, "tick": tick, "faction_id": faction,
         "operation": operation, "status": "N109_N110_ORIGINAL_DIRECTOR_POLICY",
-        "changed": not operation_result.is_empty()}
+        "changed": changed}
 
 
 ## Gate4: N155 observed head → N143 paid research, with ONLY the N9
