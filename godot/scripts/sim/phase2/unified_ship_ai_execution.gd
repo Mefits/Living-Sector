@@ -397,7 +397,7 @@ static func propose(world: Dictionary, graph: RefCounted,
             if str(command.get("ship", "")) != str(ship_id):
                 return {"ok": false, "reason": "n146_ship_actor_mismatch",
                     "ship_id": str(ship_id)}
-            if str(command.get("kind", "")) in ["RequestDock", "ReleaseDock", "RequestShipTransaction", "RequestRefit"]:
+            if str(command.get("kind", "")) in ["RequestDock", "ReleaseDock", "RequestShipTransaction", "RequestRefit", "GrantCrewXp"]:
                 # N39 applies these commands in the same physical ships
                 # phase, AFTER the N84 cursor is committed. No side effects
                 # in a BT or command-buffer proposal.
