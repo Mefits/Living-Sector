@@ -46,8 +46,9 @@ func depart(state: RefCounted, graph: RefCounted, ship_id: String, destination: 
 
 ## Advance exactly one authoritative simulation tick; repeat calls are idempotent.
 ## Arrival is determined by distance, NEVER by the display-only arrival_tick.
-func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: int, tick_scale: float) -> String:
-	if not state.ships.has(ship_id) or not is_finite(tick_scale) or tick_scale <= 0.0:
+func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: int,
+        tick_scale: float, skipped_ticks: int = 1) -> String:
+	if not state.ships.has(ship_id) or not is_finite(tick_scale) or tick_scale <= 0.0 or skipped_ticks < 1:
 		return "invalid"
 	var ship: Dictionary = state.ships[ship_id]
 	var transit: Dictionary = ship.get("transit", {})
@@ -55,8 +56,14 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 		return "idle"
 	if tick <= int(transit["last_tick"]):
 		return "duplicate"
-	if tick != int(transit["last_tick"]) + 1:
+	# Rust N140 AgentLod may skip several real ticks between transit
+	# updates. Only the native fired cursor may supply skipped_ticks>1;
+	# the caller multiplies the source N14 tick_scale by that count.
+	# Old direct N14 callers stay sequential by default.
+	if skipped_ticks == 1 and tick != int(transit["last_tick"]) + 1:
 		return "nonsequential_tick"
+	if skipped_ticks > 1 and tick - int(transit["last_tick"]) < skipped_ticks:
+		return "invalid_lod_gap"
 	var target_id := str(transit["to"])
 	if not positions.has(target_id) or not _valid_position(positions[target_id]):
 		return "missing_destination"
