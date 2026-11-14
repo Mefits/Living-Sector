@@ -12,7 +12,10 @@
     "godot/scripts/sim/phase2/unified_n113_original_candidates.gd (exact delegated research priority from original policy)",
     "godot/tests/p2_n109_n110_native_policy_source_check.gd (new deferred)",
     "godot/docs/phase2/handoffs/20261114-chat3-n109-n110-policy.md (new)",
-    "godot/docs/phase2/P2_V4_FINAL_ACCEPTANCE_MATRIX_RU.md (status correction)"
+    "godot/docs/phase2/P2_V4_FINAL_ACCEPTANCE_MATRIX_RU.md (status correction)",
+    "godot/scripts/sim/phase2/unified_n109_n110_policy_checkpoint.gd (new pure policy JSON normalization)",
+    "godot/scripts/sim/phase2/unified_native_checkpoint_coherence.gd (N38 policy pre-backup trust only)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N38 restore uses policy normalizer)"
   ],
   "excludes": [
     "godot/scripts/sim/phase2/n158_production_runtime.gd and N21 owned by chat1",
