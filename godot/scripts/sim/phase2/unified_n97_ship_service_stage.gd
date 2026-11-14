@@ -224,7 +224,7 @@ static func stage(world: Dictionary, ledger_snapshot: Dictionary,
         if not money.restore(ledger_snapshot):
             return _bad("invalid_canonical_n9_snapshot")
         var paid: Dictionary = money.transfer(
-            receipt_id, "ship:" + ship_id, "facility:" + fid,
+            receipt_id, "ship:" + ship_id, "facility/" + fid,
             payment, tick, "native_n97_refuel")
         if not paid.get("ok", false):
             return _bad("n9_real_refuel_" + str(paid.get("reason", "rejected")))
