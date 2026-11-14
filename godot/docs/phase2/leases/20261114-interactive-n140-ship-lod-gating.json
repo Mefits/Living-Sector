@@ -1,0 +1,16 @@
+{
+  "worker": "primary-interactive-n140",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "goal": "Integrate frozen Rust N140 AgentLod ship gating/cursor with one N46/N14 world and N148 retirement; no second tick; defer central N39/N158/N84 edits while second-chat passenger lease active",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n140_ship_lod_phase.gd (new)",
+    "godot/scripts/sim/phase2/unified_ship_phase.gd (LOD-only path)",
+    "godot/scripts/sim/phase2/unified_n148_ship_retirement_phase.gd (fired-id filter)",
+    "godot/scripts/sim/ships/native_fleet_bootstrap.gd (new ship source cursor)",
+    "godot/docs/phase2/handoffs/20261114-n140-ship-lod-unified.md"
+  ],
+  "non_overlap": "N104 passenger chat owns N39/N158/Schema/N84 snippets. Do not edit those until released and rechecking conflicts",
+  "verification": "SOURCE_IN_PROGRESS; no Godot/Actions",
+  "started": "2026-11-14"
+}
