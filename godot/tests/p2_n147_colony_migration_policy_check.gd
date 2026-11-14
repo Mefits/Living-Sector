@@ -93,7 +93,7 @@ func _initialize() -> void:
         _fail("N92/N147 missed source migration offer in detached future colony")
         return
     var order: Dictionary = selected["ready"][0]
-    if int(order["quantity"]) != 10 or int(order["payment"]) != 800 or str(order.get("status", "")) != "N147_PREPARED_NOT_POSTED":
+    if int(order["quantity"]) != 20 or int(order["payment"]) != 1600 or str(order.get("status", "")) != "N147_PREPARED_NOT_POSTED":
         _fail("N147 source workers/escrow quotation differs or claims actual post")
         return
     if not selected["posted"].is_empty() or fixture != before:
