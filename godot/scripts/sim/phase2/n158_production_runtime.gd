@@ -54,6 +54,7 @@ var _last_n151_docks: Dictionary = {}
 var _last_n144_contracts: Dictionary = {}
 var _last_n144_new_sites: Dictionary = {}
 var _last_b2_colony_metals: Dictionary = {}
+var _last_b4_aftercare: Dictionary = {}
 var _last_faction_relations: Dictionary = {}
 var _last_body_territory: Dictionary = {}
 var _last_native_faction_finance: Dictionary = {}
@@ -90,6 +91,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_n144_contracts = {}
     _last_n144_new_sites = {}
     _last_b2_colony_metals = {}
+    _last_b4_aftercare = {}
     _last_faction_relations = {}
     _last_body_territory = {}
     _last_native_faction_finance = {}
@@ -376,6 +378,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             _last_n144_new_sites = {"ok": true, "tick": tick,
                 "founded": [], "blocked": [], "decisions": [],
                 "status": "N144_REAL_FOUND_COLONY_HEAD_CYCLE"}
+            _last_b4_aftercare = {"ok": true, "tick": tick,
+                "plans": [], "blocked": [], "goals": [],
+                "status": "B4_ORIGINAL_N92_N100_AFTERCARE_CYCLE"}
             var head_world: Dictionary = production.world_snapshot()
             if head_world.has("construction_sites"):
                 var head_factions: Array = head_world.get("faction_treasuries", {}).keys()
@@ -391,6 +396,45 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                             "reason": str(planned_build.get("reason", "N134_source_comparison_unavailable"))})
                         continue
                     _last_n134_result["heads"][faction] = planned_build.get("head", {}).duplicate(true)
+                    # Miro Chat2 B4: frozen coordination.rs promotes an
+                    # ACTUAL established colony's critical N92 Food/Water
+                    # shortage (and lower-priority Fuel/Electronics when
+                    # the old Head waits) into the same N100/N98 planner.
+                    # N39 independently rederives current World shortage
+                    # and original N134 head. ONLY N121 can later post
+                    # a paid real N104/N9 delivery; no free stock/ship.
+                    var b4_source: Dictionary = production.apply_native_b4_colony_aftercare(
+                        tick, str(faction), planned_build, world,
+                        _fleet_roster.registry.graph(), _faction_sources,
+                        _tick_multiplier)
+                    if not b4_source.get("ok", false):
+                        if b4_source.get("fatal", false):
+                            _last_b4_aftercare = b4_source
+                            return false
+                        _last_b4_aftercare["blocked"].append({
+                            "faction_id": str(faction),
+                            "reason": str(b4_source.get("reason",
+                                "b4_original_n92_source_not_admitted"))})
+                    elif b4_source.get("promoted", false):
+                        _last_b4_aftercare["goals"].append(
+                            b4_source.get("goal", {}).duplicate(true))
+                        if b4_source.get("accepted", false):
+                            _last_b4_aftercare["plans"].append(
+                                b4_source.duplicate(true))
+                            _last_n100_result["plans"].append(
+                                b4_source.get("plan", {}).duplicate(true))
+                            head_world = production.world_snapshot()
+                            # Original Rust prioritizes a viable colony
+                            # life-support supply plan over speculative
+                            # founding or a second industry commission.
+                            continue
+                        # Source HTN found NO viable paid physical plan.
+                        # Preserve the old N134 HeadDecision as fallback,
+                        # but don't ask N100 a second time this tick.
+                        _last_b4_aftercare["blocked"].append({
+                            "faction_id": str(faction),
+                            "reason": str(b4_source.get("status",
+                                "b4_no_source_native_plan"))})
                     # Miro B1: frozen colony.rs::proposals -> original
                     # N113/N134 HeadDecision found_colony -> ONE real N39
                     # zero-cost ConstructionSite Apply. N151 prepare_docks
@@ -477,9 +521,17 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     # Its N98 plan is saved in the same N38 checkpoint;
                     # the N121 receipt-driven native executor alone
                     # may publish its funded steps.
-                    var hybrid_plan: Dictionary = production.apply_native_hybrid_planning(
-                        tick, str(faction), planned_build.get("head", {}),
-                        _tick_multiplier)
+                    var hybrid_plan: Dictionary = {}
+                    if b4_source.get("promoted", false):
+                        # Rust keeps fallback old head if N100 cannot
+                        # create an eligible real shipment. N100 was
+                        # already attempted exactly once by N39 B4.
+                        hybrid_plan = {"ok": true, "due": false,
+                            "status": "b4_original_head_fallback"}
+                    else:
+                        hybrid_plan = production.apply_native_hybrid_planning(
+                            tick, str(faction), planned_build.get("head", {}),
+                            _tick_multiplier)
                     if not hybrid_plan.get("ok", false):
                         if hybrid_plan.get("fatal", false):
                             _last_n100_result = hybrid_plan
@@ -1315,6 +1367,9 @@ func last_native_n144_colony_orders() -> Dictionary:
 func last_native_b2_colony_metals() -> Dictionary:
     return _last_b2_colony_metals.duplicate(true)
 
+func last_native_b4_colony_aftercare() -> Dictionary:
+    return _last_b4_aftercare.duplicate(true)
+
 ## Avoid inline lambda allocation in the N158 Observer snapshot.
 ## Only the original N134 committed statuses, never source forecasts,
 ## contribute to these per-tick paid contracts counters.
@@ -1560,6 +1615,8 @@ func economy_summary() -> Dictionary:
         "construction_paid_labor_this_tick": _last_construction_result.get("paid", []).size(),
         "construction_new_facilities_this_tick": _last_construction_result.get("materialized", []).size(),
         "native_b3_real_colonies_established_this_tick": _last_construction_result.get("established", []).size(),
+        "native_b4_n92_colony_stock_goals": _last_b4_aftercare.get("goals", []).size(),
+        "native_b4_real_n98_stock_plans": _last_b4_aftercare.get("plans", []).size(),
         "construction_blocked_labor_this_tick": _last_construction_result.get("blocked", []).size(),
         "colony_founding_status": str(_last_n151_founding.get("status", "NOT_EVALUATED")),
         "colony_founding_ready_unapproved": _last_n151_founding.get("ready", []).size(),
@@ -1651,6 +1708,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     _last_n144_contracts = {}
     _last_n144_new_sites = {}
     _last_b2_colony_metals = {}
+    _last_b4_aftercare = {}
     return true
 
 func _normalize_native_snapshot(saved: Dictionary) -> bool:
