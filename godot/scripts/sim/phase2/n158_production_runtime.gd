@@ -13,6 +13,7 @@ const NativeAIExecution = preload("res://scripts/sim/phase2/unified_ship_ai_exec
 const NativeConstruction = preload("res://scripts/sim/phase2/unified_native_construction_phase.gd")
 const N91Dispatch = preload("res://scripts/sim/phase2/unified_n91_construction_dispatch.gd")
 const N134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
+const N147Colonies = preload("res://scripts/sim/phase2/unified_n147_colony_migration_observer.gd")
 const N91Executor = preload("res://scripts/ported/n91_construction_executor.gd")
 const NativeBt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
 const NativeCommands = preload("res://scripts/simulation/native_sim_command_buffer.gd")
@@ -30,6 +31,7 @@ var _last_construction_observation: Dictionary = {}
 var _last_construction_result: Dictionary = {}
 var _last_n91_result: Dictionary = {}
 var _last_n134_result: Dictionary = {}
+var _last_n147_result: Dictionary = {}
 var _faction_sources: Dictionary = {}
 var _last_population_result: Dictionary = {}
 var _last_ship_result: Dictionary = {}
@@ -48,6 +50,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_construction_result = {}
     _last_n91_result = {}
     _last_n134_result = {}
+    _last_n147_result = {}
     _faction_sources = {}
     _last_population_result = {}
     _last_ship_result = {}
@@ -96,6 +99,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_n134_result = {"ok": true, "tick": tick,
             "commissioned": [], "blocked": [], "heads": {},
             "status": "N134_COORDINATION_NOT_DUE"}
+        _last_n147_result = {"ok": true, "tick": tick,
+            "views": [], "ready": [], "blocked": [], "posted": [],
+            "status": "N147_COORDINATION_NOT_DUE"}
         if _fleet_roster == null or _fleet_resolver == null:
             _last_n153_result = {"ok": false, "reason": "missing_native_ship_ai_sources"}
             return false
@@ -245,7 +251,17 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                         _last_n134_result["blocked"].append({
                             "faction_id": str(faction),
                             "reason": str(posted_site.get("reason", "source_N154_unfunded"))})
-        # A blocked or empty N154 preview is NOT a fatal tick.
+        # Source N92 -> N147 workforce proposals run on the existing
+        # strategic cadence. These are observable native intents ONLY.
+        # N104 passenger embark/disembark has no canonical P2 Apply yet,
+        # so no phantom passenger order or minted population is admitted.
+        if tick % maxi(1, 60 * _tick_multiplier) == 0:
+            _last_n147_result = N147Colonies.observe(
+                production.world_snapshot(), _fleet_roster.registry.graph(),
+                _fleet_resolver, positions["positions"], tick, clock.tick_scale())
+            if not _last_n147_result.get("ok", false):
+                return false
+        # A blocked or empty N154/N147 preview is NOT a fatal tick.
         return true
     if phase == "ships":
         # The base TickRunner has ALREADY advanced real body orbits. Ship
@@ -471,7 +487,7 @@ func _integrated_phase_failure_reason(phase: String) -> String:
     elif phase == "ships":
         result = _last_ship_result
     elif phase == "factions":
-        result = _last_research_result if not _last_research_result.get("ok", true) else (_last_n134_result if not _last_n134_result.get("ok", true) else (_last_n91_result if not _last_n91_result.get("ok", true) else (_last_construction_result if not _last_construction_result.get("ok", true) else _last_n153_result)))
+        result = _last_n147_result if not _last_n147_result.get("ok", true) else (_last_research_result if not _last_research_result.get("ok", true) else (_last_n134_result if not _last_n134_result.get("ok", true) else (_last_n91_result if not _last_n91_result.get("ok", true) else (_last_construction_result if not _last_construction_result.get("ok", true) else _last_n153_result))))
     elif phase == "markets":
         result = _last_station_demand if not _last_station_demand.get("ok", true) else (_last_contract_admissions if not _last_contract_admissions.get("ok", true) else _last_market_result)
     var detail: String = str(result.get("reason", "integrated_phase_rejected"))
@@ -511,6 +527,9 @@ func last_native_construction_labor() -> Dictionary:
 
 func last_native_n91_assignment() -> Dictionary:
     return _last_n91_result.duplicate(true)
+
+func last_native_colony_migration() -> Dictionary:
+    return _last_n147_result.duplicate(true)
 
 func last_native_n134_construction() -> Dictionary:
     return _last_n134_result.duplicate(true)
@@ -668,6 +687,11 @@ func economy_summary() -> Dictionary:
         "construction_paid_labor_this_tick": _last_construction_result.get("paid", []).size(),
         "construction_new_facilities_this_tick": _last_construction_result.get("materialized", []).size(),
         "construction_blocked_labor_this_tick": _last_construction_result.get("blocked", []).size(),
+        "colony_migration_status": str(_last_n147_result.get("status", "NOT_EVALUATED")),
+        "colony_observations_this_tick": _last_n147_result.get("views", []).size(),
+        "colony_passenger_proposals_unposted": _last_n147_result.get("ready", []).size(),
+        "colony_passenger_contracts_posted": _last_n147_result.get("posted", []).size(),
+        "colony_migration_blocked_this_tick": _last_n147_result.get("blocked", []).size(),
         "construction_sites": current.get("construction_sites", {}).size(),
         "construction_live_paid_contracts": current.get("construction_contracts", {}).size(),
         "construction_last_observation": _last_construction_observation.duplicate(true),
