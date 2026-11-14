@@ -5,6 +5,7 @@ extends RefCounted
 ## Rust: economy/contracts.rs::ContractBoard / contract_funding::refund_closed.
 const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
 const ContractBoard = preload("res://scripts/sim/economy/contract_board.gd")
+const NativeAging = preload("res://scripts/sim/native_contract_aging.gd")
 
 static func stage(world: Dictionary, bank: Dictionary, tick: int) -> Dictionary:
     if tick < 0 or not (world.get("contract_board", null) is Dictionary):
@@ -21,25 +22,28 @@ static func stage(world: Dictionary, bank: Dictionary, tick: int) -> Dictionary:
     var board := ContractBoard.new(ledger)
     if not board.restore(original):
         return _bad("invalid_live_n104_board")
+    # Frozen N145 order: age reputation, escalate the currently offered
+    # reward, then renew eligible POSTED types (delivery/construction 3x,
+    # subsidy 1x). Do NOT auto-expire an already accepted shipment.
+    var aging: Dictionary = NativeAging.advance_posted(original["contracts"],
+        tick, NativeAging.DEFAULT_LIFESPAN)
+    if not aging.get("ok", false):
+        return _bad("source_n145_aging_" + str(aging.get("error", "rejected")))
+    var aged_board: Dictionary = original.duplicate(true)
+    aged_board["contracts"] = aging["contracts"]
+    if not board.restore(aged_board):
+        return _bad("source_n145_board_reconstruction_failed")
+    var expired: Array = []
+    var renewed: Array = aging.get("renewed", []).duplicate(true)
+    for entry in aging.get("expired", []):
+        expired.append(str(entry.get("id", "")))
+    var aged: bool = aged_board["contracts"] != original["contracts"]
     var ids: Array = original["contracts"].keys()
     ids.sort()
-    var expired: Array = []
     var refunds: Array = []
     var blocked: Array = []
     for id in ids:
-        var before: Dictionary = original["contracts"][id]
-        var status: String = str(before.get("status", ""))
-        if status == "posted":
-            if typeof(before.get("expires_at_tick", null)) != TYPE_INT:
-                return _bad("missing_source_expiry_tick")
-            if tick >= int(before["expires_at_tick"]):
-                # Only POSTED contracts expire automatically. Accepted and
-                # physically picked-up freight remain real obligations.
-                var close: Dictionary = board.expire_posted(str(id), tick)
-                if not close.get("ok", false):
-                    return _bad("n152_posted_expiry_" + str(close.get("reason", "rejected")))
-                expired.append(str(id))
-                status = "expired"
+        var status: String = str(board.get_contract(str(id)).get("status", ""))
         if status not in ["paid", "expired"]:
             continue
         var current: Dictionary = board.get_contract(str(id))
@@ -73,8 +77,9 @@ static func stage(world: Dictionary, bank: Dictionary, tick: int) -> Dictionary:
     return {"ok": true, "tick": tick,
         "board_snapshot": board.snapshot(),
         "ledger_snapshot": ledger.snapshot(),
-        "expired": expired, "refunded": refunds, "blocked": blocked,
-        "changed": not expired.is_empty() or not refunds.is_empty()}
+        "expired": expired, "renewed": renewed, "aged": aged,
+        "refunded": refunds, "blocked": blocked,
+        "changed": aged or not refunds.is_empty()}
 
 static func _bad(reason: String) -> Dictionary:
     return {"ok": false, "reason": reason}
