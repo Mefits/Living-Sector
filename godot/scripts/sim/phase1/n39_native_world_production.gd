@@ -1530,7 +1530,8 @@ func post_native_passenger_migration(tick: int, ready: Dictionary,
             head_source.get("head", {}) != baseline):
         return {"ok": false, "reason": "n147_stale_or_forged_n134_decision"}
     var grant: Dictionary = NativeN147Head.authorize(
-        _world, faction, ready, baseline, tick)
+        _world, faction, ready, baseline, tick,
+        sources, original, graph, multiplier)
     if not grant.get("ok", false):
         return grant
     if not grant.get("authorized", false):
