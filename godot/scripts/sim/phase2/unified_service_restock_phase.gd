@@ -35,6 +35,14 @@ static func apply(staged: Dictionary, ledger: RefCounted,
             continue
         var location: String = str(buyer.get("location", ""))
         if not markets.has(location):
+            # Original construction_dock has NO market service at this
+            # stage: Rust source skips restock without a real seller.
+            var site_ref: String = str(buyer.get("construction_source_site_id", ""))
+            var site: Dictionary = staged.get("construction_sites", {}).get(site_ref, {})
+            if str(buyer.get("type", "")) == "construction_dock" and (
+                    not site.is_empty() and str(site.get("location_name", "")) == location and
+                    str(site.get("faction_id", "")) == str(buyer.get("faction", ""))):
+                continue
             return {"ok": false, "reason": "missing_service_market"}
         var market: Dictionary = markets[location]
         var seller_id: String = str(market.get("owner", ""))
