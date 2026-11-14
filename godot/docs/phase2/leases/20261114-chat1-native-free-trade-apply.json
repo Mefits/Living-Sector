@@ -1,6 +1,6 @@
 {
   "worker": "chat-1-trade-20261114",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "started": "2026-11-14",
   "scope": [
@@ -9,8 +9,17 @@
     "godot/scripts/sim/phase1/n39_native_world_production.gd (new free trade single-owner N9 apply only)",
     "godot/scripts/sim/phase2/n158_production_runtime.gd (free trade command dispatch only)",
     "godot/scripts/sim/phase1/n39_native_world_schema.gd (if exact needed)",
-    "godot/docs/phase2/handoffs/20261114-chat1-free-trade.md"
+    "godot/docs/phase2/handoffs/20261114-chat1-free-trade.md",
+    "godot/scripts/sim/phase2/unified_n83_trade_action.gd",
+    "godot/scripts/sim/phase2/unified_n83_trade_route_planner.gd",
+    "godot/scripts/sim/ships/native_fleet_bootstrap.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (N90/route proof)",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
   ],
   "goal": "Rust N83/N84 Buy/Sell/SellAll real market trade through frozen N97 physical settlement and ONE N39/N9 apply; no shadow economy, no fake contracts, preserve original N104 paid route.",
-  "nonoverlap": "Chat2 owns colony N144/N151/N154 sections; chat3 owns Head/admin and final assembly; re-fetch HEAD and blob SHA for every shared-file write, use exclusively source-backed free-trade sections."
+  "nonoverlap": "Chat2 owns colony N144/N151/N154 sections; chat3 owns Head/admin and final assembly; re-fetch HEAD and blob SHA for every shared-file write, use exclusively source-backed free-trade sections.",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat1-n83-paid-free-trade.md",
+  "verification": "Static GitHub readback of 7 original/modified GDScripts: balanced delimiters, quotes, uniform indentation, zero NUL, complete N83/N90/N97/N9/N39/N158/N38 cross-links. No Godot parser, F5, CI, Actions or Windows runtime. SOURCE_WIRED / CODE_UNVERIFIED.",
+  "remaining": "Complete actual original N97 Refuel/Mine, physical GateJump and recent_systems, any unpaid/rest exploratory N84 leaves. End-to-end autonomous freight/free trade and checkpoint parity remains deferred until all source porting is complete.",
+  "finished": "2026-11-14"
 }
