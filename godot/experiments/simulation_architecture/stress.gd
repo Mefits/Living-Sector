@@ -261,7 +261,7 @@ func _save() -> void:
             str(summary["hybrid_relative_to_tick"]),
             str(summary["correctness"])
         ])
-        csv_file.store_line(columns.join(","))
+        csv_file.store_line(",".join(columns))
     csv_file.close()
 
 func _say(message: String) -> void:
