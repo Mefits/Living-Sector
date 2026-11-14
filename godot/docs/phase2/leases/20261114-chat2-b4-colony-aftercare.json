@@ -1,16 +1,21 @@
 {
   "worker": "chat2-B4-aftercare",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "0a973b750e0087682ffb838f9d847e0759f7eadd",
-  "goal": "Miro Chat2 B4 source post-colony aftercare N92 -> N134/N100/N121: true Food/Water/Fuel/Electronics goals from real N39 markets, retained funds/route and active shipment gate; audit true N154 shipyard module/refit vs no Rust autonomous hull spawning",
+  "goal": "B4 real Rust N92 colony aftercare stock priority and full N134/N100/N98/N121 real paid supply plan source-wired; exact population reserve+emergency Water, original N154 module/refit parity, no auto hull invention",
   "scope": [
     "godot/scripts/sim/phase2/unified_n92_colony_aftercare.gd (new independent source bridge)",
     "godot/tests/p2_b4_native_colony_aftercare_check.gd (new, NOT RUN)",
     "godot/scripts/sim/phase1/n39_native_world_production.gd (after Chat3 release: narrow B4 aftercare/head source planning method only)",
     "godot/scripts/sim/phase2/n158_production_runtime.gd (after Chat3 release: B4 native stock goal before existing N100 plan, reporting)",
-    "godot/docs/phase2/handoffs/20261114-chat2-b4-colony-aftercare.md"
+    "godot/docs/phase2/handoffs/20261114-chat2-b4-colony-aftercare.md",
+    "godot/scripts/sim/phase2/unified_n147_colony_migration_observer.gd (source N92 consumption parity)",
+    "godot/scripts/sim/phase2/unified_n144_new_colony_head.gd (original N92 unsafe existing-colony safety gate)"
   ],
   "avoid": "Chat3 active V2 crisis lease owns N39/N158/Schema; do NOT edit until released. NO new hull spawning (original Rust only admin spawn; shipyard produces modules/refits), no balance/UI/Actions/Godot interim tests",
-  "verification": "SOURCE_IN_PROGRESS / CODE_UNVERIFIED"
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED: static readback/imports/balanced brackets; isolated B4 regression ADDED NOT RUN; Godot/F5/Actions 0",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat2-b4-colony-aftercare.md",
+  "released_on": "2026-11-14",
+  "next": "Chat2 B1–B4 source-wired. Await cross-team single full Godot integration gate; no mechanics/balance changes or free hull creation."
 }
