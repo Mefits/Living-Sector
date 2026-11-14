@@ -1,0 +1,52 @@
+extends GutTest
+## Source N9 has one authoritative wallet/receipt registry; this test
+## never connects to the real game and never creates a second live ledger.
+const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
+const SaveGuard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
+
+func test_n9_transfer_is_atomic_and_replay_safe() -> void:
+    var ledger = Ledger.new()
+    assert_true(ledger.import_accounts({"ship:a": 100, "facility/b": 0}))
+    var transfer: Dictionary = ledger.transfer("dock-1",
+        "ship:a", "facility/b", 25, 5, "n21_dock")
+    assert_true(transfer.get("ok", false))
+    assert_eq(ledger.balance("ship:a"), 75)
+    assert_eq(ledger.balance("facility/b"), 25)
+    assert_eq(ledger.total(), 100)
+    assert_false(ledger.transfer("dock-1", "ship:a", "facility/b",
+        25, 5, "n21_dock").get("ok", false))
+    assert_eq(ledger.balance("ship:a"), 75)
+    assert_eq(ledger.snapshot()["receipts"].size(), 1)
+
+func test_n9_refuses_unfunded_and_unbalanced_receipts() -> void:
+    var ledger = Ledger.new()
+    assert_true(ledger.import_accounts({"ship:a": 2, "facility/b": 0}))
+    assert_false(ledger.transfer("too-much", "ship:a",
+        "facility/b", 3, 5, "n21_dock").get("ok", false))
+    assert_false(ledger.commit("mint", [
+        {"account": "ship:a", "delta": 1},
+        {"account": "facility/b", "delta": 1}
+    ], 5, "invalid").get("ok", false))
+    assert_eq(ledger.total(), 2)
+    assert_eq(ledger.snapshot()["receipts"].size(), 0)
+
+func test_n38_rejects_one_counterfeit_credit_in_native_frame() -> void:
+    var before: Dictionary = {"native_production": {
+        "version": 1, "tick": 6,
+        "world": {"markets": {"earth": {
+            "supply": {"food": 25.0}}}},
+        "ledger": {"version": 1, "balances": {
+            "facility/earth": 100}, "receipts": {}}
+    }}
+    var after: Dictionary = before.duplicate(true)
+    assert_true(SaveGuard.verify_authoritative_frame(
+        before, after).get("ok", false))
+    after["native_production"]["ledger"][
+        "balances"]["facility/earth"] = 101
+    assert_false(SaveGuard.verify_authoritative_frame(
+        before, after).get("ok", false))
+    after = before.duplicate(true)
+    after["native_production"]["world"]["markets"][
+        "earth"]["supply"]["food"] = 26.0
+    assert_false(SaveGuard.verify_authoritative_frame(
+        before, after).get("ok", false))
