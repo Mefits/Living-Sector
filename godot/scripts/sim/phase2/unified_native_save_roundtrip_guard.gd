@@ -58,6 +58,23 @@ static func _source_profile_rounding_only(path: String,
         return false
     return absf(before_value - decoded_value) <= SOURCE_PROFILE_JSON_ROUNDOFF
 
+## Rust FacilityOperations.condition is a bounded physical ratio
+## [0..1]. The original sim updates this float over many ticks, while
+## Godot JSON may shorten its final decimal digits. No other facility
+## data, inventory, money or receipts inherit this allowance.
+static func _source_facility_condition_rounding_only(path: String,
+        before_value: float, decoded_value: float) -> bool:
+    var parts: PackedStringArray = path.split("/")
+    if parts.size() != 5 or parts[0] != "native_production" or (
+            parts[1] != "world" or parts[2] != "facilities" or
+            str(parts[3]).is_empty() or parts[4] != "condition"):
+        return false
+    if not is_finite(before_value) or not is_finite(decoded_value) or (
+            before_value < 0.0 or before_value > 1.0 or
+            decoded_value < 0.0 or decoded_value > 1.0):
+        return false
+    return absf(before_value - decoded_value) <= SOURCE_PROFILE_JSON_ROUNDOFF
+
 static func _difference(original: Variant, decoded: Variant,
         path: String, depth: int) -> String:
     if depth > MAX_NESTED_DEPTH:
@@ -116,8 +133,10 @@ static func _difference(original: Variant, decoded: Variant,
         var after_float: float = float(decoded)
         if not is_finite(before_float) or not is_finite(after_float):
             return path + ":non_finite_native_float"
-        if before_float != after_float and not _source_profile_rounding_only(
-                path, before_float, after_float):
+        if before_float != after_float and not (
+                _source_profile_rounding_only(path, before_float, after_float)
+                or _source_facility_condition_rounding_only(
+                    path, before_float, after_float)):
             return path + ":float_changed_by_json"
         return ""
     if kind != decoded_kind:
