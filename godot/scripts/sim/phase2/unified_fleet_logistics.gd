@@ -63,8 +63,24 @@ static func command(source: Dictionary, action: String, ship_id: String,
         return {"ok": false, "reason": "invalid_command_identity"}
     if action not in ["dock", "undock", "load", "unload"]:
         return {"ok": false, "reason": "invalid_fleet_logistics_action"}
-    if requested_dock_type not in ["station", "shipyard"]:
+    if requested_dock_type not in ["station", "shipyard", "construction_dock"]:
         return {"ok": false, "reason": "unsupported_native_docking_type"}
+    # N151's original temporary construction dock is a genuine N21
+    # physical port, but never a market warehouse or a free station.
+    if requested_dock_type == "construction_dock" and action in ["dock", "undock"]:
+        var ship_row: Dictionary = source.get("ships", {}).get(ship_id, {})
+        var location: String = str(ship_row.get("location", ""))
+        var matching_site: bool = false
+        for site in source.get("construction_sites", {}).values():
+            if site is Dictionary and site.get("labor", {}) is Dictionary and (
+                    str(site.get("location_name", "")) == location and
+                    str(site.get("faction_id", "")) == str(ship_row.get("faction_id", "")) and
+                    site["labor"].get("colony_source", null) != null and
+                    not bool(site.get("completed", false))):
+                matching_site = true
+                break
+        if not matching_site:
+            return {"ok": false, "reason": "unapproved_n151_construction_dock"}
     if not (source.get("dock_receipts", null) is Dictionary) or not (source.get("cargo_receipts", null) is Dictionary):
         return {"ok": false, "reason": "legacy_save_without_logistics"}
     if source["dock_receipts"].has(operation_id) or source["cargo_receipts"].has(operation_id):
