@@ -191,9 +191,17 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.RUNNING, "reason": "n91_material_delivery_pending"}
         return {"status": Bt.RUNNING, "reason": "n91_wait_n141_paid_work"}
     var contract_id: String = str(ship.get("active_contract_id", ""))
-    if contract_id.is_empty() and str(ship.get("current_goal", "")) == "trade_route":
+    # N83 trade, N103 native ice delivery and N80 gate exploration all
+    # use the SAME actual N21 market dock and N146 command Apply.
+    # Mine may SELL its physically extracted ice, never buy free stock.
+    var local_goal: String = str(ship.get("current_goal", ""))
+    if contract_id.is_empty() and local_goal in ["trade_route", "mine", "explore"]:
         if kind in ["Buy", "Sell", "SellAll"]:
-            return NativeTradeAction.propose(ship, action, world, tick)
+            if local_goal == "trade_route" or (
+                    local_goal == "mine" and kind == "Sell" and
+                    str(action.get("commodity", "")) == "ice"):
+                return NativeTradeAction.propose(ship, action, world, tick)
+            return {"status": Bt.FAILURE, "reason": "n80_unverified_market_leaf"}
         if kind in ["Dock", "Undock"]:
             # Rust lets a ship leave its original real dock before
             # travelling to a market; departure does NOT require an
@@ -218,7 +226,8 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             var operation: String = "RequestDock" if kind == "Dock" and docked.is_empty() else "ReleaseDock"
             var dock_cmd: Dictionary = Commands.make_command(operation, {
                 "ship": ship_id, "facility_location": location,
-                "native_free_trade": true, "preferred_facility_type": "station"})
+                "native_free_trade": true, "native_source_goal": local_goal,
+                "preferred_facility_type": "station"})
             return {"status": Bt.RUNNING, "commands": [dock_cmd],
                 "reason": "n83_wait_real_market_dock"} if not dock_cmd.is_empty() else {"status": Bt.FAILURE}
     var contracts: Dictionary = world.get("contract_board", {}).get("contracts", {})
@@ -401,9 +410,9 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
         return {"status": Bt.SUCCESS}
     return {"status": Bt.FAILURE, "reason": "unknown_n84_leaf_" + kind}
 
-## All fleet commands are proposed in stable source ship-id order. Only
-## BeginTransit is supported at present and checked against real N14
-## physics. N146 never applies anything on its own.
+## All fleet commands are proposed in stable source ship-id order. N14
+## transit and N21/N90/N97/N108 commands pass one N146 queue; N39/N9
+## remain the only physical/financial Apply authority.
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, tick: int, scale: float,
         multiplier: int = 1) -> Dictionary:
@@ -423,7 +432,7 @@ static func propose(world: Dictionary, graph: RefCounted,
         if contract_id.is_empty():
             var own_goal: String = str(ship.get("current_goal", ""))
             if own_goal not in ["construct", "retrofit", "refit", "trade_route",
-                    "mine", "refuel"]:
+                    "mine", "explore", "refuel"]:
                 continue
             var assigned_bt: Variant = ship.get("current_bt", null)
             if not (assigned_bt is Dictionary) or not Bt.validate(assigned_bt):
@@ -478,7 +487,7 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "ship_id": str(ship_id)}
         if next["status"] == Bt.FAILURE:
             if contract_id.is_empty() and str(ship.get(
-                    "current_goal", "")) in ["trade_route", "mine", "refuel"]:
+                    "current_goal", "")) in ["trade_route", "mine", "explore", "refuel"]:
                 # Rust failed speculative trade goal can be abandoned;
                 # never halt the N158 world or manufacture a fill.
                 # Any settled prior purchases remain physical cargo.
@@ -534,7 +543,7 @@ static func propose(world: Dictionary, graph: RefCounted,
         ship["current_bt"] = next["tree"].duplicate(true)
         if next["status"] == Bt.SUCCESS and contract_id.is_empty() and (
                 str(ship.get("current_goal", "")) in [
-                    "trade_route", "mine", "refuel"]):
+                    "trade_route", "mine", "explore", "refuel"]):
             ship["current_goal"] = "idle"
             ship["current_goal_score"] = 0.0
             ship["current_bt"] = null
