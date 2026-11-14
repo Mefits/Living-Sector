@@ -431,9 +431,25 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             _last_population_result = {"ok": false,
                 "reason": "population_single_ledger_commit_rejected"}
             return false
+        # Rust population Phase 19d: after purchases and sentiment,
+        # execute ONE migration transfer on the original 200*mult cadence.
+        # N39 recomputes and atomically commits both households and N9.
+        var native_migration: Dictionary = {"ok": true, "moved": 0,
+            "wealth": 0, "events": []}
+        if bool(population_plan["native_result"].get("due", {}).get("migration", false)):
+            native_migration = production.apply_native_population_migration(
+                tick, _tick_multiplier)
+            if not native_migration.get("ok", false):
+                _last_population_result = native_migration
+                return false
+        var population_events: Array = population_plan["native_result"].get("events", []).duplicate(true)
+        population_events.append_array(native_migration.get("events", []))
         _last_population_result = {"ok": true, "tick": tick,
             "purchases": int(population_plan["purchase_count"]),
-            "events": population_plan["native_result"].get("events", []).duplicate(true)}
+            "migration_moved": int(native_migration.get("moved", 0)),
+            "migration_wealth": int(native_migration.get("wealth", 0)),
+            "migration_receipt_id": str(native_migration.get("receipt_id", "")),
+            "events": population_events}
         return true
     if phase != "markets":
         return true
@@ -704,7 +720,10 @@ func economy_summary() -> Dictionary:
         "n153_first_blocker": n153_first_blocker,
         "contract_admissions_blocked": _last_contract_admissions.get("blocked", []).size(),
         "population_phase_ok": _last_population_result.get("ok", null),
-        "population_purchases": _last_population_result.get("purchases", 0)
+        "population_purchases": _last_population_result.get("purchases", 0),
+        "population_migrated_this_tick": _last_population_result.get("migration_moved", 0),
+        "population_migration_credits_this_tick": _last_population_result.get("migration_wealth", 0),
+        "population_last_migration": current.get("population_migration_last", {}).duplicate(true)
     }
 
 ## Godot JSON may parse integer-shaped fields as float. Normalize only
