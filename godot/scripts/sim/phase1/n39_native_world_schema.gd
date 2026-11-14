@@ -795,8 +795,10 @@ static func validate(state: Dictionary) -> String:
             var waiting: Dictionary = {}
             for value in fac["dock_queue"]:
                 var sid: String = str(value)
-                if not _id(value) or waiting.has(sid) or (
-                        not state.get("ships", {}).has(sid)):
+                # Stale after source N152 retirement is transiently
+                # legal until the following original FIFO prune phase.
+                # Reject malformed/duplicate IDs, not valid tombstones.
+                if not _id(value) or waiting.has(sid):
                     return "invalid_native_n21_fifo_identity"
                 waiting[sid] = true
                 # Rust intentionally allows a temporarily stale queue
