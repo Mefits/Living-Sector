@@ -15,6 +15,10 @@ static func _integer_field(row: Dictionary, field: String) -> bool:
     if not row.has(field):
         return true # Optional Rust serde(default) fields use native defaults.
     var raw: Variant = row[field]
+    # Rust Option<u64> for the economic last paid commitment is None
+    # on a real newly installed directive; it must survive N38.
+    if field == "last_commitment_tick" and raw == null:
+        return true
     if typeof(raw) == TYPE_INT:
         return int(raw) >= 0
     if typeof(raw) != TYPE_FLOAT:
