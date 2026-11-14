@@ -8,6 +8,7 @@ const Board = preload("res://scripts/sim/economy/contract_board.gd")
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const Catalog = preload("res://scripts/sim/economy/commodity_catalog.gd")
 const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
+const NativeDiplomacy = preload("res://scripts/sim/phase2/unified_native_diplomacy_phase.gd")
 const MAX_SAFE_MONEY: float = 9007199254740991.0
 
 static func propose(original: Dictionary, bank: Dictionary,
@@ -42,6 +43,14 @@ static func propose(original: Dictionary, bank: Dictionary,
         return {"ok": false, "reason": "not_docked_at_contract_warehouse"}
     if str(original["facilities"][station].get("location", "")) != location:
         return {"ok": false, "reason": "market_station_mismatch"}
+    # Frozen Rust faction_relations::commerce_allowed is consulted by
+    # the actual market buyer. Do not let N97 pay/transfer inventory at
+    # an explicitly Hostile/War controller, even with a funded contract.
+    # A completed delivery never retroactively revokes an already-paid
+    # pickup, so this check applies to source purchases only.
+    if direction == "pickup" and not NativeDiplomacy.commerce_allowed(
+            original, ship_id, location):
+        return {"ok": false, "reason": "n150_real_treaty_commerce_embargo"}
     var operation_id: String = "contract:" + contract_id + (":load" if direction == "pickup" else ":unload")
     if original.get("cargo_receipts", {}).has(operation_id):
         return {"ok": false, "reason": "duplicate_physical_contract_receipt"}
