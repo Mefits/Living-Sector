@@ -142,14 +142,18 @@ static func stage(world: Dictionary, original_ledger: Dictionary,
     if not staged_ledger.restore(original_ledger):
         return _bad("n83_original_n9_restore_refused")
     var receipt_id: String = "n83:ship:" + ship_id + ":" + str(request_id)
+    # Frozen N39/N9 stores facility wallets under "facility/<id>".
+    # The previous colon spelling silently made every first paid N83
+    # trade fail with invalid_account_or_delta after real N21 docking.
+    var facility_wallet: String = "facility/" + fid
     var transfer: Dictionary = staged_ledger.transfer(
-        receipt_id, "ship:" + ship_id if kind == "buy" else "facility:" + fid,
-        "facility:" + fid if kind == "buy" else "ship:" + ship_id,
+        receipt_id, "ship:" + ship_id if kind == "buy" else facility_wallet,
+        facility_wallet if kind == "buy" else "ship:" + ship_id,
         payment, tick, "native_n97_free_" + kind)
     if not transfer.get("ok", false):
         return _bad("n83_original_n9_" + str(transfer.get("reason", "unfunded")))
     if staged_ledger.balance("ship:" + ship_id) != int(applied_ship["credits"]) or (
-            staged_ledger.balance("facility:" + fid) != int(physical_facility["credits"])):
+            staged_ledger.balance(facility_wallet) != int(physical_facility["credits"])):
         return _bad("n83_n97_n9_paid_balance_disagrees")
     real_ship["cargo"] = applied_ship["cargo"].duplicate(true)
     real_ship["cargo_age"] = applied_ship["cargo_age"].duplicate(true)
