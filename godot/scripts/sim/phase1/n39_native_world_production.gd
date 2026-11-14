@@ -1398,8 +1398,8 @@ func _publish_native_passenger_stage(proposed: Dictionary, phase: String,
 ## planner, hull/route/fuel and treasury gates against CURRENT World.
 func post_native_passenger_migration(tick: int, ready: Dictionary,
         multiplier: int, graph: RefCounted, resolver: RefCounted,
-        positions: Dictionary, scale: float, original: RefCounted,
-        sources: Dictionary, baseline: Dictionary) -> Dictionary:
+        positions: Dictionary, scale: float, original: RefCounted = null,
+        sources: Dictionary = {}, baseline: Dictionary = {}) -> Dictionary:
     if not _ready or tick != _last_tick or tick < 1 or multiplier < 1:
         return {"ok": false, "reason": "n147_not_canonical_faction_tick"}
     var scan: Dictionary = NativeN147.observe(_world, graph, resolver,
