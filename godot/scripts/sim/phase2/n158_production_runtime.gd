@@ -899,20 +899,21 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                         _last_ship_result = {"ok": false,
                             "reason": "n83_n146_untrusted_free_market_dock"}
                         return false
-                    var trade_dock: Dictionary = FleetLogistics.command(
-                        snapshot, operation, ship_id,
-                        "n80:n21:" + original_goal + ":" + ship_id + ":" + operation + ":" + str(tick),
-                        tick, {}, "market")
+                    var trade_dock: Dictionary = production.apply_native_n21_request(
+                        tick, ship_id, trading_loc, operation, "",
+                        str(snapshot["markets"][trading_loc].get("owner", "")) if operation == "dock" else "")
                     if not trade_dock.get("ok", false):
                         _last_ship_result["autonomous_blocked"].append({
                             "ship_id": ship_id,
                             "reason": "native_n80_n21_" +
                                 str(trade_dock.get("reason", "dock_not_ready"))})
                         continue
-                    if not production.apply_fleet_logistics(tick, trade_dock, true):
-                        _last_ship_result = {"ok": false,
-                            "reason": "n80_single_n39_n21_dock_apply_rejected"}
-                        return false
+                    # N39 has already settled any actual N21 fee in N9.
+                    # A queued source action is not a physical docking.
+                    if str(trade_dock.get("status", "")) == "queued":
+                        _last_ship_result["autonomous_blocked"].append({
+                            "ship_id": ship_id, "reason": "n21_waiting_fifo"})
+                        continue
                     _last_ship_result["n21_auto_dock"].append({
                         "ship_id": ship_id, "operation": operation,
                         "location": trading_loc, "kind": original_goal})
