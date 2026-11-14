@@ -1840,6 +1840,14 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
                 var memory: Dictionary = ship["memory"]
                 if not (memory.get("price_knowledge", null) is Dictionary):
                     return false
+                # N83 route statistics use integer successful-sale counts.
+                if not (memory.get("route_performance", null) is Dictionary):
+                    return false
+                for route_key in memory["route_performance"]:
+                    var stats: Variant = memory["route_performance"][route_key]
+                    if not (stats is Dictionary) or not _normalize_row(
+                            stats, ["attempts"]):
+                        return false
                 for market_id in memory["price_knowledge"]:
                     var prices: Variant = memory["price_knowledge"][market_id]
                     if not (prices is Dictionary):
