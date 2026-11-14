@@ -57,11 +57,14 @@ static func _open(world: Dictionary) -> Dictionary:
 ## One explicit command, backed by the existing N21/N15 domain objects.
 ## World is duplicated BEFORE the original domain methods mutate it.
 static func command(source: Dictionary, action: String, ship_id: String,
-        operation_id: String, tick: int, quantities: Dictionary = {}) -> Dictionary:
+        operation_id: String, tick: int, quantities: Dictionary = {},
+        requested_dock_type: String = "station") -> Dictionary:
     if ship_id.is_empty() or operation_id.is_empty() or tick < 0:
         return {"ok": false, "reason": "invalid_command_identity"}
     if action not in ["dock", "undock", "load", "unload"]:
         return {"ok": false, "reason": "invalid_fleet_logistics_action"}
+    if requested_dock_type not in ["station", "shipyard"]:
+        return {"ok": false, "reason": "unsupported_native_docking_type"}
     if not (source.get("dock_receipts", null) is Dictionary) or not (source.get("cargo_receipts", null) is Dictionary):
         return {"ok": false, "reason": "legacy_save_without_logistics"}
     if source["dock_receipts"].has(operation_id) or source["cargo_receipts"].has(operation_id):
@@ -81,11 +84,14 @@ static func command(source: Dictionary, action: String, ship_id: String,
         # or fail closed; otherwise N97/N15 can never load or unload.
         var ship_location: String = str(staged["ships"].get(ship_id, {}).get("location", ""))
         var target_station: String = ""
-        if staged["markets"].has(ship_location):
+        if requested_dock_type == "station" and staged["markets"].has(ship_location):
             target_station = str(staged["markets"][ship_location].get("owner", ""))
             if not registry.facilities.has(target_station):
                 return {"ok": false, "reason": "contract_market_dock_missing"}
-        result = registry.request_dock(ship_id, operation_id, "station", target_station)
+        # Real N108 retrofit: a shipyard has its own N21 docking slots
+        # and ModuleStock; it is NOT the source market warehouse.
+        result = registry.request_dock(ship_id, operation_id,
+            requested_dock_type, target_station)
         if not result.get("ok", false):
             return result
         facility = str(result["facility_id"])
