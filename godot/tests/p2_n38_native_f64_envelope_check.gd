@@ -42,7 +42,12 @@ func _initialize() -> void:
         "world"]["markets"]["alpha-station"]["supply"]["fuel"]
     if typeof(decoded_fuel) != TYPE_FLOAT or decoded_fuel != source_fuel or (
             restored["native_production"] != native):
-        _fail("N38 exact IEEE-754 native supply/history/cargo or int changed")
+        _fail("N38 exact IEEE-754 native supply/history/cargo or int changed;" +
+            " source_fuel=" + str(source_fuel) +
+            " decoded_fuel=" + str(decoded_fuel) +
+            " decoded_type=" + str(typeof(decoded_fuel)) +
+            " source_payload=" + str(native) +
+            " decoded_payload=" + str(restored["native_production"]))
         return
     var altered: Dictionary = transport.duplicate(true)
     altered["payload"]["native_production"]["world"]["markets"][
