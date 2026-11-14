@@ -113,8 +113,14 @@ static func observe(world: Dictionary, graph: RefCounted,
             if str(p.get("location", "")) != location or str(p.get("faction", "")) != owner:
                 continue
             people_count += int(p.get("count", 0))
-            food_per += float(p.get("consumption", {}).get("food", 0.0))
-            water_per += float(p.get("consumption", {}).get("water", 0.0))
+            # Frozen Rust N92 projection: PopEconomy consumption rates
+            # are per 1000 residents, not per entire settlement. Include
+            # emergency 0.5 water below food satisfaction 30.
+            var share: float = float(maxi(0, int(p.get("count", 0)))) / 1000.0
+            food_per += maxf(0.0, float(p.get("consumption", {}).get("food", 0.0))) * share
+            water_per += maxf(0.0, float(p.get("consumption", {}).get("water", 0.0))) * share
+            if int(p.get("food_satisfaction", 50)) < 30:
+                water_per += 0.5 * share
         var market: Dictionary = world["markets"].get(location, {})
         var unique: bool = not market.is_empty() and str(market.get("owner", "")) == str(fid)
         var pending: String = ""
