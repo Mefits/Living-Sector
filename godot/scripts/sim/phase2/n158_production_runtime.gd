@@ -162,17 +162,20 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             tick, _faction_sources, _tick_multiplier)
         if not _last_research_result.get("ok", false):
             return false
-        # Source N91 chooses physically local engineering hulls for
-        # already N154-funded material-complete sites. N39 validates
-        # and assigns the persistent N84 Construct plan atomically.
+        # Source N91 chooses a paid site in the same native system.
+        # The full directed N14 route, origin N21 undock and fuel are
+        # preflighted before N39 atomically admits its persistent N84 BT.
         var engineer_plan: Dictionary = N91Dispatch.propose(
             production.world_snapshot(), _fleet_resolver, tick,
-            production.ledger_snapshot())
+            production.ledger_snapshot(), _fleet_roster.registry.graph(),
+            positions["positions"], clock.tick_scale())
         if not engineer_plan.get("ok", false):
             _last_n91_result = engineer_plan
             return false
         _last_n91_result = production.apply_native_construction_assignments(
-            tick, engineer_plan.get("assignments", []))
+            tick, engineer_plan.get("assignments", []),
+            _fleet_resolver, _fleet_roster.registry.graph(),
+            positions["positions"], clock.tick_scale())
         if not _last_n91_result.get("ok", false):
             return false
         _last_n91_result["blocked"] = engineer_plan.get("blocked", []).duplicate(true)
@@ -321,7 +324,14 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     var approved: bool = not site.is_empty() and bt is Dictionary and N91Executor.target(bt) == construction_site_id
                     approved = approved and str(ship.get("current_goal", "")) == "construct" and str(ship.get("active_contract_id", "")) == ""
                     approved = approved and str(site.get("faction_id", "")) == str(ship.get("faction_id", ""))
-                    approved = approved and str(site.get("location_name", "")) == str(ship.get("location", ""))
+                    # A remote engineer may release the PHYSICAL origin dock
+                    # before flight, while docking at the project itself
+                    # still requires arrival at the paid N154 location.
+                    if operation == "dock":
+                        approved = approved and str(site.get("location_name", "")) == str(ship.get("location", ""))
+                    else:
+                        var origin_dock: Dictionary = snapshot.get("facilities", {}).get(str(ship.get("docked_at", "")), {})
+                        approved = approved and not origin_dock.is_empty() and str(origin_dock.get("location", "")) == str(ship.get("location", ""))
                     approved = approved and str(command.get("facility_location", "")) == str(ship.get("location", ""))
                     if not approved:
                         _last_ship_result = {"ok": false, "reason": "n91_n146_unverified_site_dock"}
