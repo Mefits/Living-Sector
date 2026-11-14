@@ -152,19 +152,46 @@ def audit(root: Path) -> dict:
         "SOURCE_LINK_PRESENT", "BLOCKING_SOURCE_GAP")
 
     # These adapters may exist without being called by the live engine.
-    for name, stage_path, tokens in [
-        ("n80_idle_exploration_source_apply",
-         "godot/scripts/sim/phase2/unified_n80_ship_exploration_stage.gd",
-         ["unified_n80_ship_exploration_stage.gd", "N80ShipExploration"]),
-        ("n92_colony_aftercare_head_apply",
-         "godot/scripts/sim/phase2/unified_n92_colony_aftercare.gd",
-         ["unified_n92_colony_aftercare.gd", "N92ColonyAftercare"]),
-    ]:
-        stage = read(root, stage_path)
-        live = bool(stage) and any(token in n158 for token in tokens)
-        add(name, live, [stage_path, n158_path],
-            "Having a source proposal is not a live N39/N158 Apply; inspect active chat leases before any shared edit.",
-            "SOURCE_LINK_PRESENT", "SOURCE_ONLY_NOT_YET_CONNECTED")
+    # N80 is direct N158 ship execution. N92 is deliberately mediated
+    # by N39: do not misreport the released Chat2 B4 as SOURCE_ONLY just
+    # because its pure helper is not preloaded directly by N158.
+    exploration = read(
+        root, "godot/scripts/sim/phase2/unified_n80_ship_exploration_stage.gd"
+    )
+    add("n80_idle_exploration_source_apply",
+        bool(exploration) and (
+            "NativeN80Exploration" in n158 or
+            "unified_n80_ship_exploration_stage.gd" in n158),
+        ["godot/scripts/sim/phase2/unified_n80_ship_exploration_stage.gd",
+         n158_path],
+        "Only a direct N158 ship-phase source adapter may claim this bridge.",
+        "SOURCE_LINK_PRESENT", "SOURCE_ONLY_NOT_YET_CONNECTED")
+
+    n92 = read(root, "godot/scripts/sim/phase2/unified_n92_colony_aftercare.gd")
+    add("n92_colony_aftercare_head_apply",
+        bool(n92) and
+        'func apply_native_b4_colony_aftercare(' in n39 and
+        'NativeB4ColonyAftercare.observe(' in n39 and
+        'NativeB4ColonyAftercare.stock_head(' in n39 and
+        'production.apply_native_b4_colony_aftercare(' in n158 and
+        'func apply_native_hybrid_planning(' in n39 and
+        'func apply_native_n121_execution(' in n39,
+        ["godot/scripts/sim/phase2/unified_n92_colony_aftercare.gd",
+         n39_path, n158_path],
+        "Chat2 B4 is source-wired through one N39 planner and N158 faction phase; physical success remains UNVERIFIED.",
+        "SOURCE_LINK_PRESENT", "SOURCE_ONLY_NOT_YET_CONNECTED")
+
+    # Rust workforce migration is a separate N92/N147 strategic Head
+    # gate: a ready proposal alone is not an N134 migrate_colony decision.
+    add("n147_original_head_authorizes_workforce",
+        "NativeN147Head.authorize(" in n39 and
+        'head_source.get("head", {}) != baseline' in n39 and
+        "production.post_native_passenger_migration(" in n158 and
+        "_last_n134_result[\"heads\"].get(" in n158,
+        ["native/crates/sim_core/src/strategy/coordination.rs",
+         n39_path, n158_path],
+        "Source N147 contract must follow the same-faction current-cycle N134 Head grant; no duplicate N104 money.",
+        "SOURCE_LINK_PRESENT", "SOURCE_ONLY_NOT_YET_CONNECTED")
 
     # Presentation must not claim a phase absent when it really executes.
     method = re.search(
