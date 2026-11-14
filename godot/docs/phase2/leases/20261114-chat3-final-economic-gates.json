@@ -1,0 +1,22 @@
+{
+  "worker": "chat3-final-economic-source-and-acceptance-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "6a39b7bce44ddda6ca6082fc145e480367743413",
+  "goal": "Finish one source command bridge N158->N39 for N109/N110 research charter and native economic mandates, fail closed on unapproved economics, static final gate; preserve single N39/N9/N104, no player balance changes",
+  "scope": [
+    "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/scripts/sim/phase2/unified_n109_n110_policy_checkpoint.gd",
+    "godot/tests/p2_n109_n110_native_policy_source_check.gd",
+    "godot/docs/phase2/handoffs/20261114-chat3-final-economic-policy-and-gates.md",
+    "godot/docs/phase2/P2_V4_FINAL_ACCEPTANCE_MATRIX_RU.md"
+  ],
+  "excludes": [
+    "balance, AI defaults, new fee or supply",
+    "Godot Actions intermediate runs"
+  ],
+  "verification": "source pre-acceptance; one final Godot acceptance only after all source is available"
+}
