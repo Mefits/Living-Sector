@@ -1,0 +1,18 @@
+{
+  "worker": "chat1-ships",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "started": "2026-11-14",
+  "goal": "Large Chat1 A2: frozen Rust N97 Refuel/Mine through genuine N90/N146 request, detached P1 physical stage, atomic N39 and N9, existing N158 ships-phase; no parallel world/bank, no balance changes",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n97_ship_service_stage.gd NEW",
+    "godot/scripts/sim/phase2/unified_n97_ship_service_action.gd NEW",
+    "godot/scripts/sim/ships/native_location_resolver.gd body/system authoritative access",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd ONLY new N97 service apply method",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd ONLY N97 service dispatcher + restore guards",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd ONLY N97 service leaves",
+    "godot/docs/phase2/handoffs/20261114-chat1-n97-ship-service.md"
+  ],
+  "non_overlap": "Chat2 B2 has IN_PROGRESS source metal delivery; it owns N144 colony methods and later N39/N158. Chat3 owns crisis, saving, faction planning; re-fetch SHA before writes. Release shared files as soon as integration is complete.",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED until full post-migration Godot acceptance"
+}
