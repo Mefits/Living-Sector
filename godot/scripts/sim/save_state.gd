@@ -8,6 +8,7 @@ const DEFAULT_PATH: String = "user://saves/galaxy-067-p1.json"
 const ENVELOPE_FORMAT: String = "living-sector-checkpoint-envelope"
 const ENVELOPE_VERSION: int = 1
 const MAX_SAVE_BYTES: int = 16 * 1024 * 1024
+const NativeFrameGuard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
 
 static func _canonical(value: Variant) -> String:
     if value is Dictionary:
@@ -137,7 +138,13 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
     # both writer and reader can agree on a lossy JSON representation. Compare
     # physical market inventories against the live checkpoint BEFORE promotion.
     var verified: Dictionary = _read_checkpoint(tmp)
-    if verified.is_empty() or not _physical_stock_matches(snapshot, verified):
+    # A valid N38 SHA256 still cannot guarantee native economic fidelity
+    # if JSON rounded a credit, escrow, cargo amount or receipt before hash.
+    # Fail closed BEFORE replacing a valid primary/.bak save.
+    var native_frame_check: Dictionary = NativeFrameGuard.verify_authoritative_frame(
+        snapshot, verified)
+    if verified.is_empty() or not _physical_stock_matches(snapshot, verified) or \
+            not native_frame_check.get("ok", false):
         DirAccess.remove_absolute(tmp)
         return ERR_FILE_CORRUPT
 
