@@ -28,18 +28,19 @@ static func propose(ship: Dictionary, action: Dictionary,
         if not poll.get("ok", false):
             return _fail("native_poll_rejected")
         ship["transaction"] = poll["state"].duplicate(true)
-        match str(poll.get("status", "")):
-            Slot.RUNNING:
-                return {"status": Bt.RUNNING, "reason": "n90_wait_real_paid_apply"}
-            Slot.FAILURE:
-                return _fail(str(poll.get("reason", "n97_rejected")))
-            Slot.SUCCESS:
-                if kind != "SellAll":
-                    return {"status": Bt.SUCCESS, "reason": "n97_paid_ack"}
-                for qty in ship.get("cargo", {}).values():
-                    if int(qty) > 0:
-                        return {"status": Bt.RUNNING, "reason": "n83_more_cargo_to_sell"}
-                return {"status": Bt.SUCCESS, "reason": "n83_all_cargo_sold"}
+        var settled_state: String = str(poll.get("status", ""))
+        if settled_state == Slot.RUNNING:
+            return {"status": Bt.RUNNING, "reason": "n90_wait_real_paid_apply"}
+        if settled_state == Slot.FAILURE:
+            return _fail(str(poll.get("reason", "n97_rejected")))
+        if settled_state == Slot.SUCCESS:
+            if kind != "SellAll":
+                return {"status": Bt.SUCCESS, "reason": "n97_paid_ack"}
+            for qty in ship.get("cargo", {}).values():
+                if int(qty) > 0:
+                    return {"status": Bt.RUNNING, "reason": "n83_more_cargo_to_sell"}
+            return {"status": Bt.SUCCESS, "reason": "n83_all_cargo_sold"}
+        return _fail("n90_unknown_reply")
     var loc: String = str(ship.get("location", ""))
     if loc.is_empty() or not ship.get("transit", {}).is_empty() or (
             not world.get("markets", {}).has(loc)):
