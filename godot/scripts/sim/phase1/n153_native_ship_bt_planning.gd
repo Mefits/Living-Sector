@@ -210,6 +210,16 @@ static func compile_plan_to_bt_actions(plan_actions: Array, loc_map: Dictionary,
 			"Undock":
 				out.append(_action("DockDwell", {"seconds": DOCK_DEPART_DWELL_SECS}))
 				out.append(_action("Undock"))
+			"Refit":
+				# N81's source world-state map carries the selected module.
+				# Put that exact slot/slug on the persisted N84 leaf so
+				# N146 RequestRefit cannot choose an arbitrary module later.
+				var chosen: Dictionary = raw.duplicate(true)
+				if not chosen.has("slot"):
+					chosen["slot"] = loc_map.get("refit_slot", "")
+				if not chosen.has("slug"):
+					chosen["slug"] = loc_map.get("refit_slug", "")
+				out.append(chosen)
 			_:
 				out.append(raw.duplicate(true))
 	# Rust resume removes the first Accept if it appears, not a later
