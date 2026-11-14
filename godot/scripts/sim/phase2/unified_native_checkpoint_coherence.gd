@@ -5,6 +5,7 @@ extends RefCounted
 ## economy/credit_ledger.gd::snapshot. Pure read-only preflight.
 ## No invented wallets, money conservation rule, new contracts or world state.
 const NativePhases = preload("res://scripts/sim/tick_runner.gd")
+const OriginalPolicyCheckpoint = preload("res://scripts/sim/phase2/unified_n109_n110_policy_checkpoint.gd")
 
 static func _bad(code: String) -> Dictionary:
     return {"ok": false, "reason": code}
@@ -170,6 +171,15 @@ static func validate_serialized_candidate(saved: Dictionary) -> Dictionary:
         return _bad("serialized_world_or_ledger_not_object")
     var world: Dictionary = native["world"]
     var ledger: Dictionary = native["ledger"]
+    # Trust no digest-valid checkpoint as a backup without checking the
+    # original N109/N110 budget counters and charter authority. Share
+    # exactly the SAME pure policy validator used by N39.restore.
+    var policy: Dictionary = OriginalPolicyCheckpoint.normalize(world)
+    if not policy.get("ok", false):
+        return _bad("serialized_original_policy_rejected:" + str(
+            policy.get("reason", "invalid")))
+    native["world"] = policy["world"]
+    world = native["world"]
     if not _exact_integer_in_place(ledger, "version"):
         return _bad("serialized_ledger_version_not_exact")
     for group in ["facilities", "populations", "ships", "passenger_manifests"]:
