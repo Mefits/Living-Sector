@@ -4949,7 +4949,7 @@ func restore(saved: Dictionary) -> bool:
     # Normalize ONLY proven integral N109/N110 fields on a detached copy;
     # never coerce fractional budgets or invent a default policy.
     var normalized_policy: Dictionary = OriginalPolicyCheckpoint.normalize(
-        staged_world)
+        staged_world, int(saved["tick"]))
     if not normalized_policy.get("ok", false):
         return false
     staged_world = normalized_policy["world"]
