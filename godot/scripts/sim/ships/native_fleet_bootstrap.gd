@@ -12,6 +12,7 @@ const ShipProgression = preload("res://scripts/sim/native/ship_progression_n101.
 const ShipLifecycle = preload("res://scripts/sim/phase1/n148_native_ship_lifecycle.gd")
 const SourceLod = preload("res://scripts/sim/phase1/n140_native_spatial_lod.gd")
 const NativeCrewRoster = preload("res://scripts/sim/ships/native_crew_roster.gd")
+const NativePriceMemory = preload("res://scripts/sim/phase2/unified_native_ship_price_observation.gd")
 const PROVENANCE: String = "frozen-rust-sim_db-seeder-fresh-ship-20261112"
 
 static func build_new_game(seed: Dictionary) -> Dictionary:
@@ -96,6 +97,9 @@ static func build_new_game(seed: Dictionary) -> Dictionary:
         # Original AgentLod::new cursor on every fresh Rust ECS ship.
         # Separate from N148 strikes; no permanent source LOD service.
         ship["lod"] = SourceLod.new_cursor()
+        # Rust ShipMemory::default is an empty LEARNED record, not
+        # omniscient market prices from the source seed.
+        ship["memory"] = NativePriceMemory.default_memory()
         ship["cargo_capacity"] = roundi(float(ship_spec["cargo_capacity"]) *
             float(derived["cargo_capacity_mult"]))
         ship["speed_modifier"] = Catalog.effective_speed(
