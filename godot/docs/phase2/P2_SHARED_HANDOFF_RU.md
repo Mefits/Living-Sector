@@ -121,3 +121,5 @@
 - N38: ShipMemory paid route stats, N90 sequence+pending, actual N97 goods/payment receipts; N39 Schema checks types; N158 reports source N83 proposed versus PAID exchanges. Original N46 ships have empty genuine N90/mail/provenance/reputation.
 - Detailed handoff: `godot/docs/phase2/handoffs/20261114-chat1-n83-paid-free-trade.md`. **SOURCE_WIRED / CODE_UNVERIFIED**. No Godot parser/runtime, Actions or balance changes. Do not announce actual clean-seed successful trade before final combined run. Chat2 colony and Chat3 faction/final owned domains not touched.
 - Remaining Chat1: reconcile original N97 Refuel/Mine, exact Rust f32 source trade playback, native GateJump and N38 transit replay, plus single end-to-end free trade + contract freight after all porting blocks.
+
+- N83 market-owner N21 source parity: `FleetLogistics.command(..., "market")` now docks only at the REAL market-owner facility with positive original N21 capacity, regardless of Rust facility subtype; no invented station. Existing N104/N151/N108 dock paths untouched. `20261114-chat1-n83-paid-free-trade.md` updated. CODE_UNVERIFIED.
