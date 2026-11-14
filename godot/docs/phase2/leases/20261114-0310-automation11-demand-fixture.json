@@ -1,10 +1,15 @@
 {
   "worker": "automation11",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "started_msk": "2026-11-14T03:10:39+03:00",
   "expires_msk": "2026-11-14T04:00:00+03:00",
   "scope": [
     "godot/tests/p2_autonomous_multitick_delivery_restart_check.gd"
   ],
-  "purpose": "Fix acceptance blocker: demand fixture mutated only local world, not restored checkpoint; ensure real N135 deficit enters live single World"
+  "purpose": "Fix acceptance blocker: demand fixture mutated only local world, not restored checkpoint; ensure real N135 deficit enters live single World",
+  "released_msk": "2026-11-14T03:20:00+03:00",
+  "commits": [
+    "4ad092e0a4d0115589e47a7edfedd570c704706a"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261114-0320-automation11-paid-pickup-restart.md"
 }
