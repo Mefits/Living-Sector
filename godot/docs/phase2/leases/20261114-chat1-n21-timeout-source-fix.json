@@ -1,0 +1,23 @@
+{
+  "worker": "chat1-continuation-n21-timeouts",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "9a2c95fb6eb72fe5e63394721cdc9f8358bc485e",
+  "goal": "Close Rust N21 150/60/30 tick timeout, one N84 persisted wait cursor, safe contract/goal failure and N38 restoration, plus audit manual non-AI docking; do not touch current Chat3 N113 claim",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd (original N21 wait budget and failure handling)",
+    "godot/scripts/sim/phase2/unified_n21_dock_queue_stage.gd (source FIFO stale queue policy)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (existing external/debug docking route if safe)",
+    "godot/tests/p2_n21_dock_timeout_source_check.gd (deferred)",
+    "godot/docs/phase2/handoffs/20261114-chat1-n21-timeout-audit.md"
+  ],
+  "avoid": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (currently chat3 N113 active)",
+    "godot/scripts/sim/phase2/unified_n147_colony_head_grant.gd",
+    "godot/scripts/sim/phase2/unified_n113_original_candidates.gd",
+    "balance",
+    "Godot or Actions intermediate tests"
+  ],
+  "verification": "SOURCE_ONLY_NOT_RUN",
+  "started": "2026-11-14"
+}
