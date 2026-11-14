@@ -55,6 +55,7 @@ jobs:
           test -f godot/tests/gut/test_native_bt.gd
           test -f godot/tests/gut/test_n9_n38_integrity.gd
           test -f godot/tests/gut/test_n80_n21_source_guards.gd
+          test -f godot/tests/gut/test_n21_paid_wallet.gd
       - name: Import project and third-party plugin once
         shell: bash
         run: |
