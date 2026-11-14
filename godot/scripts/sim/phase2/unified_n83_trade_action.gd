@@ -14,7 +14,8 @@ static func propose(ship: Dictionary, action: Dictionary,
         world: Dictionary, tick: int) -> Dictionary:
     var kind: String = str(action.get("kind", ""))
     var goal: String = str(ship.get("current_goal", ""))
-    var native_mined_ice: bool = goal == "mine" and kind == "Sell" and (
+    var native_mined_ice: bool = goal in [
+        "mine", "mine_ice", "deliver_mined_ice"] and kind == "Sell" and (
         str(action.get("commodity", "")) == "ice")
     if tick < 1 or kind not in ["Buy", "Sell", "SellAll"] or (
             (goal != "trade_route" and not native_mined_ice) or
