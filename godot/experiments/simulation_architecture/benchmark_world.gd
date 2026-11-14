@@ -19,7 +19,8 @@ var loaded_units: int = 0
 var unloaded_units: int = 0
 var errors: Array[String] = []
 
-func initialize(facility_count: int, ship_count: int, seed: int) -> void:
+func initialize(facility_count: int, ship_count: int, seed: int,
+        stock_profile: String = "normal", horizon: int = 365) -> void:
     var count: int = maxi(3, int(ceil(float(facility_count) / 8.0)))
     facilities_by_market.clear()
     var recipes: Array[String] = [
@@ -50,6 +51,30 @@ func initialize(facility_count: int, ship_count: int, seed: int) -> void:
             market["water"] += 25.0
             market["ore"] = 8.0
             market["food"] = 1.0
+        # Load-only stress fixtures. All goods exist at t=0: NO artificial
+        # replenishment, free mining, or hidden extra output during simulation.
+        # Every scheduler receives exactly this same initial physical stock.
+        match stock_profile:
+            "supplied":
+                var loaded: float = 25000.0 * maxf(1.0, float(horizon) / 365.0)
+                for commodity in ["ore", "ice", "gas", "fuel", "metals",
+                        "polymers", "components", "water"]:
+                    market[commodity] = loaded
+            "starved":
+                # Some markets begin with an input shortage, others can feed
+                # them physically; this creates meaningful sleeping work.
+                if i % 3 != 0:
+                    for commodity in ["ore", "ice", "gas", "fuel", "metals",
+                            "polymers", "components", "water"]:
+                        market[commodity] = 0.0
+                else:
+                    market["ore"] = 120.0
+                    market["ice"] = 120.0
+                    market["gas"] = 120.0
+            "normal":
+                pass
+            _:
+                errors.append("unknown_stock_profile_" + stock_profile)
         markets.append(market)
     for i in range(facility_count):
         facilities.append({"market": i % count, "recipe": recipes[i % recipes.size()]})
