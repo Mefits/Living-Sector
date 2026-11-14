@@ -67,7 +67,8 @@ static func propose(ship: Dictionary, contract: Dictionary,
         return {"ok": false, "reason": "n104_no_active_original_obligation"}
     var source_kind: String = {
         "delivery": "Delivery", "construction": "Construction",
-        "supply": "Supply", "courier": "Courier",
+        "supply": "Supply", "subsidy": "Subsidy",
+        "courier": "Courier",
         "passenger": "Passenger", "crew_mission": "CrewMission"
     }.get(kind, "")
     if source_kind.is_empty():
