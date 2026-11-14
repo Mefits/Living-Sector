@@ -27,6 +27,7 @@ const NativeColonyMetalAssignment = preload("res://scripts/sim/phase2/unified_n1
 const NativeNewColonyHead = preload("res://scripts/sim/phase2/unified_n144_new_colony_head.gd")
 const SourceN134Construction = preload("res://scripts/sim/phase2/unified_n134_construction_head.gd")
 const NativeColonyDocks = preload("res://scripts/sim/phase2/unified_n151_colony_dock_phase.gd")
+const NativeColonyEstablish = preload("res://scripts/sim/phase2/unified_n151_colony_establish.gd")
 const EscrowStage = preload("res://scripts/sim/phase2/unified_contract_escrow_staging.gd")
 const FacilityLifecycle = preload("res://scripts/sim/phase2/unified_facility_lifecycle_phase.gd")
 const ServiceRestock = preload("res://scripts/sim/phase2/unified_service_restock_phase.gd")
@@ -2259,11 +2260,103 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     # Initial working capital is a REAL transfer from the faction N9
     # account to the new facility's zero balance, not minted currency.
     var materialized: Array = []
+    var established: Array = []
+    var blocked_site_written: bool = false
     for site_id in completed_sites:
         var site: Dictionary = staged["construction_sites"][site_id]
         if site.get("labor", {}).get("colony_source", null) != null:
-            # Colony formation belongs to N151's dock+market bridge.
-            blocked.append({"site_id": str(site_id), "reason": "native_N151_colony_establish_required"})
+            # Rust apply::tick_construction_labor invokes native
+            # colony::establish IN THIS SAME successful N141 WorkShift.
+            # B3 never creates another dock, household or facility wallet:
+            # it upgrades the genuine N151 temporary physical dock,
+            # transfers exactly 20k N9 and creates its first Market.
+            var original_bank: Dictionary = ledger.snapshot()
+            var native_b3: Dictionary = NativeColonyEstablish.stage(
+                staged, original_bank, str(site_id), tick, multiplier)
+            if not native_b3.get("ok", false):
+                var reason: String = str(native_b3.get("reason", "n151_source_establish_rejected"))
+                if reason == "insufficient_startup_capital":
+                    # Frozen Rust leaves the actual paid site alive and
+                    # records its blocked_reason, retrying on a later paid
+                    # source WorkShift rather than gifting working capital.
+                    staged["construction_sites"][site_id]["labor"]["blocked_reason"] = reason
+                    blocked_site_written = true
+                    blocked.append({"site_id": str(site_id), "reason": reason})
+                    continue
+                return {"ok": false, "fatal": true,
+                    "reason": "b3_original_rust_establish_" + reason}
+            var before: Dictionary = staged
+            var next_world: Dictionary = native_b3["world"]
+            var next_money: Dictionary = native_b3["ledger_snapshot"]
+            var dock_id: String = str(native_b3["facility_id"])
+            var location: String = str(native_b3["location"])
+            var faction_id: String = str(before["construction_sites"][site_id]["faction_id"])
+            if next_world.size() != before.size() or (
+                    next_world["facilities"].size() != before["facilities"].size() or
+                    next_world["populations"] != before["populations"] or
+                    next_world["ships"] != before["ships"] or
+                    next_world["contract_board"] != before["contract_board"] or
+                    next_world["escrow_balances"] != before["escrow_balances"] or
+                    next_world["cargo_receipts"] != before["cargo_receipts"] or
+                    next_world["dock_receipts"] != before["dock_receipts"] or
+                    next_world["markets"].size() != before["markets"].size() + 1 or
+                    next_world["construction_sites"].size() != before["construction_sites"].size() - 1 or
+                    next_world["construction_receipts"].size() != before["construction_receipts"].size() + 1):
+                return {"ok": false, "fatal": true,
+                    "reason": "b3_cannot_create_second_world_or_ghost_colony_actor"}
+            for domain in before:
+                if domain not in ["facilities", "markets", "faction_treasuries",
+                        "construction_sites", "construction_contracts",
+                        "construction_receipts"] and next_world[domain] != before[domain]:
+                    return {"ok": false, "fatal": true,
+                        "reason": "b3_mutated_unrelated_canonical_domain:" + str(domain)}
+            for old_dock in before["facilities"]:
+                if str(old_dock) != dock_id and next_world["facilities"][old_dock] != before["facilities"][old_dock]:
+                    return {"ok": false, "fatal": true,
+                        "reason": "b3_changed_unrelated_station"}
+            for previous_market in before["markets"]:
+                if next_world["markets"].get(previous_market, null) != before["markets"][previous_market]:
+                    return {"ok": false, "fatal": true,
+                        "reason": "b3_forged_existing_market"}
+            if before["markets"].has(location) or not next_world["markets"].has(location) or (
+                    str(before["facilities"][dock_id].get("type", "")) != "construction_dock" or
+                    str(next_world["facilities"][dock_id].get("type", "")) != "station" or
+                    str(next_world["facilities"][dock_id].get("location", "")) != location or
+                    int(next_world["facilities"][dock_id].get("native_db_id", 0)) !=
+                        int(before["facilities"][dock_id].get("native_db_id", 1)) or
+                    str(next_world["markets"][location].get("owner", "")) != dock_id):
+                return {"ok": false, "fatal": true,
+                    "reason": "b3_did_not_upgrade_original_n151_dock"}
+            for other_faction in before.get("faction_treasuries", {}):
+                if str(other_faction) != faction_id and next_world["faction_treasuries"][other_faction] != before["faction_treasuries"][other_faction]:
+                    return {"ok": false, "fatal": true,
+                        "reason": "b3_forged_other_faction_credits"}
+            var bank_stage := Ledger.new()
+            if not bank_stage.restore(next_money) or bank_stage.total() != ledger.total():
+                return {"ok": false, "fatal": true,
+                    "reason": "b3_original_n9_supply_not_conserved"}
+            var capital_receipt: String = str(native_b3.get("n9_receipt_id", ""))
+            if next_money["receipts"].size() != original_bank["receipts"].size() + 1 or (
+                    not next_money["receipts"].has(capital_receipt) or
+                    str(next_money["receipts"][capital_receipt].get("kind", "")) !=
+                        "native_n151_colony_startup_capital" or
+                    int(next_world["faction_treasuries"][faction_id]) !=
+                        int(before["faction_treasuries"][faction_id]) - 20000 or
+                    int(next_world["facilities"][dock_id]["credits"]) !=
+                        int(before["facilities"][dock_id]["credits"]) + 20000):
+                return {"ok": false, "fatal": true,
+                    "reason": "b3_missing_exact_real_n9_20000_transfer"}
+            for receipt_key in original_bank["receipts"]:
+                if next_money["receipts"].get(receipt_key, null) != original_bank["receipts"][receipt_key]:
+                    return {"ok": false, "fatal": true,
+                        "reason": "b3_rewrote_original_paid_history"}
+            for remaining_site in before["construction_sites"]:
+                if str(remaining_site) != str(site_id) and next_world["construction_sites"][remaining_site] != before["construction_sites"][remaining_site]:
+                    return {"ok": false, "fatal": true,
+                        "reason": "b3_changed_unrelated_construction_site"}
+            staged = next_world
+            ledger = bank_stage
+            established.append(native_b3.duplicate(true))
             continue
         var faction: String = str(site["faction_id"])
         var kind: String = str(site["facility_type"])
@@ -2351,12 +2444,13 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     for id in expected:
         if expected[id] != wallet_values.get(id, null):
             return {"ok": false, "fatal": true, "reason": "n141_n9_wallet_mismatch"}
-    if not paid.is_empty() or not materialized.is_empty():
+    if not paid.is_empty() or not materialized.is_empty() or (
+            not established.is_empty() or blocked_site_written):
         _world = staged
         _ledger = ledger
-    return {"ok": true, "status": "N141_N154_NATIVE_PAID_CONSTRUCTION",
+    return {"ok": true, "status": "N141_N154_N151_NATIVE_PAID_CONSTRUCTION",
         "tick": tick, "paid": paid, "materialized": materialized,
-        "blocked": blocked}
+        "established": established, "blocked": blocked}
 
 
 ## Gate4: N155 observed head → N143 paid research, with ONLY the N9
