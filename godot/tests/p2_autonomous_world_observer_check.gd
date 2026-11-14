@@ -215,6 +215,23 @@ func _initialize() -> void:
             "elapsed_ms": Time.get_ticks_msec() - _started_ms
         }
         _report["samples"].append(sample)
+        # Opt-in bounded performance diagnostics: always stream progress
+        # during the run, so a CI timeout still records the last real
+        # completed tick and phase/copy costs. Never modifies World.
+        if OS.get_environment("LS_PROFILE_NATIVE_PHASES") == "1":
+            var profile: Dictionary = sim.profile_native_phases()
+            var copies: Dictionary = sim.production.world_copy_profile()
+            print("LS_AUTONOMY_PROGRESS tick=", n,
+                " elapsed_ms=", Time.get_ticks_msec() - _started_ms,
+                " accepted=", _n153_accept_total,
+                " departures=", _n84_departures_total,
+                " n9_receipts=", count,
+                " copy_calls=", copies.get("world_copy_calls", 0),
+                " copy_msec=", float(copies.get("world_copy_usec", 0)) / 1000.0,
+                " ship_phase_msec=", float(profile.get("phase_usec", {}).get(
+                    "ships", 0)) / 1000.0,
+                " factions_phase_msec=", float(profile.get("phase_usec", {}).get(
+                    "factions", 0)) / 1000.0)
     _report["native_n153_accepted_total"] = _n153_accept_total
     _report["native_n153_block_reasons"] = _n153_block_reasons
     _report["native_n153_ship_causes"] = _n153_ship_causes
