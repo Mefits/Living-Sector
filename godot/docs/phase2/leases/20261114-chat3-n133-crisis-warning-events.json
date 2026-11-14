@@ -1,0 +1,22 @@
+{
+  "worker": "chat3-factions-final-integration",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "933e746868a475ee7bb829ef457d17679b730a50",
+  "goal": "V2 Rust sim_server::scan_crisis_events structural market/facility warning hysteresis, first source-live market stage, no balances or mechanics change",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_native_crisis_events.gd (new)",
+    "godot/scripts/sim/phase2/unified_market_phase.gd (source hysteresis after N150 tick only)",
+    "godot/tests/p2_native_crisis_events_source_check.gd (new)",
+    "godot/docs/phase2/handoffs/20261114-chat3-native-crisis-events.md (new)"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "N9 Ledger",
+    "N104 ContractBoard"
+  ],
+  "risk": "chat1 IN_PROGRESS N39/N158 lease; facility signal atomic commit needs later coordination; non-economic notifications only",
+  "verification": "NOT_RUN: defer Godot runtime and GitHub Actions by user instruction"
+}
