@@ -169,7 +169,12 @@ def audit(root: Path) -> dict:
             'ship["dock_attempt_start_tick"] = tick',
             'ship["dock_attempt_start_tick"] = null',
             "n21_original_dock_wait_timeout",
-            "n21_paid_contract_retry_after_timeout",
+            # Following the released N104 replan source block, an
+            # Accepted contract queues a guarded N146 ReleaseContract;
+            # PickedUp resumes N81 from actual cargo. The old proposed
+            # n21_paid_contract_retry_after_timeout marker is obsolete.
+            "n104_pending_release_on_bt_failure",
+            "n104_original_n81_pickedup_resume",
         ]) and
         "dock_attempt_start_tick" in read(
             root, "godot/scripts/sim/phase1/n39_native_world_schema.gd"
