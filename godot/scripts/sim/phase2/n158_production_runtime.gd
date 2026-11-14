@@ -1561,6 +1561,22 @@ func last_native_ship_crew() -> Dictionary:
 func fleet_snapshot() -> Dictionary:
     return production.ships_snapshot() if _native_enabled else {}
 
+## UI/profiler-friendly read-only trace of *real* N153/N84 results.
+## A zero accepted count means no source-valid assignment happened;
+## never mistake presence of N104 offers for physical flight.
+func native_autonomy_diagnostics() -> Dictionary:
+    var bids: Array = _last_n153_result.get("blocked", [])
+    var accepted: Array = _last_n153_result.get("accepted", [])
+    return {"tick": tick_count,
+        "n153_blocked": bids.duplicate(true),
+        "n153_accepted": accepted.size(),
+        "n84_departures": _last_ship_result.get(
+            "autonomous_departures", []).duplicate(true),
+        "n84_blocked": _last_ship_result.get(
+            "autonomous_blocked", []).duplicate(true),
+        "n140_fired": int(_last_ship_result.get("n140_fired_count", 0)),
+        "n140_skipped": int(_last_ship_result.get("n140_skipped_count", 0))}
+
 
 ## A strictly controlled ship order (not fleet AI). N14 checks the real
 ## directed Rust route, native positions, fuel and active transit; N39 owns
