@@ -4,7 +4,7 @@
   "started": "2026-11-15",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "79267943204ab30d0e323559ac98f12e2ac88aa2",
-  "goal": "Stage2 bounded clean-seed integrated Godot runtime acceptance after user confirmed Windows tick361 error no longer reproduces: original Galaxy 0.6.7, real 420 ticks at x8, canonical ledger invariants, tick360 mid-faction N38 save/reload, continuation through 361 and no duplicated phase/receipt. No balance changes. Actual Godot 4.7.2 execution found N91 false fatal at tick181 on source N151 marketless construction_dock; fix source N91 selectors and authoritative N39 Apply to recognize exactly receipted colony dock, without skipping payments.",
+  "goal": "Stage2 bounded clean-seed integrated Godot runtime acceptance after user confirmed Windows tick361 error no longer reproduces: original Galaxy 0.6.7, real 420 ticks at x8, canonical ledger invariants, tick360 mid-faction N38 save/reload, continuation through 361 and no duplicated phase/receipt. No balance changes. Actual Godot 4.7.2 execution found N91 false fatal at tick181 on source N151 marketless construction_dock; fix source N91 selectors and authoritative N39 Apply to recognize exactly receipted colony dock, without skipping payments. Stage2 Godot CI 43644368572 now establishes N38 exact physical market stock roundtrip and trend float JSON failure at tick360: implement lossless transport of native IEEE-754 floats inside same hashed N38 JSON envelope, preserving exact money/stock/contract guards.",
   "scope": [
     "godot/tests/p2_stage2_clean_seed_420_tick_acceptance.gd",
     "godot/docs/phase2/handoffs/20261115-stage2-clean-seed-runtime-acceptance.md",
@@ -12,7 +12,8 @@
     ".github/workflows/p2-unified-godot-smoke.yml (append one bounded real Godot acceptance only)",
     "godot/scripts/sim/phase2/unified_n91_construction_dispatch.gd",
     "godot/scripts/sim/phase1/n39_native_world_production.gd (N91 site dock validation only)",
-    "godot/tests/p2_n91_marketless_colony_dock_stage_check.gd"
+    "godot/tests/p2_n91_marketless_colony_dock_stage_check.gd",
+    "godot/scripts/sim/save_state.gd (strict N38 native float lossless JSON envelope codec only)"
   ],
   "constraints": [
     "Do not mutate gameplay balance or frozen Rust source",
@@ -22,5 +23,5 @@
     "Pass only with actual Godot logs; if it fails, report real blocker"
   ],
   "verification": "PENDING",
-  "notes": "First Stage2 CI 43643329724 falsely assumed zero-sum N9; source crew wages are nonspendable with N9 receipts. Second Stage2 CI 43643550861 passes 120 ticks, fails genuine N91 premature market-only validation at tick181. Rust prepare_docks explicitly creates a receipt-owned marketless construction_dock. No balance edits."
+  "notes": "CI 43644368572: editor/parse/economy/research/N91 all PASS; source clean tick360 and N9 receipts PASS. N38 ERR_FILE_CORRUPT code16; coherence and timeline PASS, but JSON changed market history alpha-station fuel 0th supply and actual physical market supply. Keep exact stock invariant, add lossless native float encoding/decode in hashed envelope; old v1 plain JSON and P1 saves must continue to load."
 }
