@@ -140,12 +140,17 @@ func audit() -> String:
         var validation: String = Inventory.validate(market)
         if validation != "":
             return validation
+    var in_transit: int = 0
     for ship in ships:
         var validation: String = Inventory.validate_ship_hold(ship["cargo"], HOLD_CAPACITY)
         if validation != "":
             return validation
         if int(ship["arrival"]) >= 0 and int(ship["departure"]) >= 0:
             return "ship_in_two_states"
+        for commodity in ship["cargo"]:
+            in_transit += int(ship["cargo"][commodity])
+    if loaded_units != unloaded_units + in_transit:
+        return "ship_cargo_conservation_failed"
     return ""
 
 func state() -> Dictionary:
