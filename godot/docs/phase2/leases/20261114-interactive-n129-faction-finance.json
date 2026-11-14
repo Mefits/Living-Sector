@@ -1,6 +1,6 @@
 {
   "worker": "interactive-primary-chat-20261114",
-  "status": "IN_PROGRESS",
+  "status": "RELEASED",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "0a1a82d9bd1803ea00e14beccdf75c42e88cc53c",
   "goal": "Finish Rust N129 faction tax+bailout and native faction relief real N9 transfers on single N39 World inside factions phase; no intermediate runtime tests",
@@ -11,5 +11,7 @@
     "godot/docs/phase2/handoffs/20261114-n129-finance-integrated.md",
     "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
   ],
-  "verification": "SOURCE_WIRED_ONLY; user defers all integration tests"
+  "verification": "STATIC_IMPORTS_BRACKETS_INDENT_PASS; USER_DEFERRED_RUNTIME_UNTIL_FULL_INTEGRATION; GITHUB_ACTIONS_0",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n129-finance-integrated.md",
+  "commit_head": "d1e01b6849242760bc0f1b11a565cde5f7d46a9b"
 }
