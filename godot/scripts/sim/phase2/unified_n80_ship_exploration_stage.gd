@@ -1,12 +1,13 @@
 extends RefCounted
-## P2 N80 SOURCE ONLY. Frozen Rust agents/ship/behavior.rs:
-## smart_idle_fallback -> try_build_explore_bt -> N84 source actions.
-## Called by the future one-N158 integration point, not by an extra tick.
+## P2 N80 SOURCE-WIRED (runtime unverified). Frozen Rust
+## smart_idle_fallback -> try_build_explore_bt -> N84. Called by the
+## ONE N158 ships phase, after contract/trade/mining source admission.
 ## Does NOT build gates, assign contracts, transfer money or move ships.
 const Idle = preload("res://scripts/sim/ships/ai/native_ship_idle_policy.gd")
 const Goals = preload("res://scripts/sim/ships/ai/native_ship_goal_policy.gd")
 const Personality = preload("res://scripts/sim/ships/ai/native_personality.gd")
 const BT = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
+const RouteFuel = preload("res://scripts/sim/phase2/unified_n80_ship_route_fuel.gd")
 const BOARD_DWELL_SECONDS: int = 5 # frozen ShipComponents EXPLORE_CHECK_BOARD_SECONDS
 
 static func _route(graph: RefCounted, origin: String, destination: String) -> Array:
@@ -137,7 +138,8 @@ static func _neighbor_gates(world: Dictionary, graph: RefCounted,
     return found
 
 static func stage(world: Dictionary, graph: RefCounted,
-        resolver: RefCounted, tick: int, fired: Dictionary) -> Dictionary:
+        resolver: RefCounted, tick: int, fired: Dictionary,
+        positions: Dictionary, tick_scale: float) -> Dictionary:
     if tick < 1 or graph == null or resolver == null or (
             not resolver.has_method("system_for_location") or
             not resolver.has_method("system_for_body") or
@@ -161,6 +163,12 @@ static func stage(world: Dictionary, graph: RefCounted,
                 not ship["transit"].is_empty()):
             continue
         var at: String = str(ship.get("location", ""))
+        var old_dock: String = str(ship.get("docked_at", ""))
+        if not old_dock.is_empty() and str(world["facilities"].get(
+                old_dock, {}).get("type", "")) != "station":
+            # N39 protects actual source shipyard/colony slots; a
+            # speculative scout may not release those obligations.
+            continue
         if at.is_empty() or not graph.has_location(at) or (
                 resolver.system_for_location(at) != str(ship.get("system_id", ""))):
             blocked.append({"ship_id": str(ship_id), "reason": "not_at_mapped_source_system"})
@@ -197,6 +205,14 @@ static func stage(world: Dictionary, graph: RefCounted,
                 chosen_gate = pair
                 break
         if chosen_gate.is_empty():
+            continue
+        var readiness: Dictionary = RouteFuel.preflight(ship, positions,
+            tick_scale, [{"start": at, "nodes": chosen_gate["to_gate"]},
+                {"start": str(chosen_gate["destination"]),
+                "nodes": chosen_gate["to_station"]}])
+        if not readiness.get("ok", false):
+            blocked.append({"ship_id": str(ship_id), "reason": str(readiness.get(
+                "reason", "n14_unfunded_flight"))})
             continue
         var used: int = 0
         for amount in ship.get("cargo", {}).values():
