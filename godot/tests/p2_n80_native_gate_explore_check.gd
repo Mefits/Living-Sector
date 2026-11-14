@@ -91,6 +91,21 @@ static func run_checks() -> Dictionary:
     if gate_step.get("src_gate", "") != "sol-gate" or (
             gate_step.get("dest_gate", "") != "alpha-gate"):
         return {"ok": false, "reason": "n80_fake_navigation_edge"}
+    var shared_dock: Dictionary = fixture()
+    shared_dock["facilities"]["alpha-station"]["location"] = "alpha-gate"
+    shared_dock["markets"].erase("alpha-dock")
+    shared_dock["markets"]["alpha-gate"] = {"owner": "alpha-station"}
+    var same_endpoint: Dictionary = Stage.stage(shared_dock, graph, resolver,
+        12000, {"ship-a": 1})
+    if not same_endpoint.get("changed", false):
+        return {"ok": false, "reason": "n80_rejected_real_market_at_gate_location"}
+    var same_bt: Dictionary = same_endpoint["ships"]["ship-a"]["current_bt"]
+    var kinds: Array = []
+    for node in same_bt.get("children", []):
+        kinds.append(str(node.get("action", {}).get("kind", "")))
+    if kinds != ["Undock", "Travel", "GateJump", "Dock",
+            "DockDwell", "Undock"]:
+        return {"ok": false, "reason": "n80_shared_gate_market_route_invalid"}
     var no_pair: Dictionary = fixture()
     no_pair["facilities"]["sol-gate-id"].erase("gate_link")
     if Stage.stage(no_pair, graph, resolver, 12000, {
