@@ -837,6 +837,32 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             source_command_ordinal += 1
             var kind: String = str(command.get("kind", ""))
             var ship_id: String = str(command.get("ship", ""))
+            if kind == "ReleaseContract":
+                # Rust N146 SimCommand::ReleaseContract only changes the
+                # guarded current N104 Accepted fulfiller. N39 commits
+                # ship, Board, N150 breach standing together; no N9
+                # escrow refund or duplicate N15 physical pickup.
+                var source_id: String = str(command.get("ship_id", ""))
+                var cid: String = str(command.get("contract_id", ""))
+                var cause: String = str(command.get("reason", ""))
+                if source_id != ship_id or cid.is_empty() or cause not in [
+                        "bt_failure", "issuer_funding_failure"]:
+                    _last_ship_result = {"ok": false,
+                        "reason": "n104_invalid_n146_release_actor"}
+                    return false
+                var posted: Dictionary = production.apply_native_n104_release_contract(
+                    tick, ship_id, cid, cause)
+                if not posted.get("ok", false):
+                    _last_ship_result = {"ok": false,
+                        "reason": "n104_canonical_release_" + str(
+                            posted.get("reason", "rejected"))}
+                    return false
+                if posted.get("changed", false):
+                    if not _last_ship_result.has("n104_contract_releases"):
+                        _last_ship_result["n104_contract_releases"] = []
+                    _last_ship_result["n104_contract_releases"].append(
+                        posted.duplicate(true))
+                continue
             if kind == "BeginTransit":
                 _last_ship_result["autonomous_departures"].append({
                     "ship_id": ship_id, "from": str(command.get("from", "")),
