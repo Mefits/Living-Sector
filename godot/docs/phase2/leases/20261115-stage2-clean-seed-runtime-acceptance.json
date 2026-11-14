@@ -4,12 +4,15 @@
   "started": "2026-11-15",
   "branch": "integration/godot-phase2-unified-20261113",
   "base_head": "79267943204ab30d0e323559ac98f12e2ac88aa2",
-  "goal": "Stage2 bounded clean-seed integrated Godot runtime acceptance after user confirmed Windows tick361 error no longer reproduces: original Galaxy 0.6.7, real 420 ticks at x8, canonical ledger invariants, tick360 mid-faction N38 save/reload, continuation through 361 and no duplicated phase/receipt. No balance changes.",
+  "goal": "Stage2 bounded clean-seed integrated Godot runtime acceptance after user confirmed Windows tick361 error no longer reproduces: original Galaxy 0.6.7, real 420 ticks at x8, canonical ledger invariants, tick360 mid-faction N38 save/reload, continuation through 361 and no duplicated phase/receipt. No balance changes. Actual Godot 4.7.2 execution found N91 false fatal at tick181 on source N151 marketless construction_dock; fix source N91 selectors and authoritative N39 Apply to recognize exactly receipted colony dock, without skipping payments.",
   "scope": [
     "godot/tests/p2_stage2_clean_seed_420_tick_acceptance.gd",
     "godot/docs/phase2/handoffs/20261115-stage2-clean-seed-runtime-acceptance.md",
     "godot/docs/phase2/P2_CI_TRIGGER.txt (only once after source ready)",
-    ".github/workflows/p2-unified-godot-smoke.yml (append one bounded real Godot acceptance only)"
+    ".github/workflows/p2-unified-godot-smoke.yml (append one bounded real Godot acceptance only)",
+    "godot/scripts/sim/phase2/unified_n91_construction_dispatch.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N91 site dock validation only)",
+    "godot/tests/p2_n91_marketless_colony_dock_stage_check.gd"
   ],
   "constraints": [
     "Do not mutate gameplay balance or frozen Rust source",
@@ -18,5 +21,6 @@
     "One batched Godot Actions run rather than micro runs",
     "Pass only with actual Godot logs; if it fails, report real blocker"
   ],
-  "verification": "PENDING"
+  "verification": "PENDING",
+  "notes": "First Stage2 CI 43643329724 falsely assumed zero-sum N9; source crew wages are nonspendable with N9 receipts. Second Stage2 CI 43643550861 passes 120 ticks, fails genuine N91 premature market-only validation at tick181. Rust prepare_docks explicitly creates a receipt-owned marketless construction_dock. No balance edits."
 }
