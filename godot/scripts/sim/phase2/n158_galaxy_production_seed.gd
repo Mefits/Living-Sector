@@ -7,6 +7,7 @@ const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const FleetBootstrap = preload("res://scripts/sim/ships/native_fleet_bootstrap.gd")
 const ShipRoster = preload("res://scripts/sim/ships/native_ship_roster.gd")
 const DirectorProfile = preload("res://scripts/sim/phase1/n155_director_native_observation.gd")
+const NativeExecState = preload("res://scripts/port/n121_native_execution_state.gd")
 
 const NATIVE_CREW_BY_TYPE: Dictionary = {
     "station": 20, "shipyard": 16, "refinery": 12, "factory": 12,
