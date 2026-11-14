@@ -4,6 +4,7 @@ extends RefCounted
 ## only for actual explicit departures on native directed navigation edges.
 const ShipState = preload("res://scripts/sim/ship_state.gd")
 const ShipTransit = preload("res://scripts/sim/ship_transit.gd")
+const N140Gate = preload("res://scripts/sim/phase2/unified_n140_ship_lod_phase.gd")
 
 static func _load(world: Dictionary) -> Dictionary:
     if not (world.get("ships") is Dictionary) or typeof(world.get("ship_next_token", null)) != TYPE_INT:
@@ -33,7 +34,8 @@ static func _load(world: Dictionary) -> Dictionary:
 ## Move only ships with an EXISTING real N14 transit receipt. Idle ships do
 ## not automatically decide their routes until the native N153 AI is wired.
 static func advance(world: Dictionary, positions: Dictionary,
-        tick: int, tick_scale: float, resolver: RefCounted) -> Dictionary:
+        tick: int, tick_scale: float, resolver: RefCounted,
+        tick_multiplier: int = 1, observers: Array = []) -> Dictionary:
     if tick < 1 or not is_finite(tick_scale) or tick_scale <= 0.0:
         return {"ok": false, "reason": "invalid_fleet_clock"}
     var opened: Dictionary = _load(world)
@@ -41,15 +43,32 @@ static func advance(world: Dictionary, positions: Dictionary,
         return opened
     var state: RefCounted = opened["fleet"]
     var motion: RefCounted = opened["transit"]
+    # The original Rust tick_ships pass gates N14 flight and N84
+    # decisions with one native AgentLod cursor. The cursor is owned
+    # by these real N39 ship rows, never a parallel ship runner.
+    var gate: Dictionary = N140Gate.stage(
+        world, positions, tick, tick_multiplier, observers)
+    if not gate.get("ok", false):
+        return gate
+    state.ships = gate["ships"].duplicate(true)
+    var fired: Dictionary = gate["fired"]
     var ids: Array = state.ships.keys()
     ids.sort()
     var outcomes: Dictionary = {}
-    var mutable: bool = false
+    var mutable: bool = bool(gate["changed"])
     for id in ids:
         var row: Dictionary = state.ships[id]
+        # A skipped Rust ship cannot move, burn fuel, observe prices,
+        # update crew needs or make an N84/N148 decision this tick.
+        if not fired.has(str(id)):
+            continue
         if (row.get("transit", {}) as Dictionary).is_empty():
             continue
-        var outcome: String = motion.advance(state, str(id), positions, tick, tick_scale)
+        var scale: int = int(fired[str(id)])
+        if scale < 1:
+            return {"ok": false, "reason": "invalid_native_lod_fired_scale"}
+        var outcome: String = motion.advance(
+            state, str(id), positions, tick, tick_scale * float(scale), scale)
         if not (outcome in ["arrived", "moving", "out_of_fuel"]):
             return {"ok": false, "reason": "native_ship_" + outcome,
                 "ship": str(id)}
@@ -62,12 +81,22 @@ static func advance(world: Dictionary, positions: Dictionary,
         outcomes[str(id)] = outcome
         mutable = true
     if not mutable:
-        return {"ok": true, "changed": false, "outcomes": {}}
+        return {"ok": true, "changed": false, "outcomes": {},
+            "fired": fired.duplicate(true),
+            "n140_fired_count": int(gate["fired_count"]),
+            "n140_skipped_count": int(gate["skipped_count"]),
+            "n140_stats": gate.get("stats", {}).duplicate(true),
+            "n140_recomputed": bool(gate["recomputed"])}
     var updated: Dictionary = {}
     for id in ids:
         updated[str(id)] = (state.ships[id] as Dictionary).duplicate(true)
     return {"ok": true, "changed": true, "ships": updated,
-        "next_token": motion.next_token(), "outcomes": outcomes}
+        "next_token": motion.next_token(), "outcomes": outcomes,
+        "fired": fired.duplicate(true),
+        "n140_fired_count": int(gate["fired_count"]),
+        "n140_skipped_count": int(gate["skipped_count"]),
+        "n140_stats": gate.get("stats", {}).duplicate(true),
+        "n140_recomputed": bool(gate["recomputed"])}
 
 ## An explicit player/AI dispatcher can call this only once per command.
 ## No direct UI mutation: N39 validates and commits the resulting snapshot.
