@@ -883,11 +883,16 @@ func apply_fleet_logistics(tick: int, proposal: Dictionary,
                 var active_id: String = str(before_ship.get("active_contract_id", ""))
                 var active: Dictionary = _world.get("contract_board", {}).get("contracts", {}).get(active_id, {})
                 var passenger: bool = str(active.get("contract_type", "")) == "passenger" and str(active.get("mission_category", "")) == "strategy.colony.v1" and str(active.get("destination_location", "")) == str(dock_fac.get("location", ""))
+                var material: bool = str(active.get("contract_type", "")) == "construction" and (
+                    str(active.get("mission_category", "")) == "strategy.colony.v1" and
+                    str(active.get("destination_location", "")) == str(dock_fac.get("location", "")) and
+                    str(active.get("colony_site_id", "")) == site_id and
+                    str(_world.get("construction_contracts", {}).get(active_id, "")) == site_id)
                 var engineer: bool = str(before_ship.get("current_goal", "")) == "construct" and (
                     str(before_ship.get("active_contract_id", "")).is_empty() and
                     before_ship.get("current_bt") is Dictionary and
                     N91Executor.target(before_ship["current_bt"]) == site_id)
-                if not passenger and not engineer:
+                if not passenger and not material and not engineer:
                     return false
         if real_kind == "shipyard":
             # N108: stations cannot stand in for actual paid shipyards.
