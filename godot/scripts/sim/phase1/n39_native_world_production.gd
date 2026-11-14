@@ -2331,6 +2331,9 @@ func apply_native_hybrid_planning(tick: int, faction: String,
     if str(candidate.get("status", "")) == "n98_planned_not_dispatched":
         for key in ["goal", "actions", "plan", "ledger", "roles"]:
             record[key] = candidate.get(key, {}).duplicate(true)
+        record["production_goal"] = bool(candidate.get("production_goal", false))
+        record["production_target_delta"] = int(candidate.get(
+            "production_target_delta", 0))
     staged["native_planner_records"][faction] = record
     staged["native_planner_last_tick"] = tick
     var invalid: String = Schema.validate(staged)
