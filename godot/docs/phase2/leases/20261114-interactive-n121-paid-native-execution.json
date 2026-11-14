@@ -1,0 +1,18 @@
+{
+  "worker": "interactive-primary-chat-20261114",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "92de3ad5f8f6e3c4cba9240fb244b0f5ca48f6e9",
+  "goal": "N121 real native execution: N98 durable step gates, source N121 preflight, single canonical N104 paid faction-escrow delivery, N153 ship, physical N15 settlement receipts, single N9/N38 persistence",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n121_native_execution_phase.gd (new)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/scripts/sim/phase2/unified_n153_contract_dispatch.gd",
+    "godot/scripts/port/n121_native_receipts.gd",
+    "godot/docs/phase2/handoffs/20261114-n121-paid-native-execution.md",
+    "godot/docs/phase2/P2_SHARED_HANDOFF_RU.md"
+  ],
+  "verification": "No intermediate Godot or Actions until full Rust port"
+}
