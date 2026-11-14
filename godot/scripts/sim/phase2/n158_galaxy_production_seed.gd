@@ -53,6 +53,9 @@ static func from_seed(seed: Dictionary) -> Dictionary:
         # These optional maps are source authority, NOT a second treasury
         # or a default player directive. N38 persists later actual edits.
         "research_mandates": {}, "faction_charters": {},
+        # Rust Director::economic_mandates is also empty until the
+        # player explicitly sets a controlled original station goal.
+        "economic_mandates": {},
         # No construction progress or working capital exists in frozen
         # clean seed. Sites appear only after the N154 funded source action.
         "construction_sites": {}, "construction_contracts": {},
