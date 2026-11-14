@@ -184,6 +184,13 @@ static func validate(state: Dictionary) -> String:
                 return "invalid_ship_transit"
             if trans.is_empty() and str(ship.get("location", "")).is_empty():
                 return "invalid_ship_location"
+            # Frozen N21 ShipEconomy waiting cursor lives in N38 and
+            # remains nullable until a real RequestDock enters a FIFO.
+            if ship.has("dock_attempt_start_tick") and (
+                    ship["dock_attempt_start_tick"] != null) and (
+                    typeof(ship["dock_attempt_start_tick"]) != TYPE_INT or
+                    int(ship["dock_attempt_start_tick"]) < 0):
+                return "invalid_native_n21_dock_attempt_cursor"
             var dock_id: String = str(ship.get("docked_at", ""))
             if not dock_id.is_empty():
                 if not trans.is_empty() or not state["facilities"].has(dock_id):
@@ -780,6 +787,29 @@ static func validate(state: Dictionary) -> String:
                 return "invalid_facility_" + key
         if fac.has("docking_capacity") and (typeof(fac["docking_capacity"]) != TYPE_INT or int(fac["docking_capacity"]) < 0):
             return "invalid_facility_docking_capacity"
+        # Frozen FacilityStorage owns one persisted N21 FIFO. This is a
+        # physical N39 entity field, never a second queue registry.
+        if fac.has("dock_queue"):
+            if not (fac["dock_queue"] is Array):
+                return "invalid_native_n21_fifo_shape"
+            var waiting: Dictionary = {}
+            for value in fac["dock_queue"]:
+                var sid: String = str(value)
+                if not _id(value) or waiting.has(sid) or (
+                        not state.get("ships", {}).has(sid)):
+                    return "invalid_native_n21_fifo_identity"
+                waiting[sid] = true
+                var sailor: Dictionary = state["ships"][sid]
+                if str(sailor.get("location", "")) != str(fac["location"]) or (
+                        not str(sailor.get("docked_at", "")).is_empty() or
+                        not sailor.get("transit", {}).is_empty() or
+                        sailor.get("dock_attempt_start_tick", null) == null):
+                    return "invalid_native_n21_fifo_waiter"
+                for other_id in state["facilities"]:
+                    if str(other_id) != str(id) and (
+                            state["facilities"][other_id].get("dock_queue", []) is Array) and (
+                            state["facilities"][other_id].get("dock_queue", []).has(sid)):
+                        return "duplicate_native_n21_fifo_waiter"
         if fac.has("native_db_id") and (typeof(fac["native_db_id"]) != TYPE_INT or int(fac["native_db_id"]) >= 0 or not _id(fac.get("construction_source_site_id", null))):
             return "invalid_materialized_native_facility"
         for key in ["crew_count", "level", "xp", "credits"]:
