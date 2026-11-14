@@ -101,7 +101,17 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
             if count != 0 and count != int(world["facilities"][fid]["crew_count"]):
                 return {"ok": false, "reason": "n18_partial_crew_does_not_match_rust"}
             assignments[fid] = count
-        snapshots[key] = planner.snapshot()
+        # Rust station.rs carries forward the PREVIOUS StationView's
+        # assigned_workers>0 as retention on the next planning cycle.
+        # N18::dispatch is deliberately NOT called: it uses a detached
+        # PaidProduction executor, while N39/N6 already own real payroll.
+        # Persist just the source retention memory from this live plan.
+        var memory: Dictionary = planner.snapshot()
+        var retained: Dictionary = {}
+        for row in plan.get("modules", []):
+            retained[str(row["facility_id"])] = int(row["assigned_workers"]) > 0
+        memory["retained"] = retained
+        snapshots[key] = memory
         views.append(plan.duplicate(true))
     return {"ok": true, "due": true, "assignments": assignments,
         "snapshots": snapshots, "views": views,
