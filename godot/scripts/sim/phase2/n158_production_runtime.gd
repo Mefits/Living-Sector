@@ -343,6 +343,21 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     elif str(colony_order.get("status", "")) != "no_active_native_colony_site":
                         _last_n144_contracts["decisions"].append(
                             colony_order.duplicate(true))
+                        # The original Rust N134 makes ONE HeadDecision.
+                        # A Director vote to research/wait/continue a colony
+                        # cannot be overwritten by an independent N111
+                        # construction-preview grant in this same tick.
+                        var actual_head: Dictionary = colony_order.get("head", {})
+                        if not actual_head.is_empty() and str(actual_head.get(
+                                "selected_option", "wait")) != str(planned_build.get(
+                                "head", {}).get("selected_option", "wait")):
+                            if str(actual_head.get("selected_option", "")) in [
+                                    "research", "wait", "migrate_colony",
+                                    "supply_colony", "found_colony"]:
+                                _last_n134_result["blocked"].append({
+                                    "faction_id": str(faction),
+                                    "reason": "n113_current_original_head_preempts_legacy_n154"})
+                                continue
                     # The source N100 Hybrid/HTN planner is a pure
                     # candidate creator. It receives ONLY the genuine
                     # N134 head's selected problem and the N39 world.
