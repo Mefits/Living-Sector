@@ -22,8 +22,15 @@ func _initialize() -> void:
     if stats.get("markets") != 3 or stats.get("active_facilities") != 15 or stats.get("populations") != 3:
         _fail("unexpected original source market/facility/population counts: " + str(stats))
         return
-    if a.implemented_phases() != PackedStringArray(["bodies", "ships", "facilities", "populations", "markets", "factions"]):
-        _fail("N158 phase list changed: canonical ships, economics and factions/research must remain wired")
+    # Rust source native tick now wires N21 FIFO, N150 crisis and
+    # relations explicitly. A duplicate crisis phase is not acceptable.
+    var native_phases: PackedStringArray = a.implemented_phases()
+    var expected_phases := PackedStringArray([
+        "bodies", "ships", "dock_queue", "facilities",
+        "populations", "markets", "crisis", "factions", "relations"])
+    if native_phases != expected_phases:
+        _fail("N158 expected one canonical ships/queue/economy/crisis/"
+            + "factions/relations phase each; got=" + str(native_phases))
         return
     if a.fleet_snapshot().size() != 24:
         _fail("24 real N46 source ships were not admitted to N39 world")
