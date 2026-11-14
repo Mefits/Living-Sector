@@ -28,3 +28,5 @@
 
 - Следующее «Продолжай» — снова проверить свежий HEAD и leases. Если N39/N158 свободны, добить В2 `markets→crisis→apply2`: persisted `starving_notified` + реальные transition events через единственный runtime. Если они заняты, продолжить В3 source audit recovery и архитектурных миграций без параллельной редакции.
 - Финальное общее Godot принятие: запустить `p2_native_save_recovery_check.gd`, `p2_native_checkpoint_coherence_check.gd`, `p2_native_save_roundtrip_guard_check.gd`; проверить точность N9 и аварийное прерывание save/pending; записать реальные PASS/FAIL.
+
+Дополнительное уточнение `03968924`: проверка scenario/schema для старого primary берёт константы непосредственно из единственного `TickRunner.SCENARIO_ID` и `TickRunner.SAVE_SCHEMA` вместо локального дублирования.
