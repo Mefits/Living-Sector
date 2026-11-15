@@ -78,7 +78,17 @@ func _tick_average() -> float:
         total += value
     return float(total) / float(_ticks_window.size())
 
+func _over_budget(values: Array[int]) -> int:
+    var missed: int = 0
+    for item in values:
+        if item > 16667:  # 60 FPS 16.667ms CPU/main-thread budget
+            missed += 1
+    return missed
+
 func summary() -> Dictionary:
+    var process_mean: float = _average(_process_us)
+    var advance_mean: float = _average(_advance_us)
+    var ui_mean: float = _average(_ui_us)
     return {
         "fps": Engine.get_frames_per_second(),
         "frames": _frames, "ticks": _ticks,
@@ -86,12 +96,19 @@ func summary() -> Dictionary:
         "ticks_per_frame_window": _tick_average(),
         "frame_p95_ms": _p95(_delta_us),
         "frame_window_max_ms": _max_window(_delta_us),
-        "process_avg_ms": _average(_process_us),
+        "process_avg_ms": process_mean,
         "process_p95_ms": _p95(_process_us),
-        "advance_avg_ms": _average(_advance_us),
+        "advance_avg_ms": advance_mean,
         "advance_p95_ms": _p95(_advance_us),
-        "ui_avg_ms": _average(_ui_us),
+        "ui_avg_ms": ui_mean,
         "ui_p95_ms": _p95(_ui_us),
+        "advance_share_of_process_pct": 100.0 * advance_mean /
+            maxf(0.001, process_mean),
+        "ui_share_of_process_pct": 100.0 * ui_mean /
+            maxf(0.001, process_mean),
+        "frame_over_16_7ms_window": _over_budget(_delta_us),
+        "advance_over_16_7ms_window": _over_budget(_advance_us),
+        "ui_over_16_7ms_window": _over_budget(_ui_us),
         "worst_frame_ms": float(_worst_frame_us) / 1000.0,
         "worst_process_ms": float(_worst_process_us) / 1000.0,
         "worst_advance_ms": float(_worst_advance_us) / 1000.0,
