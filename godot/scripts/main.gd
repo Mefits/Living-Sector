@@ -577,6 +577,8 @@ func _process(delta: float) -> void:
             "UI после расчёта: avg %.2f / p95 %.2f / max %.2f мс\n" +
             "Кадр delta p95: %.2f мс; худший окно/с запуска: %.2f/%.2f мс; тиков всего: %d\n" +
             "draw CPU (последний / max): %.2f / %.2f мс, вызовов: %d\n" +
+            "CPU доля _process: sim %.1f%% · UI %.1f%%\n" +
+            "Кадры >16.7мс (окно): total %d · advance %d · UI %d\n" +
             "GPU-компоновка и VSYNC вне CPU-таймеров; проверяйте FPS."
         ) % [
             float(report["process_avg_ms"]), float(report["process_p95_ms"]),
@@ -590,7 +592,12 @@ func _process(delta: float) -> void:
             float(report["worst_frame_ms"]), int(report["ticks"]),
             float(drawing.get("last_usec", 0)) / 1000.0,
             float(drawing.get("max_usec", 0)) / 1000.0,
-            int(drawing.get("calls", 0))]
+            int(drawing.get("calls", 0)),
+            float(report["advance_share_of_process_pct"]),
+            float(report["ui_share_of_process_pct"]),
+            int(report["frame_over_16_7ms_window"]),
+            int(report["advance_over_16_7ms_window"]),
+            int(report["ui_over_16_7ms_window"])]
     if _ui_profile_log:
         _ui_profile_log_elapsed += maxf(wall_frame_delta, 0.0)
         if _ui_profile_log_elapsed >= 5.0:
