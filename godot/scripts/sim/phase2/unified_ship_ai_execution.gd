@@ -465,8 +465,9 @@ static func propose(world: Dictionary, graph: RefCounted,
     if graph == null or not (world.get("ships") is Dictionary) or tick < 1:
         return {"ok": false, "reason": "missing_single_world_ai_fleet"}
     # N84 mutates only its owned ship rows and scalar ship_next_token.
-    # Full World deep-copy here duplicated growing N9 ledger, receipts,
-    # markets and construction history every ship tick. Keep all other
+    # Full World deep-copy here duplicated growing World-side receipts,
+    # markets and construction history every ship tick. N9 ledger remains
+    # a separate N39 store. Keep all other
     # source state read-only; detach the fleet before the first BT write.
     # N39/N146 remains the sole authoritative mutation/commit path.
     var staged: Dictionary = world.duplicate()
