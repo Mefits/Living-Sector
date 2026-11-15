@@ -19,6 +19,7 @@ const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 var _model
 var _runner
 var _seed: Dictionary = {}
+var _cached_seed_stats: Dictionary = {}
 var _selected_system: String = "system-sol"
 var _selected_body_id: String = ""
 var _in_system: bool = false
@@ -297,6 +298,7 @@ func _ready() -> void:
     _populate_ship_choices()
     _runner.tick_completed.connect(_on_tick_completed)
     var stats: Dictionary = _model.seed_stats()
+    _cached_seed_stats = stats.duplicate()
     _status.text = "Исходный Galaxy: %d систем · %d фракции · %d тел · %d объектов · %d корабля" % [
         stats.get("systems", 0), stats.get("factions", 0),
         stats.get("bodies", 0), stats.get("facilities", 0),
@@ -669,6 +671,7 @@ func _load_game(save_path: String = "") -> void:
         _fatal_restore_error = ""
         _startup_error = ""
         _model = _runner.world
+        _cached_seed_stats = _model.seed_stats()
         # A loaded checkpoint replaces the authoritative world and clock. Refresh
         # all read-only projections; never keep a stale seed-era map or speed UI.
         _pending_ui_tick = -1
@@ -781,7 +784,9 @@ func _runtime_failure() -> Dictionary:
 func _update_status(shared_economy: Dictionary = {}) -> void:
     if not _runner:
         return
-    var totals: Dictionary = _model.seed_stats()
+    # Seed counts change only on explicit boot/N38 rebind, not on each
+    # paid economic tick. They are UI metadata, never a second simulation.
+    var totals: Dictionary = _cached_seed_stats
     _status.text = "%d систем · %d фракции · %d тел   |   Тик %d   |   ×%s   |   %s%s" % [
         totals.get("systems", 0), totals.get("factions", 0),
         totals.get("bodies", 0), _runner.tick_count,
