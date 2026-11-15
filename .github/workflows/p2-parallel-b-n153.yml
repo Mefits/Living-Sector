@@ -1,0 +1,77 @@
+name: P2 N153 parallel B strict acceptance
+
+on:
+  push:
+    branches:
+      - feature/perf-parallel-b-n153-indices-20261115
+    paths:
+      - .github/workflows/p2-parallel-b-n153.yml
+      - godot/scripts/sim/phase2/unified_n153_contract_dispatch.gd
+      - godot/scripts/sim/phase2/n153_ship_eligibility_index.gd
+      - godot/tests/p2_parallel_b_*.gd
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  n153-source-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot" godot/logs/p2-parallel-b
+          curl --fail --location --retry 3 --silent --show-error \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          mv "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/godot/godot"
+          chmod +x "$RUNNER_TEMP/godot/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+      - name: Real Godot parser, source oracle and scale
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --version | tee godot/logs/p2-parallel-b/version.log
+          timeout 90s godot --headless --path godot --editor --import --quit > godot/logs/p2-parallel-b/import.log 2>&1 || { tail -n 100 godot/logs/p2-parallel-b/import.log; exit 1; }
+          for test in p2_parallel_b_n153_parity_check p2_parallel_b_n153_scale_check p2_n153_live_contract_dispatch_check p2_n153_route_cache_parity_check; do
+            echo "N153_RUNNING_TEST $test"
+            timeout 260s godot --headless --path godot --script "res://tests/$test.gd" > "godot/logs/p2-parallel-b/$test.log" 2>&1 || { tail -n 100 "godot/logs/p2-parallel-b/$test.log"; exit 1; }
+            grep -E '(PASS|FAIL)' "godot/logs/p2-parallel-b/$test.log" | tail -n 10 || true
+          done
+      - name: Same-host baseline versus candidate 420 ticks and N38 restart360
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=godot/scripts/sim/phase2/unified_n153_contract_dispatch.gd
+          cp "$file" "$RUNNER_TEMP/n153-candidate.gd"
+          timeout 420s godot --headless --path godot --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd > godot/logs/p2-parallel-b/candidate-420.log 2>&1 || { tail -n 100 godot/logs/p2-parallel-b/candidate-420.log; exit 1; }
+          grep -q P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS godot/logs/p2-parallel-b/candidate-420.log
+          git fetch --no-tags --depth=1 origin fb8dc0c3a9df3fbdb722a13d214be72ab67bf9df
+          git show fb8dc0c3a9df3fbdb722a13d214be72ab67bf9df:"$file" > "$file"
+          timeout 420s godot --headless --path godot --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd > godot/logs/p2-parallel-b/baseline-420.log 2>&1 || { tail -n 100 godot/logs/p2-parallel-b/baseline-420.log; exit 1; }
+          grep -q P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS godot/logs/p2-parallel-b/baseline-420.log
+          cp "$RUNNER_TEMP/n153-candidate.gd" "$file"
+          grep 'P2_STAGE2_CLEAN_CHECK tick=' godot/logs/p2-parallel-b/candidate-420.log | sed -E 's/ elapsed_ms=[0-9]+//' > godot/logs/p2-parallel-b/candidate-checks.txt
+          grep 'P2_STAGE2_CLEAN_CHECK tick=' godot/logs/p2-parallel-b/baseline-420.log | sed -E 's/ elapsed_ms=[0-9]+//' > godot/logs/p2-parallel-b/baseline-checks.txt
+          diff -u godot/logs/p2-parallel-b/baseline-checks.txt godot/logs/p2-parallel-b/candidate-checks.txt
+          grep 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS' godot/logs/p2-parallel-b/{baseline,candidate}-420.log
+          echo "P2_PARALLEL_B_WHOLE_SIM_AB_PASS same_runner=true checkpoints_equal=true"
+      - name: Real unmodified seed 900 ticks, including tick825
+        shell: bash
+        run: |
+          set -euo pipefail
+          LS_STAGE2_LONG_TICKS=900 timeout 680s godot --headless --path godot --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd > godot/logs/p2-parallel-b/candidate-900.log 2>&1 || { tail -n 110 godot/logs/p2-parallel-b/candidate-900.log; exit 1; }
+          grep -q 'P2_STAGE2_LONG_NATIVE_PASS tick=900' godot/logs/p2-parallel-b/candidate-900.log
+          tail -n 25 godot/logs/p2-parallel-b/candidate-900.log
+      - name: Upload diagnostics even on fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-parallel-b-n153-diagnostics
+          path: godot/logs/p2-parallel-b
+          if-no-files-found: warn
