@@ -563,8 +563,9 @@ func _process(delta: float) -> void:
     _flush_finished_tick_views(wall_frame_delta)
     var ui_usec: int = maxi(0, Time.get_ticks_usec() - ui_start)
     var process_usec: int = maxi(0, Time.get_ticks_usec() - began)
-    var new_ticks: int = maxi(0, _runner.tick_count - ticks_before) if (
-        _runner != null) else 0
+    var new_ticks: int = 0
+    if _runner != null:
+        new_ticks = maxi(0, _runner.tick_count - ticks_before)
     _frame_profiler.capture(wall_frame_delta, process_usec, advance_usec, ui_usec, new_ticks)
     if _frame_profiler.display_due() and _perf_label != null:
         var report: Dictionary = _frame_profiler.summary()
