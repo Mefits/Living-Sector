@@ -502,9 +502,14 @@ func _refresh_observer() -> void:
     # never owns, mutates, or reconstructs a second World/Ledger/Board.
     var checkpoint: Dictionary = _runner.checkpoint()
     var native_production: Dictionary = checkpoint.get("native_production", {})
+    # All three Observer inputs refer to this one DETACHED completed N38
+    # frame. Never clone growing markets/receipts a second time here.
+    var economy: Dictionary = native_production.get("world", {})
+    if economy.is_empty():
+        return
     _observer_panel.call("show_live_economy", _runner.tick_count,
-        _runner.economy_snapshot(), _runner.economy_summary(),
-        _runner.fleet_snapshot(), native_production)
+        economy, _runner.economy_summary(economy),
+        economy.get("ships", {}), native_production)
 
 func _process(delta: float) -> void:
     if _runner and _fatal_restore_error.is_empty():
