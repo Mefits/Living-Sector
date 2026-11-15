@@ -735,6 +735,7 @@ func _flush_finished_tick_views(delta: float) -> void:
     if _pending_ui_tick < 0 or _runner == null:
         return
     var latest: int = _pending_ui_tick
+    var need_fleet: bool = false
     # Orbit view always samples the newest completed real state, at most
     # once per visible GUI frame. No interpolation or fictitious movement.
     if _in_system and _system_view != null and _model != null and (
@@ -743,16 +744,21 @@ func _flush_finished_tick_views(delta: float) -> void:
         if not current.is_empty():
             _system_view.update_world(current)
             _last_orbit_presentation_tick = latest
-            if _last_fleet_presentation_tick < 0 or (
-                    latest - _last_fleet_presentation_tick >= UI_FLEET_MIN_TICKS):
-                _system_view.set_live_fleet(_runner.fleet_snapshot())
-                _last_fleet_presentation_tick = latest
-    # Heavy N38/Observer and text panels run only after ALL ticks of this
-    # frame, at a real-time cadence. A paused game never invents updates.
+            need_fleet = _last_fleet_presentation_tick < 0 or (
+                latest - _last_fleet_presentation_tick >= UI_FLEET_MIN_TICKS)
+    # Native ships_snapshot already clones only owned ships, so the
+    # interim frame can use it. When a full UI frame is ALSO due, reuse
+    # that one detached N39 world instead: no second fleet copy.
     if _presentation_elapsed < UI_DETAIL_INTERVAL:
+        if need_fleet:
+            _system_view.set_live_fleet(_runner.fleet_snapshot())
+            _last_fleet_presentation_tick = latest
         return
     _presentation_elapsed = 0.0
     if _last_full_presentation_tick == latest:
+        if need_fleet:
+            _system_view.set_live_fleet(_runner.fleet_snapshot())
+            _last_fleet_presentation_tick = latest
         return
     _last_full_presentation_tick = latest
     if ENABLE_DEBUG_MANUAL_FLEET_UI:
@@ -760,6 +766,9 @@ func _flush_finished_tick_views(delta: float) -> void:
     var shared_economy: Dictionary = _refresh_observer()
     if shared_economy.is_empty():
         shared_economy = _runner.economy_snapshot()
+    if need_fleet:
+        _system_view.set_live_fleet(shared_economy.get("ships", {}))
+        _last_fleet_presentation_tick = latest
     _refresh_selection(shared_economy, false)
     _update_status(shared_economy)
     _pending_ui_tick = -1
